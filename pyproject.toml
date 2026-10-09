@@ -1,0 +1,78 @@
+[project]
+name = "tephra"
+version = "0.1.0"
+description = "Volcanic-ash decision desk for airline dispatch. Decision support only; the airline is fictional."
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Asish Kumar" }, { name = "Akash Kumar" }]
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "httpx>=0.28",
+    "shapely>=2.0.6",
+    "numpy>=2.1",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.3",
+    "pillow>=11.0",
+    "google-genai>=1.30",
+    "google-adk>=2.10",
+]
+
+[project.optional-dependencies]
+science = ["satpy>=0.55", "pyresample>=1.31", "pyproj>=3.7"]
+gcp = ["google-cloud-firestore>=2.20", "google-cloud-storage>=2.19"]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.25", "hypothesis>=6.120", "ruff>=0.9"]
+
+[project.scripts]
+tephra = "tephra.main:run"
+
+[project.urls]
+Repository = "https://github.com/officialasishkumar/tephra-public"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tephra"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["research", "data/replay/*/raw", ".state"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["research"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF", "ASYNC", "DTZ", "C4", "PT"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Body",
+    "fastapi.Cookie",
+    "fastapi.Depends",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Query",
+    "pydantic.Field",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["tephra"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra -m 'not network and not gemini'"
+markers = [
+    "network: calls live public feeds (deselected by default)",
+    "gemini: needs GEMINI_API_KEY and spends free-tier quota (deselected by default)",
+]

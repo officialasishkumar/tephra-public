@@ -1,0 +1,22 @@
+# Plume Reader evaluation
+
+The test that decides whether satellite pictures may enter TEPHRA's decision path, and whether Gemini reconciles the official texts correctly. The protocol, cases and pass criteria come from `research/10-gemini-capability-and-architecture-check.md` (section 5).
+
+| Arm | Input | Label | Pass |
+|---|---|---|---|
+| I (images) | 3 Ash RGB frames + 1 IR frame from Tokyo VAAC's labelled archive, the vent pixel, the VAA's FL180 wind. The advisory text is withheld. | 5 ash and 5 "VA not identifiable" advisories | ≥ 8/10 existence correct with no high-confidence ash on a quiet case; direction within 45° on ≥ 3 detected cases; ≥ 8/10 stable across 3 runs; all responses pass the schema checks |
+| T (texts) | Semeru VA SIGMETs (AWC 30-day history) + the VONA text for the same hour | research/13 | Names the direction disagreement and keeps `top_fl` ≥ the official FL150 |
+
+```bash
+uv run python scripts/make_plume_cases.py --arm-t-date 2026-09-26T23:00:00Z   # downloads cases; check needs_human_check in each case.json
+# paste the MAGMA VONA text for that hour into evals/plume/arm_t/vona.txt (MAGMA disallows crawling)
+GEMINI_API_KEY=... uv run python scripts/plume_eval.py --max-calls 18        # day 1 (free tier ~20/day)
+GEMINI_API_KEY=... uv run python scripts/plume_eval.py --max-calls 18        # day 2 finishes the 33 calls from cache
+uv run python scripts/plume_eval.py --score-only                              # re-score without calling
+```
+
+Responses are cached in `results/raw/`; scorecards go to `results/scorecard-*.md`. AWC keeps SIGMET history for 30 days only, so fetch the Arm T snapshot before about 25 Oct 2026.
+
+**If Arm I fails**, try the four variants in research/10 once each, then take the image out of the decision path and say so in the video: "We tested Gemini 3.8 Flash on ten Tokyo VAAC cases; it told ash from cloud in X of 10, so TEPHRA shows the satellite picture but does not decide from it."
+
+Caveats: "VA not identifiable" is the forecaster's call, not ground truth. The ten test cases must never be used as few-shot examples.

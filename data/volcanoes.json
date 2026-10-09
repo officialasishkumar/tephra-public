@@ -1,0 +1,641 @@
+{
+  "source_note": "Volcano numbers, names, summit coordinates, summit elevations (m) and countries are from the Smithsonian Institution Global Volcanism Program, Volcanoes of the World (Holocene list), read on 2026-10-10 from GVP's own map service (webservices.volcano.si.edu, WFS layer GVP-VOTW:Smithsonian_VOTW_Holocene_Volcanoes) because volcano.si.edu pages answered 'Smithsonian site temporarily unavailable'. GVP gives one point per volcano: Lewotobi is the Lewotobi complex point (264180), Anak Krakatau is GVP 'Krakatau' (262000), Sakurajima is GVP 'Aira' (282080) and Shinmoedake is GVP 'Kirishimayama' (282090). MAGMA Indonesia codes SMR, SIN, KAR and IBU are taken from MAGMA VONA notice numbers (e.g. 2026SMR1920); KRA, LWK and DUK follow MODULES.md and were not seen in a VONA; other Indonesian volcanoes have no code here. Aliases are the names SIGMETs, VAAs and MAGMA print. VAAC: Indonesia and Papua New Guinea DARWIN, Japan and the Philippines TOKYO. Yasur and Ambrym (Vanuatu) are left out: they are in the Wellington VAAC area, which TEPHRA's VaacCentre does not model.",
+  "volcanoes": [
+    {
+      "id": "251020",
+      "name": "Manam",
+      "aliases": [
+        "MANAM"
+      ],
+      "magma_code": null,
+      "country": "Papua New Guinea",
+      "lat": -4.08,
+      "lon": 145.037,
+      "summit_elev_m": 1807,
+      "observatory": "Rabaul Volcanological Observatory (RVO)",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "252010",
+      "name": "Langila",
+      "aliases": [
+        "LANGILA"
+      ],
+      "magma_code": null,
+      "country": "Papua New Guinea",
+      "lat": -5.525,
+      "lon": 148.42,
+      "summit_elev_m": 1330,
+      "observatory": "Rabaul Volcanological Observatory (RVO)",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "252120",
+      "name": "Ulawun",
+      "aliases": [
+        "ULAWUN"
+      ],
+      "magma_code": null,
+      "country": "Papua New Guinea",
+      "lat": -5.05,
+      "lon": 151.33,
+      "summit_elev_m": 2334,
+      "observatory": "Rabaul Volcanological Observatory (RVO)",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "255020",
+      "name": "Bagana",
+      "aliases": [
+        "BAGANA"
+      ],
+      "magma_code": null,
+      "country": "Papua New Guinea",
+      "lat": -6.137,
+      "lon": 155.196,
+      "summit_elev_m": 1855,
+      "observatory": "Rabaul Volcanological Observatory (RVO)",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "261080",
+      "name": "Sinabung",
+      "aliases": [
+        "SINABUNG"
+      ],
+      "magma_code": "SIN",
+      "country": "Indonesia",
+      "lat": 3.17,
+      "lon": 98.392,
+      "summit_elev_m": 2460,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "261140",
+      "name": "Marapi",
+      "aliases": [
+        "MARAPI"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -0.38,
+      "lon": 100.474,
+      "summit_elev_m": 2885,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "261170",
+      "name": "Kerinci",
+      "aliases": [
+        "KERINCI"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -1.697,
+      "lon": 101.264,
+      "summit_elev_m": 3800,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "262000",
+      "name": "Anak Krakatau",
+      "aliases": [
+        "KRAKATAU",
+        "ANAK KRAKATAU"
+      ],
+      "magma_code": "KRA",
+      "country": "Indonesia",
+      "lat": -6.1009,
+      "lon": 105.4233,
+      "summit_elev_m": 285,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "263090",
+      "name": "Tangkuban Parahu",
+      "aliases": [
+        "TANGKUBAN PARAHU",
+        "TANGKUBAN PERAHU"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -6.77,
+      "lon": 107.6,
+      "summit_elev_m": 2084,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "263100",
+      "name": "Papandayan",
+      "aliases": [
+        "PAPANDAYAN"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -7.3175,
+      "lon": 107.7306,
+      "summit_elev_m": 2643,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "263180",
+      "name": "Slamet",
+      "aliases": [
+        "SLAMET"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -7.242,
+      "lon": 109.208,
+      "summit_elev_m": 3428,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "263200",
+      "name": "Dieng",
+      "aliases": [
+        "DIENG",
+        "DIENG VOLCANIC COMPLEX"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -7.2,
+      "lon": 109.879,
+      "summit_elev_m": 2565,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "263250",
+      "name": "Merapi",
+      "aliases": [
+        "MERAPI"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -7.54,
+      "lon": 110.446,
+      "summit_elev_m": 2910,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "263280",
+      "name": "Kelud",
+      "aliases": [
+        "KELUD",
+        "KELUT"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -7.935,
+      "lon": 112.314,
+      "summit_elev_m": 1730,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "263300",
+      "name": "Semeru",
+      "aliases": [
+        "SEMERU"
+      ],
+      "magma_code": "SMR",
+      "country": "Indonesia",
+      "lat": -8.108,
+      "lon": 112.922,
+      "summit_elev_m": 3657,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "263310",
+      "name": "Bromo (Tengger Caldera)",
+      "aliases": [
+        "BROMO",
+        "TENGGER",
+        "TENGGER CALDERA"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -7.942,
+      "lon": 112.95,
+      "summit_elev_m": 2329,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "263340",
+      "name": "Raung",
+      "aliases": [
+        "RAUNG"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -8.119,
+      "lon": 114.056,
+      "summit_elev_m": 3260,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "263350",
+      "name": "Ijen",
+      "aliases": [
+        "IJEN"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -8.058,
+      "lon": 114.242,
+      "summit_elev_m": 2769,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "264010",
+      "name": "Batur",
+      "aliases": [
+        "BATUR"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -8.2403,
+      "lon": 115.3775,
+      "summit_elev_m": 1711,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "264020",
+      "name": "Agung",
+      "aliases": [
+        "AGUNG"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -8.343,
+      "lon": 115.508,
+      "summit_elev_m": 2997,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "264030",
+      "name": "Rinjani",
+      "aliases": [
+        "RINJANI"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -8.42,
+      "lon": 116.47,
+      "summit_elev_m": 3726,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "264050",
+      "name": "Sangeang Api",
+      "aliases": [
+        "SANGEANG API"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -8.2,
+      "lon": 119.07,
+      "summit_elev_m": 1912,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "264180",
+      "name": "Lewotobi Laki-laki",
+      "aliases": [
+        "LEWOTOBI",
+        "LEWOTOBI LAKI-LAKI",
+        "LEWOTOBI LAKI LAKI"
+      ],
+      "magma_code": "LWK",
+      "country": "Indonesia",
+      "lat": -8.542,
+      "lon": 122.775,
+      "summit_elev_m": 1703,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "264230",
+      "name": "Ili Lewotolok",
+      "aliases": [
+        "LEWOTOLOK",
+        "ILI LEWOTOLOK"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": -8.274,
+      "lon": 123.508,
+      "summit_elev_m": 1431,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "266030",
+      "name": "Soputan",
+      "aliases": [
+        "SOPUTAN"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": 1.112,
+      "lon": 124.737,
+      "summit_elev_m": 1785,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "266100",
+      "name": "Lokon-Empung",
+      "aliases": [
+        "LOKON",
+        "LOKON-EMPUNG"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": 1.3644,
+      "lon": 124.7992,
+      "summit_elev_m": 1580,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "267010",
+      "name": "Ruang",
+      "aliases": [
+        "RUANG"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": 2.3058,
+      "lon": 125.3671,
+      "summit_elev_m": 703,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "267020",
+      "name": "Karangetang",
+      "aliases": [
+        "KARANGETANG"
+      ],
+      "magma_code": "KAR",
+      "country": "Indonesia",
+      "lat": 2.781,
+      "lon": 125.407,
+      "summit_elev_m": 1797,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "268010",
+      "name": "Dukono",
+      "aliases": [
+        "DUKONO"
+      ],
+      "magma_code": "DUK",
+      "country": "Indonesia",
+      "lat": 1.6992,
+      "lon": 127.8783,
+      "summit_elev_m": 1273,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "268030",
+      "name": "Ibu",
+      "aliases": [
+        "IBU"
+      ],
+      "magma_code": "IBU",
+      "country": "Indonesia",
+      "lat": 1.4941,
+      "lon": 127.6324,
+      "summit_elev_m": 1357,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "268040",
+      "name": "Gamkonora",
+      "aliases": [
+        "GAMKONORA"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": 1.38,
+      "lon": 127.53,
+      "summit_elev_m": 1635,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "268060",
+      "name": "Gamalama",
+      "aliases": [
+        "GAMALAMA"
+      ],
+      "magma_code": null,
+      "country": "Indonesia",
+      "lat": 0.81,
+      "lon": 127.3322,
+      "summit_elev_m": 1714,
+      "observatory": "PVMBG (CVGHM), Indonesia",
+      "vaac": "DARWIN"
+    },
+    {
+      "id": "272020",
+      "name": "Kanlaon",
+      "aliases": [
+        "KANLAON",
+        "CANLAON"
+      ],
+      "magma_code": null,
+      "country": "Philippines",
+      "lat": 10.4096,
+      "lon": 123.13,
+      "summit_elev_m": 2422,
+      "observatory": "PHIVOLCS",
+      "vaac": "TOKYO"
+    },
+    {
+      "id": "273010",
+      "name": "Bulusan",
+      "aliases": [
+        "BULUSAN"
+      ],
+      "magma_code": null,
+      "country": "Philippines",
+      "lat": 12.769,
+      "lon": 124.056,
+      "summit_elev_m": 1535,
+      "observatory": "PHIVOLCS",
+      "vaac": "TOKYO"
+    },
+    {
+      "id": "273030",
+      "name": "Mayon",
+      "aliases": [
+        "MAYON"
+      ],
+      "magma_code": null,
+      "country": "Philippines",
+      "lat": 13.257,
+      "lon": 123.685,
+      "summit_elev_m": 2462,
+      "observatory": "PHIVOLCS",
+      "vaac": "TOKYO"
+    },
+    {
+      "id": "273070",
+      "name": "Taal",
+      "aliases": [
+        "TAAL"
+      ],
+      "magma_code": null,
+      "country": "Philippines",
+      "lat": 14.0106,
+      "lon": 120.9975,
+      "summit_elev_m": 311,
+      "observatory": "PHIVOLCS",
+      "vaac": "TOKYO"
+    },
+    {
+      "id": "282030",
+      "name": "Suwanosejima",
+      "aliases": [
+        "SUWANOSEJIMA"
+      ],
+      "magma_code": null,
+      "country": "Japan",
+      "lat": 29.638,
+      "lon": 129.714,
+      "summit_elev_m": 796,
+      "observatory": "Japan Meteorological Agency (JMA)",
+      "vaac": "TOKYO"
+    },
+    {
+      "id": "282050",
+      "name": "Kuchinoerabujima",
+      "aliases": [
+        "KUCHINOERABUJIMA"
+      ],
+      "magma_code": null,
+      "country": "Japan",
+      "lat": 30.443,
+      "lon": 130.217,
+      "summit_elev_m": 657,
+      "observatory": "Japan Meteorological Agency (JMA)",
+      "vaac": "TOKYO"
+    },
+    {
+      "id": "282060",
+      "name": "Satsuma-Iojima (Kikai)",
+      "aliases": [
+        "KIKAI",
+        "SATSUMA-IOJIMA"
+      ],
+      "magma_code": null,
+      "country": "Japan",
+      "lat": 30.793,
+      "lon": 130.305,
+      "summit_elev_m": 704,
+      "observatory": "Japan Meteorological Agency (JMA)",
+      "vaac": "TOKYO"
+    },
+    {
+      "id": "282080",
+      "name": "Sakurajima",
+      "aliases": [
+        "SAKURAJIMA",
+        "AIRA",
+        "SAKURAJIMA (AIRA CALDERA)",
+        "SAKURAJIMA [AIRA CALDERA]"
+      ],
+      "magma_code": null,
+      "country": "Japan",
+      "lat": 31.5772,
+      "lon": 130.6589,
+      "summit_elev_m": 1117,
+      "observatory": "Japan Meteorological Agency (JMA)",
+      "vaac": "TOKYO"
+    },
+    {
+      "id": "282090",
+      "name": "Shinmoedake (Kirishimayama)",
+      "aliases": [
+        "SHINMOEDAKE",
+        "KIRISHIMAYAMA",
+        "KIRISHIMA"
+      ],
+      "magma_code": null,
+      "country": "Japan",
+      "lat": 31.934,
+      "lon": 130.862,
+      "summit_elev_m": 1700,
+      "observatory": "Japan Meteorological Agency (JMA)",
+      "vaac": "TOKYO"
+    },
+    {
+      "id": "282100",
+      "name": "Unzendake",
+      "aliases": [
+        "UNZENDAKE",
+        "UNZEN"
+      ],
+      "magma_code": null,
+      "country": "Japan",
+      "lat": 32.761,
+      "lon": 130.299,
+      "summit_elev_m": 1483,
+      "observatory": "Japan Meteorological Agency (JMA)",
+      "vaac": "TOKYO"
+    },
+    {
+      "id": "282110",
+      "name": "Aso",
+      "aliases": [
+        "ASO",
+        "ASOSAN"
+      ],
+      "magma_code": null,
+      "country": "Japan",
+      "lat": 32.8849,
+      "lon": 131.085,
+      "summit_elev_m": 1592,
+      "observatory": "Japan Meteorological Agency (JMA)",
+      "vaac": "TOKYO"
+    },
+    {
+      "id": "282120",
+      "name": "Kujusan",
+      "aliases": [
+        "KUJUSAN",
+        "KUJU"
+      ],
+      "magma_code": null,
+      "country": "Japan",
+      "lat": 33.086,
+      "lon": 131.249,
+      "summit_elev_m": 1791,
+      "observatory": "Japan Meteorological Agency (JMA)",
+      "vaac": "TOKYO"
+    }
+  ]
+}

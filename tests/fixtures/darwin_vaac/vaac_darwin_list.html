@@ -1,0 +1,383 @@
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="Author" content="気象庁 Japan Meteorological Agency">
+	<meta name="keywords" content="気象庁 Japan Meteorological Agency">
+	<title>Tokyo VAAC | Volcanic Ash Advisories(Darwin VAAC Backup)</title>
+	<link rel="stylesheet" href="//www.jma.go.jp/jma/en/default.css">
+	<link rel="stylesheet" href="common/english.css">
+	<link rel="stylesheet" href="common/vaac_darwin.css">
+</head>
+<body onLoad="TableSort();downward=false;stringSort(0)">
+	<!-- Header Menu -->
+<script src="js/mm_menu.js"></script>
+<script src="js/archive.js"></script>
+<script src="js/list.js"></script>
+
+<!--header start -->
+<div id="logo">
+	<a href="//www.jma.go.jp/jma/indexe.html" name="top">
+		<img src="//www.jma.go.jp/jma/en/common/logo.gif" alt="Japan Meteorological Agency" width="120" height="47">
+	</a>
+</div>
+<div id="head_lang">
+	<a href="//www.jma.go.jp/jma/index.html">Japanese</a>
+</div>
+<div id="head_link">
+	<a href="#contents">Skip Navigation</a>
+	<a href="//www.jma.go.jp/jma/en/AboutUs/indexe_aboutus.html">About Us</a>
+	<a href="//www.jma.go.jp/jma/en/Access/indexe_acs.html">Access</a>
+	<a href="//www.jma.go.jp/jma/en/Links/indexe_lnk.html">Links</a>
+	<a href="//www.jma.go.jp/jma/en/SiteMap/indexe_smp.html">Site Map</a>
+</div>
+
+<div id="menu">
+	<a href="//www.jma.go.jp/jma/indexe.html">Home</a>
+	<a href="//www.jma.go.jp/jma/en/menu.html" class="here">Weather/Earthquakes</a>
+	<a href="//www.jma.go.jp/jma/en/Services/indexe_services.html">Services</a>
+	<a href="//www.jma.go.jp/jma/en/Publications/publications.html">Publications/Periodicals</a>
+	<a href="//www.jma.go.jp/jma/en/News/indexe_news.html">News Releases</a>
+	<a href="//www.jma.go.jp/jma/en/NMHS/indexe_nmhs.html">For NMHSs</a>
+</div>
+<!--header end -->
+
+
+	<div id="vaac_contents_area">
+		<ul class="breadcrumb">
+			<li><a href="//www.jma.go.jp/jma/indexe.html">HOME</a>&nbsp;&gt;&nbsp;</li>
+			<li><a href="//www.jma.go.jp/jma/en/menu.html">Weather, Climate & Earthquakes Information</a>&nbsp;&gt;&nbsp;</li>
+			<li><a href="index.html">Tokyo Volcanic Ash Advisories Center</a>&nbsp;&gt;&nbsp;</li>
+			<li>Volcanic Ash Advisories(Darwin VAAC Backup)</li>
+		</ul>
+		<div id="vaac_head">
+			<div id="vaac_logo"><a href="index.html"><img src="common/logo-e.png" alt="Link to VAAC TOP PAGE"></a></div>
+			<div id="head1" lang="ja"><a href="vaac_darwin_listj.html"><img src="common/arrows.gif" width="8" height="8" alt="">日本語</a></div>
+			<!-- Update Time  -->
+			<div id="head2">
+				<div class="update-time">Updated at 00:00 UTC, 01 October 2026</div>
+			</div>
+		</div>
+		<div id="vaac_contents">
+			<div id="submenu">
+				<ul id="submenulist">
+					<li><a href="index.html">Tokyo VAAC Top</a>
+						<ul>
+						</ul>
+					</li>
+					<li>VAA
+						<ul>
+							<li>Issued
+								<div><a href="vaac_list.html">Recently Advisories</a></div>
+								<div id="archive_menu"></div>
+							</li>
+							<li>Darwin VAAC Backuup</li>
+						</ul>
+					</li>
+					<li>Product Relation
+						<ul>
+							<li><a href="Inquiry/vaac_operation.html">VAAC Operation</a></li>
+							<li><a href="Inquiry/graphic_and_dispersion.htm">Product Explanation</a></li>
+						</ul>
+					</li>
+					<li>References
+						<ul>
+							<li><a href="Inquiry/links.htm">Links</a></li>
+						</ul>
+					</li>
+				</ul>
+				<script>
+				addTopContArchMenuLink("EN");
+				</script>
+			</div>
+			<div id="contents"></div>
+			<!-- contents -->
+			<h1>Volcanic Ash Advisories(Darwin VAAC Backup)</h1>
+			<table class="textArea"><tbody><tr><td class="legend-explain">
+				&nbsp;As of 24 July, 2014, information of volcanoes in VAAs such as names, locations, volcano numbers and others are those in the database maintained by Smithsonian Institution's Global Volcanism Program for VAA.<br>
+				&nbsp;The database is provided as a service to the ICAO and does not represent any formal position by ICAO.<br>
+			</td></tr></tbody></table><br>
+			<table class="data2">
+				<thead>
+					<tr class="mtx">
+						<th id="COL1" scope="col">
+							<img src="common/arrow01.gif" onclick="downward=true;stringSort(0)" alt="">
+							Date Time
+							<img src="common/arrow02.gif" onclick="downward=false;stringSort(0)" alt="">
+						</th>
+						<th id="COL2" scope="col" class="width200">
+							<img src="common/arrow01.gif" onclick="downward=true;stringSort(2)" alt="">
+							Volcano
+							<img src="common/arrow02.gif" onclick="downward=false;stringSort(2)" alt="">
+						</th>
+						<th id="COL3" scope="col" class="width100">
+							<img src="common/arrow01.gif" onclick="downward=true;stringSort(3)" alt="">
+							Area
+							<img src="common/arrow02.gif" onclick="downward=false;stringSort(3)" alt="">
+						</th>
+						<th id="COL4" scope="col" class="width80">Advisory Number</th>
+						<th id="COL5" scope="col" class="width80">VAA Text</th>
+						<th id="COL6" scope="col" class="width80">VA Graphic</th>
+						<!-- no display -->
+						<th id="COL7" scope="col" style="display: none;" class="width80">VA Initial</th>
+						<!-- no display -->
+						<th id="COL8" scope="col" style="display: none;" class="width80">VA Forecast</th>
+						<th id="COL9" scope="col" class="width80">Satellite Images</th>
+					</tr>
+				</thead>
+				<tbody id="tbd1">
+				<!-- TABLE START -->
+<tr class="mtx" id=tr0 style=" background-color: rgb(255,255,205);"><td style="DISPLAY: none">2026/09/23 14:50:00</td><td>14:50 UTC, 23 Sep. 2026</td><td>DUKONO</td><td>INDONESIA</td><td><font size=2 color="black">2026/788</font></td>
+<td id="bluelink" align="center"><a href="TextData/2026/20260923_26801000_0788_Text.html">Text</a></td>
+<td id="bluelink" align="center"><a href="javascript:void(0)" onClick="opennewwide('VAG/2026/html/20260923_26801000_0788_PF15.html')">VAG</a></td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr1 style=" background-color: rgb(255,255,205);"><td style="DISPLAY: none">2026/09/23 14:19:00</td><td>14:19 UTC, 23 Sep. 2026</td><td>IBU</td><td>INDONESIA</td><td><font size=2 color="black">2026/1081</font></td>
+<td id="bluelink" align="center"><a href="TextData/2026/20260923_26803000_1081_Text.html">Text</a></td>
+<td id="bluelink" align="center"><a href="javascript:void(0)" onClick="opennewwide('VAG/2026/html/20260923_26803000_1081_PF15.html')">VAG</a></td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr2 style=" background-color: rgb(255,255,205);"><td style="DISPLAY: none">2026/09/23 12:16:00</td><td>12:16 UTC, 23 Sep. 2026</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2026/3</font></td>
+<td id="bluelink" align="center"><a href="TextData/2026/20260923_99999902_0003_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr3 style=" background-color: rgb(255,255,205);"><td style="DISPLAY: none">2026/07/01 01:16:00</td><td>01:16 UTC, 01 Jul. 2026</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2026/1</font></td>
+<td id="bluelink" align="center"><a href="TextData/2026/20260701_99999902_0001_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr4 ><td style="DISPLAY: none">2025/06/26 01:09:00</td><td>01:09 UTC, 26 Jun. 2025</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2025/3</font></td>
+<td id="bluelink" align="center"><a href="TextData/2025/20250626_99999902_0003_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr5 ><td style="DISPLAY: none">2024/06/27 01:12:00</td><td>01:12 UTC, 27 Jun. 2024</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2024/5</font></td>
+<td id="bluelink" align="center"><a href="TextData/2024/20240627_99999902_0005_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr6 ><td style="DISPLAY: none">2024/03/25 12:08:00</td><td>12:08 UTC, 25 Mar. 2024</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2024/2</font></td>
+<td id="bluelink" align="center"><a href="TextData/2024/20240325_99999902_0002_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr7 ><td style="DISPLAY: none">2023/12/04 11:41:00</td><td>11:41 UTC, 04 Dec. 2023</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2023/6</font></td>
+<td id="bluelink" align="center"><a href="TextData/2023/20231204_99999902_0006_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr8 ><td style="DISPLAY: none">2023/11/15 11:55:00</td><td>11:55 UTC, 15 Nov. 2023</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2023/4</font></td>
+<td id="bluelink" align="center"><a href="TextData/2023/20231115_99999902_0004_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr9 ><td style="DISPLAY: none">2023/10/21 08:19:00</td><td>08:19 UTC, 21 Oct. 2023</td><td>MAYON</td><td>PHILIPPINES</td><td><font size=2 color="black">2023/334</font></td>
+<td id="bluelink" align="center"><a href="TextData/2023/20231021_27303000_0334_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr10 ><td style="DISPLAY: none">2023/06/28 01:16:00</td><td>01:16 UTC, 28 Jun. 2023</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2023/1</font></td>
+<td id="bluelink" align="center"><a href="TextData/2023/20230628_99999902_0001_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr11 ><td style="DISPLAY: none">2022/07/21 01:15:00</td><td>01:15 UTC, 21 Jul. 2022</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2022/1</font></td>
+<td id="bluelink" align="center"><a href="TextData/2022/20220721_99999902_0001_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr12 ><td style="DISPLAY: none">2021/04/27 05:19:00</td><td>05:19 UTC, 27 Apr. 2021</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2021/1</font></td>
+<td id="bluelink" align="center"><a href="TextData/2021/20210427_99999902_0001_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr13 ><td style="DISPLAY: none">2020/10/05 16:39:00</td><td>16:39 UTC, 05 Oct. 2020</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2020/1</font></td>
+<td id="bluelink" align="center"><a href="TextData/2020/20201005_99999902_0001_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr14 ><td style="DISPLAY: none">2019/10/23 07:33:00</td><td>07:33 UTC, 23 Oct. 2019</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2019/3</font></td>
+<td id="bluelink" align="center"><a href="TextData/2019/20191023_99999902_0003_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr15 ><td style="DISPLAY: none">2018/12/23 11:01:00</td><td>11:01 UTC, 23 Dec. 2018</td><td>KRAKATAU</td><td>INDONESIA</td><td><font size=2 color="black">2018/370</font></td>
+<td id="bluelink" align="center"><a href="TextData/2018/20181223_26200000_0370_Text.html">Text</a></td>
+<td id="bluelink" align="center"><a href="javascript:void(0)" onClick="opennewwide('VAG/2018/html/20181223_26200000_0370_PF15.html')">VAG</a></td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr16 ><td style="DISPLAY: none">2018/12/23 08:23:00</td><td>08:23 UTC, 23 Dec. 2018</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2018/3</font></td>
+<td id="bluelink" align="center"><a href="TextData/2018/20181223_99999902_0003_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr17 ><td style="DISPLAY: none">2018/12/01 12:10:00</td><td>12:10 UTC, 01 Dec. 2018</td><td>DUKONO</td><td>INDONESIA</td><td><font size=2 color="black">2018/1350</font></td>
+<td id="bluelink" align="center"><a href="TextData/2018/20181201_26801000_1350_Text.html">Text</a></td>
+<td id="bluelink" align="center"><a href="javascript:void(0)" onClick="opennewwide('VAG/2018/html/20181201_26801000_1350_PF15.html')">VAG</a></td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr18 ><td style="DISPLAY: none">2018/12/01 09:56:00</td><td>09:56 UTC, 01 Dec. 2018</td><td>BAGANA</td><td>PAPUA NEW GUINEA</td><td><font size=2 color="black">2018/26</font></td>
+<td id="bluelink" align="center"><a href="TextData/2018/20181201_25502000_0026_Text.html">Text</a></td>
+<td id="bluelink" align="center"><a href="javascript:void(0)" onClick="opennewwide('VAG/2018/html/20181201_25502000_0026_PF15.html')">VAG</a></td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr19 ><td style="DISPLAY: none">2018/12/01 07:27:00</td><td>07:27 UTC, 01 Dec. 2018</td><td>DUKONO</td><td>INDONESIA</td><td><font size=2 color="black">2018/1349</font></td>
+<td id="bluelink" align="center"><a href="TextData/2018/20181201_26801000_1349_Text.html">Text</a></td>
+<td id="bluelink" align="center"><a href="javascript:void(0)" onClick="opennewwide('VAG/2018/html/20181201_26801000_1349_PF15.html')">VAG</a></td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr20 ><td style="DISPLAY: none">2018/12/01 07:05:00</td><td>07:05 UTC, 01 Dec. 2018</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2018/2</font></td>
+<td id="bluelink" align="center"><a href="TextData/2018/20181201_99999902_0002_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr21 ><td style="DISPLAY: none">2018/08/06 23:09:00</td><td>23:09 UTC, 06 Aug. 2018</td><td>KRAKATAU</td><td>INDONESIA</td><td><font size=2 color="black">2018/78</font></td>
+<td id="bluelink" align="center"><a href="TextData/2018/20180806_26200000_0078_Text.html">Text</a></td>
+<td id="bluelink" align="center"><a href="javascript:void(0)" onClick="opennewwide('VAG/2018/html/20180806_26200000_0078_PF15.html')">VAG</a></td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr22 ><td style="DISPLAY: none">2018/08/06 23:08:00</td><td>23:08 UTC, 06 Aug. 2018</td><td>DUKONO</td><td>INDONESIA</td><td><font size=2 color="black">2018/871</font></td>
+<td id="bluelink" align="center"><a href="TextData/2018/20180806_26801000_0871_Text.html">Text</a></td>
+<td id="bluelink" align="center"><a href="javascript:void(0)" onClick="opennewwide('VAG/2018/html/20180806_26801000_0871_PF15.html')">VAG</a></td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr23 ><td style="DISPLAY: none">2018/08/06 21:54:00</td><td>21:54 UTC, 06 Aug. 2018</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2018/1</font></td>
+<td id="bluelink" align="center"><a href="TextData/2018/20180806_99999902_0001_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr24 ><td style="DISPLAY: none">2016/12/14 01:15:00</td><td>01:15 UTC, 14 Dec. 2016</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2016/3</font></td>
+<td id="bluelink" align="center"><a href="TextData/2016/20161214_99999902_0003_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr25 ><td style="DISPLAY: none">2016/05/20 00:41:00</td><td>00:41 UTC, 20 May. 2016</td><td>DUKONO</td><td>INDONESIA</td><td><font size=2 color="black">2016/561</font></td>
+<td id="bluelink" align="center"><a href="TextData/2016/20160520_26801000_0561_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr26 ><td style="DISPLAY: none">2016/05/19 23:24:00</td><td>23:24 UTC, 19 May. 2016</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2016/2</font></td>
+<td id="bluelink" align="center"><a href="TextData/2016/20160519_99999902_0002_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr27 ><td style="DISPLAY: none">2016/01/08 01:00:00</td><td>01:00 UTC, 08 Jan. 2016</td><td>TENGGER CALDERA</td><td>INDONESIA</td><td><font size=2 color="black">2016/31</font></td>
+<td id="bluelink" align="center"><a href="TextData/2016/20160108_26331000_0031_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr28 ><td style="DISPLAY: none">2016/01/08 00:00:00</td><td>00:00 UTC, 08 Jan. 2016</td><td>SINABUNG</td><td>INDONESIA</td><td><font size=2 color="black">2016/7</font></td>
+<td id="bluelink" align="center"><a href="TextData/2016/20160108_26108000_0007_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr29 ><td style="DISPLAY: none">2016/01/07 23:10:00</td><td>23:10 UTC, 07 Jan. 2016</td><td>DUKONO</td><td>INDONESIA</td><td><font size=2 color="black">2016/29</font></td>
+<td id="bluelink" align="center"><a href="TextData/2016/20160107_26801000_0029_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr30 ><td style="DISPLAY: none">2016/01/07 21:40:00</td><td>21:40 UTC, 07 Jan. 2016</td><td>TENGGER CALDERA</td><td>INDONESIA</td><td><font size=2 color="black">2016/30</font></td>
+<td id="bluelink" align="center"><a href="TextData/2016/20160107_26331000_0030_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr31 ><td style="DISPLAY: none">2016/01/07 20:32:00</td><td>20:32 UTC, 07 Jan. 2016</td><td>SINABUNG</td><td>INDONESIA</td><td><font size=2 color="black">2016/6</font></td>
+<td id="bluelink" align="center"><a href="TextData/2016/20160107_26108000_0006_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr32 ><td style="DISPLAY: none">2016/01/07 19:48:00</td><td>19:48 UTC, 07 Jan. 2016</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2016/1</font></td>
+<td id="bluelink" align="center"><a href="TextData/2016/20160107_99999902_0001_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+<tr class="mtx" id=tr33 ><td style="DISPLAY: none">2015/11/25 01:15:00</td><td>01:15 UTC, 25 Nov. 2015</td><td>NOTICE</td><td>UNKNOWN</td><td><font size=2 color="black">2015/2</font></td>
+<td id="bluelink" align="center"><a href="TextData/2015/20151125_99999902_0002_Text.html">Text</a></td>
+<td align="center">-</td>
+<td id="vagi_bluelink" align="center">-</td>
+<td id="vagfn_bluelink" align="center">-</td>
+<td align="center">-</td>
+</tr>
+
+				<!-- TABLE END -->
+				</tbody>
+			</table>
+			<div id="gotop"><a href="#TOP">Go to Top</a></div>
+		</div>
+	</div>
+	<!--footer start-->
+	<div id="foot_all">
+		<div id="foot_copyright">
+			<br />
+			<a href="//www.jma.go.jp/jma/en/copyright.html">&lt;Legal Notice&gt;</a>
+		</div>
+	</div>
+</body>
+</html>

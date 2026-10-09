@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>TEPHRA Wall</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="/static/wall.css">
+  <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script type="module" src="/static/wall.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#rail">Skip to situation panel</a>
+
+  <div id="replay-banner" class="replay-banner" hidden>
+    <span class="replay-banner__tag">REPLAY</span>
+    <span id="replay-banner-text">REPLAY: recorded real feeds</span>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand__name">TEPHRA</span>
+      <span class="brand__sub">Volcanic-ash decision desk</span>
+    </div>
+    <span id="mode-badge" class="mode-badge" aria-live="polite">CONNECTING</span>
+    <span id="llm-label" class="llm-label">Model: unknown</span>
+    <nav class="regions" aria-label="Region presets">
+      <span class="regions__label" id="regions-label">Region</span>
+      <div id="regions" class="regions__buttons" role="group" aria-labelledby="regions-label"></div>
+    </nav>
+    <dl class="counts">
+      <div class="count"><dt>Active</dt><dd id="count-active">0</dd></div>
+      <div class="count count--accent"><dt>Exposed</dt><dd id="count-exposed">0</dd></div>
+      <div class="count"><dt>Drafts</dt><dd id="count-drafts">0</dd></div>
+    </dl>
+    <div class="clock">
+      <span class="sr-only">Active clock (UTC):</span>
+      <span class="clock__time" id="clock">--:--:--Z</span>
+      <span id="stream-status" class="stream-status stream-status--connecting">STREAM</span>
+    </div>
+    <a class="desk-link" href="/desk">Open Desk</a>
+  </header>
+
+  <div class="subbar">
+    <p class="disclaimer">
+      <span id="disclaimer">Decision support only - fictional airline - not for operational use</span>
+      <span id="airline" class="airline"></span>
+    </p>
+    <details id="feeds" class="feeds">
+      <summary class="feeds__summary">
+        <span class="feeds__title">Feeds</span>
+        <span id="feed-chips" class="feed-chips"></span>
+      </summary>
+      <div class="feeds__panel">
+        <table class="feed-table">
+          <caption>Feed health (ages on the active clock)</caption>
+          <thead>
+            <tr><th scope="col">Feed</th><th scope="col">Status</th><th scope="col">Age</th><th scope="col">Last good (UTC)</th><th scope="col">Records</th><th scope="col">Last error</th></tr>
+          </thead>
+          <tbody id="feed-table-body"></tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+
+  <main class="layout">
+    <section class="map-pane" aria-label="Map">
+      <div id="map" class="map" role="region" aria-label="Map of the active region. Arrow keys pan, plus and minus zoom."></div>
+      <div id="map-message" class="map-message" role="status" hidden></div>
+
+      <div id="legend" class="legend">
+        <button id="legend-toggle" class="legend__toggle" type="button" aria-expanded="true" aria-controls="legend-body">Layers and legend</button>
+        <div id="legend-body" class="legend__body">
+          <fieldset class="layer-toggles">
+            <legend>Show</legend>
+            <label><input type="checkbox" data-layer="official" checked> Official SIGMET / VAA</label>
+            <label><input type="checkbox" data-layer="cone" checked> TEPHRA cone</label>
+            <label><input type="checkbox" data-layer="exposures" checked> Exposure paths</label>
+            <label><input type="checkbox" data-layer="aircraft" checked> Aircraft</label>
+            <label><input type="checkbox" data-layer="volcanoes" checked> Volcanoes</label>
+            <label><input type="checkbox" data-layer="btd" checked> BTD indicator (B)</label>
+          </fieldset>
+          <ul class="legend-list">
+            <li><span class="swatch swatch--official" aria-hidden="true"></span>Official polygon, valid now (binding)</li>
+            <li><span class="swatch swatch--official-pending" aria-hidden="true"></span>Official polygon, forecast or not yet valid</li>
+            <li><span class="swatch swatch--cone" aria-hidden="true"></span>TEPHRA cone (contains every official polygon)</li>
+            <li><span class="swatch swatch--sector" aria-hidden="true"></span>Model sector (widening only)</li>
+            <li><span class="swatch swatch--aircraft" aria-hidden="true"></span>Aircraft (ADS-B, arrow = track)</li>
+            <li><span class="swatch swatch--exposed" aria-hidden="true"></span>Exposed flight and path to entry</li>
+            <li class="legend-codes">
+              <span class="tri tri--GREEN" aria-hidden="true"></span>
+              <span class="tri tri--YELLOW" aria-hidden="true"></span>
+              <span class="tri tri--ORANGE" aria-hidden="true"></span>
+              <span class="tri tri--RED" aria-hidden="true"></span>
+              <span class="tri tri--UNKNOWN" aria-hidden="true"></span>
+              Aviation colour code: green, yellow, orange, red, unknown
+            </li>
+            <li><span class="swatch swatch--btd" aria-hidden="true"></span>Negative split-window BTD (indicator, not detection)</li>
+          </ul>
+          <p class="shortcuts">Keys: <kbd>1</kbd>-<kbd>3</kbd> region, <kbd>B</kbd> BTD, <kbd>C</kbd> side by side, <kbd>L</kbd> legend</p>
+        </div>
+      </div>
+    </section>
+
+    <aside id="rail" class="rail" aria-label="Situation, reasoning trace and advisories" tabindex="-1">
+      <section class="panel panel--situation" aria-labelledby="situation-heading">
+        <header class="panel__head">
+          <h2 id="situation-heading">Situation</h2>
+          <div id="volcano-tabs" class="volcano-tabs" role="tablist" aria-label="Active volcanoes"></div>
+          <button id="compare-open" class="btn btn--ghost" type="button" disabled>Side by side (C)</button>
+        </header>
+        <div id="situation-body" class="panel__body" role="tabpanel" aria-labelledby="situation-heading">
+          <div id="sit-empty" class="empty">Waiting for the first snapshot.</div>
+          <div id="sit-head"></div>
+          <div id="sit-cards"></div>
+          <div id="sit-disc"></div>
+          <div id="sit-plume"></div>
+          <div id="sit-flights"></div>
+          <div id="sit-btd"></div>
+          <div id="sit-frames"></div>
+        </div>
+      </section>
+
+      <section class="panel panel--trace" aria-labelledby="trace-heading">
+        <header class="panel__head">
+          <h2 id="trace-heading">Reasoning trace</h2>
+          <span id="trace-count" class="panel__meta"></span>
+        </header>
+        <ol id="trace-list" class="panel__body trace-list" role="log" aria-live="off" aria-labelledby="trace-heading" tabindex="0"></ol>
+      </section>
+
+      <section class="panel panel--advisories" aria-labelledby="advisories-heading">
+        <header class="panel__head">
+          <h2 id="advisories-heading">Advisories</h2>
+          <span class="panel__meta">Approve on the Desk; only approved text reaches TEPHRA's own outbound queue</span>
+        </header>
+        <ol id="advisory-list" class="panel__body advisory-list" aria-labelledby="advisories-heading"></ol>
+      </section>
+    </aside>
+  </main>
+
+  <dialog id="compare-dialog" class="compare" aria-labelledby="compare-title">
+    <header class="compare__head">
+      <h2 id="compare-title">Sources side by side</h2>
+      <button id="compare-close" class="btn" type="button">Close</button>
+    </header>
+    <div id="compare-body" class="compare__body"></div>
+  </dialog>
+
+  <div id="announcer" class="sr-only" aria-live="polite"></div>
+  <noscript><p class="noscript">The TEPHRA Wall needs JavaScript to draw the map and receive live updates.</p></noscript>
+</body>
+</html>

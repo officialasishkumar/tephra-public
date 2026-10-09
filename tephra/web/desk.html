@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="description" content="TEPHRA Desk: approve, edit or reject volcanic-ash advisory drafts. Decision support only.">
+  <title>TEPHRA Desk</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/desk.css">
+  <script type="module" src="/static/desk.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="topbar">
+    <div class="topbar-row">
+      <p class="brand"><span class="brand-name">TEPHRA</span> <span class="brand-sub">Desk</span></p>
+      <p class="status-chips">
+        <span id="mode-badge" class="chip chip-mode" data-mode="LIVE">LIVE</span>
+        <span id="conn-status" class="chip chip-conn" data-conn="idle">Offline</span>
+      </p>
+    </div>
+    <p id="disclaimer" class="disclaimer">Decision support only - fictional airline - not for operational use</p>
+    <p class="airline-line"><span id="airline">Ring of Fire Air (RFA) is a fictional airline.</span> <span id="model-label" class="model-label"></span></p>
+    <p id="replay-banner" class="replay-banner" role="status" hidden></p>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <p id="boot" class="boot">Checking your session&hellip;</p>
+
+    <section id="login-view" class="login" aria-labelledby="login-title" hidden>
+      <h1 id="login-title">Dispatcher sign-in</h1>
+      <p class="hint">Your name is recorded on every decision you make here. The PIN is never stored on this phone.</p>
+      <form id="login-form" class="login-form" novalidate>
+        <label for="login-name">Name or initials</label>
+        <input id="login-name" name="name" type="text" autocomplete="username" autocapitalize="words"
+               spellcheck="false" minlength="2" maxlength="32" required>
+        <label for="login-pin">Desk PIN</label>
+        <input id="login-pin" name="pin" type="password" autocomplete="current-password"
+               maxlength="64" required>
+        <p id="login-error" class="form-error" role="alert" hidden></p>
+        <button id="login-submit" type="submit" class="btn btn-primary">Sign in</button>
+      </form>
+    </section>
+
+    <section id="desk-view" class="desk" aria-labelledby="drafts-title" hidden>
+      <div class="desk-bar">
+        <p id="who" class="who"></p>
+        <button id="logout-btn" type="button" class="btn btn-quiet">Sign out</button>
+      </div>
+
+      <div class="drafts-head">
+        <h1 id="drafts-title" tabindex="-1">Drafts awaiting decision</h1>
+        <p id="draft-count" class="draft-count" aria-live="polite"></p>
+        <button id="refresh-btn" type="button" class="btn btn-secondary btn-refresh">Refresh</button>
+      </div>
+      <p class="hint">Most urgent first: earliest expected cone entry at the top. Approved text goes only to TEPHRA's own outbound queue; nothing is sent to an aircraft or any real system.</p>
+
+      <ul id="notices" class="notices" role="status" aria-live="polite"></ul>
+
+      <p id="list-loading" class="state-panel" hidden>Loading drafts&hellip;</p>
+
+      <div id="list-error" class="state-panel state-error" role="alert" hidden>
+        <p id="list-error-text"></p>
+        <button id="list-retry" type="button" class="btn btn-secondary">Try again</button>
+      </div>
+
+      <div id="empty-state" class="state-panel state-empty" hidden>
+        <p class="empty-title">No drafts waiting.</p>
+        <p>A new draft appears here automatically when TEPHRA finds a flight whose track enters a hazard cone.</p>
+      </div>
+
+      <ul id="cards" class="cards" aria-labelledby="drafts-title"></ul>
+    </section>
+  </main>
+
+  <template id="card-template">
+    <li class="card">
+      <article class="advisory">
+        <header class="card-head">
+          <div class="flight-line">
+            <h2 class="flight" data-f="flight"></h2>
+            <span class="urgency" data-f="urgency"></span>
+          </div>
+          <p class="ident" data-f="ident"></p>
+          <p class="tags">
+            <span class="tag tag-replay" data-f="replay" hidden>REPLAY</span>
+            <span class="tag tag-model" data-f="model"></span>
+            <span class="tag" data-f="version"></span>
+          </p>
+        </header>
+        <dl class="facts">
+          <div class="fact fact-wide"><dt>Action</dt><dd class="action" data-f="action"></dd></div>
+          <div class="fact"><dt>Entry</dt><dd><span data-f="entry"></span> <span class="entry-left" data-f="entry-left"></span></dd></div>
+          <div class="fact"><dt>Drafted</dt><dd data-f="age"></dd></div>
+          <div class="fact"><dt>Volcano</dt><dd data-f="volcano"></dd></div>
+          <div class="fact"><dt>Cone</dt><dd data-f="cone"></dd></div>
+          <div class="fact fact-wide"><dt>Fuel <span class="dt-note">(simple TEPHRA formula, not airline tables)</span></dt><dd class="mono" data-f="fuel"></dd></div>
+        </dl>
+        <p class="cost-note" data-f="cost"></p>
+        <p class="body-label">Advisory text</p>
+        <pre class="body" data-f="body"></pre>
+        <div class="notes" data-f="notes" hidden>
+          <p class="notes-title">Validator notes</p>
+          <ul data-f="notes-list"></ul>
+        </div>
+        <details class="more">
+          <summary data-f="sources-summary">Sources</summary>
+          <ul class="source-list" data-f="sources"></ul>
+        </details>
+        <details class="more">
+          <summary>Advisory header (written by code)</summary>
+          <pre class="header-text" data-f="header"></pre>
+        </details>
+        <div class="card-actions">
+          <button type="button" class="btn btn-approve" data-action="approve">Approve</button>
+          <button type="button" class="btn btn-secondary" data-action="edit">Edit</button>
+          <button type="button" class="btn btn-reject" data-action="reject">Reject</button>
+        </div>
+      </article>
+    </li>
+  </template>
+
+  <dialog id="approve-dialog" class="decision" aria-labelledby="approve-title">
+    <form class="decision-form" data-kind="approve" novalidate>
+      <h2 id="approve-title">Approve this advisory?</h2>
+      <p class="decision-flight" data-d="flight"></p>
+      <p class="decision-conflict" data-d="conflict" role="alert" hidden></p>
+      <p class="body-label">Advisory text</p>
+      <pre class="body" data-d="body"></pre>
+      <p class="mono decision-fuel" data-d="fuel"></p>
+      <p class="hint">Approving queues this text on TEPHRA's own outbound queue under your name. Nothing is sent to an aircraft or any real system.</p>
+      <p class="form-error" data-d="error" role="alert" hidden></p>
+      <div class="decision-actions">
+        <button type="button" class="btn btn-secondary" data-d="cancel">Cancel</button>
+        <button type="submit" class="btn btn-approve" data-d="submit">Approve</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="edit-dialog" class="decision" aria-labelledby="edit-title">
+    <form class="decision-form" data-kind="edit" novalidate>
+      <h2 id="edit-title">Edit and approve</h2>
+      <p class="decision-flight" data-d="flight"></p>
+      <p class="decision-conflict" data-d="conflict" role="alert" hidden></p>
+      <label for="edit-body">Advisory text (sent in upper case)</label>
+      <textarea id="edit-body" class="mono" rows="9" spellcheck="false" autocapitalize="characters"
+                autocomplete="off" aria-describedby="edit-count"></textarea>
+      <p id="edit-count" class="counter"></p>
+      <details class="more">
+        <summary>Text as drafted</summary>
+        <pre class="body" data-d="body"></pre>
+      </details>
+      <p class="hint">Both the drafted and your edited text are kept in the audit log. The header with sources and times is written by code and cannot be edited.</p>
+      <p class="form-error" data-d="error" role="alert" hidden></p>
+      <div class="decision-actions">
+        <button type="button" class="btn btn-secondary" data-d="cancel">Cancel</button>
+        <button type="submit" class="btn btn-approve" data-d="submit">Approve edited text</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="reject-dialog" class="decision" aria-labelledby="reject-title">
+    <form class="decision-form" data-kind="reject" novalidate>
+      <h2 id="reject-title">Reject this advisory</h2>
+      <p class="decision-flight" data-d="flight"></p>
+      <p class="decision-conflict" data-d="conflict" role="alert" hidden></p>
+      <label for="reject-reason">Reason (required)</label>
+      <textarea id="reject-reason" rows="4" maxlength="500" autocomplete="off"
+                aria-describedby="reject-count"></textarea>
+      <p id="reject-count" class="counter"></p>
+      <p class="hint">The reason is recorded in the audit log. A rejected draft is not queued.</p>
+      <p class="form-error" data-d="error" role="alert" hidden></p>
+      <div class="decision-actions">
+        <button type="button" class="btn btn-secondary" data-d="cancel">Cancel</button>
+        <button type="submit" class="btn btn-reject-solid" data-d="submit">Reject</button>
+      </div>
+    </form>
+  </dialog>
+
+  <noscript><p class="state-panel state-error">The TEPHRA Desk needs JavaScript.</p></noscript>
+</body>
+</html>

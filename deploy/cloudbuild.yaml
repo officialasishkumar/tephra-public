@@ -1,0 +1,10 @@
+# Builds the TEPHRA image with the SCIENCE build arg and pushes it to Artifact Registry.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "--build-arg", "SCIENCE=${_SCIENCE}", "-t", "${_IMAGE}", "."]
+images: ["${_IMAGE}"]
+substitutions:
+  _SCIENCE: "0"
+  _IMAGE: ""
+options:
+  dynamicSubstitutions: true
