@@ -111,6 +111,8 @@ def parse_magma():
             vname, _, code = title.rpartition(" - ")
             text = re.sub(r"\s+", " ", html.unescape(m_text.group(1))).strip()
             issued = dt.datetime.strptime(m_time.group(1), "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+            # DEF: VONA height = the METRE value x 3.28084. MAGMA's printed feet use a factor of 3.2
+            # (e.g. "13363 FT (4176 M)"), which understates the height by about 2.5%.
             top = re.search(r"ash-cloud top is around (\d+) FT \((\d+) M\) above sea level", text)
             above = re.search(r"or (\d+) FT \((\d+) M\) above summit", text)
             # DEF: VONA direction. "moving to X" -> bearing of X; "moving from X to Y" (a sector)
@@ -135,7 +137,9 @@ def parse_magma():
                 is_eruption=first.lower().startswith("eruption"),
                 ash_observed=bool(top),
                 not_observed=("Ash-cloud is not observed" in text) and not top,
-                top_ft=int(top.group(1)) if top else None,
+                top_ft=round(int(top.group(2)) * 3.28084) if top else None,
+                top_ft_printed=int(top.group(1)) if top else None,
+                top_m=int(top.group(2)) if top else None,
                 above_summit_ft=int(above.group(1)) if above else None,
                 dir=dirkey, dir_text=(mdir.group(0) if mdir else None), text=text)
     return list(vonas.values())
@@ -205,7 +209,11 @@ def parse_vaa_text(txt, src_file, centre_hint):
     return dict(
         cited_all=sorted(cited),
         est=("EST VA CLD" in fields), xref=("PLEASE SEE" in flat),
+        # DEF: three not-identifiable counts. 'exact' = the Tokyo wording the task names;
+        # 'darwin' = Darwin's wording "VA NOT IDENTIFIABLE ON SATELLITE IMAGERY" (any reason);
+        # 'any' = the words NOT IDENTIFIABLE anywhere in the advisory.
         not_ident_exact=("VA NOT IDENTIFIABLE FM SATELLITE DATA" in flat),
+        not_ident_darwin=("VA NOT IDENTIFIABLE ON SATELLITE IMAGERY" in flat),
         not_ident_any=bool(re.search(r"NOT IDENTIFIABLE", flat)),
         cited_max=max(cited) if cited else None,
         file=os.path.basename(src_file), centre=(fields.get("VAAC", centre_hint) or centre_hint).strip(),
@@ -216,7 +224,7 @@ def parse_vaa_text(txt, src_file, centre_hint):
         dirs=[d for d, _ in movs], stnr=stnr, depicts_ash=has_polygon and not not_ident_obs,
         not_identifiable=not_ident, not_identifiable_obs=not_ident_obs,
         final=("NO FURTHER ADVISORIES" in nxt), nxt=nxt, nxt_time=nxt_time,
-        rmk=fields.get("RMK", ""))
+        rmk=fields.get("RMK", ""), psn=fields.get("PSN", ""))
 
 
 def parse_vaas():
@@ -283,7 +291,8 @@ def parse_sigmets():
         if fir not in JAPAC_FIRS:
             continue
         raw = key
-        m_v = re.search(r"VA ERUPTION (?:MT |MOUNT )?(.+?) PSN", raw) or re.search(r"VA CLD .*? MT (.+?) PSN", raw)
+        m_v = (re.search(r"VA ERUPTION (?:MT |MOUNT )?(.+?) PSN", raw) or re.search(r"VA CLD .*? MT (.+?) PSN", raw)
+               or re.search(r"\bFIR (?:VA )?(?:MT |MOUNT )(.+?) PSN", raw))
         is_cnl = bool(re.search(r"\bCNL SIGMET\b", raw))
         m_cnl = re.search(r"CNL SIGMET (\w+) (\d{6})/(\d{6})", raw)
         m_hdr = re.search(r"SIGMET (\w+) VALID (\d{6})/(\d{6})", raw)
@@ -384,6 +393,40 @@ def bucket_angles(pairs):
     return dict(c)
 
 
+def dm(tok):
+    """'S0806' -> -8.1, 'E11255' -> 112.9167 (degrees and minutes)."""
+    h, n = tok[0], tok[1:]
+    deg, mn = (int(n[:-2]), int(n[-2:]))
+    x = deg + mn / 60.0
+    return -x if h in "SW" else x
+
+
+def polygons(obs):
+    """All closed rings in an OBS/EST VA CLD field, as [(lat, lon), ...]."""
+    rings = []
+    for part in re.split(r"(?:SFC|FL\d{3})/FL\d{3}", obs)[1:]:
+        pts = [(dm(a), dm(b)) for a, b in re.findall(r"([NS]\d{4}) ([EW]\d{5})", part)]
+        if len(pts) >= 3:
+            rings.append(pts)
+    return rings
+
+
+def inside(lat, lon, ring):
+    c = False
+    n = len(ring)
+    for i in range(n):
+        (y1, x1), (y2, x2) = ring[i], ring[(i + 1) % n]
+        if (y1 > lat) != (y2 > lat) and lon < (x2 - x1) * (lat - y1) / (y2 - y1) + x1:
+            c = not c
+    return c
+
+
+def along(lat, lon, bearing_deg, km):
+    """Flat-earth offset; adequate for <= 50 km near the equator."""
+    b = math.radians(bearing_deg)
+    return (lat + km * math.cos(b) / 111.2, lon + km * math.sin(b) / (111.2 * math.cos(math.radians(lat))))
+
+
 # ----------------------------------------------------------------------------
 def main():
     vonas_all = parse_magma()
@@ -433,7 +476,7 @@ def main():
         r = dict(vona_id=v["id"], issued=fmt(t), event=fmt(te), volcano=vk, colour=v["colour"], code=v["code"],
                  activity=v["activity"], ash_observed=v["ash_observed"], not_observed=v["not_observed"],
                  eruption_ash=v["activity"].lower().startswith("eruption with volcanic ash"),
-                 vona_top_ft=v["top_ft"], vona_dir_deg=v["dir"], vona_dir_text=v["dir_text"],
+                 vona_top_ft=v["top_ft"], vona_top_ft_printed=v["top_ft_printed"], vona_top_m=v["top_m"], vona_dir_deg=v["dir"], vona_dir_text=v["dir_text"],
                  vaa_in_force=bool(vaa_now), vaa_in_force_depicts_ash=bool(vaa_now and vaa_now["depicts_ash"]),
                  vaa_in_force_dtg=fmt(vaa_now["dtg"]) if vaa_now else "",
                  vaa_in_force_nr=vaa_now["advisory_nr"] if vaa_now else "",
@@ -462,6 +505,23 @@ def main():
                                   and any(abs(mins(c, te)) <= 2 for c in w["cited_all"])), "")
         r["dir_diff_vaa"] = round(ang(r["vona_dir_deg"], COMPASS[r["cmp_vaa_dir"]])) if r["vona_dir_deg"] is not None and r["cmp_vaa_dir"] else None
         r["dir_diff_sig"] = round(ang(r["vona_dir_deg"], COMPASS[r["cmp_sig_dir"]])) if r["vona_dir_deg"] is not None and r["cmp_sig_dir"] in COMPASS else None
+        # DEF (downwind cover): for an ash VONA with a direction, take points 5, 10 and 20 km from the
+        # vent (VAA PSN) along the VONA's direction and test whether each lies inside any ash polygon
+        # of the comparison VAA. "Outside" means the official area does not cover where the observatory
+        # says the ash is heading, at that distance.
+        for km in (5, 10, 20):
+            r[f"pt{km}_in_vaa"] = None
+        if r["vona_dir_deg"] is not None and cmp_ash and cmp_ash["psn"]:
+            m_p = re.search(r"([NS]\d{4}) ([EW]\d{5})", cmp_ash["psn"])
+            rings = polygons(cmp_ash["obs"])
+            if m_p and rings:
+                la, lo = dm(m_p.group(1)), dm(m_p.group(2))
+                for km in (5, 10, 20):
+                    y, x = along(la, lo, r["vona_dir_deg"], km)
+                    r[f"pt{km}_in_vaa"] = any(inside(y, x, g) for g in rings)
+        # DEF (direction after update): VONA direction vs the MOV of the first VAA that reflects it.
+        r["dir_diff_reflect"] = (round(ang(r["vona_dir_deg"], COMPASS[vaa_reflect["dir"]]))
+                                 if r["vona_dir_deg"] is not None and vaa_reflect and vaa_reflect["dir"] in COMPASS else None)
         rows.append(r)
     with open(os.path.join(OUT, "vona_vs_official.csv"), "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
@@ -528,6 +588,9 @@ def main():
             vaas_tokyo=sum(1 for v in A if v["centre"].startswith("TOKYO")),
             vaas_depicting_ash=len(vaa_ash), vaas_est=sum(1 for v in A if v["est"]),
             vaas_not_ident_exact=sum(1 for v in A if v["not_ident_exact"]),
+            vaas_not_ident_darwin=sum(1 for v in A if v["not_ident_darwin"]),
+            vonas_eruption=sum(1 for r in R if r["activity"].lower().startswith("eruption")),
+            h_exceed_printed_ft=sum(1 for r in hcmp if r["vona_top_ft_printed"] > r["cmp_vaa_top_ft"]),
             vaas_not_ident_any=sum(1 for v in A if v["not_ident_any"]),
             vaas_final=sum(1 for v in A if v["final"]),
             vaas_cvghm_source=sum(1 for v in A if re.search(r"CVGHM|VONA", v["info_source"])),
@@ -556,6 +619,11 @@ def main():
             s_exceed_1k=sum(1 for r in scmp if r["vona_top_ft"] > r["cmp_sig_top_ft"] + 1000),
             s_inside=sum(1 for r in scmp if r["vona_top_ft"] <= r["cmp_sig_top_ft"]),
             dir_vona_vaa=bucket_angles(dpairs), dir_vona_sig=bucket_angles(spairs),
+            dir_vona_reflect=bucket_angles([r["dir_diff_reflect"] for r in ash if r["dir_diff_reflect"] is not None]),
+            pt5_tested=sum(1 for r in ash if r["pt5_in_vaa"] is not None), pt5_out=sum(1 for r in ash if r["pt5_in_vaa"] is False),
+            pt10_out=sum(1 for r in ash if r["pt10_in_vaa"] is False), pt20_out=sum(1 for r in ash if r["pt20_in_vaa"] is False),
+            pt10_out_dir_gt45=sum(1 for r in ash if r["pt10_in_vaa"] is False and (r["dir_diff_vaa"] or 0) > 45),
+            h_exceed_500=sum(1 for r in hcmp if r["vona_top_ft"] > r["cmp_vaa_top_ft"] + 500),
             sigmet_without_vaa=len(sig_no_vaa), vaa_ash_covered_by_snapshots=len(vaa_ash_cov),
             vaa_ash_without_sigmet=len(vaa_no_sig),
             sig_vs_vaa_top_n=len(svt), sig_vs_vaa_top_same=sum(1 for d in svt if d == 0),
@@ -568,6 +636,38 @@ def main():
             ex_sig_no_vaa=[(fmt(s["valid_from"]), s["fir"], s["series"], s["top_ft"], s["dir"], s["raw"][:160]) for s in sig_no_vaa][:12],
             ex_vaa_no_sig=[(fmt(v["dtg"]), v["advisory_nr"], v["top_fl"], v["dir"]) for v in vaa_no_sig][:12])
     report["per_volcano"] = per
+
+    # DEF (observatory report -> VAA/SIGMET, Tokyo area): Tokyo VAAs whose ERUPTION DETAILS say
+    # "ERUPTED AT <t>" or "ERUPTION AT <t> ... REPORTED" (a JMA or PHIVOLCS ground report). Group by
+    # (volcano, t); lag = first VAA DTG minus t; SIGMET lag = first VA SIGMET for the volcano whose
+    # validity starts in [t - 5 min, t + 3 h] minus t.
+    tl = defaultdict(list)
+    for v in vaas:
+        if not v["centre"].startswith("TOKYO"):
+            continue
+        m = re.search(r"ERUPT(?:ED|ION) AT (\d{8})/(\d{4})Z", v["eruption_details"])
+        if not m:
+            continue
+        t0 = dt.datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M").replace(tzinfo=UTC)
+        tl[(v["volcano"], t0)].append(v)
+    tok = defaultdict(lambda: dict(n=0, vaa_lags=[], sig_lags=[], sig_none=0, first_vaa_not_ident=0))
+    for (vk, t0), lst in sorted(tl.items(), key=lambda kv: kv[0][1]):
+        first = min(lst, key=lambda v: v["dtg"])
+        e = tok[vk]
+        e["n"] += 1
+        e["vaa_lags"].append(round(mins(first["dtg"], t0)))
+        e["first_vaa_not_ident"] += int(first["not_ident_any"])
+        ss = [x for x in sb.get(vk, []) if t0 - dt.timedelta(minutes=5) <= x["valid_from"] <= t0 + dt.timedelta(hours=3)]
+        if ss:
+            e["sig_lags"].append(round(mins(min(x["valid_from"] for x in ss), t0)))
+        else:
+            e["sig_none"] += 1
+    for vk, e in tok.items():
+        for k in ("vaa_lags", "sig_lags"):
+            L = e[k]
+            e[k.replace("lags", "median")] = statistics.median(L) if L else None
+            e[k.replace("lags", "p90")] = quantile(L, 0.9)
+    report["tokyo_report_lag"] = tok
     report["all_onset"] = [(k, x) for k, p in per.items() for x in p["ex_onset"]]
 
     # pooled numbers over all volcanoes that had VONAs
@@ -591,10 +691,10 @@ def main():
     with open(os.path.join(OUT, "vaas.csv"), "w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["dtg", "centre", "volcano", "advisory_nr", "info_source", "top_fl", "dir", "depicts_ash", "est",
-                    "not_ident_exact", "not_ident_any", "final", "end", "cited_max", "eruption_details", "file"])
+                    "not_ident_exact", "not_ident_darwin", "not_ident_any", "final", "end", "cited_max", "eruption_details", "file"])
         for v in vaas:
             w.writerow([fmt(v["dtg"]), v["centre"], v["volcano"], v["advisory_nr"], v["info_source"], v["top_fl"],
-                        v["dir"], v["depicts_ash"], v["est"], v["not_ident_exact"], v["not_ident_any"], v["final"],
+                        v["dir"], v["depicts_ash"], v["est"], v["not_ident_exact"], v["not_ident_darwin"], v["not_ident_any"], v["final"],
                         fmt(v.get("end")), fmt(v["cited_max"]), v["eruption_details"], v["file"]])
     with open(os.path.join(OUT, "sigmets.csv"), "w", newline="") as fh:
         w = csv.writer(fh)
@@ -604,18 +704,18 @@ def main():
                         s["dir"], s["obs"], s["cnl"], s["raw"]])
     with open(os.path.join(OUT, "vonas.csv"), "w", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["issued", "id", "volcano", "colour", "code", "ash_observed", "not_observed", "top_ft",
+        w.writerow(["issued", "id", "volcano", "colour", "code", "ash_observed", "not_observed", "top_ft", "top_ft_printed", "top_m",
                     "above_summit_ft", "dir_deg", "dir_text", "text"])
         for v in vonas:
             w.writerow([fmt(v["issued"]), v["id"], v["volcano"], v["colour"], v["code"], v["ash_observed"],
-                        v["not_observed"], v["top_ft"], v["above_summit_ft"], v["dir"], v["dir_text"], v["text"]])
+                        v["not_observed"], v["top_ft"], v["top_ft_printed"], v["top_m"], v["above_summit_ft"], v["dir"], v["dir_text"], v["text"]])
     with open(os.path.join(OUT, "summary.json"), "w") as fh:
         json.dump(report, fh, indent=1, default=str)
 
     # markdown table for the write-up
-    cols = [("VONAs", "vonas"), ("ash VONAs", "vonas_ash"), ("'not observed' VONAs", "vonas_not_observed"),
+    cols = [("VONAs", "vonas"), ("eruption VONAs", "vonas_eruption"), ("ash VONAs", "vonas_ash"), ("'not observed' VONAs", "vonas_not_observed"),
             ("VAAs", "vaas"), ("VAAs with ash area", "vaas_depicting_ash"), ("EST (not satellite-seen) VAAs", "vaas_est"),
-            ("'VA NOT IDENTIFIABLE FM SATELLITE DATA'", "vaas_not_ident_exact"), ("any 'NOT IDENTIFIABLE'", "vaas_not_ident_any"),
+            ("'VA NOT IDENTIFIABLE FM SATELLITE DATA'", "vaas_not_ident_exact"), ("'VA NOT IDENTIFIABLE ON SATELLITE IMAGERY' (Darwin)", "vaas_not_ident_darwin"), ("any 'NOT IDENTIFIABLE'", "vaas_not_ident_any"),
             ("VA SIGMETs", "sigmets")]
     with open(os.path.join(OUT, "per_volcano_table.md"), "w") as fh:
         fh.write("| Volcano | " + " | ".join(c for c, _ in cols) + " |\n|---|" + "---|" * len(cols) + "\n")
@@ -629,6 +729,7 @@ def main():
     for vk, p in order:
         q = {k: v for k, v in p.items() if not k.startswith("ex_")}
         print(vk, json.dumps(q, default=str))
+    print("TOKYO_REPORT_LAG", json.dumps({k: {kk: vv for kk, vv in e.items() if not kk.endswith("lags")} for k, e in report["tokyo_report_lag"].items()}))
     print("POOLED", json.dumps(report["pooled"]))
     print("POOLED_EXTRA", json.dumps(pooled_extra))
 
