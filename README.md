@@ -23,14 +23,14 @@ ICAO Doc 9974 says the operator, not the ash centre, must "reliably and correctl
 
 ```mermaid
 flowchart LR
-  F[Public feeds<br/>VA SIGMET · VAA · VONA*<br/>winds · TAF · ADS-B<br/>Himawari (optional)] --> D[Discrepancy finder<br/>code]
-  D --> P[Plume Reader<br/>Gemini 3.8 Flash<br/>structured output]
-  P --> C[Cautious hazard area<br/>code: union, never shrinks]
-  C --> E[3D exposure<br/>code: alt_baro, 2,000 ft margins]
-  E --> PL[Exposure Planner<br/>ADK agent + tools]
-  PL --> DR[Dispatch Drafter<br/>Gemini]
-  DR --> H{Dispatcher<br/>approve · edit · reject}
-  H --> Q[(Own outbound queue<br/>+ hash-chained audit)]
+  F["Public feeds<br/>VA SIGMET · VAA · VONA*<br/>winds · TAF · ADS-B<br/>Himawari (optional)"] --> D["Discrepancy finder<br/>code"]
+  D --> P["Plume Reader<br/>Gemini 3.8 Flash<br/>structured output"]
+  P --> C["Cautious hazard area<br/>code: union, never shrinks"]
+  C --> E["3D exposure<br/>code: alt_baro, 2,000 ft margins"]
+  E --> PL["Exposure Planner<br/>ADK agent + tools"]
+  PL --> DR["Dispatch Drafter<br/>Gemini"]
+  DR --> H{"Dispatcher<br/>approve · edit · reject"}
+  H --> Q[("Own outbound queue<br/>+ hash-chained audit")]
 ```
 
 | Step | Who does it | What it does |
