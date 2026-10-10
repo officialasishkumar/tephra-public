@@ -4,11 +4,12 @@ This is a straight-line projection, not a flight-plan prediction: it says what h
 "if current track and level are held", which is how the Wall and the advisories word it.
 """
 
+import math
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Final
 
-from tephra.geo.cone import points_in_cone
+from tephra.geo.cone import track_entries
 from tephra.geo.fuel import category_for_type, hold_line
 from tephra.geo.units import destination_point, kt_to_km_per_min, unwrap_lon
 from tephra.models import Aircraft, ExposedFlight, HazardCone, Position
@@ -46,19 +47,20 @@ def find_exposed(
         if band[1] < hazard_low or band[0] > hazard_high:
             continue
         # A position report is up to a poll interval old (longer in REPLAY). Projecting from
-        # where the target is at `at` makes minutes_to_entry count from `at`.
+        # where the target is at `at` makes minutes_to_entry count from `at`; a report older
+        # than the lookahead says nothing about where the target is now.
         age_min = (at - target.observed_at).total_seconds() / 60.0
-        start = min(max(age_min, 0.0), float(lookahead))
+        if age_min > lookahead:
+            continue
+        start = max(age_min, 0.0)
         candidates.append((target, band, _project(target, start_min=start, minutes=lookahead)))
 
-    hits = points_in_cone(cone, [p for _, _, points in candidates for p in points])
-    exposed: list[ExposedFlight] = []
-    offset = 0
-    for target, band, points in candidates:
-        flags = hits[offset : offset + len(points)]
-        offset += len(points)
-        if True in flags:
-            exposed.append(_exposed_flight(target, cone, band, points, flags.index(True)))
+    entries = track_entries(cone, [points for _, _, points in candidates])
+    exposed = [
+        _exposed_flight(target, cone, band, points, entry)
+        for (target, band, points), entry in zip(candidates, entries, strict=True)
+        if entry is not None
+    ]
     return sorted(exposed, key=lambda flight: (flight.minutes_to_entry, flight.hex))
 
 
@@ -67,7 +69,7 @@ def _project(
 ) -> list[tuple[float, float]]:
     if step_min <= 0:
         raise ValueError("step_min must be positive")
-    gs_kt, track_deg = aircraft.gs_kt, aircraft.track_deg
+    gs_kt, track_deg = _finite(aircraft.gs_kt), _finite(aircraft.track_deg)
     if gs_kt is None or track_deg is None or gs_kt < MIN_MOVING_GS_KT:
         return [(aircraft.lat, aircraft.lon)]
     km_per_min = kt_to_km_per_min(gs_kt)
@@ -84,16 +86,21 @@ def _level_band(alt_baro_ft: int, nav_altitude_mcp_ft: int | None) -> tuple[int,
     return min(alt_baro_ft, nav_altitude_mcp_ft), max(alt_baro_ft, nav_altitude_mcp_ft)
 
 
+def _finite(value: float | None) -> float | None:
+    """A reported speed or track, or None for a missing, NaN or infinite one."""
+    return value if value is not None and math.isfinite(value) else None
+
+
 def _exposed_flight(
     target: Aircraft,
     cone: HazardCone,
     band: tuple[int, int],
     points: list[tuple[float, float]],
-    entry: int,
+    entry: tuple[int, tuple[float, float]],
 ) -> ExposedFlight:
-    entry_lat, entry_lon = points[entry]
+    step, (entry_lat, entry_lon) = entry
     path: list[Position] = [(target.lon, target.lat)]
-    for lat, lon in points[: entry + 1]:
+    for lat, lon in [*points[:step], (entry_lat, entry_lon)]:
         position = (unwrap_lon(lon, target.lon), lat)
         if position != path[-1]:
             path.append(position)
@@ -111,14 +118,14 @@ def _exposed_flight(
         lon=target.lon,
         alt_baro_ft=target.alt_baro_ft,
         nav_altitude_mcp_ft=target.nav_altitude_mcp_ft,
-        gs_kt=target.gs_kt,
-        track_deg=target.track_deg,
+        gs_kt=_finite(target.gs_kt),
+        track_deg=_finite(target.track_deg),
         observed_at=target.observed_at,
         source_id=target.source_id,
         volcano_id=cone.volcano_id,
         cone_id=cone.id,
-        inside_now=entry == 0,
-        minutes_to_entry=entry,
+        inside_now=step == 0,
+        minutes_to_entry=step,
         entry_lat=entry_lat,
         entry_lon=entry_lon,
         aircraft_band_ft=band,

@@ -8,26 +8,28 @@ not own. Shared shapes live in `tephra/models.py`; settings and constants in
 
 Background reading: `docs/ARCHITECTURE.md` (the system and its safety rules) and the
 research notes in `research/` (read-only). Research that changed this contract:
-`research/06` (free-tier quota, ADK 2.x), `research/07` (parsing and dispatch rules),
-`research/12` (raw Himawari split window), `research/13` (what counts as a contradiction,
-Darwin VAAC source).
+`research/05` (feed terms: frame captions, no NICT imagery for Gemini), `research/06`
+(free-tier quota, ADK 2.x), `research/07` (parsing and dispatch rules), `research/10`
+(Gemini 3 temperature, Google's quota day, the plume eval protocol), `research/12` (raw
+Himawari split window), `research/13` (what counts as a contradiction, Darwin VAAC source),
+`research/14` (30-day census: SILENCE and SIGMET hand-over rules).
 
 ## 1. Where things live
 
 | Area | Files |
 |---|---|
-| architect (contract, do not edit) | `pyproject.toml`, `MODULES.md`, `CLAUDE.md`, `docs/ARCHITECTURE.md`, `tephra/__init__.py`, `tephra/config.py`, `tephra/models.py`, `tephra/feeds/__init__.py`, `tephra/feeds/base.py`, `tephra/store/base.py`, `tephra/util/__init__.py`, `tephra/util/timeutil.py`, `tephra/util/hashing.py`, `tephra/util/events.py` |
-| feeds-text | `tephra/feeds/sigmet.py`, `tephra/feeds/vona.py`, `tephra/feeds/vaac.py`, `tephra/feeds/taf.py`, `tests/test_feeds_text.py` |
-| feeds-geo | `tephra/feeds/adsb.py`, `tephra/feeds/winds.py`, `tephra/feeds/satellite.py`, `tephra/feeds/volcanoes.py`, `tephra/feeds/airports.py`, `data/volcanoes.json`, `data/airports.json`, `tests/test_feeds_geo.py` |
+| architect (contract, do not edit) | `pyproject.toml`, `MODULES.md`, `CLAUDE.md`, `docs/ARCHITECTURE.md`, `tephra/__init__.py`, `tephra/config.py`, `tephra/models.py`, `tephra/feeds/__init__.py`, `tephra/feeds/base.py`, `tephra/store/base.py`, `tephra/util/__init__.py`, `tephra/util/timeutil.py`, `tephra/util/hashing.py`, `tephra/util/events.py`, `tests/test_contract.py` |
+| feeds-text | `tephra/feeds/sigmet.py`, `tephra/feeds/vona.py`, `tephra/feeds/vaac.py`, `tephra/feeds/taf.py`, `tests/test_feeds_text.py`, `tests/test_live_feeds_text.py`, `tests/test_vona_archive.py` |
+| feeds-geo | `tephra/feeds/adsb.py`, `tephra/feeds/winds.py`, `tephra/feeds/satellite.py`, `tephra/feeds/volcanoes.py`, `tephra/feeds/airports.py`, `data/volcanoes.json`, `data/airports.json`, `tests/test_feeds_geo.py`, `tests/test_live_feeds_geo.py` |
 | science | `tephra/science/__init__.py`, `tephra/science/hsd_segments.py`, `tephra/science/btd.py`, `tests/test_science.py` |
-| geo | `tephra/geo/__init__.py`, `tephra/geo/units.py`, `tephra/geo/cone.py`, `tephra/geo/exposure.py`, `tephra/geo/fuel.py`, `tests/test_geo.py` |
+| geo | `tephra/geo/__init__.py`, `tephra/geo/units.py`, `tephra/geo/cone.py`, `tephra/geo/exposure.py`, `tephra/geo/fuel.py`, `tests/test_geo.py`, `tests/test_geo_props.py` |
 | reconcile-plume | `tephra/reconcile/__init__.py`, `tephra/reconcile/discrepancies.py`, `tephra/agents/__init__.py`, `tephra/agents/llm.py`, `tephra/agents/schemas.py`, `tephra/agents/plume_reader.py`, `tephra/agents/prompts/plume_reader.md`, `tests/test_discrepancies.py`, `tests/test_plume_reader.py` |
-| planner-drafter | `tephra/agents/exposure_planner.py`, `tephra/agents/dispatch_drafter.py`, `tephra/agents/validators.py`, `tephra/agents/adk_app.py`, `tephra/agents/prompts/planner.md`, `tephra/agents/prompts/drafter.md`, `tests/test_drafter.py` |
-| core | `tephra/pipeline.py`, `tephra/scheduler.py`, `tephra/feeds/registry.py`, `tephra/store/__init__.py`, `tephra/store/sqlite_store.py`, `tephra/store/firestore_store.py`, `tephra/desk/__init__.py`, `tephra/desk/approvals.py`, `tephra/desk/audit.py`, `tephra/replay/__init__.py`, `tephra/replay/cases.py`, `tests/test_approvals.py`, `tests/test_pipeline_stub.py`, `tests/test_store.py` |
+| planner-drafter | `tephra/agents/exposure_planner.py`, `tephra/agents/dispatch_drafter.py`, `tephra/agents/validators.py`, `tephra/agents/adk_app.py`, `tephra/agents/prompts/planner.md`, `tephra/agents/prompts/drafter.md`, `tests/test_drafter.py`, `tests/test_planner.py` |
+| core | `tephra/pipeline.py`, `tephra/scheduler.py`, `tephra/feeds/registry.py`, `tephra/store/__init__.py`, `tephra/store/sqlite_store.py`, `tephra/store/firestore_store.py`, `tephra/desk/__init__.py`, `tephra/desk/approvals.py`, `tephra/desk/audit.py`, `tephra/replay/__init__.py`, `tephra/replay/cases.py`, `tests/test_approvals.py`, `tests/test_pipeline.py`, `tests/test_replay.py`, `tests/test_store.py` |
 | api | `tephra/main.py`, `tephra/api/__init__.py`, `tephra/api/server.py`, `tephra/api/auth.py`, `tephra/api/sse.py`, `tests/test_api.py` |
 | web-wall | `tephra/web/index.html`, `tephra/web/wall.js`, `tephra/web/wall.css` |
 | web-desk | `tephra/web/desk.html`, `tephra/web/desk.js`, `tephra/web/desk.css` |
-| ops-evals | `Dockerfile`, `.dockerignore`, `.env.example`, `deploy/cloudrun.sh`, `deploy/scheduler.sh`, `deploy/secrets.sh`, `deploy/firestore.rules`, `deploy/README.md`, `.github/workflows/ci.yml`, `scripts/record_replay.py`, `scripts/count_traffic.py`, `scripts/plume_eval.py`, `scripts/make_plume_cases.py`, `evals/plume/README.md`, `evals/plume/cases.example.json`, `evals/drafter/advisories.test.json`, `data/replay/README.md` |
+| ops-evals | `Dockerfile`, `.dockerignore`, `.env.example`, `deploy/_common.sh`, `deploy/cloudbuild.yaml`, `deploy/cloudrun.sh`, `deploy/scheduler.sh`, `deploy/secrets.sh`, `deploy/firestore.rules`, `deploy/README.md`, `.github/workflows/ci.yml`, `scripts/record_replay.py`, `scripts/count_traffic.py`, `scripts/plume_eval.py`, `scripts/make_plume_cases.py`, `evals/plume/README.md`, `data/replay/README.md`, `tests/test_scripts.py`, `tests/test_record_replay.py`, `tests/fixtures/ops_evals/` |
 
 Each module may also create test fixtures under `tests/fixtures/<module_key>/` (e.g.
 `tests/fixtures/feeds_text/`). There is **no shared `tests/conftest.py`**: each test file
@@ -62,8 +64,10 @@ comment naming the assumption. Ruff config is in `pyproject.toml` (line length 1
 `DTZ` is on, so every datetime must be timezone-aware).
 
 **Settings.** Library functions take `settings: Settings` (or plain values) as arguments.
-Only composition roots call `get_settings()`: `tephra.api.server`, `tephra.pipeline.create_runtime`,
-`scripts/*`. Tests build `Settings(_env_file=None, **overrides)`; they never read `.env`.
+Only composition roots call `get_settings()`: `tephra.main`, `tephra.api.server.create_app`
+(when no settings are passed) and `tephra.agents.adk_app` (to build `root_agent` at import).
+`tephra.pipeline.create_runtime` takes the settings it is given; `scripts/*` build their own
+`Settings`. Tests build `Settings(_env_file=None, **overrides)`; they never read `.env`.
 
 **Time.** All datetimes are aware UTC. Use `tephra.util.timeutil`: `now()` for the current
 time on the active clock (REPLAY moves it), the parsers for feed formats, `to_iso`,
@@ -82,7 +86,7 @@ built with `make_source_id(KIND, *parts)` and times with `timeutil.compact(dt)`:
 
 | Record | `source_id` recipe | Example |
 |---|---|---|
-| Sigmet | `SIGMET:{fir_id}:{series_id}:{compact(valid_from)}` | `SIGMET:WAAF:12:20261007T1030Z` |
+| Sigmet | `SIGMET:{fir_id}:{series_id}:{compact(valid_from)}` | `SIGMET:WAAF:12:20261007T1030Z`, `SIGMET:WAAF:12_AREA_2:20261007T1030Z` |
 | Vona | `VONA:{source_slug(volcano_name)}:{compact(issued_at)}` | `VONA:SEMERU:20260923T2221Z` |
 | VaacAdvisory | `VAA:{vaac}:{volcano_number or source_slug(volcano_name)}:{advisory_nr}` | `VAA:TOKYO:282080:2026/249` |
 | Taf | `TAF:{icao}:{compact(issued_at)}` | `TAF:WARR:20261010T0500Z` |
@@ -92,15 +96,18 @@ built with `make_source_id(KIND, *parts)` and times with `timeutil.compact(dt)`:
 | SatelliteFrame | `FRAME:{product}:{volcano_id}:{compact(observed_at)}` | `FRAME:DUST_RGB:263300:20261010T0530Z` |
 | BtdResult | `BTD:{volcano_id}:{compact(scan_start)}` | `BTD:263300:20261010T0530Z` |
 
-Other ids use `stable_id(prefix, *parts)` (deterministic) as each model's field description
-says: discrepancies `D-` (8 chars), assessments `PA-`, cones `CONE-`, plans `PLAN-`, dedupe
-keys `DD-`. Advisory ids are `"adv_" + uuid4().hex[:12]`; audit and outbound ids are
-`uuid4().hex`.
+`make_source_id` writes spaces in a part as `_`. Other ids use `stable_id(prefix, *parts)`
+(deterministic) as each model's field description says: discrepancies `D-` (8 chars),
+assessments `PA-`, cones `CONE-`, plans `PLAN-`, dedupe keys `DD-`. Advisory ids are
+`"adv_" + uuid4().hex[:12]`; audit and outbound ids are `uuid4().hex`.
 
 **Errors.** Feed fetchers let `FetchError` propagate (the registry records it). Parsers raise
 `ValueError` for input they cannot read; a fetcher that parses many items skips a bad item,
-logs it with `logging.getLogger(__name__).warning`, and keeps the rest. Agents never raise
-on model failure: they repair once and then fall back (sections 5.5 and 5.6).
+logs it with `logging.getLogger(__name__).warning`, and keeps the rest. A fetcher that asks
+several URLs never reports an outage as an empty answer: Darwin VAAs and satellite frames
+raise `FetchError` when nothing came back, and ADS-B raises `AdsbPointsFailed` when any point
+failed (section 5.2). Agents never raise on model failure: they repair once and then fall
+back (sections 5.5 and 5.6).
 
 **Logging.** `logging.getLogger(__name__)`; never log secrets, PINs, cookies or API keys;
 never log raw request bodies of desk endpoints.
@@ -116,8 +123,9 @@ by a small in-test `Source` that returns canned `FetchResult`s. `TEPHRA_LLM=stub
 default, so tests never need a key.
 
 **Data minimisation.** Gemini receives public feed content only: no dispatcher names, no
-audit entries, no registrations. Only aircraft with airline-style callsigns
-(`Aircraft.airline`) become proxy flights.
+audit entries, no registrations, and no NICT true-colour frames (research/05 does not clear
+them for the model). Only aircraft with airline-style callsigns (`Aircraft.airline`) become
+proxy flights.
 
 ## 4. Contract files (already written; read them)
 
@@ -125,28 +133,36 @@ audit entries, no registrations. Only aircraft with airline-style callsigns
 
 `UTC`, `ensure_utc(dt)`, `now()`, `get_clock()`, `set_clock(clock)`, `use_clock(clock)`;
 clocks `SystemClock()`, `FixedClock(at)` (`.set`, `.advance`), `ReplayClock(start, end, *,
-speed=1.0, loop=True)`. Parsers: `parse_slash_dtg("20260923/2221Z")`,
-`parse_day_time("25/1800Z", ref)`, `parse_ddhhmm("251252", ref)`, `parse_hhmmz("1010Z", ref)`,
-`resolve_day(day, hour, minute, ref)` (hour 24 accepted), `parse_iso(str | int | float |
-datetime)` (naive = UTC, epoch s or ms). Formatters: `to_iso(dt)` ->
-`2026-10-07T10:32:00.000Z`, `compact(dt, *, seconds=False)` -> `20261007T1032Z`,
-`hhmmz(dt)` -> `1032Z`, `ddhhmmz(dt)` -> `071032Z`, `slash_dtg(dt)` -> `20261007/1032Z`.
-Arithmetic: `minutes_between(a, b)`, `age_s(then, at=None)`, `floor_minutes(dt, minutes)`.
+speed=1.0, loop=True, begin=None)` (starts at `begin`, clamped into the window, else at
+`start`; with `loop` it wraps back to `start` after `end`). Parsers:
+`parse_slash_dtg("20260923/2221Z")`, `parse_day_time("25/1800Z", ref)`,
+`parse_ddhhmm("251252", ref)`, `parse_hhmmz("1010Z", ref)`, `resolve_day(day, hour, minute,
+ref)` (hour 24 accepted), `parse_iso(str | int | float | datetime)` (naive = UTC, epoch s or
+ms). Formatters: `to_iso(dt)` -> `2026-10-07T10:32:00.000Z`, `iso_times(value)` (every
+datetime inside a mapping, list or tuple written by `to_iso`), `compact(dt, *,
+seconds=False)` -> `20261007T1032Z`, `hhmmz(dt)` -> `1032Z`, `ddhhmmz(dt)` -> `071032Z`,
+`slash_dtg(dt)` -> `20261007/1032Z`. Arithmetic: `minutes_between(a, b)`, `age_s(then,
+at=None)`, `floor_minutes(dt, minutes)`.
 
 ### 4.2 `tephra.util.hashing`
 
 `sha256_bytes`, `sha256_text`, `canonical_json`, `sha256_json`, `short_hash(digest, 12)`,
 `combine_hashes(iterable)` (order-independent), `stable_id(prefix, *parts, length=12)`,
-`proxy_flight_number(hex)` -> `RFA4821`.
+`proxy_flight_number(hex)` -> `RFA4821`. `canonical_json` (sorted keys, no whitespace) writes
+every datetime with `to_iso` (through `iso_times`), so a hash never depends on how pydantic
+would print a raw datetime.
 
 ### 4.3 `tephra.util.events`
 
-`get_bus() -> EventBus`. `EventBus.publish(name, data) -> Event` (data: model, mapping or
-list; serialised to JSON-safe values), `.subscribe(maxsize=256) -> Subscription`,
-`.recent(name, limit=50) -> list[Event]` (oldest first), `.last(name)`. `Subscription` is an
-async context manager and async iterator; `await sub.get(within_s=15)` returns `None` on
-timeout. `Event(id: int, name: str, data: Any, at: datetime)`. Event names are `SseEvent`
-values.
+`get_bus() -> EventBus`. `EventBus(history_per_event=200)`. `EventBus.publish(name, data) ->
+Event` (data: model, mapping or list; serialised to JSON-safe values, every datetime written
+by `to_iso`), `.subscribe(maxsize=256) -> Subscription` (`ValueError` when `maxsize < 1`: an
+unbounded queue would never drop), `.unsubscribe(sub)`, `.recent(name, limit=50) ->
+list[Event]` (oldest first), `.last(name)`, `.subscriber_count`. `Subscription` is an async
+context manager and async iterator; `await sub.get(within_s=15)` returns `None` on timeout.
+A full queue drops its oldest event and counts it in `Subscription.dropped`, so a slow
+subscriber never blocks a publisher. `Event(id: int, name: str, data: Any, at: datetime)`.
+Event names are `SseEvent` values.
 
 ### 4.4 `tephra.models`
 
@@ -174,15 +190,33 @@ GeoJSON `GeoPoint`, `GeoLineString`, `GeoPolygon`, `GeoMultiPolygon`, `Geometry`
 (`TraceEvent.new(...)`), `TraceSink`, `TickReport`, `ReplayRecord`, `ReplayCase`; Wall and
 API shapes in section 8.
 
+`Situation.input_hash` combines each SIGMET, VONA and VAA's source id with the SHA-256 of its
+own `raw_text`, plus the BTD indicator; it never uses `provenance.sha256`, which hashes the
+whole HTTP response (every VA SIGMET worldwide shares one). `ReplayCase` rejects a
+`recorded_to` earlier than its `recorded_from`. `model_dump(mode="json")` keeps NaN and
+infinities; the store and the SSE stream write them as null.
+
 ### 4.5 `tephra.config`
 
 `Settings` (every env var; see the class), `get_settings()`, `apply_process_env(settings)`,
 `PROJECT_ROOT`, `REGIONS`, `RegionKey`. Product constants `AIRLINE_CODE`, `AIRLINE_NAME`,
 `DISCLAIMER`, `NO_MODEL_LABEL`, `REPLAY_BANNER_TEMPLATE`. Safety constants (not
 configurable): `MAX_PLUME_EXTENT_KM=500`, `MAX_SECTOR_WIDTH_DEG=180`, `MAX_HORIZON_H=18`,
-`ADVISORY_BODY_MAX_CHARS=400`, `HOLD_MINUTES=20`, `DIVERT_EXTRA_MINUTES=15`,
-`ALTERNATE_MIN_VISIBILITY_M=3000`, `ALTERNATE_MIN_CEILING_FT=1000`,
-`ALTERNATE_ETA_WINDOW_MIN=60`.
+`FEED_CLOCK_SLACK=timedelta(minutes=5)`, `MIN_SECRET_CHARS=32`, `ADVISORY_BODY_MAX_CHARS=400`,
+`HOLD_MINUTES=20`, `DIVERT_EXTRA_MINUTES=15`, `ALTERNATE_MIN_VISIBILITY_M=3000`,
+`ALTERNATE_MIN_CEILING_FT=1000`, `ALTERNATE_ETA_WINDOW_MIN=60`.
+
+Rules: `Settings` ignores empty env values (`env_ignore_empty=True`), so a `KEY=` line copied
+from `.env.example` means unset, not an empty secret. `session_secret` and `task_token`, when
+set, must hold at least `MIN_SECRET_CHARS` characters after stripping, or `Settings` raises.
+`FEED_CLOCK_SLACK` is how long after "now" a product may be stamped and still count as
+issued; `reconcile.select_records` and `geo.cone.official_layers` share it, or a VAAC's
+polygons would drop out of the cone for a tick. `replay_start` (`TEPHRA_REPLAY_START`) is the
+UTC time the replay clock starts at, clamped into the case window. `nict_frames`
+(`TEPHRA_NICT_FRAMES`, default false) turns on the NICT true-colour crops (non-commercial
+terms; research/05 did not clear them). `max_event_streams` (`TEPHRA_MAX_EVENT_STREAMS`,
+default 200, at least 1) caps open `GET /api/events` streams; each holds a Cloud Run request
+slot, so it must stay below the service's `--concurrency`.
 
 ### 4.6 `tephra.feeds.base`
 
@@ -197,9 +231,14 @@ timeout_s=20, retries=2, host_intervals_s=None, transport=None)` and
 `.write_manifest(case) -> Path`).
 
 `HttpSource` is GET-only, serialises and spaces requests per host (adsb.lol >= 1.1 s, others
-0.5 s), retries network errors and 408/420/425/429/5xx, honours `Retry-After` on 420/429,
-and on final failure returns the last good copy marked `stale=True` (or raises
-`FetchError`). HSD segments are never cached. Build `params` in a fixed key order.
+0.5 s), retries network errors and 408/420/425/429/500/502/503/504, honours `Retry-After` on
+420/429, and on final failure returns the last good copy marked `stale=True`, with its age in
+`stale_age_s` and the live failure in `error` (or raises `FetchError`). It words a transport
+failure as `"<httpx exception name>: <detail>"` and an HTTP failure as `"HTTP <status>"`. The
+last-good cache keeps copies for 48 hours; HSD segments and satellite frames
+(`UNCACHED_FEEDS`) are never cached, because their per-scan URLs are never read twice.
+`fetched_at` is always wall-clock time, even under a replay clock. Build `params` in a fixed
+key order.
 
 ### 4.7 `tephra.store.base`
 
@@ -221,43 +260,70 @@ SIGMET_URL: Final = "https://aviationweather.gov/api/data/isigmet"
 SIGMET_PARAMS: Final = {"format": "json", "hazard": "va"}
 def parse_sigmets(result: FetchResult) -> list[Sigmet]
 async def fetch_sigmets(source: Source) -> list[Sigmet]   # one GET with SIGMET_PARAMS
+# Text helpers shared with tephra.feeds.vaac (SIGMETs and VAAs write these groups alike):
+class LevelBand(NamedTuple):   # base_ft: int, top_ft: int
+class Movement(NamedTuple):    # toward_deg: float | None, speed_kt: float | None, stationary: bool = False
+def parse_dm_point(lat_token: str, lon_token: str) -> tuple[float, float] | None
+def find_dm_points(text: str) -> list[tuple[float, float]]
+def parse_level_band(text: str) -> LevelBand | None
+def parse_movement(text: str) -> Movement | None
+def polygon_or_none(points: Iterable[tuple[float, float]]) -> GeoPolygon | None
 ```
 Rules: keep hazard VA only, all FIRs (no region filter here). De-duplicate records with the
 same `(rawSigmet, seriesId)`. A series id ending in `F` is the forecast polygon of the same
 SIGMET: keep it as its own record with `observed=False`. Polygon from JSON `coords`
 (decimal); if absent, from the raw text, where coordinates are **degrees and minutes**
-(`S0806 E11255` = -(8 + 6/60), 112 + 55/60), never decimals. `base_ft` 0 for SFC;
-`top_ft` from JSON `top` or raw `FLnnn`/`TOP FLnnn`/`ABV FLnnn`. Movement `MOV NE 05KT` ->
-`movement_toward_deg=45`, `movement_speed_kt=5`; `STNR` -> `stationary=True`. `CNL SIGMET`
--> `cancelled=True`. `observed_at` from `OBS AT 1010Z` via `parse_hhmmz(..., ref=valid_from)`.
-Volcano name and `PSN` from the raw text. `provenance.issued_at` is the DTG in the raw
-header if parseable, else `receiptTime`; `valid_from`/`valid_to` are also set on it. Drop
-records whose `validTimeTo` is already past at parse time only in `fetch_sigmets`, never in
-`parse_sigmets` (replay tests need them).
+(`S0806 E11255` = -(8 + 6/60), 112 + 55/60), never decimals; only the `PSN` group is left
+out, so a vertex on the vent is kept. `base_ft` 0 for SFC. Levels: JSON `base` and `top` win;
+else the raw band (`SFC/FL150`) or `TOP FLnnn` (a top). `ABV FLnnn` gives `base_ft` = nnn x 100
+with `top_ft` None (top not stated), and `TOP ABV FLnnn` gives `top_ft` None. Movement
+`MOV NE 05KT` -> `movement_toward_deg=45`, `movement_speed_kt=5` (KMH converted to kt);
+`STNR` -> `stationary=True`. `CNL SIGMET` -> `cancelled=True`. `observed`: True for `VA CLD
+OBS`, False for forecast-only, None for `VA NOT IDENTIFIABLE` or unknown. `observed_at` from
+`OBS AT 1010Z` via `parse_hhmmz(..., ref=valid_from)`. Volcano name and `PSN` from the raw
+text: the name runs from the last `FIR`/`VA`/`CLD`/`ERUPTION`/`MT` word to `PSN`; the JSON
+`qualifier` is the fallback. A SIGMET describing several clouds joined by `AND` yields one
+extra record per later cloud: `series_id` `"<series> AREA <n>"`, source id
+`SIGMET:{fir_id}:{series}_AREA_{n}:{compact(valid_from)}`, with its own polygon, band,
+movement and intensity read from its text (AWC's `coords` describe the first cloud only).
+`provenance.issued_at` is the DTG in the raw header if parseable, else `receiptTime`;
+`valid_from`/`valid_to` are also set on it. Drop records whose `validTimeTo` is already past
+at parse time only in `fetch_sigmets`, never in `parse_sigmets` (replay tests need them).
 
 `tephra/feeds/vona.py`
 ```python
 VONA_LIST_URL: Final = "https://magma.esdm.go.id/v1/vona"
+MAX_LIST_PAGES: Final = 40        # hard stop for paging
 class VonaListItem(TephraModel):   # url, magma_id: int, volcano_name, issued_at, color_code, summary
 def parse_vona_list(result: FetchResult) -> list[VonaListItem]
 def parse_vona_page(result: FetchResult, item: VonaListItem | None = None) -> Vona
+def parse_vona_card(listing: FetchResult, item: VonaListItem) -> Vona   # from the list card alone
 async def fetch_vonas(source: Source, *, since: datetime,
-                      known_urls: frozenset[str] = frozenset(), max_pages: int = 1) -> list[Vona]
+                      known_urls: frozenset[str] = frozenset(),
+                      known_ids: frozenset[int] = frozenset(), max_pages: int = 1) -> list[Vona]
 ```
-Rules: page 1 is fetched with no params, page n with `{"page": str(n)}`. Only detail pages
-not in `known_urls` and issued at or after `since` are fetched (MAGMA is a small public
-service; research/06 asks us not to crawl it). `ash_observed=False` when the notice says ash
-is not observed. Cloud top: parse the **metre** value and set
+Rules: page 1 is fetched with no params, page n with `{"page": str(n)}`. Notices issued after
+`now()` are skipped (a replay serves list pages saved after its clock), and a page that holds
+only such notices does not count towards `max_pages`. Paging stops after `max_pages` pages
+with current notices, at a page whose oldest notice is older than `since`, at an empty page,
+or after `MAX_LIST_PAGES`. Only detail pages of notices issued at or after `since`, not in
+`known_urls` and whose MAGMA id is not in `known_ids`, are fetched (MAGMA's robots.txt
+disallows crawling, research/05; live polling is opt-in, section 5.7). The detail page is
+fetched with the signed link exactly as listed. When it cannot be fetched or read and the list
+card carries the notice text, `parse_vona_card` builds the VONA from the card (provenance of
+the list page); otherwise the notice is skipped with a warning. `ash_observed=False` when the
+notice says ash is not observed. Cloud top: parse the **metre** value and set
 `cloud_top_ft = round(m * 3.28084)` (MAGMA's printed feet use a factor of 3.2; research/13).
 Direction words ("north east", "northeast", "NE", "to the east") -> `movement_toward_deg`
-via `tephra.geo.units.compass_to_deg`; keep the original in `movement_text`.
+via `tephra.geo.units.compass_to_deg`; keep the original in `movement_text`. Cloud top and
+direction are set only when ash is observed.
 
 `tephra/feeds/vaac.py`
 ```python
 TOKYO_LIST_URL: Final = "https://ds.data.jma.go.jp/svd/vaac/data/vaac_list.html"
 DARWIN_BACKUP_LIST_URL: Final = "https://ds.data.jma.go.jp/svd/vaac/data/vaac_darwin_list.html"
 DARWIN_BULLETIN_URLS: Final = tuple(
-    f"https://tgftp.nws.noaa.gov/data/raw/fv/fvau0{n}.adrm..txt" for n in (1, 2, 3, 4))
+    f"https://tgftp.nws.noaa.gov/data/raw/fv/fvau{n:02d}.adrm..txt" for n in range(1, 11))
 class VaacListItem(TephraModel):   # vaac, url, volcano_name, area, issued_at, advisory_nr | None
 def parse_vaac_list(result: FetchResult, vaac: VaacCentre) -> list[VaacListItem]
 def parse_vaa_text(text: str, result: FetchResult) -> VaacAdvisory | None
@@ -267,11 +333,15 @@ async def fetch_vaas(source: Source, feed: FeedId, *, since: datetime,
 ```
 Rules: `feed` is `FeedId.VAAC_TOKYO` (Tokyo list -> `TextData/...` pages, relative links
 resolved against the list URL) or `FeedId.VAAC_DARWIN`. **Darwin advisories come from the
-NOAA tgftp bulletins** `DARWIN_BULLETIN_URLS` (latest bulletin per header, GET). BoM's page
-loads its list by POST and TEPHRA is GET-only; the JMA "Darwin backup" list holds only
-advisories Tokyo issued while backing Darwin up (research/13) and is also polled under
-`VAAC_DARWIN`. `VaacAdvisory.vaac` is taken from the text's `VAAC:` line. Return `None`
-for `VOLCANO: NOTICE` pseudo-advisories (number 999999). Accept `+6 HR` and `+6HR`;
+NOAA tgftp bulletins** `DARWIN_BULLETIN_URLS`: Darwin rotates over ten WMO headers, FVAU01 to
+FVAU10, and each slot's file holds its latest bulletin (GET, all ten every poll; advisories
+issued before `since` are dropped). BoM's page loads its list by POST and TEPHRA is GET-only;
+the JMA "Darwin backup" list holds only advisories Tokyo issued while backing Darwin up
+(research/13) and is also polled under `VAAC_DARWIN`. `fetch_vaas(VAAC_DARWIN)` raises
+`FetchError` when every tgftp slot fails, even if the backup list answers; a backup-list
+failure is only logged. `VaacAdvisory.vaac` is taken from the text's `VAAC:` line. Return
+`None` for `VOLCANO: NOTICE` pseudo-advisories (number 999999) and for `STATUS: TEST` or
+`STATUS: EXER` bulletins, which may name real volcanoes. Accept `+6 HR` and `+6HR`;
 `NXT ADVISORY` styles `WILL BE ISSUED BY 20260925/1500Z`, `NO LATER THAN 20261009/2020Z`,
 `NO FURTHER ADVISORIES` (-> `final=True`, never an all-clear); optional `AVIATION COLOUR
 CODE`. `EST VA CLD` -> `estimated=True`; `VA NOT IDENTIFIABLE FM SATELLITE DATA` ->
@@ -288,15 +358,19 @@ def parse_tafs(result: FetchResult) -> list[Taf]
 def parse_metars(result: FetchResult) -> list[Metar]
 async def fetch_tafs(source: Source, icaos: Sequence[str]) -> list[Taf]      # chunks of 20 sorted ids
 async def fetch_metars(source: Source, icaos: Sequence[str]) -> list[Metar]
-def assess_alternate(taf: Taf | None, eta: datetime) -> AlternateCheck
+def assess_alternate(taf: Taf | None, eta: datetime, *, icao: str | None = None) -> AlternateCheck
+    # icao names the aerodrome when there is no TAF to take it from
 ```
 `assess_alternate` rules (simplified planning minima, labelled as such in the UI): no TAF ->
-not ok (`NO TAF`); TAF not valid at `eta` -> not ok; every period (base, FM, BECMG, TEMPO,
-PROBxx) overlapping `eta +/- ALTERNATE_ETA_WINDOW_MIN` is screened: `VA` in weather -> not
-ok; visibility below `ALTERNATE_MIN_VISIBILITY_M` -> not ok; ceiling below
-`ALTERNATE_MIN_CEILING_FT` -> not ok; `TS` -> reason recorded, still ok. Reasons are short
-upper-case code-written strings (`"VIS 1500 M BELOW 3000 M"`). aviationweather.gov allows
-100 requests/minute and needs a custom User-Agent (HttpSource sets it).
+not ok (`NO TAF`); TAF not valid at `eta` -> not ok (`TAF NOT VALID AT ETA`); every period
+(base, FM, BECMG, TEMPO, PROBxx) overlapping `eta +/- ALTERNATE_ETA_WINDOW_MIN` is screened:
+`VA` in weather -> not ok; visibility below `ALTERNATE_MIN_VISIBILITY_M` -> not ok; ceiling
+below `ALTERNATE_MIN_CEILING_FT` -> not ok; `TS` -> reason recorded, still ok. Reasons are
+short upper-case code-written strings naming the group (`"VIS 1500 M BELOW 3000 M IN BASE
+FORECAST"`, `"TS IN TEMPO GROUP"`). The prevailing group (base, FM or BECMG) before a BECMG
+is screened until that BECMG's `timeBec`: the parser extends that `TafPeriod.valid_to`,
+because an improving BECMG applies only once the change completes. aviationweather.gov
+allows 100 requests/minute and needs a custom User-Agent (HttpSource sets it).
 
 ### 5.2 feeds-geo
 
@@ -342,6 +416,10 @@ source.
 `tephra/feeds/adsb.py`
 ```python
 ADSB_POINT_URL: Final = "https://api.adsb.lol/v2/point/{lat}/{lon}/{radius_nm}"
+MAX_CACHED_COPY_AGE_S: Final = 120
+class AdsbPointsFailed(FetchError):   # .failed_points: list[AdsbQueryPoint], .snapshots: list[AdsbSnapshot]
+    def __init__(self, failed: Sequence[tuple[AdsbQueryPoint, str]],
+                 snapshots: Sequence[AdsbSnapshot], *, tried: int) -> None
 def point_url(point: AdsbQueryPoint) -> str                   # lat/lon with 3 decimals
 def query_points(region: Region, volcanoes: Sequence[Volcano], radius_nm: int) -> list[AdsbQueryPoint]
 def parse_adsb(result: FetchResult, query: AdsbQueryPoint) -> AdsbSnapshot
@@ -349,13 +427,22 @@ async def fetch_aircraft(source: Source, points: Sequence[AdsbQueryPoint]) -> li
 def merge_aircraft(snapshots: Sequence[AdsbSnapshot]) -> list[Aircraft]
 ```
 Rules: `query_points` = the region's points plus one per given (active) volcano at
-`radius_nm`, dropping a volcano point within 50 nm of one already chosen. Calls are
-sequential (HttpSource spaces them >= 1.1 s and backs off on 420/429); a failed point is
-logged and skipped. Parse fields `hex, flight, lat, lon, alt_baro, alt_geom, gs, track,
-nav_altitude_mcp, t, baro_rate, seen_pos`; drop `alt_baro == "ground"` and targets without
-position; never keep `r` (registration). `observed_at` = response `now` (ms) minus
-`seen_pos` (or `seen`). `merge_aircraft` de-duplicates by `hex`, keeping the newest. UI
-attribution: "Aircraft: adsb.lol (ODbL 1.0)".
+`radius_nm` (clamped to 1..250), dropping a volcano point within 50 nm of one already chosen.
+Calls are sequential (HttpSource spaces them >= 1.1 s and backs off on 420/429). Every point
+is tried in order; if any point fails, is unreadable, or answers only with a cached copy older
+than `MAX_CACHED_COPY_AGE_S` (or of unknown age), `fetch_aircraft` then raises
+`AdsbPointsFailed`, whose reason reads `"<n> of <m> adsb.lol points failed (<lat>,<lon>/<r>nm:
+<reason>; ...)"` and which carries the snapshots that did answer, so a lost point never reads
+as an empty sky. A recent cached copy is returned marked stale. Parse fields `hex, flight,
+lat, lon, alt_baro, alt_geom, gs, track, nav_altitude_mcp, t, baro_rate, seen_pos`; drop
+`alt_baro == "ground"` and targets whose `lat` or `lon` is missing; never keep `r`
+(registration), and drop a callsign that is just the registration. Any non-finite or
+out-of-range number (NaN, Infinity, `"nan"`, `"inf"`, `1e999`) reads as missing; a target
+whose numbers overflow (an impossible `seen_pos`) is skipped with a warning. `parse_adsb`
+raises only `ValueError` for a bad response, an unreadable `now` included, so one bad point
+never ends the pass. `observed_at` = response `now` (ms) minus `seen_pos` (or `seen`).
+`nav_altitude_mcp` is rounded to 100 ft. `merge_aircraft` de-duplicates by `hex`, keeping the
+newest, sorted by `hex`. UI attribution: "Aircraft: adsb.lol (ODbL 1.0)".
 
 `tephra/feeds/winds.py`
 ```python
@@ -373,19 +460,36 @@ def wind_at_fl(profile: WindProfile, flight_level: int) -> WindLevel            
 `tephra/feeds/satellite.py`
 ```python
 JMA_IMAGE_URL: Final = "https://www.data.jma.go.jp/mscweb/data/himawari/img/{area}/{area}_{band}_{hhmm}.jpg"
+JMA_SLOTS_URL: Final = "https://www.data.jma.go.jp/mscweb/data/himawari/sat_img.php"
 NICT_LATEST_URL: Final = "https://himawari8.nict.go.jp/img/D531106/latest.json"
+NICT_TILE_URL: Final = "https://himawari8.nict.go.jp/img/D531106/{level}d/550/{year}/{month}/{day}/{hhmmss}_{x}_{y}.png"
+REUSE_S: Final = 60.0
+JMA_AREAS: Final[tuple[JmaArea, ...]]    # se3 (Southeast Asia 3) and jpn (Japan)
 def frame_key(volcano_id: str, product: FrameProduct, observed_at: datetime) -> str
     # "frames/{volcano_id}_{product}_{compact(observed_at)}.png"
-async def fetch_frames(source: Source, volcano: Volcano, *, half_width_km: float = 300.0
+async def fetch_frames(source: Source, volcano: Volcano, *, half_width_km: float = 300.0,
+                       areas: Sequence[JmaArea] = JMA_AREAS, nict_level: int = NICT_DEFAULT_LEVEL,
+                       nict: bool = True
                        ) -> list[tuple[SatelliteFrame, bytes]]   # PNG bytes to store at frame.image_key
 ```
-Rules: JMA MSC realtime images (`area` `se3` for Indonesia with `band` `b13` Band-13 IR and
-`dst` Dust RGB, 10-minute files named by HHMM and kept about 23 hours; pick the area that
-covers the volcano and verify the Japan-area name for Kyushu). NICT true colour only in
-local daylight. Crop around the volcano with Pillow, re-encode PNG. Set `bbox` only if the
-image projection and corner coordinates are known exactly; otherwise `bbox=None` and the
-Wall shows the frame in a side strip, never on the map. Caption names the product and says
-"context only; not used to draw the cone". A product that fails is skipped, not fatal.
+Rules: JMA MSC realtime images (`b13` Band-13 IR and `dst` Dust RGB) for the first JMA area
+that covers the volcano (`se3` for Indonesia, `jpn` for Japan). The files are named by HHMM
+only, so the slot's date comes from the `sat_img.php` slot list, and only a slot at least
+35 minutes old is used; a slot list or image served from cache is refused, because a
+date-less name may hold another day's image. NICT true colour only in local daylight (solar
+hours 7 to 17), from at most four tiles; `nict=False` skips it entirely (the registry passes
+`settings.nict_frames`, off by default). Crop around the volcano with Pillow, re-encode PNG.
+Set `bbox` only if the image projection and corner coordinates are known exactly; otherwise
+`bbox=None` and the Wall shows the frame in a side strip, never on the map (every frame today
+has `bbox=None`). The caption names the product and scan time, cites the source
+("Source: JMA Meteorological Satellite Center (<area> image)" or "Source: NICT Himawari
+real-time web (non-commercial use only)"), says "cropped by TEPHRA" (JMA's Public Data
+License 1.0 asks for the source and an edit notice) and ends "context only; not used to
+draw the cone". A product that fails is skipped, not fatal; when products were tried and
+none came back, `fetch_frames` raises `FetchError` listing each failure. A product that does
+not apply (NICT at night, no JMA area) is not a failure. One source's answers, failures
+included, are reused for `REUSE_S` (60 s on the active clock), so a poll that asks volcano by
+volcano downloads each slot list, image and tile once.
 
 ### 5.3 science
 
@@ -395,7 +499,8 @@ HSD_BUCKET_URL: Final = "https://noaa-himawari9.s3.amazonaws.com/"
 class HsdObject(TephraModel):   # key, url, band: int, segment: int, size_bytes: int, scan_start: UtcDatetime
 def listing_params(scan_start: datetime) -> dict[str, str]   # {"list-type": "2", "prefix": "AHI-L1b-FLDK/YYYY/MM/DD/HHMM/"}
 def parse_listing(result: FetchResult) -> list[HsdObject]
-def segments_for_bbox(bbox: BBox) -> list[int]                # 1..10 full-disk segments covering it
+def segments_for_bbox(bbox: BBox, projection: GeosProjection = HIMAWARI_AHI_2KM) -> list[int]
+    # 1..10 full-disk segments covering it
 async def find_latest_scan(source: Source, at: datetime, bands: Sequence[int],
                            segments: Sequence[int], *, lookback_slots: int = 6
                            ) -> tuple[datetime, list[HsdObject]] | None
@@ -419,17 +524,25 @@ use satpy/pyresample only if installed; raise `ScienceUnavailable` if neither pa
 Resample the crop onto a regular lat/lon grid so `BtdResult.bbox` corners georeference the
 PNG exactly. `provenance.feed = FeedId.HSD`, `url = listing_url`, `sha256 =
 combine_hashes(segment_sha256)`. `indicator` is `NEGATIVE_BTD_PRESENT`, `SILENT` or
-`INCONCLUSIVE` (e.g. most pixels colder than 233 K). **SILENT never means "no ash"**; the
-caption must say so. Credit: "Himawari-9 data: JMA, distributed by NOAA (NODD / AWS Open
-Data); processed by TEPHRA, not original JMA data". Never re-serve raw HSD files.
+`INCONCLUSIVE` (e.g. most pixels colder than 233 K). **SILENT and INCONCLUSIVE never mean
+"no ash"**; the caption says so of both. Credit: "Himawari-9 data: JMA, distributed by NOAA
+(NODD / AWS Open Data); processed by TEPHRA, not original JMA data". Never re-serve raw HSD
+files.
 
 ### 5.4 geo
 
 `tephra/geo/units.py`
 ```python
 FT_PER_M: Final = 3.28084; KM_PER_NM: Final = 1.852; EARTH_RADIUS_KM: Final = 6371.0088
-def ft_to_fl(ft: float) -> int                 # rounds to nearest
+def ft_to_fl(ft: float) -> int                 # nearest FL, halves rounded up
 def fl_to_ft(fl: float) -> int
+def m_to_ft(m: float) -> float
+def ft_to_m(ft: float) -> float
+def km_to_nm(km: float) -> float
+def nm_to_km(nm: float) -> float
+def kt_to_km_per_min(kt: float) -> float
+def normalize_lon(lon: float) -> float                      # [-180, 180)
+def unwrap_lon(lon: float, ref_lon: float) -> float         # shifted by 360 to within 180 of ref_lon
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float
 def distance_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float
 def initial_bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float
@@ -437,55 +550,83 @@ def destination_point(lat: float, lon: float, bearing_deg: float, distance_km: f
 def bearing_diff_deg(a: float, b: float) -> float           # 0..180
 def compass_to_deg(text: str) -> float | None               # 16-point names and words; None if unknown
 def deg_to_compass(deg: float) -> str                       # 16-point
-def sector_width_deg(bearing_from_deg: float, bearing_to_deg: float) -> float  # clockwise
+def sector_width_deg(bearing_from_deg: float, bearing_to_deg: float) -> float
+    # clockwise; equal bearings give 0, 0 -> 360 gives 360 (a full circle)
 def solar_hour(lon: float, at: datetime) -> float           # local mean solar time, 0..24 (night flag)
 ```
 
 `tephra/geo/cone.py`
 ```python
+FORECAST_WINDOW_H: Final = 3.0                # a VAA forecast polygon stands for +/- 3 h
+UNKNOWN_TOP_FT: Final = 60_000                # a SIGMET with no stated top is binding to FL600
+VAA_CLOCK_SLACK: Final = FEED_CLOCK_SLACK
 def official_layers(volcano: Volcano, sigmets: Sequence[Sigmet], vaas: Sequence[VaacAdvisory],
                     at: datetime) -> list[OfficialLayer]
 def sector_polygon(lat: float, lon: float, bearing_from_deg: float, bearing_to_deg: float,
-                   extent_km: float, *, steps: int = 32) -> GeoPolygon | None   # None if extent 0 or zero width
+                   extent_km: float, *, steps: int = 32) -> GeoPolygon | None
+    # None if extent 0, zero width or no area; a 360 degree sweep is a disc
 def build_cone(situation: Situation, assessment: PlumeAssessment) -> HazardCone
 def covers_official(cone: HazardCone, layers: Sequence[OfficialLayer]) -> bool
 def polygon_iou(a: GeoPolygon | GeoMultiPolygon, b: GeoPolygon | GeoMultiPolygon) -> float
 def contains_point(cone: HazardCone, lat: float, lon: float) -> bool
+def points_in_cone(cone: HazardCone, points: Sequence[tuple[float, float]]) -> list[bool]
+def track_entries(cone: HazardCone, tracks: Sequence[Sequence[tuple[float, float]]]
+                  ) -> list[tuple[int, tuple[float, float]] | None]   # (step, (lat, lon)) per track
+def geometry_to_shape(geometry: GeoPolygon | GeoMultiPolygon, *, ref_lon: float) -> BaseGeometry
+def shape_to_geometry(shape: BaseGeometry) -> GeoPolygon | GeoMultiPolygon | None
 ```
 `official_layers` rules (the "official floor", research/07 rule 13): every SIGMET with a
-polygon, valid or starting within `MAX_HORIZON_H` (window = its validity); for the latest
-current VAA per VAAC: OBS/EST layers with polygons (window `[observation.valid_at,
-vaa.valid_until()]`) and each forecast layer (window `[valid_at - 3 h, valid_at + 3 h]`).
-Keep a layer when its window ends at or after `at` and starts no later than `at +
-MAX_HORIZON_H`. `label` and `layer` as in the model docstring.
+polygon that is not cancelled (window = its validity; with no stated top it is binding up to
+`UNKNOWN_TOP_FT` and its label ends `TOP NOT STATED`); for each VAAC, the newest VAA issued by
+`at + VAA_CLOCK_SLACK`, if it is still current (`at <= valid_until()`; a newer advisory
+replaces an older one even after it lapses): OBS/EST layers with polygons (window
+`[observation.valid_at, max(observation.valid_at, vaa.valid_until())]`) and each forecast
+layer (window `[valid_at - 3 h, valid_at + 3 h]`). Keep a layer when its window ends at or
+after `at` and starts no later than `at + MAX_HORIZON_H`. SIGMET layers come first, then by
+start time. `label` and `layer` as in the model docstring; a VAA step with several layers
+adds each layer's band to its label.
 
 `build_cone` rules: geometry = union of **all** `situation.official_layers` polygons, plus
 the sector from the estimate when mode is WIDENED or HYPOTHESIS (OFFICIAL ignores the
-sector). The union is made with shapely in lon/lat degrees (regional scale; no antimeridian
-in JAPAC scope) and is **never simplified, buffered inward or clipped**, so the cone always
-covers every official polygon (`covers_official` is the property the tests check with
-hypothesis). Vertical band: `base_ft = min(estimate.base_fl*100, official bases)`, `top_ft =
-max(estimate.top_fl*100, official tops)`. `horizon_h = estimate.horizon_h`, `valid_to =
-assessment.created_at + horizon`, `llm_backend = assessment.llm_backend`, `id =
-stable_id("CONE", volcano_id, assessment.id)`. `geometry=None` only when there is no official layer and
-no sector.
+sector). The union is made with shapely in lon/lat degrees (regional scale; longitudes are
+unwrapped around the vent, so a shape crossing the antimeridian stays continuous) and is
+**never simplified, buffered inward or clipped**, so the cone always covers every official
+polygon (`covers_official` is the property the tests check with hypothesis). An invalid
+official ring (one that crosses, folds back over or touches itself) counts as everything its
+rings enclose: `geometry_to_shape` nodes the rings and unions every face, and
+`covers_official` repairs it the same way. `covers_official` also checks the vertical band,
+and treats a layer whose ring encloses no area as laterally covered, even by a cone with no
+geometry. Vertical band: `base_ft = min(estimate.base_fl*100, official bases)`, `top_ft =
+max(estimate.top_fl*100, official tops)`. `created_at = situation.as_of`, `horizon_h =
+estimate.horizon_h`, `valid_to = assessment.created_at + horizon`, `llm_backend =
+assessment.llm_backend`, `id = stable_id("CONE", volcano_id, assessment.id)`.
+`geometry=None` only when there is no official layer and no sector, or none of them encloses
+any area.
 
 `tephra/geo/exposure.py`
 ```python
+MIN_MOVING_GS_KT: Final = 50.0
 def extrapolate(aircraft: Aircraft, minutes: int, *, step_min: int = 1) -> list[tuple[float, float]]  # (lat, lon), t=0 first
 def find_exposed(cone: HazardCone, aircraft: Sequence[Aircraft], at: datetime, *,
                  lookahead_min: int, vertical_margin_ft: int) -> list[ExposedFlight]
 ```
 Rules: only `aircraft.airline` targets with `alt_baro_ft` are considered; never use
-`alt_geom_ft`. Lookahead is `min(cone.horizon_h * 60, lookahead_min)`; positions step along
-`track_deg` at `gs_kt` with `destination_point` each minute ("if current track and level
-are held"); targets without `gs_kt`/`track_deg` or below 50 kt are checked at their current
-position only. Vertical: the aircraft band is `[min, max]` of `alt_baro_ft` and
-`nav_altitude_mcp_ft` (if present); exposed only if it overlaps `[cone.base_ft -
-vertical_margin_ft, cone.top_ft + vertical_margin_ft]`. Horizontal: the first extrapolated
-point inside the cone. `minutes_to_entry` is that step index; `path` runs from the current
-position to the entry point (GeoJSON order); `hold = fuel.hold_line(category)`;
-`id = f"{hex}:{cone.volcano_id}"`. Sorted by `minutes_to_entry`.
+`alt_geom_ft`. The lookahead is `min(cone.horizon_h * 60, lookahead_min)`. A target whose
+position is older than the lookahead is skipped; a younger position is projected from its
+age, so `minutes_to_entry` counts from `at`. Positions step along `track_deg` at `gs_kt` with
+`destination_point` (the great circle) each minute ("if current track and level are held");
+targets whose `gs_kt` or `track_deg` is missing or not finite, or below 50 kt, are checked
+at their reported position only. Vertical: the aircraft band is `[min, max]` of `alt_baro_ft`
+and `nav_altitude_mcp_ft` (if present); exposed only if it overlaps `[cone.base_ft -
+vertical_margin_ft, cone.top_ft + vertical_margin_ft]`. Horizontal (`cone.track_entries`):
+each one-minute step is tested on the segment from the previous point, so a track that
+crosses a corner or a narrow part of the cone between two points is still caught.
+`minutes_to_entry` is the minute at the end of the first segment that meets the cone (0 only
+when inside now, which sets `inside_now`); the entry point is that minute's point if it is
+inside, else where the segment comes in. `path` runs from the reported position to the entry
+point (GeoJSON order); `hold = fuel.hold_line(category)`; `id = f"{hex}:{cone.volcano_id}"`;
+a non-finite `gs_kt` or `track_deg` is stored as None. Sorted by `minutes_to_entry`, then
+`hex`.
 
 `tephra/geo/fuel.py`
 ```python
@@ -494,12 +635,14 @@ BURN_KG_PER_MIN: Final[dict[AircraftCategory, float]] = {LIGHT: 5, TURBOPROP: 12
 def category_for_type(type_icao: str | None) -> AircraftCategory
 def hold_line(category: AircraftCategory) -> FuelLine                    # HOLD_MINUTES
 def divert_line(category: AircraftCategory, *, alternate_icao: str, distance_nm: float,
-                gs_kt: float | None) -> FuelLine    # distance/gs*60 + DIVERT_EXTRA_MINUTES; gs None or <150 -> 250 kt assumed, said in formula
+                gs_kt: float | None) -> FuelLine
+    # distance/gs*60 + DIVERT_EXTRA_MINUTES; gs None, not finite or < 150 -> 250 kt assumed, said in formula
 ```
 `formula` strings are code-written upper case, e.g. `"HOLD 20 MIN x 42 KG/MIN (NARROWBODY) =
-840 KG"`, `"DIVERT WARR 182 NM AT 430 KT = 25 MIN + 15 MIN = 40 MIN x 42 KG/MIN = 1680
-KG"`. Minutes and kg are integers (rounded up). UNKNOWN types use the narrowbody rate and
-the formula says `(TYPE UNKNOWN, NARROWBODY RATE)`.
+840 KG"`, `"DIVERT WARR 182 NM AT 430 KT = 26 MIN + 15 MIN = 41 MIN x 42 KG/MIN (NARROWBODY)
+= 1722 KG"`. Minutes and kg are integers (rounded up). The divert minutes come from the
+whole NM and KT the formula prints, so the formula reproduces its own numbers. UNKNOWN types
+use the narrowbody rate and the formula says `(TYPE UNKNOWN, NARROWBODY RATE)`.
 
 ### 5.5 reconcile-plume
 
@@ -512,73 +655,125 @@ def select_records(catalogue: VolcanoCatalogue, volcano: Volcano, *, sigmets: Se
                    settings: Settings) -> tuple[list[Sigmet], list[Vona], list[VaacAdvisory]]
 def evidence_state(record: Sigmet | Vona | VaacAdvisory, volcano: Volcano, at: datetime) -> EvidenceState
 def find_discrepancies(volcano: Volcano, *, sigmets: Sequence[Sigmet], vonas: Sequence[Vona],
-                       vaas: Sequence[VaacAdvisory], at: datetime, settings: Settings) -> list[Discrepancy]
+                       vaas: Sequence[VaacAdvisory], at: datetime, settings: Settings,
+                       feed_health: Mapping[FeedId, FeedHealth] | None = None) -> list[Discrepancy]
 def build_situation(volcano: Volcano, *, active_reasons: list[str], sigmets: Sequence[Sigmet],
                     vonas: Sequence[Vona], vaas: Sequence[VaacAdvisory], winds: Sequence[WindProfile],
                     frames: Sequence[SatelliteFrame], btd: BtdResult | None, at: datetime,
-                    mode: RunMode, settings: Settings) -> Situation
+                    mode: RunMode, settings: Settings,
+                    feed_health: Mapping[FeedId, FeedHealth] | None = None) -> Situation
 ```
-Activity (`find_active` returns `volcano_id -> human reasons`): a VONA for it issued within
-`vona_window_h`; or a VAA for it that `is_current(at)`; or a valid VA SIGMET that names it
-(`catalogue.find_in_text`) or whose polygon lies within `active_radius_km` of the vent.
-`select_records`: SIGMETs matching as above that are not cancelled and are valid at `at` or
-start within `MAX_HORIZON_H` (forecast `F` series included); VONAs within the window
-(newest first); per VAAC the newest VAA issued in the last 24 h (newest first). `build_situation`
-sets `official_layers = tephra.geo.cone.official_layers(...)` and `discrepancies =
-find_discrepancies(...)`.
+"Newest" VAA means by DTG, then by advisory number (Darwin can issue two with one DTG).
+
+Activity (`find_active` returns `volcano_id -> human reasons`; the reasons carry no ages, so
+a situation changes only when the products do): a VONA for it issued within
+`vona_window_h`; or the newest VAA a VAAC issued for it `is_current(at)` (a VAA that a later
+one replaced or closed no longer counts); or a valid VA SIGMET that belongs to it. A SIGMET
+that names a catalogue volcano (`catalogue.find_in_text` on the raw text, else
+`resolve(volcano_name)`) belongs to that volcano only; a SIGMET whose name the catalogue does
+not know goes to the nearest vent its polygon lies within `active_radius_km` of. A polygon
+with a vertex more than 90 degrees of longitude from a vent is out of its reach.
+`select_records`: SIGMETs belonging to the volcano that are not cancelled and are valid at
+`at` or start within `MAX_HORIZON_H` (forecast `F` series included), latest start first;
+VONAs within the window (newest first); per VAAC the newest VAA issued in the last 24 h, up
+to `FEED_CLOCK_SLACK` after `at` (newest first). `build_situation` sets `official_layers =
+tephra.geo.cone.official_layers(...)` and `discrepancies = find_discrepancies(...)` (with
+`feed_health`); its winds are the hourly profiles from the current hour to the horizon, or
+the newest older one when the forecast has run out.
 
 Discrepancy rules (deterministic; Gemini never decides what counts):
 - **Non-observations are never CONFLICT.** "Ash-cloud is not observed", "VA NOT
   IDENTIFIABLE", NIGHT_BLIND and absence are evidence states, not contradictions
   (research/13: the 7 Oct pair is a non-observation, the 25 Sep pair is ENVELOPE + LAG).
-- CONFLICT: an explicit negative assertion (VAA `NO VA EXP`, or a final VAA) valid at the same
-  time as a positive observation (SIGMET `observed=True`, VONA `ash_observed=True`, VAA OBS
-  layer) from another product.
-- LAG: two products' observation/issue times differ by more than `lag_threshold_min`;
-  magnitude in minutes.
+- What is compared: the SIGMETs in force (not cancelled, `observed` not False), each merged
+  with any current VAA it echoes; the newest current VAA of each VAAC; and the VONAs.
+- One office never disagrees with itself: SIGMETs of one FIR are never compared with each
+  other, so the clouds of one SIGMET (`05`, `05 AREA 2`) and series run side by side never
+  disagree. A SIGMET leaves the comparisons once a later SIGMET of its FIR replaces it: with
+  the same series letters, a later start (or the same start with a higher number) replaces
+  it; with different letters, only one issued more than 10 min later (`SERIES_SPLIT_WINDOW`).
+- CONFLICT: an explicit negative assertion (VAA `NO VA EXP`, or a final VAA) from a VAA whose
+  observation draws no ash and is not `VA NOT IDENTIFIABLE`, `NOT AVBL`/`NOT PROVIDED` or
+  blank, in force at `at`, while another product observed ash (SIGMET `observed=True`, VONA
+  `ash_observed=True`, VAA OBS layer) after the negative VAA's observation and before its
+  validity ends. An older positive observation is a LAG, not a CONFLICT.
+- LAG: two products' observation times differ by more than `lag_threshold_min` (a SIGMET's
+  `OBS AT`, else its issue time; a VAA's observation step; a VONA's issue time). The newest
+  VONA is compared with the SIGMETs in force when it was issued (else those in force now) and
+  the VAAs. Magnitude in minutes.
 - ENVELOPE: one product's top lies inside the other's band, or outside it by no more than
-  `height_tolerance_ft`; magnitude = signed difference in ft.
+  `height_tolerance_ft`; magnitude = signed difference in ft. A VONA's top is a point
+  checked against an official band.
 - HEIGHT_MISMATCH: tops differ beyond `height_tolerance_ft` with neither inside the other.
 - DIRECTION_MISMATCH: movement directions differ by more than `direction_tolerance_deg`
-  (aspect `direction`), or a point 15 km down a VONA's direction lies outside the SIGMET
-  polygon valid at that VONA's time (aspect `polygon`; research/13 finding 4).
-- SILENCE: a VONA with ash and no VAA issued after it for more than
-  `silence_threshold_min`; a valid SIGMET with no current VAA; or a VAA past its next
-  advisory time with no newer one ("overdue"). Magnitude in minutes since.
+  (aspect `direction`; a stationary product is not compared), or a point 15 km down a
+  VONA's direction lies outside every SIGMET polygon in force at that VONA's issue time
+  (aspect `polygon`; research/13 finding 4). A VONA older than 6 h is compared on direction
+  only with the products in force when it was issued.
+- SILENCE: a VONA with ash that no VAA answers (none in force when it was issued, other than
+  a closing one, and none issued since) for more than `silence_threshold_min`; a valid
+  SIGMET that no VAA has been in force with since its observation time, once it has been
+  valid for more than `silence_threshold_min`; or the newest VAA of a VAAC past its next
+  advisory time + 10 min ("overdue"). Magnitude in minutes since. None of these fire when
+  `feed_health` shows the volcano's VAAC feed not OK, never run, or older than
+  `stale_after_s`: a polling gap is not a silent VAAC. With no `feed_health` the records are
+  trusted.
 - A SIGMET whose polygon repeats a VAA polygon vertex for vertex is the same source twice
   (research/13): no discrepancy between them, and `summary` of any other discrepancy that
-  involves both names them together.
-`summary` and `values` are code-written (`"VONA 13,701 ft inside SIGMET SFC/FL150"`).
+  involves both names them together. Only a SIGMET in force now absorbs its VAA.
+`summary` and `values` are code-written (`"VONA 13,701 ft inside SIGMET SFC/FL150"`). The
+list is sorted by severity (WARNING, CAUTION, INFO), then kind.
 
 `tephra/agents/llm.py`
 ```python
+Tier = Literal["main", "lite"]
 class LlmPart(TephraModel):        # kind: Literal["text","image"]; text: str|None; data: bytes|None; mime_type: str|None; label: str|None
-class LlmCall(TephraModel):        # backend, model_id, prompt_hash, latency_ms, input_tokens, output_tokens, raw_text, error: str|None
+    @classmethod
+    def of_text(cls, text: str) -> Self
+    @classmethod
+    def of_image(cls, data: bytes, *, label: str, mime_type: str = "image/png") -> Self
+class LlmCall(TephraModel):        # backend, model_id, prompt_hash, latency_ms, input_tokens, output_tokens, raw_text, error: str|None, cached: bool
 class LlmBackend(Protocol):
     @property
     def name(self) -> LlmBackendName: ...
-    def model_id(self, tier: Literal["main", "lite"]) -> str: ...
-    def reserve(self, tier: Literal["main", "lite"]) -> bool: ...   # take one call from today's budget
-    async def structured[T: BaseModel](self, *, tier: Literal["main", "lite"], system: str,
+    def model_id(self, tier: Tier) -> str: ...
+    def reserve(self, tier: Tier) -> bool: ...   # take one call from today's budget
+    def exhaust(self, tier: Tier) -> None: ...   # Google reported the tier's daily quota spent: refuse it until the quota day ends
+    async def structured[T: BaseModel](self, *, tier: Tier, system: str,
                                        parts: Sequence[LlmPart], schema: type[T],
-                                       stub: Callable[[], T], temperature: float = 0.2
+                                       stub: Callable[[], T], temperature: float | None = None
                                        ) -> tuple[T | None, LlmCall]: ...
-class GeminiBackend: ...           # google-genai Client(api_key=...).aio.models.generate_content, JSON mime + response_schema
-class StubBackend: ...             # returns stub(), model_id "stub", never touches the network
+class GeminiBackend: ...           # google-genai Client(api_key=..., vertexai=False).aio.models.generate_content, JSON mime + response_json_schema
+class StubBackend: ...             # returns stub(), model_id "stub", never touches the network; exhaust does nothing
 class BudgetExhausted(RuntimeError): ...
+class DailyBudget: ...             # calls per tier per Google quota day
 def get_llm(settings: Settings) -> LlmBackend
 def prompt_hash(system: str, parts: Sequence[LlmPart]) -> str   # images contribute their sha256
+def temperature_for(model_id: str) -> float                      # 1.0 for gemini-3* model ids, else 0.2
+def daily_quota_spent(exc: BaseException) -> bool                # a 429 whose QuotaFailure names a per-day quota
 ```
 Rules: `structured` never raises for model trouble: on API error, timeout, quota, invalid
 JSON or schema failure it returns `(None, call)` with `call.error` set. Tier `main` uses
-`settings.model`, tier `lite` uses `settings.model_lite`. Per-tier daily budgets
-(`model_daily_budget`, `model_lite_daily_budget`, counted per UTC day in process memory)
-are enforced before calling; over budget -> `(None, call)` with `error="budget_exhausted"`.
+`settings.model`, tier `lite` uses `settings.model_lite`. `temperature=None` means
+`temperature_for(model_id)`: 1.0 for Gemini 3 model ids (`gemini-3*`; research/10 C9, lower
+values may loop) and 0.2 otherwise. Validated answers are cached on disk under
+`<cache_dir>/llm`, keyed by model, prompt hash, schema and temperature; a cache hit spends no
+budget. Per-tier daily budgets (`model_daily_budget`, `model_lite_daily_budget`) are counted
+per Google quota day (midnight to midnight Pacific, on the wall clock even in REPLAY) and
+enforced before calling; over budget -> `(None, call)` with `error="budget_exhausted"`. The
+counts are persisted to `<cache_dir>/llm/daily_budget.json` as `{quota_day, used, spent}`:
+written atomically on every change and read back on start when the file holds the same
+quota day. There is one budget per file per process. An unreadable file is logged and
+ignored; if the file cannot be written, counting stays in memory and one warning is logged.
+Processes sharing a cache dir do not merge their counts. 5xx answers, per-minute 429s and
+transport errors are retried twice (after 2 s and 8 s); a 429 whose QuotaFailure names a
+per-day quota is not retried and closes the tier (`exhaust`) until the quota day ends.
 `structured` calls `reserve` itself; the ADK planner calls `llm.reserve("lite")` from a
-`before_model_callback` on every model turn and ends the run (falling back to rules) when it
-returns False. The stub's `reserve` always returns True.
-`genai.Client(api_key=...)` only; never Vertex AI, never ADC. Image parts are sent with a
-preceding text part `IMAGE {label}`.
+`before_model_callback` on every model turn and `llm.exhaust("lite")` on a per-day 429
+(section 5.6). The stub's `reserve` always returns True and its `exhaust` does nothing.
+`genai.Client(api_key=..., vertexai=False)` only; never Vertex AI, never ADC. Image parts are
+sent with a preceding text part `IMAGE {label}`, at high media resolution. Each request
+times out after `llm_timeout_s`.
 
 `tephra/agents/schemas.py`
 ```python
@@ -598,70 +793,125 @@ def stub_estimate(situation: Situation, settings: Settings) -> PlumeEstimate
 def official_fallback(situation: Situation, settings: Settings) -> PlumeEstimate
 ```
 One `llm.structured(tier="main", schema=PlumeEstimate, ...)` call (plus at most one
-repair). Input to the model: raw texts of every SIGMET/VONA/VAA with their source ids and evidence
-states, the discrepancy list, winds by flight level (`toward_deg` and speed per FL), the BTD
-summary (stats, indicator, caveats) and the images (`images` holds the stored frame PNGs and
-the BTD PNG; core loads them). No timestamps are sent except as source ids; the prompt
-tells the model to cite sources by id only.
+repair), at the tier's default temperature. Input to the model, in order: the volcano; the
+official floor (each layer's source id, label and band, the highest official top and whether
+a polygon is in force now); the verbatim raw texts of every SIGMET/VONA/VAA with their source
+ids, evidence states and observation ages in minutes; the discrepancy list; winds by flight
+level (`toward_deg` and speed per FL, profiles about +0, +3, +6 and +12 h); the BTD summary
+(stats, indicator, caveats; a SILENT or INCONCLUSIVE BTD adds "<SILENT|INCONCLUSIVE> never
+means no ash."); the images; and the task block (allowed modes, limits, citable ids).
+`images` holds the stored frame PNGs and the BTD PNG (core loads them); an image whose label
+is not a source id of the situation is not sent, and a trace line counts it. The prompt
+tells the model to cite sources by id only and to write no times or dates.
 
 Validator (`validate_estimate` returns problems; empty = accepted):
 1. every `sources_used` and `which_source_we_lean_on` is in `situation.source_ids()`; every
    `discrepancy_id` is in the situation's discrepancies;
-2. no timestamp anywhere in the text fields: reject `\d{4}Z`, `\d{6}Z`, `\d{1,2}:\d{2}`,
-   `\d{8}/\d{4}Z?`, ISO dates `\d{4}-\d{2}-\d{2}`, `\d{1,2}/\d{4}Z`;
-3. HYPOTHESIS while `situation.official_valid_now()` is rejected; OFFICIAL with no
-   official layer is rejected;
+2. no timestamp anywhere in the text fields (`rationale`, `uncertainty_notes`, and each
+   disagreement's `reading` and `why`, with source and discrepancy ids removed first):
+   reject `\d{8}/\d{4}Z?`, ISO dates `\d{4}-\d{2}-\d{2}`, `(?<![\d/])\d{1,2}/\d{4}Z?(?!\d)`,
+   `(?<!\d)\d{6}Z`, `(?<!\d)\d{4}Z`, `(?<!\d)\d{1,2}:\d{2}(?!\d)`, and clock times with a zone
+   word, `validators.ZONE_TIME_PATTERN` =
+   `(?<!\d)\d{4}\s?(?:UTC|GMT|Z|LT|LCL|LOCAL|WIB|WITA|WIT|JST|PHT|HRS)(?![A-Z])`, matched
+   ignoring case (the same pattern is in `validators.CLOCK_PATTERNS`);
+3. HYPOTHESIS while `situation.official_valid_now()` is rejected; OFFICIAL or WIDENED with
+   no official layer is rejected;
 4. `top_fl * 100 < situation.official_top_ft()` is rejected (never shrink);
 5. `sector_width_deg() > MAX_SECTOR_WIDTH_DEG` rejected; `extent_km > MAX_PLUME_EXTENT_KM`
-   rejected; `horizon_h > MAX_HORIZON_H` rejected; `base_fl >= top_fl` rejected (except
-   the code-built OFFICIAL fallback with no layers);
-6. a SILENT BTD or a non-observation may not be cited as a reason to narrow anything.
-On rejection: exactly one repair call with the problems listed; if it still fails (or the
-model returned nothing), `official_fallback`: mode OFFICIAL, band from the official layers
-(0/0 when none), `bearing_from_deg = bearing_to_deg = 0`, `extent_km = 0`, `horizon_h =
-settings.default_horizon_h`, `confidence = 1.0`, `sources_used` = official source ids,
-`uncertainty_notes = "Model output rejected; official products only."`. Outcome
-`FALLBACK_OFFICIAL`, `validation_errors` kept, and an audit-worthy trace line (core writes
-the `PLUME_FALLBACK` audit entry).
+   rejected; `horizon_h > MAX_HORIZON_H` or `horizon_h < 1` rejected (core keeps an
+   assessment for its horizon, so minutes would re-ask every tick); `base_fl >= top_fl`
+   rejected (the code-built OFFICIAL estimate with no layers, band 0/0, is never put through
+   these rules);
+6. a SILENT or INCONCLUSIVE BTD or a non-observation may not be the source leaned on
+   (`which_source_we_lean_on`), and no sentence may name one ("silent", "inconclusive", "not
+   observed", "night", ...) next to a narrowing verb that is not negated;
+7. a HYPOTHESIS estimate, while a recent ash VONA exists (the newest VONA with
+   `ash_observed` issued in the last 6 h), needs `extent_km > 0`, `sector_width_deg() > 0` and
+   `top_fl >= min(600, ceil(cloud_top_ft / 100))` when the VONA gives a top. The task block
+   says so ("<VONA> reports ash, so a HYPOTHESIS needs top_fl >= N, extent_km > 0 and two
+   different bearings."), and so does the prompt.
+On rejection, when the model answered (`raw_text` not empty): exactly one repair call that
+lists the problems and quotes the previous answer. If that still fails, or the model returned
+nothing, the fallback: with no official layer at all, `stub_estimate`'s NO MODEL hypothesis
+when it passes `validate_estimate`; otherwise `official_fallback`: mode OFFICIAL, band from the
+official layers rounded outward (0/0 when none), `bearing_from_deg = bearing_to_deg = 0`,
+`extent_km = 0`, `horizon_h = settings.default_horizon_h`, `confidence = 1.0`, `sources_used`
+= official source ids, `uncertainty_notes = "Model output rejected; official products
+only."`. Outcome `FALLBACK_OFFICIAL` either way, `validation_errors` kept, and a warn trace
+line ("Plume Reader fell back to official products only (...)" or "... to the NO MODEL
+hypothesis (...)"); core writes the `PLUME_FALLBACK` audit entry. For the stub hypothesis the
+assessment has `llm_backend="stub"` (the cone label ends `(NO MODEL)` and the advisory header
+says `NO MODEL`), while `model_id` names the model asked. `attempts` counts the calls made,
+not a call refused by the budget.
 
 `stub_estimate` (backend `stub`, outcome `STUB`, deterministic): with an official layer ->
 OFFICIAL (band from layers, confidence 1.0); else with a VONA reporting ash in the last 6 h
--> HYPOTHESIS: sector centred on the wind `toward_deg` at the VONA top's flight level (or the
-VONA movement if no wind) +/- 30 degrees, `extent_km = min(300, wind_kt * 1.852 * 3)`,
-`base_fl = 0`, `top_fl = ceil(VONA top ft / 1000) * 10 + 20`, `horizon_h = 3`, confidence
-0.3; else OFFICIAL with no layers. `rationale` starts with `"NO MODEL:"`.
+-> HYPOTHESIS: sector centred on the wind `toward_deg` at the VONA top's flight level (the
+top is the VONA's cloud top, else the summit), or on the VONA movement if no wind, +/- 30
+degrees; `extent_km = min(300, wind_kt * 1.852 * 3)` with winds, 300 on the VONA movement,
+and at least 25; `base_fl = 0`, `top_fl = min(600, ceil(top ft / 1000) * 10 + 20)`,
+`horizon_h = 3`, confidence 0.3; else (no ash VONA, or neither winds nor a direction)
+OFFICIAL with no layers. `rationale` starts with `"NO MODEL:"`. With the stub backend a stub
+estimate that fails `validate_estimate` is replaced by `official_fallback`.
 
 `call_model=False` (core decided no call is needed, section 5.7) returns the
-`official_fallback` estimate with outcome `OFFICIAL_ONLY`, `attempts=0`, `model_id="none"`
-and no trace of a model. With the stub backend the outcome is always `STUB`.
-`read_plume` sets `PlumeAssessment.id = stable_id("PA", volcano_id, input_hash,
-prompt_hash, model_id)`.
+`official_fallback` estimate with `uncertainty_notes = "No model call was needed; official
+products only."`, outcome `OFFICIAL_ONLY`, `attempts=0`, `model_id="none"` and a `code` trace
+line. With the stub backend the outcome is always `STUB`. `read_plume` sets
+`PlumeAssessment.id = stable_id("PA", volcano_id, input_hash, prompt_hash, model_id)`.
 
 ### 5.6 planner-drafter
 
 `tephra/agents/validators.py`
 ```python
+MAX_CHANGE_LEVEL_FL: Final = 410
+COST_NOTE_MAX_CHARS: Final = 120
+REASONING_MAX_CHARS: Final = 800
+ZONE_TIME_PATTERN: Final = r"(?<!\d)\d{4}\s?(?:UTC|GMT|Z|LT|LCL|LOCAL|WIB|WITA|WIT|JST|PHT|HRS)(?![A-Z])"
+CLOCK_PATTERNS: Final[tuple[re.Pattern[str], ...]]   # the plume time and date patterns + ZONE_TIME_PATTERN, ignoring case
+ACTION_WORDS: Final[dict[ActionKind, tuple[str, ...]]]
+VOCABULARY: Final[frozenset[str]]                   # plain words of four or five capitals that are not places
 def allowed_actions(mode: PlumeMode) -> list[ActionKind]          # from ALLOWED_ACTIONS, fixed order
+def band_clears_hazard(fl_min: int, fl_max: int, *, ctx: PlannerContext) -> bool   # wholly outside band plus margin
 def validate_decision(decision: PlannerDecision, ctx: PlannerContext) -> list[str]
 def validate_draft(draft: DraftText, *, ctx: PlannerContext, plan: PlannedAction) -> list[str]
 ```
-Decision rules: action in `ctx.allowed_actions` (HYPOTHESIS: MONITOR or HOLD only);
-CHANGE_LEVEL needs `change_level_fl_min/max` whose band clears `[hazard_base_ft -
-margin, hazard_top_ft + margin]`; HOLD needs `hold_fl`; DIVERT needs `alternate_icao` that
-is one of `ctx.alternates` with `check.ok`; no clock times in `reasoning` (same regexes as
-the plume validator). Draft rules: body upper case, `len <= ADVISORY_BODY_MAX_CHARS`,
-printable ASCII; action word matches `plan.decision.action`; any 4-letter ICAO code or
-5-letter all-caps word that looks like a waypoint must be one of the input's ICAO codes or
-an allowed vocabulary word (keep a fixed vocabulary list of plain English and ACARS words);
-no clock times or dates; every number in the body must appear in the input (FLs, minutes to
-entry, fuel figures, distances); body must not say "AIRSPACE CLOSED" or "CLOSED" (TEPHRA
-writes company advisories, research/07 rule 21); body must ask the crew for a volcanic
-activity report (contains `VAR`); `cost_note` one line, <= 120 chars, same number rule.
+Decision rules: the action must be in `allowed_actions(ctx.plume_mode)` as well as in
+`ctx.allowed_actions` (HYPOTHESIS: MONITOR or HOLD only). CHANGE_LEVEL needs
+`change_level_fl_min/max`, ordered, at or below FL410, whose band clears `[hazard_base_ft -
+margin, hazard_top_ft + margin]`. HOLD needs `hold_fl` (1 to 600); while `flight.inside_now`,
+`hold_fl` must clear the hazard band plus margin; a `hold_fl` other than the present FL is a
+level change, so it is not allowed in HYPOTHESIS and must be at or below FL410. CONTINUE needs
+the aircraft's present and selected levels (`aircraft_band_ft`) clear of the hazard band plus
+margin. DIVERT needs an `alternate_icao` that is one of `ctx.alternates` with `check.ok` and a
+`taf_source_id`. `reasoning` is not empty, at most 800 characters, and has no clock times
+(`CLOCK_PATTERNS`).
+
+Draft rules: the action is allowed in the mode, and a DIVERT's alternate is listed, has a TAF
+and passed the screen. Body: not empty, upper case, `len <= ADVISORY_BODY_MAX_CHARS`,
+printable ASCII; it names the action (`ACTION_WORDS`), and a DIVERT names the alternate, a
+CHANGE_LEVEL states a band FL and a HOLD states the holding FL; in HYPOTHESIS it may not say
+DIVERT, CLIMB, DESCEND, CHANGE LEVEL or LEVEL CHANGE in any inflection (DIVERTING, DIVERSION,
+DESCENT, CLIMBING); any word of four or five capitals (an ICAO code, or a 5-letter word that
+looks like a waypoint) must be a word of the input (alternate ICAO codes, the airline name,
+volcano, flight, callsign, type, alternate names, fuel formulas, screen reasons) or in
+`VOCABULARY`, a fixed list of plain English and ACARS words that holds no ICAO location id or
+place name; no clock times or dates (`CLOCK_PATTERNS`: `1830 UTC` and `0930UTC` included);
+every number in the body must appear in the input (FLs and feet of the hazard band and
+margin, present and selected levels, minutes to entry, confidence, speed, track, alternate
+distances and bearings, and the numbers in the input texts and fuel formulas); body must
+not say `CLOSED` or any form of `CLOSE` (TEPHRA writes company advisories, research/07 rule
+21); body must ask the crew for a volcanic activity report (contains `VAR`). `cost_note`:
+one line, <= 120 chars, printable ASCII, no clock times, and the same place check (ignoring
+case) and number rule.
 
 `tephra/agents/exposure_planner.py`
 ```python
 PROMPT_PATH: Final[Path]
 CONTEXT_STATE_KEY: Final = "tephra_ctx"
+DECISION_STATE_KEY: Final = "tephra_decision"
+MAX_MODEL_TURNS: Final = 10
+DAILY_QUOTA_SPENT: Final = "GEMINI DAILY QUOTA SPENT (429): LITE TIER CLOSED FOR THE QUOTA DAY"
 def build_planner_context(flight: ExposedFlight, cone: HazardCone, *, volcano_name: str,
                           airports: AirportCatalogue, tafs: Mapping[str, Taf], at: datetime,
                           settings: Settings) -> PlannerContext
@@ -669,19 +919,23 @@ def rule_based_decision(ctx: PlannerContext) -> PlannerDecision
 async def plan_flight(ctx: PlannerContext, llm: LlmBackend, *, settings: Settings,
                       trace: TraceSink | None = None) -> PlannedAction
 ```
-`build_planner_context`: alternates from `airports.nearest(flight.lat, flight.lon,
-max_nm=settings.alternate_search_nm)`; ETA from distance and ground speed; each screened
-with `tephra.feeds.taf.assess_alternate`; an alternate inside the cone (or within 20 nm of
-it) is not ok with reason `"INSIDE HAZARD CONE"` (research/07 rule 20); `divert =
-fuel.divert_line(...)`; `allowed_actions = allowed_actions(cone.mode)`.
+`build_planner_context`: alternates are the 5 nearest from `airports.nearest(flight.lat,
+flight.lon, max_nm=settings.alternate_search_nm)`; `divert = fuel.divert_line(...)`; the ETA
+is `at` plus the divert line's cruise minutes; each is screened with
+`tephra.feeds.taf.assess_alternate`; an alternate inside the cone or within 20 NM of it (a
+20 NM disc that overlaps the cone, by `polygon_iou`) is not ok with reason `"INSIDE HAZARD
+CONE"` (research/07 rule 20); `allowed_actions = allowed_actions(cone.mode)`.
 
 `rule_based_decision` (stub and last-resort fallback, deterministic): HYPOTHESIS -> HOLD at
-the current FL if `minutes_to_entry <= 20`, else MONITOR. OFFICIAL/WIDENED -> if a level
-band clear of the hazard (with margin) is within 4,000 ft of the current level and at or
-below FL410, CHANGE_LEVEL to the nearest such 2,000 ft band; else if `inside_now` or
-`minutes_to_entry <= 15` and an ok alternate exists, DIVERT to the nearest ok alternate;
-else if `minutes_to_entry <= 30`, HOLD at the current FL; else MONITOR. Reasoning starts
-with `"NO MODEL:"` when produced for the stub.
+the current FL if `minutes_to_entry <= 20` and the hold is outside the hazard (not
+`inside_now`, or the current FL clears the band plus margin), else MONITOR.
+OFFICIAL/WIDENED -> CONTINUE when the present and selected levels are above the hazard top
+plus margin; else CHANGE_LEVEL to the nearest 2,000 ft band clear of the hazard plus margin
+within 4,000 ft of the current level and at or below FL410 (ties go to the higher band);
+else if `inside_now` or `minutes_to_entry <= 15` and an alternate with `check.ok` and a TAF
+exists, DIVERT to the nearest; else if `inside_now`, MONITOR (a hold at present position
+would stay inside the hazard; the dispatcher advises the exit); else if `minutes_to_entry <=
+30`, HOLD at the current FL; else MONITOR. Reasoning always starts with `"NO MODEL:"`.
 
 `plan_flight`: backend `stub` -> `rule_based_decision`, outcome `STUB`. Backend `gemini` ->
 ADK `LlmAgent` on `settings.model_lite` with FunctionTools that read the context from
@@ -689,16 +943,28 @@ ADK `LlmAgent` on `settings.model_lite` with FunctionTools that read the context
 `list_alternates()`, `check_alternate(icao)`, `check_level_band(fl_min, fl_max)`,
 `estimate_cost(action, alternate_icao=None)`, and `submit_plan(action, reasoning,
 change_level_fl_min=None, change_level_fl_max=None, hold_fl=None, alternate_icao=None,
-alternatives_considered=None)` which records the `PlannerDecision`. Tool calls become
-`ToolCallRecord`s and are streamed to `trace` as `TraceStage.PLANNER`, actor `adk`. Invalid
-or missing decision -> one repair turn with the problems -> `rule_based_decision` with
-outcome `FALLBACK_RULES`. ADK runs with `InMemoryRunner` (or the ADK 2.x equivalent) inside
-the process; the ADK version is 2.x (research/06): check the current API at adk.dev before
-coding and keep this design.
+alternatives_considered=None)`, which validates the `PlannerDecision`, records it in
+`state[DECISION_STATE_KEY]` and answers `{accepted, problems}`. A tool that raises on the
+model's arguments answers an error to the model instead of ending the run. Tool calls become
+`ToolCallRecord`s (kept when the run fails) and are streamed to `trace` as
+`TraceStage.PLANNER`, actor `adk`. The `before_model_callback` takes every model turn from
+the lite budget (`llm.reserve("lite")`) and stops the run after `MAX_MODEL_TURNS`; the
+`on_model_error_callback` turns a 429 whose QuotaFailure names a per-day quota into
+`llm.exhaust("lite")` and ends the run with no repair turn (ADK 2.11 surfaces that 429 as
+`_ResourceExhaustedError`, a `ClientError` that keeps `.code` and `.details`). Invalid or
+missing decision -> one repair turn with the problems -> `rule_based_decision` with outcome
+`FALLBACK_RULES`, the problems kept as `validation_errors` (`DAILY_QUOTA_SPENT` after a spent
+quota day) and a warn trace line `PLANNER FELL BACK TO RULES (NO MODEL): ...`; an ADK or API
+exception falls back the same way. Each agent turn is bounded by `llm_timeout_s`. ADK runs
+with `InMemoryRunner` inside the process (google-adk 2.11; research/06).
+`PlannedAction.id = stable_id("PLAN", flight.id, cone_id)`; its `fuel` is the hold line for
+HOLD, the alternate's divert line for DIVERT, else None.
 
 `tephra/agents/dispatch_drafter.py`
 ```python
 PROMPT_PATH: Final[Path]
+HEADER_TITLE: Final = "TEPHRA COMPANY ADVISORY - RING OF FIRE AIR (FICTIONAL) - NOT FOR OPERATIONAL USE"
+NEEDS_HUMAN: Final = "NEEDS_HUMAN"
 def render_header(*, ctx: PlannerContext, plan: PlannedAction, cone: HazardCone,
                   sources: Sequence[SourceRef], at: datetime) -> str
 def stub_draft(ctx: PlannerContext, plan: PlannedAction) -> DraftText
@@ -707,17 +973,27 @@ async def draft_advisory(*, situation: Situation, assessment: PlumeAssessment, c
                          ctx: PlannerContext, plan: PlannedAction, llm: LlmBackend,
                          settings: Settings, trace: TraceSink | None = None) -> Advisory
 ```
-`render_header` (code only) prints, upper case: the line `TEPHRA COMPANY ADVISORY - RING OF
-FIRE AIR (FICTIONAL) - NOT FOR OPERATIONAL USE`; `{proxy_flight} (ADS-B {callsign}
-{hex})`; volcano; action with level/alternate; `ENTRY {n} MIN` or `INSIDE NOW`; `CONE
-{mode} {confidence%}` (+ `NO MODEL` for stub); drafted time `hhmmz(at)`; then one `SRC`
-line per source: `{feed} {source_id} ISSUED {ddhhmmz} FETCHED {ddhhmmz} #{sha256_short}`,
-the binding product (SIGMET) first. `select_sources`: latest valid SIGMET(s), latest VONA,
-latest VAA, the wind profile used, and the ADS-B snapshot of the flight (the "four feed
-timestamps and hashes", plus the aircraft).
-`draft_advisory`: Gemini (`tier="lite"`, `schema=DraftText`) writes `body` and `cost_note`
-only; validate with `validate_draft`; one repair; then `stub_draft` with a
-`validation_notes` entry. Returns an `Advisory` with `status=DRAFT`, `version=1`,
+`render_header` (code only) prints, upper case: `HEADER_TITLE`; `{proxy_flight} (ADS-B
+{callsign or NO CALLSIGN} {hex})`; `VOLCANO {name}`; `ACTION` with level band, holding FL or
+alternate; `ENTRY {n} MIN` or `INSIDE NOW`; `CONE {mode} {confidence%}` (+ `NO MODEL` when the
+cone's backend is `stub`); `DRAFTED {hhmmz(at)}`; then one `SRC` line per source: `{feed}
+{source_id} ISSUED {ddhhmmz or N/A} FETCHED {ddhhmmz} #{sha256_short}` (+ `STALE`), the
+binding product (SIGMET) first. `select_sources`: the valid SIGMETs (latest start first), the
+latest VONA, the latest VAA and the wind profile nearest the flight's observation time. The
+flight's ADS-B snapshot is not cited: its provenance reaches neither the `Situation` nor the
+`ExposedFlight`, so the header's `(ADS-B ...)` line names the target instead.
+`draft_advisory`: Gemini (`tier="lite"`, `schema=DraftText`, the tier's default temperature)
+writes `body` and `cost_note` only, from a facts JSON with no clock times, ids or hashes;
+validate with `validate_draft`; one repair when the model answered (a draft, or raw text
+quoted back up to 2,000 characters); no answer at all (budget, API error) goes straight to
+the template. The template (`stub_draft`) then sets the advisory's `llm_backend` and
+`model_id` to `stub` and adds a `validation_notes` entry: `DRAFTER MODEL UNAVAILABLE (...);
+TEMPLATE USED`, or `NEEDS_HUMAN: MODEL DRAFT FAILED CHECKS AFTER REPAIR; TEMPLATE USED: ...`;
+a template that fails the checks adds `NEEDS_HUMAN: TEMPLATE CHECKS: ...`, and a plan that
+fell back to rules adds `PLANNER FELL BACK TO RULES: ...`. The template tells an aircraft
+already inside its new band `DO NOT CLIMB ABOVE FLnnn` or `DO NOT DESCEND BELOW FLnnn`, and
+an inside-now MONITOR (not HYPOTHESIS) `MONITOR AND COORDINATE EXIT WITH ATC. DISPATCH TO
+ADVISE.` Returns an `Advisory` with `status=DRAFT`, `version=1`,
 `created_at=updated_at=timeutil.now()`, `replay=situation.mode is REPLAY`, `prompt_hashes`
 for `plume_reader`/`planner`/`drafter`, `dedupe_key = stable_id("DD", hex, volcano_id,
 action, change_level_fl_min, hold_fl, alternate_icao)`, `input_hash =
@@ -725,12 +1001,19 @@ situation.input_hash`. It does not store anything.
 
 `tephra/agents/adk_app.py`
 ```python
-def build_planner_agent(model: str) -> "LlmAgent"
+AGENT_NAME = "tephra_exposure_planner"
+def build_planner_agent(model: str, *, before_model_callback: Any = None,
+                        on_model_error_callback: Any = None) -> "LlmAgent"
 root_agent: "LlmAgent"     # build_planner_agent(get_settings().model_lite) at import
+agent = sys.modules[__name__]
 ```
-For ADK evaluation (`AgentEvaluator.evaluate(agent_module="tephra.agents.adk_app", ...)`):
-the module exposes `root_agent` and must not define a module-level name `agent`. Eval cases
-put a `PlannerContext` dump in `session_input.state["tephra_ctx"]`.
+`build_planner_agent` runs the model at `temperature_for(model)`, reads its instruction from
+`prompts/planner.md`, and answers a tool that raised with an error for the model
+(`on_tool_error_callback`). For ADK evaluation
+(`AgentEvaluator.evaluate(agent_module="tephra.agents.adk_app", ...)`): the module exposes
+`root_agent` and defines `agent` as the module itself (`agent = sys.modules[__name__]`),
+which google-adk 2.11's AgentEvaluator needs for `agent_module="tephra.agents.adk_app"`.
+Eval cases put a `PlannerContext` dump in `session_input.state["tephra_ctx"]`.
 
 Prompts (`agents/prompts/*.md`) are versioned by content: `prompt_hash` covers the file text.
 
@@ -739,23 +1022,38 @@ Prompts (`agents/prompts/*.md`) are versioned by content: `prompt_hash` covers t
 `tephra/store/__init__.py`
 ```python
 def open_store(settings: Settings) -> Store      # SqliteStore or FirestoreStore (imports google.cloud lazily)
+def encode_doc(doc: Mapping[str, Any]) -> str     # compact strict JSON: NaN and infinities become null
+def decode_doc(text: str) -> dict[str, Any]
 ```
 `tephra/store/sqlite_store.py`: `class SqliteStore(Store)`, constructor `(path: Path,
 blob_dir: Path)`; stdlib `sqlite3` via `asyncio.to_thread`; one table `docs(collection, id,
-doc JSON, PRIMARY KEY(collection, id))`; CAS in a transaction; blobs under
-`cache_dir/blobs/`. `tephra/store/firestore_store.py`: `class FirestoreStore(Store)`,
-constructor `(project: str, database: str, bucket: str)`; `google.cloud.firestore.AsyncClient`
-and Cloud Storage for blobs (runs only inside Cloud Run with its service account); CAS in a
-Firestore transaction; ids escaped with `escape_doc_id`.
+doc JSON, PRIMARY KEY(collection, id))`; CAS in a transaction (a failed COMMIT rolls back);
+blobs under `cache_dir/blobs/`. `tephra/store/firestore_store.py`: `class
+FirestoreStore(Store)`, constructor `(project: str, database: str, bucket: str)`;
+`google.cloud.firestore.AsyncClient` and Cloud Storage for blobs (runs only inside Cloud Run
+with its service account); each document is stored as its JSON text in the field
+`tephra_doc` beside copies of its short top-level scalar fields; equality filters (and one
+`in`) run on the server and the rest in memory, so no composite index is needed; CAS in a
+Firestore transaction; ids escaped with `escape_doc_id`. Both write documents with
+`encode_doc`.
 
 `tephra/desk/audit.py`
 ```python
+GENESIS_SHA256: Final = "0" * 64
+class ChainedAuditEntry(AuditEntry):   # + seq: int (1, 2, ...), prev_sha256: str, sha256: str
 async def record(store: Store, *, actor: str, action: AuditAction, advisory_id: str | None = None,
                  before: Mapping[str, Any] | None = None, after: Mapping[str, Any] | None = None,
                  input_hashes: Sequence[str] = (), model_id: str | None = None,
                  prompt_hash: str | None = None, note: str | None = None) -> AuditEntry
 async def list_entries(store: Store, *, advisory_id: str | None = None, limit: int = 100) -> list[AuditEntry]
+async def verify_chain(store: Store, *, limit: int = 100_000) -> list[str]   # problems; empty = intact
 ```
+The audit trail is hash-chained: each entry carries `seq`, the previous entry's `sha256`
+(`prev_sha256`, zeros for the first) and its own `sha256` over every other field
+(canonical JSON), so an edited entry breaks its own hash and a deleted one breaks the next
+link. Entries are chained under a per-store lock in one process. `list_entries` is newest
+first (by `seq`).
+
 `tephra/desk/approvals.py`
 ```python
 class VersionConflict(Exception): current: Advisory
@@ -774,139 +1072,318 @@ async def list_advisories(store: Store, *, status: AdvisoryStatus | None = None,
 ```
 Transition rules: only DRAFT moves. approve -> APPROVED; edit -> EDITED (body stripped,
 upper-cased, 1..`ADVISORY_BODY_MAX_CHARS` chars, both `body` and `edited_body` kept); reject
--> REJECTED (`reason` >= 3 chars); supersede -> SUPERSEDED (actor `system`). Each transition
-increments `version` through `compare_and_set_advisory`, sets `decided_by`/`decided_at`
-(dispatcher transitions), writes an `AuditEntry` (before/after = status, version, body,
-edited_body, reject_reason; `input_hashes` = advisory `input_hash` + every source sha256;
-`model_id`; `prompt_hash` = drafter hash) and publishes `SseEvent.ADVISORY`. APPROVED and
-EDITED also write an `OutboundMessage` (text = `advisory.final_text`) to `outbound` and an
-`OUTBOUND_QUEUED` audit entry. Nothing ever leaves the store. `submit_draft` de-duplicates:
-if an open DRAFT for the same flight has the same `dedupe_key`, return None; if it has a
-different one, supersede it and create the new draft; if the same `dedupe_key` was APPROVED
-or EDITED within the last 60 minutes, return None. Creation writes a `DRAFT_CREATED` entry.
+-> REJECTED (`reason` >= 3 chars after stripping); supersede -> SUPERSEDED (actor `system`,
+`superseded_by` set, the reason kept as the audit note). Each transition increments
+`version` through `compare_and_set_advisory`, sets `decided_by`/`decided_at` (dispatcher
+transitions), writes an `AuditEntry` (before/after = status, version, body, edited_body,
+reject_reason; `input_hashes` = advisory `input_hash` + every source sha256; `model_id`;
+`prompt_hash` = drafter hash) and publishes `SseEvent.ADVISORY`. APPROVED and EDITED also
+write an `OutboundMessage` (text = `advisory.final_text`) to `outbound` and an
+`OUTBOUND_QUEUED` audit entry. Nothing ever leaves the store. `submit_draft` compares only
+advisories with the same `replay` value (recorded and live advice never dedupe or supersede
+each other): if an open DRAFT for the same flight has the same `dedupe_key`, return None; if
+the same `dedupe_key` was APPROVED or EDITED with `cutoff <= decided_at <= now()` (cutoff =
+now minus 60 minutes; a looping replay clock can put a decision in the future), return None.
+Otherwise the draft is created (a `DRAFT_CREATED` entry and an `advisory` event), and every
+other open DRAFT of the flight is superseded with reason `REPLACED BY A NEWER DRAFT`.
 
 `tephra/replay/cases.py`
 ```python
+MANIFEST_NAME: Final = "manifest.json"
 def cases_dir(data_dir: Path) -> Path                          # data_dir / "replay"
+def case_path(data_dir: Path, case_id: str) -> Path            # ValueError for an unsafe case id
 def list_cases(data_dir: Path) -> list[ReplayCase]             # newest recorded_from first
 def load_case(data_dir: Path, case_id: str) -> ReplayCase
+def select_case(data_dir: Path, case_id: str | None) -> ReplayCase   # the named case, else the newest
 class ReplaySource(Source):
     def __init__(self, case_dir: Path, case: ReplayCase) -> None
+    @property
+    def case(self) -> ReplayCase
 def replay_banner(case: ReplayCase) -> str                     # REPLAY_BANNER_TEMPLATE
+def replay_info(case: ReplayCase, *, auto: bool) -> ReplayInfo
+def start_replay_clock(case: ReplayCase, *, speed: float, begin: datetime | None = None
+                       ) -> timeutil.ReplayClock               # set_clock(ReplayClock(...)); raises on a bad case
+def stop_replay_clock() -> None                                # set_clock(SystemClock())
 ```
 `ReplaySource.fetch` matches the exact final URL (`build_url(url, params)`): the latest
 record with `fetched_at <= now()`, else the earliest record for that URL; no match ->
 `FetchError`. Results have `replay=True` and the recorded `fetched_at` and `sha256`
-(verified against the file).
+(verified against the file; a record path that leaves the case directory is refused).
+`list_cases` skips, with a warning, an unreadable manifest and one whose `case_id` differs
+from its directory; `load_case` raises for both.
 
 `tephra/feeds/registry.py`
 ```python
+PRODUCT_FEEDS: Final = (FeedId.SIGMET, FeedId.VONA, FeedId.VAAC_TOKYO, FeedId.VAAC_DARWIN)
+CONTEXT_FEEDS: Final = (FeedId.ADSB, FeedId.TAF, FeedId.METAR, FeedId.WINDS, FeedId.FRAMES, FeedId.HSD)
 class FeedPoll(TephraModel):   # feed, ok, record_count, new_record_count, error: str|None, stale: bool
+@dataclass
+class LiveData: ...            # the in-memory picture: records, adsb and adsb_at, active, health, coverage
 async def poll(feed: FeedId, runtime: "Runtime") -> FeedPoll
+def disabled_reason(feed: FeedId, settings: Settings, *, replay: bool,
+                    recorded: frozenset[FeedId] | None = None) -> str | None
+def initial_health(settings: Settings, *, replay: bool,
+                   recorded: frozenset[FeedId] | None = None) -> dict[FeedId, FeedHealth]
 def due_feeds(at: datetime, states: Mapping[FeedId, FeedHealth], settings: Settings,
-              *, active: bool, replay: bool = False) -> list[FeedId]
-# VONA is due only when settings.vona_live (TEPHRA_VONA_LIVE) or replay: MAGMA's robots.txt
-# disallows crawling, so live VONA polling is opt-in.
+              *, active: bool, replay: bool = False,
+              recorded: frozenset[FeedId] | None = None) -> list[FeedId]
+def uncovered_feeds(runtime: "Runtime", at: datetime) -> list[FeedId]
+def health_view(states: Mapping[FeedId, FeedHealth], at: datetime, settings: Settings) -> list[FeedHealth]
+def taf_icaos(runtime: "Runtime") -> list[str]
 ```
+Registry rules:
+- `disabled_reason`: HSD without `settings.science` ("raw Himawari processing is off
+  (TEPHRA_SCIENCE=0)"); VONA unless `settings.vona_live` (TEPHRA_VONA_LIVE) or REPLAY
+  ("live polling off: MAGMA's robots.txt disallows crawling (TEPHRA_VONA_LIVE); replays serve
+  recorded VONAs"); in REPLAY, a feed the case did not record (`NOT_RECORDED_NOTE`, "not in
+  this replay case: no archive of this feed was recorded"). Such a feed reads DISABLED with
+  that note, is never polled, and a restart does not bring back its stored state.
+- `due_feeds`: a feed is due when its cadence (less 5 s) has passed since its last attempt.
+  TAF, METAR, winds, frames and HSD are due only while a volcano is active; with none active,
+  ADS-B runs at four times its cadence. `uncovered_feeds` adds off-cadence polls for an active
+  volcano's missing winds, frames or HSD, missing TAF ICAOs, and ADS-B before the first fresh
+  positions. These forced polls back off: the first retry waits `GAP_RETRY_S` (120 s); each
+  later retry waits as long as the gap had lasted at the last attempt, up to
+  `max(GAP_RETRY_S, the feed's cadence)`. A newly uncovered volcano or ICAO starts the gap over.
+- `poll` never raises. Each poll, extra ADS-B passes included, runs under
+  `asyncio.timeout(tick_interval_s x 0.75)` (`POLL_BUDGET_SHARE`); a poll that runs out reads
+  ERROR `no answer within <n> s` and keeps its last data. A
+  `FetchError` reads ERROR with its reason, `ScienceUnavailable` reads DISABLED, any other
+  exception ERROR; the last good records stay in memory. A poll answered by last-good copies,
+  or that lost part of the feed, reads STALE with the reason.
+- Records are stored when new or changed, compared on content without provenance; an
+  unchanged record keeps its first-seen copy, so its source id and hash stay stable. VONAs
+  are kept for `vona_window_h` (2 list pages on a cold start, then 1; known URLs and MAGMA
+  ids skipped), VAAs for 30 h (asked from the last 24 h; Darwin's bulletin URLs never count
+  as known). In REPLAY, VONAs and VAAs issued more than 5 min after the replay clock wait for
+  it; LIVE keeps whatever a feed issued.
+- ADS-B: the query points are the region's plus one per active volcano (`adsb_radius_nm`).
+  Each poll first expires positions older than `MAX_CACHED_COPY_AGE_S`. On `AdsbPointsFailed`
+  the points that answered are used and each failed point's previous snapshot stands in
+  until it expires, and the feed reads STALE with the reason; a total failure reads ERROR.
+  `live.adsb_at` (positions fresh) advances only when every point answered live.
+- Per-volcano feeds (winds, frames, HSD) try every active volcano; one volcano's failure does
+  not stop the rest. After a host times out or refuses a connection (judged from
+  `HttpSource`'s `"<httpx exception name>: <detail>"` wording, or from a cached answer served
+  after such a failure), the poll's remaining requests to that host are skipped. The feed is
+  OK only when every volcano answered live, ERROR when none got through, and STALE otherwise,
+  with the error `"<n> of <m> volcanoes failed (<name>: <reason>; ...); <k> skipped while
+  <host> did not answer (<names>); last good copy served for <names>"`.
+- TAF and METAR ICAOs (`taf_icaos`): the region's alternates, plus the 8 nearest alternates
+  of each active volcano and the 5 nearest of each exposed flight, within
+  `alternate_search_nm`.
+- Frames polls call `fetch_frames(..., nict=settings.nict_frames)`, so NICT true colour is
+  fetched only with `TEPHRA_NICT_FRAMES=true`.
+
 `tephra/scheduler.py`
 ```python
+async def run_tick(runtime: "Runtime", *, reason: str) -> TickReport
+async def run_adsb_pass(runtime: "Runtime") -> None
 async def run_local_scheduler(runtime: "Runtime", stop: asyncio.Event) -> None
 ```
 `tephra/pipeline.py`
 ```python
-@dataclass
+@dataclass(eq=False)
 class Runtime:
     settings: Settings; store: Store; bus: EventBus; source: Source; llm: LlmBackend
     catalogue: VolcanoCatalogue; airports: AirportCatalogue
     mode: RunMode; replay_case: ReplayCase | None; auto_replay: bool
+    live: LiveData; lock: asyncio.Lock; tick_running: bool       # set by the runtime, not passed in
+    @property
+    def recorded_feeds(self) -> frozenset[FeedId] | None          # feeds the playing case holds; None when LIVE
     async def tick(self, *, reason: str = "scheduler") -> TickReport
     async def system_state(self) -> SystemState
     async def wall_snapshot(self) -> WallSnapshot
-    async def switch_mode(self, mode: RunMode, *, auto: bool = False) -> None
+    async def switch_mode(self, mode: RunMode, *, auto: bool = False,
+                          case: ReplayCase | None = None) -> None
     async def aclose(self) -> None
 async def create_runtime(settings: Settings) -> Runtime
 ```
+The scheduler also calls the runtime's step methods (`maybe_switch_mode`,
+`follow_replay_clock`, `refresh_active`, `analyse`, `run_exposures`, `publish`,
+`checkpoint`, ...); they are internal to core.
+
 Core rules:
-- One tick at a time (an `asyncio.Lock`); a tick that finds the lock held returns
-  `TickReport(skipped=True)`. Under Cloud Scheduler (one tick per minute) the tick polls
-  ADS-B at the start and again 30 s later; with `TEPHRA_LOCAL_SCHEDULER=1` the local loop
-  ticks every `tick_interval_s`.
-- Tick order: due feeds -> store new/changed records only (compare sha256) -> `find_active`
-  -> per active volcano winds/frames/BTD (BTD only with `settings.science`, in a thread) ->
-  `build_situation` -> plume assessment -> `build_cone` -> `find_exposed` -> for each exposed flight without an open
-  draft for this cone: `build_planner_context` -> `plan_flight` -> `draft_advisory` ->
-  `submit_draft` -> drafts for flights no longer exposed are superseded -> wall snapshot ->
-  SSE events. A `FALLBACK_OFFICIAL` assessment writes a `PLUME_FALLBACK` audit entry.
-- Plume quota gate. `situation.input_hash` covers only the official texts and the BTD
-  indicator. If it equals the last assessment's, reuse that assessment (no call). If it
-  changed, call `read_plume(..., call_model=True)` only when at least one holds: a CAUTION
-  or WARNING discrepancy exists; no official layer is valid now but a VONA reports ash
-  (HYPOTHESIS territory); an airline aircraft is within `adsb_radius_nm` of the vent.
-  Otherwise call it with `call_model=False` (OFFICIAL_ONLY). This keeps TEPHRA near the
-  ~20 calls/day free tier of 3.8 Flash; the per-tier daily budget in `agents/llm` is the
-  hard stop.
+- One tick at a time. A tick that finds another tick running returns
+  `TickReport(skipped=True, notes=["busy: another tick is still running"])`; one that finds
+  the runtime lock held by an extra ADS-B pass or a mode switch waits for it. Cloud Scheduler
+  calls `POST /tasks/tick` every minute; with `TEPHRA_LOCAL_SCHEDULER=1` the local loop ticks
+  every `tick_interval_s` counted from each tick's start (a tick that overruns is followed at
+  once by the next). After a tick, extra ADS-B passes run every `cadence_adsb_s` timed from
+  the tick's start, none within `ADSB_PASS_MARGIN_S` (10 s) of the next tick (one pass 30 s
+  into a 60 s tick); a pass runs only while a volcano is active, ADS-B is not DISABLED (a
+  replay case without aircraft) and the lock is free.
+- Tick order: auto-replay check -> replay clock check -> due product feeds (SIGMET, VONA,
+  VAACs) -> `find_active` -> due context feeds (ADS-B, TAF, METAR, winds, frames; HSD and
+  the BTD only with `settings.science`) -> per active volcano: `select_records` ->
+  `build_situation` (with the feed health) -> plume assessment -> `build_cone` ->
+  `find_exposed` over every cone -> planning and drafting -> draft retirement -> publish ->
+  checkpoint. One volcano's failure keeps its previous picture and does not stop the others.
+  A `FALLBACK_OFFICIAL` assessment writes a `PLUME_FALLBACK` audit entry.
+- Plume quota gate. `situation.input_hash` covers only the SIGMET, VONA and VAA texts and the
+  BTD indicator. An assessment with an unchanged `input_hash` is reused until `created_at +
+  max(estimate.horizon_h, 3 h)` (`REASK_UNCHANGED`), so an unchanged input is asked again at
+  most every 3 h. Otherwise `read_plume(..., call_model=True)` runs only when at least one
+  holds: a CAUTION or WARNING discrepancy exists; no official layer is valid now but a VONA
+  reports ash (HYPOTHESIS territory); an airline aircraft is within `adsb_radius_nm` of the
+  vent. Otherwise a PLUME trace line is written (`"<volcano>: no CAUTION or WARNING
+  discrepancy, no HYPOTHESIS case and no airline aircraft seen within <adsb_radius_nm> NM;
+  cone from official products only"`) and `read_plume` runs with `call_model=False`
+  (OFFICIAL_ONLY). This keeps TEPHRA near the ~20 calls/day free tier of 3.8 Flash; the
+  per-tier daily budget in `agents/llm` is the hard stop.
+- Plume Reader images: the stored frame PNGs and the BTD PNG. Frames with product
+  `TRUE_COLOR` (NICT, fetched only with `TEPHRA_NICT_FRAMES=true`) are never sent to the
+  model (research/05); the Wall still shows them.
+- Planning. A flight is planned once per (cone id, urgency bucket). The buckets are inside
+  now, entry within 15 min, within 30 min, and later. A flight is planned again for a new
+  cone or a more urgent bucket; a less urgent bucket is not planned again, and an open draft
+  for the cone counts as planned at its own urgency. After the new advice is drafted and
+  before `submit_draft`, the flight's open drafts drafted at a less urgent bucket are
+  superseded with reason `ENTRY NOW IN N MIN` or `INSIDE THE CONE NOW`. A flight whose
+  planning fails stays marked, so the same error does not spend a model call every tick.
+- Exposure and retirement. When every ADS-B snapshot is a stale last-good copy, the step plans
+  nothing and retires nothing: it keeps the previous exposures (dropping those whose cone is
+  gone) and notes `ADS-B is stale: exposures and open drafts kept until positions refresh`.
+  A draft whose flight is no longer exposed is superseded once the flight has been missing
+  from two exposure runs in a row (`NO LONGER EXPOSED IF TRACK AND LEVEL ARE HELD`), or at
+  once when its volcano is no longer active (`VOLCANO NO LONGER ACTIVE`); nothing is retired
+  while `live.adsb_at` is older than the ADS-B stale age. Planning, escalation and retirement
+  consider only open drafts whose `replay` flag matches the current mode.
 - Trace lines (`TraceEvent.new`) for each step go to `bus.publish(SseEvent.TRACE, event)`;
-  agents receive `trace=` callbacks that do the same.
-- Live state (aircraft, exposures, wall snapshot, feed health) is held in memory and
-  persisted at most every 5 minutes; durable records (feed products on change,
-  assessments, cones on change, plans, advisories, audit, outbound) are written when they
-  change. Target under 10,000 Firestore writes a day (free tier is 20,000).
-- REPLAY: `create_runtime` installs `ReplayClock(case.recorded_from, case.recorded_to,
-  speed=settings.replay_speed)` with `set_clock` and uses `ReplaySource`. Auto-replay:
-  with `settings.auto_replay`, after `auto_replay_after_ticks` consecutive LIVE ticks with no
-  active volcano and no exposed flight, switch to REPLAY (`ReplayInfo.auto=True`, audit
-  `MODE_SWITCH`); while auto-replaying, each tick also polls the live SIGMET feed only
-  (through a separate `HttpSource`) and switches back to LIVE when a VA SIGMET for a
+  agents receive `trace=` callbacks that do the same. In REPLAY every trace line carries
+  `detail.replay = true`. DISCREPANCY lines are `warn` for CAUTION and WARNING and `info` for
+  INFO.
+- Live state (aircraft, exposures, wall snapshot, feed health, bookkeeping) is held in memory
+  and persisted at most every 5 minutes; durable records (feed products on change,
+  assessments, situations and cones on change, plans, advisories, audit, outbound) are
+  written when they change. A situation's clock-only fields (`as_of`, each discrepancy's
+  `magnitude` and `summary`) and a cone's `created_at` do not count as a change. Target under
+  10,000 Firestore writes a day (free tier is 20,000).
+- Restart. A LIVE runtime restores from the store the feed health (except feeds the settings
+  switch off and states saved during a replay), the SIGMETs still valid, the VONAs within
+  `vona_window_h`, the VAAs of the last 30 h, and the bookkeeping (planned marks, the latest
+  assessments, quiet ticks), so an unchanged input does not spend a call after a restart. A
+  REPLAY always starts from its recording.
+- REPLAY: `create_runtime` (with `TEPHRA_MODE=REPLAY`) and `switch_mode` call
+  `start_replay_clock(case, speed=settings.replay_speed, begin=settings.replay_start)` and
+  use `ReplaySource`. A replay case's missing feeds read DISABLED with `NOT_RECORDED_NOTE` and
+  are never polled (`Runtime.recorded_feeds`). When the looping replay clock goes back to the
+  start, the picture starts afresh (every feed due again), with a note and a SYSTEM trace
+  line.
+- `switch_mode`: REPLAY plays `case`, else the case playing, else `TEPHRA_REPLAY_CASE` or the
+  newest case. Asking for the mode and case already running changes nothing; another case
+  restarts the replay on it. The
+  replay clock starts (and checks the case) before the source is swapped, so a switch that
+  fails leaves LIVE polling live. `replay_case` is assigned inside the runtime lock, only
+  after the switch succeeds; `POST /api/mode` passes the case instead of setting
+  `runtime.replay_case`. Every switch starts a fresh picture, writes a `MODE_SWITCH` audit
+  entry and a SYSTEM trace line, and publishes the Wall at once.
+- Auto-replay: with `settings.auto_replay`, after `auto_replay_after_ticks` consecutive LIVE
+  ticks with no active volcano and no exposed flight, switch to REPLAY (`ReplayInfo.auto=True`,
+  audit `MODE_SWITCH`); while auto-replaying, each tick also polls the live SIGMET feed only
+  (through the live `HttpSource` it kept) and switches back to LIVE when a VA SIGMET for a
   catalogue volcano is valid at wall-clock time (`SystemClock().now()`, not the replay
   clock). `HttpSource` always stamps `fetched_at` with wall-clock time.
 - `wall_snapshot()` builds `WallSnapshot` (section 8.3) from memory. Situation cards: for
   each active volcano, exactly three `SourceCard`s in the order SIGMET, VONA, VAA (the
   latest of each; others listed in `extra_source_ids`; a missing kind gets `missing=True`
-  and a code-written `missing_note` such as `"No VAA since VONA 2221Z (47 min)"`),
-  `evidence` from `reconcile.evidence_state`, code-written `display_fields` (top, base,
-  movement, ash observed, colour code, validity), and `discrepancy_ids` of the
-  discrepancies that cite that card's source.
+  and a code-written `missing_note`: `"No valid VA SIGMET"`, `"No VONA in the last 24 h"`,
+  `"No VAA since VONA 2221Z (47 min)"` or `"No VAA in the last 24 h"`), `evidence` from
+  `reconcile.evidence_state`, code-written `display_fields` (band, movement, ash observed,
+  colour code, validity), and `discrepancy_ids` of the discrepancies that cite that card's
+  source.
 
 ### 5.8 api
 
-`tephra/main.py`: `app = create_app()` and `def run() -> None` (uvicorn on
-`0.0.0.0:{settings.port}`, `proxy_headers=True`, log level from settings). Console script
-`tephra`.
+`tephra/main.py`: `app = create_app(settings)` (built at import, with JSON logging set up by
+`configure_logging`) and `def run() -> None`: uvicorn on `0.0.0.0:{settings.port}` with
+`proxy_headers=True` and `forwarded_allow_ips="*"` (Cloud Run's front end is the only peer and
+sets `X-Forwarded-Proto`, so desk cookies are marked Secure), no uvicorn access log, log
+level from settings, and a 5 s graceful shutdown (SSE streams never end by themselves).
+Console script `tephra`.
 
-`tephra/api/server.py`: `def create_app(settings: Settings | None = None) -> FastAPI`. The
-lifespan creates the runtime with `create_runtime`, starts `run_local_scheduler` when
-`settings.local_scheduler`, and closes both on shutdown. Routes and shapes: section 8.
+`tephra/api/server.py`
+```python
+CONTENT_SECURITY_POLICY: Final = "; ".join([...])   # the policy in section 8.1
+WEB_DIR: Final = Path(__file__).resolve().parent.parent / "web"
+type RuntimeFactory = Callable[[Settings], Awaitable[Runtime]]
+def create_app(settings: Settings | None = None, *, runtime_factory: RuntimeFactory | None = None) -> FastAPI
+def configure_logging(level: str) -> None    # one JSON object per line on stdout (Cloud Logging shape)
+```
+The lifespan creates the runtime with `runtime_factory` (default `create_runtime`; tests swap
+it), starts `run_local_scheduler` when `settings.local_scheduler`, and on shutdown stops the
+loop (waiting up to 10 s) and closes the runtime. Until the runtime exists, routes that need
+it answer 503 `starting`. A pure ASGI middleware adds the security headers (section 8.1) to
+every response, caps request bodies at 16 KiB whether or not they carry `Content-Length`
+(413 `too_large`), and writes one access-log line per request. The OpenAPI document is at
+`/api/openapi.json`; there is no docs UI. Routes and shapes: section 8.
 
 `tephra/api/auth.py`
 ```python
 COOKIE_NAME: Final = "tephra_desk"
 TASK_HEADER: Final = "X-Tephra-Task-Token"
+CSRF_HEADER: Final = "X-Tephra-Desk"
+def desk_enabled(settings: Settings) -> bool                     # PIN and session secret both set and not blank
 def sign_session(name: str, settings: Settings, *, at: datetime) -> tuple[str, datetime]
 def verify_session(token: str, settings: Settings, *, at: datetime) -> SessionInfo | None
-async def require_desk(request: Request) -> SessionInfo          # FastAPI dependency; 401 otherwise
+def client_key(request: Request) -> str                          # what the login throttle counts against
+async def require_desk_enabled(request: Request) -> None         # 503 desk_disabled
+async def require_desk(request: Request) -> SessionInfo          # 503 desk_disabled, else 401 without a valid cookie
+async def require_csrf(request: Request) -> None                 # 403 for a request a cross-site page could send
 async def require_task_token(request: Request) -> None           # 403 unless header matches settings.task_token
-class LoginThrottle: ...                                         # 5 failures per client IP per 10 min -> 429
+class LoginThrottle:                                             # 5 failures per client key per 10 min -> 429
+    def __init__(self, *, max_failures: int = 5, window_s: float = 600.0,
+                 max_clients: int = 10_000, clock: Callable[[], float] = time.monotonic) -> None
 ```
 Cookie value `b64url(json{"n": name, "exp": epoch_s, "sid": hex}).b64url(hmac_sha256)` keyed
 by `settings.session_secret`; `HttpOnly; SameSite=Strict; Path=/; Max-Age=ttl`; `Secure`
-when the request is https (or `X-Forwarded-Proto: https`). PIN and token compared with
-`hmac.compare_digest`. Audit `LOGIN_OK`/`LOGIN_FAILED` (actor `desk:<name>`, never the PIN).
+when the request is https (or `X-Forwarded-Proto: https`). Sessions expire on wall-clock
+time, not the replay clock. A blank secret signs nothing (`sign_session` raises) and verifies
+nothing (`verify_session` returns None); a blank task token refuses every tick. PIN and token
+compared with `hmac.compare_digest`. Audit `LOGIN_OK`/`LOGIN_FAILED` (actor `desk:<name>`,
+never the PIN). `require_csrf` refuses `Sec-Fetch-Site: cross-site`, an `Origin` whose host
+is not the request's `Host`, and any request with neither a JSON body (`Content-Type:
+application/json`) nor `X-Tephra-Desk: 1`; either one forces a CORS preflight, which TEPHRA
+never answers. `LoginThrottle` counts failures per `client_key`: the rightmost
+`X-Forwarded-For` entry (the one Cloud Run's front end appends), falling back to the peer
+address when the header is absent. `main.run` trusts every proxy only for
+`X-Forwarded-Proto`; uvicorn then reports the spoofable leftmost entry as `request.client`,
+which nothing uses for security. This holds only while nothing, such as an external
+Application Load Balancer, sits in front of Cloud Run appending its own address.
 
 `tephra/api/sse.py`
 ```python
-async def event_stream(bus: EventBus, *, heartbeat_s: float = 15.0) -> AsyncIterator[str]
+RETRY_MS: Final = 3000
+def event_stream(bus: EventBus, *, heartbeat_s: float = 15.0, last_event_id: int | None = None,
+                 mode: Callable[[], RunMode] = lambda: RunMode.LIVE) -> AsyncGenerator[str, None]
 def format_event(event: Event) -> str      # "id: {id}\nevent: {name}\ndata: {json}\n\n"
+def missed_events(bus: EventBus, after_id: int) -> list[Event]   # history events with a larger id, oldest first
+def parse_last_event_id(header: str | None) -> int | None
+class StreamSlots:                         # open streams, capped at settings.max_event_streams
+    def __init__(self, limit: int) -> None
+    def acquire(self) -> bool
+    def release(self) -> None
+class EventStreamResponse(StreamingResponse):
+    def __init__(self, stream: AsyncGenerator[str, None], slots: StreamSlots) -> None
 ```
-The stream starts with `retry: 3000\n\n`, sends a `heartbeat` event when idle for
-`heartbeat_s`, and closes when the client disconnects.
+`event_stream` is an async generator. It subscribes before sending anything, starts with
+`retry: 3000\n\n`, replays `missed_events` after `last_event_id` (every event name but
+`heartbeat`, from the bus history of 200 events per name), then sends live events and a
+`heartbeat` event (`{"now": iso, "mode": mode()}`, no id) when idle for `heartbeat_s`. A
+client whose 256-event queue has dropped events is disconnected before anything newer is
+sent; the browser reconnects with `Last-Event-ID`. NaN and infinities are sent as null.
+`EventStreamResponse` (`text/event-stream`, `Cache-Control: no-cache`, `X-Accel-Buffering:
+no`) releases its slot and closes the generator however the response ends (normal end,
+error, or client gone).
 
 ### 5.9 web-wall and web-desk
 
 Plain HTML/CSS/JS, no build step, no frameworks. MapLibre GL JS from
 `https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js` and `.../maplibre-gl.css`;
 basemap `https://tiles.openfreemap.org/styles/dark`. No Google Maps, no inline scripts or
-inline event handlers (CSP below), no `innerHTML` with feed or model text (use
-`textContent`).
+inline event handlers (CSP in section 8.1), no `innerHTML` with feed or model text (use
+`textContent`). Both pages reopen a closed event stream themselves and then reload what
+they show (section 8.4).
 
 Wall (`/`, `index.html` + `wall.js` + `wall.css`): fetch `GET /api/wall`, then subscribe to
 `GET /api/events` and replace sections per section 8.4. Layers: volcanoes by colour code;
@@ -922,72 +1399,96 @@ visible focus, no hover-only information). Attribution: OpenFreeMap/OpenStreetMa
 "Aircraft: adsb.lol (ODbL 1.0)", "Himawari-9 data: JMA via NOAA".
 
 Desk (`/desk`, `desk.html` + `desk.js` + `desk.css`): PIN + name login (`POST
-/api/desk/login`), list of DRAFT cards (`GET /api/desk/advisories?status=DRAFT`) showing
-proxy flight and callsign, action, minutes to entry (and draft age from `created_at`), fuel
-line, body, sources with issue times and short hashes, cone mode and confidence;
-Approve / Edit (textarea, 400-char counter) / Reject (reason required). Send `version`; on
-409 show the current version and let the dispatcher re-decide. Refresh on `advisory` SSE
-events. Works at 375 px width, tap targets >= 44 px.
+/api/desk/login`; every desk request sends `X-Tephra-Desk: 1`), list of DRAFT cards (`GET
+/api/desk/advisories?status=DRAFT`) showing proxy flight and callsign, action, minutes to
+entry (and draft age from `created_at`), fuel line, body, sources with issue times and short
+hashes, cone mode and confidence; Approve / Edit (textarea, 400-char counter) / Reject
+(reason required). Send `version`; on 409 show the current version and let the dispatcher
+re-decide. Refresh on `advisory` SSE events. Works at 375 px width, tap targets >= 44 px.
 
 ### 5.10 ops-evals
 
-Files are listed in section 1. Requirements: `Dockerfile` (python:3.12-slim, uv, `uv sync
---frozen --no-dev --extra gcp`, copies `tephra/` and `data/`, `ENV TEPHRA_DATA_DIR=/app/data
-TEPHRA_CACHE_DIR=/tmp/tephra-cache`, non-root user, `CMD ["tephra"]`); deploy scripts that
-take `PROJECT_ID`/`REGION` from the environment and never hard-code an account (they are run
-later by the user from a personal-account context, never by an agent on this machine);
-Cloud Run `--min-instances=1 --max-instances=1 --no-cpu-throttling`; secrets
-`GEMINI_API_KEY`, `TEPHRA_DESK_PIN`, `TEPHRA_TASK_TOKEN`, `TEPHRA_SESSION_SECRET` from
-Secret Manager; one Cloud Scheduler job `POST /tasks/tick` every minute with header
-`X-Tephra-Task-Token`; Firestore native mode; a US-region bucket for blobs (free tier).
-`.env.example` lists variable names only. `scripts/record_replay.py` uses
-`RecordingSource` around `HttpSource` and the feed fetchers, writes
-`data/replay/<case_id>/` (aviationweather.gov `isigmet` accepts `date=YYYY-MM-DDTHH:MM:SSZ`
-for past SIGMETs). Plume evals score IoU with `tephra.geo.cone.polygon_iou` and bearing
-error with `tephra.geo.units.bearing_diff_deg`. CI runs `ruff check`, `ruff format
---check`, and `pytest` with `TEPHRA_LLM=stub`.
+Files are listed in section 1. Requirements: `Dockerfile` (python:3.12-slim, uv 0.11.17,
+`uv sync --frozen --no-dev --extra gcp` from the required `uv.lock`, plus `--extra science`
+with `--build-arg SCIENCE=1`; copies `tephra/` and `data/`; `ENV TEPHRA_DATA_DIR=/app/data
+TEPHRA_CACHE_DIR=/tmp/tephra-cache`; non-root user; `CMD ["tephra"]`); deploy scripts that
+take the project (`TEPHRA_PROJECT`) and region (`TEPHRA_GCP_REGION`) from the environment and
+never hard-code an account (they are run later by the user from a personal-account context,
+never by an agent on this machine); `deploy/_common.sh` refuses the `default` gcloud
+configuration and any credential override (access-token file, credential-file override,
+impersonation). `deploy/cloudrun.sh` builds with Cloud Build (`deploy/cloudbuild.yaml`),
+creates the runtime service account `tephra-run` with exactly the three roles in
+`docs/ARCHITECTURE.md` section 4, and deploys Cloud Run with `--service-account`,
+`--min-instances` 1 (`TEPHRA_MIN_INSTANCES`), `--max-instances=1`, `--no-cpu-throttling`,
+1 CPU, 1 GiB (2 GiB with science) and `--timeout 3600`; secrets `GEMINI_API_KEY`,
+`TEPHRA_DESK_PIN`, `TEPHRA_TASK_TOKEN`, `TEPHRA_SESSION_SECRET` from Secret Manager
+(`deploy/secrets.sh` refuses a session secret or task token under 32 characters, and a token
+with characters a header cannot carry); one Cloud Scheduler job `POST /tasks/tick` every
+minute (attempt deadline 120 s) with header `X-Tephra-Task-Token`; Firestore native mode; a
+US-region bucket for blobs (free tier). `.env.example` lists every setting by its env name,
+with optional secrets commented out. `scripts/record_replay.py` writes
+`data/replay/<case_id>/`: `live` records the real pollers through `RecordingSource`;
+`noaaport` and `backfill` rebuild a past window from archives (aviationweather.gov `date=`
+SIGMET snapshots, NOAAPort bulletins, the census's MAGMA list pages, and the TAF, METAR,
+winds and ADS-B history the pollers' URLs need); `probe` replays chosen times. Nothing from
+ftp.bom.gov.au goes into a case, and MAGMA is never fetched except by `live --with-vona`.
+Plume evals score bearing error with `tephra.geo.units.bearing_diff_deg` against the VAA
+polygon centroid (no IoU; research/10 section 5); Arm I's wind is the VAA's `WIND FL180`
+group, else Open-Meteo's 500 hPa (FL180) wind at the vent. CI (manual `workflow_dispatch`
+only) runs `ruff check`, `ruff format --check`, and `pytest` with `TEPHRA_LLM=stub`.
 
 ## 6. Quota and model use
 
 | Step | Backend | Model | When it runs |
 |---|---|---|---|
-| Plume Reader | google-genai, structured output | `TEPHRA_MODEL` (gemini-3.8-flash) | only when a volcano's official texts or BTD indicator change and the quota gate (5.7) says the call matters; budget `TEPHRA_MODEL_DAILY_BUDGET` (18) |
-| Exposure Planner | ADK `LlmAgent` + FunctionTools | `TEPHRA_MODEL_LITE` (gemini-3.5-flash-lite) | once per newly exposed flight per cone |
-| Dispatch Drafter | google-genai, structured output | `TEPHRA_MODEL_LITE` | once per new plan |
+| Plume Reader | google-genai, structured output | `TEPHRA_MODEL` (gemini-3.8-flash) | only when a volcano's texts or BTD indicator change (or an unchanged input's assessment is older than `max(horizon_h, 3 h)`) and the quota gate (5.7) says the call matters; at most one repair; budget `TEPHRA_MODEL_DAILY_BUDGET` (18) |
+| Exposure Planner | ADK `LlmAgent` + FunctionTools | `TEPHRA_MODEL_LITE` (gemini-3.5-flash-lite) | once per exposed flight per cone and urgency bucket; every model turn counts (at most 10 per plan); budget `TEPHRA_MODEL_LITE_DAILY_BUDGET` (450), shared with the drafter |
+| Dispatch Drafter | google-genai, structured output | `TEPHRA_MODEL_LITE` | once per new plan, plus at most one repair |
 
+Gemini 3 models run at temperature 1.0 (`temperature_for`). Budgets are counted per Google
+quota day (midnight to midnight Pacific) and kept on disk across restarts (section 5.5).
 Free-tier limits are reported, not published (research/06): about 20 requests/day for 3.8
-Flash and 500 for 3.5 Flash-Lite. Over budget, every step falls back to code (OFFICIAL
-cone, rule-based plan, template draft) and says so in the trace and on the card.
+Flash and 500 for 3.5 Flash-Lite. Over budget, or after a per-day 429, every step falls back
+to code (official cone, or the NO MODEL hypothesis when there is no official polygon;
+rule-based plan; template draft) and says so in the trace and on the card.
 
 ## 7. Store collections
 
 | Collection | Doc id | Document | Written by |
 |---|---|---|---|
-| `sigmets`, `vonas`, `vaas`, `frames`, `btd` | `source_id` | `Sigmet`, `Vona`, `VaacAdvisory`, `SatelliteFrame`, `BtdResult` | core (new or changed sha256 only) |
-| `tafs`, `metars` | ICAO | latest `Taf`, `Metar` | core |
+| `sigmets`, `vonas`, `vaas`, `frames`, `btd` | `source_id` | `Sigmet`, `Vona`, `VaacAdvisory`, `SatelliteFrame`, `BtdResult` | core (new or changed content only) |
+| `tafs`, `metars` | ICAO | latest `Taf`, `Metar` | core (on change) |
 | `adsb` | `latest` | `{"snapshots": [AdsbSnapshot]}` | core (throttled) |
-| `winds` | volcano_id | `WindForecast` | core |
-| `situations` | volcano_id | latest `Situation` | core (on change) |
-| `assessments` | assessment id | `PlumeAssessment` | core |
-| `cones` | volcano_id | latest `HazardCone` | core |
-| `exposures` | flight id | `ExposedFlight` (current set) | core (throttled) |
+| `winds` | volcano_id | `WindForecast` | core (every winds poll) |
+| `situations` | volcano_id | latest `Situation` | core (on change, clock-only fields aside) |
+| `assessments` | assessment id | `PlumeAssessment` | core (each Plume Reader run) |
+| `cones` | volcano_id | latest `HazardCone` | core (on change) |
+| `exposures` | flight id | `ExposedFlight` (current set; gone flights deleted) | core (throttled) |
 | `plans` | plan id | `PlannedAction` | core |
 | `advisories` | advisory id | `Advisory` (CAS on `version`) | desk.approvals only |
 | `outbound` | message id | `OutboundMessage` | desk.approvals only |
-| `audit` | entry id | `AuditEntry` (append-only) | desk.audit only |
-| `feed_state` | FeedId value | `FeedHealth` | core |
+| `audit` | entry id | `ChainedAuditEntry` (append-only, hash-chained) | desk.audit only |
+| `feed_state` | FeedId value | `FeedHealth` | core (throttled, on change) |
 | `wall` | `current` | `WallSnapshot` | core (throttled) |
-| `runtime` | `state` | core bookkeeping | core |
+| `runtime` | `state` | core bookkeeping: `mode`, `auto_replay`, `case_id`, `quiet_ticks`, `planned` (`{flight_id: [cone_id, urgency]}`), `assessment_ids`, `last_tick`, `saved_at` | core (throttled) |
 | blobs | `frames/*.png`, `btd/*.png` | PNG bytes | core |
+
+Documents are strict JSON (`tephra.store.encode_doc`): NaN and infinities are stored as null.
 
 ## 8. HTTP API (api implements, web consumes)
 
 All JSON bodies are the named models dumped with `model_dump(mode="json")` (datetimes as
-`2026-10-07T10:32:00.000Z`). Errors are `ErrorBody` with these `error` codes:
-`bad_pin` (401), `unauthenticated` (401), `forbidden` (403), `desk_disabled` (503),
-`too_many_attempts` (429), `not_found` (404), `version_conflict` (409, `current` set),
-`invalid_transition` (409), `validation_failed` (422, `problems` set). A request validation
-error from FastAPI is reshaped into `validation_failed`.
+`2026-10-07T10:32:00.000Z`). They live in `tephra/models.py`, except the API-only `Health`,
+`FeedList`, `ReplayCaseSummary`, `ReplayCaseList` and `ModeRequest` in `tephra/api/server.py`.
+Errors are `ErrorBody` with these `error` codes:
+`bad_request` (400), `bad_pin` (401), `unauthenticated` (401), `forbidden` (403),
+`not_found` (404), `method_not_allowed` (405), `version_conflict` (409, `current` set),
+`invalid_transition` (409), `too_large` (413), `validation_failed` (422, `problems` set),
+`too_many_attempts` (429, `Retry-After`), `internal` (500), `desk_disabled` (503),
+`starting` (503; the runtime is not ready), `too_many_streams` (503, `Retry-After: 5`). A
+request validation error from FastAPI is reshaped into `validation_failed`, with locations
+and messages only (the input may be a PIN). No error body carries a stack trace or echoes
+request input.
 
 ### 8.1 Pages and static files
 
@@ -995,15 +1496,20 @@ error from FastAPI is reshaped into `validation_failed`.
 |---|---|
 | `GET /` | `tephra/web/index.html` |
 | `GET /desk` | `tephra/web/desk.html` |
-| `GET /static/{file}` | files in `tephra/web/` (`wall.js`, `wall.css`, `desk.js`, `desk.css`) |
+| `GET /static/{path}` | files under `tephra/web/` (`wall.js`, `wall.css`, `desk.js`, `desk.css`, ...) |
 | `GET /healthz` | `{"ok": true, "mode": "LIVE"}` |
 
-Every HTML response carries:
-`Content-Security-Policy: default-src 'self'; script-src 'self' https://unpkg.com;
-style-src 'self' https://unpkg.com; img-src 'self' data: blob: https://tiles.openfreemap.org;
-connect-src 'self' https://tiles.openfreemap.org; worker-src 'self' blob:; child-src blob:;
-font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`, plus
-`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-cache`.
+Every response carries:
+`Content-Security-Policy: default-src 'self'; script-src 'self'
+https://unpkg.com/maplibre-gl@4.7.1/ https://unpkg.com/@maplibre/maplibre-gl-compare@0.5.0/;
+style-src 'self' https://unpkg.com; img-src 'self' data: blob: https://tiles.openfreemap.org
+https://gibs.earthdata.nasa.gov https://tiles.mapterhorn.com; connect-src 'self'
+https://tiles.openfreemap.org https://gibs.earthdata.nasa.gov https://tiles.mapterhorn.com;
+worker-src 'self' blob:; child-src blob:; font-src 'self'; frame-ancestors 'none'; base-uri
+'none'; form-action 'self'`, plus `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+no-referrer`, `X-Frame-Options: DENY`, `Permissions-Policy: camera=(), microphone=(),
+geolocation=()`, `Cache-Control: no-store` under `/api/` and `no-cache` elsewhere (unless the
+route sets its own), and `Strict-Transport-Security: max-age=31536000` over https.
 
 ### 8.2 Read endpoints (public, read-only)
 
@@ -1011,11 +1517,15 @@ font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`, p
 |---|---|
 | `GET /api/state` | `SystemState` |
 | `GET /api/wall` | `WallResponse` = `{state: SystemState, snapshot: WallSnapshot, advisories: [Advisory] (newest 50, all statuses), trace: [TraceEvent] (last 100, oldest first)}` |
-| `GET /api/advisories?status=DRAFT&limit=50` | `AdvisoryList` |
-| `GET /api/audit?advisory_id=...&limit=100` | `AuditList` |
-| `GET /api/outbound?limit=50` | `OutboundList` |
-| `GET /api/blobs/{key}` | PNG bytes; `key` must match `BLOB_KEY_PATTERN` (else 404) |
-| `GET /api/events` | `text/event-stream` (section 8.4) |
+| `GET /api/advisories?status=DRAFT&limit=50` | `AdvisoryList` (newest first; every status when `status` is absent) |
+| `GET /api/audit?advisory_id=...&limit=100` | `AuditList` (newest first; `advisory_id` must match `adv_[0-9a-f]{12}`) |
+| `GET /api/outbound?limit=50` | `OutboundList` (newest first) |
+| `GET /api/feeds` | `FeedList` = `{feeds: [FeedHealth]}` (ages as of now) |
+| `GET /api/replays` | `ReplayCaseList` = `{cases: [ReplayCaseSummary]}`: each recorded case without its records (`case_id`, `label`, `recorded_from`, `recorded_to`, `region`, `volcano_ids`, `notes`, `record_count`, `banner`) |
+| `GET /api/blobs/{key}` | PNG bytes; `key` must match `BLOB_KEY_PATTERN` (else 404); `Cache-Control: public, max-age=86400, immutable` |
+| `GET /api/events` | `text/event-stream` (section 8.4); 503 `too_many_streams` while `TEPHRA_MAX_EVENT_STREAMS` streams are open |
+
+`limit` is 1 to 200 everywhere.
 
 ### 8.3 Wall snapshot sections
 
@@ -1033,7 +1543,11 @@ blob_url(image_key)`, `corners = bbox.corners_lonlat()`), `FrameThumb` per store
 
 ### 8.4 Server-Sent Events (`GET /api/events`)
 
-Framing: `id: <int>\nevent: <name>\ndata: <json>\n\n`; first line `retry: 3000`.
+Framing: `id: <int>\nevent: <name>\ndata: <json>\n\n`; first line `retry: 3000`. A client
+whose 256-event queue has dropped events is disconnected before anything newer is sent. The
+browser reconnects with `Last-Event-ID`, and the server first replays the newer events still
+in the bus history (200 per event name). A gap older than that history is not replayed: the
+Wall resyncs from `/api/wall` and the Desk reloads its list when the stream reopens.
 
 | `event` | `data` | Client action |
 |---|---|---|
@@ -1048,26 +1562,37 @@ Framing: `id: <int>\nevent: <name>\ndata: <json>\n\n`; first line `retry: 3000`.
 | `situation` | `SituationCard` | upsert card by `volcano_id` |
 | `trace` | `TraceEvent` | append (keep last 200) |
 | `advisory` | `Advisory` | upsert by `id` (Wall list and Desk cards) |
-| `heartbeat` | `{"now": iso, "mode": "LIVE"}` | update clock |
+| `heartbeat` | `{"now": iso, "mode": "LIVE"}` (no `id`) | update clock |
 
-Core publishes every event except `heartbeat` (the SSE endpoint sends it).
+Core publishes every event except `heartbeat` (the SSE endpoint sends it). NaN and
+infinities in a payload are sent as null.
 
-### 8.5 Desk endpoints (cookie session; JSON bodies; `Content-Type: application/json` required)
+### 8.5 Desk endpoints (cookie session; CSRF guard on every POST)
 
 | Method, path | Request | Response |
 |---|---|---|
-| `POST /api/desk/login` | `LoginRequest` `{pin, name}` | 200 `SessionInfo` + `Set-Cookie`; 401 `bad_pin`; 429; 503 `desk_disabled` when `TEPHRA_DESK_PIN` unset |
-| `POST /api/desk/logout` | none | 204, cookie cleared |
-| `GET /api/desk/me` | none | `SessionInfo` or 401 |
-| `GET /api/desk/advisories?status=DRAFT` | none | `AdvisoryList` (default status DRAFT, newest first) |
+| `POST /api/desk/login` | `LoginRequest` `{pin (1-64 chars), name}` | 200 `SessionInfo` + `Set-Cookie`; 401 `bad_pin`; 429 `too_many_attempts` with `Retry-After`; 422 `validation_failed` for a name that is not 2 to 32 letters, digits, spaces or `. ' - _`; 503 `desk_disabled` |
+| `POST /api/desk/logout` | none | 204, cookie cleared (the CSRF guard applies, also when the desk is disabled) |
+| `GET /api/desk/me` | none | `SessionInfo`, 401 or 503 `desk_disabled` |
+| `GET /api/desk/advisories?status=DRAFT&limit=50` | none | `AdvisoryList` (default status DRAFT, newest first) |
 | `POST /api/desk/advisories/{id}/approve` | `DecisionRequest` `{version}` | `Advisory` (APPROVED); 409 `version_conflict`/`invalid_transition`; 404 |
-| `POST /api/desk/advisories/{id}/edit` | `EditRequest` `{version, body}` | `Advisory` (EDITED); 422 `validation_failed` |
-| `POST /api/desk/advisories/{id}/reject` | `RejectRequest` `{version, reason}` | `Advisory` (REJECTED); 422 when reason too short |
+| `POST /api/desk/advisories/{id}/edit` | `EditRequest` `{version, body}` | `Advisory` (EDITED); 422 `validation_failed` (empty, or over 400 characters once stripped and upper-cased) |
+| `POST /api/desk/advisories/{id}/reject` | `RejectRequest` `{version, reason (3-500 chars)}` | `Advisory` (REJECTED); 422 when the reason is too short |
+| `POST /api/mode` | `ModeRequest` `{mode, case_id?}` | `SystemState` after the switch. REPLAY plays `case_id` (404 `not_found` when there is no such case), else the case playing, else the newest recorded case (409 `invalid_transition` when none exists). Writes a `MODE_SWITCH` audit entry with the dispatcher as actor, beside the runtime's own entry for a switch that happens. |
 
-The actor recorded is `desk:<SessionInfo.name>`.
+The CSRF guard (`auth.require_csrf`, 403 `forbidden`) refuses a cross-site `Sec-Fetch-Site`
+or `Origin`, and any POST with neither a JSON body nor `X-Tephra-Desk: 1`. `desk_disabled`
+(503) is answered by `POST /api/desk/login` and by every endpoint that needs a session
+(`GET /api/desk/me`, `GET /api/desk/advisories`, approve, edit, reject, `POST /api/mode`)
+when `TEPHRA_DESK_PIN` is unset or blank (also when the session secret is blank, which
+config prevents). It comes after the CSRF guard (403) and before body or query validation
+(422); the exception is malformed JSON, which FastAPI rejects with 422 before any dependency
+runs. An advisory id that does not match `adv_[0-9a-f]{12}` answers 404. The actor recorded
+is `desk:<SessionInfo.name>`.
 
 ### 8.6 Task endpoint
 
 `POST /tasks/tick` with header `X-Tephra-Task-Token: <TEPHRA_TASK_TOKEN>` -> 200 `TickReport`
-(with `skipped=true` if a tick is already running); 403 `forbidden` when the header is
-missing or wrong or the token is unset. Cloud Scheduler calls it every minute.
+(with `skipped=true` and the note `busy: another tick is still running` if a tick is already
+running); 403 `forbidden` when the header is missing or wrong or the token is unset or
+blank. Cloud Scheduler calls it every minute.

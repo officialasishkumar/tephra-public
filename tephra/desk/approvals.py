@@ -75,18 +75,21 @@ async def submit_draft(store: Store, bus: EventBus, advisory: Advisory) -> Advis
     """Store a new DRAFT unless it repeats an open or recently approved one.
 
     An open DRAFT for the same flight with the same ``dedupe_key`` wins (None is
-    returned); one with a different key is superseded by the new draft.
+    returned); one with a different key is superseded by the new draft. Recorded (REPLAY)
+    and live advisories are never compared: the same airframe can appear in both.
     """
     if advisory.status is not AdvisoryStatus.DRAFT or advisory.version != 1:
         raise InvalidTransition("only a new DRAFT at version 1 can be submitted")
+    same_mode = Where("replay", "==", advisory.replay)
     open_drafts = await _query(
         store,
         Where("flight_id", "==", advisory.flight_id),
         Where("status", "==", AdvisoryStatus.DRAFT.value),
+        same_mode,
     )
     if any(draft.dedupe_key == advisory.dedupe_key for draft in open_drafts):
         return None
-    if await _recently_queued(store, advisory.dedupe_key):
+    if await _recently_queued(store, Where("dedupe_key", "==", advisory.dedupe_key), same_mode):
         return None
     if not await store.compare_and_set_advisory(advisory.id, 0, advisory.model_dump(mode="json")):
         raise InvalidTransition(f"advisory {advisory.id} already exists")
@@ -108,13 +111,16 @@ async def submit_draft(store: Store, bus: EventBus, advisory: Advisory) -> Advis
     return advisory
 
 
-async def _recently_queued(store: Store, dedupe_key: str) -> bool:
-    cutoff = timeutil.now() - timedelta(minutes=RECENT_DECISION_MIN)
-    previous = await _query(store, Where("dedupe_key", "==", dedupe_key))
+async def _recently_queued(store: Store, *where: Where) -> bool:
+    """A decision counts only within the last hour up to ``now()``: the replay clock loops,
+    and a decision made later in the recording is not recent on the next pass."""
+    at = timeutil.now()
+    cutoff = at - timedelta(minutes=RECENT_DECISION_MIN)
+    previous = await _query(store, *where)
     return any(
         item.status in _QUEUED_STATUSES
         and item.decided_at is not None
-        and item.decided_at >= cutoff
+        and cutoff <= item.decided_at <= at
         for item in previous
     )
 

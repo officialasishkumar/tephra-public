@@ -37,7 +37,7 @@ from pydantic import (
 )
 
 from tephra.util import timeutil
-from tephra.util.hashing import combine_hashes, proxy_flight_number, short_hash
+from tephra.util.hashing import combine_hashes, proxy_flight_number, sha256_text, short_hash
 
 UtcDatetime = Annotated[
     datetime,
@@ -533,7 +533,10 @@ class Sigmet(TephraModel):
     volcano_lat: float | None = None
     volcano_lon: float | None = None
     observed: bool | None = Field(
-        default=None, description="True for 'VA CLD OBS', False for forecast-only, None unknown"
+        default=None,
+        description=(
+            "True for 'VA CLD OBS', False for forecast-only, None unknown or 'VA NOT IDENTIFIABLE'"
+        ),
     )
     observed_at: UtcDatetime | None = Field(default=None, description="'OBS AT 1010Z'")
     base_ft: int = Field(default=0, description="0 means SFC")
@@ -893,7 +896,9 @@ class Situation(TephraModel):
         call instead of triggering one, which would cost about 150 calls a day per volcano.
         """
         texts: list[Any] = [*self.sigmets, *self.vonas, *self.vaas]
-        parts = [f"{r.provenance.source_id}:{r.provenance.sha256}" for r in texts]
+        # Each record's own text, not provenance.sha256: that hashes the whole HTTP response,
+        # which every VA SIGMET worldwide shares, so any change anywhere would re-ask Gemini.
+        parts = [f"{r.provenance.source_id}:{sha256_text(r.raw_text)}" for r in texts]
         if self.btd is not None:
             parts.append(f"BTD:{self.btd.indicator.value}")
         return combine_hashes(parts)
@@ -1317,6 +1322,12 @@ class ReplayCase(TephraModel):
     volcano_ids: list[str] = Field(default_factory=list)
     notes: str | None = None
     records: list[ReplayRecord]
+
+    @model_validator(mode="after")
+    def _window_in_order(self) -> Self:
+        if self.recorded_to < self.recorded_from:
+            raise ValueError("replay case recorded_to is before recorded_from")
+        return self
 
 
 # --- the Wall: map features, cards, snapshot --------------------------------------------

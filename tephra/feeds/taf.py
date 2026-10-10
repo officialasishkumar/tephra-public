@@ -41,6 +41,8 @@ _VIS_UNLIMITED_M = 9999
 """AWC's ``"6+"`` is how it renders a reported 9999 (10 km or more) or CAVOK."""
 _CEILING_COVERS = frozenset({"BKN", "OVC", "OVX", "VV"})
 _NO_WEATHER = frozenset({"NSW"})
+_PREVAILING_CHANGES = frozenset({None, "FM", "BECMG"})
+"""Groups that set the prevailing conditions; TEMPO and PROB groups only overlay them."""
 
 
 def station_params(icaos: Sequence[str]) -> dict[str, str]:
@@ -101,9 +103,8 @@ def _parse_taf(record: Mapping[str, Any], result: FetchResult) -> Taf:
     issued_at = timeutil.parse_iso(record["issueTime"])
     valid_from = timeutil.parse_iso(record["validTimeFrom"])
     valid_to = timeutil.parse_iso(record["validTimeTo"])
-    periods = [
-        _parse_period(item) for item in record.get("fcsts") or [] if isinstance(item, Mapping)
-    ]
+    items = [item for item in record.get("fcsts") or [] if isinstance(item, Mapping)]
+    periods = _hold_until_change_completes(items, [_parse_period(item) for item in items])
     source_id = make_source_id("TAF", icao, timeutil.compact(issued_at))
     return Taf(
         provenance=result.provenance(
@@ -129,6 +130,36 @@ def _parse_period(item: Mapping[str, Any]) -> TafPeriod:
         wind_from_deg=_number(item.get("wdir")),
         wind_speed_kt=_number(item.get("wspd")),
     )
+
+
+def _hold_until_change_completes(
+    items: Sequence[Mapping[str, Any]], periods: list[TafPeriod]
+) -> list[TafPeriod]:
+    """Extend the prevailing group before each BECMG to the end of the change (``timeBec``).
+
+    AWC ends a group where the next BECMG begins, but during ``BECMG 1004/1006`` the old
+    conditions may hold until 06Z: an improving BECMG counts only once the change completes.
+    """
+    held = list(periods)
+    for index, item in enumerate(items):
+        completes = _optional_time(item.get("timeBec"))
+        if held[index].change != "BECMG" or completes is None:
+            continue
+        for prior in range(index - 1, -1, -1):
+            if held[prior].change in _PREVAILING_CHANGES:
+                if held[prior].valid_to < completes:
+                    held[prior] = held[prior].model_copy(update={"valid_to": completes})
+                break
+    return held
+
+
+def _optional_time(value: Any) -> datetime | None:
+    if value is None or value == "":
+        return None
+    try:
+        return timeutil.parse_iso(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _parse_metar(record: Mapping[str, Any], result: FetchResult) -> Metar:

@@ -8,6 +8,7 @@ import io
 import json
 import math
 import re
+from collections import Counter
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,6 +18,7 @@ from PIL import Image
 
 from tephra.config import REGIONS
 from tephra.feeds.adsb import (
+    AdsbPointsFailed,
     fetch_aircraft,
     merge_aircraft,
     parse_adsb,
@@ -79,6 +81,7 @@ def _result(
     feed: FeedId,
     fetched_at: datetime = SAMPLED_AT,
     stale: bool = False,
+    stale_age_s: int | None = None,
 ) -> FetchResult:
     return FetchResult(
         feed=feed,
@@ -89,11 +92,15 @@ def _result(
         fetched_at=fetched_at,
         sha256=sha256_bytes(content),
         stale=stale,
+        stale_age_s=stale_age_s if stale else None,
     )
 
 
 class FakeSource:
-    """Answers GETs from a URL -> bytes table; unknown URLs fail like a 404."""
+    """Answers GETs from a URL -> bytes table; unknown URLs fail like a 404.
+
+    ``stale_urls`` answer like HttpSource's last-good copy, ``stale_age_s`` old.
+    """
 
     def __init__(
         self,
@@ -101,10 +108,12 @@ class FakeSource:
         *,
         fetched_at: datetime = SAMPLED_AT,
         stale_urls: frozenset[str] = frozenset(),
+        stale_age_s: int = 60,
     ) -> None:
         self._responses = dict(responses)
         self._fetched_at = fetched_at
         self._stale_urls = stale_urls
+        self._stale_age_s = stale_age_s
         self.calls: list[str] = []
 
     async def fetch(
@@ -120,6 +129,7 @@ class FakeSource:
             feed=feed,
             fetched_at=self._fetched_at,
             stale=full_url in self._stale_urls,
+            stale_age_s=self._stale_age_s,
         )
 
     async def aclose(self) -> None:
@@ -241,11 +251,66 @@ def test_parse_adsb_drops_ground_unpositioned_and_registration_callsigns() -> No
     assert general_aviation.alt_baro_ft is None
 
 
-@pytest.mark.parametrize("body", [b"<html>busy</html>", b"[]", b'{"ac": []}'])
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"<html>busy</html>",
+        b"[]",
+        b'{"ac": []}',
+        b'{"now": null, "ac": []}',
+        b'{"now": [1791574846501], "ac": []}',
+        b'{"now": Infinity, "ac": []}',
+        b'{"now": 1e20, "ac": []}',
+    ],
+)
 def test_parse_adsb_rejects_unreadable_responses(body: bytes) -> None:
+    """A ValueError fails only this point; anything else would abort the whole ADS-B pass."""
     query = AdsbQueryPoint(lat=-7.0, lon=112.0, radius_nm=100)
     with pytest.raises(ValueError, match=r"adsb\.lol"):
         parse_adsb(_result(body, url=point_url(query), feed=FeedId.ADSB), query)
+
+
+def test_parse_adsb_never_passes_on_a_non_finite_number() -> None:
+    """json.loads reads NaN and Infinity tokens and float() reads 'nan' and 'inf'; a NaN
+    position must never reach the Wall, and round(inf) must not abort the snapshot."""
+    body = (
+        b'{"now": 1791574846501, "ac": ['
+        b'{"hex": "ccccc1", "flight": "GIA417", "lat": NaN, "lon": 112.0, "alt_baro": 30000},'
+        b'{"hex": "ccccc2", "flight": "GIA418", "lat": -7.0, "lon": "inf", "alt_baro": 30000},'
+        b'{"hex": "ccccc3", "flight": "GIA419", "lat": -7.0, "lon": 112.0,'
+        b' "alt_baro": "Infinity", "alt_geom": -Infinity, "nav_altitude_mcp": NaN,'
+        b' "gs": "nan", "track": Infinity, "baro_rate": 1e999, "seen_pos": "inf"}'
+        b"]}"
+    )
+    query = AdsbQueryPoint(lat=-7.0, lon=112.0, radius_nm=100)
+    snapshot = parse_adsb(_result(body, url=point_url(query), feed=FeedId.ADSB), query)
+    (aircraft,) = snapshot.aircraft
+    assert aircraft.hex == "ccccc3"
+    numbers = (
+        aircraft.alt_baro_ft,
+        aircraft.alt_geom_ft,
+        aircraft.nav_altitude_mcp_ft,
+        aircraft.gs_kt,
+        aircraft.track_deg,
+        aircraft.baro_rate_fpm,
+        aircraft.seen_pos_s,
+    )
+    assert numbers == (None,) * len(numbers)
+    assert aircraft.observed_at == snapshot.provenance.issued_at
+
+
+def test_parse_adsb_skips_targets_with_numbers_out_of_range() -> None:
+    payload = {
+        "now": 1791574846501,
+        "ac": [
+            {"hex": "ddddd1", "flight": "GIA417", "lat": -7.0, "lon": 112.0, "seen_pos": 1e300},
+            {"hex": "ddddd2", "flight": "GIA418", "lat": -7.1, "lon": 112.1},
+            {"hex": "ddddd3", "flight": "GIA419", "lat": 10**400, "lon": 112.2},
+        ],
+    }
+    query = AdsbQueryPoint(lat=-7.0, lon=112.0, radius_nm=100)
+    result = _result(json.dumps(payload).encode(), url=point_url(query), feed=FeedId.ADSB)
+    assert [aircraft.hex for aircraft in parse_adsb(result, query).aircraft] == ["ddddd2"]
 
 
 def test_merge_aircraft_keeps_the_newest_copy() -> None:
@@ -260,16 +325,56 @@ def test_merge_aircraft_keeps_the_newest_copy() -> None:
     assert batik.source_id == jakarta.provenance.source_id
 
 
-async def test_fetch_aircraft_skips_a_failed_point() -> None:
+def test_parse_adsb_never_takes_the_level_from_alt_geom() -> None:
+    payload = {
+        "now": 1791574846501,
+        "ac": [{"hex": "bbbbb1", "flight": "GIA417", "lat": -7.0, "lon": 112.0, "alt_geom": 31000}],
+    }
+    query = AdsbQueryPoint(lat=-7.0, lon=112.0, radius_nm=100)
+    result = _result(json.dumps(payload).encode(), url=point_url(query), feed=FeedId.ADSB)
+    (aircraft,) = parse_adsb(result, query).aircraft
+    assert (aircraft.alt_baro_ft, aircraft.alt_geom_ft) == (None, 31000)
+
+
+async def test_fetch_aircraft_reports_failed_points_after_trying_every_point() -> None:
+    """A point lost to a 429 must not look like an empty sky (first live run, 2026-10-10)."""
     good = AdsbQueryPoint(lat=-7.9, lon=112.9, radius_nm=250)
     failing = AdsbQueryPoint(lat=1.2, lon=127.8, radius_nm=220)
     garbled = AdsbQueryPoint(lat=31.8, lon=130.6, radius_nm=200)
     source = FakeSource(
         {point_url(good): ADSB_JAVA.read_bytes(), point_url(garbled): b"<html>oops</html>"}
     )
-    snapshots = await fetch_aircraft(source, [failing, good, garbled])
+    with pytest.raises(AdsbPointsFailed) as caught:
+        await fetch_aircraft(source, [failing, good, garbled])
     assert source.calls == [point_url(failing), point_url(good), point_url(garbled)]
-    assert [snapshot.query for snapshot in snapshots] == [good]
+    error = caught.value
+    assert isinstance(error, FetchError)
+    assert error.feed is FeedId.ADSB
+    assert "2 of 3" in error.reason
+    assert error.failed_points == [failing, garbled]
+    assert [snapshot.query for snapshot in error.snapshots] == [good]
+    assert len(error.snapshots[0].aircraft) == 7
+
+
+async def test_fetch_aircraft_does_not_pass_an_old_cached_copy_off_as_traffic() -> None:
+    point = AdsbQueryPoint(lat=-7.9, lon=112.9, radius_nm=250)
+    url = point_url(point)
+    source = FakeSource(
+        {url: ADSB_JAVA.read_bytes()}, stale_urls=frozenset({url}), stale_age_s=3600
+    )
+    with pytest.raises(AdsbPointsFailed, match="cached copy") as caught:
+        await fetch_aircraft(source, [point])
+    assert caught.value.snapshots == []
+
+
+async def test_fetch_aircraft_keeps_a_recent_cached_copy_marked_stale() -> None:
+    point = AdsbQueryPoint(lat=-7.9, lon=112.9, radius_nm=250)
+    url = point_url(point)
+    source = FakeSource({url: ADSB_JAVA.read_bytes()}, stale_urls=frozenset({url}), stale_age_s=35)
+    (snapshot,) = await fetch_aircraft(source, [point])
+    assert snapshot.provenance.stale
+    assert snapshot.provenance.stale_age_s == 35
+    assert len(snapshot.aircraft) == 7
 
 
 # --- winds ------------------------------------------------------------------------------
@@ -618,7 +723,9 @@ async def test_fetch_frames_skips_jma_when_the_slot_list_is_stale(
     assert semeru is not None
     page_url = build_url(JMA_SLOTS_URL, {"area": "se3"})
     source = FakeSource(_jma_responses(), stale_urls=frozenset({page_url}))
-    assert await fetch_frames(source, semeru) == []
+    # NICT is not in the table either, so nothing at all came back: that is an outage.
+    with pytest.raises(FetchError, match="slot list served from cache"):
+        await fetch_frames(source, semeru)
     assert not any(call.endswith(".jpg") for call in source.calls)
 
 
@@ -647,8 +754,126 @@ async def test_fetch_frames_crops_nict_true_colour_in_daylight(
         assert image.size[0] > 50
 
 
+async def test_nict_is_never_asked_when_switched_off(volcanoes: VolcanoCatalogue) -> None:
+    """NICT's terms are non-commercial: with Settings.nict_frames off, no NICT URL is fetched."""
+    semeru = volcanoes.get("263300")
+    assert semeru is not None
+    source = FakeSource(_jma_responses())
+    frames = await fetch_frames(source, semeru, nict=False)
+    assert [frame.product for frame, _ in frames] == [FrameProduct.B13_IR, FrameProduct.DUST_RGB]
+    assert not any("nict.go.jp" in call for call in source.calls)
+
+
 async def test_fetch_frames_skips_black_night_tiles(volcanoes: VolcanoCatalogue) -> None:
     lewotobi = volcanoes.get("264180")
     assert lewotobi is not None
     tile = HIMAWARI / "nict_D531106_4d_550_20261009_192000_1_2.png"
     assert await fetch_frames(_nict_day_source(tile), lewotobi, areas=(), nict_level=4) == []
+
+
+LIVE_RUN_ACTIVE = ("262000", "263300", "264230", "268010", "268030")
+"""Anak Krakatau, Semeru, Ili Lewotolok, Dukono, Ibu: active in the first live run."""
+
+
+def _night_jma_responses() -> dict[str, bytes]:
+    responses = _jma_responses()
+    responses[NICT_LATEST_URL] = (HIMAWARI / "nict_latest.json").read_bytes()
+    return responses
+
+
+async def test_one_frames_poll_fetches_each_url_once(volcanoes: VolcanoCatalogue) -> None:
+    """The registry asks volcano by volcano; one area's slot list and images are shared.
+
+    The first live run fetched the se3 slot list and each JPEG once per volcano (48 s tick).
+    """
+    responses = _night_jma_responses()
+    source = FakeSource(responses)
+    with timeutil.use_clock(timeutil.FixedClock(SAMPLED_AT)):
+        for volcano_id in LIVE_RUN_ACTIVE:
+            volcano = volcanoes.get(volcano_id)
+            assert volcano is not None
+            frames = await fetch_frames(source, volcano)
+            assert [frame.product for frame, _ in frames] == [
+                FrameProduct.B13_IR,
+                FrameProduct.DUST_RGB,
+            ]
+            assert all(frame.volcano_id == volcano_id for frame, _ in frames)
+    assert Counter(source.calls) == dict.fromkeys(responses, 1)
+
+
+async def test_neighbouring_volcanoes_share_nict_tiles(volcanoes: VolcanoCatalogue) -> None:
+    tile = HIMAWARI / "nict_D531106_4d_550_20261009_050000_1_2_daytime.png"
+    source = _nict_day_source(tile)
+    with timeutil.use_clock(timeutil.FixedClock(SAMPLED_AT)):
+        for volcano_id in ("264180", "264230"):  # Lewotobi and Ili Lewotolok: both in tile 1_2
+            volcano = volcanoes.get(volcano_id)
+            assert volcano is not None
+            frames = await fetch_frames(source, volcano, areas=(), nict_level=4)
+            assert [frame.product for frame, _ in frames] == [FrameProduct.TRUE_COLOR]
+    assert sorted(Counter(source.calls).values()) == [1, 1]
+
+
+async def test_the_next_frames_poll_fetches_again(volcanoes: VolcanoCatalogue) -> None:
+    semeru = volcanoes.get("263300")
+    assert semeru is not None
+    responses = _night_jma_responses()
+    source = FakeSource(responses)
+    clock = timeutil.FixedClock(SAMPLED_AT)
+    with timeutil.use_clock(clock):
+        await fetch_frames(source, semeru)
+        clock.advance(timedelta(minutes=10))
+        await fetch_frames(source, semeru)
+    assert Counter(source.calls) == dict.fromkeys(responses, 2)
+
+
+async def test_a_failed_download_is_tried_once_per_poll(volcanoes: VolcanoCatalogue) -> None:
+    responses = _night_jma_responses()
+    dust_url = next(url for url in responses if "_dst_" in url)
+    del responses[dust_url]
+    source = FakeSource(responses)
+    with timeutil.use_clock(timeutil.FixedClock(SAMPLED_AT)):
+        for volcano_id in ("263300", "264230"):
+            volcano = volcanoes.get(volcano_id)
+            assert volcano is not None
+            frames = await fetch_frames(source, volcano)
+            assert [frame.product for frame, _ in frames] == [FrameProduct.B13_IR]
+    assert source.calls.count(dust_url) == 1
+
+
+async def test_fetch_frames_raises_when_every_product_fails(volcanoes: VolcanoCatalogue) -> None:
+    """An outage must reach the feed health, not read as a quiet empty success."""
+    semeru = volcanoes.get("263300")
+    assert semeru is not None
+    with pytest.raises(FetchError, match="HTTP 404") as caught:
+        await fetch_frames(FakeSource({}), semeru)
+    assert caught.value.feed is FeedId.FRAMES
+
+
+async def test_no_frame_at_night_outside_the_jma_areas_is_not_a_failure(
+    volcanoes: VolcanoCatalogue,
+) -> None:
+    bagana = volcanoes.get("255020")  # east of se3 and south of jpn; 05:41 local solar time
+    assert bagana is not None
+    source = FakeSource({NICT_LATEST_URL: (HIMAWARI / "nict_latest.json").read_bytes()})
+    assert await fetch_frames(source, bagana) == []
+
+
+async def test_frame_captions_cite_the_source_and_say_it_was_cropped(
+    volcanoes: VolcanoCatalogue,
+) -> None:
+    """JMA's Public Data License 1.0 asks for the source and a note that it was edited."""
+    semeru, lewotobi = volcanoes.get("263300"), volcanoes.get("264180")
+    assert semeru is not None
+    assert lewotobi is not None
+    jma = await fetch_frames(FakeSource(_night_jma_responses()), semeru)
+    tile = HIMAWARI / "nict_D531106_4d_550_20261009_050000_1_2_daytime.png"
+    nict = await fetch_frames(_nict_day_source(tile), lewotobi, areas=(), nict_level=4)
+    captions = {frame.product: frame.caption for frame, _ in [*jma, *nict]}
+    assert set(captions) == set(FrameProduct)
+    for product, caption in captions.items():
+        assert "cropped by TEPHRA" in caption, product
+        assert caption.endswith(FRAME_CAPTION_SUFFIX), product
+    assert "Source: JMA Meteorological Satellite Center" in captions[FrameProduct.B13_IR]
+    assert "Source: JMA Meteorological Satellite Center" in captions[FrameProduct.DUST_RGB]
+    assert "Source: NICT" in captions[FrameProduct.TRUE_COLOR]
+    assert "non-commercial" in captions[FrameProduct.TRUE_COLOR]

@@ -29,3 +29,6 @@ dist/
 
 # scratch
 scratch/
+
+# MAGMA VONA text (no redistribution licence)
+evals/plume/arm_t/vona.txt

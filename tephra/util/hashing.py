@@ -8,6 +8,8 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
+from tephra.util import timeutil
+
 __all__ = [
     "SHORT_HASH_LEN",
     "canonical_json",
@@ -34,8 +36,8 @@ def sha256_text(text: str) -> str:
 def canonical_json(value: Any) -> bytes:
     """Deterministic JSON bytes (sorted keys, no whitespace) for hashing."""
     if isinstance(value, BaseModel):
-        value = value.model_dump(mode="json")
-    plain = to_jsonable_python(value)
+        value = value.model_dump()  # python mode: datetimes stay datetimes for iso_times
+    plain = to_jsonable_python(timeutil.iso_times(value))
     return json.dumps(plain, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 

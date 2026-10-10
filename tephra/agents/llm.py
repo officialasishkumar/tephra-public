@@ -4,9 +4,12 @@ Gemini is reached only with a Google AI Studio key through ``genai.Client(api_ke
 never Vertex AI, never Application Default Credentials. Every call:
 
 * is checked against a per-tier daily budget first (the free tier allows about 20 calls a
-  day to the main model; research/06),
+  day to the main model; research/06), counted on Google's quota day, which ends at
+  midnight Pacific time, and kept in ``cache_dir/llm`` so a restart does not reset it,
 * is answered from a disk cache when the same model already saw the same prompt and images,
-* retries 429 and 5xx with back-off, and
+* runs a Gemini 3 model at its default temperature of 1.0 unless the caller names one,
+* retries 5xx and per-minute 429s with back-off; a 429 for a per-day quota closes the tier
+  until the quota day ends, and
 * never raises for model trouble: callers get ``(None, call)`` with ``call.error`` set and
   fall back to code.
 
@@ -18,14 +21,17 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from collections.abc import Callable, Sequence
-from datetime import date
+from datetime import date, datetime, timedelta, timezone, tzinfo
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, Self
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt
 
 from tephra.agents.schemas import gemini_schema, parse_json_model
 from tephra.config import Settings
@@ -45,8 +51,10 @@ __all__ = [
     "LlmPart",
     "StubBackend",
     "Tier",
+    "daily_quota_spent",
     "get_llm",
     "prompt_hash",
+    "temperature_for",
 ]
 
 logger = logging.getLogger(__name__)
@@ -57,6 +65,16 @@ RETRY_DELAYS_S: Final[tuple[float, ...]] = (2.0, 8.0)
 """Back-off before the second and third attempt of one call (429 and 5xx only)."""
 RETRYABLE_STATUS: Final = frozenset({429, 500, 502, 503, 504})
 BUDGET_EXHAUSTED: Final = "budget_exhausted"
+BUDGET_FILE: Final = "daily_budget.json"
+GEMINI_3_TEMPERATURE: Final = 1.0
+"""research/10 C9: Google strongly recommends keeping every Gemini 3 model at its default
+temperature of 1.0; lower values may make it loop."""
+DEFAULT_TEMPERATURE: Final = 0.2
+_GEMINI_3: Final = re.compile(r"(?:models/)?gemini-3(?:[.-]|$)")
+
+
+def temperature_for(model_id: str) -> float:
+    return GEMINI_3_TEMPERATURE if _GEMINI_3.match(model_id) else DEFAULT_TEMPERATURE
 
 
 class LlmPart(TephraModel):
@@ -103,6 +121,10 @@ class LlmBackend(Protocol):
 
     def reserve(self, tier: Tier) -> bool: ...
 
+    def exhaust(self, tier: Tier) -> None:
+        """Google reported the tier's daily quota spent: refuse it until the quota day ends."""
+        ...
+
     async def structured[T: BaseModel](
         self,
         *,
@@ -111,38 +133,121 @@ class LlmBackend(Protocol):
         parts: Sequence[LlmPart],
         schema: type[T],
         stub: Callable[[], T],
-        temperature: float = 0.2,
-    ) -> tuple[T | None, LlmCall]: ...
+        temperature: float | None = None,
+    ) -> tuple[T | None, LlmCall]:
+        """``temperature=None`` runs the tier's model at ``temperature_for(model)``."""
+        ...
 
 
 class BudgetExhausted(RuntimeError):
     """Today's call budget for a tier is used up; the caller falls back to code."""
 
 
-class DailyBudget:
-    """Calls per tier per UTC day, in process memory.
+def _quota_zone() -> tzinfo:
+    try:
+        return ZoneInfo("America/Los_Angeles")
+    except ZoneInfoNotFoundError:
+        # No tz database: Pacific standard time all year (the day starts an hour late in summer).
+        return timezone(timedelta(hours=-8))
 
-    The day is wall-clock UTC even in REPLAY: the quota being protected is Google's, and it
-    resets on real days, not recorded ones.
+
+_QUOTA_ZONE: Final = _quota_zone()
+"""Free-tier requests per day reset at midnight Pacific time (research/10, rate-limits page)."""
+
+
+class _SavedBudget(TephraModel):
+    """One quota day of ``DailyBudget`` counts, as kept on disk."""
+
+    quota_day: date
+    used: dict[Tier, NonNegativeInt] = Field(default_factory=dict)
+    spent: list[Tier] = Field(default_factory=list)
+
+
+class DailyBudget:
+    """Calls per tier per quota day.
+
+    The day is Google's (midnight to midnight Pacific time) on the wall clock, even in
+    REPLAY: the quota being protected resets on real days, not recorded ones. A 429 that
+    names a per-day quota closes the tier until the next quota day. With a ``path`` the
+    day's counts are written there on every change and read back at start, so a restart does
+    not hand the day's quota out again; if the file cannot be written, counting goes on in
+    memory.
     """
 
-    def __init__(self) -> None:
-        self._used: dict[tuple[str, date], int] = {}
+    def __init__(
+        self, now: Callable[[], datetime] | None = None, *, path: Path | None = None
+    ) -> None:
+        self._now = now or timeutil.SystemClock().now
+        self._path = path
+        self._day = self._today()
+        self._used: dict[Tier, int] = {}
+        self._spent: set[Tier] = set()
+        self._save_failed = False
+        self._load()
 
     def take(self, tier: Tier, limit: int) -> None:
-        today = timeutil.SystemClock().now().date()
-        key = (tier, today)
-        used = self._used.get(key, 0)
+        self._roll()
+        used = self._used.get(tier, 0)
+        if tier in self._spent:
+            raise BudgetExhausted(f"{tier} tier: Google reported today's quota spent")
         if used >= limit:
             raise BudgetExhausted(f"{tier} tier used {used} of {limit} calls today")
-        self._used = {k: v for k, v in self._used.items() if k[1] == today}
-        self._used[key] = used + 1
+        self._used[tier] = used + 1
+        self._save()
+
+    def exhaust(self, tier: Tier) -> None:
+        self._roll()
+        self._spent.add(tier)
+        self._save()
 
     def used(self, tier: Tier) -> int:
-        return self._used.get((tier, timeutil.SystemClock().now().date()), 0)
+        self._roll()
+        return self._used.get(tier, 0)
+
+    def _today(self) -> date:
+        return self._now().astimezone(_QUOTA_ZONE).date()
+
+    def _roll(self) -> None:
+        today = self._today()
+        if today != self._day:
+            self._day, self._used, self._spent = today, {}, set()
+
+    def _load(self) -> None:
+        if self._path is None:
+            return
+        try:
+            saved = _SavedBudget.model_validate_json(self._path.read_bytes())
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError) as exc:
+            logger.warning("ignoring unreadable llm daily budget %s: %s", self._path, exc)
+            return
+        if saved.quota_day == self._day:
+            self._used, self._spent = dict(saved.used), set(saved.spent)
+
+    def _save(self) -> None:
+        if self._path is None:
+            return
+        saved = _SavedBudget(quota_day=self._day, used=self._used, spent=sorted(self._spent))
+        tmp = self._path.with_suffix(f".{os.getpid()}.tmp")
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(saved.model_dump_json(), encoding="utf-8")
+            tmp.replace(self._path)
+        except OSError as exc:
+            if not self._save_failed:
+                logger.warning(
+                    "could not save the llm daily budget to %s (%s); counting in memory",
+                    self._path,
+                    exc,
+                )
+            self._save_failed = True
 
 
-_PROCESS_BUDGET = DailyBudget()
+@cache
+def _process_budget(path: Path) -> DailyBudget:
+    """One budget per file, shared by every backend in the process."""
+    return DailyBudget(path=path)
 
 
 def prompt_hash(system: str, parts: Sequence[LlmPart]) -> str:
@@ -182,6 +287,9 @@ class StubBackend:
     def reserve(self, tier: Tier) -> bool:
         return True
 
+    def exhaust(self, tier: Tier) -> None:
+        """The stub spends no quota, so there is nothing to close."""
+
     async def structured[T: BaseModel](
         self,
         *,
@@ -190,7 +298,7 @@ class StubBackend:
         parts: Sequence[LlmPart],
         schema: type[T],
         stub: Callable[[], T],
-        temperature: float = 0.2,
+        temperature: float | None = None,
     ) -> tuple[T | None, LlmCall]:
         value = schema.model_validate(stub().model_dump())
         call = LlmCall(
@@ -220,8 +328,9 @@ class GeminiBackend:
         self._settings = settings
         self._api_key = api_key
         self._client_obj = client
-        self._cache = _DiskCache(cache_dir if cache_dir is not None else settings.cache_dir / "llm")
-        self._budget = budget if budget is not None else _PROCESS_BUDGET
+        llm_dir = cache_dir if cache_dir is not None else settings.cache_dir / "llm"
+        self._cache = _DiskCache(llm_dir)
+        self._budget = budget if budget is not None else _process_budget(llm_dir / BUDGET_FILE)
         self._retry_delays_s = tuple(retry_delays_s)
 
     @property
@@ -239,6 +348,9 @@ class GeminiBackend:
             return False
         return True
 
+    def exhaust(self, tier: Tier) -> None:
+        self._budget.exhaust(tier)
+
     async def structured[T: BaseModel](
         self,
         *,
@@ -247,9 +359,11 @@ class GeminiBackend:
         parts: Sequence[LlmPart],
         schema: type[T],
         stub: Callable[[], T],
-        temperature: float = 0.2,
+        temperature: float | None = None,
     ) -> tuple[T | None, LlmCall]:
         model = self.model_id(tier)
+        if temperature is None:
+            temperature = temperature_for(model)
         p_hash = prompt_hash(system, parts)
         key = sha256_json(
             {
@@ -281,6 +395,8 @@ class GeminiBackend:
         try:
             response = await self._generate(model, system, parts, schema, temperature)
         except Exception as exc:  # any SDK, transport or timeout failure falls back to code
+            if daily_quota_spent(exc):
+                self.exhaust(tier)
             call = call.model_copy(
                 update={"latency_ms": _elapsed_ms(started), "error": _describe(exc)}
             )
@@ -449,7 +565,13 @@ def _config(
 def _retryable(exc: Exception) -> bool:
     if isinstance(exc, httpx.TransportError):
         return True
-    return getattr(exc, "code", None) in RETRYABLE_STATUS
+    return getattr(exc, "code", None) in RETRYABLE_STATUS and not daily_quota_spent(exc)
+
+
+def daily_quota_spent(exc: BaseException) -> bool:
+    """A 429 whose QuotaFailure names a per-day quota (``...PerDay...``): nothing clears it
+    before Google's quota day ends, so retrying only spends time."""
+    return getattr(exc, "code", None) == 429 and "PerDay" in str(getattr(exc, "details", ""))
 
 
 def _describe(exc: BaseException) -> str:

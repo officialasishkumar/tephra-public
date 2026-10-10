@@ -125,10 +125,13 @@ class SqliteStore(Store):
                         "INSERT OR REPLACE INTO docs (collection, id, doc) VALUES (?, ?, ?)",
                         (Collection.ADVISORIES.value, key, text),
                     )
+                # A failed COMMIT leaves the transaction open; every later write would join
+                # it and never be committed, so it must be rolled back below as well.
+                conn.execute("COMMIT")
             except BaseException:
-                conn.execute("ROLLBACK")
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
                 raise
-            conn.execute("COMMIT")
             return matches
 
         return await self._run(swap)

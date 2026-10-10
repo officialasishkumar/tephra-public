@@ -1,0 +1,253 @@
+// Everything the Wall computes from the snapshot (docs/UI-DESIGN.md section 13). Pure
+// functions of the store and the view state: no model is called and no time, number or
+// place is invented; labels are composed from fields.
+
+import { band, compassDeg, fl, hhmmz, idTime, isNight, ms, inBbox, kmBetween } from "./util.js";
+
+export const STEP_OF_LAYER = { SIGMET: "now", OBS: "now", "FCST+6H": "f6", "FCST+12H": "f12", "FCST+18H": "f18" };
+export const SEV_RANK = { WARNING: 3, CAUTION: 2, INFO: 1 };
+export const LEVEL_MAX = 55000;
+const NON_OBS = new Set(["NOT_IDENTIFIABLE", "NOT_OBSERVED", "NIGHT_BLIND"]);
+export { NON_OBS };
+
+export function actionWords(a) {
+  if (!a) return "";
+  const f = (n) => `FL${String(n).padStart(3, "0")}`;
+  switch (a.action) {
+    case "HOLD": return a.hold_fl != null ? `HOLD ${f(a.hold_fl)}` : "HOLD";
+    case "DIVERT": return a.alternate_icao ? `DIVERT ${a.alternate_icao}` : "DIVERT";
+    case "CHANGE_LEVEL":
+      return a.change_level_fl_min != null ? `CHANGE LEVEL ${f(a.change_level_fl_min)}–${f(a.change_level_fl_max)}` : "CHANGE LEVEL";
+    default: return a.action || "";
+  }
+}
+export const deciderName = (a) => (a?.decided_by || "").replace(/^desk:/, "");
+
+export const worstSeverity = (sit) => Math.max(0, ...sit.discrepancies.map((d) => SEV_RANK[d.severity] || 0));
+
+// Priority of volcanoes: exposed count, worst severity, discrepancy count, name.
+export function sortSituations(list) {
+  const prio = (s) => [s.exposed_count || 0, worstSeverity(s), s.discrepancies.length];
+  return list.slice().sort((a, b) => {
+    const pa = prio(a), pb = prio(b);
+    for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pb[i] - pa[i];
+    return a.volcano_name.localeCompare(b.volcano_name);
+  });
+}
+
+export const levelIsAll = (lv) => lv.min <= 0 && lv.max >= LEVEL_MAX;
+
+// Level-filter scale (8.4): SFC-FL180 takes the lower half of the track, FL180-FL550 the
+// upper half, so low ash bands and the traffic climbing through them stay readable.
+const LEVEL_KNEE = 18000;
+export const levelFrac = (ft) => {
+  const v = Math.min(Math.max(ft, 0), LEVEL_MAX);
+  return v <= LEVEL_KNEE ? (v / LEVEL_KNEE) * 0.5 : 0.5 + ((v - LEVEL_KNEE) / (LEVEL_MAX - LEVEL_KNEE)) * 0.5;
+};
+export const levelFromFrac = (f) => {
+  const c = Math.min(Math.max(f, 0), 1);
+  return c <= 0.5 ? (c / 0.5) * LEVEL_KNEE : LEVEL_KNEE + ((c - 0.5) / 0.5) * (LEVEL_MAX - LEVEL_KNEE);
+};
+
+// The view's derived data. `ui` holds the selection and view choices.
+export function derive(store, ui, now) {
+  const { state, snapshot: snap } = store;
+  const sits = sortSituations(snap.situations || []);
+  const vents = new Map();
+  for (const f of snap.volcanoes?.features || []) vents.set(f.properties.id, f.geometry.coordinates);
+  const selected = ui.emptyRegion ? null : sits.some((s) => s.volcano_id === ui.selected) ? ui.selected : sits[0]?.volcano_id || null;
+  const sit = sits.find((s) => s.volcano_id === selected) || null;
+  const lvAll = levelIsAll(ui.level);
+  const outOfLevel = (p) => !lvAll && (p.top_ft < ui.level.min || p.base_ft > ui.level.max);
+
+  // ---- official: step, validity, fill without double counting, fade
+  // TEPHRA's cone contains every official polygon valid before the cone ends, forecasts
+  // included; those forecast polygons are always drawn (dashed), so the cone's extent is
+  // explained by an official shape on the map, never by TEPHRA alone (5.2).
+  const coneEnd = new Map();
+  for (const f of snap.cones?.features || []) if (f.properties.part === "cone") coneEnd.set(f.properties.volcano_id, ms(f.properties.valid_to));
+  const latestSig = new Map();
+  const official = (snap.official?.features || []).map((f) => {
+    const p = f.properties;
+    const step = STEP_OF_LAYER[p.layer] || "now";
+    const vf = ms(p.valid_from), vt = ms(p.valid_to);
+    const valid = vf <= now && now <= vt;
+    const future = vf > now;
+    const inCone = step !== "now" && future && coneEnd.has(p.volcano_id) && vf <= coneEnd.get(p.volcano_id);
+    let show = valid || inCone;
+    if (step !== "now" && (ui.steps === "all" || ui.steps === step)) show = valid || future;
+    return { type: "Feature", geometry: f.geometry, properties: { ...p, step, valid, show, inCone, fill: false } };
+  });
+  for (const f of official) {
+    const p = f.properties;
+    if (!p.show || p.step !== "now" || p.kind !== "SIGMET") continue;
+    const key = `${p.volcano_id}|${p.source_id.split(":")[1]}`;
+    const prev = latestSig.get(key);
+    if (!prev || ms(p.valid_from) > ms(prev.properties.valid_from)) latestSig.set(key, f);
+  }
+  const sigVolcanoes = new Set([...latestSig.keys()].map((k) => k.split("|")[0]));
+  const latestSet = new Set(latestSig.values());
+  let hiddenOfficial = 0;
+  for (const f of official) {
+    const p = f.properties;
+    if (p.show && p.step === "now") p.fill = p.kind === "SIGMET" ? latestSet.has(f) : !sigVolcanoes.has(p.volcano_id);
+    p.sel = p.volcano_id === selected;
+    let fade = p.sel ? 1 : 0.5;
+    if (ui.steps !== "now" && ui.steps !== "all" && p.step !== ui.steps) fade *= 0.5;
+    if (outOfLevel(p)) { fade = 0.15; if (p.show && p.sel) hiddenOfficial++; }
+    p.fade = fade;
+  }
+  const firsWithSigmet = [...new Set(official.filter((f) => f.properties.kind === "SIGMET" && f.properties.valid).map((f) => f.properties.source_id.split(":")[1]))];
+
+  // ---- TEPHRA cones
+  const cones = (snap.cones?.features || []).map((f) => {
+    const p = f.properties;
+    const sel = p.volcano_id === selected;
+    return { type: "Feature", geometry: f.geometry, properties: { ...p, sel, fade: outOfLevel(p) ? 0.15 : sel ? 1 : 0.45 } };
+  });
+  const coneOf = (vid) => cones.find((f) => f.properties.volcano_id === vid && f.properties.part === "cone") || null;
+  const sectorOf = (vid) => cones.find((f) => f.properties.volcano_id === vid && f.properties.part === "sector") || null;
+
+  // ---- advisories by flight
+  const advByFlight = new Map();
+  for (const a of store.advisories) {
+    const prev = advByFlight.get(a.flight_id);
+    if (!prev || ms(a.updated_at) > ms(prev.updated_at)) advByFlight.set(a.flight_id, a);
+  }
+
+  // ---- aircraft
+  let hiddenFlights = 0;
+  const aircraft = [];
+  for (const f of snap.aircraft?.features || []) {
+    const p = f.properties;
+    const ageS = (now - ms(p.observed_at)) / 1000;
+    const stale = ageS > 60;
+    const inside = !!p.exposed && p.minutes_to_entry === 0;
+    const known = p.alt_baro_ft != null;
+    if (!lvAll && known && !p.exposed && (p.alt_baro_ft < ui.level.min || p.alt_baro_ft > ui.level.max)) { hiddenFlights++; continue; }
+    const lvl = known ? fl(p.alt_baro_ft) : "level unknown";
+    const mins = Math.max(1, Math.round(ageS / 60));
+    // Exposed planes keep the TEPHRA colour when their position is old; the age is a word
+    // on its own line instead (5.3). Lines: id, entry and level, decision, age.
+    const l2 = p.exposed ? (inside ? `INSIDE NOW · ${lvl}` : `${p.minutes_to_entry} MIN · ${lvl}`) : lvl;
+    const adv = p.exposed ? advByFlight.get(`${p.hex}:${p.volcano_id}`) : null;
+    const ok = adv && (adv.status === "APPROVED" || adv.status === "EDITED");
+    const l3 = ok ? "✓ APPROVED" : adv && adv.status === "REJECTED" ? "× REJECTED" : "";
+    aircraft.push({
+      type: "Feature",
+      id: f.id,
+      geometry: f.geometry,
+      properties: {
+        ...p, stale, inside, ageS, sel_vid: selected || "",
+        l1: `${p.proxy_flight}${p.callsign ? ` · ${p.callsign}` : ""}`,
+        l2, l3, l3ok: !!ok,
+        l4: stale ? `position ${mins} min old` : "",
+        short: `${p.callsign || p.hex} ${lvl}`,
+      },
+    });
+  }
+  const exposed = aircraft.filter((f) => f.properties.exposed).sort((a, b) => {
+    const pa = a.properties, pb = b.properties;
+    const sa = pa.volcano_id === selected, sb = pb.volcano_id === selected;
+    if (sa !== sb) return sa ? -1 : 1;
+    if (pa.inside !== pb.inside) return pa.inside ? -1 : 1;
+    return (pa.minutes_to_entry ?? 999) - (pb.minutes_to_entry ?? 999);
+  });
+
+  const selVent = selected ? vents.get(selected) : null;
+  const volcanoes = (snap.volcanoes?.features || []).map((f) => ({
+    ...f,
+    properties: {
+      ...f.properties,
+      sel: f.properties.id === selected,
+      near_sel: !!selVent && f.properties.id !== selected && kmBetween(f.geometry.coordinates, selVent) < 25,
+    },
+  }));
+
+  // ---- direction rose for the selected volcano (section 6)
+  let rose = null;
+  if (sit && vents.get(sit.volcano_id)) {
+    const dir = sit.discrepancies.find((d) => d.kind === "DIRECTION_MISMATCH" && d.aspect === "direction");
+    if (dir) {
+      let offDeg = null, obsDeg = null, offVal = "", obsVal = "", obsTime = NaN;
+      const offNames = [];
+      for (const [sid, val] of Object.entries(dir.values)) {
+        const deg = compassDeg(val);
+        if (sid.startsWith("VONA:")) { obsDeg = deg; obsVal = val; obsTime = idTime(sid); }
+        else {
+          if (offDeg == null) { offDeg = deg; offVal = val; }
+          offNames.push(sid.split(":")[0]);
+        }
+      }
+      if (offDeg != null && obsDeg != null) {
+        const vent = vents.get(sit.volcano_id);
+        const probe = sit.discrepancies.some((d) => d.kind === "DIRECTION_MISMATCH" && d.aspect === "polygon");
+        rose = {
+          vent, offDeg, obsDeg, offVal, obsVal, obsTime,
+          offNames: [...new Set(offNames)],
+          magnitude: Math.round(dir.magnitude ?? 0),
+          night: Number.isFinite(obsTime) && isNight(obsTime, vent[0]),
+          probe,
+        };
+      }
+    }
+  }
+
+  // ---- movement per volcano from the SIGMET (else VAA) card, for the label box
+  const moveByVolcano = {};
+  for (const s of sits) {
+    const c = s.cards.find((x) => x.kind === "SIGMET" && !x.missing) || s.cards.find((x) => x.kind === "VAA" && !x.missing);
+    if (c?.display_fields?.Movement) moveByVolcano[s.volcano_id] = c.display_fields.Movement;
+  }
+
+  // ---- region counts (active volcanoes inside each region bbox)
+  const regionCounts = {};
+  for (const r of state.regions || []) regionCounts[r.key] = sits.filter((s) => vents.get(s.volcano_id) && inBbox(vents.get(s.volcano_id), r.bbox)).length;
+
+  return {
+    state, now, mode: state.mode, sits, selected, sit, vents, official, cones, coneOf, sectorOf,
+    aircraft, exposed, exposures: snap.exposures || { type: "FeatureCollection", features: [] },
+    volcanoes, rose, moveByVolcano, firsWithSigmet, advByFlight, regionCounts,
+    levelAll: lvAll, hiddenOfficial, hiddenFlights,
+    overlays: snap.overlays || { btd: [], frames: [] },
+  };
+}
+
+// Official label box text for one volcano (section 5.1): product names, SIGMET first.
+export function officialLabelText(D, vid) {
+  const now = D.now;
+  const feats = D.official.filter((f) => f.properties.volcano_id === vid && f.properties.show && f.properties.step === "now" && f.properties.valid);
+  if (!feats.length) return null;
+  const sigs = feats.filter((f) => f.properties.kind === "SIGMET");
+  // An office's latest SIGMET replaces its earlier ones: name only the latest per FIR.
+  const latest = new Map();
+  for (const f of sigs) {
+    const fir = f.properties.source_id.split(":")[1];
+    if (!latest.has(fir) || ms(f.properties.valid_from) > ms(latest.get(fir).properties.valid_from)) latest.set(fir, f);
+  }
+  const vaas = feats.filter((f) => f.properties.kind !== "SIGMET");
+  const names = [];
+  for (const f of latest.values()) names.push(f.properties.label);
+  for (const f of vaas) {
+    const n = f.properties.label.replace(/ (EST|OBS)$/, "");
+    if (!names.includes(n)) names.push(n);
+  }
+  const main = [...latest.values()][0] || vaas[0];
+  const p = main.properties;
+  const base = Math.min(...feats.map((f) => f.properties.base_ft));
+  const top = Math.max(...feats.map((f) => f.properties.top_ft));
+  const vt = ms(p.valid_to);
+  const sel = vid === D.selected;
+  const move = D.moveByVolcano[vid];
+  const parts = [band(base, top)];
+  if (sel && move) parts.push(move);
+  if (sel && p.kind === "SIGMET") parts.push(`until ${hhmmz(vt)} (${untilText(vt - now)})`);
+  return { line1: names.join(" + "), line2: sel ? parts.join(" · ") : parts[0], geometry: main.geometry, sel };
+}
+
+function untilText(deltaMs) {
+  const m = Math.round(deltaMs / 60e3);
+  if (m <= 0) return "expiring";
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h ${m % 60} min`;
+}

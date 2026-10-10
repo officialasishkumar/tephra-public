@@ -1,0 +1,75 @@
+{
+  "id": "20261008_27307000_0023",
+  "class": "ash",
+  "note": "Taal; tropical night, the TEPHRA-like case",
+  "text_url": "https://ds.data.jma.go.jp/svd/vaac/data/TextData/2026/20261008_27307000_0023_Text.html",
+  "as_frames": [
+    {
+      "name": "as_T-20",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/27307000/09-as/20261008_1400_202610081500_as.png"
+    },
+    {
+      "name": "as_T-10",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/27307000/09-as/20261008_1410_202610081500_as.png"
+    },
+    {
+      "name": "as_T",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/27307000/09-as/20261008_1420_202610081500_as.png"
+    }
+  ],
+  "ir_frames": [
+    {
+      "name": "ir_T",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/27307000/09-ir/20261008_1420_202610081500_ir.png"
+    }
+  ],
+  "vent_px": [
+    458,
+    163
+  ],
+  "image_size": [
+    668,
+    501
+  ],
+  "vaa": {
+    "advisory_nr": "2026/23",
+    "volcano": "TAAL",
+    "volcano_lat": 14.0,
+    "volcano_lon": 121.0,
+    "obs_valid_at": "2026-10-08T14:20:00+00:00",
+    "not_identifiable": false,
+    "top_ft": 15000,
+    "polygon": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [
+            120.23333333333333,
+            13.666666666666666
+          ],
+          [
+            120.13333333333334,
+            13.433333333333334
+          ],
+          [
+            120.25,
+            13.266666666666667
+          ],
+          [
+            120.38333333333334,
+            13.5
+          ],
+          [
+            120.23333333333333,
+            13.666666666666666
+          ]
+        ]
+      ]
+    },
+    "movement_toward_deg": 225.0,
+    "remarks": "SOME PART OF VA OBSCURED BY MET CLOUD."
+  },
+  "wind_text": "WIND FL180 052/11KT",
+  "wind_source": "open-meteo",
+  "needs_human_check": []
+}

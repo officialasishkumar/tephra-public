@@ -20,8 +20,12 @@ Return JSON with two fields:
 1. ACARS style: UPPER CASE plain ASCII, short sentences, at most 400 characters.
 2. State the action with one of the words in `action.say_one_of`. For CHANGE_LEVEL give the
    band from `action.change_level_band` (write it with FL, e.g. FL180-FL200) and say CLIMB
-   or DESCEND; for HOLD give `FL` with `action.hold_fl` and say present position; for
-   DIVERT name the ICAO code in `action.alternate.icao`.
+   or DESCEND; when `flight.present_fl` is already inside that band (its selected level
+   would take it into the hazard), write DO NOT CLIMB ABOVE or DO NOT DESCEND BELOW the
+   band's edge instead. For HOLD give `FL` with `action.hold_fl` and say present position;
+   for DIVERT name the ICAO code in `action.alternate.icao`. For MONITOR while
+   `flight.inside_hazard_now` is true in an official or widened cone, ask the crew to
+   coordinate the exit with ATC and say dispatch will advise; never write NO CHANGE there.
 3. Say where the hazard is: the volcano, the hazard band, and the minutes to entry or that
    the flight is inside it now.
 4. When `hazard.official_product_valid` is false, say the hazard is a TEPHRA estimate with
@@ -30,8 +34,11 @@ Return JSON with two fields:
 6. Add "ATC PERMITTING" when the action needs a clearance (level change, hold, diversion).
 7. Do not write:
    - any clock time, date or timestamp (code adds the times in the header);
-   - any number that does not appear in the facts;
+   - any number that does not appear in the facts' fields. `action.planner_reasoning` is
+     background only: do not copy its numbers or names unless another field has them;
    - any ICAO code other than those in `listed_icao_codes`, and no waypoint names;
+   - the word WILL, which is the ICAO code of Radin Inten II (Lampung); write "TO FOLLOW"
+     instead;
    - "CLOSED" or "AIRSPACE CLOSED" - this is a company advisory, not a NOTAM;
    - source ids, hashes or model names.
 8. Keep it calm and factual. Do not tell the crew the aircraft is safe; say what to do.

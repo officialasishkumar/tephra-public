@@ -10,10 +10,10 @@ once; library code calls :func:`now` instead of ``datetime.now``.
 
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from typing import Any, Protocol
 
 __all__ = [
     "UTC",
@@ -28,6 +28,7 @@ __all__ = [
     "floor_minutes",
     "get_clock",
     "hhmmz",
+    "iso_times",
     "minutes_between",
     "now",
     "parse_day_time",
@@ -83,13 +84,19 @@ class FixedClock:
 class ReplayClock:
     """Recorded time for REPLAY mode.
 
-    Starts at ``start`` when constructed and advances at ``speed`` times wall-clock speed.
-    With ``loop`` it wraps back to ``start`` after ``end`` so a short recording can run all
-    day; without it, time stops at ``end``.
+    Starts at ``begin`` (default ``start``; clamped into the window) when constructed and
+    advances at ``speed`` times wall-clock speed. With ``loop`` it wraps back to ``start``
+    after ``end`` so a short recording can run all day; without it, time stops at ``end``.
     """
 
     def __init__(
-        self, start: datetime, end: datetime, *, speed: float = 1.0, loop: bool = True
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        speed: float = 1.0,
+        loop: bool = True,
+        begin: datetime | None = None,
     ) -> None:
         if speed <= 0:
             raise ValueError("replay speed must be positive")
@@ -99,13 +106,15 @@ class ReplayClock:
             raise ValueError("replay end precedes start")
         self.speed = speed
         self.loop = loop
+        first = min(max(ensure_utc(begin), self.start), self.end) if begin else self.start
+        self._offset_s = (first - self.start).total_seconds()
         self._t0 = time.monotonic()
 
     def now(self) -> datetime:
         span = (self.end - self.start).total_seconds()
         if span <= 0:
             return self.start
-        elapsed = (time.monotonic() - self._t0) * self.speed
+        elapsed = self._offset_s + (time.monotonic() - self._t0) * self.speed
         elapsed = elapsed % span if self.loop else min(elapsed, span)
         return self.start + timedelta(seconds=elapsed)
 
@@ -233,6 +242,21 @@ def to_iso(value: datetime) -> str:
     """Fixed-width ISO 8601 with milliseconds and ``Z``; sorts lexicographically in time."""
     value = ensure_utc(value)
     return value.strftime("%Y-%m-%dT%H:%M:%S.") + f"{value.microsecond // 1000:03d}Z"
+
+
+def iso_times(value: Any) -> Any:
+    """``value`` with every datetime inside it written by :func:`to_iso`.
+
+    Pydantic writes a raw datetime in an ``Any`` field as '...:00Z' or '...:00.123456Z',
+    which does not sort in time; hashes and events always carry the fixed-width form.
+    """
+    if isinstance(value, datetime):
+        return to_iso(value)
+    if isinstance(value, Mapping):
+        return {key: iso_times(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [iso_times(item) for item in value]
+    return value
 
 
 def compact(value: datetime, *, seconds: bool = False) -> str:

@@ -56,14 +56,16 @@ __all__ = [
 
 TOKYO_LIST_URL: Final = "https://ds.data.jma.go.jp/svd/vaac/data/vaac_list.html"
 DARWIN_BACKUP_LIST_URL: Final = "https://ds.data.jma.go.jp/svd/vaac/data/vaac_darwin_list.html"
+# Darwin rotates its advisories over ten WMO headers, FVAU01-FVAU10, and a slot's file keeps
+# its last bulletin until the slot is reused (research/05, row 7 and K6).
 DARWIN_BULLETIN_URLS: Final = tuple(
-    f"https://tgftp.nws.noaa.gov/data/raw/fv/fvau0{n}.adrm..txt" for n in (1, 2, 3, 4)
+    f"https://tgftp.nws.noaa.gov/data/raw/fv/fvau{n:02d}.adrm..txt" for n in range(1, 11)
 )
 
 log = logging.getLogger(__name__)
 
 _FIELD = re.compile(
-    r"^(?P<key>DTG|VAAC|VOLCANO|PSN|AREA|SOURCE ELEV|SUMMIT ELEV|ADVISORY NR|INFO SOURCE"
+    r"^(?P<key>STATUS|DTG|VAAC|VOLCANO|PSN|AREA|SOURCE ELEV|SUMMIT ELEV|ADVISORY NR|INFO SOURCE"
     r"|AVIATION COLOU?R CODE|ERUPTION DETAILS|(?:OBS|EST) VA DTG|(?:OBS|EST) VA CLD"
     r"|FCST VA CLD\s*\+\s*\d{1,2}\s*HR|RMK|NXT ADVISORY)\s*:\s*(?P<value>.*)$"
 )
@@ -92,6 +94,8 @@ _MONTHS: Final = {
 }
 _NOTICE_NAME = "NOTICE"
 _NOTICE_NUMBER = "999999"
+_NOT_REAL_STATUS = frozenset({"TEST", "EXER"})
+"""ICAO's ``STATUS:`` line marks test and exercise bulletins, which may name real volcanoes."""
 
 
 class VaacListItem(TephraModel):
@@ -163,11 +167,14 @@ def parse_vaa(result: FetchResult) -> VaacAdvisory | None:
 
 
 def parse_vaa_text(text: str, result: FetchResult) -> VaacAdvisory | None:
-    """One VAA from its text; None for ``VOLCANO: NOTICE`` pseudo-advisories.
+    """One VAA from its text; None for ``VOLCANO: NOTICE`` pseudo-advisories and for
+    ``STATUS: TEST`` or ``EXER`` bulletins.
 
     Raises ValueError when the text is not a VAA or comes from a VAAC TEPHRA does not model.
     """
     fields, raw_lines = _fields(text)
+    if _not_real(fields.get("STATUS")):
+        return None
     issued_at = _required_time(fields, "DTG")
     volcano_name, volcano_number = _volcano(fields.get("VOLCANO"))
     if volcano_name.upper() == _NOTICE_NAME or volcano_number == _NOTICE_NUMBER:
@@ -256,6 +263,11 @@ def _fields(text: str) -> tuple[dict[str, str], list[str]]:
     if "DTG" not in fields:
         raise ValueError("text has no VAA DTG line")
     return fields, raw_lines
+
+
+def _not_real(status: str | None) -> bool:
+    words = (status or "").upper().split()
+    return bool(words) and words[0] in _NOT_REAL_STATUS
 
 
 def _normalise_key(key: str) -> str:
@@ -449,15 +461,16 @@ async def _darwin(
         advisory = _parse_logged(result)
         if advisory is not None and advisory.issued_at >= since:
             advisories.append(advisory)
+    if len(failures) == len(DARWIN_BULLETIN_URLS):
+        # tgftp is Darwin's only live source. The backup list holds only what Tokyo issued
+        # while standing in, so an answer from it alone would pass for "no advisories".
+        raise failures[-1]
     try:
         advisories += await _from_list(
             source, FeedId.VAAC_DARWIN, DARWIN_BACKUP_LIST_URL, VaacCentre.DARWIN, since, known_urls
         )
     except FetchError as exc:
         log.warning("Darwin backup list unavailable: %s", exc)
-        failures.append(exc)
-    if len(failures) == len(DARWIN_BULLETIN_URLS) + 1:
-        raise failures[-1]
     return advisories
 
 

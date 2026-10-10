@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Final, Literal
 
 from tephra.agents.llm import BUDGET_EXHAUSTED, LlmBackend, LlmCall, LlmPart, prompt_hash
+from tephra.agents.validators import ZONE_TIME_PATTERN
 from tephra.config import (
     MAX_HORIZON_H,
     MAX_PLUME_EXTENT_KM,
@@ -29,6 +30,7 @@ from tephra.geo.units import KM_PER_NM, ft_to_fl
 from tephra.models import (
     BtdIndicator,
     EvidenceState,
+    LlmBackendName,
     PlumeAssessment,
     PlumeEstimate,
     PlumeMode,
@@ -68,6 +70,9 @@ STUB_CONFIDENCE: Final = 0.3
 STUB_TOP_MARGIN_FL: Final = 20
 WIND_OFFSETS_H: Final = (0, 3, 6, 12)
 MAX_FL: Final = 600
+MIN_HORIZON_H: Final = 1.0
+"""Core keeps an assessment until ``created_at + horizon_h``; a horizon of minutes would ask
+the model again on every tick and spend the day's budget."""
 REPAIR_ECHO_CHARS: Final = 6000
 
 _TIMESTAMPS: Final = (
@@ -78,9 +83,13 @@ _TIMESTAMPS: Final = (
     re.compile(r"(?<!\d)\d{6}Z"),
     re.compile(r"(?<!\d)\d{4}Z"),
     re.compile(r"(?<!\d)\d{1,2}:\d{2}(?!\d)"),
+    re.compile(ZONE_TIME_PATTERN, re.IGNORECASE),
 )
+_BLIND_BTD: Final = frozenset({BtdIndicator.SILENT, BtdIndicator.INCONCLUSIVE})
+"""Split-window results that do not mean "no ash" (the science captions say so of both)."""
 _NON_OBSERVATION_CUES: Final = (
     "silent",
+    "inconclusive",
     "not observed",
     "not identifiable",
     "unobserved",
@@ -169,7 +178,7 @@ async def _read_with_model(
             situation, estimate, llm, model_id, p_hash, "ACCEPTED", calls, images_used=images_used
         )
 
-    if call.raw_text is not None:
+    if call.raw_text:  # an empty answer has nothing to repair: fall back (MODULES.md 5.5)
         report(
             "code",
             "Plume Reader output rejected; one repair call",
@@ -188,10 +197,12 @@ async def _read_with_model(
                 situation, estimate, llm, model_id, p_hash, "REPAIRED", calls, images_used
             )
 
-    fallback = official_fallback(situation, settings)
+    fallback = _fallback(situation, settings)
+    by_stub = fallback.mode is PlumeMode.HYPOTHESIS
+    floor = f"the {NO_MODEL_LABEL} hypothesis" if by_stub else "official products only"
     report(
         "code",
-        f"Plume Reader fell back to official products only ({_estimate_line(fallback)})",
+        f"Plume Reader fell back to {floor} ({_estimate_line(fallback)})",
         level="warn",
         detail={"validation_errors": problems, "model_id": model_id},
     )
@@ -205,6 +216,7 @@ async def _read_with_model(
         calls,
         images_used,
         validation_errors=problems,
+        backend="stub" if by_stub else llm.name,
     )
 
 
@@ -260,7 +272,10 @@ def _assessment(
     images_used: Sequence[str] = (),
     *,
     validation_errors: Sequence[str] = (),
+    backend: LlmBackendName | None = None,
 ) -> PlumeAssessment:
+    """``backend`` is who produced the estimate when it is not ``llm`` (code's stub after a
+    rejected answer), so the cone and advisories built on it read NO MODEL."""
     made = [call for call in calls if call.error != BUDGET_EXHAUSTED]
     volcano_id = situation.volcano.id
     input_hash = situation.input_hash
@@ -270,7 +285,7 @@ def _assessment(
         created_at=timeutil.now(),
         input_hash=input_hash,
         estimate=estimate,
-        llm_backend=llm.name,
+        llm_backend=backend or llm.name,
         model_id=model_id,
         prompt_hash=p_hash,
         outcome=outcome,
@@ -345,6 +360,7 @@ def validate_estimate(estimate: PlumeEstimate, situation: Situation) -> list[str
         *_timestamp_problems(estimate, situation),
         *_mode_problems(estimate, situation),
         *_geometry_problems(estimate, situation),
+        *_hypothesis_problems(estimate, situation),
         *_narrowing_problems(estimate, situation),
     ]
 
@@ -393,10 +409,14 @@ def _text_fields(estimate: PlumeEstimate) -> list[tuple[str, str]]:
 
 
 def _mode_problems(estimate: PlumeEstimate, situation: Situation) -> list[str]:
+    """With no official polygon the cone is the model's sector alone, and only HYPOTHESIS
+    limits the advice to MONITOR or HOLD (``ALLOWED_ACTIONS``)."""
     if estimate.mode is PlumeMode.HYPOTHESIS and situation.official_valid_now():
         return ["HYPOTHESIS is not allowed while an official polygon is valid"]
-    if estimate.mode is PlumeMode.OFFICIAL and not situation.official_layers:
-        return ["OFFICIAL needs an official layer and there is none; use HYPOTHESIS"]
+    if estimate.mode is not PlumeMode.HYPOTHESIS and not situation.official_layers:
+        return [
+            f"{estimate.mode.value} needs an official polygon and there is none; use HYPOTHESIS"
+        ]
     return []
 
 
@@ -419,13 +439,44 @@ def _geometry_problems(estimate: PlumeEstimate, situation: Situation) -> list[st
         )
     if estimate.horizon_h > MAX_HORIZON_H:
         problems.append(f"horizon_h {estimate.horizon_h:g} exceeds the maximum {MAX_HORIZON_H:g}")
+    if estimate.horizon_h < MIN_HORIZON_H:
+        problems.append(f"horizon_h {estimate.horizon_h:g} is below the minimum {MIN_HORIZON_H:g}")
     if estimate.base_fl >= estimate.top_fl:
         problems.append(f"base_fl {estimate.base_fl} must be below top_fl {estimate.top_fl}")
     return problems
 
 
+def _hypothesis_problems(estimate: PlumeEstimate, situation: Situation) -> list[str]:
+    """Without a valid official polygon the HYPOTHESIS sector is what the cone draws now, so
+    while a recent VONA reports ash it must draw something and reach the reported top."""
+    vona = _recent_ash_vona(situation)
+    if estimate.mode is not PlumeMode.HYPOTHESIS or vona is None:
+        return []
+    problems: list[str] = []
+    if estimate.extent_km <= 0 or estimate.sector_width_deg() <= 0:
+        problems.append(
+            f"HYPOTHESIS draws no sector while {_vona_name(vona)} reports ash; give extent_km "
+            "above 0 and two different bearings"
+        )
+    floor_fl = _vona_floor_fl(vona)
+    if floor_fl is not None and estimate.top_fl < floor_fl:
+        problems.append(
+            f"top_fl {estimate.top_fl} is below the {vona.cloud_top_ft:,} ft ash top that "
+            f"{_vona_name(vona)} reports; top_fl must be >= {floor_fl}"
+        )
+    return problems
+
+
+def _vona_floor_fl(vona: Vona) -> int | None:
+    """The lowest top_fl reaching the VONA's reported top, capped at the FL600 an estimate
+    can give: asking more of a Plinian column would reject every answer and the stub too."""
+    if vona.cloud_top_ft is None:
+        return None
+    return min(MAX_FL, math.ceil(vona.cloud_top_ft / 100))
+
+
 def _narrowing_problems(estimate: PlumeEstimate, situation: Situation) -> list[str]:
-    """A non-observation or a SILENT split window may never be the reason to narrow.
+    """A non-observation or a blind split window may never be the reason to narrow.
 
     Two checks: leaning on such a source to settle a disagreement, and a sentence that
     names one next to a narrowing verb that is not negated ("does not narrow" is fine).
@@ -458,7 +509,7 @@ def _non_observation_ids(situation: Situation) -> set[str]:
         for record in records
         if evidence_state(record, situation.volcano, situation.as_of) in blind_states
     }
-    if situation.btd is not None and situation.btd.indicator is BtdIndicator.SILENT:
+    if situation.btd is not None and situation.btd.indicator in _BLIND_BTD:
         ids.add(situation.btd.provenance.source_id)
     return ids
 
@@ -475,6 +526,17 @@ def _narrows_on_non_observation(sentence: str) -> bool:
 
 
 # --- fallbacks --------------------------------------------------------------------------
+
+
+def _fallback(situation: Situation, settings: Settings) -> PlumeEstimate:
+    """After a rejected or missing answer: official products only, or with no official layer
+    at all, code's NO MODEL hypothesis, so a recent ash report never leaves the cone empty.
+    The hypothesis must pass the same rules as a model's answer."""
+    if not situation.official_layers:
+        estimate = stub_estimate(situation, settings)
+        if estimate.mode is PlumeMode.HYPOTHESIS and not validate_estimate(estimate, situation):
+            return estimate
+    return official_fallback(situation, settings)
 
 
 def official_fallback(situation: Situation, settings: Settings) -> PlumeEstimate:
@@ -754,8 +816,8 @@ def _btd_block(situation: Situation) -> str:
             f"{btd.negative_centroid_distance_km:.0f} km from the vent."
         )
     lines.extend(f"Caveat: {caveat}" for caveat in btd.caveats)
-    if btd.indicator is BtdIndicator.SILENT:
-        lines.append("SILENT never means no ash.")
+    if btd.indicator in _BLIND_BTD:
+        lines.append(f"{btd.indicator.value} never means no ash.")
     return "\n".join(lines)
 
 
@@ -803,11 +865,26 @@ def _task_block(situation: Situation) -> str:
         "TASK\n"
         f"Allowed modes now: {modes}.\n"
         f"Limits: {top_rule}base_fl < top_fl, sector <= {MAX_SECTOR_WIDTH_DEG:.0f} deg, "
-        f"extent_km <= {MAX_PLUME_EXTENT_KM:.0f}, 0 < horizon_h <= {MAX_HORIZON_H:.0f}.\n"
+        f"extent_km <= {MAX_PLUME_EXTENT_KM:.0f}, "
+        f"{MIN_HORIZON_H:.0f} <= horizon_h <= {MAX_HORIZON_H:.0f}.\n"
+        f"{_hypothesis_rule(situation)}"
         f"Source ids you may cite: {source_ids}.\n"
         f"Discrepancy ids to explain: {discrepancy_ids}.\n"
-        "Write uncertainty_notes first, explain every discrepancy, write no times or dates, "
-        "and return only the JSON object."
+        "Weigh what is uncertain before you choose the mode, explain every discrepancy in "
+        "disagreements_explained, write no times or dates, and return only the JSON object."
+    )
+
+
+def _hypothesis_rule(situation: Situation) -> str:
+    """The task line for ``_hypothesis_problems``, while HYPOTHESIS is an allowed mode."""
+    vona = _recent_ash_vona(situation)
+    if vona is None or situation.official_valid_now():
+        return ""
+    floor_fl = _vona_floor_fl(vona)
+    top = f"top_fl >= {floor_fl}, " if floor_fl is not None else ""
+    return (
+        f"{_vona_name(vona)} reports ash, so a HYPOTHESIS needs {top}extent_km > 0 and two "
+        "different bearings.\n"
     )
 
 

@@ -22,7 +22,7 @@ from typing import Any
 
 from google.adk.agents import LlmAgent
 from google.adk.agents.readonly_context import ReadonlyContext
-from google.adk.tools import ToolContext
+from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
 
 from tephra.agents.exposure_planner import (
@@ -37,6 +37,7 @@ from tephra.agents.exposure_planner import (
     level_band_summary,
     submit_decision,
 )
+from tephra.agents.llm import temperature_for
 from tephra.config import get_settings
 from tephra.models import PlannerContext
 
@@ -122,8 +123,24 @@ def _instruction(_: ReadonlyContext) -> str:
     return PROMPT_PATH.read_text(encoding="utf-8")
 
 
-def build_planner_agent(model: str, *, before_model_callback: Any = None) -> LlmAgent:
-    """The planner agent; ``before_model_callback`` is how the app enforces its budget."""
+def _tool_error(
+    tool: BaseTool, args: dict[str, Any], tool_context: ToolContext, error: Exception
+) -> dict[str, Any]:
+    """Answers a tool that raised on the model's arguments, so the model can correct them.
+
+    ADK 2.x does not coerce tool arguments by default and aborts the whole run when a tool
+    raises; a level of 200.5 or "FL200" would otherwise end planning for the flight.
+    """
+    return {
+        "error": f"{tool.name} COULD NOT USE THESE ARGUMENTS ({type(error).__name__}). PASS"
+        " FLIGHT LEVELS AS WHOLE NUMBERS (E.G. 180), ACTIONS AND ICAO CODES AS TEXT."
+    }
+
+
+def build_planner_agent(
+    model: str, *, before_model_callback: Any = None, on_model_error_callback: Any = None
+) -> LlmAgent:
+    """The planner agent; the model callbacks are how the app enforces its daily budget."""
     return LlmAgent(
         name=AGENT_NAME,
         model=model,
@@ -137,8 +154,10 @@ def build_planner_agent(model: str, *, before_model_callback: Any = None) -> Llm
             estimate_cost,
             submit_plan,
         ],
-        generate_content_config=types.GenerateContentConfig(temperature=0.2),
+        generate_content_config=types.GenerateContentConfig(temperature=temperature_for(model)),
         before_model_callback=before_model_callback,
+        on_model_error_callback=on_model_error_callback,
+        on_tool_error_callback=_tool_error,
     )
 
 

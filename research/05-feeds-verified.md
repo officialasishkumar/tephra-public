@@ -111,7 +111,7 @@ Tags: [CONFIRMED: url, accessed 2026-10-10] = I fetched it and it says that. [CO
   2026-10-09 18:00:00 UTC
   Orange
   Semeru - 20261009/1800Z
-  Agastya Rajendra, Semeru Volcano Observatory - 1 hour ago
+  [observer name removed], Semeru Volcano Observatory - 1 hour ago
   Eruption at 1800 UTC (0100 local). Ash-cloud is not observed. Ash-cloud is not observed..
   2026-10-09 11:44:00 UTC
   Orange

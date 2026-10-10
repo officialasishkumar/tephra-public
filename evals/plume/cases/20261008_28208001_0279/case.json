@@ -1,0 +1,49 @@
+{
+  "id": "20261008_28208001_0279",
+  "class": "quiet",
+  "note": "Sakurajima; VA not identifiable / dissipated",
+  "text_url": "https://ds.data.jma.go.jp/svd/vaac/data/TextData/2026/20261008_28208001_0279_Text.html",
+  "as_frames": [
+    {
+      "name": "as_T-20",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/28208001/09-as/20261008_1100_202610081150_as.png"
+    },
+    {
+      "name": "as_T-10",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/28208001/09-as/20261008_1110_202610081150_as.png"
+    },
+    {
+      "name": "as_T",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/28208001/09-as/20261008_1120_202610081150_as.png"
+    }
+  ],
+  "ir_frames": [
+    {
+      "name": "ir_T",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/28208001/09-ir/20261008_1120_202610081150_ir.png"
+    }
+  ],
+  "vent_px": [
+    330,
+    261
+  ],
+  "image_size": [
+    668,
+    498
+  ],
+  "vaa": {
+    "advisory_nr": "2026/279",
+    "volcano": "SAKURAJIMA (AIRA CALDERA)",
+    "volcano_lat": 31.6,
+    "volcano_lon": 130.65,
+    "obs_valid_at": "2026-10-08T11:20:00+00:00",
+    "not_identifiable": true,
+    "top_ft": null,
+    "polygon": null,
+    "movement_toward_deg": null,
+    "remarks": "NIL"
+  },
+  "wind_text": "WIND FL180 040/1KT",
+  "wind_source": "vaa",
+  "needs_human_check": []
+}

@@ -1,0 +1,79 @@
+{
+  "id": "20260927_30027000_0345",
+  "class": "ash",
+  "note": "Sheveluch; large, elongated",
+  "text_url": "https://ds.data.jma.go.jp/svd/vaac/data/TextData/2026/20260927_30027000_0345_Text.html",
+  "as_frames": [
+    {
+      "name": "as_T-20",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/30027000/09-as/20260927_1100_202609271200_as.png"
+    },
+    {
+      "name": "as_T-10",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/30027000/09-as/20260927_1110_202609271200_as.png"
+    },
+    {
+      "name": "as_T",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/30027000/09-as/20260927_1120_202609271200_as.png"
+    }
+  ],
+  "ir_frames": [
+    {
+      "name": "ir_T",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/30027000/09-ir/20260927_1120_202609271200_ir.png"
+    }
+  ],
+  "vent_px": [
+    174,
+    322
+  ],
+  "image_size": [
+    668,
+    501
+  ],
+  "vaa": {
+    "advisory_nr": "2026/345",
+    "volcano": "SHEVELUCH",
+    "volcano_lat": 56.65,
+    "volcano_lon": 161.36666666666667,
+    "obs_valid_at": "2026-09-27T11:20:00+00:00",
+    "not_identifiable": false,
+    "top_ft": 38000,
+    "polygon": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [
+            161.3,
+            56.65
+          ],
+          [
+            161.55,
+            57.3
+          ],
+          [
+            163.56666666666666,
+            57.78333333333333
+          ],
+          [
+            163.51666666666668,
+            57.28333333333333
+          ],
+          [
+            162.06666666666666,
+            56.55
+          ],
+          [
+            161.3,
+            56.65
+          ]
+        ]
+      ]
+    },
+    "movement_toward_deg": 45.0,
+    "remarks": "NIL"
+  },
+  "wind_text": "WIND FL180 211/19KT",
+  "wind_source": "open-meteo",
+  "needs_human_check": []
+}

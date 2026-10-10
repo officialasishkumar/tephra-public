@@ -10,7 +10,7 @@ because SIGMETs and VAAs write those groups the same way.
 
 import logging
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from typing import Any, Final, NamedTuple
 
@@ -41,19 +41,24 @@ log = logging.getLogger(__name__)
 # A degree-minute position: N0129 E12738, S0806E11255, or degrees only (N01 E127).
 _DM_POINT = re.compile(r"\b([NS])(\d{2})(\d{2})?\s*([EW])(\d{3})(\d{2})?\b")
 _LEVEL_BAND = re.compile(r"\b(SFC|FL\d{3})\s*/\s*(?:FL)?(\d{3})\b")
-_TOP_ONLY = re.compile(r"\b(?:CB\s+)?TOPS?\s+(?:ABV\s+)?FL(\d{3})\b|\bABV\s+FL(\d{3})\b")
+_TOP_LEVEL = re.compile(r"\bTOPS?\s+(ABV\s+)?FL(\d{3})\b")
+_ABOVE_LEVEL = re.compile(r"\bABV\s+FL(\d{3})\b")
+_PSN_GROUP = re.compile(r"\bPSN\s+(?P<lat>[NS]\d{2}(?:\d{2})?)\s*(?P<lon>[EW]\d{3}(?:\d{2})?)\b")
+# The volcano's name runs from the last of these words to PSN: "FIR VA ERUPTION MT SEMERU
+# PSN", but also "FIR MT SAKURAJIMA (AIRA CALDERA) PSN" (RJJJ, WIIF) and "FIR VA CLD MT ...".
+_NAME_LEAD = re.compile(r"\b(?:FIR|VA|CLD|ERUPTION|MT)\b")
+_NAME = re.compile(r"[A-Z][A-Z0-9 ()\[\]'.-]*")
 _MOVEMENT = re.compile(r"\bMOV\s+([NESW]{1,3})\s+(\d{1,3})\s*(KT|KMH)\b")
 _MOVEMENT_NO_SPEED = re.compile(r"\bMOV\s+([NESW]{1,3})\b")
 _STATIONARY = re.compile(r"\bSTNR\b")
 _HEADER_DTG = re.compile(r"^\s*[A-Z]{4}\d{2}\s+[A-Z]{4}\s+(\d{6})\b")
 _VALID = re.compile(r"\bVALID\s+(\d{6})/(\d{6})\b")
 _OBS_AT = re.compile(r"\bOBS\s+AT\s+(\d{4})Z")
-_VOLCANO_PSN = re.compile(
-    r"\bVA\s+(?:ERUPTION\s+)?(?:MT\s+)?(?P<name>[A-Z][A-Z0-9 ()\[\]'.-]*?)\s+PSN\s+"
-    r"(?P<lat>[NS]\d{2}(?:\d{2})?)\s*(?P<lon>[EW]\d{3}(?:\d{2})?)\b"
-)
 _QUALIFIER_PREFIX = re.compile(r"^(?:ERUPTION\s+)?(?:MT\s+)?")
 _FCST = re.compile(r"\bFCST\b")
+_OBS_WORD = re.compile(r"\bOBS\b")
+_NOT_IDENTIFIABLE = re.compile(r"\bNOT\s+IDENTIFIABLE\b")
+_AND = re.compile(r"\bAND\b")
 _VA_CLD = re.compile(r"\bVA\s+CLD\b")
 _CANCEL = re.compile(r"\bCNL\s+SIGMET\b")
 _INTENSITY = re.compile(r"\b(NC|WKN|INTSF)\b")
@@ -160,7 +165,7 @@ def parse_sigmets(result: FetchResult) -> list[Sigmet]:
             continue
         seen.add(key)
         try:
-            sigmets.append(_parse_record(record, result))
+            sigmets.extend(_parse_record(record, result))
         except (ValueError, TypeError) as exc:
             log.warning("skipping unreadable VA SIGMET %s: %s", key[1] or "?", exc)
     return sigmets
@@ -172,7 +177,8 @@ async def fetch_sigmets(source: Source) -> list[Sigmet]:
     return [sigmet for sigmet in parse_sigmets(result) if sigmet.valid_to >= at]
 
 
-def _parse_record(record: Mapping[str, Any], result: FetchResult) -> Sigmet:
+def _parse_record(record: Mapping[str, Any], result: FetchResult) -> list[Sigmet]:
+    """The record's own cloud, plus one record per later cloud joined to it by ``AND``."""
     raw = str(record.get("rawSigmet") or "").replace("\r", "")
     flat = " ".join(raw.split())
     series_id = str(record.get("seriesId") or "").strip()
@@ -180,8 +186,13 @@ def _parse_record(record: Mapping[str, Any], result: FetchResult) -> Sigmet:
     if not series_id or not fir_id:
         raise ValueError("record has no seriesId or firId")
     forecast_record = series_id.upper().endswith("F")
-    observed_part, forecast_part = _split_forecast(flat)
-    own_part = forecast_part if forecast_record else observed_part
+    areas = _areas(flat)
+    observed_part, forecast_part = areas[0]
+    # A SIGMET with only a forecast cloud ("VA CLD FCST AT 1600Z WI ...") has no F record.
+    own_forecast = forecast_record or (bool(forecast_part) and not _OBS_WORD.search(observed_part))
+    kind = 1 if own_forecast else 0
+    parts = [(area[kind], f"{area[0]} {area[1]}") for area in areas if area[kind]]
+    own_part = parts[0][0] if parts else ""
 
     receipt = _optional_time(record.get("receiptTime"))
     valid_from, valid_to = _validity(record, flat, receipt or result.fetched_at)
@@ -189,16 +200,17 @@ def _parse_record(record: Mapping[str, Any], result: FetchResult) -> Sigmet:
 
     name, psn = _volcano(flat, record.get("qualifier"))
     band = parse_level_band(own_part) or parse_level_band(flat)
+    text_base, text_top = (band.base_ft, band.top_ft) if band else _open_levels(flat)
     base_ft = _optional_int(record.get("base"))
     top_ft = _optional_int(record.get("top"))
     if base_ft is None:
-        base_ft = band.base_ft if band else 0
+        base_ft = text_base or 0
     if top_ft is None:
-        top_ft = band.top_ft if band else _top_from_text(flat)
+        top_ft = text_top
 
     movement = parse_movement(own_part) or parse_movement(flat) or _json_movement(record)
     source_id = make_source_id("SIGMET", fir_id, series_id, timeutil.compact(valid_from))
-    return Sigmet(
+    sigmet = Sigmet(
         provenance=result.provenance(
             source_id, issued_at=issued_at, valid_from=valid_from, valid_to=valid_to
         ),
@@ -213,7 +225,7 @@ def _parse_record(record: Mapping[str, Any], result: FetchResult) -> Sigmet:
         observed_at=None if forecast_record else _observed_at(observed_part, valid_from),
         base_ft=base_ft,
         top_ft=top_ft,
-        polygon=_json_polygon(record.get("coords"), series_id) or _text_polygon(own_part, skip=psn),
+        polygon=_json_polygon(record.get("coords"), series_id) or _text_polygon(own_part),
         movement_toward_deg=movement.toward_deg if movement else None,
         movement_speed_kt=movement.speed_kt if movement else None,
         stationary=movement.stationary if movement else False,
@@ -223,6 +235,9 @@ def _parse_record(record: Mapping[str, Any], result: FetchResult) -> Sigmet:
         cancelled=bool(_CANCEL.search(flat)),
         raw_text=raw.strip(),
     )
+    if sigmet.cancelled:
+        return [sigmet]
+    return [sigmet, *_later_areas(sigmet, parts[1:])]
 
 
 def _split_forecast(flat: str) -> tuple[str, str]:
@@ -230,6 +245,68 @@ def _split_forecast(flat: str) -> tuple[str, str]:
     if match is None:
         return flat, ""
     return flat[: match.start()], flat[match.start() :]
+
+
+def _areas(flat: str) -> list[tuple[str, str]]:
+    """``(observed part, forecast part)`` of each cloud the SIGMET describes, in text order.
+
+    Clouds are joined by ``AND``. A cloud that names neither OBS nor FCST (``FCST AT 0000Z WI
+    ... AND WI ...``) is of the same kind as the part before it.
+    """
+    areas: list[tuple[str, str]] = []
+    for chunk in _AND.split(flat):
+        observed, forecast = _split_forecast(chunk)
+        if areas and areas[-1][1] and not forecast and not _OBS_WORD.search(chunk):
+            observed, forecast = "", chunk
+        areas.append((observed, forecast))
+    return areas
+
+
+def _later_areas(main: Sigmet, parts: Sequence[tuple[str, str]]) -> list[Sigmet]:
+    """One record per later cloud, ``(its part, its whole text)``, named ``05 AREA 2``.
+
+    AWC's ``coords``, ``base`` and ``top`` describe the first cloud only (WAAF 05 on 26 Sep
+    2026 lost a second cloud at SFC/FL150). Splitting the rest off the way AWC splits forecast
+    polygons into ``F`` records keeps every official polygon.
+    """
+    extras: list[Sigmet] = []
+    for number, (part, area) in enumerate(parts, start=2):
+        polygon = _text_polygon(part)
+        if polygon is None:
+            continue
+        base_ft, top_ft = _area_levels(part, area, main)
+        movement = parse_movement(part) or parse_movement(area)
+        intensity = _INTENSITY.search(area)
+        series_id = f"{main.series_id} AREA {number}"
+        source_id = make_source_id(
+            "SIGMET", main.fir_id, series_id, timeutil.compact(main.valid_from)
+        )
+        update = {
+            "provenance": main.provenance.model_copy(update={"source_id": source_id}),
+            "series_id": series_id,
+            "observed_at": _observed_at(part, main.valid_from) or main.observed_at,
+            "base_ft": base_ft,
+            "top_ft": top_ft,
+            "polygon": polygon,
+            "movement_toward_deg": movement.toward_deg if movement else None,
+            "movement_speed_kt": movement.speed_kt if movement else None,
+            "stationary": movement.stationary if movement else False,
+            "intensity_change": intensity.group(1) if intensity else None,
+        }
+        extras.append(main.model_copy(update=update))
+    return extras
+
+
+def _area_levels(part: str, area: str, main: Sigmet) -> tuple[int, int | None]:
+    """A later cloud's band from its own text; a cloud that states none shares the first's."""
+    for text in (part, area):
+        band = parse_level_band(text)
+        if band is not None:
+            return band.base_ft, band.top_ft
+        base_ft, top_ft = _open_levels(text)
+        if base_ft is not None or top_ft is not None:
+            return base_ft or 0, top_ft
+    return main.base_ft, main.top_ft
 
 
 def _validity(
@@ -257,20 +334,28 @@ def _header_dtg(raw: str, reference: datetime) -> datetime | None:
 
 
 def _volcano(flat: str, qualifier: Any) -> tuple[str | None, tuple[float, float] | None]:
-    match = _VOLCANO_PSN.search(flat)
-    if match is not None:
-        psn = parse_dm_point(match.group("lat"), match.group("lon"))
-        return match.group("name").strip(), psn
-    if isinstance(qualifier, str) and qualifier.strip():
-        name = _QUALIFIER_PREFIX.sub("", " ".join(qualifier.upper().split()))
-        return name or None, None
-    return None, None
+    psn = _PSN_GROUP.search(flat)
+    position = parse_dm_point(psn.group("lat"), psn.group("lon")) if psn else None
+    name = _name_before(flat[: psn.start()]) if psn else None
+    if name is None and isinstance(qualifier, str) and qualifier.strip():
+        name = _QUALIFIER_PREFIX.sub("", " ".join(qualifier.upper().split())) or None
+    return name, position
+
+
+def _name_before(text: str) -> str | None:
+    leads = list(_NAME_LEAD.finditer(text))
+    if not leads:
+        return None
+    name = text[leads[-1].end() :].strip()
+    return name if _NAME.fullmatch(name) else None
 
 
 def _observed(forecast_record: bool, observed_part: str, forecast_part: str) -> bool | None:
     if forecast_record:
         return False
-    if re.search(r"\bOBS\b", observed_part):
+    if _NOT_IDENTIFIABLE.search(observed_part):
+        return None  # "VA CLD OBS AT 2310Z VA NOT IDENTIFIABLE": a non-observation
+    if _OBS_WORD.search(observed_part):
         return True
     return False if forecast_part else None
 
@@ -297,18 +382,26 @@ def _json_polygon(coords: Any, series_id: str) -> GeoPolygon | None:
     return polygon_or_none(points)
 
 
-def _text_polygon(part: str, *, skip: tuple[float, float] | None) -> GeoPolygon | None:
+def _text_polygon(part: str) -> GeoPolygon | None:
     cloud = _VA_CLD.search(part)
     text = part[cloud.end() :] if cloud else part
-    points = [point for point in find_dm_points(text) if point != skip]
-    return polygon_or_none(points)
+    # The PSN group is not a vertex, but a vertex often sits on the vent: drop the group only.
+    return polygon_or_none(find_dm_points(_PSN_GROUP.sub(" ", text)))
 
 
-def _top_from_text(flat: str) -> int | None:
-    match = _TOP_ONLY.search(flat)
-    if match is None:
-        return None
-    return int(match.group(1) or match.group(2)) * 100
+def _open_levels(flat: str) -> tuple[int | None, int | None]:
+    """``(base_ft, top_ft)`` from a level that is not a band; None where it is not stated.
+
+    ``TOP FL150`` is a top. ``ABV FL080`` puts the ash above FL080: a base with no stated top.
+    ``TOP ABV FL300`` is a top somewhere above FL300, so not stated either.
+    """
+    top = _TOP_LEVEL.search(flat)
+    if top is not None:
+        return None, None if top.group(1) else int(top.group(2)) * 100
+    above = _ABOVE_LEVEL.search(flat)
+    if above is not None:
+        return int(above.group(1)) * 100, None
+    return None, None
 
 
 def _json_movement(record: Mapping[str, Any]) -> Movement | None:

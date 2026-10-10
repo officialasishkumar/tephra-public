@@ -25,8 +25,9 @@ def run() -> None:
         host="0.0.0.0",
         port=settings.port,
         proxy_headers=True,
-        # Cloud Run's front end is the only peer and sets X-Forwarded-For/-Proto; trusting it
-        # lets the login throttle see client addresses and marks desk cookies Secure.
+        # Cloud Run's front end is the only peer and sets X-Forwarded-Proto, so desk cookies
+        # are marked Secure. uvicorn then reports the leftmost X-Forwarded-For entry, which
+        # the caller writes; the login throttle counts the rightmost (auth.client_key).
         forwarded_allow_ips="*",
         log_config=None,
         log_level=settings.log_level.lower(),

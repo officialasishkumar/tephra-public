@@ -7,7 +7,7 @@ by a small in-test Source; nothing here touches the network.
 import json
 import re
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -54,7 +54,9 @@ from tephra.util.hashing import sha256_bytes
 from tephra.util.timeutil import FixedClock, use_clock
 
 FIXTURES = Path(__file__).parent / "fixtures"
+FEEDS_TEXT = FIXTURES / "feeds_text"
 JMA_VAAC = "https://ds.data.jma.go.jp/svd/vaac/data/"
+TGFTP_DARWIN = "https://tgftp.nws.noaa.gov/data/raw/fv/fvau{:02d}.adrm..txt"
 MAGMA_DETAIL = {
     22880: "https://magma.esdm.go.id/v1/vona/22880?signature=9678e5287b728bc1210c62090abbbab47c3fa7e66f72a155954ab56c74cc2d03",
     22881: "https://magma.esdm.go.id/v1/vona/22881?signature=9b1dd1019782c6c6dc83817dc6f9538e08b294a61f3ec41481dbcb4a462b58df",
@@ -313,6 +315,137 @@ def test_stationary_from_json_when_text_says_nothing() -> None:
     assert sigmet.movement_toward_deg is None
 
 
+def live_sigmet_records(name: str) -> list[dict[str, Any]]:
+    return [record for record in json.loads((FEEDS_TEXT / name).read_bytes()) if record]
+
+
+def test_abv_level_is_a_base_with_no_stated_top() -> None:
+    # Census snapshot 2026-09-16 20:00Z: "VA CLD OBS AT 1916Z ABV FL080 STNR", no JSON levels.
+    sigmets = parse_sigmets(sigmet_result("feeds_text/isigmet_va_20260916_2000.json"))
+    sakurajima = by_series(sigmets, "RJJJ", "M01")
+    assert sakurajima.volcano_name == "SAKURAJIMA (AIRA CALDERA)"
+    assert sakurajima.stationary is True
+    assert (sakurajima.base_ft, sakurajima.top_ft) == (8000, None)
+
+    records = live_sigmet_records("isigmet_va_20260916_2000.json")
+    record = next(r for r in records if r["seriesId"] == "M01")
+    top_above = record["rawSigmet"].replace("ABV FL080", "TOP ABV FL300")
+    sigmet = parse_sigmets(json_result([{**record, "rawSigmet": top_above}]))[0]
+    assert (sigmet.base_ft, sigmet.top_ft) == (0, None)
+    top_only = record["rawSigmet"].replace("ABV FL080", "TOP FL150")
+    sigmet = parse_sigmets(json_result([{**record, "rawSigmet": top_only}]))[0]
+    assert (sigmet.base_ft, sigmet.top_ft) == (0, 15000)
+
+
+def test_raw_sigmet_validity_crosses_the_month_end() -> None:
+    record = next(
+        r for r in live_sigmet_records("isigmet_va_20261010T0500Z.json") if r["seriesId"] == "15"
+    )
+    raw = record["rawSigmet"].replace("092310", "312310").replace("100510", "010510")
+    no_times = {**record, "rawSigmet": raw, "validTimeFrom": None, "validTimeTo": None}
+    lewotolok = parse_sigmets(json_result([{**no_times, "receiptTime": "2026-10-31T23:12Z"}]))[0]
+    assert (lewotolok.valid_from, lewotolok.valid_to) == (
+        utc(2026, 10, 31, 23, 10),
+        utc(2026, 11, 1, 5, 10),
+    )
+    assert lewotolok.observed_at == utc(2026, 10, 31, 22, 50)
+    assert lewotolok.provenance.issued_at == utc(2026, 10, 31, 23, 10)
+
+
+def test_volcano_name_without_the_va_token() -> None:
+    # Census snapshots: "RJJJ FUKUOKA FIR MT SAKURAJIMA (AIRA CALDERA) PSN N3136 E13039 VA CLD
+    # OBS AT 1120Z ..." and "WIIF JAKARTA FIR MT MARAPI PSN S0023 E10028 ...", no qualifier.
+    sakurajima = by_series(
+        parse_sigmets(sigmet_result("feeds_text/isigmet_va_20260924_1300.json")), "RJJJ", "V03"
+    )
+    assert sakurajima.volcano_name == "SAKURAJIMA (AIRA CALDERA)"
+    assert (sakurajima.volcano_lat, sakurajima.volcano_lon) == pytest.approx(
+        (31 + 36 / 60, 130 + 39 / 60)
+    )
+    marapi = by_series(
+        parse_sigmets(sigmet_result("feeds_text/isigmet_va_20260929_1300.json")), "WIIF", "06"
+    )
+    assert marapi.volcano_name == "MARAPI"
+    assert (marapi.volcano_lat, marapi.volcano_lon) == pytest.approx((-(23 / 60), 100 + 28 / 60))
+    # The usual wordings keep their names.
+    sigmets = parse_sigmets(sigmet_result("feeds_text/isigmet_va_20261010T0500Z.json"))
+    names = {(s.fir_id, s.series_id): s.volcano_name for s in sigmets}
+    assert names[("WAAF", "15")] == "LEWOTOLOK"
+    assert names[("SKED", "B1")] == "VOLCAN PURACE"
+    assert names[("MHTG", "1")] == "MASAYA"
+    assert names[("RPHI", "1")] == "KANLAON"
+
+
+def test_not_identifiable_sigmet_is_not_an_observation() -> None:
+    # Census 2026-09-21 00:00Z: SPIM 2 "VA CLD OBS AT 2310Z VA NOT IDENTIFIABLE FM STLT DATA".
+    # Read as observed it would be a positive unit, so a negative VAA could make it a CONFLICT.
+    sigmets = parse_sigmets(sigmet_result("feeds_text/isigmet_va_20260921_0000.json"))
+    sabancaya = by_series(sigmets, "SPIM", "2")
+    assert sabancaya.observed is None
+    assert sabancaya.observed_at == utc(2026, 9, 20, 23, 10)
+    assert by_series(sigmets, "WAAF", "17").observed is True
+
+
+def test_raw_text_polygon_keeps_vertices_at_the_volcano() -> None:
+    # Live snapshot 2026-10-10 05:00Z. Sangay, Reventador and Masaya polygons have a vertex
+    # on the volcano's PSN; the raw-text fallback must give the same ring as the JSON coords.
+    checked = 0
+    for record in live_sigmet_records("isigmet_va_20261010T0500Z.json"):
+        if len(record["coords"]) > 8:
+            continue  # AWC's own 50 NM circle around the PSN: the text gives no area
+        [from_json] = parse_sigmets(json_result([record]))
+        [from_text] = parse_sigmets(json_result([{**record, "coords": None}]))
+        assert from_json.polygon is not None
+        assert from_text.polygon is not None, record["seriesId"]
+        json_ring = from_json.polygon.coordinates[0]
+        text_ring = from_text.polygon.coordinates[0]
+        assert len(text_ring) == len(json_ring), (record["firId"], record["seriesId"])
+        for got, wanted in zip(text_ring, json_ring, strict=True):
+            assert got == pytest.approx(wanted, abs=1e-3)
+        checked += 1
+    assert checked == 12
+
+
+def test_every_area_of_a_sigmet_is_kept() -> None:
+    # Census 2026-09-26 08:00Z: WAAF 05 (Dukono) reports two clouds joined by AND, SFC/FL070
+    # moving NE and SFC/FL150 moving W. AWC's coords, base and top hold only the first.
+    sigmets = parse_sigmets(sigmet_result("feeds_text/isigmet_va_20260926_0800.json"))
+    first = by_series(sigmets, "WAAF", "05")
+    second = by_series(sigmets, "WAAF", "05 AREA 2")
+    assert (first.base_ft, first.top_ft, first.movement_toward_deg) == (0, 7000, 45.0)
+    assert first.polygon is not None
+    assert len(first.polygon.coordinates[0]) == 6
+    assert second.volcano_name == "DUKONO"
+    assert second.observed is True
+    assert second.observed_at == first.observed_at == utc(2026, 9, 26, 7, 0)
+    assert (second.base_ft, second.top_ft) == (0, 15000)
+    assert (second.movement_toward_deg, second.movement_speed_kt) == (270.0, 15.0)
+    assert second.intensity_change == "WKN"
+    assert (second.valid_from, second.valid_to) == (first.valid_from, first.valid_to)
+    assert second.polygon is not None
+    ring = second.polygon.coordinates[0]
+    assert len(ring) == 5
+    assert ring[0] == pytest.approx((127 + 14 / 60, 1 + 35 / 60))
+    assert second.provenance.source_id == "SIGMET:WAAF:05_AREA_2:20260926T0720Z"
+    assert second.raw_text == first.raw_text
+
+    # Census 2026-09-25 03:00Z: RJJJ Y02 (Sakurajima) has two areas, each observed and
+    # forecast; AWC gives Y02 and Y02F for the first area only.
+    sigmets = parse_sigmets(sigmet_result("feeds_text/isigmet_va_20260925_0300.json"))
+    observed = by_series(sigmets, "RJJJ", "Y02 AREA 2")
+    forecast = by_series(sigmets, "RJJJ", "Y02F AREA 2")
+    assert (observed.observed, forecast.observed) == (True, False)
+    assert forecast.observed_at is None
+    assert (observed.base_ft, observed.top_ft) == (0, 7000)
+    assert (forecast.base_ft, forecast.top_ft) == (0, 7000)  # the band of its own area
+    assert observed.polygon is not None
+    assert forecast.polygon is not None
+    assert observed.polygon.coordinates[0][0] == pytest.approx((131 + 9 / 60, 31 + 14 / 60))
+    assert forecast.polygon.coordinates[0][0] == pytest.approx((131 + 46 / 60, 31 + 14 / 60))
+    extra = sorted((s.fir_id, s.series_id) for s in sigmets if "AREA" in s.series_id)
+    assert extra == [("RJJJ", "Y02 AREA 2"), ("RJJJ", "Y02F AREA 2")]
+
+
 async def test_fetch_sigmets_drops_expired_records() -> None:
     content = (FIXTURES / "isigmet/isigmet_va.json").read_bytes()
     source = FakeSource({build_url(SIGMET_URL, SIGMET_PARAMS): content})
@@ -427,7 +560,11 @@ async def test_fetch_vonas_fetches_only_new_signed_pages() -> None:
     vonas = await fetch_vonas(
         source, since=utc(2026, 10, 8, 21, 0), known_urls=frozenset({MAGMA_DETAIL[22881]})
     )
-    assert [vona.magma_id for vona in vonas] == [22889, 22880]
+    from_pages = {vona.magma_id for vona in vonas if vona.provenance.url != VONA_LIST_URL}
+    assert from_pages == {22889, 22880}
+    # The other new notices have no detail page here, so their list cards are read instead.
+    from_cards = {vona.magma_id for vona in vonas if vona.provenance.url == VONA_LIST_URL}
+    assert from_cards == set(range(22882, 22889))
     requested = {int(m.group(1)) for url in source.urls if (m := re.search(r"/(\d+)\?", url))}
     assert requested == {22880, *range(22882, 22890)}
     assert source.urls[0] == VONA_LIST_URL
@@ -737,7 +874,7 @@ async def test_fetch_darwin_vaas_from_bulletins_and_backup_list() -> None:
         "VAA:DARWIN:268010:2026/788",
         "VAA:DARWIN:268030:2026/1081",
     ]
-    assert source.urls[:4] == list(DARWIN_BULLETIN_URLS)
+    assert source.urls[: len(DARWIN_BULLETIN_URLS)] == list(DARWIN_BULLETIN_URLS)
     assert f"{JMA_VAAC}TextData/2026/20260923_99999902_0003_Text.html" not in source.urls
     semeru = advisories[0]
     assert semeru.observation is not None
@@ -750,9 +887,119 @@ async def test_fetch_darwin_vaas_raises_when_every_source_fails() -> None:
         await fetch_vaas(FakeSource({}), FeedId.VAAC_DARWIN, since=utc(2026, 9, 23))
 
 
+async def test_fetch_darwin_vaas_fails_when_tgftp_is_down() -> None:
+    # The JMA backup list answers but holds only backup-period advisories: with every tgftp
+    # slot down, an empty answer would read as "Darwin has issued nothing" (a false SILENCE).
+    backup = (FIXTURES / "darwin_vaac/vaac_darwin_list.html").read_bytes()
+    source = FakeSource({DARWIN_BACKUP_LIST_URL: backup})
+    with pytest.raises(FetchError, match="fvau"):
+        await fetch_vaas(source, FeedId.VAAC_DARWIN, since=utc(2026, 10, 9))
+
+
 async def test_fetch_vaas_rejects_other_feeds() -> None:
     with pytest.raises(ValueError, match="not a VAAC feed"):
         await fetch_vaas(FakeSource({}), FeedId.SIGMET, since=utc(2026, 9, 23))
+
+
+# Live tgftp copies fetched 2026-10-10 04:57Z: slot 5 held Lewotolok 2026/322 (the advisory
+# that SIGMET WAAF 15 echoes) and slot 8 a Wellington test bulletin from 6 Oct.
+FVAU05_LEWOTOLOK = (FEEDS_TEXT / "tgftp_fvau05_lewotolok_2026-322.txt").read_text(encoding="utf-8")
+FVAU08_TEST = (FEEDS_TEXT / "tgftp_fvau08_status_test.txt").read_text(encoding="utf-8")
+
+
+def test_darwin_bulletins_cover_all_ten_tgftp_slots() -> None:
+    assert list(DARWIN_BULLETIN_URLS) == [TGFTP_DARWIN.format(n) for n in range(1, 11)]
+
+
+def test_lewotolok_bulletin_from_slot_five() -> None:
+    vaa = parse_vaa(text_result(FVAU05_LEWOTOLOK, TGFTP_DARWIN.format(5)))
+    assert vaa is not None
+    assert vaa.vaac is VaacCentre.DARWIN
+    assert (vaa.volcano_name, vaa.volcano_number, vaa.advisory_nr) == (
+        "LEWOTOLOK",
+        "264230",
+        "2026/322",
+    )
+    assert vaa.issued_at == utc(2026, 10, 9, 23, 10)
+    assert (vaa.volcano_lat, vaa.volcano_lon) == pytest.approx((-(8 + 16 / 60), 123.5))
+    assert vaa.summit_elev_ft == 4669  # 1423 M AMSL
+    assert vaa.observation is not None
+    assert vaa.observation.valid_at == utc(2026, 10, 9, 22, 50)
+    [layer] = vaa.observation.layers
+    assert (layer.base_ft, layer.top_ft) == (0, 7000)
+    assert (layer.movement_toward_deg, layer.movement_speed_kt) == (0.0, 5.0)
+    assert layer.polygon is not None
+    ring = layer.polygon.coordinates[0]
+    assert len(ring) == 6
+    assert ring[0] == pytest.approx((123 + 28 / 60, -(8 + 19 / 60)))
+    assert ring[2] == pytest.approx((123 + 24 / 60, -(8 + 1 / 60)))  # lon on the next line
+    assert [step.offset_h for step in vaa.forecasts] == [6, 12, 18]
+    assert [step.valid_at for step in vaa.forecasts] == [
+        utc(2026, 10, 10, 4, 50),
+        utc(2026, 10, 10, 10, 50),
+        utc(2026, 10, 10, 16, 50),
+    ]
+    assert all(step.layers[0].top_ft == 7000 for step in vaa.forecasts)
+    assert vaa.next_advisory_at == utc(2026, 10, 10, 5, 10)
+    assert vaa.provenance.valid_to == utc(2026, 10, 10, 6, 10)
+    assert vaa.is_current(utc(2026, 10, 10, 4, 50))
+    assert not vaa.is_current(utc(2026, 10, 10, 6, 11))
+
+
+@pytest.mark.parametrize(("month", "next_month"), [("202610", "202611"), ("202612", "202701")])
+def test_vaa_step_times_cross_month_and_year_ends(month: str, next_month: str) -> None:
+    text = FVAU05_LEWOTOLOK
+    for old, new in {
+        "ADRM 092310": "ADRM 312310",
+        "20261009/2310Z": f"{month}31/2310Z",
+        "09/2250Z": "31/2250Z",
+        "10/0450Z": "01/0450Z",
+        "10/1050Z": "01/1050Z",
+        "10/1650Z": "01/1650Z",
+        "20261010/0510Z": f"{next_month}01/0510Z",
+    }.items():
+        assert old in text
+        text = text.replace(old, new)
+    vaa = parse_vaa_text(text, text_result(text, TGFTP_DARWIN.format(5)))
+    assert vaa is not None
+    assert vaa.observation is not None
+    last = datetime(int(month[:4]), int(month[4:]), 31, 22, 50, tzinfo=UTC)
+    first = datetime(int(next_month[:4]), int(next_month[4:]), 1, tzinfo=UTC)
+    assert vaa.observation.valid_at == last
+    assert [step.valid_at for step in vaa.forecasts] == [
+        first + timedelta(hours=hours, minutes=50) for hours in (4, 10, 16)
+    ]
+    assert vaa.valid_until() == first + timedelta(hours=6, minutes=10)
+
+
+def test_status_test_bulletins_are_not_advisories() -> None:
+    url = TGFTP_DARWIN.format(8)
+    assert parse_vaa_text(FVAU08_TEST, text_result(FVAU08_TEST, url)) is None
+    # An exercise or test bulletin may name a real volcano; STATUS alone decides.
+    real_name = FVAU08_TEST.replace("VOLCANO: TEST 999999", "VOLCANO: LEWOTOLOK 264230")
+    assert parse_vaa_text(real_name, text_result(real_name, url)) is None
+    exercise = real_name.replace("STATUS: TEST", "STATUS: EXER")
+    assert parse_vaa_text(exercise, text_result(exercise, url)) is None
+
+
+async def test_fetch_darwin_reads_every_slot_and_keeps_only_fresh_advisories() -> None:
+    responses = {
+        TGFTP_DARWIN.format(5): FVAU05_LEWOTOLOK.encode(),
+        TGFTP_DARWIN.format(8): FVAU08_TEST.encode(),
+        DARWIN_BACKUP_LIST_URL: (FIXTURES / "darwin_vaac/vaac_darwin_list.html").read_bytes(),
+    }
+    at = utc(2026, 10, 10, 4, 50)  # the live run that showed a false SILENCE for Lewotolok
+    source = FakeSource(responses)
+    advisories = await fetch_vaas(source, FeedId.VAAC_DARWIN, since=at - timedelta(hours=24))
+    assert [a.provenance.source_id for a in advisories] == ["VAA:DARWIN:264230:2026/322"]
+    assert advisories[0].provenance.url == TGFTP_DARWIN.format(5)
+    assert advisories[0].is_current(at)
+    assert source.urls[:10] == [TGFTP_DARWIN.format(n) for n in range(1, 11)]
+
+    later = await fetch_vaas(
+        FakeSource(responses), FeedId.VAAC_DARWIN, since=utc(2026, 10, 11) - timedelta(hours=24)
+    )
+    assert later == []  # a slot still holding yesterday's bulletin yields nothing
 
 
 # --- TAF and METAR ----------------------------------------------------------------------
@@ -912,3 +1159,37 @@ def test_assess_alternate_screens_every_group_near_eta() -> None:
     ]
     clear = assess_alternate(taf, utc(2026, 10, 10, 16, 0))
     assert (clear.ok, clear.reasons) == (True, [])
+
+
+def awc_taf_result(records: list[dict[str, Any]]) -> FetchResult:
+    return make_result(
+        json.dumps(records).encode(),
+        feed=FeedId.TAF,
+        url=build_url(TAF_URL, station_params([record["icaoId"] for record in records])),
+        fetched_at=utc(2026, 10, 10, 5, 4, 40),
+        content_type="application/json",
+    )
+
+
+def test_becmg_old_conditions_last_until_the_change_completes() -> None:
+    # Live RJFF 092305Z: base from 1000, BECMG 1004/1006, BECMG 1010/1012. AWC ends each
+    # group where the next BECMG starts, but the change may complete only at its end.
+    records = json.loads((FEEDS_TEXT / "taf_20261010T0504Z.json").read_bytes())
+    rjff = next(record for record in records if record["icaoId"] == "RJFF")
+    [taf] = parse_tafs(awc_taf_result([rjff]))
+    assert [(period.change, period.valid_from, period.valid_to) for period in taf.periods] == [
+        (None, utc(2026, 10, 10, 0), utc(2026, 10, 10, 6)),
+        ("BECMG", utc(2026, 10, 10, 4), utc(2026, 10, 10, 12)),
+        ("BECMG", utc(2026, 10, 10, 10), utc(2026, 10, 11, 6)),
+    ]
+
+    # Morning fog lifting, "0800 FG ... BECMG 1004/1006 9999 NSW": the fog may last to 06Z.
+    fog = {**rjff["fcsts"][0], "visib": "0.5", "wxString": "FG"}
+    lifting = {**rjff["fcsts"][1], "wxString": "NSW"}
+    [taf] = parse_tafs(awc_taf_result([{**rjff, "fcsts": [fog, lifting]}]))
+    during_change = assess_alternate(taf, utc(2026, 10, 10, 5, 30))
+    assert (during_change.ok, during_change.reasons) == (
+        False,
+        ["VIS 800 M BELOW 3000 M IN BASE FORECAST"],
+    )
+    assert assess_alternate(taf, utc(2026, 10, 10, 7, 30)).ok is True

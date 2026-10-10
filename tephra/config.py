@@ -7,6 +7,7 @@ so tests can pass ``Settings(_env_file=None, ...)`` explicitly.
 
 import os
 import secrets
+from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
@@ -34,6 +35,12 @@ MAX_PLUME_EXTENT_KM = 500.0
 MAX_SECTOR_WIDTH_DEG = 180.0
 MAX_HORIZON_H = 18.0
 """VAAs forecast to +18 h; nothing in TEPHRA looks further ahead."""
+FEED_CLOCK_SLACK = timedelta(minutes=5)
+"""A product stamped up to this long after "now" already counts as issued (feed clocks and
+replay steps). Record selection and the official floor must use the same value, or a VAAC's
+polygons drop out of the cone for a tick."""
+MIN_SECRET_CHARS = 32
+"""Session secret and task token: shorter values make the desk cookie HMAC guessable."""
 ADVISORY_BODY_MAX_CHARS = 400
 HOLD_MINUTES = 20
 DIVERT_EXTRA_MINUTES = 15
@@ -87,6 +94,8 @@ class Settings(BaseSettings):
         env_prefix="TEPHRA_",
         env_file=".env",
         env_file_encoding="utf-8",
+        # "TEPHRA_SESSION_SECRET=" copied from .env.example means unset, not an empty key.
+        env_ignore_empty=True,
         extra="ignore",
         frozen=True,
         protected_namespaces=(),
@@ -135,6 +144,10 @@ class Settings(BaseSettings):
     mode: RunMode = RunMode.LIVE
     replay_case: str | None = Field(default=None, description="Case id; newest when unset")
     replay_speed: float = Field(default=1.0, gt=0)
+    replay_start: datetime | None = Field(
+        default=None,
+        description="UTC time to start the replay clock at (clamped into the case window)",
+    )
     auto_replay: bool = False
     auto_replay_after_ticks: int = Field(default=3, ge=1)
     local_scheduler: bool = Field(
@@ -143,6 +156,14 @@ class Settings(BaseSettings):
     tick_interval_s: int = Field(default=60, ge=10)
     region: RegionKey = "java_bali"
     science: bool = Field(default=False, description="Raw Himawari HSD BTD; needs [science]")
+    nict_frames: bool = Field(
+        default=False,
+        description=(
+            "Also crop NICT true-colour tiles for the Wall. Off by default: NICT's terms allow "
+            "non-commercial use only and research/05 did not clear them; the Wall's GIBS layers "
+            "give open true-colour context instead."
+        ),
+    )
     vona_live: bool = Field(
         default=False,
         description=(
@@ -193,11 +214,26 @@ class Settings(BaseSettings):
     # Server.
     port: int = Field(default=8080, validation_alias=AliasChoices("PORT", "TEPHRA_PORT"))
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    max_event_streams: int = Field(
+        default=200,
+        ge=1,
+        description=(
+            "Open GET /api/events streams; each holds a Cloud Run request slot, so keep "
+            "this below the service's --concurrency"
+        ),
+    )
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
         if self.llm == "gemini" and self.gemini_api_key is None:
             raise ValueError("TEPHRA_LLM=gemini needs GEMINI_API_KEY (Google AI Studio key)")
+        for name in ("session_secret", "task_token"):
+            secret = getattr(self, name)
+            if secret is not None and len(secret.get_secret_value().strip()) < MIN_SECRET_CHARS:
+                raise ValueError(
+                    f"TEPHRA_{name.upper()} must be at least {MIN_SECRET_CHARS} characters; "
+                    "generate one with secrets.token_urlsafe(32)"
+                )
         if self.store == "firestore" and not (self.gcp_project and self.gcs_bucket):
             raise ValueError(
                 "TEPHRA_STORE=firestore needs TEPHRA_GCP_PROJECT and TEPHRA_GCS_BUCKET"

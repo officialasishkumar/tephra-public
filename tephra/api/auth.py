@@ -18,6 +18,7 @@ from typing import Final
 from urllib.parse import urlsplit
 
 from fastapi import Request, Response
+from pydantic import SecretStr
 
 from tephra.api import ApiError
 from tephra.config import Settings
@@ -31,10 +32,13 @@ __all__ = [
     "LoginThrottle",
     "clear_session_cookie",
     "client_key",
+    "desk_disabled_error",
+    "desk_enabled",
     "is_https",
     "pin_matches",
     "require_csrf",
     "require_desk",
+    "require_desk_enabled",
     "require_task_token",
     "set_session_cookie",
     "sign_session",
@@ -53,11 +57,34 @@ def wall_clock_now() -> datetime:
     return timeutil.SystemClock().now()
 
 
+def desk_enabled(settings: Settings) -> bool:
+    """The desk needs a PIN and a session secret that are not blank.
+
+    ``TEPHRA_DESK_PIN=`` (the line .env.example ships) parses to an empty secret, not None,
+    and an empty signing key would let anyone who reads this module mint a session cookie.
+    """
+    return _filled(settings.desk_pin) and _filled(settings.session_secret)
+
+
+def desk_disabled_error() -> ApiError:
+    return ApiError(
+        503,
+        "desk_disabled",
+        "The desk is disabled: TEPHRA_DESK_PIN or TEPHRA_SESSION_SECRET is not set",
+    )
+
+
+def _filled(secret: SecretStr | None) -> bool:
+    return secret is not None and bool(secret.get_secret_value().strip())
+
+
 # --- signed session tokens --------------------------------------------------------------
 
 
 def sign_session(name: str, settings: Settings, *, at: datetime) -> tuple[str, datetime]:
     """A session token for ``name`` and its expiry (whole seconds, UTC)."""
+    if not _filled(settings.session_secret):
+        raise ValueError("TEPHRA_SESSION_SECRET is blank; refusing to sign a desk session")
     expires_epoch = int((at + timedelta(hours=settings.desk_session_ttl_h)).timestamp())
     claims = {"n": name, "exp": expires_epoch, "sid": secrets.token_hex(8)}
     payload = _b64encode(json.dumps(claims, separators=(",", ":")).encode("utf-8"))
@@ -67,6 +94,8 @@ def sign_session(name: str, settings: Settings, *, at: datetime) -> tuple[str, d
 
 def verify_session(token: str, settings: Settings, *, at: datetime) -> SessionInfo | None:
     """The session a token stands for, or None if it is malformed, forged or expired."""
+    if not _filled(settings.session_secret):
+        return None
     if len(token) > MAX_TOKEN_CHARS or token.count(".") != 1:
         return None
     payload, _, signature = token.partition(".")
@@ -112,7 +141,17 @@ def is_https(request: Request) -> bool:
 
 
 def client_key(request: Request) -> str:
-    """The client address the login throttle counts against (proxy-resolved by uvicorn)."""
+    """The client address the login throttle counts against.
+
+    Cloud Run's front end appends the address it accepted the connection from to
+    ``X-Forwarded-For``; every entry to the left of it is whatever the caller sent. uvicorn
+    runs with ``forwarded_allow_ips="*"`` and so reports the leftmost entry as the client,
+    which a caller could change on every attempt. The rightmost entry is the one to count.
+    """
+    forwarded = ",".join(request.headers.getlist("x-forwarded-for"))
+    hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
+    if hops:
+        return hops[-1]
     return request.client.host if request.client is not None else "unknown"
 
 
@@ -142,11 +181,16 @@ def pin_matches(pin: str, settings: Settings) -> bool:
 # --- FastAPI dependencies ---------------------------------------------------------------
 
 
+async def require_desk_enabled(request: Request) -> None:
+    """503 ``desk_disabled`` before the body is validated: a switched-off desk says so first."""
+    if not desk_enabled(request.app.state.settings):
+        raise desk_disabled_error()
+
+
 async def require_desk(request: Request) -> SessionInfo:
     """The dispatcher's session from the signed cookie; 401 without one."""
+    await require_desk_enabled(request)
     settings: Settings = request.app.state.settings
-    if settings.desk_pin is None:
-        raise ApiError(503, "desk_disabled", "The desk is disabled: TEPHRA_DESK_PIN is not set")
     token = request.cookies.get(COOKIE_NAME)
     session = verify_session(token, settings, at=wall_clock_now()) if token else None
     if session is None:
@@ -174,10 +218,10 @@ async def require_csrf(request: Request) -> None:
 
 
 async def require_task_token(request: Request) -> None:
-    """403 unless ``X-Tephra-Task-Token`` equals ``TEPHRA_TASK_TOKEN`` (unset rejects all)."""
+    """403 unless ``X-Tephra-Task-Token`` equals ``TEPHRA_TASK_TOKEN`` (unset or blank: all)."""
     settings: Settings = request.app.state.settings
     supplied = request.headers.get(TASK_HEADER)
-    if settings.task_token is None or supplied is None:
+    if settings.task_token is None or not _filled(settings.task_token) or supplied is None:
         raise ApiError(403, "forbidden", "Task token missing or not configured")
     expected = settings.task_token.get_secret_value().encode("utf-8")
     if not hmac.compare_digest(supplied.encode("utf-8"), expected):

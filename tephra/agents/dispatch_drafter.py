@@ -51,6 +51,8 @@ from tephra.util.hashing import stable_id
 
 PROMPT_PATH: Final[Path] = Path(__file__).resolve().parent / "prompts" / "drafter.md"
 NEEDS_HUMAN: Final = "NEEDS_HUMAN"
+REPAIR_ECHO_CHARS: Final = 2000
+"""How much of an unreadable answer the repair prompt quotes back."""
 HEADER_TITLE: Final = (
     f"TEPHRA COMPANY ADVISORY - {AIRLINE_NAME.upper()} (FICTIONAL) - NOT FOR OPERATIONAL USE"
 )
@@ -150,19 +152,16 @@ def stub_draft(ctx: PlannerContext, plan: PlannedAction) -> DraftText:
         lines.append("INSIDE HAZARD AREA NOW.")
     else:
         lines.append(f"ENTRY {flight.minutes_to_entry} MIN IF TRACK AND LEVEL HELD.")
-    lines.append(_instruction_line(flight, plan))
+    lines.append(_instruction_line(ctx, plan))
     lines.append("REPORT ANY VOLCANIC ACTIVITY (VAR).")
     return DraftText(body=" ".join(lines), cost_note=_template_cost_note(plan))
 
 
-def _instruction_line(flight: ExposedFlight, plan: PlannedAction) -> str:
+def _instruction_line(ctx: PlannerContext, plan: PlannedAction) -> str:
     decision = plan.decision
     match decision.action:
         case ActionKind.CHANGE_LEVEL:
-            low, high = decision.change_level_fl_min or 0, decision.change_level_fl_max or 0
-            climbing = low * 100 > (flight.alt_baro_ft or 0)
-            verb = "CLIMB" if climbing else "DESCEND"
-            return f"{verb} TO FL{low:03d}-FL{high:03d} TO CLEAR HAZARD, ATC PERMITTING."
+            return _level_line(ctx, decision)
         case ActionKind.HOLD:
             return f"HOLD PRESENT POSITION FL{decision.hold_fl:03d} OUTSIDE HAZARD, ATC PERMITTING."
         case ActionKind.DIVERT:
@@ -171,8 +170,25 @@ def _instruction_line(flight: ExposedFlight, plan: PlannedAction) -> str:
             return f"DIVERT {decision.alternate_icao}{via}, ATC PERMITTING."
         case ActionKind.CONTINUE:
             return "CONTINUE, PRESENT LEVEL IS ABOVE HAZARD WITH MARGIN."
+        case ActionKind.MONITOR if ctx.flight.inside_now and (
+            ctx.plume_mode is not PlumeMode.HYPOTHESIS
+        ):
+            return "MONITOR AND COORDINATE EXIT WITH ATC. DISPATCH TO ADVISE."
         case ActionKind.MONITOR:
-            return "MONITOR, NO CHANGE NOW, DISPATCH WILL UPDATE."
+            return "MONITOR, NO CHANGE NOW. DISPATCH UPDATES TO FOLLOW."
+
+
+def _level_line(ctx: PlannerContext, decision: PlannerDecision) -> str:
+    low, high = decision.change_level_fl_min or 0, decision.change_level_fl_max or 0
+    altitude = ctx.flight.alt_baro_ft or 0
+    if altitude < low * 100:
+        return f"CLIMB TO FL{low:03d}-FL{high:03d} TO CLEAR HAZARD, ATC PERMITTING."
+    if altitude > high * 100:
+        return f"DESCEND TO FL{low:03d}-FL{high:03d} TO CLEAR HAZARD, ATC PERMITTING."
+    # Already in the band: the selected level would take it into the hazard, so stop there.
+    if low * 100 > ctx.hazard_top_ft:
+        return f"DO NOT DESCEND BELOW FL{low:03d}, STAY CLEAR OF HAZARD, ATC PERMITTING."
+    return f"DO NOT CLIMB ABOVE FL{high:03d}, STAY CLEAR OF HAZARD, ATC PERMITTING."
 
 
 def _template_cost_note(plan: PlannedAction) -> str:
@@ -205,7 +221,10 @@ async def draft_advisory(
     draft, call = await _ask(llm, system, parts, ctx, plan)
     drafter_prompt_hash = call.prompt_hash
     problems = _problems(draft, call, ctx, plan)
-    if draft is not None and problems and llm.name != "stub":
+    # The model answered (even unreadably): one repair. No answer at all (budget, API
+    # error) goes straight to the template.
+    answered = draft is not None or bool(call.raw_text)
+    if problems and answered and llm.name != "stub":
         _emit(
             trace,
             ctx,
@@ -214,7 +233,7 @@ async def draft_advisory(
             level="warn",
             detail={"problems": problems},
         )
-        repair = _text_part(_repair_text(draft, problems), "repair")
+        repair = _text_part(_repair_text(draft, call, problems), "repair")
         draft, call = await _ask(llm, system, [*parts, repair], ctx, plan)
         problems = _problems(draft, call, ctx, plan)
 
@@ -418,9 +437,12 @@ def _cost_facts(plan: PlannedAction) -> dict[str, Any] | None:
     return {"formula": fuel.formula, "minutes": fuel.minutes, "fuel_kg": fuel.fuel_kg}
 
 
-def _repair_text(draft: DraftText, problems: Sequence[str]) -> str:
+def _repair_text(draft: DraftText | None, call: LlmCall, problems: Sequence[str]) -> str:
     listed = "\n".join(f"- {problem}" for problem in first_problems(problems))
-    previous = json.dumps(draft.model_dump(mode="json"), indent=1)
+    if draft is not None:
+        previous = json.dumps(draft.model_dump(mode="json"), indent=1)
+    else:
+        previous = (call.raw_text or "")[:REPAIR_ECHO_CHARS]
     return (
         "Code checks rejected your draft:\n"
         f"{listed}\n"

@@ -1,0 +1,75 @@
+{
+  "id": "20260925_30027000_0335",
+  "class": "ash",
+  "note": "Sheveluch; high plume, night, high latitude",
+  "text_url": "https://ds.data.jma.go.jp/svd/vaac/data/TextData/2026/20260925_30027000_0335_Text.html",
+  "as_frames": [
+    {
+      "name": "as_T-20",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/30027000/09-as/20260925_1800_202609251856_as.png"
+    },
+    {
+      "name": "as_T-10",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/30027000/09-as/20260925_1810_202609251856_as.png"
+    },
+    {
+      "name": "as_T",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/30027000/09-as/20260925_1820_202609251856_as.png"
+    }
+  ],
+  "ir_frames": [
+    {
+      "name": "ir_T",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/30027000/09-ir/20260925_1820_202609251856_ir.png"
+    }
+  ],
+  "vent_px": [
+    386,
+    260
+  ],
+  "image_size": [
+    668,
+    501
+  ],
+  "vaa": {
+    "advisory_nr": "2026/335",
+    "volcano": "SHEVELUCH",
+    "volcano_lat": 56.65,
+    "volcano_lon": 161.36666666666667,
+    "obs_valid_at": "2026-09-25T18:20:00+00:00",
+    "not_identifiable": false,
+    "top_ft": 38000,
+    "polygon": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [
+            160.85,
+            56.9
+          ],
+          [
+            161.25,
+            56.88333333333333
+          ],
+          [
+            161.25,
+            56.53333333333333
+          ],
+          [
+            160.83333333333334,
+            56.5
+          ],
+          [
+            160.85,
+            56.9
+          ]
+        ]
+      ]
+    },
+    "movement_toward_deg": 270.0,
+    "remarks": "SOME PART OF VA OBSCURED BY MET CLOUD."
+  },
+  "wind_text": "WIND FL180 053/38KT",
+  "wind_source": "open-meteo",
+  "needs_human_check": []
+}

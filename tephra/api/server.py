@@ -33,16 +33,18 @@ from tephra.api.auth import (
     LoginThrottle,
     clear_session_cookie,
     client_key,
+    desk_enabled,
     is_https,
     pin_matches,
     require_csrf,
     require_desk,
+    require_desk_enabled,
     require_task_token,
     set_session_cookie,
     sign_session,
     wall_clock_now,
 )
-from tephra.api.sse import event_stream, parse_last_event_id
+from tephra.api.sse import EventStreamResponse, StreamSlots, event_stream, parse_last_event_id
 from tephra.config import Settings, get_settings
 from tephra.desk import approvals, audit
 from tephra.models import (
@@ -84,10 +86,15 @@ WEB_DIR: Final = Path(__file__).resolve().parent.parent / "web"
 CONTENT_SECURITY_POLICY: Final = "; ".join(
     [
         "default-src 'self'",
-        "script-src 'self' https://unpkg.com",
+        # Scripts only from the two pinned packages (docs/UI-DESIGN.md, THIRD_PARTY.md).
+        "script-src 'self' https://unpkg.com/maplibre-gl@4.7.1/"
+        " https://unpkg.com/@maplibre/maplibre-gl-compare@0.5.0/",
         "style-src 'self' https://unpkg.com",
-        "img-src 'self' data: blob: https://tiles.openfreemap.org",
-        "connect-src 'self' https://tiles.openfreemap.org",
+        # Map tiles: OpenFreeMap basemap, NASA GIBS satellite context, Mapterhorn terrain.
+        "img-src 'self' data: blob: https://tiles.openfreemap.org"
+        " https://gibs.earthdata.nasa.gov https://tiles.mapterhorn.com",
+        "connect-src 'self' https://tiles.openfreemap.org"
+        " https://gibs.earthdata.nasa.gov https://tiles.mapterhorn.com",
         "worker-src 'self' blob:",
         "child-src blob:",
         "font-src 'self'",
@@ -105,6 +112,8 @@ SECURITY_HEADERS: Final = {
 }
 MAX_BODY_BYTES: Final = 16 * 1024
 """Desk bodies are a PIN, a reason or a 400-character advisory; nothing needs more."""
+STREAMS_RETRY_AFTER_S: Final = 5
+"""The Wall and the Desk reopen a refused event stream after 5 s on their own."""
 SCHEDULER_STOP_TIMEOUT_S: Final = 10.0
 
 _ADVISORY_ID = re.compile(r"adv_[0-9a-f]{12}")
@@ -231,21 +240,21 @@ def _desk_name(raw: str) -> str:
 pages = APIRouter()
 
 
-def _page(filename: str) -> FileResponse:
+async def _page(filename: str) -> FileResponse:
     path = WEB_DIR / filename
-    if not path.is_file():
+    if not await asyncio.to_thread(path.is_file):
         raise ApiError(404, "not_found", "Page not installed")
     return FileResponse(path, media_type="text/html; charset=utf-8")
 
 
 @pages.get("/", include_in_schema=False)
 async def wall_page() -> FileResponse:
-    return _page("index.html")
+    return await _page("index.html")
 
 
 @pages.get("/desk", include_in_schema=False)
 async def desk_page() -> FileResponse:
-    return _page("desk.html")
+    return await _page("desk.html")
 
 
 @pages.get("/healthz", response_model=Health)
@@ -343,16 +352,20 @@ async def get_blob(key: str, runtime: RuntimeDep) -> Response:
 @read_api.get("/events", response_class=StreamingResponse)
 @read_api.get("/stream", response_class=StreamingResponse, include_in_schema=False)
 async def get_events(request: Request, runtime: RuntimeDep) -> StreamingResponse:
+    slots: StreamSlots = request.app.state.event_streams
+    if not slots.acquire():
+        raise ApiError(
+            503,
+            "too_many_streams",
+            "Too many open event streams; try again shortly",
+            headers={"Retry-After": str(STREAMS_RETRY_AFTER_S)},
+        )
     stream = event_stream(
         runtime.bus,
         last_event_id=parse_last_event_id(request.headers.get("last-event-id")),
         mode=lambda: runtime.mode,
     )
-    return StreamingResponse(
-        stream,
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    return EventStreamResponse(stream, slots)
 
 
 # --- desk (dispatcher session) ----------------------------------------------------------
@@ -360,12 +373,14 @@ async def get_events(request: Request, runtime: RuntimeDep) -> StreamingResponse
 desk_api = APIRouter(prefix="/api")
 
 
-@desk_api.post("/desk/login", response_model=SessionInfo, dependencies=[Depends(require_csrf)])
+@desk_api.post(
+    "/desk/login",
+    response_model=SessionInfo,
+    dependencies=[Depends(require_csrf), Depends(require_desk_enabled)],
+)
 async def login(
     body: LoginRequest, request: Request, runtime: RuntimeDep, settings: SettingsDep
 ) -> Response:
-    if settings.desk_pin is None:
-        raise ApiError(503, "desk_disabled", "The desk is disabled: TEPHRA_DESK_PIN is not set")
     throttle: LoginThrottle = request.app.state.login_throttle
     client = client_key(request)
     if throttle.blocked(client):
@@ -394,7 +409,7 @@ async def login(
     return response
 
 
-@desk_api.post("/desk/logout", status_code=204)
+@desk_api.post("/desk/logout", status_code=204, dependencies=[Depends(require_csrf)])
 async def logout(request: Request) -> Response:
     response = Response(status_code=204)
     clear_session_cookie(response, secure=is_https(request))
@@ -482,9 +497,10 @@ async def switch_mode(
 ) -> Response:
     before = _mode_facts(runtime)
     if body.mode is RunMode.REPLAY:
-        # Assumes Runtime.switch_mode replays runtime.replay_case (a plain dataclass field).
-        runtime.replay_case = await _replay_case_for(body.case_id, runtime, settings)
-    await runtime.switch_mode(body.mode)
+        case = await _replay_case_for(body.case_id, runtime, settings)
+        await runtime.switch_mode(body.mode, case=case)  # the case is set under its lock
+    else:
+        await runtime.switch_mode(body.mode)
     await audit.record(
         runtime.store,
         actor=_actor(session),
@@ -582,7 +598,10 @@ def _install_error_handlers(app: FastAPI) -> None:
             exc_info=exc,
             extra={"json_fields": {"path": request.url.path, "method": request.method}},
         )
-        return _json(ErrorBody(error="internal", detail="Internal error"), 500)
+        response = _json(ErrorBody(error="internal", detail="Internal error"), 500)
+        # Starlette sends this response from outside every middleware, HttpGuardMiddleware too.
+        _add_security_headers(response.headers, path=request.url.path, https=is_https(request))
+        return response
 
 
 # --- middleware -------------------------------------------------------------------------
@@ -622,7 +641,7 @@ class HttpGuardMiddleware:
                 body = ErrorBody(error="too_large", detail="Request body too large")
                 await _json(body, 413)(scope, receive, guarded_send)
             else:
-                await self.app(scope, receive, guarded_send)
+                await self.app(scope, _capped(receive), guarded_send)
         finally:
             _log_request(scope, status, time.perf_counter() - started)
 
@@ -638,6 +657,22 @@ def _add_security_headers(headers: MutableHeaders, *, path: str, https: bool) ->
 def _body_too_large(headers: Headers) -> bool:
     length = headers.get("content-length")
     return length is not None and (not length.isdigit() or int(length) > MAX_BODY_BYTES)
+
+
+def _capped(receive: Receive) -> Receive:
+    """Count the body as it streams in: a chunked request carries no Content-Length."""
+    received = 0
+
+    async def capped_receive() -> Message:
+        nonlocal received
+        message = await receive()
+        if message["type"] == "http.request":
+            received += len(message.get("body", b""))
+            if received > MAX_BODY_BYTES:
+                raise StarletteHTTPException(413, "Request body too large")
+        return message
+
+    return capped_receive
 
 
 def _log_request(scope: Scope, status: int, elapsed_s: float) -> None:
@@ -714,6 +749,7 @@ def _lifespan(
                     "llm": settings.llm,
                     "store": settings.store,
                     "local_scheduler": settings.local_scheduler,
+                    "desk_enabled": desk_enabled(settings),
                 }
             },
         )
@@ -751,6 +787,7 @@ def create_app(
     )
     app.state.settings = settings
     app.state.login_throttle = LoginThrottle()
+    app.state.event_streams = StreamSlots(settings.max_event_streams)
     _install_error_handlers(app)
     app.add_middleware(HttpGuardMiddleware)
     app.include_router(pages)

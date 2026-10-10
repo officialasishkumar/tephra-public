@@ -30,14 +30,19 @@ Always call `get_flight()` first. Call `list_alternates()` before choosing DIVER
 
 Use only the actions listed as allowed by `get_flight()`.
 
-- **CONTINUE** - only when the aircraft is already clear of the hazard band plus margin.
+- **CONTINUE** - only when the aircraft is already clear of the hazard band plus margin, at
+  its present level and at its selected level.
 - **MONITOR** - entry is not imminent; keep watching for updated products.
 - **CHANGE_LEVEL** - a flight-level band that `check_level_band` reports as clear, at or
   below FL410. Give `change_level_fl_min` and `change_level_fl_max`. Prefer the smallest
   change; a 2,000 ft band is typical.
 - **HOLD** - hold at present position, at a stated flight level (`hold_fl`), outside the
-  hazard, to wait for the next product.
-- **DIVERT** - to a listed alternate that is marked acceptable (`alternate_icao`).
+  hazard, to wait for the next product. A flight inside the hazard now would hold inside
+  it, so there HOLD only at a level clear of the hazard band plus margin. A hold at a level
+  other than the present one is a level change: at or below FL410, and never in HYPOTHESIS
+  mode, where the hold is at the present level.
+- **DIVERT** - to a listed alternate that is marked acceptable and has a TAF
+  (`alternate_icao`).
 
 There are no reroutes. TEPHRA has no airway database, so any waypoint would be invented.
 Never name a place, waypoint or aerodrome that the tools did not give you.
@@ -52,7 +57,9 @@ Never name a place, waypoint or aerodrome that the tools did not give you.
    of a product never make a flight safer. They are not reasons to continue.
 4. Urgency follows minutes to entry: inside now or within about 15 minutes needs a decisive
    action (CHANGE_LEVEL if a clear band is close, otherwise DIVERT to an acceptable
-   alternate, otherwise HOLD). More than about 45 minutes out usually allows MONITOR.
+   alternate, otherwise HOLD). Inside the hazard with no clear band and no acceptable
+   alternate, choose MONITOR and say the dispatcher must advise the exit. More than about
+   45 minutes out usually allows MONITOR.
 5. Prefer the least disruptive action that keeps the flight out of the hazard band plus
    margin. Use the cost formulas to compare HOLD and DIVERT.
 

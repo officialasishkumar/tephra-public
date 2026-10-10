@@ -1,0 +1,38 @@
+{
+  "image_finding": "obscured_by_met_cloud",
+  "frames_with_feature": [],
+  "plume_box_2d": [],
+  "drift_direction": "unclear",
+  "top_fl": null,
+  "top_fl_basis": "none",
+  "horizon_h": 0,
+  "confidence": "high",
+  "confidence_reason": "Meteorological cloud covers the downwind area to the east-northeast of the vent across all observation frames, obscuring potential ash.",
+  "sources": [
+    {
+      "id": "IMG-1",
+      "used_for": "existence"
+    },
+    {
+      "id": "IMG-2",
+      "used_for": "existence"
+    },
+    {
+      "id": "IMG-3",
+      "used_for": "existence"
+    },
+    {
+      "id": "IMG-4",
+      "used_for": "existence"
+    },
+    {
+      "id": "VENT",
+      "used_for": "position"
+    },
+    {
+      "id": "WIND",
+      "used_for": "direction"
+    }
+  ],
+  "disagreements": []
+}

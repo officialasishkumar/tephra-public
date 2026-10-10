@@ -90,11 +90,11 @@ class EventBus:
         self, name: str, data: BaseModel | Mapping[str, Any] | Sequence[Any] | None = None
     ) -> Event:
         """Serialise ``data`` to JSON-safe values and deliver it to every subscriber."""
-        payload = data.model_dump(mode="json") if isinstance(data, BaseModel) else data
+        payload = data.model_dump() if isinstance(data, BaseModel) else data
         event = Event(
             id=next(self._ids),
             name=str(name),
-            data=to_jsonable_python(payload),
+            data=to_jsonable_python(timeutil.iso_times(payload)),
             at=timeutil.now(),
         )
         self._history.setdefault(event.name, deque(maxlen=self._history_size)).append(event)
@@ -103,6 +103,8 @@ class EventBus:
         return event
 
     def subscribe(self, maxsize: int = 256) -> Subscription:
+        if maxsize < 1:
+            raise ValueError("subscriptions need a bounded queue (asyncio.Queue(0) never drops)")
         subscription = Subscription(self, maxsize)
         self._subscribers.add(subscription)
         return subscription

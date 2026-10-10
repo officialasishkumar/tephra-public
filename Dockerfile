@@ -6,24 +6,25 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/app/.venv
 
-COPY --from=ghcr.io/astral-sh/uv:0.8.22 /uv /usr/local/bin/uv
+# The uv that wrote uv.lock (0.11.17), so --frozen reads the lock exactly as it was written.
+COPY --from=ghcr.io/astral-sh/uv:0.11.17 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-# Dependencies first so code edits do not invalidate the layer. Build with
+# Dependencies first so code edits do not invalidate the layer. uv.lock is required: the
+# image installs exactly the locked versions and never resolves afresh. Build with
 # --build-arg SCIENCE=1 to include satpy for the raw-Himawari split-window layer.
 ARG SCIENCE=0
-COPY pyproject.toml uv.lock* README.md LICENSE ./
+COPY pyproject.toml uv.lock README.md LICENSE ./
 RUN extras="--extra gcp"; \
     if [ "$SCIENCE" = "1" ]; then extras="$extras --extra science"; fi; \
-    if [ -f uv.lock ]; then uv sync --frozen --no-dev --no-install-project $extras; \
-    else uv sync --no-dev --no-install-project $extras; fi
+    uv sync --frozen --no-dev --no-install-project $extras
 
 COPY tephra ./tephra
 COPY data ./data
 RUN extras="--extra gcp"; \
     if [ "$SCIENCE" = "1" ]; then extras="$extras --extra science"; fi; \
-    if [ -f uv.lock ]; then uv sync --frozen --no-dev $extras; else uv sync --no-dev $extras; fi
+    uv sync --frozen --no-dev $extras
 
 RUN useradd --create-home --uid 10001 tephra && mkdir -p /tmp/tephra-cache && chown tephra /tmp/tephra-cache
 USER tephra

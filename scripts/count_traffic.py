@@ -4,6 +4,8 @@ can be live or must be a labelled replay (research/09: night traffic near Java i
 Polls adsb.lol's point API every ``--every`` minutes for ``--hours`` hours and writes one
 CSV row per poll: UTC time, local solar hour, aircraft count, airborne count (alt_baro
 above 1,000 ft) and how many are at or below ``--top-fl`` (could meet ash under that top).
+A poll that fails (adsb.lol rate-limits bursts) gets a row with empty counts and the reason
+in ``error``, and the run goes on: an empty sky and a failed poll must not look alike.
 
 Run it yourself; it makes network requests.
 
@@ -19,15 +21,29 @@ import sys
 import tempfile
 from pathlib import Path
 
+from tephra.config import PROJECT_ROOT
 from tephra.feeds.adsb import fetch_aircraft, merge_aircraft
-from tephra.feeds.base import HttpSource
+from tephra.feeds.base import FetchError, HttpSource
 from tephra.feeds.volcanoes import load_volcanoes
 from tephra.geo.units import fl_to_ft, haversine_km, solar_hour
-from tephra.models import AdsbQueryPoint
+from tephra.models import AdsbQueryPoint, AdsbSnapshot, Volcano
 from tephra.util import timeutil
 
 _NM_TO_KM = 1.852
 _AIRBORNE_FT = 1000
+
+
+def _counts(
+    snapshots: list[AdsbSnapshot], volcano: Volcano, radius_nm: int, top_ft: int
+) -> list[int]:
+    aircraft = [
+        a
+        for a in merge_aircraft(snapshots)
+        if haversine_km(volcano.lat, volcano.lon, a.lat, a.lon) <= radius_nm * _NM_TO_KM
+    ]
+    airborne = [a for a in aircraft if (a.alt_baro_ft or 0) > _AIRBORNE_FT]
+    low = [a for a in airborne if (a.alt_baro_ft or 0) <= top_ft]
+    return [len(aircraft), len(airborne), len(low)]
 
 
 async def run(args: argparse.Namespace) -> int:
@@ -51,29 +67,25 @@ async def run(args: argparse.Namespace) -> int:
                     "aircraft",
                     "airborne",
                     "at_or_below_top",
+                    "error",
                 ]
             )
         source = HttpSource(cache_dir=Path(tmp))
         try:
             for n in range(polls):
                 at = timeutil.now()
-                snapshots = await fetch_aircraft(source, [point])
-                aircraft = [
-                    a
-                    for a in merge_aircraft(snapshots)
-                    if haversine_km(volcano.lat, volcano.lon, a.lat, a.lon)
-                    <= args.radius * _NM_TO_KM
-                ]
-                airborne = [a for a in aircraft if (a.alt_baro_ft or 0) > _AIRBORNE_FT]
-                low = [a for a in airborne if (a.alt_baro_ft or 0) <= top_ft]
+                try:
+                    snapshots = await fetch_aircraft(source, [point])
+                except FetchError as exc:  # AdsbPointsFailed included
+                    outcome: list[object] = ["", "", "", exc.reason]
+                else:
+                    outcome = [*_counts(snapshots, volcano, args.radius, top_ft), ""]
                 row = [
                     timeutil.to_iso(at),
                     f"{solar_hour(volcano.lon, at):.1f}",
                     volcano.id,
                     args.radius,
-                    len(aircraft),
-                    len(airborne),
-                    len(low),
+                    *outcome,
                 ]
                 writer.writerow(row)
                 fh.flush()
@@ -93,11 +105,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--every", type=float, default=15.0, help="minutes between polls")
     parser.add_argument("--hours", type=float, default=6.0)
     parser.add_argument("--top-fl", type=int, default=150, help="ash top to compare against")
-    parser.add_argument("--data-dir", type=Path, default=Path("data"))
-    parser.add_argument("--out", type=Path, default=Path(".state/traffic.csv"))
+    parser.add_argument("--data-dir", type=Path, default=PROJECT_ROOT / "data")
+    parser.add_argument("--out", type=Path, default=PROJECT_ROOT / ".state" / "traffic.csv")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     if not 0 < args.radius <= 250:
         parser.error("--radius must be 1-250 nm")
+    if args.every <= 0:
+        parser.error("--every must be more than 0 minutes")
     return asyncio.run(run(args))
 
 

@@ -18,11 +18,13 @@ export TEPHRA_GCS_BUCKET=<a bucket name>        # create it in a US region to st
 # Firestore (native mode) and the blob bucket, once:
 CLOUDSDK_ACTIVE_CONFIG_NAME=tephra-personal gcloud firestore databases create --location="$TEPHRA_GCP_REGION"
 CLOUDSDK_ACTIVE_CONFIG_NAME=tephra-personal gcloud storage buckets create "gs://$TEPHRA_GCS_BUCKET" --location=us-central1
-CLOUDSDK_ACTIVE_CONFIG_NAME=tephra-personal gcloud firestore rules deploy deploy/firestore.rules 2>/dev/null \
-  || echo "Upload deploy/firestore.rules in the console (Firestore > Rules) if your gcloud lacks the command."
 ```
 
-The Cloud Run runtime service account (by default the Compute Engine default service account) needs `roles/datastore.user`, `roles/storage.objectAdmin` on the bucket, and `roles/secretmanager.secretAccessor`.
+`deploy/firestore.rules` denies every browser client (the service reaches Firestore through IAM, which rules do not govern). gcloud has no command for security rules: paste the file into the console (Firestore > Rules) or deploy it with the Firebase CLI.
+
+The scripts refuse the `default` gcloud configuration, and refuse to run while an access-token file, a credential-file override or service-account impersonation is set (in the configuration or through a `CLOUDSDK_AUTH_*` variable), because each of those makes gcloud act as someone other than `TEPHRA_GCLOUD_ACCOUNT`.
+
+`cloudrun.sh` runs the service as its own service account, `tephra-run@<project>.iam.gserviceaccount.com`, which it creates if needed and grants exactly `roles/datastore.user` on the project, `roles/storage.objectAdmin` on the bucket and `roles/secretmanager.secretAccessor` on the four secrets. The Compute Engine default account would have far more access and still no right to read the secrets.
 
 ## Deploy
 
@@ -32,15 +34,18 @@ The Cloud Run runtime service account (by default the Compute Engine default ser
 ./deploy/scheduler.sh    # one Cloud Scheduler job: POST /tasks/tick every minute
 ```
 
+`TEPHRA_SESSION_SECRET` and `TEPHRA_TASK_TOKEN` need at least 32 characters (the app refuses to start otherwise), and the token travels in a header, so keep it to letters, digits and `. _ ~ + / = -`. `openssl rand -hex 32` makes a good one for each. `cloudrun.sh` needs all four secrets to exist. After changing the task token, run `cloudrun.sh` (a new revision reads the new value) and then `scheduler.sh` (the job sends it).
+
 Options (environment variables):
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `TEPHRA_GCLOUD_CONFIG` | `tephra-personal` | gcloud configuration the scripts pin |
+| `TEPHRA_GCLOUD_CONFIG` | `tephra-personal` | gcloud configuration the scripts pin (never `default`) |
 | `TEPHRA_SERVICE` | `tephra` | Cloud Run service name |
+| `TEPHRA_RUN_SA` | `tephra-run` | name of the runtime service account |
 | `TEPHRA_MIN_INSTANCES` | `1` | `0` scales to zero between ticks (cheaper, slower first page) |
 | `TEPHRA_LLM` | `gemini` | `stub` deploys without spending Gemini quota |
-| `TEPHRA_SCIENCE` | `false` | `true` builds with satpy and turns on the split-window layer (2 GiB) |
+| `TEPHRA_SCIENCE` | `false` | `true` builds with satpy and turns on the split-window layer (2 GiB); only `true` or `false` |
 
 ## Cost notes
 

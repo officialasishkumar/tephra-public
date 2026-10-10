@@ -12,6 +12,7 @@ import logging
 import re
 from bisect import bisect_right
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Final
 
@@ -54,16 +55,29 @@ def case_path(data_dir: Path, case_id: str) -> Path:
 
 
 def list_cases(data_dir: Path) -> list[ReplayCase]:
-    """Every readable case, newest ``recorded_from`` first; unreadable ones are logged."""
+    """Every readable case, newest ``recorded_from`` first; unreadable ones are logged.
+
+    A manifest must name its own directory, as :func:`load_case` requires: the files a case
+    lists are read from ``case_path(case.case_id)``.
+    """
     root = cases_dir(data_dir)
     if not root.is_dir():
         return []
     cases: list[ReplayCase] = []
     for manifest in sorted(root.glob(f"*/{MANIFEST_NAME}")):
         try:
-            cases.append(ReplayCase.model_validate_json(manifest.read_bytes()))
+            case = ReplayCase.model_validate_json(manifest.read_bytes())
         except (OSError, ValidationError) as exc:
             logger.warning("skipping replay case %s: %s", manifest.parent.name, exc)
+            continue
+        if case.case_id != manifest.parent.name:
+            logger.warning(
+                "skipping replay case %s: its manifest names case %r",
+                manifest.parent.name,
+                case.case_id,
+            )
+            continue
+        cases.append(case)
     return sorted(cases, key=lambda case: case.recorded_from, reverse=True)
 
 
@@ -102,9 +116,11 @@ def replay_info(case: ReplayCase, *, auto: bool) -> ReplayInfo:
     )
 
 
-def start_replay_clock(case: ReplayCase, *, speed: float) -> timeutil.ReplayClock:
-    """Move every module's ``now()`` to the recording, starting at its first fetch."""
-    clock = timeutil.ReplayClock(case.recorded_from, case.recorded_to, speed=speed)
+def start_replay_clock(
+    case: ReplayCase, *, speed: float, begin: datetime | None = None
+) -> timeutil.ReplayClock:
+    """Move every module's ``now()`` to the recording, from ``begin`` or its first fetch."""
+    clock = timeutil.ReplayClock(case.recorded_from, case.recorded_to, speed=speed, begin=begin)
     timeutil.set_clock(clock)
     return clock
 

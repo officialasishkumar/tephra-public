@@ -1,0 +1,1 @@
+{"latitude":14.024605,"longitude":120.940094,"generationtime_ms":15.5792236328125,"utc_offset_seconds":0,"timezone":"GMT","timezone_abbreviation":"GMT","elevation":162.0,"hourly_units":{"time":"iso8601","wind_speed_500hPa":"kn","wind_direction_500hPa":"°"},"hourly":{"time":["2026-10-08T14:00","2026-10-08T15:00"],"wind_speed_500hPa":[10.6,10.2],"wind_direction_500hPa":[52,55]}}

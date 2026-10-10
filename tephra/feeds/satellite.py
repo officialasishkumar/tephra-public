@@ -4,7 +4,8 @@ Two public sources, both images rather than data:
 
 * JMA Meteorological Satellite Center real-time JPEGs (Band 13 IR and Dust RGB). File
   names carry only the 10-minute slot (``se3_b13_1920.jpg``) and are overwritten daily, so
-  the slot's date comes from the ``slt_time`` list on ``sat_img.php``.
+  the slot's date comes from the ``slt_time`` list on ``sat_img.php``. JMA's Public Data
+  License 1.0 asks for the source and a note that the image was edited (cropped here).
 * NICT true colour tiles (dated paths), fetched only in local daylight. NICT's terms say
   "not allowed for commercial uses"; TEPHRA is a non-commercial demo.
 
@@ -13,6 +14,11 @@ burned-in graticule and coastlines (JMA) or the standard 2 km full-disk grid (NI
 is close enough to centre a crop but not to overlay it on the map. Every frame therefore
 has ``bbox=None`` and the Wall shows it in a side strip. Frames are context only and are
 never used to draw the cone.
+
+The registry asks for frames one volcano at a time, while every volcano in one JMA area
+shares the slot list and the two JPEGs, and neighbours share NICT tiles. Each source's
+answers (failures included) are therefore reused for :data:`REUSE_S` seconds on the
+active clock, so one poll downloads each image once and crops it per volcano.
 """
 
 import asyncio
@@ -20,14 +26,15 @@ import io
 import logging
 import math
 import re
-from collections.abc import Sequence
+import weakref
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final, Protocol
 
 from PIL import Image
 
-from tephra.feeds.base import FetchError, FetchResult, Source
+from tephra.feeds.base import FetchError, FetchResult, Source, build_url
 from tephra.geo.units import destination_point, solar_hour
 from tephra.models import FeedId, FrameProduct, Provenance, SatelliteFrame, Volcano, make_source_id
 from tephra.util import timeutil
@@ -39,6 +46,7 @@ __all__ = [
     "JMA_SLOTS_URL",
     "NICT_LATEST_URL",
     "NICT_TILE_URL",
+    "REUSE_S",
     "JmaArea",
     "Mercator",
     "PlateCarree",
@@ -87,6 +95,16 @@ NICT_DARK_TILE_BYTES: Final = 1024
 DAYLIGHT_SOLAR_HOURS: Final = (7.0, 17.0)
 
 FRAME_CAPTION_SUFFIX: Final = "context only; not used to draw the cone"
+JMA_CREDIT: Final = "Source: JMA Meteorological Satellite Center ({area} image), cropped by TEPHRA"
+NICT_CREDIT: Final = (
+    "Source: NICT Himawari real-time web (non-commercial use only), cropped by TEPHRA"
+)
+REUSE_S: Final = 60.0
+"""Seconds one source's answer serves the later volcanoes of a poll.
+
+Well below the registry's 120 s retry gap and 600 s frame cadence, so the next poll
+always fetches afresh.
+"""
 
 _MONTHS: Final[dict[str, int]] = {
     name: number
@@ -103,6 +121,9 @@ _SLOT_OPTION = re.compile(
     r"\s+(\d{4})\s*</option>",
     re.IGNORECASE,
 )
+
+type _Failure = tuple[str, str]
+"""``(url, reason)`` of a product that could not be made."""
 
 
 # --- projections ------------------------------------------------------------------------
@@ -208,19 +229,34 @@ async def fetch_frames(
     half_width_km: float = 300.0,
     areas: Sequence[JmaArea] = JMA_AREAS,
     nict_level: int = NICT_DEFAULT_LEVEL,
+    nict: bool = True,
 ) -> list[tuple[SatelliteFrame, bytes]]:
-    """Crops around ``volcano`` as ``(frame, png)``; a product that fails is skipped."""
+    """Crops around ``volcano`` as ``(frame, png)``; a product that fails is skipped.
+
+    ``nict=False`` skips NICT's true colour entirely (``Settings.nict_frames``).
+
+    Raises :class:`FetchError` when products were tried and none came back, so an outage
+    reaches the feed health instead of reading as an empty success.
+    """
     frames: list[tuple[SatelliteFrame, bytes]] = []
+    failures: list[_Failure] = []
     area = next((area for area in areas if area.covers(volcano.lat, volcano.lon)), None)
     if area is not None:
-        frames.extend(await _jma_frames(source, volcano, area, half_width_km))
-    try:
-        frame = await _nict_frame(source, volcano, half_width_km, nict_level)
-    except (FetchError, ValueError, OSError) as exc:
-        logger.warning("NICT true colour for %s skipped: %s", volcano.name, exc)
-    else:
-        if frame is not None:
-            frames.append(frame)
+        jma, failed = await _jma_frames(source, volcano, area, half_width_km)
+        frames.extend(jma)
+        failures.extend(failed)
+    if nict:
+        try:
+            frame = await _nict_frame(source, volcano, half_width_km, nict_level)
+        except (FetchError, ValueError, OSError) as exc:
+            logger.warning("NICT true colour for %s skipped: %s", volcano.name, exc)
+            url = exc.url if isinstance(exc, FetchError) else NICT_LATEST_URL
+            failures.append((url, f"NICT true colour: {_reason(exc)}"))
+        else:
+            if frame is not None:
+                frames.append(frame)
+    if failures and not frames:
+        raise FetchError(failures[0][0], FeedId.FRAMES, "; ".join(why for _, why in failures))
     return frames
 
 
@@ -252,20 +288,22 @@ def parse_nict_latest(result: FetchResult) -> datetime:
 
 async def _jma_frames(
     source: Source, volcano: Volcano, area: JmaArea, half_width_km: float
-) -> list[tuple[SatelliteFrame, bytes]]:
+) -> tuple[list[tuple[SatelliteFrame, bytes]], list[_Failure]]:
+    page_url = build_url(JMA_SLOTS_URL, {"area": area.code})
     try:
-        page = await source.fetch(JMA_SLOTS_URL, feed=FeedId.FRAMES, params={"area": area.code})
+        page = await _fetch(source, JMA_SLOTS_URL, {"area": area.code})
         if page.stale:
             raise ValueError("slot list served from cache; image dates cannot be trusted")
         slot = _settled_slot(parse_jma_slots(page), page.fetched_at)
     except (FetchError, ValueError) as exc:
         logger.warning("JMA %s slot list unusable: %s", area.code, exc)
-        return []
+        return [], [(page_url, f"JMA {area.code} slot list: {_reason(exc)}")]
     frames: list[tuple[SatelliteFrame, bytes]] = []
+    failures: list[_Failure] = []
     for product, band in JMA_BANDS.items():
         url = JMA_IMAGE_URL.format(area=area.code, band=band, hhmm=slot.strftime("%H%M"))
         try:
-            result = await source.fetch(url, feed=FeedId.FRAMES)
+            result = await _fetch(source, url)
             if result.stale:
                 # A cached copy of a date-less file name may hold another day's image.
                 raise ValueError("image served from cache")
@@ -275,14 +313,15 @@ async def _jma_frames(
             )
         except (FetchError, ValueError, OSError) as exc:
             logger.warning("JMA %s %s for %s skipped: %s", area.code, band, volcano.name, exc)
+            failures.append((url, f"JMA {area.code} {band}: {_reason(exc)}"))
             continue
         caption = (
-            f"Himawari-9 {PRODUCT_LABELS[product]}, JMA MSC {area.name} image, scan "
-            f"{timeutil.hhmmz(slot)}; {FRAME_CAPTION_SUFFIX}"
+            f"Himawari-9 {PRODUCT_LABELS[product]}, scan {timeutil.hhmmz(slot)}. "
+            f"{JMA_CREDIT.format(area=area.name)}; {FRAME_CAPTION_SUFFIX}"
         )
         provenance = result.provenance(_source_id(product, volcano, slot), issued_at=slot)
         frames.append((_frame(product, volcano, slot, provenance, size, caption), png))
-    return frames
+    return frames, failures
 
 
 def _settled_slot(slots: Sequence[datetime], fetched_at: datetime) -> datetime:
@@ -299,7 +338,7 @@ def _settled_slot(slots: Sequence[datetime], fetched_at: datetime) -> datetime:
 async def _nict_frame(
     source: Source, volcano: Volcano, half_width_km: float, level: int
 ) -> tuple[SatelliteFrame, bytes] | None:
-    latest = await source.fetch(NICT_LATEST_URL, feed=FeedId.FRAMES)
+    latest = await _fetch(source, NICT_LATEST_URL)
     scan = parse_nict_latest(latest)
     start_h, end_h = DAYLIGHT_SOLAR_HOURS
     if not start_h <= solar_hour(volcano.lon, scan) <= end_h:
@@ -320,7 +359,7 @@ async def _nict_frame(
             x=x,
             y=y,
         )
-        result = await source.fetch(url, feed=FeedId.FRAMES)
+        result = await _fetch(source, url)
         if len(result.content) < NICT_DARK_TILE_BYTES:
             return None
         results.append(((x, y), result))
@@ -328,8 +367,8 @@ async def _nict_frame(
         _stitch_and_crop, [(xy, result.content) for xy, result in results], box
     )
     caption = (
-        f"Himawari-9 {PRODUCT_LABELS[FrameProduct.TRUE_COLOR]}, NICT, scan "
-        f"{timeutil.hhmmz(scan)}; {FRAME_CAPTION_SUFFIX}"
+        f"Himawari-9 {PRODUCT_LABELS[FrameProduct.TRUE_COLOR]}, scan {timeutil.hhmmz(scan)}. "
+        f"{NICT_CREDIT}; {FRAME_CAPTION_SUFFIX}"
     )
     provenance = _tiles_provenance(
         _source_id(FrameProduct.TRUE_COLOR, volcano, scan),
@@ -373,6 +412,51 @@ def _tiles_provenance(source_id: str, results: Sequence[FetchResult], scan: date
 
 
 # --- shared -----------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class _Answer:
+    at: datetime
+    result: FetchResult | None = None
+    failure: str = ""
+
+
+_ANSWERS: Final[weakref.WeakKeyDictionary[Source, dict[str, _Answer]]] = weakref.WeakKeyDictionary()
+
+
+async def _fetch(source: Source, url: str, params: Mapping[str, str] | None = None) -> FetchResult:
+    """``source.fetch`` for frames, reusing this source's answer from the last ``REUSE_S``."""
+    answers = _answers_of(source)
+    key = build_url(url, params)
+    at = timeutil.now()
+    answer = answers.get(key)
+    if answer is None or not _reusable(answer, at):
+        try:
+            answer = _Answer(at, result=await source.fetch(url, feed=FeedId.FRAMES, params=params))
+        except FetchError as exc:
+            answer = _Answer(at, failure=exc.reason)
+        for old in [old for old, kept in answers.items() if not _reusable(kept, at)]:
+            del answers[old]
+        answers[key] = answer
+    if answer.result is None:
+        raise FetchError(key, FeedId.FRAMES, answer.failure)
+    return answer.result
+
+
+def _reusable(answer: _Answer, at: datetime) -> bool:
+    """A clock that moved back (a replay starting its loop again) expires every answer."""
+    return 0.0 <= (at - answer.at).total_seconds() < REUSE_S
+
+
+def _answers_of(source: Source) -> dict[str, _Answer]:
+    try:
+        return _ANSWERS.setdefault(source, {})
+    except TypeError:  # a source that cannot be weakly referenced shares nothing
+        return {}
+
+
+def _reason(exc: Exception) -> str:
+    return exc.reason if isinstance(exc, FetchError) else str(exc)
 
 
 def _crop_box(

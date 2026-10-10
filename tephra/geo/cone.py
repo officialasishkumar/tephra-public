@@ -10,15 +10,22 @@ that case GeoJSON longitudes may exceed 180, which MapLibre draws correctly.
 
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+from itertools import pairwise
 from typing import Final
 
 import shapely
-from shapely.geometry import MultiPolygon, Polygon
+from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.geometry.polygon import orient
 
-from tephra.config import MAX_HORIZON_H
-from tephra.geo.units import destination_point, ft_to_fl, sector_width_deg, unwrap_lon
+from tephra.config import FEED_CLOCK_SLACK, MAX_HORIZON_H
+from tephra.geo.units import (
+    destination_point,
+    ft_to_fl,
+    normalize_lon,
+    sector_width_deg,
+    unwrap_lon,
+)
 from tephra.models import (
     GeoMultiPolygon,
     GeoPolygon,
@@ -44,6 +51,11 @@ UNKNOWN_TOP_FT: Final = 60_000
 
 AREA_TOLERANCE_DEG2: Final = 1e-12
 """About 0.01 square metres: noding slack in coverage checks, and the least area a sector has."""
+
+VAA_CLOCK_SLACK: Final = FEED_CLOCK_SLACK
+"""A VAA stamped up to this long after ``at`` already counts as issued. A tick takes about a
+minute, and record selection allows the same slack and passes on only the newest VAA of each
+VAAC, so ignoring it would leave that VAAC with no polygon at all."""
 
 AreaGeometry = GeoPolygon | GeoMultiPolygon
 
@@ -87,19 +99,20 @@ def _sigmet_layer(sigmet: Sigmet, volcano: Volcano) -> OfficialLayer | None:
 
 
 def _latest_current_per_vaac(vaas: Sequence[VaacAdvisory], at: datetime) -> list[VaacAdvisory]:
-    """The newest advisory each VAAC had issued by ``at``, if it is still current.
+    """The newest advisory each VAAC had issued by ``at`` (give or take the clock slack), if
+    it is still current.
 
     A newer advisory replaces the older one even after it lapses (a final VAA, for
     instance), so a superseded advisory never comes back as the official floor.
     """
     latest: dict[VaacCentre, VaacAdvisory] = {}
     for vaa in vaas:
-        if vaa.issued_at > at:
+        if vaa.issued_at > at + VAA_CLOCK_SLACK:
             continue
         held = latest.get(vaa.vaac)
         if held is None or vaa.issued_at > held.issued_at:
             latest[vaa.vaac] = vaa
-    return [vaa for vaa in latest.values() if vaa.is_current(at)]
+    return [vaa for vaa in latest.values() if at <= vaa.valid_until()]
 
 
 def _vaa_layers(vaa: VaacAdvisory, volcano: Volcano) -> list[OfficialLayer]:
@@ -237,13 +250,19 @@ def build_cone(situation: Situation, assessment: PlumeAssessment) -> HazardCone:
 
 
 def covers_official(cone: HazardCone, layers: Sequence[OfficialLayer]) -> bool:
-    """True when the cone contains every layer, laterally and in its vertical band."""
+    """True when the cone contains every layer, laterally and in its vertical band.
+
+    A layer whose ring encloses no area (all its points on one line) has nothing to contain
+    laterally, so it is covered even by a cone without geometry.
+    """
     if not layers:
         return True
     if cone.geometry is None:
-        return False
-    ref_lon = _reference_lon(cone.geometry)
-    shape = geometry_to_shape(cone.geometry, ref_lon=ref_lon)
+        ref_lon = _reference_lon(layers[0].polygon)
+        shape: BaseGeometry = Polygon()
+    else:
+        ref_lon = _reference_lon(cone.geometry)
+        shape = geometry_to_shape(cone.geometry, ref_lon=ref_lon)
     shapely.prepare(shape)
     return all(
         cone.base_ft <= layer.base_ft
@@ -287,15 +306,65 @@ def points_in_cone(cone: HazardCone, points: Sequence[tuple[float, float]]) -> l
     return [bool(hit) for hit in shapely.covers(shape, candidates)]
 
 
+def track_entries(
+    cone: HazardCone, tracks: Sequence[Sequence[tuple[float, float]]]
+) -> list[tuple[int, tuple[float, float]] | None]:
+    """Where each track of ``(lat, lon)`` points, one step apart, first reaches the cone.
+
+    Each result is ``(step, (lat, lon))``, or None if the track never reaches it. Step 0 is
+    the first point, when it is inside. Any later step is judged on the segment that ends at
+    it, so a track crossing a corner or a narrow part of the cone between two points is still
+    caught; the position is that step's point if it is inside, else where the segment comes in.
+    """
+    if cone.geometry is None:
+        return [None] * len(tracks)
+    ref_lon = _reference_lon(cone.geometry)
+    shape = geometry_to_shape(cone.geometry, ref_lon=ref_lon)
+    shapely.prepare(shape)
+    return [_track_entry(shape, track, ref_lon) for track in tracks]
+
+
+def _track_entry(
+    shape: BaseGeometry, track: Sequence[tuple[float, float]], ref_lon: float
+) -> tuple[int, tuple[float, float]] | None:
+    if not track:
+        return None
+    positions = [(unwrap_lon(lon, ref_lon), lat) for lat, lon in track]
+    if shape.covers(Point(positions[0])):
+        return 0, track[0]
+    if len(positions) == 1 or not shape.intersects(LineString(positions)):
+        return None
+    segments = shapely.linestrings([[start, end] for start, end in pairwise(positions)])
+    first = next((i for i, hit in enumerate(shapely.intersects(shape, segments)) if hit), None)
+    if first is None:
+        return None
+    step = first + 1
+    if shape.covers(Point(positions[step])):
+        return step, track[step]
+    return step, _first_point_inside(shape, segments[first])
+
+
+def _first_point_inside(shape: BaseGeometry, segment: LineString) -> tuple[float, float]:
+    """``(lat, lon)`` where a segment that starts outside the shape first meets it."""
+    meeting = shapely.get_coordinates(segment.intersection(shape))
+    if len(meeting) == 0:  # the predicate saw a touch that the overlay rounded away
+        meeting = shapely.get_coordinates(shapely.shortest_line(segment, shape))[:1]
+    along = shapely.line_locate_point(segment, shapely.points(meeting))
+    lon, lat = meeting[min(range(len(meeting)), key=lambda i: along[i])]
+    return float(lat), normalize_lon(float(lon))
+
+
 # --- GeoJSON <-> shapely ----------------------------------------------------------------
 
 
 def geometry_to_shape(geometry: AreaGeometry, *, ref_lon: float) -> BaseGeometry:
     """A valid polygonal shapely geometry; longitudes unwrapped to within 180 of ``ref_lon``.
 
-    An invalid feed polygon (a self-crossing ring) is repaired with ``make_valid``. Coverage
-    checks repair it the same way, so "the cone covers the official polygon" is judged
-    against the same area that went into the union.
+    An invalid feed polygon (a ring that crosses, folds back over or touches itself) becomes
+    everything its rings enclose. ``make_valid`` keeps area by even-odd parity, which cuts a
+    hole wherever a folded ring encloses an area twice; ICAO polygons have no holes, so all of
+    it is ash area. Coverage checks repair it the same way, so "the cone covers the official
+    polygon" is judged against the same area that went into the union.
     """
     polygons = [geometry.coordinates] if isinstance(geometry, GeoPolygon) else geometry.coordinates
     shapes = [
@@ -305,12 +374,14 @@ def geometry_to_shape(geometry: AreaGeometry, *, ref_lon: float) -> BaseGeometry
     shape: BaseGeometry = shapes[0] if len(shapes) == 1 else MultiPolygon(shapes)
     if shape.is_valid:
         return shape
-    parts = [
-        part
-        for part in shapely.get_parts(shapely.make_valid(shape))
-        if isinstance(part, Polygon | MultiPolygon)
-    ]
-    return shapely.unary_union(parts) if parts else Polygon()
+    return _enclosed_area(shape)
+
+
+def _enclosed_area(shape: BaseGeometry) -> BaseGeometry:
+    """The union of every face the noded rings of ``shape`` bound (empty if they bound none)."""
+    linework = shapely.union_all(shapely.get_rings(shapely.get_parts(shape)))
+    faces = shapely.get_parts(shapely.polygonize(shapely.get_parts(linework)))
+    return shapely.union_all(faces) if len(faces) else Polygon()
 
 
 def shape_to_geometry(shape: BaseGeometry) -> AreaGeometry | None:

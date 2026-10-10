@@ -1,0 +1,34 @@
+{
+  "image_finding": "ash_seen",
+  "frames_with_feature": [1, 2, 3],
+  "plume_box_2d": [330, 380, 600, 650],
+  "drift_direction": "NE",
+  "top_fl": null,
+  "top_fl_basis": "none",
+  "horizon_h": 0,
+  "confidence": "high",
+  "confidence_reason": "A distinct pink/red ash plume is clearly visible in all three Ash RGB frames extending northeast from the vent across Paramushir Island, consistent with the upper-level wind field.",
+  "sources": [
+    {
+      "id": "IMG-1",
+      "used_for": "existence"
+    },
+    {
+      "id": "IMG-2",
+      "used_for": "existence"
+    },
+    {
+      "id": "IMG-3",
+      "used_for": "position"
+    },
+    {
+      "id": "VENT",
+      "used_for": "position"
+    },
+    {
+      "id": "WIND",
+      "used_for": "direction"
+    }
+  ],
+  "disagreements": []
+}

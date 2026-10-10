@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ValidationError
+from pydantic.main import IncEx
 
 from tephra.agents.dispatch_drafter import draft_advisory
 from tephra.agents.exposure_planner import build_planner_context, plan_flight
@@ -38,7 +39,7 @@ from tephra.desk.approvals import SYSTEM_ACTOR, list_advisories, submit_draft, s
 from tephra.feeds.adsb import merge_aircraft
 from tephra.feeds.airports import AirportCatalogue, load_airports
 from tephra.feeds.base import FetchError, HttpSource, Source
-from tephra.feeds.registry import LiveData, health_view, initial_health
+from tephra.feeds.registry import LiveData, disabled_reason, health_view, initial_health
 from tephra.feeds.sigmet import fetch_sigmets
 from tephra.feeds.volcanoes import VolcanoCatalogue, load_volcanoes
 from tephra.geo.cone import build_cone
@@ -57,6 +58,7 @@ from tephra.models import (
     ExposedFlight,
     ExposureFeatureProps,
     FeedId,
+    FrameProduct,
     FrameThumb,
     GeoLineString,
     HazardCone,
@@ -121,7 +123,21 @@ VAA_RESTORE_H: Final = 30
 RETIRE_AFTER_RUNS: Final = 2
 """A draft is superseded only after its flight is missing from two exposure runs in a row,
 so one dropped ADS-B position does not throw away a dispatcher's pending decision."""
+URGENCY_LIMITS_MIN: Final = (15, 30)
+"""With "inside now" and "later", entry within 15 and within 30 minutes make the urgency
+buckets: a flight is planned once per cone and bucket, and again when its entry moves to a
+more urgent bucket (a MONITOR given 40 minutes out does not stand at 15 minutes)."""
+REASK_UNCHANGED: Final = timedelta(hours=3)
+"""An unchanged input goes back to the model only once its estimate's horizon has passed and
+this long after it was asked: a lasting disagreement (Semeru's DIRECTION_MISMATCH held for
+78 census hours) would otherwise cost a call every horizon."""
 BTD_CREDIT: Final = "Himawari-9 data: JMA via NOAA (NODD), processed by TEPHRA."
+SITUATION_CLOCK_FIELDS: Final[IncEx] = {
+    "as_of": True,
+    "discrepancies": {"__all__": {"magnitude", "summary"}},
+}
+"""Situation fields that move with the clock alone (a SILENCE counts its minutes): storing the
+situation again for them would cost 1,440 writes a day per silent volcano."""
 
 TraceLevel = Literal["info", "warn", "error"]
 
@@ -140,23 +156,35 @@ class Runtime:
     auto_replay: bool
     live: LiveData = field(init=False, default_factory=LiveData)
     lock: asyncio.Lock = field(init=False, default_factory=asyncio.Lock, repr=False)
+    tick_running: bool = field(init=False, default=False)
     situations: dict[str, Situation] = field(init=False, default_factory=dict)
     assessments: dict[str, PlumeAssessment] = field(init=False, default_factory=dict)
     cones: dict[str, HazardCone] = field(init=False, default_factory=dict)
     exposed: dict[str, ExposedFlight] = field(init=False, default_factory=dict)
     last_tick: TickReport | None = field(init=False, default=None)
-    _planned: dict[str, str] = field(init=False, default_factory=dict)
+    _planned: dict[str, tuple[str, int]] = field(init=False, default_factory=dict)
+    """flight id -> (cone id, the most urgent bucket it was planned in for that cone)"""
     _missing_runs: dict[str, int] = field(init=False, default_factory=dict)
     _digests: dict[str, str] = field(init=False, default_factory=dict)
     _quiet_ticks: int = field(init=False, default=0)
     _live_source: Source | None = field(init=False, default=None)
     _snapshot: WallSnapshot | None = field(init=False, default=None)
+    _replay_at: datetime | None = field(init=False, default=None)
     _persisted_exposures: set[str] = field(init=False, default_factory=set)
     _last_checkpoint: float | None = field(init=False, default=None)
     _tasks: set[asyncio.Task[None]] = field(init=False, default_factory=set, repr=False)
 
     def __post_init__(self) -> None:
-        self.live.health = initial_health(self.settings, replay=self.mode is RunMode.REPLAY)
+        self.live.health = initial_health(
+            self.settings, replay=self.mode is RunMode.REPLAY, recorded=self.recorded_feeds
+        )
+
+    @property
+    def recorded_feeds(self) -> frozenset[FeedId] | None:
+        """Feeds the playing replay case holds; None when live."""
+        if isinstance(self.source, ReplaySource):
+            return frozenset(record.feed for record in self.source.case.records)
+        return None
 
     # --- contract ------------------------------------------------------------------------
 
@@ -213,9 +241,13 @@ class Runtime:
             ),
         )
 
-    async def switch_mode(self, mode: RunMode, *, auto: bool = False) -> None:
+    async def switch_mode(
+        self, mode: RunMode, *, auto: bool = False, case: ReplayCase | None = None
+    ) -> None:
+        """``case`` is taken under the lock, with the switch: while a tick runs, or after a
+        switch that failed, the REPLAY banner never names a case that is not playing."""
         async with self.lock:
-            await self._switch(mode, auto=auto)
+            await self._switch(mode, auto=auto, case=case)
 
     async def aclose(self) -> None:
         for task in list(self._tasks):
@@ -248,6 +280,23 @@ class Runtime:
             await self._switch(RunMode.LIVE)
             report.notes.append("live VA SIGMET for a catalogue volcano: switched back to LIVE")
         report.mode = self.mode
+
+    def follow_replay_clock(self, at: datetime, report: TickReport) -> None:
+        """Start the picture afresh when the looping replay clock wraps to the recording's
+        start: records from its end would otherwise stand in for its beginning, and every
+        feed's last attempt would lie in the future, so none would be polled again."""
+        if self.mode is not RunMode.REPLAY:
+            return
+        if self._replay_at is not None and at < self._replay_at:
+            self._reset_picture()
+            report.notes.append("replay clock looped: the recording plays again from the start")
+            self.trace(
+                TraceStage.SYSTEM,
+                "system",
+                "REPLAY looped: the recording plays again from the start",
+                level="warn",
+            )
+        self._replay_at = at
 
     def refresh_active(self, at: datetime) -> dict[str, list[str]]:
         active = find_active(
@@ -298,6 +347,19 @@ class Runtime:
                 )
 
     async def run_exposures(self, at: datetime, report: TickReport) -> None:
+        if self._positions_stale():
+            # Nothing to draft from, and a flight missing from an old copy is no reason to
+            # retire a dispatcher's pending draft: the picture waits for live positions.
+            self.exposed = {
+                fid: flight
+                for fid, flight in self.exposed.items()
+                if flight.volcano_id in self.cones
+            }
+            report.exposed_flights = len(self.exposed)
+            report.notes.append(
+                "ADS-B is stale: exposures and open drafts kept until positions refresh"
+            )
+            return
         settings = self.settings
         aircraft = self.aircraft()
         exposed: dict[str, ExposedFlight] = {}
@@ -324,39 +386,14 @@ class Runtime:
         self.exposed = exposed
         report.exposed_flights = len(exposed)
 
-        open_drafts = await list_advisories(
-            self.store, status=AdvisoryStatus.DRAFT, limit=OPEN_DRAFT_LIMIT
-        )
+        open_drafts = await self._open_drafts()
         drafts_by_flight: dict[str, list[Advisory]] = {}
         for draft in open_drafts:
             drafts_by_flight.setdefault(draft.flight_id, []).append(draft)
         for flight in sorted(exposed.values(), key=_entry_order):
-            cone = self.cones[flight.volcano_id]
-            if self._planned.get(flight.id) == cone.id:
-                continue
-            if any(draft.cone_id == cone.id for draft in drafts_by_flight.get(flight.id, [])):
-                self._planned[flight.id] = cone.id
-                continue
-            # Marked planned even on failure: retrying a broken flight every tick would
-            # spend model calls on the same error. A new cone plans it again.
-            self._planned[flight.id] = cone.id
-            try:
-                if await self._plan_and_draft(flight, cone, at):
-                    report.drafts_created += 1
-            except Exception as exc:
-                logger.exception("planning %s failed", flight.id)
-                failure = type(exc).__name__
-                report.notes.append(f"{flight.proxy_flight}: planning failed ({failure})")
-                self.trace(
-                    TraceStage.PLANNER,
-                    "system",
-                    f"{flight.proxy_flight}: planning failed; no draft this cone",
-                    level="error",
-                    volcano_id=flight.volcano_id,
-                    flight_id=flight.id,
-                )
+            await self._plan_once(flight, drafts_by_flight.get(flight.id, []), at, report)
         report.drafts_superseded += await self._retire_drafts(open_drafts, at, report)
-        self._planned = {fid: cid for fid, cid in self._planned.items() if fid in exposed}
+        self._planned = {fid: mark for fid, mark in self._planned.items() if fid in exposed}
 
     def count_quiet_tick(self) -> None:
         if self.mode is RunMode.LIVE and self.settings.auto_replay:
@@ -433,8 +470,9 @@ class Runtime:
             flight_id=flight_id,
             detail=detail,
         )
-        self.bus.publish(SseEvent.TRACE, event)
-        return event
+        labelled = self._labelled(event)
+        self.bus.publish(SseEvent.TRACE, labelled)
+        return labelled
 
     async def restore(self) -> None:
         """Warm a LIVE runtime from the store after a restart.
@@ -447,7 +485,7 @@ class Runtime:
             return
         at = timeutil.now()
         for state in await self.store.list_feed_states():
-            if state.replay or (state.feed is FeedId.HSD and not self.settings.science):
+            if state.replay or disabled_reason(state.feed, self.settings, replay=False):
                 continue
             self.live.health[state.feed] = state
         window = timedelta(hours=self.settings.vona_window_h)
@@ -493,10 +531,13 @@ class Runtime:
             at=at,
             mode=self.mode,
             settings=self.settings,
+            feed_health=self.live.health,
         )
         previous = self.situations.get(volcano.id)
         self.situations[volcano.id] = situation
-        if await self._write_on_change(Collection.SITUATIONS, volcano.id, situation, {"as_of"}):
+        if await self._write_on_change(
+            Collection.SITUATIONS, volcano.id, situation, SITUATION_CLOCK_FIELDS
+        ):
             self._trace_new_discrepancies(situation, previous)
         assessment = await self._assessment(situation, at, report)
         cone = build_cone(situation, assessment)
@@ -516,13 +557,18 @@ class Runtime:
         """The quota gate in front of the Plume Reader (MODULES.md 5.7)."""
         volcano = situation.volcano
         previous = self.assessments.get(volcano.id)
-        if (
-            previous is not None
-            and previous.input_hash == situation.input_hash
-            and at < previous.created_at + timedelta(hours=previous.estimate.horizon_h)
-        ):
+        if previous is not None and _still_current(previous, situation.input_hash, at):
             return previous
         call_model = self._model_call_matters(situation)
+        if not call_model:
+            self.trace(
+                TraceStage.PLUME,
+                "code",
+                f"{volcano.name}: no CAUTION or WARNING discrepancy, no HYPOTHESIS case and no "
+                f"airline aircraft seen within {self.settings.adsb_radius_nm} NM; cone from "
+                "official products only",
+                volcano_id=volcano.id,
+            )
         images = await self._images(situation) if call_model else []
         assessment = await read_plume(
             situation,
@@ -537,14 +583,6 @@ class Runtime:
         await self.store.put(
             Collection.ASSESSMENTS, assessment.id, assessment.model_dump(mode="json")
         )
-        if not call_model:
-            self.trace(
-                TraceStage.PLUME,
-                "code",
-                f"{volcano.name}: official products changed with no disagreement, no "
-                "HYPOTHESIS case and no aircraft near; cone from official products only",
-                volcano_id=volcano.id,
-            )
         if assessment.outcome == "FALLBACK_OFFICIAL":
             await audit.record(
                 self.store,
@@ -575,7 +613,13 @@ class Runtime:
         )
 
     async def _images(self, situation: Situation) -> list[LlmPart]:
-        keyed = [(frame.provenance.source_id, frame.image_key) for frame in situation.frames]
+        # research/05 does not clear NICT's true colour imagery for the model step; the Wall
+        # still shows it.
+        keyed = [
+            (frame.provenance.source_id, frame.image_key)
+            for frame in situation.frames
+            if frame.product is not FrameProduct.TRUE_COLOR
+        ]
         if situation.btd is not None and situation.btd.image_key is not None:
             keyed.append((situation.btd.provenance.source_id, situation.btd.image_key))
         parts: list[LlmPart] = []
@@ -587,7 +631,55 @@ class Runtime:
             parts.append(LlmPart.of_image(data, label=source_id, mime_type=mime_type))
         return parts
 
-    async def _plan_and_draft(self, flight: ExposedFlight, cone: HazardCone, at: datetime) -> bool:
+    async def _plan_once(
+        self, flight: ExposedFlight, drafts: Sequence[Advisory], at: datetime, report: TickReport
+    ) -> None:
+        """Plan a flight once per cone and urgency bucket; open drafts given when its entry
+        was less urgent are replaced by the new one."""
+        cone = self.cones[flight.volcano_id]
+        urgency = _urgency(flight.inside_now, flight.minutes_to_entry)
+        planned = self._planned_urgency(flight.id, cone.id, drafts)
+        if planned is not None and planned <= urgency:
+            self._planned[flight.id] = (cone.id, planned)
+            return
+        # Marked planned even on failure: retrying a broken flight every tick would spend
+        # model calls on the same error. A new cone or a more urgent entry plans it again.
+        self._planned[flight.id] = (cone.id, urgency)
+        outdated = [d for d in drafts if _urgency(d.inside_now, d.minutes_to_entry) > urgency]
+        try:
+            await self._plan_and_draft(flight, cone, at, report, outdated)
+        except Exception as exc:
+            logger.exception("planning %s failed", flight.id)
+            failure = type(exc).__name__
+            report.notes.append(f"{flight.proxy_flight}: planning failed ({failure})")
+            self.trace(
+                TraceStage.PLANNER,
+                "system",
+                f"{flight.proxy_flight}: planning failed; no draft this cone",
+                level="error",
+                volcano_id=flight.volcano_id,
+                flight_id=flight.id,
+            )
+
+    def _planned_urgency(
+        self, flight_id: str, cone_id: str, drafts: Sequence[Advisory]
+    ) -> int | None:
+        """The most urgent bucket the flight was planned in for this cone. An open draft for
+        the cone counts: the marker is lost in a restart between checkpoints."""
+        found = [_urgency(d.inside_now, d.minutes_to_entry) for d in drafts if d.cone_id == cone_id]
+        marker = self._planned.get(flight_id)
+        if marker is not None and marker[0] == cone_id:
+            found.append(marker[1])
+        return min(found, default=None)
+
+    async def _plan_and_draft(
+        self,
+        flight: ExposedFlight,
+        cone: HazardCone,
+        at: datetime,
+        report: TickReport,
+        outdated: Sequence[Advisory],
+    ) -> None:
         situation = self.situations[flight.volcano_id]
         assessment = self.assessments[flight.volcano_id]
         ctx = build_planner_context(
@@ -611,6 +703,16 @@ class Runtime:
             settings=self.settings,
             trace=self._sink,
         )
+        # Outdated drafts go once the new advice is drafted (a failed plan leaves them up) and
+        # before it is submitted: advice that kept its dedupe key would otherwise be refused
+        # as a repeat of the outdated draft.
+        reason = (
+            "INSIDE THE CONE NOW"
+            if flight.inside_now
+            else f"ENTRY NOW IN {flight.minutes_to_entry} MIN"
+        )
+        for draft in outdated:
+            report.drafts_superseded += await self._supersede_draft(draft, reason)
         created = await submit_draft(self.store, self.bus, advisory)
         if created is None:
             self.trace(
@@ -621,7 +723,8 @@ class Runtime:
                 volcano_id=flight.volcano_id,
                 flight_id=flight.id,
             )
-            return False
+            return
+        report.drafts_created += 1
         self.trace(
             TraceStage.DESK,
             "code",
@@ -630,7 +733,34 @@ class Runtime:
             flight_id=flight.id,
             detail={"advisory_id": created.id},
         )
+
+    async def _supersede_draft(self, draft: Advisory, reason: str) -> bool:
+        if await supersede(self.store, self.bus, draft.id, reason=reason) is None:
+            return False  # gone, or a dispatcher decided it meanwhile
+        self.trace(
+            TraceStage.DESK,
+            "system",
+            f"{draft.proxy_flight}: draft superseded ({reason.lower()})",
+            volcano_id=draft.volcano_id,
+            flight_id=draft.flight_id,
+            detail={"advisory_id": draft.id},
+        )
         return True
+
+    async def _open_drafts(self) -> list[Advisory]:
+        """Open drafts of the current mode: a replay's picture says nothing about the live
+        desk's flights, nor the live picture about a replay's."""
+        drafts = await list_advisories(
+            self.store, status=AdvisoryStatus.DRAFT, limit=OPEN_DRAFT_LIMIT
+        )
+        replay = self.mode is RunMode.REPLAY
+        return [draft for draft in drafts if draft.replay == replay]
+
+    def _positions_stale(self) -> bool:
+        """Every position held is a last-good copy, served after its point's live fetch
+        failed."""
+        snapshots = self.live.adsb
+        return bool(snapshots) and all(snapshot.provenance.stale for snapshot in snapshots)
 
     async def _retire_drafts(
         self, open_drafts: Sequence[Advisory], at: datetime, report: TickReport
@@ -653,17 +783,7 @@ class Runtime:
                 if volcano_active
                 else "VOLCANO NO LONGER ACTIVE"
             )
-            if await supersede(self.store, self.bus, draft.id, reason=reason) is None:
-                continue
-            retired += 1
-            self.trace(
-                TraceStage.DESK,
-                "system",
-                f"{draft.proxy_flight}: draft superseded ({reason.lower()})",
-                volcano_id=draft.volcano_id,
-                flight_id=draft.flight_id,
-                detail={"advisory_id": draft.id},
-            )
+            retired += await self._supersede_draft(draft, reason)
         return retired
 
     def _adsb_fresh(self, at: datetime) -> bool:
@@ -681,7 +801,7 @@ class Runtime:
                 TraceStage.DISCREPANCY,
                 "code",
                 f"{situation.volcano.name}: {item.kind.value} - {item.summary}",
-                level="warn" if item.severity is Severity.WARNING else "info",
+                level="info" if item.severity is Severity.INFO else "warn",
                 volcano_id=situation.volcano.id,
                 detail={
                     "discrepancy_id": item.id,
@@ -700,7 +820,14 @@ class Runtime:
         return volcano.name if volcano is not None else volcano_id
 
     def _sink(self, event: TraceEvent) -> None:
-        self.bus.publish(SseEvent.TRACE, event)
+        self.bus.publish(SseEvent.TRACE, self._labelled(event))
+
+    def _labelled(self, event: TraceEvent) -> TraceEvent:
+        """A REPLAY trace line carries the label itself: the trace history (``/api/wall``)
+        outlives a switch back to LIVE."""
+        if self.mode is not RunMode.REPLAY:
+            return event
+        return event.model_copy(update={"detail": {**event.detail, "replay": True}})
 
     def _llm_info(self) -> LlmInfo:
         main = self.llm.model_id("main")
@@ -738,25 +865,29 @@ class Runtime:
 
     # --- mode switching ------------------------------------------------------------------
 
-    async def _switch(self, mode: RunMode, *, auto: bool) -> None:
-        """Change mode. REPLAY plays ``replay_case`` when a caller has set it, else
+    async def _switch(self, mode: RunMode, *, auto: bool, case: ReplayCase | None = None) -> None:
+        """Change mode. REPLAY plays ``case``, else the case playing, else
         ``TEPHRA_REPLAY_CASE`` or the newest recorded case; picking another case while
         replaying restarts the replay on it."""
         playing = self.source.case if isinstance(self.source, ReplaySource) else None
         previous = {"mode": self.mode.value, "case_id": playing.case_id if playing else None}
         if mode is RunMode.REPLAY:
-            case = self.replay_case or select_case(
-                self.settings.data_dir, self.settings.replay_case
+            case = (
+                case
+                or self.replay_case
+                or select_case(self.settings.data_dir, self.settings.replay_case)
             )
             if playing is not None and playing.case_id == case.case_id:
                 return
             replay_source = ReplaySource(case_path(self.settings.data_dir, case.case_id), case)
+            start_replay_clock(  # raises on a bad case
+                case, speed=self.settings.replay_speed, begin=self.settings.replay_start
+            )
             if playing is None:
                 self._live_source = self.source
             else:
                 await self.source.aclose()
             self.source = replay_source
-            start_replay_clock(case, speed=self.settings.replay_speed)
             self.replay_case, self.auto_replay = case, auto
         else:
             if playing is None:
@@ -785,11 +916,15 @@ class Runtime:
             level="warn" if mode is RunMode.REPLAY else "info",
             detail={"auto": auto, "case_id": case_id},
         )
+        # The Wall's badge, banner and layers change now, not at the next tick's publish.
+        await self.publish()
 
     def _reset_picture(self) -> None:
         """Nothing recorded and nothing live may mix: a mode switch starts a fresh picture."""
         self.live = LiveData(
-            health=initial_health(self.settings, replay=self.mode is RunMode.REPLAY)
+            health=initial_health(
+                self.settings, replay=self.mode is RunMode.REPLAY, recorded=self.recorded_feeds
+            )
         )
         self.situations.clear()
         self.assessments.clear()
@@ -800,6 +935,7 @@ class Runtime:
         self._digests.clear()
         self._quiet_ticks = 0
         self._snapshot = None
+        self._replay_at = None
 
     async def _live_activity(self) -> bool:
         source = self._live_source
@@ -820,7 +956,7 @@ class Runtime:
     # --- persistence ---------------------------------------------------------------------
 
     async def _write_on_change(
-        self, collection: Collection, doc_id: str, model: BaseModel, exclude: set[str]
+        self, collection: Collection, doc_id: str, model: BaseModel, exclude: IncEx
     ) -> bool:
         """Write the document when its content (minus per-tick fields) changed."""
         digest = sha256_json(model.model_dump(mode="json", exclude=exclude))
@@ -851,7 +987,9 @@ class Runtime:
             "auto_replay": self.auto_replay,
             "case_id": self.replay_case.case_id if self.replay_case is not None else None,
             "quiet_ticks": self._quiet_ticks,
-            "planned": dict(self._planned),
+            "planned": {
+                fid: [cone_id, urgency] for fid, (cone_id, urgency) in self._planned.items()
+            },
             "assessment_ids": {vid: item.id for vid, item in self.assessments.items()},
             "last_tick": self.last_tick.model_dump(mode="json") if self.last_tick else None,
             "saved_at": timeutil.to_iso(timeutil.now()),
@@ -862,7 +1000,7 @@ class Runtime:
         if doc is None or doc.get("mode") != RunMode.LIVE.value:
             return
         self._quiet_ticks = int(doc.get("quiet_ticks") or 0)
-        self._planned = {str(fid): str(cid) for fid, cid in (doc.get("planned") or {}).items()}
+        self._planned = _planned_marks(doc.get("planned"))
         for vid, assessment_id in (doc.get("assessment_ids") or {}).items():
             stored = await self.store.get(Collection.ASSESSMENTS, str(assessment_id))
             if stored is None:
@@ -898,7 +1036,7 @@ async def create_runtime(settings: Settings) -> Runtime:
     if settings.mode is RunMode.REPLAY:
         replay_case = select_case(settings.data_dir, settings.replay_case)
         source = ReplaySource(case_path(settings.data_dir, replay_case.case_id), replay_case)
-        start_replay_clock(replay_case, speed=settings.replay_speed)
+        start_replay_clock(replay_case, speed=settings.replay_speed, begin=settings.replay_start)
     else:
         source = HttpSource.from_settings(settings)
     runtime = Runtime(
@@ -915,6 +1053,37 @@ async def create_runtime(settings: Settings) -> Runtime:
     )
     await runtime.restore()
     return runtime
+
+
+# --- quota and planning rules (pure) ----------------------------------------------------
+
+
+def _still_current(assessment: PlumeAssessment, input_hash: str, at: datetime) -> bool:
+    """The same input keeps its assessment through the estimate's horizon, and past it until
+    :data:`REASK_UNCHANGED` has gone by since the ask."""
+    if assessment.input_hash != input_hash:
+        return False
+    keep = max(timedelta(hours=assessment.estimate.horizon_h), REASK_UNCHANGED)
+    return at < assessment.created_at + keep
+
+
+def _urgency(inside_now: bool, minutes_to_entry: int) -> int:
+    """0 inside the cone now; otherwise 1 plus the number of limits the entry lies beyond."""
+    if inside_now:
+        return 0
+    return 1 + sum(minutes_to_entry > limit for limit in URGENCY_LIMITS_MIN)
+
+
+def _planned_marks(stored: object) -> dict[str, tuple[str, int]]:
+    """The bookkeeping's ``planned`` map; an entry in another layout is dropped (the open
+    drafts still show what was planned)."""
+    if not isinstance(stored, dict):
+        return {}
+    return {
+        str(fid): (str(mark[0]), mark[1])
+        for fid, mark in stored.items()
+        if isinstance(mark, list) and len(mark) == 2 and isinstance(mark[1], int)
+    }
 
 
 # --- Wall builders (pure) ---------------------------------------------------------------

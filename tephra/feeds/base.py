@@ -47,8 +47,10 @@ RETRYABLE_STATUS = frozenset({408, 420, 425, 429, 500, 502, 503, 504})
 THROTTLE_STATUS = frozenset({420, 429})
 MAX_THROTTLE_WAIT_S = 30.0
 CACHE_MAX_AGE_S = 48 * 3600
-UNCACHED_FEEDS = frozenset({FeedId.HSD})
-"""Raw HSD segments are fetched once per scan; keeping them as last-good is pointless."""
+UNCACHED_FEEDS = frozenset({FeedId.HSD, FeedId.FRAMES})
+"""Raw HSD segments and satellite frames are fetched once per scan under per-scan URLs: a
+last-good copy is never re-read, and frames alone would hold ~400 MiB at the 48 h retention
+(Cloud Run's filesystem is memory)."""
 
 
 class FetchError(RuntimeError):

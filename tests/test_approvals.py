@@ -2,8 +2,9 @@
 audited in a hash chain, and only APPROVED/EDITED advisories reach the outbound queue
 (which never leaves the store)."""
 
+import asyncio
 from collections.abc import AsyncIterator, Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ from test_api import make_advisory
 
 from tephra.desk import audit
 from tephra.desk.approvals import (
+    SYSTEM_ACTOR,
     EditRejected,
     InvalidTransition,
     VersionConflict,
@@ -19,6 +21,7 @@ from tephra.desk.approvals import (
     list_advisories,
     reject,
     submit_draft,
+    supersede,
 )
 from tephra.models import Advisory, AdvisoryStatus, AuditAction
 from tephra.store.base import Collection
@@ -161,6 +164,123 @@ async def test_recently_approved_plan_is_not_redrafted(store: SqliteStore, bus: 
     assert created is not None
     await approve(store, bus, created.id, expected_version=1, actor=DESK)
     assert await submit_draft(store, bus, draft(id="adv_dddddddddddd")) is None
+
+
+async def test_two_dispatchers_at_once_decide_once(store: SqliteStore, bus: EventBus) -> None:
+    created = await submit_draft(store, bus, draft())
+    assert created is not None
+    results = await asyncio.gather(
+        approve(store, bus, created.id, expected_version=1, actor="desk:one"),
+        edit_and_approve(
+            store, bus, created.id, expected_version=1, body="HOLD FL330", actor="desk:two"
+        ),
+        approve(store, bus, created.id, expected_version=1, actor="desk:three"),
+        return_exceptions=True,
+    )
+    decided = [result for result in results if isinstance(result, Advisory)]
+    assert len(decided) == 1
+    losers = [result for result in results if not isinstance(result, Advisory)]
+    assert all(isinstance(loser, VersionConflict) for loser in losers)
+    assert all(loser.current.version == 2 for loser in losers if isinstance(loser, VersionConflict))
+    messages = await outbound(store)
+    assert [(m["advisory_id"], m["approved_by"]) for m in messages] == [
+        (created.id, decided[0].decided_by)
+    ]
+    assert await actions(store, created.id) == [
+        AuditAction.DRAFT_CREATED,
+        AuditAction(decided[0].status.value),
+        AuditAction.OUTBOUND_QUEUED,
+    ]
+    assert await audit.verify_chain(store) == []
+
+
+async def test_supersede_racing_a_dispatcher_moves_the_draft_once(
+    store: SqliteStore, bus: EventBus
+) -> None:
+    created = await submit_draft(store, bus, draft())
+    assert created is not None
+    approved, retired = await asyncio.gather(
+        approve(store, bus, created.id, expected_version=1, actor=DESK),
+        supersede(store, bus, created.id, reason="NO LONGER EXPOSED"),
+        return_exceptions=True,
+    )
+    final = (await list_advisories(store))[0]
+    assert final.version == 2
+    if isinstance(approved, Advisory):
+        assert retired is None
+        assert final.status is AdvisoryStatus.APPROVED
+        assert len(await outbound(store)) == 1
+    else:
+        assert isinstance(approved, VersionConflict)
+        assert final.status is AdvisoryStatus.SUPERSEDED
+        assert await outbound(store) == []
+    assert await audit.verify_chain(store) == []
+
+
+async def test_audit_chain_holds_under_concurrent_writers(store: SqliteStore) -> None:
+    await asyncio.gather(
+        *(
+            audit.record(store, actor=SYSTEM_ACTOR, action=AuditAction.PLUME_FALLBACK, note=str(n))
+            for n in range(30)
+        )
+    )
+    assert len(await audit.list_entries(store, limit=100)) == 30
+    assert await audit.verify_chain(store) == []  # seq runs 1..30 and every link holds
+
+
+async def test_audit_chain_detects_an_edited_entry(store: SqliteStore) -> None:
+    for n in range(3):
+        await audit.record(
+            store, actor=SYSTEM_ACTOR, action=AuditAction.PLUME_FALLBACK, note=str(n)
+        )
+    middle = (await audit.list_entries(store, limit=3))[1]
+    doc = await store.get(Collection.AUDIT, middle.id)
+    assert doc is not None
+    await store.put(Collection.AUDIT, middle.id, {**doc, "note": "rewritten"})
+    assert await audit.verify_chain(store) == [
+        f"entry {middle.id}: content does not match its hash"
+    ]
+
+
+async def test_a_decision_after_now_does_not_block_a_new_draft(
+    store: SqliteStore, bus: EventBus
+) -> None:
+    """The replay clock loops back to the recording's start, so the time of a decision made
+    late in the recording lies ahead of ``now()`` on the next pass; that is not 'recent'."""
+    created = await submit_draft(store, bus, draft())
+    assert created is not None
+    await approve(store, bus, created.id, expected_version=1, actor=DESK)
+    with use_clock(FixedClock(AT - timedelta(hours=2))):
+        again = await submit_draft(store, bus, draft(id="adv_dddddddddddd"))
+    assert again is not None
+    assert again.status is AdvisoryStatus.DRAFT
+
+
+async def test_recorded_and_live_drafts_never_dedupe_against_each_other(
+    store: SqliteStore, bus: EventBus
+) -> None:
+    """The same airframe can fly in a recorded case and live; a recording must not stop or
+    retire a live advisory, nor the other way round."""
+    replayed = await submit_draft(store, bus, draft(replay=True))
+    assert replayed is not None
+    live_same_advice = await submit_draft(store, bus, draft(id="adv_aaaaaaaaaaa1"))
+    assert live_same_advice is not None
+    live_new_advice = await submit_draft(
+        store, bus, draft(id="adv_aaaaaaaaaaa2", dedupe_key="DD-aaaaaaaaaaaa")
+    )
+    assert live_new_advice is not None
+    drafts = {a.id for a in await list_advisories(store, status=AdvisoryStatus.DRAFT)}
+    assert drafts == {replayed.id, live_new_advice.id}
+
+
+async def test_a_recorded_approval_does_not_suppress_live_advice(
+    store: SqliteStore, bus: EventBus
+) -> None:
+    replayed = await submit_draft(store, bus, draft(replay=True))
+    assert replayed is not None
+    await approve(store, bus, replayed.id, expected_version=1, actor=DESK)
+    assert await submit_draft(store, bus, draft(id="adv_aaaaaaaaaaa3")) is not None
+    assert await submit_draft(store, bus, draft(id="adv_aaaaaaaaaaa4", replay=True)) is None
 
 
 async def test_audit_chain_is_intact_after_every_kind_of_move(

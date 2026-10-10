@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from tephra.agents.llm import LlmBackend, LlmPart, prompt_hash
+from tephra.agents.llm import LlmBackend, LlmPart, daily_quota_spent, prompt_hash
 from tephra.agents.schemas import parse_json_model
 from tephra.agents.validators import (
     MAX_CHANGE_LEVEL_FL,
@@ -30,7 +30,7 @@ from tephra.agents.validators import (
 from tephra.config import DIVERT_EXTRA_MINUTES, Settings
 from tephra.feeds.airports import AirportCatalogue
 from tephra.feeds.taf import assess_alternate
-from tephra.geo.cone import contains_point
+from tephra.geo.cone import polygon_iou
 from tephra.geo.fuel import divert_line
 from tephra.geo.units import destination_point, ft_to_fl, initial_bearing_deg, nm_to_km
 from tephra.models import (
@@ -51,6 +51,7 @@ from tephra.models import (
     TraceEvent,
     TraceSink,
     TraceStage,
+    polygon_from_latlon,
 )
 from tephra.util.hashing import stable_id
 
@@ -68,13 +69,15 @@ ADK_USER_ID: Final = "tephra-dispatch"
 
 MAX_MODEL_TURNS: Final = 10
 """Model calls allowed per planning turn (tool round trips included) before code stops it."""
+DAILY_QUOTA_SPENT: Final = "GEMINI DAILY QUOTA SPENT (429): LITE TIER CLOSED FOR THE QUOTA DAY"
 ALTERNATE_CONE_BUFFER_NM: Final = 20.0
 LEVEL_SEARCH_FT: Final = 4000
 LEVEL_BAND_FL: Final = 20
 DIVERT_WITHIN_MIN: Final = 15
 HOLD_WITHIN_MIN: Final = 30
 HYPOTHESIS_HOLD_WITHIN_MIN: Final = 20
-_RING_POINTS: Final = 16
+_RING_POINTS: Final = 64
+"""Vertices of the buffer disc; its edges fall at most 0.03 NM inside the true circle."""
 _SUMMARY_CHARS: Final = 240
 
 PlanOutcome = Literal["ACCEPTED", "REPAIRED", "FALLBACK_RULES", "STUB"]
@@ -140,15 +143,19 @@ def _alternate(
 
 
 def _near_cone(cone: HazardCone, lat: float, lon: float) -> bool:
-    """Inside the cone or within ALTERNATE_CONE_BUFFER_NM of it (sampled on a ring)."""
+    """Inside the cone or within ALTERNATE_CONE_BUFFER_NM of it.
+
+    The whole buffer disc is overlapped with the cone: a narrow plume can pass between the
+    airport and any ring of sample points.
+    """
     if cone.geometry is None:
         return False
     radius_km = nm_to_km(ALTERNATE_CONE_BUFFER_NM)
-    ring = [
+    disc = polygon_from_latlon(
         destination_point(lat, lon, i * 360.0 / _RING_POINTS, radius_km)
         for i in range(_RING_POINTS)
-    ]
-    return any(contains_point(cone, p_lat, p_lon) for p_lat, p_lon in [(lat, lon), *ring])
+    )
+    return polygon_iou(cone.geometry, disc) > 0.0
 
 
 # --- rules ------------------------------------------------------------------------------
@@ -189,6 +196,14 @@ def rule_based_decision(ctx: PlannerContext) -> PlannerDecision:
             [ActionKind.CHANGE_LEVEL, ActionKind.HOLD],
             alternate_icao=alternate,
         )
+    if flight.inside_now:
+        # Holding at present position would keep the aircraft in the ash.
+        return _rule(
+            ActionKind.MONITOR,
+            f"{hazard}, {entry}. NO CLEAR LEVEL WITHIN {LEVEL_SEARCH_FT} FT AND NO ACCEPTABLE"
+            " ALTERNATE; A HOLD HERE IS INSIDE THE HAZARD. DISPATCHER TO ADVISE THE EXIT.",
+            [ActionKind.HOLD, ActionKind.CHANGE_LEVEL, ActionKind.DIVERT],
+        )
     if flight.minutes_to_entry <= HOLD_WITHIN_MIN and level_fl is not None:
         reason = "NO ACCEPTABLE ALTERNATE" if urgent else "ENTRY IS CLOSE"
         return _rule(
@@ -208,7 +223,11 @@ def rule_based_decision(ctx: PlannerContext) -> PlannerDecision:
 def _hypothesis_rule(ctx: PlannerContext, level_fl: int | None) -> PlannerDecision:
     flight = ctx.flight
     basis = "NO OFFICIAL PRODUCT IS VALID; THE HAZARD IS A TEPHRA HYPOTHESIS"
-    if flight.minutes_to_entry <= HYPOTHESIS_HOLD_WITHIN_MIN and level_fl is not None:
+    # Inside the cone a hold at present position is outside the hazard only above or below it.
+    hold_outside = level_fl is not None and (
+        not flight.inside_now or band_clears_hazard(level_fl, level_fl, ctx=ctx)
+    )
+    if flight.minutes_to_entry <= HYPOTHESIS_HOLD_WITHIN_MIN and hold_outside:
         return _rule(
             ActionKind.HOLD,
             f"{basis}, {_entry_text(flight)}. HOLD AT PRESENT POSITION UNTIL AN OFFICIAL"
@@ -256,7 +275,9 @@ def nearest_clear_band(ctx: PlannerContext) -> tuple[int, int] | None:
 
 
 def nearest_ok_alternate(ctx: PlannerContext) -> str | None:
-    candidates = [alt for alt in ctx.alternates if alt.check.ok]
+    candidates = [
+        alt for alt in ctx.alternates if alt.check.ok and alt.check.taf_source_id is not None
+    ]
     return min(candidates, key=lambda alt: alt.distance_nm).icao if candidates else None
 
 
@@ -491,11 +512,13 @@ async def plan_flight(
             outcome="STUB",
         )
     model_id = llm.model_id("lite")
+    run = _AgentRun()
     try:
-        run = await _run_agent(ctx, llm, settings=settings, trace=trace)
+        await _run_agent(ctx, llm, run, settings=settings, trace=trace)
     except Exception as exc:  # ADK or API failure: agents fall back, they never raise
         logger.warning("planner agent failed for %s: %s", ctx.flight.id, type(exc).__name__)
-        run = _AgentRun(problems=[f"PLANNER AGENT ERROR: {type(exc).__name__}"])
+        run.decision = None
+        run.problems = [f"PLANNER AGENT ERROR: {type(exc).__name__}"]
     if run.decision is not None and not run.problems:
         _emit(trace, ctx, "adk", f"PLAN {run.outcome}: {_decision_line(run.decision)}")
         return _planned(
@@ -512,7 +535,7 @@ async def plan_flight(
         trace,
         ctx,
         "code",
-        f"PLANNER FELL BACK TO RULES: {_decision_line(decision)}",
+        f"PLANNER FELL BACK TO RULES (NO MODEL): {_decision_line(decision)}",
         level="warn",
         detail={"problems": run.problems},
     )
@@ -537,16 +560,25 @@ class _AgentRun:
 
 
 async def _run_agent(
-    ctx: PlannerContext, llm: LlmBackend, *, settings: Settings, trace: TraceSink | None
-) -> _AgentRun:
+    ctx: PlannerContext,
+    llm: LlmBackend,
+    run: _AgentRun,
+    *,
+    settings: Settings,
+    trace: TraceSink | None,
+) -> None:
+    """Fills ``run`` as it goes, so the tool calls made before a failure stay on record."""
     from google.adk.runners import InMemoryRunner
 
     from tephra.agents.adk_app import build_planner_agent
 
     guard = _ModelGuard(llm)
-    agent = build_planner_agent(settings.model_lite, before_model_callback=guard)
+    agent = build_planner_agent(
+        settings.model_lite,
+        before_model_callback=guard,
+        on_model_error_callback=guard.on_model_error,
+    )
     runner = InMemoryRunner(agent=agent, app_name=ADK_APP_NAME)
-    run = _AgentRun()
     try:
         session = await runner.session_service.create_session(
             app_name=ADK_APP_NAME,
@@ -572,13 +604,15 @@ async def _run_agent(
             run.problems = [*run.problems, guard.stop_reason]
     finally:
         await runner.close()
-    return run
 
 
 class _ModelGuard:
-    """``before_model_callback``: takes each model turn from the daily budget, caps turns.
+    """The daily budget in front of every ADK model turn.
 
-    Returning a response skips the model call; with no function call in it, the run ends.
+    As ``before_model_callback`` it takes each turn from the budget and caps turns; as
+    ``on_model_error_callback`` (``on_model_error``) it closes the lite tier for the quota day
+    when Gemini answers 429 for a per-day quota, which no retry clears. Either one answers in
+    the model's place to stop; with no function call in that answer, the run ends.
     """
 
     def __init__(self, llm: LlmBackend) -> None:
@@ -592,13 +626,22 @@ class _ModelGuard:
             self.stop_reason = f"MODEL TURN LIMIT {MAX_MODEL_TURNS} REACHED"
         elif not self._llm.reserve("lite"):
             self.stop_reason = "budget_exhausted"
-        if self.stop_reason is None:
-            return None
-        from google.adk.models import LlmResponse
-        from google.genai import types
+        return None if self.stop_reason is None else _stop(self.stop_reason)
 
-        stop = types.Part(text=f"STOPPED: {self.stop_reason}")
-        return LlmResponse(content=types.Content(role="model", parts=[stop]))
+    def on_model_error(self, callback_context: Any, llm_request: Any, error: Exception) -> Any:
+        if not daily_quota_spent(error):
+            return None
+        self._llm.exhaust("lite")
+        self.stop_reason = DAILY_QUOTA_SPENT
+        return _stop(self.stop_reason)
+
+
+def _stop(reason: str) -> Any:
+    from google.adk.models import LlmResponse
+    from google.genai import types
+
+    stop = types.Part(text=f"STOPPED: {reason}")
+    return LlmResponse(content=types.Content(role="model", parts=[stop]))
 
 
 class _ToolRecorder:

@@ -6,24 +6,30 @@ days against the primary texts:
 
 * A non-observation ("Ash-cloud is not observed", "VA NOT IDENTIFIABLE", a night-time
   observer, an absent product) is an evidence state, never a CONFLICT. CONFLICT needs an
-  explicit negative assertion (a VAA saying no ash is expected, or a final VAA that is not
-  merely "not identifiable") in force when another product observed ash.
+  explicit negative assertion (a VAA saying no ash is expected, or a final VAA, that did
+  not merely fail to see the ash) in force when another product observed ash.
+* SILENCE means a VAAC said nothing about ash that was reported. A VAA chain in force is
+  not silence (its delay is a LAG), and a polling gap is not silence: with the VAAC's feed
+  failing or stale, SILENCE says nothing (research/14).
 * A SIGMET that repeats a VAA polygon vertex for vertex is the same source twice (the
   Indonesian MWOs copy Darwin's polygon). The two are compared as one unit and named
   together, so an echo never manufactures a disagreement.
+* One office never disagrees with itself: its latest SIGMET replaces the earlier ones (its
+  latest few when it splits clouds into series issued together), and the SIGMETs of one FIR
+  are compared with other products, never with each other.
 * Times are compared on observation time (a SIGMET's ``OBS AT``, a VAA's observation step,
   a VONA's issue time), not on issue or validity times (research/13, data-quality 9).
 """
 
 import math
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Final, Literal
 
 from shapely.geometry import Point, Polygon
 
-from tephra.config import MAX_HORIZON_H, Settings
+from tephra.config import FEED_CLOCK_SLACK, MAX_HORIZON_H, Settings
 from tephra.geo.cone import geometry_to_shape, official_layers
 from tephra.geo.units import (
     bearing_diff_deg,
@@ -38,6 +44,9 @@ from tephra.models import (
     Discrepancy,
     DiscrepancyKind,
     EvidenceState,
+    FeedHealth,
+    FeedId,
+    FeedStatus,
     GeoPolygon,
     RunMode,
     SatelliteFrame,
@@ -68,7 +77,7 @@ VONA_FRESH_H: Final = 6.0
 """A VONA older than this describes an earlier puff: its evidence state is STALE."""
 VAA_LOOKBACK_H: Final = 24.0
 """``select_records`` keeps, per VAAC, the newest VAA issued within this many hours."""
-CLOCK_SLACK: Final = timedelta(minutes=5)
+CLOCK_SLACK: Final = FEED_CLOCK_SLACK
 """Products stamped slightly after "now" (feed clocks, replay steps) still count."""
 OVERDUE_GRACE_MIN: Final = 10
 """VAAs are polled every 5 minutes; a next advisory this late has really not appeared."""
@@ -77,10 +86,18 @@ POLYGON_PROBE_KM: Final = 15.0
 ECHO_TOLERANCE_DEG: Final = 0.005
 """Vertex tolerance for "same polygon": JSON SIGMET coordinates carry 3 decimals, VAA
 coordinates are whole minutes (0.0167 degrees apart), so this cannot merge distinct shapes."""
+SERIES_SPLIT_WINDOW: Final = timedelta(minutes=10)
+"""SIGMETs of two series that one office issues this close together stand side by side: RJJJ
+split the two clouds of Y02 into Y03 and X01 a minute apart (25 Sep). A series issued later
+takes over instead, as every other RJJJ letter change in the 30-day census did (Y01 after
+X02, Q01 after P01)."""
 NIGHT_START_H: Final = 18.0
 NIGHT_END_H: Final = 6.0
 _KM_PER_DEG_LAT: Final = 110.57
 _KM_PER_DEG_LON_EQUATOR: Final = 111.32
+_FAR_SIDE_DEG: Final = 90.0
+"""A polygon vertex this far in longitude from the vent is on the far side of the globe."""
+_VAA_FEEDS: Final = {VaacCentre.TOKYO: FeedId.VAAC_TOKYO, VaacCentre.DARWIN: FeedId.VAAC_DARWIN}
 
 _SEVERITY_RANK: Final = {Severity.WARNING: 0, Severity.CAUTION: 1, Severity.INFO: 2}
 _KIND_RANK: Final = {kind: index for index, kind in enumerate(DiscrepancyKind)}
@@ -118,10 +135,19 @@ def find_active(
             seen_vona.add(volcano.id)
             ash = "ash reported" if vona.ash_observed else "ash not observed"
             add(volcano.id, f"{_vona_label(vona)} ({vona.color_code.value}, {ash})")
-    for vaa in sorted(vaas, key=lambda item: item.issued_at, reverse=True):
+    # Only a VAAC's newest word on a volcano counts: a VAA that a later one replaced (or
+    # closed) no longer keeps the volcano active.
+    newest: dict[tuple[str, VaacCentre], VaacAdvisory] = {}
+    for vaa in vaas:
         volcano = _vaa_volcano(catalogue, vaa)
-        if volcano is not None and vaa.is_current(at):
-            add(volcano.id, f"Current {_vaa_label(vaa)}")
+        if volcano is None:
+            continue
+        held = newest.get((volcano.id, vaa.vaac))
+        if held is None or _vaa_order(vaa) > _vaa_order(held):
+            newest[volcano.id, vaa.vaac] = vaa
+    for key in sorted(newest):
+        if newest[key].is_current(at):
+            add(key[0], f"Current {_vaa_label(newest[key])}")
     for sigmet in sigmets:
         if not sigmet.is_valid(at):
             continue
@@ -167,9 +193,9 @@ def select_records(
         if not _same(_vaa_volcano(catalogue, vaa), volcano):
             continue
         held = newest.get(vaa.vaac)
-        if held is None or vaa.issued_at > held.issued_at:
+        if held is None or _vaa_order(vaa) > _vaa_order(held):
             newest[vaa.vaac] = vaa
-    chosen_vaas = sorted(newest.values(), key=lambda item: item.issued_at, reverse=True)
+    chosen_vaas = sorted(newest.values(), key=_vaa_order, reverse=True)
     return chosen_sigmets, chosen_vonas, chosen_vaas
 
 
@@ -186,6 +212,7 @@ def build_situation(
     at: datetime,
     mode: RunMode,
     settings: Settings,
+    feed_health: Mapping[FeedId, FeedHealth] | None = None,
 ) -> Situation:
     return Situation(
         volcano=volcano,
@@ -194,13 +221,19 @@ def build_situation(
         active_reasons=list(active_reasons),
         sigmets=list(sigmets),
         vonas=sorted(vonas, key=lambda item: item.issued_at, reverse=True),
-        vaas=sorted(vaas, key=lambda item: item.issued_at, reverse=True),
+        vaas=sorted(vaas, key=_vaa_order, reverse=True),
         winds=_upcoming_winds(winds, at),
         frames=list(frames),
         btd=btd,
         official_layers=official_layers(volcano, sigmets, vaas, at),
         discrepancies=find_discrepancies(
-            volcano, sigmets=sigmets, vonas=vonas, vaas=vaas, at=at, settings=settings
+            volcano,
+            sigmets=sigmets,
+            vonas=vonas,
+            vaas=vaas,
+            at=at,
+            settings=settings,
+            feed_health=feed_health,
         ),
     )
 
@@ -275,17 +308,21 @@ def _is_night(volcano: Volcano, vona: Vona) -> bool:
 
 
 def _vaa_negative(vaa: VaacAdvisory) -> bool:
-    """An explicit "no ash": NO VA EXP, or a final VAA that is not just "not identifiable".
+    """An explicit "no ash": NO VA EXP, or a final VAA, from a VAA that had something to say.
 
-    "NO FURTHER ADVISORIES" after "VA NOT IDENTIFIABLE" means the VAAC could not see it,
-    which is a non-observation, not an all-clear.
+    A VAA that draws ash, could not see it ("VA NOT IDENTIFIABLE"), had no observation to
+    give ("NOT AVBL", "NOT PROVIDED") or left the cloud field blank (a hand-over notice) is
+    not an all-clear, whatever follows it. Darwin's closing template adds NO VA EXP forecasts
+    even when met cloud hid the vent (Marapi 2026/80), and every closing VAA in the 30-day
+    census reads "VA NOT IDENTIFIABLE".
     """
     obs = vaa.observation
-    if obs is not None and obs.layers:
-        return False
-    if obs is not None and obs.no_ash_expected:
-        return True
-    if vaa.final and not (obs is not None and obs.not_identifiable):
+    if obs is not None:
+        if obs.layers or obs.not_identifiable or obs.not_available or not obs.text.strip():
+            return False
+        if obs.no_ash_expected:
+            return True
+    if vaa.final:
         return True
     return bool(vaa.forecasts) and all(step.no_ash_expected for step in vaa.forecasts)
 
@@ -312,6 +349,8 @@ class _Unit:
     movement_text: str
     positive: bool
     negative: bool
+    fir: str = ""
+    series: str = ""
 
     def valid_at(self, at: datetime) -> bool:
         return self.valid_from <= at <= self.valid_to
@@ -325,13 +364,16 @@ def find_discrepancies(
     vaas: Sequence[VaacAdvisory],
     at: datetime,
     settings: Settings,
+    feed_health: Mapping[FeedId, FeedHealth] | None = None,
 ) -> list[Discrepancy]:
     sigmet_units, vaa_units = _official_units(sigmets, vaas, at)
-    official_now = [unit for unit in sigmet_units if unit.valid_at(at)] + vaa_units
+    official_now = [*_in_force(sigmet_units, at), *vaa_units]
     finder = _Finder(volcano, settings)
 
     for index, first in enumerate(official_now):
         for second in official_now[index + 1 :]:
+            if _same_office(first, second):
+                continue
             finder.lag(first, second)
             finder.height(first, second)
             finder.direction(first, second)
@@ -350,17 +392,16 @@ def find_discrepancies(
             finder.height(_vona_unit(with_top, volcano, at), other)
     if with_direction is not None:
         unit = _vona_unit(with_direction, volcano, at)
-        for other in _comparators(with_direction, sigmet_units, vaa_units, at):
+        for other in _direction_comparators(with_direction, sigmet_units, vaa_units, at):
             finder.direction(unit, other)
-        for other in sigmet_units:
-            if other.valid_at(with_direction.issued_at):
-                finder.polygon(unit, other)
+        finder.polygon(unit, _in_force(sigmet_units, with_direction.issued_at))
 
     vona_units = [_vona_unit(vona, volcano, at) for vona in ordered_vonas]
     finder.conflicts([*sigmet_units, *vaa_units, *vona_units], at)
-    finder.silence_after_vona(ordered_vonas, vaas, at)
-    finder.silence_without_vaa(sigmet_units, any(vaa.is_current(at) for vaa in vaas), at)
-    finder.overdue_vaas(vaas, at)
+    if not _vaa_feed_degraded(volcano, feed_health, at, settings):
+        finder.silence_after_vona(ordered_vonas, vaas, at)
+        finder.silence_without_vaa(_in_force(sigmet_units, at), vaas, at)
+        finder.overdue_vaas(vaas, at)
     return finder.result()
 
 
@@ -377,9 +418,75 @@ def _comparators(
     research/13 shows the cited 25 Sep pair was 37 hours apart, a LAG, while the SIGMET in
     force at the VONA's time disagreed with it on direction.
     """
-    at_vona_time = [unit for unit in sigmet_units if unit.valid_at(vona.issued_at)]
-    sigmets_now = at_vona_time or [unit for unit in sigmet_units if unit.valid_at(at)]
+    at_vona_time = _in_force(sigmet_units, vona.issued_at)
+    sigmets_now = at_vona_time or _in_force(sigmet_units, at)
     return [*sigmets_now, *vaa_units]
+
+
+def _direction_comparators(
+    vona: Vona, sigmet_units: Sequence[_Unit], vaa_units: Sequence[_Unit], at: datetime
+) -> list[_Unit]:
+    """Drift changes within hours, so a VONA older than ``VONA_FRESH_H`` is compared only
+    with the products in force when it was issued; against later ones it is a LAG
+    (research/13 calls the 37-hour pair "not a fair test")."""
+    if vona.is_recent(at, VONA_FRESH_H):
+        return _comparators(vona, sigmet_units, vaa_units, at)
+    return _in_force([*sigmet_units, *vaa_units], vona.issued_at)
+
+
+def _in_force(units: Iterable[_Unit], when: datetime) -> list[_Unit]:
+    """Units valid at ``when``, less any SIGMET that a later one from its office replaced.
+
+    AWC relays no CNL messages, so a SIGMET overlaps its successor by a few minutes (143
+    hand-overs in the 30-day census); compared, the two read as a disagreement exactly when
+    the new one arrives and changes the inputs.
+    """
+    valid = [unit for unit in units if unit.valid_at(when)]
+    return [unit for unit in valid if not any(_replaces(other, unit) for other in valid)]
+
+
+def _replaces(newer: _Unit, older: _Unit) -> bool:
+    """A later SIGMET of the same FIR: the next of its series (or the same one re-issued
+    under a higher number), or another series issued after it rather than beside it. The
+    series is the letters before the number (``"16"`` has none, ``"Y03"`` is Y)."""
+    if not (newer.kind == older.kind == "SIGMET" and newer.fir == older.fir):
+        return False
+    new_letters, new_number = _series_key(newer.series)
+    old_letters, old_number = _series_key(older.series)
+    if new_letters == old_letters:
+        return (newer.valid_from, new_number) > (older.valid_from, old_number)
+    return newer.valid_from - older.valid_from > SERIES_SPLIT_WINDOW
+
+
+def _series_key(series: str) -> tuple[str, int]:
+    """``"16"`` -> ``("", 16)``, ``"B01"`` -> ``("B", 1)``: numbers compare as numbers."""
+    prefix = series.rstrip("0123456789")
+    return prefix, _as_int(series[len(prefix) :])
+
+
+def _same_office(first: _Unit, second: _Unit) -> bool:
+    """One office's SIGMETs are one voice: the clouds of one SIGMET (``05`` and ``05 AREA
+    2``) and the series an office runs side by side describe different clouds, and a series
+    hands over to its next SIGMET. None of them disagrees with another."""
+    return first.kind == second.kind == "SIGMET" and first.fir == second.fir
+
+
+def _vaa_feed_degraded(
+    volcano: Volcano,
+    feed_health: Mapping[FeedId, FeedHealth] | None,
+    at: datetime,
+    settings: Settings,
+) -> bool:
+    """True when TEPHRA cannot tell whether the volcano's VAAC spoke: its feed is failing,
+    stale or has never run. SILENCE then says nothing, since a polling gap is not a silent
+    VAAC. With no health given, the records are trusted."""
+    if feed_health is None:
+        return False
+    feed = _VAA_FEEDS[volcano.vaac]
+    state = feed_health.get(feed)
+    if state is None or state.status is not FeedStatus.OK or state.last_success_at is None:
+        return True
+    return (at - state.last_success_at).total_seconds() > settings.stale_after_s(feed)
 
 
 class _Finder:
@@ -512,19 +619,25 @@ class _Finder:
             "deg",
         )
 
-    def polygon(self, vona: _Unit, sigmet: _Unit) -> None:
-        if vona.toward_deg is None or sigmet.polygon is None:
+    def polygon(self, vona: _Unit, sigmets: Sequence[_Unit]) -> None:
+        """The probe must miss every polygon in force: a drift inside another cloud of the
+        same SIGMET, or inside another FIR's SIGMET, is inside the official area."""
+        drawn = [(unit, unit.polygon) for unit in sigmets if unit.polygon is not None]
+        if vona.toward_deg is None or not drawn:
             return
         volcano = self._volcano
         lat, lon = destination_point(volcano.lat, volcano.lon, vona.toward_deg, POLYGON_PROBE_KM)
-        shape = geometry_to_shape(sigmet.polygon, ref_lon=volcano.lon)
-        if shape.covers(Point(unwrap_lon(lon, volcano.lon), lat)):
+        probe = Point(unwrap_lon(lon, volcano.lon), lat)
+        if any(geometry_to_shape(shape, ref_lon=volcano.lon).covers(probe) for _, shape in drawn):
             return
         compass = deg_to_compass(vona.toward_deg)
-        values = {**_values(vona, vona.movement_text), **_values(sigmet, "polygon")}
+        values = _values(vona, vona.movement_text)
+        for unit, _ in drawn:
+            values.update(_values(unit, "polygon"))
+        noun = "polygon" if len(drawn) == 1 else "polygons"
         summary = (
             f"A point {POLYGON_PROBE_KM:.0f} km {compass} of the vent ({vona.label} drift) "
-            f"lies outside the {sigmet.label} polygon"
+            f"lies outside the {' and '.join(unit.label for unit, _ in drawn)} {noun}"
         )
         self._add(DiscrepancyKind.DIRECTION_MISMATCH, "polygon", values, summary)
 
@@ -567,11 +680,16 @@ class _Finder:
     def silence_after_vona(
         self, vonas: Sequence[Vona], vaas: Sequence[VaacAdvisory], at: datetime
     ) -> None:
-        """The oldest VONA with ash that no VAA has followed yet: silence since then."""
+        """The oldest ash VONA that no VAA answers: none in force when it was issued (a
+        closing VAA does not count) and none issued since.
+
+        With a VAA chain in force the VAAC is speaking. Darwin re-issues every six hours and
+        reflects a new VONA a median 228 minutes later (research/14): that gap is a LAG.
+        """
         unanswered = [
             vona
             for vona in vonas
-            if vona.ash_observed and not any(vaa.issued_at >= vona.issued_at for vaa in vaas)
+            if vona.ash_observed and not any(_answers(vaa, vona.issued_at) for vaa in vaas)
         ]
         if not unanswered:
             return
@@ -585,12 +703,16 @@ class _Finder:
         self._add(DiscrepancyKind.SILENCE, "presence", values, summary, round(minutes), "min")
 
     def silence_without_vaa(
-        self, sigmet_units: Sequence[_Unit], has_current_vaa: bool, at: datetime
+        self, sigmet_units: Sequence[_Unit], vaas: Sequence[VaacAdvisory], at: datetime
     ) -> None:
-        if has_current_vaa:
-            return
+        """A SIGMET in force that no VAA has been in force with since the cloud it reports.
+
+        A VAA that closed the event while the SIGMET stays open, or is re-issued under a new
+        number (Tokyo's NO FURTHER ADVISORIES, 67 of 71 Sakurajima cases in research/14), has
+        spoken; a chain that stops is reported once, as overdue.
+        """
         for unit in sigmet_units:
-            if not unit.valid_at(at):
+            if any(vaa.issued_at <= at and vaa.valid_until() >= unit.obs_time for vaa in vaas):
                 continue
             minutes = timeutil.minutes_between(unit.valid_from, at)
             if minutes <= self._settings.silence_threshold_min:
@@ -649,9 +771,26 @@ def _latest_per_vaac(vaas: Sequence[VaacAdvisory]) -> list[VaacAdvisory]:
     latest: dict[VaacCentre, VaacAdvisory] = {}
     for vaa in vaas:
         held = latest.get(vaa.vaac)
-        if held is None or vaa.issued_at > held.issued_at:
+        if held is None or _vaa_order(vaa) > _vaa_order(held):
             latest[vaa.vaac] = vaa
     return sorted(latest.values(), key=lambda item: item.vaac.value)
+
+
+def _vaa_order(vaa: VaacAdvisory) -> tuple[datetime, int, int]:
+    """Oldest to newest by DTG, then by advisory number: Darwin can issue two advisories with
+    one DTG (Marapi 2026/82 and 2026/83, the second ending what the first said)."""
+    year, _, number = vaa.advisory_nr.partition("/")
+    return vaa.issued_at, _as_int(year), _as_int(number)
+
+
+def _as_int(text: str) -> int:
+    digits = text.strip()
+    return int(digits) if digits.isdigit() else 0
+
+
+def _answers(vaa: VaacAdvisory, when: datetime) -> bool:
+    """A VAA issued at or after ``when``, or one still running (not closing) at ``when``."""
+    return vaa.issued_at >= when or (not vaa.final and vaa.is_current(when))
 
 
 def _echoes(sigmet: Sigmet, vaa: VaacAdvisory) -> bool:
@@ -703,6 +842,8 @@ def _sigmet_unit(sigmet: Sigmet, twins: Sequence[VaacAdvisory]) -> _Unit:
         ),
         positive=bool(sigmet.observed),
         negative=False,
+        fir=sigmet.fir_id,
+        series=sigmet.series_id.partition(" ")[0],
     )
 
 
@@ -888,14 +1029,17 @@ def _polygon_distance_km(polygon: GeoPolygon, lat: float, lon: float) -> float:
     """Distance from a point to a polygon (0 inside), on a local equirectangular plane.
 
     Over a few hundred kilometres near the tropics the plane's error is well under 1 %,
-    far below the 300 km activity radius it is compared with.
+    far below the 300 km activity radius it is compared with. A polygon on the far side of
+    the globe is simply far: on the plane its ring can wrap across the antimeridian and pass
+    by the vent (Sangay, W078, read as 30 km from Kerinci, E101).
     """
-    kx = _KM_PER_DEG_LON_EQUATOR * math.cos(math.radians(lat))
-    ring = [
-        ((unwrap_lon(p_lon, lon) - lon) * kx, (p_lat - lat) * _KM_PER_DEG_LAT)
-        for p_lon, p_lat in polygon.coordinates[0]
+    offsets = [
+        (unwrap_lon(p_lon, lon) - lon, p_lat - lat) for p_lon, p_lat in polygon.coordinates[0]
     ]
-    shape = Polygon(ring)
+    if any(abs(d_lon) > _FAR_SIDE_DEG for d_lon, _ in offsets):
+        return math.inf
+    kx = _KM_PER_DEG_LON_EQUATOR * math.cos(math.radians(lat))
+    shape = Polygon([(d_lon * kx, d_lat * _KM_PER_DEG_LAT) for d_lon, d_lat in offsets])
     if not shape.is_valid:
         shape = shape.buffer(0)
     return float(shape.distance(Point(0.0, 0.0)))

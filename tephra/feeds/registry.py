@@ -11,15 +11,24 @@ first-seen copy of an unchanged record keeps its source id and hash stable, so t
 Reader is not re-triggered by someone else's SIGMET.
 """
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Final, Protocol
+from urllib.parse import urlsplit
+
+import httpx
 
 from tephra.config import Settings
-from tephra.feeds.adsb import ADSB_POINT_URL, fetch_aircraft, query_points
-from tephra.feeds.base import FetchError
+from tephra.feeds.adsb import (
+    MAX_CACHED_COPY_AGE_S,
+    AdsbPointsFailed,
+    fetch_aircraft,
+    query_points,
+)
+from tephra.feeds.base import FetchError, FetchResult, Source, build_url
 from tephra.feeds.satellite import fetch_frames
 from tephra.feeds.sigmet import fetch_sigmets
 from tephra.feeds.taf import fetch_metars, fetch_tafs
@@ -27,6 +36,7 @@ from tephra.feeds.vaac import DARWIN_BULLETIN_URLS, fetch_vaas
 from tephra.feeds.vona import fetch_vonas
 from tephra.feeds.winds import fetch_winds
 from tephra.models import (
+    AdsbQueryPoint,
     AdsbSnapshot,
     BtdResult,
     FeedHealth,
@@ -57,6 +67,7 @@ __all__ = [
     "PRODUCT_FEEDS",
     "FeedPoll",
     "LiveData",
+    "disabled_reason",
     "due_feeds",
     "health_view",
     "initial_health",
@@ -87,13 +98,33 @@ DUE_SLACK_S: Final = 5
 """A 60 s feed on a 60 s tick would otherwise miss every other tick by milliseconds."""
 IDLE_ADSB_FACTOR: Final = 4
 """With nothing active, aircraft only decorate the map: poll adsb.lol four times less."""
+POLL_BUDGET_SHARE: Final = 0.75
+"""A feed poll may take this share of the tick interval: a host that accepts requests and
+never answers (Open-Meteo, for five minutes on 10 Oct) costs the tick one bounded wait."""
 GAP_RETRY_S: Final = 120
 """Minimum spacing of polls forced because an active volcano has no data of a kind yet."""
 COLD_START_VONA_PAGES: Final = 2
+ISSUE_SLACK: Final = timedelta(minutes=5)
+"""A notice stamped this little after the replay clock already counts as issued."""
 VAA_RETENTION_H: Final = 30
 ALTERNATES_PER_VOLCANO: Final = 8
 ALTERNATES_PER_FLIGHT: Final = 5
 STALE_NOTE: Final = "live fetch failed; serving the last good copy"
+UNREACHABLE_ERRORS: Final = (httpx.TimeoutException, httpx.ConnectError)
+"""Transport failures that say the host itself is not answering (not an HTTP error)."""
+VONA_OFF_NOTE: Final = (
+    "live polling off: MAGMA's robots.txt disallows crawling (TEPHRA_VONA_LIVE); "
+    "replays serve recorded VONAs"
+)
+HSD_OFF_NOTE: Final = "raw Himawari processing is off (TEPHRA_SCIENCE=0)"
+NOT_RECORDED_NOTE: Final = "not in this replay case: no archive of this feed was recorded"
+
+
+@dataclass(frozen=True)
+class _Gap:
+    keys: frozenset[str]
+    """What an active volcano needs of the feed and has never had (TAF/METAR: ICAOs)."""
+    since: datetime
 
 
 @dataclass
@@ -114,6 +145,8 @@ class LiveData:
     health: dict[FeedId, FeedHealth] = field(default_factory=dict)
     covered: dict[FeedId, set[str]] = field(default_factory=dict)
     """Per-volcano feeds: volcano ids (TAF/METAR: ICAOs) fetched successfully at least once."""
+    gaps: dict[FeedId, _Gap] = field(default_factory=dict)
+    """Feeds some active volcano still lacks; forced polls back off the longer a gap lasts."""
 
 
 class FeedPoll(TephraModel):
@@ -135,23 +168,48 @@ class _Outcome:
     record_count: int
     new_record_count: int
     stale: bool
+    error: str | None = None
+    """Part of the feed failed and older data stands in for it (the outcome is stale)."""
 
 
 # --- scheduling -------------------------------------------------------------------------
 
 
-def initial_health(settings: Settings, *, replay: bool) -> dict[FeedId, FeedHealth]:
-    return {
-        feed: FeedHealth(
+def disabled_reason(
+    feed: FeedId,
+    settings: Settings,
+    *,
+    replay: bool,
+    recorded: frozenset[FeedId] | None = None,
+) -> str | None:
+    """Why ``feed`` is never polled under these settings, or None when it is polled.
+
+    ``recorded`` is the set of feeds the playing replay case holds: a reconstruction from
+    archives has no ADS-B or winds, and those feeds are absent, not failing.
+    """
+    if feed is FeedId.HSD and not settings.science:
+        return HSD_OFF_NOTE
+    if feed is FeedId.VONA and not (settings.vona_live or replay):
+        return VONA_OFF_NOTE
+    if replay and recorded is not None and feed not in recorded:
+        return NOT_RECORDED_NOTE
+    return None
+
+
+def initial_health(
+    settings: Settings, *, replay: bool, recorded: frozenset[FeedId] | None = None
+) -> dict[FeedId, FeedHealth]:
+    health: dict[FeedId, FeedHealth] = {}
+    for feed in FeedId:
+        reason = disabled_reason(feed, settings, replay=replay, recorded=recorded)
+        health[feed] = FeedHealth(
             feed=feed,
-            status=FeedStatus.DISABLED
-            if feed is FeedId.HSD and not settings.science
-            else FeedStatus.NEVER,
+            status=FeedStatus.NEVER if reason is None else FeedStatus.DISABLED,
             cadence_s=settings.cadence_s(feed),
+            last_error=reason,
             replay=replay,
         )
-        for feed in FeedId
-    }
+    return health
 
 
 def due_feeds(
@@ -161,6 +219,7 @@ def due_feeds(
     *,
     active: bool,
     replay: bool = False,
+    recorded: frozenset[FeedId] | None = None,
 ) -> list[FeedId]:
     """Feeds whose cadence has elapsed since their last attempt, in ``FeedId`` order.
 
@@ -172,9 +231,7 @@ def due_feeds(
     for feed in FeedId:
         if feed in VOLCANO_FEEDS and not active:
             continue
-        if feed is FeedId.HSD and not settings.science:
-            continue
-        if feed is FeedId.VONA and not (settings.vona_live or replay):
+        if disabled_reason(feed, settings, replay=replay, recorded=recorded) is not None:
             continue
         state = states.get(feed)
         if state is None or state.last_attempt_at is None:
@@ -191,30 +248,62 @@ def due_feeds(
 def uncovered_feeds(runtime: "Runtime", at: datetime) -> list[FeedId]:
     """Feeds to poll now, off-cadence, because an active volcano has no data of that kind.
 
-    A volcano that becomes active should not wait up to an hour for its winds. Forced
-    polls of a failing feed are spaced by :data:`GAP_RETRY_S`.
+    A volcano that becomes active should not wait up to an hour for its winds. Forced polls
+    of a gap that stays open back off: the first retry waits :data:`GAP_RETRY_S`, each later
+    one as long as the gap had lasted, up to the feed's cadence. A volcano newly missing
+    from a feed starts its gap afresh.
     """
     live = runtime.live
-    active = set(live.active)
-    gaps: list[FeedId] = []
+    live.gaps = {
+        feed: _continued(live.gaps.get(feed), keys, at) for feed, keys in _missing(runtime).items()
+    }
+    return [
+        feed
+        for feed, gap in live.gaps.items()
+        if _retry_allowed(live.health.get(feed), gap, at, runtime.settings.cadence_s(feed))
+        and disabled_reason(
+            feed,
+            runtime.settings,
+            replay=runtime.mode is RunMode.REPLAY,
+            recorded=runtime.recorded_feeds,
+        )
+        is None
+    ]
+
+
+def _missing(runtime: "Runtime") -> dict[FeedId, frozenset[str]]:
+    live = runtime.live
+    missing: dict[FeedId, frozenset[str]] = {}
     if live.adsb_at is None:
-        gaps.append(FeedId.ADSB)
-    if active:
-        needed: dict[FeedId, set[str]] = {
-            FeedId.WINDS: active,
-            FeedId.FRAMES: active,
-            FeedId.TAF: set(taf_icaos(runtime)),
-        }
-        if runtime.settings.science:
-            needed[FeedId.HSD] = active
-        gaps.extend(feed for feed, keys in needed.items() if keys - live.covered.get(feed, set()))
-    return [feed for feed in gaps if _retry_allowed(live.health.get(feed), at)]
+        missing[FeedId.ADSB] = frozenset()
+    if not live.active:
+        return missing
+    active = frozenset(live.active)
+    needed = {
+        FeedId.WINDS: active,
+        FeedId.FRAMES: active,
+        FeedId.TAF: frozenset(taf_icaos(runtime)),
+    }
+    if runtime.settings.science:
+        needed[FeedId.HSD] = active
+    for feed, keys in needed.items():
+        if uncovered := keys - live.covered.get(feed, set()):
+            missing[feed] = uncovered
+    return missing
 
 
-def _retry_allowed(state: FeedHealth | None, at: datetime) -> bool:
+def _continued(gap: _Gap | None, keys: frozenset[str], at: datetime) -> _Gap:
+    if gap is not None and keys <= gap.keys:
+        return _Gap(keys, gap.since)
+    return _Gap(keys, at)
+
+
+def _retry_allowed(state: FeedHealth | None, gap: _Gap, at: datetime, cadence_s: int) -> bool:
     if state is None or state.last_attempt_at is None:
         return True
-    return (at - state.last_attempt_at).total_seconds() >= GAP_RETRY_S
+    lasted = (state.last_attempt_at - gap.since).total_seconds()
+    wait = min(max(GAP_RETRY_S, lasted), max(GAP_RETRY_S, cadence_s))
+    return (at - state.last_attempt_at).total_seconds() >= wait
 
 
 def health_view(
@@ -266,8 +355,12 @@ def taf_icaos(runtime: "Runtime") -> list[str]:
 async def poll(feed: FeedId, runtime: "Runtime") -> FeedPoll:
     at = timeutil.now()
     poller = _POLLERS[feed]
+    budget_s = runtime.settings.tick_interval_s * POLL_BUDGET_SHARE
     try:
-        outcome = await poller(runtime, at)
+        async with asyncio.timeout(budget_s):
+            outcome = await poller(runtime, at)
+    except TimeoutError:
+        return _failed(runtime, feed, at, f"no answer within {budget_s:g} s")
     except FetchError as exc:
         return _failed(runtime, feed, at, exc.reason)
     except ScienceUnavailable as exc:
@@ -283,7 +376,7 @@ async def poll(feed: FeedId, runtime: "Runtime") -> FeedPoll:
         cadence_s=runtime.settings.cadence_s(feed),
         last_attempt_at=at,
         last_success_at=last_success if outcome.stale else at,
-        last_error=STALE_NOTE if outcome.stale else None,
+        last_error=(outcome.error or STALE_NOTE) if outcome.stale else None,
         record_count=outcome.record_count,
         replay=runtime.mode is RunMode.REPLAY,
     )
@@ -292,6 +385,7 @@ async def poll(feed: FeedId, runtime: "Runtime") -> FeedPoll:
         ok=True,
         record_count=outcome.record_count,
         new_record_count=outcome.new_record_count,
+        error=outcome.error,
         stale=outcome.stale,
     )
 
@@ -343,9 +437,12 @@ async def _poll_vonas(runtime: "Runtime", at: datetime) -> _Outcome:
         runtime.source,
         since=at - window,
         known_urls=frozenset(vona.provenance.url for vona in live.vonas.values()),
+        known_ids=frozenset(
+            vona.magma_id for vona in live.vonas.values() if vona.magma_id is not None
+        ),
         max_pages=1 if live.vonas else COLD_START_VONA_PAGES,
     )
-    new = await _merge(runtime, Collection.VONAS, live.vonas, fetched)
+    new = await _merge(runtime, Collection.VONAS, live.vonas, _issued_by(runtime, fetched, at))
     live.vonas = {key: vona for key, vona in live.vonas.items() if vona.issued_at >= at - window}
     return _Outcome(len(live.vonas), new, _any_stale(fetched))
 
@@ -363,7 +460,7 @@ def _vaa_poller(feed: FeedId) -> Callable[["Runtime", datetime], Awaitable[_Outc
         fetched = await fetch_vaas(
             runtime.source, feed, since=at - timedelta(hours=24), known_urls=known
         )
-        new = await _merge(runtime, Collection.VAAS, live.vaas, fetched)
+        new = await _merge(runtime, Collection.VAAS, live.vaas, _issued_by(runtime, fetched, at))
         cutoff = at - timedelta(hours=VAA_RETENTION_H)
         live.vaas = {key: vaa for key, vaa in live.vaas.items() if vaa.issued_at >= cutoff}
         count = sum(1 for vaa in live.vaas.values() if vaa.provenance.feed is feed)
@@ -408,21 +505,37 @@ async def _poll_metars(runtime: "Runtime", at: datetime) -> _Outcome:
 
 async def _poll_adsb(runtime: "Runtime", at: datetime) -> _Outcome:
     settings = runtime.settings
+    # Expired first: a poll cut short by its time budget changes nothing after this line.
+    runtime.live.adsb = [
+        snapshot
+        for snapshot in runtime.live.adsb
+        if timeutil.age_s(snapshot.provenance.fetched_at, at) <= MAX_CACHED_COPY_AGE_S
+    ]
     points = query_points(
         settings.region_preset, runtime.active_volcanoes(), settings.adsb_radius_nm
     )
-    snapshots = await fetch_aircraft(runtime.source, points)
-    if points and not snapshots:
-        raise FetchError(ADSB_POINT_URL, FeedId.ADSB, "every point query failed")
+    held: list[AdsbSnapshot] = []
+    error: str | None = None
+    try:
+        fresh = await fetch_aircraft(runtime.source, points)
+    except AdsbPointsFailed as exc:
+        held = _held_snapshots(runtime.live.adsb, exc.failed_points)
+        if not exc.snapshots:
+            runtime.live.adsb = held
+            raise
+        fresh, error = exc.snapshots, exc.reason
+    snapshots = [*fresh, *held]
     runtime.live.adsb = snapshots
-    runtime.live.adsb_at = at
+    stale = error is not None or _any_stale(snapshots)
+    if not stale:  # positions count as refreshed only when every point answered live
+        runtime.live.adsb_at = at
     count = sum(len(snapshot.aircraft) for snapshot in snapshots)
-    return _Outcome(count, len(snapshots), _any_stale(snapshots))
+    return _Outcome(count, len(fresh), stale, error)
 
 
 async def _poll_winds(runtime: "Runtime", at: datetime) -> _Outcome:
-    async def one(volcano: Volcano) -> tuple[int, int, bool]:
-        profiles = await fetch_winds(runtime.source, volcano.lat, volcano.lon)
+    async def one(source: Source, volcano: Volcano) -> tuple[int, int, bool]:
+        profiles = await fetch_winds(source, volcano.lat, volcano.lon)
         runtime.live.winds[volcano.id] = profiles
         forecast = WindForecast(volcano_id=volcano.id, profiles=profiles)
         await runtime.store.put(Collection.WINDS, volcano.id, forecast.model_dump(mode="json"))
@@ -432,9 +545,9 @@ async def _poll_winds(runtime: "Runtime", at: datetime) -> _Outcome:
 
 
 async def _poll_frames(runtime: "Runtime", at: datetime) -> _Outcome:
-    async def one(volcano: Volcano) -> tuple[int, int, bool]:
+    async def one(source: Source, volcano: Volcano) -> tuple[int, int, bool]:
         held = {frame.provenance.source_id for frame in runtime.live.frames.get(volcano.id, [])}
-        pairs = await fetch_frames(runtime.source, volcano)
+        pairs = await fetch_frames(source, volcano, nict=runtime.settings.nict_frames)
         new = 0
         for frame, png in pairs:
             if frame.provenance.source_id in held:
@@ -454,10 +567,10 @@ async def _poll_frames(runtime: "Runtime", at: datetime) -> _Outcome:
 
 async def _poll_hsd(runtime: "Runtime", at: datetime) -> _Outcome:
     if not runtime.settings.science:
-        raise ScienceUnavailable("raw Himawari processing is off (TEPHRA_SCIENCE=0)")
+        raise ScienceUnavailable(HSD_OFF_NOTE)
 
-    async def one(volcano: Volcano) -> tuple[int, int, bool]:
-        result = await run_btd(runtime.source, volcano, at, runtime.settings)
+    async def one(source: Source, volcano: Volcano) -> tuple[int, int, bool]:
+        result = await run_btd(source, volcano, at, runtime.settings)
         if result is None:
             return 0, 0, False
         btd, png = result
@@ -479,30 +592,104 @@ async def _poll_hsd(runtime: "Runtime", at: datetime) -> _Outcome:
 async def _per_volcano(
     runtime: "Runtime",
     feed: FeedId,
-    fetch_one: Callable[[Volcano], Awaitable[tuple[int, int, bool]]],
+    fetch_one: Callable[[Source, Volcano], Awaitable[tuple[int, int, bool]]],
 ) -> _Outcome:
     """Run a per-volcano fetch for every active volcano; one failure does not stop the rest.
 
-    The feed counts as failed only when every volcano failed.
+    The feed counts as failed only when no volcano got through; otherwise failures, skips
+    and last-good copies make the outcome stale (a volcano without a fresh answer keeps its
+    previous data) and are named in its error. Once a host times out or refuses a
+    connection, the remaining volcanoes skip it instead of each waiting out the same timeouts.
     """
     volcanoes = runtime.active_volcanoes()
+    source = _HostBreaker(runtime.source)
     totals = [0, 0]
-    stale = False
-    failures: list[FetchError] = []
+    failures: list[tuple[Volcano, Exception]] = []
+    skipped: list[Volcano] = []
+    stale: list[Volcano] = []
     for volcano in volcanoes:
         try:
-            count, new, was_stale = await fetch_one(volcano)
-        except FetchError as exc:
-            logger.warning("%s for %s failed: %s", feed.value, volcano.name, exc.reason)
-            failures.append(exc)
+            count, new, was_stale = await fetch_one(source, volcano)
+        except ScienceUnavailable:
+            raise
+        except _HostSkipped:
+            skipped.append(volcano)
+            continue
+        except Exception as exc:  # an unreadable answer for one volcano, not the feed
+            logger.warning("%s for %s failed: %s", feed.value, volcano.name, exc)
+            failures.append((volcano, exc))
             continue
         totals[0] += count
         totals[1] += new
-        stale = stale or was_stale
+        if was_stale:
+            stale.append(volcano)
         runtime.live.covered.setdefault(feed, set()).add(volcano.id)
-    if volcanoes and len(failures) == len(volcanoes):
-        raise failures[0]
-    return _Outcome(totals[0], totals[1], stale)
+    if failures and len(failures) + len(skipped) == len(volcanoes):
+        raise failures[0][1]
+    parts: list[str] = []
+    if failures:
+        named = "; ".join(f"{volcano.name}: {_failure_text(exc)}" for volcano, exc in failures)
+        parts.append(f"{len(failures)} of {len(volcanoes)} volcanoes failed ({named})")
+    if skipped:
+        hosts = ", ".join(sorted(source.down))
+        parts.append(f"{len(skipped)} skipped while {hosts} did not answer ({_names(skipped)})")
+    if stale:
+        parts.append(f"last good copy served for {_names(stale)}")
+    error = "; ".join(parts) or None
+    return _Outcome(totals[0], totals[1], error is not None, error)
+
+
+def _failure_text(exc: Exception) -> str:
+    return exc.reason if isinstance(exc, FetchError) else f"{type(exc).__name__}: {exc}"
+
+
+def _names(volcanoes: Iterable[Volcano]) -> str:
+    return ", ".join(volcano.name for volcano in volcanoes)
+
+
+class _HostSkipped(FetchError):
+    """Not sent: the host timed out or refused a connection earlier in the same poll."""
+
+
+class _HostBreaker:
+    """The runtime's source as one per-volcano poll uses it: after a host times out or
+    refuses a connection (Open-Meteo hung for five minutes on 10 Oct), the poll's later
+    requests to that host fail at once."""
+
+    def __init__(self, inner: Source) -> None:
+        self._inner = inner
+        self.down: dict[str, str] = {}
+
+    async def fetch(
+        self, url: str, *, feed: FeedId, params: Mapping[str, str] | None = None
+    ) -> FetchResult:
+        full_url = build_url(url, params)
+        host = urlsplit(full_url).hostname or ""
+        if host in self.down:
+            reason = f"skipped: {host} did not answer ({self.down[host]})"
+            raise _HostSkipped(full_url, feed, reason)
+        try:
+            result = await self._inner.fetch(url, feed=feed, params=params)
+        except FetchError as exc:
+            self._note(host, exc.reason)
+            raise
+        if result.stale and result.error is not None:  # the cache answered after a failure
+            self._note(host, result.error)
+        return result
+
+    async def aclose(self) -> None:
+        """The runtime owns and closes the inner source."""
+
+    def _note(self, host: str, reason: str) -> None:
+        if _unreachable(reason):
+            self.down[host] = reason
+
+
+def _unreachable(reason: str) -> bool:
+    """Whether ``HttpSource`` reported a timeout or refused connection: it words a transport
+    failure as '<httpx exception name>: <detail>'."""
+    error = getattr(httpx, reason.partition(":")[0], None)
+    return isinstance(error, type) and issubclass(error, UNREACHABLE_ERRORS)
 
 
 _POLLERS: Final[dict[FeedId, Callable[["Runtime", datetime], Awaitable[_Outcome]]]] = {
@@ -536,6 +723,30 @@ async def _merge[R: (Vona, VaacAdvisory)](
         written += 1
         await runtime.store.put(collection, key, record.model_dump(mode="json"))
     return written
+
+
+def _issued_by[R: (Vona, VaacAdvisory)](
+    runtime: "Runtime", records: Sequence[R], at: datetime
+) -> list[R]:
+    """In REPLAY, a snapshot recorded later than the replay clock lists notices that were not
+    issued yet at replay time: they wait for the clock. LIVE keeps whatever a feed issued, so
+    a feed's clock error never hides a notice."""
+    if runtime.mode is not RunMode.REPLAY:
+        return list(records)
+    return [record for record in records if record.issued_at <= at + ISSUE_SLACK]
+
+
+def _held_snapshots(
+    previous: Sequence[AdsbSnapshot], failed: Sequence[AdsbQueryPoint]
+) -> list[AdsbSnapshot]:
+    """A failed point's previous answer stands in for it (an empty sky there would retire its
+    flights' drafts) until it is older than a cached copy may be (``_poll_adsb`` expires it)."""
+    keys = {_point_key(point) for point in failed}
+    return [snapshot for snapshot in previous if _point_key(snapshot.query) in keys]
+
+
+def _point_key(point: AdsbQueryPoint) -> tuple[float, float, int]:
+    return point.lat, point.lon, point.radius_nm
 
 
 def _same_content(a: TephraModel, b: TephraModel) -> bool:

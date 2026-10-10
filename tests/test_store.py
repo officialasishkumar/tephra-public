@@ -1,9 +1,12 @@
 """SqliteStore against the Store contract, plus the pure helpers of the Firestore store."""
 
+import asyncio
 import math
+import sqlite3
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -93,6 +96,57 @@ async def test_compare_and_set_advisory(store: SqliteStore) -> None:
     assert not await store.compare_and_set_advisory("adv_2", 1, {"id": "adv_2", "version": 2})
     with pytest.raises(ValueError, match="version"):
         await store.compare_and_set_advisory("adv_1", 2, {"id": "adv_1", "version": 2})
+
+
+class _CommitFails:
+    """A connection whose next COMMIT fails, as it can when the disk is full."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+        self.armed = True
+
+    @property
+    def in_transaction(self) -> bool:
+        return self.conn.in_transaction
+
+    def execute(self, sql: str, *params: Any) -> sqlite3.Cursor:
+        if sql == "COMMIT" and self.armed:
+            self.armed = False
+            raise sqlite3.OperationalError("database or disk is full")
+        return self.conn.execute(sql, *params)
+
+
+async def test_failed_commit_leaves_no_transaction_open(tmp_path: Path) -> None:
+    store = SqliteStore(tmp_path / "tephra.sqlite3", tmp_path / "blobs")
+    await store.put("things", "warm", {"v": 0})
+    real = store._conn
+    assert real is not None
+    flaky = _CommitFails(real)
+    store._conn = flaky  # type: ignore[assignment]
+    with pytest.raises(sqlite3.OperationalError):
+        await store.compare_and_set_advisory("adv_1", 0, {"id": "adv_1", "version": 1})
+    assert not real.in_transaction
+    await store.put("things", "after", {"v": 1})
+    assert await store.compare_and_set_advisory("adv_1", 0, {"id": "adv_1", "version": 1})
+    store._conn = real
+    await store.aclose()
+    reopened = SqliteStore(tmp_path / "tephra.sqlite3", tmp_path / "blobs")
+    assert await reopened.get("things", "after") == {"v": 1}
+    await reopened.aclose()
+
+
+async def test_concurrent_compare_and_set_has_one_winner(store: SqliteStore) -> None:
+    assert await store.compare_and_set_advisory("adv_1", 0, {"id": "adv_1", "version": 1})
+    results = await asyncio.gather(
+        *(
+            store.compare_and_set_advisory("adv_1", 1, {"id": "adv_1", "version": 2, "by": n})
+            for n in range(10)
+        )
+    )
+    assert results.count(True) == 1
+    stored = await store.get(Collection.ADVISORIES, "adv_1")
+    assert stored is not None
+    assert stored["by"] == results.index(True)
 
 
 async def test_append_audit_never_overwrites(store: SqliteStore) -> None:

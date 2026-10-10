@@ -3,6 +3,10 @@
 The list page links each notice with a signed URL; the unsigned detail URL answers 403, so
 detail pages are always fetched with the link exactly as listed. MAGMA prints feet as metres
 x 3.2, so heights are read from the metre figures and converted here.
+
+Each list card carries the notice's own text (time, colour code, cloud top, height source,
+direction). When a detail page cannot be had, the card is read instead: a replay keeps only
+list pages, which the research census saved after the events they list.
 """
 
 import logging
@@ -27,14 +31,18 @@ from tephra.models import (
 from tephra.util import timeutil
 
 __all__ = [
+    "MAX_LIST_PAGES",
     "VONA_LIST_URL",
     "VonaListItem",
     "fetch_vonas",
+    "parse_vona_card",
     "parse_vona_list",
     "parse_vona_page",
 ]
 
 VONA_LIST_URL: Final = "https://magma.esdm.go.id/v1/vona"
+MAX_LIST_PAGES: Final = 40
+"""Hard stop for paging, including pages that hold only notices issued after now."""
 
 log = logging.getLogger(__name__)
 
@@ -140,32 +148,84 @@ async def fetch_vonas(
     *,
     since: datetime,
     known_urls: frozenset[str] = frozenset(),
+    known_ids: frozenset[int] = frozenset(),
     max_pages: int = 1,
 ) -> list[Vona]:
-    """New VONAs issued at or after ``since``; detail pages already known are not fetched."""
+    """New VONAs issued from ``since`` up to now; notices already known are not fetched.
+
+    A notice issued after now cannot be known now. A replay serves list pages saved after its
+    clock, so such notices are skipped, and a page holding only them does not count towards
+    ``max_pages``.
+    """
+    now = timeutil.now()
     vonas: list[Vona] = []
-    for page in range(1, max_pages + 1):
+    read = 0
+    for page in range(1, MAX_LIST_PAGES + 1):
         params = None if page == 1 else {"page": str(page)}
         listing = await source.fetch(VONA_LIST_URL, feed=FeedId.VONA, params=params)
         items = parse_vona_list(listing)
-        for item in items:
-            if item.issued_at < since or item.url in known_urls:
+        if not items:
+            break
+        current = [item for item in items if item.issued_at <= now]
+        for item in current:
+            if item.issued_at < since or item.url in known_urls or item.magma_id in known_ids:
                 continue
-            vona = await _fetch_detail(source, item)
+            vona = await _fetch_detail(source, listing, item)
             if vona is not None:
                 vonas.append(vona)
-        if not items or min(item.issued_at for item in items) < since:
+        read += bool(current)
+        if read >= max_pages or min(item.issued_at for item in items) < since:
             break
     return vonas
 
 
-async def _fetch_detail(source: Source, item: VonaListItem) -> Vona | None:
+async def _fetch_detail(source: Source, listing: FetchResult, item: VonaListItem) -> Vona | None:
     try:
         result = await source.fetch(item.url, feed=FeedId.VONA)
         return parse_vona_page(result, item)
     except (FetchError, ValueError) as exc:
+        if item.summary:
+            log.info(
+                "VONA %s (%s) read from its list card: %s", item.magma_id, item.volcano_name, exc
+            )
+            return parse_vona_card(listing, item)
         log.warning("skipping VONA %s (%s): %s", item.magma_id, item.volcano_name, exc)
         return None
+
+
+def parse_vona_card(listing: FetchResult, item: VonaListItem) -> Vona:
+    """A VONA from its list card: the card's text is the notice's summary paragraph."""
+    text = item.summary or ""
+    cloud_top_m = _cloud_top_m(text, None)
+    ash_observed = _ash_observed(text, text, None, cloud_top_m)
+    movement_text = _movement_text(text, None)
+    source_id = make_source_id(
+        "VONA", source_slug(item.volcano_name), timeutil.compact(item.issued_at)
+    )
+    raw_lines = [
+        f"Issued: {timeutil.slash_dtg(item.issued_at)}",
+        f"Volcano: {item.volcano_name}",
+        f"Current Aviation Colour Code: {item.color_code.value}",
+        f"Volcanic Activity Summary: {text}",
+    ]
+    return Vona(
+        provenance=listing.provenance(source_id, issued_at=item.issued_at),
+        magma_id=item.magma_id,
+        notice_number=None,
+        volcano_name=item.volcano_name,
+        volcano_code=None,
+        issued_at=item.issued_at,
+        color_code=item.color_code,
+        ash_observed=ash_observed,
+        cloud_top_ft=round(m_to_ft(cloud_top_m)) if ash_observed and cloud_top_m else None,
+        cloud_top_m=cloud_top_m if ash_observed else None,
+        movement_toward_deg=_movement_deg(movement_text) if ash_observed else None,
+        movement_text=movement_text,
+        eruption_at=_eruption_at(text, item.issued_at),
+        source_text=_height_source(text),
+        remarks=None,
+        raw_text="\n".join(raw_lines),
+    )
 
 
 # --- list page --------------------------------------------------------------------------

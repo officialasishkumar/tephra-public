@@ -1,0 +1,49 @@
+{
+  "id": "20261008_27307000_0024",
+  "class": "quiet",
+  "note": "Taal; VA not identifiable, same scene 3 h later",
+  "text_url": "https://ds.data.jma.go.jp/svd/vaac/data/TextData/2026/20261008_27307000_0024_Text.html",
+  "as_frames": [
+    {
+      "name": "as_T-20",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/27307000/09-as/20261008_1700_202610081750_as.png"
+    },
+    {
+      "name": "as_T-10",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/27307000/09-as/20261008_1710_202610081750_as.png"
+    },
+    {
+      "name": "as_T",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/27307000/09-as/20261008_1720_202610081750_as.png"
+    }
+  ],
+  "ir_frames": [
+    {
+      "name": "ir_T",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/27307000/09-ir/20261008_1720_202610081750_ir.png"
+    }
+  ],
+  "vent_px": [
+    458,
+    163
+  ],
+  "image_size": [
+    668,
+    501
+  ],
+  "vaa": {
+    "advisory_nr": "2026/24",
+    "volcano": "TAAL",
+    "volcano_lat": 14.0,
+    "volcano_lon": 121.0,
+    "obs_valid_at": "2026-10-08T17:20:00+00:00",
+    "not_identifiable": true,
+    "top_ft": null,
+    "polygon": null,
+    "movement_toward_deg": null,
+    "remarks": "VA IS NOT IDENTIFIABLE DUE TO MET CLOUD OR HAS DISSIPATED. WE WILL ISSUE FURTHER ADVISORY IF VA DETECTED IN SATELLITE IMAGERY."
+  },
+  "wind_text": "WIND FL180 060/9KT",
+  "wind_source": "vaa",
+  "needs_human_check": []
+}

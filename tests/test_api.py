@@ -5,21 +5,33 @@ returns a canned report and the LLM label is the stub's NO MODEL); advisories go
 ``tephra.desk.approvals`` exactly as in production.
 """
 
+import asyncio
 import base64
+import hashlib
+import hmac
 import json
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from tephra.api.auth import COOKIE_NAME, TASK_HEADER, LoginThrottle, sign_session, verify_session
+from tephra.api.auth import (
+    COOKIE_NAME,
+    CSRF_HEADER,
+    TASK_HEADER,
+    LoginThrottle,
+    sign_session,
+    verify_session,
+)
 from tephra.api.server import CONTENT_SECURITY_POLICY, MAX_BODY_BYTES, create_app
 from tephra.api.sse import event_stream, format_event, parse_last_event_id
 from tephra.config import AIRLINE_CODE, AIRLINE_NAME, DISCLAIMER, NO_MODEL_LABEL, Settings
@@ -52,7 +64,7 @@ from tephra.util.events import Event, EventBus
 from tephra.util.hashing import proxy_flight_number
 
 PIN = "zulu-4711"
-TASK_TOKEN = "task-token-for-tests"
+TASK_TOKEN = "task-token-for-tests-0123456789abcdef"
 ADVISORY_ID = "adv_0123456789ab"
 DISPATCHER = "Ana K"
 ISO_UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z")
@@ -212,12 +224,99 @@ def client(settings: Settings, harness: Harness) -> Iterator[TestClient]:
         yield test_client
 
 
-def login(client: TestClient, *, pin: str = PIN, name: str = DISPATCHER) -> httpx.Response:
-    return client.post("/api/desk/login", json={"pin": pin, "name": name})
+def login(
+    client: TestClient,
+    *,
+    pin: str = PIN,
+    name: str = DISPATCHER,
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
+    return client.post("/api/desk/login", json={"pin": pin, "name": name}, headers=headers)
 
 
 def error_of(response: httpx.Response) -> str:
     return str(response.json()["error"])
+
+
+def forge_cookie(key: bytes, name: str = "Mallory") -> str:
+    """A session cookie built the way auth documents it, by someone who knows ``key``."""
+    claims = json.dumps({"n": name, "exp": 4102444800, "sid": "00"}).encode()
+    payload = base64.urlsafe_b64encode(claims).rstrip(b"=")
+    mac = hmac.new(key, payload, hashlib.sha256).digest()
+    return f"{payload.decode()}.{base64.urlsafe_b64encode(mac).rstrip(b'=').decode()}"
+
+
+def on_event_loop() -> bool:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
+
+
+def app_with_runtime(settings: Settings) -> tuple[FastAPI, FakeRuntime]:
+    """The app with a stand-in runtime and no lifespan, for requests driven over ASGI."""
+    app = create_app(settings, runtime_factory=Harness().factory)
+    runtime = FakeRuntime(settings=settings, store=open_store(settings))
+    app.state.runtime = runtime
+    return app, runtime
+
+
+class AsgiGet:
+    """A GET driven through the ASGI interface the way uvicorn drives it (spec 2.3).
+
+    The client stays until :meth:`hang_up`. With ``stall_after`` its socket stops draining
+    after that many body chunks, so the app's next ``send`` waits, as uvicorn's does.
+    """
+
+    def __init__(self, app: FastAPI, path: str, *, stall_after: int | None = None) -> None:
+        self.status = 0
+        self.headers: dict[str, str] = {}
+        self.body = b""
+        self.answered = asyncio.Event()
+        self.stalled = asyncio.Event()
+        self._stall_after = stall_after
+        self._chunks = 0
+        self._gone = asyncio.Event()
+        self._requested = False
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode(),
+            "query_string": b"",
+            "root_path": "",
+            "headers": [(b"host", b"testserver"), (b"accept", b"text/event-stream")],
+            "client": ("127.0.0.1", 50000),
+            "server": ("testserver", 80),
+        }
+        self.task = asyncio.create_task(app(scope, self._receive, self._send))
+
+    async def _receive(self) -> dict[str, Any]:
+        if not self._requested:
+            self._requested = True
+            return {"type": "http.request", "body": b"", "more_body": False}
+        await self._gone.wait()
+        return {"type": "http.disconnect"}
+
+    async def _send(self, message: dict[str, Any]) -> None:
+        if message["type"] == "http.response.start":
+            self.status = message["status"]
+            self.headers = {name.decode(): value.decode() for name, value in message["headers"]}
+        elif message.get("body"):
+            if self._stall_after is not None and self._chunks >= self._stall_after:
+                self.stalled.set()
+                await asyncio.Event().wait()
+            self._chunks += 1
+            self.body += message["body"]
+            self.answered.set()
+
+    async def hang_up(self) -> None:
+        self._gone.set()
+        await asyncio.wait_for(self.task, timeout=5)
 
 
 # --- pages, headers, read API -----------------------------------------------------------
@@ -240,6 +339,17 @@ def test_csp_allows_no_inline_code() -> None:
     assert "frame-ancestors 'none'" in CONTENT_SECURITY_POLICY
 
 
+def test_csp_allows_what_maplibre_and_openfreemap_need() -> None:
+    """The dark style, its TileJSON, vector and raster tiles, glyphs and sprites are all on
+    tiles.openfreemap.org; MapLibre 4 runs its worker from a blob: URL."""
+    directives = {part.split()[0]: part.split()[1:] for part in CONTENT_SECURITY_POLICY.split("; ")}
+    assert "https://unpkg.com" in directives["style-src"]
+    assert "https://tiles.openfreemap.org" in directives["connect-src"]
+    assert {"data:", "blob:", "https://tiles.openfreemap.org"} <= set(directives["img-src"])
+    assert "blob:" in directives["worker-src"]
+    assert "blob:" in directives["child-src"]
+
+
 @pytest.mark.parametrize("path", ["/", "/desk"])
 def test_pages_are_html_with_csp(client: TestClient, path: str) -> None:
     response = client.get(path)
@@ -247,6 +357,22 @@ def test_pages_are_html_with_csp(client: TestClient, path: str) -> None:
     assert response.headers["content-type"].startswith("text/html")
     assert response.headers["content-security-policy"] == CONTENT_SECURITY_POLICY
     assert response.headers["cache-control"] == "no-cache"
+
+
+def test_pages_touch_the_disk_off_the_event_loop(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    on_loop: list[bool] = []
+    is_file = Path.is_file
+
+    def spy(path: Path) -> bool:
+        on_loop.append(on_event_loop())
+        return is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", spy)
+    for path in ("/", "/desk"):
+        assert client.get(path).status_code == 200
+    assert on_loop == [False, False]
 
 
 def test_state_is_labelled_fictional_and_no_model(client: TestClient) -> None:
@@ -305,6 +431,26 @@ def test_blobs_serve_only_known_keys(client: TestClient, harness: Harness) -> No
         assert error_of(response) == "not_found"
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/blobs/frames/%2e%2e/%2e%2e/tephra.sqlite3",
+        "/api/blobs/frames%2F..%2F..%2Fx.png",
+        "/api/blobs/frames/..%2F..%2Fx.png",
+        "/api/blobs//etc/passwd",
+        "/api/blobs/%2Fetc%2Fhosts.png",
+        "/api/blobs/frames\\..\\x.png",
+        "/api/blobs/frames/..%5c..%5cx.png",
+        "/api/blobs/frames/x.png%00.txt",
+    ],
+)
+def test_blob_paths_cannot_leave_the_blob_store(client: TestClient, path: str) -> None:
+    response = client.get(path)
+    assert response.status_code == 404
+    assert error_of(response) == "not_found"
+    assert response.headers["content-type"] == "application/json"
+
+
 def test_unknown_route_is_error_body(client: TestClient) -> None:
     response = client.get("/api/nothing-here")
     assert response.status_code == 404
@@ -359,6 +505,24 @@ def test_bad_pin_then_throttled(client: TestClient) -> None:
     assert len(failures) == 5
 
 
+def test_throttle_counts_the_address_cloud_run_appended(
+    settings: Settings, harness: Harness
+) -> None:
+    """main.run trusts every proxy, so uvicorn reports the leftmost X-Forwarded-For entry,
+    which the caller writes; Cloud Run's front end appends the address it really saw."""
+    app = ProxyHeadersMiddleware(
+        create_app(settings, runtime_factory=harness.factory), trusted_hosts="*"
+    )
+    with TestClient(app) as test_client:
+        for attempt in range(5):
+            spoofed = {"X-Forwarded-For": f"10.9.8.{attempt}, 203.0.113.9"}
+            assert login(test_client, pin="wrong-pin", headers=spoofed).status_code == 401
+        blocked = login(test_client, headers={"X-Forwarded-For": "10.9.8.99, 203.0.113.9"})
+        assert blocked.status_code == 429
+        other = login(test_client, headers={"X-Forwarded-For": "198.51.100.20"})
+        assert other.status_code == 200
+
+
 def test_login_validation_never_echoes_the_pin(client: TestClient) -> None:
     secret = "x" * 64 + "topsecretpin"
     response = client.post("/api/desk/login", json={"pin": secret, "name": DISPATCHER})
@@ -402,6 +566,16 @@ def test_oversized_body_is_refused(client: TestClient) -> None:
     assert error_of(response) == "too_large"
 
 
+def test_oversized_chunked_body_is_refused(client: TestClient) -> None:
+    body = json.dumps({"pin": "x" * (MAX_BODY_BYTES + 1), "name": DISPATCHER}).encode()
+    response = client.post(
+        "/api/desk/login", content=iter([body]), headers={"Content-Type": "application/json"}
+    )
+    assert "content-length" not in response.request.headers
+    assert response.status_code == 413
+    assert error_of(response) == "too_large"
+
+
 def test_desk_disabled_without_pin(settings: Settings, harness: Harness) -> None:
     app = create_app(
         settings.model_copy(update={"desk_pin": None}), runtime_factory=harness.factory
@@ -410,15 +584,60 @@ def test_desk_disabled_without_pin(settings: Settings, harness: Harness) -> None
         response = login(test_client)
         assert response.status_code == 503
         assert error_of(response) == "desk_disabled"
-        assert test_client.get("/api/desk/advisories").status_code == 503
+        # Answered before the body is read, so a half-filled form gets the same answer.
+        incomplete = test_client.post("/api/desk/login", json={"pin": "", "name": "A"})
+        assert (incomplete.status_code, error_of(incomplete)) == (503, "desk_disabled")
+        for path in ("/api/desk/me", "/api/desk/advisories"):
+            disabled = test_client.get(path)
+            assert (disabled.status_code, error_of(disabled)) == (503, "desk_disabled")
+
+
+@pytest.mark.parametrize("pin", ["", " "])
+def test_blank_pin_disables_the_desk(settings: Settings, harness: Harness, pin: str) -> None:
+    """``TEPHRA_DESK_PIN=`` (as in .env.example) parses to an empty secret, not to None."""
+    app = create_app(
+        settings.model_copy(update={"desk_pin": SecretStr(pin)}), runtime_factory=harness.factory
+    )
+    with TestClient(app) as test_client:
+        response = login(test_client, pin=" ")
+        assert response.status_code == 503
+        assert error_of(response) == "desk_disabled"
+
+
+@pytest.mark.parametrize("secret", ["", "  "])
+def test_blank_session_secret_disables_the_desk(
+    settings: Settings, harness: Harness, secret: str
+) -> None:
+    """With an empty HMAC key anyone who reads the cookie format can mint a session."""
+    blank = settings.model_copy(update={"session_secret": SecretStr(secret)})
+    with TestClient(create_app(blank, runtime_factory=harness.factory)) as test_client:
+        test_client.cookies.set(COOKIE_NAME, forge_cookie(secret.encode()))
+        me = test_client.get("/api/desk/me")
+        assert me.status_code == 503
+        assert error_of(me) == "desk_disabled"
+        approve = test_client.post(
+            f"/api/desk/advisories/{ADVISORY_ID}/approve", json={"version": 1}
+        )
+        assert approve.status_code == 503
+        assert error_of(login(test_client)) == "desk_disabled"
+    assert verify_session(forge_cookie(secret.encode()), blank, at=datetime.now(UTC)) is None
 
 
 def test_logout_clears_the_cookie(client: TestClient) -> None:
     login(client)
-    response = client.post("/api/desk/logout")
+    response = client.post("/api/desk/logout", headers={CSRF_HEADER: "1"})
     assert response.status_code == 204
     assert f"{COOKIE_NAME}=" in response.headers["set-cookie"]
     assert client.get("/api/desk/me").status_code == 401
+
+
+def test_logout_refuses_cross_site_requests(client: TestClient) -> None:
+    login(client)
+    for headers in ({}, {"Origin": "https://evil.example", CSRF_HEADER: "1"}):
+        response = client.post("/api/desk/logout", headers=headers)
+        assert response.status_code == 403
+        assert error_of(response) == "forbidden"
+    assert client.get("/api/desk/me").status_code == 200
 
 
 # --- desk decisions ---------------------------------------------------------------------
@@ -568,6 +787,18 @@ def test_tick_forbidden_when_token_unset(settings: Settings, harness: Harness) -
         assert harness.runtime.ticks == 0
 
 
+def test_tick_forbidden_when_token_blank(settings: Settings, harness: Harness) -> None:
+    """``TEPHRA_TASK_TOKEN=`` parses to an empty secret; an empty header must not match it."""
+    app = create_app(
+        settings.model_copy(update={"task_token": SecretStr("")}), runtime_factory=harness.factory
+    )
+    with TestClient(app) as test_client:
+        response = test_client.post("/tasks/tick", headers={TASK_HEADER: ""})
+        assert response.status_code == 403
+        assert error_of(response) == "forbidden"
+        assert harness.runtime.ticks == 0
+
+
 def test_internal_errors_carry_no_detail(settings: Settings, harness: Harness) -> None:
     app = create_app(settings, runtime_factory=harness.factory)
     with TestClient(app, raise_server_exceptions=False) as test_client:
@@ -577,6 +808,9 @@ def test_internal_errors_carry_no_detail(settings: Settings, harness: Harness) -
         assert response.json()["error"] == "internal"
         assert "hunter2" not in response.text
         assert "Traceback" not in response.text
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["content-security-policy"] == CONTENT_SECURITY_POLICY
+        assert response.headers["cache-control"] == "no-cache"
 
 
 def test_runtime_closed_on_shutdown(settings: Settings, harness: Harness) -> None:
@@ -666,6 +900,82 @@ async def test_event_stream_sends_events_then_heartbeats() -> None:
 
     await stream.aclose()
     assert bus.subscriber_count == 0
+
+
+async def test_events_endpoint_unsubscribes_when_the_client_leaves(settings: Settings) -> None:
+    app, runtime = app_with_runtime(settings)
+    stream = AsgiGet(app, "/api/events")
+    await asyncio.wait_for(stream.answered.wait(), timeout=5)
+    assert stream.status == 200
+    assert stream.headers["content-type"].startswith("text/event-stream")
+    assert stream.body == b"retry: 3000\n\n"
+    await stream.hang_up()
+    assert runtime.bus.subscriber_count == 0
+    assert app.state.event_streams.open == 0
+    await runtime.store.aclose()
+
+
+async def test_open_event_streams_are_capped(settings: Settings) -> None:
+    """Each open stream holds one of Cloud Run's request slots for as long as its page is
+    open. Past the cap a page is told to come back later; the pages reconnect by themselves."""
+    app, runtime = app_with_runtime(settings.model_copy(update={"max_event_streams": 2}))
+    held = [AsgiGet(app, "/api/events"), AsgiGet(app, "/api/stream")]
+    for stream in held:
+        await asyncio.wait_for(stream.answered.wait(), timeout=5)
+    refused = AsgiGet(app, "/api/events")
+    await asyncio.wait_for(refused.task, timeout=5)
+    assert refused.status == 503
+    assert json.loads(refused.body)["error"] == "too_many_streams"
+    assert int(refused.headers["retry-after"]) > 0
+    assert refused.headers["x-content-type-options"] == "nosniff"
+
+    await held[0].hang_up()
+    reopened = AsgiGet(app, "/api/events")
+    await asyncio.wait_for(reopened.answered.wait(), timeout=5)
+    assert reopened.status == 200
+    for stream in (held[1], reopened):
+        await stream.hang_up()
+    assert app.state.event_streams.open == 0
+    assert runtime.bus.subscriber_count == 0
+    await runtime.store.aclose()
+
+
+async def test_a_client_that_leaves_mid_send_frees_its_slot_and_subscription(
+    settings: Settings,
+) -> None:
+    """Starlette cancels the response inside ``send`` and leaves the generator paused at its
+    ``yield``, where only the garbage collector would finish it."""
+    app, runtime = app_with_runtime(settings)
+    stream = AsgiGet(app, "/api/events", stall_after=1)
+    await asyncio.wait_for(stream.answered.wait(), timeout=5)
+    runtime.bus.publish(SseEvent.TRACE, {"n": 1})
+    await asyncio.wait_for(stream.stalled.wait(), timeout=5)
+    await stream.hang_up()
+    assert app.state.event_streams.open == 0
+    assert runtime.bus.subscriber_count == 0
+    await runtime.store.aclose()
+
+
+async def test_a_client_that_falls_behind_is_closed_and_resumes_from_history() -> None:
+    """Publishers never wait for a slow client. Once its queue has dropped events the stream
+    ends, the browser reconnects with the last id it saw, and the bus history fills the gap."""
+    bus = EventBus()
+    stream = event_stream(bus, heartbeat_s=5.0)
+    assert await anext(stream) == "retry: 3000\n\n"
+    seen = bus.publish(SseEvent.TRACE, {"n": -1})
+    assert (await anext(stream)).startswith(f"id: {seen.id}\n")
+    missed = [
+        bus.publish(name, {"n": n}) for n in range(150) for name in (SseEvent.TRACE, SseEvent.STATE)
+    ]
+    with pytest.raises(StopAsyncIteration):
+        await anext(stream)
+    assert bus.subscriber_count == 0
+
+    resumed = event_stream(bus, heartbeat_s=5.0, last_event_id=seen.id)
+    assert await anext(resumed) == "retry: 3000\n\n"
+    replayed = [await anext(resumed) for _ in missed]
+    assert [frame.split("\n", 1)[0] for frame in replayed] == [f"id: {e.id}" for e in missed]
+    await resumed.aclose()
 
 
 async def test_event_stream_resumes_after_last_event_id() -> None:

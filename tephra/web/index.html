@@ -5,150 +5,149 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <title>TEPHRA Wall</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="https://unpkg.com/@maplibre/maplibre-gl-compare@0.5.0/dist/maplibre-gl-compare.css">
+  <link rel="stylesheet" href="/static/tokens.css">
   <link rel="stylesheet" href="/static/wall.css">
   <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script type="module" src="/static/wall.js"></script>
 </head>
-<body>
-  <a class="skip-link" href="#rail">Skip to situation panel</a>
+<body class="wall" data-mode="CONNECTING">
+  <a class="skip-link" href="#map">Skip to map</a>
+  <a class="skip-link" href="#brief">Skip to situation brief</a>
+  <a class="skip-link" href="#decisions">Skip to decisions</a>
 
-  <div id="replay-banner" class="replay-banner" hidden>
-    <span class="replay-banner__tag">REPLAY</span>
-    <span id="replay-banner-text">REPLAY: recorded real feeds</span>
+  <div id="replay-banner" class="replay-banner" role="status" hidden>
+    <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-replay"></use></svg>
+    <strong class="replay-banner__tag">REPLAY</strong>
+    <span id="replay-banner-text" class="replay-banner__text"></span>
+    <span id="replay-banner-case" class="replay-banner__case"></span>
   </div>
 
-  <header class="topbar">
+  <header class="cmdbar">
     <div class="brand">
-      <span class="brand__name">TEPHRA</span>
+      <span class="brand__mark">TEPHRA</span>
       <span class="brand__sub">Volcanic-ash decision desk</span>
     </div>
-    <span id="mode-badge" class="mode-badge" aria-live="polite">CONNECTING</span>
-    <span id="llm-label" class="llm-label">Model: unknown</span>
+    <span id="mode-badge" class="mode-badge mode-badge--connecting">CONNECTING</span>
     <nav class="regions" aria-label="Region presets">
-      <span class="regions__label" id="regions-label">Region</span>
-      <div id="regions" class="regions__buttons" role="group" aria-labelledby="regions-label"></div>
+      <div id="regions" class="regions__group" role="group" aria-label="Regions"></div>
+      <label class="regions__menu">
+        <span class="sr-only">Region</span>
+        <select id="region-select" aria-label="Region"></select>
+      </label>
     </nav>
-    <dl class="counts">
-      <div class="count"><dt>Active</dt><dd id="count-active">0</dd></div>
-      <div class="count count--accent"><dt>Exposed</dt><dd id="count-exposed">0</dd></div>
-      <div class="count"><dt>Drafts</dt><dd id="count-drafts">0</dd></div>
+    <div class="cmdbar__spacer"></div>
+    <dl class="kpis">
+      <div class="kpi"><dt>Active</dt><dd id="kpi-active">–</dd></div>
+      <div class="kpi kpi--tephra"><dt>Entering · all</dt><dd id="kpi-exposed">–</dd></div>
+      <div class="kpi"><dt>Drafts</dt><dd id="kpi-drafts">–</dd></div>
     </dl>
-    <div class="clock">
-      <span class="sr-only">Active clock (UTC):</span>
-      <span class="clock__time" id="clock">--:--:--Z</span>
-      <span id="stream-status" class="stream-status stream-status--connecting">STREAM</span>
+    <span id="model-chip" class="model-chip" tabindex="0">–</span>
+    <button id="feeds-chip" class="feeds-chip" type="button" aria-haspopup="dialog"><span class="caps feeds-chip__cap">Feeds</span> –</button>
+    <div class="clock" role="group" aria-label="Active clock">
+      <span id="clock-time" class="clock__time">--:--:--Z</span>
+      <span id="clock-sub" class="clock__sub">CONNECTING</span>
     </div>
-    <a class="desk-link" href="/desk">Open Desk</a>
+    <span id="stale-chip" class="stale-chip" hidden>
+      <svg class="st" aria-hidden="true" focusable="false"><use href="/static/icons.svg#st-stale"></use></svg>
+      STALE VIEW
+    </span>
+    <a class="desk-link" href="/desk" target="_blank" rel="noopener">
+      <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-dispatcher"></use></svg>
+      <span class="desk-link__long">Open Desk</span><span class="desk-link__short">Desk</span>
+    </a>
   </header>
 
-  <div class="subbar">
-    <p class="disclaimer">
-      <span id="disclaimer">Decision support only - fictional airline - not for operational use</span>
-      <span id="airline" class="airline"></span>
-    </p>
-    <details id="feeds" class="feeds">
-      <summary class="feeds__summary">
-        <span class="feeds__title">Feeds</span>
-        <span id="feed-chips" class="feed-chips"></span>
-      </summary>
-      <div class="feeds__panel">
-        <table class="feed-table">
-          <caption>Feed health (ages on the active clock)</caption>
-          <thead>
-            <tr><th scope="col">Feed</th><th scope="col">Status</th><th scope="col">Age</th><th scope="col">Last good (UTC)</th><th scope="col">Records</th><th scope="col">Last error</th></tr>
-          </thead>
-          <tbody id="feed-table-body"></tbody>
-        </table>
-      </div>
-    </details>
-  </div>
+  <div id="lost-banner" class="lost-banner" role="alert" hidden></div>
 
-  <main class="layout">
-    <section class="map-pane" aria-label="Map">
-      <div id="map" class="map" role="region" aria-label="Map of the active region. Arrow keys pan, plus and minus zoom."></div>
-      <div id="map-message" class="map-message" role="status" hidden></div>
-
-      <div id="legend" class="legend">
-        <button id="legend-toggle" class="legend__toggle" type="button" aria-expanded="true" aria-controls="legend-body">Layers and legend</button>
-        <div id="legend-body" class="legend__body">
-          <fieldset class="layer-toggles">
-            <legend>Show</legend>
-            <label><input type="checkbox" data-layer="official" checked> Official SIGMET / VAA</label>
-            <label><input type="checkbox" data-layer="cone" checked> TEPHRA cone</label>
-            <label><input type="checkbox" data-layer="exposures" checked> Exposure paths</label>
-            <label><input type="checkbox" data-layer="aircraft" checked> Aircraft</label>
-            <label><input type="checkbox" data-layer="volcanoes" checked> Volcanoes</label>
-            <label><input type="checkbox" data-layer="btd" checked> BTD indicator (B)</label>
-          </fieldset>
-          <ul class="legend-list">
-            <li><span class="swatch swatch--official" aria-hidden="true"></span>Official polygon, valid now (binding)</li>
-            <li><span class="swatch swatch--official-pending" aria-hidden="true"></span>Official polygon, forecast or not yet valid</li>
-            <li><span class="swatch swatch--cone" aria-hidden="true"></span>TEPHRA cone (contains every official polygon)</li>
-            <li><span class="swatch swatch--sector" aria-hidden="true"></span>Model sector (widening only)</li>
-            <li><span class="swatch swatch--aircraft" aria-hidden="true"></span>Aircraft (ADS-B, arrow = track)</li>
-            <li><span class="swatch swatch--exposed" aria-hidden="true"></span>Exposed flight and path to entry</li>
-            <li class="legend-codes">
-              <span class="tri tri--GREEN" aria-hidden="true"></span>
-              <span class="tri tri--YELLOW" aria-hidden="true"></span>
-              <span class="tri tri--ORANGE" aria-hidden="true"></span>
-              <span class="tri tri--RED" aria-hidden="true"></span>
-              <span class="tri tri--UNKNOWN" aria-hidden="true"></span>
-              Aviation colour code: green, yellow, orange, red, unknown
-            </li>
-            <li><span class="swatch swatch--btd" aria-hidden="true"></span>Negative split-window BTD (indicator, not detection)</li>
-          </ul>
-          <p class="shortcuts">Keys: <kbd>1</kbd>-<kbd>3</kbd> region, <kbd>B</kbd> BTD, <kbd>C</kbd> side by side, <kbd>L</kbd> legend</p>
-        </div>
+  <main class="stage" id="main">
+    <section class="map-pane" id="map-pane" aria-label="Map">
+      <div id="map-wrap" class="map-wrap">
+        <div id="map" class="map"></div>
       </div>
+      <div class="map-vignette" aria-hidden="true"></div>
+      <div class="map-scrim" aria-hidden="true"></div>
+
+      <div id="compare-labels" class="compare-labels" hidden>
+        <span class="compare-label glass">A · OFFICIAL PRODUCTS ONLY</span>
+        <span class="compare-label compare-label--b glass">B · WITH TEPHRA'S CAUTIOUS AREA</span>
+      </div>
+
+      <div class="top-center">
+        <div id="headline" class="headline glass" role="status" hidden></div>
+        <div id="map-notes" class="map-notes" aria-live="polite"></div>
+        <div id="ctx-label" class="ctx-label" hidden></div>
+      </div>
+
+      <div id="legend" class="legend glass" aria-label="Legend"></div>
+
+      <div id="tools" class="tools glass" role="toolbar" aria-label="Map view" aria-orientation="vertical">
+        <button class="tool" type="button" data-tool="frame" aria-keyshortcuts="F" title="Frame the selected volcano (F)" aria-label="Frame">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-frame"></use></svg><span>Frame</span>
+        </button>
+        <button class="tool" type="button" data-tool="3d" aria-pressed="false" aria-keyshortcuts="D" title="3D view (D)" aria-label="3D">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-3d"></use></svg><span>3D</span>
+        </button>
+        <button class="tool tool--wide" type="button" data-tool="compare" aria-pressed="false" aria-keyshortcuts="S" title="Swipe compare: official only vs with TEPHRA (S)" aria-label="Compare">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-swipe"></use></svg><span>Compare</span>
+        </button>
+        <button class="tool tool--wide" type="button" data-tool="sat" aria-pressed="false" aria-keyshortcuts="I" title="Satellite context, not ash detection (I)" aria-label="Satellite context">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-satellite"></use></svg><span id="sat-state">Satellite</span>
+        </button>
+        <button class="tool" type="button" data-tool="layers" aria-expanded="false" aria-controls="layers-pop" aria-keyshortcuts="L" title="Legend and layers (L)" aria-label="Layers">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-layers"></use></svg><span>Layers</span>
+        </button>
+        <button class="tool tool--levels" type="button" data-tool="levels" aria-expanded="false" aria-controls="levels" aria-keyshortcuts="H" title="Flight-level filter (H)" aria-label="Levels">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-levels"></use></svg><span>Levels</span>
+        </button>
+      </div>
+
+      <div id="layers-pop" class="layers-pop glass" role="dialog" aria-label="Layers" hidden></div>
+
+      <div id="levels" class="levels glass" role="group" aria-labelledby="levels-title"></div>
+
+      <div id="trace" class="trace dock glass" aria-label="Reasoning trace"></div>
+
+      <div id="flights" class="flights dock glass" aria-label="Flights entering TEPHRA's area"></div>
+
+      <div id="timeline" class="timeline glass" aria-label="Timeline"></div>
     </section>
 
-    <aside id="rail" class="rail" aria-label="Situation, reasoning trace and advisories" tabindex="-1">
-      <section class="panel panel--situation" aria-labelledby="situation-heading">
-        <header class="panel__head">
-          <h2 id="situation-heading">Situation</h2>
-          <div id="volcano-tabs" class="volcano-tabs" role="tablist" aria-label="Active volcanoes"></div>
-          <button id="compare-open" class="btn btn--ghost" type="button" disabled>Side by side (C)</button>
-        </header>
-        <div id="situation-body" class="panel__body" role="tabpanel" aria-labelledby="situation-heading">
-          <div id="sit-empty" class="empty">Waiting for the first snapshot.</div>
-          <div id="sit-head"></div>
-          <div id="sit-cards"></div>
-          <div id="sit-disc"></div>
-          <div id="sit-plume"></div>
-          <div id="sit-flights"></div>
-          <div id="sit-btd"></div>
-          <div id="sit-frames"></div>
-        </div>
-      </section>
+    <nav id="ptabs" class="ptabs" aria-label="Situation sections">
+      <button type="button" data-ptab="brief" aria-pressed="true">Brief</button>
+      <button type="button" data-ptab="sources" aria-pressed="false">Sources</button>
+      <button type="button" data-ptab="flights" aria-pressed="false">Flights</button>
+      <button type="button" data-ptab="trace" aria-pressed="false">Trace</button>
+    </nav>
 
-      <section class="panel panel--trace" aria-labelledby="trace-heading">
-        <header class="panel__head">
-          <h2 id="trace-heading">Reasoning trace</h2>
-          <span id="trace-count" class="panel__meta"></span>
-        </header>
-        <ol id="trace-list" class="panel__body trace-list" role="log" aria-live="off" aria-labelledby="trace-heading" tabindex="0"></ol>
-      </section>
-
-      <section class="panel panel--advisories" aria-labelledby="advisories-heading">
-        <header class="panel__head">
-          <h2 id="advisories-heading">Advisories</h2>
-          <span class="panel__meta">Approve on the Desk; only approved text reaches TEPHRA's own outbound queue</span>
-        </header>
-        <ol id="advisory-list" class="panel__body advisory-list" aria-labelledby="advisories-heading"></ol>
-      </section>
+    <aside id="rail" class="rail" aria-label="Situation brief">
+      <div id="volcano-tabs" class="vtabs" role="tablist" aria-label="Active volcanoes"></div>
+      <div id="brief" class="brief" tabindex="-1"></div>
     </aside>
   </main>
 
-  <dialog id="compare-dialog" class="compare" aria-labelledby="compare-title">
-    <header class="compare__head">
-      <h2 id="compare-title">Sources side by side</h2>
-      <button id="compare-close" class="btn" type="button">Close</button>
-    </header>
-    <div id="compare-body" class="compare__body"></div>
-  </dialog>
+  <footer class="honesty">
+    <p class="honesty__line">
+      <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-info"></use></svg>
+      <strong id="disclaimer">Decision support only - fictional airline - not for operational use</strong>
+      <span class="honesty__airline">RFA flight numbers are proxies for real aircraft.</span>
+    </p>
+    <span id="attribution" class="honesty__attrib">OpenFreeMap © OpenMapTiles · Data © OpenStreetMap contributors · © Mapterhorn · Aircraft: adsb.lol (ODbL 1.0) · Himawari-9 data: JMA via NOAA · FIR and VAAC lines: NOAA/NWS AWC (approximate)</span>
+    <button id="about-btn" class="honesty__about" type="button" aria-haspopup="dialog">About and credits</button>
+  </footer>
 
-  <div id="announcer" class="sr-only" aria-live="polite"></div>
-  <noscript><p class="noscript">The TEPHRA Wall needs JavaScript to draw the map and receive live updates.</p></noscript>
+  <div id="announce" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+  <dialog id="dlg" class="dlg" aria-labelledby="dlg-title">
+    <div class="dlg__head">
+      <h2 id="dlg-title" class="dlg__title"></h2>
+      <button type="button" class="dlg__close" data-act="dlg-close" aria-label="Close">
+        <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-x"></use></svg>
+      </button>
+    </div>
+    <div id="dlg-body" class="dlg__body"></div>
+  </dialog>
 </body>
 </html>

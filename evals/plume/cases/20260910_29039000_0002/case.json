@@ -1,0 +1,49 @@
+{
+  "id": "20260910_29039000_0002",
+  "class": "quiet",
+  "note": "Alaid; VA not identifiable",
+  "text_url": "https://ds.data.jma.go.jp/svd/vaac/data/TextData/2026/20260910_29039000_0002_Text.html",
+  "as_frames": [
+    {
+      "name": "as_T-20",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/29039000/09-as/20260910_0500_202609100550_as.png"
+    },
+    {
+      "name": "as_T-10",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/29039000/09-as/20260910_0510_202609100550_as.png"
+    },
+    {
+      "name": "as_T",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/29039000/09-as/20260910_0520_202609100550_as.png"
+    }
+  ],
+  "ir_frames": [
+    {
+      "name": "ir_T",
+      "url": "https://ds.data.jma.go.jp/svd/vaac/data/Sat/2026/Images/29039000/09-ir/20260910_0520_202609100550_ir.png"
+    }
+  ],
+  "vent_px": [
+    278,
+    263
+  ],
+  "image_size": [
+    668,
+    501
+  ],
+  "vaa": {
+    "advisory_nr": "2026/2",
+    "volcano": "ALAID",
+    "volcano_lat": 50.86666666666667,
+    "volcano_lon": 155.56666666666666,
+    "obs_valid_at": "2026-09-10T05:20:00+00:00",
+    "not_identifiable": true,
+    "top_ft": null,
+    "polygon": null,
+    "movement_toward_deg": null,
+    "remarks": "NIL"
+  },
+  "wind_text": "WIND FL180 250/60KT",
+  "wind_source": "vaa",
+  "needs_human_check": []
+}

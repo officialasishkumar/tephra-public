@@ -1,5 +1,6 @@
 """Units, great circles, the official floor, the hazard cone, exposure and fuel lines."""
 
+import math
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -9,6 +10,7 @@ from hypothesis import strategies as st
 
 from tephra.geo.cone import (
     UNKNOWN_TOP_FT,
+    VAA_CLOCK_SLACK,
     build_cone,
     contains_point,
     covers_official,
@@ -548,8 +550,21 @@ def test_official_layers_never_revive_a_superseded_vaa() -> None:
 
 
 def test_official_layers_ignore_vaa_issued_after_at() -> None:
-    future = _vaa_with_steps().model_copy(update={"issued_at": AT + timedelta(minutes=5)})
+    issued_at = AT + VAA_CLOCK_SLACK + timedelta(seconds=1)
+    future = _vaa_with_steps().model_copy(update={"issued_at": issued_at})
     assert official_layers(SEMERU, [], [future], AT) == []
+
+
+def test_official_layers_use_a_vaa_stamped_minutes_after_at() -> None:
+    # A tick takes about a minute; a VAA whose DTG is just after the tick time is already in
+    # hand, and record selection passes it on instead of the advisory it replaces.
+    newer = _vaa_with_steps("2026/1158").model_copy(update={"issued_at": AT + timedelta(minutes=2)})
+    labels = [layer.label for layer in official_layers(SEMERU, [], [newer], AT)]
+    assert labels == [
+        "VAA DARWIN 2026/1158 OBS",
+        "VAA DARWIN 2026/1158 FCST+6H",
+        "VAA DARWIN 2026/1158 FCST+12H",
+    ]
 
 
 # --- sector -----------------------------------------------------------------------------
@@ -708,6 +723,33 @@ def test_build_cone_covers_a_self_crossing_feed_polygon() -> None:
     assert contains_point(cone, -8.25, 113.1)
     assert contains_point(cone, -8.25, 113.4)
     assert not contains_point(cone, -8.1, 113.25)
+
+
+def test_build_cone_keeps_what_a_folded_feed_ring_encloses_twice() -> None:
+    # The ring's arm folds back over its body, so 113.1-113.3 E, 8.3-8.2 S lies inside the
+    # outline twice. That is still ash area: an even-odd repair would cut a hole there.
+    fold = GeoPolygon(
+        coordinates=[
+            [
+                (113.0, -8.4),
+                (113.4, -8.4),
+                (113.4, -8.2),
+                (113.1, -8.2),
+                (113.1, -8.3),
+                (113.3, -8.3),
+                (113.3, -8.1),
+                (113.0, -8.1),
+                (113.0, -8.4),
+            ]
+        ]
+    )
+    layers = [_layer(fold)]
+    cone = build_cone(_situation(layers), _assessment(_estimate(PlumeMode.OFFICIAL)))
+    assert covers_official(cone, layers)
+    assert contains_point(cone, -8.25, 113.2)
+    assert contains_point(cone, -8.35, 113.2)
+    assert contains_point(cone, -8.15, 113.2)
+    assert not contains_point(cone, -8.05, 113.2)
 
 
 def test_cone_handles_the_antimeridian() -> None:
@@ -874,11 +916,35 @@ def test_find_exposed_minutes_to_entry_and_path() -> None:
     assert flight.hold.fuel_kg == 840
 
 
+def test_find_exposed_catches_a_narrow_cone_crossed_between_two_minutes() -> None:
+    # 112.95-113.05 E is 11 km wide. At 480 kt the minute-7 and minute-8 positions
+    # (112.943 E and 113.078 E) fall either side of it, yet the track crosses it at 7.05 min.
+    strip = _square(112.95, -9.0, 113.05, -8.0)
+    cone = _cone(strip)
+    (flight,) = find_exposed(cone, [_aircraft()], AT, lookahead_min=60, vertical_margin_ft=2000)
+    assert flight.minutes_to_entry == 8
+    assert not flight.inside_now
+    assert flight.entry_lon == pytest.approx(112.95, abs=1e-6)
+    assert flight.entry_lat == pytest.approx(-8.5, abs=0.01)
+    assert flight.path[-1] == (flight.entry_lon, flight.entry_lat)
+    assert len(flight.path) == 9
+
+
 def test_find_exposed_counts_minutes_from_now_for_an_old_position() -> None:
     stale = _aircraft(observed_at=AT - timedelta(minutes=3))
     (flight,) = find_exposed(_cone(BOX), [stale], AT, lookahead_min=60, vertical_margin_ft=2000)
     assert flight.minutes_to_entry == 5
     assert flight.path[0] == (stale.lon, stale.lat)
+
+
+def test_find_exposed_skips_a_position_older_than_the_lookahead() -> None:
+    # Both report a position inside the box and no speed, so each is checked where it was.
+    # Where a target seen 61 minutes ago is now, a 60-minute projection cannot say.
+    seen = {"lon": 113.5, "gs_kt": None, "track_deg": None}
+    lost = _aircraft(hex_id="8a01f2", observed_at=AT - timedelta(minutes=61), **seen)
+    held = _aircraft(hex_id="8a01f3", observed_at=AT - timedelta(minutes=60), **seen)
+    flights = find_exposed(_cone(BOX), [lost, held], AT, lookahead_min=60, vertical_margin_ft=0)
+    assert [flight.hex for flight in flights] == ["8a01f3"]
 
 
 def test_find_exposed_inside_now() -> None:
@@ -945,6 +1011,19 @@ def test_find_exposed_ignores_slow_targets_outside_and_tracks_away() -> None:
         _aircraft(hex_id="000003", gs_kt=None, track_deg=None),
     ]
     assert find_exposed(_cone(BOX), targets, AT, lookahead_min=60, vertical_margin_ft=2000) == []
+
+
+@pytest.mark.parametrize(
+    ("gs_kt", "track_deg"), [(math.nan, 90.0), (480.0, math.nan), (math.inf, 90.0)]
+)
+def test_find_exposed_treats_a_non_finite_speed_or_track_as_unknown(
+    gs_kt: float, track_deg: float
+) -> None:
+    target = _aircraft(lon=113.5, gs_kt=gs_kt, track_deg=track_deg)
+    assert extrapolate(target, 60) == [(target.lat, target.lon)]
+    (flight,) = find_exposed(_cone(BOX), [target], AT, lookahead_min=60, vertical_margin_ft=2000)
+    assert flight.inside_now
+    assert (flight.entry_lat, flight.entry_lon) == (target.lat, target.lon)
 
 
 def test_find_exposed_slow_target_inside_is_exposed_now() -> None:
@@ -1049,6 +1128,23 @@ def test_divert_line_assumes_250_kt_for_missing_or_slow_speed(gs_kt: float | Non
     # Exactly 30 min (no float noise pushing it to 31); + 15 = 45 min x 110 = 4950 kg.
     assert (line.minutes, line.fuel_kg) == (45, 4950)
     assert "250 KT (ASSUMED)" in line.formula
+
+
+@pytest.mark.parametrize(
+    ("distance_nm", "gs_kt", "prefix"),
+    [
+        (100.0, 399.6, "DIVERT WARR 100 NM AT 400 KT = 15 MIN + 15 MIN = 30 MIN"),
+        (125.4, None, "DIVERT WARR 125 NM AT 250 KT (ASSUMED) = 30 MIN + 15 MIN = 45 MIN"),
+    ],
+)
+def test_divert_line_minutes_follow_from_the_printed_formula(
+    distance_nm: float, gs_kt: float | None, prefix: str
+) -> None:
+    line = divert_line(
+        AircraftCategory.NARROWBODY, alternate_icao="WARR", distance_nm=distance_nm, gs_kt=gs_kt
+    )
+    assert line.formula.startswith(prefix)
+    assert line.fuel_kg == line.minutes * 42
 
 
 def test_divert_line_trusts_cruise_speed() -> None:

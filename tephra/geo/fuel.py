@@ -25,13 +25,14 @@ MIN_TRUSTED_GS_KT: Final = 150.0
 """Below this the ADS-B ground speed (climb, descent, a hold) says little about a diversion."""
 
 _TYPE_CATEGORY: Final[dict[str, AircraftCategory]] = {
-    **dict.fromkeys(("C152", "C172", "C182", "C206", "C208", "PA28", "DA40", "DA42", "SR22"),
+    **dict.fromkeys(("C152", "C172", "C182", "C206", "C208", "P28A", "P28B", "P28R", "DA40",
+                     "DA42", "SR22"),
                     AircraftCategory.LIGHT),
     **dict.fromkeys(("AT43", "AT45", "AT46", "AT72", "AT75", "AT76", "DH8A", "DH8B", "DH8C",
                      "DH8D", "DHC6", "SF34", "B190", "JS41", "Y12"),
                     AircraftCategory.TURBOPROP),
-    **dict.fromkeys(("CRJ2", "CRJ7", "CRJ9", "CRJX", "E135", "E145", "E170", "E175", "E75L",
-                     "E75S", "E190", "E195", "E290", "E295", "BCS1", "BCS3", "SU95", "AJ27"),
+    **dict.fromkeys(("CRJ2", "CRJ7", "CRJ9", "CRJX", "E135", "E145", "E170", "E75L", "E75S",
+                     "E190", "E195", "E290", "E295", "BCS1", "BCS3", "SU95", "AJ27"),
                     AircraftCategory.REGIONAL_JET),
     **dict.fromkeys(("A318", "A319", "A320", "A321", "A19N", "A20N", "A21N", "B736", "B737",
                      "B738", "B739", "B37M", "B38M", "B39M", "B3XM", "B752", "B753", "C919"),
@@ -70,15 +71,18 @@ def divert_line(
     category: AircraftCategory, *, alternate_icao: str, distance_nm: float, gs_kt: float | None
 ) -> FuelLine:
     burn = BURN_KG_PER_MIN[category]
-    if gs_kt is None or gs_kt < MIN_TRUSTED_GS_KT:
+    # The minutes come from the whole numbers the formula prints, so it reproduces exactly.
+    distance = round(distance_nm)
+    if gs_kt is None or not math.isfinite(gs_kt) or gs_kt < MIN_TRUSTED_GS_KT:
         speed, speed_text = ASSUMED_GS_KT, f"{_num(ASSUMED_GS_KT)} KT (ASSUMED)"
     else:
-        speed, speed_text = gs_kt, f"{_num(gs_kt)} KT"
-    cruise_min = _ceil(distance_nm / speed * 60.0)
+        speed = round(gs_kt)
+        speed_text = f"{speed} KT"
+    cruise_min = _ceil(distance / speed * 60.0)
     minutes = cruise_min + DIVERT_EXTRA_MINUTES
     fuel_kg = _ceil(minutes * burn)
     formula = (
-        f"DIVERT {alternate_icao} {round(distance_nm)} NM AT {speed_text} = {cruise_min} MIN"
+        f"DIVERT {alternate_icao} {distance} NM AT {speed_text} = {cruise_min} MIN"
         f" + {DIVERT_EXTRA_MINUTES} MIN = {minutes} MIN x {_num(burn)} KG/MIN"
         f" ({_rate_label(category)}) = {fuel_kg} KG"
     )

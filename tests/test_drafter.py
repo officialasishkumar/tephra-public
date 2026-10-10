@@ -1,18 +1,24 @@
 """Planner rules, plan and draft validators, the code-rendered header and the drafter."""
 
+import json
+import re
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
+from test_plume_reader import ScriptedClient
 
 from tephra.agents.dispatch_drafter import (
     HEADER_TITLE,
     NEEDS_HUMAN,
+    _facts,
     draft_advisory,
     render_header,
     stub_draft,
 )
+from tephra.agents.dispatch_drafter import PROMPT_PATH as DRAFTER_PROMPT
 from tephra.agents.exposure_planner import (
     build_planner_context,
     fuel_for,
@@ -20,11 +26,17 @@ from tephra.agents.exposure_planner import (
     plan_flight,
     rule_based_decision,
 )
-from tephra.agents.llm import LlmCall, LlmPart, prompt_hash
-from tephra.agents.validators import allowed_actions, validate_decision, validate_draft
+from tephra.agents.llm import DailyBudget, GeminiBackend, LlmCall, LlmPart, prompt_hash
+from tephra.agents.validators import (
+    VOCABULARY,
+    allowed_actions,
+    validate_decision,
+    validate_draft,
+)
 from tephra.config import Settings
 from tephra.feeds.airports import AirportCatalogue
 from tephra.geo.fuel import category_for_type, divert_line, hold_line
+from tephra.geo.units import destination_point
 from tephra.models import (
     ActionKind,
     Advisory,
@@ -175,6 +187,9 @@ class FakeLlm:
     def reserve(self, tier: str) -> bool:
         return True
 
+    def exhaust(self, tier: str) -> None:
+        raise AssertionError("the drafter never closes a tier itself")
+
     async def structured[T: BaseModel](
         self,
         *,
@@ -183,7 +198,7 @@ class FakeLlm:
         parts: Sequence[LlmPart],
         schema: type[T],
         stub: Callable[[], T],
-        temperature: float = 0.2,
+        temperature: float | None = None,
     ) -> tuple[T | None, LlmCall]:
         self.calls += 1
         result = stub() if self._draft is None else schema.model_validate(self._draft.model_dump())
@@ -250,17 +265,81 @@ def test_monitor_when_entry_is_far_and_no_clear_band() -> None:
     assert rule_based_decision(ctx).action is ActionKind.MONITOR
 
 
+FAILED_ONLY = (make_alternate("WIII", "Soekarno-Hatta International", 50.0, ok=False),)
+
+
+def with_hazard(ctx: PlannerContext, base_ft: int, top_ft: int) -> PlannerContext:
+    flight = ctx.flight.model_copy(update={"hazard_band_ft": (base_ft, top_ft)})
+    return ctx.model_copy(
+        update={"flight": flight, "hazard_base_ft": base_ft, "hazard_top_ft": top_ft}
+    )
+
+
+def with_selected(ctx: PlannerContext, selected_ft: int) -> PlannerContext:
+    """The aircraft climbs or descends to ``selected_ft`` (ADS-B nav_altitude_mcp)."""
+    altitude = ctx.flight.alt_baro_ft or 0
+    band = (min(altitude, selected_ft), max(altitude, selected_ft))
+    flight = ctx.flight.model_copy(
+        update={"nav_altitude_mcp_ft": selected_ft, "aircraft_band_ft": band}
+    )
+    return ctx.model_copy(update={"flight": flight})
+
+
+def climbing_into_layer_above() -> PlannerContext:
+    """FL100 climbing to FL300 under a FL200/FL350 layer: the base is above the aircraft."""
+    ctx = with_hazard(make_ctx(make_flight(alt_ft=10_000, minutes=12)), 20_000, 35_000)
+    return with_selected(ctx, 30_000)
+
+
+def descending_onto_layer_below() -> PlannerContext:
+    """FL370 descending to FL240 over a SFC/FL330 layer."""
+    return with_selected(make_ctx(make_flight(alt_ft=37_000, minutes=12), top_ft=33_000), 24_000)
+
+
+def unknown_type_far_divert() -> PlannerContext:
+    """Type unknown and slow (assumed 250 KT): the divert formula runs past 120 characters."""
+    category = category_for_type(None)
+    flight = make_flight(alt_ft=35_000, inside=True).model_copy(
+        update={
+            "type_icao": None,
+            "category": category,
+            "gs_kt": 120.0,
+            "hold": hold_line(category),
+        }
+    )
+    far = AlternateCandidate(
+        icao="WADD",
+        name="Denpasar I Gusti Ngurah Rai International Airport",
+        distance_nm=399.0,
+        bearing_deg=95.0,
+        check=make_alternate("WADD", "Denpasar", 399.0, ok=True).check,
+        divert=divert_line(category, alternate_icao="WADD", distance_nm=399.0, gs_kt=120.0),
+    )
+    ctx = make_ctx(flight, top_ft=45_000, alternates=[far])
+    return ctx.model_copy(update={"volcano_name": "Lewotobi Laki-laki"})
+
+
 RULE_CASES = [
     make_ctx(make_flight(alt_ft=17_000)),
+    make_ctx(make_flight(alt_ft=17_000), mode=PlumeMode.WIDENED),
+    unknown_type_far_divert(),
     make_ctx(make_flight(alt_ft=35_000, inside=True), top_ft=45_000),
-    make_ctx(
-        make_flight(alt_ft=35_000, minutes=12),
-        top_ft=45_000,
-        alternates=[make_alternate("WIII", "Soekarno-Hatta International", 50.0, ok=False)],
-    ),
+    make_ctx(make_flight(alt_ft=35_000, minutes=12), top_ft=45_000, alternates=FAILED_ONLY),
     make_ctx(make_flight(alt_ft=35_000, minutes=40), top_ft=45_000),
     make_ctx(make_flight(alt_ft=35_000, minutes=10), mode=PlumeMode.HYPOTHESIS),
     make_ctx(make_flight(alt_ft=35_000, minutes=40), mode=PlumeMode.HYPOTHESIS),
+    make_ctx(make_flight(alt_ft=35_000, inside=True), top_ft=45_000, alternates=FAILED_ONLY),
+    make_ctx(make_flight(alt_ft=35_000, inside=True), top_ft=45_000, alternates=()),
+    make_ctx(make_flight(alt_ft=41_000, minutes=5), top_ft=44_000, alternates=()),
+    with_hazard(
+        make_ctx(make_flight(alt_ft=30_000, inside=True), alternates=FAILED_ONLY), 20_000, 35_000
+    ),
+    make_ctx(make_flight(alt_ft=12_000, inside=True), mode=PlumeMode.HYPOTHESIS),
+    with_selected(
+        make_ctx(make_flight(alt_ft=19_000, inside=True), mode=PlumeMode.HYPOTHESIS), 12_000
+    ),
+    climbing_into_layer_above(),
+    descending_onto_layer_below(),
 ]
 
 
@@ -270,6 +349,52 @@ def test_rule_decisions_and_template_drafts_pass_the_validators(ctx: PlannerCont
     assert validate_decision(decision, ctx) == []
     plan = make_plan(ctx, decision)
     assert validate_draft(stub_draft(ctx, plan), ctx=ctx, plan=plan) == []
+
+
+@pytest.mark.parametrize(
+    "ctx",
+    [
+        make_ctx(make_flight(alt_ft=35_000, inside=True), top_ft=45_000, alternates=FAILED_ONLY),
+        make_ctx(make_flight(alt_ft=35_000, inside=True), top_ft=45_000, alternates=()),
+        with_hazard(
+            make_ctx(make_flight(alt_ft=30_000, inside=True), alternates=FAILED_ONLY),
+            20_000,
+            35_000,
+        ),
+        make_ctx(make_flight(alt_ft=12_000, inside=True), mode=PlumeMode.HYPOTHESIS),
+    ],
+)
+def test_rules_never_hold_inside_the_hazard(ctx: PlannerContext) -> None:
+    decision = rule_based_decision(ctx)
+    assert decision.action is not ActionKind.HOLD
+    body = stub_draft(ctx, make_plan(ctx, decision)).body
+    assert "OUTSIDE HAZARD" not in body
+
+
+def test_hypothesis_holds_inside_the_cone_only_at_a_clear_present_level() -> None:
+    # FL190 descending to FL120 into a SFC/FL150 hypothesis: holding at FL190 stays above it.
+    ctx = with_selected(
+        make_ctx(make_flight(alt_ft=19_000, inside=True), mode=PlumeMode.HYPOTHESIS), 12_000
+    )
+    decision = rule_based_decision(ctx)
+    assert (decision.action, decision.hold_fl) == (ActionKind.HOLD, 190)
+
+
+@pytest.mark.parametrize(
+    ("ctx", "says", "never"),
+    [
+        (climbing_into_layer_above(), "DO NOT CLIMB ABOVE FL120", "DESCEND TO"),
+        (descending_onto_layer_below(), "DO NOT DESCEND BELOW FL370", "DESCEND TO"),
+    ],
+)
+def test_template_tells_a_level_aircraft_to_stay_in_its_band(
+    ctx: PlannerContext, says: str, never: str
+) -> None:
+    decision = rule_based_decision(ctx)
+    assert decision.action is ActionKind.CHANGE_LEVEL
+    body = stub_draft(ctx, make_plan(ctx, decision)).body
+    assert says in body
+    assert never not in body
 
 
 # --- decision validator -----------------------------------------------------------------
@@ -305,6 +430,74 @@ def test_decision_rejects_hold_without_level_and_clock_times() -> None:
     assert any("hold_fl" in p for p in _problems(ctx, action="HOLD"))
     problems = _problems(ctx, action="MONITOR", reasoning="ASH SEEN AT 1830Z.")
     assert any("CLOCK TIME" in problem for problem in problems)
+
+
+@pytest.mark.parametrize(
+    "reasoning",
+    ["ASH SEEN AT 1830 UTC.", "ERUPTION 0930UTC.", "ASH SINCE 09/1830.", "PLUME AT 18:30."],
+)
+def test_decision_rejects_every_written_clock_time(reasoning: str) -> None:
+    problems = _problems(make_ctx(), action="MONITOR", reasoning=reasoning)
+    assert any("CLOCK TIME" in problem for problem in problems), problems
+
+
+def test_decision_checks_the_mode_not_only_the_context_list() -> None:
+    # A context whose allowed_actions list was built wrongly (or edited in ADK state) must
+    # still never let a HYPOTHESIS cone divert.
+    ctx = make_ctx(mode=PlumeMode.HYPOTHESIS).model_copy(
+        update={"allowed_actions": list(ActionKind)}
+    )
+    problems = _problems(ctx, action="DIVERT", alternate_icao="WARR")
+    assert any("NOT ALLOWED IN HYPOTHESIS" in problem for problem in problems)
+
+
+def test_decision_rejects_continue_into_the_hazard_band() -> None:
+    assert any("CONTINUE" in p for p in _problems(make_ctx(), action="CONTINUE"))
+    # Descending from FL370 to FL240 into SFC/FL330: present level is clear, selected is not.
+    descending = descending_onto_layer_below()
+    assert any("CONTINUE" in p for p in _problems(descending, action="CONTINUE"))
+    above = make_ctx(make_flight(alt_ft=37_000), top_ft=33_000)
+    assert _problems(above, action="CONTINUE") == []
+
+
+def test_decision_rejects_hold_inside_the_hazard_now() -> None:
+    inside = make_ctx(make_flight(alt_ft=35_000, inside=True), top_ft=45_000)
+    assert any("INSIDE" in p for p in _problems(inside, action="HOLD", hold_fl=350))
+    layer = with_hazard(make_ctx(make_flight(alt_ft=30_000, inside=True)), 20_000, 35_000)
+    assert any("INSIDE" in p for p in _problems(layer, action="HOLD", hold_fl=300))
+    assert _problems(layer, action="HOLD", hold_fl=380) == []
+    approaching = make_ctx(make_flight(alt_ft=35_000, minutes=12), top_ft=45_000)
+    assert _problems(approaching, action="HOLD", hold_fl=350) == []
+
+
+def test_decision_treats_a_hold_at_another_level_as_a_level_change() -> None:
+    hypothesis = make_ctx(make_flight(alt_ft=35_000, minutes=10), mode=PlumeMode.HYPOTHESIS)
+    assert any("LEVEL" in p for p in _problems(hypothesis, action="HOLD", hold_fl=390))
+    assert _problems(hypothesis, action="HOLD", hold_fl=350) == []
+    official = make_ctx(make_flight(alt_ft=35_000, minutes=10), top_ft=45_000)
+    assert any("FL410" in p for p in _problems(official, action="HOLD", hold_fl=490))
+
+
+def without_taf(alternate: AlternateCandidate) -> AlternateCandidate:
+    check = alternate.check.model_copy(update={"taf_source_id": None})
+    return alternate.model_copy(update={"check": check})
+
+
+def test_decision_rejects_divert_to_an_alternate_without_a_taf() -> None:
+    ctx = make_ctx(alternates=[without_taf(make_alternate("WARR", "Juanda", 120.0, ok=True))])
+    problems = _problems(ctx, action="DIVERT", alternate_icao="WARR")
+    assert any("NO TAF" in problem for problem in problems), problems
+
+
+def test_rules_divert_only_to_an_alternate_with_a_taf() -> None:
+    alternates = [
+        without_taf(make_alternate("WARR", "Juanda", 120.0, ok=True)),
+        make_alternate("WADD", "I Gusti Ngurah Rai International", 200.0, ok=True),
+    ]
+    ctx = make_ctx(make_flight(alt_ft=35_000, inside=True), top_ft=45_000, alternates=alternates)
+    decision = rule_based_decision(ctx)
+    assert decision.alternate_icao == "WADD"
+    assert validate_decision(decision, ctx) == []
 
 
 # --- draft validator --------------------------------------------------------------------
@@ -354,13 +547,104 @@ def test_cost_note_must_be_one_short_line_with_known_numbers() -> None:
     assert any("NUMBERS" in p for p in _draft_problems(cost_note="ABOUT 999 KG EXTRA"))
 
 
-def test_hypothesis_body_may_not_advise_divert() -> None:
+def test_cost_note_place_check_ignores_letter_case() -> None:
+    problems = _draft_problems(cost_note="No extra fuel unless diverting to Wxyz.")
+    assert any("WXYZ" in problem for problem in problems), problems
+
+
+def test_body_may_name_the_airline_the_facts_give() -> None:
+    assert _draft_problems(body=f"RING OF FIRE AIR DISPATCH. {_good_body()}") == []
+
+
+REPO = Path(__file__).resolve().parents[1]
+FIXTURES = REPO / "tests" / "fixtures"
+KNOWN_STATION_IDS = frozenset({"HEAT", "SAME"})
+"""aviationweather.gov stationinfo (2026-10-10) knows these 4-letter words as ICAO ids:
+HEAT is Assiut (Egypt) and SAME is Mendoza (Argentina)."""
+
+
+def _catalogue_icaos() -> set[str]:
+    airports = json.loads((REPO / "data" / "airports.json").read_text())["airports"]
+    return {airport["icao"] for airport in airports}
+
+
+def _recorded_location_ids() -> set[str]:
+    ids = _catalogue_icaos()
+    for sigmet in json.loads((FIXTURES / "isigmet" / "isigmet_all.json").read_text()):
+        ids.update(str(sigmet[key]) for key in ("firId", "icaoId") if sigmet.get(key))
+    for name in ("taf.json", "metar.json"):
+        ids.update(str(item["icaoId"]) for item in json.loads((FIXTURES / "wx" / name).read_text()))
+    return ids
+
+
+def test_vocabulary_holds_no_icao_location_id() -> None:
+    assert not VOCABULARY & (_recorded_location_ids() | KNOWN_STATION_IDS)
+
+
+@pytest.mark.parametrize("word", ["SAME", "HEAT", "TOKYO"])
+def test_body_naming_a_real_place_not_in_the_input_is_rejected(word: str) -> None:
+    problems = _draft_problems(body=f"{_good_body()} ALTN {word}.")
+    assert any(word in problem and "NO INVENTED PLACES" in problem for problem in problems)
+
+
+def test_templates_and_prompt_example_use_no_unlisted_icao_code() -> None:
+    prompt = DRAFTER_PROMPT.read_text(encoding="utf-8")
+    texts = [prompt[prompt.index("Example shape") :]]
+    listed: set[str] = set()
+    for ctx in RULE_CASES:
+        plan = make_plan(ctx, rule_based_decision(ctx))
+        draft = stub_draft(ctx, plan)
+        texts += [draft.body, draft.cost_note, plan.decision.reasoning]
+        listed |= {alternate.icao for alternate in ctx.alternates}
+    words = {word for text in texts for word in re.findall(r"\b[A-Z]{4}\b", text)}
+    assert words & _catalogue_icaos() <= listed, sorted(words & _catalogue_icaos())
+
+
+def test_drafter_prompt_names_only_fields_the_facts_carry() -> None:
+    ctx = make_ctx(make_flight(alt_ft=35_000, inside=True), top_ft=45_000)
+    plan = make_plan(ctx, rule_based_decision(ctx))
+    assert plan.decision.action is ActionKind.DIVERT  # every optional fact is filled
+    facts = _facts(ctx, plan)
+    prompt = DRAFTER_PROMPT.read_text(encoding="utf-8")
+    paths = set(re.findall(r"`([a-z_]+(?:\.[a-z_]+)*)`", prompt)) - set(DraftText.model_fields)
+    assert {"cost", "cost.formula", "action.alternate.icao", "flight.present_fl"} <= paths
+    for path in sorted(paths):
+        node: object = facts
+        for key in path.split("."):
+            assert isinstance(node, dict), path
+            assert key in node, path
+            node = node[key]
+
+
+def test_every_number_in_the_structured_facts_passes_the_number_rule() -> None:
+    for ctx in RULE_CASES:
+        plan = make_plan(ctx, rule_based_decision(ctx))
+        facts = _facts(ctx, plan)
+        facts["action"].pop("planner_reasoning")
+        text = json.dumps(facts)
+        draft = DraftText(body=text.upper(), cost_note="NO EXTRA FUEL.")
+        problems = validate_draft(draft, ctx=ctx, plan=plan)
+        assert not [p for p in problems if "NUMBERS NOT IN THE INPUT" in p], problems
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "CONSIDER DIVERT WARR.",
+        "CONSIDER DIVERTING TO WARR.",
+        "PLAN A DIVERSION TO WARR.",
+        "START DESCENT IF ASH SEEN.",
+        "CLIMBING MAY HELP.",
+        "LEVEL CHANGES MAY FOLLOW.",
+    ],
+)
+def test_hypothesis_body_may_not_advise_divert_or_level_change(extra: str) -> None:
     ctx = make_ctx(make_flight(alt_ft=35_000, minutes=40), mode=PlumeMode.HYPOTHESIS)
     plan = make_plan(ctx, rule_based_decision(ctx))
     good = stub_draft(ctx, plan)
-    bad = good.model_copy(update={"body": good.body + " CONSIDER DIVERT WARR."})
+    bad = good.model_copy(update={"body": f"{good.body} {extra}"})
     problems = validate_draft(bad, ctx=ctx, plan=plan)
-    assert any("HYPOTHESIS MODE" in problem for problem in problems)
+    assert any("HYPOTHESIS MODE" in problem for problem in problems), problems
 
 
 # --- header -----------------------------------------------------------------------------
@@ -528,6 +812,45 @@ async def test_draft_advisory_with_stub_backend() -> None:
     )
 
 
+class UnparseableFirstLlm(FakeLlm):
+    """A 'gemini' whose first answer does not parse; the repair answer is a valid draft."""
+
+    async def structured[T: BaseModel](
+        self,
+        *,
+        tier: str,
+        system: str,
+        parts: Sequence[LlmPart],
+        schema: type[T],
+        stub: Callable[[], T],
+        temperature: float | None = None,
+    ) -> tuple[T | None, LlmCall]:
+        if self.calls > 0:
+            return await super().structured(
+                tier=tier, system=system, parts=parts, schema=schema, stub=stub
+            )
+        self.calls += 1
+        call = LlmCall(
+            backend="gemini",
+            model_id=self.model_id(tier),
+            prompt_hash=prompt_hash(system, parts),
+            raw_text='{"body": "RFA CLIMB',
+            error="invalid_output: no JSON object in model output",
+        )
+        return None, call
+
+
+async def test_unparseable_draft_gets_its_one_repair() -> None:
+    ctx, plan = change_level_case()
+    good = stub_draft(ctx, plan)
+    repaired = good.model_copy(update={"body": good.body.replace("CLIMB TO", "REQUEST CLIMB TO")})
+    llm = UnparseableFirstLlm(name="gemini", draft=repaired)
+    _, _, advisory = await _draft(llm)
+    assert llm.calls == 2
+    assert advisory.llm_backend == "gemini"
+    assert advisory.body == repaired.body
+
+
 async def test_draft_advisory_fails_closed_after_one_repair() -> None:
     bad = DraftText(body="please divert to wxyz at 1830z", cost_note="unknown")
     llm = FakeLlm(name="gemini", draft=bad)
@@ -536,6 +859,28 @@ async def test_draft_advisory_fails_closed_after_one_repair() -> None:
     assert advisory.body == stub_draft(ctx, plan).body
     assert advisory.llm_backend == "stub"
     assert any(note.startswith(NEEDS_HUMAN) for note in advisory.validation_notes)
+
+
+async def test_the_drafter_runs_gemini_3_at_temperature_one(tmp_path: Path) -> None:
+    """research/10 C9: Google strongly recommends temperature 1.0 for Gemini 3 models."""
+    ctx, plan = change_level_case()
+    client = ScriptedClient([stub_draft(ctx, plan).model_dump_json()])
+    settings = Settings(_env_file=None, llm="gemini", GEMINI_API_KEY="test-key")
+    llm = GeminiBackend(settings, client=client, cache_dir=tmp_path, budget=DailyBudget())
+    situation = make_situation()
+    with use_clock(FixedClock(AT)):
+        advisory = await draft_advisory(
+            situation=situation,
+            assessment=make_assessment(situation),
+            cone=make_cone(),
+            ctx=ctx,
+            plan=plan,
+            llm=llm,
+            settings=settings,
+        )
+    assert advisory.llm_backend == "gemini"
+    assert advisory.model_id == settings.model_lite
+    assert [config.temperature for config in client.models.configs] == [1.0]
 
 
 # --- context ----------------------------------------------------------------------------
@@ -580,3 +925,39 @@ def test_alternate_inside_or_near_the_cone_is_not_acceptable() -> None:
     assert not by_icao["WARR"].check.ok
     assert "INSIDE HAZARD CONE" not in by_icao["WADD"].check.reasons
     assert ctx.allowed_actions == list(ActionKind)
+
+
+@pytest.mark.parametrize("bearing", [60, 90, 150, 180])
+def test_alternate_near_a_narrow_plume_is_not_acceptable(bearing: float) -> None:
+    # A Sakurajima-sized plume, 3 km wide and 30 km long: its nearest edge is 11 to 13 NM
+    # from Kagoshima, inside the 20 NM buffer, yet clear of the airport itself.
+    vent = (31.593, 130.657)
+    left = destination_point(*vent, bearing - 90, 1.5)
+    right = destination_point(*vent, bearing + 90, 1.5)
+    ring = [
+        left,
+        destination_point(*left, bearing, 30.0),
+        destination_point(*right, bearing, 30.0),
+        right,
+    ]
+    kagoshima = Airport(
+        icao="RJFK",
+        name="Kagoshima Airport",
+        country="Japan",
+        lat=31.8034,
+        lon=130.7194,
+        elev_ft=906,
+        longest_runway_m=3000,
+        alternate_ok=True,
+    )
+    flight = make_flight().model_copy(update={"lat": 32.5, "lon": 130.0})
+    ctx = build_planner_context(
+        flight,
+        make_cone(geometry_ring=ring),
+        volcano_name="Sakurajima",
+        airports=AirportCatalogue([kagoshima]),
+        tafs={},
+        at=AT,
+        settings=Settings(_env_file=None),
+    )
+    assert "INSIDE HAZARD CONE" in ctx.alternates[0].check.reasons

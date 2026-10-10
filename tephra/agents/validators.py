@@ -10,7 +10,7 @@ import re
 from collections.abc import Iterable
 from typing import Final
 
-from tephra.config import ADVISORY_BODY_MAX_CHARS
+from tephra.config import ADVISORY_BODY_MAX_CHARS, AIRLINE_NAME
 from tephra.geo.units import ft_to_fl
 from tephra.models import (
     ALLOWED_ACTIONS,
@@ -28,18 +28,27 @@ MAX_LEVEL_FL: Final = 600
 COST_NOTE_MAX_CHARS: Final = 120
 REASONING_MAX_CHARS: Final = 800
 
+ZONE_TIME_PATTERN: Final = (
+    r"(?<!\d)\d{4}\s?(?:UTC|GMT|Z|LT|LCL|LOCAL|WIB|WITA|WIT|JST|PHT|HRS)(?![A-Z])"
+)
+"""A clock time with a zone word ("1830 UTC", "0930UTC", "0521 local", "1830 HRS"), matched
+ignoring case. VONAs print "2221 UTC (0521 local)", so a model quoting one writes a time;
+the Plume Reader uses the same pattern."""
+
 CLOCK_PATTERNS: Final[tuple[re.Pattern[str], ...]] = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
         r"\d{8}/\d{4}Z?",
         r"\d{6}Z",
         r"\d{4}Z",
-        r"\d{1,2}/\d{4}Z",
+        r"(?<![\d/])\d{1,2}/\d{4}Z?(?!\d)",
         r"\d{1,2}:\d{2}",
         r"\d{4}-\d{2}-\d{2}",
+        ZONE_TIME_PATTERN,
     )
 )
-"""The Plume Reader's timestamp patterns: a model never writes a time or a date."""
+"""The Plume Reader's timestamp patterns plus times with a zone word: a model never writes
+a time or a date."""
 
 ACTION_WORDS: Final[dict[ActionKind, tuple[str, ...]]] = {
     ActionKind.CONTINUE: ("CONTINUE",),
@@ -50,7 +59,10 @@ ACTION_WORDS: Final[dict[ActionKind, tuple[str, ...]]] = {
 }
 """Words that name each action in an advisory body."""
 
-_HYPOTHESIS_FORBIDDEN: Final = ("DIVERT", "CLIMB", "DESCEND", "CHANGE LEVEL", "LEVEL CHANGE")
+_HYPOTHESIS_FORBIDDEN: Final = re.compile(
+    r"(?<![A-Z0-9])(?:DIVER(?:T|SION)|CLIMB|DESCEN[DT]|CHANGE LEVEL|LEVEL CHANGE)[A-Z]*"
+)
+"""Diverting, climbing or descending in any inflection (DIVERTING, DIVERSION, DESCENT)."""
 
 _VOCABULARY_TEXT: Final = """
 ABLE ABOUT ABOVE ACFT ADVS AFTER AGAIN AHEAD ALERT ALLOW ALONG ALSO ALTN ALTNS AMEND
@@ -58,18 +70,21 @@ AMBER APCH APPLY AREA AREAS ASHES AVBL AVOID AWARE AWAY BAND BANDS BASE BASED BE
 BEING BELOW BURN BURNS CABIN CALL CHECK CLEAR CLIMB CLOUD COMMS CONE CONES COST COSTS
 CREW CREWS DATA DELAY DEST DIST DOWN DRIFT DUST EACH EARLY EAST EITHER ENGS ENTER ENTRY
 ERUPT EVEN EXIT EXTRA FCST FIRST FLOW FROM FUEL FULL GIVE GIVEN GLOW GREEN HAVE HAZE
-HEAT HELD HERE HIGH HOLD HOLDS HOUR HOURS IDLE INFO INTO ISSUE KEEP KNOWN LAST LATER
+HELD HERE HIGH HOLD HOLDS HOUR HOURS IDLE INFO INTO ISSUE KEEP KNOWN LAST LATER
 LEAVE LEFT LESS LEVEL LIGHT LIKE LIMIT LONG LOWER MAGMA MAIN MAKE MANY METAR MINUS
 MNTN MODE MODEL MORE MOST MOVE MOVES MUST NEAR NEED NEXT NONE NORTH NOTAM NOTE NOTED
 ODOR ODOUR ONLY ORDER OTHER OVER PASS PAST PLAN PLUME PLUS POINT POSN PRIOR RAIN RANGE
-RATE READY REPLY RIGHT ROUTE RPRT RQST SAFE SAFER SAME SEEN SEND SHALL SHOW SIDE SINCE
+RATE READY REPLY RIGHT ROUTE RPRT RQST SAFE SAFER SEEN SEND SHALL SHOW SIDE SINCE
 SMELL SMOKE SOME SOON SOUTH SPEED STAY STILL SUCH TAKE TEMPO THAN THAT THEIR THEM THEN
-THERE THESE THEY THIS THOSE TIME TOKYO TOPS TOTAL TRACK TURN TYPE UNIT UNTIL UPON UPPER
+THERE THESE THEY THIS THOSE TIME TOPS TOTAL TRACK TURN TYPE UNIT UNTIL UPON UPPER
 USED USING VAAC VALID VERY VIEW VONA WATCH WEST WHEN WHERE WHICH WHILE WIND WINDS WITH
 WITHIN YOUR ZONE
 """
 VOCABULARY: Final[frozenset[str]] = frozenset(_VOCABULARY_TEXT.split())
-"""Plain English and ACARS words of four or five capitals that are not places."""
+"""Plain English and ACARS words of four or five capitals that are not places.
+
+No word here may be an ICAO location id or a place name, or an invented place could hide
+behind it: HEAT (Assiut) and SAME (Mendoza) are station ids, and TOKYO is a city."""
 
 _CAPS_WORD = re.compile(r"(?<![A-Za-z0-9])[A-Z]{4,5}(?![A-Za-z0-9])")
 _ALPHA_WORD = re.compile(r"[A-Z]+")
@@ -103,20 +118,24 @@ def clock_problems(text: str, field: str) -> list[str]:
 
 def validate_decision(decision: PlannerDecision, ctx: PlannerContext) -> list[str]:
     problems: list[str] = []
-    if decision.action not in ctx.allowed_actions:
-        allowed = ", ".join(action.value for action in ctx.allowed_actions)
+    # The mode decides what is safe; the context's own list may only narrow it.
+    allowed = [a for a in allowed_actions(ctx.plume_mode) if a in ctx.allowed_actions]
+    if decision.action not in allowed:
+        listed = ", ".join(action.value for action in allowed)
         problems.append(
             f"ACTION {decision.action.value} NOT ALLOWED IN {ctx.plume_mode.value} MODE"
-            f" (ALLOWED: {allowed})"
+            f" (ALLOWED: {listed})"
         )
     match decision.action:
         case ActionKind.CHANGE_LEVEL:
             problems.extend(_change_level_problems(decision, ctx))
         case ActionKind.HOLD:
-            problems.extend(_hold_problems(decision))
+            problems.extend(_hold_problems(decision, ctx))
         case ActionKind.DIVERT:
             problems.extend(_divert_problems(decision, ctx))
-        case ActionKind.CONTINUE | ActionKind.MONITOR:
+        case ActionKind.CONTINUE:
+            problems.extend(_continue_problems(ctx))
+        case ActionKind.MONITOR:
             pass
     reasoning = decision.reasoning.strip()
     if not reasoning:
@@ -134,21 +153,51 @@ def _change_level_problems(decision: PlannerDecision, ctx: PlannerContext) -> li
     if not 0 <= fl_min <= fl_max <= MAX_CHANGE_LEVEL_FL:
         return [f"CHANGE_LEVEL BAND FL{fl_min}-FL{fl_max} MUST BE ORDERED AND AT OR BELOW FL410"]
     if not band_clears_hazard(fl_min, fl_max, ctx=ctx):
-        low = ft_to_fl(max(0, ctx.hazard_base_ft - ctx.vertical_margin_ft))
-        high = ft_to_fl(ctx.hazard_top_ft + ctx.vertical_margin_ft)
         return [
             f"CHANGE_LEVEL BAND FL{fl_min}-FL{fl_max} DOES NOT CLEAR THE HAZARD"
-            f" FL{low}-FL{high} (BAND PLUS MARGIN)"
+            f" {_hazard_with_margin(ctx)} (BAND PLUS MARGIN)"
         ]
     return []
 
 
-def _hold_problems(decision: PlannerDecision) -> list[str]:
-    if decision.hold_fl is None:
+def _hold_problems(decision: PlannerDecision, ctx: PlannerContext) -> list[str]:
+    hold_fl = decision.hold_fl
+    if hold_fl is None:
         return ["HOLD NEEDS hold_fl"]
-    if not 0 < decision.hold_fl <= MAX_LEVEL_FL:
-        return [f"HOLD LEVEL FL{decision.hold_fl} OUT OF RANGE"]
+    if not 0 < hold_fl <= MAX_LEVEL_FL:
+        return [f"HOLD LEVEL FL{hold_fl} OUT OF RANGE"]
+    if ctx.flight.inside_now and not band_clears_hazard(hold_fl, hold_fl, ctx=ctx):
+        return [
+            f"HOLD AT PRESENT POSITION IS INSIDE THE HAZARD NOW: FL{hold_fl} IS WITHIN"
+            f" {_hazard_with_margin(ctx)} (BAND PLUS MARGIN); CHOOSE ANOTHER ACTION"
+        ]
+    present = ctx.flight.alt_baro_ft
+    if present is None or hold_fl == ft_to_fl(present):
+        return []
+    # Holding at another level means climbing or descending to it first.
+    if ctx.plume_mode is PlumeMode.HYPOTHESIS:
+        return [
+            f"HOLD AT THE PRESENT LEVEL FL{ft_to_fl(present)} IN HYPOTHESIS MODE:"
+            " NO LEVEL CHANGE WITHOUT A VALID OFFICIAL PRODUCT"
+        ]
+    if hold_fl > MAX_CHANGE_LEVEL_FL:
+        return [
+            "HOLD AT ANOTHER LEVEL IS A LEVEL CHANGE AND MUST BE AT OR BELOW"
+            f" FL{MAX_CHANGE_LEVEL_FL}"
+        ]
     return []
+
+
+def _continue_problems(ctx: PlannerContext) -> list[str]:
+    low_ft, high_ft = ctx.flight.aircraft_band_ft
+    below = high_ft < ctx.hazard_base_ft - ctx.vertical_margin_ft
+    above = low_ft > ctx.hazard_top_ft + ctx.vertical_margin_ft
+    if below or above:
+        return []
+    return [
+        "CONTINUE ONLY WHEN THE PRESENT AND SELECTED LEVELS CLEAR THE HAZARD"
+        f" {_hazard_with_margin(ctx)} (BAND PLUS MARGIN)"
+    ]
 
 
 def _divert_problems(decision: PlannerDecision, ctx: PlannerContext) -> list[str]:
@@ -162,7 +211,15 @@ def _divert_problems(decision: PlannerDecision, ctx: PlannerContext) -> list[str
     if not candidate.check.ok:
         reasons = "; ".join(candidate.check.reasons) or "NOT ACCEPTABLE"
         return [f"ALTERNATE {icao} FAILED THE TAF AND CONE SCREEN ({reasons})"]
+    if candidate.check.taf_source_id is None:
+        return [f"ALTERNATE {icao} HAS NO TAF"]
     return []
+
+
+def _hazard_with_margin(ctx: PlannerContext) -> str:
+    low = ft_to_fl(max(0, ctx.hazard_base_ft - ctx.vertical_margin_ft))
+    high = ft_to_fl(ctx.hazard_top_ft + ctx.vertical_margin_ft)
+    return f"FL{low}-FL{high}"
 
 
 # --- drafter text -----------------------------------------------------------------------
@@ -226,7 +283,8 @@ def _cost_note_problems(note: str, *, ctx: PlannerContext, plan: PlannedAction) 
     if not _printable_ascii(text, allow_newline=False):
         problems.append("COST NOTE MUST BE PRINTABLE ASCII")
     problems.extend(clock_problems(text, "COST NOTE"))
-    problems.extend(_place_problems(text, "COST NOTE", ctx=ctx, plan=plan))
+    # The note may be mixed case; a lower-case place name is still a place.
+    problems.extend(_place_problems(text.upper(), "COST NOTE", ctx=ctx, plan=plan))
     problems.extend(_number_problems(text, "COST NOTE", ctx=ctx, plan=plan))
     return problems
 
@@ -240,8 +298,7 @@ def _action_word_problems(upper: str, *, ctx: PlannerContext, plan: PlannedActio
     if ctx.plume_mode is PlumeMode.HYPOTHESIS:
         problems.extend(
             f"BODY MUST NOT ADVISE {word} WITHOUT A VALID OFFICIAL PRODUCT (HYPOTHESIS MODE)"
-            for word in _HYPOTHESIS_FORBIDDEN
-            if _has_phrase(upper, word)
+            for word in dict.fromkeys(_HYPOTHESIS_FORBIDDEN.findall(upper))
         )
     match decision.action:
         case ActionKind.DIVERT if decision.alternate_icao and not _has_phrase(
@@ -327,7 +384,7 @@ def input_numbers(ctx: PlannerContext, plan: PlannedAction) -> set[str]:
 
 def _input_texts(ctx: PlannerContext, plan: PlannedAction) -> list[str]:
     flight = ctx.flight
-    texts = [ctx.volcano_name, flight.proxy_flight, ctx.hold.formula]
+    texts = [AIRLINE_NAME, ctx.volcano_name, flight.proxy_flight, ctx.hold.formula]
     texts += [text for text in (flight.callsign, flight.type_icao) if text]
     for alternate in ctx.alternates:
         texts += [alternate.name, alternate.divert.formula, *alternate.check.reasons]

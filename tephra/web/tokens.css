@@ -1,0 +1,246 @@
+/* TEPHRA design tokens, shared by the Wall (index.html) and the Desk (desk.html).
+   Link this file before the page's own stylesheet. The spec is docs/UI-DESIGN.md: every
+   colour below was checked there for WCAG AA contrast and for colour-vision deficiency
+   (Machado 2009 simulation, CIEDE2000). Change a value only together with that table.
+   Map paint colours are read from these properties at start-up (getComputedStyle), so the
+   map and the panels never drift apart. */
+
+/* IBM Plex, self-hosted (SIL OFL 1.1, fonts/OFL.txt): latin and latin-ext subsets only. */
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url("fonts/ibm-plex-sans-var-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url("fonts/ibm-plex-sans-var-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/ibm-plex-mono-400-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/ibm-plex-mono-400-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/ibm-plex-mono-500-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/ibm-plex-mono-500-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* --- neutrals (cool blue-black; text pairs pass 4.5:1 on every surface) --- */
+  --c-bg: #05080c;
+  --c-surface-1: #0a1017;
+  --c-surface-2: #0f1720;
+  --c-surface-3: #16212c;
+  --c-surface-glass: rgb(10 16 23 / 0.88);
+  --c-scrim: rgb(2 4 8 / 0.72);
+  --c-line-1: #1c2834;
+  --c-line-2: #2b3a4a;
+  --c-line-input: #5b7086;
+  --c-text-1: #eaf1f7;
+  --c-text-2: #b6c3d0;
+  --c-text-3: #93a3b5;
+  --c-text-ink: #05080c;
+
+  /* --- data semantics: one meaning each, the same on the map and in the panels --- */
+  --c-official: #ff3d8b;
+  --c-official-text: #ff9cc4;
+  --c-official-soft: rgb(255 61 139 / 0.14);
+  --c-tephra: #ffb000;
+  --c-tephra-text: #ffc845;
+  --c-tephra-soft: rgb(255 176 0 / 0.13);
+  --c-observer: #38bdf8;
+  --c-observer-text: #7dd3fc;
+  --c-observer-soft: rgb(56 189 248 / 0.13);
+  --c-aircraft: #aab4be;
+  --c-aircraft-stale: #7a8796;
+
+  /* Aviation colour code: always inside the eruption symbol with its letter, and the word. */
+  --c-code-green: #2ec4a0;
+  --c-code-yellow: #fff176;
+  --c-code-orange: #f2711c;
+  --c-code-red: #e8273b;
+  --c-code-unknown: #8a96a3;
+
+  /* --- map-only values (basemap overrides and context lines) --- */
+  --map-land: #0c0c0c;
+  --map-water: #0b1a2a;
+  --map-halo: #05070a;
+  --map-label: #d5dee7;
+  --map-fir: #56697e;
+  --map-fir-active: #8aa2bb;
+  --map-vaac: #7d8fa3;
+  --map-navaid: #8fa0b2;
+  --map-official-fill-opacity: 0.14;
+  --map-tephra-fill-opacity: 0.07;
+
+  /* --- status: UI only, never the only signal (always a shape and a word) --- */
+  --c-ok: #4ade80;
+  --c-ok-bg: #0b2416;
+  --c-caution: #ffe566;
+  --c-caution-bg: #2a2205;
+  --c-serious: #ff7a6e;
+  --c-serious-bg: #2d0f0c;
+  --c-info: #9db4cc;
+  --c-off: #7a8796;
+
+  /* --- modes --- */
+  --c-replay: #b794ff;
+  --c-replay-text: #cdb6ff;
+  --c-replay-bg: #1c1233;
+  --c-replay-ink: #e3d6ff;
+  --c-hypothesis-bg: #2b1d00;
+
+  /* --- decisions (Desk buttons, Wall decision list) --- */
+  --c-approve: #2fbf71;
+  --c-approve-progress: #7ef0b0;
+  --c-approve-ink: #04130a;
+  --c-reject: #c9302c;
+  --c-reject-ink: #ffffff;
+  --c-reject-text: #ff7a6e;
+
+  /* --- focus: white ring, dark halo; visible on panels, buttons and the map --- */
+  --c-focus: #f5f9fc;
+  --focus-ring: 2px solid var(--c-focus);
+  --focus-offset: 2px;
+  --focus-halo: 0 0 0 4px rgb(5 8 12 / 0.9);
+
+  /* --- type --- */
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --fs-1: 0.75rem; /* 12 px: attribution, hashes */
+  --fs-2: 0.875rem; /* 14 px: secondary text, table cells */
+  --fs-3: 1rem; /* 16 px: body */
+  --fs-4: 1.125rem; /* 18 px: key values */
+  --fs-5: 1.25rem; /* 20 px: section headlines */
+  --fs-6: 1.5rem; /* 24 px: volcano name, Desk action */
+  --fs-7: 2rem; /* 32 px: clock, minutes to entry */
+  --fs-8: 2.5rem; /* 40 px: one hero number per screen */
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --lh-tight: 1.15;
+  --lh-snug: 1.3;
+  --lh-body: 1.5;
+  --tracking-caps: 0.08em;
+  --tracking-tight: -0.01em;
+
+  /* --- space (4 px grid), radii, borders --- */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.25rem;
+  --sp-6: 1.5rem;
+  --sp-8: 2rem;
+  --sp-10: 2.5rem;
+  --sp-12: 3rem;
+  --sp-16: 4rem;
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+  --border-hair: 1px solid var(--c-line-1);
+  --border-control: 1px solid var(--c-line-input);
+  --tap-min: 44px;
+  --tap-comfort: 48px;
+
+  /* --- elevation (dark UI: a lighter surface plus a border carries most of it) --- */
+  --shadow-1: 0 1px 0 rgb(0 0 0 / 0.45);
+  --shadow-2: 0 8px 24px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.04);
+  --shadow-3: 0 18px 48px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.06);
+  --glass-blur: blur(10px) saturate(1.1);
+
+  /* --- stacking --- */
+  --z-map-overlay: 10;
+  --z-panel: 20;
+  --z-sticky: 30;
+  --z-banner: 40;
+  --z-popover: 50;
+  --z-dialog: 60;
+  --z-toast: 70;
+  --z-skip: 80;
+
+  /* --- motion --- */
+  --dur-1: 80ms; /* press feedback */
+  --dur-2: 140ms; /* hover, focus, chip change */
+  --dur-3: 220ms; /* expand, row insert */
+  --dur-4: 360ms; /* sheet, dialog */
+  --dur-5: 600ms; /* decision stamp, changed-value highlight */
+  --dur-camera: 1600ms; /* fly to a volcano or flight */
+  --dur-camera-long: 2600ms; /* story framing, 3D tilt */
+  --dur-pulse: 1600ms; /* one ring cycle; three cycles, then still */
+  --dur-hold: 1200ms; /* hold-to-approve; essential, kept under reduced motion */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-enter: cubic-bezier(0, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.3, 0, 1, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-1: 0ms;
+    --dur-2: 0ms;
+    --dur-3: 0ms;
+    --dur-4: 0ms;
+    --dur-5: 0ms;
+    --dur-camera: 0ms;
+    --dur-camera-long: 0ms;
+    --dur-pulse: 0ms;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --c-text-2: #d3dde7;
+    --c-text-3: #b6c3d0;
+    --c-line-1: #3a4b5d;
+    --c-line-2: #5b7086;
+    --c-line-input: #8aa2bb;
+    --c-surface-glass: rgb(10 16 23 / 0.97);
+  }
+}

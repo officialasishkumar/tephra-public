@@ -7,6 +7,8 @@ and the indicator are exercised end to end.
 
 import bz2
 import struct
+import subprocess
+import sys
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from io import BytesIO
@@ -29,6 +31,7 @@ from tephra.science.btd import (
     BtdSummary,
     CropGrid,
     HsdFormatError,
+    ScienceUnavailable,
     analyse_btd,
     btd_caption,
     btd_key,
@@ -431,6 +434,35 @@ def test_compute_btd_is_silent_on_a_moist_background_and_says_so():
     assert "does not mean no ash" in result.caveats[0]
     assert any("moist air" in line for line in result.caveats)
     assert png.startswith(b"\x89PNG")
+
+
+def test_science_imports_without_the_science_extra():
+    code = (
+        "import sys, tephra.science, tephra.science.btd, tephra.science.hsd_segments; "
+        "print(sorted(m for m in ('satpy', 'pyresample', 'pyproj') if m in sys.modules))"
+    )
+    run = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert run.stdout.strip() == "[]"
+
+
+def test_a_layout_the_numpy_reader_declines_is_science_unavailable():
+    """With no usable satpy fallback the registry must see ScienceUnavailable, nothing else."""
+    segments = []
+    for obj, blob in _Scene().blobs():
+        raw = bytearray(bz2.decompress(blob))
+        raw[_BLOCK_LENGTHS[1] + 9] = 1  # compressed data block: the numpy reader declines it
+        packed = bz2.compress(bytes(raw))
+        segments.append((obj.model_copy(update={"size_bytes": len(packed)}), packed))
+    with pytest.raises(ScienceUnavailable):
+        compute_btd(
+            segments,
+            SEMERU,
+            band_pair="B13-B15",
+            half_width_km=100.0,
+            threshold_k=-0.5,
+            listing_url="listing",
+            fetched_at=FETCHED,
+        )
 
 
 def test_compute_btd_needs_both_bands():
