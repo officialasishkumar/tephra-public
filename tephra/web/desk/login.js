@@ -175,3 +175,12 @@ function lock(seconds) {
 }
 
 export const SESSION_ENDED = MSG.ended;
+
+// A deep link waiting for sign-in (UI-REDESIGN R10.3): "Sign in to review RFA1225." After sign-in
+// desk.js resumes the hash; the hash never skips the session, the hold or the confirm step.
+export function setPending(text) {
+  const node = byId('login-pending');
+  if (!node) return;
+  node.textContent = text;
+  node.hidden = !text;
+}

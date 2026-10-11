@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0a1017">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="description" content="TEPHRA Desk: approve, edit or reject per-flight volcanic-ash advisory drafts, ask TEPHRA, run network recovery, sign regulator drafts. Decision support only.">
+  <meta name="description" content="TEPHRA Desk: approve, edit or reject per-flight volcanic-ash advisory drafts, ask TEPHRA, plan around closed airports, sign regulator drafts. Decision support only.">
   <title>TEPHRA Desk</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/static/fonts/ibm-plex-sans-var-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -21,11 +21,11 @@
   <header id="dhead" class="dhead">
     <div class="dhead__row">
       <p class="brand"><span class="brand__mark">TEPHRA</span> <span class="brand__sub">Desk</span></p>
-      <span id="model-chip" class="model-chip model-chip--stub" title="Model that drafts advisory text">
-        <span>NO MODEL</span>
+      <span id="model-chip" class="model-chip model-chip--stub" title="NO MODEL: code templates write the text">
+        <span>AI: off · code only</span>
       </span>
       <button id="budget-chip" type="button" class="budget" data-level="ok" hidden aria-haspopup="dialog"></button>
-      <span id="conn" class="conn" data-conn="idle"><span>Connecting</span></span>
+      <span id="conn" class="conn" data-conn="idle"><span>Connecting…</span></span>
       <div class="account">
         <button id="account-btn" type="button" class="avatar" aria-haspopup="true" aria-expanded="false"
                 aria-controls="account-menu" hidden></button>
@@ -47,6 +47,7 @@
     <section id="login-view" class="login" aria-labelledby="login-title" hidden>
       <div class="login__card">
         <h1 id="login-title" class="login__title">Dispatcher sign-in</h1>
+        <p id="login-pending" class="login__pending" hidden></p>
         <p class="login__hint">Your name is recorded on every decision and shown in the public audit. The PIN is never stored on this phone. <a href="/privacy">Privacy notice</a></p>
 
         <div id="login-disabled" class="panel panel--serious" role="alert" hidden>
@@ -83,26 +84,48 @@
     <div id="desk-view" class="desk" data-view="queue" hidden>
       <section class="queue" aria-labelledby="q-title">
         <div class="qhead">
-          <h1 id="q-title" class="qhead__title" tabindex="-1">Queue</h1>
-          <button id="paste-notice" type="button" class="pillbtn" data-paste="1">
-            <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-clipboard"></use></svg><span>Paste a notice</span>
-          </button>
-          <button id="refresh" type="button" class="iconbtn" aria-label="Refresh the queue" title="Refresh">
-            <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-refresh"></use></svg>
-          </button>
+          <h1 id="q-title" class="qhead__title" tabindex="-1">Decide</h1>
+          <div class="qmore">
+            <button id="q-more-btn" type="button" class="iconbtn" aria-label="More actions" title="More actions"
+                    aria-haspopup="true" aria-expanded="false" aria-controls="q-more">
+              <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-more"></use></svg>
+            </button>
+            <div id="q-more" class="menu qmore__menu" hidden>
+              <button id="paste-notice" type="button" class="menu__item" data-paste="1">
+                <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-clipboard"></use></svg><span>Paste a notice</span>
+              </button>
+              <button id="refresh" type="button" class="menu__item">
+                <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-refresh"></use></svg><span>Refresh the lists</span>
+              </button>
+            </div>
+          </div>
         </div>
-        <section id="duty-section" class="qsec qsec--duty" aria-label="Duty Officer brief" hidden></section>
+        <!-- Problems are never folded: they sit above the Next decision (UI-REDESIGN R10.4). -->
         <section id="fail-section" class="qsec qsec--fail" hidden></section>
-        <h2 id="drafts-title" class="shead__title shead__title--lone">Advisories to decide</h2>
-        <p class="qsub"><span id="q-count" class="qsub__count"></span><span class="qsub__sort">Most urgent first</span></p>
-        <div id="q-state" class="qstate"></div>
-        <ul id="cards" class="cards" aria-labelledby="drafts-title"></ul>
-        <section id="msg-section" class="qsec" hidden></section>
-        <section id="plan-section" class="qsec" hidden></section>
-        <section id="notice-section" class="qsec" hidden></section>
+        <section class="next" aria-labelledby="drafts-title">
+          <h2 id="drafts-title" class="next__eyebrow">Next decision</h2>
+          <p class="next__count"><span id="q-count"></span></p>
+          <p id="q-breakdown" class="next__breakdown"></p>
+          <p id="q-newer" class="next__newer" role="status" hidden></p>
+          <div id="q-state" class="qstate"></div>
+          <div id="q-next" class="next__slot"></div>
+        </section>
+        <h2 id="more-title" class="more__title" hidden></h2>
+        <ul id="cards" class="cards" aria-labelledby="more-title"></ul>
+        <div class="qlinks">
+          <section id="plan-section" class="qsec qlink" hidden></section>
+          <section id="msg-section" class="qsec qlink" hidden></section>
+          <section id="notice-section" class="qsec qlink" hidden></section>
+          <section id="duty-section" class="qsec qsec--duty qlink" aria-label="Duty Officer brief" hidden></section>
+        </div>
         <section id="closed" class="closed" aria-labelledby="closed-title" hidden>
-          <h2 id="closed-title" class="closed__title">Decided while this page was open</h2>
-          <ul id="closed-list" class="closed__list"></ul>
+          <details class="closed__box">
+            <summary class="closed__sum">
+              <svg class="icon disclosure" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-chevron-right"></use></svg>
+              <span id="closed-title" class="closed__title">Decided while this page was open</span> <span id="closed-count" class="closed__count"></span>
+            </summary>
+            <ul id="closed-list" class="closed__list"></ul>
+          </details>
         </section>
         <p class="qfoot">Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system.</p>
       </section>
@@ -111,14 +134,14 @@
       <!-- At 1100 px and up, shown in the review pane while nothing is selected (CSS only). -->
       <div class="sheet-idle" aria-hidden="true">
         <svg class="icon sheet-idle__icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-list"></use></svg>
-        <p class="sheet-idle__title">Select a draft to review</p>
+        <p class="sheet-idle__title">Choose an advisory to review</p>
         <p class="sheet-idle__note">Most urgent first: the top card is selected when drafts arrive.</p>
       </div>
     </div>
 
     <section id="panel-ask" class="panel-tab" aria-label="Ask TEPHRA" hidden></section>
-    <section id="panel-network" class="panel-tab" aria-label="Network recovery" hidden></section>
-    <section id="panel-docs" class="panel-tab" aria-label="Documents" hidden></section>
+    <section id="panel-network" class="panel-tab" aria-label="Airports: the airport plan" hidden></section>
+    <section id="panel-docs" class="panel-tab" aria-label="Paperwork" hidden></section>
   </main>
 
   <nav id="tabbar" class="tabbar" aria-label="Desk sections" hidden></nav>

@@ -205,15 +205,121 @@ export function sourceTime(s) {
 export const sourceList = (adv) =>
   [...(adv.sources || [])].filter((s) => s && typeof s === 'object').sort(bySourceRank);
 
-// "3 sources · oldest 14 min old" for a queue card; ages on the active clock.
+// "7 sources · newest 3 min ago" for the Next decision card and the review (UI-REDESIGN R10.4);
+// ages on the active clock. The oldest age stays in the Why list, on each named source.
 export function sourcesSummary(adv, now) {
   const list = sourceList(adv);
   if (!list.length) return 'No sources listed';
   const head = `${list.length} source${list.length === 1 ? '' : 's'}`;
   const times = list.map(sourceTime).filter(Boolean).map((x) => x.t);
   if (!times.length) return head;
-  const oldest = Math.min(...times);
-  return now === null ? `${head} · oldest ${hhmmz(oldest)}` : `${head} · oldest ${span(now - oldest)} old`;
+  const newest = Math.max(...times);
+  return now === null ? `${head} · newest ${hhmmz(newest)}` : `${head} · newest ${ago(now - newest)}`;
+}
+
+// --- plain words (UI-REDESIGN R12.10): the plain action first, the ICAO word in brackets ---------
+
+// "Keep watching", "Hold at FL250", "Divert to WARR", "Change level to FL300–FL340".
+export function actionShort(adv) {
+  switch (adv.action) {
+    case 'MONITOR':
+      return 'Keep watching';
+    case 'CONTINUE':
+      return 'Continue';
+    case 'HOLD':
+      return Number.isFinite(adv.hold_fl) ? `Hold at ${fl(adv.hold_fl)}` : 'Hold';
+    case 'DIVERT':
+      return typeof adv.alternate_icao === 'string' && adv.alternate_icao ? `Divert to ${adv.alternate_icao}` : 'Divert';
+    case 'CHANGE_LEVEL':
+      return Number.isFinite(adv.change_level_fl_min) && Number.isFinite(adv.change_level_fl_max)
+        ? `Change level to ${fl(adv.change_level_fl_min)}–${fl(adv.change_level_fl_max)}`
+        : 'Change level';
+    case 'REROUTE': {
+      const r = adv.reroute;
+      const side = r && r.side ? ` ${String(r.side).toLowerCase()} of the area` : ' around the area';
+      const extra = r && Number.isFinite(r.extra_min) ? `, +${Math.round(r.extra_min)} min` : '';
+      return `Reroute${side}${extra}`;
+    }
+    default:
+      return String(adv.action);
+  }
+}
+
+const ICAO_WORD = { MONITOR: 'MONITOR', CONTINUE: 'CONTINUE', HOLD: 'HOLD', DIVERT: 'DIVERT', CHANGE_LEVEL: 'CHANGE LEVEL', REROUTE: 'REROUTE' };
+
+// "Keep watching (MONITOR)": the line the dispatcher reads; the advisory text keeps the ICAO words.
+export const actionPlain = (adv) => `${actionShort(adv)} (${ICAO_WORD[adv.action] || adv.action})`;
+
+// The approve button (R12.10): "Approve: keep watching RFA1225".
+export function approveText(adv) {
+  const f = adv.proxy_flight;
+  switch (adv.action) {
+    case 'MONITOR':
+      return `Approve: keep watching ${f}`;
+    case 'CONTINUE':
+      return `Approve: continue ${f}`;
+    case 'HOLD':
+      return Number.isFinite(adv.hold_fl) ? `Approve: hold ${f} at ${fl(adv.hold_fl)}` : `Approve: hold ${f}`;
+    case 'DIVERT':
+      return adv.alternate_icao ? `Approve: divert ${f} to ${adv.alternate_icao}` : `Approve: divert ${f}`;
+    case 'CHANGE_LEVEL':
+      return `Approve: change level for ${f}`;
+    case 'REROUTE':
+      return `Approve: reroute ${f}`;
+    default:
+      return `Approve: ${String(adv.action).toLowerCase()} for ${f}`;
+  }
+}
+
+// "Inside the ash now" / "Enters in 12 min (est.)" / "Entry was due 3 min ago (est.)".
+export function entryWords(adv, now) {
+  const st = entryState(adv, now);
+  if (st.kind === 'inside') return 'Inside the ash now';
+  if (st.kind === 'ahead') return `Enters in ${st.minutes} min (est.)`;
+  return st.minutes ? `Entry was due ${st.minutes} min ago (est.)` : 'Entry is due now (est.)';
+}
+
+// The short form for one-line rows: "inside now", "enters in 12 min".
+export function entryShort(adv, now) {
+  const st = entryState(adv, now);
+  if (st.kind === 'inside') return 'inside now';
+  if (st.kind === 'ahead') return `enters in ${st.minutes} min`;
+  return st.minutes ? `entry due ${st.minutes} min ago` : 'entry due now';
+}
+
+const PRODUCT_WORD = { SIGMET: 'SIGMET', VAA: 'VAA', VONA: 'VONA', TAF: 'TAF', METAR: 'METAR', CONE: 'TEPHRA area', WINDS: 'Winds' };
+const STAMP = /^\d{8}T\d{4}Z?$/;
+const nameCase = (part) => (/^[A-Z_]+$/.test(part) && part.length > 4
+  ? part.split('_').map((w) => w.charAt(0) + w.slice(1).toLowerCase()).join(' ')
+  : part.replace(/_/g, ' '));
+
+// The product a source is, named from its own record (R10.4): "SIGMET WIIF 15 (area 2)",
+// "VAA Darwin 2026/176", "VONA Anak Krakatau". Never merged by hash and never invented: with no
+// source_id the feed name stands alone and the caller adds the issue time.
+export function productName(s) {
+  const id = typeof s.source_id === 'string' ? s.source_id.trim() : '';
+  if (!id) return null;
+  const parts = id.split(':').filter((p) => p && !STAMP.test(p));
+  if (!parts.length) return id;
+  const head = PRODUCT_WORD[parts[0]] || parts[0];
+  const rest = parts.slice(1)
+    .filter((p) => !(parts[0] === 'VAA' && /^\d{6}$/.test(p))) // the volcano number in a VAA id
+    .map((p) => {
+      const area = /^(.*)_AREA_(\d+)$/.exec(p);
+      return area ? `${nameCase(area[1])} (area ${area[2]})` : nameCase(p);
+    });
+  return [head, ...rest].join(' ');
+}
+
+const USD = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+// "$62,525" (R2.8); "–" when the number is unknown, never 0.
+export const usd = (n) => (Number.isFinite(n) ? USD.format(n) : '–');
+
+// "43 s", "2 min 5 s": solver times (R12.6).
+export function secs(ms) {
+  if (!Number.isFinite(ms)) return '–';
+  const s = Math.max(1, Math.round(ms / 1000));
+  return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ''}`;
 }
 
 export function initials(name) {

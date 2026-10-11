@@ -20,6 +20,27 @@ const SUGGESTED = [
   'Which flights did the AI fail to plan?',
 ];
 
+// R10.5: each evidence chip says in words what it rests on; the raw tool id is under "How I
+// answered". Unknown tools keep their own name (never a paraphrase).
+const TOOL_WORDS = {
+  exposed_flights: 'flights heading in',
+  cone: "TEPHRA's area",
+  flight: 'this flight',
+  plan: "the flight's plan",
+  feeds: 'data feeds',
+  ai_failures: 'AI problems',
+  duty_brief: 'Duty Officer brief',
+};
+const toolWords = (tool) => TOOL_WORDS[tool] || String(tool);
+
+// The offline stub's text is written by code, so it is put in plain words here (R10.5, R12.10).
+// A model's answer is always shown exactly as written.
+const STUB_PREFIX = 'NO MODEL: this is the offline stub, which does not read the question.';
+function stubWords(text, a) {
+  if (a.llm_backend !== 'stub' || typeof text !== 'string') return text;
+  return text.replace(STUB_PREFIX, 'AI off: this answer is a code count, not a reading of your question.').replace(/\ba hazard cone\b/g, "TEPHRA's area");
+}
+
 const canRecord = () => Boolean(navigator.mediaDevices) && typeof MediaRecorder !== 'undefined';
 
 let busy = null; // AbortController while a question is out
@@ -36,7 +57,7 @@ export function initAsk() {
   log = el('div', { id: 'ask-log', class: 'alog', role: 'log', 'aria-label': 'Conversation with Ask TEPHRA', 'aria-live': 'off' });
   const input = el('textarea', {
     id: 'ask-input', class: 'field askin', rows: '1', maxlength: String(MAX_Q), autocomplete: 'off', enterkeyhint: 'send',
-    placeholder: 'Ask about flights, areas, feeds…', 'aria-label': 'Your question',
+    placeholder: 'Type a question…', 'aria-label': 'Your question',
   });
   const mic = el('button', { type: 'button', id: 'ask-mic', class: 'abtn abtn--mic', 'aria-label': 'Talk: tap to start recording, tap again to send' }, icon('i-mic'));
   const send = el('button', { type: 'submit', id: 'ask-send', class: 'abtn abtn--send', 'aria-label': 'Send question' }, icon('i-send'));
@@ -44,11 +65,15 @@ export function initAsk() {
   const form = el('form', { class: 'acomposer', novalidate: true }, ctx, el('div', { class: 'acomposer__row' }, input, mic, send),
     el('p', { id: 'ask-status', class: 'fine acomposer__note', 'aria-live': 'polite', text: 'Read-only: Ask never changes an advisory, a plan or a message.' }));
   composer = { form, input, mic, send, ctx };
+  // R10.5: the composer is the primary thing; the suggestions sit under it; answers follow,
+  // newest first.
+  const sugg = el('div', { id: 'ask-sugg', class: 'asugg-wrap' });
   panel.replaceChildren(
     el('div', { class: 'phead' },
       el('h1', { id: 'ask-title', class: 'phead__title', tabindex: '-1', text: 'Ask TEPHRA' }),
-      el('p', { class: 'phead__sub', text: 'Answers use only TEPHRA\'s own tools and show where each claim comes from.' })),
-    log, form);
+      el('p', { class: 'phead__sub', text: "Answers use only TEPHRA's own tools and show where each claim comes from." })),
+    form, sugg, log);
+  sugg.addEventListener('click', onLogClick);
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     if (busy) {
@@ -79,16 +104,11 @@ function autosize(input) {
 }
 
 function drawEmpty() {
-  if (log.querySelector('.amsg')) return;
-  const first = [...app.drafts.values()][0];
-  const list = [...SUGGESTED];
-  if (first) list.unshift(`Why ${first.action === 'REROUTE' ? 'reroute' : first.action.toLowerCase().replace('_', ' ')} for ${first.proxy_flight}?`);
-  log.replaceChildren(el('div', { class: 'aempty', id: 'ask-empty' },
-    el('span', { class: 'aempty__mark' }, icon('i-chat')),
-    el('p', { class: 'aempty__title', text: 'What do you want to know?' }),
-    el('p', { class: 'aempty__sub', text: 'Ask in English, Bahasa Indonesia or Japanese. Tap a question to start.' }),
-    el('ul', { class: 'asugg', 'aria-label': 'Suggested questions' }, list.slice(0, 5).map((q) =>
-      el('li', {}, el('button', { type: 'button', class: 'asugg__btn', 'data-q': q }, icon('i-sparkle', 'st'), el('span', { text: q })))))));
+  const host = byId('ask-sugg');
+  host.replaceChildren(
+    el('ul', { class: 'asugg', 'aria-label': 'Suggested questions' }, SUGGESTED.map((q) =>
+      el('li', {}, el('button', { type: 'button', class: 'asugg__btn', 'data-q': q }, el('span', { text: q }))))),
+    el('p', { class: 'asugg__lang', text: 'English, Bahasa Indonesia or Japanese.' }));
 }
 
 export function setFlightContext(adv) {
@@ -143,14 +163,13 @@ function setBusy(on) {
   composer.mic.disabled = on || !canRecord();
 }
 
+// The newest exchange is the first one under the composer: keep the composer and it in view.
 function scrollEnd() {
   window.requestAnimationFrame(() => {
-    const bottom = composer.form.getBoundingClientRect().top;
-    const last = log.lastElementChild;
-    if (last) {
-      const r = last.getBoundingClientRect();
-      if (r.bottom > bottom - 8 || r.top < 60) window.scrollTo({ top: window.scrollY + r.top - 120, behavior: reducedMotion() ? 'auto' : 'smooth' });
-    }
+    const first = log.firstElementChild;
+    if (!first) return;
+    const r = first.getBoundingClientRect();
+    if (r.top > window.innerHeight - 120) window.scrollTo({ top: window.scrollY + r.top - 160, behavior: reducedMotion() ? 'auto' : 'smooth' });
   });
 }
 
@@ -171,12 +190,10 @@ async function submit() {
     return;
   }
   composer.form.querySelector('#ask-status').textContent = 'Read-only: Ask never changes an advisory, a plan or a message.';
-  byId('ask-empty')?.remove();
-  log.append(youBubble(text));
+  const wait = thinking("Reading TEPHRA's tools…");
+  log.prepend(el('div', { class: 'aturn' }, youBubble(text), wait));
   composer.input.value = '';
   autosize(composer.input);
-  const wait = thinking('Reading TEPHRA\'s tools…');
-  log.append(wait);
   scrollEnd();
   busy = new AbortController();
   setBusy(true);
@@ -223,15 +240,15 @@ function chipRow(answer, ids) {
     const e = answer.evidence.find((x) => x.id === id);
     return el('button', {
       type: 'button', class: 'evchip', 'data-ev': id,
-      'aria-label': `Evidence ${id}${e ? `, ${e.tool}` : ''}: open the verbatim result`, title: e ? `${e.tool}: ${e.summary}` : id,
-    }, el('span', { class: 'evchip__id', text: evLabel(answer, id) }), e ? el('span', { class: 'evchip__tool', text: e.tool }) : null);
+      'aria-label': `From ${e ? toolWords(e.tool) : id} (evidence ${id}): open the verbatim result`, title: e ? `${id} ${e.tool}: ${e.summary}` : id,
+    }, el('span', { class: 'evchip__tool', text: `from: ${e ? toolWords(e.tool) : evLabel(answer, id)}` }));
   });
 }
 
 function stepStrip(a) {
   const steps = [];
   steps.push(['i-chat', 'Question', a.flight_id ? `about flight ${a.flight_id}` : 'asked', 'ok']);
-  for (const e of a.evidence) steps.push(['i-code', `tool: ${e.tool}`, e.summary, 'ok', e.id]);
+  for (const e of a.evidence) steps.push(['i-code', `${e.id} ${e.tool} (${toolWords(e.tool)})`, e.summary, 'ok', e.id]);
   const nTools = a.tool_calls.length;
   if (!a.evidence.length) steps.push(['i-info', 'No tool was called', 'The model answered from the question alone.', 'warn']);
   const cited = new Set(a.claims.flatMap((c) => c.evidence_ids));
@@ -254,40 +271,35 @@ export function answerCard(a) {
   wrap._answer = a;
   const refused = a.status === 'refused';
   const card = el('article', { class: `acard ${refused ? 'acard--refused' : ''}`.trim(), 'aria-label': refused ? 'Refusal' : 'Answer' });
-  const meta = el('div', { class: 'acard__meta' },
-    aiChip(a.model_id, a.llm_backend, { sm: true }),
-    el('span', { class: 'chip chip--sm', title: 'Language of the question and the answer', text: LANG_NAME[a.language] || a.language }),
-    a.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null);
-  card.append(meta);
   if (refused) {
     card.append(el('p', { class: 'acard__refuse' }, icon('st-info', 'st'), el('span', { text: 'Not in the evidence I have' })),
-      el('p', { class: 'acard__text', lang: a.language, text: a.answer || a.refusal_reason || '' }));
+      el('p', { class: 'acard__text', lang: a.language, text: stubWords(a.answer || a.refusal_reason || '', a) }));
     if (a.refusal_reason && a.refusal_reason !== a.answer) card.append(el('p', { class: 'fine', text: a.refusal_reason }));
     if (a.evidence.length) {
       card.append(el('p', { class: 'caps acard__k', text: 'What I checked' }), el('div', { class: 'evrow' }, chipRow(a, a.evidence.map((e) => e.id))));
     }
   } else {
-    card.append(el('p', { class: 'acard__text', lang: a.language, text: a.answer }));
-    const cited = [...new Set(a.claims.flatMap((c) => c.evidence_ids))];
+    card.append(el('p', { class: 'acard__text', lang: a.language, text: stubWords(a.answer, a) }));
+    // Claims first (R10.5): each one with the evidence it rests on, in words.
     if (a.claims.length) {
-      card.append(el('details', { class: 'disclose claims', open: true },
-        el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: `Claims (${a.claims.length})` }), el('span', { class: 'how__sum', text: 'each rests on evidence' })),
-        el('ul', { class: 'clist' }, a.claims.map((c) =>
-          el('li', { class: `claim claim--${c.kind}` },
-            el('span', { class: 'claim__kind', text: KIND_WORD[c.kind] || c.kind }),
-            el('span', { class: 'claim__text', lang: a.language, text: c.text }),
-            el('span', { class: 'evrow' }, chipRow(a, c.evidence_ids)))))));
+      card.append(el('ul', { class: 'clist', 'aria-label': `Claims (${a.claims.length}), each resting on evidence` }, a.claims.map((c) =>
+        el('li', { class: `claim claim--${c.kind}` },
+          el('span', { class: 'claim__kind', text: KIND_WORD[c.kind] || c.kind }),
+          el('span', { class: 'claim__text', lang: a.language, text: stubWords(c.text, a) }),
+          el('span', { class: 'evrow' }, chipRow(a, c.evidence_ids))))));
     }
-    if (cited.length) card.append(el('p', { class: 'fine acard__src', text: `${cited.length} evidence item${cited.length === 1 ? '' : 's'} from ${a.evidence.length} tool call${a.evidence.length === 1 ? '' : 's'}.` }));
   }
   card.append(stepStrip(a));
-  const foot = el('div', { class: 'acard__foot' },
-    el('button', { type: 'button', class: 'spk', 'data-speak': a.id, 'aria-label': 'Play the answer aloud' }, icon('i-volume'), el('span', { text: 'Listen' })),
-    el('span', { class: 'spk__msg fine', role: 'status' }));
   if (a.follow_ups && a.follow_ups.length) {
     card.append(el('div', { class: 'afollow' }, a.follow_ups.map((q) => el('button', { type: 'button', class: 'asugg__btn', 'data-follow': q }, el('span', { text: q })))));
   }
-  card.append(foot);
+  card.append(el('div', { class: 'acard__foot' },
+    el('button', { type: 'button', class: 'spk', 'data-speak': a.id, 'aria-label': 'Play the answer aloud' }, icon('i-volume'), el('span', { text: 'Listen' })),
+    el('span', { class: 'acard__meta' },
+      aiChip(a.model_id, a.llm_backend, { sm: true }),
+      el('span', { class: 'chip chip--sm', title: 'Language of the question and the answer', text: LANG_NAME[a.language] || a.language }),
+      a.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null),
+    el('span', { class: 'spk__msg fine', role: 'status' })));
   wrap.append(card);
   return wrap;
 }
@@ -297,7 +309,7 @@ function openEvidence(a, id) {
   if (!e) return;
   const cited = a.claims.filter((c) => c.evidence_ids.includes(id));
   openBSheet({
-    title: `Evidence ${e.id}`,
+    title: `Evidence ${e.id}: ${toolWords(e.tool)}`,
     wide: true,
     body: el('div', { class: 'stack' },
       el('p', { class: 'evh' }, el('span', { class: 'evchip evchip--static' }, el('span', { class: 'evchip__id', text: e.id }), el('span', { class: 'evchip__tool', text: e.tool })), e.args && Object.keys(e.args).length ? el('span', { class: 'mono evh__args', text: JSON.stringify(e.args) }) : null),
@@ -441,10 +453,9 @@ async function sendVoice(blob) {
     micStatus('That recording is too long (over 1 MB). Try a shorter question.');
     return;
   }
-  byId('ask-empty')?.remove();
   const mine = ++seq;
   const wait = thinking('Listening to your question…');
-  log.append(wait);
+  log.prepend(el('div', { class: 'aturn' }, wait));
   scrollEnd();
   micStatus('Sending the recording…');
   const form = new FormData();

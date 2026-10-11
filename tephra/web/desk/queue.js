@@ -1,21 +1,28 @@
-// The queue (docs/UI-DESIGN.md 10.3): drafts awaiting decision, most urgent first, and the
-// advisories that left DRAFT while this page was open ("Closed this session").
+// Decide (docs/UI-REDESIGN.md R10.4, was the Queue): the Next decision card first, then one
+// line per other draft, most urgent first, and the advisories that left DRAFT while this page was
+// open (collapsed).
 
-import { byId, el, icon, status } from './dom.js';
+import { byId, el, icon } from './dom.js';
 import {
   ACTION_ICON,
-  actionText,
+  actionPlain,
+  actionShort,
   activeNow,
   ago,
   band,
   byUrgency,
   deskName,
+  entryShort,
+  entryState,
+  entryWords,
   hhmmz,
   isStub,
   parseTime,
   pct,
   sourcesSummary,
 } from './format.js';
+import { openFailures } from './failures.js';
+import { draftMessages } from './messages.js';
 import { app, draftList } from './state.js';
 
 const OLD_DRAFT_MIN = 10;
@@ -61,26 +68,14 @@ export function replayChip() {
   return el('span', { class: 'chip chip--replay' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' }));
 }
 
+// The entry status in words, with its shape (R12.10): "Inside the ash now", "Enters in 12 min
+// (est.)". Computed by code from the draft's created_at and minutes_to_entry.
 function entryNode(adv, now) {
-  if (adv.inside_now) {
-    return el('span', { class: 'entry entry--inside' }, icon('st-inside', 'st'), el('span', { text: 'INSIDE NOW' }));
-  }
-  const created = parseTime(adv.created_at) ?? 0;
-  const left = now === null ? adv.minutes_to_entry : Math.ceil((created + adv.minutes_to_entry * 60000 - now) / 60000);
-  if (left > 0) {
-    return el(
-      'span',
-      { class: 'entry' },
-      el('span', { class: 'caps', text: 'Enters in' }),
-      el('span', { class: 'entry__mins', text: `${left} MIN` }),
-    );
-  }
-  return el(
-    'span',
-    { class: 'entry entry--due' },
-    el('span', { class: 'caps', text: 'Entry was due' }),
-    el('span', { class: 'entry__due', text: left === 0 ? 'NOW' : `${-left} MIN AGO` }),
-  );
+  const st = entryState(adv, now);
+  const tone = st.kind === 'inside' ? 'inside' : st.kind === 'due' ? 'due' : 'ahead';
+  return el('span', { class: `entry entry--${tone}` },
+    icon(st.kind === 'inside' ? 'st-inside' : st.kind === 'due' ? 'st-caution' : 'i-clock', 'st'),
+    el('span', { text: entryWords(adv, now) }));
 }
 
 function ageMinutes(adv, now) {
@@ -88,84 +83,105 @@ function ageMinutes(adv, now) {
   return now === null || created === null ? 0 : (now - created) / 60000;
 }
 
-function tagsNode(adv, now) {
-  const tags = el('span', { class: 'tags' }, modeChip(adv), modelChip(adv, { card: true }));
-  if (adv.replay) tags.append(replayChip());
-  if (needsCarefulRead(adv)) {
-    tags.append(el('span', { class: 'chip chip--caution' }, icon('st-caution', 'st'), el('span', { text: 'Needs a careful read' })));
-  }
-  if (anyStaleSource(adv)) {
-    tags.append(el('span', { class: 'chip chip--caution' }, icon('st-stale', 'st'), el('span', { text: 'Sources stale' })));
-  }
+// Only what needs the dispatcher's care stays on the card (R10.4): the area mode, model and
+// REPLAY chips moved to the header and the review's "Why". HYPOTHESIS is a safety rule, so it stays.
+function cautions(adv, now) {
+  const out = [];
+  if (adv.plume_mode === 'HYPOTHESIS') out.push(['st-caution', 'HYPOTHESIS: only MONITOR or HOLD']);
+  if (needsCarefulRead(adv)) out.push(['st-caution', 'Needs a careful read']);
+  if (anyStaleSource(adv)) out.push(['st-stale', 'Sources stale']);
   const age = ageMinutes(adv, now);
-  if (age > OLD_DRAFT_MIN) {
-    tags.append(
-      el('span', { class: 'chip chip--caution' }, icon('i-clock', 'st'),
-        el('span', { text: `Drafted ${Math.floor(age)} min ago: entry time may have moved` })),
-    );
-  }
-  return tags;
+  if (age > OLD_DRAFT_MIN) out.push(['i-clock', `Drafted ${Math.floor(age)} min ago: entry time may have moved`]);
+  return out;
 }
 
-function buildCard(adv) {
-  const now = activeNow();
-  const cone = coneFor(adv);
-  const ident = [adv.callsign, adv.type_icao].filter((v) => typeof v === 'string' && v).join(' · ');
-  const button = el(
-    'button',
-    { type: 'button', class: 'card', 'data-open': adv.id },
-    el(
-      'span',
-      { class: 'card__row' },
-      el('span', { class: 'card__who' },
-        el('span', { class: 'card__flight', text: adv.proxy_flight }),
-        el('span', { class: 'card__ident', text: ident || 'no callsign' })),
-      el('span', { class: 'card__entry', 'data-slot': 'entry' }, entryNode(adv, now)),
-    ),
-    el(
-      'span',
-      { class: `card__action action--${adv.action.toLowerCase()}` },
-      icon(ACTION_ICON[adv.action] || 'i-arrow-right'),
-      el('span', { class: 'card__action-text', text: actionText(adv) }),
-      band(cone) ? el('span', { class: 'band' }, el('span', { class: 'caps', text: 'Band' }), el('span', { text: band(cone) })) : null,
-    ),
-    el('span', { class: 'card__meta', 'data-slot': 'meta', text: metaText(adv, now) }),
-    el('span', { class: 'card__src', 'data-slot': 'src' }, icon('i-file', 'st'), el('span', { text: sourcesSummary(adv, now) })),
-    // A two-line preview of the text that would be queued; the full text is in the review.
-    el('span', { class: 'card__body', 'aria-hidden': 'true', text: adv.edited_body ?? adv.body }),
-    el('span', { 'data-slot': 'tags' }, tagsNode(adv, now)),
-    el('span', { class: 'card__new', 'data-slot': 'new', hidden: true }, icon('i-plus', 'st'), el('span', { text: 'New' })),
-  );
-  const li = el('li', { class: 'cards__item', 'data-id': adv.id, 'data-version': String(adv.version), 'data-band': band(cone) }, button);
-  return li;
+function tagsNode(adv, now) {
+  const list = cautions(adv, now);
+  return el('span', { class: 'tags' }, list.map(([shape, word]) =>
+    el('span', { class: 'chip chip--caution' }, icon(shape, 'st'), el('span', { text: word }))));
 }
+
+const writerWords = (adv) => (isStub(adv)
+  ? 'Written by a code template (AI off). Check the sources first.'
+  : `Drafted by AI (${adv.model_id || 'model'}). Check the sources first.`);
+
+const identText = (adv) => {
+  const bits = [adv.callsign ? `proxy for ${adv.callsign}` : 'proxy, no callsign'];
+  if (adv.type_icao) bits.push(adv.type_icao);
+  return bits.join(' · ');
+};
 
 function metaText(adv, now) {
   const created = parseTime(adv.created_at);
   const age = now === null || created === null ? `at ${hhmmz(adv.created_at)}` : ago(now - created);
-  return `${adv.volcano_name || adv.volcano_id} · drafted ${age}`;
+  const b = band(coneFor(adv));
+  return `${adv.volcano_name || adv.volcano_id}${b ? ` · ash ${b}` : ''} · drafted ${age}`;
 }
 
-function setSlot(li, name, node) {
-  const slot = li.querySelector(`[data-slot="${name}"]`);
+// The Next decision card (R10.4): one draft, expanded, with one neutral button into its review.
+function buildNext(adv, items) {
+  const now = activeNow();
+  const position = items.findIndex((a) => a.id === adv.id) + 1;
+  const card = el('article', { class: 'next__card', 'data-id': adv.id, 'data-version': String(adv.version), 'data-band': band(coneFor(adv)), 'aria-labelledby': 'next-flight' },
+    el('div', { class: 'next__row' },
+      el('p', { class: 'next__who' },
+        el('span', { class: 'next__flight', id: 'next-flight', text: adv.proxy_flight }),
+        el('span', { class: 'next__ident', text: identText(adv) })),
+      el('span', { class: 'next__entry', 'data-slot': 'entry' }, entryNode(adv, now))),
+    el('p', { class: 'next__action' }, icon(ACTION_ICON[adv.action] || 'i-arrow-right'), el('span', { text: actionPlain(adv) })),
+    el('p', { class: 'next__meta', 'data-slot': 'meta', text: metaText(adv, now) }),
+    el('p', { class: 'next__body', text: adv.edited_body ?? adv.body }),
+    el('p', { class: 'next__writer' }, icon(isStub(adv) ? 'i-code' : 'i-model', 'st'), el('span', { text: writerWords(adv) })),
+    el('p', { class: 'next__src', 'data-slot': 'src' }, icon('i-file', 'st'), el('span', { text: sourcesSummary(adv, now) })),
+    el('span', { 'data-slot': 'tags' }, tagsNode(adv, now)),
+    el('button', { type: 'button', class: 'btn btn--cta next__go', 'data-open': adv.id, 'aria-describedby': 'next-flight' },
+      el('span', { text: `Review ${adv.proxy_flight}` }), icon('i-chevron-right')));
+  card.dataset.position = String(position);
+  return card;
+}
+
+// One compact row per other draft: "RFA1530 · inside now · Keep watching ›".
+function buildRow(adv) {
+  const now = activeNow();
+  const marks = cautions(adv, now);
+  const button = el('button', { type: 'button', class: 'card card--row', 'data-open': adv.id },
+    el('span', { class: 'row__flight', text: adv.proxy_flight }),
+    el('span', { class: `row__entry row__entry--${entryState(adv, now).kind}`, 'data-slot': 'entry', text: entryShort(adv, now) }),
+    el('span', { class: 'row__action', text: actionShort(adv) }),
+    el('span', { class: 'row__marks', 'data-slot': 'tags' }, marks.length ? el('span', { class: 'row__mark', title: marks.map((m) => m[1]).join('; ') }, icon('st-caution', 'st'), el('span', { class: 'sr-only', text: marks.map((m) => m[1]).join('; ') })) : null),
+    el('span', { class: 'card__new', 'data-slot': 'new', hidden: true }, el('span', { text: 'New' })),
+    icon('i-chevron-right', 'icon row__go'));
+  return el('li', { class: 'cards__item', 'data-id': adv.id, 'data-version': String(adv.version), 'data-band': band(coneFor(adv)) }, button);
+}
+
+function setSlot(root, name, node) {
+  const slot = root.querySelector(`[data-slot="${name}"]`);
   if (slot) slot.replaceChildren(node);
 }
 
 // Live values: the countdown, the draft age, and the age-based tag. Runs every 15 s.
 export function updateTimes() {
   const now = activeNow();
+  const next = byId('q-next').querySelector('.next__card');
+  const nextAdv = next && app.drafts.get(next.dataset.id);
+  if (nextAdv) {
+    setSlot(next, 'entry', entryNode(nextAdv, now));
+    next.querySelector('[data-slot="meta"]').textContent = metaText(nextAdv, now);
+    next.querySelector('[data-slot="src"] > span').textContent = sourcesSummary(nextAdv, now);
+    setSlot(next, 'tags', tagsNode(nextAdv, now));
+  }
   for (const li of byId('cards').children) {
     const adv = app.drafts.get(li.dataset.id);
     if (!adv) continue;
-    setSlot(li, 'entry', entryNode(adv, now));
-    const meta = li.querySelector('[data-slot="meta"]');
-    if (meta) meta.textContent = metaText(adv, now);
-    const src = li.querySelector('[data-slot="src"] > span');
-    if (src) src.textContent = sourcesSummary(adv, now);
-    setSlot(li, 'tags', tagsNode(adv, now));
+    const entry = li.querySelector('[data-slot="entry"]');
+    if (entry) {
+      entry.textContent = entryShort(adv, now);
+      entry.className = `row__entry row__entry--${entryState(adv, now).kind}`;
+    }
     const arrived = app.arrivedAt.get(adv.id);
     const fresh = arrived !== undefined && performance.now() - arrived < NEW_TAG_MS;
-    li.querySelector('[data-slot="new"]').hidden = !fresh;
+    const tag = li.querySelector('[data-slot="new"]');
+    if (tag) tag.hidden = !fresh;
     li.classList.toggle('is-fresh', fresh);
   }
 }
@@ -173,20 +189,65 @@ export function updateTimes() {
 function skeleton() {
   const item = () =>
     el('li', { class: 'cards__item skeleton', 'aria-hidden': 'true' },
-      el('span', { class: 'sk sk--a' }), el('span', { class: 'sk sk--b' }), el('span', { class: 'sk sk--c' }));
+      el('span', { class: 'sk sk--a' }), el('span', { class: 'sk sk--b' }));
   return [item(), item(), item()];
+}
+
+// The Next decision stays put while the dispatcher reads it (R14.6): a newer, more urgent draft
+// shows the line "1 more urgent draft arrived · Show" instead of swapping the card.
+let nextId = null;
+
+export const nextDraftId = () => nextId;
+
+export function showMostUrgent() {
+  const items = draftList().sort(byUrgency);
+  nextId = items[0] ? items[0].id : null;
+  renderQueue();
+}
+
+const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
+
+// "23 advisories · 3 messages · 2 problems to acknowledge" (R2.7): what the Decide badge counts.
+export function breakdownText() {
+  const parts = [plural(app.drafts.size, 'advisory', 'advisories')];
+  const m = draftMessages().length;
+  const f = openFailures().length;
+  if (m) parts.push(plural(m, 'message'));
+  if (f) parts.push(`${plural(f, 'problem')} to acknowledge`);
+  return parts.join(' · ');
+}
+
+// Under the Next decision header only when it adds something to "1 of 23 advisories".
+function breakdownLine() {
+  return draftMessages().length || openFailures().length ? breakdownText() : '';
 }
 
 export function renderQueue() {
   const list = byId('cards');
   const stateBox = byId('q-state');
+  const slot = byId('q-next');
   const items = draftList().sort(byUrgency);
   const n = items.length;
-  byId('q-count').textContent = app.listLoaded ? `${n} waiting` : '';
+  if (!nextId || !app.drafts.has(nextId)) nextId = items[0] ? items[0].id : null;
+  const nextAdv = nextId ? app.drafts.get(nextId) : null;
+  const position = nextAdv ? items.indexOf(nextAdv) + 1 : 0;
+  byId('q-count').textContent = app.listLoaded && n
+    ? `${position} of ${plural(n, 'advisory', 'advisories')} · most urgent first`
+    : '';
+  byId('q-breakdown').textContent = app.listLoaded ? breakdownLine() : '';
+  const newer = byId('q-newer');
+  newer.hidden = !(nextAdv && position > 1);
+  if (!newer.hidden) {
+    newer.replaceChildren(icon('st-caution', 'st'),
+      el('span', { text: `${plural(position - 1, 'more urgent draft')} arrived` }),
+      el('button', { type: 'button', class: 'linkbtn', 'data-newest': '1' }, el('span', { text: 'Show' })));
+  }
 
   if (!app.listLoaded && !app.listError) {
     stateBox.replaceChildren(el('p', { class: 'sr-only', text: 'Loading drafts…' }));
     if (!list.querySelector('.skeleton')) list.replaceChildren(...skeleton());
+    slot.replaceChildren();
+    byId('more-title').hidden = true;
     return;
   }
   for (const sk of list.querySelectorAll('.skeleton')) sk.remove();
@@ -203,29 +264,44 @@ export function renderQueue() {
     stateBox.replaceChildren(
       el('div', { class: 'panel panel--empty' },
         el('p', { class: 'panel__title' }, icon('i-check', 'st'), el('span', { text: 'No drafts waiting.' })),
-        el('p', { text: `A draft appears here when a flight's projected track enters TEPHRA's cautious area.${last}` })),
+        el('p', { text: `A draft appears here when a flight's projected track enters TEPHRA's estimated ash area.${last}` })),
     );
   } else {
     stateBox.replaceChildren();
   }
 
-  const wanted = new Set(items.map((a) => a.id));
+  // The Next decision card.
+  const shown = slot.querySelector('.next__card');
+  if (!nextAdv) slot.replaceChildren();
+  else if (!shown || shown.dataset.id !== nextAdv.id || Number(shown.dataset.version) !== nextAdv.version || shown.dataset.band !== band(coneFor(nextAdv))) {
+    const hadFocus = shown && shown.contains(document.activeElement);
+    slot.replaceChildren(buildNext(nextAdv, items));
+    if (hadFocus) slot.querySelector('.next__go').focus({ preventScroll: true });
+  }
+  const card = slot.querySelector('.next__card');
+  if (card) card.classList.toggle('is-current', nextAdv.id === app.selectedId);
+
+  // The rest, one line each.
+  const rest = items.filter((a) => a.id !== nextId);
+  const more = byId('more-title');
+  more.hidden = rest.length === 0;
+  more.textContent = `${rest.length} more waiting`;
+  const wanted = new Set(rest.map((a) => a.id));
   for (const li of [...list.children]) {
     if (!wanted.has(li.dataset.id) && !li.classList.contains('is-leaving')) leave(li);
   }
-  items.forEach((adv, index) => {
+  rest.forEach((adv, index) => {
     let li = list.querySelector(`li[data-id="${CSS.escape(adv.id)}"]`);
-    // The band arrives with the cones, often after the first render.
     if (!li || Number(li.dataset.version) !== adv.version || li.dataset.band !== band(coneFor(adv))) {
-      const card = buildCard(adv);
-      if (li) li.replaceWith(card);
-      li = card;
+      const row = buildRow(adv);
+      if (li) li.replaceWith(row);
+      li = row;
     }
     const live = [...list.children].filter((c) => !c.classList.contains('is-leaving'));
     if (live[index] !== li) list.insertBefore(li, live[index] || null);
     const btn = li.querySelector('.card');
-    btn.toggleAttribute('aria-current', adv.id === app.selectedId);
     if (adv.id === app.selectedId) btn.setAttribute('aria-current', 'true');
+    else btn.removeAttribute('aria-current');
     li.classList.toggle('is-busy', app.inFlight.has(adv.id));
   });
   updateTimes();
@@ -243,7 +319,7 @@ function leave(li) {
   if (focused) app.hub.focusQueueTitle();
 }
 
-// Marks a card as just arrived: a short highlight and a "New" tag for two minutes.
+// Marks a row as just arrived: a short highlight and a "New" tag for two minutes.
 export function flashNew(id) {
   app.arrivedAt.set(id, performance.now());
   const li = byId('cards').querySelector(`li[data-id="${CSS.escape(id)}"]`);
@@ -283,6 +359,7 @@ function renderClosed() {
     .sort((a, b) => (parseTime(b.updated_at) ?? 0) - (parseTime(a.updated_at) ?? 0))
     .slice(0, CLOSED_MAX);
   section.hidden = items.length === 0;
+  byId('closed-count').textContent = `(${app.closed.size})`;
   list.replaceChildren(
     ...items.map((adv) =>
       el('li', {},
@@ -290,7 +367,7 @@ function renderClosed() {
           statusBadge(adv),
           el('span', { class: 'closed__what' },
             el('span', { class: 'closed__flight', text: adv.proxy_flight }),
-            el('span', { text: ` ${actionText(adv)}` })),
+            el('span', { text: ` ${actionPlain(adv)}` })),
           el('span', { class: 'closed__when', text: decidedLine(adv) }))),
     ),
   );

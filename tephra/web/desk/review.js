@@ -1,6 +1,8 @@
-// The review sheet (docs/UI-DESIGN.md 10.4-10.8): a check-answers list for one draft, the
-// decision bar (hold or tap-and-confirm), edit, reject, the version-conflict diff, and the
-// advisory's audit history. Full screen on phones, the right pane from 1100 px.
+// The review sheet (docs/UI-DESIGN.md 10.4-10.8, UI-REDESIGN R10.4): the primary facts for one
+// draft (flight, action in plain words, entry, the text, who wrote it, an evidence summary), the
+// decision bar (hold or tap-and-confirm), and everything else under "Why this advisory" (named
+// evidence, TEPHRA's area, fuel, cost, drafted by, policy, header, audit history). Edit, reject
+// and the version-conflict diff are unchanged. Full screen on phones, the right pane from 1100 px.
 
 import {
   BODY_CAUTION_CHARS,
@@ -17,8 +19,9 @@ import {
   ACTION_ICON,
   FEED_NAMES,
   MODE_SENTENCE,
-  actionSentence,
-  actionText,
+  actionPlain,
+  actionShort,
+  approveText,
   activeNow,
   band,
   ago,
@@ -31,8 +34,10 @@ import {
   isBindingFeed,
   isStub,
   parseTime,
+  productName,
   sourceList,
   sourceTime,
+  sourcesSummary,
 } from './format.js';
 import { EARLY_RELEASE_HINT, holdButton } from './hold.js';
 import { anyStaleSource, coneFor, decidedLine, modeChip, needsCarefulRead, replayChip, statusBadge, statusView } from './queue.js';
@@ -73,6 +78,7 @@ export function openSheet(adv, { focus = true } = {}) {
     hint: '',
     reasonTouched: false,
     stamp: null,
+    whyOpen: isWide(),
   };
   render();
   if (focus) focusTitle();
@@ -133,6 +139,8 @@ export function updateSheetTimes() {
   if (slot) slot.replaceChildren(...entryValue(sheet.seen));
   const strip = host.querySelector('[data-slot="srcstrip"]');
   if (strip) strip.replaceChildren(...sourceChips(sheet.seen));
+  const sum = host.querySelector('[data-slot="srcsum"]');
+  if (sum) sum.textContent = sourcesSummary(sheet.seen, activeNow());
   const confirmEntry = byId('confirm-entry');
   if (confirmEntry) confirmEntry.textContent = confirmFacts(sheet.seen);
 }
@@ -155,10 +163,10 @@ function render() {
     'div',
     { class: 'sheet__head' },
     el('button', { type: 'button', class: 'sheet__back', 'data-back': '1' }, icon('i-chevron-left'),
-      el('span', { text: sheet.view === 'edit' || sheet.view === 'reject' ? 'Review' : 'Drafts' })),
+      el('span', { text: sheet.view === 'edit' || sheet.view === 'reject' ? 'Review' : 'Decide' })),
     el('h1', { id: 's-title', class: 'sheet__title', tabindex: '-1', text: titles[sheet.view] }),
     el('span', { class: 'sheet__ver', title: 'Version of this advisory',
-      text: sheet.view === 'conflict' && sheet.conflict ? `v${sheet.conflict.before.version} → v${sheet.conflict.current.version}` : `v${adv.version}` }),
+      text: sheet.view === 'conflict' && sheet.conflict ? `Version ${sheet.conflict.before.version} → ${sheet.conflict.current.version}` : `Version ${adv.version}` }),
   );
   const body = el('div', { class: 'sheet__body' });
   if (sheet.view === 'edit') body.append(...editView(adv));
@@ -183,23 +191,16 @@ function entryValue(adv) {
   const st = entryState(adv, activeNow());
   const drafted = hhmmz(adv.created_at);
   if (st.kind === 'inside') {
-    return [el('span', { class: 'entry-big entry-big--inside' }, icon('st-inside', 'st'), el('span', { text: 'INSIDE NOW' })),
-      fine(`Inside TEPHRA's area when drafted at ${drafted}`)];
+    return [el('span', { class: 'entry-big entry-big--inside' }, icon('st-inside', 'st'), el('span', { text: 'Inside the ash now' })),
+      fine(`Inside TEPHRA's estimated area when drafted at ${drafted}`)];
   }
   if (st.kind === 'ahead') {
-    return [el('span', { class: 'entry-big', text: `Enters TEPHRA's area in ${st.minutes} min` }),
+    return [el('span', { class: 'entry-big' }, icon('i-clock', 'st'), el('span', { text: `Enters in ${st.minutes} min (est.)` })),
       fine(`Drafted at ${drafted} with ${adv.minutes_to_entry} min to entry, if track and level are held`)];
   }
   return [el('span', { class: 'entry-big entry-big--due' }, icon('st-caution', 'st'),
     el('span', { text: st.minutes ? `Entry was due ${st.minutes} min ago` : 'Entry is due now' })),
   fine(`Drafted at ${drafted} with ${adv.minutes_to_entry} min to entry. Check the live position on the Wall.`)];
-}
-
-function flightValue(adv) {
-  const hex = String(adv.hex || '').toUpperCase();
-  const parts = [`Proxy for ADS-B ${adv.callsign || 'no callsign'} (hex ${hex})`];
-  if (adv.type_icao) parts.push(adv.type_icao);
-  return [el('span', { class: 'v-strong', text: adv.proxy_flight }), fine(parts.join(' · '))];
 }
 
 // The evidence strip under the advisory text (built by code from `sources[]`): feed, age on the
@@ -215,11 +216,15 @@ function sourceChips(adv) {
   const now = activeNow();
   const list = sourceList(adv);
   if (!list.length) return [el('li', { class: 'srcchip srcchip--none', text: 'No sources are listed on this draft.' })];
+  // R10.4: each chip is named by its product ("SIGMET WIIF 15 · issued 3 min ago · #6a6a3adb"),
+  // never merged by hash: four SIGMETs from one fetch stay four chips. With no product id on the
+  // record, the feed name and its time stand alone; no id is invented.
   return list.map((s) => {
     const binding = isBindingFeed(s.feed);
-    const hash = s.sha256_short || String(s.sha256 || '').slice(0, 12);
-    return el('li', { class: `srcchip ${binding ? 'is-binding' : ''} ${s.stale ? 'is-stale' : ''}`.trim(), title: String(s.source_id || '') },
-      el('span', { class: 'srcchip__feed', text: FEED_NAMES[s.feed] || String(s.feed) }),
+    const hash = String(s.sha256_short || s.sha256 || '').slice(0, 8);
+    const name = productName(s) || FEED_NAMES[s.feed] || String(s.feed);
+    return el('li', { class: `srcchip ${binding ? 'is-binding' : ''} ${s.stale ? 'is-stale' : ''}`.trim(), title: `${FEED_NAMES[s.feed] || s.feed}: ${s.source_id || 'no product id'}` },
+      el('span', { class: 'srcchip__feed', text: name }),
       el('span', { class: 'srcchip__age', text: sourceAge(s, now) }),
       hash ? el('span', { class: 'srcchip__hash', text: `#${hash}` }) : null,
       s.stale ? el('span', { class: 'srcchip__stale' }, icon('st-stale', 'st'), el('span', { text: 'stale' })) : null);
@@ -233,9 +238,9 @@ function sourceStrip(adv) {
 // One readable line on who wrote the text, right under it (the Drafted by row has the detail).
 function writerNote(adv) {
   const stub = isStub(adv);
-  let words = stub ? 'NO MODEL: a code template wrote this text, not a model.' : 'AI-drafted text.';
-  if (adv.edited_body != null) words = stub ? 'Edited by a dispatcher from a NO MODEL template text.' : 'Edited by a dispatcher from AI-drafted text.';
-  if (sheet && sheet.view === 'review') words += ' Check it against the sources below before you approve.';
+  let words = stub ? 'Written by a code template (AI off).' : `Drafted by AI (${adv.model_id || 'model'}).`;
+  if (adv.edited_body != null) words = stub ? 'Edited by a dispatcher from a code-template text (AI off).' : 'Edited by a dispatcher from AI-drafted text.';
+  if (sheet && sheet.view === 'review') words += ' Check the sources first.';
   return el('p', { class: 'writer-note' }, icon(stub ? 'i-code' : 'i-model', 'st'), el('span', { text: words }));
 }
 
@@ -243,7 +248,7 @@ function sourcesValue(adv) {
   const sources = sourceList(adv);
   const summary = el('summary', {},
     icon('i-chevron-right', 'icon disclosure'),
-    el('span', { text: `Evidence: ${sources.length} source${sources.length === 1 ? '' : 's'}` }),
+    el('span', { text: `Times, links and full ids (${sources.length})` }),
     anyStaleSource(adv) ? el('span', { class: 'chip chip--caution chip--sm' }, icon('st-stale', 'st'), el('span', { text: 'stale' })) : null);
   const list = el('ol', { class: 'evidence' });
   for (const s of sources) {
@@ -304,7 +309,7 @@ function rerouteValue(adv, cone) {
 
 function draftedByValue(adv) {
   const who = isStub(adv)
-    ? el('span', { class: 'v-strong' }, 'Template · NO MODEL')
+    ? el('span', { class: 'v-strong' }, 'Written by a code template (AI off)')
     : el('span', { class: 'v-strong' }, `${adv.model_id} · AI-drafted`);
   const out = [who];
   out.push(fine(isStub(adv)
@@ -360,7 +365,7 @@ async function loadHistory(id, list) {
       if (e.action === 'REJECTED' && e.after && typeof e.after.reject_reason === 'string') detail.push(`Reason: ${e.after.reject_reason}`);
       if (e.action === 'EDITED' && e.after && typeof e.after.edited_body === 'string') detail.push(`Edited text: ${e.after.edited_body}`);
       if (typeof e.note === 'string' && e.note) detail.push(e.note);
-      if (e.action === 'DRAFT_CREATED' && e.model_id) detail.push(e.model_id === 'stub' ? 'Template · NO MODEL' : `${e.model_id} · AI-drafted`);
+      if (e.action === 'DRAFT_CREATED' && e.model_id) detail.push(e.model_id === 'stub' ? 'Written by a code template (AI off)' : `${e.model_id} · AI-drafted`);
       const hashes = Array.isArray(e.input_hashes) ? e.input_hashes.length : 0;
       return el('li', { class: `timeline__item timeline__item--${String(e.action).toLowerCase()}` },
         el('span', { class: 'timeline__time', text: hhmmz(e.at) }),
@@ -386,25 +391,39 @@ function reviewView(adv) {
   }
   if (adv.plume_mode === 'HYPOTHESIS') out.push(hypothesisBanner());
   if (adv.replay) {
-    out.push(el('p', { class: 'replay-note' }, replayChip(), el('span', { text: 'Drafted from recorded feeds.' })));
+    out.push(el('p', { class: 'replay-note' }, replayChip(), el('span', { text: 'Drafted from recorded feeds' })));
   }
   const cone = coneFor(adv);
   const text = adv.edited_body ?? adv.body;
-  // The words being queued sit right under the action, so they share the screen with Approve.
+  const hex = String(adv.hex || '').toUpperCase();
+  const proxy = [`Proxy for ADS-B ${adv.callsign || 'no callsign'} (hex ${hex})`];
+  if (adv.type_icao) proxy.push(adv.type_icao);
+  // Cautions the validator or the clock raised stay above the fold, never only under Why.
+  const careful = needsCarefulRead(adv);
+  const stale = anyStaleSource(adv);
+
+  // The primary facts (R10.4), above the decision bar.
+  const primary = el('div', { class: 'rv' },
+    el('p', { class: 'rv__flight' }, el('span', { class: 'v-strong', text: adv.proxy_flight }), el('span', { class: 'rv__proxy', text: proxy.join(' · ') })),
+    el('p', { class: 'rv__action' }, icon(ACTION_ICON[adv.action] || 'i-arrow-right'), el('span', { text: actionPlain(adv) })),
+    el('p', { class: 'rv__entry v-entry', 'data-slot': 'entry' }, entryValue(adv)),
+    careful || stale ? el('p', { class: 'rv__careful' }, icon('st-caution', 'st'),
+      el('span', { text: [careful ? 'Needs a careful read: the code checks flagged this text (see Drafted by)' : '', stale ? 'Some sources are stale' : ''].filter(Boolean).join('. ') + '.' })) : null,
+    el('p', { class: 'rv__k', text: adv.edited_body != null ? 'Advisory text (edited)' : 'Advisory text' }),
+    el('pre', { class: 'acars acars--body', text }),
+    writerNote(adv),
+    el('p', { class: 'rv__src' }, icon('i-file', 'st'),
+      el('span', { 'data-slot': 'srcsum', text: sourcesSummary(adv, activeNow()) }),
+      el('button', { type: 'button', class: 'linkbtn rv__show', 'data-showev': '1', 'aria-controls': 'why' }, el('span', { text: 'Show' }), icon('i-chevron-right'))));
+  out.push(primary);
+
+  // Everything else, one tap away (R10.4): open on wide screens, closed on phones.
   const costNote = typeof adv.cost_note === 'string' ? adv.cost_note.trim() : '';
   const dl = el('dl', { class: 'summary' },
-    row('Flight', [...flightValue(adv), el('button', { type: 'button', class: 'linkbtn', 'data-askflight': '1' }, icon('i-chat'), el('span', { text: 'Ask TEPHRA about this flight' }))]),
-    row('Action', el('span', { class: 'v-action' }, icon(ACTION_ICON[adv.action] || 'i-arrow-right'), el('span', { text: actionSentence(adv) }))),
-    row(adv.edited_body != null ? 'Advisory text (edited)' : 'Advisory text', [
-      el('pre', { class: 'acars acars--body', text }),
-      writerNote(adv),
-      sourceStrip(adv),
-      sheet.view === 'review' ? el('button', { type: 'button', class: 'linkbtn', 'data-go': 'edit' }, icon('i-pencil'), el('span', { text: 'Edit text' })) : null,
-    ], { stack: true, cls: 'srow--text' }),
+    row('Evidence', [sourceStrip(adv), sourcesValue(adv)], { stack: true, cls: 'srow--evidence' }),
     adv.reroute ? row('Route', rerouteValue(adv, cone), { stack: true, cls: 'srow--route' }) : null,
-    row('Entry', el('span', { class: 'v-entry', 'data-slot': 'entry' }, entryValue(adv))),
-    band(cone) ? row('Hazard band', [el('span', { class: 'v-band', text: band(cone) }), fine("TEPHRA's cautious area, vertical extent")]) : null,
     row('TEPHRA area', [modeChip(adv, { long: true, bare: true }), fine(MODE_SENTENCE[adv.plume_mode] || '')]),
+    band(cone) ? row('Hazard band', [el('span', { class: 'v-band', text: band(cone) }), fine("TEPHRA's estimated area, vertical extent")]) : null,
     row('Fuel and time', [el('span', { class: 'mono v-fuel', text: adv.fuel_line || 'No estimate: the formula covers holds and diversions only' }),
       fine('Simple TEPHRA formula, not airline tables')], { stack: true }),
     // On diversions the cost note often repeats the fuel line word for word.
@@ -415,13 +434,20 @@ function reviewView(adv) {
       el('span', { class: 'mono', text: `${adv.policy_id} v${adv.policy_version}${adv.policy_hash ? ` #${adv.policy_hash}` : ''}` }),
       fine('Illustrative values, not an airline SRA; not reviewed by an airline dispatcher')]) : null,
     // The disclosure's own summary names these rows, so their labels are for screen readers only.
-    row('Evidence', sourcesValue(adv), { stack: true, cls: 'srow--disclose' }),
     row('Header', el('details', { class: 'disclose' },
       el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: 'Advisory header (written by code)' })),
       el('pre', { class: 'acars acars--header', text: adv.header || '' })), { stack: true, cls: 'srow--disclose' }),
     row('History', historyValue(adv), { stack: true, cls: 'srow--disclose' }),
   );
-  out.push(dl);
+  const why = el('details', { class: 'why-adv', id: 'why', open: sheet.whyOpen },
+    el('summary', { class: 'why-adv__sum' }, icon('i-chevron-right', 'icon disclosure'), el('span', { text: 'Why this advisory' }),
+      el('span', { class: 'why-adv__hint', text: `${actionShort(adv)} · sources, area, fuel, history` })),
+    dl,
+    el('button', { type: 'button', class: 'linkbtn', 'data-askflight': '1' }, icon('i-chat'), el('span', { text: `Ask TEPHRA about ${adv.proxy_flight}` })));
+  why.addEventListener('toggle', () => {
+    if (sheet) sheet.whyOpen = why.open;
+  });
+  out.push(why);
   return out;
 }
 
@@ -550,17 +576,17 @@ function diffRow(label, before, now, { shape = null } = {}) {
   ];
 }
 
-const entryWords = (a) => (a.inside_now ? 'INSIDE NOW' : `${a.minutes_to_entry} min`);
+const entryWords = (a) => (a.inside_now ? 'Inside the ash now' : `${a.minutes_to_entry} min`);
 const statusWord = (a) => statusView(a)[1];
 
 function conflictView() {
   const { before, current } = sheet.conflict;
   const grid = el('div', { class: 'diff', role: 'table', 'aria-label': 'What changed' },
     el('span', { class: 'diff__head' }),
-    el('span', { class: 'diff__head', text: `You saw (v${before.version})` }),
-    el('span', { class: 'diff__head', text: `Now (v${current.version})` }),
+    el('span', { class: 'diff__head', text: `You saw (version ${before.version})` }),
+    el('span', { class: 'diff__head', text: `Now (version ${current.version})` }),
     ...diffRow('Status', statusWord(before), statusWord(current), { shape: statusView(current)[0] }),
-    ...diffRow('Action', actionText(before), actionText(current)),
+    ...diffRow('Action', actionPlain(before), actionPlain(current)),
     ...diffRow('Entry', entryWords(before), entryWords(current)),
     ...diffRow('Text', before.edited_body ?? before.body, current.edited_body ?? current.body));
   for (const cell of grid.children) cell.setAttribute('role', 'cell');
@@ -608,15 +634,16 @@ function offlineAttrs(button) {
   return button;
 }
 
-// "Approve CHANGE LEVEL FL300–FL340 for RFA1373": the action and the flight never break inside.
+// "Approve: keep watching RFA1225" (R12.10); the ICAO word stays in the action line above. The
+// flight number never breaks inside.
 const nowrap = (text) => el('span', { class: 'nowrap', text });
-const approveWords = (adv, edited, question = false) => [
-  edited ? 'Approve edited text' : 'Approve ',
-  edited ? null : nowrap(actionText(adv)),
-  ' for ',
-  nowrap(adv.proxy_flight),
-  question ? '?' : null,
-].filter((part) => part !== null).map((part) => (typeof part === 'string' ? document.createTextNode(part) : part));
+function approveWords(adv, edited, question = false) {
+  const words = edited ? `Approve edited text for ${adv.proxy_flight}` : approveText(adv);
+  const at = words.indexOf(adv.proxy_flight);
+  const parts = at < 0 ? [words] : [words.slice(0, at), nowrap(adv.proxy_flight), words.slice(at + adv.proxy_flight.length)];
+  if (question) parts.push('?');
+  return parts.filter((p) => p !== '').map((p) => (typeof p === 'string' ? document.createTextNode(p) : p));
+}
 
 // Node.append would print a skipped (null) slot as the text "null".
 const put = (node, ...kids) => append(node, kids);
@@ -627,10 +654,10 @@ const put = (node, ...kids) => append(node, kids);
 function confirmFacts(adv) {
   const st = entryState(adv, activeNow());
   const at = hhmmz(entryAt(adv));
-  const entry = st.kind === 'inside' ? `Inside TEPHRA's area since drafted at ${hhmmz(adv.created_at)}`
-    : st.kind === 'ahead' ? `Est. entry ${at}, in ${st.minutes} min if track and level are held`
-      : `Est. entry ${at}, ${st.minutes ? `due ${st.minutes} min ago` : 'due now'}`;
-  return `${entry} · v${adv.version}`;
+  const entry = st.kind === 'inside' ? `inside the area since ${hhmmz(adv.created_at)}`
+    : st.kind === 'ahead' ? `enters in ${st.minutes} min, est. ${at} if track and level are held`
+      : `entry est. ${at}, ${st.minutes ? `due ${st.minutes} min ago` : 'due now'}`;
+  return `${adv.proxy_flight} · ${actionPlain(adv)} · ${entry} · version ${adv.version}`;
 }
 
 function busyLabel() {
@@ -660,10 +687,10 @@ function renderBar() {
       icon('i-sparkle'), el('span', { text: 'Draft crew briefing (EN / ID / JA)' })) : null,
     el('div', { class: 'secondary' },
       newer ? el('button', { type: 'button', class: 'btn btn--neutral', 'data-open': newer.id }, el('span', { text: 'Open the newer draft' })) : null,
-      el('button', { type: 'button', class: 'btn btn--outline', 'data-back': '1' }, icon('i-chevron-left'), el('span', { text: 'Back to drafts' }))));
+      el('button', { type: 'button', class: 'btn btn--outline', 'data-back': '1' }, icon('i-chevron-left'), el('span', { text: 'Back to Decide' }))));
   } else if (sheet.view === 'conflict') {
     put(inner, el('button', { type: 'button', class: 'btn btn--neutral btn--primary', 'data-renew': '1' }, el('span', { text: 'Review the new version' })),
-      el('button', { type: 'button', class: 'btn btn--outline', 'data-back': '1' }, el('span', { text: 'Back to drafts' })));
+      el('button', { type: 'button', class: 'btn btn--outline', 'data-back': '1' }, el('span', { text: 'Back to Decide' })));
   } else if (sheet.view === 'reject') {
     const n = sheet.reason.trim().length;
     const reject = sheet.busy === 'reject'
@@ -680,7 +707,7 @@ function renderBar() {
     put(inner, offlineNote, el('div', { class: 'confirm', role: 'group', 'aria-labelledby': 'confirm-q' },
       el('p', { id: 'confirm-q', class: 'confirm__q', tabindex: '-1' }, approveWords(adv, edited, true)),
       el('p', { id: 'confirm-entry', class: 'confirm__facts', text: confirmFacts(adv) }),
-      el('p', { class: 'confirm__note', text: `Queues this text on TEPHRA's own outbound queue under ${app.me ? app.me.name : 'your name'}. Nothing is sent to an aircraft.` }),
+      el('p', { class: 'confirm__note', text: `Queued under ${app.me ? app.me.name : 'your name'} on TEPHRA's own outbound queue · nothing is sent to an aircraft.` }),
       el('div', { class: 'secondary' }, go,
         el('button', { type: 'button', class: 'btn btn--outline', 'data-confirm-back': '1', disabled: Boolean(sheet.busy) }, el('span', { text: 'Cancel' })))));
   } else {
@@ -744,7 +771,7 @@ function stampNode(adv) {
   const who = deskName(adv.decided_by) || (app.me ? app.me.name : '');
   return el('div', { class: `decided-stamp decided-stamp--${adv.status === 'REJECTED' ? 'rejected' : 'approved'}`, tabindex: '-1', id: 'decided-stamp' },
     el('p', { class: 'decided-stamp__word' }, icon(shape, 'icon decided-stamp__icon'), el('span', { text: word })),
-    el('p', { class: 'decided-stamp__what' }, nowrap(actionText(adv)), document.createTextNode(' for '), nowrap(adv.proxy_flight)),
+    el('p', { class: 'decided-stamp__what' }, nowrap(actionPlain(adv)), document.createTextNode(' for '), nowrap(adv.proxy_flight)),
     el('p', { class: 'decided-stamp__who', text: `${who ? `${who} · ` : ''}${hhmmz(adv.decided_at || adv.updated_at)} · ${tail}` }));
 }
 
@@ -786,6 +813,16 @@ export function onSheetClick(event) {
   if (!target || !byId('sheet').contains(target)) return false;
   if (target.dataset.draftmsg) {
     app.hub.draftMessages({ advisory_id: target.dataset.draftmsg }, target);
+    return true;
+  }
+  if (target.dataset.showev) {
+    const why = byId('why');
+    if (why) {
+      why.open = true;
+      sheet.whyOpen = true;
+      const ev = why.querySelector('.srow--evidence');
+      if (ev) ev.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }
     return true;
   }
   if (target.dataset.askflight) {

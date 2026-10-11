@@ -4,13 +4,13 @@
 
 import { byId, el, icon } from './dom.js';
 
-// "AI-written · gemini-3.5-flash-lite", or the stub's honest "NO MODEL".
+// "AI-written · gemini-3.5-flash-lite", or the stub's honest "AI off · code" (NO MODEL in the title).
 export function aiChip(modelId, backend, { verb = 'AI-written', sm = false } = {}) {
   const stub = backend === 'stub' || modelId === 'stub' || !modelId;
   const cls = `chip ${stub ? 'chip--stub' : 'chip--ai'}${sm ? ' chip--sm' : ''}`;
   if (stub) {
     return el('span', { class: cls, title: 'NO MODEL: code templates wrote this text, not a model' },
-      icon('i-code', 'st'), el('span', { text: 'NO MODEL' }));
+      icon('i-code', 'st'), el('span', { text: 'AI off · code' }));
   }
   return el('span', { class: cls, title: `${verb} by ${modelId}. Checked by code before it is shown.` },
     icon('i-sparkle', 'st'), el('span', { text: `${verb} · ` }), el('span', { class: 'mono', text: String(modelId) }));

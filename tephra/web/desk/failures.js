@@ -42,7 +42,7 @@ const whatText = (f) => (f.stage === DUTY_STAGE ? NOT_DISPATCHED : `AI unavailab
 const sheetText = (f) => (f.stage === DUTY_STAGE ? `${NOT_DISPATCHED}. ${f.reason}` : whatText(f));
 
 function card(f) {
-  const entry = f.inside_now ? 'INSIDE NOW' : `enters in ${f.minutes_to_entry} min when found`;
+  const entry = f.inside_now ? 'Inside the ash now' : `enters in ${f.minutes_to_entry} min when found (est.)`;
   return el('li', { class: 'fcard', 'data-id': f.id },
     el('div', { class: 'fcard__row' },
       el('span', { class: 'fcard__flight', text: f.proxy_flight }),
@@ -66,7 +66,7 @@ export function renderFailures() {
     return;
   }
   host.replaceChildren(
-    sectionHead('Handle by hand', { count: list.length, tone: 'serious', id: 'fail-title', sub: 'The AI could not plan, draft or dispatch these flights. Nothing was substituted.' }),
+    sectionHead('Problems to acknowledge', { count: list.length, tone: 'serious', id: 'fail-title', sub: 'The AI could not plan, draft or dispatch these flights. Nothing was substituted: handle each one by hand.' }),
     el('ul', { class: 'fcards', 'aria-labelledby': 'fail-title' }, list.map(card)));
 }
 

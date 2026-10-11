@@ -19,6 +19,7 @@ export const app = {
   docs: [], // DocSummary, newest first
   notices: [], // NoticeReading, newest first
   budget: null, // BudgetView
+  activeRegions: new Set(), // region keys with an active volcano (Paperwork's SRA select)
   tab: 'queue', // queue | ask | network | docs
   askFlight: null, // { id, proxy } the flight Ask is about
   listLoaded: false,

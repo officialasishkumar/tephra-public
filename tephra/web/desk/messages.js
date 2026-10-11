@@ -67,10 +67,20 @@ export function renderMessages() {
     host.replaceChildren();
     return;
   }
-  host.replaceChildren(
-    sectionHead('Messages to approve', { count: list.length, id: 'msg-title', sub: 'Crew and passenger drafts. Approved text goes only to TEPHRA\'s own outbound queue.' }),
+  // One line on Decide (R10.4) that opens in place: "Messages to approve (3) ›".
+  const box = el('details', { class: 'qlink__box', open: msgOpen },
+    el('summary', { class: 'qlink__btn' }, icon('i-dispatcher', 'icon qlink__ic'),
+      el('span', { class: 'qlink__t' }, el('strong', { id: 'msg-title', text: `Messages to approve (${list.length})` })),
+      icon('i-chevron-right', 'icon qlink__go disclosure')),
+    el('p', { class: 'qlink__sub', text: "Crew and passenger drafts. Approved text goes only to TEPHRA's own outbound queue." }),
     el('ul', { class: 'mcards', 'aria-labelledby': 'msg-title' }, list.map(card)));
+  box.addEventListener('toggle', () => {
+    msgOpen = box.open;
+  });
+  host.replaceChildren(box);
 }
+
+let msgOpen = false;
 
 // Drafting: from an approved advisory or an approved recovery plan.
 export async function requestMessageDrafts(body, button = null) {
@@ -92,7 +102,7 @@ export async function requestMessageDrafts(body, button = null) {
     for (const m of res.data.messages) if (m.status === 'DRAFT') app.messages.set(m.id, m);
     renderMessages();
     app.hub.badges();
-    toast({ tone: 'ok', title: res.data.messages.length ? `${res.data.messages.length} message draft${res.data.messages.length === 1 ? '' : 's'} ready on the Queue.` : 'No new messages to draft.' });
+    toast({ tone: 'ok', title: res.data.messages.length ? `${res.data.messages.length} message draft${res.data.messages.length === 1 ? '' : 's'} ready on Decide.` : 'No new messages to draft.' });
     app.hub.goTab('queue');
     return true;
   }
@@ -150,7 +160,7 @@ export function openMessage(id) {
         aiChip(current.model_id, current.llm_backend),
         current.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null,
         el('span', { class: 'chip chip--sm', text: `v${current.version}` })),
-      el('p', { class: 'note mnote', text: `${current.route ? `${current.route}. ` : ''}Written from the ${current.source_kind === 'advisory' ? 'approved advisory' : 'approved recovery plan'}. The model wrote the words; code filled every time, number and flight in them.` }),
+      el('p', { class: 'note mnote', text: `${current.route ? `${current.route}. ` : ''}Written from the ${current.source_kind === 'advisory' ? 'approved advisory' : 'approved airport plan'}. The model wrote the words; code filled every time, number and flight in them.` }),
     ];
     if (notice) head.push(el('div', { class: 'banner banner--caution', role: 'alert' }, icon('st-caution', 'st'), el('p', { text: notice })));
     const parts = [...head, tabs()];

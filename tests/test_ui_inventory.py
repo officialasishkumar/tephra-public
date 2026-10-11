@@ -108,6 +108,19 @@ DESK_IDS = [
     "announcer",
     "display-dialog",
     "bsheet",
+    # R10: the redesign's own pieces
+    "q-more-btn",
+    "q-more",
+    "q-breakdown",
+    "q-newer",
+    "q-next",
+    "more-title",
+    "closed-count",
+    "login-pending",
+    "net-title",
+    "docs-title",
+    "ask-title",
+    "why",
 ]
 DESK_TABS = ["queue", "ask", "network", "docs"]
 # R8.3: every Details section key
@@ -254,12 +267,28 @@ def test_region_emptiness_is_derived_not_stored() -> None:
     assert "emptyRegion" not in WALL
 
 
-@pytest.mark.xfail(strict=True, reason="Desk part of UI-REDESIGN (R2.4, R15.3), built separately")
 def test_desk_css_has_no_text_under_12_px() -> None:
     assert _small_font_sizes((WEB / "desk.css").read_text(encoding="utf-8")) == []
 
 
-@pytest.mark.xfail(strict=True, reason="Desk part of UI-REDESIGN (R2.4), built separately")
+def test_doc_css_has_no_text_under_12_px() -> None:
+    """The Desk links doc.css too (R15.3)."""
+    assert _small_font_sizes((WEB / "doc.css").read_text(encoding="utf-8")) == []
+
+
+def test_desk_tab_labels_are_the_new_words() -> None:
+    """R10.2: only the labels changed; the keys stayed."""
+    tabs = (WEB / "desk" / "tabs.js").read_text(encoding="utf-8")
+    assert "queue: 'Decide'" in tabs and "network: 'Airports'" in tabs and "docs: 'Paperwork'" in tabs
+
+
+def test_desk_has_no_bulk_approval_and_keeps_hold_and_confirm() -> None:
+    """R0.2 rule 11, G16: one decision per advisory; the deep link is only a pointer."""
+    assert "Approve all" not in DESK
+    assert "Hold to approve, or tap to confirm." in DESK
+    assert "Approve now" in DESK
+
+
 def test_desk_duty_card_never_appends_a_null() -> None:
     source = (WEB / "desk" / "duty.js").read_text(encoding="utf-8")
     assert not re.search(r"card\.append\([^;]*\?[^;]*:\s*null", source, re.S)

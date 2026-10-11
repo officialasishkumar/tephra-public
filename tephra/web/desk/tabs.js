@@ -1,11 +1,13 @@
-// The bottom tab bar: Queue / Ask / Network / Docs, each with a count badge. One panel is shown
-// at a time; the Queue panel is the existing draft list and review sheet.
+// The tab bar (UI-REDESIGN R10.2): Decide / Ask / Airports / Paperwork, each an icon and a word
+// with a count badge. The data-tab keys (queue, ask, network, docs) and the sessionStorage key are
+// unchanged; only the labels changed. One panel is shown at a time.
 
 import { byId, el, icon } from './dom.js';
 import { app } from './state.js';
 
 export const TABS = ['queue', 'ask', 'network', 'docs'];
-const LABEL = { queue: 'Queue', ask: 'Ask', network: 'Network', docs: 'Docs' };
+const LABEL = { queue: 'Decide', ask: 'Ask', network: 'Airports', docs: 'Paperwork' };
+const WAITING = { queue: 'waiting', network: 'plan waiting', docs: 'to sign' };
 const ICON = { queue: 'i-inbox', ask: 'i-chat', network: 'i-network', docs: 'i-file' };
 const KEY = 'tephra.desk.tab';
 
@@ -63,7 +65,8 @@ export function goTab(name, { focus = false, quiet = false } = {}) {
   onChange(name, { changed, focus });
 }
 
-export function setBadges(counts) {
+// `detail` names what a badge counts (R2.7): "Decide, 28 waiting: 23 advisories · 3 messages · …".
+export function setBadges(counts, detail = {}) {
   for (const name of TABS) {
     const node = byId('tabbar').querySelector(`[data-badge="${name}"]`);
     if (!node) continue;
@@ -71,6 +74,8 @@ export function setBadges(counts) {
     node.hidden = n === 0;
     node.textContent = n > 99 ? '99+' : String(n);
     const tab = node.closest('.tab');
-    tab.setAttribute('aria-label', n ? `${LABEL[name]}, ${n} waiting` : LABEL[name]);
+    const what = detail[name] ? `: ${detail[name]}` : '';
+    tab.setAttribute('aria-label', n ? `${LABEL[name]}, ${n} ${WAITING[name] || 'waiting'}${what}` : LABEL[name]);
+    tab.title = n && detail[name] ? detail[name] : '';
   }
 }

@@ -2,8 +2,9 @@
 
 Version 3, 12 Oct 2026. Owner: lead product designer. Builders implement this document;
 reviewers check the result against it. Where this spec and the code disagree, the spec wins until
-it is changed here. Version 3 records the Wall redesign ("The Story"): its source and full
-rationale is `docs/UI-REDESIGN.md`, and the sections below describe the Wall as built from it.
+it is changed here. Version 3 records the redesign ("The Story") of the Wall and the Desk: its
+source and full rationale is `docs/UI-REDESIGN.md`, and the sections below describe both pages as
+built from it (the Desk in 4.5-4.7 and 10.1-10.14).
 
 What this covers: the Wall (`/`, `index.html` + `wall.js` + `wall/*.js` + `wall.css`) and the Desk
 (`/desk`, `desk.html` + `desk.js` + `desk.css`). Shared assets that already exist and must be
@@ -13,7 +14,7 @@ used as they are:
 |---|---|---|
 | Design tokens and fonts | `tephra/web/tokens.css` | Link it before the page's own CSS. Every colour, size, space, radius, shadow and duration below is a custom property there. |
 | Fonts | `tephra/web/fonts/` | IBM Plex Sans (variable, 400-700) and IBM Plex Mono (400, 500); latin and latin-ext; `OFL.txt`. |
-| Icons | `tephra/web/icons.svg` | One sprite, 72 symbols, referenced as `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#i-check"></use></svg>`. Colour comes from CSS `color`. |
+| Icons | `tephra/web/icons.svg` | One sprite (the redesign added `i-more`, the ⋯ menu), referenced as `<svg class="icon" aria-hidden="true"><use href="/static/icons.svg#i-check"></use></svg>`. Colour comes from CSS `color`. |
 | Map context data | `tephra/web/data/` | `firs.geojson`, `vaac_aor.geojson`, `land_apac.geojson`, `navaids.geojson`; see its `README.md`. |
 | Credits | `tephra/web/THIRD_PARTY.md` | Every third-party asset and service, with the credit the page must show. |
 | CSP | `CONTENT_SECURITY_POLICY` in `tephra/api/server.py` | Already allows GIBS, Mapterhorn and the two pinned unpkg packages. |
@@ -37,7 +38,8 @@ The "before" screenshots of the current pages are `…/screens/v2/before-*.png`.
 
 Contents: 1 Principles · 2 The story in one glance · 3 Tokens · 4 Layout grids · 5 Map
 symbology · 6 Direction-mismatch rose · 7 Wall components (7.19 Details drawer) · 8 3D,
-compare, time bar, height filter · 9 Keyboard · 10 Desk · 11 Copy deck · 12 Accessibility ·
+compare, time bar, height filter · 9 Keyboard · 10 Desk (10.11 Ask, 10.12 Airports, 10.13
+Paperwork, 10.14 Deep link) · 11 Copy deck · 12 Accessibility ·
 13 Data rules · 14 Video shot list · 15 Open issues.
 
 ---
@@ -375,28 +377,48 @@ is in Details.
 
 ```
 ┌ sticky header ─────────────────────────────────┐
-│ TEPHRA Desk   [NO MODEL] [● Live]   [AK ▾]  48 │
-│ REPLAY: recorded real feeds from 23 Sep 2026 28│  (REPLAY only)
+│ TEPHRA  [AI: off] [AI 0/450] ● Connected  (AK) │ 48
+│ REPLAY: recorded real feeds from 05 Sep 2026   │ 28 (REPLAY only)
 │ Decision support only - fictional airline -    │
-│ not for operational use                     32 │
+│ not for operational use                        │ 32
 ├────────────────────────────────────────────────┤
-│ Drafts awaiting decision      2 waiting        │
-│ ┌ card ──────────────────────────────────────┐ │
-│ │ RFA4821  GIA208 · A320        ENTERS IN    │ │
-│ │ HOLD FL250                       12 MIN    │ │
-│ │ Krakatau · area OFFICIAL · drafted 2 min   │ │
-│ │ [REPLAY] [Template · NO MODEL]             │ │
+│ Decide                                     ⋯   │
+│ [problems to acknowledge, red, when any]       │
+│ ┌ NEXT DECISION ─────────────────────────────┐ │
+│ │ 1 of 23 advisories · most urgent first     │ │
+│ │ 23 advisories · 3 messages · 2 problems    │ │ (only when it adds to the line above)
+│ │ RFA1225               (◉ Inside the ash now)│ │
+│ │ proxy for GIA616 · A320                    │ │
+│ │ 👁 Keep watching (MONITOR)                  │ │ 20 600
+│ │ Anak Krakatau · ash SFC–FL500 · drafted 4 m│ │
+│ │ RFA1225 ANAK KRAKATAU VA HAZARD …  (3 lines)│ │ mono
+│ │ {} Written by a code template (AI off). …  │ │
+│ │ 7 sources · newest 3 min ago               │ │
+│ │ [ Review RFA1225 › ]                       │ │ neutral filled, 48
 │ └────────────────────────────────────────────┘ │
-│ ...                                            │
+│ 22 more waiting                                │
+│ RFA1530   inside now                      ⚠ ›  │ 52, two lines
+│           Keep watching                        │
+│ …                                              │
+│ ⇄ Airport plan waiting: 3 airports closed, … › │ one-line links
+│ ✉ Messages to approve (3) ›                    │
+│ ▤ Notices (4) ›                                │
+│ ◎ Duty Officer (AI off): 3 flights need a …  › │
+│ › Decided while this page was open (2)         │ collapsed
+├────────────────────────────────────────────────┤
+│  Decide(28)    Ask    Airports(1)  Paperwork(1)│ 56, bottom tab bar
 └────────────────────────────────────────────────┘
 ```
 
 - Gutters 16. Max content width 600 (centred above 632 px). Header sticky, `--c-surface-1`,
-  bottom hairline. It is 108 px tall in REPLAY, 80 in LIVE. Cards 12 apart, padding 16, radius 12.
-- Review sheet: full screen (`<dialog>` in modal mode), its own sticky header (back, title,
-  version) and a sticky action bar at the bottom (primary 56 + secondary row 48 + 16 padding +
-  safe-area inset). The page header stays visible above the sheet: the sheet starts below it
-  (the disclaimer and REPLAY banner never disappear).
+  bottom hairline. On a phone the model chip reads "AI: off" (the full "AI: off · code only" is its
+  `aria-label` and shows from 521 px), the budget chip "AI 0/450" (full words from 761 px), and the
+  connection is always a word.
+- One primary thing: the Next decision card (`--c-surface-2`, radius 12, padding 16, the only
+  filled button on the tab). The other drafts are one-line rows (hairlines, no boxes).
+- Review sheet: full screen under the page header, its own sticky header ("‹ Decide", "Review
+  RFA1225", "Version 1") and the fixed action bar at the bottom; the body keeps a bottom padding
+  equal to the bar height. The tab bar gives way to the action bar while a review is open.
 
 ### 4.6 Desk at 375x667
 
@@ -407,13 +429,15 @@ to the bar height).
 
 ### 4.7 Desk at 1440x900
 
-Header full width: row 1 (48) brand left, model chip, connection and account right; the REPLAY bar
-(28) and the disclaimer row (24) under it, full width. Below: two panes inside a 1280 max-width
-frame: queue
-420 wide on the left (cards stacked, the selected one outlined in `--c-line-input` with a 3 px
-left bar), review pane on the right (fluid, max 760) showing the selected draft as the
-check-answers list with the action bar sticky at its bottom. The first card is selected on
-load. No modal sheet at this width.
+Header full width: row 1 (48) brand left, then "AI: off · code only", "AI calls today: 0 of 450",
+"Connected" and the account button; the REPLAY bar (28) and the disclaimer row (24) under it, full
+width; the tab bar (48, four 148 px tabs with icon, word and badge) under the header. Below: two
+panes inside a 1280 max-width frame: Decide 420 wide on the left (the Next decision card, then the
+compact rows; the selected row is outlined in `--c-line-input` with a 3 px left bar, and the Next
+decision's button gets a ring when its draft is the one in the pane), the review pane on the right
+(fluid, max 760) with "Why this advisory" open and the action bar at the pane's bottom. The most
+urgent draft is selected on load. `.sheet-idle` ("Choose an advisory to review") shows while
+nothing is selected. Ask, Airports and Paperwork are one centred column, max 880.
 
 ## 5. Map symbology
 
@@ -1015,18 +1039,24 @@ decision sends the `version` the dispatcher saw.
 
 ### 10.1 Header (always)
 
-Row 1 (48): "TEPHRA" (700, letter-spaced) + "Desk" (text-3); model chip (7.2, compact; on the
-Desk its tooltip uses the Wall chip's words (7.2): "NO MODEL: official products only. Text that a
-model would write comes from code templates; no model wrote anything here." with the stub, "Steps
-that call a model are marked AI-drafted. Times, ids and hashes are always written by code."
-otherwise); the
-connection chip: `st-ok` "Connected" (SSE open; title "Connected to the TEPHRA server (updates
-stream in)"; not "Live", which under the REPLAY bar would read as live data), `st-stale`
-"Reconnecting" (caution), `st-serious` "Offline" (serious); the account button (initials in a 32 px circle, menu: "Signed in as AK ·
-session ends 1830Z", "Display: LIVE" with "Change display…" (10.10), and "Sign out"). Row 2 (REPLAY only, 28): violet bar `i-replay` +
-`state.replay.banner`. Row 3: the disclaimer, 12 px semibold text-1, wraps, never truncates.
-`state` is read from `GET /api/state` at start and from `state` events; until then the static
-HTML disclaimer is shown.
+Row 1 (48): "TEPHRA" (700, letter-spaced) + "Desk" (text-3, hidden at 430 px and under); the model
+chip `#model-chip` "AI: off · code only" (dashed, `i-code`) or "AI: on · {state.llm.label}"
+(`i-model`), with the exact label and the old sentence ("NO MODEL: official products only…") in
+its title; the budget chip `#budget-chip` "AI calls today: 0 of 450" (phone "AI 0/450", the
+`aria-label` always full; it opens the per-tier budget sheet); the connection `#conn`, always a
+word with its shape: `st-ok` "Connected" (not "Live", which under the REPLAY bar would read as
+live data), `st-stale` "Reconnecting…", `st-serious` "Offline", `st-never` "Connecting…"; the
+account button (initials in a 32 px circle, menu: "Signed in as AK · session ends 1830Z",
+"Display: LIVE" with "Change display…" (10.10), and "Sign out"). Row 2 (REPLAY only, 28): violet
+bar `i-replay` + `state.replay.banner`. Row 3: the disclaimer, 12 px semibold text-1, wraps,
+never truncates. `#net-banner` (offline, back online) under it. `state` is read from `GET
+/api/state` at start and from `state` events; until then the static HTML disclaimer is shown.
+
+Tabs `#tabbar` (R10.2): Decide, Ask, Airports, Paperwork, each an icon and a word with a 12 px
+count badge. The `data-tab` keys `queue`, `ask`, `network`, `docs` and the `sessionStorage` key
+`tephra.desk.tab` are unchanged. Decide's badge counts advisories + messages + open problems, and
+its `aria-label` and title say so ("Decide, 28 waiting: 23 advisories · 3 messages · 2 problems to
+acknowledge"); Airports counts plans waiting; Paperwork counts documents to sign.
 
 ### 10.2 Sign-in
 
@@ -1036,71 +1066,103 @@ chars) and PIN (`current-password`, numeric keyboard `inputmode="numeric"`), 48 
 text, labels above, errors under the field (`aria-describedby`), button "Sign in" (primary
 neutral: `--c-text-1` fill with ink text, 48 tall, full width). Errors (11.8): bad PIN, too many
 attempts (button disabled with a countdown from the `Retry-After` header), desk disabled,
-offline. On success: focus moves to the queue title.
+offline. A deep link waiting for a session shows "Sign in to review RFA1225." above the form
+(`#login-pending`, the flight named from the public `/api/advisories`; "Sign in to review this
+advisory." until it is known). On success: focus moves to the Decide title and the hash resumes
+(10.14).
 
-### 10.3 Queue
+### 10.3 Decide (was Queue)
 
-Title "Drafts awaiting decision" (24) with "2 waiting" and "Most urgent first"; a quiet
-"Refresh" icon button (also refreshes on every `advisory` event). Sort: inside now first, then
-`minutes_to_entry`, then `created_at`. Each card is one `<button>` (whole card tappable, ≥ 44
-tall, in practice ~150):
+Title "Decide" (`#q-title`, 24) and a ⋯ button (`#q-more-btn`, `aria-label="More actions"`,
+`aria-expanded`, Esc closes and returns focus, arrow keys move) holding "Paste a notice"
+(`#paste-notice`) and "Refresh the lists" (`#refresh`, spins while loading). Pull-to-refresh and the
+refresh on every `advisory` event stay. Sort: inside now first, then entry time, then
+`created_at`. In order:
 
-- Row 1: "RFA4821" (24 600) + "GIA208 · A320" (14 text-2); right: "ENTERS IN" caps over
-  "12 MIN" (32 600 tephra-text), or the `st-inside` shape and "INSIDE NOW" (tephra-text).
-- Row 2: the action (20 600 text-1): "HOLD FL250", "CHANGE LEVEL FL300–FL340", "DIVERT WARR",
-  "MONITOR", "CONTINUE" (from the advisory fields, 11.7).
-- Row 3 (14 text-2): "Krakatau · TEPHRA area OFFICIAL (NO MODEL) · drafted 2 min ago".
-- Row 3b (14 text-2, `i-file`): "3 sources · oldest 14 min old", from `sources[]`. A source's
-  time is its `issued_at`, or its `fetched_at` when no issue time is stated; the age is on the
-  active clock and updates with the countdown. Without the clock it reads "oldest 1405Z"; a
-  draft with no sources reads "No sources listed".
-- Row 4 tags: the area chip with a visible "AREA" key ("AREA OFFICIAL 100%", so the percentage
-  is not read as certainty), "REPLAY" (violet), "AI-drafted" (`i-model`, when `llm_backend` is
-  gemini) or "NO MODEL" (dashed; "Template · NO MODEL" in the review), "HYPOTHESIS" (amber), "Needs a careful read" (caution, when
-  `validation_notes` contains NEEDS_HUMAN), "Sources stale" (caution, when any source is stale),
-  "Drafted 12 min ago: entry time may have moved" (caution, draft age > 10 min).
+1. `#fail-section` "Problems to acknowledge" (red, count): AI failures, each with "Mark handled…".
+   Failures are never folded, so they sit above the Next decision.
+2. The Next decision card (`section.next`): eyebrow "NEXT DECISION" (`#drafts-title`), "1 of 23
+   advisories · most urgent first" (`#q-count`), the breakdown "23 advisories · 3 messages · 2
+   problems to acknowledge" (`#q-breakdown`, shown only when there are messages or problems), then
+   the draft in `#q-next`: flight (24 600) and "proxy for GIA616 · A320"; the entry pill (shape +
+   words: "Inside the ash now", "Enters in 12 min (est.)", "Entry was due 3 min ago (est.)"); the
+   action in plain words with the ICAO word in brackets (20 600, 11.7); "Anak Krakatau · ash
+   SFC–FL500 · drafted 4 min ago"; the advisory text (mono, 3 lines); "Written by a code template
+   (AI off). Check the sources first." (or "Drafted by AI ({model}). …"); "7 sources · newest 3 min
+   ago"; caution chips only when they apply (HYPOTHESIS, "Needs a careful read", "Sources stale",
+   "Drafted 12 min ago: entry time may have moved"); and the one filled button "Review RFA1225 ›".
+   The area, model and REPLAY chips left the cards: the model and REPLAY are in the header, the area
+   is in the review's Why.
+   - The card does not swap under the dispatcher's thumb: when a more urgent draft arrives, the
+     line "1 more urgent draft arrived · Show" (`#q-newer`, caution) appears and Show moves the
+     card to it.
+3. "{22} more waiting" (`#more-title`) and `#cards`: one row per other draft, two lines: flight |
+   "inside now" / "enters in 9 min" over "Keep watching" | a caution mark (with its words for
+   screen readers) | ›. A new row is highlighted for `--dur-5` and tagged "New" for two minutes.
+4. One-line links (`.qlinks`): "Airport plan waiting: 3 airports closed, cancel 133 ›"
+   (`#plan-section`, opens Airports); "Messages to approve (3) ›" (`#msg-section`) and "Notices (4) ›"
+   (`#notice-section`), which open in place to today's cards and rows; "Duty Officer (AI off): 3
+   flights need a plan first ›" (`#duty-section`), which opens in place to the outcome chip, the
+   summary, "Do first" (priorities with "Must do" tags), "Watch", "Delegated to", "Deferred", the
+   run line and the raw stub text under "Technical detail". Must-do items the Duty Officer did not
+   hand out are a failure: that red box stays visible while the brief is folded, and the line
+   reads "Duty Officer (AI off): 1 must-do item not handed out".
+5. `#closed` "Decided while this page was open (2)", a collapsed `<details>`.
+6. `.qfoot`: "Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft
+   or any real system."
 
-States: loading (three skeleton cards), empty ("No drafts waiting." + "A draft appears here when
-a flight's projected track enters TEPHRA's cautious area. Last update 16:07:12Z."), error ("Can't
-load drafts." + the reason + "Try again"), offline (10.9), replay (tags), a new draft (inserted at
-its place, highlighted for `--dur-5`, announced "New draft: RFA4821, HOLD FL250, enters in 12
-min").
+States: loading (skeleton rows), empty ("No drafts waiting." + "A draft appears here when a
+flight's projected track enters TEPHRA's estimated ash area. Last update 16:07:12Z."), error
+("Can't load drafts." + the reason + "Try again"), offline (10.9), a new draft (announced "New
+draft: RFA4821, HOLD FL250, enters in 12 min").
 
-### 10.4 Review sheet (check answers)
+### 10.4 Review sheet
 
-Opens from a card (full screen on phones, the right pane at 1440). Header: back "‹ Drafts",
-title "Review RFA4821", "v1" (mono). Body: a summary list (GOV.UK check-answers pattern), label
-column 120 px (14 text-3), values 16-18 px. The advisory text comes third, right after the
-action, so the words being queued share the screen with the Approve button (16 px mono, line
-height 1.5):
+Opens from the Next decision's button or a row (full screen on phones, the right pane at 1100 px
+and up). Header: back "‹ Decide" (hidden in the pane), title "Review RFA1225" (`#s-title`),
+"Version 1". The primary facts come first, above the action bar:
+
+- closed or HYPOTHESIS banners when they apply; the REPLAY chip "Drafted from recorded feeds";
+- "RFA1225" + "Proxy for ADS-B GIA616 (hex 8A01DE) · A320";
+- the action, large: "Keep watching (MONITOR)" (24 600);
+- the entry ("Inside the ash now" with "Inside TEPHRA's estimated area when drafted at 1030Z", or
+  "Enters in 12 min (est.)" with the drafted minutes); it updates with the countdown;
+- a caution box when the validator flagged the text ("Needs a careful read: …") or a source is
+  stale ("Some sources are stale.");
+- "ADVISORY TEXT" and the text being queued (16 px mono);
+- "Written by a code template (AI off). Check the sources first." / "Drafted by AI ({model}). …" /
+  "Edited by a dispatcher from …";
+- "7 sources · newest 3 min ago · Show ›" (Show opens Why and scrolls to the evidence).
+
+Then "Why this advisory" (`<details id="why">`, open at 1100 px and up, closed on a phone; its
+open state survives re-renders), a summary list with:
 
 | Row | Value |
 |---|---|
-| Flight | "RFA4821 · proxy for ADS-B GIA208 (hex 8A04C1) · A320" |
-| Action | "HOLD at FL250" (24 600) |
-| Entry | "Enters TEPHRA's area in 12 min (as drafted at 1607Z)" or "INSIDE NOW" |
-| TEPHRA area | "OFFICIAL 100% (NO MODEL)" or "WIDENED 62%"; HYPOTHESIS adds the hypothesis banner |
-| Fuel and time | `fuel_line` in mono ("HOLD 20 MIN x 42 KG/MIN = 840 KG") + "simple TEPHRA formula, not airline tables" |
-| Advisory text | the final body in a mono block (pre-wrap); under it one readable line (14 text-2) on who wrote it: "AI-drafted text." (`i-model`) or, with the stub, "NO MODEL: a code template wrote this text, not a model." (`i-code`); an edited body reads "Edited by a dispatcher from AI-drafted text." (or "from a NO MODEL template text."); while the draft awaits a decision the line ends "Check it against the sources below before you approve." (the wording is untested with dispatchers); then the source strip; then "Edit text" as the row's change link |
-| Source strip | one chip per `sources[]`, binding first, built by code: feed name (600; official pink for SIGMET and VAA, with a 3 px official left edge), "issued 14 min ago" or "fetched 3 min ago" (the age names which time it counts from; "issued 1405Z" without the active clock; "time not stated" when neither is), `#sha256_short` (mono text-3), and "stale" (caution shape, caution border) when stale. 12 px, wraps. The `source_id` is the chip's title; the full list stays in the Evidence disclosure. No sources: "No sources are listed on this draft." |
-| Cost note | `cost_note`; the row is left out when it repeats `fuel_line` |
-| Sources | each `sources[]`: feed, source id, "issued 251120Z · fetched 251600Z", `#sha256_short`, "stale" when true; binding (SIGMET) first; a `winds` source line ends with the link "Weather data by Open-Meteo.com" (CC BY 4.0 requires it next to the data) |
-| Drafted by | "Gemini 3.5 Flash-Lite · AI-drafted" or "Template · NO MODEL" (from `llm_backend`, `model_id`), fine text "Model-written body; times, ids and hashes are written by code." or, with the stub, "NO MODEL: official products only. A code template wrote the body; times, ids and hashes are written by code.", and the validator notes if any (caution box for NEEDS_HUMAN) |
-| Operator policy | the policy the draft was made under, "RFA-POLICY-A v2026.10.8" in mono, followed by " #" and `policy_hash` only when the draft carries one; fine text "Illustrative values, not an airline SRA; not reviewed by an airline dispatcher". Left out when the draft has no `policy_version`. |
-| Header | the code-rendered `header` in a collapsed `<details>` "Advisory header (written by code)" |
+| Evidence | one chip per `sources[]`, binding first, each named by its product from `source_id`: "SIGMET WIIF 15 · issued 3 min ago · #6a6a3adb", "SIGMET WIIF 15 (area 2) …", "VAA Darwin 2026/176 …", "VONA Anak Krakatau …". Never merged by hash: four SIGMETs from one fetch stay four chips. With no `source_id` the chip shows the feed name and its time; no id is invented. Then "Times, links and full ids (7)": feed, source id, issued and fetched times, `#sha256_short`, "stale", the public link, and "Weather data by Open-Meteo.com" for winds |
+| Route | for a reroute: the sketch, extra distance, time and fuel, the route string, "Turn points are coordinates only" |
+| TEPHRA area | the area chip ("OFFICIAL 100%", "WIDENED 62%", "HYPOTHESIS … · MONITOR or HOLD only") + the mode sentence |
+| Hazard band | "SFC–FL500" + "TEPHRA's estimated area, vertical extent" |
+| Fuel and time | `fuel_line` in mono + "Simple TEPHRA formula, not airline tables" |
+| Cost note | left out when it repeats `fuel_line` |
+| Drafted by | "Written by a code template (AI off)" or "{model} · AI-drafted", the fine print, validator notes |
+| Operator policy | "RFA-POLICY-A v… #hash" + "Illustrative values, not an airline SRA; not reviewed by an airline dispatcher" |
+| Header | "Advisory header (written by code)", collapsed |
+| History | "History (audit log)", collapsed, loaded on open |
 
-Action bar (sticky bottom): primary approve (10.5), then a row with "Edit text" (outline,
-`--c-line-input`) and "Reject…" (outline, `--c-reject-text` text and border). Under the primary,
-one short caption at every width: "Hold to approve, or tap to confirm. Nothing is sent to an
-aircraft." (12 text-3; the full queue sentence is in the confirmation step), and
-the action and flight in the approve label never break inside ("FL300–" / "FL340"). At 1440 the
-review pane is a column with its own scroll area (`max-height: calc(100dvh − header − 32px)`), its body
-scrolls and the action bar stays at the pane's bottom.
+and "Ask TEPHRA about RFA1225" at its foot. The duplicate "Edit text" link under the text is gone:
+the bar's "Edit text" button is the only one.
+
+Action bar (fixed at the bottom on a phone, at the pane's bottom at 1100 px and up): the primary
+approve (10.5); "Hold to approve, or tap to confirm. Nothing is sent to an aircraft." under it; then
+"Edit text" and "Reject…" at equal weight. Approve green appears only here (R13.3).
 
 ### 10.5 Approve: hold to confirm, or tap to confirm
 
-The primary button names the outcome: "Approve HOLD FL250 for RFA4821" (`--c-approve` fill,
-`--c-approve-ink`, 56 tall, radius 12, 18 px 600, `i-check`).
+The primary button names the outcome in plain words (R12.10): "Approve: keep watching RFA1225",
+"Approve: hold RFA1225 at FL250", "Approve: divert RFA1225 to WARR", "Approve: change level for
+RFA1225", "Approve: continue RFA1225", "Approve: reroute RFA1225"; the ICAO word stays in the action
+line above (`--c-approve` fill, `--c-approve-ink`, 56 tall, radius 12, 18 px 600, `i-check`).
 
 - Press and hold (pointer): a fill (`--c-approve-progress`) sweeps left to right over
   `--dur-hold` (1200 ms, linear, kept under reduced motion as essential feedback). At full, the
@@ -1108,16 +1170,19 @@ The primary button names the outcome: "Approve HOLD FL250 for RFA4821" (`--c-app
   completes it, WCAG 2.5.2). Sliding off or `pointercancel` cancels and resets. Releasing early
   (250-1200 ms) cancels with the hint "Keep holding to approve, or tap for a confirmation step."
 - Tap (release under 250 ms), Enter or Space, and any assistive technology click: open the
-  inline confirmation in place of the action bar: "Approve HOLD FL250 for RFA4821?" (20 600),
-  then the entry time and version (14 500 mono text-1, updates with the countdown): "Est. entry
-  1619Z, in 12 min if track and level are held · v2", "Est. entry 1619Z, due 3 min ago · v2" or
-  "Inside TEPHRA's area since drafted at 1607Z · v2" (computed by code from `created_at` and
-  `minutes_to_entry`), the queue sentence, and two buttons "Approve now" (approve style) and
+  inline confirmation in place of the action bar: "Approve: hold RFA4821 at FL250?" (20 600),
+  then flight, action, entry time and version (14 500 mono text-1, updates with the countdown):
+  "RFA4821 · Hold at FL250 (HOLD) · enters in 12 min, est. 1619Z if track and level are held ·
+  version 2", or "… · inside the area since 1607Z · version 2" (computed by code from `created_at`
+  and `minutes_to_entry`), "Queued under AK on TEPHRA's own outbound queue · nothing is sent to an
+  aircraft.", and two buttons "Approve now" (approve style) and
   "Cancel" (outline; returns to the action bar, nothing is decided). This is the single-pointer
   alternative (2.5.7) and the confirmation step (3.3.4). There is no swipe-to-act.
 - While sending: the button shows a spinner and "Approving…", all decision buttons are
-  disabled. Success: the sheet closes, the card leaves the queue (`--dur-3`), a toast (11.8)
-  with the audit line, focus moves to the next card (or the empty state).
+  disabled. Success: the decided stamp, then the sheet moves on to the next draft (on a phone too)
+  and the toast (11.8) carries the audit line and "Next: RFA1530 · inside now". There is no bulk
+  approval: the next draft needs its own hold or confirm. With no draft left the sheet closes and
+  focus goes to the empty state.
 
 ### 10.6 Edit and approve
 
@@ -1159,15 +1224,15 @@ advisory for RFA4821" (`--c-reject` fill, white text, `i-x`; tap only, no hold),
   12 text-2). This is the video's "audit line with feed times and
   hashes".
 - 409 `version_conflict`: the sheet switches to "This advisory changed while you were reviewing
-  it." with a two-column diff "You saw (v1)" / "Now (v2)" for Status, Action, Entry and Text
+  it." with a two-column diff "You saw (version 1)" / "Now (version 2)" for Status, Action, Entry and Text
   (changed values highlighted with a caution bar and the word "changed"), using `current` from
   the error body. If `current.status` is DRAFT: "Review the new version" (primary neutral). If
   terminal: "AK approved it at 1607Z" (or "TEPHRA replaced it with a newer draft at 1606Z" for
-  SUPERSEDED) and "Back to drafts". The outcome comes before the diff, in a panel with the status
-  shape and word; the version chip reads "v1 → v2"; the Now status cell carries the status shape;
+  SUPERSEDED) and "Back to Decide". The outcome comes before the diff, in a panel with the status
+  shape and word; the version chip reads "Version 1 → 2"; the Now status cell carries the status shape;
   identical text shows once as "Same text".
-- 409 `invalid_transition`: "This advisory is no longer a draft." + who/when + "Back to drafts".
-- 404: "This advisory no longer exists." + "Back to drafts".
+- 409 `invalid_transition`: "This advisory is no longer a draft." + who/when + "Back to Decide".
+- 404: "This advisory no longer exists." + "Back to Decide".
 
 ### 10.9 Offline, session, wake lock
 
@@ -1194,6 +1259,94 @@ your name." with "Switch to replay" / "Cancel" (or "Switch to live feeds"). Erro
 recording is not on this server.", 409 "No recording is available." The new `state` event updates
 both pages; the Desk shows a toast "Display switched to REPLAY by AK."
 
+### 10.11 Ask (R10.5)
+
+Title "Ask TEPHRA" (`#ask-title`). The composer is the primary thing and sits first: the question
+field ("Type a question…"), mic (push to talk) and send, the flight context chip when Ask was
+opened from a review ("About RFA1225 ×"), and "Read-only: Ask never changes an advisory, a plan or
+a message." Under it the five suggested questions as wrapping chips and "English, Bahasa Indonesia
+or Japanese." The decorative speech-bubble art is gone. Answers follow, newest first, each
+exchange in its own block (question bubble, then the answer card). An answer card shows the
+answer, then its claims (kind, text, and one chip per evidence item in words: "from: flights
+heading in", "from: TEPHRA's area", "from: data feeds"…; a chip opens the verbatim tool result),
+then "How I answered" (collapsed: the raw tool ids such as "T01 exposed_flights (flights heading
+in)", the validator, the model, the human gate), follow-ups, and a foot with Listen, the model chip,
+the language chip and REPLAY. With the stub, the code-written answer reads "AI off: this answer is
+a code count, not a reading of your question. Flights projected to enter TEPHRA's area: 22." (the
+API text still starts "NO MODEL", which tests and the spoken reply rely on); a model's answer is
+always shown exactly as written. Refusals: "Not in the evidence I have" + what was checked.
+
+### 10.12 Airports (R10.6, was Network recovery)
+
+Title "Airport plan" (`#net-title`) and a ⋯ menu (`#net-more-btn`) with "Re-plan now" (`data-run`;
+"Plan now" with no plan; busy "Re-planning…"). One decision card first (`.plan`):
+
+```
+AIRPORT PLAN  ◷ Waiting for your decision
+Ash closes 3 RFA airports: WARA, WIHH, WIII.             20 600
+Plan: cancel 47 flights, delay 29, swap 8 · 12,057 passengers
+Estimated cost $893,032                                   24 600
+[Fictional airline RFA · synthetic schedule] [Recorded]
+Planned 1030Z by code · version 1 · explained by: AI off  14 text-3
+[ ✓ Approve plan… ]   [ ✕ Reject… ]                        inside the card, not sticky
+```
+
+Approve plan is the neutral filled button (approve green is only in the advisory review); it opens
+the confirm sheet "Approve the airport plan?". Approved: "Approved by AK at 1031Z · queued, not
+sent anywhere" + "Draft crew and passenger messages". Rejected: who, when and the reason.
+
+Then disclosures, in order (open state kept across re-renders): "Closed airports (3)" (per airport
+"WARA · 05 SEP 0530Z to 06 SEP 0230Z · ash SFC/FL150 within 20 NM · 2 official products", then
+"Full reason and sources"); "Other plans compared (3)" (scenario cards "Closure as forecast",
+"Closure +180 min", "Closure +360 min" with cost, cancelled, delayed, swapped, delay, passengers,
+ferry legs, "Recommended", and "Best plan found (43 s)" / "Plan found, not proven best (37 s)" /
+"solver gave no answer after 43 s"; a failed one reads "No plan found: the solver did not finish in
+time"; tapping a card shows its flights and opens Flight by flight; stacked on a phone); "Why this
+plan" (the rationale under its AI chip; the stub's sentence in plain words with its raw text under
+"Technical detail"); "Flight by flight (79)"; "Numbers" (a two-column table: Flights blocked,
+Passengers blocked, Can still change, Can't change (already departed), In the air and at risk as a
+wrapped list of flight ids); "Earlier plans (n)". Then "Decision support only. Approving a plan
+queues it on TEPHRA's own outbound queue; nothing is sent to an airline system."
+
+- No plan (R2.6): the status reads "No plan found", the card's sentence is "No plan found: the
+  solver did not finish in time. A dispatcher must plan the network by hand." (or "… no plan fits
+  the closures …"), the raw string is under "Technical detail", there is no Approve button, and
+  "Other plans compared" opens by default. `planProblem()` in `desk/network.js` mirrors the Wall's.
+- No closures: "No RFA airport is closed by ash right now." + "Last checked 1031Z." and the
+  fictional-airline chip.
+- In progress: "Re-planning for WARA, WIHH, WIII…" with a spinner (`aria-busy`).
+
+### 10.13 Paperwork (R10.7, was Docs)
+
+Title "Paperwork" (`#docs-title`) and the chip "DRAFT · not an approved document · fictional
+airline". Primary: "Ready for you (n)" (`#doc-list`): the drafts waiting for a signature ("SRA ·
+SRA draft: Java / Bali · 0 of 3 signed · drafted 05 SEP 1030Z · recorded ›"), and a handover brief
+that waits for its read-back; "Nothing waits for your signature. Start a document below." when
+empty; signed documents in a collapsed "Signed (n)". Then "Start a document" and three starters,
+one line each, that open in place:
+
+- "Hand over the shift" (WEST and I-PASS): incoming dispatcher, outgoing (signed in), "Last 4 h /
+  8 h / 12 h", "Write the handover"; the latest brief, its read-back and "Printable page".
+- "Safety risk assessment (SRA)": one region select, regions with an active volcano first and
+  marked "(active volcano)", and "Draft SRA".
+- "Pilot ash reports (VAR): 12 flights": one row per exposed flight ("RFA1225 · Anak Krakatau ·
+  Keep watching" + "Draft VAR"); with none, "None needed: no RFA flight is in or heading into an
+  ash area."
+
+A failed draft shows its reason inside its starter (opened). Opening a document is unchanged (the
+wide sheet with sign lines and the printable page).
+
+### 10.14 Deep link and the 3 taps (R10.3)
+
+`/desk#review/{advisory_id}` selects that draft; `#tab/{queue|ask|network|docs}` switches tab; an
+empty hash shows the saved tab. The hash is only a pointer: it never skips the session check, the
+hold or the confirm step, and it is cleared once used. Signed in: Decide opens with that draft's
+review (the right pane at 1100 px and up, the full-screen sheet on a phone). Signed out: the sign-in
+names the flight and the hash resumes after sign-in. No longer a draft: the toast "This advisory is
+no longer a draft." and Decide with the next decision selected; unknown id (no audit entries): "This
+advisory no longer exists." The Wall's "Decide on the Desk →" opens the link, so the 3 taps are:
+"Decide on the Desk", "Approve: …" (hold, or tap), "Approve now".
+
 ## 11. Copy deck
 
 Sentence case in prose; caps only for codes, aviation words and small caps labels. Hyphens in
@@ -1205,7 +1358,7 @@ the disclaimer exactly as `state.disclaimer` gives them.
 |---|---|
 | Disclaimer (both pages, always) | `Decision support only - fictional airline - not for operational use` (from `state.disclaimer`; the HTML ships the same text) |
 | REPLAY banner (both pages, whole session) | `state.replay.banner`, e.g. "REPLAY: recorded real feeds from 23 Sep 2026" |
-| Model label (both pages, always) | Wall: the AI chip "AI: off · code only" / "AI: on · {state.llm.label}" and the story's trust line; the exact `state.llm.label` stays in the chip's title, Details › AI helpers and the Desk |
+| Model label (both pages, always) | The AI chip "AI: off · code only" / "AI: on · {state.llm.label}" on both pages (the Desk's `#model-chip`, "AI: off" on a phone with the full words in its `aria-label`), and the Wall story's trust line; the exact `state.llm.label` stays in the chip's title and Details › AI helpers |
 | AI marking | "AI-drafted" (advisory body), "AI-written · {model}" (plume reading, satellite limits); with no model the Wall says "Written by code (AI off)" |
 | Every satellite layer | "CONTEXT ONLY · {layer} {time} · not ash detection · Imagery: NASA GIBS · Himawari-9 data: JMA via NOAA" |
 | SO2 layer | "CONTEXT ONLY · SO2 (TROPOMI, daily) {date} · SO2 is not ash; gases not modelled · Imagery: NASA GIBS · Contains modified Copernicus Sentinel data 2026" |
@@ -1281,11 +1434,21 @@ polled yet". Replay: add the tag "recorded".
 
 ### 11.7 Action words (Desk and Wall)
 
-From the advisory: CHANGE_LEVEL "CHANGE LEVEL FL300–FL340" (from `change_level_fl_min/max`), HOLD
-"HOLD FL250" (`hold_fl`), DIVERT "DIVERT WARR" (`alternate_icao`), MONITOR "MONITOR", CONTINUE
-"CONTINUE". Buttons: "Approve {action} for {proxy}", "Approve edited text for {proxy}", "Reject
-advisory for {proxy}", "Edit text", "Reject…", "Approve now", "Cancel", "Back to drafts", "Review
-the new version", "Sign in", "Sign out", "Try again", "Refresh".
+From the advisory, plain words first and the ICAO word in brackets (R12.10): MONITOR "Keep watching
+(MONITOR)", HOLD "Hold at FL250 (HOLD)" (`hold_fl`), DIVERT "Divert to WARR (DIVERT)"
+(`alternate_icao`), CHANGE_LEVEL "Change level to FL300–FL340 (CHANGE LEVEL)"
+(`change_level_fl_min/max`), CONTINUE "Continue (CONTINUE)", REROUTE "Reroute right of the area,
++12 min (REROUTE)". Rows use the plain part alone ("Keep watching"). The advisory text, the toast
+receipt ("Approved: MONITOR for RFA1225 · …") and the audit keep the ICAO words. Entry: "Inside the
+ash now", "Enters in 12 min (est.)". Buttons: "Approve: keep watching {proxy}" (10.5), "Approve
+edited text for {proxy}", "Reject advisory for {proxy}", "Review {proxy}", "Edit text", "Reject…",
+"Approve now", "Cancel", "Back to Decide", "Review the new version", "Sign in", "Sign out", "Try
+again", "Refresh the lists", "Re-plan now", "Approve plan…", "Write the handover", "Draft SRA",
+"Draft VAR". Tabs: "Decide", "Ask", "Airports", "Paperwork". Labels: "Version 1" (not "v1"),
+"Written by a code template (AI off)" (not "Template · NO MODEL"), "AI calls today: 0 of 450",
+"Pilot ash report (VAR)", "Ready for you", "from: flights heading in" (not "T01 exposed_flights"),
+"TEPHRA's area" (not "hazard cone"). Per-item AI chips read "AI off · code" with the stub (title
+"NO MODEL: …").
 
 ### 11.8 Desk messages
 
@@ -1305,7 +1468,11 @@ the new version", "Sign in", "Sign out", "Try again", "Refresh".
 | Approved | "Approved: {action} for {proxy} · queued {HHMM}Z under {name}. Not sent to any aircraft." |
 | Edited | "Approved with your edits: {proxy} · both versions are in the audit log." |
 | Rejected | "Rejected: {proxy} · reason recorded." |
-| Empty queue | "No drafts waiting." / "A draft appears here when a flight's projected track enters TEPHRA's cautious area." |
+| Empty Decide list | "No drafts waiting." / "A draft appears here when a flight's projected track enters TEPHRA's estimated ash area." |
+| Deep link, signed out | "Sign in to review {proxy}." |
+| Newer draft while reading | "1 more urgent draft arrived · Show" |
+| No plan (solver) | "No plan found: the solver did not finish in time. A dispatcher must plan the network by hand." |
+| No closures | "No RFA airport is closed by ash right now." + "Last checked {HHMM}Z." |
 
 ### 11.9 Never on screen
 
@@ -1429,8 +1596,15 @@ context label (section 7.3, 5.6).
   failure line ("The map could not load: …"), which the Wall shows only when the map library itself
   does not load. Decide before the video whether to drop the coastline.
 - `scripts/ui_check.mjs` is the R17.2 screenshot and DOM pass (not in CI); `tests/test_ui_inventory.py`
-  is the R17.1 "nothing deleted" test (in CI). Its two Desk checks are `xfail(strict=True)` until the
-  Desk part of the redesign lands.
+  is the R17.1 "nothing deleted" test (in CI), with the Desk checks (ids, tab keys and labels, no
+  text under 12 px in `desk.css` and `doc.css`, no native `append` of a null in `desk/duty.js`, no
+  bulk approval).
+- The Desk shows the same solver wording as the Wall from its own `planProblem()` in
+  `desk/network.js`; the Ask stub's "NO MODEL: this is the offline stub…" sentence stays in the API
+  (tests and the spoken reply rely on it) and is put in plain words only on screen, and only for
+  the stub's code-written text.
+- The decision receipt toast stays 15 s and can sit over the next draft's text on a phone; it has
+  a close button and the next draft's action bar stays clear.
 
 - The CSP (MODULES.md 8.1 and `server.py`) allows GIBS and Mapterhorn for images and fetches,
   and scripts only from the two pinned unpkg packages; any other script host is refused.

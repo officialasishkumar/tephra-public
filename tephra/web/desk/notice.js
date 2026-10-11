@@ -61,10 +61,19 @@ export function renderNotices() {
         el('span', { class: 'nrow__meta', text: `${LANG_CODE[n.language] || '?'} · ${dayMonthHhmm(n.created_at)}` })),
       icon('i-chevron-right', 'icon nrow__go')));
   });
-  host.replaceChildren(el('details', { class: 'disclose ndisc' },
-    el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: 'Notices read' }), el('span', { class: 'shead__count', text: String(app.notices.length) })),
-    el('ul', { class: 'nlist' }, rows)));
+  // One line on Decide (R10.4) that opens in place: "Notices (4) ›".
+  const box = el('details', { class: 'qlink__box ndisc', open: noticesOpen },
+    el('summary', { class: 'qlink__btn' }, icon('i-clipboard', 'icon qlink__ic'),
+      el('span', { class: 'qlink__t' }, el('strong', { text: `Notices (${app.notices.length})` }), el('span', { text: ' read from observatory text' })),
+      icon('i-chevron-right', 'icon qlink__go disclosure')),
+    el('ul', { class: 'nlist' }, rows));
+  box.addEventListener('toggle', () => {
+    noticesOpen = box.open;
+  });
+  host.replaceChildren(box);
 }
+
+let noticesOpen = false;
 
 // Splits the notice into plain text and <mark>ed evidence, one mark per field, no overlaps.
 function highlighted(text, fields) {

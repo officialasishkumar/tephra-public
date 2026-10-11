@@ -33,7 +33,10 @@ function draw() {
   const worst = app.budget.tiers.map(level).includes('out') ? 'out' : app.budget.tiers.map(level).includes('low') ? 'low' : 'ok';
   chip.hidden = false;
   chip.dataset.level = worst;
-  const kids = [icon('i-gauge'), el('span', { class: 'budget__n', text: `${lite.used}/${lite.limit}` })];
+  // R10.1: "AI calls today: 0 of 450"; on a phone "AI 0/450" (the aria-label is always full).
+  const kids = [icon('i-gauge'),
+    el('span', { class: 'budget__long', text: `AI calls today: ${lite.used} of ${lite.limit}` }),
+    el('span', { class: 'budget__short', 'aria-hidden': 'true', text: `AI ${lite.used}/${lite.limit}` })];
   if (worst !== 'ok') kids.push(el('span', { class: 'budget__w', text: worst }));
   chip.replaceChildren(...kids);
   chip.setAttribute('aria-label', `AI calls today: ${app.budget.tiers.map((t) => `${TIER_WORDS[t.tier] || t.tier} ${t.used} of ${t.limit}`).join('; ')}. Open details.`);

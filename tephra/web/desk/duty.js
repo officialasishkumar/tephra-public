@@ -1,24 +1,23 @@
-// The Duty Officer brief card at the top of the Queue: the coordinator agent that orders the AI
-// work and hands it to the specialists (tephra/agents/duty_officer.py). Compact by default
-// (summary, top three priorities, watch item, outcome, delegations); tap to open the full brief
-// and the delegation list. Rule 0 (no fallbacks): when the model failed the card says so, lists
+// The Duty Officer brief on Decide: the coordinator agent that orders the AI work and hands it to
+// the specialists (tephra/agents/duty_officer.py). One line by default (UI-REDESIGN R10.4); tap to
+// open the full brief in place (priorities with "Must do" tags, watch list, delegations,
+// deferred). Work left undone is a failure and stays visible while the brief is folded. Rule 0 (no fallbacks): when the model failed the card says so, lists
 // the work left undone and shows no brief. Model-written text (summary, reasons, watch,
 // deferral reasons) sits under an AI-written chip with the model id; labels, counts and result
 // lines are written by code and stay plain. Text goes in through textContent only.
 
 import { PATHS, api } from './api.js';
-import { byId, el, icon } from './dom.js';
+import { append, byId, el, icon } from './dom.js';
 import { hhmmz } from './format.js';
 import { app } from './state.js';
 import { aiChip } from './ui.js';
 
-const TOP = 3;
 const RESULTS_SHOWN = 2;
 
 const OUTCOME = {
   ACCEPTED: ['i-check', 'Accepted', 'ok'],
   REPAIRED: ['st-caution', 'Repaired', 'caution'],
-  STUB: ['i-code', 'NO MODEL', 'off'],
+  STUB: ['i-code', 'AI off · code', 'off'],
   MODEL_FAILED: ['st-serious', 'AI unavailable', 'serious'],
 };
 const SPECIALIST = {
@@ -67,13 +66,15 @@ function delegations(run) {
 const stateChip = (tone, shape, word, title) =>
   el('span', { class: `chip chip--d-${tone}`, title }, icon(shape, 'st'), el('span', { text: word }));
 
-function priority(run, p) {
+function priority(run, p, stub) {
   const item = run.worklist.find((i) => i.id === p.item_id);
+  // The stub's reason is code text ("NO MODEL: urgency order"): said in plain words (R12.7).
+  const why = stub && /^NO MODEL: urgency order$/.test(p.why) ? 'In urgency order (AI off)' : p.why;
   return el('li', { class: 'dcard__p' },
     el('span', { class: 'dcard__plabel' },
-      item && item.mandatory ? el('span', { class: 'dcard__must', text: 'MANDATORY' }) : null,
+      item && item.mandatory ? el('span', { class: 'dcard__must', text: 'Must do' }) : null,
       labelOf(run, p.item_id)),
-    el('span', { class: 'dcard__why dcard__ai', text: p.why }));
+    el('span', { class: `dcard__why${stub ? '' : ' dcard__ai'}`, text: why }));
 }
 
 // Failed results always show; the first two good ones show, the rest sit behind a disclosure.
@@ -109,6 +110,19 @@ function undone(run) {
     el('ul', {}, run.undispatched.map((id) => el('li', { text: labelOf(run, id) }))));
 }
 
+// The one line Decide shows (R10.4): "Duty Officer (AI off): 3 flights need a plan first ›".
+function oneLine(run, failed, stub) {
+  const who = `Duty Officer (${failed ? 'AI unavailable' : stub ? 'AI off' : 'AI'})`;
+  if (failed) return [who, 'no brief: work through the list by hand'];
+  if (run.undispatched.length) return [who, `${plural(run.undispatched.length, 'must-do item')} not handed out`];
+  const prios = run.brief ? run.brief.priorities : [];
+  if (prios.length) {
+    const planning = prios.every((p) => (run.worklist.find((i) => i.id === p.item_id) || {}).kind === 'PLAN');
+    return [who, planning ? `${plural(prios.length, 'flight')} ${prios.length === 1 ? 'needs' : 'need'} a plan first` : `${plural(prios.length, 'item')} to do first`];
+  }
+  return [who, `${plural(run.dispatches.length, 'delegation')}`];
+}
+
 function buildCard(run) {
   const [shape, word, tone] = OUTCOME[run.outcome] || ['i-info', run.outcome, 'off'];
   const dispatched = delegations(run);
@@ -116,47 +130,43 @@ function buildCard(run) {
   const failed = run.outcome === 'MODEL_FAILED';
   const b = run.brief;
   const stub = run.outcome === 'STUB' || run.llm_backend === 'stub';
+  const [who, what] = oneLine(run, failed, stub);
+  const bad = failed || run.undispatched.length > 0;
 
   const toggle = el('button', {
     type: 'button',
-    class: 'dcard__head',
+    class: `dcard__head${bad ? ' is-bad' : ''}`,
     'aria-expanded': String(expanded),
     'aria-controls': 'duty-more',
-    'aria-label': `Duty Officer brief, ${word}, ${plural(calls, 'delegation')}. ${expanded ? 'Collapse' : 'Expand'} the full brief.`,
   },
-    icon('i-agent', 'icon dcard__icon'),
-    el('span', { class: 'dcard__title', text: 'Duty Officer' }),
-    stateChip(tone, shape, word, failed ? 'The model gave no brief that passed the code checks' : 'Outcome of the last Duty Officer run'),
-    el('span', { class: 'dcard__count', text: plural(calls, 'delegation') }),
-    icon('i-chevron-down', 'icon dcard__chev'));
+    icon(bad ? 'st-serious' : 'i-agent', bad ? 'st dcard__icon' : 'icon dcard__icon'),
+    el('span', { class: 'dcard__title', id: 'duty-title' }, el('strong', { text: `${who}: ` }), el('span', { text: what })),
+    icon(expanded ? 'i-chevron-down' : 'i-chevron-right', 'icon dcard__chev'));
 
   const card = el('article', { class: `dcard dcard--${tone}${expanded ? ' is-open' : ''}`, 'aria-labelledby': 'duty-title' }, toggle);
-  toggle.querySelector('.dcard__title').id = 'duty-title';
-
-  if (failed) {
-    card.append(el('div', { class: 'dcard__fail', role: 'status' }, icon('st-serious', 'st'),
-      el('p', { text: `Duty Officer AI unavailable: ${run.validation_errors[0] || 'no reason recorded'}` })),
-    el('p', { class: 'dcard__note', text: 'No brief was made up in its place.' }));
-  } else if (b) {
-    card.append(
-      stub ? null : el('div', { class: 'dcard__ai' }, aiChip(run.model_id, run.llm_backend, { sm: true })),
-      el('p', { class: 'dcard__summary dcard__ai', text: b.summary }),
-      b.priorities.length ? el('ol', { class: 'dcard__plist', 'aria-label': 'Top priorities' }, b.priorities.slice(0, TOP).map((p) => priority(run, p))) : null,
-      b.watch.length ? el('p', { class: 'dcard__watch dcard__ai' }, el('strong', { text: 'Watch: ' }), b.watch[0], b.watch.length > 1 && !expanded ? ` (+${b.watch.length - 1} more)` : '') : null);
-  }
+  // The work left undone is a failure: never folded, even while the brief is collapsed.
   const left = undone(run);
   if (left) card.append(left);
 
   const more = el('div', { id: 'duty-more', class: 'dcard__more', hidden: !expanded });
-  if (b && !failed) {
-    if (b.priorities.length > TOP) {
-      more.append(el('h3', { class: 'dcard__h', text: 'More priorities' }),
-        el('ol', { class: 'dcard__plist', start: String(TOP + 1) }, b.priorities.slice(TOP).map((p) => priority(run, p))));
-    }
-    if (b.watch.length > 1) {
-      more.append(el('h3', { class: 'dcard__h', text: 'Also watch' }),
-        el('ul', { class: 'dcard__wlist dcard__ai' }, b.watch.slice(1).map((w) => el('li', { text: w }))));
-    }
+  append(more, [el('p', { class: 'dcard__state' }, stateChip(tone, shape, word, failed ? 'The model gave no brief that passed the code checks' : 'Outcome of the last Duty Officer run'),
+    el('span', { class: 'dcard__count', text: plural(calls, 'delegation') }))]);
+  if (failed) {
+    append(more, [el('div', { class: 'dcard__fail', role: 'status' }, icon('st-serious', 'st'),
+      el('p', { text: `Duty Officer AI unavailable: ${run.validation_errors[0] || 'no reason recorded'}` })),
+    el('p', { class: 'dcard__note', text: 'No brief was made up in its place.' })]);
+  } else if (b) {
+    const summary = stub && /^NO MODEL: \d+ delegation\(s\) made in urgency order\.$/.test(b.summary)
+      ? `AI off: code handed out ${plural(calls, 'job')} in urgency order.`
+      : b.summary;
+    append(more, [
+      stub ? null : el('div', { class: 'dcard__ai' }, aiChip(run.model_id, run.llm_backend, { sm: true })),
+      el('p', { class: `dcard__summary${stub ? '' : ' dcard__ai'}`, text: summary }),
+      b.priorities.length ? el('h3', { class: 'dcard__h', text: 'Do first' }) : null,
+      b.priorities.length ? el('ol', { class: 'dcard__plist', 'aria-label': 'Priorities' }, b.priorities.map((p) => priority(run, p, stub))) : null,
+      b.watch.length ? el('h3', { class: 'dcard__h', text: 'Watch' }) : null,
+      b.watch.length ? el('ul', { class: 'dcard__wlist dcard__ai' }, b.watch.map((w) => el('li', { text: w }))) : null,
+    ]);
   }
   more.append(el('h3', { class: 'dcard__h', text: 'Delegated to' }),
     dispatched.length
@@ -168,11 +178,13 @@ function buildCard(run) {
         el('li', {}, el('span', { class: 'dcard__plabel', text: labelOf(run, d.item_id) }), el('span', { class: 'dcard__why dcard__ai', text: d.reason })))));
   }
   const mandatory = run.worklist.filter((i) => i.mandatory).length;
-  more.append(el('p', { class: 'dcard__meta', text: `${stub ? 'NO MODEL' : run.model_id} · ${plural(run.turns, 'turn')} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} mandatory` : ''} · ${run.trigger === 'adsb' ? 'new aircraft' : 'tick'} ${hhmmz(run.finished_at)}${run.replay ? ' · recorded' : ''}` }));
+  more.append(el('p', { class: 'dcard__meta', text: `${stub ? 'AI off (NO MODEL)' : run.model_id} · ${plural(run.turns, 'turn')} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · ${run.trigger === 'adsb' ? 'new aircraft' : 'tick'} ${hhmmz(run.finished_at)}${run.replay ? ' · recorded' : ''}` }));
+  if (b && stub && b.summary) {
+    more.append(el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: b.summary })));
+  }
   card.append(more);
 
-  card.addEventListener('click', (event) => {
-    if (event.target.closest('.dcard__more') || getSelection().toString()) return;
+  toggle.addEventListener('click', () => {
     expanded = !expanded;
     renderDuty();
     byId('duty-section').querySelector('.dcard__head').focus({ preventScroll: true });

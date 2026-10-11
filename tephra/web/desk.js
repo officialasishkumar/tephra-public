@@ -9,6 +9,7 @@ import {
   actionText,
   activeNow,
   byUrgency,
+  entryShort,
   entryState,
   hhmmz,
   parseTime,
@@ -16,8 +17,8 @@ import {
   setActiveClock,
   setServerTime,
 } from './desk/format.js';
-import { SESSION_ENDED, hideLogin, initLogin, showLogin } from './desk/login.js';
-import { flashNew, renderQueue, updateTimes } from './desk/queue.js';
+import { SESSION_ENDED, hideLogin, initLogin, setPending, showLogin } from './desk/login.js';
+import { breakdownText, flashNew, renderQueue, showMostUrgent, updateTimes } from './desk/queue.js';
 import { closeSheet, onSheetClick, openSheet, sheetBusy, sheetOpenFor, showStamp, syncSheet, updateSheetTimes } from './desk/review.js';
 import { app, draftList } from './desk/state.js';
 import { toast } from './desk/toast.js';
@@ -30,7 +31,7 @@ import { draftMessages, loadMessages, onMessageEvent, openMessage, requestMessag
 import { draftPlans, loadPlans, onNetworkClick, onRecoveryEvent, renderNetwork, chosenOf } from './desk/network.js';
 import { loadNotices, onNoticeEvent, openNotice, openPaste } from './desk/notice.js';
 import { goTab, initTabs, setBadges } from './desk/tabs.js';
-import { closeBSheet, fmtUsd } from './desk/ui.js';
+import { closeBSheet } from './desk/ui.js';
 
 const TICK_MS = 15000;
 const SSE_OFFLINE_AFTER_MS = 10000;
@@ -72,14 +73,20 @@ function applyState(state) {
   byId('replay-auto').hidden = !(replay && state.replay && state.replay.auto);
   if (typeof state.disclaimer === 'string' && state.disclaimer) byId('disclaimer').textContent = state.disclaimer;
 
+  // R10.1: "AI: off · code only" or "AI: on · {label}"; the exact label stays in the title.
   const llm = state.llm || {};
   const stub = llm.backend === 'stub';
   const chip = byId('model-chip');
   chip.classList.toggle('model-chip--stub', stub);
-  chip.replaceChildren(icon(stub ? 'i-code' : 'i-model'), el('span', { text: String(llm.label || 'NO MODEL') }));
+  const label = String(llm.label || 'NO MODEL');
+  chip.replaceChildren(icon(stub ? 'i-code' : 'i-model'),
+    el('span', { class: 'model-chip__k', text: stub ? 'AI: off' : 'AI: on' }),
+    el('span', { class: 'model-chip__more', text: stub ? '· code only' : `· ${label}` }));
+  chip.setAttribute('aria-label', stub ? 'AI: off, code only (NO MODEL)' : `AI: on, ${label}`);
   chip.title = stub
-    ? "NO MODEL: official products only. Text that a model would write comes from code templates; no model wrote anything here."
-    : "Steps that call a model are marked AI-drafted. Times, ids and hashes are always written by code.";
+    ? `${label}: official products only. Text that a model would write comes from code templates; no model wrote anything here.`
+    : `${label}. Steps that call a model are marked AI-drafted. Times, ids and hashes are always written by code.`;
+  applyActiveRegions(null);
   setTitle();
   measure();
   if (before && (before.mode !== state.mode || (before.replay || {}).case_id !== (state.replay || {}).case_id)) {
@@ -104,7 +111,27 @@ async function loadState() {
 // The hazard band is not on the advisory; it comes from the cone the draft names.
 async function loadCones() {
   const res = await api(PATHS.wall);
-  if (res.ok && res.data && res.data.snapshot) applyCones(res.data.snapshot.cones);
+  if (res.ok && res.data && res.data.snapshot) {
+    applyActiveRegions(res.data.snapshot.volcanoes);
+    applyCones(res.data.snapshot.cones);
+  }
+}
+
+// Paperwork lists the regions with an active volcano first (R10.7): a region is active when an
+// active volcano's vent sits inside its box. Worked out from the same snapshot as the Wall.
+let lastVolcanoes = null;
+function applyActiveRegions(fc) {
+  if (fc) lastVolcanoes = fc;
+  else fc = lastVolcanoes;
+  const regions = (app.state && app.state.regions) || [];
+  const keys = new Set();
+  for (const f of (fc && Array.isArray(fc.features) ? fc.features : [])) {
+    const c = f && f.geometry && f.geometry.coordinates;
+    if (!f.properties || !f.properties.active || !Array.isArray(c)) continue;
+    const r = regions.find((x) => x.bbox && c[0] >= x.bbox.west && c[0] <= x.bbox.east && c[1] >= x.bbox.south && c[1] <= x.bbox.north);
+    if (r) keys.add(r.key);
+  }
+  app.activeRegions = keys;
 }
 
 function applyCones(fc) {
@@ -128,9 +155,9 @@ function setConn(conn) {
   // "Connected", not "Live": in REPLAY a green "Live" under the REPLAY bar reads as live data.
   const view = {
     live: ['st-ok', 'Connected', 'Connected to the TEPHRA server (updates stream in)'],
-    reconnecting: ['st-stale', 'Reconnecting', 'Lost the update stream; trying again'],
+    reconnecting: ['st-stale', 'Reconnecting…', 'Lost the update stream; trying again'],
     offline: ['st-serious', 'Offline', "Can't reach the TEPHRA server; decisions are off"],
-    idle: ['st-never', 'Connecting', 'Connecting to the TEPHRA server'],
+    idle: ['st-never', 'Connecting…', 'Connecting to the TEPHRA server'],
   }[conn];
   chip.dataset.conn = conn;
   chip.title = view[2];
@@ -380,7 +407,9 @@ function closeReview({ fromHistory = false, focusId = null, force = false } = {}
 }
 
 function focusCard(id) {
-  const card = id && byId('cards').querySelector(`li[data-id="${CSS.escape(id)}"]:not(.is-leaving) .card`);
+  const sel = id && CSS.escape(id);
+  const card = sel && (byId('q-next').querySelector(`.next__card[data-id="${sel}"] [data-open]`)
+    || byId('cards').querySelector(`li[data-id="${sel}"]:not(.is-leaving) .card`));
   if (card) card.focus();
   else focusQueueTitle();
 }
@@ -427,6 +456,9 @@ async function decide(kind, adv, body) {
   if (!app.me || sheetOpenFor() !== decided.id) return res;
   const sorted = draftList().sort(byUrgency);
   const next = sorted[Math.min(index, sorted.length - 1)] || null;
+  // R10.3: the sheet moves on to the next draft ("Next: RFA1530 · inside now"); no bulk approval,
+  // the next one needs its own hold or confirm.
+  if (next) announce(`Next: ${next.proxy_flight} · ${entryShort(next, activeNow())}`);
   if (isWide()) {
     if (next) selectDraft(next.id, { focus: false });
     else {
@@ -435,10 +467,13 @@ async function decide(kind, adv, body) {
     }
     afterListChange();
     focusCard(next && next.id);
+  } else if (next) {
+    if (history.state && history.state.sheet) history.replaceState({ sheet: next.id }, '');
+    selectDraft(next.id, { push: false });
   } else {
     afterListChange();
     // The sheet is still marked busy with this request; the decision is done, so close it.
-    closeReview({ focusId: next && next.id, force: true });
+    closeReview({ force: true });
   }
   return res;
 }
@@ -455,12 +490,122 @@ function toastTitle(adv) {
 // Only the entry that records this decision is shown; another entry is never put in its place.
 async function decisionToast(adv) {
   const src = String(adv.header || '').split('\n').filter((l) => l.startsWith('SRC ')).slice(0, 2);
-  const t = toast({ tone: adv.status === 'REJECTED' ? 'rejected' : 'ok', title: toastTitle(adv), lines: src, ttl: DECISION_TOAST_MS });
+  const nextUp = draftList().sort(byUrgency)[0];
+  const nextLine = nextUp ? [`Next: ${nextUp.proxy_flight} · ${entryShort(nextUp, activeNow())}`] : [];
+  const t = toast({ tone: adv.status === 'REJECTED' ? 'rejected' : 'ok', title: toastTitle(adv), lines: [...src, ...nextLine], ttl: DECISION_TOAST_MS });
   const res = await api(PATHS.audit(adv.id));
   const entries = res.ok && res.data && Array.isArray(res.data.entries) ? res.data.entries : [];
   const entry = entries.find((e) => e && e.action === adv.status);
-  if (entry) t.setLines(src, `AUDIT ${entry.action} ${entry.actor} ${hhmmz(entry.at)}`);
-  else t.setLines([...src, res.ok ? 'Audit entry not listed yet: see History under Decided while this page was open.' : "Can't load the audit line: see History under Decided while this page was open."]);
+  if (entry) t.setLines([...src, ...nextLine], `AUDIT ${entry.action} ${entry.actor} ${hhmmz(entry.at)}`);
+  else t.setLines([...src, res.ok ? 'Audit entry not listed yet: see History under Decided while this page was open.' : "Can't load the audit line: see History under Decided while this page was open.", ...nextLine]);
+}
+
+// --- deep link (R10.3): #review/<id> selects a draft, #tab/<key> switches tab ------------------
+// The hash is only a pointer: it never skips the session check, the hold or the confirm step.
+
+const REVIEW_HASH = /^#review\/(adv_[0-9a-f]{12})$/;
+const TAB_HASH = /^#tab\/(queue|ask|network|docs)$/;
+
+function readHash() {
+  const h = window.location.hash;
+  const review = REVIEW_HASH.exec(h);
+  if (review) return { review: review[1] };
+  const tab = TAB_HASH.exec(h);
+  return tab ? { tab: tab[1] } : null;
+}
+
+function clearHash() {
+  if (window.location.hash) history.replaceState(history.state, '', window.location.pathname + window.location.search);
+}
+
+// Signed out: name the flight from the public list, so the sign-in says what it leads to.
+async function pendingLogin() {
+  const r = readHash();
+  if (!r || !r.review) {
+    setPending('');
+    return;
+  }
+  setPending('Sign in to review this advisory.');
+  const res = await api(`/api/advisories?limit=200`);
+  const adv = res.ok && res.data && Array.isArray(res.data.advisories) ? res.data.advisories.find((a) => a && a.id === r.review) : null;
+  if (!app.me && readHash() && readHash().review === r.review && adv) setPending(`Sign in to review ${adv.proxy_flight}.`);
+}
+
+async function route() {
+  const r = readHash();
+  if (!r) return;
+  if (!app.me) {
+    pendingLogin();
+    return;
+  }
+  setPending('');
+  if (r.tab) {
+    clearHash();
+    goTab(r.tab, { focus: true });
+    return;
+  }
+  if (!app.listLoaded) return; // enterDesk routes again once the list is in
+  const id = r.review;
+  clearHash();
+  goTab('queue', { focus: false, quiet: true });
+  if (app.drafts.has(id)) {
+    selectDraft(id);
+    return;
+  }
+  // Not a draft any more, or gone: say so and show the Decide list with the next decision.
+  const closed = app.closed.get(id);
+  let gone = false;
+  if (!closed) {
+    const res = await api(PATHS.audit(id));
+    gone = res.ok && res.data && Array.isArray(res.data.entries) && res.data.entries.length === 0;
+  }
+  toast({ tone: 'caution', title: gone ? 'This advisory no longer exists.' : 'This advisory is no longer a draft.' });
+  showMostUrgent();
+  const top = draftList().sort(byUrgency)[0];
+  if (top && isWide()) selectDraft(top.id, { focus: false });
+  focusCard(top && top.id);
+}
+
+window.addEventListener('hashchange', () => {
+  if (readHash()) route();
+});
+
+// --- the ⋯ menu on Decide (R10.4): Paste a notice, Refresh ------------------------------------
+
+function initMoreMenu() {
+  const button = byId('q-more-btn');
+  const menu = byId('q-more');
+  const close = (focus = false) => {
+    menu.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+    if (focus) button.focus();
+  };
+  button.addEventListener('click', () => {
+    if (menu.hidden) {
+      menu.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      menu.querySelector('button').focus();
+    } else close();
+  });
+  menu.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      close(true);
+    }
+    const items = [...menu.querySelectorAll('button')];
+    const i = items.indexOf(document.activeElement);
+    const dir = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
+    if (dir && i >= 0) {
+      event.preventDefault();
+      items[(i + dir + items.length) % items.length].focus();
+    }
+  });
+  menu.addEventListener('click', (event) => {
+    if (event.target.closest('button')) close();
+  });
+  document.addEventListener('click', (event) => {
+    if (!menu.hidden && !menu.contains(event.target) && !button.contains(event.target)) close();
+  });
 }
 
 // --- session ---------------------------------------------------------------------------------
@@ -482,6 +627,7 @@ function enterDesk(session, { focus = true } = {}) {
   loadDrafts().then(() => {
     if (resumeId && findAdvisory(resumeId)) selectDraft(resumeId);
     resumeId = null;
+    route();
   });
   loadCones();
   loadExtras();
@@ -522,6 +668,7 @@ function leaveDesk() {
   clearHandover();
   app.notices = [];
   byId('cards').replaceChildren();
+  byId('q-next').replaceChildren();
   for (const id of ['fail-section', 'msg-section', 'plan-section', 'notice-section']) byId(id).replaceChildren();
   byId('tabbar').hidden = true;
   for (const t of ['ask', 'network', 'docs']) byId(`panel-${t}`).hidden = true;
@@ -617,16 +764,20 @@ function loadAll() {
   loadExtras();
 }
 
+// R2.7: the Decide badge counts advisories, messages and open problems together, and says so.
 function updateBadges() {
   setBadges({
     queue: app.drafts.size + openFailures().length + draftMessages().length,
     network: draftPlans().length,
     docs: docsToSign().length,
-  });
+  }, { queue: breakdownText() });
+  // Messages and problems change the Next decision's breakdown line too.
+  if (app.me && app.listLoaded) renderQueue();
   setTitle();
 }
 
-// The Queue lists a recovery plan that waits for a decision; the plan itself is on Network.
+// Decide links to an airport plan that waits for a decision; the plan itself is on Airports
+// (R10.4): "Airport plan waiting: 3 airports closed, cancel 133 ›".
 function afterPlans() {
   const host = byId('plan-section');
   const list = draftPlans();
@@ -635,12 +786,14 @@ function afterPlans() {
     const p = list[0];
     const sc = chosenOf(p);
     const t = sc && sc.totals;
-    host.replaceChildren(
-      el('div', { class: 'shead' }, el('h2', { class: 'shead__title', id: 'plan-title', text: 'Recovery plan to approve' }), el('span', { class: 'shead__count', text: String(list.length) })),
-      el('button', { type: 'button', class: 'pcard', 'data-goto': 'network' },
-        el('span', { class: 'pcard__row' }, icon('i-network'), el('span', { class: 'pcard__t', text: p.closures.map((c) => c.icao).join(', ') ? `${p.closures.map((c) => c.icao).join(', ')} closed` : 'Network plan' }), icon('i-chevron-right', 'icon pcard__go')),
-        t ? el('span', { class: 'pcard__s', text: `${t.cancelled_flights} cancelled · ${t.delayed_flights} delayed · ${t.pax_affected.toLocaleString('en-US')} passengers · ${fmtUsd(t.total_usd)}` }) : el('span', { class: 'pcard__s', text: 'No recommendation: open it to choose by hand' }),
-        el('span', { class: 'pcard__f', text: 'Open the Network tab to compare scenarios and decide.' })));
+    const n = (p.closures || []).length;
+    const bits = [`${n} airport${n === 1 ? '' : 's'} closed`];
+    if (t) bits.push(`cancel ${t.cancelled_flights}`);
+    else bits.push('no plan found');
+    host.replaceChildren(el('button', { type: 'button', class: 'qlink__btn', 'data-goto': 'network' },
+      icon('i-network', 'icon qlink__ic'),
+      el('span', { class: 'qlink__t' }, el('strong', { id: 'plan-title', text: 'Airport plan waiting: ' }), el('span', { text: bits.join(', ') })),
+      icon('i-chevron-right', 'icon qlink__go')));
   } else host.replaceChildren();
   updateBadges();
 }
@@ -671,6 +824,7 @@ function wire() {
     loadState();
   });
   initAccount({ onSignOut: signOut, onWakeChange: updateWake });
+  initMoreMenu();
 
   document.addEventListener('click', (event) => {
     if (onSheetClick(event)) return;
@@ -682,6 +836,11 @@ function wire() {
       else if (extra.dataset.notice) openNotice(extra.dataset.notice);
       else if (extra.dataset.paste) openPaste();
       else if (extra.dataset.goto) goTab(extra.dataset.goto, { focus: true });
+      return;
+    }
+    if (event.target.closest('[data-newest]')) {
+      showMostUrgent();
+      focusCard(draftList().sort(byUrgency)[0] && draftList().sort(byUrgency)[0].id);
       return;
     }
     const open = event.target.closest('[data-open]');
@@ -740,6 +899,7 @@ async function boot() {
   else if (res.status === 503 && res.data && res.data.error === 'desk_disabled') showLogin('', { disabled: true });
   else if (res.status === 0) showLogin("You're offline. Reconnect to sign in.");
   else showLogin();
+  if (!app.me) route();
 }
 
 boot();

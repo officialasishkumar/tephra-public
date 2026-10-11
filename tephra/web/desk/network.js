@@ -1,21 +1,57 @@
-// Network recovery board (WP4): the airports the ash closes, the day's flights re-planned by a
-// CP-SAT solver in three scenarios (code), and the AI's recommendation with its rationale. The
-// dispatcher approves or rejects the plan; approval can hand it to the message drafter.
-// The airline and its schedule are fictional (Ring of Fire Air, synthetic).
+// Airports (UI-REDESIGN R10.6, was Network recovery, WP4): the airports the ash closes, the day's
+// flights re-planned by a CP-SAT solver in three scenarios (code), and the recommendation with its
+// rationale. One decision card first (what closes, what the plan does, what it costs, approve or
+// reject inside the card); closed airports, the other plans, why, flight by flight and the numbers
+// sit in disclosures under it. Re-plan now is in the ⋯ menu. The airline and its schedule are
+// fictional (Ring of Fire Air, synthetic).
 
 import { PATHS, api, errorCode, isUnavailable, problems, unavailableReason } from './api.js';
 import { announce, byId, el, icon } from './dom.js';
-import { dayMonthHhmm, deskName, hhmmz } from './format.js';
+import { activeNow, dayMonthHhmm, deskName, hhmmz, secs } from './format.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
-import { aiChip, codeChip, emptyPanel, fmtUsd, openBSheet, sectionHead, unavailableCard } from './ui.js';
+import { aiChip, fmtUsd, openBSheet, unavailableCard } from './ui.js';
 
 const STATUS = {
-  DRAFT: ['i-clock', 'Awaiting your decision', 'neutral'],
+  DRAFT: ['i-clock', 'Waiting for your decision', 'neutral'],
   APPROVED: ['i-approved', 'Approved', 'ok'],
   REJECTED: ['i-rejected', 'Rejected', 'serious'],
   SUPERSEDED: ['i-superseded', 'Replaced by a newer plan', 'off'],
   AI_UNAVAILABLE: ['st-serious', 'AI unavailable', 'serious'],
+};
+
+// A plan that found no plan (R2.6): the solver's status in plain words, never "AI unavailable".
+// The raw string stays under Technical detail. Null when the failure is not a solver result.
+export function planProblem(plan) {
+  if (!plan) return null;
+  const raw = [plan.unavailable_reason, ...(plan.validation_errors || [])].filter(Boolean).join('; ');
+  const fromText = /NO FEASIBLE PLAN[^(]*\(([A-Z_]+)\)|HAS NO PLAN \(([A-Z_]+)\)/.exec(raw);
+  const noPlan = (plan.scenarios || []).find((sc) => sc.status === 'NO_PLAN');
+  const status = fromText ? fromText[1] || fromText[2] : plan.status === 'AI_UNAVAILABLE' && noPlan ? noPlan.solver_status : null;
+  if (!status) return null;
+  return { status, words: `${solverWords(status)}. A dispatcher must plan the network by hand.`, raw };
+}
+
+function solverWords(status) {
+  if (status === 'INFEASIBLE') return 'No plan found: no plan fits the closures';
+  if (status === 'UNKNOWN') return 'No plan found: the solver did not finish in time';
+  return `No plan found (solver: ${status})`;
+}
+
+// "Best plan found (43 s)" / "solver gave no answer after 43 s" (R12.6).
+function solveLine(sc) {
+  const t = secs(sc.solve_ms);
+  if (sc.solver_status === 'OPTIMAL') return `Best plan found (${t})`;
+  if (sc.solver_status === 'FEASIBLE') return `Plan found, not proven best (${t})`;
+  if (sc.solver_status === 'UNKNOWN') return `solver gave no answer after ${t}`;
+  if (sc.solver_status === 'INFEASIBLE') return `no plan fits the closures (${t})`;
+  return `solved in ${t}`;
+}
+
+// "CLOSURE AS FORECAST" -> "Closure as forecast".
+const scenarioName = (label) => {
+  const t = String(label || '').toLowerCase();
+  return t.charAt(0).toUpperCase() + t.slice(1);
 };
 const KIND = {
   CANCEL: ['i-x', 'Cancel'],
@@ -27,13 +63,19 @@ const KIND = {
 let viewing = null; // scenario id being looked at
 let running = false;
 let runError = null; // { reason } | { text }
+let checkedAt = null; // active-clock ms of the last good list
+let menuOpen = false;
+const opened = new Set(); // disclosures kept open across re-renders
 
 export const draftPlans = () => app.plans.filter((p) => p.status === 'DRAFT');
 export const latestPlan = () => app.plans[0] || null;
 
 export async function loadPlans() {
   const res = await api(PATHS.recovery);
-  if (res.ok && res.data && Array.isArray(res.data.plans)) app.plans = res.data.plans.filter((p) => p && p.id).sort(byNewest);
+  if (res.ok && res.data && Array.isArray(res.data.plans)) {
+    app.plans = res.data.plans.filter((p) => p && p.id).sort(byNewest);
+    checkedAt = activeNow();
+  }
   if (res.status !== 0) app.plansLoaded = true;
   renderNetwork();
   app.hub.afterPlans();
@@ -53,48 +95,47 @@ export function onRecoveryEvent(p) {
   if (!known || latestPlan().id !== wasTop) viewing = null;
   renderNetwork();
   app.hub.afterPlans();
-  if (!known && p.status === 'DRAFT') announce('A new recovery plan is waiting on the Network tab.');
+  if (!known && p.status === 'DRAFT') announce('A new airport plan is waiting on the Airports tab.');
 }
 
 // --- pieces ----------------------------------------------------------------------------------
-
-function statusChip(p) {
-  const [shape, word, tone] = STATUS[p.status] || STATUS.DRAFT;
-  return el('span', { class: `adv-status adv-status--${tone}` }, icon(shape, 'st'), el('span', { text: word }));
-}
 
 function window_(c) {
   const end = c.open_ended ? `${dayMonthHhmm(c.end)} (planning horizon)` : dayMonthHhmm(c.end);
   return `${dayMonthHhmm(c.start)} to ${end}`;
 }
 
-function closuresBlock(p) {
+function closuresList(p) {
   const list = p.closures || [];
-  const out = [sectionHead('Closed airports', { count: list.length, id: 'net-closed', sub: 'Closed while the ash area comes within the closure radius. Written by code from the official products.' })];
-  if (!list.length) {
-    out.push(el('p', { class: 'note', text: 'No airport of the RFA network is closed.' }));
-    return el('section', { class: 'nsec', 'aria-labelledby': 'net-closed' }, ...out);
-  }
-  out.push(el('ul', { class: 'clos' }, list.map((c) =>
-    el('li', { class: 'clo' },
-      el('span', { class: 'clo__icao' }, icon('i-airport', 'st'), el('span', { text: c.icao })),
-      el('span', { class: 'clo__win' }, el('span', { text: window_(c) }), c.open_ended ? el('span', { class: 'chip chip--caution chip--sm' }, icon('st-caution', 'st'), el('span', { text: 'no end published' })) : null),
-      // `summary` is one line written by code; the full reason and every source id stay for audit.
-      c.summary ? el('p', { class: 'clo__sum', text: c.summary }) : null,
-      el('details', { class: 'clo__more' },
-        el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: 'Full reason and sources' })),
-        el('p', { class: 'clo__why', text: c.reason }),
-        c.source_ids && c.source_ids.length ? el('p', { class: 'clo__src mono', text: c.source_ids.join(' · ') }) : null)))));
+  if (!list.length) return [el('p', { class: 'note', text: 'No airport of the RFA network is closed.' })];
+  return [el('p', { class: 'fine', text: 'Closed while the ash area comes within the closure radius. Written by code from the official products.' }),
+    el('ul', { class: 'clos' }, list.map((c) =>
+      el('li', { class: 'clo' },
+        el('p', { class: 'clo__line' },
+          el('span', { class: 'clo__icao' }, icon('i-airport', 'st'), el('span', { text: c.icao })),
+          el('span', { class: 'clo__text', text: `${window_(c)}${c.summary ? ` · ${c.summary.replace(/^Ash /, 'ash ')}` : ''}` }),
+          c.open_ended ? el('span', { class: 'chip chip--caution chip--sm' }, icon('st-caution', 'st'), el('span', { text: 'no end published' })) : null),
+        // The full reason and every source id stay for audit.
+        el('details', { class: 'clo__more' },
+          el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: 'Full reason and sources' })),
+          el('p', { class: 'clo__why', text: c.reason }),
+          c.source_ids && c.source_ids.length ? el('p', { class: 'clo__src mono', text: c.source_ids.join(' · ') }) : null))))];
+}
+
+// "Numbers" (R10.6): a two-column table; the flights in the air and at risk are a wrapped list.
+function numbersTable(p) {
   const d = p.disruption;
-  if (d) {
-    out.push(el('dl', { class: 'dstats' },
-      stat('Flights blocked', d.blocked_flights.length),
-      stat('Passengers blocked', d.blocked_pax.toLocaleString('en-US')),
-      stat('Free to change', d.free_flights),
-      stat('Frozen', d.frozen_flights),
-      d.airborne_at_risk.length ? stat('Airborne at risk', d.airborne_at_risk.join(', ')) : null));
-  }
-  return el('section', { class: 'nsec', 'aria-labelledby': 'net-closed' }, ...out);
+  if (!d) return [el('p', { class: 'note', text: 'No disruption figures on this plan.' })];
+  const row = (k, v) => el('tr', {}, el('th', { scope: 'row', text: k }), el('td', {}, v));
+  const air = d.airborne_at_risk || [];
+  return [el('table', { class: 'ntable' },
+    el('caption', { class: 'sr-only', text: 'Disruption numbers' }),
+    el('tbody', {},
+      row('Flights blocked', String(d.blocked_flights.length)),
+      row('Passengers blocked', d.blocked_pax.toLocaleString('en-US')),
+      row('Can still change', String(d.free_flights)),
+      row("Can't change (already departed)", String(d.frozen_flights)),
+      row('In the air and at risk', air.length ? el('span', { class: 'ntable__list', text: air.join(', ') }) : 'none listed')))];
 }
 
 const stat = (k, v) => el('div', { class: 'dstat' }, el('dt', { text: k }), el('dd', { text: String(v) }));
@@ -118,46 +159,58 @@ function scenarioCard(p, s, maxUsd) {
         stat('Cancelled', t.cancelled_flights), stat('Delayed', t.delayed_flights), stat('Swapped', t.swapped_flights),
         stat('Delay', `${t.delay_min} min`), stat('Passengers', t.pax_affected.toLocaleString('en-US')), stat('Ferry legs', t.ferries)));
   } else {
-    body.push(el('p', { class: 'sc__none' }, icon('st-serious', 'st'), el('span', { text: `No plan found (solver ${s.solver_status})` })));
+    body.push(el('p', { class: 'sc__none' }, icon('st-serious', 'st'), el('span', { text: solverWords(s.solver_status) })));
   }
   const btn = el('button', {
     type: 'button', class: `sc ${on ? 'is-on' : ''} ${chosen ? 'is-chosen' : ''}`.trim(), 'data-scenario': s.id, 'aria-pressed': String(on),
-    'aria-label': `${s.label}${chosen ? ', recommended' : ''}${t ? `, ${fmtUsd(t.total_usd)}` : ', no plan'}. Show its flights`,
+    'aria-label': `${scenarioName(s.label)}${chosen ? ', recommended' : ''}${t ? `, ${fmtUsd(t.total_usd)}` : ', no plan'}. Show its flights`,
   },
-  el('span', { class: 'sc__head' }, el('span', { class: 'sc__label', text: s.label }),
+  el('span', { class: 'sc__head' }, el('span', { class: 'sc__label', text: scenarioName(s.label) }),
     chosen ? el('span', { class: 'sc__rec' }, icon('i-sparkle', 'st'), el('span', { text: 'Recommended' })) : null),
   ...body,
-  el('span', { class: 'sc__fine', text: `solved in ${s.solve_ms} ms · ${s.solver_status}` }));
+  el('span', { class: 'sc__fine', text: solveLine(s) }));
   return el('li', { class: 'sc__item' }, btn);
 }
 
-function scenariosBlock(p) {
+function scenariosList(p) {
   const list = p.scenarios || [];
-  const max = Math.max(0, ...list.map((s) => (s.totals ? s.totals.total_usd : 0)));
-  return el('section', { class: 'nsec', 'aria-labelledby': 'net-sc' },
-    sectionHead('Scenarios compared', { id: 'net-sc', count: list.length, sub: 'The same day re-planned if the closure lasts as forecast, or longer. Solved by code; costs use the operator\'s illustrative weights.' }),
-    list.length ? el('ul', { class: 'scs' }, list.map((s) => scenarioCard(p, s, max))) : el('p', { class: 'note', text: 'No scenario was solved.' }),
-    el('p', { class: 'fine', text: 'Tap a scenario to see its flights below.' }));
+  const max = Math.max(0, ...list.map((sc) => (sc.totals ? sc.totals.total_usd : 0)));
+  return [
+    el('p', { class: 'fine', text: "The same day re-planned if the closure lasts as forecast, or longer. Solved by code; costs use the operator's illustrative weights." }),
+    list.length ? el('ul', { class: 'scs' }, list.map((sc) => scenarioCard(p, sc, max))) : el('p', { class: 'note', text: 'No scenario was solved.' }),
+    list.length ? el('p', { class: 'fine', text: 'Tap a scenario to see its flights under Flight by flight.' }) : null,
+  ];
 }
 
-function rationaleBlock(p) {
+// The stub's rationale is code text with a raw dollar figure: said in plain words (R12.7), raw
+// under Technical detail. A model's rationale is shown as written, under its AI chip.
+const STUB_WHY = /^NO MODEL: the plan for the published closure cancels (\d+) flights and delays (\d+), affects (\d+) passengers and costs (\d+) USD\.$/;
+
+function whyContent(p) {
   if (p.status === 'AI_UNAVAILABLE' || (!p.rationale && p.outcome === 'MODEL_FAILED')) {
-    return el('section', { class: 'nsec' },
-      sectionHead('Recommendation', { id: 'net-why' }),
-      unavailableCard((p.unavailable_reason || 'no reason given').replace(/^AI UNAVAILABLE:?\s*/i, ''), { instead: 'The solver\'s scenarios stand, but no recommendation was made. Choose by hand.' }));
+    const problem = planProblem(p);
+    if (problem) return [el('p', { text: problem.words }), techNode(problem.raw)];
+    return [unavailableCard((p.unavailable_reason || 'no reason given').replace(/^AI UNAVAILABLE:?\s*/i, ''), { instead: "The solver's plans stand, but no recommendation was made. Choose by hand." })];
   }
+  const m = STUB_WHY.exec(p.rationale || '');
+  const text = m
+    ? `AI off: code picked the plan for the closure as published. It cancels ${Number(m[1]).toLocaleString('en-US')} flights and delays ${Number(m[2]).toLocaleString('en-US')}, affects ${Number(m[3]).toLocaleString('en-US')} passengers and costs ${fmtUsd(Number(m[4]))}.`
+    : p.rationale || '';
   const card = el('div', { class: 'why' },
     el('p', { class: 'why__meta' }, aiChip(p.model_id, p.llm_backend, { sm: true }),
       p.outcome === 'REPAIRED' ? el('span', { class: 'chip chip--sm', text: 'repaired once' }) : null,
       el('span', { class: 'chip chip--sm', text: 'numbers checked by code' })),
-    el('p', { class: 'why__text', text: p.rationale || '' }));
+    el('p', { class: 'why__text', text }));
   if (p.risks && p.risks.length) card.append(el('p', { class: 'caps', text: 'Risks' }), el('ul', { class: 'plist' }, p.risks.map((r) => el('li', { text: r }))));
   if (p.validation_errors && p.validation_errors.length) {
     card.append(el('details', { class: 'disclose' }, el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: `Checks that failed (${p.validation_errors.length})` })),
       el('ul', { class: 'plist' }, p.validation_errors.map((r) => el('li', { text: r })))));
   }
-  return el('section', { class: 'nsec', 'aria-labelledby': 'net-why' }, sectionHead('Why this scenario', { id: 'net-why' }), card);
+  if (m) card.append(techNode(p.rationale));
+  return [card];
 }
+
+const techNode = (raw) => (raw ? el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: raw })) : null);
 
 // A flight number repeats every day, so a flight is shown by its key: number and service date.
 const flightLabel = (a) => a.flight_key || a.flight_no;
@@ -171,86 +224,145 @@ function actionRow(a) {
     el('td', { class: 'ar__p', text: String(a.pax_booked) }));
 }
 
-function actionsBlock(p) {
-  const s = (p.scenarios || []).find((x) => x.id === (viewing || p.chosen_scenario_id)) || chosenOf(p);
-  if (!s) return null;
-  const acts = [...(s.actions || [])].sort((a, b) => String(a.std).localeCompare(String(b.std)) || String(a.flight_key).localeCompare(String(b.flight_key)));
-  const sec = el('section', { class: 'nsec', 'aria-labelledby': 'net-acts' },
-    sectionHead('Flight by flight', { id: 'net-acts', count: acts.length, sub: `${s.label}${s.id === p.chosen_scenario_id ? ' (recommended)' : ''}. Every other free flight keeps its schedule.` }));
+function flightsContent(p) {
+  const sc = (p.scenarios || []).find((x) => x.id === (viewing || p.chosen_scenario_id)) || chosenOf(p);
+  if (!sc) return [el('p', { class: 'note', text: 'No plan was found, so no flight changes are listed.' })];
+  const acts = [...(sc.actions || [])].sort((a, b) => String(a.std).localeCompare(String(b.std)) || String(a.flight_key).localeCompare(String(b.flight_key)));
+  const out = [el('p', { class: 'fine', text: `${scenarioName(sc.label)}${sc.id === p.chosen_scenario_id ? ' (recommended)' : ''}. Every other free flight keeps its schedule.` })];
   if (!acts.length) {
-    sec.append(el('p', { class: 'note', text: s.totals ? 'No flight changes in this scenario.' : 'No plan was found for this scenario.' }));
-    return sec;
+    out.push(el('p', { class: 'note', text: sc.totals ? 'No flight changes in this scenario.' : 'No plan was found for this scenario.' }));
+    return out;
   }
-  sec.append(el('div', { class: 'atable-wrap' }, el('table', { class: 'atable' },
-    el('caption', { class: 'sr-only', text: `Flights changed in ${s.label}` }),
+  out.push(el('div', { class: 'atable-wrap' }, el('table', { class: 'atable' },
+    el('caption', { class: 'sr-only', text: `Flights changed in ${scenarioName(sc.label)}` }),
     el('thead', {}, el('tr', {}, el('th', { scope: 'col', text: 'Flight' }), el('th', { scope: 'col', text: 'Action' }), el('th', { scope: 'col', class: 'ar__p', text: 'Pax' }))),
     el('tbody', {}, acts.map(actionRow)))));
-  if (s.ferry_legs && s.ferry_legs.length) {
-    sec.append(el('p', { class: 'caps', text: 'Ferry legs (no passengers)' }),
-      el('ul', { class: 'plist' }, s.ferry_legs.map((f) => el('li', { text: `${f.tail} ${f.origin} → ${f.dest}, departs ${dayMonthHhmm(f.dep)}, ${f.block_min} min` }))));
+  if (sc.ferry_legs && sc.ferry_legs.length) {
+    out.push(el('p', { class: 'caps', text: 'Ferry legs (no passengers)' }),
+      el('ul', { class: 'plist' }, sc.ferry_legs.map((f) => el('li', { text: `${f.tail} ${f.origin} → ${f.dest}, departs ${dayMonthHhmm(f.dep)}, ${f.block_min} min` }))));
   }
-  return sec;
+  return out;
 }
 
-function decisionBar(p) {
+const flightCount = (p) => {
+  const sc = (p.scenarios || []).find((x) => x.id === (viewing || p.chosen_scenario_id)) || chosenOf(p);
+  return sc ? (sc.actions || []).length : 0;
+};
+
+// The decision, inside the card (R10.6): never a sticky bar over the numbers.
+function decisionRow(p, canApprove) {
   if (p.status === 'DRAFT') {
-    const t = chosenOf(p) && chosenOf(p).totals;
-    return el('div', { class: 'ndec', role: 'group', 'aria-label': 'Decide the recovery plan' },
-      el('p', { class: 'ndec__what' }, el('strong', { text: 'Recovery plan awaiting you' }),
-        t ? el('span', { text: ` · ${t.cancelled_flights} cancel · ${t.delayed_flights} delay · ${fmtUsd(t.total_usd)}` }) : null),
-      el('div', { class: 'secondary' },
-        el('button', { type: 'button', class: 'btn btn--approve', 'data-plan-approve': p.id, disabled: app.offline }, icon('i-check'), el('span', { text: 'Approve plan…' })),
-        el('button', { type: 'button', class: 'btn btn--reject', 'data-plan-reject': p.id, disabled: app.offline }, icon('i-x'), el('span', { text: 'Reject…' }))));
+    return el('div', { class: 'plan__dec', role: 'group', 'aria-label': 'Decide the airport plan' },
+      canApprove ? el('button', { type: 'button', class: 'btn btn--cta', 'data-plan-approve': p.id, disabled: app.offline }, icon('i-check'), el('span', { text: 'Approve plan…' })) : null,
+      el('button', { type: 'button', class: 'btn btn--reject', 'data-plan-reject': p.id, disabled: app.offline }, icon('i-x'), el('span', { text: 'Reject…' })));
   }
   if (p.status === 'APPROVED') {
-    return el('div', { class: 'ndec ndec--ok', role: 'group' },
-      el('p', { class: 'ndec__what' }, icon('i-approved', 'st'), el('strong', { text: `Approved by ${deskName(p.decided_by) || 'a dispatcher'} at ${hhmmz(p.decided_at)}` }), el('span', { text: ' · queued, not sent anywhere' })),
-      el('button', { type: 'button', class: 'btn btn--neutral', 'data-plan-msgs': p.id, disabled: app.offline }, icon('i-sparkle'), el('span', { text: 'Draft crew and passenger messages' })));
+    return el('div', { class: 'plan__dec plan__dec--done', role: 'group' },
+      el('p', { class: 'plan__done' }, icon('i-approved', 'st'), el('strong', { text: `Approved by ${deskName(p.decided_by) || 'a dispatcher'} at ${hhmmz(p.decided_at)}` }), el('span', { text: ' · queued, not sent anywhere' })),
+      el('button', { type: 'button', class: 'btn btn--cta', 'data-plan-msgs': p.id, disabled: app.offline }, icon('i-sparkle'), el('span', { text: 'Draft crew and passenger messages' })));
   }
   if (p.status === 'REJECTED') {
-    return el('div', { class: 'ndec ndec--no', role: 'group' }, el('p', { class: 'ndec__what' }, icon('i-rejected', 'st'),
+    return el('div', { class: 'plan__dec plan__dec--done', role: 'group' }, el('p', { class: 'plan__done' }, icon('i-rejected', 'st'),
       el('strong', { text: `Rejected by ${deskName(p.decided_by) || 'a dispatcher'} at ${hhmmz(p.decided_at)}` }), p.reject_reason ? el('span', { text: `: ${p.reject_reason}` }) : null));
   }
   return null;
 }
 
+function disclosure(key, title, kids, { open = false } = {}) {
+  const d = el('details', { class: 'nsec ndisc', 'data-key': key, open: opened.has(key) || open },
+    el('summary', { class: 'ndisc__sum' }, el('span', { text: title }), icon('i-chevron-right', 'icon disclosure')),
+    el('div', { class: 'ndisc__body' }, kids));
+  d.addEventListener('toggle', () => {
+    if (d.open) opened.add(key);
+    else opened.delete(key);
+  });
+  return d;
+}
+
 // --- the panel ---------------------------------------------------------------------------------
+
+function moreMenu(p) {
+  const btn = el('button', { type: 'button', id: 'net-more-btn', class: 'iconbtn', 'aria-label': 'More actions', title: 'More actions', 'aria-haspopup': 'true', 'aria-expanded': String(menuOpen), 'aria-controls': 'net-more', 'data-netmenu': '1' }, icon('i-more'));
+  const menu = el('div', { id: 'net-more', class: 'menu qmore__menu', hidden: !menuOpen },
+    el('button', { type: 'button', class: 'menu__item', 'data-run': '1', disabled: running || app.offline, 'aria-busy': running ? 'true' : null },
+      running ? el('span', { class: 'spinner', 'aria-hidden': 'true' }) : icon('i-refresh'), el('span', { text: running ? 'Re-planning…' : p ? 'Re-plan now' : 'Plan now' })));
+  return el('div', { class: 'qmore' }, btn, menu);
+}
 
 export function renderNetwork() {
   const panel = byId('panel-network');
   if (!panel) return;
   const p = latestPlan();
-  const run = el('button', { type: 'button', class: `btn ${p ? '' : 'btn--neutral'}`.trim(), 'data-run': '1', disabled: running || app.offline, 'aria-busy': running ? 'true' : null },
-    running ? el('span', { class: 'spinner', 'aria-hidden': 'true' }) : icon('i-refresh'), el('span', { text: running ? 'Planning…' : p ? 'Run recovery again' : 'Run recovery' }));
-  const head = el('div', { class: 'phead' },
-    el('h1', { id: 'net-title', class: 'phead__title', tabindex: '-1', text: 'Network recovery' }),
-    el('p', { class: 'phead__sub', text: 'Closed airports, the day re-planned, your decision.' }),
-    el('p', { class: 'phead__tags' },
-      el('span', { class: 'chip chip--fict', title: 'Ring of Fire Air and its schedule are made up' }, icon('i-info', 'st'), el('span', { text: 'Fictional airline RFA · synthetic schedule' })),
-      p && p.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null),
-    run);
+  const keep = panel.contains(document.activeElement) ? (document.activeElement.dataset.run ? 'run' : document.activeElement.id) : '';
+  const head = el('div', { class: 'phead phead--row' },
+    el('h1', { id: 'net-title', class: 'phead__title', tabindex: '-1', text: 'Airport plan' }),
+    moreMenu(p));
   const parts = [head];
+  if (running) {
+    const icaos = p ? (p.closures || []).map((c) => c.icao).join(', ') : '';
+    parts.push(el('p', { class: 'plan__busy', role: 'status', 'aria-busy': 'true' }, el('span', { class: 'spinner', 'aria-hidden': 'true' }), el('span', { text: icaos ? `Re-planning for ${icaos}…` : 'Re-planning…' })));
+  }
   if (runError) {
     parts.push(runError.reason ? unavailableCard(runError.reason, { instead: 'No plan was made. Re-plan the day by hand.', onRetry: runRecovery }) : el('div', { class: 'panel panel--serious', role: 'alert' }, el('p', { class: 'panel__title' }, icon('st-serious', 'st'), el('span', { text: runError.text }))));
   }
   if (!p) {
-    parts.push(app.plansLoaded ? emptyPanel('No recovery plan yet', 'A plan appears when the ash closes an airport of the RFA network. You can also run one now.') : el('p', { class: 'boot' }, el('span', { class: 'spinner', 'aria-hidden': 'true' }), el('span', { text: 'Loading…' })));
+    parts.push(app.plansLoaded
+      ? el('div', { class: 'plan plan--empty' },
+        el('p', { class: 'plan__lead', text: 'No RFA airport is closed by ash right now.' }),
+        el('p', { class: 'plan__foot', text: `Last checked ${checkedAt === null ? '–' : hhmmz(checkedAt)}. A plan appears here when the ash closes an airport of the RFA network; you can also choose Plan now in the ⋯ menu.` }),
+        el('p', { class: 'plan__tags' }, el('span', { class: 'chip chip--fict', title: 'Ring of Fire Air and its schedule are made up' }, icon('i-info', 'st'), el('span', { text: 'Fictional airline RFA · synthetic schedule' }))))
+      : el('p', { class: 'boot' }, el('span', { class: 'spinner', 'aria-hidden': 'true' }), el('span', { text: 'Loading…' })));
     panel.replaceChildren(...parts);
+    restoreFocus(panel, keep);
     return;
   }
-  parts.push(el('div', { class: 'nstat' }, statusChip(p), el('span', { class: 'nstat__t', text: `Planned ${hhmmz(p.created_at)} · v${p.version}` }), p.model_id ? codeChip('Solver: code') : null));
-  parts.push(closuresBlock(p), scenariosBlock(p));
-  const why = rationaleBlock(p);
-  if (why) parts.push(why);
-  const acts = actionsBlock(p);
-  if (acts) parts.push(acts);
-  if (app.plans.length > 1) {
-    parts.push(el('details', { class: 'disclose' }, el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: `Earlier plans (${app.plans.length - 1})` })),
-      el('ul', { class: 'plist' }, app.plans.slice(1).map((x) => el('li', { text: `${hhmmz(x.created_at)} · ${(STATUS[x.status] || [0, x.status])[1]}${chosenOf(x) && chosenOf(x).totals ? ` · ${fmtUsd(chosenOf(x).totals.total_usd)}` : ''}` })))));
+  const closures = p.closures || [];
+  const chosen = chosenOf(p);
+  const t = chosen && chosen.totals;
+  const problem = planProblem(p);
+  const [shape, word, tone] = problem ? ['st-serious', 'No plan found', 'serious'] : STATUS[p.status] || STATUS.DRAFT;
+  const n = closures.length;
+  const card = el('section', { class: `plan plan--${tone}`, 'aria-labelledby': 'plan-eyebrow' },
+    el('p', { class: 'plan__eyebrow', id: 'plan-eyebrow' }, el('span', { text: 'Airport plan' }), el('span', { class: `plan__status plan__status--${tone}` }, icon(shape, 'st'), el('span', { text: word }))),
+    el('p', { class: 'plan__lead', text: n ? `Ash closes ${n} RFA airport${n === 1 ? '' : 's'}: ${closures.map((c) => c.icao).join(', ')}.` : 'No RFA airport is closed by ash in this plan.' }));
+  if (problem) {
+    card.append(el('p', { class: 'plan__problem' }, icon('st-serious', 'st'), el('span', { text: problem.words })), techNode(problem.raw));
+  } else if (t) {
+    card.append(
+      el('p', { class: 'plan__line', text: `Plan: cancel ${t.cancelled_flights} flight${t.cancelled_flights === 1 ? '' : 's'}, delay ${t.delayed_flights}${t.swapped_flights ? `, swap ${t.swapped_flights}` : ''} · ${t.pax_affected.toLocaleString('en-US')} passengers` }),
+      el('p', { class: 'plan__cost' }, el('span', { class: 'plan__costk', text: 'Estimated cost ' }), el('span', { class: 'plan__costv', text: fmtUsd(t.total_usd) })));
+  } else {
+    card.append(el('p', { class: 'plan__line', text: 'No recommendation was made. Compare the plans below and decide by hand.' }));
   }
-  parts.push(el('p', { class: 'fine', text: 'Decision support only. Approving a plan queues it on TEPHRA\'s own outbound queue; nothing is sent to an airline system.' }));
-  const bar = decisionBar(p);
-  panel.replaceChildren(...parts, ...(bar ? [bar] : []));
+  card.append(
+    el('p', { class: 'plan__tags' },
+      el('span', { class: 'chip chip--fict', title: 'Ring of Fire Air and its schedule are made up' }, icon('i-info', 'st'), el('span', { text: 'Fictional airline RFA · synthetic schedule' })),
+      p.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'Recorded' })) : null),
+    el('p', { class: 'plan__foot', text: `Planned ${hhmmz(p.created_at)} by code · version ${p.version} · explained by: ${p.llm_backend === 'stub' || p.model_id === 'stub' ? 'AI off' : p.model_id || 'AI'}` }));
+  const dec = decisionRow(p, Boolean(t) && !problem);
+  if (dec) card.append(dec);
+  parts.push(card);
+
+  const scs = p.scenarios || [];
+  parts.push(
+    disclosure('closed', `Closed airports (${n})`, closuresList(p)),
+    disclosure('plans', `Other plans compared (${scs.length})`, scenariosList(p), { open: Boolean(problem) }),
+    disclosure('why', 'Why this plan', whyContent(p)),
+    disclosure('flights', `Flight by flight (${flightCount(p)})`, flightsContent(p)),
+    disclosure('numbers', 'Numbers', numbersTable(p)));
+  if (app.plans.length > 1) {
+    parts.push(disclosure('earlier', `Earlier plans (${app.plans.length - 1})`,
+      [el('ul', { class: 'plist' }, app.plans.slice(1).map((x) => el('li', { text: `${hhmmz(x.created_at)} · ${planProblem(x) ? 'No plan found' : (STATUS[x.status] || [0, x.status])[1]}${chosenOf(x) && chosenOf(x).totals ? ` · ${fmtUsd(chosenOf(x).totals.total_usd)}` : ''}` })))]));
+  }
+  parts.push(el('p', { class: 'fine plan__fine', text: "Decision support only. Approving a plan queues it on TEPHRA's own outbound queue; nothing is sent to an airline system." }));
+  panel.replaceChildren(...parts);
+  restoreFocus(panel, keep);
+}
+
+function restoreFocus(panel, keep) {
+  if (!keep) return;
+  const again = keep === 'run' ? panel.querySelector('[data-run]') : byId(keep);
+  if (again && panel.contains(again)) again.focus({ preventScroll: true });
 }
 
 // --- actions -----------------------------------------------------------------------------------
@@ -258,35 +370,36 @@ export function renderNetwork() {
 export async function runRecovery() {
   if (running) return;
   if (app.offline) {
-    toast({ tone: 'caution', title: "You're offline. Reconnect to run recovery." });
+    toast({ tone: 'caution', title: "You're offline. Reconnect to re-plan." });
     return;
   }
   running = true;
   runError = null;
   renderNetwork();
-  announce('Planning recovery. This can take a few seconds.');
+  menuOpen = false;
+  announce('Re-planning. This can take a few seconds.');
   const res = await api(PATHS.recoveryRun, { method: 'POST', body: { closures: [] } });
   running = false;
   if (res.ok && res.data && res.data.id) {
     onRecoveryEvent(res.data);
-    toast({ tone: 'ok', title: 'Recovery plan drafted. Review it before you decide.' });
+    toast({ tone: 'ok', title: 'Airport plan drafted. Review it before you decide.' });
     return;
   }
   if (isUnavailable(res)) runError = { reason: unavailableReason(res) };
-  else if (res.status === 409) runError = { text: errorCode(res) === 'no_closure' ? 'No airport of the RFA network is closed, so there is nothing to re-plan.' : errorCode(res) === 'busy' ? 'A recovery plan is already being made. Wait for it.' : (res.data && res.data.detail) || 'Not run.' };
+  else if (res.status === 409) runError = { text: errorCode(res) === 'no_closure' ? 'No airport of the RFA network is closed, so there is nothing to re-plan.' : errorCode(res) === 'busy' ? 'A plan is already being made. Wait for it.' : (res.data && res.data.detail) || 'Not run.' };
   else if (res.status === 401) runError = { text: 'Your session has ended. Sign in again.' };
-  else runError = { text: res.status === 0 ? "Can't reach the server." : `Recovery was not run: ${(res.data && res.data.detail) || `HTTP ${res.status}`}` };
+  else runError = { text: res.status === 0 ? "Can't reach the server." : `Not re-planned: ${(res.data && res.data.detail) || `HTTP ${res.status}`}` };
   renderNetwork();
 }
 
 function confirmApprove(p) {
   const t = chosenOf(p) && chosenOf(p).totals;
-  const go = el('button', { type: 'button', class: 'btn btn--approve btn--block btn--primary' }, icon('i-check'), el('span', { text: 'Approve recovery plan' }));
+  const go = el('button', { type: 'button', class: 'btn btn--approve btn--block btn--primary' }, icon('i-check'), el('span', { text: 'Approve the airport plan' }));
   const msg = el('div', { 'aria-live': 'polite' });
   const sheet = openBSheet({
-    title: 'Approve recovery plan?',
+    title: 'Approve the airport plan?',
     body: el('div', { class: 'stack' },
-      el('p', { class: 'lead', text: chosenOf(p) ? `Scenario: ${chosenOf(p).label}` : 'Recommended scenario' }),
+      el('p', { class: 'lead', text: chosenOf(p) ? `Plan: ${scenarioName(chosenOf(p).label)}` : 'Recommended plan' }),
       t ? el('dl', { class: 'dstats' }, stat('Cancelled', t.cancelled_flights), stat('Delayed', t.delayed_flights), stat('Swapped', t.swapped_flights), stat('Passengers', t.pax_affected.toLocaleString('en-US')), stat('Cost', fmtUsd(t.total_usd))) : null,
       el('p', { class: 'note', text: `Queues the plan on TEPHRA's own outbound queue under ${app.me ? app.me.name : 'your name'}. Nothing is sent to an airline system. You can then draft crew and passenger messages.` }), msg),
     footer: go,
@@ -298,12 +411,12 @@ function confirmApprove(p) {
     if (res.ok && res.data && res.data.id) {
       onRecoveryEvent(res.data);
       sheet.close();
-      toast({ tone: 'ok', title: `Recovery plan approved under ${app.me ? app.me.name : 'you'}. Not sent to any system.` });
+      toast({ tone: 'ok', title: `Airport plan approved under ${app.me ? app.me.name : 'you'}. Not sent to any system.` });
       return;
     }
     go.disabled = false;
-    go.replaceChildren(icon('i-check'), el('span', { text: 'Approve recovery plan' }));
-    msg.replaceChildren(el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: res.status === 409 ? 'This plan changed or was already decided. Reload the Network tab.' : `Not approved: ${(res.data && res.data.detail) || `HTTP ${res.status}`}` })));
+    go.replaceChildren(icon('i-check'), el('span', { text: 'Approve the airport plan' }));
+    msg.replaceChildren(el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: res.status === 409 ? 'This plan changed or was already decided. Reload the Airports tab.' : `Not approved: ${(res.data && res.data.detail) || `HTTP ${res.status}`}` })));
     if (res.status === 409) loadPlans();
   });
 }
@@ -313,7 +426,7 @@ function confirmReject(p) {
   const msg = el('div', { 'aria-live': 'polite' });
   const go = el('button', { type: 'button', class: 'btn btn--reject-solid btn--block' }, icon('i-x'), el('span', { text: 'Reject plan' }));
   const sheet = openBSheet({
-    title: 'Reject recovery plan',
+    title: 'Reject the airport plan',
     body: el('div', { class: 'stack' }, el('label', { class: 'flabel', for: 'plan-reason', text: 'Reason (required, at least 3 characters)' }), area,
       el('p', { id: 'plan-reason-note', class: 'note', text: 'The reason is recorded in the audit log. Nothing is queued.' }), msg),
     footer: go,
@@ -331,7 +444,7 @@ function confirmReject(p) {
     if (res.ok && res.data && res.data.id) {
       onRecoveryEvent(res.data);
       sheet.close();
-      toast({ tone: 'rejected', title: 'Recovery plan rejected · reason recorded.' });
+      toast({ tone: 'rejected', title: 'Airport plan rejected · reason recorded.' });
       return;
     }
     const list = problems(res);
@@ -342,13 +455,32 @@ function confirmReject(p) {
 
 export function onNetworkClick(event) {
   const t = event.target.closest('button');
-  if (!t || !byId('panel-network').contains(t)) return false;
+  if (!t || !byId('panel-network').contains(t)) {
+    if (menuOpen) {
+      menuOpen = false;
+      renderNetwork();
+    }
+    return false;
+  }
+  if (t.dataset.netmenu) {
+    menuOpen = !menuOpen;
+    renderNetwork();
+    const first = menuOpen ? byId('net-more').querySelector('button') : byId('net-more-btn');
+    if (first) first.focus();
+    return true;
+  }
+  if (menuOpen && !t.closest('#net-more')) {
+    menuOpen = false;
+    renderNetwork();
+  }
   if (t.dataset.run) {
+    menuOpen = false;
     runRecovery();
     return true;
   }
   if (t.dataset.scenario) {
     viewing = t.dataset.scenario;
+    opened.add('flights');
     renderNetwork();
     const again = byId('panel-network').querySelector(`[data-scenario="${CSS.escape(viewing)}"]`);
     if (again) again.focus({ preventScroll: true });
@@ -361,3 +493,12 @@ export function onNetworkClick(event) {
   else return false;
   return true;
 }
+
+// Esc closes the ⋯ menu and returns focus to its button.
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || !menuOpen) return;
+  menuOpen = false;
+  renderNetwork();
+  const b = byId('net-more-btn');
+  if (b) b.focus();
+});

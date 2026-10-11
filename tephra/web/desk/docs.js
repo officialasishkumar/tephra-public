@@ -1,13 +1,15 @@
-// The Docs tab: regulator paperwork (SRA per region, VAR per flight) and the shift handover.
-// Drafts only: a person completes the blanks and signs. Nothing leaves TEPHRA.
+// Paperwork (UI-REDESIGN R10.7, was Docs): regulator paperwork (SRA per region, VAR per flight)
+// and the shift handover. What waits for a signature comes first ("Ready for you"); the three
+// starters follow, one line each, and open in place. Drafts only: a person completes the blanks
+// and signs. Nothing leaves TEPHRA.
 
 import { PATHS, api, errorCode, isUnavailable, problems, unavailableReason } from './api.js';
 import { announce, byId, el, icon } from './dom.js';
-import { activeNow, dayMonthHhmm, hhmmz } from './format.js';
+import { actionShort, activeNow, dayMonthHhmm } from './format.js';
 import { renderDoc, renderHandover, roleName } from './docview.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
-import { emptyPanel, openBSheet, sectionHead, unavailableCard } from './ui.js';
+import { openBSheet, unavailableCard } from './ui.js';
 
 const WINDOWS = [4, 8, 12];
 
@@ -18,6 +20,8 @@ let hoHours = 8;
 let ackBusy = false;
 let drafting = ''; // key of the draft in progress
 let draftError = null;
+let sraRegion = '';
+const opened = new Set(); // starters kept open across re-renders
 
 export const docsToSign = () => app.docs.filter((d) => d.status === 'DRAFT');
 
@@ -68,7 +72,7 @@ export function onDocEvent(summary) {
 const flightsForVar = () => {
   const seen = new Map();
   for (const a of [...app.drafts.values(), ...app.closed.values()]) if (/^[0-9a-f]{6}:[0-9]{1,10}$/.test(a.flight_id || '')) seen.set(a.flight_id, a);
-  return [...seen.values()].slice(0, 12);
+  return [...seen.values()];
 };
 
 function draftBtn(key, label, onclick) {
@@ -82,13 +86,13 @@ function docRow(d) {
   return el('li', {}, el('button', { type: 'button', class: 'drow', 'data-doc': d.id },
     el('span', { class: 'drow__kind', text: d.kind }),
     el('span', { class: 'drow__what' }, el('span', { class: 'drow__t', text: d.title }),
-      el('span', { class: 'drow__m', text: `${dayMonthHhmm(d.created_at)} · ${d.status === 'SIGNED' ? 'all lines signed' : `${d.signed_roles.length} of ${d.signed_roles.length + open} signed`}${d.replay ? ' · REPLAY' : ''}` })),
+      el('span', { class: 'drow__m', text: `${d.status === 'SIGNED' ? 'all lines signed' : `${d.signed_roles.length} of ${d.signed_roles.length + open} signed`} · drafted ${dayMonthHhmm(d.created_at)}${d.replay ? ' · recorded' : ''}` })),
     el('span', { class: `adv-status adv-status--${d.status === 'SIGNED' ? 'ok' : 'neutral'}` }, icon(d.status === 'SIGNED' ? 'i-approved' : 'i-clock', 'st'), el('span', { text: d.status === 'SIGNED' ? 'Signed' : 'Draft' })),
     icon('i-chevron-right', 'icon nrow__go')));
 }
 
-function handoverSection() {
-  const sec = el('section', { class: 'nsec', 'aria-labelledby': 'doc-ho' }, sectionHead('Shift handover', { id: 'doc-ho', sub: 'WEST and I-PASS. Code gathers the facts; an AI writes the situation and the if/then lines; the receiver reads it back.' }));
+function handoverBody() {
+  const out = [el('p', { class: 'fine', text: 'WEST and I-PASS. Code gathers the facts; an AI writes the situation and the if/then lines; the receiver reads it back.' })];
   const incoming = el('input', { id: 'ho-in', class: 'field', type: 'text', maxlength: '64', minlength: '2', autocomplete: 'off', placeholder: 'Name of the incoming dispatcher', 'aria-describedby': 'ho-msg' });
   incoming.value = sessionStorageGet('ho-incoming');
   incoming.addEventListener('input', () => sessionStorageSet('ho-incoming', incoming.value));
@@ -98,19 +102,33 @@ function handoverSection() {
       hoHours = h;
       for (const b of seg.children) b.setAttribute('aria-pressed', String(b.dataset.h === String(h)));
     }, 'data-h': String(h), text: `Last ${h} h` })));
-  const gen = el('button', { type: 'button', class: 'btn btn--neutral', disabled: hoBusy || app.offline, 'aria-busy': hoBusy ? 'true' : null },
-    hoBusy ? el('span', { class: 'spinner', 'aria-hidden': 'true' }) : icon('i-sparkle'), el('span', { text: hoBusy ? 'Writing the brief…' : handover ? 'Generate a new handover' : 'Generate handover' }));
+  const gen = el('button', { type: 'button', class: 'btn btn--cta', disabled: hoBusy || app.offline, 'aria-busy': hoBusy ? 'true' : null },
+    hoBusy ? el('span', { class: 'spinner', 'aria-hidden': 'true' }) : icon('i-sparkle'), el('span', { text: hoBusy ? 'Writing the handover…' : handover ? 'Write a new handover' : 'Write the handover' }));
   gen.addEventListener('click', () => generateHandover(incoming, msg));
-  sec.append(el('div', { class: 'hoform' },
+  out.push(el('div', { class: 'hoform' },
     el('label', { class: 'flabel', for: 'ho-in', text: 'Incoming dispatcher' }), incoming, el('p', { class: 'fine', text: `Outgoing: ${app.me ? app.me.name : 'you'} (signed in)` }),
     el('p', { class: 'flabel', text: 'Shift covered' }), seg, msg, gen));
-  if (hoError) sec.append(hoError.reason ? unavailableCard(hoError.reason, { instead: 'No brief was written. Hand over by voice or in writing.' }) : el('div', { class: 'panel panel--serious', role: 'alert' }, el('p', { class: 'panel__title' }, icon('st-serious', 'st'), el('span', { text: hoError.text }))));
+  if (hoError) out.push(hoError.reason ? unavailableCard(hoError.reason, { instead: 'No brief was written. Hand over by voice or in writing.' }) : el('div', { class: 'panel panel--serious', role: 'alert' }, el('p', { class: 'panel__title' }, icon('st-serious', 'st'), el('span', { text: hoError.text }))));
   if (handover) {
-    sec.append(renderHandover(handover, { onAck: ackHandover, ackBusy }),
+    out.push(renderHandover(handover, { onAck: ackHandover, ackBusy }),
       el('p', { class: 'dlinks' }, el('a', { class: 'btn', href: `/docs/${encodeURIComponent(handover.id)}`, target: '_blank', rel: 'noopener' }, icon('i-printer'), el('span', { text: 'Printable page' }))));
   }
-  return sec;
+  return out;
 }
+
+// One starter: a single line that opens in place (R10.7).
+function starter(key, title, sub, kids, { open = false } = {}) {
+  const d = el('details', { class: 'nsec ndisc', id: `start-${key}`, open: opened.has(key) || open },
+    el('summary', { class: 'ndisc__sum' }, el('span', {}, el('span', { class: 'ndisc__t', text: title }), sub ? el('span', { class: 'ndisc__s', text: sub }) : null), icon('i-chevron-right', 'icon disclosure')),
+    el('div', { class: 'ndisc__body' }, kids));
+  d.addEventListener('toggle', () => {
+    if (d.open) opened.add(key);
+    else opened.delete(key);
+  });
+  return d;
+}
+
+const handoverWaiting = () => handover && !(handover.receiver_ack && handover.receiver_ack.read_back_by);
 
 const sessionStorageGet = (k) => {
   try {
@@ -132,32 +150,73 @@ export function renderDocs() {
   if (!panel) return;
   // The handover form keeps focus while it is typed in: redraw only when the panel is not being edited.
   const active = document.activeElement;
-  if (active && panel.contains(active) && /^(INPUT|TEXTAREA)$/.test(active.tagName) && !hoBusy) return;
+  if (active && panel.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) && !hoBusy) return;
   const head = el('div', { class: 'phead' },
-    el('h1', { id: 'docs-title', class: 'phead__title', tabindex: '-1', text: 'Documents' }),
-    el('p', { class: 'phead__sub', text: 'Regulator paperwork and the shift handover. Drafts for a person to complete and sign.' }),
+    el('h1', { id: 'docs-title', class: 'phead__title', tabindex: '-1', text: 'Paperwork' }),
     el('p', { class: 'phead__tags' }, el('span', { class: 'chip chip--fict' }, icon('i-info', 'st'), el('span', { text: 'DRAFT · not an approved document · fictional airline' }))));
-  const parts = [head, handoverSection()];
+  const parts = [head];
 
+  // Primary: what waits for a person (drafts to sign, a handover to read back).
+  const toSign = docsToSign();
+  const signed = app.docs.filter((d) => d.status !== 'DRAFT');
+  const n = toSign.length + (handoverWaiting() ? 1 : 0);
+  const ready = el('section', { class: 'ready', 'aria-labelledby': 'doc-list' },
+    el('h2', { id: 'doc-list', class: 'ready__title', text: `Ready for you (${n})` }));
+  const rows = toSign.map(docRow);
+  if (handoverWaiting()) {
+    rows.unshift(el('li', {}, el('button', { type: 'button', class: 'drow', 'data-open-start': 'ho' },
+      el('span', { class: 'drow__kind', text: 'SHIFT' }),
+      el('span', { class: 'drow__what' }, el('span', { class: 'drow__t', text: `Shift handover to ${handover.incoming || 'the next dispatcher'}` }),
+        el('span', { class: 'drow__m', text: 'waiting for the read-back' })),
+      el('span', { class: 'adv-status adv-status--neutral' }, icon('i-clock', 'st'), el('span', { text: 'Open' })),
+      icon('i-chevron-right', 'icon nrow__go'))));
+  }
+  ready.append(rows.length ? el('ul', { class: 'drows' }, rows)
+    : el('p', { class: 'ready__none', text: 'Nothing waits for your signature. Start a document below.' }));
+  if (signed.length) {
+    const box = el('details', { class: 'ready__signed', open: opened.has('signed') },
+      el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: `Signed (${signed.length})` })),
+      el('ul', { class: 'drows' }, signed.map(docRow)));
+    box.addEventListener('toggle', () => (box.open ? opened.add('signed') : opened.delete('signed')));
+    ready.append(box);
+  }
+  parts.push(ready);
+
+  // Then three starters, one line each.
+  parts.push(el('h2', { class: 'more__title', text: 'Start a document' }));
+  parts.push(starter('ho', 'Hand over the shift', handover ? (handoverWaiting() ? 'brief written, waiting for the read-back' : 'last brief read back') : 'WEST and I-PASS brief for the incoming dispatcher', handoverBody(), { open: hoBusy || Boolean(hoError) }));
+
+  // SRA: one region select, active regions first (G20).
   const regions = (app.state && app.state.regions) || [];
-  const sra = el('section', { class: 'nsec', 'aria-labelledby': 'doc-sra' }, sectionHead('Safety risk assessment (SRA)', { id: 'doc-sra', sub: 'One draft per region, filled from TEPHRA\'s evidence. Blanks stay blank.' }));
-  if (draftError && draftError.kind === 'SRA') sra.append(draftErrorNode());
-  sra.append(el('ul', { class: 'dflights' }, regions.map((r) => el('li', { class: 'dflight' },
-    el('span', { class: 'dflight__name', text: r.name }),
-    draftBtn(`sra:${r.key}`, 'Draft SRA', () => draftSra(r))))));
-  parts.push(sra);
+  const activeKeys = app.activeRegions || new Set();
+  const ordered = [...regions].sort((a, b) => Number(activeKeys.has(b.key)) - Number(activeKeys.has(a.key)));
+  if (!sraRegion || !regions.some((r) => r.key === sraRegion)) sraRegion = ordered[0] ? ordered[0].key : '';
+  const select = el('select', { id: 'sra-region', class: 'field field--select', 'aria-describedby': 'sra-note' },
+    ordered.map((r) => el('option', { value: r.key, selected: r.key === sraRegion ? true : null, text: `${r.name}${activeKeys.has(r.key) ? ' (active volcano)' : ''}` })));
+  select.addEventListener('change', () => {
+    sraRegion = select.value;
+  });
+  const sraKids = [el('p', { id: 'sra-note', class: 'fine', text: "One draft per region, filled from TEPHRA's evidence. Blanks stay blank." })];
+  if (draftError && draftError.kind === 'SRA') sraKids.push(draftErrorNode());
+  sraKids.push(regions.length
+    ? el('div', { class: 'sraform' }, el('label', { class: 'flabel', for: 'sra-region', text: 'Region' }), select,
+      draftBtn(`sra:${sraRegion}`, 'Draft SRA', () => {
+        const r = regions.find((x) => x.key === select.value);
+        if (r) draftSra(r);
+      }))
+    : el('p', { class: 'note', text: 'No regions are configured on this server.' }));
+  parts.push(starter('sra', 'Safety risk assessment (SRA)', activeKeys.size ? `${activeKeys.size} region${activeKeys.size === 1 ? '' : 's'} with an active volcano` : 'one draft per region', sraKids, { open: (draftError && draftError.kind === 'SRA') || drafting.startsWith('sra:') }));
 
+  // VAR: one row per exposed flight.
   const flights = flightsForVar();
-  const varSec = el('section', { class: 'nsec', 'aria-labelledby': 'doc-var' }, sectionHead('Volcanic activity report (VAR)', { id: 'doc-var', sub: 'Per exposed flight. Items 1 to 5 from ADS-B and the hazard; the pilot completes the rest. No model writes any of it.' }));
-  if (draftError && draftError.kind === 'VAR') varSec.append(draftErrorNode());
-  varSec.append(flights.length ? el('ul', { class: 'dflights' }, flights.map((a) => el('li', { class: 'dflight' },
-    el('span', { class: 'dflight__name' }, el('span', { class: 'mono', text: a.proxy_flight }), el('span', { class: 'dflight__sub', text: `${a.volcano_name} · ${a.action.replace('_', ' ')}` })),
-    draftBtn(`var:${a.flight_id}`, 'Draft VAR', () => draftVar(a))))) : el('p', { class: 'note', text: 'No exposed flight to report on right now.' }));
-  parts.push(varSec);
+  const varKids = [el('p', { class: 'fine', text: 'Per exposed flight. Items 1 to 5 from ADS-B and the hazard; the pilot completes the rest. No model writes any of it.' })];
+  if (draftError && draftError.kind === 'VAR') varKids.push(draftErrorNode());
+  varKids.push(flights.length ? el('ul', { class: 'dflights' }, flights.map((a) => el('li', { class: 'dflight' },
+    el('span', { class: 'dflight__name' }, el('span', { class: 'mono', text: a.proxy_flight }), el('span', { class: 'dflight__sub', text: `${a.volcano_name} · ${actionShort(a)}` })),
+    draftBtn(`var:${a.flight_id}`, 'Draft VAR', () => draftVar(a)))))
+    : el('p', { class: 'note', text: 'None needed: no RFA flight is in or heading into an ash area.' }));
+  parts.push(starter('var', `Pilot ash reports (VAR): ${flights.length} flight${flights.length === 1 ? '' : 's'}`, flights.length ? 'one per flight in or heading into the ash' : 'none needed right now', varKids, { open: (draftError && draftError.kind === 'VAR') || drafting.startsWith('var:') }));
 
-  const list = el('section', { class: 'nsec', 'aria-labelledby': 'doc-list' }, sectionHead('Drafted documents', { id: 'doc-list', count: app.docs.length }));
-  list.append(app.docs.length ? el('ul', { class: 'drows' }, app.docs.map(docRow)) : emptyPanel('No documents yet', 'Draft an SRA or a VAR above.'));
-  parts.push(list);
   panel.replaceChildren(...parts);
 }
 
@@ -281,6 +340,18 @@ async function ackHandover() {
 }
 
 export function onDocsClick(event) {
+  const start = event.target.closest('[data-open-start]');
+  if (start && byId('panel-docs').contains(start)) {
+    opened.add(start.dataset.openStart);
+    renderDocs();
+    const box = byId(`start-${start.dataset.openStart}`);
+    if (box) {
+      box.scrollIntoView({ block: 'start' });
+      const field = box.querySelector('input, button');
+      if (field) field.focus({ preventScroll: true });
+    }
+    return true;
+  }
   const t = event.target.closest('[data-doc]');
   if (!t || !byId('panel-docs').contains(t)) return false;
   openDocById(t.dataset.doc);
