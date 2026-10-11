@@ -34,7 +34,7 @@ export const SAT = {
 };
 // Aircraft icon size (5.3): exposed aircraft stay 0.7 at every zoom; background traffic is
 // thinned when zoomed out, so a busy region does not bury the flights that matter.
-const AC_SIZE = ["interpolate", ["linear"], ["zoom"], 3, ["case", ["get", "exposed"], 0.7, 0.3], 6, ["case", ["get", "exposed"], 0.7, 0.42], 8, ["case", ["get", "exposed"], 0.7, 0.5]];
+const AC_SIZE = ["interpolate", ["linear"], ["zoom"], 3, ["case", ["==", ["get", "exposed"], true], 0.7, 0.3], 6, ["case", ["==", ["get", "exposed"], true], 0.7, 0.42], 8, ["case", ["==", ["get", "exposed"], true], 0.7, 0.5]];
 const GIBS = (layer, time, matrix) => `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${layer}/default/${time}/${matrix}/{z}/{y}/{x}.png`;
 
 // GIBS TIME follows TEPHRA's active clock, never the browser's (section 5.6).
@@ -129,19 +129,19 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
     map.addLayer({ id: `official-line-${step}`, type: "line", source: "official", filter, layout: { "line-join": "round", "line-cap": step === "f18" ? "round" : "butt" }, paint });
   }
   if (withTephra) {
-    map.addLayer({ id: "tephra-line", type: "line", source: "cones", filter: ["==", ["get", "part"], "cone"], layout: { "line-join": "round", visibility: tVis }, paint: { "line-color": C.tephra, "line-width": ["interpolate", ["linear"], ["zoom"], 4, ["case", ["get", "sel"], 1.6, 1.4], 8, ["case", ["get", "sel"], 2.6, 1.4]], "line-dasharray": [3, 2], "line-offset": -5, "line-opacity": fade(1) } });
+    map.addLayer({ id: "tephra-line", type: "line", source: "cones", filter: ["==", ["get", "part"], "cone"], layout: { "line-join": "round", visibility: tVis }, paint: { "line-color": C.tephra, "line-width": ["interpolate", ["linear"], ["zoom"], 4, ["case", ["==", ["get", "sel"], true], 1.6, 1.4], 8, ["case", ["==", ["get", "sel"], true], 2.6, 1.4]], "line-dasharray": [3, 2], "line-offset": -5, "line-opacity": fade(1) } });
     const pVis = ui.layers.paths ? "visible" : "none";
     map.addLayer({ id: "exposure-path", type: "line", source: "exposures", filter: ["==", ["get", "kind"], "path"], layout: { visibility: pVis, "line-cap": "butt" }, paint: { "line-color": C.tephra, "line-width": 2.4, "line-dasharray": [1.5, 1.5] } });
     const entry = ["all", ["==", ["get", "kind"], "entry"], [">", ["coalesce", ["get", "minutes_to_entry"], 0], 0]];
     map.addLayer({ id: "exposure-entry", type: "circle", source: "exposures", filter: entry, layout: { visibility: pVis }, paint: { "circle-radius": 6, "circle-color": C.halo, "circle-stroke-color": C.tephra, "circle-stroke-width": 2.5 } });
-    if (!noText) map.addLayer({ id: "exposure-entry-label", type: "symbol", source: "exposures", filter: entry, layout: { visibility: pVis, "text-field": ["concat", ["to-string", ["get", "minutes_to_entry"]], " MIN"], "text-font": FONT_BOLD, "text-size": 13, "text-variable-anchor": ["bottom", "top", "left", "right"], "text-radial-offset": 0.9, "symbol-sort-key": ["coalesce", ["get", "minutes_to_entry"], 999] }, paint: { "text-color": C.tephraText, "text-halo-color": C.halo, "text-halo-width": 2 } });
+    if (!noText) map.addLayer({ id: "exposure-entry-label", type: "symbol", source: "exposures", minzoom: 8, filter: entry, layout: { visibility: pVis, "text-field": ["concat", "in ", ["to-string", ["get", "minutes_to_entry"]], " min"], "text-font": FONT_BOLD, "text-size": 13, "text-variable-anchor": ["bottom", "top", "left", "right"], "text-radial-offset": 0.9, "symbol-sort-key": ["coalesce", ["get", "minutes_to_entry"], 999] }, paint: { "text-color": C.tephraText, "text-halo-color": C.halo, "text-halo-width": 2 } });
   }
   // volcanoes
-  map.addLayer({ id: "volcano-inactive", type: "symbol", source: "volcanoes", filter: ["!", ["get", "active"]], layout: { "icon-image": "volcano-inactive", "icon-size": 0.5, "icon-allow-overlap": true, ...(noText ? {} : { "text-field": ["step", ["zoom"], "", 7.5, ["case", ["get", "near_sel"], "", ["get", "name"]]], "text-font": FONT_REG, "text-size": 12, "text-offset": [0, 1.1], "text-anchor": "top", "text-optional": true }) }, paint: { "icon-opacity": 0.8, "text-color": C.labelMinor, "text-halo-color": C.halo, "text-halo-width": 1.5 } });
-  map.addLayer({ id: "volcano-active", type: "symbol", source: "volcanoes", filter: ["get", "active"], layout: { "icon-image": ["concat", "volcano-", ["get", "color_code"]], "icon-size": ["match", ["get", "color_code"], "RED", CODE_SIZE.RED, "ORANGE", CODE_SIZE.ORANGE, "YELLOW", CODE_SIZE.YELLOW, CODE_SIZE.GREEN], "icon-allow-overlap": true, "icon-ignore-placement": true, ...(noText ? {} : { "text-field": ["case", ["get", "named_by_area"], "", ["get", "name"]], "text-font": FONT_BOLD, "text-size": ["case", ["get", "sel"], 16, 14], "text-anchor": ["coalesce", ["get", "anchor"], "top"], "text-radial-offset": ["case", ["get", "sel"], 2.6, 1.35], "text-optional": true }) }, paint: { "text-color": C.label, "text-halo-color": C.halo, "text-halo-width": 2.5 } });
+  map.addLayer({ id: "volcano-inactive", type: "symbol", source: "volcanoes", filter: ["!=", ["get", "active"], true], layout: { "icon-image": "volcano-inactive", "icon-size": 0.5, "icon-allow-overlap": true, ...(noText ? {} : { "text-field": ["step", ["zoom"], "", 7.5, ["case", ["==", ["get", "near_sel"], true], "", ["get", "name"]]], "text-font": FONT_REG, "text-size": 12, "text-offset": [0, 1.1], "text-anchor": "top", "text-optional": true }) }, paint: { "icon-opacity": 0.8, "text-color": C.labelMinor, "text-halo-color": C.halo, "text-halo-width": 1.5 } });
+  map.addLayer({ id: "volcano-active", type: "symbol", source: "volcanoes", filter: ["==", ["get", "active"], true], layout: { "icon-image": ["concat", "volcano-", ["get", "color_code"]], "icon-size": ["match", ["get", "color_code"], "RED", CODE_SIZE.RED, "ORANGE", CODE_SIZE.ORANGE, "YELLOW", CODE_SIZE.YELLOW, CODE_SIZE.GREEN], "icon-allow-overlap": true, "icon-ignore-placement": true, ...(noText ? {} : { "text-field": ["case", ["==", ["get", "named_by_area"], true], "", ["get", "name"]], "text-font": FONT_BOLD, "text-size": ["case", ["==", ["get", "sel"], true], 16, 14], "text-anchor": ["coalesce", ["get", "anchor"], "top"], "text-radial-offset": ["case", ["==", ["get", "sel"], true], 2.6, 1.35], "text-optional": true }) }, paint: { "text-color": C.label, "text-halo-color": C.halo, "text-halo-width": 2.5 } });
   // aircraft
   const acVis = ui.layers.aircraft ? "visible" : "none";
-  map.addLayer({ id: "aircraft-icon", type: "symbol", source: "aircraft", layout: { visibility: acVis, "icon-image": "ac-sdf", "icon-size": AC_SIZE, "icon-rotate": ["coalesce", ["get", "track_deg"], 0], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true, "symbol-sort-key": ["case", ["get", "exposed"], 1, 0] }, paint: { "icon-color": withTephra ? ["case", ["get", "exposed"], C.tephra, ["get", "stale"], C.stale, C.aircraft] : ["case", ["get", "stale"], C.stale, C.aircraft], "icon-halo-color": C.halo, "icon-halo-width": 1.5, "icon-opacity": withTephra ? ["case", ["all", ["get", "exposed"], ["get", "stale"]], 0.8, ["get", "stale"], 0.55, 1] : ["case", ["get", "stale"], 0.55, 1] } });
+  map.addLayer({ id: "aircraft-icon", type: "symbol", source: "aircraft", layout: { visibility: acVis, "icon-image": "ac-sdf", "icon-size": AC_SIZE, "icon-rotate": ["coalesce", ["get", "track_deg"], 0], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true, "symbol-sort-key": ["case", ["==", ["get", "exposed"], true], 1, 0] }, paint: { "icon-color": withTephra ? ["case", ["==", ["get", "exposed"], true], C.tephra, ["get", "stale"], C.stale, C.aircraft] : ["case", ["==", ["get", "stale"], true], C.stale, C.aircraft], "icon-halo-color": C.halo, "icon-halo-width": 1.5, "icon-opacity": withTephra ? ["case", ["all", ["==", ["get", "exposed"], true], ["==", ["get", "stale"], true]], 0.8, ["get", "stale"], 0.55, 1] : ["case", ["==", ["get", "stale"], true], 0.55, 1] } });
   if (!noText) map.addLayer({ id: "aircraft-label", type: "symbol", source: "aircraft", minzoom: 7.5, filter: withTephra ? ["!=", ["get", "exposed"], true] : ["literal", true], layout: { visibility: ui.layers.acLabels && ui.layers.aircraft ? "visible" : "none", "text-field": ["get", "short"], "text-font": FONT_REG, "text-size": 12, "text-offset": [0, 1.2], "text-anchor": "top", "text-optional": true }, paint: { "text-color": C.text3, "text-halo-color": C.halo, "text-halo-width": 1.5 } });
   if (withTephra) {
     // the inside-now ring from zoom 6: zoomed out, the flight cluster speaks for the group
@@ -152,18 +152,21 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
     // a cluster of six or more becomes an amber bubble with its count.
     if (!noText) {
       // a cluster is one amber box with its count; its padding gives a 44 px hit area (R14.4)
-      map.addLayer({ id: "exposed-cluster", type: "symbol", source: "exposed-pts", filter: ["has", "point_count"], layout: { visibility: acVis, "icon-image": "box-tephra", "icon-text-fit": "both", "icon-text-fit-padding": [15, 12, 15, 12], "text-field": ["concat", ["to-string", ["get", "point_count"]], " RFA flights"], "text-font": FONT_BOLD, "text-size": 13, "text-allow-overlap": false, "icon-allow-overlap": false, "symbol-sort-key": 0 }, paint: { "text-color": C.tephraText } });
-      map.addLayer({ id: "aircraft-label-exposed", type: "symbol", source: "exposed-pts", minzoom: 6, filter: ["!", ["has", "point_count"]], layout: { visibility: acVis, "text-field": ["get", "elabel"], "text-font": FONT_BOLD, "text-size": 13, "text-anchor": "left", "text-offset": [1.4, 0], "text-padding": 4, "text-allow-overlap": false, "symbol-sort-key": ["+", ["case", ["get", "is_sel_vid"], 0, 1000], ["case", ["get", "inside"], 0, ["coalesce", ["get", "minutes_to_entry"], 999]]] }, paint: { "text-color": C.tephraText, "text-halo-color": C.halo, "text-halo-width": 2 } });
+      map.addLayer({ id: "exposed-cluster", type: "symbol", source: "exposed-pts", filter: ["has", "point_count"], layout: { visibility: acVis, "icon-image": "box-tephra", "icon-text-fit": "both", "icon-text-fit-padding": [15, 12, 15, 12], "text-field": ["concat", ["to-string", ["get", "point_count"]], " RFA flights"], "text-font": FONT_BOLD, "text-size": 13, "text-variable-anchor": ["left", "right", "bottom-left", "top-left"], "text-radial-offset": 2.2, "text-allow-overlap": false, "icon-allow-overlap": false, "symbol-sort-key": 0 }, paint: { "text-color": C.tephraText } });
+      map.addLayer({ id: "aircraft-label-exposed", type: "symbol", source: "exposed-pts", minzoom: 6, filter: ["!", ["has", "point_count"]], layout: { visibility: acVis, "text-field": ["get", "elabel"], "text-font": FONT_BOLD, "text-size": 13, "text-anchor": "left", "text-offset": [1.4, 0], "text-padding": 4, "text-allow-overlap": false, "symbol-sort-key": ["+", ["case", ["==", ["get", "is_sel_vid"], true], 0, 1000], ["case", ["==", ["get", "inside"], true], 0, ["coalesce", ["get", "minutes_to_entry"], 999]]] }, paint: { "text-color": C.tephraText, "text-halo-color": C.halo, "text-halo-width": 2 } });
     }
   }
   // labels last (R6.3). The selected volcano's official label is never hidden by collision; every
   // other label (other volcanoes' names, TEPHRA's tag, forecast steps) collides and may drop out.
   if (!noText) {
-    map.addLayer({ id: "official-step-label", type: "symbol", source: "official-labels", filter: ["==", ["get", "kind"], "step"], layout: { "text-field": ["get", "text"], "text-font": FONT_BOLD, "text-size": 13, "text-variable-anchor": ["center", "bottom", "top", "left", "right"], "text-radial-offset": 0.8, "text-allow-overlap": false, "symbol-sort-key": 8 }, paint: { "text-color": C.officialText, "text-halo-color": C.halo, "text-halo-width": 2 } });
+    map.addLayer({ id: "official-step-label", type: "symbol", source: "official-labels", filter: ["==", ["get", "kind"], "step"], layout: { "text-field": ["get", "text"], "text-font": FONT_BOLD, "text-size": 13, "text-anchor": ["coalesce", ["get", "anchor"], "center"], "text-offset": ["coalesce", ["get", "offset"], ["literal", [0, 0]]], "text-max-width": 9, "text-allow-overlap": false, "symbol-sort-key": 8 }, paint: { "text-color": C.officialText, "text-halo-color": C.halo, "text-halo-width": 2 } });
     map.addLayer({ id: "official-label", type: "symbol", source: "official-labels", filter: ["==", ["get", "kind"], "name"], layout: { "text-field": ["get", "line1"], "text-font": FONT_BOLD, "text-size": 12, "text-anchor": "bottom", "text-offset": [0, -0.4], "text-allow-overlap": false, "symbol-sort-key": 10 }, paint: { "text-color": C.officialText, "text-halo-color": C.halo, "text-halo-width": 2 } });
     if (withTephra) map.addLayer({ id: "tephra-label", type: "symbol", source: "area-labels", layout: { visibility: tVis, "icon-image": "box-tephra", "icon-text-fit": "both", "icon-text-fit-padding": [5, 9, 5, 9], "text-field": ["get", "line1"], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-max-width": 40, "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "icon-allow-overlap": false, "text-allow-overlap": false, "symbol-sort-key": 5 }, paint: { "text-color": C.tephraText } });
     map.addLayer({ id: "official-label-selected", type: "symbol", source: "official-labels", filter: ["==", ["get", "kind"], "box"], layout: { "icon-image": "box-official", "icon-text-fit": "both", "icon-text-fit-padding": [5, 9, 5, 9], "text-field": ["case", ["==", ["get", "line2"], ""], ["format", ["get", "line1"], { "text-color": C.officialText }], ["format", ["get", "line1"], { "text-color": C.officialText }, "\n", {}, ["get", "line2"], { "text-color": C.text1, "font-scale": 0.9 }]], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-max-width": 40, "text-justify": "left", "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "icon-allow-overlap": true, "text-allow-overlap": true, "symbol-sort-key": 0 } });
   }
+  // The flight count is placed before the forecast-step and other-volcano labels (review 1,
+  // item 10): when they collide those labels give way, never the count.
+  if (withTephra && !noText) map.moveLayer("exposed-cluster", "tephra-label");
   if (withTephra) addRoseLayers(map, C, ui, noText);
 }
 
@@ -268,6 +271,7 @@ export class WallMap {
       addImages(map, this.C);
       addContext(map, this.C, this.ui, this.noText);
       addHazard(map, this.C, this.ui, { noText: this.noText });
+      this.clusterTotal = null;
       addExtLayers(map, this.noText, this.ui.layers.reroutes);
       setExtVisible(map, true, this.ui.layers.satboxes);
       this.loaded = true;
@@ -297,6 +301,13 @@ export class WallMap {
     this.send("cones", fc(D.cones));
     this.send("exposures", D.exposures);
     this.send("aircraft", fc(D.aircraft));
+    // A cluster names itself as part of the total when some flights sit outside it (review 1,
+    // item 3), so "21 of 23 RFA flights" never contradicts the story's 23.
+    const total = D.exposed.length;
+    if (map.getLayer("exposed-cluster") && this.clusterTotal !== total) {
+      this.clusterTotal = total;
+      map.setLayoutProperty("exposed-cluster", "text-field", ["case", [">=", ["get", "point_count"], total], ["concat", ["to-string", ["get", "point_count"]], " RFA flights"], ["concat", ["to-string", ["get", "point_count"]], ` of ${total} RFA flights`]]);
+    }
     if (map.getSource("exposed-pts")) this.send("exposed-pts", fc(D.exposed.map((f) => ({ type: "Feature", geometry: f.geometry, properties: { hex: f.properties.hex, volcano_id: f.properties.volcano_id, elabel: f.properties.elabel, inside: f.properties.inside, minutes_to_entry: f.properties.minutes_to_entry, is_sel_vid: f.properties.volcano_id === D.selected } }))));
     map.setFilter("fir-active", ["in", ["get", "icao"], ["literal", D.firsWithSigmet]]);
     this.updateExt();
@@ -479,14 +490,34 @@ export class WallMap {
       boxes.push(selBox);
     }
     // Forecast-step labels only while a forecast step is chosen on the time bar (R6.3).
+    // One label per step (review 1, item 10): several products forecast the same step, and their
+    // labels said the same words. It sits at the step's vertex farthest from the vent, where the
+    // steps fan out, so +6 h and +12 h labels do not touch.
     if (this.ui.steps !== "now") {
+      const vent = D.sit ? D.vents.get(D.sit.volcano_id) : null;
+      const perStep = new Map();
       for (const f of D.official) {
         const p = f.properties;
         if (!p.show || p.step === "now" || !p.sel) continue;
         if (!(this.ui.steps === "all" || p.step === this.ui.steps)) continue;
-        const c = ringCentre(f.geometry);
-        const word = p.layer.replace("FCST+", "+").replace("H", " h");
-        if (c) boxes.push({ type: "Feature", geometry: { type: "Point", coordinates: c }, properties: { kind: "step", text: `Forecast for ${hhmmz(ms(p.valid_from) + 3 * 3600e3)} (${word})` } });
+        if (!perStep.has(p.step)) perStep.set(p.step, { p, pts: [] });
+        perStep.get(p.step).pts.push(...(ringsOf(f.geometry)[0] || []));
+      }
+      // earlier steps first; each later label keeps 250 km from the ones already placed
+      const placed = [];
+      for (const step of ["f6", "f12", "f18"]) {
+        const e = perStep.get(step);
+        if (!e || !e.pts.length) continue;
+        const far = (q) => (vent ? kmBetween(q, vent) : 0);
+        const free = e.pts.filter((q) => placed.every((r) => kmBetween(q, r) > 250));
+        const pool = free.length ? free : e.pts;
+        const tip = pool.reduce((m, q) => (far(q) > far(m) ? q : m), pool[0]);
+        placed.push(tip);
+        // the label reads inward from the tip, so it stays over the map and off its edge
+        const dx = vent ? (tip[0] - vent[0]) * Math.cos((tip[1] * Math.PI) / 180) : 0, dy = vent ? tip[1] - vent[1] : 0;
+        const side = Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? ["left", [0.6, 0]] : ["right", [-0.6, 0]]) : dy < 0 ? ["bottom", [0, -0.6]] : ["top", [0, 0.6]];
+        const word = e.p.layer.replace("FCST+", "+").replace("H", " h");
+        boxes.push({ type: "Feature", geometry: { type: "Point", coordinates: tip }, properties: { kind: "step", anchor: side[0], offset: side[1], text: `Forecast for ${hhmmz(ms(e.p.valid_from) + 3 * 3600e3)} (${word})` } });
       }
     }
     // TEPHRA's tag on the edge opposite the official label: the cone vertex farthest from it.
@@ -867,8 +898,8 @@ export class WallMap {
         const beforeId = before(map, "volcano-inactive");
         map.addLayer({ id: "official-volume", type: "fill-extrusion", source: "official", filter: ["all", ["==", ["get", "step"], "now"], ["==", ["get", "fill"], true], ["==", ["get", "valid"], true]], paint: { "fill-extrusion-color": this.C.official, "fill-extrusion-opacity": 0.45, "fill-extrusion-base": h("base_ft"), "fill-extrusion-height": h("top_ft"), "fill-extrusion-vertical-gradient": false } }, beforeId);
         if (this.ui.layers.tephra) map.addLayer({ id: "tephra-volume", type: "fill-extrusion", source: "cones", filter: ["all", ["==", ["get", "part"], "cone"], ["!=", ["get", "mode"], "OFFICIAL"]], paint: { "fill-extrusion-color": this.C.tephra, "fill-extrusion-opacity": 0.14, "fill-extrusion-base": h("base_ft"), "fill-extrusion-height": h("top_ft"), "fill-extrusion-vertical-gradient": false } }, beforeId);
-        map.addLayer({ id: "ac3d-stem", type: "fill-extrusion", source: "ac3d", filter: ["==", ["get", "part"], "stem"], paint: { "fill-extrusion-color": ["case", ["get", "exposed"], this.C.tephra, this.C.aircraft], "fill-extrusion-opacity": 0.55, "fill-extrusion-base": 0, "fill-extrusion-height": ["get", "h"] } }, beforeId);
-        map.addLayer({ id: "ac3d-box", type: "fill-extrusion", source: "ac3d", filter: ["==", ["get", "part"], "box"], paint: { "fill-extrusion-color": ["case", ["get", "exposed"], this.C.tephra, this.C.aircraft], "fill-extrusion-opacity": 0.95, "fill-extrusion-base": ["get", "b"], "fill-extrusion-height": ["get", "h"] } }, beforeId);
+        map.addLayer({ id: "ac3d-stem", type: "fill-extrusion", source: "ac3d", filter: ["==", ["get", "part"], "stem"], paint: { "fill-extrusion-color": ["case", ["==", ["get", "exposed"], true], this.C.tephra, this.C.aircraft], "fill-extrusion-opacity": 0.55, "fill-extrusion-base": 0, "fill-extrusion-height": ["get", "h"] } }, beforeId);
+        map.addLayer({ id: "ac3d-box", type: "fill-extrusion", source: "ac3d", filter: ["==", ["get", "part"], "box"], paint: { "fill-extrusion-color": ["case", ["==", ["get", "exposed"], true], this.C.tephra, this.C.aircraft], "fill-extrusion-opacity": 0.95, "fill-extrusion-base": ["get", "b"], "fill-extrusion-height": ["get", "h"] } }, beforeId);
       }
       if (this.ui.layers.terrain && map.getLayer("hillshade")) map.setLayoutProperty("hillshade", "visibility", "visible");
       map.setSky({ "sky-color": "#0b1220", "horizon-color": "#1b2430", "fog-color": "#07090d", "sky-horizon-blend": 0.6, "horizon-fog-blend": 0.6, "fog-ground-blend": 0.8 });

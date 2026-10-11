@@ -9,7 +9,7 @@ import {
 } from "./util.js";
 import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
-import { plainLine, techDetail, ACTOR_WORDS } from "./x-parts.js";
+import { plainLine, techDetail, actorWords } from "./x-parts.js";
 
 // ------------------------------------------------------------------ vocabulary (section 11)
 
@@ -112,7 +112,8 @@ export function areaWords(D, key) {
   const r = (D.state.regions || []).find((x) => x.key === key);
   if (!r) return "All areas";
   const n = D.regionCounts[r.key] || 0;
-  return `${r.name} · ${n ? `${n} with ash` : "none"}`;
+  // before the first tick "none" would be a claim about something not yet read (review 1, item 1)
+  return `${r.name} · ${n ? `${n} with ash` : D.state.last_tick ? "none" : "reading…"}`;
 }
 
 export function renderChrome(D, store, ui) {
@@ -125,6 +126,8 @@ export function renderChrome(D, store, ui) {
   if (replay && s.replay) {
     // role=status: write only when the words change, so a screen reader announces it once.
     setText($("replay-banner-text"), s.replay.banner);
+    // the phone's one-line band: "REPLAY: recorded 05 Sep 2026" (the full words stay in the title)
+    setText($("replay-banner-short"), s.replay.banner.replace(/recorded real feeds from/i, "recorded"));
     setText($("replay-banner-case"), ` · ${s.replay.label}${s.replay.auto ? " · switched automatically: no live activity" : ""}`);
     banner.title = `${s.replay.banner} · not live · ${s.replay.label}`;
   }
@@ -335,13 +338,13 @@ export function traceLines(store, D, ui) {
 
 const TRACE_FIRST = 14;
 
-function traceItem(t, ui) {
+function traceItem(t, ui, stub) {
   const [ic, name] = ACTOR[t.actor] || ["i-system", String(t.actor || "").toUpperCase()];
   const lvl = t.level === "error" ? st("st-serious", "var(--c-serious)") : t.level === "warn" ? st("st-caution", "var(--c-caution)") : null;
   const plain = plainLine(t.message);
   return el("li", { class: `trace__line${ui.freshTrace?.has(t.id) ? " is-new" : ""}${t.level === "error" ? " trace__line--error" : ""}` },
     el("span", { class: "trace__time", text: hhmmz(ms(t.at)) }),
-    el("span", { class: "trace__msg" }, lvl, el("span", { text: plain }), el("span", { class: "trace__who", text: ` · ${ACTOR_WORDS[t.actor] || String(t.actor || "")}` })),
+    el("span", { class: "trace__msg" }, lvl, el("span", { text: plain }), el("span", { class: "trace__who", text: ` · ${actorWords(t.actor, stub)}` })),
     techDetail(
       el("p", { class: "tech__line" }, el("span", { class: "mono", text: `${hhmmssz(ms(t.at))} · ${t.stage}` }), " ", el("span", { class: `actor actor--${t.actor}` }, icon(ic), name)),
       el("p", { class: "tech__line mono", text: t.message })));
@@ -359,9 +362,9 @@ export function renderTrace(D, store, ui, conn, target = $("trace")) {
   const newest = lines.slice().reverse();
   const ol = el("ol", { class: "trace__list", role: "log", "aria-live": "off", "aria-label": "How TEPHRA decided, newest first" });
   if (!newest.length) ol.append(el("li", { class: "trace__empty", text: "No steps yet." }));
-  for (const t of newest.slice(0, TRACE_FIRST)) ol.append(traceItem(t, ui));
+  for (const t of newest.slice(0, TRACE_FIRST)) ol.append(traceItem(t, ui, D?.state.llm?.backend === "stub"));
   const rest = newest.slice(TRACE_FIRST);
-  const more = rest.length ? el("details", { class: "more", dataset: { k: "trace-all" } }, el("summary", { text: `Show all (${newest.length})` }), el("ol", { class: "trace__list", "aria-live": "off" }, ...rest.map((t) => traceItem(t, ui)))) : null;
+  const more = rest.length ? el("details", { class: "more", dataset: { k: "trace-all" } }, el("summary", { text: `Show all (${newest.length})` }), el("ol", { class: "trace__list", "aria-live": "off" }, ...rest.map((t) => traceItem(t, ui, D?.state.llm?.backend === "stub")))) : null;
   target.classList.toggle("is-stale", !!conn.lostAt);
   target.replaceChildren(head, el("p", { class: "dnote", text: "Each step in plain words. Lines TEPHRA has no plain wording for are shown as written; the raw line is under Technical detail." }), ol, ...(more ? [more] : []));
 }

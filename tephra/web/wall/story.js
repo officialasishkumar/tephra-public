@@ -5,7 +5,7 @@
 
 import { $, el, icon, hhmmz, ms, fl, kmBetween, reducedMotion } from "./util.js";
 import { SEV_RANK, regionOfVent } from "./derive.js";
-import { ext, failureCount } from "./ext.js";
+import { ext, failureCount, replanning } from "./ext.js";
 import { planProblem } from "./x-parts.js";
 import { FEED_NAME } from "./panels.js";
 
@@ -175,7 +175,11 @@ function storyLines(D, store, ui, sit) {
   if (conflict) lines.push({ text: "A no-ash VAA was in force when another report saw ash after it.", cls: "story__dis" });
   const plan = currentPlan();
   const closed = closuresFor(D, sit.volcano_id, plan);
-  if (closed.length) {
+  const re = replanning(store);
+  if (re) {
+    // The trace does not say which volcano closed them, so the line names no volcano.
+    lines.push({ text: `RFA airports closed by ash: ${re.airports.join(", ")}. Re-planning the day's flights…`, title: `Re-plan started at ${hhmmz(re.at)}` });
+  } else if (closed.length) {
     const icaos = [...new Set(closed.map((c) => c.icao))];
     lines.push({ text: `Ash closes ${plural(icaos.length, "RFA airport", "RFA airports")}: ${icaos.join(", ")}.`, title: `Airport plan as of ${hhmmz(ms(plan.created_at))}` });
   }
@@ -183,12 +187,21 @@ function storyLines(D, store, ui, sit) {
   if (n > 0) {
     lines.push({ text: `${n} ${n === 1 ? "flight" : "flights"} of RFA, our fictional airline, ${n === 1 ? "is" : "are"} in or heading into TEPHRA's estimated ash area.`, cls: "story__flights", count: n });
     const a = advisoryFacts(D, store, sit.volcano_id);
-    let t;
+    let t, goneNote = null;
     if (a.unknown) t = "Advisory count unknown (database error).";
-    else if (a.drafts > 0) t = `${a.partial ? "At least " : ""}${a.drafts} of their advisories ${a.drafts === 1 ? "waits" : "wait"} for a dispatcher.`;
+    // One advisory per flight; a draft can outlive the flight's exposure, so the count is of
+    // advisories, never "n of their" (review 1, item 3).
+    else if (a.drafts > 0) {
+      t = `${a.partial ? "At least " : ""}${a.drafts} ${a.drafts === 1 ? "advisory waits" : "advisories wait"} for a dispatcher.`;
+      // drafts whose flight is not among the n seen heading in now, said once so 30 next to 23 adds up
+      const seen = new Set(D.exposed.filter((f) => f.properties.volcano_id === sit.volcano_id).map((f) => `${f.properties.hex}:${sit.volcano_id}`));
+      const gone = store.advisories.filter((x) => x.volcano_id === sit.volcano_id && x.status === "DRAFT" && !seen.has(x.flight_id)).length;
+      if (gone > 0 && !a.partial) goneNote = `${gone} of them ${gone === 1 ? "is for a flight" : "are for flights"} no longer seen heading in.`;
+    }
     else if (a.decided > 0) t = `All ${a.decided} advisories are decided: ${a.approved} approved, ${a.rejected} rejected.`;
     else t = "Their advisories are not drafted yet.";
     lines.push({ text: t, cls: "story__wait" });
+    if (goneNote) lines.push({ text: goneNote, cls: "story__note" });
   } else {
     const adsb = store.feeds.find((f) => f.feed === "adsb");
     const ok = adsb?.status === "OK";
@@ -205,7 +218,11 @@ function renderLines(D, store, ui, sit, announce) {
   let lines;
   if (!D) lines = [{ text: "Connecting to TEPHRA…", cls: "story__note story__connecting" }];
   else if (sit) lines = storyLines(D, store, ui, sit);
-  else if (D.regionEmpty) {
+  else if (D.reading) {
+    // Active volcanoes are known but their situation cards have not arrived: never "no ash".
+    lines = [{ text: "Reading the official reports…", cls: "story__connecting" },
+      { text: D.state.last_tick ? "Ash is reported here. The summary appears when TEPHRA has read the reports, usually within a minute." : "TEPHRA has just started and is reading every feed for the first time. This takes up to a minute.", cls: "story__note" }];
+  } else if (D.regionEmpty) {
     const name = D.area?.name || "this area";
     lines = [{ text: `No ash reported near ${name} right now.` }];
   } else lines = [{ text: "No official ash report is in force in the watched regions right now." }];
@@ -285,7 +302,7 @@ export function keyRows(D, ui) {
   if (ui.layers.tephra && D.cones.length) rows.push([sw("lg-area-tephra", "sw--tephra"), "TEPHRA's estimate", "never smaller than official"]);
   if (ui.layers.aircraft && D.exposed.length) rows.push([sw("i-aircraft", "sw--exposed"), "RFA flight in or heading in", null]);
   const step = D.official.find((f) => f.properties.show && f.properties.step !== "now");
-  if (step) rows.push([sw("lg-area-forecast", "sw--official"), `Official forecast area (${step.properties.layer.replace("FCST+", "+").replace("H", " h")})`, null]);
+  if (step) rows.push([sw("lg-area-forecast", "sw--official"), `Official forecast area\u00a0(${step.properties.layer.replace("FCST+", "+").replace("H", "\u00a0h")})`, null]);
   if (ui.layers.aircraft && D.aircraft.some((f) => !f.properties.exposed)) rows.push([sw("i-aircraft", "sw--aircraft"), "Other aircraft (not RFA)", null]);
   const pickedReroute = !!D.selFlight && D.rerouteKeys?.has(`${D.selFlight.properties.hex}:${D.selFlight.properties.volcano_id}`);
   if ((ui.layers.reroutes && D.hasReroutes) || pickedReroute) rows.push([sw("lg-reroute", "sw--reroute"), "Suggested reroute", null]);
@@ -328,7 +345,7 @@ function renderNotes(notes) {
 function renderAll(D, ui) {
   const kx = $("kpi-exposed");
   const s = D?.state;
-  const active = s?.active_volcano_ids?.length ?? 0;
+  const active = D?.activeCount ?? 0;
   setText($("kpi-active"), D && active ? String(active) : "–");
   // RFA is a fictional airline. At 0 the count shows a dash, never "0", "none" or "clear": the
   // feed only sees aircraft that broadcast on ADS-B (G17).
@@ -365,9 +382,9 @@ export function renderStory(D, store, ui, { conn, extra, announce, notes = [] })
   const h1 = $("volcano-name");
   if (!D) setText(h1, extra.error ? "TEPHRA" : "Connecting to TEPHRA…");
   else if (sit) setText(h1, sit.volcano_name);
-  else if (D.regionEmpty) setText(h1, D.area?.name || "This area");
+  else if (D.regionEmpty || D.reading) setText(h1, D.area?.name || (D.reading ? "Watched regions" : "This area"));
   else setText(h1, "Watched regions");
-  document.body.classList.toggle("is-connecting", !D && !extra.error);
+  document.body.classList.toggle("is-connecting", (!D && !extra.error) || !!D?.reading);
   // A load error shows the failure line only: no numbers and never a cached story (R5.4).
   $("verdict").classList.toggle("verdict--error", !D && !!extra.error);
   eyebrow(D, sit, sit ? regionOfVent(D.state, D.vents.get(sit.volcano_id)) : null, store);

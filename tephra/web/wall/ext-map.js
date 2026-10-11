@@ -22,11 +22,11 @@ export function addExtLayers(map, noText, visible) {
   for (const id of ["reroutes", "satboxes"]) if (!map.getSource(id)) map.addSource(id, { type: "geojson", data: fc([]) });
   const path = ["==", ["get", "feature"], "path"];
   const wp = ["==", ["get", "feature"], "waypoint"];
-  const fade = ["case", ["get", "sel"], 1, 0.55];
+  const fade = ["case", ["==", ["get", "sel"], true], 1, 0.55];
   map.addLayer({ id: "sat-frame", type: "line", source: "satboxes", filter: ["==", ["get", "part"], "frame"], paint: { "line-color": C.sat, "line-width": 1.2, "line-dasharray": [2, 3], "line-opacity": 0.8 } });
   map.addLayer({ id: "sat-box-fill", type: "fill", source: "satboxes", filter: ["==", ["get", "part"], "box"], paint: { "fill-color": C.sat, "fill-opacity": 0.12 } });
   map.addLayer({ id: "sat-box-line", type: "line", source: "satboxes", filter: ["==", ["get", "part"], "box"], paint: { "line-color": C.sat, "line-width": 2.2 } });
-  map.addLayer({ id: "reroute-casing", type: "line", source: "reroutes", filter: path, layout: { visibility: vis, "line-join": "round", "line-cap": "round" }, paint: { "line-color": C.halo, "line-width": 6.5, "line-opacity": ["case", ["get", "sel"], 0.9, 0.5] } });
+  map.addLayer({ id: "reroute-casing", type: "line", source: "reroutes", filter: path, layout: { visibility: vis, "line-join": "round", "line-cap": "round" }, paint: { "line-color": C.halo, "line-width": 6.5, "line-opacity": ["case", ["==", ["get", "sel"], true], 0.9, 0.5] } });
   map.addLayer({ id: "reroute-line", type: "line", source: "reroutes", filter: path, layout: { visibility: vis, "line-join": "round", "line-cap": "round" }, paint: { "line-color": C.reroute, "line-width": 3, "line-opacity": fade } });
   map.addLayer({ id: "reroute-wp", type: "circle", source: "reroutes", filter: wp, layout: { visibility: vis }, paint: { "circle-radius": 5, "circle-color": C.halo, "circle-stroke-color": C.reroute, "circle-stroke-width": 2.2, "circle-opacity": fade, "circle-stroke-opacity": fade } });
   if (noText) return;

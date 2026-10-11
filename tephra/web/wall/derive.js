@@ -68,7 +68,17 @@ export function derive(store, ui, now) {
   const area = ui.region ? regionOf(ui.region) : null;
   const inRegion = area ? sits.filter((s) => vents.get(s.volcano_id) && inBbox(vents.get(s.volcano_id), area.bbox)) : sits;
   const selected = inRegion.some((s) => s.volcano_id === ui.selected) ? ui.selected : inRegion[0]?.volcano_id ?? null;
-  const regionEmpty = !!area && inRegion.length === 0;
+  // Active volcanoes come from one source, the server's active list plus any situation card, so
+  // the "with ash" counts, the area picker and the story always agree (review 1, item 1). An
+  // active volcano whose situation card has not arrived yet is "being read": until it arrives the
+  // Wall says so and never claims "no ash" for its area.
+  const activeIds = [...new Set([...(state.active_volcano_ids || []), ...sits.map((s) => s.volcano_id)])];
+  const pendingIds = activeIds.filter((id) => !sits.some((s) => s.volcano_id === id));
+  const inArea = (id, r) => !!vents.get(id) && inBbox(vents.get(id), r.bbox);
+  const pendingInScope = area ? pendingIds.filter((id) => inArea(id, area)) : pendingIds;
+  // Before the server's first tick finishes nothing has been read yet: also "being read".
+  const reading = inRegion.length === 0 && (pendingInScope.length > 0 || !state.last_tick);
+  const regionEmpty = !!area && inRegion.length === 0 && !reading;
   const sit = sits.find((s) => s.volcano_id === selected) || null;
   const lvAll = levelIsAll(ui.level);
   const outOfLevel = (p) => !lvAll && (p.top_ft < ui.level.min || p.base_ft > ui.level.max);
@@ -244,12 +254,12 @@ export function derive(store, ui, now) {
 
   // ---- region counts (active volcanoes inside each region bbox)
   const regionCounts = {};
-  for (const r of state.regions || []) regionCounts[r.key] = sits.filter((s) => vents.get(s.volcano_id) && inBbox(vents.get(s.volcano_id), r.bbox)).length;
+  for (const r of state.regions || []) regionCounts[r.key] = activeIds.filter((id) => inArea(id, r)).length;
 
   if (regionEmpty && regionCounts[ui.region] > 0) console.error("region invariant");
 
   return {
-    state, now, mode: state.mode, sits, inRegion, regionEmpty, area, selected, sit, vents, official, cones, coneOf, sectorOf,
+    state, now, mode: state.mode, sits, inRegion, regionEmpty, reading, activeCount: activeIds.length, area, selected, sit, vents, official, cones, coneOf, sectorOf,
     hasReroutes: (snap.reroutes?.features || []).length > 0,
     rerouteKeys: new Set((snap.reroutes?.features || []).map((f) => f.properties.flight_id)),
     hasSatBoxes: (snap.satellite || []).some((r) => r.boxes?.length),

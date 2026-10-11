@@ -30,6 +30,7 @@
   <div id="replay-banner" class="replay-banner" role="status" hidden>
     <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-replay"></use></svg>
     <span id="replay-banner-text" class="replay-banner__text"></span>
+    <span id="replay-banner-short" class="replay-banner__short"></span>
     <span class="replay-banner__live"> · not live</span>
     <span id="replay-banner-case" class="replay-banner__case"></span>
   </div>
@@ -71,6 +72,8 @@
     </a>
     <div id="phone-honesty" class="cmdbar__honesty"></div>
   </header>
+  <!-- phone only: the area, AI and data chips move here, below the sticky header, and scroll away -->
+  <div id="phone-bar" class="phone-bar" role="group" aria-label="Area, AI and data"></div>
 
   <main class="stage" id="main">
     <section id="story" class="story" aria-labelledby="volcano-name" tabindex="-1">

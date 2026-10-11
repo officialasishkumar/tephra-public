@@ -405,13 +405,17 @@ function renderCtx() {
   box.hidden = !lines.length;
   const scaleOf = (t) => (t.includes("SO2 (TROPOMI") ? "so2" : ui.sat === "ir" && t.includes(SAT.ir.title) ? "ir" : null);
   const offOf = (t) => (t.includes("SO2 (TROPOMI") ? "so2" : t.includes("BTD") ? "btd" : "sat");
+  // One pill per layer (review 1, item 12): "CONTEXT ONLY", the caption and the scale wrap together
+  // in one box, with the ✕ beside the caption, never on a row of its own.
   box.replaceChildren(...lines.map((t) => {
     const off = offOf(t);
-    const line = el("p", { class: "ctx-label__line map-pill" }, el("strong", { text: "CONTEXT ONLY" }), el("span", { text: t.replace(/^CONTEXT ONLY · /, " · ") }),
-      el("button", { type: "button", class: "icon-btn ctx-label__off", "aria-label": `Turn off: ${off === "sat" ? "satellite picture" : off.toUpperCase()}`, dataset: { act: "ctx-off", layer: off, focus: `ctx-off-${off}` } }, icon("i-x")));
+    const caption = t.replace(/^CONTEXT ONLY\s*/, "").replace(/^[\s·:-]+/, "");
     const key = scaleOf(t);
-    return key ? [line, satScale(key, renderCtx)] : line;
-  }).flat());
+    return el("div", { class: "ctx-label__line ctx-pill map-pill" },
+      el("p", { class: "ctx-pill__text" }, el("strong", { text: "CONTEXT ONLY" }), el("span", { text: ` ${caption}` })),
+      el("button", { type: "button", class: "icon-btn ctx-label__off", "aria-label": `Turn off: ${off === "sat" ? "satellite picture" : off.toUpperCase()}`, dataset: { act: "ctx-off", layer: off, focus: `ctx-off-${off}` } }, icon("i-x")),
+      key ? satScale(key, renderCtx) : null);
+  }));
 }
 
 // ------------------------------------------------------------------ actions
@@ -953,6 +957,15 @@ function placeHonesty() {
   if (!line) return;
   if (phoneMq.matches) { if (line.parentElement !== $("phone-honesty")) $("phone-honesty").append(line); }
   else if (line.parentElement !== document.querySelector(".honesty")) document.querySelector(".honesty").prepend(line);
+  // On a phone the sticky header keeps the brand, mode, clock, Desk and the disclaimer; the area,
+  // AI and data chips sit in a bar under it that scrolls away (review 1, item 13).
+  const area = document.querySelector(".areapick"), ai = $("ai-chip"), feeds = $("feeds-chip"), bar = $("phone-bar");
+  if (phoneMq.matches) { if (area.parentElement !== bar) bar.append(area, ai, feeds); }
+  else if (area.parentElement === bar) {
+    const spacer = document.querySelector(".cmdbar__spacer");
+    spacer.before(area);
+    spacer.after(ai, feeds);
+  }
   placeDetails();
 }
 phoneMq.addEventListener?.("change", placeHonesty);

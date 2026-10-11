@@ -867,11 +867,14 @@ details.more > :not(summary) { margin: var(--sp-2) var(--sp-3) 0; }
 .policy__cites q { display: block; color: var(--c-text-2); }
 .dlg::backdrop { background: var(--c-scrim); }
 .dlg[open] { display: flex; flex-direction: column; }
+/* Only the body scrolls (review 1, item 2): an absolutely placed sr-only caption inside the body
+   stretched the dialog itself, so the wheel scrolled the header and body out of view. */
+.dlg { overflow: hidden; }
 .dlg__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-5); border-bottom: 1px solid var(--c-line-1); }
 .dlg__title { font-size: var(--fs-5); font-weight: var(--fw-semibold); }
 .dlg__close { display: grid; place-items: center; width: 44px; height: 44px; background: transparent; border: 1px solid var(--c-line-2); border-radius: var(--radius-md); color: var(--c-text-1); }
 .dlg__close:hover { background: var(--c-surface-3); }
-.dlg__body { overflow: auto; padding: var(--sp-4) var(--sp-5) var(--sp-5); flex: 1; min-height: 0; }
+.dlg__body { position: relative; overflow: auto; overscroll-behavior: contain; padding: var(--sp-4) var(--sp-5) var(--sp-5); flex: 1; min-height: 0; }
 .table { width: 100%; border-collapse: collapse; font-size: var(--fs-2); }
 .table th, .table td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--c-line-1); }
 .table thead th { font-size: var(--fs-1); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-text-3); }
@@ -903,6 +906,11 @@ details.more > :not(summary) { margin: var(--sp-2) var(--sp-3) 0; }
 .help__list { list-style: disc; padding-left: var(--sp-5); line-height: var(--lh-body); }
 .help__glossary { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: var(--sp-2) var(--sp-4); line-height: var(--lh-body); }
 .help__glossary dt { font-weight: var(--fw-semibold); color: var(--c-text-1); }
+/* phone: term above its meaning, so a definition never wraps one word per line */
+@media (max-width: 600px) {
+  .help__glossary { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .help__glossary dd { margin: 2px 0 var(--sp-3); }
+}
 
 /* ================================================================ WP11: AI extension panels
    Reroutes, Satellite check, Notices, Recovery board, Proof, AI tray (docs/EXTENSIONS.md). */
@@ -1231,9 +1239,17 @@ details.more > :not(summary) { margin: var(--sp-2) var(--sp-3) 0; }
   .replay-banner__case { display: none; }
   .cmdbar {
     position: sticky; top: var(--band-px); height: auto;
-    display: grid; grid-template-columns: auto auto 1fr auto; grid-template-areas: "brand mode clock desk" "area area ai data" "honesty honesty honesty honesty";
-    gap: 6px 8px; padding: 6px 12px 6px;
+    display: grid; grid-template-columns: auto auto 1fr auto; grid-template-areas: "brand mode clock desk" "honesty honesty honesty honesty";
+    gap: 4px 8px; padding: 6px 12px 4px;
   }
+  /* the area, AI and data chips, moved here by wall.js: under the header, not sticky (item 13) */
+  .phone-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 8px 12px; background: var(--c-surface-1); border-bottom: 1px solid var(--c-line-1); }
+  .phone-bar > * { grid-area: auto !important; justify-self: stretch; }
+  .phone-bar .ai-chip, .phone-bar .feeds-chip { height: 36px; justify-self: end; }
+  /* the REPLAY band: one line ("REPLAY: recorded 05 Sep 2026 · not live") */
+  .replay-banner { flex-wrap: nowrap !important; white-space: nowrap !important; min-height: 28px !important; font-size: 13px; }
+  .replay-banner__text { display: none; }
+  .replay-banner__short { display: inline; }
   .brand { grid-area: brand; }
   .brand__mark { font-size: 18px; letter-spacing: 0.12em; }
   .mode-badge { grid-area: mode; height: 32px; padding: 0 10px; }
@@ -1300,12 +1316,13 @@ details.more > :not(summary) { margin: var(--sp-2) var(--sp-3) 0; }
   .sheet .story-strip { display: none; }
   .sheet::backdrop { background: var(--c-scrim); }
   .sheet .drawer { height: 100%; }
-  .sheet .drawer__switch select { max-width: 120px; }
+  .sheet .drawer__switch select { max-width: min(220px, 56vw); width: auto; }
   .cmp-cards .cmp__cell { font-size: var(--fs-2); }
   .raw-grid { grid-template-columns: 1fr; height: auto; }
   .dlg[data-kind="sources"] { height: auto; }
 }
 .cta-sticky { display: none; }
+@media (min-width: 601px) { .phone-bar, .replay-banner__short { display: none; } }
 @media (max-width: 600px) { .cta-sticky:not([hidden]) { display: flex; } }
 .sheet:not([open]) { display: none; }
 
@@ -1328,4 +1345,23 @@ body.present .details-btn { border-style: dashed; }
   .sw, .codes svg, .levels__band, .levels__tick, .levels__sel, .levels__sw, .tl__mark .st, .tl__bar, .tl__now, .tl__progress span,
   .x-meter__bar > span, .x-key__sw, .flights__plane, .eyebrow__icon .icon, .vrow .erupt, .ctx-scale__bar { forced-color-adjust: none; }
   .levels__rail, .tl__rail { background: CanvasText; }
+}
+
+/* ---------------------------------------------------------------- review 1 fixes */
+/* A re-plan in progress (item 5): one status line with a spinner. */
+.x-busy { display: flex; align-items: center; gap: 8px; color: var(--c-caution); }
+.spinner { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--c-line-2); border-top-color: currentColor; }
+@media (prefers-reduced-motion: no-preference) { .spinner { animation: spin 0.9s linear infinite; } }
+/* The satellite pill (item 12): label, caption and scale in one wrapping box, ✕ top right. */
+.ctx-pill { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 2px var(--sp-2); width: min(520px, 100%); padding: 6px 6px 6px var(--sp-3); }
+.ctx-pill__text { margin: 0; padding-top: 6px; font-size: var(--fs-2); line-height: 1.35; color: var(--c-text-1); }
+.ctx-pill__text strong { margin-right: 4px; }
+.ctx-pill .ctx-scale { grid-column: 1 / -1; width: min(360px, 100%); padding: 2px 0 0; background: none; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+/* Details is the route to everything else (item 7): pinned to the bottom of the story column at
+   every desktop width, with a fade above it that says the column scrolls. */
+@media (min-width: 601px) {
+  .story > .details-btn { position: sticky; bottom: 0; z-index: 1; flex: none; box-shadow: 0 -18px 16px -4px var(--c-surface-1); }
+  .story { padding-bottom: 0; }
+  .story > .details-btn { margin-bottom: var(--sp-3); }
+  .details-btn[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--c-text-1), 0 -18px 16px -4px var(--c-surface-1); }
 }

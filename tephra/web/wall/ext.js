@@ -266,13 +266,35 @@ export function recoverySummary(plan) {
   return `${head} · ${status}: ${what}`;
 }
 
-function recoveryPanel(D) {
+// Airports a re-plan is running for (review 1, item 5): the newest airport-plan step in the trace
+// says the closed airports changed and the recovery helper started, and no plan has landed since.
+// Read from the trace's own fields; null when no re-plan is running.
+const REPLAN = /^Closed airports changed: (.+); recovery agent started$/;
+export function replanning(store) {
+  let last = null;
+  for (const t of store?.trace || []) if (t.stage === "RECOVERY" && (!last || ms(t.at) >= ms(last.at))) last = t;
+  const m = last ? REPLAN.exec(last.message || "") : null;
+  if (!m) return null;
+  const at = ms(last.at);
+  if (ext.recovery.some((p) => ms(p.created_at) >= at)) return null;
+  const airports = Array.isArray(last.detail?.airports) && last.detail.airports.length ? last.detail.airports : m[1].split(/,\s*/);
+  return { airports, at };
+}
+
+function recoveryPanel(D, store) {
+  const re = replanning(store);
+  const busy = re ? el("p", { class: "dsum x-busy", role: "status" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text: `Re-planning for ${re.airports.join(", ")}…` })) : null;
+  const kids = recoveryKids(D);
+  return busy ? [busy, ...kids.filter((k) => !k.classList?.contains("x-none"))] : kids;
+}
+
+function recoveryKids(D) {
   if (!ext.loaded.recovery) return [loadingBox()];
   if (ext.errors.recovery) return [errBox("Airport plan", ext.errors.recovery)];
   const plans = ext.recovery.slice().sort((a, b) => ms(b.created_at) - ms(a.created_at));
   const plan = plans.find((p) => p.status !== "SUPERSEDED") || plans[0];
   const lede = el("p", { class: "dnote", text: "Airports the ash closes, and the day's flights of RFA (a fictional airline, synthetic schedule) re-planned around them. An optimiser (code) builds the scenarios; a model only picks one and explains it. A dispatcher approves on the Desk." });
-  if (!plan) return [el("p", { class: "dsum", text: "No RFA airport is closed by the ash right now." }), lede];
+  if (!plan) return [el("p", { class: "dsum x-none", text: "No RFA airport is closed by the ash right now." }), lede];
   const [kind, text] = PLAN_STATUS[plan.status] || ["info", plan.status];
   const problem = planProblem(plan);
   const kids = [
@@ -445,11 +467,14 @@ function budgetBlock() {
     el("p", { class: "x-sub", text: b.note }));
 }
 
+// The same tier and words as the Desk's budget chip (review 1, item 4): the lite model, which
+// makes most calls. Both tiers are listed in full under "Model budget".
 export function budgetWords() {
   const b = ext.budget;
-  const main = b?.tiers?.find((t) => t.tier === "main");
-  if (!main) return null;
-  return `AI calls today: ${Math.max(0, main.limit - main.remaining)} of ${main.limit}`;
+  const lite = b?.tiers?.find((t) => t.tier === "lite") || b?.tiers?.[0];
+  if (!lite) return null;
+  const used = Number.isFinite(lite.used) ? lite.used : Math.max(0, lite.limit - lite.remaining);
+  return `AI calls today: ${used} of ${lite.limit}`;
 }
 
 function aiPanel(D, store) {

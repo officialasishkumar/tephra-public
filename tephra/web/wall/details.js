@@ -11,7 +11,7 @@ import {
   sourcesSection, disagreeSection, areaSection, decisionsSection, renderFlights, renderTrace, traceLines, renderLevels,
   historySection, feedsSection, lagOf, timelineEvents, advisoryLine, estimateOutcome, dayMonth, FEED_STATUS,
 } from "./panels.js";
-import { ext, renderXPanel, failureCount, recoverySummary, proofTicks, budgetWords, rerouteBlock } from "./ext.js";
+import { ext, renderXPanel, failureCount, recoverySummary, proofTicks, budgetWords, rerouteBlock, replanning } from "./ext.js";
 import { renderLayers, layersStatus } from "./controls.js";
 import { currentPlan, advisoryFacts } from "./story.js";
 import { planProblem, techDetail } from "./x-parts.js";
@@ -98,6 +98,8 @@ export function indexStatus(key, D, store, ui) {
       if (!ext.loaded.recovery) return { text: "loading…" };
       if (ext.errors.recovery) return { text: "could not load", tone: "serious" };
       const plan = currentPlan();
+      const re = replanning(store);
+      if (re) return { text: `re-planning for ${re.airports.join(", ")}…`, tone: "caution" };
       if (!plan) return { text: "no airport closed" };
       if (plan.status === "AI_UNAVAILABLE") return { text: planProblem(plan) ? "no plan found" : "AI unavailable", tone: "serious" };
       const n = new Set(plan.closures.map((c) => c.icao)).size;
@@ -262,7 +264,7 @@ function keepOpenDetails(host, fn) {
 
 function renderSection(key, D, store, ui, conn) {
   const sit = D?.sit;
-  const none = (host) => $(host).replaceChildren(el("p", { class: "dsum", text: D?.regionEmpty ? "No volcano is active in this area. Choose another area or volcano." : "No volcano is selected." }));
+  const none = (host) => $(host).replaceChildren(el("p", { class: "dsum", text: D?.reading ? "Reading the official reports… The sections fill in when TEPHRA has read them." : D?.regionEmpty ? "No volcano is active in this area. Choose another area or volcano." : "No volcano is selected." }));
   switch (key) {
     case "sources": if (!sit) return none("brief"); $("brief").replaceChildren(sourcesSection(D, sit)); return;
     case "disagree": if (!sit) return none("brief"); $("brief").replaceChildren(disagreeSection(D, sit, ui)); return;

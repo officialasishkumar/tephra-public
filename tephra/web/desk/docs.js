@@ -69,10 +69,19 @@ export function onDocEvent(summary) {
 
 // --- the tab ---------------------------------------------------------------------------------------
 
+// One row per flight whose current advisory is still in force: the newest advisory per flight,
+// dropped when code replaced or retired it (SUPERSEDED: the flight left the ash, or a newer draft
+// is on its way). So the count matches the flights on the Wall, not every advisory ever seen
+// (review 1, item 3).
 const flightsForVar = () => {
-  const seen = new Map();
-  for (const a of [...app.drafts.values(), ...app.closed.values()]) if (/^[0-9a-f]{6}:[0-9]{1,10}$/.test(a.flight_id || '')) seen.set(a.flight_id, a);
-  return [...seen.values()];
+  const newest = new Map();
+  const t = (a) => Date.parse(a.updated_at || a.created_at || '') || 0;
+  for (const a of [...app.closed.values(), ...app.drafts.values()]) {
+    if (!/^[0-9a-f]{6}:[0-9]{1,10}$/.test(a.flight_id || '')) continue;
+    const prev = newest.get(a.flight_id);
+    if (!prev || a.status === 'DRAFT' || (prev.status !== 'DRAFT' && t(a) >= t(prev))) newest.set(a.flight_id, a);
+  }
+  return [...newest.values()].filter((a) => a.status !== 'SUPERSEDED');
 };
 
 function draftBtn(key, label, onclick) {
