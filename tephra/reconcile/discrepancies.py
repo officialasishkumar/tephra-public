@@ -30,7 +30,13 @@ from typing import TYPE_CHECKING, Final, Literal
 from shapely.geometry import Point, Polygon
 
 from tephra.config import FEED_CLOCK_SLACK, MAX_HORIZON_H, Settings
-from tephra.geo.cone import geometry_to_shape, official_layers
+from tephra.geo.cone import (
+    geometry_to_shape,
+    is_negative_vaa,
+    kept_vaa,
+    official_layers,
+    vaa_order,
+)
 from tephra.geo.units import (
     bearing_diff_deg,
     deg_to_compass,
@@ -71,13 +77,15 @@ __all__ = [
     "feed_degraded",
     "find_active",
     "find_discrepancies",
+    "select_floor_vaas",
     "select_records",
 ]
 
 VONA_FRESH_H: Final = 6.0
 """A VONA older than this describes an earlier puff: its evidence state is STALE."""
 VAA_LOOKBACK_H: Final = 24.0
-"""``select_records`` keeps, per VAAC, the newest VAA issued within this many hours."""
+"""``select_records`` keeps, per VAAC, the newest VAA issued within this many hours, and
+``select_floor_vaas`` looks this far back for an older VAA whose area stays on the floor."""
 CLOCK_SLACK: Final = FEED_CLOCK_SLACK
 """Products stamped slightly after "now" (feed clocks, replay steps) still count."""
 OVERDUE_GRACE_MIN: Final = 10
@@ -144,7 +152,7 @@ def find_active(
         if volcano is None:
             continue
         held = newest.get((volcano.id, vaa.vaac))
-        if held is None or _vaa_order(vaa) > _vaa_order(held):
+        if held is None or vaa_order(vaa) > vaa_order(held):
             newest[volcano.id, vaa.vaac] = vaa
     for key in sorted(newest):
         if newest[key].is_current(at):
@@ -186,18 +194,45 @@ def select_records(
     ]
     chosen_vonas.sort(key=lambda item: item.issued_at, reverse=True)
 
+    newest = [chain[0] for chain in _vaa_chains(catalogue, volcano, vaas, at)]
+    chosen_vaas = sorted(newest, key=vaa_order, reverse=True)
+    return chosen_sigmets, chosen_vonas, chosen_vaas
+
+
+def select_floor_vaas(
+    catalogue: "VolcanoCatalogue",
+    volcano: Volcano,
+    *,
+    vaas: Sequence[VaacAdvisory],
+    at: datetime,
+) -> list[VaacAdvisory]:
+    """The VAAs the official floor is built from: per VAAC, the newest one ``select_records``
+    keeps, plus the older VAA whose area stays on the floor when the newest gives none
+    (``cone.kept_vaa``). Discrepancies and source cards still compare only the newest."""
+    floor: list[VaacAdvisory] = []
+    for newest, *older in _vaa_chains(catalogue, volcano, vaas, at):
+        floor.append(newest)
+        if (kept := kept_vaa(newest, older)) is not None:
+            floor.append(kept)
+    return sorted(floor, key=vaa_order, reverse=True)
+
+
+def _vaa_chains(
+    catalogue: "VolcanoCatalogue",
+    volcano: Volcano,
+    vaas: Sequence[VaacAdvisory],
+    at: datetime,
+) -> list[list[VaacAdvisory]]:
+    """Per VAAC, the volcano's VAAs issued within ``VAA_LOOKBACK_H`` of ``at``, newest first."""
     earliest = at - timedelta(hours=VAA_LOOKBACK_H)
-    newest: dict[VaacCentre, VaacAdvisory] = {}
+    chains: dict[VaacCentre, list[VaacAdvisory]] = {}
     for vaa in vaas:
         if not earliest <= vaa.issued_at <= at + CLOCK_SLACK:
             continue
         if not _same(_vaa_volcano(catalogue, vaa), volcano):
             continue
-        held = newest.get(vaa.vaac)
-        if held is None or _vaa_order(vaa) > _vaa_order(held):
-            newest[vaa.vaac] = vaa
-    chosen_vaas = sorted(newest.values(), key=_vaa_order, reverse=True)
-    return chosen_sigmets, chosen_vonas, chosen_vaas
+        chains.setdefault(vaa.vaac, []).append(vaa)
+    return [sorted(chain, key=vaa_order, reverse=True) for chain in chains.values()]
 
 
 def build_situation(
@@ -214,7 +249,10 @@ def build_situation(
     mode: RunMode,
     settings: Settings,
     feed_health: Mapping[FeedId, FeedHealth] | None = None,
+    floor_vaas: Sequence[VaacAdvisory] | None = None,
 ) -> Situation:
+    """``floor_vaas`` (from ``select_floor_vaas``) builds the official floor; without it the
+    floor is built from ``vaas``. Everything else uses ``vaas``."""
     return Situation(
         volcano=volcano,
         as_of=at,
@@ -222,11 +260,13 @@ def build_situation(
         active_reasons=list(active_reasons),
         sigmets=list(sigmets),
         vonas=sorted(vonas, key=lambda item: item.issued_at, reverse=True),
-        vaas=sorted(vaas, key=_vaa_order, reverse=True),
+        vaas=sorted(vaas, key=vaa_order, reverse=True),
         winds=_upcoming_winds(winds, at),
         frames=list(frames),
         btd=btd,
-        official_layers=official_layers(volcano, sigmets, vaas, at),
+        official_layers=official_layers(
+            volcano, sigmets, vaas if floor_vaas is None else floor_vaas, at
+        ),
         discrepancies=find_discrepancies(
             volcano,
             sigmets=sigmets,
@@ -296,7 +336,7 @@ def _vaa_evidence(vaa: VaacAdvisory, at: datetime) -> EvidenceState:
         return EvidenceState.ESTIMATED if obs.estimated else EvidenceState.OBSERVED_SAT
     if obs is not None and obs.not_identifiable:
         return EvidenceState.NOT_IDENTIFIABLE
-    if _vaa_negative(vaa):
+    if is_negative_vaa(vaa):
         return EvidenceState.NO_VA_EXPECTED
     if vaa.forecasts and all(step.not_available for step in vaa.forecasts):
         return EvidenceState.FORECAST_NOT_AVAILABLE
@@ -306,26 +346,6 @@ def _vaa_evidence(vaa: VaacAdvisory, at: datetime) -> EvidenceState:
 def _is_night(volcano: Volcano, vona: Vona) -> bool:
     hour = solar_hour(volcano.lon, vona.issued_at)
     return hour >= NIGHT_START_H or hour < NIGHT_END_H
-
-
-def _vaa_negative(vaa: VaacAdvisory) -> bool:
-    """An explicit "no ash": NO VA EXP, or a final VAA, from a VAA that had something to say.
-
-    A VAA that draws ash, could not see it ("VA NOT IDENTIFIABLE"), had no observation to
-    give ("NOT AVBL", "NOT PROVIDED") or left the cloud field blank (a hand-over notice) is
-    not an all-clear, whatever follows it. Darwin's closing template adds NO VA EXP forecasts
-    even when met cloud hid the vent (Marapi 2026/80), and every closing VAA in the 30-day
-    census reads "VA NOT IDENTIFIABLE".
-    """
-    obs = vaa.observation
-    if obs is not None:
-        if obs.layers or obs.not_identifiable or obs.not_available or not obs.text.strip():
-            return False
-        if obs.no_ash_expected:
-            return True
-    if vaa.final:
-        return True
-    return bool(vaa.forecasts) and all(step.no_ash_expected for step in vaa.forecasts)
 
 
 # --- discrepancies ----------------------------------------------------------------------
@@ -345,7 +365,7 @@ class _Unit:
     top_ft: int | None
     toward_deg: float | None
     stationary: bool
-    polygon: GeoPolygon | None
+    polygons: tuple[GeoPolygon, ...]
     height_text: str
     movement_text: str
     positive: bool
@@ -393,9 +413,10 @@ def find_discrepancies(
             finder.height(_vona_unit(with_top, volcano, at), other)
     if with_direction is not None:
         unit = _vona_unit(with_direction, volcano, at)
-        for other in _direction_comparators(with_direction, sigmet_units, vaa_units, at):
+        comparators = _direction_comparators(with_direction, sigmet_units, vaa_units, at)
+        for other in comparators:
             finder.direction(unit, other)
-        finder.polygon(unit, _in_force(sigmet_units, with_direction.issued_at))
+        finder.polygon(unit, comparators)
 
     vona_units = [_vona_unit(vona, volcano, at) for vona in ordered_vonas]
     finder.conflicts([*sigmet_units, *vaa_units, *vona_units], at)
@@ -429,7 +450,8 @@ def _direction_comparators(
 ) -> list[_Unit]:
     """Drift changes within hours, so a VONA older than ``VONA_FRESH_H`` is compared only
     with the products in force when it was issued; against later ones it is a LAG
-    (research/13 calls the 37-hour pair "not a fair test")."""
+    (research/13 calls the 37-hour pair "not a fair test"). The same set is what the
+    polygon probe tests the VONA's drift against."""
     if vona.is_recent(at, VONA_FRESH_H):
         return _comparators(vona, sigmet_units, vaa_units, at)
     return _in_force([*sigmet_units, *vaa_units], vona.issued_at)
@@ -642,25 +664,27 @@ class _Finder:
             "deg",
         )
 
-    def polygon(self, vona: _Unit, sigmets: Sequence[_Unit]) -> None:
+    def polygon(self, vona: _Unit, officials: Sequence[_Unit]) -> None:
         """The probe must miss every polygon in force: a drift inside another cloud of the
-        same SIGMET, or inside another FIR's SIGMET, is inside the official area."""
-        drawn = [(unit, unit.polygon) for unit in sigmets if unit.polygon is not None]
-        if vona.toward_deg is None or not drawn:
+        same SIGMET, inside another FIR's SIGMET or inside any OBS layer of a VAA is inside
+        the official area."""
+        probed = [unit for unit in officials if unit.polygons]
+        if vona.toward_deg is None or not probed:
             return
         volcano = self._volcano
         lat, lon = destination_point(volcano.lat, volcano.lon, vona.toward_deg, POLYGON_PROBE_KM)
         probe = Point(unwrap_lon(lon, volcano.lon), lat)
-        if any(geometry_to_shape(shape, ref_lon=volcano.lon).covers(probe) for _, shape in drawn):
+        shapes = [shape for unit in probed for shape in unit.polygons]
+        if any(geometry_to_shape(shape, ref_lon=volcano.lon).covers(probe) for shape in shapes):
             return
         compass = deg_to_compass(vona.toward_deg)
         values = _values(vona, vona.movement_text)
-        for unit, _ in drawn:
+        for unit in probed:
             values.update(_values(unit, "polygon"))
-        noun = "polygon" if len(drawn) == 1 else "polygons"
+        noun = "polygon" if len(shapes) == 1 else "polygons"
         summary = (
             f"A point {POLYGON_PROBE_KM:.0f} km {compass} of the vent ({vona.label} drift) "
-            f"lies outside the {' and '.join(unit.label for unit, _ in drawn)} {noun}"
+            f"lies outside the {' and '.join(unit.label for unit in probed)} {noun}"
         )
         self._add(DiscrepancyKind.DIRECTION_MISMATCH, "polygon", values, summary)
 
@@ -794,16 +818,9 @@ def _latest_per_vaac(vaas: Sequence[VaacAdvisory]) -> list[VaacAdvisory]:
     latest: dict[VaacCentre, VaacAdvisory] = {}
     for vaa in vaas:
         held = latest.get(vaa.vaac)
-        if held is None or _vaa_order(vaa) > _vaa_order(held):
+        if held is None or vaa_order(vaa) > vaa_order(held):
             latest[vaa.vaac] = vaa
     return sorted(latest.values(), key=lambda item: item.vaac.value)
-
-
-def _vaa_order(vaa: VaacAdvisory) -> tuple[datetime, int, int]:
-    """Oldest to newest by DTG, then by advisory number: Darwin can issue two advisories with
-    one DTG (Marapi 2026/82 and 2026/83, the second ending what the first said)."""
-    year, _, number = vaa.advisory_nr.partition("/")
-    return vaa.issued_at, _as_int(year), _as_int(number)
 
 
 def _as_int(text: str) -> int:
@@ -858,7 +875,7 @@ def _sigmet_unit(sigmet: Sigmet, twins: Sequence[VaacAdvisory]) -> _Unit:
         top_ft=sigmet.top_ft,
         toward_deg=sigmet.movement_toward_deg,
         stationary=sigmet.stationary,
-        polygon=sigmet.polygon,
+        polygons=(sigmet.polygon,) if sigmet.polygon is not None else (),
         height_text=_band_text(sigmet.base_ft, sigmet.top_ft),
         movement_text=_movement_text(
             sigmet.movement_toward_deg, sigmet.movement_speed_kt, sigmet.stationary
@@ -876,7 +893,7 @@ def _vaa_unit(vaa: VaacAdvisory) -> _Unit:
     base = min((layer.base_ft for layer in layers), default=None)
     top = max((layer.top_ft for layer in layers), default=None)
     moving = next((layer for layer in layers if layer.movement_toward_deg is not None), None)
-    negative = _vaa_negative(vaa)
+    negative = is_negative_vaa(vaa)
     if layers:
         height_text = _band_text(base or 0, top)
     elif negative:
@@ -896,7 +913,7 @@ def _vaa_unit(vaa: VaacAdvisory) -> _Unit:
         top_ft=top,
         toward_deg=moving.movement_toward_deg if moving is not None else None,
         stationary=False,
-        polygon=None,
+        polygons=tuple(layer.polygon for layer in layers if layer.polygon is not None),
         height_text=height_text,
         movement_text=_movement_text(
             moving.movement_toward_deg if moving else None,
@@ -922,7 +939,7 @@ def _vona_unit(vona: Vona, volcano: Volcano, at: datetime) -> _Unit:
         top_ft=vona.cloud_top_ft if vona.ash_observed else None,
         toward_deg=direction if vona.ash_observed else None,
         stationary=False,
-        polygon=None,
+        polygons=(),
         height_text=_vona_height_text(vona) if vona.ash_observed else _non_observation(state),
         movement_text=f"moving {deg_to_compass(direction)}" if direction is not None else "",
         positive=vona.ash_observed,

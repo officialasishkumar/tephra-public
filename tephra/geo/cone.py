@@ -54,8 +54,8 @@ AREA_TOLERANCE_DEG2: Final = 1e-12
 
 VAA_CLOCK_SLACK: Final = FEED_CLOCK_SLACK
 """A VAA stamped up to this long after ``at`` already counts as issued. A tick takes about a
-minute, and record selection allows the same slack and passes on only the newest VAA of each
-VAAC, so ignoring it would leave that VAAC with no polygon at all."""
+minute, and record selection allows the same slack and passes on the newest VAA of each VAAC
+(plus any older one it keeps), so ignoring it would leave that VAAC with no polygon at all."""
 
 AreaGeometry = GeoPolygon | GeoMultiPolygon
 
@@ -67,8 +67,8 @@ def official_layers(
     volcano: Volcano, sigmets: Sequence[Sigmet], vaas: Sequence[VaacAdvisory], at: datetime
 ) -> list[OfficialLayer]:
     layers = [layer for sigmet in sigmets if (layer := _sigmet_layer(sigmet, volcano)) is not None]
-    for vaa in _latest_current_per_vaac(vaas, at):
-        layers.extend(_vaa_layers(vaa, volcano))
+    for vaa, suffix in _floor_vaas(vaas, at):
+        layers.extend(_vaa_layers(vaa, volcano, suffix))
     horizon_end = at + timedelta(hours=MAX_HORIZON_H)
     kept = [layer for layer in layers if layer.valid_to >= at and layer.valid_from <= horizon_end]
     return sorted(kept, key=_layer_order)
@@ -98,36 +98,103 @@ def _sigmet_layer(sigmet: Sigmet, volcano: Volcano) -> OfficialLayer | None:
     )
 
 
-def _latest_current_per_vaac(vaas: Sequence[VaacAdvisory], at: datetime) -> list[VaacAdvisory]:
-    """The newest advisory each VAAC had issued by ``at`` (give or take the clock slack), if
-    it is still current.
+def _floor_vaas(vaas: Sequence[VaacAdvisory], at: datetime) -> list[tuple[VaacAdvisory, str]]:
+    """The VAAs whose layers form each VAAC's floor at ``at``, with a label suffix.
 
-    A newer advisory replaces the older one even after it lapses (a final VAA, for
-    instance), so a superseded advisory never comes back as the official floor.
+    Per VAAC, the newest advisory issued by ``at`` (give or take the clock slack) replaces
+    the older ones only when it draws an area, is final or says no ash is expected
+    (``replaces_vaa_floor``); it counts only while it is current, so a superseded advisory
+    never comes back as the official floor. A newer advisory that gives no area (VA NOT
+    IDENTIFIABLE, forecasts NOT AVBL, a blank cloud field) is a non-observation and never
+    shrinks the hazard: the newest earlier advisory with an area keeps its layers, each under
+    its own window, labelled as kept.
     """
-    latest: dict[VaacCentre, VaacAdvisory] = {}
+    issued: dict[VaacCentre, list[VaacAdvisory]] = {}
     for vaa in vaas:
-        if vaa.issued_at > at + VAA_CLOCK_SLACK:
-            continue
-        held = latest.get(vaa.vaac)
-        if held is None or vaa.issued_at > held.issued_at:
-            latest[vaa.vaac] = vaa
-    return [vaa for vaa in latest.values() if at <= vaa.valid_until()]
+        if vaa.issued_at <= at + VAA_CLOCK_SLACK:
+            issued.setdefault(vaa.vaac, []).append(vaa)
+    chosen: list[tuple[VaacAdvisory, str]] = []
+    for advisories in issued.values():
+        newest, *older = sorted(advisories, key=vaa_order, reverse=True)
+        if replaces_vaa_floor(newest):
+            if at <= newest.valid_until():
+                chosen.append((newest, ""))
+        elif (kept := kept_vaa(newest, older)) is not None:
+            chosen.append((kept, f" (kept: VAA {newest.advisory_nr} gives no area)"))
+    return chosen
 
 
-def _vaa_layers(vaa: VaacAdvisory, volcano: Volcano) -> list[OfficialLayer]:
+def kept_vaa(newest: VaacAdvisory, older: Sequence[VaacAdvisory]) -> VaacAdvisory | None:
+    """The earlier VAA whose layers stay on the floor under ``newest`` (one VAAC, ``older``
+    newest first): the first that replaces the floor, if it draws an area. A final or
+    negative VAA in between ends the chain, so nothing is kept past it."""
+    if replaces_vaa_floor(newest):
+        return None
+    kept = next((vaa for vaa in older if replaces_vaa_floor(vaa)), None)
+    return kept if kept is not None and draws_vaa_area(kept) else None
+
+
+def vaa_order(vaa: VaacAdvisory) -> tuple[datetime, int, int]:
+    """Oldest to newest by DTG, then by advisory number: Darwin can issue two advisories with
+    one DTG (Marapi 2026/82 and 2026/83, the second ending what the first said)."""
+    year, _, number = vaa.advisory_nr.partition("/")
+    return vaa.issued_at, _number(year), _number(number)
+
+
+def _number(text: str) -> int:
+    digits = text.strip()
+    return int(digits) if digits.isdigit() else 0
+
+
+def draws_vaa_area(vaa: VaacAdvisory) -> bool:
+    """True when the VAA draws an ash polygon in its observation or any forecast step."""
+    steps = [vaa.observation, *vaa.forecasts] if vaa.observation is not None else vaa.forecasts
+    return any(layer.polygon is not None for step in steps for layer in step.layers)
+
+
+def is_negative_vaa(vaa: VaacAdvisory) -> bool:
+    """An explicit "no ash": NO VA EXP, or a final VAA, from a VAA that had something to say.
+
+    A VAA that draws ash, could not see it ("VA NOT IDENTIFIABLE"), had no observation to
+    give ("NOT AVBL", "NOT PROVIDED") or left the cloud field blank (a hand-over notice) is
+    not an all-clear, whatever follows it. Darwin's closing template adds NO VA EXP forecasts
+    even when met cloud hid the vent (Marapi 2026/80), and every closing VAA in the 30-day
+    census reads "VA NOT IDENTIFIABLE".
+    """
+    obs = vaa.observation
+    if obs is not None:
+        if obs.layers or obs.not_identifiable or obs.not_available or not obs.text.strip():
+            return False
+        if obs.no_ash_expected:
+            return True
+    if vaa.final:
+        return True
+    return bool(vaa.forecasts) and all(step.no_ash_expected for step in vaa.forecasts)
+
+
+def replaces_vaa_floor(vaa: VaacAdvisory) -> bool:
+    """A VAA replaces its VAAC's earlier layers when it draws an area, is final or is an
+    explicit negative; any other VAA is a non-observation that leaves them standing."""
+    return draws_vaa_area(vaa) or vaa.final or is_negative_vaa(vaa)
+
+
+def _vaa_layers(vaa: VaacAdvisory, volcano: Volcano, suffix: str) -> list[OfficialLayer]:
     layers: list[OfficialLayer] = []
     obs = vaa.observation
     if obs is not None:
         end = max(obs.valid_at, vaa.valid_until())
         name = "EST" if obs.estimated else "OBS"
         bounds = (obs.valid_at, end)
-        layers.extend(_step_layers(vaa, obs, volcano, layer="OBS", name=name, window=bounds))
+        layers.extend(
+            _step_layers(vaa, obs, volcano, layer="OBS", name=name, window=bounds, suffix=suffix)
+        )
     window = timedelta(hours=FORECAST_WINDOW_H)
     for step in vaa.forecasts:
         layer = f"FCST+{step.offset_h}H"
         bounds = (step.valid_at - window, step.valid_at + window)
-        layers.extend(_step_layers(vaa, step, volcano, layer=layer, name=layer, window=bounds))
+        layers.extend(
+            _step_layers(vaa, step, volcano, layer=layer, name=layer, window=bounds, suffix=suffix)
+        )
     return layers
 
 
@@ -139,6 +206,7 @@ def _step_layers(
     layer: str,
     name: str,
     window: tuple[datetime, datetime],
+    suffix: str,
 ) -> list[OfficialLayer]:
     drawn = [(va, va.polygon) for va in step.layers if va.polygon is not None]
     result: list[OfficialLayer] = []
@@ -146,6 +214,7 @@ def _step_layers(
         label = f"VAA {vaa.vaac.value} {vaa.advisory_nr} {name}"
         if len(drawn) > 1:
             label += f" {_band_text(va.base_ft, va.top_ft)}"
+        label += suffix
         result.append(
             OfficialLayer(
                 source_id=vaa.provenance.source_id,

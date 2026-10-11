@@ -712,13 +712,24 @@ def shape_to_geometry(shape: BaseGeometry) -> GeoPolygon | GeoMultiPolygon | Non
 `official_layers` rules (the "official floor", research/07 rule 13): every SIGMET with a
 polygon that is not cancelled (window = its validity; with no stated top it is binding up to
 `UNKNOWN_TOP_FT` and its label ends `TOP NOT STATED`); for each VAAC, the newest VAA issued by
-`at + VAA_CLOCK_SLACK`, if it is still current (`at <= valid_until()`; a newer advisory
-replaces an older one even after it lapses): OBS/EST layers with polygons (window
-`[observation.valid_at, max(observation.valid_at, vaa.valid_until())]`) and each forecast
-layer (window `[valid_at - 3 h, valid_at + 3 h]`). Keep a layer when its window ends at or
-after `at` and starts no later than `at + MAX_HORIZON_H`. SIGMET layers come first, then by
-start time. `label` and `layer` as in the model docstring; a VAA step with several layers
-adds each layer's band to its label.
+`at + VAA_CLOCK_SLACK` (by `vaa_order`), if it replaces the floor (`replaces_vaa_floor`: it
+draws an OBS/EST or forecast polygon, is final, or is an explicit negative, `is_negative_vaa`)
+and is still current (`at <= valid_until()`; a newer advisory replaces an older one even after
+it lapses). A newest VAA that does not replace the floor (VA NOT IDENTIFIABLE, forecasts NOT
+AVBL/NOT PROVIDED, a blank cloud field) is a non-observation and never shrinks the hazard
+(policy S3): `kept_vaa` walks back to the first older VAA of that VAAC that replaces the
+floor and, when it draws an area, its layers stay on the floor under their own windows, each
+label ending ` (kept: VAA <newer nr> gives no area)`. A final or negative VAA in between ends
+the walk, so a superseded area never comes back; the kept layers end when their windows end
+or a VAA with an area, a final or a negative VAA arrives. Layers drawn: OBS/EST layers with
+polygons (window `[observation.valid_at, max(observation.valid_at, vaa.valid_until())]`) and
+each forecast layer (window `[valid_at - 3 h, valid_at + 3 h]`). Keep a layer when its window
+ends at or after `at` and starts no later than `at + MAX_HORIZON_H`. SIGMET layers come
+first, then by start time. `label` and `layer` as in the model docstring; a VAA step with
+several layers adds each layer's band to its label. `cone` also exports the VAA helpers the
+reconcile layer uses (geo may not import reconcile): `vaa_order(vaa) -> (issued_at, year,
+number)`, `draws_vaa_area`, `is_negative_vaa`, `replaces_vaa_floor` and
+`kept_vaa(newest, older) -> VaacAdvisory | None` (`older` newest first).
 
 `build_cone` rules: geometry = union of **all** `situation.official_layers` polygons, plus
 the sector from the estimate when mode is WIDENED or HYPOTHESIS (OFFICIAL ignores the
@@ -788,6 +799,8 @@ def find_active(catalogue: VolcanoCatalogue, *, sigmets: Sequence[Sigmet], vonas
 def select_records(catalogue: VolcanoCatalogue, volcano: Volcano, *, sigmets: Sequence[Sigmet],
                    vonas: Sequence[Vona], vaas: Sequence[VaacAdvisory], at: datetime,
                    settings: Settings) -> tuple[list[Sigmet], list[Vona], list[VaacAdvisory]]
+def select_floor_vaas(catalogue: VolcanoCatalogue, volcano: Volcano, *,
+                      vaas: Sequence[VaacAdvisory], at: datetime) -> list[VaacAdvisory]
 def evidence_state(record: Sigmet | Vona | VaacAdvisory, volcano: Volcano, at: datetime) -> EvidenceState
 def find_discrepancies(volcano: Volcano, *, sigmets: Sequence[Sigmet], vonas: Sequence[Vona],
                        vaas: Sequence[VaacAdvisory], at: datetime, settings: Settings,
@@ -798,7 +811,8 @@ def build_situation(volcano: Volcano, *, active_reasons: list[str], sigmets: Seq
                     vonas: Sequence[Vona], vaas: Sequence[VaacAdvisory], winds: Sequence[WindProfile],
                     frames: Sequence[SatelliteFrame], btd: BtdResult | None, at: datetime,
                     mode: RunMode, settings: Settings,
-                    feed_health: Mapping[FeedId, FeedHealth] | None = None) -> Situation
+                    feed_health: Mapping[FeedId, FeedHealth] | None = None,
+                    floor_vaas: Sequence[VaacAdvisory] | None = None) -> Situation
 ```
 "Newest" VAA means by DTG, then by advisory number (Darwin can issue two with one DTG).
 
@@ -813,9 +827,14 @@ with a vertex more than 90 degrees of longitude from a vent is out of its reach.
 `select_records`: SIGMETs belonging to the volcano that are not cancelled and are valid at
 `at` or start within `MAX_HORIZON_H` (forecast `F` series included), latest start first;
 VONAs within the window (newest first); per VAAC the newest VAA issued in the last 24 h, up
-to `FEED_CLOCK_SLACK` after `at` (newest first). `build_situation` sets `official_layers =
-tephra.geo.cone.official_layers(...)` and `discrepancies = find_discrepancies(...)` (with
-`feed_health`); its winds are the hourly profiles from the current hour to the horizon, or
+to `FEED_CLOCK_SLACK` after `at` (newest first). `select_floor_vaas`: the same newest VAA per
+VAAC plus, when it gives no area and is neither final nor negative, the older VAA that
+`cone.kept_vaa` keeps from the same 24 h window (newest first); core passes it as
+`build_situation(floor_vaas=...)`. `build_situation` sets `official_layers =
+tephra.geo.cone.official_layers(volcano, sigmets, floor_vaas, at)` (`vaas` in its place when
+`floor_vaas` is None) and `discrepancies = find_discrepancies(...)` (with `feed_health`);
+`Situation.vaas`, the discrepancies and the source cards use only `vaas`, so they compare the
+newest VAA alone. Its winds are the hourly profiles from the current hour to the horizon, or
 the newest older one when the forecast has run out.
 
 Discrepancy rules (deterministic; Gemini never decides what counts):
@@ -843,10 +862,14 @@ Discrepancy rules (deterministic; Gemini never decides what counts):
   checked against an official band.
 - HEIGHT_MISMATCH: tops differ beyond `height_tolerance_ft` with neither inside the other.
 - DIRECTION_MISMATCH: movement directions differ by more than `direction_tolerance_deg`
-  (aspect `direction`; a stationary product is not compared), or a point 15 km down a
-  VONA's direction lies outside every SIGMET polygon in force at that VONA's issue time
-  (aspect `polygon`; research/13 finding 4). A VONA older than 6 h is compared on direction
-  only with the products in force when it was issued.
+  (aspect `direction`; a stationary product is not compared), or a point 15 km down the
+  newest directional ash VONA's drift lies outside every probed polygon (aspect `polygon`;
+  research/13 finding 4). The probe set is the direction comparators: for a VONA issued in
+  the last 6 h, the SIGMETs in force at its issue time (else those in force now) and every
+  OBS/EST layer polygon of the current VAAs not echoed by a SIGMET; for an older VONA, only
+  the SIGMETs and VAAs in force when it was issued. Every probed source is cited in `values`.
+  A VONA older than 6 h is compared on direction only with the products in force when it was
+  issued.
 - SILENCE: a VONA with ash that no VAA answers (none in force when it was issued, other than
   a closing one, and none issued since) for more than `silence_threshold_min`; a valid
   SIGMET that no VAA has been in force with since its observation time, once it has been
@@ -954,8 +977,9 @@ cite and which can only raise uncertainty or point to ash outside the official a
 tells the model to cite sources by id only and to write no times or dates.
 
 Validator (`validate_estimate` returns problems; empty = accepted):
-1. every `sources_used` and `which_source_we_lean_on` is in `situation.source_ids()`; every
-   `discrepancy_id` is in the situation's discrepancies;
+1. every `sources_used` and `which_source_we_lean_on` is in `situation.source_ids()` or is an
+   official layer's source id (a kept VAA is not in `situation.vaas`); every `discrepancy_id`
+   is in the situation's discrepancies; the task block's citable ids are the same set;
 2. no timestamp anywhere in the text fields (`rationale`, `uncertainty_notes`, and each
    disagreement's `reading` and `why`, with source and discrepancy ids removed first):
    reject `\d{8}/\d{4}Z?`, ISO dates `\d{4}-\d{2}-\d{2}`, `(?<![\d/])\d{1,2}/\d{4}Z?(?!\d)`,
@@ -974,11 +998,15 @@ Validator (`validate_estimate` returns problems; empty = accepted):
 6. a SILENT or INCONCLUSIVE BTD or a non-observation may not be the source leaned on
    (`which_source_we_lean_on`), and no sentence may name one ("silent", "inconclusive", "not
    observed", "night", ...) next to a narrowing verb that is not negated;
-7. a HYPOTHESIS estimate, while a recent ash VONA exists (the newest VONA with
-   `ash_observed` issued in the last 6 h), needs `extent_km > 0`, `sector_width_deg() > 0` and
-   `top_fl >= min(600, ceil(cloud_top_ft / 100))` when the VONA gives a top. The task block
-   says so ("<VONA> reports ash, so a HYPOTHESIS needs top_fl >= N, extent_km > 0 and two
-   different bearings."), and so does the prompt.
+7. a HYPOTHESIS estimate needs `base_fl <= ceil(volcano.summit_elev_ft / 100)`, so ash
+   below a higher base is never left out ("HYPOTHESIS base_fl B starts above the summit
+   (FLS); ash below it would be left out; give base_fl <= S"); while a recent ash VONA exists
+   (the newest VONA with `ash_observed` issued in the last 6 h), it also needs
+   `extent_km > 0`, `sector_width_deg() > 0` and `top_fl >= min(600, ceil(cloud_top_ft /
+   100))` when the VONA gives a top. While HYPOTHESIS is allowed the task block says so ("A
+   HYPOTHESIS starts at or below the summit: base_fl <= S." and "<VONA> reports ash, so a
+   HYPOTHESIS needs top_fl >= N, extent_km > 0 and two different bearings."); the prompt
+   states the VONA rule.
 On rejection, when the model answered (`raw_text` not empty): exactly one repair call that
 lists the problems and quotes the previous answer. If that still fails, or the model returned
 nothing, there is no model reading: outcome `MODEL_FAILED`, `validation_errors` kept, and the

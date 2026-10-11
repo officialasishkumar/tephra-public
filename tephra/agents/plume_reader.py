@@ -371,8 +371,15 @@ def validate_estimate(estimate: PlumeEstimate, situation: Situation) -> list[str
     ]
 
 
+def _citable_ids(situation: Situation) -> set[str]:
+    """The situation's source ids plus every official layer's: a VAA whose area is kept on
+    the floor under a newer VAA that gives none is not among ``situation.vaas``, yet the
+    model is shown its layers and may cite them."""
+    return situation.source_ids() | {layer.source_id for layer in situation.official_layers}
+
+
 def _citation_problems(estimate: PlumeEstimate, situation: Situation) -> list[str]:
-    known = situation.source_ids()
+    known = _citable_ids(situation)
     discrepancy_ids = {discrepancy.id for discrepancy in situation.discrepancies}
     problems = [
         f"sources_used cites {source!r}, which is not an input source id"
@@ -393,7 +400,7 @@ def _citation_problems(estimate: PlumeEstimate, situation: Situation) -> list[st
 def _timestamp_problems(estimate: PlumeEstimate, situation: Situation) -> list[str]:
     """Times are rendered by code from provenance; the model may cite ids, never write times."""
     ids = sorted(
-        {*situation.source_ids(), *(d.id for d in situation.discrepancies)}, key=len, reverse=True
+        {*_citable_ids(situation), *(d.id for d in situation.discrepancies)}, key=len, reverse=True
     )
     problems: list[str] = []
     for name, text in _text_fields(estimate):
@@ -454,11 +461,21 @@ def _geometry_problems(estimate: PlumeEstimate, situation: Situation) -> list[st
 
 def _hypothesis_problems(estimate: PlumeEstimate, situation: Situation) -> list[str]:
     """Without a valid official polygon the HYPOTHESIS sector is what the cone draws now, so
-    while a recent VONA reports ash it must draw something and reach the reported top."""
-    vona = _recent_ash_vona(situation)
-    if estimate.mode is not PlumeMode.HYPOTHESIS or vona is None:
+    it must start at or below the summit (ash falling out under a higher base would be left
+    out), and while a recent VONA reports ash it must draw something and reach the reported
+    top."""
+    if estimate.mode is not PlumeMode.HYPOTHESIS:
         return []
     problems: list[str] = []
+    summit_fl = _summit_fl(situation)
+    if estimate.base_fl > summit_fl:
+        problems.append(
+            f"HYPOTHESIS base_fl {estimate.base_fl} starts above the summit (FL{summit_fl:03d}); "
+            f"ash below it would be left out; give base_fl <= {summit_fl}"
+        )
+    vona = _recent_ash_vona(situation)
+    if vona is None:
+        return problems
     if estimate.extent_km <= 0 or estimate.sector_width_deg() <= 0:
         problems.append(
             f"HYPOTHESIS draws no sector while {_vona_name(vona)} reports ash; give extent_km "
@@ -471,6 +488,10 @@ def _hypothesis_problems(estimate: PlumeEstimate, situation: Situation) -> list[
             f"{_vona_name(vona)} reports; top_fl must be >= {floor_fl}"
         )
     return problems
+
+
+def _summit_fl(situation: Situation) -> int:
+    return math.ceil(situation.volcano.summit_elev_ft / 100)
 
 
 def _vona_floor_fl(vona: Vona) -> int | None:
@@ -864,7 +885,7 @@ def _task_block(situation: Situation) -> str:
         modes = "HYPOTHESIS only (no official polygon exists)"
     top_ft = situation.official_top_ft()
     top_rule = f"top_fl >= {math.ceil(top_ft / 100)}, " if top_ft is not None else ""
-    source_ids = ", ".join(sorted(situation.source_ids())) or "none"
+    source_ids = ", ".join(sorted(_citable_ids(situation))) or "none"
     discrepancy_ids = ", ".join(d.id for d in situation.discrepancies) or "none"
     return (
         "TASK\n"
@@ -881,15 +902,18 @@ def _task_block(situation: Situation) -> str:
 
 
 def _hypothesis_rule(situation: Situation) -> str:
-    """The task line for ``_hypothesis_problems``, while HYPOTHESIS is an allowed mode."""
-    vona = _recent_ash_vona(situation)
-    if vona is None or situation.official_valid_now():
+    """The task lines for ``_hypothesis_problems``, while HYPOTHESIS is an allowed mode."""
+    if situation.official_valid_now():
         return ""
+    base = f"A HYPOTHESIS starts at or below the summit: base_fl <= {_summit_fl(situation)}.\n"
+    vona = _recent_ash_vona(situation)
+    if vona is None:
+        return base
     floor_fl = _vona_floor_fl(vona)
     top = f"top_fl >= {floor_fl}, " if floor_fl is not None else ""
     return (
-        f"{_vona_name(vona)} reports ash, so a HYPOTHESIS needs {top}extent_km > 0 and two "
-        "different bearings.\n"
+        f"{base}{_vona_name(vona)} reports ash, so a HYPOTHESIS needs {top}extent_km > 0 and "
+        "two different bearings.\n"
     )
 
 

@@ -117,6 +117,7 @@ from tephra.reconcile.discrepancies import (
     build_situation,
     evidence_state,
     find_active,
+    select_floor_vaas,
     select_records,
 )
 from tephra.recovery import decisions as recovery_decisions
@@ -771,12 +772,13 @@ class Runtime:
         self, volcano: Volcano, reasons: list[str], at: datetime, report: TickReport
     ) -> None:
         live = self.live
+        all_vaas = list(live.vaas.values())
         sigmets, vonas, vaas = select_records(
             self.catalogue,
             volcano,
             sigmets=list(live.sigmets.values()),
             vonas=list(live.vonas.values()),
-            vaas=list(live.vaas.values()),
+            vaas=all_vaas,
             at=at,
             settings=self.settings,
         )
@@ -793,6 +795,7 @@ class Runtime:
             mode=self.mode,
             settings=self.settings,
             feed_health=self.live.health,
+            floor_vaas=select_floor_vaas(self.catalogue, volcano, vaas=all_vaas, at=at),
         )
         previous = self.situations.get(volcano.id)
         self.situations[volcano.id] = situation
