@@ -1233,6 +1233,22 @@ textarea.field {
   color: var(--c-text-2);
 }
 
+.card__src {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-top: 2px;
+  font-size: var(--fs-2);
+  color: var(--c-text-2);
+}
+
+.card__src .st {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--c-text-3);
+}
+
 .card > .card__body {
   display: -webkit-box;
   margin-top: var(--sp-3);
@@ -1687,6 +1703,89 @@ textarea.field {
 
 .disclose[open] > summary .disclosure {
   transform: rotate(90deg);
+}
+
+/* The writer line and the source strip under the advisory text (10.4). */
+.writer-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  font-size: var(--fs-2);
+  line-height: 1.45;
+  color: var(--c-text-2);
+}
+
+.writer-note .st {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 2px;
+}
+
+.srcchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.srcchip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--sp-2);
+  max-width: 100%;
+  padding: 4px var(--sp-2);
+  border: 1px solid var(--c-line-1);
+  border-left: 3px solid var(--c-line-2);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface-1);
+  font-size: var(--fs-1);
+  line-height: 1.4;
+  color: var(--c-text-2);
+  overflow-wrap: anywhere;
+}
+
+.srcchip.is-binding {
+  border-left-color: var(--c-official);
+}
+
+.srcchip.is-stale {
+  border-color: var(--c-caution);
+}
+
+.srcchip__feed {
+  font-weight: var(--fw-semibold);
+  color: var(--c-text-1);
+}
+
+.srcchip.is-binding .srcchip__feed {
+  color: var(--c-official-text);
+}
+
+.srcchip__hash {
+  font-family: var(--font-mono);
+  color: var(--c-text-3);
+}
+
+.srcchip__stale {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: var(--fw-semibold);
+  color: var(--c-caution);
+}
+
+.srcchip__stale .st {
+  width: 12px;
+  height: 12px;
+}
+
+.srcchip--none {
+  border-left-color: var(--c-caution);
 }
 
 .evidence {
@@ -2257,10 +2356,6 @@ textarea.field {
   color: var(--c-text-3);
 }
 
-.hint-short {
-  display: none;
-}
-
 .hint-early {
   font-weight: var(--fw-semibold);
   color: var(--c-caution);
@@ -2281,6 +2376,14 @@ textarea.field {
 
 .confirm__q:focus {
   outline: none;
+}
+
+.confirm__facts {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-body);
+  color: var(--c-text-1);
 }
 
 .confirm__note {
@@ -2567,14 +2670,6 @@ textarea.field {
 /* --- phones and tablets: short hint, compact bar and cards ------------------------------- */
 
 @media (max-width: 1099px) {
-  .hint-long {
-    display: none;
-  }
-
-  .hint-short {
-    display: inline;
-  }
-
   .actions .btn {
     min-height: 48px;
   }

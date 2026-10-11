@@ -285,8 +285,7 @@ compact rail tab labels (`.xtab__label`).
   marching paths are still, slide-ins are cuts. Read the media query in JS too (MapLibre
   animations do not read CSS). Wall controls (buttons, chips, segmented controls, region
   buttons, tools, tabs, flight rows, timeline marks and step buttons) ease background, colour,
-  border and shadow
-  over `--dur-2` on hover; on press they take a `--c-line-1` fill within `--dur-1`, plus a 0.97
+  border and shadow over `--dur-2` on hover; on press they take a `--c-line-1` fill within `--dur-1`, plus a 0.97
   scale only when motion is allowed. Every duration in `wall.css` is a token (the old
   `--dur-quick` fallback, which ignored reduced motion, is gone).
 - Tap targets: `--tap-min` 44 px (contract), `--tap-comfort` 48 px (Desk primary actions).
@@ -1183,7 +1182,11 @@ decision sends the `version` the dispatcher saw.
 
 ### 10.1 Header (always)
 
-Row 1 (48): "TEPHRA" (700, letter-spaced) + "Desk" (text-3); model chip (7.2, compact); the
+Row 1 (48): "TEPHRA" (700, letter-spaced) + "Desk" (text-3); model chip (7.2, compact; on the
+Desk its tooltip uses the Wall chip's words (7.2): "NO MODEL: official products only. Text that a
+model would write comes from code templates; no model wrote anything here." with the stub, "Steps
+that call a model are marked AI-drafted. Times, ids and hashes are always written by code."
+otherwise); the
 connection chip: `st-ok` "Connected" (SSE open; title "Connected to the TEPHRA server (updates
 stream in)"; not "Live", which under the REPLAY bar would read as live data), `st-stale`
 "Reconnecting" (caution), `st-serious` "Offline" (serious); the account button (initials in a 32 px circle, menu: "Signed in as AK ·
@@ -1214,6 +1217,10 @@ tall, in practice ~150):
 - Row 2: the action (20 600 text-1): "HOLD FL250", "CHANGE LEVEL FL300–FL340", "DIVERT WARR",
   "MONITOR", "CONTINUE" (from the advisory fields, 11.7).
 - Row 3 (14 text-2): "Krakatau · TEPHRA area OFFICIAL (NO MODEL) · drafted 2 min ago".
+- Row 3b (14 text-2, `i-file`): "3 sources · oldest 14 min old", from `sources[]`. A source's
+  time is its `issued_at`, or its `fetched_at` when no issue time is stated; the age is on the
+  active clock and updates with the countdown. Without the clock it reads "oldest 1405Z"; a
+  draft with no sources reads "No sources listed".
 - Row 4 tags: the area chip with a visible "AREA" key ("AREA OFFICIAL 100%", so the percentage
   is not read as certainty), "REPLAY" (violet), "AI-drafted" (`i-model`, when `llm_backend` is
   gemini) or "NO MODEL" (dashed; "Template · NO MODEL" in the review), "HYPOTHESIS" (amber), "Needs a careful read" (caution, when
@@ -1241,18 +1248,18 @@ height 1.5):
 | Entry | "Enters TEPHRA's area in 12 min (as drafted at 1607Z)" or "INSIDE NOW" |
 | TEPHRA area | "OFFICIAL 100% (NO MODEL)" or "WIDENED 62%"; HYPOTHESIS adds the hypothesis banner |
 | Fuel and time | `fuel_line` in mono ("HOLD 20 MIN x 42 KG/MIN = 840 KG") + "simple TEPHRA formula, not airline tables" |
-| Advisory text | the final body in a mono block (pre-wrap), with "Edit text" as the row's change link |
+| Advisory text | the final body in a mono block (pre-wrap); under it one readable line (14 text-2) on who wrote it: "AI-drafted text." (`i-model`) or, with the stub, "NO MODEL: a code template wrote this text, not a model." (`i-code`); an edited body reads "Edited by a dispatcher from AI-drafted text." (or "from a NO MODEL template text."); while the draft awaits a decision the line ends "Check it against the sources below before you approve." (the wording is untested with dispatchers); then the source strip; then "Edit text" as the row's change link |
+| Source strip | one chip per `sources[]`, binding first, built by code: feed name (600; official pink for SIGMET and VAA, with a 3 px official left edge), "issued 14 min ago" or "fetched 3 min ago" (the age names which time it counts from; "issued 1405Z" without the active clock; "time not stated" when neither is), `#sha256_short` (mono text-3), and "stale" (caution shape, caution border) when stale. 12 px, wraps. The `source_id` is the chip's title; the full list stays in the Evidence disclosure. No sources: "No sources are listed on this draft." |
 | Cost note | `cost_note`; the row is left out when it repeats `fuel_line` |
 | Sources | each `sources[]`: feed, source id, "issued 251120Z · fetched 251600Z", `#sha256_short`, "stale" when true; binding (SIGMET) first; a `winds` source line ends with the link "Weather data by Open-Meteo.com" (CC BY 4.0 requires it next to the data) |
-| Drafted by | "Gemini 3.5 Flash-Lite · AI-drafted" or "Template · NO MODEL" (from `llm_backend`, `model_id`), and the validator notes if any (caution box for NEEDS_HUMAN) |
+| Drafted by | "Gemini 3.5 Flash-Lite · AI-drafted" or "Template · NO MODEL" (from `llm_backend`, `model_id`), fine text "Model-written body; times, ids and hashes are written by code." or, with the stub, "NO MODEL: official products only. A code template wrote the body; times, ids and hashes are written by code.", and the validator notes if any (caution box for NEEDS_HUMAN) |
 | Operator policy | the policy the draft was made under, "RFA-POLICY-A v2026.10.8" in mono, followed by " #" and `policy_hash` only when the draft carries one; fine text "Illustrative values, not an airline SRA; not reviewed by an airline dispatcher". Left out when the draft has no `policy_version`. |
 | Header | the code-rendered `header` in a collapsed `<details>` "Advisory header (written by code)" |
 
 Action bar (sticky bottom): primary approve (10.5), then a row with "Edit text" (outline,
-`--c-line-input`) and "Reject…" (outline, `--c-reject-text` text and border). Under the primary:
-"Hold to approve, or tap for a confirmation step. Queues this text on TEPHRA's own outbound
-queue; nothing is sent to an aircraft." (12 text-3) from 1100 px wide; on phones and tablets
-only "Hold to approve, or tap to confirm." (the queue sentence is in the confirmation step), and
+`--c-line-input`) and "Reject…" (outline, `--c-reject-text` text and border). Under the primary,
+one short caption at every width: "Hold to approve, or tap to confirm. Nothing is sent to an
+aircraft." (12 text-3; the full queue sentence is in the confirmation step), and
 the action and flight in the approve label never break inside ("FL300–" / "FL340"). At 1440 the
 review pane is a column with its own scroll area (`max-height: calc(100dvh − header − 32px)`), its body
 scrolls and the action bar stays at the pane's bottom.
@@ -1269,8 +1276,12 @@ The primary button names the outcome: "Approve HOLD FL250 for RFA4821" (`--c-app
   (250-1200 ms) cancels with the hint "Keep holding to approve, or tap for a confirmation step."
 - Tap (release under 250 ms), Enter or Space, and any assistive technology click: open the
   inline confirmation in place of the action bar: "Approve HOLD FL250 for RFA4821?" (20 600),
-  the queue sentence, and two buttons "Approve now" (approve style) and "Back" (outline). This is
-  the single-pointer alternative (2.5.7) and the confirmation step (3.3.4).
+  then the entry time and version (14 500 mono text-1, updates with the countdown): "Est. entry
+  1619Z, in 12 min if track and level are held · v2", "Est. entry 1619Z, due 3 min ago · v2" or
+  "Inside TEPHRA's area since drafted at 1607Z · v2" (computed by code from `created_at` and
+  `minutes_to_entry`), the queue sentence, and two buttons "Approve now" (approve style) and
+  "Cancel" (outline; returns to the action bar, nothing is decided). This is the single-pointer
+  alternative (2.5.7) and the confirmation step (3.3.4). There is no swipe-to-act.
 - While sending: the button shows a spinner and "Approving…", all decision buttons are
   disabled. Success: the sheet closes, the card leaves the queue (`--dur-3`), a toast (11.8)
   with the audit line, focus moves to the next card (or the empty state).
@@ -1301,13 +1312,16 @@ advisory for RFA4821" (`--c-reject` fill, white text, `i-x`; tap only, no hold),
   and flight, and "AK · 1607Z · queued, not sent to any aircraft" (16 text-2), above a 3 px rule
   in the same colour. It is not interactive; it enters with a short scale-in that reduced motion
   drops (the 1200 ms hold stays). Then the sheet closes and the toast follows.
-- Toast (bottom, 6 s, `role="status"`, persists while focused; title 18 px 600; at most 40vh tall
+- Toast (bottom, 15 s for a decision toast so the receipt can be read, 6 s for other toasts, `role="status"`, persists while focused; title 18 px 600; at most 40vh tall
   on phones): approved "Approved: HOLD FL250
   for RFA4821 · queued 1607Z under AK. Not sent to any aircraft."; edited "Approved with your
   edits: RFA4821 · both versions are in the audit log."; rejected "Rejected: RFA4821 · reason
   recorded."
 - Audit line: under the toast text, first "AUDIT APPROVED desk:AK 1607Z" from `GET
-  /api/audit?advisory_id=…` (newest entry; mono 14 500, `--c-approve` or `--c-reject-text`),
+  /api/audit?advisory_id=…` (the entry whose action matches the decision, never another entry
+  in its place; mono 14 500, `--c-approve` or `--c-reject-text`; when none is listed yet the toast
+  says "Audit entry not listed yet: see History under Decided while this page was open.", and
+  "Can't load the audit line: …" when the request fails),
   then the first two `SRC` lines of the advisory header (feed, id, issued, fetched, `#hash`; mono
   12 text-2). This is the video's "audit line with feed times and
   hashes".
@@ -1434,7 +1448,7 @@ polled yet". Replay: add the tag "recorded".
 From the advisory: CHANGE_LEVEL "CHANGE LEVEL FL300–FL340" (from `change_level_fl_min/max`), HOLD
 "HOLD FL250" (`hold_fl`), DIVERT "DIVERT WARR" (`alternate_icao`), MONITOR "MONITOR", CONTINUE
 "CONTINUE". Buttons: "Approve {action} for {proxy}", "Approve edited text for {proxy}", "Reject
-advisory for {proxy}", "Edit text", "Reject…", "Approve now", "Back", "Back to drafts", "Review
+advisory for {proxy}", "Edit text", "Reject…", "Approve now", "Cancel", "Back to drafts", "Review
 the new version", "Sign in", "Sign out", "Try again", "Refresh".
 
 ### 11.8 Desk messages

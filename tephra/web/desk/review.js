@@ -21,14 +21,18 @@ import {
   actionText,
   activeNow,
   band,
-  bySourceRank,
+  ago,
   ddhhmmz,
   deskName,
+  entryAt,
   entryState,
   fl,
   hhmmz,
+  isBindingFeed,
   isStub,
   parseTime,
+  sourceList,
+  sourceTime,
 } from './format.js';
 import { EARLY_RELEASE_HINT, holdButton } from './hold.js';
 import { anyStaleSource, coneFor, decidedLine, modeChip, needsCarefulRead, replayChip, statusBadge, statusView } from './queue.js';
@@ -38,7 +42,7 @@ import { codeChip } from './ui.js';
 
 const GHOST_TAP_MS = 450;
 const OFFLINE_NOTE = "You're offline. Can't approve right now: reconnect to decide. Drafts stay readable.";
-const QUEUE_SENTENCE = "Queues this text on TEPHRA's own outbound queue; nothing is sent to an aircraft.";
+const QUEUE_SENTENCE = 'Nothing is sent to an aircraft.';
 const REJECT_REASONS = [
   'Flight already clear of the area',
   'Level already outside the hazard band',
@@ -124,8 +128,13 @@ export function syncSheet() {
 
 export function updateSheetTimes() {
   if (!sheet) return;
-  const slot = byId('sheet').querySelector('[data-slot="entry"]');
+  const host = byId('sheet');
+  const slot = host.querySelector('[data-slot="entry"]');
   if (slot) slot.replaceChildren(...entryValue(sheet.seen));
+  const strip = host.querySelector('[data-slot="srcstrip"]');
+  if (strip) strip.replaceChildren(...sourceChips(sheet.seen));
+  const confirmEntry = byId('confirm-entry');
+  if (confirmEntry) confirmEntry.textContent = confirmFacts(sheet.seen);
 }
 
 // --- render ---------------------------------------------------------------------------
@@ -193,15 +202,52 @@ function flightValue(adv) {
   return [el('span', { class: 'v-strong', text: adv.proxy_flight }), fine(parts.join(' · '))];
 }
 
+// The evidence strip under the advisory text (built by code from `sources[]`): feed, age on the
+// active clock, short hash. The age says whether it counts from the issue time or, when the
+// product states none, from TEPHRA's fetch. The full list stays in the Evidence disclosure.
+function sourceAge(s, now) {
+  const st = sourceTime(s);
+  if (!st) return 'time not stated';
+  return now === null ? `${st.kind} ${hhmmz(st.t)}` : `${st.kind} ${ago(now - st.t)}`;
+}
+
+function sourceChips(adv) {
+  const now = activeNow();
+  const list = sourceList(adv);
+  if (!list.length) return [el('li', { class: 'srcchip srcchip--none', text: 'No sources are listed on this draft.' })];
+  return list.map((s) => {
+    const binding = isBindingFeed(s.feed);
+    const hash = s.sha256_short || String(s.sha256 || '').slice(0, 12);
+    return el('li', { class: `srcchip ${binding ? 'is-binding' : ''} ${s.stale ? 'is-stale' : ''}`.trim(), title: String(s.source_id || '') },
+      el('span', { class: 'srcchip__feed', text: FEED_NAMES[s.feed] || String(s.feed) }),
+      el('span', { class: 'srcchip__age', text: sourceAge(s, now) }),
+      hash ? el('span', { class: 'srcchip__hash', text: `#${hash}` }) : null,
+      s.stale ? el('span', { class: 'srcchip__stale' }, icon('st-stale', 'st'), el('span', { text: 'stale' })) : null);
+  });
+}
+
+function sourceStrip(adv) {
+  return el('ul', { class: 'srcchips', 'data-slot': 'srcstrip', 'aria-label': 'Sources for this draft' }, sourceChips(adv));
+}
+
+// One readable line on who wrote the text, right under it (the Drafted by row has the detail).
+function writerNote(adv) {
+  const stub = isStub(adv);
+  let words = stub ? 'NO MODEL: a code template wrote this text, not a model.' : 'AI-drafted text.';
+  if (adv.edited_body != null) words = stub ? 'Edited by a dispatcher from a NO MODEL template text.' : 'Edited by a dispatcher from AI-drafted text.';
+  if (sheet && sheet.view === 'review') words += ' Check it against the sources below before you approve.';
+  return el('p', { class: 'writer-note' }, icon(stub ? 'i-code' : 'i-model', 'st'), el('span', { text: words }));
+}
+
 function sourcesValue(adv) {
-  const sources = [...(adv.sources || [])].filter((s) => s && typeof s === 'object').sort(bySourceRank);
+  const sources = sourceList(adv);
   const summary = el('summary', {},
     icon('i-chevron-right', 'icon disclosure'),
     el('span', { text: `Evidence: ${sources.length} source${sources.length === 1 ? '' : 's'}` }),
     anyStaleSource(adv) ? el('span', { class: 'chip chip--caution chip--sm' }, icon('st-stale', 'st'), el('span', { text: 'stale' })) : null);
   const list = el('ol', { class: 'evidence' });
   for (const s of sources) {
-    const binding = s.feed === 'sigmet' || String(s.feed).startsWith('vaac');
+    const binding = isBindingFeed(s.feed);
     const item = el('li', { class: `evidence__item ${binding ? 'is-binding' : ''}`.trim() },
       el('p', { class: 'evidence__head' },
         el('span', { class: `feed feed--${binding ? 'official' : s.feed === 'vona' ? 'observer' : 'context'}`, text: FEED_NAMES[s.feed] || String(s.feed) }),
@@ -261,7 +307,9 @@ function draftedByValue(adv) {
     ? el('span', { class: 'v-strong' }, 'Template · NO MODEL')
     : el('span', { class: 'v-strong' }, `${adv.model_id} · AI-drafted`);
   const out = [who];
-  out.push(fine(isStub(adv) ? 'NO MODEL: official products only. Code templates wrote this text.' : 'Model-written body; times, ids and hashes are written by code.'));
+  out.push(fine(isStub(adv)
+    ? 'NO MODEL: official products only. A code template wrote the body; times, ids and hashes are written by code.'
+    : 'Model-written body; times, ids and hashes are written by code.'));
   const notes = (adv.validation_notes || []).filter((n) => typeof n === 'string');
   if (notes.length) {
     const careful = needsCarefulRead(adv);
@@ -349,6 +397,8 @@ function reviewView(adv) {
     row('Action', el('span', { class: 'v-action' }, icon(ACTION_ICON[adv.action] || 'i-arrow-right'), el('span', { text: actionSentence(adv) }))),
     row(adv.edited_body != null ? 'Advisory text (edited)' : 'Advisory text', [
       el('pre', { class: 'acars acars--body', text }),
+      writerNote(adv),
+      sourceStrip(adv),
       sheet.view === 'review' ? el('button', { type: 'button', class: 'linkbtn', 'data-go': 'edit' }, icon('i-pencil'), el('span', { text: 'Edit text' })) : null,
     ], { stack: true, cls: 'srow--text' }),
     adv.reroute ? row('Route', rerouteValue(adv, cone), { stack: true, cls: 'srow--route' }) : null,
@@ -571,6 +621,18 @@ const approveWords = (adv, edited, question = false) => [
 // Node.append would print a skipped (null) slot as the text "null".
 const put = (node, ...kids) => append(node, kids);
 
+// The confirm step repeats when the flight is expected to enter and which version is approved:
+// "Est. entry 1619Z, in 12 min if track and level are held · v2". Computed by code from the
+// draft's created_at and minutes_to_entry; never a model's time.
+function confirmFacts(adv) {
+  const st = entryState(adv, activeNow());
+  const at = hhmmz(entryAt(adv));
+  const entry = st.kind === 'inside' ? `Inside TEPHRA's area since drafted at ${hhmmz(adv.created_at)}`
+    : st.kind === 'ahead' ? `Est. entry ${at}, in ${st.minutes} min if track and level are held`
+      : `Est. entry ${at}, ${st.minutes ? `due ${st.minutes} min ago` : 'due now'}`;
+  return `${entry} · v${adv.version}`;
+}
+
 function busyLabel() {
   return { approve: 'Approving…', edit: 'Approving…', reject: 'Rejecting…' }[sheet.busy] || 'Sending…';
 }
@@ -617,9 +679,10 @@ function renderBar() {
       : offlineAttrs(el('button', { type: 'button', class: 'btn btn--approve', 'data-decide': edited ? 'edit' : 'approve' }, icon('i-check'), el('span', { text: 'Approve now' })));
     put(inner, offlineNote, el('div', { class: 'confirm', role: 'group', 'aria-labelledby': 'confirm-q' },
       el('p', { id: 'confirm-q', class: 'confirm__q', tabindex: '-1' }, approveWords(adv, edited, true)),
+      el('p', { id: 'confirm-entry', class: 'confirm__facts', text: confirmFacts(adv) }),
       el('p', { class: 'confirm__note', text: `Queues this text on TEPHRA's own outbound queue under ${app.me ? app.me.name : 'your name'}. Nothing is sent to an aircraft.` }),
       el('div', { class: 'secondary' }, go,
-        el('button', { type: 'button', class: 'btn btn--outline', 'data-confirm-back': '1', disabled: Boolean(sheet.busy) }, el('span', { text: 'Back' })))));
+        el('button', { type: 'button', class: 'btn btn--outline', 'data-confirm-back': '1', disabled: Boolean(sheet.busy) }, el('span', { text: 'Cancel' })))));
   } else {
     const edited = sheet.view === 'edit';
     const blockedByRule = adv.plume_mode === 'HYPOTHESIS' && !['MONITOR', 'HOLD'].includes(adv.action);
@@ -639,8 +702,7 @@ function renderBar() {
       if (blockedByRule || editBad) primary.setAttribute('aria-disabled', 'true');
     }
     const hint = el('p', { class: 'approve__hint', id: 'approve-hint' },
-      el('span', { class: 'hint-long', text: `Hold to approve, or tap for a confirmation step. ${QUEUE_SENTENCE}` }),
-      el('span', { class: 'hint-short', text: 'Hold to approve, or tap to confirm.' }));
+      el('span', { text: `Hold to approve, or tap to confirm. ${QUEUE_SENTENCE}` }));
     if (sheet.hint) hint.replaceChildren(el('span', { class: 'hint-early', text: sheet.hint }));
     if (blockedByRule) {
       hint.replaceChildren(el('span', { class: 'hint-early', text: 'HYPOTHESIS allows only MONITOR or HOLD: this draft cannot be approved. Reject it.' }));

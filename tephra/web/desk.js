@@ -38,6 +38,7 @@ const SSE_RETRY_MS = 5000;
 const BACK_ONLINE_MS = 3000;
 const SESSION_WARN_MS = 5 * 60000;
 const STAMP_MS = 1200; // the decided stamp; kept under reduced motion (only its entrance moves)
+const DECISION_TOAST_MS = 15000; // the receipt toast; other toasts keep 6 s
 
 let events = null;
 let sseDownTimer = 0;
@@ -449,14 +450,17 @@ function toastTitle(adv) {
   return `Rejected: ${adv.proxy_flight} · reason recorded.`;
 }
 
-// 10.8: the toast carries the audit line: the first two SRC lines and the newest audit entry.
+// 10.8: the toast carries the audit line: the first two SRC lines and the audit entry for this
+// decision. It stays DECISION_TOAST_MS (longer than other toasts) so the receipt can be read.
+// Only the entry that records this decision is shown; another entry is never put in its place.
 async function decisionToast(adv) {
   const src = String(adv.header || '').split('\n').filter((l) => l.startsWith('SRC ')).slice(0, 2);
-  const t = toast({ tone: adv.status === 'REJECTED' ? 'rejected' : 'ok', title: toastTitle(adv), lines: src });
+  const t = toast({ tone: adv.status === 'REJECTED' ? 'rejected' : 'ok', title: toastTitle(adv), lines: src, ttl: DECISION_TOAST_MS });
   const res = await api(PATHS.audit(adv.id));
   const entries = res.ok && res.data && Array.isArray(res.data.entries) ? res.data.entries : [];
-  const entry = entries.find((e) => e && e.action === adv.status) || entries[0];
+  const entry = entries.find((e) => e && e.action === adv.status);
   if (entry) t.setLines(src, `AUDIT ${entry.action} ${entry.actor} ${hhmmz(entry.at)}`);
+  else t.setLines([...src, res.ok ? 'Audit entry not listed yet: see History under Decided while this page was open.' : "Can't load the audit line: see History under Decided while this page was open."]);
 }
 
 // --- session ---------------------------------------------------------------------------------

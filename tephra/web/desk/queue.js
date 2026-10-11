@@ -14,6 +14,7 @@ import {
   isStub,
   parseTime,
   pct,
+  sourcesSummary,
 } from './format.js';
 import { app, draftList } from './state.js';
 
@@ -51,7 +52,7 @@ export function modeChip(adv, { long = false, bare = false } = {}) {
 
 export function modelChip(adv, { card = false } = {}) {
   return isStub(adv)
-    ? el('span', { class: 'chip chip--stub', title: 'Written from a code template: no model drafted this text' },
+    ? el('span', { class: 'chip chip--stub', title: 'NO MODEL: written from a code template, not by a model' },
       icon('i-code', 'st'), el('span', { text: card ? 'NO MODEL' : 'Template · NO MODEL' }))
     : el('span', { class: 'chip chip--ai' }, icon('i-model', 'st'), el('span', { text: 'AI-drafted' }));
 }
@@ -129,6 +130,7 @@ function buildCard(adv) {
       band(cone) ? el('span', { class: 'band' }, el('span', { class: 'caps', text: 'Band' }), el('span', { text: band(cone) })) : null,
     ),
     el('span', { class: 'card__meta', 'data-slot': 'meta', text: metaText(adv, now) }),
+    el('span', { class: 'card__src', 'data-slot': 'src' }, icon('i-file', 'st'), el('span', { text: sourcesSummary(adv, now) })),
     // A two-line preview of the text that would be queued; the full text is in the review.
     el('span', { class: 'card__body', 'aria-hidden': 'true', text: adv.edited_body ?? adv.body }),
     el('span', { 'data-slot': 'tags' }, tagsNode(adv, now)),
@@ -158,6 +160,8 @@ export function updateTimes() {
     setSlot(li, 'entry', entryNode(adv, now));
     const meta = li.querySelector('[data-slot="meta"]');
     if (meta) meta.textContent = metaText(adv, now);
+    const src = li.querySelector('[data-slot="src"] > span');
+    if (src) src.textContent = sourcesSummary(adv, now);
     setSlot(li, 'tags', tagsNode(adv, now));
     const arrived = app.arrivedAt.get(adv.id);
     const fresh = arrived !== undefined && performance.now() - arrived < NEW_TAG_MS;

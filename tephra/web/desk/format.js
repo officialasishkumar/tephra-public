@@ -191,6 +191,31 @@ export const FEED_NAMES = {
 const FEED_RANK = { sigmet: 0, vaac_darwin: 1, vaac_tokyo: 1, vona: 2 };
 export const bySourceRank = (a, b) => (FEED_RANK[a.feed] ?? 9) - (FEED_RANK[b.feed] ?? 9);
 
+export const isBindingFeed = (feed) => feed === 'sigmet' || String(feed).startsWith('vaac');
+
+// A source's own time: when it was issued, or when TEPHRA fetched it if no issue time is stated.
+// `kind` says which, so the age is never shown as an issue age when it is a fetch age.
+export function sourceTime(s) {
+  const issued = parseTime(s.issued_at);
+  if (issued !== null) return { t: issued, kind: 'issued' };
+  const fetched = parseTime(s.fetched_at);
+  return fetched === null ? null : { t: fetched, kind: 'fetched' };
+}
+
+export const sourceList = (adv) =>
+  [...(adv.sources || [])].filter((s) => s && typeof s === 'object').sort(bySourceRank);
+
+// "3 sources · oldest 14 min old" for a queue card; ages on the active clock.
+export function sourcesSummary(adv, now) {
+  const list = sourceList(adv);
+  if (!list.length) return 'No sources listed';
+  const head = `${list.length} source${list.length === 1 ? '' : 's'}`;
+  const times = list.map(sourceTime).filter(Boolean).map((x) => x.t);
+  if (!times.length) return head;
+  const oldest = Math.min(...times);
+  return now === null ? `${head} · oldest ${hhmmz(oldest)}` : `${head} · oldest ${span(now - oldest)} old`;
+}
+
 export function initials(name) {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return '?';

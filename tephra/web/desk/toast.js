@@ -1,4 +1,4 @@
-// Toasts (10.8): bottom, 6 s, role="status", kept while focused or hovered. A decision toast
+// Toasts (10.8): bottom, 6 s (a decision toast 15 s), role="status", kept while focused or hovered. A decision toast
 // carries the audit line ("AUDIT APPROVED desk:AK 0632Z") first, then the SRC lines.
 
 import { byId, el, icon } from './dom.js';
