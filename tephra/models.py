@@ -1713,6 +1713,19 @@ class FeedHealth(TephraModel):
     replay: bool = False
 
 
+class StoreHealth(TephraModel):
+    """The database (Firestore or SQLite) as the runtime last found it: ``ok`` turns False
+    on a failed read or write and True again on the next successful write. Times are
+    wall-clock, also in REPLAY: the database fails in real time."""
+
+    ok: bool = True
+    last_ok_at: UtcDatetime | None = None
+    last_error: str | None = Field(default=None, description="The newest error")
+    last_error_at: UtcDatetime | None = Field(
+        default=None, description="When the newest run of failures began"
+    )
+
+
 class TraceEvent(TephraModel):
     """One line of the live reasoning trace on the Wall."""
 
@@ -2019,7 +2032,8 @@ class SystemState(TephraModel):
     feeds: list[FeedHealth]
     active_volcano_ids: list[str]
     exposed_count: int
-    draft_count: int
+    draft_count: int | None = Field(description="None when the open drafts could not be read")
+    store: StoreHealth = Field(default_factory=StoreHealth)
     policy: PolicySummary
     last_tick: TickReport | None = None
 

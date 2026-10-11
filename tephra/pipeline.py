@@ -7,14 +7,19 @@ plan and draft for each newly exposed flight -> DRAFT advisories on the desk. Th
 built from memory and pushed over the event bus.
 
 Writes are rationed for the Firestore free tier: feed records, assessments, plans,
-advisories and audit entries are written when they change; the live picture (aircraft,
-exposures, feed health, the Wall) is checkpointed at most every five minutes.
+advisories and audit entries are written when they change; feed health and the bookkeeping
+in ``runtime/state`` are checkpointed at most every five minutes. Aircraft, exposures and the
+Wall are not stored: they rebuild from the feeds on the first tick after a restart.
+
+A database error never drops a record already in memory and never stops a tick: the record
+waits in ``unsaved`` for the next checkpoint, the step that needed a read is skipped for the
+tick (an unread list is never taken as empty), and ``store_health`` says so on the Wall.
 """
 
 import asyncio
 import logging
 import time
-from collections.abc import Coroutine, Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Coroutine, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, Final, Literal, NamedTuple
@@ -43,13 +48,19 @@ from tephra.config import (
     apply_process_env,
 )
 from tephra.desk import audit
-from tephra.desk.approvals import SYSTEM_ACTOR, list_advisories, submit_draft, supersede
+from tephra.desk.approvals import SYSTEM_ACTOR, submit_draft, supersede
 from tephra.desk.failures import record_failure
 from tephra.duty import dispatch_duty
 from tephra.feeds.adsb import merge_aircraft
 from tephra.feeds.airports import AirportCatalogue, load_airports
 from tephra.feeds.base import FetchError, HttpSource, Source
-from tephra.feeds.registry import LiveData, disabled_reason, health_view, initial_health
+from tephra.feeds.registry import (
+    LiveData,
+    disabled_reason,
+    health_view,
+    initial_health,
+    save_unsaved,
+)
 from tephra.feeds.routes import RouteTable, load_routes
 from tephra.feeds.sigmet import fetch_sigmets
 from tephra.feeds.volcanoes import VolcanoCatalogue, load_volcanoes
@@ -94,6 +105,7 @@ from tephra.models import (
     SituationCard,
     SourceCard,
     SseEvent,
+    StoreHealth,
     SupportingEvidence,
     SystemState,
     TickReport,
@@ -164,7 +176,19 @@ SITUATION_CLOCK_FIELDS: Final[IncEx] = {
 """Situation fields that move with the clock alone (a SILENCE counts its minutes): storing the
 situation again for them would cost 1,440 writes a day per silent volcano."""
 
+RESTORED_NOTE: Final = "restored after restart"
+DESK_UNREACHABLE_NOTE: Final = "Desk store unreachable: drafts not updated this tick"
+STORE_ERROR_CHARS: Final = 300
+FEED_STATE_CLOCK_FIELDS: Final[IncEx] = {"age_s", "last_attempt_at", "last_success_at"}
+"""Feed-state fields that move on every poll: storing them would rewrite every feed's state at
+every checkpoint. Feed state is written when its status, error or count changes instead, so a
+restored ``last_success_at`` can be older than the true one; that only makes it look staler."""
+
 TraceLevel = Literal["info", "warn", "error"]
+
+
+class DeskUnreachable(Exception):
+    """The open drafts could not be read: planning and draft retirement wait a tick."""
 
 
 class RecoveryDue(NamedTuple):
@@ -232,11 +256,12 @@ class Runtime:
     positions_fresh: bool = field(init=False, default=True)
     _schedule: tuple[date, Schedule] | None = field(init=False, default=None)
     _live_source: Source | None = field(init=False, default=None)
-    _snapshot: WallSnapshot | None = field(init=False, default=None)
     _replay_at: datetime | None = field(init=False, default=None)
-    _persisted_exposures: set[str] = field(init=False, default_factory=set)
     _last_checkpoint: float | None = field(init=False, default=None)
     _tasks: set[asyncio.Task[None]] = field(init=False, default_factory=set, repr=False)
+    store_health: StoreHealth = field(init=False, default_factory=StoreHealth)
+    unsaved: set[tuple[Collection, str]] = field(init=False, default_factory=set)
+    """Records held in memory whose store write failed; retried at the next checkpoint."""
 
     def __post_init__(self) -> None:
         self.policy_summary = PolicySummary.of(self.policy)
@@ -266,10 +291,18 @@ class Runtime:
         return await run_tick(self, reason=reason)
 
     async def system_state(self) -> SystemState:
+        """``draft_count`` is None when the drafts cannot be read: an older count would be
+        presented as current."""
         at = timeutil.now()
-        drafts = await list_advisories(
-            self.store, status=AdvisoryStatus.DRAFT, limit=OPEN_DRAFT_LIMIT
-        )
+        draft_count: int | None
+        try:
+            drafts = await _list_drafts(self.store)
+        except Exception as exc:
+            logger.warning("reading the open drafts for the state failed: %s", exc)
+            self.store_failed(exc, calls="reads")
+            draft_count = None
+        else:
+            draft_count = len(drafts)
         replay = None
         if self.mode is RunMode.REPLAY and self.replay_case is not None:
             replay = replay_info(self.replay_case, auto=self.auto_replay)
@@ -286,7 +319,8 @@ class Runtime:
             feeds=health_view(self.live.health, at, self.settings),
             active_volcano_ids=sorted(self.live.active),
             exposed_count=len(self.exposed),
-            draft_count=len(drafts),
+            draft_count=draft_count,
+            store=self.store_health,
             policy=self.policy_summary,
             last_tick=self.last_tick,
         )
@@ -456,7 +490,11 @@ class Runtime:
         if not self.positions_fresh:
             return
         exposed = self.exposed
-        open_drafts = await self.open_drafts()
+        try:
+            open_drafts = await self.open_drafts()
+        except DeskUnreachable:
+            self.desk_unreachable(report)
+            return
         seen = {target.hex for target in self.aircraft()}
         report.drafts_superseded += await self._retire_drafts(open_drafts, seen, at, report)
         self._planned = {fid: mark for fid, mark in self._planned.items() if fid in exposed}
@@ -468,8 +506,25 @@ class Runtime:
         """Exposure, the Duty Officer's dispatch and draft retirement: the ADS-B pass between
         ticks runs this; a tick runs the steps around network recovery."""
         await self.update_exposures(at, report)
-        await dispatch_duty(self, at, report, trigger="adsb")
+        await self.run_duty(at, report, trigger="adsb")
         await self.settle_drafts(at, report)
+
+    async def run_duty(
+        self, at: datetime, report: TickReport, *, trigger: Literal["tick", "adsb"]
+    ) -> None:
+        """The Duty Officer's dispatch, skipped when the open drafts cannot be read: taking
+        an unread list as empty would draft flights that already have a draft."""
+        try:
+            await dispatch_duty(self, at, report, trigger=trigger)
+        except DeskUnreachable:
+            self.desk_unreachable(report)
+
+    def desk_unreachable(self, report: TickReport) -> None:
+        """Note and trace, once a tick, that drafts were neither planned nor retired."""
+        if DESK_UNREACHABLE_NOTE in report.notes:
+            return
+        report.notes.append(DESK_UNREACHABLE_NOTE)
+        self.trace(TraceStage.DESK, "system", DESK_UNREACHABLE_NOTE, level="error")
 
     def _expose(self, cones: Iterable[HazardCone], at: datetime) -> dict[str, ExposedFlight]:
         aircraft = self.aircraft()
@@ -619,7 +674,6 @@ class Runtime:
     async def publish(self) -> None:
         snapshot = await self.wall_snapshot()
         state = await self.system_state()
-        self._snapshot = snapshot
         bus = self.bus
         bus.publish(SseEvent.STATE, state)
         bus.publish(SseEvent.FEEDS, {"feeds": dump_all(state.feeds)})
@@ -695,6 +749,32 @@ class Runtime:
         labelled = self._labelled(event)
         self.bus.publish(SseEvent.TRACE, labelled)
         return labelled
+
+    def store_ok(self) -> None:
+        """A checked store write succeeded; the first after a failure ends the episode.
+
+        Only writes end an episode: with reads failing and writes working (Firestore meters
+        them apart), a successful read would otherwise flip the health every tick. The
+        checkpoint writes ``runtime/state`` every five minutes, so a read failure that has
+        passed clears by then."""
+        at = timeutil.SystemClock().now()
+        recovered = not self.store_health.ok
+        self.store_health = self.store_health.model_copy(update={"ok": True, "last_ok_at": at})
+        if recovered:
+            self.trace(TraceStage.SYSTEM, "system", "Database working again")
+
+    def store_failed(self, exc: Exception, *, calls: Literal["reads", "writes"] = "writes") -> None:
+        """A checked store call failed; the first failure of an episode is traced."""
+        error = f"{type(exc).__name__}: {exc}"[:STORE_ERROR_CHARS]
+        first = self.store_health.ok
+        update: dict[str, object] = {"ok": False, "last_error": error}
+        if first:
+            update["last_error_at"] = timeutil.SystemClock().now()
+        self.store_health = self.store_health.model_copy(update=update)
+        if first:
+            self.trace(
+                TraceStage.SYSTEM, "system", f"Database {calls} failing: {error}", level="warn"
+            )
 
     async def restore(self) -> None:
         """Warm a LIVE runtime from the store after a restart.
@@ -1223,10 +1303,14 @@ class Runtime:
 
     async def open_drafts(self) -> list[Advisory]:
         """Open drafts of the current mode: a replay's picture says nothing about the live
-        desk's flights, nor the live picture about a replay's."""
-        drafts = await list_advisories(
-            self.store, status=AdvisoryStatus.DRAFT, limit=OPEN_DRAFT_LIMIT
-        )
+        desk's flights, nor the live picture about a replay's. Raises
+        :class:`DeskUnreachable` when the store cannot be read."""
+        try:
+            drafts = await _list_drafts(self.store)
+        except Exception as exc:
+            logger.warning("reading the open drafts failed: %s", exc)
+            self.store_failed(exc, calls="reads")
+            raise DeskUnreachable(str(exc)) from exc
         replay = self.mode is RunMode.REPLAY
         return [draft for draft in drafts if draft.replay == replay]
 
@@ -1361,10 +1445,18 @@ class Runtime:
 
     # --- mode switching ------------------------------------------------------------------
 
-    async def _switch(self, mode: RunMode, *, auto: bool, case: ReplayCase | None = None) -> None:
+    async def _switch(
+        self,
+        mode: RunMode,
+        *,
+        auto: bool,
+        case: ReplayCase | None = None,
+        note: str | None = None,
+    ) -> None:
         """Change mode. REPLAY plays ``case``, else the case playing, else
         ``TEPHRA_REPLAY_CASE`` or the newest recorded case; picking another case while
-        replaying restarts the replay on it."""
+        replaying restarts the replay on it. ``note`` replaces the banner as the audit
+        entry's note."""
         playing = self.source.case if isinstance(self.source, ReplaySource) else None
         previous = {"mode": self.mode.value, "case_id": playing.case_id if playing else None}
         if mode is RunMode.REPLAY:
@@ -1403,7 +1495,11 @@ class Runtime:
             action=AuditAction.MODE_SWITCH,
             before=previous,
             after={"mode": mode.value, "case_id": case_id, "auto": auto},
-            note=banner,
+            note=note or banner,
+        )
+        # The choice must survive a restart before the next checkpoint.
+        await self._checkpoint_write(
+            Collection.RUNTIME, self.store.put(Collection.RUNTIME, "state", self._bookkeeping())
         )
         self.trace(
             TraceStage.SYSTEM,
@@ -1435,11 +1531,10 @@ class Runtime:
         self._forget_absences()
         self._digests.clear()
         self._quiet_ticks = 0
-        self._snapshot = None
         self._replay_at = None
 
     async def _live_activity(self) -> bool:
-        source = self._live_source
+        source = self.source if self.mode is RunMode.LIVE else self._live_source
         if source is None:
             return False
         try:
@@ -1469,18 +1564,29 @@ class Runtime:
         return True
 
     async def _persist_live(self) -> None:
+        """Checkpoint what a restart reads back: ``runtime/state`` first, then feed state,
+        then records whose earlier write failed. Each write is tried on its own, so one
+        failing document does not skip the others."""
+        await self._checkpoint_write(
+            Collection.RUNTIME, self.store.put(Collection.RUNTIME, "state", self._bookkeeping())
+        )
         for state in self.live.health.values():
-            await self._write_on_change(Collection.FEED_STATE, state.feed.value, state, {"age_s"})
-        await self.store.put(Collection.ADSB, "latest", {"snapshots": dump_all(self.live.adsb)})
-        for flight in self.exposed.values():
-            await self._write_on_change(Collection.EXPOSURES, flight.id, flight, set())
-        for gone in sorted(self._persisted_exposures - self.exposed.keys()):
-            await self.store.delete(Collection.EXPOSURES, gone)
-            self._digests.pop(f"{Collection.EXPOSURES.value}/{gone}", None)
-        self._persisted_exposures = set(self.exposed)
-        if self._snapshot is not None:
-            await self.store.put(Collection.WALL, "current", self._snapshot.model_dump(mode="json"))
-        await self.store.put(Collection.RUNTIME, "state", self._bookkeeping())
+            await self._checkpoint_write(
+                Collection.FEED_STATE,
+                self._write_on_change(
+                    Collection.FEED_STATE, state.feed.value, state, FEED_STATE_CLOCK_FIELDS
+                ),
+            )
+        await save_unsaved(self)
+
+    async def _checkpoint_write(self, collection: Collection, write: Awaitable[object]) -> None:
+        try:
+            await write
+        except Exception as exc:
+            logger.warning("checkpoint write to %s failed: %s", collection.value, exc)
+            self.store_failed(exc)
+        else:
+            self.store_ok()
 
     def _bookkeeping(self) -> dict[str, Any]:
         return {
@@ -1495,9 +1601,44 @@ class Runtime:
                 fid: [cone_id, urgency] for fid, (cone_id, urgency) in self._planned.items()
             },
             "assessment_ids": {vid: item.id for vid, item in self.assessments.items()},
-            "last_tick": self.last_tick.model_dump(mode="json") if self.last_tick else None,
             "saved_at": timeutil.to_iso(timeutil.now()),
         }
+
+    async def restore_replay_choice(self) -> None:
+        """After a restart of a LIVE-configured process, come back to the replay it was
+        playing: a dispatcher's choice from the Desk always, an automatic one while
+        ``TEPHRA_AUTO_REPLAY`` is still on and the live SIGMETs show no activity. The replay
+        starts again from its start; ``TEPHRA_MODE=REPLAY`` never reaches here."""
+        if self.mode is not RunMode.LIVE:
+            return
+        doc = await self.store.get(Collection.RUNTIME, "state")
+        if doc is None or doc.get("mode") != RunMode.REPLAY.value:
+            return
+        auto = doc.get("auto_replay") is True
+        if auto and not self.settings.auto_replay:
+            return
+        case_id = doc.get("case_id")
+        try:
+            case = await asyncio.to_thread(
+                select_case, self.settings.data_dir, case_id if isinstance(case_id, str) else None
+            )
+        except (OSError, ValueError) as exc:
+            self.trace(
+                TraceStage.SYSTEM,
+                "system",
+                f"The replay playing before the restart cannot be loaded ({exc}); starting LIVE",
+                level="warn",
+            )
+            return
+        if auto and await self._live_activity():
+            self.trace(
+                TraceStage.SYSTEM,
+                "system",
+                "Live VA SIGMET for a catalogue volcano: the automatic replay from before the "
+                "restart is not resumed",
+            )
+            return
+        await self._switch(RunMode.REPLAY, auto=auto, case=case, note=RESTORED_NOTE)
 
     async def _restore_bookkeeping(self) -> None:
         doc = await self.store.get(Collection.RUNTIME, "state")
@@ -1563,6 +1704,7 @@ async def create_runtime(settings: Settings) -> Runtime:
         replay_case=replay_case,
         auto_replay=False,
     )
+    await runtime.restore_replay_choice()
     await runtime.restore()
     return runtime
 
@@ -1598,6 +1740,25 @@ def _failed(failure: AiFailure) -> dict[str, Any]:
         "status": "ai_unavailable",
         "reason": failure.reason,
     }
+
+
+async def _list_drafts(store: Store) -> list[Advisory]:
+    """Open drafts, newest first. A stored draft that no longer validates is skipped and
+    logged, as a restore skips one: it must not stop every tick's publish."""
+    docs = await store.query(
+        Collection.ADVISORIES,
+        [Where("status", "==", AdvisoryStatus.DRAFT.value)],
+        order_by="created_at",
+        descending=True,
+        limit=OPEN_DRAFT_LIMIT,
+    )
+    drafts: list[Advisory] = []
+    for doc in docs:
+        try:
+            drafts.append(Advisory.model_validate(doc))
+        except ValidationError:
+            logger.warning("ignoring unreadable stored advisory %s", doc.get("id"))
+    return drafts
 
 
 def _urgency(inside_now: bool, minutes_to_entry: int, limits: Sequence[int]) -> int:

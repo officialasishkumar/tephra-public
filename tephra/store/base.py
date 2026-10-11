@@ -32,14 +32,12 @@ class Collection(StrEnum):
     VAAS = "vaas"  # source_id -> VaacAdvisory
     TAFS = "tafs"  # ICAO -> latest Taf
     METARS = "metars"  # ICAO -> latest Metar
-    ADSB = "adsb"  # "latest" -> {"snapshots": [AdsbSnapshot]}
     WINDS = "winds"  # volcano_id -> WindForecast
     FRAMES = "frames"  # source_id -> SatelliteFrame
     BTD = "btd"  # source_id -> BtdResult
     SITUATIONS = "situations"  # volcano_id -> latest Situation
     ASSESSMENTS = "assessments"  # assessment id -> PlumeAssessment
     CONES = "cones"  # volcano_id -> latest HazardCone
-    EXPOSURES = "exposures"  # flight id -> ExposedFlight (current set only)
     PLANS = "plans"  # plan id -> PlannedAction
     ADVISORIES = "advisories"  # advisory id -> Advisory (compare-and-set on version)
     AI_FAILURES = "ai_failures"  # failure id -> AiFailure (no plan or draft; handled by hand)
@@ -55,8 +53,7 @@ class Collection(StrEnum):
     OUTBOUND = "outbound"  # message id -> OutboundMessage
     AUDIT = "audit"  # entry id -> AuditEntry (append-only)
     FEED_STATE = "feed_state"  # FeedId value -> FeedHealth
-    WALL = "wall"  # "current" -> WallSnapshot
-    RUNTIME = "runtime"  # "state" -> core's own bookkeeping (last tick, auto-replay)
+    RUNTIME = "runtime"  # "state" -> core's bookkeeping: mode, replay choice, LIVE marks
 
 
 WhereOp = Literal["==", "!=", "<", "<=", ">", ">=", "in"]

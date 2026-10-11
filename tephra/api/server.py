@@ -812,6 +812,10 @@ def _lifespan(
                 run_local_scheduler(runtime, stop), name="tephra-local-scheduler"
             )
             scheduler.add_done_callback(_report_scheduler_exit)
+        else:
+            # Cloud Scheduler's first tick may be a minute away; the picture (official
+            # polygons, cones, aircraft) is built now. An overlapping tick skips itself.
+            scheduler = asyncio.create_task(_startup_tick(runtime), name="tephra-startup-tick")
         logger.info(
             "TEPHRA started",
             extra={
@@ -835,6 +839,13 @@ def _lifespan(
             del app.state.runtime
 
     return lifespan
+
+
+async def _startup_tick(runtime: Runtime) -> None:
+    try:
+        await runtime.tick(reason="startup")
+    except Exception:  # a background task's error would otherwise vanish
+        logger.exception("startup tick failed")
 
 
 def _report_scheduler_exit(task: asyncio.Task[None]) -> None:

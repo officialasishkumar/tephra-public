@@ -240,8 +240,22 @@ flowchart TB
 - **One instance.** The event bus that feeds SSE is in process. With `max-instances=1`, the
   scheduler's tick and every browser stream share it. CPU stays allocated, so the second
   ADS-B poll 30 s into each tick runs, and SSE connections stay alive between ticks. The
-  minimum is one instance unless `TEPHRA_MIN_INSTANCES=0` is set at deploy time; a cold start
-  then restores the state from Firestore.
+  minimum is one instance unless `TEPHRA_MIN_INSTANCES=0` is set at deploy time.
+- **Restarts.** A cold start restores from Firestore the official products still current
+  (SIGMETs, VONAs, VAAs), feed health, the LIVE bookkeeping (planned flights, the latest plume
+  assessments, the closed-airport set), the newest satellite reading per volcano, the stored
+  reroutes and the last Duty Officer run, and the replay choice: a replay picked on the Desk
+  resumes on the same case, an automatic one while auto-replay is on and no live VA SIGMET is
+  active, each from the case's start and with an audit entry. Aircraft, exposures, cones and
+  the Wall are not stored; without the local scheduler the app runs one startup tick at once,
+  so the picture rebuilds within one tick instead of waiting for Cloud Scheduler.
+- **Database errors.** A feed record joins the in-memory picture before it is written; a
+  failed write keeps it on the map and retries it at the next checkpoint, and the feed still
+  reads OK. When the open drafts cannot be read, planning and draft retirement wait a tick
+  with a note, rather than treating the unread list as empty. A step of the tick that raises
+  becomes a note and a trace line, and the Wall is still published. The feed-health dialog
+  has a Database row, and the Drafts count reads "unknown (database error)" when it could
+  not be counted.
 - **Request slots.** Every open event stream holds one of the instance's request slots, so
   `TEPHRA_MAX_EVENT_STREAMS` (default 200) caps open streams, and it must stay below the
   service's `--concurrency`. A refused stream gets 503 with `Retry-After: 5`, and the pages

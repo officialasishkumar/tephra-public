@@ -5,6 +5,10 @@ merges the records into the in-memory :class:`LiveData`, writes new or changed r
 the store, and updates that feed's :class:`FeedHealth`. A failing feed never raises: the
 error is recorded and the last good records stay in memory.
 
+Memory comes first and the store second: a record joins the picture before it is written,
+and a failed write leaves it in ``runtime.unsaved`` for the next checkpoint
+(:func:`save_unsaved`). A database error is the store's health, never the feed's.
+
 Records are compared on their content without provenance. A SIGMET's provenance hashes
 the whole feed response, which changes whenever any FIR in the world updates; keeping the
 first-seen copy of an unchanged record keeps its source id and hash stable, so the Plume
@@ -20,6 +24,7 @@ from typing import TYPE_CHECKING, Final, Protocol
 from urllib.parse import urlsplit
 
 import httpx
+from pydantic.main import IncEx
 
 from tephra.config import Settings
 from tephra.feeds.adsb import (
@@ -73,6 +78,7 @@ __all__ = [
     "health_view",
     "initial_health",
     "poll",
+    "save_unsaved",
     "taf_icaos",
     "uncovered_feeds",
 ]
@@ -127,6 +133,8 @@ VONA_OFF_NOTE: Final = (
 )
 HSD_OFF_NOTE: Final = "raw Himawari processing is off (TEPHRA_SCIENCE=0)"
 NOT_RECORDED_NOTE: Final = "not in this replay case: no archive of this feed was recorded"
+WIND_CLOCK_FIELDS: Final[IncEx] = {"profiles": {"__all__": {"provenance"}}}
+"""A winds poll refetches the same hours every hour; only new numbers are worth a write."""
 
 
 @dataclass(frozen=True)
@@ -426,7 +434,7 @@ async def _poll_sigmets(runtime: "Runtime", at: datetime) -> _Outcome:
     fetched = await fetch_sigmets(runtime.source)
     held = runtime.live.sigmets
     current: dict[str, Sigmet] = {}
-    new = 0
+    changed: list[tuple[str, Sigmet]] = []
     for sigmet in fetched:
         key = sigmet.provenance.source_id
         kept = held.get(key)
@@ -434,10 +442,10 @@ async def _poll_sigmets(runtime: "Runtime", at: datetime) -> _Outcome:
             current[key] = kept
             continue
         current[key] = sigmet
-        new += 1
-        await runtime.store.put(Collection.SIGMETS, key, sigmet.model_dump(mode="json"))
+        changed.append((key, sigmet))
     runtime.live.sigmets = current
-    return _Outcome(len(fetched), new, _any_stale(fetched))
+    await _save(runtime, Collection.SIGMETS, changed)
+    return _Outcome(len(fetched), len(changed), _any_stale(fetched))
 
 
 def _expire(held: dict[str, Vona] | dict[str, VaacAdvisory], cutoff: datetime) -> None:
@@ -467,10 +475,11 @@ async def _poll_vonas(runtime: "Runtime", at: datetime) -> _Outcome:
         known_ids=frozenset(vona.magma_id for vona in held if vona.magma_id is not None),
         max_pages=1 if held else COLD_START_VONA_PAGES,
     )
-    new = await _merge(runtime, Collection.VONAS, live.vonas, _issued_by(runtime, fetched, at))
+    changed = _merge(live.vonas, _issued_by(runtime, fetched, at))
     _expire(live.vonas, at - window)
+    await _save_held(runtime, Collection.VONAS, live.vonas, changed)
     count = sum(1 for vona in live.vonas.values() if _is_magma(vona))
-    return _Outcome(count, new, _any_stale(fetched))
+    return _Outcome(count, len(changed), _any_stale(fetched))
 
 
 async def _poll_jma_volcano(runtime: "Runtime", at: datetime) -> _Outcome:
@@ -486,10 +495,11 @@ async def _poll_jma_volcano(runtime: "Runtime", at: datetime) -> _Outcome:
         since=at - window,
         known_urls=frozenset(vona.provenance.url for vona in held.values()),
     )
-    new = await _merge(runtime, Collection.VONAS, live.vonas, _issued_by(runtime, fetched, at))
+    changed = _merge(live.vonas, _issued_by(runtime, fetched, at))
     _expire(live.vonas, at - window)
+    await _save_held(runtime, Collection.VONAS, live.vonas, changed)
     count = sum(1 for vona in live.vonas.values() if _is_jma(vona))
-    return _Outcome(count, new, _any_stale(fetched))
+    return _Outcome(count, len(changed), _any_stale(fetched))
 
 
 def _is_jma(vona: Vona) -> bool:
@@ -509,11 +519,11 @@ def _vaa_poller(feed: FeedId) -> Callable[["Runtime", datetime], Awaitable[_Outc
         fetched = await fetch_vaas(
             runtime.source, feed, since=at - timedelta(hours=24), known_urls=known
         )
-        new = await _merge(runtime, Collection.VAAS, live.vaas, _issued_by(runtime, fetched, at))
-        cutoff = at - timedelta(hours=VAA_RETENTION_H)
-        _expire(live.vaas, cutoff)
+        changed = _merge(live.vaas, _issued_by(runtime, fetched, at))
+        _expire(live.vaas, at - timedelta(hours=VAA_RETENTION_H))
+        await _save_held(runtime, Collection.VAAS, live.vaas, changed)
         count = sum(1 for vaa in live.vaas.values() if vaa.provenance.feed is feed)
-        return _Outcome(count, new, _any_stale(fetched))
+        return _Outcome(count, len(changed), _any_stale(fetched))
 
     return poll_vaas
 
@@ -523,16 +533,16 @@ async def _poll_tafs(runtime: "Runtime", at: datetime) -> _Outcome:
     if not icaos:
         return _Outcome(0, 0, False)
     tafs = await fetch_tafs(runtime.source, icaos)
-    new = 0
+    changed: list[tuple[str, Taf]] = []
     for taf in tafs:
         held = runtime.live.tafs.get(taf.icao)
         if held is not None and _same_content(held, taf):
             continue
         runtime.live.tafs[taf.icao] = taf
-        new += 1
-        await runtime.store.put(Collection.TAFS, taf.icao, taf.model_dump(mode="json"))
+        changed.append((taf.icao, taf))
     runtime.live.covered.setdefault(FeedId.TAF, set()).update(icaos)
-    return _Outcome(len(tafs), new, _any_stale(tafs))
+    await _save(runtime, Collection.TAFS, changed)
+    return _Outcome(len(tafs), len(changed), _any_stale(tafs))
 
 
 async def _poll_metars(runtime: "Runtime", at: datetime) -> _Outcome:
@@ -540,16 +550,16 @@ async def _poll_metars(runtime: "Runtime", at: datetime) -> _Outcome:
     if not icaos:
         return _Outcome(0, 0, False)
     metars = await fetch_metars(runtime.source, icaos)
-    new = 0
+    changed: list[tuple[str, Metar]] = []
     for metar in metars:
         held = runtime.live.metars.get(metar.icao)
         if held is not None and _same_content(held, metar):
             continue
         runtime.live.metars[metar.icao] = metar
-        new += 1
-        await runtime.store.put(Collection.METARS, metar.icao, metar.model_dump(mode="json"))
+        changed.append((metar.icao, metar))
     runtime.live.covered.setdefault(FeedId.METAR, set()).update(icaos)
-    return _Outcome(len(metars), new, _any_stale(metars))
+    await _save(runtime, Collection.METARS, changed)
+    return _Outcome(len(metars), len(changed), _any_stale(metars))
 
 
 async def _poll_adsb(runtime: "Runtime", at: datetime) -> _Outcome:
@@ -587,7 +597,7 @@ async def _poll_winds(runtime: "Runtime", at: datetime) -> _Outcome:
         profiles = await fetch_winds(source, volcano.lat, volcano.lon)
         runtime.live.winds[volcano.id] = profiles
         forecast = WindForecast(volcano_id=volcano.id, profiles=profiles)
-        await runtime.store.put(Collection.WINDS, volcano.id, forecast.model_dump(mode="json"))
+        await _save(runtime, Collection.WINDS, [(volcano.id, forecast)])
         return len(profiles), len(profiles), _any_stale(profiles)
 
     return await _per_volcano(runtime, FeedId.WINDS, one)
@@ -759,20 +769,87 @@ _POLLERS: Final[dict[FeedId, Callable[["Runtime", datetime], Awaitable[_Outcome]
 # --- helpers ----------------------------------------------------------------------------
 
 
-async def _merge[R: (Vona, VaacAdvisory)](
-    runtime: "Runtime", collection: Collection, held: dict[str, R], fetched: Sequence[R]
-) -> int:
-    """Add new or changed records to ``held`` and the store; returns how many were written."""
-    written = 0
+def _merge[R: (Vona, VaacAdvisory)](held: dict[str, R], fetched: Sequence[R]) -> list[str]:
+    """Add new or changed records to ``held``; returns their keys, for the store."""
+    changed: list[str] = []
     for record in fetched:
         key = record.provenance.source_id
         kept = held.get(key)
         if kept is not None and _same_content(kept, record):
             continue
         held[key] = record
-        written += 1
-        await runtime.store.put(collection, key, record.model_dump(mode="json"))
-    return written
+        changed.append(key)
+    return changed
+
+
+async def _save_held[R: (Vona, VaacAdvisory)](
+    runtime: "Runtime", collection: Collection, held: dict[str, R], keys: Sequence[str]
+) -> None:
+    """Store the changed records still held once the window has expired the old ones."""
+    await _save(runtime, collection, [(key, held[key]) for key in keys if key in held])
+
+
+async def _save(
+    runtime: "Runtime", collection: Collection, records: Sequence[tuple[str, TephraModel]]
+) -> None:
+    """Write records already in the picture, each on its own. They are marked unsaved before
+    the first write, so a poll cut short by its time budget leaves the rest for the next
+    checkpoint as a failed write does."""
+    runtime.unsaved.update((collection, key) for key, _ in records)
+    for key, record in records:
+        await _write(runtime, collection, key, record)
+
+
+async def save_unsaved(runtime: "Runtime") -> None:
+    """Retry the writes that failed, from the record held now; a record that has left the
+    picture meanwhile is dropped (nothing holds it to write)."""
+    for collection, key in sorted(runtime.unsaved):
+        record = _held_record(runtime, collection, key)
+        if record is None:
+            runtime.unsaved.discard((collection, key))
+            continue
+        await _write(runtime, collection, key, record)
+
+
+async def _write(runtime: "Runtime", collection: Collection, key: str, record: TephraModel) -> None:
+    try:
+        if collection is Collection.WINDS:
+            await runtime._write_on_change(collection, key, record, WIND_CLOCK_FIELDS)
+        else:
+            await runtime.store.put(collection, key, record.model_dump(mode="json"))
+    except Exception as exc:
+        logger.warning(
+            "writing %s/%s failed; kept in memory for the next checkpoint: %s",
+            collection.value,
+            key,
+            exc,
+        )
+        runtime.store_failed(exc)
+        return
+    runtime.unsaved.discard((collection, key))
+    runtime.store_ok()
+
+
+def _held_record(runtime: "Runtime", collection: Collection, key: str) -> TephraModel | None:
+    live = runtime.live
+    held: Mapping[str, TephraModel]
+    match collection:
+        case Collection.SIGMETS:
+            held = live.sigmets
+        case Collection.VONAS:
+            held = live.vonas
+        case Collection.VAAS:
+            held = live.vaas
+        case Collection.TAFS:
+            held = live.tafs
+        case Collection.METARS:
+            held = live.metars
+        case Collection.WINDS:
+            profiles = live.winds.get(key)
+            return None if profiles is None else WindForecast(volcano_id=key, profiles=profiles)
+        case _:
+            return None
+    return held.get(key)
 
 
 def _issued_by[R: (Vona, VaacAdvisory)](

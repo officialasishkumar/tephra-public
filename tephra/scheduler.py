@@ -7,16 +7,18 @@ and publishes the Wall. Ticks never overlap: one that finds another tick running
 minute; with ``TEPHRA_LOCAL_SCHEDULER=1`` :func:`run_local_scheduler` ticks in process.
 Between ticks, extra ADS-B passes keep aircraft at their 30 s cadence, timed from the start
 of the tick; a tick that arrives while a pass holds the runtime's lock waits for it.
+
+A step after the analysis that raises (exposure, recovery, the Duty Officer, draft
+retirement) becomes a note and a trace line; the Wall is still published and checkpointed.
 """
 
 import asyncio
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Awaitable, Sequence
 from contextlib import suppress
 from typing import TYPE_CHECKING, Final
 
-from tephra.duty import dispatch_duty
 from tephra.feeds.registry import (
     CONTEXT_FEEDS,
     PRODUCT_FEEDS,
@@ -76,7 +78,7 @@ async def run_tick(runtime: "Runtime", *, reason: str) -> TickReport:
             report = await _tick_steps(runtime, reason)
     finally:
         runtime.tick_running = False
-    _schedule_adsb_passes(runtime, reason, requested)
+        _schedule_adsb_passes(runtime, reason, requested)
     logger.info(
         "tick %s: %d feeds, %d active, %d exposed, %d drafts, %d superseded",
         reason,
@@ -102,10 +104,10 @@ async def _tick_steps(runtime: "Runtime", reason: str) -> TickReport:
     await _poll_phase(runtime, CONTEXT_FEEDS, report)
     at = timeutil.now()
     await runtime.analyse(at, report)
-    await runtime.update_exposures(at, report)
-    await runtime.run_recovery(at, report)
-    await dispatch_duty(runtime, at, report, trigger="tick")
-    await runtime.settle_drafts(at, report)
+    await _step(runtime, report, "exposure", runtime.update_exposures(at, report))
+    await _step(runtime, report, "network recovery", runtime.run_recovery(at, report))
+    await _step(runtime, report, "Duty Officer", runtime.run_duty(at, report, trigger="tick"))
+    await _step(runtime, report, "draft retirement", runtime.settle_drafts(at, report))
     runtime.count_quiet_tick()
     report.active_volcano_ids = sorted(active)
     report.finished_at = timeutil.now()
@@ -113,6 +115,17 @@ async def _tick_steps(runtime: "Runtime", reason: str) -> TickReport:
     await runtime.publish()
     await runtime.checkpoint()
     return report
+
+
+async def _step(runtime: "Runtime", report: TickReport, name: str, step: Awaitable[None]) -> None:
+    """Run one tick step; an error is noted and traced, and the tick goes on to publish."""
+    try:
+        await step
+    except Exception as exc:
+        logger.exception("tick step %s failed", name)
+        failure = f"{name} failed this tick ({type(exc).__name__})"
+        report.notes.append(failure)
+        runtime.trace(TraceStage.SYSTEM, "system", failure, level="error")
 
 
 async def run_adsb_pass(runtime: "Runtime") -> None:

@@ -118,7 +118,8 @@ export function renderChrome(D, store, ui, A) {
 
   $("kpi-active").textContent = String(s.active_volcano_ids?.length ?? 0);
   $("kpi-exposed").textContent = String(s.exposed_count ?? 0);
-  $("kpi-drafts").textContent = String(s.draft_count ?? 0);
+  // null: the server could not read the drafts; an older count is not shown as current.
+  $("kpi-drafts").textContent = s.draft_count === null ? "unknown (database error)" : String(s.draft_count ?? 0);
 
   const model = $("model-chip");
   const stub = s.llm?.backend === "stub";
@@ -884,8 +885,26 @@ export function feedsDialog(D, store) {
       el("td", { class: "mono", text: String(f.record_count ?? 0) }),
       el("td", { class: "feeds__note", text: [line, f.last_error].filter(Boolean).join(" · ") })));
   }
+  const db = store.state?.store;
+  if (db) tbody.append(databaseRow(db));
   return el("table", { class: "table" }, el("caption", { class: "sr-only", text: "Feed health" }),
     el("thead", {}, el("tr", {}, ...["Feed", "Status", "Age", "Last good (UTC)", "Records", "Note"].map((h) => el("th", { scope: "col", text: h })))), tbody);
+}
+
+// The database (Firestore or SQLite) is not a feed: its row says whether TEPHRA's last checked
+// read or write went through. Records it could not write stay on the map and are retried.
+function databaseRow(db) {
+  const [id, color] = FEED_STATUS[db.ok ? "OK" : "ERROR"];
+  const okAt = ms(db.last_ok_at);
+  const since = ms(db.last_error_at);
+  const note = db.ok ? "OK" : `Error since ${hhmmz(since)}: ${db.last_error}`;
+  return el("tr", {},
+    el("th", { scope: "row" }, "Database"),
+    el("td", {}, el("span", { class: `status status--${db.ok ? "ok" : "error"}` }, st(id, color), db.ok ? "OK" : "Error")),
+    el("td", { class: "mono", text: "—" }),
+    el("td", { class: "mono", text: Number.isFinite(okAt) ? `${dayMon(okAt)} ${hhmmz(okAt)}` : "never" }),
+    el("td", { class: "mono", text: "—" }),
+    el("td", { class: "feeds__note", text: note }));
 }
 
 // The operator policy (GET /api/policy): every margin, buffer and minimum the code applies,

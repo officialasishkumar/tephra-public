@@ -267,6 +267,14 @@ older drafts). `PlannerContext` carries the planner block's values as plain ints
 (`level_search_ft`, `level_band_fl`, `max_change_level_fl`, `divert_within_min`,
 `hold_within_min`) beside `vertical_margin_ft`; it never carries the policy id or version.
 
+`StoreHealth` `{ok, last_ok_at, last_error, last_error_at}` is the database as the runtime last
+found it, in wall-clock time: `ok` turns False on a failed checked read or write and True again
+on the next successful write; `last_error` is the newest error (cut to 300 characters) and
+`last_error_at` when the current run of failures began. `SystemState.store` carries it (a
+`StoreHealth()` default, ok with no times, where nothing reports one), and
+`SystemState.draft_count` is None when the open drafts could not be read (never an older
+count). The database is not a `FeedId`: `due_feeds` and the pollers iterate `FeedId`.
+
 ### 4.5 `tephra.config`
 
 `Settings` (every env var; see the class), `get_settings()`, `apply_process_env(settings)`,
@@ -330,6 +338,8 @@ key order.
 `put`, `get`, `delete`, `list_docs`, `query`, `compare_and_set_advisory`, `append_audit`,
 `get_feed_state`, `put_feed_state`, `list_feed_states`, `put_blob`, `get_blob`, `aclose`.
 (The method is `list_docs`, not `list`, so implementations can still annotate with `list[...]`.)
+`Collection` has no `adsb`, `wall` or `exposures` member: nothing read them back, so aircraft,
+exposures and the Wall are no longer stored and rebuild on the first tick after a restart.
 
 ### 4.8 `tephra.policy` and `data/policy/policy_a.json`
 
@@ -1353,8 +1363,16 @@ def due_feeds(at: datetime, states: Mapping[FeedId, FeedHealth], settings: Setti
 def uncovered_feeds(runtime: "Runtime", at: datetime) -> list[FeedId]
 def health_view(states: Mapping[FeedId, FeedHealth], at: datetime, settings: Settings) -> list[FeedHealth]
 def taf_icaos(runtime: "Runtime") -> list[str]
+async def save_unsaved(runtime: "Runtime") -> None   # the checkpoint's retry of failed record writes
 ```
 Registry rules:
+- Memory first, store second. A poller finishes its in-memory pass (with the VONA and VAA
+  windows and the TAF and METAR `covered` sets) before it writes, then writes each new or
+  changed record on its own. A record is marked in `runtime.unsaved` before its write and
+  unmarked once written, so a failed write, or a poll cut short by its time budget, leaves it
+  for `save_unsaved` at the next checkpoint. A database error is logged with its collection,
+  goes to `Runtime.store_health`, and never fails the poll: the feed's health stays OK. Winds
+  are written only when the profiles changed apart from their provenance.
 - `disabled_reason`: HSD without `settings.science` ("raw Himawari processing is off
   (TEPHRA_SCIENCE=0)"); VONA unless `settings.vona_live` (TEPHRA_VONA_LIVE) or REPLAY
   ("live polling off: MAGMA's robots.txt disallows crawling (TEPHRA_VONA_LIVE); replays serve
@@ -1421,6 +1439,8 @@ class Runtime:
     catalogue: VolcanoCatalogue; airports: AirportCatalogue; routes: RouteTable; policy: OperatorPolicy
     mode: RunMode; replay_case: ReplayCase | None; auto_replay: bool
     policy_summary: PolicySummary; live: LiveData; lock: asyncio.Lock; tick_running: bool   # set by the runtime
+    store_health: StoreHealth                                     # SystemState.store
+    unsaved: set[tuple[Collection, str]]                          # feed records whose write failed
     situations; assessments; cones; exposed                      # the picture, by volcano id or flight id
     reroutes: dict[str, list[RerouteOption]]                      # flight id -> options computed at planning
     satellite: dict[str, SatelliteReading]                        # volcano id -> newest Satellite Reader reading
@@ -1439,6 +1459,11 @@ class Runtime:
     async def update_exposures(self, at: datetime, report: TickReport) -> None
     async def settle_drafts(self, at: datetime, report: TickReport) -> None  # draft retirement
     async def run_exposures(self, at: datetime, report: TickReport) -> None  # an ADS-B pass: the two above around a Duty Officer dispatch
+    async def run_duty(self, at: datetime, report: TickReport, *,
+                       trigger: Literal["tick", "adsb"]) -> None  # dispatch_duty, skipped when the drafts cannot be read
+    async def open_drafts(self) -> list[Advisory]                # current mode; raises DeskUnreachable on a store error
+    def store_ok(self) -> None; def store_failed(self, exc: Exception, *, calls: Literal["reads", "writes"] = "writes") -> None
+    async def restore_replay_choice(self) -> None                # create_runtime: resume the replay playing before a restart
     # what the Duty Officer's tools reach (tephra.duty._RuntimeExecutor):
     async def assess_volcano(self, volcano_id: str, at: datetime, report: TickReport) -> dict[str, Any]
     async def plan_flight_now(self, flight_id: str, drafts: Sequence[Advisory], at: datetime,
@@ -1450,7 +1475,7 @@ async def create_runtime(settings: Settings) -> Runtime     # loads the policy, 
 ```
 The scheduler also calls the runtime's step methods (`maybe_switch_mode`,
 `follow_replay_clock`, `refresh_active`, `analyse`, `update_exposures`, `run_recovery`,
-`settle_drafts`, `publish`,
+`run_duty`, `settle_drafts`, `publish`,
 `checkpoint`, ...); they are internal to core.
 
 Core rules:
@@ -1472,6 +1497,20 @@ Core rules:
   reads, planning and drafting with reroutes, recovery and the SRA; section 5.18) -> draft
   retirement -> publish (Wall sections, then `budget`) -> checkpoint. An extra ADS-B pass runs
   exposure -> `dispatch_duty(trigger="adsb")` -> draft retirement. One volcano's failure keeps its previous picture and does not stop the others.
+  Exposure, the recovery check, the Duty Officer's dispatch and draft retirement each run
+  guarded: one that raises becomes a note (`<step> failed this tick (<error type>)`) and an
+  error trace line, and publish and checkpoint still run. The extra ADS-B passes are scheduled
+  even when a tick raises.
+- Store errors. The open drafts are read with documents that no longer validate skipped and
+  logged. When they cannot be read (`DeskUnreachable`), the Duty Officer's dispatch and draft
+  retirement are skipped for the tick (an unread list is never taken as empty, which would
+  draft flights twice or retire drafts) with the note `Desk store unreachable: drafts not
+  updated this tick` and one DESK trace line. `system_state` reports `draft_count` None when
+  the read fails, never an older count. Every checked call updates `store_health`; the first
+  failure of a run traces `Database writes failing: <error>` (or `reads`) as a warning, and
+  the next successful write traces `Database working again`. Calls that are part of a
+  transaction (`compare_and_set_advisory`, audit appends) get no `asyncio.timeout`: a
+  cancelled commit has an unknown outcome.
   A `MODEL_FAILED` assessment writes an `AI_FAILED` audit entry.
 - Plume quota gate. `situation.input_hash` covers only the SIGMET, VONA and VAA texts and the
   BTD indicator. An assessment with an unchanged `input_hash` is reused until `created_at +
@@ -1552,8 +1591,10 @@ Core rules:
   agents receive `trace=` callbacks that do the same. In REPLAY every trace line carries
   `detail.replay = true`. DISCREPANCY lines are `warn` for CAUTION and WARNING and `info` for
   INFO.
-- Live state (aircraft, exposures, wall snapshot, feed health, bookkeeping) is held in memory
-  and persisted at most every 5 minutes; durable records (feed products on change,
+- Live state (aircraft, exposures, the Wall) is held in memory only and rebuilds on the first
+  tick after a restart. The checkpoint, at most every 5 minutes, writes `runtime/state` first,
+  then each feed's state when its status, error or record count changed, then the feed
+  records still in `unsaved`; each write is tried on its own. Durable records (feed products on change,
   assessments, situations and cones on change, plans, advisories, audit, outbound) are
   written when they change. A situation's clock-only fields (`as_of`, each discrepancy's
   `magnitude` and `summary`) and a cone's `created_at` do not count as a change. Target under
@@ -1563,7 +1604,15 @@ Core rules:
   `vona_window_h`, the VAAs of the last 30 h, and the bookkeeping (planned marks, the latest
   assessments, quiet ticks, the closed-airport set), the newest satellite reading per volcano
   and the stored reroutes, so an unchanged input does not spend a call after a restart. A
-  REPLAY always starts from its recording.
+  REPLAY always starts from its recording. The last tick is not restored: the Wall's waiting
+  note stands until this process has ticked. With `TEPHRA_MODE=LIVE`,
+  `restore_replay_choice` first reads `runtime/state`: a REPLAY chosen from the Desk
+  (`auto_replay` false) resumes on the same case, and an automatic one resumes while
+  `TEPHRA_AUTO_REPLAY` is still on and the live SIGMET probe finds no activity; either starts
+  again from the case's start (`replay_start`) and writes one `MODE_SWITCH` audit entry with
+  the note `restored after restart`. A case that can no longer be loaded starts LIVE with a
+  SYSTEM trace line saying why. With `TEPHRA_MODE=REPLAY` the setting wins. Every mode switch
+  writes `runtime/state` at once, so the choice survives a restart before the next checkpoint.
 - REPLAY: `create_runtime` (with `TEPHRA_MODE=REPLAY`) and `switch_mode` call
   `start_replay_clock(case, speed=settings.replay_speed, begin=settings.replay_start)` and
   use `ReplaySource`. A replay case's missing feeds read DISABLED with `NOT_RECORDED_NOTE` and
@@ -1611,8 +1660,10 @@ def create_app(settings: Settings | None = None, *, runtime_factory: RuntimeFact
 def configure_logging(level: str) -> None    # one JSON object per line on stdout (Cloud Logging shape)
 ```
 The lifespan creates the runtime with `runtime_factory` (default `create_runtime`; tests swap
-it), starts `run_local_scheduler` when `settings.local_scheduler`, and on shutdown stops the
-loop (waiting up to 10 s) and closes the runtime. Until the runtime exists, routes that need
+it), starts `run_local_scheduler` when `settings.local_scheduler`, and otherwise runs one
+`tick(reason="startup")` in the background, so the picture does not wait up to a minute for
+Cloud Scheduler (an overlapping scheduler tick skips itself). On shutdown it stops the loop or
+that tick (waiting up to 10 s) and closes the runtime. Until the runtime exists, routes that need
 it answer 503 `starting`. `create_app` mounts the six feature routers (`routes_ask`,
 `routes_notices`, `routes_recovery`, `routes_comms`, `routes_regdocs`, `routes_backtest`) under
 `/api` through `_include_feature_routers`, which imports them at call time. A pure ASGI
@@ -2093,12 +2144,10 @@ call is made and every step but voice has a deterministic answer labelled NO MOD
 |---|---|---|---|
 | `sigmets`, `vonas`, `vaas`, `frames`, `btd` | `source_id` | `Sigmet`, `Vona` (MAGMA, JMA and verified pasted notices), `VaacAdvisory`, `SatelliteFrame`, `BtdResult` | core (new or changed content only) |
 | `tafs`, `metars` | ICAO | latest `Taf`, `Metar` | core (on change) |
-| `adsb` | `latest` | `{"snapshots": [AdsbSnapshot]}` | core (throttled) |
-| `winds` | volcano_id | `WindForecast` | core (every winds poll) |
+| `winds` | volcano_id | `WindForecast` | core (when a winds poll brings new numbers; provenance aside) |
 | `situations` | volcano_id | latest `Situation` | core (on change, clock-only fields aside) |
 | `assessments` | assessment id | `PlumeAssessment` | core (each Plume Reader run) |
 | `cones` | volcano_id | latest `HazardCone` | core (on change) |
-| `exposures` | flight id | `ExposedFlight` (current set; gone flights deleted) | core (throttled) |
 | `plans` | plan id | `PlannedAction` | core |
 | `ai_failures` | failure id | `AiFailure` (a flight with no plan or draft; handled by hand) | core (`desk.failures`) |
 | `duty` | run id | `DutyRun` | duty (`tephra.duty.dispatch_duty`) |
@@ -2113,12 +2162,16 @@ call is made and every step but voice has a deterministic answer labelled NO MOD
 | `advisories` | advisory id | `Advisory` (CAS on `version`) | desk.approvals only |
 | `outbound` | message id | `OutboundMessage` (approved advisories; approved messages, with `advisory_id` set to the message id) | desk.approvals, comms.messages |
 | `audit` | entry id | `ChainedAuditEntry` (append-only, hash-chained) | desk.audit only |
-| `feed_state` | FeedId value | `FeedHealth` | core (throttled, on change) |
-| `wall` | `current` | `WallSnapshot` | core (throttled) |
-| `runtime` | `state` | core bookkeeping: `mode`, `auto_replay`, `case_id`, `quiet_ticks`, `planned` (`{flight_id: [cone_id, urgency]}`), `closed_airports`, `assessment_ids`, `last_tick`, `saved_at` | core (throttled) |
+| `feed_state` | FeedId value | `FeedHealth` | core (throttled; when status, error or record count changes, not for `age_s`, `last_attempt_at` or `last_success_at` alone, so a restored `last_success_at` may be older than the true one) |
+| `runtime` | `state` | core bookkeeping: `mode`, `auto_replay`, `case_id` (read at startup to resume a replay), `quiet_ticks`, `planned` (`{flight_id: [cone_id, urgency]}`), `closed_airports`, `assessment_ids` (read back after a LIVE restart), `saved_at` | core (first at every checkpoint, and at every mode switch) |
 | blobs | `frames/*.png`, `btd/*.png` | PNG bytes | core |
 
 Documents are strict JSON (`tephra.store.encode_doc`): NaN and infinities are stored as null.
+
+A failed write of a feed record (`sigmets`, `vonas`, `vaas`, `tafs`, `metars`, `winds`) never
+fails the poll: the record is already in memory, its `(collection, doc id)` waits in
+`Runtime.unsaved`, and the next checkpoint writes the record held then (or drops the key when
+the picture no longer holds it). Each checkpoint write is tried on its own.
 
 ## 8. HTTP API (api implements, web consumes)
 
@@ -2163,7 +2216,7 @@ route sets its own), and `Strict-Transport-Security: max-age=31536000` over http
 
 | Method, path | Response model |
 |---|---|
-| `GET /api/state` | `SystemState` |
+| `GET /api/state` | `SystemState` (`store`: `StoreHealth`; `draft_count` null when the drafts could not be read) |
 | `GET /api/wall` | `WallResponse` = `{state: SystemState, snapshot: WallSnapshot, advisories: [Advisory] (newest 50, all statuses), trace: [TraceEvent] (last 100, oldest first)}` |
 | `GET /api/advisories?status=DRAFT&limit=50` | `AdvisoryList` (newest first; every status when `status` is absent) |
 | `GET /api/audit?advisory_id=...&limit=100` | `AuditList` (newest first; `advisory_id` must match `adv_[0-9a-f]{12}`) |
