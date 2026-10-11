@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="description" content="What TEPHRA records about the people who use it, where it is kept and what is sent to the Gemini API.">
+  <title>TEPHRA privacy notice</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/static/fonts/ibm-plex-sans-var-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/doc.css">
+</head>
+<body class="docpage">
+  <header class="docbar">
+    <p class="docbar__brand"><b>TEPHRA</b> <span>Privacy</span></p>
+    <a href="/"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-chevron-left"></use></svg><span>Back to the Wall</span></a>
+  </header>
+  <main id="main" class="docmain">
+    <h1>Privacy notice</h1>
+    <p>TEPHRA is a decision-support demo for volcanic ash and airline dispatch. The airline, Ring of Fire Air, is fictional, and TEPHRA is not for operational use. This page says what TEPHRA records about the people who use it, where it is kept and what it sends to Google's Gemini API.</p>
+
+    <h2>The Wall</h2>
+    <p>The Wall is public and needs no sign-in. TEPHRA keeps no account, profile or analytics for Wall visitors. The page remembers a few display choices (such as which map layers are on) in your own browser's local storage; they never reach the server.</p>
+    <p>To draw the map, your browser loads files straight from other services: map tiles from OpenFreeMap and Mapterhorn, satellite tiles from NASA GIBS, and the map library from unpkg. Those services see your address the way any website does.</p>
+
+    <h2>The Desk sign-in and your name</h2>
+    <p>The Desk sign-in asks for the Desk PIN and your name or initials. The PIN is checked and never stored. Your name is recorded on every decision you make and on every entry TEPHRA writes for your actions.</p>
+    <p>That name is public. The audit trail (<code>/api/audit</code>), the advisories list (<code>/api/advisories</code>, who decided each one) and the outbound queue (<code>/api/outbound</code>, who approved each message) can be read by anyone who opens the site. A question you ask TEPHRA is written into the audit entry with your name (its first 200 characters). A name you type on a shift handover, or as the signatory of a regulator draft, is stored with that document.</p>
+
+    <h2>Where it is kept</h2>
+    <p>Decisions, advisories, messages, documents, pasted notices, questions with their answers, and audit entries are stored in Google Cloud Firestore on the live site, and in a SQLite file when TEPHRA runs on a laptop. The audit trail is append-only and hash-chained, so its entries are permanent: they are never edited or deleted.</p>
+
+    <h2>Your address</h2>
+    <p>TEPHRA's own code keeps a client address only in server memory, to slow down repeated failed sign-ins. That table is cleared whenever the server restarts and is never written to storage. TEPHRA's request log records the method, path, status and timing of each request, not the address. Google Cloud Run's own request logs do record client addresses, and Cloud Logging keeps them for its standard retention period.</p>
+
+    <h2>What is sent to the Gemini API</h2>
+    <ul>
+      <li>Public feed content (ash advisories, satellite pictures from Himawari-9, winds, flight positions) and facts written by TEPHRA's code, for the AI steps that read the ash products and the satellite pictures, plan around the hazard and draft advisories, messages and documents.</li>
+      <li>What a Desk user submits: questions typed or spoken to Ask TEPHRA (the voice recording is sent for transcription and is not stored by TEPHRA), and notices pasted into the notice reader.</li>
+      <li>Dispatcher names are never sent to Gemini.</li>
+    </ul>
+    <p>TEPHRA uses the Gemini API through a Google AI Studio key. On the unpaid tier, Google may use the content sent and the answers it gives to improve its products, and human reviewers may read them. Do not type or paste personal or confidential information into Ask TEPHRA or the notice reader.</p>
+
+    <h2>Cookies</h2>
+    <p>The only cookie is the Desk session cookie, <code>tephra_desk</code>. It is set when you sign in to the Desk, holds your name and its expiry, is signed by the server and is removed when you sign out. There are no analytics or advertising cookies. The Desk also keeps two things in your browser's own storage: whether to keep the screen awake, and, for the open tab only, the incoming dispatcher's name typed on the handover form. They stay in your browser; the name reaches the server only when you create the handover.</p>
+
+    <h2>Questions</h2>
+    <p>For a question about this notice or about data TEPHRA holds, open an issue in <a href="https://github.com/officialasishkumar/tephra/issues">TEPHRA's GitHub repository</a>.</p>
+  </main>
+</body>
+</html>

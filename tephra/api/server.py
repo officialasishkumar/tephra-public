@@ -298,6 +298,17 @@ async def desk_page() -> FileResponse:
     return await _page("desk.html")
 
 
+@pages.get("/privacy", include_in_schema=False)
+async def privacy_page() -> FileResponse:
+    return await _page("privacy.html")
+
+
+@pages.get("/robots.txt", include_in_schema=False)
+async def robots_txt() -> Response:
+    """The live ash desk is a demo: no search engine should index or follow it."""
+    return Response("User-agent: *\nDisallow: /\n", media_type="text/plain; charset=utf-8")
+
+
 @pages.get("/docs/{doc_id}", include_in_schema=False)
 async def doc_page(doc_id: str) -> FileResponse:
     """The printable page for an SRA/VAR draft (DOC-...) or a shift handover (ho_...). The page

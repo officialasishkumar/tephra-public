@@ -2313,7 +2313,9 @@ request input.
 |---|---|
 | `GET /` | `tephra/web/index.html` |
 | `GET /desk` | `tephra/web/desk.html` |
-| `GET /static/{path}` | files under `tephra/web/` (`wall.js`, `wall.css`, `desk.js`, `desk.css`, ...) |
+| `GET /privacy` | `tephra/web/privacy.html`, the privacy notice (linked from the Wall footer, the Desk sign-in and README) |
+| `GET /robots.txt` | `text/plain`: `User-agent: *` and `Disallow: /`; every page also carries `<meta name="robots" content="noindex, nofollow">` |
+| `GET /static/{path}` | files under `tephra/web/` (`wall.js`, `wall.css`, `desk.js`, `desk.css`, `favicon.svg` (the icon every page links), ...) |
 | `GET /healthz` | `{"ok": true, "mode": "LIVE"}` |
 
 Every response carries:

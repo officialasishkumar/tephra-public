@@ -159,7 +159,7 @@ What it adds is the evidence reconciliation in front of them.
 
 ## Licence and data credits
 
-MIT (see `LICENSE`). Data:
+MIT (see `LICENSE`). The privacy notice is served at `/privacy` (`tephra/web/privacy.html`): what the Desk records, where it is kept and what is sent to the Gemini API. Data:
 - aviationweather.gov and NWS tgftp (US public domain);
 - JMA / Tokyo VAAC;
 - Bureau of Meteorology / Darwin VAAC (via NWS);
