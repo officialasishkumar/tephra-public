@@ -115,6 +115,10 @@ export function aboutContent() {
       el("thead", {}, el("tr", {}, ...["Source", "Used for", "Credit"].map((h) => el("th", { scope: "col", text: h })))),
       el("tbody", {}, ...CREDITS.map(([a, b, c]) => el("tr", {}, el("th", { scope: "row", text: a }), el("td", { text: b }), el("td", { text: c }))))),
     el("p", { class: "muted", text: `On screen: ${ATTRIBUTION}` }),
+    el("h3", { class: "caps", text: "Operator policy" }),
+    el("p", {},
+      el("button", { type: "button", class: "honesty__about", "aria-haspopup": "dialog", dataset: { act: "policy" }, text: "Open the operator policy" }),
+      " (illustrative): every margin, minimum and threshold TEPHRA applies, with its reason."),
     el("h3", { class: "caps", text: "Keyboard" }),
     el("p", { class: "muted", text: "Press ? for every shortcut." }));
 }

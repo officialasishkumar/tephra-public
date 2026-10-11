@@ -142,7 +142,8 @@ export function renderChrome(D, store, ui, A) {
   const policyBtn = $("policy-btn");
   policyBtn.hidden = !policy;
   if (policy) {
-    policyBtn.textContent = `Operator policy ${policy.preset} v${policy.version} · illustrative`;
+    // Short: the footer's credit line shares this row (phones open it from About instead).
+    policyBtn.textContent = `Policy ${policy.preset} · illustrative`;
     policyBtn.title = `${policy.policy_id} v${policy.version}: ${policy.label}. Open its values and sources.`;
   }
   const extra = [];

@@ -22,7 +22,7 @@ import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Final, Literal, Self
 from uuid import uuid4
 
 from pydantic import (
@@ -1114,7 +1114,7 @@ class PolicyModel(BaseModel):
 class PolicyValue(PolicyModel):
     """One operator value, with its unit and the reason it has this value."""
 
-    value: int
+    value: int = Field(ge=0)
     unit: Literal["ft", "FL", "NM", "m", "min", "kt", "deg", "s", "USD", "count", "pct"]
     source: str = Field(min_length=1)
     citation_ids: list[str] = Field(default_factory=list)
@@ -1139,7 +1139,6 @@ class PlannerPolicy(PolicyModel):
     max_change_level_fl: PolicyValue
     divert_within_min: PolicyValue
     hold_within_min: PolicyValue
-    hypothesis_hold_within_min: PolicyValue
 
 
 class ReroutePolicy(PolicyModel):
@@ -1178,6 +1177,13 @@ class FuelPolicy(PolicyModel):
     divert_extra_min: PolicyValue
 
 
+class DraftPolicy(PolicyModel):
+    """How long an open draft waits after its flight leaves the cone before it is retired."""
+
+    unexposed_retire_min: PolicyValue
+    position_lost_retire_min: PolicyValue
+
+
 class SourceRule(PolicyModel):
     """One step of the source-trust order; the first is the most trusted."""
 
@@ -1191,6 +1197,27 @@ class PolicyCitation(PolicyModel):
     ref: str = Field(min_length=1, description="Document, paragraph and page")
     text: str = Field(min_length=1, description="Quoted word for word")
     url: str = Field(pattern=r"^https://")
+
+
+POSITIVE_POLICY_VALUES: Final = frozenset(
+    {
+        "alternates.search_radius_nm",
+        "alternates.min_runway_m",
+        "alternates.min_visibility_m",
+        "alternates.min_ceiling_ft",
+        "alternates.taf_eta_window_min",
+        "alternates.terminal_radius_nm",
+        "planner.level_search_ft",
+        "planner.level_band_fl",
+        "planner.max_change_level_fl",
+        "planner.divert_within_min",
+        "planner.hold_within_min",
+        "fuel.hold_min",
+        "drafts.unexposed_retire_min",
+        "drafts.position_lost_retire_min",
+    }
+)
+"""Values that must be above zero; every other value only needs to be zero or more."""
 
 
 class OperatorPolicy(PolicyModel):
@@ -1213,6 +1240,7 @@ class OperatorPolicy(PolicyModel):
     reroute: ReroutePolicy
     recovery: RecoveryPolicy
     fuel: FuelPolicy
+    drafts: DraftPolicy
     source_order: list[SourceRule] = Field(min_length=1)
     citations: list[PolicyCitation] = Field(min_length=1)
 
@@ -1228,6 +1256,21 @@ class OperatorPolicy(PolicyModel):
             raise ValueError(f"unknown citation ids: {', '.join(missing)}")
         return self
 
+    @model_validator(mode="after")
+    def _values_in_range(self) -> Self:
+        """A zero here would switch a screen or a search off without saying so, and an
+        inverted pair would skip a rule; both fail at startup instead."""
+        values = self.named_values()
+        zero = sorted(name for name in POSITIVE_POLICY_VALUES if values[name].value <= 0)
+        if zero:
+            raise ValueError(f"policy values must be above zero: {', '.join(zero)}")
+        rules = self.planner
+        if rules.divert_within_min.value > rules.hold_within_min.value:
+            raise ValueError("planner.divert_within_min is above planner.hold_within_min")
+        if rules.level_band_fl.value > rules.max_change_level_fl.value:
+            raise ValueError("planner.level_band_fl is above planner.max_change_level_fl")
+        return self
+
     def named_values(self) -> dict[str, PolicyValue]:
         """Every value by its dotted name, e.g. ``"planner.level_search_ft"``."""
         blocks: dict[str, PolicyModel] = {
@@ -1237,6 +1280,7 @@ class OperatorPolicy(PolicyModel):
             "reroute": self.reroute,
             "recovery": self.recovery,
             "fuel": self.fuel,
+            "drafts": self.drafts,
         }
         return {
             f"{key}.{name}": getattr(block, name)
@@ -1375,7 +1419,6 @@ class PlannerContext(TephraModel):
     max_change_level_fl: int
     divert_within_min: int
     hold_within_min: int
-    hypothesis_hold_within_min: int
     route: FlightRoute | None = Field(default=None, description="Published route, if known")
     reroutes: list[RerouteOption] = Field(
         default_factory=list, description="Code-computed lateral options (OK and not OK)"
@@ -1451,6 +1494,12 @@ class Advisory(TephraModel):
     reroute: RerouteOption | None = None
     minutes_to_entry: int
     inside_now: bool
+    urgency_bucket: int | None = Field(
+        default=None,
+        ge=0,
+        description="0 inside the cone, then one more per operator time limit the entry lies"
+        " beyond, when drafted; None on drafts from before the field",
+    )
     fuel: FuelLine | None = None
     fuel_line: str = Field(description="FuelLine.formula, or '' when no cost applies")
     plume_mode: PlumeMode

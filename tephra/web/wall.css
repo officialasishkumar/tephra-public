@@ -885,6 +885,7 @@ body:has(#compare-labels:not([hidden])) .top-center { top: calc(var(--inset) + 4
   .honesty__airline { display: none; }
   .honesty__attrib { margin-left: 0; font-size: 10.5px; flex: 1 1 0; }
   .honesty__about { font-size: var(--fs-1); min-height: 24px; }
+  .honesty__policy { display: none; }
   .raw-grid { grid-template-columns: 1fr; height: auto; }
   .dlg[data-kind="sources"] { height: auto; }
 }

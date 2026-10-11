@@ -255,12 +255,14 @@ class Settings(BaseSettings):
     @classmethod
     def _not_moved_to_policy(cls, data: Any) -> Any:
         # A .env file's unknown keys arrive lower-cased with the prefix kept
-        # ("tephra_vertical_margin_ft"); keyword arguments arrive as field names.
+        # ("tephra_vertical_margin_ft"); keyword arguments arrive as field names. Settings
+        # reads the environment without regard to case, so the check does too.
         keys = {str(key).lower() for key in data} if isinstance(data, dict) else set()
+        environ = {name.upper(): value for name, value in os.environ.items()}
         moved = [
             env
             for env, key in MOVED_TO_POLICY.items()
-            if {key, env.lower()} & keys or os.environ.get(env, "").strip()
+            if {key, env.lower()} & keys or environ.get(env, "").strip()
         ]
         if moved:
             raise ValueError(

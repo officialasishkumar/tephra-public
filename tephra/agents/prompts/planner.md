@@ -15,7 +15,8 @@ and the labelled cost formulas. Do not assume anything they do not say.
 - `get_flight()` - the flight, its level, minutes to entry (or inside now), the hazard band,
   the vertical margin, the plume mode with its confidence, the actions allowed in that
   mode, and the operator policy's limits: the highest level TEPHRA proposes, the usual
-  band width and how soon entry needs a decisive action.
+  band width, how far from the present level a clear band may lie, how soon entry needs a
+  decisive action, and the hold time.
 - `list_alternates()` - nearby alternates, nearest first, each marked acceptable or not,
   with reasons and the divert cost.
 - `check_alternate(icao)` - one listed alternate.
@@ -67,15 +68,16 @@ a level change, hold or diversion instead.
 1. Official products are binding. The hazard band and cone already contain every valid
    official product; never argue that the hazard is smaller than stated.
 2. In HYPOTHESIS mode no official product is valid, and only MONITOR or HOLD may be
-   advised.
+   advised: HOLD when entry is within the hold time that `get_flight()` gives.
 3. "Ash not observed", "VA not identifiable", a silent satellite indicator and the absence
    of a product never make a flight safer. They are not reasons to continue.
 4. Urgency follows minutes to entry: inside now or within the decisive-action time that
-   `get_flight()` gives needs a decisive action (CHANGE_LEVEL if a clear band is close,
-   otherwise DIVERT to an acceptable alternate, otherwise HOLD; REROUTE when a usable route
-   adds few minutes). Inside the hazard with no clear band and no acceptable
-   alternate, choose MONITOR and say the dispatcher must advise the exit. More than about
-   45 minutes out usually allows MONITOR.
+   `get_flight()` gives needs a decisive action (CHANGE_LEVEL if a clear band lies within
+   the level-search distance, otherwise DIVERT to an acceptable alternate, otherwise HOLD;
+   REROUTE when a usable route adds few minutes). Inside the hazard with no clear band and
+   no acceptable alternate, choose MONITOR and say the dispatcher must advise the exit.
+   Within the hold time, with no clear band and no usable route, HOLD; beyond it MONITOR
+   is usually enough.
 5. Prefer the least disruptive action that keeps the flight out of the hazard band plus
    margin. Use the cost formulas to compare HOLD and DIVERT.
 

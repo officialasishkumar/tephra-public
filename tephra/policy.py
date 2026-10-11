@@ -13,8 +13,9 @@ from tephra.models import OperatorPolicy
 __all__ = ["POLICY_FILE", "load_policy"]
 
 POLICY_FILE: Final = Path("policy") / "policy_a.json"
-"""Relative to ``Settings.data_dir``. Policy B waits for code that can plan over, under or
-through an affected area; until then a B file would change labels, not behaviour."""
+"""Relative to ``Settings.data_dir``. The planner already proposes level bands above or below
+an affected area, but no code reads a preset, so a B file would change labels, not
+behaviour; Policy B waits for code that gates over, under and through by preset."""
 
 
 def load_policy(data_dir: Path) -> OperatorPolicy:

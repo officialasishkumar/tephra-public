@@ -55,8 +55,8 @@ def get_flight(tool_context: ToolContext) -> dict[str, Any]:
     """Return the exposed flight: present and selected flight level, ground speed, track,
     minutes to hazard entry (or inside now), the hazard band, the vertical margin, the
     plume mode with its confidence, the actions allowed in that mode, the hold cost and the
-    operator policy's limits (highest level proposed, usual band width, decisive-action
-    time)."""
+    operator policy's limits (highest level proposed, usual band width, how far a level
+    change may search, decisive-action time and hold time)."""
     ctx = _context(tool_context)
     return {**flight_summary(ctx), **limits_summary(ctx)} if ctx is not None else _NO_CONTEXT
 
@@ -84,7 +84,8 @@ def list_reroutes(tool_context: ToolContext) -> dict[str, Any]:
 
 def check_level_band(fl_min: int, fl_max: int, tool_context: ToolContext) -> dict[str, Any]:
     """Check whether a flight-level band (e.g. 180 to 200) is clear of the hazard band plus
-    the vertical margin and at or below FL410, and how far it is from the present level."""
+    the vertical margin and at or below the highest level TEPHRA proposes (max_fl in the
+    result), and how far it is from the present level."""
     ctx = _context(tool_context)
     return level_band_summary(ctx, fl_min, fl_max) if ctx is not None else _NO_CONTEXT
 

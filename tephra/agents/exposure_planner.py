@@ -165,7 +165,6 @@ def planner_limits(policy: OperatorPolicy) -> dict[str, int]:
         "max_change_level_fl": rules.max_change_level_fl.value,
         "divert_within_min": rules.divert_within_min.value,
         "hold_within_min": rules.hold_within_min.value,
-        "hypothesis_hold_within_min": rules.hypothesis_hold_within_min.value,
     }
 
 
@@ -303,7 +302,7 @@ def _hypothesis_rule(ctx: PlannerContext, level_fl: int | None) -> PlannerDecisi
     hold_outside = level_fl is not None and (
         not flight.inside_now or band_clears_hazard(level_fl, level_fl, ctx=ctx)
     )
-    if flight.minutes_to_entry <= ctx.hypothesis_hold_within_min and hold_outside:
+    if flight.minutes_to_entry <= ctx.hold_within_min and hold_outside:
         return _rule(
             ActionKind.HOLD,
             f"{basis}, {_entry_text(flight)}. HOLD AT PRESENT POSITION UNTIL AN OFFICIAL"
@@ -458,7 +457,9 @@ def limits_summary(ctx: PlannerContext) -> dict[str, Any]:
     return {
         "max_change_level_fl": ctx.max_change_level_fl,
         "level_band_ft": ctx.level_band_fl * 100,
+        "level_search_ft": ctx.level_search_ft,
         "decisive_action_within_min": ctx.divert_within_min,
+        "hold_within_min": ctx.hold_within_min,
     }
 
 

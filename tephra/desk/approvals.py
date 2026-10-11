@@ -7,7 +7,7 @@ APPROVED and EDITED advisories are copied to TEPHRA's own ``outbound`` collectio
 as far as anything goes: nothing here calls an external system.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Final
 from uuid import uuid4
@@ -71,12 +71,19 @@ class EditRejected(Exception):
 # --- creation ---------------------------------------------------------------------------
 
 
-async def submit_draft(store: Store, bus: EventBus, advisory: Advisory) -> Advisory | None:
+async def submit_draft(
+    store: Store, bus: EventBus, advisory: Advisory, *, replacing: Sequence[str] = ()
+) -> Advisory | None:
     """Store a new DRAFT unless it repeats an open or recently approved one.
 
     An open DRAFT for the same flight with the same ``dedupe_key`` wins (None is
-    returned); one with a different key is superseded by the new draft. Recorded (REPLAY)
-    and live advisories are never compared: the same airframe can appear in both.
+    returned); one with a different key is superseded by the new draft. ``replacing`` names
+    open drafts the caller is replacing with this one: they never count as a repeat, and the
+    caller supersedes them once this draft is stored, so a refused draft leaves them up. A
+    decision on the same advice in the last hour wins only if it was made when the entry was
+    at least as urgent (``urgency_bucket``): advice approved further out does not cover a
+    flight that is now closer. Recorded (REPLAY) and live advisories are never compared: the
+    same airframe can appear in both.
     """
     if advisory.status is not AdvisoryStatus.DRAFT or advisory.version != 1:
         raise InvalidTransition("only a new DRAFT at version 1 can be submitted")
@@ -87,9 +94,15 @@ async def submit_draft(store: Store, bus: EventBus, advisory: Advisory) -> Advis
         Where("status", "==", AdvisoryStatus.DRAFT.value),
         same_mode,
     )
-    if any(draft.dedupe_key == advisory.dedupe_key for draft in open_drafts):
+    replaced = set(replacing)
+    if any(
+        draft.dedupe_key == advisory.dedupe_key and draft.id not in replaced
+        for draft in open_drafts
+    ):
         return None
-    if await _recently_queued(store, Where("dedupe_key", "==", advisory.dedupe_key), same_mode):
+    if await _recently_queued(
+        store, advisory, Where("dedupe_key", "==", advisory.dedupe_key), same_mode
+    ):
         return None
     if not await store.compare_and_set_advisory(advisory.id, 0, advisory.model_dump(mode="json")):
         raise InvalidTransition(f"advisory {advisory.id} already exists")
@@ -105,15 +118,18 @@ async def submit_draft(store: Store, bus: EventBus, advisory: Advisory) -> Advis
     )
     bus.publish(SseEvent.ADVISORY, advisory)
     for draft in open_drafts:
+        if draft.id in replaced:
+            continue
         await supersede(
             store, bus, draft.id, reason="REPLACED BY A NEWER DRAFT", superseded_by=advisory.id
         )
     return advisory
 
 
-async def _recently_queued(store: Store, *where: Where) -> bool:
-    """A decision counts only within the last hour up to ``now()``: the replay clock loops,
-    and a decision made later in the recording is not recent on the next pass."""
+async def _recently_queued(store: Store, advisory: Advisory, *where: Where) -> bool:
+    """A decision counts only within the last hour up to ``now()`` (the replay clock loops,
+    and a decision made later in the recording is not recent on the next pass), and only if
+    it was made when the entry was at least as urgent as the new draft's."""
     at = timeutil.now()
     cutoff = at - timedelta(minutes=RECENT_DECISION_MIN)
     previous = await _query(store, *where)
@@ -121,8 +137,17 @@ async def _recently_queued(store: Store, *where: Where) -> bool:
         item.status in _QUEUED_STATUSES
         and item.decided_at is not None
         and cutoff <= item.decided_at <= at
+        and _as_urgent(item, advisory)
         for item in previous
     )
+
+
+def _as_urgent(decided: Advisory, new: Advisory) -> bool:
+    """A lower bucket is more urgent. Drafts from before ``urgency_bucket`` compare as they
+    always did: any recent decision on the same advice covers the new draft."""
+    if decided.urgency_bucket is None or new.urgency_bucket is None:
+        return True
+    return decided.urgency_bucket <= new.urgency_bucket
 
 
 # --- dispatcher decisions ---------------------------------------------------------------

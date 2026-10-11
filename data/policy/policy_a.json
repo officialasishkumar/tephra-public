@@ -1,12 +1,12 @@
 {
   "policy_id": "RFA-POLICY-A",
-  "version": "2026.10.4",
+  "version": "2026.10.5",
   "preset": "A",
   "title": "Ring of Fire Air operator policy A (default)",
   "label": "ILLUSTRATIVE, not an airline SRA",
   "sra_ref": null,
   "risk_owner": "Flight Operations",
-  "summary_text": "Operator policy A (default, illustrative): the current VAA and SIGMET affected areas, merged, up to the highest top, are treated as high contamination and avoided at dispatch. This follows the Doc 9974 App 5 5.4(d)(2) default for ungraded areas, \"unless the operator’s safety risk assessment allows it to do otherwise safely\". Under Doc 9974 2.10 an operator whose SMS shows it can do so safely may plan through, under or over (Policy B).",
+  "summary_text": "Operator policy A (default, illustrative): the current VAA and SIGMET affected areas, merged, up to the highest top, are treated as high contamination and avoided at dispatch. This follows the Doc 9974 App 5 5.4(d)(2) default for ungraded areas, \"unless the operator’s safety risk assessment allows it to do otherwise safely\". Under Doc 9974 2.10 an operator whose SMS shows it can do so safely may plan through, under or over (Policy B). In this build an airborne level change can still place a flight above or below the area with the vertical margin; it is not yet flagged as a departure from Policy A, and no drift-down or escape check is made.",
   "summary_citation_ids": [
     "9974-app5-5.4d2",
     "9974-2.10"
@@ -77,12 +77,7 @@
     "hold_within_min": {
       "value": 30,
       "unit": "min",
-      "source": "TEPHRA illustrative choice: with no clear band and no diversion, entry this close makes the rules advise a hold."
-    },
-    "hypothesis_hold_within_min": {
-      "value": 20,
-      "unit": "min",
-      "source": "TEPHRA illustrative choice: with no valid official product, entry this close makes the rules advise a hold."
+      "source": "TEPHRA illustrative choice: with no clear band and no diversion, entry this close makes the rules advise a hold. The same time applies when no official product is valid."
     }
   },
   "reroute": {
@@ -224,6 +219,18 @@
       "value": 15,
       "unit": "min",
       "source": "TEPHRA illustrative choice: minutes added to a diversion's cruise time for the approach and landing."
+    }
+  },
+  "drafts": {
+    "unexposed_retire_min": {
+      "value": 3,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: an open draft is retired as no longer exposed only after its flight has been seen outside every cone (or its volcano inactive) for this long, so a brief change in the projection does not withdraw a pending decision."
+    },
+    "position_lost_retire_min": {
+      "value": 10,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: an open draft whose flight has dropped out of the ADS-B picture is kept this long before it is retired as POSITION LOST; open ADS-B coverage near the volcanoes has gaps of one to seven minutes (data/replay/README.md)."
     }
   },
   "source_order": [

@@ -243,11 +243,15 @@ infinities; the store and the SSE stream write them as null.
 The policy models (`PolicyModel` and its subclasses) are frozen and refuse unknown keys
 (`extra="forbid"`), unlike `TephraModel`: a misspelt value name stops startup instead of
 leaving the code without that value. `OperatorPolicy` checks that every cited id names one
-of its `citations`. `Advisory.policy_id` and `policy_version` record the policy a draft was
-made under (None on drafts from before the policy file). `PlannerContext` carries the
-planner block's values as plain ints (`level_search_ft`, `level_band_fl`,
-`max_change_level_fl`, `divert_within_min`, `hold_within_min`, `hypothesis_hold_within_min`)
-beside `vertical_margin_ft`; it never carries the policy id or version.
+of its `citations`, that every value is zero or more and the names in
+`POSITIVE_POLICY_VALUES` above zero, and that `divert_within_min <= hold_within_min` and
+`level_band_fl <= max_change_level_fl`. `Advisory.policy_id` and `policy_version` record the
+policy a draft was made under (None on drafts from before the policy file).
+`Advisory.urgency_bucket` records the urgency bucket the draft was made in (core's
+`_urgency`: 0 inside the cone, then one more per time limit the entry lies beyond; None on
+older drafts). `PlannerContext` carries the planner block's values as plain ints
+(`level_search_ft`, `level_band_fl`, `max_change_level_fl`, `divert_within_min`,
+`hold_within_min`) beside `vertical_margin_ft`; it never carries the policy id or version.
 
 ### 4.5 `tephra.config`
 
@@ -321,19 +325,21 @@ def load_policy(data_dir: Path) -> OperatorPolicy
 ```
 The operator policy holds every margin, buffer, minimum and threshold the code applies on
 the operator's behalf, each with its unit, a `source` saying why it has that value, and
-optional `citation_ids`. Header: `policy_id` (`RFA-POLICY-A`), `version` (`2026.10.3`),
+optional `citation_ids`. Header: `policy_id` (`RFA-POLICY-A`), `version` (`2026.10.5`),
 `preset` (`A`), `title`, `label` (`ILLUSTRATIVE, not an airline SRA`), `sra_ref` (null for A),
 `risk_owner` (`Flight Operations`), `summary_text` (the Policy A text) and
 `summary_citation_ids`. Blocks: `exposure` (`vertical_margin_ft`), `alternates`
 (`search_radius_nm`, `min_runway_m`, `min_visibility_m`, `min_ceiling_ft`,
 `taf_eta_window_min`, `terminal_radius_nm`), `planner` (`level_search_ft`, `level_band_fl`,
-`max_change_level_fl`, `divert_within_min`, `hold_within_min`,
-`hypothesis_hold_within_min`), `reroute` (`buffer_nm`, `simplify_nm`, `max_waypoints_count`,
+`max_change_level_fl`, `divert_within_min`, `hold_within_min`; one hold time in every plume
+mode), `reroute` (`buffer_nm`, `simplify_nm`, `max_waypoints_count`,
 `max_turn_deg`, `rejoin_step_nm`, `max_extra_min`, `min_extra_min`, `route_max_cross_track_nm`,
 `cruise_tas_kt`), `recovery` (`min_turn_min`, `max_delay_min`, `freeze_window_min`,
 `horizon_after_closure_min`, `scenario_extend_1_min`, `scenario_extend_2_min`,
 `solve_time_limit_s`, the delay, cancel, swap and ferry costs in USD, `max_fdp_min`,
-`airport_closure_radius_nm`, `pax_notice_min_delay_min`), `fuel` (`hold_min`, `divert_extra_min`).
+`airport_closure_radius_nm`, `pax_notice_min_delay_min`), `fuel` (`hold_min`, `divert_extra_min`),
+`drafts` (`unexposed_retire_min`, `position_lost_retire_min`: how long an open draft waits
+after its flight leaves the cone, section 5.7).
 Then `source_order`
 (the source-trust order, most trusted first) and `citations` (quoted word for word).
 
@@ -342,8 +348,9 @@ values as arguments. Pure functions (geo, feeds) take plain numbers; the planner
 `OperatorPolicy`. A value enters the file only with the code that reads it
 (`tests/test_policy.py` checks each is dereferenced as `.<name>.value` somewhere in
 `tephra/`). Any change to the content needs a new `version`, and the test pins each version's
-`content_hash()`. Policy B is not here yet: until code can plan over, under or through an
-affected area, a B file would change labels, not behaviour.
+`content_hash()`. Policy B is not here yet. The planner already proposes level bands above
+or below an affected area (the Policy A text says so), but no code reads a preset, so a B
+file would change labels, not behaviour.
 
 ## 5. Module APIs
 
@@ -1040,7 +1047,7 @@ CONE"`; `allowed_actions = allowed_actions(cone.mode)`; `vertical_margin_ft` and
 
 `rule_based_decision` (the stub backend's plan only, deterministic; every threshold is a
 `PlannerContext` field from the policy, policy A values in brackets): HYPOTHESIS -> HOLD at
-the current FL if `minutes_to_entry <= hypothesis_hold_within_min` (20) and the hold is outside the hazard (not
+the current FL if `minutes_to_entry <= hold_within_min` (30) and the hold is outside the hazard (not
 `inside_now`, or the current FL clears the band plus margin), else MONITOR.
 OFFICIAL/WIDENED -> CONTINUE when the present and selected levels are above the hazard top
 plus margin; else CHANGE_LEVEL to the nearest `level_band_fl` (2,000 ft) band clear of the
@@ -1179,7 +1186,8 @@ class VersionConflict(Exception): current: Advisory
 class InvalidTransition(Exception): ...
 class AdvisoryNotFound(Exception): ...
 class EditRejected(Exception): problems: list[str]
-async def submit_draft(store: Store, bus: EventBus, advisory: Advisory) -> Advisory | None
+async def submit_draft(store: Store, bus: EventBus, advisory: Advisory, *,
+                       replacing: Sequence[str] = ()) -> Advisory | None
 async def approve(store: Store, bus: EventBus, advisory_id: str, *, expected_version: int, actor: str) -> Advisory
 async def edit_and_approve(store: Store, bus: EventBus, advisory_id: str, *, expected_version: int,
                            body: str, actor: str) -> Advisory
@@ -1200,11 +1208,14 @@ reject_reason; `input_hashes` = advisory `input_hash` + every source sha256; `mo
 write an `OutboundMessage` (text = `advisory.final_text`) to `outbound` and an
 `OUTBOUND_QUEUED` audit entry. Nothing ever leaves the store. `submit_draft` compares only
 advisories with the same `replay` value (recorded and live advice never dedupe or supersede
-each other): if an open DRAFT for the same flight has the same `dedupe_key`, return None; if
-the same `dedupe_key` was APPROVED or EDITED with `cutoff <= decided_at <= now()` (cutoff =
-now minus 60 minutes; a looping replay clock can put a decision in the future), return None.
-Otherwise the draft is created (a `DRAFT_CREATED` entry and an `advisory` event), and every
-other open DRAFT of the flight is superseded with reason `REPLACED BY A NEWER DRAFT`.
+each other): if an open DRAFT for the same flight, other than those named in `replacing`,
+has the same `dedupe_key`, return None; if the same `dedupe_key` was APPROVED or EDITED with
+`cutoff <= decided_at <= now()` (cutoff = now minus 60 minutes; a looping replay clock can put
+a decision in the future) at an `urgency_bucket` at most the new draft's (either None counts
+as covered), return None: advice approved further out does not cover a flight that is now
+closer. Otherwise the draft is created (a `DRAFT_CREATED` entry and an `advisory` event), and
+every other open DRAFT of the flight is superseded with reason `REPLACED BY A NEWER DRAFT`,
+except those in `replacing`, which the caller supersedes.
 
 `tephra/replay/cases.py`
 ```python
@@ -1404,17 +1415,25 @@ Core rules:
   now, entry within the policy's `divert_within_min` (15), within `hold_within_min` (30), and
   later: the same limits the rules apply (`urgency_limits_min`). A flight is planned again for a new
   cone or a more urgent bucket; a less urgent bucket is not planned again, and an open draft
-  for the cone counts as planned at its own urgency. After the new advice is drafted and
-  before `submit_draft`, the flight's open drafts drafted at a less urgent bucket are
-  superseded with reason `ENTRY NOW IN N MIN` or `INSIDE THE CONE NOW`. A flight whose
-  planning fails stays marked, so the same error does not spend a model call every tick.
+  for the cone counts as planned at its own urgency. The new draft carries its bucket
+  (`urgency_bucket`) and is submitted with the flight's open drafts drafted at a less urgent
+  bucket as `replacing`; only once it is stored are those superseded (`superseded_by` set,
+  reason `ENTRY NOW IN N MIN` or `INSIDE THE CONE NOW`), so a refused or failed submit leaves
+  the flight its earlier card. A flight is marked planned only when planning finishes (an
+  `AiFailure` recorded for the Desk counts as finished). Planning that raises leaves no mark:
+  the flight is planned again `PLAN_RETRY_MIN` (1, then 5, then every 15) minutes later for
+  the same cone and bucket, or at once for a new cone or a more urgent bucket.
 - Exposure and retirement. When every ADS-B snapshot is a stale last-good copy, the step plans
   nothing and retires nothing: it keeps the previous exposures (dropping those whose cone is
   gone) and notes `ADS-B is stale: exposures and open drafts kept until positions refresh`.
-  A draft whose flight is no longer exposed is superseded once the flight has been missing
-  from two exposure runs in a row (`NO LONGER EXPOSED IF TRACK AND LEVEL ARE HELD`), or at
-  once when its volcano is no longer active (`VOLCANO NO LONGER ACTIVE`); nothing is retired
-  while `live.adsb_at` is older than the ADS-B stale age. Planning, escalation and retirement
+  A draft whose flight is no longer exposed is superseded only after a grace time from the
+  policy's `drafts` block, counted on fresh positions only: a flight seen in the ADS-B picture
+  but outside every cone after `unexposed_retire_min` (3; `NO LONGER EXPOSED IF TRACK AND LEVEL
+  ARE HELD`, or `VOLCANO NO LONGER ACTIVE` when its volcano is no longer active), a flight
+  missing from the picture after `position_lost_retire_min` (10; `POSITION LOST FOR N MIN`,
+  never "no longer exposed": a dropped position says nothing about the ash). Nothing is
+  retired, and both grace times restart, while every snapshot is stale or `live.adsb_at` is
+  older than the ADS-B stale age. Planning, escalation and retirement
   consider only open drafts whose `replay` flag matches the current mode.
 - Trace lines (`TraceEvent.new`) for each step go to `bus.publish(SseEvent.TRACE, event)`;
   agents receive `trace=` callbacks that do the same. In REPLAY every trace line carries
@@ -1566,8 +1585,10 @@ presets from `state.regions` (fly-to). Right rail: the three source cards side b
 raw text, evidence state and discrepancy badges; the live trace; the advisory list with
 status. Top bar: LIVE/REPLAY badge (`state.mode`, `state.replay.banner` as a permanent
 banner), LLM label (`state.llm.label`, "AI-drafted" marking), feed health ages, and the
-`state.disclaimer` line, with an "Operator policy" button (`state.policy`) that opens
-`GET /api/policy` as a table of every value, its unit and its reason. Readable at 1280x720, keyboard accessible (focusable controls,
+`state.disclaimer` line, with a short "Policy A · illustrative" button (`state.policy`; on
+phones it is hidden and the About dialog carries it, so the credit line keeps its room) that
+opens `GET /api/policy` as a table of every value, its unit and its reason. Readable at
+1280x720, keyboard accessible (focusable controls,
 visible focus, no hover-only information). Attribution: OpenFreeMap/OpenStreetMap,
 "Aircraft: adsb.lol (ODbL 1.0)", "Himawari-9 data: JMA via NOAA".
 

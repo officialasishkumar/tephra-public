@@ -643,6 +643,7 @@ document.addEventListener("click", (e) => {
   else if (act === "steps") setSteps(t.dataset.steps);
   else if (act === "tl-mark") onTimelineMark(t);
   else if (act === "dlg-close") $("dlg").close();
+  else if (act === "policy") openPolicy(t.closest("#dlg") ? dialogOpener : t);  // About's button: focus goes back to About
 });
 
 function onTimelineMark(t) {
