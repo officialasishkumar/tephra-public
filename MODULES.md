@@ -331,11 +331,14 @@ def load_policy(data_dir: Path) -> OperatorPolicy
 ```
 The operator policy holds every margin, buffer, minimum and threshold the code applies on
 the operator's behalf, each with its unit, a `source` saying why it has that value, and
-optional `citation_ids`. Header: `policy_id` (`RFA-POLICY-A`), `version` (`2026.10.5`),
+optional `citation_ids`. Header: `policy_id` (`RFA-POLICY-A`), `version` (`2026.10.8`),
 `preset` (`A`), `title`, `label` (`ILLUSTRATIVE, not an airline SRA`), `sra_ref` (null for A),
 `risk_owner` (`Flight Operations`), `summary_text` (the Policy A text) and
-`summary_citation_ids`. Blocks: `exposure` (`vertical_margin_ft`), `alternates`
-(`search_radius_nm`, `min_runway_m`, `min_visibility_m`, `min_ceiling_ft`,
+`summary_citation_ids`. The Policy A text follows the Doc 9974 App 5 5.4(d)(2) default for
+ungraded areas, adds that where a State grades contamination (App 5 5.4(d)(1)) Policy A still
+treats every graded area as high contamination, and says that an airborne level change above
+or below the area carries an OVER ASH or UNDER ASH line. Blocks: `exposure`
+(`vertical_margin_ft`), `alternates` (`search_radius_nm`, `min_runway_m`, `min_visibility_m`, `min_ceiling_ft`,
 `taf_eta_window_min`, `terminal_radius_nm`), `planner` (`level_search_ft`, `level_band_fl`,
 `max_change_level_fl`, `divert_within_min`, `hold_within_min`; one hold time in every plume
 mode), `reroute` (`buffer_nm`, `simplify_nm`, `max_waypoints_count`,
@@ -345,9 +348,18 @@ mode), `reroute` (`buffer_nm`, `simplify_nm`, `max_waypoints_count`,
 `solve_work_s`, `solve_time_limit_s`, the delay, cancel, swap and ferry costs in USD, `max_fdp_min`,
 `airport_closure_radius_nm`, `pax_notice_min_delay_min`), `fuel` (`hold_min`, `divert_extra_min`),
 `drafts` (`unexposed_retire_min`, `position_lost_retire_min`: how long an open draft waits
-after its flight leaves the cone, section 5.7).
+after its flight leaves the cone, section 5.7), `duty` (`rerun_min`: when deferred Duty
+Officer work is offered again, section 5.18).
 Then `source_order`
-(the source-trust order, most trusted first) and `citations` (quoted word for word).
+(the source-trust order, most trusted first) and `citations` (quoted word for word). Each
+`SourceRule` has `rule_id`, `text`, `enforced_by` (required: the code that applies the rule
+today, named by file and function) and `citation_ids`. The order is the operator's own
+illustrative choice: Doc 9974 2.4(d) asks the operator to resolve conflicts among its sources,
+so each rule cites that paragraph. No code acts on the list (the Wall policy dialog and the
+SRA draft only show it); `enforced_by` names where each rule is coded. Citations: `9974-app5-5.4d2`, `9974-app5-5.4d1`, `9974-2.10`,
+`9974-2.4d`, and the UK comparison rows `cap1236-2.24`, `cap1236-2.28` and `cap1236-2.29`
+cited by `vertical_margin_ft`. Every value's `source` either says it is a TEPHRA illustrative
+choice or placeholder, or names its outside basis.
 
 Rules: only the composition root (`create_runtime`) loads the file; library code takes the
 values as arguments. Pure functions (geo, feeds) take plain numbers; the planner takes the

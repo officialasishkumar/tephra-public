@@ -30,6 +30,7 @@ PINNED_HASHES = {
     "2026.10.5": "9f8fcf4237451485adee8a12bc004aa10f930550a06c12f781185b92d6795fcb",
     "2026.10.6": "7538c6b1e01228000e396ebe5e96a16d41981b6594eeebf102f251674573b8d5",
     "2026.10.7": "bbb2a30efdd85680773fa8d3ad8d6d16f84de97dfced4be49efff89fccd2c73c",
+    "2026.10.8": "5495a940c5ec4ab4c6e0ebf2126f2c190705b6c00bcb0835f48e8472c339d7b6",
 }
 """Each version's content hash. An edit without a new version fails here: every audit entry
 names the version its draft was made under, so one version must mean one content."""

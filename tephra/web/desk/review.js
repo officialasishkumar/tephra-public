@@ -361,8 +361,9 @@ function reviewView(adv) {
     costNote && costNote !== String(adv.fuel_line || '').trim() ? row('Cost note', el('span', { text: costNote })) : null,
     row('Drafted by', draftedByValue(adv)),
     // The policy this draft was made under, which can differ from the one in force now.
-    adv.policy_version ? row('Operator policy', [el('span', { class: 'mono', text: `${adv.policy_id} v${adv.policy_version}` }),
-      fine('Illustrative values, not an airline SRA')]) : null,
+    adv.policy_version ? row('Operator policy', [
+      el('span', { class: 'mono', text: `${adv.policy_id} v${adv.policy_version}${adv.policy_hash ? ` #${adv.policy_hash}` : ''}` }),
+      fine('Illustrative values, not an airline SRA; not reviewed by an airline dispatcher')]) : null,
     // The disclosure's own summary names these rows, so their labels are for screen readers only.
     row('Evidence', sourcesValue(adv), { stack: true, cls: 'srow--disclose' }),
     row('Header', el('details', { class: 'disclose' },

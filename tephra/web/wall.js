@@ -534,7 +534,7 @@ function openDialog(kind, title, body, opener) {
 async function openPolicy(opener) {
   let data = null;
   try {
-    const res = await fetch("/api/policy", { headers: { Accept: "application/json" }, cache: "no-store" });
+    const res = await fetch("/api/policy", { headers: { Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(8000) });
     if (res.ok) data = await res.json();
   } catch { /* the dialog says it could not load */ }
   openDialog("policy", "Operator policy", policyDialog(data), opener);

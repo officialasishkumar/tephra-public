@@ -1196,6 +1196,7 @@ class SourceRule(PolicyModel):
 
     rule_id: str = Field(pattern=r"^[A-Z0-9_]+$")
     text: str = Field(min_length=1)
+    enforced_by: str = Field(min_length=1, description="The code that applies this rule today")
     citation_ids: list[str] = Field(min_length=1)
 
 

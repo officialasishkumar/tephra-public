@@ -657,14 +657,18 @@ the attribution line (12 px, text-3, may ellipsize only at 1280 and below; full 
 adsb.lol (ODbL 1.0) · Himawari-9 data: JMA via NOAA · FIR and VAAC lines: NOAA/NWS AWC
 (approximate)" plus, while a GIBS layer is on, "· Imagery: NASA GIBS" (and "· Contains modified
 Copernicus Sentinel data 2026" for SO2), plus "· Weather data by Open-Meteo.com" (a link) when a
-wind value is visible. Then the "About and credits" button. MapLibre's own attribution control
+wind value is visible. Then the "About and credits" button and, once `state.policy` is known,
+the short "Policy A · illustrative" button (its title gives the policy id, version and label),
+which opens the operator policy panel (7.18); that button is hidden at 600 px and below, where
+the About dialog's link is the way in. MapLibre's own attribution control
 is not added (`attributionControl: false`); this strip replaces it and must keep every credit
 the style and sources declare.
 
 About dialog: what TEPHRA is (three sentences), the honesty statements (decision support only;
 the airline is fictional; nothing is sent anywhere; REPLAY is recorded data; TEPHRA's area is an
 estimate, never a forecast), the full GIBS acknowledgement, the credits table from
-`THIRD_PARTY.md`, and the keyboard section.
+`THIRD_PARTY.md`, an "Operator policy" heading with the button "Open the operator policy"
+(focus returns to About when the panel closes), and the keyboard section.
 
 ### 7.4 Map container and camera
 
@@ -879,6 +883,26 @@ feeds. The worst status sorts first. Refreshed by `feeds` and `state` events.
 | Empty region | no active volcano in the current region | Rail: "No active volcano in Java / Bali." + the definition of active + buttons for regions that have some ("Halmahera · 2 active"). Map stays usable. |
 | Basemap failed | style error or not loaded in 8 s | `setStyle` with a minimal style: background `--map-water`, `land_apac.geojson` fill `#15181c`, coast line `#2a3442`; re-add TEPHRA layers without text layers that need glyphs except labels drawn as HTML markers; note "Basemap offline: simplified coastline (Natural Earth)". |
 
+### 7.18 Operator policy panel
+
+A dialog (up to 960 px wide) opened from the footer button or the About dialog (7.3). It
+fetches `GET /api/policy` with an 8 s timeout; when the request fails, times out or returns no
+policy, the dialog says only "The operator policy could not be loaded." Contents, in order:
+
+- the title line: title, version and label ("ILLUSTRATIVE, not an airline SRA");
+- a muted line "Values are illustrative and have not been reviewed by an airline dispatcher.";
+- a muted line with the risk owner, the SRA reference ("none (illustrative)") and the first 12
+  characters of the content hash;
+- the Policy A summary text;
+- "Values": a table of name, value with unit, why this value (the source and the refs of its
+  citations) and block;
+- "Source-trust order (what the code does today)": a muted line "Operator choice. Doc 9974 asks
+  the operator to resolve conflicts among its sources (2.4(d)).", then each rule's text with a
+  muted "Applied by:" and its `enforced_by`;
+- "Citations": each ref, the quoted text and a "Source" link that opens in a new tab.
+
+The Desk review sheet (10.4) shows the policy each draft was made under.
+
 ## 8. 3D, compare, the timeline and the level filter
 
 ### 8.1 3D mode (D)
@@ -1054,6 +1078,7 @@ height 1.5):
 | Cost note | `cost_note`; the row is left out when it repeats `fuel_line` |
 | Sources | each `sources[]`: feed, source id, "issued 251120Z · fetched 251600Z", `#sha256_short`, "stale" when true; binding (SIGMET) first; a `winds` source line ends with the link "Weather data by Open-Meteo.com" (CC BY 4.0 requires it next to the data) |
 | Drafted by | "Gemini 3.5 Flash-Lite · AI-drafted" or "Template · NO MODEL" (from `llm_backend`, `model_id`), and the validator notes if any (caution box for NEEDS_HUMAN) |
+| Operator policy | the policy the draft was made under, "RFA-POLICY-A v2026.10.8" in mono, followed by " #" and `policy_hash` only when the draft carries one; fine text "Illustrative values, not an airline SRA; not reviewed by an airline dispatcher". Left out when the draft has no `policy_version`. |
 | Header | the code-rendered `header` in a collapsed `<details>` "Advisory header (written by code)" |
 
 Action bar (sticky bottom): primary approve (10.5), then a row with "Edit text" (outline,
@@ -1232,8 +1257,9 @@ Names: sigmet "VA SIGMET (AWC)", vona "VONA (MAGMA)", vaac_tokyo "VAA Tokyo", va
 Darwin", taf "TAF", metar "METAR", adsb "ADS-B (adsb.lol)", winds "Winds (Open-Meteo)", frames
 "Satellite frames", hsd "Himawari split window". Status lines: OK "OK · updated 27 s ago"; STALE
 "Stale · last good 14 min ago · showing the last good copy"; ERROR "Error · last good 2 h ago"
-(or "never") + the error; DISABLED "Off" + the reason verbatim; NEVER "Not polled yet". Replay:
-add the tag "recorded".
+(or "never") + the error; DISABLED "Off" + the reason verbatim (the VONA feed's status word is
+"Off: no PVMBG permission (replay only)", so it is not read as the operator policy); NEVER "Not
+polled yet". Replay: add the tag "recorded".
 
 ### 11.7 Action words (Desk and Wall)
 

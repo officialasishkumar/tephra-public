@@ -870,7 +870,7 @@ export function feedsDialog(D, store) {
   for (const f of rows) {
     const [id, color, word] = FEED_STATUS[f.status] || FEED_STATUS.NEVER;
     const last = ms(f.last_success_at);
-    const statusWord = f.status === "DISABLED" && f.feed === "vona" ? "Off by policy" : word;
+    const statusWord = f.status === "DISABLED" && f.feed === "vona" ? "Off: no PVMBG permission (replay only)" : word;
     let line;
     if (f.status === "OK") line = `updated ${age((now - last) / 1000)} ago`;
     else if (f.status === "STALE") line = `last good ${age((now - last) / 1000)} ago · showing the last good copy`;
@@ -914,13 +914,16 @@ export function policyDialog(data) {
   });
   return el("div", { class: "policy" },
     el("p", {}, el("strong", { text: `${p.title} · v${p.version} · ${p.label}` })),
+    el("p", { class: "muted", text: "Values are illustrative and have not been reviewed by an airline dispatcher." }),
     el("p", { class: "muted", text: `Risk owner: ${p.risk_owner} · SRA: ${p.sra_ref || "none (illustrative)"} · content hash #${String(data.policy_hash || "").slice(0, 12)}` }),
     el("p", { text: p.summary_text }),
     el("h3", { text: "Values" }),
     el("table", { class: "table" }, el("caption", { class: "sr-only", text: "Operator policy values" }),
       el("thead", {}, el("tr", {}, ...["Name", "Value", "Why this value", "Block"].map((h) => el("th", { scope: "col", text: h })))), tbody),
-    el("h3", { text: "Source-trust order" }),
-    el("ol", {}, ...(p.source_order || []).map((r) => el("li", { text: r.text }))),
+    el("h3", { text: "Source-trust order (what the code does today)" }),
+    el("p", { class: "muted", text: "Operator choice. Doc 9974 asks the operator to resolve conflicts among its sources (2.4(d))." }),
+    el("ol", {}, ...(p.source_order || []).map((r) => el("li", {}, el("span", { text: r.text }),
+      el("span", { class: "muted", text: ` Applied by: ${r.enforced_by}` })))),
     el("h3", { text: "Citations" }),
     el("ul", { class: "policy__cites" }, ...quotes));
 }

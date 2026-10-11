@@ -1,23 +1,26 @@
 {
   "policy_id": "RFA-POLICY-A",
-  "version": "2026.10.7",
+  "version": "2026.10.8",
   "preset": "A",
   "title": "Ring of Fire Air operator policy A (default)",
   "label": "ILLUSTRATIVE, not an airline SRA",
   "sra_ref": null,
   "risk_owner": "Flight Operations",
-  "summary_text": "Operator policy A (default, illustrative): the current VAA and SIGMET affected areas, merged, up to the highest top, are treated as high contamination and avoided at dispatch. This follows the Doc 9974 App 5 5.4(d)(2) default for ungraded areas, \"unless the operator’s safety risk assessment allows it to do otherwise safely\". Under Doc 9974 2.10 an operator whose SMS shows it can do so safely may plan through, under or over (Policy B). In this build an airborne level change can still place a flight above or below the area with the vertical margin; it is not yet flagged as a departure from Policy A, and no drift-down or escape check is made.",
+  "summary_text": "Operator policy A (default, illustrative): the current VAA and SIGMET affected areas, merged, up to the highest top, are treated as high contamination and avoided at dispatch. This follows the Doc 9974 App 5 5.4(d)(2) default for ungraded areas, \"unless the operator’s safety risk assessment allows it to do otherwise safely\". Where a State grades contamination (Doc 9974 App 5 5.4(d)(1)), Policy A still treats every graded area as high contamination. Under Doc 9974 2.10 an operator whose SMS shows it can do so safely may plan through, under or over (Policy B). In this build an airborne level change can still place a flight above or below the area with the vertical margin; such an advisory carries an OVER ASH or UNDER ASH line saying Policy A advises avoiding the area, and no drift-down or escape check is made.",
   "summary_citation_ids": [
     "9974-app5-5.4d2",
+    "9974-app5-5.4d1",
     "9974-2.10"
   ],
   "exposure": {
     "vertical_margin_ft": {
       "value": 2000,
       "unit": "ft",
-      "source": "Added above the hazard top and below its base. For comparison, UK practice (CAP 1236 2.24) puts the assumed minimum safe altitude at least 2,000 ft above the ash top.",
+      "source": "TEPHRA illustrative choice: added above the hazard top and below its base. For comparison, UK practice puts the assumed minimum safe altitude at least 2,000 ft above the ash top (CAP 1236 2.24), does not permit operators without an appropriate SRA to fly beneath an area (CAP 1236 2.28), and for operators with one sets the maximum usable level beneath a moderate or high contamination area 2,000 ft below its base (CAP 1236 2.29).",
       "citation_ids": [
-        "cap1236-2.24"
+        "cap1236-2.24",
+        "cap1236-2.28",
+        "cap1236-2.29"
       ]
     }
   },
@@ -30,7 +33,7 @@
     "min_runway_m": {
       "value": 2000,
       "unit": "m",
-      "source": "TEPHRA's simplified jet-alternate rule: longest runway length only (dry), not an airline's alternate approval."
+      "source": "TEPHRA illustrative choice: a simplified jet-alternate rule on the longest runway length only (dry), not an airline's alternate approval."
     },
     "min_visibility_m": {
       "value": 3000,
@@ -248,21 +251,24 @@
   "source_order": [
     {
       "rule_id": "S1_OFFICIAL_AREAS",
-      "text": "VAA and SIGMET affected areas set the planning floor.",
+      "text": "Operator choice (illustrative): VAA and SIGMET affected areas set the planning floor.",
+      "enforced_by": "tephra/geo/cone.py official_layers and build_cone",
       "citation_ids": [
         "9974-2.4d"
       ]
     },
     {
       "rule_id": "S2_VONA_ADDS",
-      "text": "VONA observations may add caution, never remove it.",
+      "text": "Operator choice (illustrative): VONA observations may add caution (TEPHRA design rule).",
+      "enforced_by": "tephra/agents/plume_reader.py (_hypothesis_problems: a HYPOTHESIS sector must reach the VONA top)",
       "citation_ids": [
         "9974-2.4d"
       ]
     },
     {
       "rule_id": "S3_NON_OBSERVATION",
-      "text": "Non-observations never remove caution: 'not observed', 'not identifiable', a silent satellite indicator and silence.",
+      "text": "Operator choice (illustrative): non-observations never remove caution: not observed, not identifiable, a silent satellite indicator and silence.",
+      "enforced_by": "tephra/agents/plume_reader.py _narrowing_problems and tephra/reconcile/discrepancies.py evidence_state",
       "citation_ids": [
         "9974-2.4d"
       ]
@@ -273,6 +279,12 @@
       "id": "9974-app5-5.4d2",
       "ref": "ICAO Doc 9974, Flight Safety and Volcanic Ash, 1st ed. 2012, App 5 5.4(d)(2), printed App 5-2, PDF p.34",
       "text": "If no graduation of the volcanic ash contamination is given, operators should treat the whole area as if it contains high volcanic ash contamination, unless the operator’s safety risk assessment allows it to do otherwise safely.",
+      "url": "https://www.icao.int/sites/default/files/2025-04/9974_en.pdf"
+    },
+    {
+      "id": "9974-app5-5.4d1",
+      "ref": "ICAO Doc 9974, Flight Safety and Volcanic Ash, 1st ed. 2012, App 5 5.4(d)(1), printed App 5-2, PDF p.34",
+      "text": "affected areas or danger areas may be established that differentiate between various levels of volcanic ash contamination such as the low, medium and high contamination thresholds currently being used in Europe;",
       "url": "https://www.icao.int/sites/default/files/2025-04/9974_en.pdf"
     },
     {
@@ -291,6 +303,18 @@
       "id": "cap1236-2.24",
       "ref": "UK CAA CAP 1236 2.24 (UK practice, for comparison)",
       "text": "In general, the assumed MSA should be at least 2,000 ft above the top of the ash cloud.",
+      "url": "https://www.caa.co.uk/publication/download/14978"
+    },
+    {
+      "id": "cap1236-2.28",
+      "ref": "UK CAA CAP 1236 2.28 (UK practice, for comparison)",
+      "text": "Operators without an appropriate SRA are not permitted to underfly areas of ash contamination.",
+      "url": "https://www.caa.co.uk/publication/download/14978"
+    },
+    {
+      "id": "cap1236-2.29",
+      "ref": "UK CAA CAP 1236 2.29 (UK practice, for comparison)",
+      "text": "For operators with an appropriate SRA the maximum usable level beneath a forecast Volcanic Ash Moderate or High Contamination Area will be 2,000 ft below the promulgated base.",
       "url": "https://www.caa.co.uk/publication/download/14978"
     }
   ]
