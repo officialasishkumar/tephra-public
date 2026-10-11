@@ -571,6 +571,8 @@ body:has(#compare-labels:not([hidden])) .top-center { top: calc(var(--inset) + 4
 .code-chip svg { width: 18px; height: 18px; }
 .vhead__asof { margin-left: auto; font-size: var(--fs-2); color: var(--c-text-3); font-family: var(--font-mono); white-space: nowrap; }
 .vreasons { font-size: var(--fs-2); color: var(--c-text-3); margin-top: 4px; }
+/* The map headline as one line in the rail head; shown only where the map headline is hidden. */
+.vhead__headline { display: none; margin-top: 4px; font-size: var(--fs-3); color: var(--c-text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hyp-banner { display: flex; gap: var(--sp-2); align-items: flex-start; margin-top: var(--sp-2); padding: var(--sp-2) var(--sp-3); background: var(--c-hypothesis-bg); border: 1px solid var(--c-tephra); border-radius: var(--radius-md); color: var(--c-tephra-text); font-weight: var(--fw-semibold); font-size: var(--fs-2); }
 .hyp-banner .st { color: var(--c-caution); margin-top: 2px; }
 
@@ -594,6 +596,7 @@ body:has(#compare-labels:not([hidden])) .top-center { top: calc(var(--inset) + 4
 .cmp__kind { font-size: var(--fs-1); font-weight: var(--fw-bold); letter-spacing: var(--tracking-caps); color: var(--c-official-text); text-transform: uppercase; }
 .cmp__colhead--observer .cmp__kind { color: var(--c-observer-text); }
 .cmp__colhead--missing .cmp__kind { color: var(--c-text-3); }
+.cmp__plain { font-size: var(--fs-1); color: var(--c-text-3); }
 .cmp__title { font-size: var(--fs-2); font-weight: var(--fw-semibold); line-height: 1.2; overflow-wrap: anywhere; }
 .cmp__note { font-size: var(--fs-1); color: var(--c-text-2); margin-top: 2px; }
 .cmp__note--quiet { color: var(--c-text-3); }
@@ -740,6 +743,11 @@ body:has(#compare-labels:not([hidden])) .top-center { top: calc(var(--inset) + 4
 .about h3 { margin: var(--sp-4) 0 var(--sp-2); color: var(--c-text-2); }
 .help kbd { margin-right: 4px; font-size: var(--fs-2); color: var(--c-text-1); }
 .help .muted { margin: var(--sp-3) 0; }
+.help h3 { margin: var(--sp-4) 0 var(--sp-2); color: var(--c-text-2); }
+.help h3:first-child { margin-top: 0; }
+.help__list { list-style: disc; padding-left: var(--sp-5); line-height: var(--lh-body); }
+.help__glossary { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: var(--sp-2) var(--sp-4); line-height: var(--lh-body); }
+.help__glossary dt { font-weight: var(--fw-semibold); color: var(--c-text-1); }
 
 /* ---------------------------------------------------------------- 1600-1799 */
 
@@ -793,6 +801,7 @@ body:has(#compare-labels:not([hidden])) .top-center { top: calc(var(--inset) + 4
   .model-chip, .feeds-chip { height: 30px; }
   .brand__mark { font-size: var(--fs-5); }
   .headline { display: none; }
+  .vhead__headline { display: block; }
   .top-center { left: calc(var(--inset) + 120px); }
   .tool { min-height: var(--tile-h); }
   .tool span { display: none; }

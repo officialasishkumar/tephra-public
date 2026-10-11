@@ -1,8 +1,10 @@
-// Static-ish Wall controls: the Layers popover (docs/UI-DESIGN.md 7.7), the keyboard help
-// (section 9) and the About dialog (7.3). Built with el(); no HTML strings.
+// Static-ish Wall controls: the Layers popover (docs/UI-DESIGN.md 7.7), the Help dialog with
+// the reading guide, glossary and keyboard shortcuts (7.3a, section 9) and the About dialog
+// (7.3). Built with el(); no HTML strings.
 
 import { el, icon } from "./util.js";
 import { ATTRIBUTION } from "./panels.js";
+import { HOW_TO_READ, GLOSSARY, GASES_SCOPE } from "./glossary.js";
 
 const check = (key, label, on, hint, disabled = false) =>
   el("label", { class: `opt${disabled ? " opt--locked" : ""}` },
@@ -45,7 +47,7 @@ export function renderLayers(ui) {
         radio("sat", "ir", "Infrared", ui.sat === "ir", "context only"),
         radio("sat", "vis", "Visible", ui.sat === "vis", "context only, daylight"),
         radio("sat", "airmass", "Air mass", ui.sat === "airmass", "context only"),
-        check("so2", "SO2 column (TROPOMI, daily)", ui.so2, "SO2 is not ash · context only"),
+        check("so2", "SO2 column (TROPOMI, daily)", ui.so2, `context only · ${GASES_SCOPE}`),
         check("btd", "Split-window BTD", ui.btd, "an indicator, not ash detection")),
       group("Levels",
         el("div", { class: "opts__row" },
@@ -73,6 +75,11 @@ export const SHORTCUTS = [
 
 export function helpContent(enabled) {
   return el("div", { class: "help" },
+    el("h3", { class: "caps", text: "How to read this screen" }),
+    el("ul", { class: "help__list" }, ...HOW_TO_READ.map((t) => el("li", { text: t }))),
+    el("h3", { class: "caps", text: "Glossary" }),
+    el("dl", { class: "help__glossary" }, ...GLOSSARY.flatMap(([term, meaning]) => [el("dt", { text: term }), el("dd", { text: meaning })])),
+    el("h3", { class: "caps", text: "Keyboard shortcuts" }),
     el("table", { class: "table" },
       el("caption", { class: "sr-only", text: "Keyboard shortcuts" }),
       el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Key" }), el("th", { scope: "col", text: "Action" }))),
@@ -106,7 +113,8 @@ export function aboutContent() {
       el("li", { text: "Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system." }),
       el("li", { text: "REPLAY shows recorded real feeds, labelled as such for the whole session." }),
       el("li", { text: "TEPHRA's cautious area is an estimate, never a forecast. The official products are binding." }),
-      el("li", { text: "Satellite and SO2 layers are context only, never ash detection." })),
+      el("li", { text: "Satellite and SO2 layers are context only, never ash detection." }),
+      el("li", { text: GASES_SCOPE })),
     el("h3", { class: "caps", text: "Acknowledgement" }),
     el("p", { text: "We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Science Data and Information System (ESDIS). Himawari-9 data: JMA via NOAA. No source endorses TEPHRA." }),
     el("h3", { class: "caps", text: "Credits" }),
@@ -119,6 +127,8 @@ export function aboutContent() {
     el("p", {},
       el("button", { type: "button", class: "honesty__about", "aria-haspopup": "dialog", dataset: { act: "policy" }, text: "Open the operator policy" }),
       " (illustrative): every margin, minimum and threshold TEPHRA applies, with its reason."),
-    el("h3", { class: "caps", text: "Keyboard" }),
-    el("p", { class: "muted", text: "Press ? for every shortcut." }));
+    el("h3", { class: "caps", text: "Help" }),
+    el("p", {},
+      el("button", { type: "button", class: "honesty__about", "aria-haspopup": "dialog", dataset: { act: "help" }, text: "Open Help" }),
+      ": how to read this screen, a glossary and every keyboard shortcut (or press ?)."));
 }

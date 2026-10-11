@@ -25,6 +25,13 @@ const store = { state: null, snapshot: null, advisories: [], trace: [], feeds: [
 // Human decisions composed on the Wall from advisory events: the backend's trace has no
 // DESK step yet, and the trace must show the human deciding (7.9).
 const localTrace = [];
+// The legend opens on a viewer's first visit at every width, so the plain-language key is in
+// view before anything else; after that the viewer's own choice (or the width) decides.
+// Recording mode (?present=1) never opens it on its own.
+const PRESENT = new URLSearchParams(location.search).get("present") === "1";
+const FIRST_VISIT = !PRESENT && !prefs.get("visited", false);
+if (FIRST_VISIT) prefs.set("visited", true);
+const legendDefault = () => prefs.get("legendOpen", FIRST_VISIT || window.innerWidth >= 1600);
 const ui = {
   selected: null,
   autoSelect: true,
@@ -38,7 +45,7 @@ const ui = {
   level: { min: 0, max: LEVEL_MAX },
   d3: false,
   compare: false,
-  legendOpen: new URLSearchParams(location.search).get("present") === "1" ? false : prefs.get("legendOpen", window.innerWidth >= 1600),
+  legendOpen: PRESENT ? false : legendDefault(),
   layersOpen: false,
   levelsOpen: false,
   traceExpanded: false,
@@ -51,7 +58,7 @@ const ui = {
   freshTrace: new Set(),
   freshDis: new Set(),
   freshDecisions: new Set(),
-  present: new URLSearchParams(location.search).get("present") === "1",
+  present: PRESENT,
 };
 const conn = { lostAt: null, source: null, watchdog: null, lastEventAt: 0, loaded: false, everLost: false, hiddenTimer: null, paused: false };
 const extra = { error: null, basemap: null };
@@ -344,7 +351,9 @@ function renderNow() {
   $("stale-chip").hidden = !conn.lostAt;
   const lost = $("lost-banner");
   lost.hidden = !conn.lostAt;
-  if (conn.lostAt) lost.textContent = `Live updates lost at ${hhmmssz(conn.lostAt)}. Showing the last data received; reconnecting…`;
+  // role=alert: write only when the words change, so it is announced once, not every render.
+  const lostText = conn.lostAt ? `Live updates lost at ${hhmmssz(conn.lostAt)}. Showing the last data received; reconnecting…` : "";
+  if (conn.lostAt && lost.textContent !== lostText) lost.textContent = lostText;
   document.body.dataset.ptab = ui.ptab;
   if (map) {
     map.setExt({ reroutes: store.snapshot?.reroutes, satellite: store.snapshot?.satellite, frames: [...(store.snapshot?.overlays?.frames || []), ...(store.snapshot?.situations || []).flatMap((x) => x.frames || [])] });
@@ -522,7 +531,7 @@ function toggleLayers(force) {
 function setPresent(on) {
   ui.present = on;
   if (on) ui.legendOpen = false;
-  else ui.legendOpen = prefs.get("legendOpen", window.innerWidth >= 1600);
+  else ui.legendOpen = legendDefault();
   renderNow();
   requestAnimationFrame(() => map?.frame({ animate: true }));
 }
@@ -554,6 +563,10 @@ function openDialog(kind, title, body, opener) {
   $("dlg-body").replaceChildren(body);
   if (!dlg.open) dlg.showModal();
   return dlg;
+}
+
+function openHelp(opener) {
+  openDialog("help", "Help", helpContent(ui.shortcuts), opener);
 }
 
 async function openPolicy(opener) {
@@ -652,6 +665,7 @@ document.addEventListener("click", (e) => {
   else if (t.dataset.xtab) setRail(t.dataset.xtab, false);
   else if (t.id === "feeds-chip") openDialog("feeds", "Feed health", feedsDialog(D, store), t);
   else if (t.id === "about-btn") openDialog("about", "About TEPHRA and credits", aboutContent(), t);
+  else if (t.id === "help-btn") openHelp(t);
   else if (t.id === "policy-btn") openPolicy(t);
   else if (t.dataset.ptab && t.closest("#ptabs")) {
     ui.ptab = t.dataset.ptab;
@@ -673,6 +687,7 @@ document.addEventListener("click", (e) => {
   else if (act === "steps") setSteps(t.dataset.steps);
   else if (act === "tl-mark") onTimelineMark(t);
   else if (act === "dlg-close") $("dlg").close();
+  else if (act === "help") openHelp(t.closest("#dlg") ? dialogOpener : t);
   else if (act === "policy") openPolicy(t.closest("#dlg") ? dialogOpener : t);  // About's button: focus goes back to About
 });
 
@@ -803,7 +818,7 @@ function shortcut(e) {
   else if (k === "t" || k === "T") { ui.traceExpanded = !ui.traceExpanded; renderNow(); }
   else if (k === "h" || k === "H") focusLevels();
   else if (k === "p" || k === "P") setPresent(!ui.present);
-  else if (k === "?") openDialog("help", "Keyboard shortcuts", helpContent(ui.shortcuts), document.activeElement);
+  else if (k === "?") openHelp(document.activeElement);
   else handled = false;
   if (handled) e.preventDefault();
 }

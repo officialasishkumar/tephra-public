@@ -142,6 +142,7 @@ Every key claim was checked by two independent verifiers. Start with [`research/
 - It does not detect ash.
 - Per-flight AI advisories with human approval are not new (Jeppesen and The Weather Company have them).
 - Its output is not a forecast, a warning or a dispatch release.
+- It covers volcanic ash only. SO2 and other volcanic gases, which ICAO notes may also be undesirable to fly through (Doc 9974, definition of volcanic cloud, footnote 1), are not modelled.
 
 What it adds is the evidence reconciliation in front of them.
 

@@ -5,6 +5,7 @@
 import { addExtLayers, updateExtLayers, setExtVisible } from "./ext-map.js";
 import { addImages } from "./images.js";
 import { officialLabelText, LEVEL_MAX } from "./derive.js";
+import { GASES_SCOPE_SHORT } from "./glossary.js";
 import {
   $, el, band, bboxOf, compassWord, dest, fc, hhmmz, kmBetween, ms, reducedMotion, ringCentre, ringsOf, dayMon,
 } from "./util.js";
@@ -743,7 +744,7 @@ export class WallMap {
     }
     if (this.ui.so2) {
       const d = so2Date(D.now, D.mode);
-      out.push(`CONTEXT ONLY · SO2 (TROPOMI, daily) ${dayMon(Date.parse(d))} ${d.slice(0, 4)} · SO2 is not ash · Imagery: NASA GIBS · Contains modified Copernicus Sentinel data ${d.slice(0, 4)}`);
+      out.push(`CONTEXT ONLY · SO2 (TROPOMI, daily) ${dayMon(Date.parse(d))} ${d.slice(0, 4)} · ${GASES_SCOPE_SHORT} · Imagery: NASA GIBS · Contains modified Copernicus Sentinel data ${d.slice(0, 4)}`);
     }
     if (this.ui.btd && D.overlays.btd.length) out.push("Split-window BTD (computed by TEPHRA) · an indicator, not ash detection · Himawari-9 data: JMA via NOAA");
     return out;

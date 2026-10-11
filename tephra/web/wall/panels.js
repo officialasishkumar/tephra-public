@@ -9,6 +9,7 @@ import {
 import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { CODE_LETTER } from "./images.js";
 import { SAT } from "./map.js";
+import { KIND_PLAIN, GASES_SCOPE } from "./glossary.js";
 
 // ------------------------------------------------------------------ vocabulary (section 11)
 
@@ -90,6 +91,8 @@ const cardName = (sit, sid) => sit.cards.find((c) => c.source_id === sid)?.title
 
 // ------------------------------------------------------------------ command bar, banner, strip
 
+const setText = (node, text) => { if (node.textContent !== text) node.textContent = text; };
+
 export function renderChrome(D, store, ui, A) {
   const s = D.state;
   const replay = s.mode === "REPLAY";
@@ -98,8 +101,9 @@ export function renderChrome(D, store, ui, A) {
   const banner = $("replay-banner");
   banner.hidden = !replay;
   if (replay && s.replay) {
-    $("replay-banner-text").textContent = s.replay.banner;
-    $("replay-banner-case").textContent = `· ${s.replay.label}${s.replay.auto ? " · switched automatically: no live activity" : ""}`;
+    // role=status: write only when the words change, so a screen reader announces it once.
+    setText($("replay-banner-text"), s.replay.banner);
+    setText($("replay-banner-case"), `· ${s.replay.label}${s.replay.auto ? " · switched automatically: no live activity" : ""}`);
     banner.title = s.replay.label;
   }
   const badge = $("mode-badge");
@@ -207,38 +211,60 @@ export function renderLegend(D, ui) {
     ui.compare ? li(sw("i-swipe", "sw--plain"), "Compare", "· A official products only, B with TEPHRA's area") : null,
   ];
   if (ui.sat !== "off") rows.push(li(sw("i-satellite", "sw--plain"), `${SAT[ui.sat].short} satellite`, "· context only"));
-  if (ui.so2) rows.push(li(sw("i-satellite", "sw--plain"), "SO2 column", "· context only, SO2 is not ash"));
+  if (ui.so2) rows.push(li(sw("i-satellite", "sw--plain"), "SO2 column", `· context only. ${GASES_SCOPE}`));
   const body = el("div", { id: "legend-body" }, el("ul", {}, rows), el("p", { class: "legend__ctx", text: "FIR and VAAC lines approximate" }));
   box.replaceChildren(btn, body);
 }
 
 // ------------------------------------------------------------------ headline and notes (7.6)
 
+// The headline's facts, shared by the map headline and the rail head line that stands in
+// for it at 1359 px and below (4.3).
+function headlineFacts(D, sit, store) {
+  const cone = D.coneOf(sit.volcano_id)?.properties;
+  const worst = sit.discrepancies.filter((d) => d.severity !== "INFO").sort((a, b) => (SEV_RANK[b.severity] || 0) - (SEV_RANK[a.severity] || 0))[0];
+  let dis = null;
+  if (worst) {
+    const [tone, sid, word] = sevOf(worst);
+    const dir = sit.discrepancies.find((d) => d.kind === "DIRECTION_MISMATCH" && d.aspect === "direction");
+    const text = worst.severity === "WARNING" ? `${word}: ${kindOf(worst)[1].replace(/^A /, "a ")}` : dir ? `Direction disagreement ${Math.round(dir.magnitude)}°` : kindOf(worst)[1];
+    dis = { tone, sid, text };
+  }
+  const n = sit.exposed_count || 0;
+  const decided = store.advisories.filter((a) => a.volcano_id === sit.volcano_id && (a.status === "APPROVED" || a.status === "EDITED")).length;
+  return { cone, dis, area: cone ? MODE_SHORT[cone.mode] || cone.mode : null, n, flights: `${n} flight${n === 1 ? "" : "s"} entering`, decided };
+}
+
+function headlineLine(D, sit, store) {
+  const f = headlineFacts(D, sit, store);
+  return [f.dis?.text, f.area, f.flights, f.decided ? `${f.decided} approved` : null].filter(Boolean).join(" · ");
+}
+
 export function renderHeadline(D, ui, notes, store) {
   const h = $("headline");
   const sit = D.sit;
   if (!sit) { h.hidden = true; } else {
     h.hidden = false;
-    const cone = D.coneOf(sit.volcano_id)?.properties;
+    const { cone, dis, area, n, flights, decided } = headlineFacts(D, sit, store);
     const kids = [el("span", { class: "headline__volcano" }, eruptIcon(sit.color_code), sit.volcano_name.toUpperCase())];
     const sep = () => el("span", { class: "headline__sep", "aria-hidden": "true", text: "·" });
-    const worst = sit.discrepancies.filter((d) => d.severity !== "INFO").sort((a, b) => (SEV_RANK[b.severity] || 0) - (SEV_RANK[a.severity] || 0))[0];
-    if (worst) {
-      const [tone, sid, word] = sevOf(worst);
-      const dir = sit.discrepancies.find((d) => d.kind === "DIRECTION_MISMATCH" && d.aspect === "direction");
-      const text = worst.severity === "WARNING" ? `${word}: ${kindOf(worst)[1].replace(/^A /, "a ")}` : dir ? `Direction disagreement ${Math.round(dir.magnitude)}°` : kindOf(worst)[1];
-      kids.push(sep(), el("span", { class: `headline__dis headline__dis--${tone}` }, st(sid, `var(--c-${tone})`), text));
-    }
-    if (cone) kids.push(sep(), el("span", { class: "headline__area", text: MODE_SHORT[cone.mode] || cone.mode }));
-    const n = sit.exposed_count || 0;
-    kids.push(sep(), el("span", { class: n ? "headline__flights" : "", text: `${n} flight${n === 1 ? "" : "s"} entering` }));
-    const decided = store.advisories.filter((a) => a.volcano_id === sit.volcano_id && (a.status === "APPROVED" || a.status === "EDITED"));
-    if (decided.length) kids.push(sep(), el("span", { class: "headline__ok" }, icon("i-approved"), `${decided.length} approved`));
+    if (dis) kids.push(sep(), el("span", { class: `headline__dis headline__dis--${dis.tone}` }, st(dis.sid, `var(--c-${dis.tone})`), dis.text));
+    if (area) kids.push(sep(), el("span", { class: "headline__area", text: area }));
+    kids.push(sep(), el("span", { class: n ? "headline__flights" : "", text: flights }));
+    if (decided) kids.push(sep(), el("span", { class: "headline__ok" }, icon("i-approved"), `${decided} approved`));
     if (ui.d3) kids.push(el("span", { class: "headline__chip", title: "3D view, heights exaggerated six times", text: "3D ×6" }));
-    h.classList.toggle("headline--hypothesis", cone?.mode === "HYPOTHESIS");
-    if (cone?.mode === "HYPOTHESIS") {
-      h.replaceChildren(st("st-caution", "var(--c-caution)"), el("span", { text: `HYPOTHESIS: no valid official product for ${sit.volcano_name}. MONITOR or HOLD only.` }));
-    } else h.replaceChildren(...kids);
+    const hyp = cone?.mode === "HYPOTHESIS";
+    const next = hyp
+      ? [st("st-caution", "var(--c-caution)"), el("span", { text: `HYPOTHESIS: no valid official product for ${sit.volcano_name}. MONITOR or HOLD only.` })]
+      : kids;
+    // role=status: rebuild only when what it shows changes, so it is not re-announced on
+    // every render.
+    const key = [hyp, sit.color_code, dis?.tone, ...next.map((k) => k.textContent)].join("|");
+    if (h.dataset.key !== key) {
+      h.dataset.key = key;
+      h.classList.toggle("headline--hypothesis", hyp);
+      h.replaceChildren(...next);
+    }
   }
   const box = $("map-notes");
   box.replaceChildren(...notes.map((n) => el("p", { class: `map-note map-note--${n.tone || "info"}`, role: n.tone === "serious" ? "alert" : null },
@@ -433,11 +459,14 @@ export function renderBrief(D, store, ui, A) {
     return;
   }
   const cone = D.coneOf(sit.volcano_id)?.properties;
+  // The map headline is hidden at 1359 px and below; this line carries it there (4.3).
+  const line = cone?.mode === "HYPOTHESIS" ? null : headlineLine(D, sit, store);
   const head = el("section", { class: "vhead-wrap", "data-ptab": "brief" },
     el("div", { class: "vhead" },
       el("h1", { class: "vhead__name", id: "volcano-name", tabindex: "-1", text: sit.volcano_name }),
       el("span", { class: "code-chip", title: `Aviation colour code ${sit.color_code}` }, eruptIcon(sit.color_code), sit.color_code),
       el("span", { class: "vhead__asof", text: `as of ${hhmmz(ms(sit.as_of))}` })),
+    line ? el("p", { class: "vhead__headline", title: line, text: line }) : null,
     el("p", { class: "vreasons", text: sit.active_reasons.join(" · ") }),
     cone?.mode === "HYPOTHESIS" ? hypothesisBanner(sit) : null);
   brief.replaceChildren(head, sourcesSection(D, sit, A), disagreeSection(D, sit, ui), areaSection(D, sit, ui),
@@ -570,7 +599,7 @@ function colHead(D, sit, card, vent, flagged) {
   const kind = card.kind === "VONA" ? "VONA · observatory" : card.kind === "SIGMET" ? "SIGMET · binding" : "VAA · VAAC";
   if (card.missing) {
     const hyp = D.coneOf(sit.volcano_id)?.properties.mode === "HYPOTHESIS" && !observer;
-    return el("div", { class: cls, role: "columnheader" }, el("div", { class: "cmp__kind", text: kind }), el("div", { class: "cmp__title" }, missingHead(card, hyp ? "No valid official product" : "None in force")),
+    return el("div", { class: cls, role: "columnheader" }, el("div", { class: "cmp__kind", text: kind }), el("div", { class: "cmp__plain", text: KIND_PLAIN[card.kind] }), el("div", { class: "cmp__title" }, missingHead(card, hyp ? "No valid official product" : "None in force")),
       card.missing_note ? el("div", { class: "cmp__note", text: card.missing_note }) : null,
       el("div", { class: "cmp__note cmp__note--quiet", text: "Absence is not evidence of no ash." }));
   }
@@ -578,6 +607,7 @@ function colHead(D, sit, card, vent, flagged) {
   const [tone, sid, word, long] = EVID[card.evidence] || EVID.UNKNOWN;
   const kids = [
     el("div", { class: "cmp__kind", text: kind }),
+    el("div", { class: "cmp__plain", text: KIND_PLAIN[card.kind] }),
     el("div", { class: "cmp__title", text: observer ? `VONA ${hhmmz(t)}` : card.title }),
     el("div", { class: "cmp__age", text: `${hhmmz(t)} · ${age((D.now - t) / 1000)} ago` }),
     el("div", { class: `evid evid--${tone}`, title: long }, st(sid, tone === "seen" ? "var(--c-ok)" : tone === "est" ? "var(--c-info)" : tone === "off" ? "var(--c-off)" : "var(--c-caution)"), word),

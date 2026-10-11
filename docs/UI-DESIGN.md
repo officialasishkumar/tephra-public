@@ -312,7 +312,8 @@ y 1080 └───────────────────────�
 ### 4.2 Wall at 1440x900
 
 Root 15 px. Banner 36, command bar 56, strip 30, rail 500, inset 16, timeline 100, legend 260
-(collapsed to a "Legend" button by default below 1600 px; it opens over the map). Tools column
+(collapsed to a "Legend" button by default below 1600 px, except on a viewer's first visit, when
+it starts open at every width (7.5); it opens over the map). Tools column
 keeps icons and short labels; the region buttons drop their key hints; the command bar drops
 the brand subtitle and the "FEEDS" caption, KPI values step down to 20 px and the clock to 24 px.
 The flights dock is 360 wide and shows 3 flights then "+N"; the trace dock takes the remaining
@@ -341,7 +342,9 @@ About dialog), command bar 48 (wordmark, mode badge, region menu button instead 
 buttons, clock, model chip, feeds chip, Desk icon button with label "Desk"), strip 28, rail 440,
 inset 12, timeline 84. Tools column becomes icon-only (40 px tiles with tooltips and
 `aria-label`s). The level filter collapses to a "Levels" tool that opens it as a popover. The
-headline pill is hidden (the rail head carries it). The MapLibre zoom control is hidden (keys and
+headline pill is hidden; the rail head carries its text as one line under the volcano name (the
+discrepancy, the area mode, "N flights entering", "N approved"; ellipsized, full text in the
+`title`; left out in HYPOTHESIS, where the rail head already shows the hypothesis banner). The MapLibre zoom control is hidden (keys and
 wheel still zoom). Trace dock: 1 line, expands on T. Flights dock: 300 wide with one-line rows, or
 a pill "✈ 2 entering · first in 12 min" that expands when more than two flights enter. Rail: tabs 44, head 56, sources
 grid compact (rows Seen, Height, Movement; Valid and Colour code move into the column head
@@ -568,7 +571,7 @@ this layer animates continuously.
 | Infrared | `Himawari_AHI_Band13_Clean_Infrared` | `GoogleMapsCompatible_Level6` | 6 | 10-min slot (below) | "CONTEXT ONLY · Himawari-9 infrared (band 13) 1620Z · not ash detection · Imagery: NASA GIBS · Himawari-9 data: JMA via NOAA" |
 | Visible | `Himawari_AHI_Band3_Red_Visible_1km` | `GoogleMapsCompatible_Level7` | 7 | 10-min slot | same, "visible (band 3), daylight only" |
 | Air mass | `Himawari_AHI_Air_Mass` | `GoogleMapsCompatible_Level6` | 6 | 10-min slot | same, "Air Mass RGB" |
-| SO2 | `TROPOMI_L2_Sulfur_Dioxide_Total_Vertical_Column` | `GoogleMapsCompatible_Level6` | 6 | `YYYY-MM-DD` | "CONTEXT ONLY · SO2 (TROPOMI, daily) 25 Sep 2026 · SO2 is not ash · Imagery: NASA GIBS · Contains modified Copernicus Sentinel data 2026" |
+| SO2 | `TROPOMI_L2_Sulfur_Dioxide_Total_Vertical_Column` | `GoogleMapsCompatible_Level6` | 6 | `YYYY-MM-DD` | "CONTEXT ONLY · SO2 (TROPOMI, daily) 25 Sep 2026 · SO2 is not ash; gases not modelled · Imagery: NASA GIBS · Contains modified Copernicus Sentinel data 2026" |
 
 URL template: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/{layer}/default/{time}/{matrix}/{z}/{y}/{x}.png`
 (note `{y}` before `{x}`), `tileSize: 256`.
@@ -643,6 +646,9 @@ stripes at the left (`repeating-linear-gradient`, violet at 16%), 2 px bottom bo
 `state.replay.banner` verbatim at 18 px semibold, then "· " + `state.replay.label` in
 `--c-replay-text` (hidden below 1360 px, kept in `title`). If `state.replay.auto` is true, add
 "· switched automatically: no live activity". The document title is prefixed "REPLAY - ".
+The banner's text is written only when it changes, so a screen reader announces it once and not
+on every render. The same rule holds for the stream-lost banner (`role="alert"`) and the
+headline pill (`role="status"`, 7.6).
 
 ### 7.2 Command bar
 
@@ -656,7 +662,7 @@ chip; clock; "Open Desk" link.
 - Region presets: a segmented control (pill group) of `state.regions`, each button "1 Java /
   Bali" with the key hint in a `kbd`, the name, and a count badge of active volcanoes inside its
   bbox (hidden when 0). `aria-pressed` on the current one. Fly to the region with `--dur-camera`.
-- KPIs: "Active" (`active_volcano_ids.length`), "Entering" (`exposed_count`, in
+- KPIs: "Active" (`active_volcano_ids.length`), "Flights entering (all volcanoes)" (`exposed_count`, in
   `--c-tephra-text`), "Drafts" (`draft_count`); value 24 px over a 12 px caps label.
 - Model chip: `state.llm.label` in Plex Mono 500. Stub: dashed border, `i-code` icon, "NO MODEL".
   Gemini: solid border, `i-model` icon, the model id ("gemini-3.8-flash"). Tooltip: "Steps that
@@ -680,10 +686,10 @@ the attribution line (12 px, text-3, may ellipsize only at 1280 and below; full 
 adsb.lol (ODbL 1.0) · Himawari-9 data: JMA via NOAA · FIR and VAAC lines: NOAA/NWS AWC
 (approximate)" plus, while a GIBS layer is on, "· Imagery: NASA GIBS" (and "· Contains modified
 Copernicus Sentinel data 2026" for SO2), plus "· Weather data by Open-Meteo.com" (a link) when a
-wind value is visible. Then the "About and credits" button and, once `state.policy` is known,
-the short "Policy A · illustrative" button (its title gives the policy id, version and label),
-which opens the operator policy panel (7.18); that button is hidden at 600 px and below, where
-the About dialog's link is the way in. MapLibre's own attribution control
+wind value is visible. Then, once `state.policy` is known, the short "Policy A · illustrative"
+button (its title gives the policy id, version and label), which opens the operator policy panel
+(7.18); that button is hidden at 600 px and below, where the About dialog's link is the way in.
+After it come the "Help" button (7.3a) and the "About and credits" button. MapLibre's own attribution control
 is not added (`attributionControl: false`); this strip replaces it and must keep every credit
 the style and sources declare.
 
@@ -691,7 +697,28 @@ About dialog: what TEPHRA is (three sentences), the honesty statements (decision
 the airline is fictional; nothing is sent anywhere; REPLAY is recorded data; TEPHRA's area is an
 estimate, never a forecast), the full GIBS acknowledgement, the credits table from
 `THIRD_PARTY.md`, an "Operator policy" heading with the button "Open the operator policy"
-(focus returns to About when the panel closes), and the keyboard section.
+(focus returns to About when the panel closes), and a Help section whose
+button opens the Help dialog (7.3a). The honesty list
+also says "SO2 is not ash. Volcanic gases may also be undesirable to fly through; TEPHRA does not
+model them."
+
+### 7.3a Help and glossary
+
+For a viewer who does not work in aviation. A visible "Help" button in the honesty strip, next to
+"About and credits" and in the same style, opens the shared dialog titled "Help"; the `?` key and
+the button in About open the same dialog. It is visible at every width. The strings live in
+`tephra/web/wall/glossary.js`; the dialog has three parts, in this order:
+
+1. "How to read this screen", six short lines: the map shows the official ash areas and TEPHRA's
+   cautious area, never smaller than the official one; the right rail compares what each source
+   says and lists where they disagree; the flight list shows aircraft heading into an area; the
+   Desk is where a person approves or rejects each advisory, and nothing is sent to a real
+   system; REPLAY means recorded or reconstructed data, not live; times end in Z, which is UTC.
+2. "Glossary", a definition list: SIGMET; VAA and VAAC; VONA; FIR; FL; Z; ADS-B (a gap in
+   coverage is not an empty sky); RFA proxy flight; NO MODEL; REPLAY and reconstructed; Affected
+   area; Policy A (illustrative). Every acronym the Wall shows has an entry. The entries never call
+   TEPHRA's own output binding, a forecast or a warning.
+3. "Keyboard shortcuts", the table from section 9 and the single-key toggle.
 
 ### 7.4 Map container and camera
 
@@ -728,7 +755,11 @@ estimate, never a forecast), the full GIBS acknowledgement, the credits table fr
 
 ### 7.5 Legend
 
-Glass panel top-left, caps title "LEGEND", rows of a 26 px sprite swatch + text (14 px): Official
+Glass panel top-left, caps title "LEGEND". It starts open on a viewer's first visit at every
+width (a `visited` flag in the per-viewer prefs; with storage blocked every visit counts as the
+first); afterwards the viewer's own open or closed choice holds, or, before any choice, it is open
+at 1600 px and up. With `?present=1` it never opens on its own. Rows of a 26 px sprite swatch +
+text (14 px): Official
 ash area · binding; Official forecast · +6 h dashed (only when a step polygon is drawn); TEPHRA
 cautious area · never smaller (drawn just outside what it contains); Widened by the model
 (only when a sector exists); Official movement; Observatory drift (only with a rose); Flight
@@ -763,7 +794,8 @@ Hazard (Official ash area · always on, shown checked and disabled with "binding
 forecast steps: Now / +6 h / +12 h / +18 h / All (radio); TEPHRA cautious area; Disagreement
 markers), Traffic (Aircraft; Exposure paths; Other aircraft labels), Context (FIR and VAAC lines;
 Navaids; Terrain shading), Satellite context (radio Off / Infrared / Visible / Air mass, each with
-"context only"; checkbox SO2 "SO2 is not ash"), Levels (the filter, section 8.4). Changes apply at once;
+"context only"; checkbox SO2 "context only · SO2 is not ash. Volcanic gases may also be
+undesirable to fly through; TEPHRA does not model them."), Levels (the filter, section 8.4). Changes apply at once;
 the choice persists in `localStorage`.
 
 ### 7.8 Flights dock
@@ -817,7 +849,9 @@ two official products together, the observatory apart; the data order SIGMET, VO
 the order the cards arrive in).
 
 Column head (`--c-surface-2`, 3 px top bar magenta for SIGMET and VAA, sky for VONA, dashed grey
-when missing): kind caps "SIGMET · binding", "VAA · VAAC", "VONA · observatory"; title (14 px
+when missing): kind caps "SIGMET · binding", "VAA · VAAC", "VONA · observatory", with a plain second line under
+each in 12 px text-3 ("met office warning for the airspace", "ash advisory centre", "volcano
+observatory notice"; also on a missing card); title (14 px
 600, wraps to two lines; VONA shows "VONA 1629Z"); issued time and age "1120Z · 5 h 10 min ago"
 (mono 12); the evidence chip (3.2); for VONA, a day/night line "Night at the vent · 00:01 local
 solar" (caution colour at night). A `stale` card adds the `st-stale` chip "Stale: last good copy
@@ -1015,7 +1049,8 @@ not "All", the map note "Level filter FL180–FL550 hides 1 official area and 2 
 
 Single-key shortcuts work when focus is not in a text field and no modifier is held; they can be
 switched off in the help dialog (WCAG 2.1.4, stored in `localStorage`). `?` opens the help
-dialog listing all of them. Every shortcut has a visible control too.
+dialog (7.3a), which lists all of them after the reading guide and the glossary. Every shortcut
+has a visible control too.
 
 | Key | Action |
 |---|---|
@@ -1031,7 +1066,7 @@ dialog listing all of them. Every shortcut has a visible control too.
 | `L` | Legend and layers |
 | `T` | Expand or collapse the trace dock |
 | `H` | Focus the level filter |
-| `?` | Keyboard help |
+| `?` | Help: how to read the screen, glossary, shortcuts |
 | `Esc` | Close the dialog, popup or popover; leave compare or 3D |
 
 Focus order on the Wall: skip links ("Skip to map", "Skip to situation brief", "Skip to
@@ -1226,7 +1261,7 @@ the disclaimer exactly as `state.disclaimer` gives them.
 | Model label (both pages, always) | `state.llm.label`: "NO MODEL" for the stub, else the model id |
 | AI marking | "AI-drafted" (advisory body), "AI-written" (plume reading); stub: "Template · NO MODEL" |
 | Every satellite layer | "CONTEXT ONLY · {layer} {time} · not ash detection · Imagery: NASA GIBS · Himawari-9 data: JMA via NOAA" |
-| SO2 layer | "CONTEXT ONLY · SO2 (TROPOMI, daily) {date} · SO2 is not ash · Imagery: NASA GIBS · Contains modified Copernicus Sentinel data 2026" |
+| SO2 layer | "CONTEXT ONLY · SO2 (TROPOMI, daily) {date} · SO2 is not ash; gases not modelled · Imagery: NASA GIBS · Contains modified Copernicus Sentinel data 2026" |
 | BTD overlay | "Split-window BTD (computed by TEPHRA) · an indicator, not ash detection" |
 | Airline | "Ring of Fire Air (RFA) is a fictional airline. RFA flight numbers are proxies for real aircraft." |
 | Outbound | "Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system." |
