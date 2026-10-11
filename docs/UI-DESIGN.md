@@ -93,13 +93,13 @@ Paperwork, 10.14 Deep link) · 11 Copy deck · 12 Accessibility ·
 | Official ash area | Story L1 "Official reports put the ash up to 50,000 ft (FL500)."; the pink filled polygon with its label box "Official ash area · SFC–FL500 · until 1045Z / moving SE at 10 kt" | Story, map | The sentence and the pink shape |
 | Where sources disagree | Story L2 "The sources disagree on where the ash is heading (135° apart)."; the direction rose at the vent; Details › Where the sources disagree | Story, map | The sentence and the two arrows |
 | TEPHRA's area | The amber dashed outline drawn just outside the official edge with its tag "TEPHRA's estimate · same as official (AI off)"; the key row "TEPHRA's estimate · never smaller than official" | Map, key | The amber dashes around the pink |
-| Who is flying into it | Story L4 "23 flights of RFA, our fictional airline, are in or heading into TEPHRA's estimated ash area."; amber planes with marching paths, one-line labels or a "23 RFA flights" cluster | Story, map | The number and the amber planes |
-| A human deciding | Story L5 "23 of their advisories wait for a dispatcher." and the one filled button "Decide on the Desk →"; Details › Decisions | Story, Desk | The button |
+| Who is flying into it | Story L4 "23 flights of RFA, our fictional airline, are in or heading into TEPHRA's estimated ash area."; amber planes with marching paths, one-line labels or a "23 RFA flights" cluster ("21 of 23 RFA flights" when some planes sit outside it) | Story, map | The number and the amber planes |
+| A human deciding | Story L5 "23 advisories wait for a dispatcher." (plus a small note "n of them are for flights no longer seen heading in." when drafts outnumber the flights) and the one filled button "Decide on the Desk →"; Details › Decisions | Story, Desk | The button |
 
 A still frame of the story column explains itself (UI-REDESIGN R5): `ANAK KRAKATAU · JAVA / BALI ·
 ALERT RED · as of 1030Z` / `Recorded Official reports put the ash up to 50,000 ft (FL500).` / `Ash
 closes 2 RFA airports: WIHH, WIII.` / `23 flights of RFA, our fictional airline, are in or heading
-into TEPHRA's estimated ash area.` / `23 of their advisories wait for a dispatcher.` /
+into TEPHRA's estimated ash area.` / `23 advisories wait for a dispatcher.` /
 `[Decide on the Desk →]`.
 
 ## 3. Design tokens
@@ -361,9 +361,11 @@ other-volcanoes list shows 1 row.
 ### 4.4 Wall at 390x844 (phone)
 
 One column that scrolls; the document is exactly 390 px wide (`overflow-x: clip` after the causes
-were fixed). Sticky: the REPLAY band (1-2 lines), then the header in three rows: brand, mode pill,
-clock, "Desk →"; the native area picker ("Java / Bali · 2"), the AI chip, the Data chip; the
-disclaimer line (12 px). Then: the failure line, the story card (20 px lines, full-width "Decide on
+were fixed). Sticky (about 120 px, 14% of the screen): the REPLAY band on one line ("REPLAY: recorded
+05 Sep 2026 · not live", `#replay-banner-short`; the full words stay in its title), then the header
+in two rows: brand, mode pill, clock, "Desk →"; the disclaimer line (12 px). Under it, not sticky,
+`#phone-bar`: the native area picker ("Java / Bali · 2"), the AI chip and the Data chip (wall.js
+moves these three nodes there on a phone and back at wider widths). Then: the failure line, the story card (20 px lines, full-width "Decide on
 the Desk →"), the map (42vh, min 300; Fit and Layers 40 px with words; the time pill "⟲ 1030Z · Now
 ▾" bottom-left opens the full time bar as a bottom sheet), the key strip, the trust line, All
 volcanoes with every row, "☰ Details" (a full-screen sheet below the header, with "‹ Details" and
@@ -477,7 +479,7 @@ Layer order, bottom to top (all after the basemap unless noted):
 | 24 | `volcano-active` | symbol | `active == true` | eruption icon by code (5.3); name Noto Sans Bold 14 (16 selected), `--map-label`, halo 2; left out for a non-selected volcano whose area label already names it |
 | 25 | `aircraft-icon` | symbol | aircraft | SDF plane (5.3); every plane is always drawn |
 | 26 | `aircraft-inside` | circle | `inside`, minzoom 6 | r 18, stroke `--c-tephra` 2, no fill |
-| 27 | `exposed-cluster` | symbol | `exposed-pts` (clustered: radius 60, min points 6) | `box-tephra` with "8 RFA flights", 44 px hit area; a click zooms in |
+| 27 | `exposed-cluster` | symbol | `exposed-pts` (clustered: radius 60, min points 6) | `box-tephra` with "8 RFA flights", or "21 of 23 RFA flights" when some exposed planes are outside the cluster (the text field is rebuilt when the total changes); beside its centre (variable anchor left, right, bottom-left, top-left, radial offset 2.2), so it never sits on the vent; moved above the forecast-step and other-volcano labels so those give way to it; 44 px hit area; a click zooms in |
 | 28 | `aircraft-label-exposed` | symbol | `exposed-pts`, not clustered, minzoom 6 | one line "RFA1225 · inside" / "RFA6178 · in 12 min", Bold 13, right of the plane, collides |
 | 29 | `aircraft-label` | symbol | not exposed, minzoom 7.5 | "GIA123 FL350", Regular 12, `--c-text-3`, optional |
 | 30 | `official-step-label` | symbol | `official-labels`, kind `step` | "Forecast for 0000Z (+6 h)" while a forecast step is chosen; collides |
@@ -518,7 +520,13 @@ map pill says so).
 - After framing (7.4), if the selected official box would cross a map pill, a control or the map
   edge, pan the camera by the overlap (`panBy`) so it is visible.
 - Forecast-step labels appear only while a forecast step is chosen: "Forecast for 1700Z (+6 h)"
-  (forecast time = `valid_from + 3 h`), 13 px, `--c-official-text`, at the step polygon's centroid.
+  (forecast time = `valid_from + 3 h`), 13 px, `--c-official-text`. One label per step, however
+  many products forecast it: at the step's vertex farthest from the vent, reading inward (anchor
+  from the vent-to-tip direction, so it never hangs off the map edge). Under "All" the steps are
+  placed +6, +12, +18 and each keeps 250 km from the labels already placed.
+- Exposure entry labels ("in 12 min", lowercase) only from zoom 8; zoomed out the cluster speaks.
+- Boolean properties in style expressions are read as `["==", ["get", k], true]`, so a missing
+  property is false, never a null that MapLibre warns about.
 - The stretchable box: a 36x36 canvas at pixel ratio 2, fill `rgba(8,12,18,.92)`, 3 px border in
   the role colour, radius 6, registered with `stretchX: [[9,27]]`, `stretchY: [[9,27]]`,
   `content: [9,9,27,27]` (reference: `labelBox()` in `wall-ref.mjs`).
@@ -683,7 +691,8 @@ the story column and the drawer scroll inside themselves.
 
 ### 7.1 REPLAY band
 
-`#replay-banner` (violet, 32 px; 28 px at 1280; 1-2 lines on a phone, sticky there): the REPLAY icon,
+`#replay-banner` (violet, 32 px; 28 px at 1280; one line on a phone, sticky there, showing the short
+`#replay-banner-short` "REPLAY: recorded 05 Sep 2026" instead of the full words): the REPLAY icon,
 `state.replay.banner` verbatim, " · not live", then " · {case label}" (and " · switched
 automatically: no live activity" when the switch was automatic). At 1280 the case label is hidden
 and stays in the band's tooltip, About and Details › Data feeds. `role="status"`: written only when
@@ -699,7 +708,10 @@ R17.2). Left to right:
 3. Area picker: `#area-btn` "Area: Java / Bali · 2 with ash ▾" opens the menu `#regions`
    (`role="menu"`, `menuitemradio` rows "Halmahera · 2 with ash", "Kyushu · none", "All areas"; the
    current one checked; arrow keys, Home/End, Esc). Keys 1-9 still choose areas. On a phone the
-   native `#region-select` replaces it ("Java / Bali · 2").
+   native `#region-select` replaces it ("Java / Bali · 2"). The counts come from one active list
+   (the server's `active_volcano_ids` plus any situation card, by vent), the same list as "n with
+   ash" in All volcanoes, so the picker and the story never disagree. Before the server's first
+   tick an area with nothing yet reads "· reading…", never "· none".
 4. Spacer.
 5. AI chip `#ai-chip` (button) with `#model-chip` as its text: "AI: off · code only" (stub; "AI:
    off" at 1280 and on a phone) or "AI: on · {state.llm.label}", plus a red "· 2 failed" with the
@@ -732,7 +744,10 @@ is sent anywhere, REPLAY, Z = UTC), "Full map key" (every key row with its swatc
 green, yellow, orange, red; grey = not given", "FIR and VAAC lines are approximate", context-only
 layers), "Words used here" (the glossary, with Alert colour, Estimate, Advisory, Dispatcher, Proxy
 flight and SO2 added), and "Keyboard" (section 9) with the shortcut switch (WCAG 2.1.4). The key's
-"Full map key and alert colours ›" opens Help at the full key.
+"Full map key and alert colours ›" opens Help at the full key. Every dialog (`.dlg`) has
+`overflow: hidden` and only `.dlg__body` scrolls (`position: relative`, `overscroll-behavior:
+contain`), so an absolutely placed `sr-only` caption can no longer stretch the dialog and let the
+wheel scroll its header away. Under 600 px the glossary stacks each term above its meaning.
 
 ### 7.4 Map container and camera
 
@@ -781,14 +796,27 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
   time in the title); L4 "23 flights of RFA, our fictional airline, are in or heading into TEPHRA's
   estimated ash area." or, at 0, "No RFA flight is seen heading into TEPHRA's area right now." with
   "Aircraft coverage here is patchy: an empty map is not an empty sky." (or "Aircraft data is
-  failing/off: …"); L5 "23 of their advisories wait for a dispatcher." ("At least 23 …" when the
-  Wall's page of the 50 newest advisories cannot hold them all), "All n advisories are decided: a
-  approved, r rejected.", "Their advisories are not drafted yet." or "Advisory count unknown
-  (database error)."
+  failing/off: …"); L5 "30 advisories wait for a dispatcher." (advisories, never "n of their":
+  a draft can outlive its flight's exposure; "At least 30 …" when the Wall's page of the 50 newest
+  advisories cannot hold them all), followed by the small note "7 of them are for flights no longer
+  seen heading in." when some drafts' flights are not among the flights counted in L4; "All n
+  advisories are decided: a approved, r rejected.", "Their advisories are not drafted yet." or
+  "Advisory count unknown (database error)."
+- Re-planning: while the newest airport-plan step in the trace is "Closed airports changed: …;
+  recovery agent started" and no plan has landed since (`ext.replanning`), L3 is "RFA airports
+  closed by ash: WARA, WIHH, WIII. Re-planning the day's flights…" (no volcano is named: the trace
+  does not say which one closed them), Details › Airport closures reads "re-planning for WARA, WIHH,
+  WIII…" (caution) and its section opens with a spinner line instead of "No RFA airport is
+  closed".
 - Buttons: the one filled button on the Wall, "Decide on the Desk →", linking to
   `/desk#review/{the most urgent DRAFT advisory of this volcano}` (inside now first, then the
   soonest entry); with no draft it is the secondary "Open the Desk". "Show the n flights" opens
   Details › Flights heading in (hidden at 0).
+- Reading (`D.reading`): before the server's first tick, or while an active volcano in scope has
+  no situation card yet, h1 the area, a spinner, "Reading the official reports…" and "TEPHRA has
+  just started and is reading every feed for the first time. This takes up to a minute." (or "Ash is
+  reported here. The summary appears when TEPHRA has read the reports, usually within a minute.").
+  It is never "no ash" for something not yet read.
 - Empty area (`D.regionEmpty`): h1 the area; "No ash reported near Kyushu right now." then "Ash
   elsewhere:" with a button per area that has ash ("Java / Bali · 1"). Nothing active anywhere: "No
   official ash report is in force in the watched regions right now." Connecting: "Connecting to
@@ -798,6 +826,9 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
   always-visible model state).
 - Story notes `#story-notes`: notes that are not map pills (the basemap note; the 150 km coverage
   note when the flight line has not said it).
+- "☰ Details" (`#details-btn`) is sticky at the bottom of the story column from 601 px up, with a
+  16 px fade above it that says the column scrolls, so the route to everything else is always on
+  screen at 1280 and 1440.
 - The changed flight count gets a `--dur-5` highlight (not under reduced motion). `#announce` speaks
   "{volcano}: {L4} {L5}" at most once every 30 s, only when the volcano, the flight count or the
   waiting count changes.
@@ -808,9 +839,10 @@ Bottom-right, stacked by MapLibre: `#tools` (a custom control) with "Fit" (`data
 and "Layers" (`data-tool="layers"`, L, opens Details › Map layers), zoom +/- at 1600 px and up (the
 compass only in 3D), and the attribution (`AttributionControl`, `compact: false`, 12 px:
 "OpenFreeMap © OpenMapTiles Data from OpenStreetMap"). Icon-only below 1360 px; 40 px icon and word
-on a phone. Bottom-left, `.map-pills`, only while true and one line each: `#ctx-label` (the CONTEXT
-ONLY caption of each satellite, SO2 or BTD layer, never folded, with ✕ to turn the layer off and the
-GIBS scale where one is published), and `#map-notes`: "Height filter FL180–FL350 hides 1 official
+on a phone. Bottom-left, `.map-pills`, only while true and one line each: `#ctx-label` (one
+`.ctx-pill` per satellite, SO2 or BTD layer, never folded: "CONTEXT ONLY" and the caption wrap
+together, the ✕ that turns the layer off sits beside them, and the GIBS scale, where one is
+published, is inside the same pill; at most 520 px wide), and `#map-notes`: "Height filter FL180–FL350 hides 1 official
 area and 4 flights · Reset", "Showing the official forecast for 0000Z (+6 h) · Back to now" or "No
 official +12 h area in the current products · Back to now". More than three: "+n more map settings ·
 Show". While History is open the pills and controls move up above it.
@@ -829,8 +861,13 @@ track, position age, the drafted action and its decision, "Open on the Desk ›"
 
 `#trace` (`role="log"`, `aria-live="off"`): "This volcano / Everything", then plain lines
 (`plainLine`, R12.7), newest first, 14 shown and "Show all (n)"; each line has its time, "· by code"
-/ "· by an AI helper" / "· AI off", and "Technical detail" with the stage, the actor chip and the
-raw message. Lines with no plain wording are shown verbatim, never paraphrased. Human decisions
+/ "· by an AI helper" / "· AI off" (`actorWords`: with the stub backend an `adk` or `gemini` step
+says "AI off", never "by an AI helper"), and "Technical detail" with the stage, the actor chip and
+the raw message. Plain wordings include the stub plume estimate ("Plume estimate by code (AI off):
+same as the official area, SFC–FL150, confidence 100%"), the cone line, "nothing to check and no
+RFA flight within 250 NM", "{volcano} is active. Reports: …", "{feed}: n new or changed records",
+the SRA draft line ("Safety risk assessment draft for Java / Bali: evidence by code, 4 narrative
+boxes by a code template (AI off). Not an approved SRA.") and the no-plan line. Lines with no plain wording are shown verbatim, never paraphrased. Human decisions
 composed from advisory events are merged in (stage DESK).
 
 ### 7.10 Other volcanoes
@@ -882,7 +919,8 @@ widened), "Technical detail" (mode, label, cone id), and "How the model read it"
   "The Gemini arm has not been run…", then "Every number, check and case" (tiles, the safety-floor
   and future-data chips, the per-case table, caveats).
 - AI helpers: "AI off: code does every step…", the Duty Officer line ("Duty Officer (AI off): handed
-  out 3 jobs in urgency order"), failures in red first, "AI calls today: 0 of 450", then
+  out 3 jobs in urgency order"), failures in red first, "AI calls today: 0 of 450" (the lite tier,
+  the same tier and words as the Desk's budget chip; both tiers are under "Model budget"), then
   "Delegation, every helper and the budget" (the Duty Officer card and delegation diagram, every
   helper with its state, the budget tiers).
 
@@ -1096,15 +1134,26 @@ refresh on every `advisory` event stay. Sort: inside now first, then entry time,
    - The card does not swap under the dispatcher's thumb: when a more urgent draft arrives, the
      line "1 more urgent draft arrived · Show" (`#q-newer`, caution) appears and Show moves the
      card to it.
+   - At 1100 px and up, while a draft is open in the right pane (`.desk[data-view="review"]`), the
+     card folds to its row: flight, entry pill, action and caution chips; the meta line, advisory
+     text, writer line and sources line are hidden (they are in the pane), and the "Review" button
+     is hidden when the pane already shows this draft. One advisory is never shown twice at equal
+     weight.
 3. "{22} more waiting" (`#more-title`) and `#cards`: one row per other draft, two lines: flight |
-   "inside now" / "enters in 9 min" over "Keep watching" | a caution mark (with its words for
-   screen readers) | ›. A new row is highlighted for `--dur-5` and tagged "New" for two minutes.
+   "inside now" / "enters in 9 min" over "Keep watching" | a caution mark: its shape and a short
+   word ("16 min old", "sources stale", "read carefully", "hypothesis", "+1" for more; the full
+   words in the title and for screen readers), never a bare icon | ›. A new row is highlighted for
+   `--dur-5` and tagged "New" for two minutes. Only the first 5 rows show, then "Show all n"
+   (`#cards-all`), so the one-line links below stay near the top; the selected row is never
+   hidden.
 4. One-line links (`.qlinks`): "Airport plan waiting: 3 airports closed, cancel 133 ›"
    (`#plan-section`, opens Airports); "Messages to approve (3) ›" (`#msg-section`) and "Notices (4) ›"
    (`#notice-section`), which open in place to today's cards and rows; "Duty Officer (AI off): 3
    flights need a plan first ›" (`#duty-section`), which opens in place to the outcome chip, the
-   summary, "Do first" (priorities with "Must do" tags), "Watch", "Delegated to", "Deferred", the
-   run line and the raw stub text under "Technical detail". Must-do items the Duty Officer did not
+   summary, "Do first" (priorities with "Must do" tags; with AI off the code reason is said once in
+   the heading, "Do first · in urgency order (AI off)", not under every item), "Watch", "Delegated
+   to", "Deferred", and under "Technical detail" the run line (model, turns, offered, trigger, time)
+   and the raw stub text. Must-do items the Duty Officer did not
    hand out are a failure: that red box stays visible while the brief is folded, and the line
    reads "Duty Officer (AI off): 1 must-do item not handed out".
 5. `#closed` "Decided while this page was open (2)", a collapsed `<details>`.
@@ -1210,12 +1259,15 @@ advisory for RFA4821" (`--c-reject` fill, white text, `i-x`; tap only, no hold),
   and flight, and "AK · 1607Z · queued, not sent to any aircraft" (16 text-2), above a 3 px rule
   in the same colour. It is not interactive; it enters with a short scale-in that reduced motion
   drops (the 1200 ms hold stays). Then the sheet closes and the toast follows.
-- Toast (bottom, 15 s for a decision toast so the receipt can be read, 6 s for other toasts, `role="status"`, persists while focused; title 18 px 600; at most 40vh tall
+- Toast (bottom, 15 s for a decision toast so the receipt can be read, 6 s for other toasts, `role="status"`, persists while focused; title 16 px 600; at most 40vh tall
   on phones): approved "Approved: HOLD FL250
   for RFA4821 · queued 1607Z under AK. Not sent to any aircraft."; edited "Approved with your
   edits: RFA4821 · both versions are in the audit log."; rejected "Rejected: RFA4821 · reason
   recorded."
-- Audit line: under the toast text, first "AUDIT APPROVED desk:AK 1607Z" from `GET
+- Under the receipt, "Next: RFA1530 · inside now" (14 text-2). The machine text folds under
+  "Technical detail" (`details.toast__tech`), so the toast is two or three short lines and does not
+  cover the next draft's advisory text on a phone.
+- Audit line, inside "Technical detail": first "AUDIT APPROVED desk:AK 1607Z" from `GET
   /api/audit?advisory_id=…` (the entry whose action matches the decision, never another entry
   in its place; mono 14 500, `--c-approve` or `--c-reject-text`; when none is listed yet the toast
   says "Audit entry not listed yet: see History under Decided while this page was open.", and
@@ -1232,7 +1284,10 @@ advisory for RFA4821" (`--c-reject` fill, white text, `i-x`; tap only, no hold),
   shape and word; the version chip reads "Version 1 → 2"; the Now status cell carries the status shape;
   identical text shows once as "Same text".
 - 409 `invalid_transition`: "This advisory is no longer a draft." + who/when + "Back to Decide".
-- 404: "This advisory no longer exists." + "Back to Decide".
+- 404: "This advisory no longer exists." + "Back to Decide". The deep-link toast with the same
+  words (R10.3) is about the Decide list: it is dismissed when another tab is chosen.
+- At 1100 px and up the review pane uses `overflow: clip` (not `hidden`), so a script's
+  `scrollIntoView` cannot scroll the pane's header and body out of view.
 
 ### 10.9 Offline, session, wake lock
 
@@ -1274,7 +1329,7 @@ in)", the validator, the model, the human gate), follow-ups, and a foot with Lis
 the language chip and REPLAY. With the stub, the code-written answer reads "AI off: this answer is
 a code count, not a reading of your question. Flights projected to enter TEPHRA's area: 22." (the
 API text still starts "NO MODEL", which tests and the spoken reply rely on); a model's answer is
-always shown exactly as written. Refusals: "Not in the evidence I have" + what was checked.
+always shown exactly as written. Refusals: "Not in the evidence I have" + what was checked. When an answer (or a failure card) lands in the lower half of the screen it is scrolled to just under the sticky header, so on a phone it never arrives below the fold.
 
 ### 10.12 Airports (R10.6, was Network recovery)
 
@@ -1292,7 +1347,10 @@ Planned 1030Z by code · version 1 · explained by: AI off  14 text-3
 ```
 
 Approve plan is the neutral filled button (approve green is only in the advisory review); it opens
-the confirm sheet "Approve the airport plan?". Approved: "Approved by AK at 1031Z · queued, not
+the confirm sheet "Approve the airport plan?": "Plan: Closure as forecast", one sentence "Cancels 47
+flights, delays 29 and swaps aircraft on 8 · 12,057 passengers affected · estimated cost $893,032."
+(no caps tiles), the queue note and the green button; the sheet is as tall as its content
+(`.bsheet { height: fit-content }`). Approved: "Approved by AK at 1031Z · queued, not
 sent anywhere" + "Draft crew and passenger messages". Rejected: who, when and the reason.
 
 Then disclosures, in order (open state kept across re-renders): "Closed airports (3)" (per airport
@@ -1329,9 +1387,13 @@ one line each, that open in place:
   8 h / 12 h", "Write the handover"; the latest brief, its read-back and "Printable page".
 - "Safety risk assessment (SRA)": one region select, regions with an active volcano first and
   marked "(active volcano)", and "Draft SRA".
-- "Pilot ash reports (VAR): 12 flights": one row per exposed flight ("RFA1225 · Anak Krakatau ·
-  Keep watching" + "Draft VAR"); with none, "None needed: no RFA flight is in or heading into an
-  ash area."
+- "Pilot ash reports (VAR): 12 flights": one row per flight in or heading into TEPHRA's area now
+  ("RFA1225 · Anak Krakatau · Keep watching" + "Draft VAR"). The set is the Wall's: the exposed
+  planes of the `/api/wall` snapshot and the `aircraft` stream event (`app.exposedIds`), matched to
+  each flight's newest advisory that code has not replaced, so the count equals the Wall's flight
+  count and every row is one the server accepts. Until the aircraft layer is read: "Pilot ash
+  reports (VAR)" with "Reading the flights in or heading into the ash…"; with none, "None needed: no
+  RFA flight is in or heading into an ash area."
 
 A failed draft shows its reason inside its starter (opened). Opening a document is unchanged (the
 wide sheet with sign lines and the printable page).
