@@ -18,7 +18,7 @@ import {
   setServerTime,
 } from './desk/format.js';
 import { SESSION_ENDED, hideLogin, initLogin, setPending, showLogin } from './desk/login.js';
-import { breakdownText, flashNew, renderQueue, showMostUrgent, updateTimes } from './desk/queue.js';
+import { breakdownText, flashNew, renderQueue, showAllDrafts, showMostUrgent, updateTimes } from './desk/queue.js';
 import { closeSheet, onSheetClick, openSheet, sheetBusy, sheetOpenFor, showStamp, syncSheet, updateSheetTimes } from './desk/review.js';
 import { app, draftList } from './desk/state.js';
 import { toast } from './desk/toast.js';
@@ -114,7 +114,22 @@ async function loadCones() {
   if (res.ok && res.data && res.data.snapshot) {
     applyActiveRegions(res.data.snapshot.volcanoes);
     applyCones(res.data.snapshot.cones);
+    applyExposed(res.data.snapshot.aircraft);
   }
+}
+
+// The flights in or heading into TEPHRA's area now ("hex:volcano_id"), from the Wall's aircraft
+// layer: Paperwork's VAR list is exactly these, so its count matches the Wall (review 1, item 3)
+// and the server accepts every row (a VAR needs the flight in the current exposure set).
+function applyExposed(fc) {
+  if (!fc || !Array.isArray(fc.features)) return;
+  const ids = new Set();
+  for (const f of fc.features) {
+    const p = f && f.properties;
+    if (p && p.exposed === true && typeof p.hex === 'string' && p.volcano_id != null) ids.add(`${p.hex}:${p.volcano_id}`);
+  }
+  app.exposedIds = ids;
+  if (app.tab === 'docs' && app.me) renderDocs();
 }
 
 // Paperwork lists the regions with an active volcano first (R10.7): a region is active when an
@@ -204,6 +219,7 @@ function openEvents() {
   });
   source.addEventListener('advisory', (e) => applyAdvisory(parseEvent(e), { stream: true }));
   source.addEventListener('cones', (e) => applyCones(parseEvent(e)));
+  source.addEventListener('aircraft', (e) => applyExposed(parseEvent(e)));
   source.addEventListener('budget', (e) => setBudget(parseEvent(e)));
   source.addEventListener('ai_failure', (e) => {
     if (app.me) onFailureEvent(parseEvent(e));
@@ -492,12 +508,13 @@ async function decisionToast(adv) {
   const src = String(adv.header || '').split('\n').filter((l) => l.startsWith('SRC ')).slice(0, 2);
   const nextUp = draftList().sort(byUrgency)[0];
   const nextLine = nextUp ? [`Next: ${nextUp.proxy_flight} · ${entryShort(nextUp, activeNow())}`] : [];
-  const t = toast({ tone: adv.status === 'REJECTED' ? 'rejected' : 'ok', title: toastTitle(adv), lines: [...src, ...nextLine], ttl: DECISION_TOAST_MS });
+  const note = nextLine[0] || '';
+  const t = toast({ tone: adv.status === 'REJECTED' ? 'rejected' : 'ok', title: toastTitle(adv), note, lines: src, ttl: DECISION_TOAST_MS });
   const res = await api(PATHS.audit(adv.id));
   const entries = res.ok && res.data && Array.isArray(res.data.entries) ? res.data.entries : [];
   const entry = entries.find((e) => e && e.action === adv.status);
-  if (entry) t.setLines([...src, ...nextLine], `AUDIT ${entry.action} ${entry.actor} ${hhmmz(entry.at)}`);
-  else t.setLines([...src, res.ok ? 'Audit entry not listed yet: see History under Decided while this page was open.' : "Can't load the audit line: see History under Decided while this page was open.", ...nextLine]);
+  if (entry) t.setLines(src, `AUDIT ${entry.action} ${entry.actor} ${hhmmz(entry.at)}`);
+  else t.setLines([...src, res.ok ? 'Audit entry not listed yet: see History under Decided while this page was open.' : "Can't load the audit line: see History under Decided while this page was open."]);
 }
 
 // --- deep link (R10.3): #review/<id> selects a draft, #tab/<key> switches tab ------------------
@@ -531,6 +548,8 @@ async function pendingLogin() {
   if (!app.me && readHash() && readHash().review === r.review && adv) setPending(`Sign in to review ${adv.proxy_flight}.`);
 }
 
+let routeToast = null;
+
 async function route() {
   const r = readHash();
   if (!r) return;
@@ -559,7 +578,9 @@ async function route() {
     const res = await api(PATHS.audit(id));
     gone = res.ok && res.data && Array.isArray(res.data.entries) && res.data.entries.length === 0;
   }
-  toast({ tone: 'caution', title: gone ? 'This advisory no longer exists.' : 'This advisory is no longer a draft.' });
+  // It is about the Decide list: leaving that tab dismisses it (review 1, item 15).
+  routeToast?.dismiss();
+  routeToast = toast({ tone: 'caution', title: gone ? 'This advisory no longer exists.' : 'This advisory is no longer a draft.' });
   showMostUrgent();
   const top = draftList().sort(byUrgency)[0];
   if (top && isWide()) selectDraft(top.id, { focus: false });
@@ -733,6 +754,10 @@ function measure() {
 // --- tabs, extras, badges -------------------------------------------------------------------
 
 function onTab(name, { changed, focus }) {
+  if (changed && name !== 'queue' && routeToast) {
+    routeToast.dismiss();
+    routeToast = null;
+  }
   measure();
   if (name === 'ask') {
     focusAsk();
@@ -854,6 +879,12 @@ function wire() {
       renderQueue();
       loadDrafts();
     }
+  });
+  byId('cards-all').addEventListener('click', () => {
+    showAllDrafts();
+    // focus moves to the first row that was hidden
+    const first = byId('cards').querySelectorAll('li:not(.is-leaving) .card')[5];
+    if (first) first.focus();
   });
   byId('refresh').addEventListener('click', () => {
     loadDrafts();

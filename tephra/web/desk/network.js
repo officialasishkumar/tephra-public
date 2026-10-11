@@ -400,7 +400,9 @@ function confirmApprove(p) {
     title: 'Approve the airport plan?',
     body: el('div', { class: 'stack' },
       el('p', { class: 'lead', text: chosenOf(p) ? `Plan: ${scenarioName(chosenOf(p).label)}` : 'Recommended plan' }),
-      t ? el('dl', { class: 'dstats' }, stat('Cancelled', t.cancelled_flights), stat('Delayed', t.delayed_flights), stat('Swapped', t.swapped_flights), stat('Passengers', t.pax_affected.toLocaleString('en-US')), stat('Cost', fmtUsd(t.total_usd))) : null,
+      // One plain sentence instead of five caps tiles (review 1, item 15): the confirm step repeats
+      // the facts, the plan card above holds the full numbers.
+      t ? el('p', { class: 'confirm__facts', text: `Cancels ${t.cancelled_flights} flight${t.cancelled_flights === 1 ? '' : 's'}, delays ${t.delayed_flights}${t.swapped_flights ? ` and swaps aircraft on ${t.swapped_flights}` : ''} · ${t.pax_affected.toLocaleString('en-US')} passengers affected · estimated cost ${fmtUsd(t.total_usd)}.` }) : null,
       el('p', { class: 'note', text: `Queues the plan on TEPHRA's own outbound queue under ${app.me ? app.me.name : 'your name'}. Nothing is sent to an airline system. You can then draft crew and passenger messages.` }), msg),
     footer: go,
   });

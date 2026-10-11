@@ -2878,7 +2878,9 @@ textarea.field {
     border: 1px solid var(--c-line-2);
     border-radius: var(--radius-lg);
     background: var(--c-surface-1);
-    overflow: hidden;
+    /* clip, not hidden: a hidden box can still be scrolled by scrollIntoView, which pushed the
+       header and body out and left only the bar (review 1, item 15) */
+    overflow: clip;
     box-shadow: var(--shadow-2);
   }
 
@@ -3323,7 +3325,8 @@ body[data-review="1"] .tabbar {
   inset: 0;
   width: 100%;
   max-width: 100%;
-  height: auto;
+  /* fit-content, not auto: with inset 0 an auto height stretched a four-line confirm to ~800 px */
+  height: fit-content;
   max-height: 92dvh;
   margin: auto 0 0;
   padding: 0;
@@ -6586,4 +6589,100 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   text-overflow: clip;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+/* --- review round 1 ----------------------------------------------------------------- */
+
+/* The decision receipt (item 9): the plain line and "Next: …"; machine text folds away. */
+.toast__note {
+  margin: 4px 0 0 28px;
+  font-size: var(--fs-2);
+  color: var(--c-text-2);
+}
+
+.toast__tech {
+  margin: var(--sp-2) 0 0 28px;
+}
+
+.toast__tech > summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  font-size: var(--fs-1);
+  color: var(--c-text-2);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.toast__tech .toast__audit {
+  margin: 4px 0 0;
+}
+
+/* the receipt title at body size, so the toast is two or three short lines */
+.toast .toast__title {
+  font-size: var(--fs-3);
+}
+
+/* Rows: a caution is a shape and a short word, never a bare icon (item 15). */
+.row__mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-1);
+  color: var(--c-caution);
+  white-space: nowrap;
+}
+
+/* "Show all 38" under the first five rows (item 8). */
+.cards__all {
+  align-self: flex-start;
+  min-height: var(--tap-min);
+  margin-top: var(--sp-1);
+  font-size: var(--fs-2);
+}
+
+.cards__item[hidden] {
+  display: none;
+}
+
+/* 1100 px and up, a draft open in the right pane: the Next decision card folds to its row,
+   so the same advisory is never shown twice at equal weight (item 8). */
+@media (min-width: 1100px) {
+  .desk[data-view="review"] .next__card {
+    gap: 4px;
+  }
+
+  .desk[data-view="review"] .next__card .next__meta,
+  .desk[data-view="review"] .next__card .next__body,
+  .desk[data-view="review"] .next__card .next__writer,
+  .desk[data-view="review"] .next__card .next__src,
+  .desk[data-view="review"] .next__card .next__ident {
+    display: none;
+  }
+
+  .desk[data-view="review"] .next__card .next__flight {
+    font-size: var(--fs-4);
+  }
+
+  .desk[data-view="review"] .next__card .next__action {
+    font-size: var(--fs-3);
+  }
+
+  .desk[data-view="review"] .next__card.is-current .next__go {
+    display: none;
+  }
+
+  .desk[data-view="review"] .next__card:not(.is-current) .next__go {
+    min-height: 40px;
+    margin-top: 4px;
+  }
+}
+
+/* The airport-plan confirm: the facts as one sentence (item 15). */
+.confirm__facts {
+  font-family: var(--font-sans);
+  font-size: var(--fs-3);
+  line-height: var(--lh-body, 1.5);
+  color: var(--c-text-1);
 }

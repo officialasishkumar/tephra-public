@@ -66,15 +66,18 @@ function delegations(run) {
 const stateChip = (tone, shape, word, title) =>
   el('span', { class: `chip chip--d-${tone}`, title }, icon(shape, 'st'), el('span', { text: word }));
 
+// The stub's reason is code text ("NO MODEL: urgency order"), the same for every item: it is said
+// once above the list ("In urgency order (AI off)"), not under each item (review 1, item 14).
+const STUB_WHY = /^NO MODEL: urgency order$/;
+
 function priority(run, p, stub) {
   const item = run.worklist.find((i) => i.id === p.item_id);
-  // The stub's reason is code text ("NO MODEL: urgency order"): said in plain words (R12.7).
-  const why = stub && /^NO MODEL: urgency order$/.test(p.why) ? 'In urgency order (AI off)' : p.why;
+  const why = stub && STUB_WHY.test(p.why) ? null : p.why;
   return el('li', { class: 'dcard__p' },
     el('span', { class: 'dcard__plabel' },
       item && item.mandatory ? el('span', { class: 'dcard__must', text: 'Must do' }) : null,
       labelOf(run, p.item_id)),
-    el('span', { class: `dcard__why${stub ? '' : ' dcard__ai'}`, text: why }));
+    why ? el('span', { class: `dcard__why${stub ? '' : ' dcard__ai'}`, text: why }) : null);
 }
 
 // Failed results always show; the first two good ones show, the rest sit behind a disclosure.
@@ -162,7 +165,7 @@ function buildCard(run) {
     append(more, [
       stub ? null : el('div', { class: 'dcard__ai' }, aiChip(run.model_id, run.llm_backend, { sm: true })),
       el('p', { class: `dcard__summary${stub ? '' : ' dcard__ai'}`, text: summary }),
-      b.priorities.length ? el('h3', { class: 'dcard__h', text: 'Do first' }) : null,
+      b.priorities.length ? el('h3', { class: 'dcard__h', text: stub && b.priorities.every((p) => STUB_WHY.test(p.why)) ? 'Do first · in urgency order (AI off)' : 'Do first' }) : null,
       b.priorities.length ? el('ol', { class: 'dcard__plist', 'aria-label': 'Priorities' }, b.priorities.map((p) => priority(run, p, stub))) : null,
       b.watch.length ? el('h3', { class: 'dcard__h', text: 'Watch' }) : null,
       b.watch.length ? el('ul', { class: 'dcard__wlist dcard__ai' }, b.watch.map((w) => el('li', { text: w }))) : null,
@@ -178,10 +181,11 @@ function buildCard(run) {
         el('li', {}, el('span', { class: 'dcard__plabel', text: labelOf(run, d.item_id) }), el('span', { class: 'dcard__why dcard__ai', text: d.reason })))));
   }
   const mandatory = run.worklist.filter((i) => i.mandatory).length;
-  more.append(el('p', { class: 'dcard__meta', text: `${stub ? 'AI off (NO MODEL)' : run.model_id} · ${plural(run.turns, 'turn')} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · ${run.trigger === 'adsb' ? 'new aircraft' : 'tick'} ${hhmmz(run.finished_at)}${run.replay ? ' · recorded' : ''}` }));
-  if (b && stub && b.summary) {
-    more.append(el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: b.summary })));
-  }
+  // The run's machine facts (model, turns, offered, trigger) sit under Technical detail (item 14).
+  const meta = `${stub ? 'AI off (NO MODEL)' : run.model_id} · ${plural(run.turns, 'turn')} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · ${run.trigger === 'adsb' ? 'new aircraft' : 'tick'} ${hhmmz(run.finished_at)}${run.replay ? ' · recorded' : ''}`;
+  more.append(el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }),
+    el('p', { class: 'mono tech__line dcard__meta', text: meta }),
+    b && stub && b.summary ? el('p', { class: 'mono tech__line', text: b.summary }) : null));
   card.append(more);
 
   toggle.addEventListener('click', () => {

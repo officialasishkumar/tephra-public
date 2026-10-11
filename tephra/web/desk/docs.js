@@ -81,7 +81,10 @@ const flightsForVar = () => {
     const prev = newest.get(a.flight_id);
     if (!prev || a.status === 'DRAFT' || (prev.status !== 'DRAFT' && t(a) >= t(prev))) newest.set(a.flight_id, a);
   }
-  return [...newest.values()].filter((a) => a.status !== 'SUPERSEDED');
+  const live = [...newest.values()].filter((a) => a.status !== 'SUPERSEDED');
+  // Only flights still in or heading into the area (the Wall's count). Until the aircraft layer is
+  // read the list is empty and says it is reading, never "none needed".
+  return app.exposedIds ? live.filter((a) => app.exposedIds.has(a.flight_id)) : [];
 };
 
 function draftBtn(key, label, onclick) {
@@ -223,8 +226,8 @@ export function renderDocs() {
   varKids.push(flights.length ? el('ul', { class: 'dflights' }, flights.map((a) => el('li', { class: 'dflight' },
     el('span', { class: 'dflight__name' }, el('span', { class: 'mono', text: a.proxy_flight }), el('span', { class: 'dflight__sub', text: `${a.volcano_name} · ${actionShort(a)}` })),
     draftBtn(`var:${a.flight_id}`, 'Draft VAR', () => draftVar(a)))))
-    : el('p', { class: 'note', text: 'None needed: no RFA flight is in or heading into an ash area.' }));
-  parts.push(starter('var', `Pilot ash reports (VAR): ${flights.length} flight${flights.length === 1 ? '' : 's'}`, flights.length ? 'one per flight in or heading into the ash' : 'none needed right now', varKids, { open: (draftError && draftError.kind === 'VAR') || drafting.startsWith('var:') }));
+    : el('p', { class: 'note', text: app.exposedIds ? 'None needed: no RFA flight is in or heading into an ash area.' : 'Reading the flights in or heading into the ash…' }));
+  parts.push(starter('var', app.exposedIds ? `Pilot ash reports (VAR): ${flights.length} flight${flights.length === 1 ? '' : 's'}` : 'Pilot ash reports (VAR)', flights.length ? 'one per flight in or heading into the ash' : app.exposedIds ? 'none needed right now' : 'reading the flights…', varKids, { open: (draftError && draftError.kind === 'VAR') || drafting.startsWith('var:') }));
 
   panel.replaceChildren(...parts);
 }

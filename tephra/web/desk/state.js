@@ -20,6 +20,7 @@ export const app = {
   notices: [], // NoticeReading, newest first
   budget: null, // BudgetView
   activeRegions: new Set(), // region keys with an active volcano (Paperwork's SRA select)
+  exposedIds: null, // Set of "hex:volcano_id" in or heading into TEPHRA's area now; null until read
   tab: 'queue', // queue | ask | network | docs
   askFlight: null, // { id, proxy } the flight Ask is about
   listLoaded: false,

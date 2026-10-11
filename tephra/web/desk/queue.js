@@ -26,6 +26,13 @@ import { draftMessages } from './messages.js';
 import { app, draftList } from './state.js';
 
 const OLD_DRAFT_MIN = 10;
+const ROWS_FIRST = 5;
+let showAllRows = false;
+
+export function showAllDrafts() {
+  showAllRows = true;
+  renderQueue();
+}
 const NEW_TAG_MS = 120000;
 const CLOSED_MAX = 8;
 
@@ -85,14 +92,26 @@ function ageMinutes(adv, now) {
 
 // Only what needs the dispatcher's care stays on the card (R10.4): the area mode, model and
 // REPLAY chips moved to the header and the review's "Why". HYPOTHESIS is a safety rule, so it stays.
+// Each caution: [shape, the card's words, the row's short word]. A row shows the short word next
+// to its shape, never a bare icon (review 1, item 15).
 function cautions(adv, now) {
   const out = [];
-  if (adv.plume_mode === 'HYPOTHESIS') out.push(['st-caution', 'HYPOTHESIS: only MONITOR or HOLD']);
-  if (needsCarefulRead(adv)) out.push(['st-caution', 'Needs a careful read']);
-  if (anyStaleSource(adv)) out.push(['st-stale', 'Sources stale']);
+  if (adv.plume_mode === 'HYPOTHESIS') out.push(['st-caution', 'HYPOTHESIS: only MONITOR or HOLD', 'hypothesis']);
+  if (needsCarefulRead(adv)) out.push(['st-caution', 'Needs a careful read', 'read carefully']);
+  if (anyStaleSource(adv)) out.push(['st-stale', 'Sources stale', 'sources stale']);
   const age = ageMinutes(adv, now);
-  if (age > OLD_DRAFT_MIN) out.push(['i-clock', `Drafted ${Math.floor(age)} min ago: entry time may have moved`]);
+  if (age > OLD_DRAFT_MIN) out.push(['i-clock', `Drafted ${Math.floor(age)} min ago: entry time may have moved`, `${Math.floor(age)} min old`]);
   return out;
+}
+
+// The row's caution: the most important one's shape and short word, "+n" for the rest.
+function rowMark(marks) {
+  if (!marks.length) return null;
+  const all = marks.map((m) => m[1]).join('; ');
+  return el('span', { class: 'row__mark', title: all },
+    icon(marks[0][0], 'st'),
+    el('span', { class: 'row__markword', 'aria-hidden': 'true', text: `${marks[0][2]}${marks.length > 1 ? ` +${marks.length - 1}` : ''}` }),
+    el('span', { class: 'sr-only', text: all }));
 }
 
 function tagsNode(adv, now) {
@@ -148,7 +167,7 @@ function buildRow(adv) {
     el('span', { class: 'row__flight', text: adv.proxy_flight }),
     el('span', { class: `row__entry row__entry--${entryState(adv, now).kind}`, 'data-slot': 'entry', text: entryShort(adv, now) }),
     el('span', { class: 'row__action', text: actionShort(adv) }),
-    el('span', { class: 'row__marks', 'data-slot': 'tags' }, marks.length ? el('span', { class: 'row__mark', title: marks.map((m) => m[1]).join('; ') }, icon('st-caution', 'st'), el('span', { class: 'sr-only', text: marks.map((m) => m[1]).join('; ') })) : null),
+    el('span', { class: 'row__marks', 'data-slot': 'tags' }, rowMark(marks)),
     el('span', { class: 'card__new', 'data-slot': 'new', hidden: true }, el('span', { text: 'New' })),
     icon('i-chevron-right', 'icon row__go'));
   return el('li', { class: 'cards__item', 'data-id': adv.id, 'data-version': String(adv.version), 'data-band': band(coneFor(adv)) }, button);
@@ -173,6 +192,11 @@ export function updateTimes() {
   for (const li of byId('cards').children) {
     const adv = app.drafts.get(li.dataset.id);
     if (!adv) continue;
+    const marks = li.querySelector('.row__marks');
+    if (marks) {
+      const m = rowMark(cautions(adv, now));
+      if ((marks.textContent || '') !== (m ? m.textContent : '')) marks.replaceChildren(...(m ? [m] : []));
+    }
     const entry = li.querySelector('[data-slot="entry"]');
     if (entry) {
       entry.textContent = entryShort(adv, now);
@@ -290,6 +314,9 @@ export function renderQueue() {
   for (const li of [...list.children]) {
     if (!wanted.has(li.dataset.id) && !li.classList.contains('is-leaving')) leave(li);
   }
+  // At most ROWS_FIRST rows until "Show all n" (review 1, item 8), so the one-line links under
+  // the list (airport plan, Duty Officer, messages) stay near the top. The selected row is never hidden.
+  const capped = !showAllRows && rest.length > ROWS_FIRST + 1;
   rest.forEach((adv, index) => {
     let li = list.querySelector(`li[data-id="${CSS.escape(adv.id)}"]`);
     if (!li || Number(li.dataset.version) !== adv.version || li.dataset.band !== band(coneFor(adv))) {
@@ -303,7 +330,13 @@ export function renderQueue() {
     if (adv.id === app.selectedId) btn.setAttribute('aria-current', 'true');
     else btn.removeAttribute('aria-current');
     li.classList.toggle('is-busy', app.inFlight.has(adv.id));
+    li.hidden = capped && index >= ROWS_FIRST && adv.id !== app.selectedId;
   });
+  const allBtn = byId('cards-all');
+  if (allBtn) {
+    allBtn.hidden = !capped;
+    if (capped) allBtn.querySelector('span').textContent = `Show all ${rest.length}`;
+  }
   updateTimes();
   renderClosed();
 }

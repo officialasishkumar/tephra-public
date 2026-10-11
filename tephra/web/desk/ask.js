@@ -164,12 +164,17 @@ function setBusy(on) {
 }
 
 // The newest exchange is the first one under the composer: keep the composer and it in view.
-function scrollEnd() {
+// Brings the newest turn into view. With `target` (the answer that just landed) its first lines are
+// put just under the sticky header whenever they would start in the lower part of the screen, so
+// an answer never lands below the fold on a phone (review 1, item 15).
+function scrollEnd(target = null) {
   window.requestAnimationFrame(() => {
-    const first = log.firstElementChild;
-    if (!first) return;
-    const r = first.getBoundingClientRect();
-    if (r.top > window.innerHeight - 120) window.scrollTo({ top: window.scrollY + r.top - 160, behavior: reducedMotion() ? 'auto' : 'smooth' });
+    const node = target && target.isConnected ? target : log.firstElementChild;
+    if (!node) return;
+    const r = node.getBoundingClientRect();
+    const head = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--head-h')) || 108;
+    const low = target ? r.top > window.innerHeight * 0.5 || r.top < head : r.top > window.innerHeight - 120;
+    if (low) window.scrollTo({ top: Math.max(0, window.scrollY + r.top - head - 16), behavior: reducedMotion() ? 'auto' : 'smooth' });
   });
 }
 
@@ -215,7 +220,7 @@ function finish(wait, res, question) {
     const node = answerCard(res.data);
     wait.replaceWith(node);
     announce(res.data.status === 'refused' ? `Not in the evidence TEPHRA has. ${res.data.refusal_reason || ''}` : res.data.answer);
-    scrollEnd();
+    scrollEnd(node);
     return;
   }
   let card;
@@ -223,9 +228,10 @@ function finish(wait, res, question) {
   else if (res.status === 401) card = unavailableCard('Your session has ended. Sign in again.', { title: 'Not asked', instead: '' });
   else if (res.status === 0) card = unavailableCard("Can't reach the server.", { title: 'Not asked', instead: 'Check your connection and ask again.', onRetry: () => { composer.input.value = question; submit(); } });
   else card = unavailableCard((res.data && res.data.detail) || `HTTP ${res.status}`, { title: 'Not answered', instead: '' });
-  wait.replaceWith(el('div', { class: 'amsg amsg--ai' }, card));
+  const failNode = el('div', { class: 'amsg amsg--ai' }, card);
+  wait.replaceWith(failNode);
   announce('The question was not answered.');
-  scrollEnd();
+  scrollEnd(failNode);
 }
 
 // --- the answer card -------------------------------------------------------------------------
