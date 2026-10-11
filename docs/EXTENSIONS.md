@@ -326,3 +326,13 @@ turn-point labels, satellite-check card with box overlay, notices with language 
 "verified" state, recovery board panel, Proof panel (backtest), AI activity tray (8 chips with
 status and budget left). Both follow `docs/UI-DESIGN.md` tokens, CSP (no inline script,
 `textContent` only), keyboard and screen-reader access, phone width 360 px.
+
+### Duty Officer (added after WP1-WP11)
+
+The coordinator agent that orders and delegates each tick's AI work: code builds the work list
+(plume reads, flights to plan, closed airports, SRA), the Duty Officer (ADK, lite tier) hands
+each item to its specialist through a tool, defers optional work with a reason and writes a
+checked brief; mandatory work it leaves undone goes to the Desk. Contract: MODULES.md section
+5.18; flow: docs/ARCHITECTURE.md step 8. Files: `tephra/agents/{duty_officer,adk_runtime}.py`,
+`tephra/duty.py`, `tephra/api/routes_duty.py`. The shared `adk_runtime.ModelGuard` replaced the
+three copies of the budget guard in the planner, Ask TEPHRA and the recovery agent.

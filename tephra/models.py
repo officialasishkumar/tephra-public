@@ -281,6 +281,7 @@ class TraceStage(StrEnum):
     RECOVERY = "RECOVERY"
     MESSAGES = "MESSAGES"
     DOCS = "DOCS"
+    DUTY = "DUTY"
     SYSTEM = "SYSTEM"
 
 
@@ -308,6 +309,7 @@ class SseEvent(StrEnum):
     RECOVERY = "recovery"
     MESSAGE = "message"
     DOC = "doc"
+    DUTY = "duty"
     BUDGET = "budget"
     HEARTBEAT = "heartbeat"
 
@@ -994,7 +996,7 @@ class PlumeAssessment(TephraModel):
     llm_backend: LlmBackendName
     model_id: str
     prompt_hash: str
-    outcome: Literal["ACCEPTED", "REPAIRED", "MODEL_FAILED", "OFFICIAL_ONLY", "STUB"]
+    outcome: Literal["ACCEPTED", "REPAIRED", "MODEL_FAILED", "OFFICIAL_ONLY", "PENDING", "STUB"]
     attempts: int = Field(
         ge=0, description="Model calls made: 0 (stub or OFFICIAL_ONLY), 1, or 2 with repair"
     )
@@ -1178,6 +1180,10 @@ class FuelPolicy(PolicyModel):
     divert_extra_min: PolicyValue
 
 
+class DutyPolicy(PolicyModel):
+    rerun_min: PolicyValue
+
+
 class DraftPolicy(PolicyModel):
     """How long an open draft waits after its flight leaves the cone before it is retired."""
 
@@ -1242,6 +1248,7 @@ class OperatorPolicy(PolicyModel):
     recovery: RecoveryPolicy
     fuel: FuelPolicy
     drafts: DraftPolicy
+    duty: DutyPolicy
     source_order: list[SourceRule] = Field(min_length=1)
     citations: list[PolicyCitation] = Field(min_length=1)
 
@@ -1282,6 +1289,7 @@ class OperatorPolicy(PolicyModel):
             "recovery": self.recovery,
             "fuel": self.fuel,
             "drafts": self.drafts,
+            "duty": self.duty,
         }
         return {
             f"{key}.{name}": getattr(block, name)
@@ -1539,6 +1547,85 @@ class Advisory(TephraModel):
         return "\n".join(part for part in (self.header, self.final_body, self.cost_note) if part)
 
 
+class DutyItemKind(StrEnum):
+    ASSESS = "ASSESS"
+    """Read the plume (Satellite Reader, then Plume Reader) and rebuild the cone."""
+    PLAN = "PLAN"
+    """Plan and draft advice for one exposed flight (Exposure Planner, Dispatch Drafter)."""
+    RECOVER = "RECOVER"
+    """Re-plan the RFA network for a changed set of closed airports (recovery agent)."""
+    SRA = "SRA"
+    """Draft the safety risk assessment for a region newly carrying exposed flights."""
+
+
+class DutyItem(TephraModel):
+    """One piece of AI work code found due this tick, offered to the Duty Officer."""
+
+    id: str = Field(description="stable_id('DI', kind, subject, version): one per piece of work")
+    kind: DutyItemKind
+    subject: str = Field(description="volcano id, flight id, 'network' or region key")
+    label: str = Field(description="Code-written, e.g. 'RFA4238 inside the area now'")
+    mandatory: bool = Field(
+        description="Code requires it this run: undispatched, it goes to the Desk"
+    )
+    urgency: int = Field(ge=0, description="0 is the most urgent")
+    volcano_id: str | None = None
+
+
+class DutyPriority(TephraModel):
+    item_id: str
+    why: str = Field(description="One line, operational language, no clock times")
+
+
+class DutyBrief(TephraModel):
+    """What the Duty Officer submits (its ``submit_brief`` tool arguments)."""
+
+    summary: str = Field(description="The operational picture in at most three sentences")
+    priorities: list[DutyPriority] = Field(description="Item ids in the order they matter")
+    watch: list[str] = Field(default_factory=list, description="At most four things to watch")
+
+
+class DutyDispatch(TephraModel):
+    """One delegation to a specialist, recorded by code as it ran."""
+
+    tool: str
+    item_ids: list[str]
+    ok: bool
+    result: str = Field(description="Code-written summary of what the specialist returned")
+    ms: int
+
+
+class DutyDeferral(TephraModel):
+    item_id: str
+    reason: str
+
+
+class DutyRun(TephraModel):
+    """One Duty Officer run: the work list it was given, what it delegated, and its brief."""
+
+    id: str = Field(description="'DUTY-' + 12 hex chars")
+    started_at: UtcDatetime
+    finished_at: UtcDatetime
+    replay: bool
+    trigger: Literal["tick", "adsb"]
+    worklist: list[DutyItem]
+    dispatches: list[DutyDispatch] = Field(default_factory=list)
+    deferred: list[DutyDeferral] = Field(default_factory=list)
+    brief: DutyBrief | None = None
+    outcome: Literal["ACCEPTED", "REPAIRED", "MODEL_FAILED", "STUB"]
+    llm_backend: LlmBackendName
+    model_id: str
+    prompt_hash: str
+    turns: int = 0
+    validation_errors: list[str] = Field(default_factory=list)
+    undispatched: list[str] = Field(
+        default_factory=list, description="Mandatory item ids left undone; each went to the Desk"
+    )
+
+    def dispatched_ids(self) -> set[str]:
+        return {item_id for dispatch in self.dispatches for item_id in dispatch.item_ids}
+
+
 class AiFailure(TephraModel):
     """An exposed flight the AI could not plan or draft for. There is no substitute plan or
     template: the Desk shows it so a dispatcher handles the flight by hand."""
@@ -1546,7 +1633,7 @@ class AiFailure(TephraModel):
     id: str = Field(description="stable_id('AIF', flight_id, cone_id, stage)")
     created_at: UtcDatetime
     replay: bool
-    stage: Literal["planner", "drafter"]
+    stage: Literal["duty_officer", "planner", "drafter"]
     reason: str = Field(description="Code-written: the error or the checks that failed")
     model_id: str
     volcano_id: str
@@ -1662,6 +1749,7 @@ class TickReport(TephraModel):
     assessments_run: int = 0
     satellite_reads: int = 0
     recovery_plans: int = 0
+    duty_runs: int = 0
     exposed_flights: int = 0
     drafts_created: int = 0
     drafts_superseded: int = 0
@@ -1866,6 +1954,7 @@ class WallSnapshot(TephraModel):
     )
     situations: list[SituationCard]
     overlays: Overlays
+    duty: DutyRun | None = Field(default=None, description="The newest Duty Officer run")
     satellite: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Latest SatelliteReading per active volcano (agents.satellite_reader)",

@@ -51,6 +51,7 @@ class Collection(StrEnum):
     MESSAGES = "messages"  # message id -> CrewPaxMessage (DRAFT -> APPROVED/EDITED/REJECTED)
     DOCS = "docs"  # doc id -> SraDraft | VarDraft | HandoverBrief
     BACKTEST = "backtest"  # "latest" -> BacktestScorecard
+    DUTY = "duty"  # run id -> DutyRun
     OUTBOUND = "outbound"  # message id -> OutboundMessage
     AUDIT = "audit"  # entry id -> AuditEntry (append-only)
     FEED_STATE = "feed_state"  # FeedId value -> FeedHealth

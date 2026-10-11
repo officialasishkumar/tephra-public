@@ -56,6 +56,12 @@ from tephra.models import (
     AuditAction,
     Discrepancy,
     DiscrepancyKind,
+    DutyBrief,
+    DutyDispatch,
+    DutyItem,
+    DutyItemKind,
+    DutyPriority,
+    DutyRun,
     FeedHealth,
     FeedId,
     FeedStatus,
@@ -181,6 +187,9 @@ class GeminiStandIn:
 
     def model_id(self, tier: str) -> str:
         return SCRIPTED_MODEL
+
+    async def pace(self, tier: str) -> None:
+        return None
 
     def reserve(self, tier: str) -> bool:
         self.reserved.append(tier)
@@ -389,6 +398,7 @@ class FakeRuntime:
     assessments: dict[str, PlumeAssessment] = field(default_factory=dict)
     cones: dict[str, HazardCone] = field(default_factory=dict)
     exposed: dict[str, Any] = field(default_factory=dict)
+    duty: Any = None
     published: list[tuple[str, Any]] = field(default_factory=list)
     traces: list[str] = field(default_factory=list)
 
@@ -627,6 +637,49 @@ async def test_ai_failures_lists_the_open_ones(runtime: FakeRuntime) -> None:
     result = await AskToolkit(runtime).ai_failures()
     assert result["count"] == 1
     assert result["open_failures"][0]["proxy_flight"] == HIGH_PROXY
+
+
+async def test_duty_brief_reads_the_duty_officers_latest_run(runtime: FakeRuntime) -> None:
+    assert (await AskToolkit(runtime).duty_brief()) == {"error": "THE DUTY OFFICER HAS NOT RUN YET"}
+    plan = DutyItem(
+        id="DI-plan",
+        kind=DutyItemKind.PLAN,
+        subject=f"{HIGH_HEX}:{VOLCANO.id}",
+        label=f"Plan {HIGH_PROXY} (Semeru): inside the area now",
+        mandatory=True,
+        urgency=0,
+        volcano_id=VOLCANO.id,
+    )
+    runtime.duty = DutyRun(
+        id="DUTY-0123456789ab",
+        started_at=AT,
+        finished_at=AT,
+        replay=False,
+        trigger="tick",
+        worklist=[plan],
+        dispatches=[
+            DutyDispatch(
+                tool="plan_flights", item_ids=["DI-plan"], ok=True, result="DRAFT HOLD", ms=900
+            )
+        ],
+        brief=DutyBrief(
+            summary="Semeru ash: one flight inside.",
+            priorities=[DutyPriority(item_id="DI-plan", why="inside the area")],
+            watch=["Semeru drift"],
+        ),
+        outcome="ACCEPTED",
+        llm_backend="gemini",
+        model_id="gemini-test-lite",
+        prompt_hash="0" * 64,
+    )
+    toolkit = AskToolkit(runtime)
+    result = await toolkit.duty_brief()
+    assert result["summary"] == "Semeru ash: one flight inside."
+    assert result["priorities"] == [
+        {"work": f"Plan {HIGH_PROXY} (Semeru): inside the area now", "why": "inside the area"}
+    ]
+    assert result["delegated"][0]["tool"] == "plan_flights"
+    assert result["left_undone_to_the_desk"] == []
 
 
 async def test_what_if_band_lists_flights_that_become_exposed(runtime: FakeRuntime) -> None:
@@ -906,6 +959,7 @@ async def test_the_instruction_carries_the_prompt_and_the_schema(
         "reroute_options",
         "feeds",
         "ai_failures",
+        "duty_brief",
         "what_if_band",
         "what_if_extent",
     }

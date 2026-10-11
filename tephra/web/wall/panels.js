@@ -68,6 +68,7 @@ const OUTCOME = {
   REPAIRED: "Accepted after one repair",
   MODEL_FAILED: "AI unavailable: official products only, nothing assessed beyond them",
   OFFICIAL_ONLY: "No model call needed: official products only",
+  PENDING: "Plume read queued for the Duty Officer: official products only until it runs",
 };
 const ACTOR = {
   code: ["i-code", "CODE"], gemini: ["i-model", "GEMINI"], adk: ["i-agent", "ADK"], stub: ["st-never", "NO MODEL"],
@@ -625,7 +626,7 @@ function areaSection(D, sit, ui) {
   const outcome = a?.outcome;
   const facts = el("dl", { class: "area__facts" },
     el("dt", { text: "Rule" }), el("dd", { text: "Never smaller than any valid official polygon" }),
-    el("dt", { text: "Read by" }), el("dd", { text: outcome === "STUB" || (!outcome && D.state.llm?.backend === "stub") ? OUTCOME.STUB : `${a && a.llm_backend !== "stub" && a.model_id ? a.model_id : D.state.llm?.label || "NO MODEL"} · ${OUTCOME[outcome] || "—"}` }),
+    el("dt", { text: "Read by" }), el("dd", { text: outcome === "STUB" || (!outcome && D.state.llm?.backend === "stub") ? OUTCOME.STUB : outcome === "PENDING" ? OUTCOME.PENDING : `${a && a.llm_backend !== "stub" && a.model_id ? a.model_id : D.state.llm?.label || "NO MODEL"} · ${OUTCOME[outcome] || "—"}` }),
     el("dt", { text: "Valid until" }), el("dd", { class: "mono", text: hhmmz(ms(cone.valid_to)) }));
   if (cone.mode !== "OFFICIAL") facts.append(el("dt", { text: "Confidence" }), el("dd", { text: `${Math.round((cone.confidence ?? 0) * 100)}% in the widening` }));
   const kids = [

@@ -849,6 +849,7 @@ def _include_feature_routers(app: FastAPI) -> None:
         routes_ask,
         routes_backtest,
         routes_comms,
+        routes_duty,
         routes_notices,
         routes_recovery,
         routes_regdocs,
@@ -861,6 +862,7 @@ def _include_feature_routers(app: FastAPI) -> None:
         routes_comms,
         routes_regdocs,
         routes_backtest,
+        routes_duty,
     ):
         app.include_router(module.router, prefix="/api")
 

@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from contextlib import suppress
 from typing import TYPE_CHECKING, Final
 
+from tephra.duty import dispatch_duty
 from tephra.feeds.registry import (
     CONTEXT_FEEDS,
     PRODUCT_FEEDS,
@@ -101,8 +102,10 @@ async def _tick_steps(runtime: "Runtime", reason: str) -> TickReport:
     await _poll_phase(runtime, CONTEXT_FEEDS, report)
     at = timeutil.now()
     await runtime.analyse(at, report)
-    await runtime.run_exposures(at, report)
+    await runtime.update_exposures(at, report)
     await runtime.run_recovery(at, report)
+    await dispatch_duty(runtime, at, report, trigger="tick")
+    await runtime.settle_drafts(at, report)
     runtime.count_quiet_tick()
     report.active_volcano_ids = sorted(active)
     report.finished_at = timeutil.now()

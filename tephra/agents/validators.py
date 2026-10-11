@@ -17,6 +17,7 @@ from tephra.models import (
     ALLOWED_ACTIONS,
     ActionKind,
     DraftText,
+    ExposedFlight,
     PlannedAction,
     PlannerContext,
     PlannerDecision,
@@ -311,9 +312,22 @@ def _body_problems(body: str, *, ctx: PlannerContext, plan: PlannedAction) -> li
         problems.append("BODY MUST NOT SAY CLOSED: TEPHRA WRITES COMPANY ADVISORIES, NOT NOTAMS")
     if not _VAR.search(upper):
         problems.append("BODY MUST ASK THE CREW FOR A VOLCANIC ACTIVITY REPORT (VAR)")
+    problems.extend(_flight_name_problems(upper, ctx.flight))
     problems.extend(clock_problems(text, "BODY"))
     problems.extend(_place_problems(upper, "BODY", ctx=ctx, plan=plan))
     problems.extend(_number_problems(text, "BODY", ctx=ctx, plan=plan))
+    return problems
+
+
+def _flight_name_problems(upper: str, flight: ExposedFlight) -> list[str]:
+    """The fictional airline's advisory names its RFA flight, never the real aircraft's
+    callsign it stands in for."""
+    problems: list[str] = []
+    if not _has_phrase(upper, flight.proxy_flight):
+        problems.append(f"BODY MUST NAME THE FLIGHT AS {flight.proxy_flight}")
+    callsign = (flight.callsign or "").upper()
+    if callsign and callsign != flight.proxy_flight and _has_phrase(upper, callsign):
+        problems.append(f"BODY MUST NOT NAME THE ADS-B CALLSIGN {callsign}")
     return problems
 
 

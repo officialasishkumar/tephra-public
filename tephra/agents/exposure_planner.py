@@ -12,7 +12,6 @@ REROUTE, which only picks one of the lateral routes ``tephra.geo.reroute`` compu
 """
 
 import asyncio
-import json
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -20,7 +19,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from tephra.agents.llm import LlmBackend, LlmPart, daily_quota_spent, prompt_hash
+from tephra.agents.adk_runtime import ModelGuard, summarise
+from tephra.agents.llm import LlmBackend, LlmPart, prompt_hash
 from tephra.agents.schemas import parse_json_model
 from tephra.agents.validators import (
     allowed_actions,
@@ -78,10 +78,8 @@ ADK_USER_ID: Final = "tephra-dispatch"
 
 MAX_MODEL_TURNS: Final = 10
 """Model calls allowed per planning turn (tool round trips included) before code stops it."""
-DAILY_QUOTA_SPENT: Final = "GEMINI DAILY QUOTA SPENT (429): LITE TIER CLOSED FOR THE QUOTA DAY"
 _RING_POINTS: Final = 64
 """Vertices of the buffer disc; its edges fall at most 0.03 NM inside the true circle."""
-_SUMMARY_CHARS: Final = 240
 
 PlanOutcome = Literal["ACCEPTED", "REPAIRED", "MODEL_FAILED", "STUB"]
 
@@ -717,7 +715,7 @@ async def _run_agent(
 
     from tephra.agents.adk_app import build_planner_agent
 
-    guard = _ModelGuard(llm)
+    guard = ModelGuard(llm, max_turns=MAX_MODEL_TURNS)
     agent = build_planner_agent(
         settings.model_lite,
         before_model_callback=guard,
@@ -751,44 +749,6 @@ async def _run_agent(
         await runner.close()
 
 
-class _ModelGuard:
-    """The daily budget in front of every ADK model turn.
-
-    As ``before_model_callback`` it takes each turn from the budget and caps turns; as
-    ``on_model_error_callback`` (``on_model_error``) it closes the lite tier for the quota day
-    when Gemini answers 429 for a per-day quota, which no retry clears. Either one answers in
-    the model's place to stop; with no function call in that answer, the run ends.
-    """
-
-    def __init__(self, llm: LlmBackend) -> None:
-        self._llm = llm
-        self.turns = 0
-        self.stop_reason: str | None = None
-
-    def __call__(self, callback_context: Any, llm_request: Any) -> Any:
-        self.turns += 1
-        if self.turns > MAX_MODEL_TURNS:
-            self.stop_reason = f"MODEL TURN LIMIT {MAX_MODEL_TURNS} REACHED"
-        elif not self._llm.reserve("lite"):
-            self.stop_reason = "budget_exhausted"
-        return None if self.stop_reason is None else _stop(self.stop_reason)
-
-    def on_model_error(self, callback_context: Any, llm_request: Any, error: Exception) -> Any:
-        if not daily_quota_spent(error):
-            return None
-        self._llm.exhaust("lite")
-        self.stop_reason = DAILY_QUOTA_SPENT
-        return _stop(self.stop_reason)
-
-
-def _stop(reason: str) -> Any:
-    from google.adk.models import LlmResponse
-    from google.genai import types
-
-    stop = types.Part(text=f"STOPPED: {reason}")
-    return LlmResponse(content=types.Content(role="model", parts=[stop]))
-
-
 class _ToolRecorder:
     """Pairs function calls with their responses and streams each one to the trace."""
 
@@ -805,7 +765,7 @@ class _ToolRecorder:
             self._pending[call.id or call.name] = (call.name, dict(call.args or {}))
         for response in event.get_function_responses():
             name, args = self._pending.pop(response.id or response.name, (response.name, {}))
-            summary = _summarise(response.response)
+            summary = summarise(response.response)
             self._records.append(ToolCallRecord(name=name, args=args, result_summary=summary))
             _emit(self._trace, self._ctx, "adk", f"{name}: {summary}", detail={"args": args})
 
@@ -928,11 +888,6 @@ def _decision_line(decision: PlannerDecision) -> str:
         ActionKind.REROUTE: f" {decision.reroute_id}",
     }.get(decision.action, "")
     return f"{decision.action.value}{target}"
-
-
-def _summarise(response: Any) -> str:
-    text = json.dumps(response, default=str, separators=(",", ":"), ensure_ascii=True)
-    return text if len(text) <= _SUMMARY_CHARS else text[: _SUMMARY_CHARS - 3] + "..."
 
 
 def _emit(

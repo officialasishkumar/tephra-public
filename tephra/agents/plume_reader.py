@@ -58,6 +58,9 @@ PROMPT_PATH: Final[Path] = Path(__file__).resolve().parent / "prompts" / "plume_
 
 AI_UNAVAILABLE: Final = "AI UNAVAILABLE"
 OFFICIAL_ONLY_NOTE: Final = "No model call was needed; official products only."
+PENDING_NOTE: Final = (
+    "Plume read queued for the Duty Officer; official products only until it runs."
+)
 
 STUB_VONA_WINDOW_H: Final = 6.0
 STUB_HALF_WIDTH_DEG: Final = 30.0
@@ -108,7 +111,7 @@ _NEGATIONS: Final = frozenset({"not", "never", "no", "cannot", "nor", "without",
 _SENTENCE_END: Final = re.compile(r"[.;!?\n]+")
 
 Actor = Literal["code", "gemini", "stub"]
-Outcome = Literal["ACCEPTED", "REPAIRED", "MODEL_FAILED", "OFFICIAL_ONLY", "STUB"]
+Outcome = Literal["ACCEPTED", "REPAIRED", "MODEL_FAILED", "OFFICIAL_ONLY", "PENDING", "STUB"]
 
 
 # --- the call ---------------------------------------------------------------------------
@@ -122,7 +125,11 @@ async def read_plume(
     settings: Settings,
     trace: TraceSink | None = None,
     call_model: bool = True,
+    pending: bool = False,
 ) -> PlumeAssessment:
+    """``call_model=False`` gives the official products only, with no model call;
+    ``pending=True`` does the same while the Duty Officer has the read queued (PENDING), so the
+    area never waits on the model and never shrinks below the official products."""
     system = _system_prompt()
     parts = build_parts(situation, images)
     p_hash = prompt_hash(system, parts)
@@ -132,6 +139,12 @@ async def read_plume(
     if dropped:
         report("code", f"Plume Reader: {len(dropped)} image(s) without a known source id not sent")
 
+    if pending:
+        estimate = official_only(situation, settings, PENDING_NOTE)
+        report("code", f"Plume read queued for the Duty Officer ({_estimate_line(estimate)})")
+        return _assessment(
+            situation, estimate, llm, model_id="none", p_hash=p_hash, outcome="PENDING"
+        )
     if llm.name == "stub":
         return await _read_with_stub(situation, llm, system, parts, p_hash, settings, report)
     if not call_model:

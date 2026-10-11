@@ -396,10 +396,28 @@ async def test_one_tick_from_feeds_to_a_draft(runtime: Runtime) -> None:
     for_semeru = [
         e["stage"] for e in events if e["volcano_id"] == SEMERU and e["stage"] != "SYSTEM"
     ]
-    # The Satellite Reader runs just before the Plume Reader it supports, then the cone.
-    assert set(for_semeru[:2]) == {"SATELLITE"}
-    assert [stage for stage in for_semeru if stage != "SATELLITE"][:2] == ["PLUME", "CONE"]
-    assert for_semeru[-4:] == ["EXPOSURE", "PLANNER", "DRAFTER", "DESK"]
+    # Code queues the plume read and holds the official area; the Duty Officer then hands the
+    # read to the Satellite Reader and the Plume Reader (the cone is rebuilt), and only then
+    # the flight to the Planner and the Drafter.
+    assert for_semeru == [
+        "PLUME",
+        "CONE",
+        "EXPOSURE",
+        "SATELLITE",
+        "SATELLITE",
+        "PLUME",
+        "CONE",
+        "PLANNER",
+        "DRAFTER",
+        "DESK",
+    ]
+    duty = [e["message"] for e in events if e["stage"] == "DUTY"]
+    assert duty[0].startswith("Duty Officer -> assess_volcanoes")
+    assert any(line.startswith("Duty Officer -> plan_flights: RFA") for line in duty)
+    assert duty[-1].startswith("Duty Officer brief")
+    assert runtime.duty is not None
+    assert runtime.duty.outcome == "STUB"
+    assert runtime.duty.undispatched == []
 
 
 async def test_a_flight_the_planner_cannot_plan_goes_to_the_desk_without_a_draft(

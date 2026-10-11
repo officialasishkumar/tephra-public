@@ -1095,3 +1095,60 @@ body[data-rail]:not([data-rail="brief"]) .brief { display: none; }
   .xtab[aria-selected="false"] .xtab__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .xtab { min-width: 44px; justify-content: center; }
 }
+
+/* ---- Duty Officer panel (wall/duty.js): brief, delegation diagram, undone work ---- */
+.x-agent__via { display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; font-size: var(--fs-1); color: var(--c-tephra-text); }
+.x-agent__via .icon { width: 12px; height: 12px; }
+.duty { border-color: var(--c-line-2); box-shadow: inset 3px 0 0 var(--c-tephra); gap: var(--sp-3); }
+.duty--model_failed { box-shadow: inset 3px 0 0 var(--c-serious); }
+.duty--stub { box-shadow: inset 3px 0 0 var(--c-line-input); }
+.duty__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: var(--sp-2); padding: var(--sp-2) 0; border-block: 1px solid var(--c-line-1); }
+.duty__facts dt { font-size: var(--fs-1); color: var(--c-text-3); text-transform: uppercase; letter-spacing: var(--tracking-caps); }
+.duty__facts dd { font-size: var(--fs-2); color: var(--c-text-1); overflow-wrap: anywhere; }
+.duty__brief { display: flex; flex-direction: column; gap: var(--sp-2); }
+.duty__briefhead { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
+.duty__briefhead .x-h { margin: 0; }
+.duty__ai { border-left: 2px dashed var(--c-tephra); padding-left: var(--sp-2); }
+.duty__summary { font-size: var(--fs-3); line-height: 1.45; color: var(--c-text-1); overflow-wrap: anywhere; }
+.duty__prio { display: flex; flex-direction: column; gap: var(--sp-2); padding-left: 1.6em; list-style: decimal; }
+.duty__prio li { padding-left: var(--sp-1); }
+.duty__prio li::marker { font-family: var(--font-mono); font-weight: var(--fw-semibold); color: var(--c-tephra-text); }
+.duty__label { display: block; font-size: var(--fs-2); font-weight: var(--fw-semibold); color: var(--c-text-1); overflow-wrap: anywhere; }
+.duty__why { display: block; margin-top: 2px; font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.4; overflow-wrap: anywhere; }
+.duty__must { display: inline-block; margin-right: var(--sp-2); padding: 0 5px; border: 1px solid var(--c-caution); border-radius: var(--radius-xs); font-size: 0.6875rem; letter-spacing: 0.04em; color: var(--c-caution); vertical-align: 1px; }
+.duty__watch { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-2); color: var(--c-text-2); list-style: none; }
+.duty__defer { display: flex; flex-direction: column; gap: var(--sp-2); }
+.duty__undone { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-serious); border-left-width: 4px; border-radius: var(--radius-sm); background: var(--c-serious-bg); display: flex; flex-direction: column; gap: var(--sp-1); }
+.duty__undonehead { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-2); font-weight: var(--fw-semibold); color: var(--c-serious); }
+.duty__undone ul { display: flex; flex-direction: column; gap: 2px; padding-left: var(--sp-5); list-style: disc; font-size: var(--fs-2); color: var(--c-text-1); }
+
+/* Delegation diagram: the Duty Officer node, a trunk line, an arrow into each specialist. */
+.dg { display: flex; flex-direction: column; min-width: 0; }
+.dg__root { display: flex; align-items: center; gap: var(--sp-2); align-self: flex-start; max-width: 100%; padding: var(--sp-2) var(--sp-3); border: 1.5px solid var(--c-tephra); border-radius: var(--radius-md); background: var(--c-tephra-soft); }
+.dg__icon { width: 20px; height: 20px; color: var(--c-tephra-text); flex: none; }
+.dg__rootmain { display: flex; flex-direction: column; min-width: 0; }
+.dg__sub { font-size: var(--fs-1); color: var(--c-text-2); overflow-wrap: anywhere; }
+.dg__none { margin: var(--sp-2) 0 0 var(--sp-2); font-size: var(--fs-2); color: var(--c-text-2); }
+.dg__list { list-style: none; margin: 0 0 0 20px; padding: 0; display: flex; flex-direction: column; }
+.dg__node { --dg-line: var(--c-tephra); position: relative; padding: 0 0 var(--sp-2) 32px; min-width: 0; background: linear-gradient(var(--dg-line), var(--dg-line)) no-repeat 0 calc(var(--sp-2) + 17px) / 26px 2px; }
+.dg__node:first-child { padding-top: var(--sp-2); background-position-y: calc(var(--sp-2) + 17px); }
+.dg__node:not(:first-child) { background-position-y: 17px; }
+.dg__node:last-child { padding-bottom: 0; }
+.dg__node::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; border-left: 2px solid var(--dg-line); }
+.dg__node:last-child::before { bottom: auto; height: 18px; }
+.dg__node:first-child:last-child::before { height: calc(var(--sp-2) + 18px); }
+.dg__node::after { content: ""; position: absolute; left: 24px; top: 11px; border-left: 8px solid var(--dg-line); border-block: 4px solid transparent; }
+.dg__node:first-child::after { top: calc(var(--sp-2) + 11px); }
+.dg__card { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-line-2); border-radius: var(--radius-md); background: var(--c-surface-1); min-width: 0; }
+.dg__node--bad { --dg-line: var(--c-serious); }
+.dg__node--bad .dg__card { border-color: var(--c-serious); background: var(--c-serious-bg); }
+.dg__top { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
+.dg__name { font-size: var(--fs-3); font-weight: var(--fw-semibold); }
+.dg__stats { display: flex; flex-wrap: wrap; gap: 2px var(--sp-3); margin-top: 2px; font-size: var(--fs-2); color: var(--c-text-1); }
+.dg__tool { margin-top: 2px; font-size: var(--fs-1); color: var(--c-text-3); overflow-wrap: anywhere; }
+.dg__result { margin-top: var(--sp-1); font-size: var(--fs-1); color: var(--c-text-2); line-height: 1.4; overflow-wrap: anywhere; }
+.dg__result--bad { color: var(--c-serious); }
+.duty__more > summary { cursor: pointer; padding: var(--sp-1) 0; font-size: var(--fs-2); color: var(--c-tephra-text); }
+.duty__more[open] > summary { margin-bottom: var(--sp-2); }
+.dg__resmore > summary { cursor: pointer; margin-top: var(--sp-1); font-size: var(--fs-1); color: var(--c-tephra-text); }
+.dg__resmore .dg__result { display: block; }

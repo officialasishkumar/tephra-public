@@ -45,6 +45,7 @@ from tephra.config import (
 from tephra.desk import audit
 from tephra.desk.approvals import SYSTEM_ACTOR, list_advisories, submit_draft, supersede
 from tephra.desk.failures import record_failure
+from tephra.duty import dispatch_duty
 from tephra.feeds.adsb import merge_aircraft
 from tephra.feeds.airports import AirportCatalogue, load_airports
 from tephra.feeds.base import FetchError, HttpSource, Source
@@ -67,6 +68,7 @@ from tephra.models import (
     AviationColor,
     BtdOverlay,
     BtdResult,
+    DutyRun,
     ExposedFlight,
     ExposureFeatureProps,
     FeedId,
@@ -78,6 +80,7 @@ from tephra.models import (
     OperatorPolicy,
     Overlays,
     PlumeAssessment,
+    PlumeMode,
     PolicySummary,
     ReplayCase,
     RerouteFeatureProps,
@@ -163,6 +166,12 @@ situation again for them would cost 1,440 writes a day per silent volcano."""
 TraceLevel = Literal["info", "warn", "error"]
 
 
+class RecoveryDue(NamedTuple):
+    schedule: Schedule
+    closures: list[Closure]
+    airports: frozenset[str]
+
+
 class _PlanFailure(NamedTuple):
     cone_id: str
     urgency: int
@@ -197,6 +206,8 @@ class Runtime:
     satellite: dict[str, SatelliteReading] = field(init=False, default_factory=dict)
     """volcano id -> the newest Satellite Reader reading"""
     last_tick: TickReport | None = field(init=False, default=None)
+    duty: DutyRun | None = field(init=False, default=None)
+    """The newest Duty Officer run, for the Wall and the Desk"""
     _planned: dict[str, tuple[str, int]] = field(init=False, default_factory=dict)
     """flight id -> (cone id, the most urgent bucket it was planned in for that cone)"""
     _plan_failures: dict[str, _PlanFailure] = field(init=False, default_factory=dict)
@@ -208,7 +219,16 @@ class Runtime:
     _digests: dict[str, str] = field(init=False, default_factory=dict)
     _quiet_ticks: int = field(init=False, default=0)
     _closed_airports: frozenset[str] | None = field(init=False, default=None)
-    """RFA-network airports with a closure now or in the horizon, at the last recovery check"""
+    """RFA-network airports with a closure now or in the horizon, at the last recovery run"""
+    recovery_due: RecoveryDue | None = field(init=False, default=None)
+    """A changed set of closed airports, waiting for the Duty Officer to dispatch recovery"""
+    assess_due: dict[str, str] = field(init=False, default_factory=dict)
+    """volcano id -> input hash of a plume read waiting for the Duty Officer"""
+    duty_offered: dict[str, datetime] = field(init=False, default_factory=dict)
+    """work item id -> when it was last offered to the Duty Officer"""
+    sra_drafted: set[tuple[str, date]] = field(init=False, default_factory=set)
+    """(region key, day) pairs whose SRA draft was dispatched (or failed) once"""
+    positions_fresh: bool = field(init=False, default=True)
     _schedule: tuple[date, Schedule] | None = field(init=False, default=None)
     _live_source: Source | None = field(init=False, default=None)
     _snapshot: WallSnapshot | None = field(init=False, default=None)
@@ -285,6 +305,7 @@ class Runtime:
             exposures=_exposure_features(self.exposed.values()),
             aircraft=_aircraft_features(self.aircraft(), self.exposed.values()),
             reroutes=_reroute_features(self.reroutes, self.exposed),
+            duty=self.duty,
             situations=[self._situation_card(situation, at, colors) for situation in situations],
             overlays=Overlays(
                 btd=[
@@ -372,14 +393,14 @@ class Runtime:
             self.trace(
                 TraceStage.SYSTEM,
                 "code",
-                f"{self._volcano_name(vid)} is active: {reasons}",
+                f"{self.volcano_name(vid)} is active: {reasons}",
                 volcano_id=vid,
             )
         for vid in sorted(self.live.active.keys() - active.keys()):
             self.trace(
                 TraceStage.SYSTEM,
                 "code",
-                f"{self._volcano_name(vid)} is no longer active",
+                f"{self.volcano_name(vid)} is no longer active",
                 volcano_id=vid,
             )
         self.live.active = active
@@ -406,10 +427,12 @@ class Runtime:
                     volcano_id=vid,
                 )
 
-    async def run_exposures(self, at: datetime, report: TickReport) -> None:
+    async def update_exposures(self, at: datetime, report: TickReport) -> None:
+        """Which flights enter which cone. Planning them is the Duty Officer's work list."""
         if self._positions_stale():
             # Nothing to draft from, and a flight missing from an old copy is no reason to
             # retire a dispatcher's pending draft: the picture waits for live positions.
+            self.positions_fresh = False
             self.exposed = {
                 fid: flight
                 for fid, flight in self.exposed.items()
@@ -422,55 +445,76 @@ class Runtime:
                 "ADS-B is stale: exposures and open drafts kept until positions refresh"
             )
             return
-        settings = self.settings
-        aircraft = self.aircraft()
-        exposed: dict[str, ExposedFlight] = {}
-        for cone in self.cones.values():
-            for flight in find_exposed(
-                cone,
-                aircraft,
-                at,
-                lookahead_min=settings.exposure_lookahead_min,
-                vertical_margin_ft=self.policy.exposure.vertical_margin_ft.value,
-                hold_minutes=self.policy.fuel.hold_min.value,
-            ):
-                exposed[flight.id] = flight
-        for flight in sorted(exposed.values(), key=_entry_order):
-            if flight.id not in self.exposed:
-                self.trace(
-                    TraceStage.EXPOSURE,
-                    "code",
-                    _exposure_message(flight, self._volcano_name(flight.volcano_id)),
-                    level="warn",
-                    volcano_id=flight.volcano_id,
-                    flight_id=flight.id,
-                    detail={"minutes_to_entry": flight.minutes_to_entry, "cone_id": flight.cone_id},
-                )
-        self.exposed = exposed
-        self._keep_current_reroutes()
-        report.exposed_flights = len(exposed)
+        self.positions_fresh = True
+        self._replace_exposures(self._expose(self.cones.values(), at))
+        report.exposed_flights = len(self.exposed)
 
-        open_drafts = await self._open_drafts()
-        drafts_by_flight: dict[str, list[Advisory]] = {}
-        for draft in open_drafts:
-            drafts_by_flight.setdefault(draft.flight_id, []).append(draft)
-        for flight in sorted(exposed.values(), key=_entry_order):
-            await self._plan_once(flight, drafts_by_flight.get(flight.id, []), at, report)
-        seen = {target.hex for target in aircraft}
+    async def settle_drafts(self, at: datetime, report: TickReport) -> None:
+        """Retire drafts whose flight has left every cone or the ADS-B picture (MODULES.md
+        5.7), once the Duty Officer has planned what was due."""
+        if not self.positions_fresh:
+            return
+        exposed = self.exposed
+        open_drafts = await self.open_drafts()
+        seen = {target.hex for target in self.aircraft()}
         report.drafts_superseded += await self._retire_drafts(open_drafts, seen, at, report)
         self._planned = {fid: mark for fid, mark in self._planned.items() if fid in exposed}
         self._plan_failures = {
             fid: failure for fid, failure in self._plan_failures.items() if fid in exposed
         }
 
-    async def run_recovery(self, at: datetime, report: TickReport) -> None:
-        """Start the recovery agent once when the set of airports the hazard closes changes.
+    async def run_exposures(self, at: datetime, report: TickReport) -> None:
+        """Exposure, the Duty Officer's dispatch and draft retirement: the ADS-B pass between
+        ticks runs this; a tick runs the steps around network recovery."""
+        await self.update_exposures(at, report)
+        await dispatch_duty(self, at, report, trigger="adsb")
+        await self.settle_drafts(at, report)
 
-        The first look only records the set (a restart restores it from the bookkeeping); a
-        later change to a non-empty set makes one draft plan on the lite budget, and no airport
-        closed makes none. A Desk run in progress covers the change and is not repeated. The
-        change is recorded before the agent runs, so a failed plan is not retried every tick.
-        """
+    def _expose(self, cones: Iterable[HazardCone], at: datetime) -> dict[str, ExposedFlight]:
+        aircraft = self.aircraft()
+        exposed: dict[str, ExposedFlight] = {}
+        for cone in cones:
+            for flight in find_exposed(
+                cone,
+                aircraft,
+                at,
+                lookahead_min=self.settings.exposure_lookahead_min,
+                vertical_margin_ft=self.policy.exposure.vertical_margin_ft.value,
+                hold_minutes=self.policy.fuel.hold_min.value,
+            ):
+                exposed[flight.id] = flight
+        return exposed
+
+    def _replace_exposures(
+        self, exposed: dict[str, ExposedFlight], *, volcano_id: str | None = None
+    ) -> None:
+        """Take ``exposed`` as the exposure of every cone, or of one volcano's cone."""
+        kept = (
+            {}
+            if volcano_id is None
+            else {fid: f for fid, f in self.exposed.items() if f.volcano_id != volcano_id}
+        )
+        for flight in sorted(exposed.values(), key=_entry_order):
+            if flight.id not in self.exposed:
+                self.trace(
+                    TraceStage.EXPOSURE,
+                    "code",
+                    _exposure_message(flight, self.volcano_name(flight.volcano_id)),
+                    level="warn",
+                    volcano_id=flight.volcano_id,
+                    flight_id=flight.id,
+                    detail={"minutes_to_entry": flight.minutes_to_entry, "cone_id": flight.cone_id},
+                )
+        self.exposed = {**kept, **exposed}
+        self._keep_current_reroutes()
+
+    async def run_recovery(self, at: datetime, report: TickReport) -> None:
+        """Queue network recovery for the Duty Officer when the set of airports the hazard
+        closes differs from the set the last recovery run was for.
+
+        No airport closed queues nothing. A Desk run in progress covers the change. Recovery
+        stays queued (and is offered again) until the Duty Officer dispatches it."""
+        self.recovery_due = None
         if not self.settings.recovery_auto:
             return
         schedule = await self._rfa_schedule(at)
@@ -482,23 +526,36 @@ class Runtime:
         closed = frozenset(closure.icao for closure in closures)
         if closed == self._closed_airports:
             return
-        self._closed_airports = closed
         if not closed:
+            self._closed_airports = closed
             self.trace(TraceStage.RECOVERY, "code", "No RFA airport is closed by the hazard now")
             return
         if run_lock(self).locked():
             return
+        self.recovery_due = RecoveryDue(schedule, list(closures), closed)
+
+    def start_recovery(self, report: TickReport) -> dict[str, Any]:
+        """The Duty Officer's ``run_recovery``: the agent runs in the background, since three
+        CP-SAT solves and a model run must not hold the tick."""
+        due = self.recovery_due
+        if due is None:
+            return {"error": "NO NETWORK RECOVERY IS DUE"}
+        self.recovery_due = None
+        self._closed_airports = due.airports
+        airports = ", ".join(sorted(due.airports))
         self.trace(
             TraceStage.RECOVERY,
             "code",
-            f"Closed airports changed: {', '.join(sorted(closed))}; "
-            "running the recovery agent once",
+            f"Closed airports changed: {airports}; recovery agent started",
             level="warn",
-            detail={"airports": sorted(closed)},
+            detail={"airports": sorted(due.airports)},
         )
         report.recovery_plans += 1
-        # In the background: three CP-SAT solves and a model run must not hold the tick.
-        self.spawn(self._recover(schedule, closures))
+        self.spawn(self._recover(due.schedule, due.closures))
+        return {
+            "summary": f"Recovery agent started for {airports}",
+            "airports": sorted(due.airports),
+        }
 
     async def _recover(self, schedule: Schedule, closures: Sequence[Closure]) -> None:
         try:
@@ -511,7 +568,7 @@ class Runtime:
                     policy=self.policy,
                     airports={airport.icao: airport for airport in self.airports.all()},
                     replay=self.mode is RunMode.REPLAY,
-                    trace=self._sink,
+                    trace=self.sink,
                 )
                 await recovery_decisions.submit_plan(self.store, self.bus, plan)
             await self.publish_budget()
@@ -668,6 +725,22 @@ class Runtime:
         self.live.vaas = {record.provenance.source_id: record for record in vaas}
         await self._restore_bookkeeping()
         await self._restore_readings()
+        await self._restore_duty()
+
+    async def _restore_duty(self) -> None:
+        """The newest live Duty Officer run, so the Wall shows its brief after a restart."""
+        docs = await self.store.query(
+            Collection.DUTY,
+            [Where("replay", "==", False)],
+            order_by="started_at",
+            descending=True,
+            limit=1,
+        )
+        for doc in docs:
+            try:
+                self.duty = DutyRun.model_validate(doc)
+            except ValidationError:
+                logger.warning("ignoring an unreadable stored Duty Officer run")
 
     async def _restore_readings(self) -> None:
         """The newest Satellite Reader reading per volcano and the stored reroutes, so a restart
@@ -728,6 +801,41 @@ class Runtime:
         ):
             self._trace_new_discrepancies(situation, previous)
         assessment = await self._assessment(situation, at, report)
+        await self._set_cone(situation, assessment)
+
+    async def assess_volcano(
+        self, volcano_id: str, at: datetime, report: TickReport
+    ) -> dict[str, Any]:
+        """The Duty Officer's ``assess_volcanoes`` for one volcano: the Satellite Reader and the
+        Plume Reader read it, code rebuilds the cone and that volcano's exposure."""
+        situation = self.situations.get(volcano_id)
+        if situation is None or volcano_id not in self.assess_due:
+            return {"volcano_id": volcano_id, "error": "NO PLUME READ IS DUE"}
+        del self.assess_due[volcano_id]
+        assessment = await self._read(situation, report, call_model=True)
+        cone = await self._set_cone(situation, assessment)
+        if self.positions_fresh:
+            self._replace_exposures(self._expose([cone], at), volcano_id=volcano_id)
+        exposed = sum(flight.volcano_id == volcano_id for flight in self.exposed.values())
+        band = _band_text(cone.base_ft, cone.top_ft)
+        failed = assessment.outcome == "MODEL_FAILED"
+        summary = (
+            f"{situation.volcano.name}: plume read AI UNAVAILABLE, official products only "
+            f"{band}; {exposed} flight(s) exposed"
+            if failed
+            else f"{situation.volcano.name}: {cone.label} {band}; {exposed} flight(s) exposed"
+        )
+        return {
+            "volcano_id": volcano_id,
+            "summary": summary,
+            "status": "ai_unavailable" if failed else "ok",
+            "outcome": assessment.outcome,
+            "mode": cone.mode.value,
+            "exposed_flights": exposed,
+        }
+
+    async def _set_cone(self, situation: Situation, assessment: PlumeAssessment) -> HazardCone:
+        volcano = situation.volcano
         cone = build_cone(situation, assessment)
         self.cones[volcano.id] = cone
         if await self._write_on_change(Collection.CONES, volcano.id, cone, {"created_at"}):
@@ -738,17 +846,21 @@ class Runtime:
                 volcano_id=volcano.id,
                 detail={"cone_id": cone.id, "assessment_id": assessment.id},
             )
+        return cone
 
     async def _assessment(
         self, situation: Situation, at: datetime, report: TickReport
     ) -> PlumeAssessment:
-        """The quota gate in front of the Plume Reader (MODULES.md 5.7)."""
+        """The quota gate in front of the Plume Reader (MODULES.md 5.7). A read that matters is
+        not made here: it is queued for the Duty Officer, and until it runs the area holds the
+        last reading (when it still fits the official products) or the official products."""
         volcano = situation.volcano
         previous = self.assessments.get(volcano.id)
         if previous is not None and _still_current(previous, situation.input_hash, at):
+            self.assess_due.pop(volcano.id, None)
             return previous
-        call_model = self._model_call_matters(situation)
-        if not call_model:
+        if not self._model_call_matters(situation):
+            self.assess_due.pop(volcano.id, None)
             self.trace(
                 TraceStage.PLUME,
                 "code",
@@ -757,6 +869,21 @@ class Runtime:
                 "official products only",
                 volcano_id=volcano.id,
             )
+            return await self._read(situation, report, call_model=False)
+        self.assess_due[volcano.id] = situation.input_hash
+        if previous is not None and _holds_while_pending(previous, situation, at):
+            return previous
+        return await self._read(situation, report, call_model=False, pending=True)
+
+    async def _read(
+        self,
+        situation: Situation,
+        report: TickReport,
+        *,
+        call_model: bool,
+        pending: bool = False,
+    ) -> PlumeAssessment:
+        volcano = situation.volcano
         images = await self._images(situation) if call_model else []
         if call_model:
             situation = await self._with_satellite(situation, report)
@@ -765,10 +892,12 @@ class Runtime:
             self.llm,
             images=images,
             settings=self.settings,
-            trace=self._sink,
+            trace=self.sink,
             call_model=call_model,
+            pending=pending,
         )
-        report.assessments_run += 1
+        if not pending:
+            report.assessments_run += 1
         self.assessments[volcano.id] = assessment
         await self.store.put(
             Collection.ASSESSMENTS, assessment.id, assessment.model_dump(mode="json")
@@ -809,7 +938,7 @@ class Runtime:
                 situation.official_layers,
                 self.llm,
                 replay=self.mode is RunMode.REPLAY,
-                trace=self._sink,
+                trace=self.sink,
             )
             report.satellite_reads += 1
             self.satellite[volcano.id] = held
@@ -867,34 +996,52 @@ class Runtime:
             parts.append(LlmPart.of_image(data, label=source_id, mime_type=mime_type))
         return parts
 
-    async def _plan_once(
-        self, flight: ExposedFlight, drafts: Sequence[Advisory], at: datetime, report: TickReport
-    ) -> None:
-        """Plan a flight once per cone and urgency bucket; open drafts given when its entry
-        was less urgent are replaced by the new one.
-
-        The flight is marked planned only once planning has finished, so an error part-way
-        (a store fault, say) never leaves it marked with no draft: it is planned again on the
-        ``PLAN_RETRY_MIN`` schedule, or at once for a new cone or a more urgent entry."""
-        cone = self.cones[flight.volcano_id]
-        limits = self.urgency_limits_min
-        urgency = _urgency(flight.inside_now, flight.minutes_to_entry, limits)
+    def plan_due(
+        self, flight: ExposedFlight, drafts: Sequence[Advisory], at: datetime
+    ) -> int | None:
+        """The urgency bucket the flight is due to be planned in, or None: a flight is planned
+        once per cone and bucket, again for a more urgent bucket, and after a planning error on
+        the ``PLAN_RETRY_MIN`` schedule."""
+        cone = self.cones.get(flight.volcano_id)
+        if cone is None:
+            return None
+        urgency = _urgency(flight.inside_now, flight.minutes_to_entry, self.urgency_limits_min)
         planned = self._planned_urgency(flight.id, cone.id, drafts)
         if planned is not None and planned <= urgency:
             self._planned[flight.id] = (cone.id, planned)
-            return
+            return None
         failed = self._plan_failures.get(flight.id)
-        if failed is not None and (failed.cone_id, failed.urgency) != (cone.id, urgency):
-            failed = None  # a new cone or a new bucket: plan now, and count afresh
-        if failed is not None and at < failed.retry_at:
-            return
+        if failed is not None and (failed.cone_id, failed.urgency) == (cone.id, urgency):
+            return None if at < failed.retry_at else urgency
+        return urgency
+
+    async def plan_flight_now(
+        self, flight_id: str, drafts: Sequence[Advisory], at: datetime, report: TickReport
+    ) -> dict[str, Any]:
+        """The Duty Officer's ``plan_flights`` for one flight: plan and draft it now.
+
+        The flight is marked planned only once planning has finished, so an error part-way (a
+        store fault, say) never leaves it marked with no draft: it is due again on the
+        ``PLAN_RETRY_MIN`` schedule, or at once for a new cone or a more urgent entry."""
+        flight = self.exposed.get(flight_id)
+        if flight is None:
+            return {"flight_id": flight_id, "error": "THE FLIGHT IS NO LONGER EXPOSED"}
+        urgency = self.plan_due(flight, drafts, at)
+        if urgency is None:
+            return {"flight_id": flight_id, "error": "NO PLAN IS DUE FOR THIS FLIGHT"}
+        cone = self.cones[flight.volcano_id]
+        limits = self.urgency_limits_min
         outdated = [
             d for d in drafts if _urgency(d.inside_now, d.minutes_to_entry, limits) > urgency
         ]
+        view = {"flight_id": flight.id, "proxy_flight": flight.proxy_flight}
         try:
-            await self._plan_and_draft(flight, cone, urgency, at, report, outdated)
+            outcome = await self._plan_and_draft(flight, cone, urgency, at, report, outdated)
         except Exception as exc:
             logger.exception("planning %s failed", flight.id)
+            failed = self._plan_failures.get(flight.id)
+            if failed is not None and (failed.cone_id, failed.urgency) != (cone.id, urgency):
+                failed = None  # a new cone or a new bucket counts afresh
             attempts = 1 if failed is None else failed.attempts + 1
             delay = PLAN_RETRY_MIN[min(attempts, len(PLAN_RETRY_MIN)) - 1]
             retry_at = at + timedelta(minutes=delay)
@@ -910,9 +1057,10 @@ class Runtime:
                 volcano_id=flight.volcano_id,
                 flight_id=flight.id,
             )
-            return
+            return {**view, "error": f"PLANNING FAILED ({failure}); DUE AGAIN IN {delay} MIN"}
         self._plan_failures.pop(flight.id, None)
         self._planned[flight.id] = (cone.id, urgency)
+        return {**view, **outcome}
 
     def _planned_urgency(
         self, flight_id: str, cone_id: str, drafts: Sequence[Advisory]
@@ -938,7 +1086,8 @@ class Runtime:
         at: datetime,
         report: TickReport,
         outdated: Sequence[Advisory],
-    ) -> None:
+    ) -> dict[str, Any]:
+        """Plan and draft one flight; returns what came of it, for the Duty Officer."""
         situation = self.situations[flight.volcano_id]
         assessment = self.assessments[flight.volcano_id]
         ctx = build_planner_context(
@@ -953,7 +1102,7 @@ class Runtime:
             situation=situation,
         )
         await self._store_reroutes(flight, ctx.reroutes)
-        plan = await plan_flight(ctx, self.llm, settings=self.settings, trace=self._sink)
+        plan = await plan_flight(ctx, self.llm, settings=self.settings, trace=self.sink)
         await self.store.put(Collection.PLANS, plan.id, plan.model_dump(mode="json"))
         if plan.decision is None:
             reason = "; ".join(plan.validation_errors[:3]) or "NO PLAN"
@@ -965,7 +1114,7 @@ class Runtime:
                 replay=self.mode is RunMode.REPLAY,
             )
             await self._record_failure(failure)
-            return
+            return _failed(failure)
         advisory = await draft_advisory(
             situation=situation,
             assessment=assessment,
@@ -975,11 +1124,11 @@ class Runtime:
             llm=self.llm,
             settings=self.settings,
             policy=self.policy,
-            trace=self._sink,
+            trace=self.sink,
         )
         if isinstance(advisory, AiFailure):
             await self._record_failure(advisory)
-            return
+            return _failed(advisory)
         # Outdated drafts go only once the new one is stored: a refused or failed submit
         # leaves the flight its earlier card instead of none.
         advisory = advisory.model_copy(update={"urgency_bucket": urgency})
@@ -996,7 +1145,7 @@ class Runtime:
                 volcano_id=flight.volcano_id,
                 flight_id=flight.id,
             )
-            return
+            return {"summary": f"{flight.proxy_flight}: same advice as an open draft"}
         reason = (
             "INSIDE THE CONE NOW"
             if flight.inside_now
@@ -1015,6 +1164,11 @@ class Runtime:
             flight_id=flight.id,
             detail={"advisory_id": created.id},
         )
+        return {
+            "summary": f"{flight.proxy_flight}: DRAFT {created.action.value} for a dispatcher",
+            "advisory_id": created.id,
+            "action": created.action.value,
+        }
 
     async def _store_reroutes(
         self, flight: ExposedFlight, options: Sequence[RerouteOption]
@@ -1062,7 +1216,7 @@ class Runtime:
         )
         return True
 
-    async def _open_drafts(self) -> list[Advisory]:
+    async def open_drafts(self) -> list[Advisory]:
         """Open drafts of the current mode: a replay's picture says nothing about the live
         desk's flights, nor the live picture about a replay's."""
         drafts = await list_advisories(
@@ -1152,11 +1306,11 @@ class Runtime:
         self.cones.pop(volcano_id, None)
         self.satellite.pop(volcano_id, None)
 
-    def _volcano_name(self, volcano_id: str) -> str:
+    def volcano_name(self, volcano_id: str) -> str:
         volcano = self.catalogue.get(volcano_id)
         return volcano.name if volcano is not None else volcano_id
 
-    def _sink(self, event: TraceEvent) -> None:
+    def sink(self, event: TraceEvent) -> None:
         self.bus.publish(SseEvent.TRACE, self._labelled(event))
 
     def _labelled(self, event: TraceEvent) -> TraceEvent:
@@ -1418,6 +1572,27 @@ def _still_current(assessment: PlumeAssessment, input_hash: str, at: datetime) -
         return False
     keep = max(timedelta(hours=assessment.estimate.horizon_h), REASK_UNCHANGED)
     return at < assessment.created_at + keep
+
+
+def _holds_while_pending(previous: PlumeAssessment, situation: Situation, at: datetime) -> bool:
+    """Whether the last reading may stand while a new read waits for the Duty Officer: a model
+    reading still within its horizon whose mode fits the official products now (a HYPOTHESIS
+    once an official area is valid, or an OFFICIAL/WIDENED area without one, may not)."""
+    if previous.outcome == "PENDING":
+        return False
+    if at >= previous.created_at + timedelta(hours=previous.estimate.horizon_h):
+        return False
+    if previous.estimate.mode is PlumeMode.HYPOTHESIS:
+        return not situation.official_valid_now()
+    return bool(situation.official_layers)
+
+
+def _failed(failure: AiFailure) -> dict[str, Any]:
+    return {
+        "summary": f"{failure.proxy_flight}: AI UNAVAILABLE ({failure.stage}), to the Desk",
+        "status": "ai_unavailable",
+        "reason": failure.reason,
+    }
 
 
 def _urgency(inside_now: bool, minutes_to_entry: int, limits: Sequence[int]) -> int:

@@ -18,6 +18,8 @@ Return JSON with two fields:
 ## Rules for the body
 
 1. ACARS style: UPPER CASE plain ASCII, short sentences, at most 400 characters.
+   Address the flight by its RFA number, `flight.proxy_flight`, never by the ADS-B callsign:
+   the airline is fictional and the RFA number stands in for the real flight.
 2. State the action with one of the words in `action.say_one_of`. For CHANGE_LEVEL give the
    band from `action.change_level_band` (write it with FL, e.g. FL180-FL200) and say CLIMB
    or DESCEND; when `flight.present_fl` is already inside that band (its selected level

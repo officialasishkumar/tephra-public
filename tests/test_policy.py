@@ -29,6 +29,7 @@ PINNED_HASHES = {
     "2026.10.4": "6a00d8ac37b6943d4f876077933b5f8b6cff530f8e16013253b52d6b42ed7492",
     "2026.10.5": "9f8fcf4237451485adee8a12bc004aa10f930550a06c12f781185b92d6795fcb",
     "2026.10.6": "7538c6b1e01228000e396ebe5e96a16d41981b6594eeebf102f251674573b8d5",
+    "2026.10.7": "bbb2a30efdd85680773fa8d3ad8d6d16f84de97dfced4be49efff89fccd2c73c",
 }
 """Each version's content hash. An edit without a new version fails here: every audit entry
 names the version its draft was made under, so one version must mean one content."""
@@ -63,7 +64,7 @@ def test_the_policy_file_loads_and_is_labelled_illustrative() -> None:
 
 def test_every_value_has_a_reason_and_a_unit_that_matches_its_name() -> None:
     values = POLICY.named_values()
-    assert len(values) == 42
+    assert len(values) == 43
     for name, value in values.items():
         assert value.source.strip(), name
         suffix = name.rsplit("_", 1)[1]

@@ -9,7 +9,6 @@ same tools and recommends the published-closure scenario in fixed words, labelle
 """
 
 import asyncio
-import json
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -17,7 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from tephra.agents.llm import LlmBackend, LlmPart, daily_quota_spent, prompt_hash, temperature_for
+from tephra.agents.adk_runtime import ModelGuard, tool_record
+from tephra.agents.llm import LlmBackend, LlmPart, prompt_hash, temperature_for
 from tephra.config import Settings
 from tephra.models import (
     Airport,
@@ -57,8 +57,6 @@ ADK_USER_ID: Final = "tephra-dispatch"
 AGENT_NAME: Final = "tephra_recovery_planner"
 MAX_MODEL_TURNS: Final = 16
 """Model calls per run, tool round trips and the repair turn included: about 8 are normal."""
-DAILY_QUOTA_SPENT: Final = "GEMINI DAILY QUOTA SPENT (429): LITE TIER CLOSED FOR THE QUOTA DAY"
-_SUMMARY_CHARS: Final = 240
 _TASK: Final = (
     "Closures are in force. Read the disruption, run the closure as published and the two"
     " extensions it lists, compare the scenarios, then call submit_recommendation exactly once."
@@ -161,10 +159,10 @@ async def _stub(box: Toolbox, run: _Run) -> None:
     rules = box.policy.recovery
     for extend in (0, rules.scenario_extend_1_min.value, rules.scenario_extend_2_min.value):
         summary = await box.run_scenario(extend)
-        run.records.append(_record("run_scenario", {"extend_min": extend}, summary))
+        run.records.append(tool_record("run_scenario", {"extend_min": extend}, summary))
     ids = list(box.scenarios)
     table = box.compare(ids)
-    run.records.append(_record("compare", {"scenario_ids": ids}, table))
+    run.records.append(tool_record("compare", {"scenario_ids": ids}, table))
     first = next(iter(box.scenarios.values()))
     rows = {row["scenario_id"]: row for row in table.get("scenarios", [])}
     row = rows.get(first.id, {})
@@ -177,7 +175,7 @@ async def _stub(box: Toolbox, run: _Run) -> None:
         f" passengers and costs {row['total_usd']} USD."
     )
     result = box.submit(first.id, words, [])
-    run.records.append(_record("submit_recommendation", {"scenario_id": first.id}, result))
+    run.records.append(tool_record("submit_recommendation", {"scenario_id": first.id}, result))
 
 
 # --- ADK -------------------------------------------------------------------------------------
@@ -256,7 +254,7 @@ async def _adk(
     """Fills ``run`` as it goes, so the tool calls made before a failure stay on record."""
     from google.adk.runners import InMemoryRunner
 
-    guard = _Guard(llm)
+    guard = ModelGuard(llm, max_turns=MAX_MODEL_TURNS)
     agent = build_recovery_agent(
         settings.model_lite,
         box,
@@ -293,44 +291,6 @@ def _repair_text(problems: Sequence[str]) -> str:
     )
 
 
-class _Guard:
-    """The daily budget in front of every ADK model turn.
-
-    As ``before_model_callback`` it takes each turn from the budget and caps turns; as
-    ``on_model_error_callback`` it closes the lite tier for the quota day when Gemini answers
-    429 for a per-day quota. Either one answers in the model's place to stop the run.
-    """
-
-    def __init__(self, llm: LlmBackend) -> None:
-        self._llm = llm
-        self.turns = 0
-        self.stop_reason: str | None = None
-
-    def __call__(self, callback_context: Any, llm_request: Any) -> Any:
-        self.turns += 1
-        if self.turns > MAX_MODEL_TURNS:
-            self.stop_reason = f"MODEL TURN LIMIT {MAX_MODEL_TURNS} REACHED"
-        elif not self._llm.reserve("lite"):
-            self.stop_reason = "budget_exhausted"
-        return None if self.stop_reason is None else _stop(self.stop_reason)
-
-    def on_model_error(self, callback_context: Any, llm_request: Any, error: Exception) -> Any:
-        if not daily_quota_spent(error):
-            return None
-        self._llm.exhaust("lite")
-        self.stop_reason = DAILY_QUOTA_SPENT
-        return _stop(self.stop_reason)
-
-
-def _stop(reason: str) -> Any:
-    from google.adk.models import LlmResponse
-    from google.genai import types
-
-    return LlmResponse(
-        content=types.Content(role="model", parts=[types.Part(text=f"STOPPED: {reason}")])
-    )
-
-
 async def _turn(
     runner: "InMemoryRunner",
     session_id: str,
@@ -351,18 +311,12 @@ async def _turn(
                 pending[call.id or call.name] = (call.name, dict(call.args or {}))
             for response in event.get_function_responses():
                 name, args = pending.pop(response.id or response.name, (response.name, {}))
-                record = _record(name, args, response.response)
+                record = tool_record(name, args, response.response)
                 records.append(record)
                 _emit_line(trace, "adk", f"{name}: {record.result_summary}", detail={"args": args})
 
 
 # --- helpers ---------------------------------------------------------------------------------
-
-
-def _record(name: str, args: dict[str, Any], result: Any) -> ToolCallRecord:
-    text = json.dumps(result, default=str, separators=(",", ":"), ensure_ascii=True)
-    summary = text if len(text) <= _SUMMARY_CHARS else text[: _SUMMARY_CHARS - 3] + "..."
-    return ToolCallRecord(name=name, args=args, result_summary=summary)
 
 
 def _emit(trace: TraceSink | None, plan: RecoveryPlan) -> None:

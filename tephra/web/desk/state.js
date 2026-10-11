@@ -12,6 +12,8 @@ export const app = {
   coneGeo: new Map(), // cone_id -> GeoJSON geometry (for the route sketch)
   failures: new Map(), // AiFailure id -> open AiFailure
   messages: new Map(), // CrewPaxMessage id -> message (DRAFT ones are the queue)
+  duty: null, // newest DutyRun (the Duty Officer brief card)
+  dutyLoaded: false,
   plans: [], // RecoveryPlan, newest first
   plansLoaded: false,
   docs: [], // DocSummary, newest first

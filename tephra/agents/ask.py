@@ -25,7 +25,8 @@ from uuid import uuid4
 from pydantic import Field
 from shapely import affinity
 
-from tephra.agents.llm import LlmBackend, LlmPart, daily_quota_spent, prompt_hash
+from tephra.agents.adk_runtime import ModelGuard
+from tephra.agents.llm import LlmBackend, LlmPart, prompt_hash
 from tephra.agents.schemas import gemini_schema, parse_json_model
 from tephra.agents.validators import CLOCK_PATTERNS
 from tephra.config import Settings
@@ -39,6 +40,7 @@ from tephra.geo.units import ft_to_fl, haversine_km
 from tephra.models import (
     Advisory,
     AuditAction,
+    DutyRun,
     ExposedFlight,
     Geometry,
     HazardCone,
@@ -96,7 +98,6 @@ MAX_FL: Final = 600
 """Bound on a what-if level (the same bound ``PlumeEstimate`` puts on its levels)."""
 MAX_EXTRA_KM: Final = 1000.0
 """Bound on a what-if buffer: a sanity limit on the argument, not an operator threshold."""
-DAILY_QUOTA_SPENT: Final = "GEMINI DAILY QUOTA SPENT (429): LITE TIER CLOSED FOR THE QUOTA DAY"
 UNAVAILABLE_PREFIX: Final = "AI UNAVAILABLE"
 _SUMMARY_CHARS: Final = 160
 
@@ -217,6 +218,8 @@ class AskRuntime(Protocol):
     def cones(self) -> Mapping[str, HazardCone]: ...
     @property
     def exposed(self) -> Mapping[str, ExposedFlight]: ...
+    @property
+    def duty(self) -> DutyRun | None: ...
 
 
 class _ToolError(Exception):
@@ -254,6 +257,7 @@ class AskToolkit:
             self.reroute_options,
             self.feeds,
             self.ai_failures,
+            self.duty_brief,
             self.what_if_band,
             self.what_if_extent,
         ]
@@ -317,6 +321,12 @@ class AskToolkit:
     async def ai_failures(self) -> dict[str, Any]:
         """List the flights the AI could not plan or draft for that no dispatcher has handled."""
         return await self._run("ai_failures", {}, self._ai_failures)
+
+    async def duty_brief(self) -> dict[str, Any]:
+        """Return the Duty Officer's latest run: its brief (summary, priorities with reasons,
+        what to watch), the work it delegated to which specialist, what it deferred, and the
+        mandatory work it left undone (sent to the Desk)."""
+        return await self._run("duty_brief", {}, self._duty_brief)
 
     async def what_if_band(self, volcano_id: str, base_fl: int, top_fl: int) -> dict[str, Any]:
         """What-if only, nothing changes: re-run the exposure check with the cone's flight-level
@@ -688,6 +698,32 @@ class AskToolkit:
             for f in listed
         ]
         return {"count": len(rows), "open_failures": rows}, [f.id for f in listed]
+
+    async def _duty_brief(self) -> _Built:
+        duty = self._rt.duty
+        if duty is None:
+            raise _ToolError("THE DUTY OFFICER HAS NOT RUN YET")
+        labels = {item.id: item.label for item in duty.worklist}
+        brief = duty.brief
+        result = {
+            "run_id": duty.id,
+            "outcome": duty.outcome,
+            "summary": brief.summary if brief else None,
+            "priorities": [
+                {"work": labels.get(p.item_id, p.item_id), "why": p.why}
+                for p in (brief.priorities if brief else [])
+            ],
+            "watch": brief.watch if brief else [],
+            "delegated": [
+                {"tool": d.tool, "work": [labels.get(i, i) for i in d.item_ids], "result": d.result}
+                for d in duty.dispatches
+            ],
+            "deferred": [
+                {"work": labels.get(d.item_id, d.item_id), "why": d.reason} for d in duty.deferred
+            ],
+            "left_undone_to_the_desk": [labels.get(i, i) for i in duty.undispatched],
+        }
+        return result, [duty.id]
 
     async def _what_if_band(self, token: str, base_fl: int, top_fl: int) -> _Built:
         base, top = _whole(base_fl), _whole(top_fl)
@@ -1109,7 +1145,7 @@ async def _run_agent(
 ) -> None:
     from google.adk.runners import InMemoryRunner
 
-    guard = _ModelGuard(llm)
+    guard = ModelGuard(llm, max_turns=MAX_MODEL_TURNS)
     agent = build_ask_agent(
         runtime.settings.model_lite,
         toolkit,
@@ -1250,40 +1286,3 @@ def build_ask_agent(
         on_model_error_callback=on_model_error_callback,
         on_tool_error_callback=tool_error,
     )
-
-
-class _ModelGuard:
-    """The daily budget in front of every ADK model turn (as the planner's guard is).
-
-    As ``before_model_callback`` it takes each turn from the lite budget and caps turns; as
-    ``on_model_error`` it closes the lite tier for the quota day on a per-day 429. Either one
-    answers in the model's place to stop; with no function call in that answer, the run ends.
-    """
-
-    def __init__(self, llm: LlmBackend) -> None:
-        self._llm = llm
-        self.turns = 0
-        self.stop_reason: str | None = None
-
-    def __call__(self, callback_context: Any, llm_request: Any) -> Any:
-        self.turns += 1
-        if self.turns > MAX_MODEL_TURNS:
-            self.stop_reason = f"MODEL TURN LIMIT {MAX_MODEL_TURNS} REACHED"
-        elif not self._llm.reserve("lite"):
-            self.stop_reason = "budget_exhausted"
-        return None if self.stop_reason is None else _stop(self.stop_reason)
-
-    def on_model_error(self, callback_context: Any, llm_request: Any, error: Exception) -> Any:
-        if not daily_quota_spent(error):
-            return None
-        self._llm.exhaust("lite")
-        self.stop_reason = DAILY_QUOTA_SPENT
-        return _stop(self.stop_reason)
-
-
-def _stop(reason: str) -> Any:
-    from google.adk.models import LlmResponse
-    from google.genai import types
-
-    stop = types.Part(text=f"STOPPED: {reason}")
-    return LlmResponse(content=types.Content(role="model", parts=[stop]))

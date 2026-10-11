@@ -1,11 +1,11 @@
 # TEPHRA
 
-**A volcanic-ash decision desk for airline dispatch.** When the official ash products for a volcano differ, TEPHRA works out how they differ and builds the cautious hazard area, which never shrinks below the official one. It then finds which flights are heading into it and drafts an advisory for each of them. A duty dispatcher approves, edits or rejects every draft on a phone.
+**A volcanic-ash decision desk for airline dispatch.** When the official ash products for a volcano differ, TEPHRA works out how they differ and builds the cautious hazard area, which never shrinks below the official one. It then finds which flights are heading into it and drafts an advisory for each of them. A **Duty Officer** agent coordinates the specialist agents that do this work, and a duty dispatcher approves, edits or rejects every draft on a phone.
 
 > **Decision support only. Ring of Fire Air (RFA) is a fictional airline. Nothing is sent to any real system. Not for operational use.**
 
 
-> **Status (2026-10-11):** the test suite (stub LLM, no network) and `ruff` pass, and the app has been run end to end in REPLAY on the stub LLM. No Gemini call has been made by the code in this repository, so every model prompt and the Gemini speech call are untested against the real API. See [Getting started](#getting-started).
+> **Status (2026-10-11):** the test suite (stub LLM, no network) and `ruff` pass, and the app runs end to end in REPLAY. A live run on the free tier (the `java-live-20261010` case, real Gemini) had the Duty Officer delegate three plume reads, three flight plans (two REROUTE drafts priced at +9 and +10 NM) and network recovery, defer the SRA for budget, and file an accepted brief, with no rate-limit errors. Ask TEPHRA, voice, the Notice Reader, messages, the handover brief and the SRA narrative have not yet been run against the real API. See [Getting started](#getting-started).
 
 ## The problem
 
@@ -24,15 +24,18 @@ ICAO Doc 9974 says the operator, not the ash centre, must "reliably and correctl
 ```mermaid
 flowchart LR
   F["Public feeds<br/>VA SIGMET · VAA · VONA*<br/>winds · TAF · ADS-B<br/>Himawari (optional)"] --> D["Discrepancy finder<br/>code"]
-  D --> P["Plume Reader<br/>Gemini 3.8 Flash<br/>structured output"]
+  D --> W["Work list<br/>code: what AI work is due"]
+  W --> DO["Duty Officer<br/>ADK coordinator<br/>orders, delegates, briefs"]
+  DO -->|assess| P["Satellite + Plume Reader<br/>Gemini"]
   P --> C["Cautious hazard area<br/>code: union, never shrinks"]
-  C --> E["3D exposure<br/>code: alt_baro, policy margins"]
-  E --> R["Lateral reroute<br/>code: wind-priced visibility graph"]
-  R --> PL["Exposure Planner<br/>ADK agent + tools"]
+  C --> E["3D exposure + lateral reroute<br/>code"]
+  E --> W
+  DO -->|plan| PL["Exposure Planner<br/>ADK agent + tools"]
   PL --> DR["Dispatch Drafter<br/>Gemini"]
   DR --> H{"Dispatcher<br/>approve · edit · reject"}
   H --> Q[("Own outbound queue<br/>+ hash-chained audit")]
-  C --> RC["Closed airports → recovery<br/>CP-SAT solver + ADK agent"]
+  DO -->|recover| RC["Recovery agent<br/>ADK + CP-SAT solver"]
+  DO -->|paperwork| S["SRA drafter"]
   RC --> H
 ```
 
@@ -40,6 +43,7 @@ flowchart LR
 |---|---|---|
 | Poll | code | Collects VA SIGMETs (aviationweather.gov), Tokyo and Darwin VAAs (NWS tgftp, public domain), TAFs, Open-Meteo winds and adsb.lol positions. Every record keeps its source, fetch time and sha256. |
 | Discrepancies | code | Labels every difference: LAG, ENVELOPE, non-observation, DIRECTION_MISMATCH (including drift outside the polygon), HEIGHT_MISMATCH, SILENCE or CONFLICT. Gemini never decides what counts as a disagreement. |
+| Duty Officer | ADK coordinator agent | Gets the work code found due (plume reads, flights to plan, closed airports, paperwork) and decides the order, delegating through one tool per specialist agent below. Defers only optional work, with a reason, and writes a brief for the dispatchers. Code refuses a plan before its volcano's plume read and a deferral of mandatory work; mandatory work left undone goes to the Desk. |
 | Satellite Reader | Gemini (Flash-Lite, images) | Looks at the newest JMA Dust RGB and IR frames and says whether ash is visible, whether cloud hides the area, and where. Runs only when the Plume Reader is about to be called and the frame is new. Supporting evidence only: it can raise the hazard, never lower it. |
 | Plume Reader | Gemini | Reads the texts, the remarks, the discrepancy list and the satellite reading. Grades each source's evidence, explains it, and proposes a widened area (OFFICIAL / WIDENED / HYPOTHESIS). Code validates the output: only input sources may be cited, no model-written times, never below the official top, size caps. It allows one repair. If that fails the result is `AI UNAVAILABLE` and the cone is the official products alone. |
 | Hazard area | code | The union of every valid official polygon and the model's sector. A property test checks that it contains every official polygon. |
@@ -68,7 +72,7 @@ All steps run on the free tier; none runs on every tick without a gate.
 | Model | Steps |
 |---|---|
 | `gemini-3.8-flash` (about 20 calls a day) | Plume Reader |
-| `gemini-3.5-flash-lite` (about 500 calls a day) | Exposure Planner, Dispatch Drafter, Satellite Reader, Notice Reader, recovery agent, messages, handover, SRA narrative, Ask TEPHRA, voice transcription, backtest report |
+| `gemini-3.5-flash-lite` (about 500 calls a day) | Duty Officer, Exposure Planner, Dispatch Drafter, Satellite Reader, Notice Reader, recovery agent, messages, handover, SRA narrative, Ask TEPHRA, voice transcription, backtest report |
 | `gemini-3.8-flash-lite-tts` | Spoken answers in Ask TEPHRA |
 
 There are no fallbacks. When a model fails, runs out of budget or fails the code's checks

@@ -30,6 +30,7 @@ modules (sections 5.11 to 5.17) were built against.
 | planner-drafter | `tephra/agents/exposure_planner.py`, `tephra/agents/dispatch_drafter.py`, `tephra/agents/validators.py`, `tephra/agents/adk_app.py`, `tephra/agents/prompts/planner.md`, `tephra/agents/prompts/drafter.md`, `tests/test_drafter.py`, `tests/test_planner.py` |
 | core | `tephra/pipeline.py`, `tephra/scheduler.py`, `tephra/feeds/registry.py`, `tephra/recovery/network.py`, `tephra/store/__init__.py`, `tephra/store/sqlite_store.py`, `tephra/store/firestore_store.py`, `tephra/desk/__init__.py`, `tephra/desk/approvals.py`, `tephra/desk/audit.py`, `tephra/replay/__init__.py`, `tephra/replay/cases.py`, `tests/test_approvals.py`, `tests/test_pipeline.py`, `tests/test_replay.py`, `tests/test_store.py` |
 | api | `tephra/main.py`, `tephra/api/__init__.py`, `tephra/api/server.py`, `tephra/api/auth.py`, `tephra/api/sse.py`, `tests/test_api.py`, `tests/test_integration.py` |
+| duty | `tephra/agents/duty_officer.py`, `tephra/agents/adk_runtime.py`, `tephra/agents/prompts/duty_officer.md`, `tephra/duty.py`, `tephra/api/routes_duty.py`, `tests/test_duty_officer.py` |
 | reroute | `tephra/geo/reroute.py`, `tephra/geo/fuel.py` (`reroute_line`), `tephra/feeds/routes.py`, `scripts/build_routes.py`, `data/routes_apac.json`, `tests/test_reroute.py`, `tests/test_routes.py`, `tests/test_reroute_agents.py` |
 | ask | `tephra/agents/ask.py`, `tephra/agents/voice.py`, `tephra/agents/prompts/ask.md`, `tephra/api/routes_ask.py`, `tests/test_ask.py` |
 | notices | `tephra/feeds/jma_volcano.py`, `tephra/agents/notice_reader.py`, `tephra/agents/satellite_reader.py`, `tephra/agents/prompts/{notice_reader,satellite_reader}.md`, `tephra/api/routes_notices.py`, `tests/test_notices.py`, `tests/test_satellite_reader.py`, `tests/fixtures/{jma,notices}/` |
@@ -56,9 +57,9 @@ Import only from a lower layer (or from your own files in the same layer).
 | L1 | `tephra.feeds.base`, `tephra.store.base`, `tephra.geo.*` (`geo.reroute` included) |
 | L2 | `tephra.feeds.{sigmet,vona,vaac,taf,adsb,winds,satellite,volcanoes,airports,routes,jma_volcano}`, `tephra.science.*` |
 | L3 | `tephra.reconcile.*`, `tephra.agents.{llm,schemas,budget}` |
-| L4 | `tephra.agents.{plume_reader,validators,exposure_planner,dispatch_drafter,adk_app,satellite_reader,notice_reader,ask,voice}`, `tephra.recovery.{models,schedule,closures,solver,tools,agent,network}` |
+| L4 | `tephra.agents.{adk_runtime,plume_reader,validators,exposure_planner,dispatch_drafter,adk_app,satellite_reader,notice_reader,ask,voice,duty_officer}`, `tephra.recovery.{models,schedule,closures,solver,tools,agent,network}` |
 | L5 | `tephra.store.{sqlite_store,firestore_store}` and `tephra.store` (the factory), `tephra.desk.*`, `tephra.replay.*`, `tephra.recovery.decisions`, `tephra.comms.*`, `tephra.regdocs.*` |
-| L6 | `tephra.feeds.registry`, `tephra.pipeline`, `tephra.scheduler` |
+| L6 | `tephra.feeds.registry`, `tephra.duty`, `tephra.pipeline`, `tephra.scheduler` (`tephra.duty` reaches the runtime only through its methods and names `Runtime` for type checking only) |
 | L7 | `tephra.api.*`, `tephra.main`, `tephra.backtest.*` (the runner builds a `Runtime`) |
 
 The feature route modules (`tephra.api.routes_*`) import `DeskSession`, `RuntimeDep` and `_json`
@@ -223,7 +224,12 @@ Enum additions of the extensions: `FeedId.JMA_VOLCANO` (`jma_volcano`); `ActionK
 `AuditAction` `AI_FAILED`, `AI_FAILURE_HANDLED`, `ASKED`, `NOTICE_READ`, `RECOVERY_PROPOSED`,
 `RECOVERY_DECIDED`, `MESSAGE_DRAFTED`, `MESSAGE_DECIDED`, `DOC_DRAFTED`, `DOC_SIGNED`,
 `HANDOVER_ACKED`; `TraceStage` `SATELLITE`, `NOTICE`, `ASK`, `RECOVERY`, `MESSAGES`, `DOCS`;
-`SseEvent` `reroutes`, `ai_failure`, `satellite`, `notice`, `recovery`, `message`, `doc`, `budget`.
+`SseEvent` `reroutes`, `ai_failure`, `satellite`, `notice`, `recovery`, `message`, `doc`, `budget`,
+`duty`; `TraceStage.DUTY`; `PlumeAssessment.outcome` `PENDING` (a plume read queued for the Duty
+Officer: official products only until it runs, never reused as current). Duty Officer models:
+`DutyItemKind` (ASSESS, PLAN, RECOVER, SRA), `DutyItem`, `DutyPriority`, `DutyBrief`,
+`DutyDispatch`, `DutyDeferral`, `DutyRun`; `AiFailure.stage` adds `duty_officer`;
+`TickReport.duty_runs`; `WallSnapshot.duty` (the newest run).
 `PlannerContext.route` and `.reroutes` carry the published route and the code's lateral options;
 `PlannerDecision.reroute_id` names the chosen option; `Advisory.reroute` embeds it.
 `Situation.supporting` holds texts other model steps wrote (the Satellite Reader's), each under
@@ -1343,12 +1349,22 @@ class Runtime:
                           case: ReplayCase | None = None) -> None
     async def publish_budget(self) -> None                       # SSE `budget` (budget_view)
     async def add_verified_notice(self, vona: Vona) -> None      # a verified pasted notice joins live.vonas and the store
-    async def run_recovery(self, at: datetime, report: TickReport) -> None   # the automatic recovery trigger
+    async def run_recovery(self, at: datetime, report: TickReport) -> None   # queues RECOVER work when the closed airports change
+    async def update_exposures(self, at: datetime, report: TickReport) -> None
+    async def settle_drafts(self, at: datetime, report: TickReport) -> None  # draft retirement
+    async def run_exposures(self, at: datetime, report: TickReport) -> None  # an ADS-B pass: the two above around a Duty Officer dispatch
+    # what the Duty Officer's tools reach (tephra.duty._RuntimeExecutor):
+    async def assess_volcano(self, volcano_id: str, at: datetime, report: TickReport) -> dict[str, Any]
+    async def plan_flight_now(self, flight_id: str, drafts: Sequence[Advisory], at: datetime,
+                              report: TickReport) -> dict[str, Any]
+    def plan_due(self, flight: ExposedFlight, drafts: Sequence[Advisory], at: datetime) -> int | None
+    def start_recovery(self, report: TickReport) -> dict[str, Any]
     async def aclose(self) -> None
 async def create_runtime(settings: Settings) -> Runtime     # loads the policy, then airports with its min_runway_m, then routes_apac.json (raises when missing)
 ```
 The scheduler also calls the runtime's step methods (`maybe_switch_mode`,
-`follow_replay_clock`, `refresh_active`, `analyse`, `run_exposures`, `run_recovery`, `publish`,
+`follow_replay_clock`, `refresh_active`, `analyse`, `update_exposures`, `run_recovery`,
+`settle_drafts`, `publish`,
 `checkpoint`, ...); they are internal to core.
 
 Core rules:
@@ -1364,10 +1380,12 @@ Core rules:
 - Tick order: auto-replay check -> replay clock check -> due product feeds (SIGMET, VONA,
   VAACs) -> `find_active` -> due context feeds (ADS-B, TAF, METAR, winds, frames; HSD and
   the BTD only with `settings.science`) -> per active volcano: `select_records` ->
-  `build_situation` (with the feed health) -> plume assessment -> `build_cone` ->
-  `find_exposed` over every cone -> planning and drafting (reroutes computed for each planned
-  flight) -> draft retirement -> the recovery check -> publish (Wall sections, then `budget`) ->
-  checkpoint. One volcano's failure keeps its previous picture and does not stop the others.
+  `build_situation` (with the feed health) -> the plume gate (a read that matters is queued, the
+  area held) -> `build_cone` -> `find_exposed` over every cone -> the recovery check (queues
+  RECOVER work) -> `tephra.duty.dispatch_duty` (the Duty Officer orders and delegates plume
+  reads, planning and drafting with reroutes, recovery and the SRA; section 5.18) -> draft
+  retirement -> publish (Wall sections, then `budget`) -> checkpoint. An extra ADS-B pass runs
+  exposure -> `dispatch_duty(trigger="adsb")` -> draft retirement. One volcano's failure keeps its previous picture and does not stop the others.
   A `MODEL_FAILED` assessment writes an `AI_FAILED` audit entry.
 - Plume quota gate. `situation.input_hash` covers only the SIGMET, VONA and VAA texts and the
   BTD indicator. An assessment with an unchanged `input_hash` is reused until `created_at +
@@ -1375,12 +1393,17 @@ Core rules:
   most every 3 h. Otherwise `read_plume(..., call_model=True)` runs only when at least one
   holds: a CAUTION or WARNING discrepancy exists; no official layer is valid now but a VONA
   reports ash (HYPOTHESIS territory); an airline aircraft is within `adsb_radius_nm` of the
-  vent. Otherwise a PLUME trace line is written (`"<volcano>: no CAUTION or WARNING
+  vent. Such a read is not made in the gate: the volcano goes to `Runtime.assess_due` (an ASSESS
+  work item for the Duty Officer) and, until it is dispatched, the cone is built on the last
+  reading when it is within its horizon and its mode fits the official products now
+  (`_holds_while_pending`), else on a `PENDING` assessment (official products only, never
+  reused as current). The Duty Officer's `assess_volcanoes` then runs `read_plume(...,
+  call_model=True)`, rebuilds the cone and that volcano's exposure. Otherwise a PLUME trace line is written (`"<volcano>: no CAUTION or WARNING
   discrepancy, no HYPOTHESIS case and no airline aircraft seen within <adsb_radius_nm> NM;
   cone from official products only"`) and `read_plume` runs with `call_model=False`
   (OFFICIAL_ONLY). This keeps TEPHRA near the ~20 calls/day free tier of 3.8 Flash; the
   per-tier daily budget in `agents/llm` is the hard stop.
-- Satellite Reader gate. Just before `read_plume` is called with `call_model=True` for a volcano,
+- Satellite Reader gate. Within a dispatched plume read, just before `read_plume` is called with `call_model=True` for a volcano,
   `Runtime._with_satellite` reads the newest Dust RGB and B13 frames (from the store's blobs) with
   `read_satellite` unless `is_current(held reading, frames)` says the last reading was made from
   these frames. No Dust RGB frame means no reading and no call. The reading (read, `no_frames` or
@@ -1400,12 +1423,13 @@ Core rules:
 - Automatic recovery. After the exposure step, `run_recovery` computes the closures of the
   airports of the RFA schedule (`recovery.network.network_closures`, from `live.tafs`, `live.metars`,
   the cones and the official layers) and compares the set of closed ICAOs with the last one
-  (kept in the bookkeeping as `closed_airports`). The first look only records it. A change to a
-  non-empty set starts one `recommend_recovery` run in the background (`spawn`, under the
-  recovery lock that the Desk's run button shares; a Desk run in progress covers the change)
-  and `submit_plan` stores the draft and publishes SSE `recovery`; a change to the empty set
-  makes no plan. The change is recorded before the run, so a failed plan is not retried every
-  tick. `TEPHRA_RECOVERY_AUTO=false` turns it off. The schedule is read once a day.
+  (kept in the bookkeeping as `closed_airports`). A change to a non-empty set is queued as
+  `Runtime.recovery_due` (a RECOVER work item); when the Duty Officer dispatches it,
+  `start_recovery` records the set and starts one `recommend_recovery` run in the background
+  (`spawn`, under the recovery lock that the Desk's run button shares; a Desk run in progress
+  covers the change), and `submit_plan` stores the draft and publishes SSE `recovery`. A change
+  to the empty set is recorded and makes no plan. A deferred recovery stays queued and is
+  offered again after `duty.rerun_min`. `TEPHRA_RECOVERY_AUTO=false` turns it off. The schedule is read once a day.
 - Budget. `publish` and the satellite and recovery steps publish SSE `budget`
   (`agents.budget.budget_view`, read from the budget file the Gemini backend keeps); `GET
   /api/budget` serves the same.
@@ -1875,12 +1899,77 @@ failure no `REPORT.md` is written. Scorecard in `docs/backtest/scorecard.json` (
 steps: 90.3% coverage, equal to the official-only 90.3%, 29.0% over-warning, over 1,391 snapshots
 of three cases); `GET /api/backtest` serves it.
 
+### 5.18 duty (the Duty Officer, the coordinator agent)
+
+```python
+# tephra/agents/adk_runtime.py: what every ADK agent shares
+class ModelGuard:            # before_model_callback: takes each turn from the lite budget, caps turns;
+    def __init__(self, llm: LlmBackend, *, max_turns: int) -> None   # on_model_error closes the tier on a per-day 429
+def stop_response(reason: str) -> LlmResponse      # an answer with no function call, which ends the run
+def tool_record(name, args, result) -> ToolCallRecord ; def summarise(result, limit=240) -> str
+DAILY_QUOTA_SPENT, BUDGET_EXHAUSTED
+
+# tephra/agents/duty_officer.py
+class DutyExecutor(Protocol):        # what the tools act on; tephra.duty implements it over the runtime
+    async def assess(self, volcano_id: str) -> tuple[dict[str, Any], list[DutyItem]]
+    async def plan(self, flight_id: str) -> dict[str, Any]
+    async def recover(self) -> dict[str, Any]
+    async def draft_sra(self, region: str) -> dict[str, Any]
+@dataclass class DutyToolkit         # the work list as the run goes: pending, done, replaced, deferred
+async def run_duty_officer(worklist, executor, llm, *, digest: str, settings: Settings,
+                           trigger: Literal["tick", "adsb"], replay: bool,
+                           trace: TraceSink | None = None) -> DutyRun
+def build_duty_agent(model, toolkit, *, before_model_callback=None, on_model_error_callback=None) -> LlmAgent
+def validate_brief(brief: DutyBrief, toolkit: DutyToolkit) -> list[str]
+
+# tephra/duty.py
+async def dispatch_duty(runtime, at, report, *, trigger) -> DutyRun | None
+def duty_worklist(runtime, at, drafts_by_flight) -> list[DutyItem]
+```
+
+The work list (code, `duty_worklist`, most urgent first):
+
+| Kind | When it is due | Mandatory | Item id |
+|---|---|---|---|
+| ASSESS | the plume gate queued a read (`Runtime.assess_due`) | no official area valid but a VONA reports ash, or a WARNING discrepancy | `stable_id("DI", ASSESS, volcano_id, input_hash)` |
+| PLAN | `Runtime.plan_due(flight)`: a new cone, a more urgent bucket, or a planning error's retry time (positions fresh only) | inside now or entry within `planner.divert_within_min` | `stable_id("DI", PLAN, flight_id, cone_id, bucket)` |
+| RECOVER | `Runtime.recovery_due` (closed airports changed) | never | `stable_id("DI", RECOVER, *airports)` |
+| SRA | a region (by `Region.bbox`) carries exposed flights and has had no SRA dispatched today | never | `stable_id("DI", SRA, region, date)` |
+
+`dispatch_duty` runs the Duty Officer only when an item has not been offered for
+`duty.rerun_min` (5 min), with a digest per active volcano (area label, discrepancies by
+severity, exposed and inside counts), the work count and the day's budget per tier.
+
+The agent (`AGENT_NAME = "tephra_duty_officer"`, lite tier, at most 12 model turns,
+`duty_run_timeout_s` per run) has six tools:
+
+| Tool | Reaches | Code rules |
+|---|---|---|
+| `assess_volcanoes(volcano_ids)` | `Runtime.assess_volcano`: Satellite Reader, Plume Reader, `build_cone`, the volcano's exposure | only volcanoes with an ASSESS item; returns the PLAN items the new cone made due (an older item for the same flight is replaced, not left undone) |
+| `plan_flights(flight_ids)` | `Runtime.plan_flight_now`: reroutes, Exposure Planner, Dispatch Drafter, the Desk | only flights with a PLAN item; refused while the flight's volcano has an ASSESS item; results are the draft or the AI failure |
+| `run_recovery()` | `Runtime.start_recovery`: the recovery agent in the background | only with a RECOVER item |
+| `draft_sra(region)` | `regdocs.sra.draft_sra` | only with an SRA item; marked done for the day even when it fails |
+| `defer(item_ids, reason)` | nothing | mandatory items and items with no reason are refused |
+| `submit_brief(summary, priority_item_ids, priority_reasons, watch)` | the brief | `validate_brief`: summary 500 chars, reasons 160, at most 4 watch lines of 160; known item ids, each once; no clock times; every number and RFA flight must appear in the digest, the work list or a tool result |
+
+After the first turn, a missing or rejected brief, or mandatory work still undone, gets one
+repair turn naming the problems and the undone items (outcome `REPAIRED`). A run that ends
+with no valid brief (model error, budget, turn limit, timeout) is `MODEL_FAILED`; its
+delegations stand. Then `_hold_the_line`: each undone mandatory PLAN item becomes an
+`AiFailure` (stage `duty_officer`, reason `DUTY OFFICER AI UNAVAILABLE: ...` or `DUTY OFFICER
+DID NOT DISPATCH THIS FLIGHT`) on the Desk; an undone mandatory ASSESS item writes an error trace
+line and an `AI_FAILED` audit entry (the area stays at the official products). The run is stored
+in `duty`, kept as `Runtime.duty` (restored on restart), published as SSE `duty`, and counted in
+`TickReport.duty_runs`. Trace lines use stage `DUTY`. With `TEPHRA_LLM=stub` the run dispatches
+everything, plume reads first, most urgent first, and briefs `NO MODEL: ...` (outcome `STUB`).
+
 ## 6. Quota and model use
 
 | Step | Backend | Model | When it runs |
 |---|---|---|---|
+| Duty Officer | ADK `LlmAgent` + delegation tools | `TEPHRA_MODEL_LITE` | when the work list holds an item not offered for `duty.rerun_min` (5 min); every model turn counts (at most 12 a run, one repair turn); its delegations spend their own specialists' calls |
 | Plume Reader | google-genai, structured output | `TEPHRA_MODEL` (gemini-3.8-flash) | only when a volcano's texts or BTD indicator change (or an unchanged input's assessment is older than `max(horizon_h, 3 h)`) and the quota gate (5.7) says the call matters; at most one repair; budget `TEPHRA_MODEL_DAILY_BUDGET` (18) |
-| Satellite Reader | google-genai, structured output, images | `TEPHRA_MODEL_LITE` | only when the Plume Reader is about to be called for that volcano and the newest frame is not the one the last reading used; at most one repair |
+| Satellite Reader | google-genai, structured output, images | `TEPHRA_MODEL_LITE` | only within a plume read the Duty Officer dispatched for that volcano and the newest frame is not the one the last reading used; at most one repair |
 | Exposure Planner | ADK `LlmAgent` + FunctionTools | `TEPHRA_MODEL_LITE` (gemini-3.5-flash-lite) | once per exposed flight per cone and urgency bucket; every model turn counts (at most 10 per plan); budget `TEPHRA_MODEL_LITE_DAILY_BUDGET` (450), shared by every lite step |
 | Dispatch Drafter | google-genai, structured output | `TEPHRA_MODEL_LITE` | once per new plan, plus at most one repair |
 | Recovery agent | ADK `LlmAgent` + FunctionTools around CP-SAT | `TEPHRA_MODEL_LITE` | once when the set of closed RFA airports changes (`TEPHRA_RECOVERY_AUTO`), or when a dispatcher presses run; one at a time |
@@ -1892,6 +1981,13 @@ of three cases); `GET /api/backtest` serves it.
 | Voice in | google-genai, structured output, audio part | `TEPHRA_MODEL_LITE` | on demand: one call per recording of at most 1 MiB |
 | Voice out | google-genai text-to-speech | `TEPHRA_MODEL_TTS` (gemini-3.8-flash-lite-tts) | on demand: one call per answer, cached for the process |
 | Backtest report | google-genai, structured output | `TEPHRA_MODEL_LITE` | by hand (`scripts/backtest.py --report`), one call, at most one repair |
+
+Every request is also paced per model to the free tier's per-minute limit
+(`TEPHRA_MODEL_RPM`, 5; `TEPHRA_MODEL_LITE_RPM`, 14, under Google's 15): `GeminiBackend.pace`
+waits on a `RatePacer` (no more than that many sends in any 60 s) before each attempt, and the
+ADK `ModelGuard` awaits it before each agent turn, so a Duty Officer run that plans several
+flights waits for its slots instead of earning 429s. A per-minute 429 that still comes back is
+retried after the `retryDelay` Google names (capped at 60 s); a per-day 429 closes the tier.
 
 Gemini 3 models run at temperature 1.0 (`temperature_for`). Budgets are counted per Google
 quota day (midnight to midnight Pacific) and kept on disk across restarts (section 5.5).
@@ -1917,6 +2013,7 @@ call is made and every step but voice has a deterministic answer labelled NO MOD
 | `exposures` | flight id | `ExposedFlight` (current set; gone flights deleted) | core (throttled) |
 | `plans` | plan id | `PlannedAction` | core |
 | `ai_failures` | failure id | `AiFailure` (a flight with no plan or draft; handled by hand) | core (`desk.failures`) |
+| `duty` | run id | `DutyRun` | duty (`tephra.duty.dispatch_duty`) |
 | `reroutes` | `RerouteOption` id | `RerouteOption` (every option of a planned flight) | core |
 | `sat_readings` | reading id (`SAT-...`) | `SatelliteReading` | core |
 | `notices` | `NOTICE-<sha12>` | `NoticeReading` | `routes_notices` |
@@ -1987,6 +2084,7 @@ route sets its own), and `Strict-Transport-Security: max-age=31536000` over http
 | `GET /api/policy` | `PolicyResponse` = `{policy: OperatorPolicy, policy_hash}`: the active operator policy and its `content_hash()` |
 | `GET /api/replays` | `ReplayCaseList` = `{cases: [ReplayCaseSummary]}`: each recorded case without its records (`case_id`, `label`, `recorded_from`, `recorded_to`, `region`, `volcano_ids`, `notes`, `record_count`, `banner`) |
 | `GET /api/blobs/{key}` | PNG bytes; `key` must match `BLOB_KEY_PATTERN` (else 404); `Cache-Control: public, max-age=86400, immutable` |
+| `GET /api/duty?limit=10` | `DutyRunList` `{runs: [DutyRun]}`, current mode, newest first (`limit` 1 to 20) |
 | `GET /api/budget` | `BudgetView` `{backend, as_of, tiers: [{tier, model_id, used, limit, remaining}], note}` |
 | `GET /api/notices?limit=` | `{notices: [NoticeReading]}`, current mode, newest first; includes the JMA volcano reports of the live picture (`JMA-` VONA records) as `source_kind "jma_xml"`, language `ja`, verified, no model |
 | `GET /api/recovery?limit=` | `{plans: [RecoveryPlan]}`, current mode, newest first |
@@ -2009,6 +2107,7 @@ and a `Point` per turn point (`feature: "waypoint"`), with `RerouteFeatureProps`
 `proxy_flight`, `volcano_id`, `kind`, `status`, `route_string`, `extra_nm`, `extra_min`, `side`,
 `label`, `waypoint_labels`).
 `satellite`: the newest `SatelliteReading` of each active volcano that has one.
+`duty`: the newest `DutyRun` (or null).
 `aircraft`: `Point` per merged aircraft with `AircraftFeatureProps` (`exposed`,
 `minutes_to_entry` and `volcano_id` from the earliest exposure).
 `situations`: `SituationCard` per active volcano (cards exactly `[SIGMET, VONA, VAA]`).
@@ -2044,6 +2143,7 @@ Wall resyncs from `/api/wall` and the Desk reloads its list when the stream reop
 | `message` | `CrewPaxMessage` | upsert by `id` |
 | `doc` | `DocSummary` (`kind` SRA, VAR or HANDOVER; status DRAFT, SIGNED or ACKNOWLEDGED) | upsert by `id`; a HANDOVER summary tells the Desk to refetch `/api/desk/handovers` |
 | `budget` | `BudgetView` | replace the AI budget chip |
+| `duty` | `DutyRun` | replace the Duty Officer panel and the Desk's brief card |
 | `heartbeat` | `{"now": iso, "mode": "LIVE"}` (no `id`) | update clock |
 
 Core publishes `state`, `feeds`, `volcanoes`, `situation`, `official`, `cones`, `exposures`,

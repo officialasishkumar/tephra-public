@@ -298,6 +298,9 @@ class ScriptedReportLlm:
     def model_id(self, tier: Tier) -> str:
         return "scripted-lite"
 
+    async def pace(self, tier: str) -> None:
+        return None
+
     def reserve(self, tier: Tier) -> bool:
         return True
 

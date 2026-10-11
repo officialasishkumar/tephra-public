@@ -24,6 +24,7 @@ import { toast } from './desk/toast.js';
 import { initAsk, focusAsk, setFlightContext } from './desk/ask.js';
 import { loadBudget, openBudget, setBudget } from './desk/budget.js';
 import { clearHandover, loadDocs, loadHandover, onDocEvent, onDocsClick, renderDocs, docsToSign } from './desk/docs.js';
+import { loadDuty, onDutyEvent } from './desk/duty.js';
 import { loadFailures, onFailureEvent, openFailures, openHandled } from './desk/failures.js';
 import { draftMessages, loadMessages, onMessageEvent, openMessage, requestMessageDrafts } from './desk/messages.js';
 import { draftPlans, loadPlans, onNetworkClick, onRecoveryEvent, renderNetwork, chosenOf } from './desk/network.js';
@@ -178,6 +179,7 @@ function openEvents() {
     if (app.me) onFailureEvent(parseEvent(e));
     updateBadges();
   });
+  source.addEventListener('duty', (e) => onDutyEvent(parseEvent(e)));
   source.addEventListener('message', (e) => {
     if (app.me) onMessageEvent(parseEvent(e));
     updateBadges();
@@ -595,6 +597,7 @@ function onTab(name, { changed, focus }) {
 }
 
 function loadExtras() {
+  loadDuty();
   loadFailures();
   loadMessages();
   loadPlans();

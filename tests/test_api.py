@@ -48,6 +48,7 @@ from tephra.models import (
     AdvisoryStatus,
     AiFailure,
     AirlineInfo,
+    DutyRun,
     FeedHealth,
     FeedId,
     FeedStatus,
@@ -210,6 +211,29 @@ def make_failure() -> AiFailure:
     )
 
 
+def make_duty_runs() -> list[DutyRun]:
+    """An older and a newer live run, and a replay run the live desk must not list."""
+    at = timeutil.now()
+    runs = []
+    for n, (minutes, replay) in enumerate(((10, False), (2, False), (1, True))):
+        started = at - timedelta(minutes=minutes)
+        runs.append(
+            DutyRun(
+                id=f"DUTY-00000000000{n}",
+                started_at=started,
+                finished_at=started,
+                replay=replay,
+                trigger="tick",
+                worklist=[],
+                outcome="STUB",
+                llm_backend="stub",
+                model_id="stub",
+                prompt_hash="0" * 64,
+            )
+        )
+    return runs
+
+
 class Harness:
     """Builds the stand-in runtime inside the app's lifespan and keeps a handle on it."""
 
@@ -228,6 +252,8 @@ class Harness:
         )
         assert created
         await store.put(Collection.AI_FAILURES, FAILURE_ID, make_failure().model_dump(mode="json"))
+        for run in make_duty_runs():
+            await store.put(Collection.DUTY, run.id, run.model_dump(mode="json"))
         self._runtime = FakeRuntime(settings=settings, store=store)
         return cast(Runtime, self._runtime)
 
@@ -869,6 +895,13 @@ def test_desk_lists_ai_failures_and_a_dispatcher_closes_one(client: TestClient) 
     missing = client.post("/api/desk/ai-failures/AIF-ffffffffffff/handled", json={})
     assert missing.status_code == 404
     assert client.post("/api/desk/ai-failures/../x/handled", json={}).status_code == 404
+
+
+def test_duty_lists_the_live_desks_runs_newest_first(client: TestClient) -> None:
+    runs = client.get("/api/duty").json()["runs"]
+    assert [run["id"] for run in runs] == ["DUTY-000000000001", "DUTY-000000000000"]
+    assert client.get("/api/duty?limit=1").json()["runs"][0]["id"] == "DUTY-000000000001"
+    assert client.get("/api/duty?limit=0").status_code == 422
 
 
 @pytest.mark.parametrize("advisory_id", ["adv_ffffffffffff", "not-an-id"])

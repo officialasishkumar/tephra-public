@@ -29,8 +29,10 @@ from tephra.agents.llm import (
     GeminiBackend,
     LlmCall,
     LlmPart,
+    RatePacer,
     StubBackend,
     prompt_hash,
+    retry_after_s,
 )
 from tephra.agents.plume_reader import (
     MIN_HORIZON_H,
@@ -213,6 +215,9 @@ class ScriptedLlm:
 
     def model_id(self, tier: str) -> str:
         return "gemini-test"
+
+    async def pace(self, tier: str) -> None:
+        return None
 
     def reserve(self, tier: str) -> bool:
         return True
@@ -682,6 +687,21 @@ DAILY_QUOTA_429 = {
     }
 }
 
+PER_MINUTE_429 = {
+    "error": {
+        "code": 429,
+        "status": "RESOURCE_EXHAUSTED",
+        "message": "You exceeded your current quota.",
+        "details": [
+            {
+                "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+                "violations": [{"quotaId": "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"}],
+            },
+            {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "31s"},
+        ],
+    }
+}
+
 
 class _Answer(BaseModel):
     value: int
@@ -757,3 +777,28 @@ async def test_a_malformed_answer_repaired_by_the_model_is_accepted(
     assert assessment.outcome == "REPAIRED"
     assert assessment.attempts == 2
     assert [config.temperature for config in client.models.configs] == [1.0, 1.0]
+
+
+async def test_the_pacer_keeps_any_minute_under_the_limit() -> None:
+    """The free tier counts requests per minute per model: a burst waits for its slots."""
+    now = [0.0]
+    slept: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        now[0] += seconds
+
+    pacer = RatePacer(3, clock=lambda: now[0], sleep=sleep)
+    for _ in range(3):
+        await pacer.wait()
+    assert slept == []
+    now[0] = 10.0
+    await pacer.wait()  # the fourth send waits until the first leaves the minute
+    assert slept == [50.0]
+    assert now[0] == 60.0
+
+
+def test_a_per_minute_429_is_retried_after_the_delay_google_names() -> None:
+    minute = genai_errors.ClientError(429, PER_MINUTE_429)
+    assert retry_after_s(minute) == 31.0
+    assert retry_after_s(genai_errors.ServerError(503, {"error": {"code": 503}})) is None

@@ -10,6 +10,8 @@ import { aiChip, openBSheet, sectionHead } from './ui.js';
 import { toast } from './toast.js';
 
 const STAGE = { planner: 'planning the action', drafter: 'drafting the advisory' };
+const DUTY_STAGE = 'duty_officer';
+const NOT_DISPATCHED = 'The Duty Officer did not dispatch this flight';
 const NOTE_MAX = 500;
 const HANDLED_CHIPS = ['Contacted the flight by phone', 'Re-planned by hand', 'Flight already clear', 'Duplicate'];
 
@@ -31,8 +33,13 @@ export function onFailureEvent(f) {
   else app.failures.set(f.id, f);
   renderFailures();
   app.hub.badges();
-  if (!had && !f.handled_at) announce(`AI could not plan ${f.proxy_flight}. Handle it by hand.`);
+  if (!had && !f.handled_at) announce(f.stage === DUTY_STAGE ? `The Duty Officer did not dispatch ${f.proxy_flight}. Handle it by hand.` : `AI could not plan ${f.proxy_flight}. Handle it by hand.`);
 }
+
+// A flight the Duty Officer never handed to the Planner reads differently from a planner
+// or drafter that failed: the reason it was left is still shown.
+const whatText = (f) => (f.stage === DUTY_STAGE ? NOT_DISPATCHED : `AI unavailable: ${f.reason}`);
+const sheetText = (f) => (f.stage === DUTY_STAGE ? `${NOT_DISPATCHED}. ${f.reason}` : whatText(f));
 
 function card(f) {
   const entry = f.inside_now ? 'INSIDE NOW' : `enters in ${f.minutes_to_entry} min when found`;
@@ -41,9 +48,9 @@ function card(f) {
       el('span', { class: 'fcard__flight', text: f.proxy_flight }),
       el('span', { class: 'fcard__ident', text: [f.callsign, f.type_icao].filter(Boolean).join(' · ') || 'no callsign' }),
       el('span', { class: `fcard__entry ${f.inside_now ? 'is-inside' : ''}`.trim(), text: entry })),
-    el('p', { class: 'fcard__what' }, icon('st-serious', 'st'),
-      el('span', { text: `AI unavailable: ${f.reason}` })),
-    el('p', { class: 'fcard__meta', text: `${f.volcano_name} · failed ${STAGE[f.stage] || f.stage} at ${hhmmz(f.created_at)} · ` }, aiChip(f.model_id, f.model_id === 'stub' ? 'stub' : 'gemini', { verb: 'AI tried', sm: true })),
+    el('p', { class: 'fcard__what' }, icon('st-serious', 'st'), el('span', { text: whatText(f) })),
+    f.stage === DUTY_STAGE ? el('p', { class: 'fcard__meta', text: `Reason: ${f.reason}` }) : null,
+    el('p', { class: 'fcard__meta', text: `${f.volcano_name} · ${f.stage === DUTY_STAGE ? 'left undone' : `failed ${STAGE[f.stage] || f.stage}`} at ${hhmmz(f.created_at)} · ` }, aiChip(f.model_id, f.model_id === 'stub' ? 'stub' : 'gemini', { verb: 'AI tried', sm: true })),
     el('p', { class: 'fcard__note', text: 'No substitute plan or template was made. Decide this flight by hand.' }),
     el('button', { type: 'button', class: 'btn btn--outline fcard__btn', 'data-handle': f.id, disabled: app.offline },
       icon('i-hand'), el('span', { text: 'Mark handled…' })));
@@ -59,7 +66,7 @@ export function renderFailures() {
     return;
   }
   host.replaceChildren(
-    sectionHead('Handle by hand', { count: list.length, tone: 'serious', id: 'fail-title', sub: 'The AI could not plan or draft these flights. Nothing was substituted.' }),
+    sectionHead('Handle by hand', { count: list.length, tone: 'serious', id: 'fail-title', sub: 'The AI could not plan, draft or dispatch these flights. Nothing was substituted.' }),
     el('ul', { class: 'fcards', 'aria-labelledby': 'fail-title' }, list.map(card)));
 }
 
@@ -83,7 +90,7 @@ export function openHandled(id) {
   const sheet = openBSheet({
     title: `Handle ${f.proxy_flight} by hand`,
     body: el('div', { class: 'stack' },
-      el('p', { class: 'panel__note', text: `AI unavailable: ${f.reason}` }),
+      el('p', { class: 'panel__note', text: sheetText(f) }),
       el('p', { class: 'note', text: `Entry ${f.inside_now ? 'was inside the area when found' : `in ${f.minutes_to_entry} min when found`}. Record what you did. The note goes in the audit log under your name.` }),
       el('label', { class: 'flabel', for: 'handled-note', text: 'What did you do? (optional)' }), chips, area, count, msg),
     footer: go,

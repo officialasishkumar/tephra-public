@@ -8,10 +8,12 @@ never Vertex AI, never Application Default Credentials. Every call:
   midnight Pacific time, and kept in ``cache_dir/llm`` so a restart does not reset it,
 * is answered from a disk cache when the same model already saw the same prompt and images,
 * runs a Gemini 3 model at its default temperature of 1.0 unless the caller names one,
-* retries 5xx and per-minute 429s with back-off; a 429 for a per-day quota closes the tier
-  until the quota day ends, and
+* is paced to the tier's requests-a-minute limit (the free tier counts 15 a minute per model
+  for Flash-Lite), so a burst of agents waits for its slots instead of earning 429s,
+* retries 5xx and per-minute 429s, after the delay Google names when it names one; a 429 for
+  a per-day quota closes the tier until the quota day ends, and
 * never raises for model trouble: callers get ``(None, call)`` with ``call.error`` set and
-  fall back to code.
+  report AI UNAVAILABLE.
 
 ``StubBackend`` (``TEPHRA_LLM=stub``) returns the caller's deterministic ``stub()`` result
 and never touches the network; everything it produces is labelled NO MODEL downstream.
@@ -23,6 +25,7 @@ import logging
 import os
 import re
 import time
+from collections import deque
 from collections.abc import Callable, Sequence
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from functools import cache
@@ -49,6 +52,7 @@ __all__ = [
     "LlmBackend",
     "LlmCall",
     "LlmPart",
+    "RatePacer",
     "StubBackend",
     "Tier",
     "daily_quota_spent",
@@ -70,6 +74,9 @@ GEMINI_3_TEMPERATURE: Final = 1.0
 """research/10 C9: Google strongly recommends keeping every Gemini 3 model at its default
 temperature of 1.0; lower values may make it loop."""
 DEFAULT_TEMPERATURE: Final = 0.2
+MAX_RETRY_AFTER_S: Final = 60.0
+"""A per-minute 429 names its own retry delay (about 30 s); a longer one is capped here."""
+_RETRY_DELAY: Final = re.compile(r"retryDelay['\"]?\s*:\s*['\"](\d+(?:\.\d+)?)s")
 _GEMINI_3: Final = re.compile(r"(?:models/)?gemini-3(?:[.-]|$)")
 
 
@@ -130,6 +137,10 @@ class LlmBackend(Protocol):
         """Google reported the tier's daily quota spent: refuse it until the quota day ends."""
         ...
 
+    async def pace(self, tier: Tier) -> None:
+        """Wait until one more request to the tier's model fits its per-minute limit."""
+        ...
+
     async def structured[T: BaseModel](
         self,
         *,
@@ -142,6 +153,40 @@ class LlmBackend(Protocol):
     ) -> tuple[T | None, LlmCall]:
         """``temperature=None`` runs the tier's model at ``temperature_for(model)``."""
         ...
+
+
+class RatePacer:
+    """No more than ``rpm`` sends in any 60 seconds, as Google counts the free tier per model.
+
+    A send waits for its slot rather than earning a 429: agents that plan several flights in
+    a row would otherwise burst past the limit. One pacer per tier per process (Cloud Run runs
+    one instance), created with the backend, so it lives on the loop that uses it."""
+
+    WINDOW_S: Final = 60.0
+
+    def __init__(
+        self,
+        rpm: int,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Any] = asyncio.sleep,
+    ) -> None:
+        self._rpm = rpm
+        self._clock = clock
+        self._sleep = sleep
+        self._sent: deque[float] = deque()
+        self._lock = asyncio.Lock()
+
+    async def wait(self) -> None:
+        async with self._lock:
+            while True:
+                now = self._clock()
+                while self._sent and now - self._sent[0] >= self.WINDOW_S:
+                    self._sent.popleft()
+                if len(self._sent) < self._rpm:
+                    self._sent.append(now)
+                    return
+                await self._sleep(self.WINDOW_S - (now - self._sent[0]))
 
 
 class BudgetExhausted(RuntimeError):
@@ -295,6 +340,9 @@ class StubBackend:
     def exhaust(self, tier: Tier) -> None:
         """The stub spends no quota, so there is nothing to close."""
 
+    async def pace(self, tier: Tier) -> None:
+        """The stub sends nothing, so nothing waits."""
+
     async def structured[T: BaseModel](
         self,
         *,
@@ -337,10 +385,17 @@ class GeminiBackend:
         self._cache = _DiskCache(llm_dir)
         self._budget = budget if budget is not None else _process_budget(llm_dir / BUDGET_FILE)
         self._retry_delays_s = tuple(retry_delays_s)
+        self._pacers: dict[Tier, RatePacer] = {
+            "main": RatePacer(settings.model_rpm),
+            "lite": RatePacer(settings.model_lite_rpm),
+        }
 
     @property
     def name(self) -> LlmBackendName:
         return "gemini"
+
+    async def pace(self, tier: Tier) -> None:
+        await self._pacers[tier].wait()
 
     def model_id(self, tier: Tier) -> str:
         return self._settings.model if tier == "main" else self._settings.model_lite
@@ -398,7 +453,7 @@ class GeminiBackend:
 
         started = time.monotonic()
         try:
-            response = await self._generate(model, system, parts, schema, temperature)
+            response = await self._generate(tier, model, system, parts, schema, temperature)
         except Exception as exc:  # any SDK, transport or timeout failure falls back to code
             if daily_quota_spent(exc):
                 self.exhaust(tier)
@@ -454,6 +509,7 @@ class GeminiBackend:
 
     async def _generate(
         self,
+        tier: Tier,
         model: str,
         system: str,
         parts: Sequence[LlmPart],
@@ -465,18 +521,21 @@ class GeminiBackend:
         contents = _contents(parts)
         config = _config(system, parts, schema, temperature)
         for attempt, delay in enumerate(self._retry_delays_s, start=1):
+            await self.pace(tier)
             try:
                 return await self._request(model, contents, config)
             except (errors.APIError, httpx.TransportError) as exc:
                 if not _retryable(exc):
                     raise
+                wait_s = retry_after_s(exc) or delay
                 logger.warning(
                     "gemini attempt %d failed (%s); retrying in %.1f s",
                     attempt,
                     _describe(exc),
-                    delay,
+                    wait_s,
                 )
-                await asyncio.sleep(delay)
+                await asyncio.sleep(wait_s)
+        await self.pace(tier)
         return await self._request(model, contents, config)
 
     async def _request(
@@ -574,6 +633,14 @@ def _retryable(exc: Exception) -> bool:
     if isinstance(exc, httpx.TransportError):
         return True
     return getattr(exc, "code", None) in RETRYABLE_STATUS and not daily_quota_spent(exc)
+
+
+def retry_after_s(exc: BaseException) -> float | None:
+    """The delay a per-minute 429 names in its RetryInfo (``retryDelay: '31s'``), capped."""
+    if getattr(exc, "code", None) != 429:
+        return None
+    found = _RETRY_DELAY.search(str(getattr(exc, "details", "")) or str(exc))
+    return min(float(found.group(1)), MAX_RETRY_AFTER_S) if found else None
 
 
 def daily_quota_spent(exc: BaseException) -> bool:

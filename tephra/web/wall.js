@@ -151,6 +151,11 @@ function openStream() {
     if (i >= 0) list[i] = r; else list.push(r);
     announce(r.status === "ai_unavailable" ? `Satellite check unavailable for ${r.volcano_id}` : `New satellite check for ${r.volcano_id}`);
   });
+  on("duty", (run) => {
+    if (!store.snapshot) return;
+    store.snapshot.duty = run;
+    announce(run.outcome === "MODEL_FAILED" ? "Duty Officer AI unavailable." : "New Duty Officer brief.");
+  });
   on("overlays", (o) => { if (store.snapshot) store.snapshot.overlays = o; });
   on("situation", (card) => {
     if (!store.snapshot) return;

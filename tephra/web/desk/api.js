@@ -24,6 +24,7 @@ export const PATHS = {
   ask: '/api/desk/ask',
   askVoice: '/api/desk/ask/voice',
   askSpeak: '/api/desk/ask/speak',
+  duty: '/api/duty?limit=1',
   recovery: '/api/recovery?limit=10',
   recoveryRun: '/api/desk/recovery/run',
   recoveryDecide: (id, kind) => `/api/desk/recovery/${encodeURIComponent(id)}/${kind}`,

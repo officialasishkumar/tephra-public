@@ -1,6 +1,6 @@
 {
   "policy_id": "RFA-POLICY-A",
-  "version": "2026.10.6",
+  "version": "2026.10.7",
   "preset": "A",
   "title": "Ring of Fire Air operator policy A (default)",
   "label": "ILLUSTRATIVE, not an airline SRA",
@@ -236,6 +236,13 @@
       "value": 10,
       "unit": "min",
       "source": "TEPHRA illustrative choice: an open draft whose flight has dropped out of the ADS-B picture is kept this long before it is retired as POSITION LOST; open ADS-B coverage near the volcanoes has gaps of one to seven minutes (data/replay/README.md)."
+    }
+  },
+  "duty": {
+    "rerun_min": {
+      "value": 5,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: work the Duty Officer has been offered and left (deferred, or undone when its run failed) is offered again after this long, so an unchanged work list costs no model call each tick."
     }
   },
   "source_order": [

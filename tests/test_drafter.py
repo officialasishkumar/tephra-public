@@ -197,6 +197,9 @@ class FakeLlm:
     def model_id(self, tier: str) -> str:
         return "stub" if self.name == "stub" else "gemini-test-lite"
 
+    async def pace(self, tier: str) -> None:
+        return None
+
     def reserve(self, tier: str) -> bool:
         return True
 
@@ -1059,3 +1062,17 @@ def test_alternate_near_a_narrow_plume_is_not_acceptable(bearing: float) -> None
         policy=POLICY,
     )
     assert "INSIDE HAZARD CONE" in ctx.alternates[0].check.reasons
+
+
+def test_the_body_names_the_rfa_flight_never_the_real_callsign() -> None:
+    """The airline is fictional: its advisory addresses the RFA number standing in for the
+    real flight (a live Gemini draft once opened with the ADS-B callsign)."""
+    ctx, plan = change_level_case()
+    good = stub_draft(ctx, plan)
+    assert validate_draft(good, ctx=ctx, plan=plan) == []
+    callsign = ctx.flight.callsign or ""
+    assert callsign
+    renamed = good.model_copy(update={"body": good.body.replace(ctx.flight.proxy_flight, callsign)})
+    problems = validate_draft(renamed, ctx=ctx, plan=plan)
+    assert f"BODY MUST NAME THE FLIGHT AS {ctx.flight.proxy_flight}" in problems
+    assert f"BODY MUST NOT NAME THE ADS-B CALLSIGN {callsign}" in problems

@@ -128,10 +128,23 @@ class Settings(BaseSettings):
     model_lite_daily_budget: int = Field(
         default=450, ge=0, description="Max calls/UTC day to TEPHRA_MODEL_LITE (~500 RPD)"
     )
+    model_rpm: int = Field(
+        default=5, gt=0, description="Requests a minute sent to TEPHRA_MODEL (free-tier pacing)"
+    )
+    model_lite_rpm: int = Field(
+        default=14,
+        gt=0,
+        description="Requests a minute sent to TEPHRA_MODEL_LITE; the free tier allows 15",
+    )
     gemini_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("GEMINI_API_KEY")
     )
     llm_timeout_s: float = Field(default=60.0, gt=0)
+    duty_run_timeout_s: float = Field(
+        default=900.0,
+        gt=0,
+        description="A Duty Officer run, with every delegation it makes (each plans flights)",
+    )
 
     # Storage.
     store: Literal["sqlite", "firestore"] = "sqlite"

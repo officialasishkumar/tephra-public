@@ -7,6 +7,8 @@
 
 import { $, el, icon, ms, hhmmz, hhmmssz, dayMon } from "./util.js";
 import { frameFor } from "./ext-map.js";
+import { st, aiMark, pill, section } from "./x-parts.js";
+import { dutyPanel, dispatchedTools } from "./duty.js";
 
 // ------------------------------------------------------------------ state
 
@@ -57,16 +59,8 @@ export function noteTrace(t) { ext.arrivals.set(t.id, performance.now()); }
 
 // ------------------------------------------------------------------ small parts
 
-const st = (id, color) => icon(id, "st", color);
 const pct = (v, d = 1) => (v == null ? "n/a" : `${(v * 100).toFixed(d)}%`);
 const clock = (iso) => { const t = ms(iso); return Number.isFinite(t) ? `${dayMon(t)} ${hhmmz(t)}` : "n/a"; };
-
-// Marks AI-written text with the model id; the stub says NO MODEL.
-function aiMark(modelId, label) {
-  const no = label === "NO MODEL" || !modelId || modelId === "stub";
-  return el("span", { class: `ai-mark${no ? " ai-mark--none" : ""}`, title: no ? "No model wrote this: the offline stub" : "Written by a model. Code checked every number, time and id." },
-    icon("i-model"), el("span", { text: no ? "NO MODEL" : `AI-written · ${modelId}` }));
-}
 
 function unavailable(reason) {
   const text = String(reason || "no reason given").replace(/^AI UNAVAILABLE:?\s*/i, "");
@@ -74,16 +68,9 @@ function unavailable(reason) {
     el("p", {}, el("strong", { text: "AI unavailable: " }), text, el("span", { class: "x-fail__note", text: " Nothing was put in its place." })));
 }
 
-function pill(kind, text, title) {
-  const ic = { ok: "st-ok", caution: "st-caution", serious: "st-serious", info: "st-info", off: "st-off" }[kind] || "st-info";
-  const col = { ok: "var(--c-ok)", caution: "var(--c-caution)", serious: "var(--c-serious)", info: "var(--c-info)", off: "var(--c-off)" }[kind];
-  return el("span", { class: `pill pill--${kind}`, title }, st(ic, col), el("span", { text }));
-}
-
 // CSP: no style attributes, so sizes and colours go through the CSSOM.
 const fill = (w) => { const n = el("span"); n.style.width = `${w}%`; return n; };
 const swatch = (c) => { const n = el("span", { class: "x-key__sw" }); n.style.background = c; return n; };
-const section = (title, ...kids) => el("section", { class: "x-sec" }, el("h3", { class: "caps x-sec__title", text: title }), ...kids);
 const empty = (title, text) => el("div", { class: "x-empty" }, el("strong", { text: title }), el("p", { text }));
 const loadingBox = () => el("div", { class: "x-loading" }, el("div", { class: "skeleton" }), el("div", { class: "skeleton" }), el("div", { class: "skeleton" }));
 const errBox = (what, msg) => el("div", { class: "x-fail", role: "status" }, st("st-caution", "var(--c-caution)"), el("p", {}, el("strong", { text: `${what} unavailable: ` }), msg));
@@ -350,6 +337,7 @@ function proofPanel() {
 // ------------------------------------------------------------------ AI activity tray
 
 export const AGENTS = [
+  { id: "duty", name: "Duty Officer", stage: "DUTY", what: "Coordinates the others and writes the brief" },
   { id: "plume", name: "Plume Reader", stage: "PLUME", what: "Proposes the cautious area" },
   { id: "sat", name: "Satellite eyes", stage: "SATELLITE", what: "Reads the satellite picture" },
   { id: "planner", name: "Planner", stage: "PLANNER", what: "Chooses an action per flight" },
@@ -362,12 +350,15 @@ export const AGENTS = [
   { id: "handover", name: "Handover", stage: "MESSAGES", what: "Writes the shift handover", only: /HANDOVER/i },
   { id: "backtest", name: "Backtest", stage: null, what: "Scores the zone against later official areas" },
 ];
+// The Duty Officer tool that reaches each specialist.
+const DELEGATED_VIA = { plume: "assess_volcanoes", sat: "assess_volcanoes", planner: "plan_flights", drafter: "plan_flights", recovery: "run_recovery", sra: "draft_sra" };
 const AI_STAGES = new Set(AGENTS.map((a) => a.stage).filter(Boolean));
 const RUNNING_MS = 6000;
 
 export function agentStatus(store) {
   const trace = store.trace || [];
   const nowT = performance.now();
+  const delegated = dispatchedTools(store.snapshot?.duty);
   return AGENTS.map((a) => {
     if (!a.stage) {
       const ok = ext.backtest && !ext.errors.backtest;
@@ -378,7 +369,7 @@ export function agentStatus(store) {
     const fails = mine.filter((t) => t.level === "error").length;
     let state = "idle";
     if (last) state = last.level === "error" ? "failed" : nowT - (ext.arrivals.get(last.id) ?? -1e9) < RUNNING_MS ? "running" : "done";
-    return { ...a, state, count: mine.length, fails, last: last?.at || null, detail: last?.message || "No step yet" };
+    return { ...a, state, count: mine.length, fails, last: last?.at || null, detail: last?.message || "No step yet", delegated: delegated.has(DELEGATED_VIA[a.id]) };
   });
 }
 
@@ -411,21 +402,23 @@ function budgetBlock() {
 function aiPanel(D, store) {
   const agents = agentStatus(store);
   const failed = failureCount(store);
-  const kids = [
-    el("p", { class: "x-lede", text: "Every AI step on the Wall. Status comes from the reasoning trace. When a step fails it says why and nothing is made up in its place." }),
+  const lines = (store.trace || []).filter((t) => t.level === "error" && AI_STAGES.has(t.stage)).slice(-5).reverse();
+  return [
+    ...dutyPanel(store.snapshot?.duty, !!store.snapshot),
+    section("All AI agents",
+    el("p", { class: "x-lede x-lede--tight", text: "Every AI step on the Wall. Status comes from the reasoning trace. When a step fails it says why and nothing is made up in its place." }),
     failed ? el("div", { class: "x-fail x-fail--count", role: "status" }, st("st-serious", "var(--c-serious)"), el("p", {}, el("strong", { text: `${failed} AI step${failed === 1 ? "" : "s"} failed. ` }), "Each one is in the trace as an error.")) : null,
     el("ul", { class: "x-agents" }, ...agents.map((a) => {
       const [ic, col, word] = STATE_UI[a.state];
       return el("li", { class: `x-agent x-agent--${a.state}`, title: a.detail },
         el("span", { class: "x-agent__dot" }, st(ic, col)),
-        el("span", { class: "x-agent__main" }, el("strong", { class: "x-agent__name", text: a.name }), el("span", { class: "x-agent__what", text: a.what })),
+        el("span", { class: "x-agent__main" }, el("strong", { class: "x-agent__name", text: a.name }), el("span", { class: "x-agent__what", text: a.what }),
+          a.delegated ? el("span", { class: "x-agent__via" }, icon("i-agent"), "delegated by Duty Officer") : null),
         el("span", { class: "x-agent__state" }, el("span", { class: "x-agent__word", text: word }), el("span", { class: "x-agent__n mono", text: a.stage ? `${a.count} step${a.count === 1 ? "" : "s"}${a.fails ? ` · ${a.fails} failed` : ""}` : a.detail })));
-    })),
+    }))),
+    lines.length ? section("Latest failures", el("ul", { class: "x-fails" }, ...lines.map((t) => el("li", {}, el("span", { class: "mono x-fails__t", text: hhmmssz(ms(t.at)) }), el("span", { class: "trace__stage", text: t.stage }), el("span", { text: t.message }))))) : null,
     section("Model budget", budgetBlock()),
   ];
-  const lines = (store.trace || []).filter((t) => t.level === "error" && AI_STAGES.has(t.stage)).slice(-5).reverse();
-  if (lines.length) kids.splice(3, 0, section("Latest failures", el("ul", { class: "x-fails" }, ...lines.map((t) => el("li", {}, el("span", { class: "mono x-fails__t", text: hhmmssz(ms(t.at)) }), el("span", { class: "trace__stage", text: t.stage }), el("span", { text: t.message }))))));
-  return kids;
 }
 
 // ------------------------------------------------------------------ tabs and the chip

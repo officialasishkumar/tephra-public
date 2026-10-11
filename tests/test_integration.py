@@ -24,6 +24,7 @@ from test_pipeline import (
 from tephra.agents.notice_reader import read_notice
 from tephra.agents.plume_reader import build_parts
 from tephra.agents.satellite_reader import SatelliteReading
+from tephra.duty import dispatch_duty
 from tephra.feeds import registry
 from tephra.feeds.base import FetchError, FetchResult, build_url
 from tephra.feeds.jma_volcano import JMA_EQVOL_URL
@@ -328,6 +329,8 @@ def cone_over(lat: float, lon: float) -> HazardCone:
 async def test_the_recovery_agent_runs_once_when_the_closed_airports_change(
     tmp_path: Path, clock: FixedClock
 ) -> None:
+    """A changed set of closed airports is queued for the Duty Officer, which hands it to the
+    recovery agent once; the same set is not queued again."""
     runtime = make_runtime(make_settings(tmp_path, recovery_auto=True), FixtureSource())
     try:
         jakarta = runtime.airports.get("WIII")
@@ -335,21 +338,20 @@ async def test_the_recovery_agent_runs_once_when_the_closed_airports_change(
         report = TickReport(started_at=AT, finished_at=AT, mode=RunMode.LIVE, reason="t")
 
         await runtime.run_recovery(AT, report)  # first look, nothing closed: only recorded
-        assert report.recovery_plans == 0
+        assert runtime.recovery_due is None
         assert runtime._closed_airports == frozenset()
 
         runtime.cones["262000"] = cone_over(jakarta.lat, jakarta.lon)
         await runtime.run_recovery(AT, report)
+        assert runtime.recovery_due is not None
+        assert report.recovery_plans == 0  # queued, not run: the Duty Officer dispatches it
+        duty = await dispatch_duty(runtime, AT, report, trigger="tick")
+        assert duty is not None
+        assert [d.tool for d in duty.dispatches] == ["run_recovery"]
         assert report.recovery_plans == 1
         await asyncio.gather(*runtime._tasks)
         plans = await runtime.store.list_docs(Collection.RECOVERY)
         assert len(plans) == 1
-        print(
-            "DBG",
-            plans[0].get("unavailable_reason"),
-            plans[0].get("validation_errors"),
-            [(sc["status"], sc["solver_status"], sc["solve_ms"]) for sc in plans[0]["scenarios"]],
-        )
         assert plans[0]["status"] == "DRAFT"
         assert plans[0]["llm_backend"] == "stub"
         event = runtime.bus.last(SseEvent.RECOVERY)
@@ -359,13 +361,13 @@ async def test_the_recovery_agent_runs_once_when_the_closed_airports_change(
         assert "WIII" in (runtime._closed_airports or frozenset())
         assert runtime._bookkeeping()["closed_airports"] == sorted(runtime._closed_airports or [])
 
-        await runtime.run_recovery(AT, report)  # the same set: no second run
-        assert report.recovery_plans == 1
+        await runtime.run_recovery(AT, report)  # the same set: nothing queued
+        assert runtime.recovery_due is None
         assert len(await runtime.store.list_docs(Collection.RECOVERY)) == 1
 
         runtime.cones.clear()  # airports reopen: recorded, nothing planned
         await runtime.run_recovery(AT, report)
-        assert report.recovery_plans == 1
+        assert runtime.recovery_due is None
         assert runtime._closed_airports == frozenset()
         stages = [e.data["stage"] for e in runtime.bus.recent(SseEvent.TRACE, limit=200)]
         assert TraceStage.RECOVERY.value in stages

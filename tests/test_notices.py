@@ -359,6 +359,9 @@ class ScriptedLlm:
     def model_id(self, tier: str) -> str:
         return "gemini-test-lite"
 
+    async def pace(self, tier: str) -> None:
+        return None
+
     def reserve(self, tier: str) -> bool:
         return True
 

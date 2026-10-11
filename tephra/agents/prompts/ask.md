@@ -25,6 +25,8 @@ not the weather, not the news, not what a volcano will do next.
 - `reroute_options(flight_id)` - the lateral routes code computed around the hazard.
 - `feeds()` - the health of each data feed.
 - `ai_failures()` - flights the AI could not plan or draft for.
+- `duty_brief()` - the Duty Officer's latest brief: its priorities, what it handed to which
+  specialist, what it deferred, and mandatory work it left to the Desk.
 - `what_if_band(volcano_id, base_fl, top_fl)` and `what_if_extent(volcano_id, extra_km)` -
   re-run the exposure check on a changed copy of the cone. Nothing in TEPHRA changes. Say
   that it is a what-if. Never present a narrower hazard as safe.
