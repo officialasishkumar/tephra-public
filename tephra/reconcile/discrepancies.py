@@ -68,6 +68,7 @@ if TYPE_CHECKING:
 __all__ = [
     "build_situation",
     "evidence_state",
+    "feed_degraded",
     "find_active",
     "find_discrepancies",
     "select_records",
@@ -471,6 +472,28 @@ def _same_office(first: _Unit, second: _Unit) -> bool:
     return first.kind == second.kind == "SIGMET" and first.fir == second.fir
 
 
+def feed_degraded(
+    feed: FeedId,
+    feed_health: Mapping[FeedId, FeedHealth] | None,
+    at: datetime,
+    settings: Settings,
+) -> FeedHealth | None:
+    """The feed's health when TEPHRA's copy of it may be out of date: failing, stale, never
+    polled although expected, or older than its stale limit. None when it is current, when
+    it is DISABLED (VONA off by robots.txt, a feed a replay did not record) or when no
+    health is given."""
+    if feed_health is None:
+        return None
+    state = feed_health.get(feed)
+    if state is None or state.status is FeedStatus.DISABLED:
+        return None
+    if state.status is not FeedStatus.OK or state.last_success_at is None:
+        return state
+    if (at - state.last_success_at).total_seconds() > settings.stale_after_s(feed):
+        return state
+    return None
+
+
 def _vaa_feed_degraded(
     volcano: Volcano,
     feed_health: Mapping[FeedId, FeedHealth] | None,
@@ -478,15 +501,15 @@ def _vaa_feed_degraded(
     settings: Settings,
 ) -> bool:
     """True when TEPHRA cannot tell whether the volcano's VAAC spoke: its feed is failing,
-    stale or has never run. SILENCE then says nothing, since a polling gap is not a silent
-    VAAC. With no health given, the records are trusted."""
+    stale, has never run, is not polled or has no health entry. SILENCE then says nothing,
+    since a polling gap is not a silent VAAC. With no health given, the records are trusted."""
     if feed_health is None:
         return False
     feed = _VAA_FEEDS[volcano.vaac]
     state = feed_health.get(feed)
-    if state is None or state.status is not FeedStatus.OK or state.last_success_at is None:
+    if state is None or state.status is FeedStatus.DISABLED:
         return True
-    return (at - state.last_success_at).total_seconds() > settings.stale_after_s(feed)
+    return feed_degraded(feed, feed_health, at, settings) is not None
 
 
 class _Finder:

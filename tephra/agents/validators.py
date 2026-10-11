@@ -75,7 +75,7 @@ AMBER APCH APPLY AREA AREAS ASHES AVBL AVOID AWARE AWAY BAND BANDS BASE BASED BE
 BEING BELOW BURN BURNS CABIN CALL CHECK CLEAR CLIMB CLOUD COMMS CONE CONES COST COSTS
 CREW CREWS DATA DELAY DEST DIST DOWN DRIFT DUST EACH EARLY EAST EITHER ENGS ENTER ENTRY
 ERUPT EVEN EXIT EXTRA FCST FIRST FLOW FROM FUEL FULL GIVE GIVEN GLOW GREEN HAVE HAZE
-HELD HERE HIGH HOLD HOLDS HOUR HOURS IDLE INFO INTO ISSUE KEEP KNOWN LAST LATER
+HELD HERE HIGH HOLD HOLDS HOUR HOURS INFO INTO ISSUE KEEP KNOWN LAST LATER
 LEAVE LEFT LESS LEVEL LIGHT LIKE LIMIT LONG LOWER MAGMA MAIN MAKE MANY METAR MINUS
 MNTN MODE MODEL MORE MOST MOVE MOVES MUST NEAR NEED NEXT NONE NORTH NOTAM NOTE NOTED
 ODOR ODOUR ONLY ORDER OTHER OVER PASS PAST PLAN PLUME PLUS POINT POSN PRIOR RAIN RANGE
@@ -90,6 +90,20 @@ VOCABULARY: Final[frozenset[str]] = frozenset(_VOCABULARY_TEXT.split())
 
 No word here may be an ICAO location id or a place name, or an invented place could hide
 behind it: HEAT (Assiut) and SAME (Mendoza) are station ids, and TOKYO is a city."""
+
+_TECHNIQUE: Final = re.compile(
+    r"\b(IDLE|THRUST|POWER (?:TO|BACK)|AUTOTHRUST|AUTOTHROTTLE|ESCAPE MANOEUVRE|ESCAPE MANEUVER)\b"
+    r"|\bDESCEND\w*\s+(?:\d+\s*(?:DEG\w*)?\s*)?TURN\b"
+    r"|\b180\s*(?:DEG\w*|TURN|-TURN)\b"
+    r"|\bU-?TURN\b"
+)
+"""Engine handling and ash-escape manoeuvres (thrust to idle, a descending 180-degree turn).
+Matched on upper-case text. TURN, REVERSE TRACK, HEADING 180 and FL180 stay legal: the
+route and level are dispatch's to advise, an encounter is the crew's QRH."""
+TECHNIQUE_PROBLEM: Final = (
+    "BODY GIVES ENGINE-HANDLING OR ESCAPE TECHNIQUE: CREW FOLLOWS ITS QRH AND OPERATOR"
+    " PROCEDURES; DISPATCH ADVISES ROUTE ONLY"
+)
 
 _CAPS_WORD = re.compile(r"(?<![A-Za-z0-9])[A-Z]{4,5}(?![A-Za-z0-9])")
 _ALPHA_WORD = re.compile(r"[A-Z]+")
@@ -116,6 +130,11 @@ def reroute_of(decision: PlannerDecision, ctx: PlannerContext) -> RerouteOption 
     if decision.reroute_id is None:
         return None
     return next((option for option in ctx.reroutes if option.id == decision.reroute_id), None)
+
+
+def technique_problems(upper: str) -> list[str]:
+    """The ban on engine handling and escape technique, for drafts and dispatcher edits."""
+    return [TECHNIQUE_PROBLEM] if _TECHNIQUE.search(upper) else []
 
 
 def clock_problems(text: str, field: str) -> list[str]:
@@ -310,6 +329,7 @@ def _body_problems(body: str, *, ctx: PlannerContext, plan: PlannedAction) -> li
     problems.extend(_action_word_problems(upper, ctx=ctx, plan=plan))
     if _CLOSED.search(upper):
         problems.append("BODY MUST NOT SAY CLOSED: TEPHRA WRITES COMPANY ADVISORIES, NOT NOTAMS")
+    problems.extend(technique_problems(upper))
     if not _VAR.search(upper):
         problems.append("BODY MUST ASK THE CREW FOR A VOLCANIC ACTIVITY REPORT (VAR)")
     problems.extend(_flight_name_problems(upper, ctx.flight))

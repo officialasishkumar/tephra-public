@@ -1125,6 +1125,8 @@ class Runtime:
             settings=self.settings,
             policy=self.policy,
             trace=self.sink,
+            feed_health=self.live.health,
+            replay_case=self.replay_case if self.mode is RunMode.REPLAY else None,
         )
         if isinstance(advisory, AiFailure):
             await self._record_failure(advisory)

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Final, Literal
 from uuid import uuid4
 
-from tephra.agents.exposure_planner import band_text, flight_summary
+from tephra.agents.exposure_planner import band_text, flight_summary, present_fl
 from tephra.agents.llm import LlmBackend, LlmCall, LlmPart
 from tephra.agents.validators import (
     ACTION_WORDS,
@@ -31,6 +31,7 @@ from tephra.models import (
     AiFailure,
     DraftText,
     ExposedFlight,
+    FeedHealth,
     FeedId,
     HazardCone,
     LlmBackendName,
@@ -40,6 +41,7 @@ from tephra.models import (
     PlannerDecision,
     PlumeAssessment,
     PlumeMode,
+    ReplayCase,
     RerouteOption,
     RunMode,
     Situation,
@@ -48,8 +50,10 @@ from tephra.models import (
     TraceEvent,
     TraceSink,
     TraceStage,
+    VaacCentre,
     WindProfile,
 )
+from tephra.reconcile.discrepancies import feed_degraded
 from tephra.util import timeutil
 from tephra.util.hashing import stable_id
 
@@ -60,6 +64,13 @@ REPAIR_ECHO_CHARS: Final = 2000
 HEADER_TITLE: Final = (
     f"TEPHRA COMPANY ADVISORY - {AIRLINE_NAME.upper()} (FICTIONAL) - NOT FOR OPERATIONAL USE"
 )
+POLICY_A_AVOID: Final = (
+    "POLICY A ADVISES AVOIDING THE AREA (DOC 9974 APP 5 5.4(D)(2)); NO DRIFT-DOWN OR ESCAPE"
+    " CHECK MADE"
+)
+"""Appended to an OVER ASH or UNDER ASH line: the band clears the hazard vertically, which
+Policy A does not plan for (vertical avoidance is a Policy B choice)."""
+_VAAC_FEEDS: Final = {VaacCentre.TOKYO: FeedId.VAAC_TOKYO, VaacCentre.DARWIN: FeedId.VAAC_DARWIN}
 
 
 # --- header (code only) -----------------------------------------------------------------
@@ -72,7 +83,12 @@ def render_header(
     cone: HazardCone,
     sources: Sequence[SourceRef],
     at: datetime,
+    replay: bool = False,
+    replay_case: ReplayCase | None = None,
+    degraded_feeds: Sequence[FeedHealth] = (),
 ) -> str:
+    """Every line is code-written. A REPLAY header names its case right after the flight
+    line; a degraded official feed adds an information line and changes no action."""
     flight = ctx.flight
     cone_line = f"CONE {cone.mode.value} {round(cone.confidence * 100)}%"
     if cone.llm_backend == "stub":
@@ -80,14 +96,60 @@ def render_header(
     lines = [
         HEADER_TITLE,
         f"{flight.proxy_flight} (ADS-B {flight.callsign or 'NO CALLSIGN'} {flight.hex})",
+        *([_replay_line(replay_case)] if replay or replay_case is not None else []),
         f"VOLCANO {ctx.volcano_name}",
         f"ACTION {_action_text(plan.decision)}",
+        *_vertical_lines(ctx, plan.decision),
         "INSIDE NOW" if flight.inside_now else f"ENTRY {flight.minutes_to_entry} MIN",
         cone_line,
+        *(_incomplete_line(health) for health in degraded_feeds),
         f"DRAFTED {timeutil.hhmmz(at)}",
     ]
     source_lines = [_source_line(source) for source in _binding_first(sources)]
     return "\n".join([*(_ascii_upper(line) for line in lines), *source_lines])
+
+
+def _replay_line(case: ReplayCase | None) -> str:
+    if case is None:
+        return "REPLAY - NOT LIVE"
+    how = "RECONSTRUCTED FROM ARCHIVES" if case.reconstructed else "RECORDED FROM LIVE FEEDS"
+    day = case.recorded_from.strftime("%d %b %Y")
+    return f"REPLAY - {how} {case.case_id} ({day}) - NOT LIVE"
+
+
+def _vertical_lines(ctx: PlannerContext, decision: PlannerDecision) -> list[str]:
+    """OVER ASH or UNDER ASH when the advised band (CHANGE_LEVEL) or the present level
+    (CONTINUE) clears the hazard vertically by more than the margin."""
+    match decision.action:
+        case ActionKind.CHANGE_LEVEL:
+            low, high = decision.change_level_fl_min, decision.change_level_fl_max
+        case ActionKind.CONTINUE:
+            low = high = present_fl(ctx.flight)
+        case _:
+            return []
+    if low is None or high is None:
+        return []
+    top, base, margin = ctx.hazard_top_ft, ctx.hazard_base_ft, ctx.vertical_margin_ft
+    if low * 100 > top + margin:
+        return [
+            f"OVER ASH: FL{low:03d} IS {low * 100 - top} FT ABOVE THE FL{top // 100:03d} TOP."
+            f" {POLICY_A_AVOID}"
+        ]
+    if high * 100 < base - margin:
+        return [
+            f"UNDER ASH: FL{high:03d} IS {base - high * 100} FT BELOW THE FL{base // 100:03d}"
+            f" BASE. {POLICY_A_AVOID}"
+        ]
+    return []
+
+
+def _incomplete_line(health: FeedHealth) -> str:
+    last = health.last_success_at
+    since = timeutil.ddhhmmz(last) if last is not None else "NEVER"
+    return (
+        f"OFFICIAL PICTURE INCOMPLETE: {health.feed.value} NOT UPDATED SINCE {since};"
+        " CONFIRM THE CURRENT VAA AND SIGMET WITH MET BEFORE ACTING"
+    )
 
 
 def _action_text(decision: PlannerDecision) -> str:
@@ -226,11 +288,17 @@ async def draft_advisory(
     settings: Settings,
     policy: OperatorPolicy,
     trace: TraceSink | None = None,
+    feed_health: Mapping[FeedId, FeedHealth] | None = None,
+    replay_case: ReplayCase | None = None,
 ) -> Advisory | AiFailure:
-    """``policy`` is stamped on the advisory (id and version) so every decision on it records
-    the operator policy it was drafted under."""
+    """``policy`` is stamped on the advisory (id, version and short content hash) so every
+    decision on it records the operator policy it was drafted under. ``feed_health`` adds an
+    OFFICIAL PICTURE INCOMPLETE line for a degraded SIGMET or VAAC feed; ``replay_case``
+    names the case on a REPLAY draft."""
     if plan.decision is None:
         raise ValueError(f"plan {plan.id} has no decision to draft")
+    if replay_case is not None and not _replay(situation):
+        raise ValueError(f"replay case {replay_case.case_id} given for a LIVE situation")
     system = PROMPT_PATH.read_text(encoding="utf-8")
     parts = [_text_part(json.dumps(_facts(ctx, plan), indent=1), "facts")]
     draft, call = await _ask(llm, system, parts, ctx, plan)
@@ -276,6 +344,22 @@ async def draft_advisory(
 
     created = timeutil.now()
     sources = select_sources(situation, ctx.flight)
+    official_feeds = (FeedId.SIGMET, _VAAC_FEEDS[situation.volcano.vaac])
+    degraded = [
+        health
+        for feed in official_feeds
+        if (health := feed_degraded(feed, feed_health, created, settings)) is not None
+    ]
+    header = render_header(
+        ctx=ctx,
+        plan=plan,
+        cone=cone,
+        sources=sources,
+        at=created,
+        replay=_replay(situation),
+        replay_case=replay_case,
+        degraded_feeds=degraded,
+    )
     return _advisory(
         situation=situation,
         assessment=assessment,
@@ -285,7 +369,8 @@ async def draft_advisory(
         policy=policy,
         draft=draft,
         sources=sources,
-        header=render_header(ctx=ctx, plan=plan, cone=cone, sources=sources, at=created),
+        header=header,
+        replay_case=replay_case,
         created=created,
         backend=backend,
         model_id=model_id,
@@ -374,6 +459,7 @@ def _advisory(
     draft: DraftText,
     sources: list[SourceRef],
     header: str,
+    replay_case: ReplayCase | None,
     created: datetime,
     backend: LlmBackendName,
     model_id: str,
@@ -413,6 +499,8 @@ def _advisory(
         plan_id=plan.id,
         policy_id=policy.policy_id,
         policy_version=policy.version,
+        policy_hash=policy.content_hash()[:12],
+        replay_case_id=replay_case.case_id if replay_case is not None else None,
         header=header,
         body=draft.body.strip(),
         cost_note=draft.cost_note.strip(),

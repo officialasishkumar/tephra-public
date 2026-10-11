@@ -48,7 +48,9 @@ Return JSON with two fields:
      instead;
    - "CLOSED" or "AIRSPACE CLOSED" - this is a company advisory, not a NOTAM;
    - source ids, hashes or model names.
-8. Keep it calm and factual. Do not tell the crew the aircraft is safe; say what to do.
+8. Do not give engine handling or escape technique (thrust, idle, descending or 180-degree
+   turns). Advise the route and level only; the crew's own procedures cover an encounter.
+9. Keep it calm and factual. Do not tell the crew the aircraft is safe; say what to do.
 
 Example shape (illustrative facts):
 `RFA4821 SEMERU VA HAZARD SFC/FL150. ENTRY 14 MIN IF TRACK AND LEVEL HELD. REQUEST CLIMB TO

@@ -251,8 +251,16 @@ The policy models (`PolicyModel` and its subclasses) are frozen and refuse unkno
 leaving the code without that value. `OperatorPolicy` checks that every cited id names one
 of its `citations`, that every value is zero or more and the names in
 `POSITIVE_POLICY_VALUES` above zero, and that `divert_within_min <= hold_within_min` and
-`level_band_fl <= max_change_level_fl`. `Advisory.policy_id` and `policy_version` record the
-policy a draft was made under (None on drafts from before the policy file).
+`level_band_fl <= max_change_level_fl`. `Advisory.policy_id`, `policy_version` and
+`policy_hash` (the first 12 hex characters of `OperatorPolicy.content_hash()`) record the
+policy a draft was made under (None on drafts from before each field).
+`Advisory.replay_case_id` names the replay case a REPLAY draft was made from (None when live).
+`ReplayCase.reconstructed` (a plain property, not serialised) is True when the manifest's
+`notes` start with `Reconstructed from archives`. `OutboundMessage` carries `replay`,
+`replay_case_id`, `policy_id`, `policy_version` and `policy_hash` copied from the advisory,
+and `queued_wall_at`, the wall-clock time it was queued (`queued_at` follows the REPLAY
+clock); `queued_wall_at` is None only on records written before the field, and on approved
+crew and passenger messages until `comms.messages` sets it.
 `Advisory.urgency_bucket` records the urgency bucket the draft was made in (core's
 `_urgency`: 0 inside the cone, then one more per time limit the entry lies beyond; None on
 older drafts). `PlannerContext` carries the planner block's values as plain ints
@@ -784,6 +792,8 @@ def evidence_state(record: Sigmet | Vona | VaacAdvisory, volcano: Volcano, at: d
 def find_discrepancies(volcano: Volcano, *, sigmets: Sequence[Sigmet], vonas: Sequence[Vona],
                        vaas: Sequence[VaacAdvisory], at: datetime, settings: Settings,
                        feed_health: Mapping[FeedId, FeedHealth] | None = None) -> list[Discrepancy]
+def feed_degraded(feed: FeedId, feed_health: Mapping[FeedId, FeedHealth] | None, at: datetime,
+                  settings: Settings) -> FeedHealth | None
 def build_situation(volcano: Volcano, *, active_reasons: list[str], sigmets: Sequence[Sigmet],
                     vonas: Sequence[Vona], vaas: Sequence[VaacAdvisory], winds: Sequence[WindProfile],
                     frames: Sequence[SatelliteFrame], btd: BtdResult | None, at: datetime,
@@ -843,8 +853,15 @@ Discrepancy rules (deterministic; Gemini never decides what counts):
   valid for more than `silence_threshold_min`; or the newest VAA of a VAAC past its next
   advisory time + 10 min ("overdue"). Magnitude in minutes since. None of these fire when
   `feed_health` shows the volcano's VAAC feed not OK, never run, or older than
-  `stale_after_s`: a polling gap is not a silent VAAC. With no `feed_health` the records are
-  trusted.
+  `stale_after_s`, or not polled at all (DISABLED or missing): a polling gap is not a
+  silent VAAC. With no `feed_health` the records are trusted.
+
+`feed_degraded` returns the feed's `FeedHealth` when TEPHRA's copy may be out of date: status
+ERROR, STALE or NEVER, no `last_success_at`, or a last success older than
+`settings.stale_after_s(feed)` at `at`. It returns None for a current feed, for a DISABLED
+one (VONA off by robots.txt, a feed a replay did not record), for a feed with no health entry
+and when `feed_health` is None. The Dispatch Drafter uses it for the OFFICIAL PICTURE
+INCOMPLETE header line.
 - A SIGMET whose polygon repeats a VAA polygon vertex for vertex is the same source twice
   (research/13): no discrepancy between them, and `summary` of any other discrepancy that
   involves both names them together. Only a SIGMET in force now absorbs its VAA.
@@ -1004,6 +1021,8 @@ def allowed_actions(mode: PlumeMode) -> list[ActionKind]          # from ALLOWED
 def band_clears_hazard(fl_min: int, fl_max: int, *, ctx: PlannerContext) -> bool   # wholly outside band plus margin
 def validate_decision(decision: PlannerDecision, ctx: PlannerContext) -> list[str]
 def validate_draft(draft: DraftText, *, ctx: PlannerContext, plan: PlannedAction) -> list[str]
+TECHNIQUE_PROBLEM: Final = "BODY GIVES ENGINE-HANDLING OR ESCAPE TECHNIQUE: CREW FOLLOWS ITS QRH AND OPERATOR PROCEDURES; DISPATCH ADVISES ROUTE ONLY"
+def technique_problems(upper: str) -> list[str]     # [TECHNIQUE_PROBLEM] or []; drafts and Desk edits
 ```
 Decision rules: the action must be in `allowed_actions(ctx.plume_mode)` as well as in
 `ctx.allowed_actions` (HYPOTHESIS: MONITOR or HOLD only). CHANGE_LEVEL needs
@@ -1031,7 +1050,11 @@ every number in the body must appear in the input (FLs and feet of the hazard ba
 margin, present and selected levels, minutes to entry, confidence, speed, track, alternate
 distances and bearings, and the numbers in the input texts and fuel formulas); body must
 not say `CLOSED` or any form of `CLOSE` (TEPHRA writes company advisories, research/07 rule
-21); body must ask the crew for a volcanic activity report (contains `VAR`). `cost_note`:
+21); body must ask the crew for a volcanic activity report (contains `VAR`); body must not
+give engine handling or escape technique (`technique_problems`: IDLE, THRUST, POWER TO, POWER
+BACK, AUTOTHRUST, AUTOTHROTTLE, ESCAPE MANOEUVRE or MANEUVER, DESCEND... TURN, 180 DEG or
+180 TURN, U-TURN; TURN, REVERSE TRACK, HEADING 180 and FL180 stay legal, and `VOCABULARY`
+holds no IDLE). `cost_note`:
 one line, <= 120 chars, printable ASCII, no clock times, and the same place check (ignoring
 case) and number rule.
 
@@ -1109,19 +1132,35 @@ HOLD, the alternate's divert line for DIVERT, the reroute's `reroute_line` for R
 PROMPT_PATH: Final[Path]
 HEADER_TITLE: Final = "TEPHRA COMPANY ADVISORY - RING OF FIRE AIR (FICTIONAL) - NOT FOR OPERATIONAL USE"
 NEEDS_HUMAN: Final = "NEEDS_HUMAN"
+POLICY_A_AVOID: Final = "POLICY A ADVISES AVOIDING THE AREA (DOC 9974 APP 5 5.4(D)(2)); NO DRIFT-DOWN OR ESCAPE CHECK MADE"
 def render_header(*, ctx: PlannerContext, plan: PlannedAction, cone: HazardCone,
-                  sources: Sequence[SourceRef], at: datetime) -> str
+                  sources: Sequence[SourceRef], at: datetime, replay: bool = False,
+                  replay_case: ReplayCase | None = None,
+                  degraded_feeds: Sequence[FeedHealth] = ()) -> str
 def stub_draft(ctx: PlannerContext, plan: PlannedAction) -> DraftText
 def select_sources(situation: Situation, flight: ExposedFlight) -> list[SourceRef]
 async def draft_advisory(*, situation: Situation, assessment: PlumeAssessment, cone: HazardCone,
                          ctx: PlannerContext, plan: PlannedAction, llm: LlmBackend,
                          settings: Settings, policy: OperatorPolicy,
-                         trace: TraceSink | None = None) -> Advisory   # stamps policy_id and policy_version
+                         trace: TraceSink | None = None,
+                         feed_health: Mapping[FeedId, FeedHealth] | None = None,
+                         replay_case: ReplayCase | None = None) -> Advisory | AiFailure
+                         # stamps policy_id, policy_version, policy_hash and replay_case_id
 ```
 `render_header` (code only) prints, upper case: `HEADER_TITLE`; `{proxy_flight} (ADS-B
-{callsign or NO CALLSIGN} {hex})`; `VOLCANO {name}`; `ACTION` with level band, holding FL or
-alternate; `ENTRY {n} MIN` or `INSIDE NOW`; `CONE {mode} {confidence%}` (+ `NO MODEL` when the
-cone's backend is `stub`); `DRAFTED {hhmmz(at)}`; then one `SRC` line per source: `{feed}
+{callsign or NO CALLSIGN} {hex})`; for a REPLAY draft `REPLAY - RECONSTRUCTED FROM ARCHIVES
+{case_id} ({recorded_from as DD MON YYYY}) - NOT LIVE` when `replay_case.reconstructed`,
+otherwise `REPLAY - RECORDED FROM LIVE FEEDS {case_id} ({date}) - NOT LIVE`, or `REPLAY - NOT
+LIVE` when `replay` is set with no case; `VOLCANO {name}`; `ACTION` with level band, holding FL or
+alternate; for a CHANGE_LEVEL band (or a CONTINUE flight's present FL) wholly above
+`hazard_top_ft + vertical_margin_ft`, `OVER ASH: FL{low} IS {low*100 - top} FT ABOVE THE
+FL{top//100} TOP. {POLICY_A_AVOID}`, and wholly below `hazard_base_ft - vertical_margin_ft`,
+`UNDER ASH: FL{high} IS {base - high*100} FT BELOW THE FL{base//100} BASE. {POLICY_A_AVOID}`;
+`ENTRY {n} MIN` or `INSIDE NOW`; `CONE {mode} {confidence%}` (+ `NO MODEL` when the
+cone's backend is `stub`); one `OFFICIAL PICTURE INCOMPLETE: {feed} NOT UPDATED SINCE
+{ddhhmmz of last_success_at or NEVER}; CONFIRM THE CURRENT VAA AND SIGMET WITH MET BEFORE
+ACTING` per entry of `degraded_feeds` (information only: it changes no action or gate);
+`DRAFTED {hhmmz(at)}`; then one `SRC` line per source: `{feed}
 {source_id} ISSUED {ddhhmmz or N/A} FETCHED {ddhhmmz} #{sha256_short}` (+ `STALE`), the
 binding product (SIGMET) first. `select_sources`: the valid SIGMETs (latest start first), the
 latest VONA, the latest VAA and the wind profile nearest the flight's observation time. The
@@ -1139,10 +1178,14 @@ draft, labelled NO MODEL, `llm_backend="stub"`) exists for tests only. The stub 
 already inside its new band `DO NOT CLIMB ABOVE FLnnn` or `DO NOT DESCEND BELOW FLnnn`, and
 an inside-now MONITOR (not HYPOTHESIS) `MONITOR AND COORDINATE EXIT WITH ATC. DISPATCH TO
 ADVISE.` Returns an `Advisory` with `status=DRAFT`, `version=1`,
-`created_at=updated_at=timeutil.now()`, `replay=situation.mode is REPLAY`, `prompt_hashes`
+`created_at=updated_at=timeutil.now()`, `replay=situation.mode is REPLAY`,
+`replay_case_id` from `replay_case` (a `replay_case` with a LIVE situation is a ValueError),
+`policy_hash=policy.content_hash()[:12]`, `prompt_hashes`
 for `plume_reader`/`planner`/`drafter`, `dedupe_key = stable_id("DD", hex, volcano_id,
 action, change_level_fl_min, hold_fl, alternate_icao, reroute id)`, `reroute` = the chosen option, `input_hash =
-situation.input_hash`. It does not store anything.
+situation.input_hash`. The header's `degraded_feeds` are `discrepancies.feed_degraded` at
+`created_at` for `FeedId.SIGMET` and the volcano's VAAC feed (`VAAC_TOKYO` or `VAAC_DARWIN`).
+It does not store anything.
 
 `tephra/agents/adk_app.py`
 ```python
@@ -1217,15 +1260,18 @@ async def supersede(store: Store, bus: EventBus, advisory_id: str, *, reason: st
 async def list_advisories(store: Store, *, status: AdvisoryStatus | None = None, limit: int = 50) -> list[Advisory]
 ```
 Transition rules: only DRAFT moves. approve -> APPROVED; edit -> EDITED (body stripped,
-upper-cased, 1..`ADVISORY_BODY_MAX_CHARS` chars, both `body` and `edited_body` kept); reject
+upper-cased, 1..`ADVISORY_BODY_MAX_CHARS` chars, no engine handling or escape technique
+(`validators.technique_problems`), both `body` and `edited_body` kept); reject
 -> REJECTED (`reason` >= 3 chars after stripping); supersede -> SUPERSEDED (actor `system`,
 `superseded_by` set, the reason kept as the audit note). Each transition increments
 `version` through `compare_and_set_advisory`, sets `decided_by`/`decided_at` (dispatcher
 transitions), writes an `AuditEntry` (before/after = status, version, body, edited_body,
-reject_reason; `input_hashes` = advisory `input_hash` + every source sha256; `model_id`;
+reject_reason, policy_id, policy_version, policy_hash; `input_hashes` = advisory `input_hash` + every source sha256; `model_id`;
 `prompt_hash` = drafter hash) and publishes `SseEvent.ADVISORY`. APPROVED and EDITED also
-write an `OutboundMessage` (text = `advisory.final_text`) to `outbound` and an
-`OUTBOUND_QUEUED` audit entry. Nothing ever leaves the store. `submit_draft` compares only
+write an `OutboundMessage` (text = `advisory.final_text`; `replay`, `replay_case_id` and the
+policy id, version and hash copied from the advisory; `queued_wall_at =
+timeutil.SystemClock().now()`) to `outbound` and an `OUTBOUND_QUEUED` audit entry whose
+`after` adds `policy_id`, `policy_version` and `policy_hash`. Nothing ever leaves the store. `submit_draft` compares only
 advisories with the same `replay` value (recorded and live advice never dedupe or supersede
 each other): if an open DRAFT for the same flight, other than those named in `replacing`,
 has the same `dedupe_key`, return None; if the same `dedupe_key` was APPROVED or EDITED with
@@ -1423,6 +1469,8 @@ Core rules:
   `satellite`, and an unavailable one writes an `AI_FAILED` audit entry; a stored failure for the
   same frames blocks a retry until a new frame arrives. A current `read` reading becomes
   `Situation.supporting` for that call only (`plume_part(reading)` under its `SAT-` id).
+- Advisory header facts. `_plan_and_draft` passes `feed_health=runtime.live.health` to
+  `draft_advisory`, and `replay_case=runtime.replay_case` when the mode is REPLAY.
 - Reroutes. `_plan_and_draft` passes `routes=runtime.routes` and the situation to
   `build_planner_context`, stores every `RerouteOption` of the context in `reroutes` (each time
   the flight is planned) and keeps them in `Runtime.reroutes` for the Wall. Options are dropped
@@ -2091,7 +2139,7 @@ route sets its own), and `Strict-Transport-Security: max-age=31536000` over http
 | `GET /api/wall` | `WallResponse` = `{state: SystemState, snapshot: WallSnapshot, advisories: [Advisory] (newest 50, all statuses), trace: [TraceEvent] (last 100, oldest first)}` |
 | `GET /api/advisories?status=DRAFT&limit=50` | `AdvisoryList` (newest first; every status when `status` is absent) |
 | `GET /api/audit?advisory_id=...&limit=100` | `AuditList` (newest first; `advisory_id` must match `adv_[0-9a-f]{12}`) |
-| `GET /api/outbound?limit=50` | `OutboundList` (newest first) |
+| `GET /api/outbound?limit=50` | `OutboundList` (newest first by `queued_wall_at`, so recorded and live rows never interleave by replay time; rows whose `queued_wall_at` is null come last; Firestore leaves out records written before the field, which lack the key) |
 | `GET /api/feeds` | `FeedList` = `{feeds: [FeedHealth]}` (ages as of now) |
 | `GET /api/policy` | `PolicyResponse` = `{policy: OperatorPolicy, policy_hash}`: the active operator policy and its `content_hash()` |
 | `GET /api/replays` | `ReplayCaseList` = `{cases: [ReplayCaseSummary]}`: each recorded case without its records (`case_id`, `label`, `recorded_from`, `recorded_to`, `region`, `volcano_ids`, `notes`, `record_count`, `banner`) |

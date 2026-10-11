@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from typing import Any, Final
 from uuid import uuid4
 
+from tephra.agents.validators import technique_problems
 from tephra.config import ADVISORY_BODY_MAX_CHARS
 from tephra.desk import audit
 from tephra.models import (
@@ -184,6 +185,7 @@ async def edit_and_approve(
         problems.append(
             f"edited body is {len(edited)} characters; the limit is {ADVISORY_BODY_MAX_CHARS}"
         )
+    problems.extend(technique_problems(edited))
     if problems:
         raise EditRejected(problems)
     return await _decide(
@@ -265,6 +267,12 @@ async def _queue_outbound(store: Store, advisory: Advisory, *, actor: str) -> No
         status=advisory.status,
         approved_by=actor,
         text=advisory.final_text,
+        replay=advisory.replay,
+        replay_case_id=advisory.replay_case_id,
+        queued_wall_at=timeutil.SystemClock().now(),
+        policy_id=advisory.policy_id,
+        policy_version=advisory.policy_version,
+        policy_hash=advisory.policy_hash,
     )
     await store.put(Collection.OUTBOUND, message.id, message.model_dump(mode="json"))
     await audit.record(
@@ -276,6 +284,9 @@ async def _queue_outbound(store: Store, advisory: Advisory, *, actor: str) -> No
             "outbound_id": message.id,
             "advisory_version": message.advisory_version,
             "destination": message.destination,
+            "policy_id": advisory.policy_id,
+            "policy_version": advisory.policy_version,
+            "policy_hash": advisory.policy_hash,
         },
         input_hashes=_input_hashes(advisory),
         model_id=advisory.model_id,
@@ -385,6 +396,7 @@ def _audit_view(advisory: Advisory) -> dict[str, Any]:
         "reject_reason": advisory.reject_reason,
         "policy_id": advisory.policy_id,
         "policy_version": advisory.policy_version,
+        "policy_hash": advisory.policy_hash,
     }
 
 

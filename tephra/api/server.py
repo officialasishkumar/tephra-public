@@ -327,7 +327,7 @@ async def get_audit(
 @read_api.get("/outbound", response_model=OutboundList)
 async def get_outbound(runtime: RuntimeDep, limit: Limit = 50) -> Response:
     docs = await runtime.store.list_docs(
-        Collection.OUTBOUND, limit=limit, order_by="queued_at", descending=True
+        Collection.OUTBOUND, limit=limit, order_by="queued_wall_at", descending=True
     )
     messages = [OutboundMessage.model_validate(doc) for doc in docs]
     return _json(OutboundList(messages=messages))

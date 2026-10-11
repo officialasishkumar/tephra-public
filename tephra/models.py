@@ -1521,6 +1521,13 @@ class Advisory(TephraModel):
         default=None, description="Operator policy the draft was made under; None on older drafts"
     )
     policy_version: str | None = None
+    policy_hash: str | None = Field(
+        default=None,
+        description="First 12 hex chars of OperatorPolicy.content_hash(); None on older drafts",
+    )
+    replay_case_id: str | None = Field(
+        default=None, description="The replay case a REPLAY draft was made from; None when live"
+    )
     header: str = Field(description="Code-rendered: flight, UTC times, sources and hashes")
     body: str = Field(description="Model-written (or stub) body, as drafted")
     cost_note: str
@@ -1665,6 +1672,16 @@ class OutboundMessage(TephraModel):
     approved_by: str
     text: str
     destination: Literal["tephra-outbound"] = "tephra-outbound"
+    replay: bool = False
+    replay_case_id: str | None = None
+    queued_wall_at: UtcDatetime | None = Field(
+        default=None,
+        description="Wall-clock time of queueing (queued_at follows the REPLAY clock);"
+        " None only on records written before the field",
+    )
+    policy_id: str | None = None
+    policy_version: str | None = None
+    policy_hash: str | None = None
 
 
 class AuditEntry(TephraModel):
@@ -1789,6 +1806,12 @@ class ReplayCase(TephraModel):
         if self.recorded_to < self.recorded_from:
             raise ValueError("replay case recorded_to is before recorded_from")
         return self
+
+    @property
+    def reconstructed(self) -> bool:
+        """Rebuilt from archives rather than recorded live: both such manifests open their
+        notes with these words."""
+        return (self.notes or "").startswith("Reconstructed from archives")
 
 
 # --- the Wall: map features, cards, snapshot --------------------------------------------
