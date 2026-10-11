@@ -25,6 +25,7 @@ import {
   ddhhmmz,
   deskName,
   entryState,
+  fl,
   hhmmz,
   isStub,
   parseTime,
@@ -32,6 +33,8 @@ import {
 import { EARLY_RELEASE_HINT, holdButton } from './hold.js';
 import { anyStaleSource, coneFor, decidedLine, modeChip, needsCarefulRead, replayChip, statusBadge, statusView } from './queue.js';
 import { app } from './state.js';
+import { routeMap } from './route.js';
+import { codeChip } from './ui.js';
 
 const GHOST_TAP_MS = 450;
 const OFFLINE_NOTE = "You're offline. Can't approve right now: reconnect to decide. Drafts stay readable.";
@@ -225,6 +228,34 @@ function sourcesValue(adv) {
   return el('details', { class: 'disclose' }, summary, list);
 }
 
+// The computed lateral route (WP1): a sketch, the route string to copy, and what it costs.
+function rerouteValue(adv, cone) {
+  const r = adv.reroute;
+  const out = [];
+  const map = routeMap(r, app.coneGeo.get(adv.cone_id), { mode: adv.plume_mode });
+  if (map) out.push(el('figure', { class: 'rfig' }, map,
+    el('figcaption', { class: 'rfig__cap' },
+      el('span', { class: 'rleg' }, el('i', { class: 'rleg__sw rleg__sw--route' }), 'Route'),
+      el('span', { class: 'rleg' }, el('i', { class: 'rleg__sw rleg__sw--direct' }), 'Straight line'),
+      el('span', { class: 'rleg' }, el('i', { class: `rleg__sw rleg__sw--zone-${adv.plume_mode === 'OFFICIAL' ? 'official' : 'tephra'}` }), 'TEPHRA area'))));
+  const stats = el('dl', { class: 'rstats' });
+  const stat = (k, v) => stats.append(el('div', { class: 'rstat' }, el('dt', { text: k }), el('dd', { text: v })));
+  if (Number.isFinite(r.extra_nm)) stat('Extra distance', `+${Math.round(r.extra_nm)} NM`);
+  if (Number.isFinite(r.extra_min)) stat('Extra time', `+${Math.round(r.extra_min)} min`);
+  if (r.fuel && Number.isFinite(r.fuel.fuel_kg)) stat('Extra fuel', `${Math.round(r.fuel.fuel_kg).toLocaleString('en-US')} kg`);
+  if (r.side) stat('Passes', `${r.side.toLowerCase()} of the area`);
+  out.push(stats);
+  if (r.route_string) {
+    out.push(el('p', { class: 'caps rroute__k', text: 'Route string' }), el('pre', { class: 'acars rroute', text: r.route_string }));
+  }
+  const bits = [r.kind === 'REJOIN_TRACK' ? 'Rejoins the present track beyond the area' : `Direct to ${r.end_icao || 'the destination'} around the area`];
+  if (r.buffer_nm) bits.push(`area buffered by ${r.buffer_nm} NM`);
+  if (Number.isFinite(r.fl)) bits.push(`flown at ${fl(r.fl)}`);
+  out.push(fine(`${bits.join(' · ')}. Turn points are coordinates only: no named waypoint is invented.`));
+  out.push(el('p', { class: 'rcode' }, codeChip('Route computed by code')));
+  return out;
+}
+
 function draftedByValue(adv) {
   const who = isStub(adv)
     ? el('span', { class: 'v-strong' }, 'Template · NO MODEL')
@@ -259,7 +290,8 @@ const AUDIT_WORDS = {
   REJECTED: ['i-rejected', 'Rejected'],
   SUPERSEDED: ['i-superseded', 'Replaced by a newer draft'],
   OUTBOUND_QUEUED: ['i-outbound', "Queued on TEPHRA's outbound queue · not sent to any aircraft"],
-  PLUME_FALLBACK: ['st-caution', 'Model output rejected: official products only'],
+  AI_FAILED: ['st-caution', 'AI unavailable: no substitute was made'],
+  AI_FAILURE_HANDLED: ['st-ok', 'Handled by hand by a dispatcher'],
 };
 
 async function loadHistory(id, list) {
@@ -313,12 +345,13 @@ function reviewView(adv) {
   // The words being queued sit right under the action, so they share the screen with Approve.
   const costNote = typeof adv.cost_note === 'string' ? adv.cost_note.trim() : '';
   const dl = el('dl', { class: 'summary' },
-    row('Flight', flightValue(adv)),
+    row('Flight', [...flightValue(adv), el('button', { type: 'button', class: 'linkbtn', 'data-askflight': '1' }, icon('i-chat'), el('span', { text: 'Ask TEPHRA about this flight' }))]),
     row('Action', el('span', { class: 'v-action' }, icon(ACTION_ICON[adv.action] || 'i-arrow-right'), el('span', { text: actionSentence(adv) }))),
     row(adv.edited_body != null ? 'Advisory text (edited)' : 'Advisory text', [
       el('pre', { class: 'acars acars--body', text }),
       sheet.view === 'review' ? el('button', { type: 'button', class: 'linkbtn', 'data-go': 'edit' }, icon('i-pencil'), el('span', { text: 'Edit text' })) : null,
     ], { stack: true, cls: 'srow--text' }),
+    adv.reroute ? row('Route', rerouteValue(adv, cone), { stack: true, cls: 'srow--route' }) : null,
     row('Entry', el('span', { class: 'v-entry', 'data-slot': 'entry' }, entryValue(adv))),
     band(cone) ? row('Hazard band', [el('span', { class: 'v-band', text: band(cone) }), fine("TEPHRA's cautious area, vertical extent")]) : null,
     row('TEPHRA area', [modeChip(adv, { long: true, bare: true }), fine(MODE_SENTENCE[adv.plume_mode] || '')]),
@@ -559,7 +592,10 @@ function renderBar() {
     put(inner, stampNode(sheet.stamp));
   } else if (sheet.view === 'closed' || sheet.view === 'gone' || (sheet.view === 'conflict' && sheet.conflict.current.status !== 'DRAFT')) {
     const newer = adv.superseded_by && app.drafts.get(adv.superseded_by);
-    put(inner, el('div', { class: 'secondary' },
+    const approved = adv.status === 'APPROVED' || adv.status === 'EDITED';
+    put(inner, approved ? el('button', { type: 'button', class: 'btn btn--neutral', 'data-draftmsg': adv.id, disabled: app.offline },
+      icon('i-sparkle'), el('span', { text: 'Draft crew briefing (EN / ID / JA)' })) : null,
+    el('div', { class: 'secondary' },
       newer ? el('button', { type: 'button', class: 'btn btn--neutral', 'data-open': newer.id }, el('span', { text: 'Open the newer draft' })) : null,
       el('button', { type: 'button', class: 'btn btn--outline', 'data-back': '1' }, icon('i-chevron-left'), el('span', { text: 'Back to drafts' }))));
   } else if (sheet.view === 'conflict') {
@@ -685,6 +721,14 @@ export function onSheetClick(event) {
   if (!sheet) return false;
   const target = event.target.closest('button, a');
   if (!target || !byId('sheet').contains(target)) return false;
+  if (target.dataset.draftmsg) {
+    app.hub.draftMessages({ advisory_id: target.dataset.draftmsg }, target);
+    return true;
+  }
+  if (target.dataset.askflight) {
+    app.hub.askAbout(sheet.seen);
+    return true;
+  }
   if (target.dataset.back) {
     if (sheet.view === 'edit' || sheet.view === 'reject') goView('review');
     else app.hub.closeReview();

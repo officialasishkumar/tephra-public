@@ -10,11 +10,12 @@ import {
   renderBrief, renderLevels, renderTimeline, feedsDialog, sourcesDialog, policyDialog, popupContent,
 } from "./wall/panels.js";
 import { renderLayers, helpContent, aboutContent } from "./wall/controls.js";
+import { ext, loadExt, ingest, noteTrace, renderXTabs, renderXPanel, renderAiChip, reroutePopup, PANELS } from "./wall/ext.js";
 
 const STREAM_TIMEOUT_MS = 45e3;
 const TRACE_KEEP = 200;
 const SAT_CYCLE = ["off", "ir", "vis", "airmass"];
-const DEFAULT_LAYERS = { tephra: true, rose: true, aircraft: true, paths: true, acLabels: true, context: true, navaids: false, terrain: false };
+const DEFAULT_LAYERS = { tephra: true, rose: true, aircraft: true, paths: true, acLabels: true, context: true, navaids: false, terrain: false, reroutes: true, satboxes: true };
 
 // ------------------------------------------------------------------ state
 
@@ -43,6 +44,7 @@ const ui = {
   harmlessOpen: false,
   readOpen: false,
   ptab: "brief",
+  rail: "brief",
   shortcuts: prefs.get("shortcuts", true),
   freshTrace: new Set(),
   freshDis: new Set(),
@@ -88,6 +90,7 @@ async function load() {
     conn.loaded = true;
     renderNow();
     if (!conn.source) openStream();
+    if (!ext.started) { ext.started = true; loadExt(scheduleRender); setInterval(() => loadExt(scheduleRender), 60e3); }
   } catch {
     extra.error = "Can't reach TEPHRA. Retrying in 5 s…";
     renderNow();
@@ -139,7 +142,15 @@ function openStream() {
   });
   on("heartbeat", (h) => { if (h.now) setClock(h.now); });
   on("feeds", (f) => { store.feeds = f.feeds || []; if (store.state) store.state.feeds = store.feeds; });
-  for (const name of ["volcanoes", "official", "cones", "exposures", "aircraft"]) on(name, (fc) => { if (store.snapshot) store.snapshot[name] = fc; });
+  for (const name of ["volcanoes", "official", "cones", "exposures", "aircraft", "reroutes"]) on(name, (fc) => { if (store.snapshot) store.snapshot[name] = fc; });
+  for (const name of ["notice", "recovery", "budget"]) on(name, (d) => ingest(name, d));
+  on("satellite", (r) => {
+    if (!store.snapshot) return;
+    const list = store.snapshot.satellite || (store.snapshot.satellite = []);
+    const i = list.findIndex((x) => x.volcano_id === r.volcano_id);
+    if (i >= 0) list[i] = r; else list.push(r);
+    announce(r.status === "ai_unavailable" ? `Satellite check unavailable for ${r.volcano_id}` : `New satellite check for ${r.volcano_id}`);
+  });
   on("overlays", (o) => { if (store.snapshot) store.snapshot.overlays = o; });
   on("situation", (card) => {
     if (!store.snapshot) return;
@@ -157,6 +168,8 @@ function openStream() {
   });
   on("trace", (t) => {
     store.trace.push(t);
+    noteTrace(t);
+    setTimeout(scheduleRender, 6200);
     if (store.trace.length > TRACE_KEEP) store.trace.splice(0, store.trace.length - TRACE_KEEP);
     ui.freshTrace.add(t.id);
     setTimeout(() => ui.freshTrace.delete(t.id), 800);
@@ -276,6 +289,9 @@ function renderNow() {
     renderHeadline(D, ui, mapNotes(D, ui, store, extra), store);
     renderTabs(D, conn);
     renderBrief(D, store, ui);
+    renderXTabs(D, store, ui);
+    renderXPanel(D, store, ui);
+    renderAiChip(store);
     renderFlights(D, store, ui);
     renderTrace(D, store, ui, conn);
     if (phone()) {
@@ -301,6 +317,7 @@ function renderNow() {
   if (conn.lostAt) lost.textContent = `Live updates lost at ${hhmmssz(conn.lostAt)}. Showing the last data received; reconnecting…`;
   document.body.dataset.ptab = ui.ptab;
   if (map) {
+    map.setExt({ reroutes: store.snapshot?.reroutes, satellite: store.snapshot?.satellite, frames: [...(store.snapshot?.overlays?.frames || []), ...(store.snapshot?.situations || []).flatMap((x) => x.frames || [])] });
     map.update(D);
     if (reframe) map.frame({ animate: false });
   }
@@ -395,6 +412,13 @@ function setSat(kind) {
   ui.sat = kind;
   prefs.set("sat", kind);
   renderNow();
+}
+
+function setRail(id, focusPanel) {
+  if (!PANELS.some((p) => p.id === id)) return;
+  ui.rail = id;
+  renderNow();
+  if (focusPanel) (id === "brief" ? $("brief") : $("xpanel"))?.focus({ preventScroll: true });
 }
 
 function setSteps(k) {
@@ -537,6 +561,8 @@ function onFeature(hit, lngLat) {
     const f = D.aircraft.find((a) => a.properties.hex === p.hex);
     if (!f) return;
     map.popup(f.geometry.coordinates, popupContent("aircraft", f.properties, D, store));
+  } else if (id === "reroute-line" || id === "reroute-wp") {
+    map.popup(lngLat, reroutePopup(p, D));
   } else if (id.startsWith("volcano")) {
     map.popup(lngLat, popupContent("volcano", p, D, store));
   } else if (id.startsWith("official")) {
@@ -592,6 +618,8 @@ document.addEventListener("click", (e) => {
   else if (tool === "sat") setSat(SAT_CYCLE[(SAT_CYCLE.indexOf(ui.sat) + 1) % SAT_CYCLE.length]);
   else if (tool === "layers") toggleLayers();
   else if (tool === "levels") { ui.levelsOpen = !ui.levelsOpen; if (ui.levelsOpen) ui.layersOpen = false; renderNow(); }
+  else if (t.id === "ai-chip") setRail("ai", true);
+  else if (t.dataset.xtab) setRail(t.dataset.xtab, false);
   else if (t.id === "feeds-chip") openDialog("feeds", "Feed health", feedsDialog(D, store), t);
   else if (t.id === "about-btn") openDialog("about", "About TEPHRA and credits", aboutContent(), t);
   else if (t.id === "policy-btn") openPolicy(t);
@@ -656,6 +684,15 @@ document.addEventListener("keydown", (e) => {
     tabs.forEach((x, k) => { x.tabIndex = k === j ? 0 : -1; });
     tabs[j].focus();
     e.preventDefault();
+    return;
+  }
+  if (t.matches?.(".xtab") && (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "Home" || e.key === "End")) {
+    const tabs = [...document.querySelectorAll(".xtab")];
+    const i = tabs.indexOf(t);
+    const j = e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : (i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    e.preventDefault();
+    setRail(tabs[j].dataset.xtab, false);
+    document.getElementById(`xtab-${tabs[j].dataset.xtab}`)?.focus();
     return;
   }
   if (t.matches?.(".tl__mark") && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {

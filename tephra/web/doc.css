@@ -1,0 +1,637 @@
+/* TEPHRA documents: SRA and VAR drafts and the shift handover brief (WP10).
+   The same markup (desk/docview.js) is shown inside the Desk (dark, from tokens.css) and on the
+   printable page /docs/{id} (paper: dark ink on white, `.docpage`). Blanks stay visibly blank. */
+
+.docv {
+  --dv-bg: var(--c-surface-1);
+  --dv-card: var(--c-surface-2);
+  --dv-ink: var(--c-text-1);
+  --dv-ink-2: var(--c-text-2);
+  --dv-ink-3: var(--c-text-3);
+  --dv-line: var(--c-line-2);
+  --dv-blank: var(--c-caution);
+  --dv-blank-bg: var(--c-caution-bg);
+  --dv-ok: var(--c-ok);
+  --dv-bad: var(--c-serious);
+  --dv-replay: var(--c-replay-text);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  color: var(--dv-ink);
+  font-size: var(--fs-2);
+  line-height: 1.5;
+}
+
+.dhd {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dhd__banner {
+  padding: 8px 12px;
+  border: 2px solid var(--dv-blank);
+  border-radius: 4px;
+  background: var(--dv-blank-bg);
+  color: var(--dv-blank);
+  font-size: var(--fs-1);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dhd__title {
+  font-size: var(--fs-6);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.dhd__title:focus {
+  outline: none;
+}
+
+.dhd__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dhd__meta {
+  font-size: var(--fs-1);
+  color: var(--dv-ink-3);
+  overflow-wrap: anywhere;
+}
+
+.dchip,
+.dmark,
+.sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid var(--dv-line);
+  border-radius: 4px;
+  font-size: var(--fs-1);
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--dv-ink-2);
+}
+
+.dchip--ok {
+  border-color: var(--dv-ok);
+  color: var(--dv-ok);
+}
+
+.dchip--warn {
+  border-color: var(--dv-blank);
+  background: var(--dv-blank-bg);
+  color: var(--dv-blank);
+}
+
+.dchip--replay {
+  border-color: transparent;
+  background: var(--c-replay, #b794ff);
+  color: #120a24;
+}
+
+.dmark--ai {
+  border-color: var(--dv-ink-3);
+  color: var(--dv-ink);
+}
+
+.dmark--stub {
+  border-style: dashed;
+  font-family: var(--font-mono);
+  color: var(--dv-ink);
+}
+
+.docv .st,
+.docv .icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.dsec {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 2px solid var(--dv-line);
+  break-inside: avoid-page;
+}
+
+.dsec__t {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: var(--fs-4);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.dsec__n {
+  display: inline-grid;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  place-items: center;
+  border: 1.5px solid var(--dv-ink-3);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2);
+  font-weight: 500;
+  flex: none;
+  transform: translateY(-1px);
+}
+
+.dsec__ref {
+  font-size: var(--fs-1);
+  color: var(--dv-ink-3);
+}
+
+.flist {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.frow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--dv-line);
+  break-inside: avoid;
+}
+
+.frow dt {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--fs-1);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dv-ink-3);
+}
+
+.frow dd {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+}
+
+.fnum {
+  display: inline-grid;
+  min-width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid var(--dv-ink-3);
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0;
+  color: var(--dv-ink);
+}
+
+.fv {
+  font-size: var(--fs-3);
+  line-height: 1.5;
+  color: var(--dv-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fhint {
+  font-size: var(--fs-1);
+  color: var(--dv-ink-3);
+}
+
+.fnote {
+  font-size: var(--fs-1);
+  color: var(--dv-ink-3);
+}
+
+.fsrc {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--dv-ink-3);
+  overflow-wrap: anywhere;
+}
+
+.blank {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 10px;
+  border: 1.5px dashed var(--dv-blank);
+  border-radius: 4px;
+  background: var(--dv-blank-bg);
+  color: var(--dv-blank);
+}
+
+.blank__box {
+  display: inline-block;
+  width: 56px;
+  height: 14px;
+  border-bottom: 2px solid var(--dv-blank);
+}
+
+.blank__note {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.blank__box:only-child {
+  width: 80px;
+}
+
+.dtable__t {
+  font-size: var(--fs-2);
+  font-weight: 600;
+}
+
+.dtable__wrap {
+  overflow-x: auto;
+}
+
+.dtable table,
+.htable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-2);
+}
+
+.dtable table {
+  width: max-content;
+  min-width: 100%;
+}
+
+.dtable th,
+.dtable td,
+.htable th,
+.htable td {
+  padding: 6px 8px;
+  border: 1px solid var(--dv-line);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: normal;
+}
+
+.dtable thead th,
+.htable thead th {
+  background: var(--dv-card);
+  font-size: var(--fs-1);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--dv-ink-3);
+}
+
+.dtable td .blank {
+  min-height: 24px;
+  padding: 2px 6px;
+}
+
+.dtable td .blank {
+  min-width: 56px;
+}
+
+.sigs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sig {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--dv-line);
+  border-radius: 6px;
+  break-inside: avoid;
+}
+
+.sig__role {
+  min-width: 11rem;
+  font-weight: 600;
+}
+
+.sig__who {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+}
+
+.sig.is-signed .sig__who .st {
+  color: var(--dv-ok);
+}
+
+.sig__btn {
+  min-height: 44px;
+}
+
+.plist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  list-style: disc;
+  color: var(--dv-ink-2);
+}
+
+/* handover */
+.sev {
+  font-weight: 700;
+}
+
+.sev--calm {
+  border-color: var(--dv-ok);
+  color: var(--dv-ok);
+}
+
+.sev--watch,
+.sev--active {
+  border-color: var(--dv-blank);
+  background: var(--dv-blank-bg);
+  color: var(--dv-blank);
+}
+
+.sev--critical {
+  border-color: var(--dv-bad);
+  background: var(--c-serious-bg, #fde8e6);
+  color: var(--dv-bad);
+}
+
+.hsit {
+  font-size: var(--fs-3);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.hsec .dmark {
+  align-self: flex-start;
+}
+
+.hlist,
+.hcont {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hlist li,
+.hcont li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--dv-line);
+  border-radius: 6px;
+}
+
+.hl__k {
+  font-weight: 600;
+}
+
+.hack {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--dv-ok);
+}
+
+/* --- the printable page -------------------------------------------------------------------- */
+
+.docpage {
+  margin: 0;
+  background: #e9edf1;
+  color: #10161d;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+.docpage * {
+  box-sizing: border-box;
+}
+
+.docpage [hidden] {
+  display: none !important;
+}
+
+.docpage .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.docpage .mono {
+  font-family: var(--font-mono);
+}
+
+.docbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
+  background: #0a1017;
+  color: #eaf1f7;
+}
+
+.docbar__brand {
+  margin: 0 auto 0 0;
+  font-size: 18px;
+}
+
+.docbar__brand b {
+  letter-spacing: 0.16em;
+}
+
+.docbar__brand span {
+  color: #93a3b5;
+}
+
+.docbar a,
+.docbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid #5b7086;
+  border-radius: 8px;
+  background: none;
+  color: #eaf1f7;
+  font: 600 14px var(--font-sans);
+  text-decoration: none;
+}
+
+.docbar button.docbar__print {
+  border-color: transparent;
+  background: #eaf1f7;
+  color: #05080c;
+}
+
+.docbar .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.docbar a:focus-visible,
+.docbar button:focus-visible {
+  outline: 2px solid #f5f9fc;
+  outline-offset: 2px;
+}
+
+.docmain {
+  max-width: 860px;
+  margin: 18px auto 40px;
+  padding: 24px max(18px, env(safe-area-inset-right)) 32px max(18px, env(safe-area-inset-left));
+  border: 1px solid #c9d2dc;
+  background: #ffffff;
+  box-shadow: 0 8px 28px rgb(10 16 23 / 0.12);
+}
+
+.docpage .docv {
+  --dv-bg: #ffffff;
+  --dv-card: #f1f4f7;
+  --dv-ink: #10161d;
+  --dv-ink-2: #2c3947;
+  --dv-ink-3: #55616f;
+  --dv-line: #c3ccd6;
+  --dv-blank: #8a5a00;
+  --dv-blank-bg: #fff6e0;
+  --dv-ok: #0b6b32;
+  --dv-bad: #a3231b;
+  --dv-replay: #4b2fa0;
+  font-size: 14px;
+}
+
+.docpage .dchip--replay {
+  background: #e3d6ff;
+  color: #2a1060;
+}
+
+.docpage .sev--critical {
+  background: #fde8e6;
+}
+
+.docstate {
+  margin: 8px 0;
+  font-size: 16px;
+  color: #2c3947;
+}
+
+.docstate a {
+  color: #10161d;
+}
+
+.docfoot {
+  max-width: 860px;
+  margin: 0 auto 28px;
+  padding: 0 18px;
+  font-size: 12px;
+  color: #55616f;
+}
+
+@media (max-width: 520px) {
+  .docmain {
+    margin: 0;
+    border-left: 0;
+    border-right: 0;
+    padding-top: 18px;
+  }
+
+  .sig__role {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+}
+
+@media print {
+  .docpage {
+    background: #ffffff;
+  }
+
+  .docbar,
+  .docfoot .noprint {
+    display: none !important;
+  }
+
+  .docmain {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .docpage .docv {
+    font-size: 11pt;
+  }
+
+  .dhd__banner {
+    border-width: 2px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .blank,
+  .dchip--warn,
+  .sev {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .sig__btn {
+    display: none;
+  }
+
+  @page {
+    margin: 14mm;
+  }
+}
+
+.docv,
+.dsec,
+.dtable,
+.docmain {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.dtable__wrap {
+  max-width: 100%;
+}
+
+.dtable__wrap {
+  position: relative;
+}

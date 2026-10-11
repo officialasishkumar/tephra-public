@@ -21,6 +21,15 @@ import { flashNew, renderQueue, updateTimes } from './desk/queue.js';
 import { closeSheet, onSheetClick, openSheet, sheetBusy, sheetOpenFor, showStamp, syncSheet, updateSheetTimes } from './desk/review.js';
 import { app, draftList } from './desk/state.js';
 import { toast } from './desk/toast.js';
+import { initAsk, focusAsk, setFlightContext } from './desk/ask.js';
+import { loadBudget, openBudget, setBudget } from './desk/budget.js';
+import { loadDocs, loadHandover, onDocEvent, onDocsClick, renderDocs, docsToSign } from './desk/docs.js';
+import { loadFailures, onFailureEvent, openFailures, openHandled } from './desk/failures.js';
+import { draftMessages, loadMessages, onMessageEvent, openMessage, requestMessageDrafts } from './desk/messages.js';
+import { draftPlans, loadPlans, onNetworkClick, onRecoveryEvent, renderNetwork, chosenOf } from './desk/network.js';
+import { loadNotices, onNoticeEvent, openNotice, openPaste } from './desk/notice.js';
+import { goTab, initTabs, setBadges } from './desk/tabs.js';
+import { closeBSheet, fmtUsd } from './desk/ui.js';
 
 const TICK_MS = 15000;
 const SSE_OFFLINE_AFTER_MS = 10000;
@@ -40,6 +49,7 @@ let backOnlineTimer = 0;
 let wakeLock = null;
 let resumeId = null;
 let firstListDone = false;
+let askReady = false;
 
 // --- system state: model label, REPLAY banner, disclaimer, clocks --------------------------
 
@@ -70,14 +80,14 @@ function applyState(state) {
   measure();
   if (before && (before.mode !== state.mode || (before.replay || {}).case_id !== (state.replay || {}).case_id)) {
     if (app.me) {
-      loadDrafts();
+      loadAll();
       loadCones();
     }
   }
 }
 
 function setTitle() {
-  const n = app.me ? app.drafts.size : 0;
+  const n = app.me ? app.drafts.size + openFailures().length + draftMessages().length + draftPlans().length : 0;
   const replay = app.state && app.state.mode === 'REPLAY';
   document.title = `${replay ? 'REPLAY - ' : ''}${n ? `(${n}) ` : ''}TEPHRA Desk`;
 }
@@ -97,7 +107,10 @@ function applyCones(fc) {
   if (!fc || !Array.isArray(fc.features)) return;
   for (const f of fc.features) {
     const p = f && f.properties;
-    if (p && p.part === 'cone' && typeof p.cone_id === 'string') app.cones.set(p.cone_id, p);
+    if (p && p.part === 'cone' && typeof p.cone_id === 'string') {
+      app.cones.set(p.cone_id, p);
+      if (f.geometry) app.coneGeo.set(p.cone_id, f.geometry);
+    }
   }
   renderQueue();
   syncSheet();
@@ -134,7 +147,7 @@ function openEvents() {
     // A gap older than the server's history is not replayed: reload what the Desk shows.
     if (wasDown) {
       loadState();
-      if (app.me) loadDrafts();
+      if (app.me) loadAll();
     }
   });
   source.addEventListener('error', () => {
@@ -160,6 +173,24 @@ function openEvents() {
   });
   source.addEventListener('advisory', (e) => applyAdvisory(parseEvent(e), { stream: true }));
   source.addEventListener('cones', (e) => applyCones(parseEvent(e)));
+  source.addEventListener('budget', (e) => setBudget(parseEvent(e)));
+  source.addEventListener('ai_failure', (e) => {
+    if (app.me) onFailureEvent(parseEvent(e));
+    updateBadges();
+  });
+  source.addEventListener('message', (e) => {
+    if (app.me) onMessageEvent(parseEvent(e));
+    updateBadges();
+  });
+  source.addEventListener('recovery', (e) => {
+    if (app.me) onRecoveryEvent(parseEvent(e));
+  });
+  source.addEventListener('doc', (e) => {
+    if (app.me) onDocEvent(parseEvent(e));
+  });
+  source.addEventListener('notice', (e) => {
+    if (app.me) onNoticeEvent(parseEvent(e));
+  });
 }
 
 function refreshOffline() {
@@ -185,7 +216,7 @@ function refreshOffline() {
       banner.hidden = true;
       measure();
     }, BACK_ONLINE_MS);
-    if (app.me) loadDrafts();
+    if (app.me) loadAll();
   }
   measure();
   syncSheet();
@@ -304,6 +335,7 @@ function afterListChange() {
   syncSheet();
   setTitle();
   updateWake();
+  updateBadges();
 }
 
 // --- review navigation ---------------------------------------------------------------------
@@ -433,12 +465,19 @@ function enterDesk(session, { focus = true } = {}) {
   setAccount(session);
   app.listLoaded = false;
   app.listError = '';
+  byId('tabbar').hidden = false;
+  if (!askReady) {
+    initAsk();
+    askReady = true;
+  }
   renderQueue();
   loadDrafts().then(() => {
     if (resumeId && findAdvisory(resumeId)) selectDraft(resumeId);
     resumeId = null;
   });
   loadCones();
+  loadExtras();
+  goTab(app.tab, { focus: false, quiet: true });
   window.clearInterval(tickTimer);
   tickTimer = window.setInterval(() => {
     updateTimes();
@@ -466,7 +505,18 @@ function leaveDesk() {
   firstListDone = false;
   app.selectedId = null;
   closeSheet();
+  closeBSheet();
+  app.failures.clear();
+  app.messages.clear();
+  app.plans = [];
+  app.plansLoaded = false;
+  app.docs = [];
+  app.notices = [];
   byId('cards').replaceChildren();
+  for (const id of ['fail-section', 'msg-section', 'plan-section', 'notice-section']) byId(id).replaceChildren();
+  byId('tabbar').hidden = true;
+  for (const t of ['ask', 'network', 'docs']) byId(`panel-${t}`).hidden = true;
+  delete document.body.dataset.tab;
   byId('desk-view').hidden = true;
   byId('desk-view').dataset.view = 'queue';
   setAccount(null);
@@ -514,9 +564,81 @@ async function updateWake() {
 // row under the fixed action bar: both read these measured heights.
 function measure() {
   const root = document.documentElement;
-  root.style.setProperty('--head-h', `${byId('dhead').offsetHeight}px`);
+  const headH = byId('dhead').offsetHeight;
+  root.style.setProperty('--dhead-h', `${headH}px`);
+  root.style.setProperty('--head-h', `${headH + (isWide() && !byId('tabbar').hidden ? 48 : 0)}px`);
   const bar = byId('sheet-actions');
   root.style.setProperty('--bar-h', `${bar ? bar.offsetHeight : 0}px`);
+  // The tab bar gives way to the review's fixed action bar on phones.
+  const reviewing = app.tab === 'queue' && byId('desk-view').dataset.view === 'review' && !isWide();
+  document.body.dataset.review = reviewing ? '1' : '0';
+}
+
+// --- tabs, extras, badges -------------------------------------------------------------------
+
+function onTab(name, { changed, focus }) {
+  measure();
+  if (name === 'ask') {
+    focusAsk();
+  } else if (name === 'network') {
+    renderNetwork();
+    if (changed && app.me) loadPlans();
+  } else if (name === 'docs') {
+    renderDocs();
+    if (changed && app.me) loadDocs();
+  } else if (focus) focusQueueTitle();
+  if (focus && name !== 'queue') {
+    const title = byId({ network: 'net-title', docs: 'docs-title', ask: 'ask-title' }[name]);
+    if (title) title.focus({ preventScroll: true });
+  }
+}
+
+function loadExtras() {
+  loadFailures();
+  loadMessages();
+  loadPlans();
+  loadDocs();
+  loadNotices();
+  loadHandover();
+}
+
+function loadAll() {
+  loadDrafts();
+  loadExtras();
+}
+
+function updateBadges() {
+  setBadges({
+    queue: app.drafts.size + openFailures().length + draftMessages().length,
+    network: draftPlans().length,
+    docs: docsToSign().length,
+  });
+  setTitle();
+}
+
+// The Queue lists a recovery plan that waits for a decision; the plan itself is on Network.
+function afterPlans() {
+  const host = byId('plan-section');
+  const list = draftPlans();
+  host.hidden = list.length === 0;
+  if (list.length) {
+    const p = list[0];
+    const sc = chosenOf(p);
+    const t = sc && sc.totals;
+    host.replaceChildren(
+      el('div', { class: 'shead' }, el('h2', { class: 'shead__title', id: 'plan-title', text: 'Recovery plan to approve' }), el('span', { class: 'shead__count', text: String(list.length) })),
+      el('button', { type: 'button', class: 'pcard', 'data-goto': 'network' },
+        el('span', { class: 'pcard__row' }, icon('i-network'), el('span', { class: 'pcard__t', text: p.closures.map((c) => c.icao).join(', ') ? `${p.closures.map((c) => c.icao).join(', ')} closed` : 'Network plan' }), icon('i-chevron-right', 'icon pcard__go')),
+        t ? el('span', { class: 'pcard__s', text: `${t.cancelled_flights} cancelled · ${t.delayed_flights} delayed · ${t.pax_affected.toLocaleString('en-US')} passengers · ${fmtUsd(t.total_usd)}` }) : el('span', { class: 'pcard__s', text: 'No recommendation: open it to choose by hand' }),
+        el('span', { class: 'pcard__f', text: 'Open the Network tab to compare scenarios and decide.' })));
+  } else host.replaceChildren();
+  updateBadges();
+}
+
+function askAbout(adv) {
+  setFlightContext(adv);
+  closeReview({ force: true });
+  goTab('ask', { focus: true });
 }
 
 // --- wiring -----------------------------------------------------------------------------------
@@ -528,6 +650,11 @@ function wire() {
     focusQueueTitle,
     applyState,
     measureBar: measure,
+    goTab: (name) => goTab(name, { focus: true }),
+    draftMessages: requestMessageDrafts,
+    askAbout,
+    afterPlans,
+    badges: updateBadges,
   };
   initLogin((session) => {
     enterDesk(session);
@@ -537,6 +664,16 @@ function wire() {
 
   document.addEventListener('click', (event) => {
     if (onSheetClick(event)) return;
+    if (onNetworkClick(event) || onDocsClick(event)) return;
+    const extra = event.target.closest('[data-handle], [data-msg], [data-notice], [data-paste], [data-goto]');
+    if (extra) {
+      if (extra.dataset.handle) openHandled(extra.dataset.handle);
+      else if (extra.dataset.msg) openMessage(extra.dataset.msg);
+      else if (extra.dataset.notice) openNotice(extra.dataset.notice);
+      else if (extra.dataset.paste) openPaste();
+      else if (extra.dataset.goto) goTab(extra.dataset.goto, { focus: true });
+      return;
+    }
     const open = event.target.closest('[data-open]');
     if (open) {
       selectDraft(open.dataset.open);
@@ -549,9 +686,13 @@ function wire() {
       loadDrafts();
     }
   });
-  byId('refresh').addEventListener('click', () => loadDrafts());
+  byId('refresh').addEventListener('click', () => {
+    loadDrafts();
+    loadExtras();
+  });
+  byId('budget-chip').addEventListener('click', openBudget);
   document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape' || !sheetOpenFor() || isWide()) return;
+    if (event.key !== 'Escape' || !sheetOpenFor() || isWide() || app.tab !== 'queue') return;
     if (event.target.closest('textarea, input, dialog, #account-menu')) return;
     closeReview();
   });
@@ -562,7 +703,7 @@ function wire() {
     if (document.visibilityState !== 'visible') return;
     // Phones suspend background tabs: catch up when the Desk is looked at again.
     loadState();
-    if (app.me) loadDrafts();
+    if (app.me) loadAll();
     if (!events || events.readyState === EventSource.CLOSED) openEvents();
   });
   new ResizeObserver(measure).observe(byId('dhead'));
@@ -579,7 +720,9 @@ async function boot() {
   await loadSprite();
   wire();
   setConn('idle');
+  initTabs(onTab);
   loadState();
+  loadBudget();
   openEvents();
   const res = await api(PATHS.me);
   byId('boot').hidden = true;

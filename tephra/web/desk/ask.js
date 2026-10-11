@@ -1,0 +1,472 @@
+// Ask TEPHRA (WP2): a chat over TEPHRA's own tools. Every answer carries claims, each with the
+// evidence ids it rests on; a chip opens that evidence verbatim. A "How I answered" strip shows
+// the tool calls, the validator and the model. A refusal is its own card. Push-to-talk records
+// with MediaRecorder; a spoken reply plays from a blob URL. Nothing here changes any state.
+
+import { PATHS, api, isUnavailable, problems, unavailableReason } from './api.js';
+import { announce, byId, el, icon, reducedMotion } from './dom.js';
+import { app } from './state.js';
+import { aiChip, openBSheet, unavailableCard } from './ui.js';
+
+const MAX_Q = 500;
+const MAX_REC_S = 30;
+const KIND_WORD = { fact: 'Fact', number: 'Number', inference: 'Inference' };
+const LANG_NAME = { en: 'English', id: 'Bahasa Indonesia', ja: '日本語' };
+const SUGGESTED = [
+  'Which flights enter the area soonest?',
+  'Where do the official products disagree?',
+  'What if the ash extends 50 km further?',
+  'Which feeds are stale right now?',
+  'Which flights did the AI fail to plan?',
+];
+
+const canRecord = () => Boolean(navigator.mediaDevices) && typeof MediaRecorder !== 'undefined';
+
+let busy = null; // AbortController while a question is out
+let recorder = null;
+let log = null;
+let composer = null;
+let audio = null; // { el, url, id }
+let seq = 0;
+
+// --- layout ----------------------------------------------------------------------------------
+
+export function initAsk() {
+  const panel = byId('panel-ask');
+  log = el('div', { id: 'ask-log', class: 'alog', role: 'log', 'aria-label': 'Conversation with Ask TEPHRA', 'aria-live': 'off' });
+  const input = el('textarea', {
+    id: 'ask-input', class: 'field askin', rows: '1', maxlength: String(MAX_Q), autocomplete: 'off', enterkeyhint: 'send',
+    placeholder: 'Ask about flights, areas, feeds…', 'aria-label': 'Your question',
+  });
+  const mic = el('button', { type: 'button', id: 'ask-mic', class: 'abtn abtn--mic', 'aria-label': 'Talk: tap to start recording, tap again to send' }, icon('i-mic'));
+  const send = el('button', { type: 'submit', id: 'ask-send', class: 'abtn abtn--send', 'aria-label': 'Send question' }, icon('i-send'));
+  const ctx = el('p', { id: 'ask-ctx', class: 'actx', hidden: true });
+  const form = el('form', { class: 'acomposer', novalidate: true }, ctx, el('div', { class: 'acomposer__row' }, input, mic, send),
+    el('p', { id: 'ask-status', class: 'fine acomposer__note', 'aria-live': 'polite', text: 'Read-only: Ask never changes an advisory, a plan or a message.' }));
+  composer = { form, input, mic, send, ctx };
+  panel.replaceChildren(
+    el('div', { class: 'phead' },
+      el('h1', { id: 'ask-title', class: 'phead__title', tabindex: '-1', text: 'Ask TEPHRA' }),
+      el('p', { class: 'phead__sub', text: 'Answers use only TEPHRA\'s own tools and show where each claim comes from.' })),
+    log, form);
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (busy) {
+      busy.abort();
+      return;
+    }
+    submit();
+  });
+  input.addEventListener('input', () => autosize(input));
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+  mic.addEventListener('click', toggleMic);
+  if (!canRecord()) {
+    mic.disabled = true;
+    mic.title = 'This browser cannot record audio. Type your question.';
+  }
+  log.addEventListener('click', onLogClick);
+  drawEmpty();
+}
+
+function autosize(input) {
+  input.style.height = 'auto';
+  input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+}
+
+function drawEmpty() {
+  if (log.querySelector('.amsg')) return;
+  const first = [...app.drafts.values()][0];
+  const list = [...SUGGESTED];
+  if (first) list.unshift(`Why ${first.action === 'REROUTE' ? 'reroute' : first.action.toLowerCase().replace('_', ' ')} for ${first.proxy_flight}?`);
+  log.replaceChildren(el('div', { class: 'aempty', id: 'ask-empty' },
+    el('span', { class: 'aempty__mark' }, icon('i-chat')),
+    el('p', { class: 'aempty__title', text: 'What do you want to know?' }),
+    el('p', { class: 'aempty__sub', text: 'Ask in English, Bahasa Indonesia or Japanese. Tap a question to start.' }),
+    el('ul', { class: 'asugg', 'aria-label': 'Suggested questions' }, list.slice(0, 5).map((q) =>
+      el('li', {}, el('button', { type: 'button', class: 'asugg__btn', 'data-q': q }, icon('i-sparkle', 'st'), el('span', { text: q })))))));
+}
+
+export function setFlightContext(adv) {
+  app.askFlight = adv ? { id: adv.flight_id, proxy: adv.proxy_flight } : null;
+  const ctx = composer.ctx;
+  if (!app.askFlight) {
+    ctx.hidden = true;
+    ctx.replaceChildren();
+    return;
+  }
+  ctx.hidden = false;
+  ctx.replaceChildren(icon('i-aircraft', 'st'), el('span', { text: `About ${app.askFlight.proxy}` }),
+    el('button', { type: 'button', class: 'actx__x', 'aria-label': `Stop asking about ${app.askFlight.proxy}`, onclick: () => setFlightContext(null) }, icon('i-x')));
+}
+
+export function focusAsk() {
+  const t = byId('ask-title');
+  if (t) t.focus({ preventScroll: true });
+  scrollEnd();
+}
+
+// --- sending ---------------------------------------------------------------------------------
+
+function onLogClick(event) {
+  const q = event.target.closest('[data-q]');
+  if (q) {
+    composer.input.value = q.dataset.q;
+    submit();
+    return;
+  }
+  const chip = event.target.closest('[data-ev]');
+  if (chip) {
+    const msg = chip.closest('.amsg');
+    const answer = msg && msg._answer;
+    if (answer) openEvidence(answer, chip.dataset.ev);
+    return;
+  }
+  const speak = event.target.closest('[data-speak]');
+  if (speak) speakAnswer(speak);
+  const follow = event.target.closest('[data-follow]');
+  if (follow) {
+    composer.input.value = follow.dataset.follow;
+    submit();
+  }
+}
+
+function setBusy(on) {
+  composer.send.replaceChildren(icon(on ? 'i-stop' : 'i-send'));
+  composer.send.setAttribute('aria-label', on ? 'Stop waiting for the answer' : 'Send question');
+  composer.send.classList.toggle('is-stop', on);
+  composer.input.disabled = on;
+  composer.mic.disabled = on || !canRecord();
+}
+
+function scrollEnd() {
+  window.requestAnimationFrame(() => {
+    const bottom = composer.form.getBoundingClientRect().top;
+    const last = log.lastElementChild;
+    if (last) {
+      const r = last.getBoundingClientRect();
+      if (r.bottom > bottom - 8 || r.top < 60) window.scrollTo({ top: window.scrollY + r.top - 120, behavior: reducedMotion() ? 'auto' : 'smooth' });
+    }
+  });
+}
+
+const youBubble = (text, { voice = false } = {}) =>
+  el('div', { class: 'amsg amsg--you' }, el('p', { class: 'abubble' }, voice ? icon('i-mic', 'st') : null, el('span', { text })));
+
+function thinking(label) {
+  return el('div', { class: 'amsg amsg--ai amsg--wait', role: 'status' },
+    el('div', { class: 'acard acard--wait' }, el('span', { class: 'spinner', 'aria-hidden': 'true' }), el('span', { text: label }), el('span', { class: 'sr-only', text: 'Waiting for TEPHRA' })));
+}
+
+async function submit() {
+  const text = composer.input.value.trim();
+  if (!text || busy) return;
+  if (app.offline) {
+    announce("You're offline. Reconnect to ask.");
+    composer.form.querySelector('#ask-status').textContent = "You're offline. Reconnect to ask.";
+    return;
+  }
+  composer.form.querySelector('#ask-status').textContent = 'Read-only: Ask never changes an advisory, a plan or a message.';
+  byId('ask-empty')?.remove();
+  log.append(youBubble(text));
+  composer.input.value = '';
+  autosize(composer.input);
+  const wait = thinking('Reading TEPHRA\'s tools…');
+  log.append(wait);
+  scrollEnd();
+  busy = new AbortController();
+  setBusy(true);
+  const body = { question: text };
+  if (app.askFlight) body.flight_id = app.askFlight.id;
+  const res = await api(PATHS.ask, { method: 'POST', body, signal: busy.signal });
+  busy = null;
+  setBusy(false);
+  composer.input.focus({ preventScroll: true });
+  finish(wait, res, text);
+}
+
+function finish(wait, res, question) {
+  if (res.aborted) {
+    wait.replaceWith(el('div', { class: 'amsg amsg--ai' }, el('p', { class: 'acard acard--note', text: 'Stopped. TEPHRA may still have used a model call for this question.' })));
+    return;
+  }
+  if (res.ok && res.data && typeof res.data.answer === 'string') {
+    const node = answerCard(res.data);
+    wait.replaceWith(node);
+    announce(res.data.status === 'refused' ? `Not in the evidence TEPHRA has. ${res.data.refusal_reason || ''}` : res.data.answer);
+    scrollEnd();
+    return;
+  }
+  let card;
+  if (isUnavailable(res)) card = unavailableCard(unavailableReason(res), { instead: 'No answer was made up. Ask again, or read the Wall.', onRetry: () => { composer.input.value = question; submit(); } });
+  else if (res.status === 401) card = unavailableCard('Your session has ended. Sign in again.', { title: 'Not asked', instead: '' });
+  else if (res.status === 0) card = unavailableCard("Can't reach the server.", { title: 'Not asked', instead: 'Check your connection and ask again.', onRetry: () => { composer.input.value = question; submit(); } });
+  else card = unavailableCard((res.data && res.data.detail) || `HTTP ${res.status}`, { title: 'Not answered', instead: '' });
+  wait.replaceWith(el('div', { class: 'amsg amsg--ai' }, card));
+  announce('The question was not answered.');
+  scrollEnd();
+}
+
+// --- the answer card -------------------------------------------------------------------------
+
+const evLabel = (a, id) => {
+  const e = a.evidence.find((x) => x.id === id);
+  return e ? `${id}` : id;
+};
+
+function chipRow(answer, ids) {
+  return ids.map((id) => {
+    const e = answer.evidence.find((x) => x.id === id);
+    return el('button', {
+      type: 'button', class: 'evchip', 'data-ev': id,
+      'aria-label': `Evidence ${id}${e ? `, ${e.tool}` : ''}: open the verbatim result`, title: e ? `${e.tool}: ${e.summary}` : id,
+    }, el('span', { class: 'evchip__id', text: evLabel(answer, id) }), e ? el('span', { class: 'evchip__tool', text: e.tool }) : null);
+  });
+}
+
+function stepStrip(a) {
+  const steps = [];
+  steps.push(['i-chat', 'Question', a.flight_id ? `about flight ${a.flight_id}` : 'asked', 'ok']);
+  for (const e of a.evidence) steps.push(['i-code', `tool: ${e.tool}`, e.summary, 'ok', e.id]);
+  const nTools = a.tool_calls.length;
+  if (!a.evidence.length) steps.push(['i-info', 'No tool was called', 'The model answered from the question alone.', 'warn']);
+  const cited = new Set(a.claims.flatMap((c) => c.evidence_ids));
+  steps.push(['i-check', 'validator', `${a.claims.length} claim${a.claims.length === 1 ? '' : 's'} checked against ${cited.size} evidence item${cited.size === 1 ? '' : 's'}: every number, flight and airport in the answer appears in a tool result${a.repaired ? ' (after one repair)' : ''}`, 'ok']);
+  steps.push(['i-model', 'model', a.llm_backend === 'stub' ? 'NO MODEL (offline stub)' : a.model_id, 'ok']);
+  steps.push(['i-user', 'human gate', 'Ask only reads. It cannot approve or change anything.', 'ok']);
+  const list = el('ol', { class: 'steps' }, steps.map(([ic, k, v, tone, ev], i) =>
+    el('li', { class: `step step--${tone}` },
+      el('span', { class: 'step__dot' }, icon(ic, 'st')),
+      el('span', { class: 'step__body' }, el('span', { class: 'step__k', text: k }),
+        el('span', { class: 'step__v', text: v }),
+        ev ? el('button', { type: 'button', class: 'step__open', 'data-ev': ev }, el('span', { text: `Open ${ev}` })) : null))));
+  return el('details', { class: 'disclose how' },
+    el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: 'How I answered' }),
+      el('span', { class: 'how__sum', text: `${nTools} tool call${nTools === 1 ? '' : 's'} · validator passed` })), list);
+}
+
+export function answerCard(a) {
+  const wrap = el('div', { class: 'amsg amsg--ai' });
+  wrap._answer = a;
+  const refused = a.status === 'refused';
+  const card = el('article', { class: `acard ${refused ? 'acard--refused' : ''}`.trim(), 'aria-label': refused ? 'Refusal' : 'Answer' });
+  const meta = el('div', { class: 'acard__meta' },
+    aiChip(a.model_id, a.llm_backend, { sm: true }),
+    el('span', { class: 'chip chip--sm', title: 'Language of the question and the answer', text: LANG_NAME[a.language] || a.language }),
+    a.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null);
+  card.append(meta);
+  if (refused) {
+    card.append(el('p', { class: 'acard__refuse' }, icon('st-info', 'st'), el('span', { text: 'Not in the evidence I have' })),
+      el('p', { class: 'acard__text', lang: a.language, text: a.answer || a.refusal_reason || '' }));
+    if (a.refusal_reason && a.refusal_reason !== a.answer) card.append(el('p', { class: 'fine', text: a.refusal_reason }));
+    if (a.evidence.length) {
+      card.append(el('p', { class: 'caps acard__k', text: 'What I checked' }), el('div', { class: 'evrow' }, chipRow(a, a.evidence.map((e) => e.id))));
+    }
+  } else {
+    card.append(el('p', { class: 'acard__text', lang: a.language, text: a.answer }));
+    const cited = [...new Set(a.claims.flatMap((c) => c.evidence_ids))];
+    if (a.claims.length) {
+      card.append(el('details', { class: 'disclose claims', open: true },
+        el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: `Claims (${a.claims.length})` }), el('span', { class: 'how__sum', text: 'each rests on evidence' })),
+        el('ul', { class: 'clist' }, a.claims.map((c) =>
+          el('li', { class: `claim claim--${c.kind}` },
+            el('span', { class: 'claim__kind', text: KIND_WORD[c.kind] || c.kind }),
+            el('span', { class: 'claim__text', lang: a.language, text: c.text }),
+            el('span', { class: 'evrow' }, chipRow(a, c.evidence_ids)))))));
+    }
+    if (cited.length) card.append(el('p', { class: 'fine acard__src', text: `${cited.length} evidence item${cited.length === 1 ? '' : 's'} from ${a.evidence.length} tool call${a.evidence.length === 1 ? '' : 's'}.` }));
+  }
+  card.append(stepStrip(a));
+  const foot = el('div', { class: 'acard__foot' },
+    el('button', { type: 'button', class: 'spk', 'data-speak': a.id, 'aria-label': 'Play the answer aloud' }, icon('i-volume'), el('span', { text: 'Listen' })),
+    el('span', { class: 'spk__msg fine', role: 'status' }));
+  if (a.follow_ups && a.follow_ups.length) {
+    card.append(el('div', { class: 'afollow' }, a.follow_ups.map((q) => el('button', { type: 'button', class: 'asugg__btn', 'data-follow': q }, el('span', { text: q })))));
+  }
+  card.append(foot);
+  wrap.append(card);
+  return wrap;
+}
+
+function openEvidence(a, id) {
+  const e = a.evidence.find((x) => x.id === id);
+  if (!e) return;
+  const cited = a.claims.filter((c) => c.evidence_ids.includes(id));
+  openBSheet({
+    title: `Evidence ${e.id}`,
+    wide: true,
+    body: el('div', { class: 'stack' },
+      el('p', { class: 'evh' }, el('span', { class: 'evchip evchip--static' }, el('span', { class: 'evchip__id', text: e.id }), el('span', { class: 'evchip__tool', text: e.tool })), e.args && Object.keys(e.args).length ? el('span', { class: 'mono evh__args', text: JSON.stringify(e.args) }) : null),
+      el('p', { class: 'evsum', text: e.summary }),
+      e.source_ids && e.source_ids.length ? el('div', {}, el('p', { class: 'caps', text: 'Source ids' }), el('ul', { class: 'srcids' }, e.source_ids.map((s) => el('li', { class: 'mono', text: s })))) : null,
+      cited.length ? el('div', {}, el('p', { class: 'caps', text: 'Claims resting on it' }), el('ul', { class: 'plist' }, cited.map((c) => el('li', { text: c.text })))) : null,
+      el('p', { class: 'caps', text: 'Tool result, verbatim' }),
+      el('pre', { class: 'acars evpre', tabindex: '0', 'aria-label': 'The tool result as returned', text: JSON.stringify(e.result, null, 2) }),
+      el('p', { class: 'fine', text: 'Written by TEPHRA code from the feeds. A what-if is not an advisory and changed nothing.' })),
+  });
+}
+
+// --- spoken answer ---------------------------------------------------------------------------
+
+async function speakAnswer(button) {
+  const msg = button.parentElement.querySelector('.spk__msg');
+  if (audio && audio.id === button.dataset.speak && audio.el && !audio.el.paused) {
+    audio.el.pause();
+    button.classList.remove('is-playing');
+    return;
+  }
+  stopAudio();
+  button.disabled = true;
+  button.classList.add('is-loading');
+  msg.textContent = 'Preparing the voice reply…';
+  const res = await api(PATHS.askSpeak, { method: 'POST', body: { answer_id: button.dataset.speak }, blob: true });
+  button.disabled = false;
+  button.classList.remove('is-loading');
+  if (res.ok && res.data instanceof Blob) {
+    const url = URL.createObjectURL(res.data);
+    const player = new Audio(url);
+    audio = { el: player, url, id: button.dataset.speak };
+    player.addEventListener('ended', () => {
+      button.classList.remove('is-playing');
+      msg.textContent = '';
+    });
+    player.addEventListener('error', () => {
+      button.classList.remove('is-playing');
+      msg.textContent = 'Voice reply unavailable: this browser could not play the audio. The text answer stands.';
+    });
+    button.classList.add('is-playing');
+    msg.textContent = 'Playing (Gemini speech).';
+    player.play().catch(() => {
+      button.classList.remove('is-playing');
+      msg.textContent = 'Voice reply unavailable: the browser blocked playback. Tap Listen again.';
+    });
+    return;
+  }
+  button.classList.remove('is-playing');
+  msg.textContent = isUnavailable(res) ? `Voice reply unavailable: ${unavailableReason(res)}. The text answer stands.` : res.status === 0 ? "Voice reply unavailable: can't reach the server." : `Voice reply unavailable (HTTP ${res.status}). The text answer stands.`;
+}
+
+function stopAudio() {
+  if (!audio) return;
+  audio.el.pause();
+  URL.revokeObjectURL(audio.url);
+  for (const b of log.querySelectorAll('.spk.is-playing')) b.classList.remove('is-playing');
+  audio = null;
+}
+
+// --- push to talk ----------------------------------------------------------------------------
+
+function pickMime() {
+  for (const m of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']) {
+    if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return '';
+}
+
+function micStatus(text) {
+  composer.form.querySelector('#ask-status').textContent = text;
+}
+
+async function toggleMic() {
+  if (recorder) {
+    stopRecording();
+    return;
+  }
+  if (busy) return;
+  if (app.offline) {
+    micStatus("You're offline. Reconnect to talk, or type your question.");
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    micStatus('Microphone blocked or missing. Allow it in the browser, or type your question.');
+    announce('Microphone unavailable. Type your question.');
+    return;
+  }
+  const mime = pickMime();
+  let rec;
+  try {
+    rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  } catch {
+    for (const t of stream.getTracks()) t.stop();
+    micStatus('This browser cannot record audio. Type your question.');
+    return;
+  }
+  const chunks = [];
+  const started = performance.now();
+  rec.addEventListener('dataavailable', (e) => {
+    if (e.data && e.data.size) chunks.push(e.data);
+  });
+  rec.addEventListener('stop', () => {
+    for (const t of stream.getTracks()) t.stop();
+    window.clearInterval(recorder && recorder.timer);
+    const cancelled = recorder && recorder.cancelled;
+    recorder = null;
+    composer.mic.classList.remove('is-rec');
+    composer.mic.setAttribute('aria-pressed', 'false');
+    composer.mic.setAttribute('aria-label', 'Talk: tap to start recording, tap again to send');
+    if (cancelled || !chunks.length || performance.now() - started < 500) {
+      micStatus('Too short. Tap the mic, speak, then tap it again.');
+      return;
+    }
+    sendVoice(new Blob(chunks, { type: rec.mimeType || mime || 'audio/webm' }));
+  });
+  recorder = { rec, timer: 0, cancelled: false };
+  rec.start();
+  composer.mic.classList.add('is-rec');
+  composer.mic.setAttribute('aria-pressed', 'true');
+  composer.mic.setAttribute('aria-label', 'Recording: tap to stop and send');
+  announce('Recording. Tap the mic again to send.');
+  const tick = () => {
+    const s = Math.floor((performance.now() - started) / 1000);
+    micStatus(`Recording ${s}s of ${MAX_REC_S}s. Tap the mic to send.`);
+    if (s >= MAX_REC_S) stopRecording();
+  };
+  tick();
+  recorder.timer = window.setInterval(tick, 500);
+}
+
+function stopRecording() {
+  if (recorder && recorder.rec.state !== 'inactive') recorder.rec.stop();
+}
+
+async function sendVoice(blob) {
+  if (blob.size > 1024 * 1024) {
+    micStatus('That recording is too long (over 1 MB). Try a shorter question.');
+    return;
+  }
+  byId('ask-empty')?.remove();
+  const mine = ++seq;
+  const wait = thinking('Listening to your question…');
+  log.append(wait);
+  scrollEnd();
+  micStatus('Sending the recording…');
+  const form = new FormData();
+  const ext = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+  form.append('audio', blob, `question.${ext}`);
+  if (app.askFlight) form.append('flight_id', app.askFlight.id);
+  busy = new AbortController();
+  setBusy(true);
+  const res = await api(PATHS.askVoice, { method: 'POST', form, signal: busy.signal });
+  busy = null;
+  setBusy(false);
+  micStatus('Read-only: Ask never changes an advisory, a plan or a message.');
+  if (mine !== seq) return;
+  if (res.ok && res.data && res.data.answer) {
+    const heard = res.data.transcript && res.data.transcript.text;
+    const you = youBubble(heard || res.data.answer.question, { voice: true });
+    you.querySelector('.abubble').append(el('span', { class: 'abubble__src', text: `heard by ${res.data.transcript.model_id === 'stub' ? 'NO MODEL' : res.data.transcript.model_id}` }));
+    wait.before(you);
+    finish(wait, { ok: true, data: res.data.answer }, heard || '');
+    return;
+  }
+  const heard = (problems(res).find((p) => p.startsWith('transcript:')) || '').replace(/^transcript:\s*/, '');
+  if (heard) wait.before(youBubble(heard, { voice: true }));
+  finish(wait, res, heard);
+}

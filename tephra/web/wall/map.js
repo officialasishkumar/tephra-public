@@ -2,6 +2,7 @@
 // direction rose (section 6), camera framing (7.4), satellite context (5.6), 3D and swipe
 // compare (8.1, 8.2). Feed text reaches the map only as symbol text, never as HTML.
 
+import { addExtLayers, updateExtLayers, setExtVisible } from "./ext-map.js";
 import { addImages } from "./images.js";
 import { officialLabelText, LEVEL_MAX } from "./derive.js";
 import {
@@ -241,10 +242,12 @@ export class WallMap {
       addImages(map, this.C);
       addContext(map, this.C, this.ui, this.noText);
       addHazard(map, this.C, this.ui, { noText: this.noText });
+      addExtLayers(map, this.noText, this.ui.layers.reroutes);
+      setExtVisible(map, this.ui.layers.reroutes, this.ui.layers.satboxes);
       this.loaded = true;
       if (!this.hoverBound) {
         this.hoverBound = true;
-        for (const id of ["aircraft-icon", "volcano-active", "official-fill-now", "tephra-fill"]) {
+        for (const id of ["aircraft-icon", "volcano-active", "official-fill-now", "tephra-fill", "reroute-line", "reroute-wp"]) {
           map.on("mouseenter", id, () => { map.getCanvas().style.cursor = "pointer"; });
           map.on("mouseleave", id, () => { map.getCanvas().style.cursor = ""; });
         }
@@ -268,6 +271,7 @@ export class WallMap {
     map.getSource("exposures").setData(D.exposures);
     map.getSource("aircraft").setData(fc(D.aircraft));
     map.setFilter("fir-active", ["in", ["get", "icao"], ["literal", D.firsWithSigmet]]);
+    this.updateExt();
     this.updateVolcanoes();
     this.updateRose();
     this.updateLabels();
@@ -286,6 +290,16 @@ export class WallMap {
       this.waitReady();
     }
     this.followNewFlights();
+  }
+
+  // reroutes and Satellite check boxes: data comes from the store, set by wall.js
+  setExt(data) {
+    this.extData = data;
+    if (this.loaded) this.updateExt();
+  }
+
+  updateExt() {
+    if (this.extData) updateExtLayers(this.map, { ...this.extData, selectedVid: this.D?.selected });
   }
 
   waitReady() {
@@ -640,7 +654,7 @@ export class WallMap {
   // ---------------------------------------------------------------- popups (7.4)
 
   onClick(e) {
-    const order = ["aircraft-icon", "exposure-entry", "volcano-active", "volcano-inactive", "official-fill-now", "official-line-now", "official-line-f6", "official-line-f12", "official-line-f18", "tephra-line", "tephra-fill", "tephra-hatch"];
+    const order = ["aircraft-icon", "exposure-entry", "reroute-wp", "reroute-line", "volcano-active", "volcano-inactive", "official-fill-now", "official-line-now", "official-line-f6", "official-line-f12", "official-line-f18", "tephra-line", "tephra-fill", "tephra-hatch"];
     const layers = order.filter((id) => this.map.getLayer(id));
     const hits = this.map.queryRenderedFeatures([[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]], { layers });
     if (!hits.length) return;
@@ -693,6 +707,7 @@ export class WallMap {
     this.setVisible(["exposure-path", "exposure-entry", "exposure-entry-label"], L.paths);
     this.setVisible(["aircraft-icon", "aircraft-inside", "aircraft-label-exposed"], L.aircraft);
     this.setVisible(["aircraft-label"], L.aircraft && L.acLabels);
+    setExtVisible(this.map, L.reroutes, L.satboxes);
     this.setVisible(["rose-casing", "rose-arc", "rose-off", "rose-obs", "rose-probe", "rose-heads", "rose-labels", "rose-angle"], L.rose);
     if (this.D) { this.updateRose(); this.updateLabels(); }
   }

@@ -91,6 +91,13 @@ export function actionText(adv) {
       return typeof adv.alternate_icao === 'string' && adv.alternate_icao
         ? `DIVERT ${adv.alternate_icao}`
         : 'DIVERT';
+    case 'REROUTE': {
+      const r = adv.reroute;
+      if (!r) return 'REROUTE';
+      const side = r.side ? ` ${r.side}` : '';
+      const extra = Number.isFinite(r.extra_min) ? ` +${Math.round(r.extra_min)} MIN` : '';
+      return `REROUTE${side}${extra}`;
+    }
     default:
       return String(adv.action);
   }
@@ -108,6 +115,7 @@ export const ACTION_ICON = {
   DIVERT: 'i-airport',
   MONITOR: 'i-eye',
   CONTINUE: 'i-arrow-right',
+  REROUTE: 'i-route',
 };
 
 export function band(cone) {

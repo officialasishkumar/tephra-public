@@ -33,6 +33,8 @@ export function renderLayers(ui) {
       group("Traffic",
         check("aircraft", "Aircraft", L.aircraft),
         check("paths", "Exposure paths", L.paths),
+        check("reroutes", "Reroutes", L.reroutes, "code-computed around the cautious area"),
+        check("satboxes", "Satellite check boxes", L.satboxes, "drawn by the AI · supporting only"),
         check("acLabels", "Other aircraft labels", L.acLabels, "from zoom 7.5")),
       group("Context",
         check("context", "FIR and VAAC lines", L.context, "approximate"),

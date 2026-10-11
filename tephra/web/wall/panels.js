@@ -66,7 +66,7 @@ const OUTCOME = {
   STUB: "NO MODEL: official products only",
   ACCEPTED: "Gemini reading accepted by the validators",
   REPAIRED: "Accepted after one repair",
-  FALLBACK_OFFICIAL: "Model output rejected by the validators: official products only",
+  MODEL_FAILED: "AI unavailable: official products only, nothing assessed beyond them",
   OFFICIAL_ONLY: "No model call needed: official products only",
 };
 const ACTOR = {
@@ -191,6 +191,8 @@ export function renderLegend(D, ui) {
     D.rose && ui.layers.rose ? li(sw("lg-arrow-official", "sw--official"), "Official movement") : null,
     D.rose && ui.layers.rose ? li(sw("lg-arrow-observer", "sw--observer"), "Observatory drift") : null,
     anyExposed ? li(sw("i-aircraft", "sw--exposed"), "Flight entering the area") : null,
+    ui.layers.reroutes && D.hasReroutes ? li(sw("lg-reroute", "sw--reroute"), "Reroute", "· turn points in ICAO form") : null,
+    ui.layers.satboxes && D.hasSatBoxes ? li(sw("lg-satbox", "sw--sat"), "Satellite check box", "· AI-drawn, supporting only") : null,
     anyOther ? li(sw("i-aircraft", "sw--aircraft"), "Other airline flight") : null,
     el("li", { class: "legend__codes" }, el("span", { class: "codes" }, ...["GREEN", "YELLOW", "ORANGE", "RED", "UNKNOWN"].map((c) => eruptIcon(c, "icon"))), el("span", { text: "Aviation colour code: G Y O R, U unknown" })),
     ui.d3 ? li(sw("i-3d", "sw--plain"), "3D view", "· heights ×6") : null,
@@ -629,7 +631,7 @@ function areaSection(D, sit, ui) {
     el("div", { class: "area__top" }, el("span", { class: `mode-chip mode-chip--${cone.mode.toLowerCase()}`, text: cone.mode }), el("span", { class: "area__band", text: band(cone.base_ft, cone.top_ft) }), el("span", { class: "area__label mono", text: cone.label })),
     el("p", { class: "area__line", text: MODE_LINE[cone.mode] || "" }),
   ];
-  if (outcome === "FALLBACK_OFFICIAL") kids.push(el("p", { class: "area__note" }, st("st-info", "var(--c-info)"), "Model output rejected by the validators: official products only"));
+  if (outcome === "MODEL_FAILED") kids.push(el("p", { class: "area__note" }, st("st-caution", "var(--c-caution)"), `AI unavailable: ${a?.estimate?.uncertainty_notes || "no usable model output"}`));
   kids.push(facts);
   const est = a?.estimate;
   const model = a && a.llm_backend && a.llm_backend !== "stub" && outcome !== "STUB";

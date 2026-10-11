@@ -9,6 +9,16 @@ export const app = {
   known: new Set(), // ids already shown once (a new id after the first load is "new")
   arrivedAt: new Map(), // id -> performance.now() when it arrived as new
   cones: new Map(), // cone_id -> ConeFeatureProps (for the hazard band)
+  coneGeo: new Map(), // cone_id -> GeoJSON geometry (for the route sketch)
+  failures: new Map(), // AiFailure id -> open AiFailure
+  messages: new Map(), // CrewPaxMessage id -> message (DRAFT ones are the queue)
+  plans: [], // RecoveryPlan, newest first
+  plansLoaded: false,
+  docs: [], // DocSummary, newest first
+  notices: [], // NoticeReading, newest first
+  budget: null, // BudgetView
+  tab: 'queue', // queue | ask | network | docs
+  askFlight: null, // { id, proxy } the flight Ask is about
   listLoaded: false,
   listError: '',
   loadSeq: 0,

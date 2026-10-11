@@ -13,6 +13,28 @@ export const PATHS = {
   audit: (id) => `/api/audit?advisory_id=${encodeURIComponent(id)}&limit=50`,
   replays: '/api/replays',
   mode: '/api/mode',
+  budget: '/api/budget',
+  failures: '/api/desk/ai-failures?open_only=true&limit=50',
+  failureHandled: (id) => `/api/desk/ai-failures/${encodeURIComponent(id)}/handled`,
+  messages: (status = 'DRAFT') => `/api/desk/messages?status=${status}&limit=50`,
+  messageDraft: '/api/desk/messages/draft',
+  messageDecide: (id, kind) => `/api/desk/messages/${encodeURIComponent(id)}/${kind}`,
+  notices: '/api/notices?limit=20',
+  noticePost: '/api/desk/notices',
+  ask: '/api/desk/ask',
+  askVoice: '/api/desk/ask/voice',
+  askSpeak: '/api/desk/ask/speak',
+  recovery: '/api/recovery?limit=10',
+  recoveryRun: '/api/desk/recovery/run',
+  recoveryDecide: (id, kind) => `/api/desk/recovery/${encodeURIComponent(id)}/${kind}`,
+  docs: '/api/docs?limit=50',
+  doc: (id) => `/api/docs/${encodeURIComponent(id)}`,
+  docSra: '/api/desk/docs/sra',
+  docVar: '/api/desk/docs/var',
+  docSign: (id) => `/api/desk/docs/${encodeURIComponent(id)}/sign`,
+  handover: '/api/desk/handover',
+  handoverGet: (id) => `/api/desk/handover/${encodeURIComponent(id)}`,
+  handoverAck: (id) => `/api/desk/handover/${encodeURIComponent(id)}/ack`,
 };
 
 export const BODY_MAX_CHARS = 400; // tephra.config.ADVISORY_BODY_MAX_CHARS
@@ -21,30 +43,41 @@ export const REASON_MIN_CHARS = 3; // RejectRequest.reason
 export const REASON_MAX_CHARS = 500;
 const ADVISORY_ID = /^adv_[0-9a-f]{12}$/;
 const STATUSES = new Set(['DRAFT', 'APPROVED', 'EDITED', 'REJECTED', 'SUPERSEDED']);
-const ACTIONS = new Set(['CONTINUE', 'MONITOR', 'CHANGE_LEVEL', 'HOLD', 'DIVERT']);
+const ACTIONS = new Set(['CONTINUE', 'MONITOR', 'CHANGE_LEVEL', 'HOLD', 'DIVERT', 'REROUTE']);
 const MODES = new Set(['OFFICIAL', 'WIDENED', 'HYPOTHESIS']);
 
 const listeners = new Set();
 // Called with true after a network failure and false after any answer from the server.
 export const onReachability = (fn) => listeners.add(fn);
 
-export async function api(path, { method = 'GET', body } = {}) {
-  const headers = { Accept: 'application/json', 'X-Tephra-Desk': '1' };
-  const init = { method, headers, credentials: 'same-origin', cache: 'no-store' };
-  if (body !== undefined) {
+// `form` sends multipart (the browser sets the boundary); `signal` lets the caller stop
+// waiting; `blob` returns the body as a Blob when the answer is not JSON (spoken answers).
+export async function api(path, { method = 'GET', body, form, signal, blob = false } = {}) {
+  const headers = { Accept: blob ? 'audio/wav, application/json' : 'application/json', 'X-Tephra-Desk': '1' };
+  const init = { method, headers, credentials: 'same-origin', cache: 'no-store', signal };
+  if (form !== undefined) {
+    init.body = form;
+  } else if (body !== undefined) {
     headers['Content-Type'] = 'application/json';
     init.body = JSON.stringify(body);
   }
   let response;
   try {
     response = await fetch(path, init);
-  } catch {
+  } catch (error) {
+    if (error && error.name === 'AbortError') return { ok: false, status: 0, aborted: true, data: null, headers: null };
     for (const fn of listeners) fn(true);
     return { ok: false, status: 0, data: null, headers: null };
   }
   for (const fn of listeners) fn(false);
   let data = null;
-  if ((response.headers.get('content-type') || '').includes('application/json')) {
+  if (blob && response.ok && !(response.headers.get('content-type') || '').includes('application/json')) {
+    try {
+      data = await response.blob();
+    } catch {
+      data = null;
+    }
+  } else if ((response.headers.get('content-type') || '').includes('application/json')) {
     try {
       data = await response.json();
     } catch {
@@ -56,6 +89,15 @@ export async function api(path, { method = 'GET', body } = {}) {
 
 export const errorCode = (res) =>
   res && res.data && typeof res.data.error === 'string' ? res.data.error : '';
+
+// The 503 every AI step answers when its model failed (docs/EXTENSIONS.md rule 0). The reason
+// is the server's text; nothing is substituted.
+export const isUnavailable = (res) => Boolean(res) && res.status === 503 && errorCode(res) === 'ai_unavailable';
+
+export function unavailableReason(res) {
+  const raw = res && res.data ? String(res.data.message || res.data.detail || '') : '';
+  return raw.replace(/^AI UNAVAILABLE:?\s*/i, '').trim() || 'no reason given';
+}
 
 export function problems(res) {
   const list = res && res.data && Array.isArray(res.data.problems) ? res.data.problems : [];

@@ -44,6 +44,7 @@
       <div class="kpi kpi--tephra"><dt>Entering · all</dt><dd id="kpi-exposed">–</dd></div>
       <div class="kpi"><dt>Drafts</dt><dd id="kpi-drafts">–</dd></div>
     </dl>
+    <button id="ai-chip" class="ai-chip" type="button" aria-label="AI activity">AI</button>
     <span id="model-chip" class="model-chip" tabindex="0">–</span>
     <button id="feeds-chip" class="feeds-chip" type="button" aria-haspopup="dialog"><span class="caps feeds-chip__cap">Feeds</span> –</button>
     <div class="clock" role="group" aria-label="Active clock">
@@ -123,8 +124,10 @@
     </nav>
 
     <aside id="rail" class="rail" aria-label="Situation brief">
+      <div id="xtabs" class="xtabs" role="tablist" aria-label="Wall panels"></div>
       <div id="volcano-tabs" class="vtabs" role="tablist" aria-label="Active volcanoes"></div>
       <div id="brief" class="brief" tabindex="-1"></div>
+      <div id="xpanel" class="xpanel" role="tabpanel" tabindex="-1" hidden></div>
     </aside>
   </main>
 

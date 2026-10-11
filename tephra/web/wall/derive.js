@@ -206,6 +206,8 @@ export function derive(store, ui, now) {
 
   return {
     state, now, mode: state.mode, sits, selected, sit, vents, official, cones, coneOf, sectorOf,
+    hasReroutes: (snap.reroutes?.features || []).length > 0,
+    hasSatBoxes: (snap.satellite || []).some((r) => r.boxes?.length),
     aircraft, exposed, exposures: snap.exposures || { type: "FeatureCollection", features: [] },
     volcanoes, rose, moveByVolcano, firsWithSigmet, advByFlight, regionCounts,
     levelAll: lvAll, hiddenOfficial, hiddenFlights,
