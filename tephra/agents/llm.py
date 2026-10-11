@@ -26,7 +26,7 @@ import os
 import re
 import time
 from collections import deque
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from functools import cache
 from pathlib import Path
@@ -56,9 +56,12 @@ __all__ = [
     "StubBackend",
     "Tier",
     "daily_quota_spent",
+    "gemini_call_fields",
     "get_llm",
     "prompt_hash",
+    "sum_known",
     "temperature_for",
+    "usage_tokens",
 ]
 
 logger = logging.getLogger(__name__)
@@ -463,13 +466,13 @@ class GeminiBackend:
             self._log(tier, call, "error")
             return None, call
 
-        usage = getattr(response, "usage_metadata", None)
+        input_tokens, output_tokens = usage_tokens(getattr(response, "usage_metadata", None))
         text = response.text
         call = call.model_copy(
             update={
                 "latency_ms": _elapsed_ms(started),
-                "input_tokens": _tokens(usage, "prompt_token_count"),
-                "output_tokens": _output_tokens(usage),
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
                 "raw_text": text,
             }
         )
@@ -562,6 +565,17 @@ class GeminiBackend:
             call.latency_ms,
             call.input_tokens,
             call.output_tokens,
+            extra={
+                "json_fields": gemini_call_fields(
+                    tier=tier,
+                    model=call.model_id,
+                    outcome=outcome,
+                    latency_ms=call.latency_ms,
+                    input_tokens=call.input_tokens,
+                    output_tokens=call.output_tokens,
+                    cached=call.cached,
+                )
+            },
         )
 
 
@@ -662,6 +676,45 @@ def _describe(exc: BaseException) -> str:
 def _tokens(usage: Any, field: str) -> int | None:
     value = getattr(usage, field, None) if usage is not None else None
     return int(value) if isinstance(value, int) else None
+
+
+def gemini_call_fields(
+    *,
+    tier: Tier,
+    model: str,
+    outcome: str,
+    latency_ms: int,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    cached: bool = False,
+    actor: str = "llm",
+) -> dict[str, Any]:
+    """The structured fields of one Gemini call's log line (``event`` is ``gemini_call``).
+
+    Log-based metrics count these; they never carry a prompt, a volcano, a flight or a name.
+    """
+    return {
+        "event": "gemini_call",
+        "actor": actor,
+        "tier": tier,
+        "model": model,
+        "outcome": outcome,
+        "latency_ms": latency_ms,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cached": cached,
+    }
+
+
+def usage_tokens(usage: Any) -> tuple[int | None, int | None]:
+    """Input and output tokens from a Gemini ``usage_metadata``; output counts thinking too."""
+    return _tokens(usage, "prompt_token_count"), _output_tokens(usage)
+
+
+def sum_known(values: Iterable[int | None]) -> int | None:
+    """The sum of the counts that are known; None when none is, never an estimate."""
+    known = [value for value in values if value is not None]
+    return sum(known) if known else None
 
 
 def _output_tokens(usage: Any) -> int | None:

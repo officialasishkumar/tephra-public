@@ -13,6 +13,7 @@ REROUTE, which only picks one of the lateral routes ``tephra.geo.reroute`` compu
 
 import asyncio
 import logging
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -20,7 +21,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 from tephra.agents.adk_runtime import ModelGuard, summarise
-from tephra.agents.llm import LlmBackend, LlmPart, prompt_hash
+from tephra.agents.llm import (
+    LlmBackend,
+    LlmPart,
+    gemini_call_fields,
+    prompt_hash,
+    sum_known,
+    usage_tokens,
+)
 from tephra.agents.schemas import parse_json_model
 from tephra.agents.validators import (
     allowed_actions,
@@ -672,6 +680,8 @@ async def plan_flight(
             prompt_hash=phash,
             outcome=run.outcome,
             tool_calls=run.records,
+            input_tokens=sum_known(run.input_tokens),
+            output_tokens=sum_known(run.output_tokens),
         )
     reasons = "; ".join(first_problems(run.problems, 3)) or "NO PLAN"
     _emit(
@@ -691,6 +701,8 @@ async def plan_flight(
         outcome="MODEL_FAILED",
         tool_calls=run.records,
         errors=run.problems,
+        input_tokens=sum_known(run.input_tokens),
+        output_tokens=sum_known(run.output_tokens),
     )
 
 
@@ -700,6 +712,73 @@ class _AgentRun:
     outcome: PlanOutcome = "ACCEPTED"
     records: list[ToolCallRecord] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
+    input_tokens: list[int | None] = field(default_factory=list)
+    output_tokens: list[int | None] = field(default_factory=list)
+
+
+class _TurnMeter:
+    """Logs each ADK model turn as a ``gemini_call`` and keeps its token counts for the plan.
+
+    It wraps the budget guard: a turn the guard stops never reaches the model and is not
+    logged here. ADK 2.11 calls ``after_model`` with ``(callback_context, llm_response)``
+    after every model response, including an answer ``on_model_error`` put in its place.
+    """
+
+    def __init__(self, guard: ModelGuard, run: _AgentRun, model_id: str) -> None:
+        self._guard = guard
+        self._run = run
+        self._model_id = model_id
+        self._started: float | None = None
+        self._error_answered = False
+
+    async def before_model(self, callback_context: Any, llm_request: Any) -> Any:
+        stop = await self._guard(callback_context, llm_request)
+        if stop is None:
+            self._started = time.monotonic()
+        return stop
+
+    def on_model_error(self, callback_context: Any, llm_request: Any, error: Exception) -> Any:
+        self._log("error", None, None)
+        answer = self._guard.on_model_error(callback_context, llm_request, error)
+        self._error_answered = answer is not None
+        return answer
+
+    def after_model(self, callback_context: Any, llm_response: Any) -> None:
+        if self._error_answered:
+            self._error_answered = False
+            return None
+        if getattr(llm_response, "partial", False):
+            return None
+        input_tokens, output_tokens = usage_tokens(getattr(llm_response, "usage_metadata", None))
+        self._run.input_tokens.append(input_tokens)
+        self._run.output_tokens.append(output_tokens)
+        failed = getattr(llm_response, "error_code", None) is not None
+        self._log("error" if failed else "ok", input_tokens, output_tokens)
+        return None
+
+    def _log(self, outcome: str, input_tokens: int | None, output_tokens: int | None) -> None:
+        started, self._started = self._started, None
+        latency_ms = round((time.monotonic() - started) * 1000) if started is not None else 0
+        logger.info(
+            "llm backend=adk tier=lite model=%s outcome=%s latency_ms=%d "
+            "input_tokens=%s output_tokens=%s",
+            self._model_id,
+            outcome,
+            latency_ms,
+            input_tokens,
+            output_tokens,
+            extra={
+                "json_fields": gemini_call_fields(
+                    tier="lite",
+                    model=self._model_id,
+                    outcome=outcome,
+                    latency_ms=latency_ms,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    actor="adk",
+                )
+            },
+        )
 
 
 async def _run_agent(
@@ -716,10 +795,12 @@ async def _run_agent(
     from tephra.agents.adk_app import build_planner_agent
 
     guard = ModelGuard(llm, max_turns=MAX_MODEL_TURNS)
+    meter = _TurnMeter(guard, run, settings.model_lite)
     agent = build_planner_agent(
         settings.model_lite,
-        before_model_callback=guard,
-        on_model_error_callback=guard.on_model_error,
+        before_model_callback=meter.before_model,
+        after_model_callback=meter.after_model,
+        on_model_error_callback=meter.on_model_error,
     )
     runner = InMemoryRunner(agent=agent, app_name=ADK_APP_NAME)
     try:
@@ -851,6 +932,8 @@ def _planned(
     outcome: PlanOutcome,
     tool_calls: Sequence[ToolCallRecord] = (),
     errors: Sequence[str] = (),
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
 ) -> PlannedAction:
     flight = ctx.flight
     return PlannedAction(
@@ -865,6 +948,8 @@ def _planned(
         prompt_hash=prompt_hash,
         outcome=outcome,
         validation_errors=list(errors),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
 
 

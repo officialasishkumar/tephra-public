@@ -160,9 +160,13 @@ def _tool_error(
 
 
 def build_planner_agent(
-    model: str, *, before_model_callback: Any = None, on_model_error_callback: Any = None
+    model: str,
+    *,
+    before_model_callback: Any = None,
+    after_model_callback: Any = None,
+    on_model_error_callback: Any = None,
 ) -> LlmAgent:
-    """The planner agent; the model callbacks are how the app enforces its daily budget."""
+    """The planner agent; the model callbacks enforce the daily budget and log each turn."""
     return LlmAgent(
         name=AGENT_NAME,
         model=model,
@@ -179,6 +183,7 @@ def build_planner_agent(
         ],
         generate_content_config=types.GenerateContentConfig(temperature=temperature_for(model)),
         before_model_callback=before_model_callback,
+        after_model_callback=after_model_callback,
         on_model_error_callback=on_model_error_callback,
         on_tool_error_callback=_tool_error,
     )

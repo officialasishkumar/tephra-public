@@ -1006,6 +1006,12 @@ class PlumeAssessment(TephraModel):
     )
     images_used: list[str] = Field(default_factory=list, description="source_ids of images sent")
     latency_ms: int | None = None
+    input_tokens: int | None = Field(
+        default=None, description="Sum over the model calls that reported usage; None if none did"
+    )
+    output_tokens: int | None = Field(
+        default=None, description="Sum over the model calls that reported usage; None if none did"
+    )
 
 
 # --- cone -------------------------------------------------------------------------------
@@ -1469,6 +1475,12 @@ class PlannedAction(TephraModel):
     prompt_hash: str
     outcome: Literal["ACCEPTED", "REPAIRED", "MODEL_FAILED", "STUB"]
     validation_errors: list[str] = Field(default_factory=list)
+    input_tokens: int | None = Field(
+        default=None, description="Sum over the model calls that reported usage; None if none did"
+    )
+    output_tokens: int | None = Field(
+        default=None, description="Sum over the model calls that reported usage; None if none did"
+    )
 
 
 # --- drafting, desk, outbound -----------------------------------------------------------

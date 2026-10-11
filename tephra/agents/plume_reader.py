@@ -16,7 +16,14 @@ from functools import cache
 from pathlib import Path
 from typing import Final, Literal
 
-from tephra.agents.llm import BUDGET_EXHAUSTED, LlmBackend, LlmCall, LlmPart, prompt_hash
+from tephra.agents.llm import (
+    BUDGET_EXHAUSTED,
+    LlmBackend,
+    LlmCall,
+    LlmPart,
+    prompt_hash,
+    sum_known,
+)
 from tephra.agents.validators import ZONE_TIME_PATTERN, first_problems
 from tephra.config import (
     MAX_HORIZON_H,
@@ -299,6 +306,8 @@ def _assessment(
         validation_errors=list(validation_errors),
         images_used=list(images_used),
         latency_ms=sum(call.latency_ms for call in made) if made else None,
+        input_tokens=sum_known(call.input_tokens for call in made),
+        output_tokens=sum_known(call.output_tokens for call in made),
     )
 
 

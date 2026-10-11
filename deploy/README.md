@@ -47,12 +47,29 @@ Options (environment variables):
 | `TEPHRA_LLM` | `gemini` | `stub` deploys without spending Gemini quota |
 | `TEPHRA_SCIENCE` | `false` | `true` builds with satpy and turns on the split-window layer (2 GiB); only `true` or `false` |
 
+## Monitoring (optional, check pricing first)
+
+The app does not need this to run. Before running it, check Google's current pricing for log-based metrics, alert policies and uptime checks, since TEPHRA is meant to stay on free services.
+
+```bash
+./deploy/monitoring.sh                                   # metrics and dashboard only
+TEPHRA_MONITORING_ALERTS=true TEPHRA_ALERT_EMAIL=<address> ./deploy/monitoring.sh   # plus alerts
+```
+
+It prints every gcloud command before running it and creates:
+
+- three log-based metrics read from the service's JSON log lines: `gemini_calls` (one per Gemini call, labelled only by `tier` and `outcome`), `gemini_latency_ms` (a distribution of the latency of calls that reached Gemini) and `tephra_ticks` (one per finished scheduler tick);
+- a dashboard named `TEPHRA` from `deploy/monitoring-dashboard.json` with those three charts;
+- with `TEPHRA_MONITORING_ALERTS=true` only: one email notification channel and two alert policies, "no tick for 10 min" and "Gemini errors >= 2 in 30 min". These use the `beta` and `alpha` gcloud command groups.
+
+It creates no uptime check and no Cloud Trace setup. Rerunning it updates the metrics and leaves an existing dashboard, channel or policy as it is. If you pause the scheduler job or the service, disable the no-tick policy first, or it will email you.
+
 ## Cost notes
 
 - Cloud Run needs a billing account even inside the free tier.
 - With `min-instances=1` and `--no-cpu-throttling` the instance is billed all the time it is up; that keeps the Wall's live stream and the background ADS-B passes working. Use `TEPHRA_MIN_INSTANCES=0` outside demo days.
 - One Scheduler job is inside the three free jobs. Firestore's free tier is 20K writes/day; TEPHRA writes only on change.
-- The Gemini free tier is reported at about 20 requests/day for `gemini-3.8-flash`; TEPHRA's daily budgets (`TEPHRA_MODEL_DAILY_BUDGET`, `TEPHRA_MODEL_LITE_DAILY_BUDGET`) stop calls before the quota does and fall back to code.
+- The Gemini free tier is reported at about 20 requests/day for `gemini-3.8-flash`; TEPHRA's daily budgets (`TEPHRA_MODEL_DAILY_BUDGET`, `TEPHRA_MODEL_LITE_DAILY_BUDGET`) stop calls before the quota does, and each step then reports AI UNAVAILABLE; nothing falls back to code.
 
 ## Terms to respect
 

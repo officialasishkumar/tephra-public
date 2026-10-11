@@ -236,7 +236,10 @@ Officer: official products only until it runs, never reused as current). Duty Of
 its own source id; they are included in `source_ids()` so the Plume Reader may cite them, and
 left out of `input_hash`, so a new picture alone never triggers a Plume Reader call.
 `PlannedAction.decision` is None when the model gave no plan that passed the checks (outcome
-`MODEL_FAILED`); `AiFailure` is then the Desk's item. Feature-owned models (recovery, comms,
+`MODEL_FAILED`); `AiFailure` is then the Desk's item. `PlumeAssessment` and `PlannedAction`
+carry `input_tokens` and `output_tokens` (`int | None`): the sum over the model calls that
+reported usage, None when none did (stub, `OFFICIAL_ONLY`, a cache hit, a call that failed
+before Gemini answered); never estimated. `Advisory` has no token fields; it links to both. Feature-owned models (recovery, comms,
 regdocs, backtest, ask, notices, satellite) live in their own modules and subclass
 `TephraModel`.
 
@@ -930,6 +933,11 @@ def get_llm(settings: Settings) -> LlmBackend
 def prompt_hash(system: str, parts: Sequence[LlmPart]) -> str   # images and recordings contribute their sha256
 def temperature_for(model_id: str) -> float                      # 1.0 for gemini-3* model ids, else 0.2
 def daily_quota_spent(exc: BaseException) -> bool                # a 429 whose QuotaFailure names a per-day quota
+def usage_tokens(usage: Any) -> tuple[int | None, int | None]    # (prompt_token_count, candidates + thoughts) from usage_metadata
+def sum_known(values: Iterable[int | None]) -> int | None        # sum of the known counts, None when none is known
+def gemini_call_fields(*, tier: Tier, model: str, outcome: str, latency_ms: int,
+                       input_tokens: int | None, output_tokens: int | None,
+                       cached: bool = False, actor: str = "llm") -> dict[str, Any]
 ```
 Rules: `structured` never raises for model trouble: on API error, timeout, quota, invalid
 JSON or schema failure it returns `(None, call)` with `call.error` set. Tier `main` uses
@@ -954,6 +962,15 @@ per-day quota is not retried and closes the tier (`exhaust`) until the quota day
 sent with a preceding text part `IMAGE {label}`, at high media resolution; an audio part is sent
 as inline bytes with its mime type and no announcement (and sets no media resolution). Each request
 times out after `llm_timeout_s`.
+
+Every `GeminiBackend.structured` call ends in one INFO line on the `tephra.agents.llm` logger
+whose `json_fields` are `gemini_call_fields(...)`: `event="gemini_call"`, `actor="llm"`,
+`tier`, `model`, `outcome` (`ok`, `cache_hit`, `budget_exhausted`, `error`, `empty`,
+`invalid`), `latency_ms`, `input_tokens`, `output_tokens` (None when Gemini reported none) and
+`cached`. The fields never carry a prompt, a volcano or flight id, or a name; Cloud Logging
+reads them as `jsonPayload.*` (deploy/monitoring.sh counts them). `read_plume` sums the token
+counts of the calls it made into `PlumeAssessment.input_tokens` and `.output_tokens`
+(`sum_known`; a call refused by the budget is not counted).
 
 `tephra/agents/schemas.py`
 ```python
@@ -1161,7 +1178,14 @@ Core then records an `AiFailure` (`ai_failure`, stage `planner`) for the Desk an
 nothing. `submit_plan` and `estimate_cost` take an optional `reroute_id`, `list_reroutes()` is a
 fifth read tool, and a REROUTE decision must name an OK option of the context and no other
 target field (`validators.reroute_of`). Each agent turn is bounded by `llm_timeout_s`. ADK runs
-with `InMemoryRunner` inside the process (google-adk 2.11; research/06).
+with `InMemoryRunner` inside the process (google-adk 2.11; research/06). The planner's model
+callbacks go through a turn meter around the `ModelGuard`: every turn that reaches Gemini logs
+the `gemini_call` fields (section 5.5) with `actor="adk"`, `tier="lite"` and `cached=False`,
+from the `after_model_callback` (ADK 2.11 calls it as `(callback_context, llm_response)` and it
+returns None, so the response is kept; tokens from `llm_response.usage_metadata`) or, with
+outcome `error`, from the `on_model_error_callback`. A turn the guard stops is not logged. The
+plan's `input_tokens` and `output_tokens` are `sum_known` over those turns, the repair turn
+included, and are kept on a `MODEL_FAILED` plan too.
 `PlannedAction.id = stable_id("PLAN", flight.id, cone_id)`; its `fuel` is the hold line for
 HOLD, the alternate's divert line for DIVERT, the reroute's `reroute_line` for REROUTE, else None.
 
@@ -2171,6 +2195,13 @@ the official products alone (binding), the planner's and drafter's failures put 
 Desk for a dispatcher (`AiFailure`), and every other step answers HTTP 503 `ai_unavailable`.
 `GET /api/budget` and the SSE `budget` event show the day's counts. With `TEPHRA_LLM=stub` no
 call is made and every step but voice has a deterministic answer labelled NO MODEL.
+
+Usage is logged as structured `json_fields` (`event="gemini_call"`, section 5.5): every
+`structured` call and every Exposure Planner turn. The other ADK agents (Duty Officer, Ask
+TEPHRA, recovery) and text-to-speech do not log these fields yet. The Plume Reader's and the
+planner's token totals are stored on `PlumeAssessment` and `PlannedAction`.
+`deploy/monitoring.sh` (optional, run by a person) turns the log lines into Cloud Monitoring
+metrics.
 
 ## 7. Store collections
 
