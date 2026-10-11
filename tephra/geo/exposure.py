@@ -32,7 +32,9 @@ def find_exposed(
     *,
     lookahead_min: int,
     vertical_margin_ft: int,
+    hold_minutes: int,
 ) -> list[ExposedFlight]:
+    """``vertical_margin_ft`` and ``hold_minutes`` come from the operator policy."""
     if cone.geometry is None:
         return []
     lookahead = max(0, min(int(cone.horizon_h * 60), lookahead_min))
@@ -57,7 +59,7 @@ def find_exposed(
 
     entries = track_entries(cone, [points for _, _, points in candidates])
     exposed = [
-        _exposed_flight(target, cone, band, points, entry)
+        _exposed_flight(target, cone, band, points, entry, hold_minutes)
         for (target, band, points), entry in zip(candidates, entries, strict=True)
         if entry is not None
     ]
@@ -97,6 +99,7 @@ def _exposed_flight(
     band: tuple[int, int],
     points: list[tuple[float, float]],
     entry: tuple[int, tuple[float, float]],
+    hold_minutes: int,
 ) -> ExposedFlight:
     step, (entry_lat, entry_lon) = entry
     path: list[Position] = [(target.lon, target.lat)]
@@ -131,5 +134,5 @@ def _exposed_flight(
         aircraft_band_ft=band,
         hazard_band_ft=(cone.base_ft, cone.top_ft),
         path=path,
-        hold=hold_line(category),
+        hold=hold_line(category, minutes=hold_minutes),
     )

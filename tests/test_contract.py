@@ -8,7 +8,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 from test_discrepancies import SEMERU, SETTINGS, SIGMET_11, VONA_1806, utc
 
-from tephra.config import MIN_SECRET_CHARS, Settings
+from tephra.config import MIN_SECRET_CHARS, MOVED_TO_POLICY, Settings
 from tephra.models import RunMode, Situation
 from tephra.reconcile.discrepancies import build_situation
 from tephra.util import timeutil
@@ -61,6 +61,23 @@ def test_short_secrets_are_refused(name: str) -> None:
     with pytest.raises(ValidationError, match=f"at least {MIN_SECRET_CHARS} characters"):
         Settings(_env_file=None, **{name: "too-short"})
     assert Settings(_env_file=None, **{name: LONG})
+
+
+@pytest.mark.parametrize("name", sorted(MOVED_TO_POLICY))
+def test_settings_moved_to_the_policy_file_are_refused(
+    name: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Settings ignores unknown keys, so without the check the value would silently not apply.
+    monkeypatch.setenv(name, "3000")
+    with pytest.raises(ValidationError, match=r"policy_a\.json"):
+        Settings(_env_file=None)
+    monkeypatch.delenv(name)
+    env = tmp_path / ".env"
+    env.write_text(f"{name}=3000\n")
+    with pytest.raises(ValidationError, match=r"policy_a\.json"):
+        Settings(_env_file=env)
+    env.write_text(f"{name}=\n")  # a blank line copied from .env.example means unset
+    assert Settings(_env_file=env)
 
 
 def test_subscriptions_must_be_bounded() -> None:

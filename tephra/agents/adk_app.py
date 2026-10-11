@@ -35,6 +35,7 @@ from tephra.agents.exposure_planner import (
     cost_summary,
     flight_summary,
     level_band_summary,
+    limits_summary,
     submit_decision,
 )
 from tephra.agents.llm import temperature_for
@@ -52,9 +53,11 @@ def _context(tool_context: ToolContext) -> PlannerContext | None:
 def get_flight(tool_context: ToolContext) -> dict[str, Any]:
     """Return the exposed flight: present and selected flight level, ground speed, track,
     minutes to hazard entry (or inside now), the hazard band, the vertical margin, the
-    plume mode with its confidence, the actions allowed in that mode and the hold cost."""
+    plume mode with its confidence, the actions allowed in that mode, the hold cost and the
+    operator policy's limits (highest level proposed, usual band width, decisive-action
+    time)."""
     ctx = _context(tool_context)
-    return flight_summary(ctx) if ctx is not None else _NO_CONTEXT
+    return {**flight_summary(ctx), **limits_summary(ctx)} if ctx is not None else _NO_CONTEXT
 
 
 def list_alternates(tool_context: ToolContext) -> dict[str, Any]:

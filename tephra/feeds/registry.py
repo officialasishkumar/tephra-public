@@ -328,22 +328,23 @@ def taf_icaos(runtime: "Runtime") -> list[str]:
     alternates around every active volcano and every currently exposed flight."""
     settings = runtime.settings
     airports = runtime.airports
+    search_nm = runtime.policy.alternates.search_radius_nm.value
     icaos = {
         airport.icao
         for airport in airports.in_bbox(settings.region_preset.bbox)
-        if airport.alternate_ok
+        if airports.alternate_ok(airport)
     }
     for volcano in runtime.active_volcanoes():
         nearest = airports.nearest(
             volcano.lat,
             volcano.lon,
             limit=ALTERNATES_PER_VOLCANO,
-            max_nm=settings.alternate_search_nm,
+            max_nm=search_nm,
         )
         icaos.update(airport.icao for airport, _ in nearest)
     for flight in runtime.exposed.values():
         nearest = airports.nearest(
-            flight.lat, flight.lon, limit=ALTERNATES_PER_FLIGHT, max_nm=settings.alternate_search_nm
+            flight.lat, flight.lon, limit=ALTERNATES_PER_FLIGHT, max_nm=search_nm
         )
         icaos.update(airport.icao for airport, _ in nearest)
     return sorted(icaos)

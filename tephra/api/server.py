@@ -60,6 +60,7 @@ from tephra.models import (
     LoginRequest,
     OutboundList,
     OutboundMessage,
+    PolicyResponse,
     RejectRequest,
     ReplayCase,
     RunMode,
@@ -317,6 +318,12 @@ async def get_outbound(runtime: RuntimeDep, limit: Limit = 50) -> Response:
 async def get_feeds(runtime: RuntimeDep) -> Response:
     state = await runtime.system_state()
     return _json(FeedList(feeds=state.feeds))
+
+
+@read_api.get("/policy", response_model=PolicyResponse)
+async def get_policy(runtime: RuntimeDep) -> Response:
+    summary = runtime.policy_summary
+    return _json(PolicyResponse(policy=runtime.policy, policy_hash=summary.policy_hash))
 
 
 @read_api.get("/replays", response_model=ReplayCaseList)

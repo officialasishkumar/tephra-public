@@ -1,0 +1,138 @@
+{
+  "policy_id": "RFA-POLICY-A",
+  "version": "2026.10.1",
+  "preset": "A",
+  "title": "Ring of Fire Air operator policy A (default)",
+  "label": "ILLUSTRATIVE, not an airline SRA",
+  "sra_ref": null,
+  "risk_owner": "Flight Operations",
+  "summary_text": "Operator policy A (default, illustrative): the current VAA and SIGMET affected areas, merged, up to the highest top, are treated as high contamination and avoided at dispatch. This follows the Doc 9974 App 5 5.4(d)(2) default for ungraded areas, \"unless the operator’s safety risk assessment allows it to do otherwise safely\". Under Doc 9974 2.10 an operator whose SMS shows it can do so safely may plan through, under or over (Policy B).",
+  "summary_citation_ids": ["9974-app5-5.4d2", "9974-2.10"],
+  "exposure": {
+    "vertical_margin_ft": {
+      "value": 2000,
+      "unit": "ft",
+      "source": "Added above the hazard top and below its base. For comparison, UK practice (CAP 1236 2.24) puts the assumed minimum safe altitude at least 2,000 ft above the ash top.",
+      "citation_ids": ["cap1236-2.24"]
+    }
+  },
+  "alternates": {
+    "search_radius_nm": {
+      "value": 400,
+      "unit": "NM",
+      "source": "TEPHRA illustrative choice: alternates are looked for within this distance because the aircraft's endurance is unknown."
+    },
+    "min_runway_m": {
+      "value": 2000,
+      "unit": "m",
+      "source": "TEPHRA's simplified jet-alternate rule: longest runway length only (dry), not an airline's alternate approval."
+    },
+    "min_visibility_m": {
+      "value": 3000,
+      "unit": "m",
+      "source": "TEPHRA illustrative planning minimum for the TAF screen, not an airline's alternate minima."
+    },
+    "min_ceiling_ft": {
+      "value": 1000,
+      "unit": "ft",
+      "source": "TEPHRA illustrative planning minimum for the TAF screen, not an airline's alternate minima."
+    },
+    "taf_eta_window_min": {
+      "value": 60,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: TAF groups this many minutes either side of the ETA are screened."
+    },
+    "terminal_radius_nm": {
+      "value": 20,
+      "unit": "NM",
+      "source": "TEPHRA illustrative choice: an alternate is rejected when a disc of this radius around it touches the hazard area."
+    }
+  },
+  "planner": {
+    "level_search_ft": {
+      "value": 4000,
+      "unit": "ft",
+      "source": "TEPHRA illustrative choice: a level change is proposed only when a clear band lies this close to the present level."
+    },
+    "level_band_fl": {
+      "value": 20,
+      "unit": "FL",
+      "source": "TEPHRA illustrative choice: the width of a proposed level band."
+    },
+    "max_change_level_fl": {
+      "value": 410,
+      "unit": "FL",
+      "source": "TEPHRA illustrative choice: the highest level TEPHRA proposes; above it many fleet types cannot go."
+    },
+    "divert_within_min": {
+      "value": 15,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: with no clear band, entry this close makes the rules divert to an acceptable alternate."
+    },
+    "hold_within_min": {
+      "value": 30,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: with no clear band and no diversion, entry this close makes the rules advise a hold."
+    },
+    "hypothesis_hold_within_min": {
+      "value": 20,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: with no valid official product, entry this close makes the rules advise a hold."
+    }
+  },
+  "fuel": {
+    "hold_min": {
+      "value": 20,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: the length of hold the fuel formula costs."
+    },
+    "divert_extra_min": {
+      "value": 15,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: minutes added to a diversion's cruise time for the approach and landing."
+    }
+  },
+  "source_order": [
+    {
+      "rule_id": "S1_OFFICIAL_AREAS",
+      "text": "VAA and SIGMET affected areas set the planning floor.",
+      "citation_ids": ["9974-2.4d"]
+    },
+    {
+      "rule_id": "S2_VONA_ADDS",
+      "text": "VONA observations may add caution, never remove it.",
+      "citation_ids": ["9974-2.4d"]
+    },
+    {
+      "rule_id": "S3_NON_OBSERVATION",
+      "text": "Non-observations never remove caution: 'not observed', 'not identifiable', a silent satellite indicator and silence.",
+      "citation_ids": ["9974-2.4d"]
+    }
+  ],
+  "citations": [
+    {
+      "id": "9974-app5-5.4d2",
+      "ref": "ICAO Doc 9974, Flight Safety and Volcanic Ash, 1st ed. 2012, App 5 5.4(d)(2), printed App 5-2, PDF p.34",
+      "text": "If no graduation of the volcanic ash contamination is given, operators should treat the whole area as if it contains high volcanic ash contamination, unless the operator’s safety risk assessment allows it to do otherwise safely.",
+      "url": "https://www.icao.int/sites/default/files/2025-04/9974_en.pdf"
+    },
+    {
+      "id": "9974-2.10",
+      "ref": "ICAO Doc 9974 2.10, printed 2-3, PDF p.19",
+      "text": "The operator should not be prevented from operating through, under or over, airspace forecast to be affected by a VAA, VAG or SIGMET provided it has demonstrated in its SMS the capability to do so safely.",
+      "url": "https://www.icao.int/sites/default/files/2025-04/9974_en.pdf"
+    },
+    {
+      "id": "9974-2.4d",
+      "ref": "ICAO Doc 9974 2.4(d), printed 2-2, PDF p.18",
+      "text": "An operator should have satisfied its CAA regarding the likely accuracy and quality of the information sources it uses in its SMS and its own competence and capability to interpret such data correctly in order to reliably and correctly resolve any conflicts that may arise among data sources.",
+      "url": "https://www.icao.int/sites/default/files/2025-04/9974_en.pdf"
+    },
+    {
+      "id": "cap1236-2.24",
+      "ref": "UK CAA CAP 1236 2.24 (UK practice, for comparison)",
+      "text": "In general, the assumed MSA should be at least 2,000 ft above the top of the ash cloud.",
+      "url": "https://www.caa.co.uk/publication/download/14978"
+    }
+  ]
+}

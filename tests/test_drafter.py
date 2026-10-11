@@ -24,6 +24,7 @@ from tephra.agents.exposure_planner import (
     fuel_for,
     nearest_clear_band,
     plan_flight,
+    planner_limits,
     rule_based_decision,
 )
 from tephra.agents.llm import DailyBudget, GeminiBackend, LlmCall, LlmPart, prompt_hash
@@ -33,7 +34,7 @@ from tephra.agents.validators import (
     validate_decision,
     validate_draft,
 )
-from tephra.config import Settings
+from tephra.config import PROJECT_ROOT, Settings
 from tephra.feeds.airports import AirportCatalogue
 from tephra.geo.fuel import category_for_type, divert_line, hold_line
 from tephra.geo.units import destination_point
@@ -64,10 +65,14 @@ from tephra.models import (
     Volcano,
     polygon_from_latlon,
 )
+from tephra.policy import load_policy
 from tephra.util.hashing import proxy_flight_number, stable_id
 from tephra.util.timeutil import FixedClock, use_clock
 
 AT = datetime(2026, 10, 9, 18, 30, tzinfo=UTC)
+POLICY = load_policy(PROJECT_ROOT / "data")
+HOLD_MIN = POLICY.fuel.hold_min.value
+DIVERT_EXTRA_MIN = POLICY.fuel.divert_extra_min.value
 SHA = "ab" * 32
 VOLCANO_ID = "263300"
 CONE_ID = "CONE-0123456789ab"
@@ -105,7 +110,7 @@ def make_flight(
         aircraft_band_ft=(alt_ft, alt_ft),
         hazard_band_ft=(0, 15_000),
         path=[(112.0, -7.5), (112.9, -7.9)],
-        hold=hold_line(category),
+        hold=hold_line(category, minutes=HOLD_MIN),
     )
 
 
@@ -118,7 +123,11 @@ def make_alternate(icao: str, name: str, distance_nm: float, *, ok: bool) -> Alt
         checked_for=AT,
     )
     divert = divert_line(
-        category_for_type("B738"), alternate_icao=icao, distance_nm=distance_nm, gs_kt=440.0
+        category_for_type("B738"),
+        alternate_icao=icao,
+        distance_nm=distance_nm,
+        gs_kt=440.0,
+        extra_minutes=DIVERT_EXTRA_MIN,
     )
     return AlternateCandidate(
         icao=icao, name=name, distance_nm=distance_nm, bearing_deg=270.0, check=check, divert=divert
@@ -151,6 +160,7 @@ def make_ctx(
         allowed_actions=allowed_actions(mode),
         alternates=list(alternates),
         hold=flight.hold,
+        **planner_limits(POLICY),
     )
 
 
@@ -245,6 +255,14 @@ def test_change_level_to_nearest_clear_band() -> None:
     assert (decision.change_level_fl_min, decision.change_level_fl_max) == (180, 200)
 
 
+def test_level_search_comes_from_the_policy() -> None:
+    ctx = make_ctx(make_flight(alt_ft=17_000))
+    assert nearest_clear_band(ctx) == (180, 200)  # 1,000 ft away
+    narrow = ctx.model_copy(update={"level_search_ft": 500})
+    assert nearest_clear_band(narrow) is None
+    assert rule_based_decision(narrow).action is not ActionKind.CHANGE_LEVEL
+
+
 def test_divert_to_nearest_acceptable_alternate_when_inside_and_no_clear_band() -> None:
     ctx = make_ctx(make_flight(alt_ft=35_000, inside=True), top_ft=45_000)
     decision = rule_based_decision(ctx)
@@ -304,7 +322,7 @@ def unknown_type_far_divert() -> PlannerContext:
             "type_icao": None,
             "category": category,
             "gs_kt": 120.0,
-            "hold": hold_line(category),
+            "hold": hold_line(category, minutes=HOLD_MIN),
         }
     )
     far = AlternateCandidate(
@@ -313,7 +331,13 @@ def unknown_type_far_divert() -> PlannerContext:
         distance_nm=399.0,
         bearing_deg=95.0,
         check=make_alternate("WADD", "Denpasar", 399.0, ok=True).check,
-        divert=divert_line(category, alternate_icao="WADD", distance_nm=399.0, gs_kt=120.0),
+        divert=divert_line(
+            category,
+            alternate_icao="WADD",
+            distance_nm=399.0,
+            gs_kt=120.0,
+            extra_minutes=DIVERT_EXTRA_MIN,
+        ),
     )
     ctx = make_ctx(flight, top_ft=45_000, alternates=[far])
     return ctx.model_copy(update={"volcano_name": "Lewotobi Laki-laki"})
@@ -790,6 +814,7 @@ async def _draft(llm: FakeLlm) -> tuple[PlannerContext, PlannedAction, Advisory]
             plan=plan,
             llm=llm,
             settings=Settings(_env_file=None),
+            policy=POLICY,
         )
     return ctx, plan, advisory
 
@@ -877,6 +902,7 @@ async def test_the_drafter_runs_gemini_3_at_temperature_one(tmp_path: Path) -> N
             plan=plan,
             llm=llm,
             settings=settings,
+            policy=POLICY,
         )
     assert advisory.llm_backend == "gemini"
     assert advisory.model_id == settings.model_lite
@@ -897,7 +923,6 @@ def test_alternate_inside_or_near_the_cone_is_not_acceptable() -> None:
                 lon=112.7869,
                 elev_ft=9,
                 longest_runway_m=3000,
-                alternate_ok=True,
             ),
             Airport(
                 icao="WADD",
@@ -907,9 +932,9 @@ def test_alternate_inside_or_near_the_cone_is_not_acceptable() -> None:
                 lon=115.1672,
                 elev_ft=14,
                 longest_runway_m=3000,
-                alternate_ok=True,
             ),
-        ]
+        ],
+        min_runway_m=POLICY.alternates.min_runway_m.value,
     )
     ctx = build_planner_context(
         make_flight(),
@@ -918,7 +943,7 @@ def test_alternate_inside_or_near_the_cone_is_not_acceptable() -> None:
         airports=airports,
         tafs={},
         at=AT,
-        settings=Settings(_env_file=None),
+        policy=POLICY,
     )
     by_icao = {alternate.icao: alternate for alternate in ctx.alternates}
     assert "INSIDE HAZARD CONE" in by_icao["WARR"].check.reasons
@@ -948,16 +973,15 @@ def test_alternate_near_a_narrow_plume_is_not_acceptable(bearing: float) -> None
         lon=130.7194,
         elev_ft=906,
         longest_runway_m=3000,
-        alternate_ok=True,
     )
     flight = make_flight().model_copy(update={"lat": 32.5, "lon": 130.0})
     ctx = build_planner_context(
         flight,
         make_cone(geometry_ring=ring),
         volcano_name="Sakurajima",
-        airports=AirportCatalogue([kagoshima]),
+        airports=AirportCatalogue([kagoshima], min_runway_m=POLICY.alternates.min_runway_m.value),
         tafs={},
         at=AT,
-        settings=Settings(_env_file=None),
+        policy=POLICY,
     )
     assert "INSIDE HAZARD CONE" in ctx.alternates[0].check.reasons

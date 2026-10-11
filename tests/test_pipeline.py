@@ -44,6 +44,7 @@ from tephra.models import (
     TraceStage,
 )
 from tephra.pipeline import Runtime
+from tephra.policy import load_policy
 from tephra.scheduler import run_adsb_pass, run_local_scheduler, run_tick
 from tephra.store.base import Collection
 from tephra.store.sqlite_store import SqliteStore
@@ -54,6 +55,7 @@ from tephra.util.timeutil import FixedClock, use_clock
 
 FIXTURES = Path(__file__).parent / "fixtures"
 DATA_DIR = PROJECT_ROOT / "data"
+POLICY = load_policy(DATA_DIR)
 AT = datetime(2026, 10, 9, 19, 40, tzinfo=UTC)
 
 KRAKATAU, SEMERU, DUKONO, IBU = "262000", "263300", "268010", "268030"
@@ -285,7 +287,8 @@ def make_runtime(settings: Settings, source: Source, *, mode: RunMode = RunMode.
         source=source,
         llm=get_llm(settings),
         catalogue=load_volcanoes(DATA_DIR),
-        airports=load_airports(DATA_DIR),
+        airports=load_airports(DATA_DIR, min_runway_m=POLICY.alternates.min_runway_m.value),
+        policy=POLICY,
         mode=mode,
         replay_case=None,
         auto_replay=False,

@@ -10,7 +10,7 @@ import secrets
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import AliasChoices, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -42,12 +42,13 @@ polygons drop out of the cone for a tick."""
 MIN_SECRET_CHARS = 32
 """Session secret and task token: shorter values make the desk cookie HMAC guessable."""
 ADVISORY_BODY_MAX_CHARS = 400
-HOLD_MINUTES = 20
-DIVERT_EXTRA_MINUTES = 15
-ALTERNATE_MIN_VISIBILITY_M = 3000
-ALTERNATE_MIN_CEILING_FT = 1000
-ALTERNATE_ETA_WINDOW_MIN = 60
-"""TAF groups within +/- this many minutes of the ETA are screened."""
+
+MOVED_TO_POLICY: dict[str, str] = {
+    "TEPHRA_VERTICAL_MARGIN_FT": "vertical_margin_ft",
+    "TEPHRA_ALTERNATE_SEARCH_NM": "alternate_search_nm",
+}
+"""Former settings now in ``data/policy/policy_a.json``. Settings ignores unknown keys, so
+without a check a deployment that still sets one would silently run on the policy value."""
 
 # --- region presets ---------------------------------------------------------------------
 
@@ -181,14 +182,12 @@ class Settings(BaseSettings):
     active_radius_km: float = Field(default=300.0, gt=0)
     vona_window_h: float = Field(default=24.0, gt=0)
 
-    # Exposure.
-    vertical_margin_ft: int = Field(default=2000, ge=0)
+    # Exposure. Margins, buffers and minima are operator policy (data/policy/policy_a.json).
     exposure_lookahead_min: int = Field(
         default=60, gt=0, description="'If current track and level are held' projection"
     )
     default_horizon_h: float = Field(default=6.0, gt=0, le=MAX_HORIZON_H)
     adsb_radius_nm: int = Field(default=250, gt=0, le=250)
-    alternate_search_nm: float = Field(default=400.0, gt=0)
 
     # Feed cadences (seconds).
     cadence_sigmet_s: int = 60
@@ -222,6 +221,24 @@ class Settings(BaseSettings):
             "this below the service's --concurrency"
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _not_moved_to_policy(cls, data: Any) -> Any:
+        # A .env file's unknown keys arrive lower-cased with the prefix kept
+        # ("tephra_vertical_margin_ft"); keyword arguments arrive as field names.
+        keys = {str(key).lower() for key in data} if isinstance(data, dict) else set()
+        moved = [
+            env
+            for env, key in MOVED_TO_POLICY.items()
+            if {key, env.lower()} & keys or os.environ.get(env, "").strip()
+        ]
+        if moved:
+            raise ValueError(
+                f"{', '.join(moved)} moved to data/policy/policy_a.json; remove the setting"
+                " and change the policy file (with a new version) instead"
+            )
+        return data
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:

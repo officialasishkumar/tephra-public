@@ -22,9 +22,9 @@ from tephra.models import (
     PlumeMode,
 )
 
-MAX_CHANGE_LEVEL_FL: Final = 410
-"""Highest level TEPHRA proposes; above it many fleet types cannot go."""
 MAX_LEVEL_FL: Final = 600
+"""Bound on any level a decision names; the highest level TEPHRA proposes is the operator
+policy's ``planner.max_change_level_fl`` (``PlannerContext.max_change_level_fl``)."""
 COST_NOTE_MAX_CHARS: Final = 120
 REASONING_MAX_CHARS: Final = 800
 
@@ -150,8 +150,11 @@ def _change_level_problems(decision: PlannerDecision, ctx: PlannerContext) -> li
     fl_min, fl_max = decision.change_level_fl_min, decision.change_level_fl_max
     if fl_min is None or fl_max is None:
         return ["CHANGE_LEVEL NEEDS change_level_fl_min AND change_level_fl_max"]
-    if not 0 <= fl_min <= fl_max <= MAX_CHANGE_LEVEL_FL:
-        return [f"CHANGE_LEVEL BAND FL{fl_min}-FL{fl_max} MUST BE ORDERED AND AT OR BELOW FL410"]
+    if not 0 <= fl_min <= fl_max <= ctx.max_change_level_fl:
+        return [
+            f"CHANGE_LEVEL BAND FL{fl_min}-FL{fl_max} MUST BE ORDERED AND AT OR BELOW"
+            f" FL{ctx.max_change_level_fl}"
+        ]
     if not band_clears_hazard(fl_min, fl_max, ctx=ctx):
         return [
             f"CHANGE_LEVEL BAND FL{fl_min}-FL{fl_max} DOES NOT CLEAR THE HAZARD"
@@ -180,10 +183,10 @@ def _hold_problems(decision: PlannerDecision, ctx: PlannerContext) -> list[str]:
             f"HOLD AT THE PRESENT LEVEL FL{ft_to_fl(present)} IN HYPOTHESIS MODE:"
             " NO LEVEL CHANGE WITHOUT A VALID OFFICIAL PRODUCT"
         ]
-    if hold_fl > MAX_CHANGE_LEVEL_FL:
+    if hold_fl > ctx.max_change_level_fl:
         return [
             "HOLD AT ANOTHER LEVEL IS A LEVEL CHANGE AND MUST BE AT OR BELOW"
-            f" FL{MAX_CHANGE_LEVEL_FL}"
+            f" FL{ctx.max_change_level_fl}"
         ]
     return []
 

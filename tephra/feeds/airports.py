@@ -12,7 +12,10 @@ AIRPORT_FILE = "airports.json"
 
 
 class AirportCatalogue:
-    def __init__(self, airports: Sequence[Airport]) -> None:
+    """``min_runway_m`` is the operator policy's jet-alternate runway length."""
+
+    def __init__(self, airports: Sequence[Airport], *, min_runway_m: int) -> None:
+        self._min_runway_m = min_runway_m
         self._airports = sorted(airports, key=lambda airport: airport.icao)
         self._by_icao: dict[str, Airport] = {}
         for airport in self._airports:
@@ -38,13 +41,13 @@ class AirportCatalogue:
         lon: float,
         *,
         limit: int = 5,
-        max_nm: float = 400.0,
+        max_nm: float,
         alternates_only: bool = True,
     ) -> list[tuple[Airport, float]]:
         """``(airport, distance_nm)`` within ``max_nm``, nearest first."""
         found: list[tuple[Airport, float]] = []
         for airport in self._airports:
-            if alternates_only and not airport.alternate_ok:
+            if alternates_only and not self.alternate_ok(airport):
                 continue
             distance = distance_nm(lat, lon, airport.lat, airport.lon)
             if distance <= max_nm:
@@ -52,7 +55,11 @@ class AirportCatalogue:
         found.sort(key=lambda pair: (pair[1], pair[0].icao))
         return found[: max(limit, 0)]
 
+    def alternate_ok(self, airport: Airport) -> bool:
+        """Usable as a jet alternate in TEPHRA's simplified model: runway length only."""
+        return (airport.longest_runway_m or 0) >= self._min_runway_m
 
-def load_airports(data_dir: Path) -> AirportCatalogue:
+
+def load_airports(data_dir: Path, *, min_runway_m: int) -> AirportCatalogue:
     catalogue = AirportFile.model_validate_json((data_dir / AIRPORT_FILE).read_bytes())
-    return AirportCatalogue(catalogue.airports)
+    return AirportCatalogue(catalogue.airports, min_runway_m=min_runway_m)

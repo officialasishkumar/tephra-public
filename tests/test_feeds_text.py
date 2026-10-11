@@ -55,6 +55,9 @@ from tephra.util.timeutil import FixedClock, use_clock
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FEEDS_TEXT = FIXTURES / "feeds_text"
+MINIMA = {"min_visibility_m": 3000, "min_ceiling_ft": 1000, "window_min": 60}
+"""Policy A's alternate screen (data/policy/policy_a.json), passed explicitly: these tests
+check the screen, and must not change meaning when the policy does."""
 JMA_VAAC = "https://ds.data.jma.go.jp/svd/vaac/data/"
 TGFTP_DARWIN = "https://tgftp.nws.noaa.gov/data/raw/fv/fvau{:02d}.adrm..txt"
 MAGMA_DETAIL = {
@@ -1102,20 +1105,22 @@ async def test_fetch_tafs_in_chunks_of_twenty() -> None:
 
 def test_assess_alternate_with_real_tafs() -> None:
     tafs = tafs_by_icao()
-    ok = assess_alternate(tafs["WARR"], utc(2026, 10, 9, 21, 0))
+    ok = assess_alternate(tafs["WARR"], utc(2026, 10, 9, 21, 0), **MINIMA)
     assert ok.ok is True
     assert ok.reasons == []
     assert ok.icao == "WARR"
     assert ok.taf_source_id == "TAF:WARR:20261009T1700Z"
     assert ok.checked_for == utc(2026, 10, 9, 21, 0)
-    late = assess_alternate(tafs["WARR"], utc(2026, 10, 10, 19, 0))
+    late = assess_alternate(tafs["WARR"], utc(2026, 10, 10, 19, 0), **MINIMA)
     assert late.ok is False
     assert late.reasons == ["TAF NOT VALID AT ETA"]
-    assert assess_alternate(tafs["RJFK"], utc(2026, 10, 10, 1, 0)).ok is True  # 3000 m is minima
+    assert (
+        assess_alternate(tafs["RJFK"], utc(2026, 10, 10, 1, 0), **MINIMA).ok is True
+    )  # 3000 m is minima
 
 
 def test_assess_alternate_without_taf() -> None:
-    check = assess_alternate(None, utc(2026, 10, 9, 21, 0), icao="WADD")
+    check = assess_alternate(None, utc(2026, 10, 9, 21, 0), icao="WADD", **MINIMA)
     assert (check.icao, check.ok, check.reasons) == ("WADD", False, ["NO TAF"])
     assert check.taf_source_id is None
 
@@ -1146,10 +1151,10 @@ def test_assess_alternate_screens_every_group_near_eta() -> None:
                       change="TEMPO", weather=["VA"]),
         ]
     )  # fmt: skip
-    storm_only = assess_alternate(taf, utc(2026, 10, 10, 6, 30))
+    storm_only = assess_alternate(taf, utc(2026, 10, 10, 6, 30), **MINIMA)
     assert storm_only.ok is True
     assert storm_only.reasons == ["TS IN TEMPO GROUP"]
-    ash = assess_alternate(taf, utc(2026, 10, 10, 7, 30))
+    ash = assess_alternate(taf, utc(2026, 10, 10, 7, 30), **MINIMA)
     assert ash.ok is False
     assert ash.reasons == [
         "VA IN PROB30 TEMPO GROUP",
@@ -1157,7 +1162,7 @@ def test_assess_alternate_screens_every_group_near_eta() -> None:
         "CEILING 800 FT BELOW 1000 FT IN PROB30 TEMPO GROUP",
         "TS IN TEMPO GROUP",
     ]
-    clear = assess_alternate(taf, utc(2026, 10, 10, 16, 0))
+    clear = assess_alternate(taf, utc(2026, 10, 10, 16, 0), **MINIMA)
     assert (clear.ok, clear.reasons) == (True, [])
 
 
@@ -1187,9 +1192,9 @@ def test_becmg_old_conditions_last_until_the_change_completes() -> None:
     fog = {**rjff["fcsts"][0], "visib": "0.5", "wxString": "FG"}
     lifting = {**rjff["fcsts"][1], "wxString": "NSW"}
     [taf] = parse_tafs(awc_taf_result([{**rjff, "fcsts": [fog, lifting]}]))
-    during_change = assess_alternate(taf, utc(2026, 10, 10, 5, 30))
+    during_change = assess_alternate(taf, utc(2026, 10, 10, 5, 30), **MINIMA)
     assert (during_change.ok, during_change.reasons) == (
         False,
         ["VIS 800 M BELOW 3000 M IN BASE FORECAST"],
     )
-    assert assess_alternate(taf, utc(2026, 10, 10, 7, 30)).ok is True
+    assert assess_alternate(taf, utc(2026, 10, 10, 7, 30), **MINIMA).ok is True

@@ -687,6 +687,10 @@ body:has(#compare-labels:not([hidden])) .top-center { top: calc(var(--inset) + 4
 .dlg { width: min(1100px, 92vw); max-height: 84vh; padding: 0; background: var(--c-surface-1); color: var(--c-text-1); border: 1px solid var(--c-line-2); border-radius: var(--radius-lg); box-shadow: var(--shadow-3); }
 .dlg[data-kind="sources"] { width: 90vw; height: 80vh; }
 .dlg[data-kind="help"] { width: min(640px, 92vw); }
+.dlg[data-kind="policy"] { width: min(960px, 92vw); }
+.policy h3 { margin: var(--sp-4) 0 var(--sp-2); font-size: var(--fs-2); }
+.policy__cites { display: grid; gap: var(--sp-3); padding-left: var(--sp-4); }
+.policy__cites q { display: block; color: var(--c-text-2); }
 .dlg::backdrop { background: var(--c-scrim); }
 .dlg[open] { display: flex; flex-direction: column; }
 .dlg__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-5); border-bottom: 1px solid var(--c-line-1); }

@@ -57,6 +57,7 @@ from tephra.models import (
     VaacCentre,
     Volcano,
 )
+from tephra.policy import load_policy
 from tephra.store.base import BLOB_KEY_PATTERN
 from tephra.util import timeutil
 from tephra.util.hashing import combine_hashes, sha256_bytes
@@ -64,6 +65,7 @@ from tephra.util.hashing import combine_hashes, sha256_bytes
 REPO = Path(__file__).resolve().parent.parent
 FIXTURES = REPO / "tests" / "fixtures"
 DATA_DIR = REPO / "data"
+MIN_RUNWAY_M = load_policy(DATA_DIR).alternates.min_runway_m.value
 
 ADSB_JAVA = FIXTURES / "adsb" / "point_java_-7.9_112.9_250.json"
 ADSB_JAKARTA = FIXTURES / "adsb" / "point_jakarta_-6.1_106.7_150.json"
@@ -143,7 +145,7 @@ def volcanoes() -> VolcanoCatalogue:
 
 @pytest.fixture(scope="module")
 def airports() -> AirportCatalogue:
-    return load_airports(DATA_DIR)
+    return load_airports(DATA_DIR, min_runway_m=MIN_RUNWAY_M)
 
 
 def _snapshot(path: Path, lat: float, lon: float, radius_nm: int, fetched_at: datetime):
@@ -617,9 +619,8 @@ def test_catalogue_rejects_an_alias_shared_by_two_volcanoes() -> None:
 
 
 def test_airport_file_is_consistent(airports: AirportCatalogue) -> None:
-    for airport in airports.all():
-        long_enough = (airport.longest_runway_m or 0) >= 2000
-        assert airport.alternate_ok == long_enough, airport.icao
+    # Alternates are chosen by runway length, so every airport needs one.
+    assert all(airport.longest_runway_m for airport in airports.all())
     expected = {
         "WIII", "WIHH", "WICA", "WARR", "WAHI", "WADD", "WAMM", "WAEE",
         "RJFK", "RJFT", "RJFM", "RJFO", "RJFU", "RJFF", "RPLL", "WSSS", "YPDN",
@@ -638,12 +639,22 @@ def test_nearest_alternates(airports: AirportCatalogue) -> None:
     distances = [distance for _, distance in found]
     assert len(found) == 4
     assert distances == sorted(distances)
-    assert all(airport.alternate_ok for airport, _ in found)
+    assert all(airports.alternate_ok(airport) for airport, _ in found)
     assert found[0][0].icao == "WARA"  # Malang, about 15 nm from Semeru
     everything = airports.nearest(-8.108, 112.922, limit=50, max_nm=200, alternates_only=False)
     assert "WADY" in {airport.icao for airport, _ in everything}  # short runway, not alternate
     assert airports.get("warr") == airports.get("WARR")
     assert airports.nearest(0.0, 0.0, max_nm=100) == []
+
+
+def test_alternates_follow_the_policy_runway_length(airports: AirportCatalogue) -> None:
+    short = airports.get("WADY")
+    assert short is not None
+    assert short.longest_runway_m is not None
+    assert short.longest_runway_m < MIN_RUNWAY_M
+    assert not airports.alternate_ok(short)
+    relaxed = load_airports(DATA_DIR, min_runway_m=short.longest_runway_m)
+    assert relaxed.alternate_ok(short)
 
 
 # --- satellite frames -------------------------------------------------------------------

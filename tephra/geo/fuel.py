@@ -8,7 +8,6 @@ dispatcher can see exactly how it was reached.
 import math
 from typing import Final
 
-from tephra.config import DIVERT_EXTRA_MINUTES, HOLD_MINUTES
 from tephra.models import ActionKind, AircraftCategory, FuelLine
 
 BURN_KG_PER_MIN: Final[dict[AircraftCategory, float]] = {
@@ -51,15 +50,14 @@ def category_for_type(type_icao: str | None) -> AircraftCategory:
     return _TYPE_CATEGORY.get(type_icao.strip().upper(), AircraftCategory.UNKNOWN)
 
 
-def hold_line(category: AircraftCategory) -> FuelLine:
+def hold_line(category: AircraftCategory, *, minutes: int) -> FuelLine:
+    """``minutes`` is the operator policy's hold length (``fuel.hold_min``)."""
     burn = BURN_KG_PER_MIN[category]
-    fuel_kg = _ceil(HOLD_MINUTES * burn)
-    formula = (
-        f"HOLD {HOLD_MINUTES} MIN x {_num(burn)} KG/MIN ({_rate_label(category)}) = {fuel_kg} KG"
-    )
+    fuel_kg = _ceil(minutes * burn)
+    formula = f"HOLD {minutes} MIN x {_num(burn)} KG/MIN ({_rate_label(category)}) = {fuel_kg} KG"
     return FuelLine(
         action=ActionKind.HOLD,
-        minutes=HOLD_MINUTES,
+        minutes=minutes,
         fuel_kg=fuel_kg,
         burn_kg_per_min=burn,
         category=category,
@@ -68,8 +66,15 @@ def hold_line(category: AircraftCategory) -> FuelLine:
 
 
 def divert_line(
-    category: AircraftCategory, *, alternate_icao: str, distance_nm: float, gs_kt: float | None
+    category: AircraftCategory,
+    *,
+    alternate_icao: str,
+    distance_nm: float,
+    gs_kt: float | None,
+    extra_minutes: int,
 ) -> FuelLine:
+    """``extra_minutes`` is the operator policy's approach and landing allowance
+    (``fuel.divert_extra_min``)."""
     burn = BURN_KG_PER_MIN[category]
     # The minutes come from the whole numbers the formula prints, so it reproduces exactly.
     distance = round(distance_nm)
@@ -79,11 +84,11 @@ def divert_line(
         speed = round(gs_kt)
         speed_text = f"{speed} KT"
     cruise_min = _ceil(distance / speed * 60.0)
-    minutes = cruise_min + DIVERT_EXTRA_MINUTES
+    minutes = cruise_min + extra_minutes
     fuel_kg = _ceil(minutes * burn)
     formula = (
         f"DIVERT {alternate_icao} {distance} NM AT {speed_text} = {cruise_min} MIN"
-        f" + {DIVERT_EXTRA_MINUTES} MIN = {minutes} MIN x {_num(burn)} KG/MIN"
+        f" + {extra_minutes} MIN = {minutes} MIN x {_num(burn)} KG/MIN"
         f" ({_rate_label(category)}) = {fuel_kg} KG"
     )
     return FuelLine(

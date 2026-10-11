@@ -34,7 +34,14 @@ from tephra.api.auth import (
 )
 from tephra.api.server import CONTENT_SECURITY_POLICY, MAX_BODY_BYTES, create_app
 from tephra.api.sse import event_stream, format_event, parse_last_event_id
-from tephra.config import AIRLINE_CODE, AIRLINE_NAME, DISCLAIMER, NO_MODEL_LABEL, Settings
+from tephra.config import (
+    AIRLINE_CODE,
+    AIRLINE_NAME,
+    DISCLAIMER,
+    NO_MODEL_LABEL,
+    PROJECT_ROOT,
+    Settings,
+)
 from tephra.models import (
     ActionKind,
     Advisory,
@@ -44,8 +51,10 @@ from tephra.models import (
     FeedId,
     FeedStatus,
     LlmInfo,
+    OperatorPolicy,
     Overlays,
     PlumeMode,
+    PolicySummary,
     ReplayCase,
     RunMode,
     SseEvent,
@@ -57,6 +66,7 @@ from tephra.models import (
     feature_collection,
 )
 from tephra.pipeline import Runtime
+from tephra.policy import load_policy
 from tephra.store import open_store
 from tephra.store.base import Store
 from tephra.util import timeutil
@@ -69,6 +79,7 @@ ADVISORY_ID = "adv_0123456789ab"
 DISPATCHER = "Ana K"
 ISO_UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z")
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+POLICY = load_policy(PROJECT_ROOT / "data")
 
 
 # --- a stand-in runtime -----------------------------------------------------------------
@@ -87,6 +98,8 @@ class FakeRuntime:
     ticks: int = 0
     fail_tick: bool = False
     closed: bool = False
+    policy: OperatorPolicy = field(default_factory=lambda: POLICY)
+    policy_summary: PolicySummary = field(default_factory=lambda: PolicySummary.of(POLICY))
 
     async def tick(self, *, reason: str = "scheduler") -> TickReport:
         if self.fail_tick:
@@ -111,6 +124,7 @@ class FakeRuntime:
             active_volcano_ids=[],
             exposed_count=0,
             draft_count=1,
+            policy=self.policy_summary,
         )
 
     async def wall_snapshot(self) -> WallSnapshot:
@@ -416,6 +430,16 @@ def test_feeds_and_replays(client: TestClient) -> None:
     feeds = client.get("/api/feeds").json()["feeds"]
     assert feeds[0]["feed"] == "sigmet"
     assert client.get("/api/replays").json() == {"cases": []}
+
+
+def test_operator_policy_is_public_and_matches_the_state(client: TestClient) -> None:
+    body = client.get("/api/policy").json()
+    assert body["policy"]["policy_id"] == POLICY.policy_id
+    assert body["policy"]["label"] == "ILLUSTRATIVE, not an airline SRA"
+    assert body["policy"]["planner"]["level_search_ft"]["value"] == 4000
+    assert body["policy_hash"] == POLICY.content_hash()
+    state = client.get("/api/state").json()["policy"]
+    assert (state["version"], state["policy_hash"]) == (POLICY.version, body["policy_hash"])
 
 
 def test_blobs_serve_only_known_keys(client: TestClient, harness: Harness) -> None:

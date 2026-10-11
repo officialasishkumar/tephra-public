@@ -1025,7 +1025,8 @@ async def test_probe_finds_the_context_urls_a_case_lacks(tmp_path: Path) -> None
     data_dir = tmp_path / "data"
     case_dir = data_dir / "replay" / "krakatau-probe"
     case_dir.mkdir(parents=True)
-    for name in ("volcanoes.json", "airports.json"):
+    for name in ("volcanoes.json", "airports.json", "policy/policy_a.json"):
+        (data_dir / name).parent.mkdir(parents=True, exist_ok=True)
         (data_dir / name).write_bytes((PROJECT_ROOT / "data" / name).read_bytes())
     start = datetime(2026, 9, 6, 0, tzinfo=UTC)
     records = rr.import_noaaport_sigmets(

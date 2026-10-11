@@ -37,7 +37,13 @@ from pydantic import (
 )
 
 from tephra.util import timeutil
-from tephra.util.hashing import combine_hashes, proxy_flight_number, sha256_text, short_hash
+from tephra.util.hashing import (
+    combine_hashes,
+    proxy_flight_number,
+    sha256_json,
+    sha256_text,
+    short_hash,
+)
 
 UtcDatetime = Annotated[
     datetime,
@@ -489,9 +495,9 @@ class Airport(TephraModel):
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
     elev_ft: int
-    longest_runway_m: int | None = None
-    alternate_ok: bool = Field(
-        description="Usable as a jet alternate in TEPHRA's simplified model (runway >= 2000 m)"
+    longest_runway_m: int | None = Field(
+        default=None,
+        description="A jet alternate needs the operator policy's alternates.min_runway_m",
     )
 
 
@@ -1056,6 +1062,139 @@ class ExposedFlight(TephraModel):
     hold: FuelLine
 
 
+# --- operator policy --------------------------------------------------------------------
+
+
+class PolicyModel(BaseModel):
+    """Base for the operator policy file. Unlike ``TephraModel`` it refuses unknown keys: a
+    misspelt value name must stop startup, not leave the code without that value."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class PolicyValue(PolicyModel):
+    """One operator value, with its unit and the reason it has this value."""
+
+    value: int
+    unit: Literal["ft", "FL", "NM", "m", "min"]
+    source: str = Field(min_length=1)
+    citation_ids: list[str] = Field(default_factory=list)
+
+
+class ExposurePolicy(PolicyModel):
+    vertical_margin_ft: PolicyValue
+
+
+class AlternatePolicy(PolicyModel):
+    search_radius_nm: PolicyValue
+    min_runway_m: PolicyValue
+    min_visibility_m: PolicyValue
+    min_ceiling_ft: PolicyValue
+    taf_eta_window_min: PolicyValue
+    terminal_radius_nm: PolicyValue
+
+
+class PlannerPolicy(PolicyModel):
+    level_search_ft: PolicyValue
+    level_band_fl: PolicyValue
+    max_change_level_fl: PolicyValue
+    divert_within_min: PolicyValue
+    hold_within_min: PolicyValue
+    hypothesis_hold_within_min: PolicyValue
+
+
+class FuelPolicy(PolicyModel):
+    hold_min: PolicyValue
+    divert_extra_min: PolicyValue
+
+
+class SourceRule(PolicyModel):
+    """One step of the source-trust order; the first is the most trusted."""
+
+    rule_id: str = Field(pattern=r"^[A-Z0-9_]+$")
+    text: str = Field(min_length=1)
+    citation_ids: list[str] = Field(min_length=1)
+
+
+class PolicyCitation(PolicyModel):
+    id: str = Field(pattern=r"^[a-z0-9.-]+$")
+    ref: str = Field(min_length=1, description="Document, paragraph and page")
+    text: str = Field(min_length=1, description="Quoted word for word")
+    url: str = Field(pattern=r"^https://")
+
+
+class OperatorPolicy(PolicyModel):
+    """``data/policy/policy_a.json``: every margin, buffer, minimum and threshold the code
+    applies on the operator's behalf. The values are illustrative; no airline's safety risk
+    assessment (SRA) stands behind them."""
+
+    policy_id: str = Field(pattern=r"^[A-Z0-9-]+$")
+    version: str = Field(pattern=r"^\d{4}\.\d{1,2}\.\d+$", description="Bumped on every change")
+    preset: Literal["A"]
+    title: str = Field(min_length=1)
+    label: Literal["ILLUSTRATIVE, not an airline SRA"]
+    sra_ref: str | None = Field(description="The operator SRA behind the policy; none for A")
+    risk_owner: str = Field(min_length=1)
+    summary_text: str = Field(min_length=1)
+    summary_citation_ids: list[str] = Field(min_length=1)
+    exposure: ExposurePolicy
+    alternates: AlternatePolicy
+    planner: PlannerPolicy
+    fuel: FuelPolicy
+    source_order: list[SourceRule] = Field(min_length=1)
+    citations: list[PolicyCitation] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _citations_resolve(self) -> Self:
+        known = [citation.id for citation in self.citations]
+        if len(set(known)) != len(known):
+            raise ValueError("citation ids must be unique")
+        cited = {*self.summary_citation_ids}
+        for item in [*self.source_order, *self.named_values().values()]:
+            cited.update(item.citation_ids)
+        if missing := sorted(cited - set(known)):
+            raise ValueError(f"unknown citation ids: {', '.join(missing)}")
+        return self
+
+    def named_values(self) -> dict[str, PolicyValue]:
+        """Every value by its dotted name, e.g. ``"planner.level_search_ft"``."""
+        blocks: dict[str, PolicyModel] = {
+            "exposure": self.exposure,
+            "alternates": self.alternates,
+            "planner": self.planner,
+            "fuel": self.fuel,
+        }
+        return {
+            f"{key}.{name}": getattr(block, name)
+            for key, block in blocks.items()
+            for name in type(block).model_fields
+        }
+
+    def content_hash(self) -> str:
+        """SHA-256 of the canonical JSON: it changes with any value, not with file layout."""
+        return sha256_json(self.model_dump(mode="json"))
+
+
+class PolicySummary(TephraModel):
+    """The active operator policy, as the Wall and Desk show it."""
+
+    policy_id: str
+    version: str
+    preset: str
+    label: str
+    policy_hash: str
+
+    @classmethod
+    def of(cls, policy: OperatorPolicy) -> Self:
+        return cls(
+            policy_id=policy.policy_id,
+            version=policy.version,
+            preset=policy.preset,
+            label=policy.label,
+            policy_hash=policy.content_hash(),
+        )
+
+
 # --- planning ---------------------------------------------------------------------------
 
 
@@ -1094,6 +1233,13 @@ class PlannerContext(TephraModel):
     allowed_actions: list[ActionKind]
     alternates: list[AlternateCandidate]
     hold: FuelLine
+    # Operator policy values the rules and validators apply (OperatorPolicy.planner).
+    level_search_ft: int = Field(description="A clear band must lie this close to the level")
+    level_band_fl: int
+    max_change_level_fl: int
+    divert_within_min: int
+    hold_within_min: int
+    hypothesis_hold_within_min: int
 
 
 class PlannerDecision(TephraModel):
@@ -1168,6 +1314,10 @@ class Advisory(TephraModel):
     cone_id: str
     assessment_id: str
     plan_id: str
+    policy_id: str | None = Field(
+        default=None, description="Operator policy the draft was made under; None on older drafts"
+    )
+    policy_version: str | None = None
     header: str = Field(description="Code-rendered: flight, UTC times, sources and hashes")
     body: str = Field(description="Model-written (or stub) body, as drafted")
     cost_note: str
@@ -1507,6 +1657,7 @@ class SystemState(TephraModel):
     active_volcano_ids: list[str]
     exposed_count: int
     draft_count: int
+    policy: PolicySummary
     last_tick: TickReport | None = None
 
 
@@ -1518,6 +1669,13 @@ class WallResponse(TephraModel):
     snapshot: WallSnapshot
     advisories: list[Advisory]
     trace: list[TraceEvent]
+
+
+class PolicyResponse(TephraModel):
+    """``GET /api/policy``: the active operator policy and its content hash."""
+
+    policy: OperatorPolicy
+    policy_hash: str
 
 
 class LoginRequest(TephraModel):

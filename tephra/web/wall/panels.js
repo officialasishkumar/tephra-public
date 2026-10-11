@@ -138,6 +138,13 @@ export function renderChrome(D, store, ui, A) {
   $("feeds-chip").setAttribute("aria-label", `Feed health: ${parts.map((p) => p.textContent).join(", ")}. Open details.`);
 
   $("disclaimer").textContent = s.disclaimer || "Decision support only - fictional airline - not for operational use";
+  const policy = s.policy;
+  const policyBtn = $("policy-btn");
+  policyBtn.hidden = !policy;
+  if (policy) {
+    policyBtn.textContent = `Operator policy ${policy.preset} v${policy.version} · illustrative`;
+    policyBtn.title = `${policy.policy_id} v${policy.version}: ${policy.label}. Open its values and sources.`;
+  }
   const extra = [];
   if (ui.sat !== "off") extra.push("Imagery: NASA GIBS");
   if (ui.so2) extra.push(`${ui.sat === "off" ? "Imagery: NASA GIBS · " : ""}Contains modified Copernicus Sentinel data ${new Date(D.now).getUTCFullYear()}`);
@@ -875,6 +882,43 @@ export function feedsDialog(D, store) {
   }
   return el("table", { class: "table" }, el("caption", { class: "sr-only", text: "Feed health" }),
     el("thead", {}, el("tr", {}, ...["Feed", "Status", "Age", "Last good (UTC)", "Records", "Note"].map((h) => el("th", { scope: "col", text: h })))), tbody);
+}
+
+// The operator policy (GET /api/policy): every margin, buffer and minimum the code applies,
+// with its unit and why it has that value.
+const POLICY_BLOCKS = [["exposure", "Exposure"], ["alternates", "Alternates"], ["planner", "Planner"], ["fuel", "Fuel"]];
+
+export function policyDialog(data) {
+  const p = data?.policy;
+  if (!p) return el("p", { text: "The operator policy could not be loaded." });
+  const cites = Object.fromEntries((p.citations || []).map((c) => [c.id, c]));
+  const tbody = el("tbody");
+  for (const [key, title] of POLICY_BLOCKS) {
+    for (const [name, v] of Object.entries(p[key] || {})) {
+      const refs = (v.citation_ids || []).map((id) => cites[id]?.ref).filter(Boolean);
+      tbody.append(el("tr", {},
+        el("th", { scope: "row", class: "mono", text: `${key}.${name}` }),
+        el("td", { class: "mono", text: `${v.value} ${v.unit}` }),
+        el("td", { text: [v.source, ...refs].join(" · ") }),
+        el("td", { class: "muted", text: title })));
+    }
+  }
+  const quotes = (p.citations || []).map((c) => {
+    const url = safeExternalUrl(c.url);
+    return el("li", {}, el("strong", { text: c.ref }), el("q", { text: c.text }),
+      url ? el("a", { class: "link-btn", href: url, target: "_blank", rel: "noopener noreferrer" }, icon("i-external-link"), "Source") : null);
+  });
+  return el("div", { class: "policy" },
+    el("p", {}, el("strong", { text: `${p.title} · v${p.version} · ${p.label}` })),
+    el("p", { class: "muted", text: `Risk owner: ${p.risk_owner} · SRA: ${p.sra_ref || "none (illustrative)"} · content hash #${String(data.policy_hash || "").slice(0, 12)}` }),
+    el("p", { text: p.summary_text }),
+    el("h3", { text: "Values" }),
+    el("table", { class: "table" }, el("caption", { class: "sr-only", text: "Operator policy values" }),
+      el("thead", {}, el("tr", {}, ...["Name", "Value", "Why this value", "Block"].map((h) => el("th", { scope: "col", text: h })))), tbody),
+    el("h3", { text: "Source-trust order" }),
+    el("ol", {}, ...(p.source_order || []).map((r) => el("li", { text: r.text }))),
+    el("h3", { text: "Citations" }),
+    el("ul", { class: "policy__cites" }, ...quotes));
 }
 
 export function sourcesDialog(D, focusKind) {

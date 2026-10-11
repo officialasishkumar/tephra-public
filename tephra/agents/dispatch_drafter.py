@@ -32,6 +32,7 @@ from tephra.models import (
     FeedId,
     HazardCone,
     LlmBackendName,
+    OperatorPolicy,
     PlannedAction,
     PlannerContext,
     PlannerDecision,
@@ -214,8 +215,11 @@ async def draft_advisory(
     plan: PlannedAction,
     llm: LlmBackend,
     settings: Settings,
+    policy: OperatorPolicy,
     trace: TraceSink | None = None,
 ) -> Advisory:
+    """``policy`` is stamped on the advisory (id and version) so every decision on it records
+    the operator policy it was drafted under."""
     system = PROMPT_PATH.read_text(encoding="utf-8")
     parts = [_text_part(json.dumps(_facts(ctx, plan), indent=1), "facts")]
     draft, call = await _ask(llm, system, parts, ctx, plan)
@@ -264,6 +268,7 @@ async def draft_advisory(
         cone=cone,
         ctx=ctx,
         plan=plan,
+        policy=policy,
         draft=draft,
         sources=sources,
         header=render_header(ctx=ctx, plan=plan, cone=cone, sources=sources, at=created),
@@ -326,6 +331,7 @@ def _advisory(
     cone: HazardCone,
     ctx: PlannerContext,
     plan: PlannedAction,
+    policy: OperatorPolicy,
     draft: DraftText,
     sources: list[SourceRef],
     header: str,
@@ -366,6 +372,8 @@ def _advisory(
         cone_id=cone.id,
         assessment_id=assessment.id,
         plan_id=plan.id,
+        policy_id=policy.policy_id,
+        policy_version=policy.version,
         header=header,
         body=draft.body.strip(),
         cost_note=draft.cost_note.strip(),

@@ -18,7 +18,7 @@ Himawari split window), `research/13` (what counts as a contradiction, Darwin VA
 
 | Area | Files |
 |---|---|
-| architect (contract, do not edit) | `pyproject.toml`, `MODULES.md`, `CLAUDE.md`, `docs/ARCHITECTURE.md`, `tephra/__init__.py`, `tephra/config.py`, `tephra/models.py`, `tephra/feeds/__init__.py`, `tephra/feeds/base.py`, `tephra/store/base.py`, `tephra/util/__init__.py`, `tephra/util/timeutil.py`, `tephra/util/hashing.py`, `tephra/util/events.py`, `tests/test_contract.py` |
+| architect (contract, do not edit) | `pyproject.toml`, `MODULES.md`, `CLAUDE.md`, `docs/ARCHITECTURE.md`, `tephra/__init__.py`, `tephra/config.py`, `tephra/models.py`, `tephra/feeds/__init__.py`, `tephra/feeds/base.py`, `tephra/store/base.py`, `tephra/util/__init__.py`, `tephra/util/timeutil.py`, `tephra/util/hashing.py`, `tephra/util/events.py`, `tephra/policy.py`, `data/policy/policy_a.json`, `tests/test_contract.py`, `tests/test_policy.py` |
 | feeds-text | `tephra/feeds/sigmet.py`, `tephra/feeds/vona.py`, `tephra/feeds/vaac.py`, `tephra/feeds/taf.py`, `tests/test_feeds_text.py`, `tests/test_live_feeds_text.py`, `tests/test_vona_archive.py` |
 | feeds-geo | `tephra/feeds/adsb.py`, `tephra/feeds/winds.py`, `tephra/feeds/satellite.py`, `tephra/feeds/volcanoes.py`, `tephra/feeds/airports.py`, `data/volcanoes.json`, `data/airports.json`, `tests/test_feeds_geo.py`, `tests/test_live_feeds_geo.py` |
 | science | `tephra/science/__init__.py`, `tephra/science/hsd_segments.py`, `tephra/science/btd.py`, `tests/test_science.py` |
@@ -42,7 +42,7 @@ Import only from a lower layer (or from your own files in the same layer).
 
 | Layer | Modules |
 |---|---|
-| L0 | `tephra.util.*`, `tephra.models`, `tephra.config` (config imports models; models never import config) |
+| L0 | `tephra.util.*`, `tephra.models`, `tephra.config`, `tephra.policy` (config and policy import models; models never import either) |
 | L1 | `tephra.feeds.base`, `tephra.store.base`, `tephra.geo.*` |
 | L2 | `tephra.feeds.{sigmet,vona,vaac,taf,adsb,winds,satellite,volcanoes,airports}`, `tephra.science.*` |
 | L3 | `tephra.reconcile.*`, `tephra.agents.llm`, `tephra.agents.schemas` |
@@ -184,7 +184,9 @@ GeoJSON `GeoPoint`, `GeoLineString`, `GeoPolygon`, `GeoMultiPolygon`, `Geometry`
 (`is_valid`, `to_feature`), `Situation` (`provenances`, `source_ids`, `official_valid_now`,
 `official_top_ft`, `official_base_ft`, `input_hash`), `DisagreementReading`, `PlumeEstimate`
 (`sector_width_deg`), `PlumeAssessment`, `HazardCone` (`label`, `to_features`), `FuelLine`,
-`ExposedFlight`, `AlternateCheck`, `AlternateCandidate`, `PlannerContext`,
+`ExposedFlight`; operator policy `OperatorPolicy` (`named_values`, `content_hash`),
+`PolicyValue`, `ExposurePolicy`, `AlternatePolicy`, `PlannerPolicy`, `FuelPolicy`,
+`SourceRule`, `PolicyCitation`, `PolicySummary` (`of`); `AlternateCheck`, `AlternateCandidate`, `PlannerContext`,
 `PlannerDecision`, `ToolCallRecord`, `PlannedAction`, `DraftText`, `Advisory`
 (`final_body`, `final_text`), `OutboundMessage`, `AuditEntry`, `FeedHealth`, `TraceEvent`
 (`TraceEvent.new(...)`), `TraceSink`, `TickReport`, `ReplayRecord`, `ReplayCase`; Wall and
@@ -196,15 +198,26 @@ whole HTTP response (every VA SIGMET worldwide shares one). `ReplayCase` rejects
 `recorded_to` earlier than its `recorded_from`. `model_dump(mode="json")` keeps NaN and
 infinities; the store and the SSE stream write them as null.
 
+The policy models (`PolicyModel` and its subclasses) are frozen and refuse unknown keys
+(`extra="forbid"`), unlike `TephraModel`: a misspelt value name stops startup instead of
+leaving the code without that value. `OperatorPolicy` checks that every cited id names one
+of its `citations`. `Advisory.policy_id` and `policy_version` record the policy a draft was
+made under (None on drafts from before the policy file). `PlannerContext` carries the
+planner block's values as plain ints (`level_search_ft`, `level_band_fl`,
+`max_change_level_fl`, `divert_within_min`, `hold_within_min`, `hypothesis_hold_within_min`)
+beside `vertical_margin_ft`; it never carries the policy id or version.
+
 ### 4.5 `tephra.config`
 
 `Settings` (every env var; see the class), `get_settings()`, `apply_process_env(settings)`,
 `PROJECT_ROOT`, `REGIONS`, `RegionKey`. Product constants `AIRLINE_CODE`, `AIRLINE_NAME`,
 `DISCLAIMER`, `NO_MODEL_LABEL`, `REPLAY_BANNER_TEMPLATE`. Safety constants (not
 configurable): `MAX_PLUME_EXTENT_KM=500`, `MAX_SECTOR_WIDTH_DEG=180`, `MAX_HORIZON_H=18`,
-`FEED_CLOCK_SLACK=timedelta(minutes=5)`, `MIN_SECRET_CHARS=32`, `ADVISORY_BODY_MAX_CHARS=400`,
-`HOLD_MINUTES=20`, `DIVERT_EXTRA_MINUTES=15`, `ALTERNATE_MIN_VISIBILITY_M=3000`,
-`ALTERNATE_MIN_CEILING_FT=1000`, `ALTERNATE_ETA_WINDOW_MIN=60`.
+`FEED_CLOCK_SLACK=timedelta(minutes=5)`, `MIN_SECRET_CHARS=32`, `ADVISORY_BODY_MAX_CHARS=400`.
+Operator values (margins, buffers, minima, thresholds) are not here: they live in the policy
+file (section 4.8). `MOVED_TO_POLICY` names the former settings `TEPHRA_VERTICAL_MARGIN_FT`
+and `TEPHRA_ALTERNATE_SEARCH_NM`; `Settings` refuses to start while either is set in the
+environment or `.env`, because it would otherwise ignore them silently.
 
 Rules: `Settings` ignores empty env values (`env_ignore_empty=True`), so a `KEY=` line copied
 from `.env.example` means unset, not an empty secret. `session_secret` and `task_token`, when
@@ -247,6 +260,32 @@ key order.
 `put`, `get`, `delete`, `list_docs`, `query`, `compare_and_set_advisory`, `append_audit`,
 `get_feed_state`, `put_feed_state`, `list_feed_states`, `put_blob`, `get_blob`, `aclose`.
 (The method is `list_docs`, not `list`, so implementations can still annotate with `list[...]`.)
+
+### 4.8 `tephra.policy` and `data/policy/policy_a.json`
+
+```python
+POLICY_FILE: Final = Path("policy") / "policy_a.json"       # relative to Settings.data_dir
+def load_policy(data_dir: Path) -> OperatorPolicy
+```
+The operator policy holds every margin, buffer, minimum and threshold the code applies on
+the operator's behalf, each with its unit, a `source` saying why it has that value, and
+optional `citation_ids`. Header: `policy_id` (`RFA-POLICY-A`), `version` (`2026.10.1`),
+`preset` (`A`), `title`, `label` (`ILLUSTRATIVE, not an airline SRA`), `sra_ref` (null for A),
+`risk_owner` (`Flight Operations`), `summary_text` (the Policy A text) and
+`summary_citation_ids`. Blocks: `exposure` (`vertical_margin_ft`), `alternates`
+(`search_radius_nm`, `min_runway_m`, `min_visibility_m`, `min_ceiling_ft`,
+`taf_eta_window_min`, `terminal_radius_nm`), `planner` (`level_search_ft`, `level_band_fl`,
+`max_change_level_fl`, `divert_within_min`, `hold_within_min`,
+`hypothesis_hold_within_min`), `fuel` (`hold_min`, `divert_extra_min`). Then `source_order`
+(the source-trust order, most trusted first) and `citations` (quoted word for word).
+
+Rules: only the composition root (`create_runtime`) loads the file; library code takes the
+values as arguments. Pure functions (geo, feeds) take plain numbers; the planner takes the
+`OperatorPolicy`. A value enters the file only with the code that reads it
+(`tests/test_policy.py` checks each is dereferenced as `.<name>.value` somewhere in
+`tephra/`). Any change to the content needs a new `version`, and the test pins each version's
+`content_hash()`. Policy B is not here yet: until code can plan over, under or through an
+affected area, a B file would change labels, not behaviour.
 
 ## 5. Module APIs
 
@@ -358,14 +397,15 @@ def parse_tafs(result: FetchResult) -> list[Taf]
 def parse_metars(result: FetchResult) -> list[Metar]
 async def fetch_tafs(source: Source, icaos: Sequence[str]) -> list[Taf]      # chunks of 20 sorted ids
 async def fetch_metars(source: Source, icaos: Sequence[str]) -> list[Metar]
-def assess_alternate(taf: Taf | None, eta: datetime, *, icao: str | None = None) -> AlternateCheck
-    # icao names the aerodrome when there is no TAF to take it from
+def assess_alternate(taf: Taf | None, eta: datetime, *, min_visibility_m: int, min_ceiling_ft: int,
+                     window_min: int, icao: str | None = None) -> AlternateCheck
+    # minima and window from the policy's alternates block; icao names the aerodrome when there is no TAF
 ```
 `assess_alternate` rules (simplified planning minima, labelled as such in the UI): no TAF ->
 not ok (`NO TAF`); TAF not valid at `eta` -> not ok (`TAF NOT VALID AT ETA`); every period
-(base, FM, BECMG, TEMPO, PROBxx) overlapping `eta +/- ALTERNATE_ETA_WINDOW_MIN` is screened:
-`VA` in weather -> not ok; visibility below `ALTERNATE_MIN_VISIBILITY_M` -> not ok; ceiling
-below `ALTERNATE_MIN_CEILING_FT` -> not ok; `TS` -> reason recorded, still ok. Reasons are
+(base, FM, BECMG, TEMPO, PROBxx) overlapping `eta +/- window_min` is screened:
+`VA` in weather -> not ok; visibility below `min_visibility_m` -> not ok; ceiling
+below `min_ceiling_ft` -> not ok; `TS` -> reason recorded, still ok. Reasons are
 short upper-case code-written strings naming the group (`"VIS 1500 M BELOW 3000 M IN BASE
 FORECAST"`, `"TS IN TEMPO GROUP"`). The prevailing group (base, FM or BECMG) before a BECMG
 is screened until that BECMG's `timeBec`: the parser extends that `TafPeriod.valid_to`,
@@ -397,21 +437,23 @@ volcano in the three regions plus Ibu, Dukono, Ruang, Taal, Mayon, Kanlaon, Baga
 `tephra/feeds/airports.py`
 ```python
 class AirportCatalogue:
-    def __init__(self, airports: Sequence[Airport]) -> None
+    def __init__(self, airports: Sequence[Airport], *, min_runway_m: int) -> None
     def all(self) -> list[Airport]
     def get(self, icao: str) -> Airport | None
     def icaos(self) -> set[str]
     def in_bbox(self, bbox: BBox) -> list[Airport]
-    def nearest(self, lat: float, lon: float, *, limit: int = 5, max_nm: float = 400.0,
+    def nearest(self, lat: float, lon: float, *, limit: int = 5, max_nm: float,
                 alternates_only: bool = True) -> list[tuple[Airport, float]]   # (airport, distance_nm), nearest first
-def load_airports(data_dir: Path) -> AirportCatalogue          # reads data/airports.json (AirportFile)
+    def alternate_ok(self, airport: Airport) -> bool               # longest_runway_m >= min_runway_m
+def load_airports(data_dir: Path, *, min_runway_m: int) -> AirportCatalogue   # reads data/airports.json (AirportFile)
 ```
 `data/airports.json` is an `AirportFile` of public aerodromes across the three regions and
 their usual alternates (for example WIII, WIHH, WICA, WARR, WAHI, WADD for Java/Bali; WAMT,
 WAMM for Halmahera; RJFK, RJFT, RJFM, RJFO, RJFU, RJFF for Kyushu). Verify every code
 against a current source: Indonesia re-coded several Central Java aerodromes (WARx ->
 WAHx). Real ICAO codes only; runway length in metres where known; `source_note` cites the
-source.
+source. Whether an airport is a jet alternate is not stored: the catalogue compares its
+`longest_runway_m` with the policy's `alternates.min_runway_m`.
 
 `tephra/feeds/adsb.py`
 ```python
@@ -608,7 +650,8 @@ any area.
 MIN_MOVING_GS_KT: Final = 50.0
 def extrapolate(aircraft: Aircraft, minutes: int, *, step_min: int = 1) -> list[tuple[float, float]]  # (lat, lon), t=0 first
 def find_exposed(cone: HazardCone, aircraft: Sequence[Aircraft], at: datetime, *,
-                 lookahead_min: int, vertical_margin_ft: int) -> list[ExposedFlight]
+                 lookahead_min: int, vertical_margin_ft: int, hold_minutes: int) -> list[ExposedFlight]
+    # vertical_margin_ft and hold_minutes from the policy (exposure, fuel.hold_min)
 ```
 Rules: only `aircraft.airline` targets with `alt_baro_ft` are considered; never use
 `alt_geom_ft`. The lookahead is `min(cone.horizon_h * 60, lookahead_min)`. A target whose
@@ -624,7 +667,7 @@ crosses a corner or a narrow part of the cone between two points is still caught
 `minutes_to_entry` is the minute at the end of the first segment that meets the cone (0 only
 when inside now, which sets `inside_now`); the entry point is that minute's point if it is
 inside, else where the segment comes in. `path` runs from the reported position to the entry
-point (GeoJSON order); `hold = fuel.hold_line(category)`; `id = f"{hex}:{cone.volcano_id}"`;
+point (GeoJSON order); `hold = fuel.hold_line(category, minutes=hold_minutes)`; `id = f"{hex}:{cone.volcano_id}"`;
 a non-finite `gs_kt` or `track_deg` is stored as None. Sorted by `minutes_to_entry`, then
 `hex`.
 
@@ -633,10 +676,10 @@ a non-finite `gs_kt` or `track_deg` is stored as None. Sorted by `minutes_to_ent
 BURN_KG_PER_MIN: Final[dict[AircraftCategory, float]] = {LIGHT: 5, TURBOPROP: 12, REGIONAL_JET: 25,
                                                          NARROWBODY: 42, WIDEBODY: 110, UNKNOWN: 42}
 def category_for_type(type_icao: str | None) -> AircraftCategory
-def hold_line(category: AircraftCategory) -> FuelLine                    # HOLD_MINUTES
+def hold_line(category: AircraftCategory, *, minutes: int) -> FuelLine     # policy fuel.hold_min
 def divert_line(category: AircraftCategory, *, alternate_icao: str, distance_nm: float,
-                gs_kt: float | None) -> FuelLine
-    # distance/gs*60 + DIVERT_EXTRA_MINUTES; gs None, not finite or < 150 -> 250 kt assumed, said in formula
+                gs_kt: float | None, extra_minutes: int) -> FuelLine
+    # distance/gs*60 + extra_minutes (policy fuel.divert_extra_min); gs None, not finite or < 150 -> 250 kt assumed, said in formula
 ```
 `formula` strings are code-written upper case, e.g. `"HOLD 20 MIN x 42 KG/MIN (NARROWBODY) =
 840 KG"`, `"DIVERT WARR 182 NM AT 430 KT = 26 MIN + 15 MIN = 41 MIN x 42 KG/MIN (NARROWBODY)
@@ -864,7 +907,7 @@ line. With the stub backend the outcome is always `STUB`. `read_plume` sets
 
 `tephra/agents/validators.py`
 ```python
-MAX_CHANGE_LEVEL_FL: Final = 410
+MAX_LEVEL_FL: Final = 600              # bound on any level named; the highest proposed is ctx.max_change_level_fl
 COST_NOTE_MAX_CHARS: Final = 120
 REASONING_MAX_CHARS: Final = 800
 ZONE_TIME_PATTERN: Final = r"(?<!\d)\d{4}\s?(?:UTC|GMT|Z|LT|LCL|LOCAL|WIB|WITA|WIT|JST|PHT|HRS)(?![A-Z])"
@@ -878,10 +921,11 @@ def validate_draft(draft: DraftText, *, ctx: PlannerContext, plan: PlannedAction
 ```
 Decision rules: the action must be in `allowed_actions(ctx.plume_mode)` as well as in
 `ctx.allowed_actions` (HYPOTHESIS: MONITOR or HOLD only). CHANGE_LEVEL needs
-`change_level_fl_min/max`, ordered, at or below FL410, whose band clears `[hazard_base_ft -
+`change_level_fl_min/max`, ordered, at or below `ctx.max_change_level_fl`, whose band clears `[hazard_base_ft -
 margin, hazard_top_ft + margin]`. HOLD needs `hold_fl` (1 to 600); while `flight.inside_now`,
 `hold_fl` must clear the hazard band plus margin; a `hold_fl` other than the present FL is a
-level change, so it is not allowed in HYPOTHESIS and must be at or below FL410. CONTINUE needs
+level change, so it is not allowed in HYPOTHESIS and must be at or below
+`ctx.max_change_level_fl`. CONTINUE needs
 the aircraft's present and selected levels (`aircraft_band_ft`) clear of the hazard band plus
 margin. DIVERT needs an `alternate_icao` that is one of `ctx.alternates` with `check.ok` and a
 `taf_source_id`. `reasoning` is not empty, at most 800 characters, and has no clock times
@@ -914,28 +958,33 @@ MAX_MODEL_TURNS: Final = 10
 DAILY_QUOTA_SPENT: Final = "GEMINI DAILY QUOTA SPENT (429): LITE TIER CLOSED FOR THE QUOTA DAY"
 def build_planner_context(flight: ExposedFlight, cone: HazardCone, *, volcano_name: str,
                           airports: AirportCatalogue, tafs: Mapping[str, Taf], at: datetime,
-                          settings: Settings) -> PlannerContext
+                          policy: OperatorPolicy) -> PlannerContext
+def planner_limits(policy: OperatorPolicy) -> dict[str, int]      # the PlannerContext fields from policy.planner
 def rule_based_decision(ctx: PlannerContext) -> PlannerDecision
 async def plan_flight(ctx: PlannerContext, llm: LlmBackend, *, settings: Settings,
                       trace: TraceSink | None = None) -> PlannedAction
 ```
 `build_planner_context`: alternates are the 5 nearest from `airports.nearest(flight.lat,
-flight.lon, max_nm=settings.alternate_search_nm)`; `divert = fuel.divert_line(...)`; the ETA
-is `at` plus the divert line's cruise minutes; each is screened with
-`tephra.feeds.taf.assess_alternate`; an alternate inside the cone or within 20 NM of it (a
-20 NM disc that overlaps the cone, by `polygon_iou`) is not ok with reason `"INSIDE HAZARD
-CONE"` (research/07 rule 20); `allowed_actions = allowed_actions(cone.mode)`.
+flight.lon, max_nm=policy.alternates.search_radius_nm)`; `divert = fuel.divert_line(...,
+extra_minutes=policy.fuel.divert_extra_min)`; the ETA is `at` plus the divert line's cruise
+minutes; each is screened with `tephra.feeds.taf.assess_alternate` and the policy's minima;
+an alternate inside the cone or within `alternates.terminal_radius_nm` of it (a disc of that
+radius that overlaps the cone, by `polygon_iou`) is not ok with reason `"INSIDE HAZARD
+CONE"`; `allowed_actions = allowed_actions(cone.mode)`; `vertical_margin_ft` and
+`planner_limits(policy)` fill the policy fields.
 
-`rule_based_decision` (stub and last-resort fallback, deterministic): HYPOTHESIS -> HOLD at
-the current FL if `minutes_to_entry <= 20` and the hold is outside the hazard (not
+`rule_based_decision` (stub and last-resort fallback, deterministic; every threshold is a
+`PlannerContext` field from the policy, policy A values in brackets): HYPOTHESIS -> HOLD at
+the current FL if `minutes_to_entry <= hypothesis_hold_within_min` (20) and the hold is outside the hazard (not
 `inside_now`, or the current FL clears the band plus margin), else MONITOR.
 OFFICIAL/WIDENED -> CONTINUE when the present and selected levels are above the hazard top
-plus margin; else CHANGE_LEVEL to the nearest 2,000 ft band clear of the hazard plus margin
-within 4,000 ft of the current level and at or below FL410 (ties go to the higher band);
-else if `inside_now` or `minutes_to_entry <= 15` and an alternate with `check.ok` and a TAF
+plus margin; else CHANGE_LEVEL to the nearest `level_band_fl` (2,000 ft) band clear of the
+hazard plus margin within `level_search_ft` (4,000 ft) of the current level and at or below
+`max_change_level_fl` (FL410) (ties go to the higher band); else if `inside_now` or
+`minutes_to_entry <= divert_within_min` (15) and an alternate with `check.ok` and a TAF
 exists, DIVERT to the nearest; else if `inside_now`, MONITOR (a hold at present position
 would stay inside the hazard; the dispatcher advises the exit); else if `minutes_to_entry <=
-30`, HOLD at the current FL; else MONITOR. Reasoning always starts with `"NO MODEL:"`.
+hold_within_min` (30), HOLD at the current FL; else MONITOR. Reasoning always starts with `"NO MODEL:"`.
 
 `plan_flight`: backend `stub` -> `rule_based_decision`, outcome `STUB`. Backend `gemini` ->
 ADK `LlmAgent` on `settings.model_lite` with FunctionTools that read the context from
@@ -971,7 +1020,8 @@ def stub_draft(ctx: PlannerContext, plan: PlannedAction) -> DraftText
 def select_sources(situation: Situation, flight: ExposedFlight) -> list[SourceRef]
 async def draft_advisory(*, situation: Situation, assessment: PlumeAssessment, cone: HazardCone,
                          ctx: PlannerContext, plan: PlannedAction, llm: LlmBackend,
-                         settings: Settings, trace: TraceSink | None = None) -> Advisory
+                         settings: Settings, policy: OperatorPolicy,
+                         trace: TraceSink | None = None) -> Advisory   # stamps policy_id and policy_version
 ```
 `render_header` (code only) prints, upper case: `HEADER_TITLE`; `{proxy_flight} (ADS-B
 {callsign or NO CALLSIGN} {hex})`; `VOLCANO {name}`; `ACTION` with level band, holding FL or
@@ -1170,8 +1220,8 @@ Registry rules:
   with the error `"<n> of <m> volcanoes failed (<name>: <reason>; ...); <k> skipped while
   <host> did not answer (<names>); last good copy served for <names>"`.
 - TAF and METAR ICAOs (`taf_icaos`): the region's alternates, plus the 8 nearest alternates
-  of each active volcano and the 5 nearest of each exposed flight, within
-  `alternate_search_nm`.
+  of each active volcano and the 5 nearest of each exposed flight, within the policy's
+  `alternates.search_radius_nm`; region alternates are those `airports.alternate_ok`.
 - Frames polls call `fetch_frames(..., nict=settings.nict_frames)`, so NICT true colour is
   fetched only with `TEPHRA_NICT_FRAMES=true`.
 
@@ -1186,9 +1236,11 @@ async def run_local_scheduler(runtime: "Runtime", stop: asyncio.Event) -> None
 @dataclass(eq=False)
 class Runtime:
     settings: Settings; store: Store; bus: EventBus; source: Source; llm: LlmBackend
-    catalogue: VolcanoCatalogue; airports: AirportCatalogue
+    catalogue: VolcanoCatalogue; airports: AirportCatalogue; policy: OperatorPolicy
     mode: RunMode; replay_case: ReplayCase | None; auto_replay: bool
-    live: LiveData; lock: asyncio.Lock; tick_running: bool       # set by the runtime, not passed in
+    policy_summary: PolicySummary; live: LiveData; lock: asyncio.Lock; tick_running: bool   # set by the runtime
+    @property
+    def urgency_limits_min(self) -> tuple[int, int]              # (policy divert_within_min, hold_within_min)
     @property
     def recorded_feeds(self) -> frozenset[FeedId] | None          # feeds the playing case holds; None when LIVE
     async def tick(self, *, reason: str = "scheduler") -> TickReport
@@ -1197,7 +1249,7 @@ class Runtime:
     async def switch_mode(self, mode: RunMode, *, auto: bool = False,
                           case: ReplayCase | None = None) -> None
     async def aclose(self) -> None
-async def create_runtime(settings: Settings) -> Runtime
+async def create_runtime(settings: Settings) -> Runtime     # loads the policy, then airports with its min_runway_m
 ```
 The scheduler also calls the runtime's step methods (`maybe_switch_mode`,
 `follow_replay_clock`, `refresh_active`, `analyse`, `run_exposures`, `publish`,
@@ -1235,7 +1287,8 @@ Core rules:
   `TRUE_COLOR` (NICT, fetched only with `TEPHRA_NICT_FRAMES=true`) are never sent to the
   model (research/05); the Wall still shows them.
 - Planning. A flight is planned once per (cone id, urgency bucket). The buckets are inside
-  now, entry within 15 min, within 30 min, and later. A flight is planned again for a new
+  now, entry within the policy's `divert_within_min` (15), within `hold_within_min` (30), and
+  later: the same limits the rules apply (`urgency_limits_min`). A flight is planned again for a new
   cone or a more urgent bucket; a less urgent bucket is not planned again, and an open draft
   for the cone counts as planned at its own urgency. After the new advice is drafted and
   before `submit_draft`, the flight's open drafts drafted at a less urgent bucket are
@@ -1394,7 +1447,8 @@ presets from `state.regions` (fly-to). Right rail: the three source cards side b
 raw text, evidence state and discrepancy badges; the live trace; the advisory list with
 status. Top bar: LIVE/REPLAY badge (`state.mode`, `state.replay.banner` as a permanent
 banner), LLM label (`state.llm.label`, "AI-drafted" marking), feed health ages, and the
-`state.disclaimer` line. Readable at 1280x720, keyboard accessible (focusable controls,
+`state.disclaimer` line, with an "Operator policy" button (`state.policy`) that opens
+`GET /api/policy` as a table of every value, its unit and its reason. Readable at 1280x720, keyboard accessible (focusable controls,
 visible focus, no hover-only information). Attribution: OpenFreeMap/OpenStreetMap,
 "Aircraft: adsb.lol (ODbL 1.0)", "Himawari-9 data: JMA via NOAA".
 
@@ -1402,7 +1456,8 @@ Desk (`/desk`, `desk.html` + `desk.js` + `desk.css`): PIN + name login (`POST
 /api/desk/login`; every desk request sends `X-Tephra-Desk: 1`), list of DRAFT cards (`GET
 /api/desk/advisories?status=DRAFT`) showing proxy flight and callsign, action, minutes to
 entry (and draft age from `created_at`), fuel line, body, sources with issue times and short
-hashes, cone mode and confidence; Approve / Edit (textarea, 400-char counter) / Reject
+hashes, cone mode and confidence, the operator policy the draft was made under (`policy_id`,
+`policy_version`); Approve / Edit (textarea, 400-char counter) / Reject
 (reason required). Send `version`; on 409 show the current version and let the dispatcher
 re-decide. Refresh on `advisory` SSE events. Works at 375 px width, tap targets >= 44 px.
 
@@ -1521,6 +1576,7 @@ route sets its own), and `Strict-Transport-Security: max-age=31536000` over http
 | `GET /api/audit?advisory_id=...&limit=100` | `AuditList` (newest first; `advisory_id` must match `adv_[0-9a-f]{12}`) |
 | `GET /api/outbound?limit=50` | `OutboundList` (newest first) |
 | `GET /api/feeds` | `FeedList` = `{feeds: [FeedHealth]}` (ages as of now) |
+| `GET /api/policy` | `PolicyResponse` = `{policy: OperatorPolicy, policy_hash}`: the active operator policy and its `content_hash()` |
 | `GET /api/replays` | `ReplayCaseList` = `{cases: [ReplayCaseSummary]}`: each recorded case without its records (`case_id`, `label`, `recorded_from`, `recorded_to`, `region`, `volcano_ids`, `notes`, `record_count`, `banner`) |
 | `GET /api/blobs/{key}` | PNG bytes; `key` must match `BLOB_KEY_PATTERN` (else 404); `Cache-Control: public, max-age=86400, immutable` |
 | `GET /api/events` | `text/event-stream` (section 8.4); 503 `too_many_streams` while `TEPHRA_MAX_EVENT_STREAMS` streams are open |

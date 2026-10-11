@@ -26,7 +26,7 @@ flowchart LR
   F["Public feeds<br/>VA SIGMET · VAA · VONA*<br/>winds · TAF · ADS-B<br/>Himawari (optional)"] --> D["Discrepancy finder<br/>code"]
   D --> P["Plume Reader<br/>Gemini 3.8 Flash<br/>structured output"]
   P --> C["Cautious hazard area<br/>code: union, never shrinks"]
-  C --> E["3D exposure<br/>code: alt_baro, 2,000 ft margins"]
+  C --> E["3D exposure<br/>code: alt_baro, policy margins"]
   E --> PL["Exposure Planner<br/>ADK agent + tools"]
   PL --> DR["Dispatch Drafter<br/>Gemini"]
   DR --> H{"Dispatcher<br/>approve · edit · reject"}
@@ -39,7 +39,7 @@ flowchart LR
 | Discrepancies | code | Labels every difference: LAG, ENVELOPE, non-observation, DIRECTION_MISMATCH (including drift outside the polygon), HEIGHT_MISMATCH, SILENCE or CONFLICT. Gemini never decides what counts as a disagreement. |
 | Plume Reader | Gemini | Reads the texts, the remarks and the discrepancy list. Grades each source's evidence, explains it, and proposes a widened area (OFFICIAL / WIDENED / HYPOTHESIS). Code validates the output: only input sources may be cited, no model-written times, never below the official top, size caps. It allows one repair, then falls back to the official products. |
 | Hazard area | code | The union of every valid official polygon and the model's sector. A property test checks that it contains every official polygon. |
-| Exposure | code | Projects each aircraft along its track. A flight is exposed only if its pressure altitude band meets the hazard band within 2,000 ft. Gives minutes to entry. |
+| Exposure | code | Projects each aircraft along its track. A flight is exposed only if its pressure altitude band meets the hazard band within the operator policy's vertical margin (2,000 ft, illustrative). Gives minutes to entry. |
 | Planner | ADK agent | Uses geometry, alternate and TAF tools to pick CONTINUE, MONITOR, CHANGE_LEVEL, HOLD or DIVERT. There are no reroutes, because the free data has no airways and any waypoint would be invented. HYPOTHESIS mode allows only MONITOR or HOLD. |
 | Drafter | Gemini | Writes the ACARS-style body. Code writes the header with the flight, UTC times, sources and hashes, and a validator rejects any invented code or time. |
 | Desk | human | Approve, edit (both versions kept) or reject (a reason is required). Only approved advisories reach the outbound queue, which never leaves the store. |

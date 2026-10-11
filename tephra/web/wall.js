@@ -7,7 +7,7 @@ import { derive, actionWords, deciderName, LEVEL_MAX, levelFromFrac } from "./wa
 import { WallMap, readTokens, SAT } from "./wall/map.js";
 import {
   renderChrome, renderClock, renderLegend, renderHeadline, mapNotes, renderFlights, renderTrace, renderTabs,
-  renderBrief, renderLevels, renderTimeline, feedsDialog, sourcesDialog, popupContent,
+  renderBrief, renderLevels, renderTimeline, feedsDialog, sourcesDialog, policyDialog, popupContent,
 } from "./wall/panels.js";
 import { renderLayers, helpContent, aboutContent } from "./wall/controls.js";
 
@@ -502,6 +502,15 @@ function openDialog(kind, title, body, opener) {
   return dlg;
 }
 
+async function openPolicy(opener) {
+  let data = null;
+  try {
+    const res = await fetch("/api/policy", { headers: { Accept: "application/json" }, cache: "no-store" });
+    if (res.ok) data = await res.json();
+  } catch { /* the dialog says it could not load */ }
+  openDialog("policy", "Operator policy", policyDialog(data), opener);
+}
+
 function openSources(kind, opener) {
   const dlg = openDialog("sources", "Sources side by side", sourcesDialog(D, kind), opener);
   if (kind) {
@@ -585,6 +594,7 @@ document.addEventListener("click", (e) => {
   else if (tool === "levels") { ui.levelsOpen = !ui.levelsOpen; if (ui.levelsOpen) ui.layersOpen = false; renderNow(); }
   else if (t.id === "feeds-chip") openDialog("feeds", "Feed health", feedsDialog(D, store), t);
   else if (t.id === "about-btn") openDialog("about", "About TEPHRA and credits", aboutContent(), t);
+  else if (t.id === "policy-btn") openPolicy(t);
   else if (t.dataset.ptab && t.closest("#ptabs")) {
     ui.ptab = t.dataset.ptab;
     for (const b of document.querySelectorAll("#ptabs button")) b.setAttribute("aria-pressed", b === t ? "true" : "false");

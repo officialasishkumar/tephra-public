@@ -93,7 +93,7 @@ Server-Sent Events. A volcano is **active** when any one of these holds:
 | 4 | Read the plume | **Gemini** (`gemini-3.8-flash`) | raw texts, discrepancies, winds by FL, BTD stats and PNG, JMA satellite crops | `PlumeEstimate`: mode, FL band, bearing sector, extent, horizon, confidence, sources used, disagreements explained | Called only when the texts or the BTD indicator change (an unchanged input at most every 3 hours) and the call matters: a CAUTION or WARNING discrepancy, an ash VONA with no official polygon in force, or an airline aircraft within 250 NM. Code validates it, makes at most one repair call, then falls back to OFFICIAL, or, with no official polygon at all, to a code-built NO MODEL hypothesis. NICT true-colour frames are never sent. |
 | 5 | Build the cone | code | estimate plus every valid official polygon | `HazardCone` | Always contains every official polygon, and the vertical band includes the official band. |
 | 6 | Find exposed flights | code | cone and aircraft | `ExposedFlight` with minutes to entry and the hold fuel line | Projection holds the current track, speed and level, and tests each minute's segment, so a narrow crossing is not missed. Uses `alt_baro` and the selected altitude, never GNSS altitude. A position older than the lookahead is skipped. |
-| 7 | Plan per flight | **ADK agent** (`gemini-3.5-flash-lite`) with tools | `PlannerContext` (flight, hazard band, alternates screened against TAFs, costs) | `PlannedAction`: CONTINUE, MONITOR, CHANGE_LEVEL, HOLD or DIVERT, with reasoning | Once per flight, cone and urgency (inside, within 15 min, within 30 min, later). Tools are code. Validated, with one repair, then rule-based fallback. No waypoints, so no reroutes. |
+| 7 | Plan per flight | **ADK agent** (`gemini-3.5-flash-lite`) with tools | `PlannerContext` (flight, hazard band, alternates screened against TAFs, costs) | `PlannedAction`: CONTINUE, MONITOR, CHANGE_LEVEL, HOLD or DIVERT, with reasoning | Once per flight, cone and urgency (inside, within 15 min, within 30 min, later: the operator policy's divert and hold times). Tools are code. Validated, with one repair, then rule-based fallback. No waypoints, so no reroutes. |
 | 8 | Draft the advisory | **Gemini** (`gemini-3.5-flash-lite`) | plan and context, with no clock times | `DraftText`: an ACARS-style body of 400 characters or fewer, and a cost note | Code renders the header (flight, UTC times, sources, hashes). Validated, with one repair, then a template fallback labelled NO MODEL. |
 | 9 | Decide | **human** dispatcher on the Desk | DRAFT advisory | APPROVED, EDITED (both versions kept) or REJECTED (reason required) | Every transition is an audit entry. |
 | 10 | Queue | code | APPROVED or EDITED advisory | `OutboundMessage` in the `outbound` collection | Never an external call. |
@@ -115,7 +115,7 @@ default temperature of 1.0.
 | Sector of 180 degrees or less, extent of 500 km or less, horizon from 1 h to 18 h | `plume_reader.validate_estimate` with `config` safety constants |
 | Gemini cites only sources it was given | `plume_reader.validate_estimate` (source ids and discrepancy ids); `plume_reader.build_parts` sends no image without a known source id |
 | The model never writes a time, an id or a hash | validators reject clock times (with a zone word too, as in `1830 UTC`); `dispatch_drafter.render_header` writes them from provenance |
-| No invented places | `validators.validate_draft` (ICAO codes and waypoint-like words must come from the input; the plain-word vocabulary holds no ICAO id or place name); the planner only diverts to `data/airports.json` alternates whose TAF passes and that lie outside the cone and more than 20 NM from it |
+| No invented places | `validators.validate_draft` (ICAO codes and waypoint-like words must come from the input; the plain-word vocabulary holds no ICAO id or place name); the planner only diverts to `data/airports.json` alternates whose TAF passes and that lie outside the cone and more than the operator policy's terminal radius (20 NM, illustrative) from it |
 | No invented numbers in the advisory | `validators.validate_draft` (every number in the body appears in the input) |
 | "Not observed", a silent or inconclusive BTD, and silence never shrink the hazard or downgrade an action | `reconcile/discrepancies` (non-observations are evidence states, not CONFLICT); the plume validator (never the source leaned on, never a reason to narrow); the prompt |
 | A feed outage never reads as an empty sky or a silent VAAC | `feeds.adsb.fetch_aircraft`, `feeds.vaac` (all ten Darwin slots down) and `feeds.satellite` raise instead of answering nothing; `feeds.registry` marks a partial ADS-B or per-volcano failure STALE; SILENCE stays quiet while the VAAC feed is degraded; `pipeline` retires no draft while ADS-B positions are stale |
@@ -238,10 +238,14 @@ history) says so in its manifest.
   `TEPHRA_NICT_FRAMES=true` (its terms allow non-commercial use only).
 - There is no free NOTAM or airway database. TEPHRA cannot see aerodrome closures, and it
   never proposes waypoint reroutes. No action kind means "leave the ash": inside the hazard
-  with no clear level within 4,000 ft and no acceptable alternate, the rules advise MONITOR
-  and leave the exit to the dispatcher.
+  with no clear level within the operator policy's level search (4,000 ft) and no acceptable
+  alternate, the rules advise MONITOR and leave the exit to the dispatcher.
 - An advisory cites the SIGMETs, VONA, VAA and wind profile it used, with their hashes. It
   names the aircraft (callsign and ICAO address) but does not cite its ADS-B snapshot.
+- Every margin, buffer, minimum and threshold the code applies for the operator comes from
+  `data/policy/policy_a.json` (Policy A), with its unit and the reason for its value. The
+  values are illustrative, not an airline's safety risk assessment. Each advisory records
+  the policy id and version it was drafted under, and so does every audit entry on it.
 - BoM's Darwin VAA pages cannot be used (POST lists, no scraping). Live, Darwin's latest
   bulletins are polled from the ten NOAA tgftp slots and kept from then on; replays rebuild
   past ones from NOAAPort bulletins.

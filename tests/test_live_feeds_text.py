@@ -34,6 +34,9 @@ STATIONS = ("RJFF", "RJFK", "RPLL", "WAAA", "WADD", "WARR", "WIII", "WILL", "WSS
 SIGMET_ID = re.compile(r"^SIGMET:[A-Z]{4}:[A-Z0-9_]+:\d{8}T\d{4}Z$")
 VAA_ID = re.compile(r"^VAA:(TOKYO|DARWIN):[A-Z0-9_]+:\d{4}/\d+$")
 VAAC_LINE = re.compile(r"^VAAC:\s*([A-Z]+)", re.MULTILINE)
+MINIMA = {"min_visibility_m": 3000, "min_ceiling_ft": 1000, "window_min": 60}
+"""Policy A's alternate screen (data/policy/policy_a.json), passed explicitly: these tests
+check the screen, and must not change meaning when the policy does."""
 
 
 class Recorder:
@@ -228,7 +231,9 @@ async def test_live_tafs_and_metars(source: HttpSource) -> None:
             assert period.visibility_m is None or 0 <= period.visibility_m <= 9999
             assert period.ceiling_ft is None or 0 <= period.ceiling_ft <= 50_000
             assert all(token == token.upper() for token in period.weather)
-        check = assess_alternate(taf, taf.valid_from + (taf.valid_to - taf.valid_from) / 2)
+        check = assess_alternate(
+            taf, taf.valid_from + (taf.valid_to - taf.valid_from) / 2, **MINIMA
+        )
         assert check.icao == taf.icao
         assert check.taf_source_id == taf.provenance.source_id
         assert all(reason == reason.upper() for reason in check.reasons)

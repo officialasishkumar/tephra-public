@@ -22,10 +22,10 @@ from test_plume_reader import DAILY_QUOTA_429
 
 # Importing adk_app runs get_settings() now, before any test patches the environment.
 from tephra.agents.adk_app import build_planner_agent
-from tephra.agents.exposure_planner import PROMPT_PATH, plan_flight
+from tephra.agents.exposure_planner import PROMPT_PATH, plan_flight, planner_limits
 from tephra.agents.llm import DailyBudget, GeminiBackend, LlmBackend
 from tephra.agents.validators import allowed_actions
-from tephra.config import Settings
+from tephra.config import PROJECT_ROOT, Settings
 from tephra.geo.fuel import category_for_type, divert_line, hold_line
 from tephra.models import (
     ActionKind,
@@ -37,11 +37,15 @@ from tephra.models import (
     PlumeMode,
     TraceEvent,
 )
+from tephra.policy import load_policy
 from tephra.util.hashing import proxy_flight_number
 from tephra.util.timeutil import FixedClock, use_clock
 
 AT = datetime(2026, 10, 9, 18, 30, tzinfo=UTC)
 SCRIPTED_MODEL = "tephra-scripted-planner"
+POLICY = load_policy(PROJECT_ROOT / "data")
+HOLD_MIN = POLICY.fuel.hold_min.value
+DIVERT_EXTRA_MIN = POLICY.fuel.divert_extra_min.value
 
 Turn = list[types.Part] | Exception
 _SCRIPT: list[Turn] = []
@@ -133,7 +137,7 @@ def make_ctx() -> PlannerContext:
         aircraft_band_ft=(17_000, 17_000),
         hazard_band_ft=(0, 15_000),
         path=[(112.0, -7.5), (112.9, -7.9)],
-        hold=hold_line(category),
+        hold=hold_line(category, minutes=HOLD_MIN),
     )
     alternates = [
         AlternateCandidate(
@@ -148,7 +152,13 @@ def make_ctx() -> PlannerContext:
                 taf_source_id=f"TAF:{icao}:20261009T1700Z",
                 checked_for=AT,
             ),
-            divert=divert_line(category, alternate_icao=icao, distance_nm=distance, gs_kt=440.0),
+            divert=divert_line(
+                category,
+                alternate_icao=icao,
+                distance_nm=distance,
+                gs_kt=440.0,
+                extra_minutes=DIVERT_EXTRA_MIN,
+            ),
         )
         for icao, name, distance, ok in (
             ("WIII", "Soekarno-Hatta International", 50.0, False),
@@ -166,6 +176,7 @@ def make_ctx() -> PlannerContext:
         allowed_actions=allowed_actions(PlumeMode.OFFICIAL),
         alternates=alternates,
         hold=flight.hold,
+        **planner_limits(POLICY),
     )
 
 

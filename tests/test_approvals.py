@@ -91,6 +91,26 @@ async def test_approve_moves_to_outbound_and_bumps_version(
     ]
 
 
+async def test_every_decision_records_the_policy_the_draft_was_made_under(
+    store: SqliteStore, bus: EventBus
+) -> None:
+    created = await submit_draft(
+        store, bus, draft(policy_id="RFA-POLICY-A", policy_version="2026.10.1")
+    )
+    assert created is not None
+    await approve(store, bus, created.id, expected_version=1, actor=DESK)
+    entries = await audit.list_entries(store, advisory_id=created.id)
+    views = {
+        entry.action: entry.after
+        for entry in entries
+        if entry.action in {AuditAction.DRAFT_CREATED, AuditAction.APPROVED}
+    }
+    assert set(views) == {AuditAction.DRAFT_CREATED, AuditAction.APPROVED}
+    for view in views.values():
+        assert view is not None
+        assert (view["policy_id"], view["policy_version"]) == ("RFA-POLICY-A", "2026.10.1")
+
+
 async def test_stale_version_is_a_conflict(store: SqliteStore, bus: EventBus) -> None:
     created = await submit_draft(store, bus, draft())
     assert created is not None

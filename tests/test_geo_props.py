@@ -294,7 +294,9 @@ def test_every_track_that_enters_the_cone_is_reported(
     lat, lon = destination_point(aim_lat, aim_lon, approach_deg, distance_km)
     track = (initial_bearing_deg(lat, lon, aim_lat, aim_lon) + miss_deg) % 360
     target = _aircraft(lat, lon, gs_kt, track if has_track else None)
-    flights = find_exposed(cone, [target], AT, lookahead_min=60, vertical_margin_ft=2_000)
+    flights = find_exposed(
+        cone, [target], AT, lookahead_min=60, vertical_margin_ft=2_000, hold_minutes=20
+    )
 
     if gs_kt is not None and has_track and gs_kt >= MIN_MOVING_GS_KT:
         km_per_step = kt_to_km_per_min(gs_kt) / DENSE_STEPS_PER_MIN
@@ -329,7 +331,9 @@ def test_exposure_never_projects_a_non_finite_speed(
            (lon - 0.5, lat + 0.5), (lon - 0.5, lat - 0.5)]  # fmt: skip
     cone = _cone([_layer(box, 0, 0, 15_000)], _estimate(PlumeMode.OFFICIAL))
     target = _aircraft(lat, lon, gs_kt, track_deg)
-    (flight,) = find_exposed(cone, [target], AT, lookahead_min=60, vertical_margin_ft=2_000)
+    (flight,) = find_exposed(
+        cone, [target], AT, lookahead_min=60, vertical_margin_ft=2_000, hold_minutes=20
+    )
     assert flight.inside_now
     assert (flight.entry_lat, flight.entry_lon) == (lat, lon)
 
@@ -351,7 +355,9 @@ _DIVERT = re.compile(
 def test_divert_formula_reproduces_its_own_numbers(
     distance_nm: float, gs_kt: float | None, category: AircraftCategory
 ) -> None:
-    line = divert_line(category, alternate_icao="WARR", distance_nm=distance_nm, gs_kt=gs_kt)
+    line = divert_line(
+        category, alternate_icao="WARR", distance_nm=distance_nm, gs_kt=gs_kt, extra_minutes=15
+    )
     match = _DIVERT.fullmatch(line.formula)
     assert match is not None, line.formula
     distance, speed, cruise, total, burn, fuel = (int(group) for group in match.groups())

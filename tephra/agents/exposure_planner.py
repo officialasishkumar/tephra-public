@@ -21,13 +21,12 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 from tephra.agents.llm import LlmBackend, LlmPart, daily_quota_spent, prompt_hash
 from tephra.agents.schemas import parse_json_model
 from tephra.agents.validators import (
-    MAX_CHANGE_LEVEL_FL,
     allowed_actions,
     band_clears_hazard,
     first_problems,
     validate_decision,
 )
-from tephra.config import DIVERT_EXTRA_MINUTES, Settings
+from tephra.config import Settings
 from tephra.feeds.airports import AirportCatalogue
 from tephra.feeds.taf import assess_alternate
 from tephra.geo.cone import polygon_iou
@@ -41,6 +40,7 @@ from tephra.models import (
     FuelLine,
     HazardCone,
     LlmBackendName,
+    OperatorPolicy,
     PlannedAction,
     PlannerContext,
     PlannerDecision,
@@ -70,12 +70,6 @@ ADK_USER_ID: Final = "tephra-dispatch"
 MAX_MODEL_TURNS: Final = 10
 """Model calls allowed per planning turn (tool round trips included) before code stops it."""
 DAILY_QUOTA_SPENT: Final = "GEMINI DAILY QUOTA SPENT (429): LITE TIER CLOSED FOR THE QUOTA DAY"
-ALTERNATE_CONE_BUFFER_NM: Final = 20.0
-LEVEL_SEARCH_FT: Final = 4000
-LEVEL_BAND_FL: Final = 20
-DIVERT_WITHIN_MIN: Final = 15
-HOLD_WITHIN_MIN: Final = 30
-HYPOTHESIS_HOLD_WITHIN_MIN: Final = 20
 _RING_POINTS: Final = 64
 """Vertices of the buffer disc; its edges fall at most 0.03 NM inside the true circle."""
 _SUMMARY_CHARS: Final = 240
@@ -94,11 +88,13 @@ def build_planner_context(
     airports: AirportCatalogue,
     tafs: Mapping[str, Taf],
     at: datetime,
-    settings: Settings,
+    policy: OperatorPolicy,
 ) -> PlannerContext:
-    nearby = airports.nearest(flight.lat, flight.lon, max_nm=settings.alternate_search_nm)
+    nearby = airports.nearest(
+        flight.lat, flight.lon, max_nm=policy.alternates.search_radius_nm.value
+    )
     alternates = [
-        _alternate(flight, cone, airport, distance, tafs.get(airport.icao), at)
+        _alternate(flight, cone, airport, distance, tafs.get(airport.icao), at, policy)
         for airport, distance in nearby
     ]
     return PlannerContext(
@@ -108,11 +104,25 @@ def build_planner_context(
         confidence=cone.confidence,
         hazard_base_ft=cone.base_ft,
         hazard_top_ft=cone.top_ft,
-        vertical_margin_ft=settings.vertical_margin_ft,
+        vertical_margin_ft=policy.exposure.vertical_margin_ft.value,
         allowed_actions=allowed_actions(cone.mode),
         alternates=alternates,
         hold=flight.hold,
+        **planner_limits(policy),
     )
+
+
+def planner_limits(policy: OperatorPolicy) -> dict[str, int]:
+    """The ``PlannerContext`` fields the operator policy's planner block sets."""
+    rules = policy.planner
+    return {
+        "level_search_ft": rules.level_search_ft.value,
+        "level_band_fl": rules.level_band_fl.value,
+        "max_change_level_fl": rules.max_change_level_fl.value,
+        "divert_within_min": rules.divert_within_min.value,
+        "hold_within_min": rules.hold_within_min.value,
+        "hypothesis_hold_within_min": rules.hypothesis_hold_within_min.value,
+    }
 
 
 def _alternate(
@@ -122,14 +132,27 @@ def _alternate(
     distance: float,
     taf: Taf | None,
     at: datetime,
+    policy: OperatorPolicy,
 ) -> AlternateCandidate:
+    screen = policy.alternates
+    extra = policy.fuel.divert_extra_min.value
     divert = divert_line(
-        flight.category, alternate_icao=airport.icao, distance_nm=distance, gs_kt=flight.gs_kt
+        flight.category,
+        alternate_icao=airport.icao,
+        distance_nm=distance,
+        gs_kt=flight.gs_kt,
+        extra_minutes=extra,
     )
-    eta = at + timedelta(minutes=divert.minutes - DIVERT_EXTRA_MINUTES)
-    check = assess_alternate(taf, eta)
+    eta = at + timedelta(minutes=divert.minutes - extra)
+    check = assess_alternate(
+        taf,
+        eta,
+        min_visibility_m=screen.min_visibility_m.value,
+        min_ceiling_ft=screen.min_ceiling_ft.value,
+        window_min=screen.taf_eta_window_min.value,
+    )
     update: dict[str, Any] = {"icao": airport.icao}  # the no-TAF check carries no ICAO
-    if _near_cone(cone, airport.lat, airport.lon):
+    if _near_cone(cone, airport.lat, airport.lon, screen.terminal_radius_nm.value):
         update |= {"ok": False, "reasons": [*check.reasons, "INSIDE HAZARD CONE"]}
     check = check.model_copy(update=update)
     return AlternateCandidate(
@@ -142,15 +165,15 @@ def _alternate(
     )
 
 
-def _near_cone(cone: HazardCone, lat: float, lon: float) -> bool:
-    """Inside the cone or within ALTERNATE_CONE_BUFFER_NM of it.
+def _near_cone(cone: HazardCone, lat: float, lon: float, radius_nm: float) -> bool:
+    """Inside the cone or within ``radius_nm`` of it (the policy's terminal radius).
 
     The whole buffer disc is overlapped with the cone: a narrow plume can pass between the
     airport and any ring of sample points.
     """
     if cone.geometry is None:
         return False
-    radius_km = nm_to_km(ALTERNATE_CONE_BUFFER_NM)
+    radius_km = nm_to_km(radius_nm)
     disc = polygon_from_latlon(
         destination_point(lat, lon, i * 360.0 / _RING_POINTS, radius_km)
         for i in range(_RING_POINTS)
@@ -180,18 +203,18 @@ def rule_based_decision(ctx: PlannerContext) -> PlannerDecision:
         return _rule(
             ActionKind.CHANGE_LEVEL,
             f"{hazard} PLUS {ctx.vertical_margin_ft} FT MARGIN, {entry}."
-            f" FL{band[0]:03d}-FL{band[1]:03d} CLEARS IT WITHIN {LEVEL_SEARCH_FT} FT OF"
+            f" FL{band[0]:03d}-FL{band[1]:03d} CLEARS IT WITHIN {ctx.level_search_ft} FT OF"
             " PRESENT LEVEL.",
             [ActionKind.HOLD, ActionKind.DIVERT, ActionKind.MONITOR],
             change_level_fl_min=band[0],
             change_level_fl_max=band[1],
         )
     alternate = nearest_ok_alternate(ctx)
-    urgent = flight.inside_now or flight.minutes_to_entry <= DIVERT_WITHIN_MIN
+    urgent = flight.inside_now or flight.minutes_to_entry <= ctx.divert_within_min
     if urgent and alternate is not None:
         return _rule(
             ActionKind.DIVERT,
-            f"{hazard}, {entry}. NO CLEAR LEVEL WITHIN {LEVEL_SEARCH_FT} FT."
+            f"{hazard}, {entry}. NO CLEAR LEVEL WITHIN {ctx.level_search_ft} FT."
             f" {alternate} IS THE NEAREST ALTERNATE THAT PASSES THE TAF AND CONE SCREEN.",
             [ActionKind.CHANGE_LEVEL, ActionKind.HOLD],
             alternate_icao=alternate,
@@ -200,15 +223,15 @@ def rule_based_decision(ctx: PlannerContext) -> PlannerDecision:
         # Holding at present position would keep the aircraft in the ash.
         return _rule(
             ActionKind.MONITOR,
-            f"{hazard}, {entry}. NO CLEAR LEVEL WITHIN {LEVEL_SEARCH_FT} FT AND NO ACCEPTABLE"
+            f"{hazard}, {entry}. NO CLEAR LEVEL WITHIN {ctx.level_search_ft} FT AND NO ACCEPTABLE"
             " ALTERNATE; A HOLD HERE IS INSIDE THE HAZARD. DISPATCHER TO ADVISE THE EXIT.",
             [ActionKind.HOLD, ActionKind.CHANGE_LEVEL, ActionKind.DIVERT],
         )
-    if flight.minutes_to_entry <= HOLD_WITHIN_MIN and level_fl is not None:
+    if flight.minutes_to_entry <= ctx.hold_within_min and level_fl is not None:
         reason = "NO ACCEPTABLE ALTERNATE" if urgent else "ENTRY IS CLOSE"
         return _rule(
             ActionKind.HOLD,
-            f"{hazard}, {entry}. NO CLEAR LEVEL WITHIN {LEVEL_SEARCH_FT} FT AND {reason};"
+            f"{hazard}, {entry}. NO CLEAR LEVEL WITHIN {ctx.level_search_ft} FT AND {reason};"
             " HOLD AT PRESENT POSITION OUTSIDE THE HAZARD PENDING THE NEXT PRODUCT.",
             [ActionKind.CHANGE_LEVEL, ActionKind.DIVERT, ActionKind.MONITOR],
             hold_fl=level_fl,
@@ -227,7 +250,7 @@ def _hypothesis_rule(ctx: PlannerContext, level_fl: int | None) -> PlannerDecisi
     hold_outside = level_fl is not None and (
         not flight.inside_now or band_clears_hazard(level_fl, level_fl, ctx=ctx)
     )
-    if flight.minutes_to_entry <= HYPOTHESIS_HOLD_WITHIN_MIN and hold_outside:
+    if flight.minutes_to_entry <= ctx.hypothesis_hold_within_min and hold_outside:
         return _rule(
             ActionKind.HOLD,
             f"{basis}, {_entry_text(flight)}. HOLD AT PRESENT POSITION UNTIL AN OFFICIAL"
@@ -257,19 +280,19 @@ def _rule(
 
 
 def nearest_clear_band(ctx: PlannerContext) -> tuple[int, int] | None:
-    """The 2,000 ft band clear of hazard plus margin nearest the present level, if close."""
+    """The policy-width band clear of hazard plus margin nearest the present level, if close."""
     altitude = ctx.flight.alt_baro_ft
     if altitude is None:
         return None
     best: tuple[int, int, int] | None = None
-    for fl_min in range(0, MAX_CHANGE_LEVEL_FL - LEVEL_BAND_FL + 1, 10):
-        fl_max = fl_min + LEVEL_BAND_FL
+    for fl_min in range(0, ctx.max_change_level_fl - ctx.level_band_fl + 1, 10):
+        fl_max = fl_min + ctx.level_band_fl
         if not band_clears_hazard(fl_min, fl_max, ctx=ctx):
             continue
         low, high = fl_min * 100, fl_max * 100
         gap = 0 if low <= altitude <= high else min(abs(altitude - low), abs(altitude - high))
         # Ties go to the higher band: ash from a vent rises from the surface.
-        if gap <= LEVEL_SEARCH_FT and (best is None or (gap, -fl_min) < (best[0], -best[1])):
+        if gap <= ctx.level_search_ft and (best is None or (gap, -fl_min) < (best[0], -best[1])):
             best = (gap, fl_min, fl_max)
     return None if best is None else (best[1], best[2])
 
@@ -364,6 +387,16 @@ def flight_summary(ctx: PlannerContext) -> dict[str, Any]:
     }
 
 
+def limits_summary(ctx: PlannerContext) -> dict[str, Any]:
+    """The operator policy's planning limits, for the planner's ``get_flight`` tool. Kept out
+    of ``flight_summary``, which the drafter's facts reuse: they are no part of an advisory."""
+    return {
+        "max_change_level_fl": ctx.max_change_level_fl,
+        "level_band_ft": ctx.level_band_fl * 100,
+        "decisive_action_within_min": ctx.divert_within_min,
+    }
+
+
 def alternates_summary(ctx: PlannerContext) -> dict[str, Any]:
     return {
         "alternates": [_alternate_dict(alt) for alt in ctx.alternates],
@@ -397,7 +430,7 @@ def _alternate_dict(alt: AlternateCandidate) -> dict[str, Any]:
 
 def level_band_summary(ctx: PlannerContext, fl_min: int, fl_max: int) -> dict[str, Any]:
     low, high = sorted((fl_min, fl_max))
-    clear = band_clears_hazard(low, high, ctx=ctx) and high <= MAX_CHANGE_LEVEL_FL
+    clear = band_clears_hazard(low, high, ctx=ctx) and high <= ctx.max_change_level_fl
     altitude = ctx.flight.alt_baro_ft
     change_ft = None
     if altitude is not None:
@@ -408,7 +441,7 @@ def level_band_summary(ctx: PlannerContext, fl_min: int, fl_max: int) -> dict[st
         "clear_of_hazard": clear,
         "hazard_with_margin": _margin_text(ctx),
         "change_from_present_ft": change_ft,
-        "max_fl": MAX_CHANGE_LEVEL_FL,
+        "max_fl": ctx.max_change_level_fl,
     }
 
 

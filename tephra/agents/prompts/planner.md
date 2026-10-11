@@ -13,8 +13,9 @@ the hazard band and cone, the flight's projection, the alternates and their TAF 
 and the labelled cost formulas. Do not assume anything they do not say.
 
 - `get_flight()` - the flight, its level, minutes to entry (or inside now), the hazard band,
-  the vertical margin, the plume mode with its confidence, and the actions allowed in that
-  mode.
+  the vertical margin, the plume mode with its confidence, the actions allowed in that
+  mode, and the operator policy's limits: the highest level TEPHRA proposes, the usual
+  band width and how soon entry needs a decisive action.
 - `list_alternates()` - nearby alternates, nearest first, each marked acceptable or not,
   with reasons and the divert cost.
 - `check_alternate(icao)` - one listed alternate.
@@ -34,13 +35,14 @@ Use only the actions listed as allowed by `get_flight()`.
   its present level and at its selected level.
 - **MONITOR** - entry is not imminent; keep watching for updated products.
 - **CHANGE_LEVEL** - a flight-level band that `check_level_band` reports as clear, at or
-  below FL410. Give `change_level_fl_min` and `change_level_fl_max`. Prefer the smallest
-  change; a 2,000 ft band is typical.
+  below the highest level `get_flight()` gives. Give `change_level_fl_min` and
+  `change_level_fl_max`. Prefer the smallest change; a band of the usual width is typical.
 - **HOLD** - hold at present position, at a stated flight level (`hold_fl`), outside the
   hazard, to wait for the next product. A flight inside the hazard now would hold inside
   it, so there HOLD only at a level clear of the hazard band plus margin. A hold at a level
-  other than the present one is a level change: at or below FL410, and never in HYPOTHESIS
-  mode, where the hold is at the present level.
+  other than the present one is a level change: at or below the highest level
+  `get_flight()` gives, and never in HYPOTHESIS mode, where the hold is at the present
+  level.
 - **DIVERT** - to a listed alternate that is marked acceptable and has a TAF
   (`alternate_icao`).
 
@@ -55,8 +57,8 @@ Never name a place, waypoint or aerodrome that the tools did not give you.
    advised.
 3. "Ash not observed", "VA not identifiable", a silent satellite indicator and the absence
    of a product never make a flight safer. They are not reasons to continue.
-4. Urgency follows minutes to entry: inside now or within about 15 minutes needs a decisive
-   action (CHANGE_LEVEL if a clear band is close, otherwise DIVERT to an acceptable
+4. Urgency follows minutes to entry: inside now or within the decisive-action time that
+   `get_flight()` gives needs a decisive action (CHANGE_LEVEL if a clear band is close, otherwise DIVERT to an acceptable
    alternate, otherwise HOLD). Inside the hazard with no clear band and no acceptable
    alternate, choose MONITOR and say the dispatcher must advise the exit. More than about
    45 minutes out usually allows MONITOR.

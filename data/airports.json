@@ -1,5 +1,5 @@
 {
-  "source_note": "Positions, elevations, IATA codes, names and longest open runway are from OurAirports open data (public domain, davidmegginson.github.io/ourairports-data), downloaded 2026-10-10; runway length converted from feet (x 0.3048). ICAO codes were cross-checked against aviationweather.gov stationinfo the same day. Semarang and Solo use the re-coded identifiers WAHS and WAHQ that aviationweather.gov lists (OurAirports still files them as WARS and WARQ; WAHS was issuing METAR and TAF on 2026-10-09). Ternate is WAEE as in OurAirports; aviationweather.gov still lists it as WAMT and had no report under either code in the 72 h checked. WICA, WICC, WARA and WAEE are unknown to aviationweather.gov, so they never pass TEPHRA's TAF screen. alternate_ok means longest runway >= 2000 m in TEPHRA's simplified model, not an airline's alternate approval.",
+  "source_note": "Positions, elevations, IATA codes, names and longest open runway are from OurAirports open data (public domain, davidmegginson.github.io/ourairports-data), downloaded 2026-10-10; runway length converted from feet (x 0.3048). ICAO codes were cross-checked against aviationweather.gov stationinfo the same day. Semarang and Solo use the re-coded identifiers WAHS and WAHQ that aviationweather.gov lists (OurAirports still files them as WARS and WARQ; WAHS was issuing METAR and TAF on 2026-10-09). Ternate is WAEE as in OurAirports; aviationweather.gov still lists it as WAMT and had no report under either code in the 72 h checked. WICA, WICC, WARA and WAEE are unknown to aviationweather.gov, so they never pass TEPHRA's TAF screen. A jet alternate needs a longest runway of at least alternates.min_runway_m in data/policy/policy_a.json (TEPHRA's simplified model, not an airline's alternate approval).",
   "airports": [
     {
       "icao": "WIII",
@@ -9,8 +9,7 @@
       "lat": -6.12557,
       "lon": 106.656,
       "elev_ft": 34,
-      "longest_runway_m": 3660,
-      "alternate_ok": true
+      "longest_runway_m": 3660
     },
     {
       "icao": "WIHH",
@@ -20,8 +19,7 @@
       "lat": -6.26699,
       "lon": 106.89032,
       "elev_ft": 84,
-      "longest_runway_m": 3000,
-      "alternate_ok": true
+      "longest_runway_m": 3000
     },
     {
       "icao": "WICA",
@@ -31,8 +29,7 @@
       "lat": -6.64738,
       "lon": 108.16556,
       "elev_ft": 134,
-      "longest_runway_m": 3000,
-      "alternate_ok": true
+      "longest_runway_m": 3000
     },
     {
       "icao": "WICC",
@@ -42,8 +39,7 @@
       "lat": -6.90063,
       "lon": 107.576,
       "elev_ft": 2436,
-      "longest_runway_m": 2250,
-      "alternate_ok": true
+      "longest_runway_m": 2250
     },
     {
       "icao": "WILL",
@@ -53,8 +49,7 @@
       "lat": -5.2468,
       "lon": 105.18253,
       "elev_ft": 282,
-      "longest_runway_m": 2770,
-      "alternate_ok": true
+      "longest_runway_m": 2770
     },
     {
       "icao": "WAHI",
@@ -64,8 +59,7 @@
       "lat": -7.90534,
       "lon": 110.05726,
       "elev_ft": 24,
-      "longest_runway_m": 3250,
-      "alternate_ok": true
+      "longest_runway_m": 3250
     },
     {
       "icao": "WAHS",
@@ -75,8 +69,7 @@
       "lat": -6.97073,
       "lon": 110.37324,
       "elev_ft": 10,
-      "longest_runway_m": 2560,
-      "alternate_ok": true
+      "longest_runway_m": 2560
     },
     {
       "icao": "WAHQ",
@@ -86,8 +79,7 @@
       "lat": -7.51604,
       "lon": 110.75749,
       "elev_ft": 421,
-      "longest_runway_m": 2600,
-      "alternate_ok": true
+      "longest_runway_m": 2600
     },
     {
       "icao": "WARR",
@@ -97,8 +89,7 @@
       "lat": -7.37983,
       "lon": 112.787,
       "elev_ft": 9,
-      "longest_runway_m": 3000,
-      "alternate_ok": true
+      "longest_runway_m": 3000
     },
     {
       "icao": "WARA",
@@ -108,8 +99,7 @@
       "lat": -7.9291,
       "lon": 112.71423,
       "elev_ft": 1726,
-      "longest_runway_m": 2500,
-      "alternate_ok": true
+      "longest_runway_m": 2500
     },
     {
       "icao": "WADY",
@@ -119,8 +109,7 @@
       "lat": -8.31015,
       "lon": 114.3401,
       "elev_ft": 112,
-      "longest_runway_m": 1400,
-      "alternate_ok": false
+      "longest_runway_m": 1400
     },
     {
       "icao": "WADD",
@@ -130,8 +119,7 @@
       "lat": -8.74841,
       "lon": 115.16712,
       "elev_ft": 14,
-      "longest_runway_m": 2984,
-      "alternate_ok": true
+      "longest_runway_m": 2984
     },
     {
       "icao": "WADL",
@@ -141,8 +129,7 @@
       "lat": -8.75996,
       "lon": 116.27817,
       "elev_ft": 319,
-      "longest_runway_m": 3300,
-      "alternate_ok": true
+      "longest_runway_m": 3300
     },
     {
       "icao": "WATT",
@@ -152,8 +139,7 @@
       "lat": -10.1716,
       "lon": 123.671,
       "elev_ft": 335,
-      "longest_runway_m": 2500,
-      "alternate_ok": true
+      "longest_runway_m": 2500
     },
     {
       "icao": "WAAA",
@@ -163,8 +149,7 @@
       "lat": -5.07554,
       "lon": 119.5537,
       "elev_ft": 47,
-      "longest_runway_m": 3100,
-      "alternate_ok": true
+      "longest_runway_m": 3100
     },
     {
       "icao": "WALL",
@@ -174,8 +159,7 @@
       "lat": -1.26834,
       "lon": 116.89452,
       "elev_ft": 12,
-      "longest_runway_m": 2500,
-      "alternate_ok": true
+      "longest_runway_m": 2500
     },
     {
       "icao": "WAOO",
@@ -185,8 +169,7 @@
       "lat": -3.44011,
       "lon": 114.76121,
       "elev_ft": 66,
-      "longest_runway_m": 2500,
-      "alternate_ok": true
+      "longest_runway_m": 2500
     },
     {
       "icao": "WAMM",
@@ -196,8 +179,7 @@
       "lat": 1.54859,
       "lon": 124.92625,
       "elev_ft": 264,
-      "longest_runway_m": 2650,
-      "alternate_ok": true
+      "longest_runway_m": 2650
     },
     {
       "icao": "WAEE",
@@ -207,8 +189,7 @@
       "lat": 0.83101,
       "lon": 127.38161,
       "elev_ft": 49,
-      "longest_runway_m": 1791,
-      "alternate_ok": false
+      "longest_runway_m": 1791
     },
     {
       "icao": "WAPP",
@@ -218,8 +199,7 @@
       "lat": -3.71026,
       "lon": 128.089,
       "elev_ft": 33,
-      "longest_runway_m": 2500,
-      "alternate_ok": true
+      "longest_runway_m": 2500
     },
     {
       "icao": "WIMM",
@@ -229,8 +209,7 @@
       "lat": 3.63785,
       "lon": 98.87057,
       "elev_ft": 23,
-      "longest_runway_m": 3750,
-      "alternate_ok": true
+      "longest_runway_m": 3750
     },
     {
       "icao": "WIPT",
@@ -240,8 +219,7 @@
       "lat": -0.78596,
       "lon": 100.28038,
       "elev_ft": 18,
-      "longest_runway_m": 3000,
-      "alternate_ok": true
+      "longest_runway_m": 3000
     },
     {
       "icao": "WIPP",
@@ -251,8 +229,7 @@
       "lat": -2.89765,
       "lon": 104.69815,
       "elev_ft": 49,
-      "longest_runway_m": 2500,
-      "alternate_ok": true
+      "longest_runway_m": 2500
     },
     {
       "icao": "WIDD",
@@ -262,8 +239,7 @@
       "lat": 1.12103,
       "lon": 104.119,
       "elev_ft": 126,
-      "longest_runway_m": 4029,
-      "alternate_ok": true
+      "longest_runway_m": 4029
     },
     {
       "icao": "RJFF",
@@ -273,8 +249,7 @@
       "lat": 33.5859,
       "lon": 130.451,
       "elev_ft": 32,
-      "longest_runway_m": 2800,
-      "alternate_ok": true
+      "longest_runway_m": 2800
     },
     {
       "icao": "RJFK",
@@ -284,8 +259,7 @@
       "lat": 31.8034,
       "lon": 130.71899,
       "elev_ft": 906,
-      "longest_runway_m": 2999,
-      "alternate_ok": true
+      "longest_runway_m": 2999
     },
     {
       "icao": "RJFM",
@@ -295,8 +269,7 @@
       "lat": 31.8772,
       "lon": 131.449,
       "elev_ft": 20,
-      "longest_runway_m": 2499,
-      "alternate_ok": true
+      "longest_runway_m": 2499
     },
     {
       "icao": "RJFO",
@@ -306,8 +279,7 @@
       "lat": 33.4794,
       "lon": 131.737,
       "elev_ft": 19,
-      "longest_runway_m": 2999,
-      "alternate_ok": true
+      "longest_runway_m": 2999
     },
     {
       "icao": "RJFR",
@@ -317,8 +289,7 @@
       "lat": 33.8459,
       "lon": 131.035,
       "elev_ft": 21,
-      "longest_runway_m": 2500,
-      "alternate_ok": true
+      "longest_runway_m": 2500
     },
     {
       "icao": "RJFS",
@@ -328,8 +299,7 @@
       "lat": 33.1497,
       "lon": 130.302,
       "elev_ft": 6,
-      "longest_runway_m": 2000,
-      "alternate_ok": true
+      "longest_runway_m": 2000
     },
     {
       "icao": "RJFT",
@@ -339,8 +309,7 @@
       "lat": 32.8373,
       "lon": 130.855,
       "elev_ft": 642,
-      "longest_runway_m": 2999,
-      "alternate_ok": true
+      "longest_runway_m": 2999
     },
     {
       "icao": "RJFU",
@@ -350,8 +319,7 @@
       "lat": 32.9169,
       "lon": 129.914,
       "elev_ft": 15,
-      "longest_runway_m": 2999,
-      "alternate_ok": true
+      "longest_runway_m": 2999
     },
     {
       "icao": "RPLL",
@@ -361,8 +329,7 @@
       "lat": 14.5086,
       "lon": 121.02,
       "elev_ft": 75,
-      "longest_runway_m": 3737,
-      "alternate_ok": true
+      "longest_runway_m": 3737
     },
     {
       "icao": "RPLC",
@@ -372,8 +339,7 @@
       "lat": 15.186,
       "lon": 120.56,
       "elev_ft": 484,
-      "longest_runway_m": 3200,
-      "alternate_ok": true
+      "longest_runway_m": 3200
     },
     {
       "icao": "RPLB",
@@ -383,8 +349,7 @@
       "lat": 14.79483,
       "lon": 120.27188,
       "elev_ft": 64,
-      "longest_runway_m": 2744,
-      "alternate_ok": true
+      "longest_runway_m": 2744
     },
     {
       "icao": "RPLK",
@@ -394,8 +359,7 @@
       "lat": 13.11191,
       "lon": 123.67683,
       "elev_ft": 319,
-      "longest_runway_m": 2500,
-      "alternate_ok": true
+      "longest_runway_m": 2500
     },
     {
       "icao": "RPVM",
@@ -405,8 +369,7 @@
       "lat": 10.30926,
       "lon": 123.97974,
       "elev_ft": 31,
-      "longest_runway_m": 3310,
-      "alternate_ok": true
+      "longest_runway_m": 3310
     },
     {
       "icao": "RPVI",
@@ -416,8 +379,7 @@
       "lat": 10.83302,
       "lon": 122.49336,
       "elev_ft": 27,
-      "longest_runway_m": 2500,
-      "alternate_ok": true
+      "longest_runway_m": 2500
     },
     {
       "icao": "RPVB",
@@ -427,8 +389,7 @@
       "lat": 10.77624,
       "lon": 123.01888,
       "elev_ft": 82,
-      "longest_runway_m": 2000,
-      "alternate_ok": true
+      "longest_runway_m": 2000
     },
     {
       "icao": "RPMD",
@@ -438,8 +399,7 @@
       "lat": 7.12552,
       "lon": 125.646,
       "elev_ft": 96,
-      "longest_runway_m": 3000,
-      "alternate_ok": true
+      "longest_runway_m": 3000
     },
     {
       "icao": "WSSS",
@@ -449,8 +409,7 @@
       "lat": 1.35019,
       "lon": 103.994,
       "elev_ft": 22,
-      "longest_runway_m": 4000,
-      "alternate_ok": true
+      "longest_runway_m": 4000
     },
     {
       "icao": "YPDN",
@@ -460,8 +419,7 @@
       "lat": -12.41497,
       "lon": 130.88185,
       "elev_ft": 103,
-      "longest_runway_m": 3354,
-      "alternate_ok": true
+      "longest_runway_m": 3354
     },
     {
       "icao": "YBRM",
@@ -471,8 +429,7 @@
       "lat": -17.94919,
       "lon": 122.2283,
       "elev_ft": 56,
-      "longest_runway_m": 2368,
-      "alternate_ok": true
+      "longest_runway_m": 2368
     }
   ]
 }

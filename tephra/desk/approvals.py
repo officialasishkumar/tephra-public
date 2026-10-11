@@ -358,6 +358,8 @@ def _audit_view(advisory: Advisory) -> dict[str, Any]:
         "body": advisory.body,
         "edited_body": advisory.edited_body,
         "reject_reason": advisory.reject_reason,
+        "policy_id": advisory.policy_id,
+        "policy_version": advisory.policy_version,
     }
 
 

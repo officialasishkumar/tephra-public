@@ -895,7 +895,9 @@ def test_extrapolate_rejects_a_non_positive_step() -> None:
 
 def test_find_exposed_minutes_to_entry_and_path() -> None:
     cone = _cone(BOX)
-    (flight,) = find_exposed(cone, [_aircraft()], AT, lookahead_min=60, vertical_margin_ft=2000)
+    (flight,) = find_exposed(
+        cone, [_aircraft()], AT, lookahead_min=60, vertical_margin_ft=2000, hold_minutes=20
+    )
 
     assert flight.minutes_to_entry == 8
     assert not flight.inside_now
@@ -921,7 +923,9 @@ def test_find_exposed_catches_a_narrow_cone_crossed_between_two_minutes() -> Non
     # (112.943 E and 113.078 E) fall either side of it, yet the track crosses it at 7.05 min.
     strip = _square(112.95, -9.0, 113.05, -8.0)
     cone = _cone(strip)
-    (flight,) = find_exposed(cone, [_aircraft()], AT, lookahead_min=60, vertical_margin_ft=2000)
+    (flight,) = find_exposed(
+        cone, [_aircraft()], AT, lookahead_min=60, vertical_margin_ft=2000, hold_minutes=20
+    )
     assert flight.minutes_to_entry == 8
     assert not flight.inside_now
     assert flight.entry_lon == pytest.approx(112.95, abs=1e-6)
@@ -932,7 +936,9 @@ def test_find_exposed_catches_a_narrow_cone_crossed_between_two_minutes() -> Non
 
 def test_find_exposed_counts_minutes_from_now_for_an_old_position() -> None:
     stale = _aircraft(observed_at=AT - timedelta(minutes=3))
-    (flight,) = find_exposed(_cone(BOX), [stale], AT, lookahead_min=60, vertical_margin_ft=2000)
+    (flight,) = find_exposed(
+        _cone(BOX), [stale], AT, lookahead_min=60, vertical_margin_ft=2000, hold_minutes=20
+    )
     assert flight.minutes_to_entry == 5
     assert flight.path[0] == (stale.lon, stale.lat)
 
@@ -943,13 +949,17 @@ def test_find_exposed_skips_a_position_older_than_the_lookahead() -> None:
     seen = {"lon": 113.5, "gs_kt": None, "track_deg": None}
     lost = _aircraft(hex_id="8a01f2", observed_at=AT - timedelta(minutes=61), **seen)
     held = _aircraft(hex_id="8a01f3", observed_at=AT - timedelta(minutes=60), **seen)
-    flights = find_exposed(_cone(BOX), [lost, held], AT, lookahead_min=60, vertical_margin_ft=0)
+    flights = find_exposed(
+        _cone(BOX), [lost, held], AT, lookahead_min=60, vertical_margin_ft=0, hold_minutes=20
+    )
     assert [flight.hex for flight in flights] == ["8a01f3"]
 
 
 def test_find_exposed_inside_now() -> None:
     inside = _aircraft(lon=113.5)
-    (flight,) = find_exposed(_cone(BOX), [inside], AT, lookahead_min=60, vertical_margin_ft=2000)
+    (flight,) = find_exposed(
+        _cone(BOX), [inside], AT, lookahead_min=60, vertical_margin_ft=2000, hold_minutes=20
+    )
     assert flight.inside_now
     assert flight.minutes_to_entry == 0
     assert (flight.entry_lat, flight.entry_lon) == (inside.lat, inside.lon)
@@ -971,7 +981,9 @@ def test_find_exposed_vertical_band_with_margin(
     alt_baro_ft: int, mcp_ft: int | None, exposed: bool
 ) -> None:
     target = _aircraft(alt_baro_ft=alt_baro_ft, nav_altitude_mcp_ft=mcp_ft)
-    flights = find_exposed(_cone(BOX), [target], AT, lookahead_min=60, vertical_margin_ft=2000)
+    flights = find_exposed(
+        _cone(BOX), [target], AT, lookahead_min=60, vertical_margin_ft=2000, hold_minutes=20
+    )
     assert bool(flights) is exposed
     if flights:
         expected_band = (min(alt_baro_ft, mcp_ft or alt_baro_ft), max(alt_baro_ft, mcp_ft or 0))
@@ -982,8 +994,10 @@ def test_find_exposed_below_the_base() -> None:
     cone = _cone(BOX, base_ft=20_000, top_ft=35_000)
     low = _aircraft(alt_baro_ft=17_000)
     lower = _aircraft(alt_baro_ft=16_000)
-    assert find_exposed(cone, [low], AT, lookahead_min=60, vertical_margin_ft=3000)
-    assert not find_exposed(cone, [lower], AT, lookahead_min=60, vertical_margin_ft=3000)
+    assert find_exposed(cone, [low], AT, lookahead_min=60, vertical_margin_ft=3000, hold_minutes=20)
+    assert not find_exposed(
+        cone, [lower], AT, lookahead_min=60, vertical_margin_ft=3000, hold_minutes=20
+    )
 
 
 def test_find_exposed_skips_non_airline_and_unknown_altitude() -> None:
@@ -992,16 +1006,30 @@ def test_find_exposed_skips_non_airline_and_unknown_altitude() -> None:
         _aircraft(callsign=None),
         _aircraft(alt_baro_ft=None),
     ]
-    assert find_exposed(_cone(BOX), targets, AT, lookahead_min=60, vertical_margin_ft=2000) == []
+    assert (
+        find_exposed(
+            _cone(BOX), targets, AT, lookahead_min=60, vertical_margin_ft=2000, hold_minutes=20
+        )
+        == []
+    )
 
 
 def test_find_exposed_lookahead_is_capped_by_horizon_and_setting() -> None:
     target = [_aircraft()]
     assert not find_exposed(
-        _cone(BOX, horizon_h=0.1), target, AT, lookahead_min=60, vertical_margin_ft=2000
+        _cone(BOX, horizon_h=0.1),
+        target,
+        AT,
+        lookahead_min=60,
+        vertical_margin_ft=2000,
+        hold_minutes=20,
     )
-    assert not find_exposed(_cone(BOX), target, AT, lookahead_min=7, vertical_margin_ft=2000)
-    assert find_exposed(_cone(BOX), target, AT, lookahead_min=8, vertical_margin_ft=2000)
+    assert not find_exposed(
+        _cone(BOX), target, AT, lookahead_min=7, vertical_margin_ft=2000, hold_minutes=20
+    )
+    assert find_exposed(
+        _cone(BOX), target, AT, lookahead_min=8, vertical_margin_ft=2000, hold_minutes=20
+    )
 
 
 def test_find_exposed_ignores_slow_targets_outside_and_tracks_away() -> None:
@@ -1010,7 +1038,12 @@ def test_find_exposed_ignores_slow_targets_outside_and_tracks_away() -> None:
         _aircraft(hex_id="000002", track_deg=270.0),
         _aircraft(hex_id="000003", gs_kt=None, track_deg=None),
     ]
-    assert find_exposed(_cone(BOX), targets, AT, lookahead_min=60, vertical_margin_ft=2000) == []
+    assert (
+        find_exposed(
+            _cone(BOX), targets, AT, lookahead_min=60, vertical_margin_ft=2000, hold_minutes=20
+        )
+        == []
+    )
 
 
 @pytest.mark.parametrize(
@@ -1021,14 +1054,18 @@ def test_find_exposed_treats_a_non_finite_speed_or_track_as_unknown(
 ) -> None:
     target = _aircraft(lon=113.5, gs_kt=gs_kt, track_deg=track_deg)
     assert extrapolate(target, 60) == [(target.lat, target.lon)]
-    (flight,) = find_exposed(_cone(BOX), [target], AT, lookahead_min=60, vertical_margin_ft=2000)
+    (flight,) = find_exposed(
+        _cone(BOX), [target], AT, lookahead_min=60, vertical_margin_ft=2000, hold_minutes=20
+    )
     assert flight.inside_now
     assert (flight.entry_lat, flight.entry_lon) == (target.lat, target.lon)
 
 
 def test_find_exposed_slow_target_inside_is_exposed_now() -> None:
     target = _aircraft(lon=113.5, gs_kt=None, track_deg=None)
-    (flight,) = find_exposed(_cone(BOX), [target], AT, lookahead_min=60, vertical_margin_ft=2000)
+    (flight,) = find_exposed(
+        _cone(BOX), [target], AT, lookahead_min=60, vertical_margin_ft=2000, hold_minutes=20
+    )
     assert flight.inside_now
     assert flight.gs_kt is None
 
@@ -1039,7 +1076,9 @@ def test_find_exposed_sorted_by_minutes_to_entry() -> None:
         _aircraft(hex_id="bbbbbb", lon=113.5),
         _aircraft(hex_id="cccccc", lon=112.5),
     ]
-    flights = find_exposed(_cone(BOX), targets, AT, lookahead_min=60, vertical_margin_ft=2000)
+    flights = find_exposed(
+        _cone(BOX), targets, AT, lookahead_min=60, vertical_margin_ft=2000, hold_minutes=20
+    )
     assert [f.hex for f in flights] == ["bbbbbb", "cccccc", "aaaaaa"]
     assert flights[-1].category is AircraftCategory.WIDEBODY
     assert flights[-1].hold.fuel_kg == 2200
@@ -1047,7 +1086,12 @@ def test_find_exposed_sorted_by_minutes_to_entry() -> None:
 
 def test_find_exposed_without_geometry() -> None:
     cone = _cone(None)
-    assert find_exposed(cone, [_aircraft()], AT, lookahead_min=60, vertical_margin_ft=0) == []
+    assert (
+        find_exposed(
+            cone, [_aircraft()], AT, lookahead_min=60, vertical_margin_ft=0, hold_minutes=20
+        )
+        == []
+    )
 
 
 # --- fuel -------------------------------------------------------------------------------
@@ -1089,18 +1133,18 @@ def test_burn_rates_cover_every_category() -> None:
 
 
 def test_hold_line_formula() -> None:
-    line = hold_line(AircraftCategory.NARROWBODY)
+    line = hold_line(AircraftCategory.NARROWBODY, minutes=20)
     assert line.action is ActionKind.HOLD
     assert (line.minutes, line.fuel_kg, line.burn_kg_per_min) == (20, 840, 42)
     assert line.formula == "HOLD 20 MIN x 42 KG/MIN (NARROWBODY) = 840 KG"
-    assert hold_line(AircraftCategory.WIDEBODY).fuel_kg == 2200
-    assert hold_line(AircraftCategory.TURBOPROP).formula == (
+    assert hold_line(AircraftCategory.WIDEBODY, minutes=20).fuel_kg == 2200
+    assert hold_line(AircraftCategory.TURBOPROP, minutes=20).formula == (
         "HOLD 20 MIN x 12 KG/MIN (TURBOPROP) = 240 KG"
     )
 
 
 def test_hold_line_unknown_type_says_so() -> None:
-    line = hold_line(AircraftCategory.UNKNOWN)
+    line = hold_line(AircraftCategory.UNKNOWN, minutes=20)
     assert line.fuel_kg == 840
     assert line.category is AircraftCategory.UNKNOWN
     assert "(TYPE UNKNOWN, NARROWBODY RATE)" in line.formula
@@ -1108,7 +1152,11 @@ def test_hold_line_unknown_type_says_so() -> None:
 
 def test_divert_line_rounds_minutes_and_fuel_up() -> None:
     line = divert_line(
-        AircraftCategory.NARROWBODY, alternate_icao="WARR", distance_nm=182.0, gs_kt=430.0
+        AircraftCategory.NARROWBODY,
+        alternate_icao="WARR",
+        distance_nm=182.0,
+        gs_kt=430.0,
+        extra_minutes=15,
     )
     # 182 / 430 * 60 = 25.4 -> 26 min; + 15 = 41 min; x 42 = 1722 kg.
     assert line.action is ActionKind.DIVERT
@@ -1123,7 +1171,11 @@ def test_divert_line_rounds_minutes_and_fuel_up() -> None:
 @pytest.mark.parametrize("gs_kt", [None, 0.0, 120.0, 149.9])
 def test_divert_line_assumes_250_kt_for_missing_or_slow_speed(gs_kt: float | None) -> None:
     line = divert_line(
-        AircraftCategory.WIDEBODY, alternate_icao="WADD", distance_nm=125.0, gs_kt=gs_kt
+        AircraftCategory.WIDEBODY,
+        alternate_icao="WADD",
+        distance_nm=125.0,
+        gs_kt=gs_kt,
+        extra_minutes=15,
     )
     # Exactly 30 min (no float noise pushing it to 31); + 15 = 45 min x 110 = 4950 kg.
     assert (line.minutes, line.fuel_kg) == (45, 4950)
@@ -1141,7 +1193,11 @@ def test_divert_line_minutes_follow_from_the_printed_formula(
     distance_nm: float, gs_kt: float | None, prefix: str
 ) -> None:
     line = divert_line(
-        AircraftCategory.NARROWBODY, alternate_icao="WARR", distance_nm=distance_nm, gs_kt=gs_kt
+        AircraftCategory.NARROWBODY,
+        alternate_icao="WARR",
+        distance_nm=distance_nm,
+        gs_kt=gs_kt,
+        extra_minutes=15,
     )
     assert line.formula.startswith(prefix)
     assert line.fuel_kg == line.minutes * 42
@@ -1149,7 +1205,11 @@ def test_divert_line_minutes_follow_from_the_printed_formula(
 
 def test_divert_line_trusts_cruise_speed() -> None:
     line = divert_line(
-        AircraftCategory.UNKNOWN, alternate_icao="WIII", distance_nm=300.0, gs_kt=450.0
+        AircraftCategory.UNKNOWN,
+        alternate_icao="WIII",
+        distance_nm=300.0,
+        gs_kt=450.0,
+        extra_minutes=15,
     )
     assert line.minutes == 40 + 15
     assert "AT 450 KT =" in line.formula

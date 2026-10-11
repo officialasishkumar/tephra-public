@@ -587,6 +587,7 @@ def test_docker_context_keeps_what_the_image_runs() -> None:
         "tephra/agents/prompts/plume_reader.md",
         "data/volcanoes.json",
         "data/airports.json",
+        "data/policy/policy_a.json",
         *_replay_files(),
     ]
     assert [path for path in needed if _ignored(path, rules)] == []

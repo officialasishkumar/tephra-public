@@ -63,8 +63,10 @@ from tephra.models import (
     GeoLineString,
     HazardCone,
     LlmInfo,
+    OperatorPolicy,
     Overlays,
     PlumeAssessment,
+    PolicySummary,
     ReplayCase,
     RunMode,
     SatelliteFrame,
@@ -91,6 +93,7 @@ from tephra.models import (
     feature_collection,
     point,
 )
+from tephra.policy import load_policy
 from tephra.reconcile.discrepancies import (
     build_situation,
     evidence_state,
@@ -123,10 +126,6 @@ VAA_RESTORE_H: Final = 30
 RETIRE_AFTER_RUNS: Final = 2
 """A draft is superseded only after its flight is missing from two exposure runs in a row,
 so one dropped ADS-B position does not throw away a dispatcher's pending decision."""
-URGENCY_LIMITS_MIN: Final = (15, 30)
-"""With "inside now" and "later", entry within 15 and within 30 minutes make the urgency
-buckets: a flight is planned once per cone and bucket, and again when its entry moves to a
-more urgent bucket (a MONITOR given 40 minutes out does not stand at 15 minutes)."""
 REASK_UNCHANGED: Final = timedelta(hours=3)
 """An unchanged input goes back to the model only once its estimate's horizon has passed and
 this long after it was asked: a lasting disagreement (Semeru's DIRECTION_MISMATCH held for
@@ -151,9 +150,11 @@ class Runtime:
     llm: LlmBackend
     catalogue: VolcanoCatalogue
     airports: AirportCatalogue
+    policy: OperatorPolicy
     mode: RunMode
     replay_case: ReplayCase | None
     auto_replay: bool
+    policy_summary: PolicySummary = field(init=False)
     live: LiveData = field(init=False, default_factory=LiveData)
     lock: asyncio.Lock = field(init=False, default_factory=asyncio.Lock, repr=False)
     tick_running: bool = field(init=False, default=False)
@@ -175,9 +176,19 @@ class Runtime:
     _tasks: set[asyncio.Task[None]] = field(init=False, default_factory=set, repr=False)
 
     def __post_init__(self) -> None:
+        self.policy_summary = PolicySummary.of(self.policy)
         self.live.health = initial_health(
             self.settings, replay=self.mode is RunMode.REPLAY, recorded=self.recorded_feeds
         )
+
+    @property
+    def urgency_limits_min(self) -> tuple[int, int]:
+        """With "inside now" and "later", entry within the policy's divert and hold times makes
+        the urgency buckets, the same limits the rules apply: a flight is planned once per cone
+        and bucket, and again when its entry moves to a more urgent bucket (a MONITOR given 40
+        minutes out does not stand at 15 minutes)."""
+        rules = self.policy.planner
+        return rules.divert_within_min.value, rules.hold_within_min.value
 
     @property
     def recorded_feeds(self) -> frozenset[FeedId] | None:
@@ -213,6 +224,7 @@ class Runtime:
             active_volcano_ids=sorted(self.live.active),
             exposed_count=len(self.exposed),
             draft_count=len(drafts),
+            policy=self.policy_summary,
             last_tick=self.last_tick,
         )
 
@@ -369,7 +381,8 @@ class Runtime:
                 aircraft,
                 at,
                 lookahead_min=settings.exposure_lookahead_min,
-                vertical_margin_ft=settings.vertical_margin_ft,
+                vertical_margin_ft=self.policy.exposure.vertical_margin_ft.value,
+                hold_minutes=self.policy.fuel.hold_min.value,
             ):
                 exposed[flight.id] = flight
         for flight in sorted(exposed.values(), key=_entry_order):
@@ -637,7 +650,8 @@ class Runtime:
         """Plan a flight once per cone and urgency bucket; open drafts given when its entry
         was less urgent are replaced by the new one."""
         cone = self.cones[flight.volcano_id]
-        urgency = _urgency(flight.inside_now, flight.minutes_to_entry)
+        limits = self.urgency_limits_min
+        urgency = _urgency(flight.inside_now, flight.minutes_to_entry, limits)
         planned = self._planned_urgency(flight.id, cone.id, drafts)
         if planned is not None and planned <= urgency:
             self._planned[flight.id] = (cone.id, planned)
@@ -645,7 +659,9 @@ class Runtime:
         # Marked planned even on failure: retrying a broken flight every tick would spend
         # model calls on the same error. A new cone or a more urgent entry plans it again.
         self._planned[flight.id] = (cone.id, urgency)
-        outdated = [d for d in drafts if _urgency(d.inside_now, d.minutes_to_entry) > urgency]
+        outdated = [
+            d for d in drafts if _urgency(d.inside_now, d.minutes_to_entry, limits) > urgency
+        ]
         try:
             await self._plan_and_draft(flight, cone, at, report, outdated)
         except Exception as exc:
@@ -666,7 +682,12 @@ class Runtime:
     ) -> int | None:
         """The most urgent bucket the flight was planned in for this cone. An open draft for
         the cone counts: the marker is lost in a restart between checkpoints."""
-        found = [_urgency(d.inside_now, d.minutes_to_entry) for d in drafts if d.cone_id == cone_id]
+        limits = self.urgency_limits_min
+        found = [
+            _urgency(d.inside_now, d.minutes_to_entry, limits)
+            for d in drafts
+            if d.cone_id == cone_id
+        ]
         marker = self._planned.get(flight_id)
         if marker is not None and marker[0] == cone_id:
             found.append(marker[1])
@@ -689,7 +710,7 @@ class Runtime:
             airports=self.airports,
             tafs=self.live.tafs,
             at=at,
-            settings=self.settings,
+            policy=self.policy,
         )
         plan = await plan_flight(ctx, self.llm, settings=self.settings, trace=self._sink)
         await self.store.put(Collection.PLANS, plan.id, plan.model_dump(mode="json"))
@@ -701,6 +722,7 @@ class Runtime:
             plan=plan,
             llm=self.llm,
             settings=self.settings,
+            policy=self.policy,
             trace=self._sink,
         )
         # Outdated drafts go once the new advice is drafted (a failed plan leaves them up) and
@@ -1029,8 +1051,11 @@ class Runtime:
 async def create_runtime(settings: Settings) -> Runtime:
     """Build the process-wide runtime (composition root; settings come from the caller)."""
     apply_process_env(settings)
+    policy = await asyncio.to_thread(load_policy, settings.data_dir)
     catalogue = await asyncio.to_thread(load_volcanoes, settings.data_dir)
-    airports = await asyncio.to_thread(load_airports, settings.data_dir)
+    airports = await asyncio.to_thread(
+        load_airports, settings.data_dir, min_runway_m=policy.alternates.min_runway_m.value
+    )
     replay_case: ReplayCase | None = None
     source: Source
     if settings.mode is RunMode.REPLAY:
@@ -1047,6 +1072,7 @@ async def create_runtime(settings: Settings) -> Runtime:
         llm=get_llm(settings),
         catalogue=catalogue,
         airports=airports,
+        policy=policy,
         mode=settings.mode,
         replay_case=replay_case,
         auto_replay=False,
@@ -1067,11 +1093,11 @@ def _still_current(assessment: PlumeAssessment, input_hash: str, at: datetime) -
     return at < assessment.created_at + keep
 
 
-def _urgency(inside_now: bool, minutes_to_entry: int) -> int:
+def _urgency(inside_now: bool, minutes_to_entry: int, limits: Sequence[int]) -> int:
     """0 inside the cone now; otherwise 1 plus the number of limits the entry lies beyond."""
     if inside_now:
         return 0
-    return 1 + sum(minutes_to_entry > limit for limit in URGENCY_LIMITS_MIN)
+    return 1 + sum(minutes_to_entry > limit for limit in limits)
 
 
 def _planned_marks(stored: object) -> dict[str, tuple[str, int]]:

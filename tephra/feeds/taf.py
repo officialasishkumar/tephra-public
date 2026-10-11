@@ -10,11 +10,6 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Final
 
-from tephra.config import (
-    ALTERNATE_ETA_WINDOW_MIN,
-    ALTERNATE_MIN_CEILING_FT,
-    ALTERNATE_MIN_VISIBILITY_M,
-)
 from tephra.feeds.base import FetchResult, Source
 from tephra.models import AlternateCheck, FeedId, Metar, Taf, TafPeriod, make_source_id
 from tephra.util import timeutil
@@ -265,10 +260,19 @@ def _chunks(icaos: Sequence[str]) -> list[list[str]]:
 # --- alternate screen -------------------------------------------------------------------
 
 
-def assess_alternate(taf: Taf | None, eta: datetime, *, icao: str | None = None) -> AlternateCheck:
+def assess_alternate(
+    taf: Taf | None,
+    eta: datetime,
+    *,
+    min_visibility_m: int,
+    min_ceiling_ft: int,
+    window_min: int,
+    icao: str | None = None,
+) -> AlternateCheck:
     """Simplified planning-minima screen of one alternate's TAF around ``eta``.
 
-    ``icao`` names the aerodrome when there is no TAF to take it from.
+    The minima and the window (groups within +/- ``window_min`` of the ETA) come from the
+    operator policy. ``icao`` names the aerodrome when there is no TAF to take it from.
     """
     eta = timeutil.ensure_utc(eta)
     if taf is None:
@@ -281,14 +285,14 @@ def assess_alternate(taf: Taf | None, eta: datetime, *, icao: str | None = None)
             taf_source_id=taf.provenance.source_id,
             checked_for=eta,
         )
-    window = timedelta(minutes=ALTERNATE_ETA_WINDOW_MIN)
+    window = timedelta(minutes=window_min)
     start, end = eta - window, eta + window
     blocking: list[str] = []
     notes: list[str] = []
     for period in taf.periods:
         if period.valid_to <= start or period.valid_from >= end:
             continue
-        blocking.extend(_blocking_reasons(period))
+        blocking.extend(_blocking_reasons(period, min_visibility_m, min_ceiling_ft))
         if any("TS" in token for token in period.weather):
             notes.append(f"TS {_group_label(period)}")
     reasons = list(dict.fromkeys([*blocking, *notes]))
@@ -301,17 +305,15 @@ def assess_alternate(taf: Taf | None, eta: datetime, *, icao: str | None = None)
     )
 
 
-def _blocking_reasons(period: TafPeriod) -> list[str]:
+def _blocking_reasons(period: TafPeriod, min_visibility_m: int, min_ceiling_ft: int) -> list[str]:
     label = _group_label(period)
     reasons: list[str] = []
     if any("VA" in token for token in period.weather):
         reasons.append(f"VA {label}")
-    if period.visibility_m is not None and period.visibility_m < ALTERNATE_MIN_VISIBILITY_M:
-        reasons.append(f"VIS {period.visibility_m} M BELOW {ALTERNATE_MIN_VISIBILITY_M} M {label}")
-    if period.ceiling_ft is not None and period.ceiling_ft < ALTERNATE_MIN_CEILING_FT:
-        reasons.append(
-            f"CEILING {period.ceiling_ft} FT BELOW {ALTERNATE_MIN_CEILING_FT} FT {label}"
-        )
+    if period.visibility_m is not None and period.visibility_m < min_visibility_m:
+        reasons.append(f"VIS {period.visibility_m} M BELOW {min_visibility_m} M {label}")
+    if period.ceiling_ft is not None and period.ceiling_ft < min_ceiling_ft:
+        reasons.append(f"CEILING {period.ceiling_ft} FT BELOW {min_ceiling_ft} FT {label}")
     return reasons
 
 
