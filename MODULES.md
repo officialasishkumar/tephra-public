@@ -649,10 +649,10 @@ volcano downloads each slot list, image and tile once.
 
 `tephra/science/hsd_segments.py`
 ```python
-HSD_BUCKET_URL: Final = "https://noaa-himawari9.s3.amazonaws.com/"
+HSD_BUCKET_URL: Final = "https://storage.googleapis.com/noaa-himawari9/"   # NOAA NODD on GCS; same keys as https://noaa-himawari9.s3.amazonaws.com/
 class HsdObject(TephraModel):   # key, url, band: int, segment: int, size_bytes: int, scan_start: UtcDatetime
 def listing_params(scan_start: datetime) -> dict[str, str]   # {"list-type": "2", "prefix": "AHI-L1b-FLDK/YYYY/MM/DD/HHMM/"}
-def parse_listing(result: FetchResult) -> list[HsdObject]
+def parse_listing(result: FetchResult) -> list[HsdObject]   # ListBucketResult XML, namespace ignored (S3 or GCS)
 def segments_for_bbox(bbox: BBox, projection: GeosProjection = HIMAWARI_AHI_2KM) -> list[int]
     # 1..10 full-disk segments covering it
 async def find_latest_scan(source: Source, at: datetime, bands: Sequence[int],

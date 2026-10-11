@@ -1,12 +1,13 @@
 """Find and fetch raw Himawari-9 full-disk segments (HSD) on the NOAA Open Data bucket.
 
-The bucket ``noaa-himawari9`` is listed and read anonymously over plain HTTPS GET, so it
-goes through the same :class:`~tephra.feeds.base.Source` as every other feed (and replays
-the same way). A full-disk scan starts every 10 minutes and is published as 16 bands x 10
-segments, numbered north to south; the 2 km infrared bands are 5500 x 5500 pixels, so each
-segment holds 550 lines. Which segments cover a volcano follows from the geostationary
-projection (CGMS LRIT/HRIT Global Specification 4.4, as the JMA HSD User's Guide v1.3
-uses it), implemented here in numpy so no satellite library is needed to plan a download.
+The bucket ``noaa-himawari9`` (NOAA NODD, read here from Google Cloud Storage) is listed
+and read anonymously over plain HTTPS GET, so it goes through the same
+:class:`~tephra.feeds.base.Source` as every other feed (and replays the same way). A
+full-disk scan starts every 10 minutes and is published as 16 bands x 10 segments,
+numbered north to south; the 2 km infrared bands are 5500 x 5500 pixels, so each segment
+holds 550 lines. Which segments cover a volcano follows from the geostationary projection
+(CGMS LRIT/HRIT Global Specification 4.4, as the JMA HSD User's Guide v1.3 uses it),
+implemented here in numpy so no satellite library is needed to plan a download.
 
 Objects usually appear 10 to 14 minutes after the nominal scan start (research/12), so the
 newest complete scan is found by walking back over a few 10-minute slots.
@@ -52,7 +53,11 @@ __all__ = [
 
 log = logging.getLogger(__name__)
 
-HSD_BUCKET_URL: Final = "https://noaa-himawari9.s3.amazonaws.com/"
+# The same public NODD bucket is also at https://noaa-himawari9.s3.amazonaws.com/ with the
+# same keys; research/17-data-sources.md L17 read the Google Cloud Storage copy keyless.
+# The GCS XML API takes the same list-type=2&prefix= query; one live listing is to be
+# checked by a person before relying on it.
+HSD_BUCKET_URL: Final = "https://storage.googleapis.com/noaa-himawari9/"
 FLDK_PREFIX: Final = "AHI-L1b-FLDK"
 SLOT_MINUTES: Final = 10
 FULL_DISK_LINES: Final = 5500
@@ -129,16 +134,20 @@ def listing_params(scan_start: datetime) -> dict[str, str]:
 
 
 def parse_listing(result: FetchResult) -> list[HsdObject]:
-    """Full-disk segment objects in an S3 ``ListBucketResult``; other keys are ignored."""
+    """Full-disk segment objects in a ``ListBucketResult``; other keys are ignored.
+
+    Element names are matched without their namespace, so the S3 and the Google Cloud
+    Storage XML listings parse the same way.
+    """
     try:
         root = ET.fromstring(result.content)
     except ET.ParseError as exc:
-        raise ValueError(f"S3 listing is not XML: {exc}") from exc
+        raise ValueError(f"bucket listing is not XML: {exc}") from exc
     if _local(root.tag) != "ListBucketResult":
-        raise ValueError(f"unexpected S3 listing root element {_local(root.tag)!r}")
+        raise ValueError(f"unexpected bucket listing root element {_local(root.tag)!r}")
     if _child_text(root, "IsTruncated") == "true":
         log.warning(
-            "S3 listing truncated at %s; segments past the first page are ignored", result.url
+            "bucket listing truncated at %s; segments past the first page are ignored", result.url
         )
     objects: list[HsdObject] = []
     for contents in root:
@@ -262,7 +271,7 @@ def _object_from_contents(contents: ET.Element) -> HsdObject | None:
         return None
     size = _child_text(contents, "Size")
     if size is None or not size.isdigit():
-        log.warning("S3 object %s has no usable Size; skipped", key)
+        log.warning("bucket object %s has no usable Size; skipped", key)
         return None
     scan_start = datetime.strptime(match["date"] + match["time"], "%Y%m%d%H%M").replace(tzinfo=UTC)
     return HsdObject(

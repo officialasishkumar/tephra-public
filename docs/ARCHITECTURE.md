@@ -37,7 +37,7 @@ flowchart LR
     VONA["MAGMA VONAs<br/>HTML"]
     JMA["JMA eruption reports<br/>XML, no model"]
     VAA["VAAC advisories<br/>Tokyo (JMA) and Darwin (NOAA tgftp)"]
-    SAT["Satellite<br/>JMA/NICT frames, Himawari-9 HSD on AWS"]
+    SAT["Satellite<br/>JMA/NICT frames, Himawari-9 HSD (NOAA NODD on Google Cloud Storage; offline replay precompute)"]
     WIND["Winds<br/>Open-Meteo pressure levels"]
     TAF["TAF and METAR<br/>aviationweather.gov"]
     ADSB["Aircraft<br/>adsb.lol point API"]

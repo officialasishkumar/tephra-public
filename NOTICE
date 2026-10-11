@@ -1,0 +1,34 @@
+TEPHRA
+Copyright (c) 2026 Asish Kumar and Akash Kumar
+
+TEPHRA's own code and documentation are under the MIT License in LICENSE.
+
+The MIT License does not cover the data and third-party files shipped in this repository.
+They keep their own terms:
+
+- ADS-B answers from adsb.lol (data/replay/*/raw/adsb/, tests/fixtures/adsb/):
+  Open Database License (ODbL) 1.0. Contains information from adsb.lol, which is made
+  available under the ODbL 1.0. Replay answers derived from it stay under the ODbL.
+- Winds from Open-Meteo (replay cases and fixtures): CC BY 4.0. Weather data by
+  Open-Meteo.com.
+- Japan Meteorological Agency material (Tokyo VAAC advisories, JMA eruption reports, JMA
+  Meteorological Satellite Center images): JMA Public Data License 1.0. Source: Japan
+  Meteorological Agency website.
+- NOAA/NWS and Aviation Weather Center material (SIGMETs, TAFs, METARs, tgftp relays of
+  Darwin VAAC bulletins, FIR and VAAC outlines): US public domain. Darwin VAAC bulletins are
+  credited to the Bureau of Meteorology as originator.
+- VRS standing data routes and airports (data/routes_apac.json): CC0 1.0.
+- OurAirports data and Natural Earth data: public domain.
+- Volcano catalogue (data/volcanoes.json): Global Volcanism Program, Smithsonian
+  Institution, Volcanoes of the World.
+- Himawari-9 data: JMA, distributed by NOAA (NODD). Derived images are labelled "processed
+  by TEPHRA, not original JMA data". No endorsement by NOAA or JMA is stated or implied.
+- Map basemap shown in the browser: OpenFreeMap, OpenMapTiles, map data from OpenStreetMap
+  contributors (ODbL 1.0). These are fetched at run time, not shipped here.
+- Fonts in tephra/web/fonts/ (IBM Plex Sans and IBM Plex Mono): SIL Open Font License 1.1,
+  text in tephra/web/fonts/OFL.txt.
+- Icons in tephra/web/icons.svg: Lucide (ISC), Feather (MIT), Material Symbols (Apache
+  License 2.0) and Maki (CC0 1.0), with the full notices in tephra/web/THIRD_PARTY.md.
+
+The full table of sources, terms and required credits is in docs/DATA-LICENCES.md. The
+browser assets and services are listed in tephra/web/THIRD_PARTY.md.

@@ -82,7 +82,7 @@ deterministic answer for tests, labelled NO MODEL, except voice, which has none.
 
 \* MAGMA VONAs are off by default (`TEPHRA_VONA_LIVE`), because MAGMA's robots.txt disallows crawling. Replays carry recorded VONAs.
 
-Optional: a **split-window layer** computed by code from raw Himawari-9 B13/B15 data (AWS Open Data). It may only widen the area or raise urgency. "No signal" is never read as "no ash", because the method is often blind in moist tropical air ([research/12](research/12-himawari-raw-split-window.md)).
+Optional: a **split-window layer** computed by code from raw Himawari-9 B13/B15 data (NOAA NODD, read from Google Cloud Storage). It may only widen the area or raise urgency. "No signal" is never read as "no ash", because the method is often blind in moist tropical air ([research/12](research/12-himawari-raw-split-window.md)).
 
 ## What is live, what is ours
 
@@ -159,7 +159,7 @@ What it adds is the evidence reconciliation in front of them.
 
 ## Licence and data credits
 
-MIT (see `LICENSE`). The privacy notice is served at `/privacy` (`tephra/web/privacy.html`): what the Desk records, where it is kept and what is sent to the Gemini API. Data:
+MIT (see `LICENSE`) covers TEPHRA's code. Data and other third-party files in the repo keep their own terms; `NOTICE` lists them. The privacy notice is served at `/privacy` (`tephra/web/privacy.html`): what the Desk records, where it is kept and what is sent to the Gemini API. Data:
 - aviationweather.gov and NWS tgftp (US public domain);
 - JMA / Tokyo VAAC;
 - Bureau of Meteorology / Darwin VAAC (via NWS);
@@ -167,5 +167,5 @@ MIT (see `LICENSE`). The privacy notice is served at `/privacy` (`tephra/web/pri
 - VRS standing data, routes and airports (CC0, via the adsb.lol mirror; `data/routes_apac.json` records the source and SHA-256);
 - JMA eruption reports and frames (Public Data License 1.0, credit "Source: Japan Meteorological Agency website");
 - Open-Meteo (CC BY 4.0, non-commercial free tier);
-- Himawari-9 data from JMA, distributed by NOAA on AWS Open Data (derived products are labelled);
+- Himawari-9 data: JMA, distributed by NOAA (NODD); read from Google Cloud Storage; processed by TEPHRA (derived products are labelled; no endorsement by NOAA or JMA is stated or implied);
 - the volcano catalogue from the Smithsonian GVP.
