@@ -240,7 +240,7 @@ flowchart TB
 - **One instance.** The event bus that feeds SSE is in process. With `max-instances=1`, the
   scheduler's tick and every browser stream share it. CPU stays allocated, so the second
   ADS-B poll 30 s into each tick runs, and SSE connections stay alive between ticks. The
-  minimum is one instance unless `TEPHRA_MIN_INSTANCES=0` is set at deploy time. The limit
+  minimum is one instance unless `TEPHRA_HOSTING=on-demand` is set at deploy time. The limit
   holds per revision, so during a rollout the old revision's instance stays up while its
   streams are open, beside the new one. Only the serving revision gets ticks, so each tick
   (not the startup tick) writes `runtime/writer` (revision, instance, time). An instance that

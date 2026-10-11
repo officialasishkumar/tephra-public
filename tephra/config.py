@@ -264,6 +264,9 @@ class Settings(BaseSettings):
             "MAX_NOTICE_BODY_BYTES"
         ),
     )
+    build_sha: str | None = Field(
+        default=None, description="Commit the image was built from (set by the Dockerfile)"
+    )
     max_event_streams: int = Field(
         default=200,
         ge=1,

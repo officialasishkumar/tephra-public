@@ -1,10 +1,20 @@
-# Builds the TEPHRA image with the SCIENCE build arg and pushes it to Artifact Registry.
+# Builds the TEPHRA image with the SCIENCE and BUILD_SHA build args and pushes it to Artifact
+# Registry. deploy/cloudrun.sh passes the substitutions.
 steps:
   - name: gcr.io/cloud-builders/docker
-    args: ["build", "--build-arg", "SCIENCE=${_SCIENCE}", "-t", "${_IMAGE}", "."]
+    args:
+      - build
+      - --build-arg
+      - SCIENCE=${_SCIENCE}
+      - --build-arg
+      - BUILD_SHA=${_BUILD_SHA}
+      - -t
+      - ${_IMAGE}
+      - .
 images: ["${_IMAGE}"]
 substitutions:
   _SCIENCE: "0"
+  _BUILD_SHA: "unknown"
   _IMAGE: ""
 options:
   dynamicSubstitutions: true

@@ -1,0 +1,21 @@
+# What `gcloud builds submit` (deploy/cloudrun.sh) uploads: only what the Dockerfile copies, so a
+# .env, .state/ or research/ never leaves this machine. Same syntax as .gitignore
+# (https://cloud.google.com/sdk/gcloud/reference/topic/gcloudignore): exclude every top-level
+# entry, then re-include the ones the build needs. Keep it in step with .dockerignore.
+/*
+!/Dockerfile
+!/.dockerignore
+!/pyproject.toml
+!/uv.lock
+!/README.md
+!/LICENSE
+!/tephra/
+!/data/
+!/docs/
+/docs/*
+!/docs/backtest/
+!/deploy/
+/deploy/*
+!/deploy/cloudbuild.yaml
+**/__pycache__
+# data/replay/<case>/raw stays in: REPLAY in the image serves those recorded files.

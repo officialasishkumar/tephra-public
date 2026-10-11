@@ -123,6 +123,7 @@ async def _tick_steps(runtime: "Runtime", reason: str) -> TickReport:
     report.active_volcano_ids = sorted(active)
     report.finished_at = timeutil.now()
     runtime.last_tick = report
+    runtime.last_tick_wall_at = timeutil.SystemClock().now()
     await runtime.publish()
     await runtime.checkpoint()
     return report

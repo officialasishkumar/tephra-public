@@ -30,7 +30,10 @@ RUN extras="--extra gcp"; \
 RUN useradd --create-home --uid 10001 tephra && mkdir -p /tmp/tephra-cache && chown tephra /tmp/tephra-cache
 USER tephra
 
+# The commit this image was built from (deploy/cloudrun.sh passes it); GET /api/state shows it.
+ARG BUILD_SHA=unknown
 ENV PATH="/app/.venv/bin:$PATH" \
+    TEPHRA_BUILD_SHA=$BUILD_SHA \
     TEPHRA_DATA_DIR=/app/data \
     TEPHRA_CACHE_DIR=/tmp/tephra-cache \
     TEPHRA_SQLITE_PATH=/tmp/tephra-cache/tephra.sqlite3 \

@@ -2055,6 +2055,13 @@ class SystemState(TephraModel):
     store: StoreHealth = Field(default_factory=StoreHealth)
     policy: PolicySummary
     last_tick: TickReport | None = None
+    last_tick_wall_at: UtcDatetime | None = Field(
+        default=None,
+        description="Wall-clock time the last tick of this process finished (None before one)",
+    )
+    build_sha: str | None = Field(
+        default=None, description="Commit the running image was built from (TEPHRA_BUILD_SHA)"
+    )
 
 
 # --- HTTP request and response bodies ---------------------------------------------------

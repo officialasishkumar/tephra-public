@@ -40,7 +40,7 @@ modules (sections 5.11 to 5.17) were built against.
 | backtest | `tephra/backtest/{__init__,models,metrics,runner,report}.py`, `tephra/agents/prompts/backtest.md`, `tephra/api/routes_backtest.py`, `scripts/backtest.py`, `docs/backtest/`, `tests/test_backtest.py` |
 | web-wall | `tephra/web/index.html`, `tephra/web/wall.js`, `tephra/web/wall.css` |
 | web-desk | `tephra/web/desk.html`, `tephra/web/desk.js`, `tephra/web/desk.css` |
-| ops-evals | `Dockerfile`, `.dockerignore`, `.env.example`, `deploy/_common.sh`, `deploy/cloudbuild.yaml`, `deploy/cloudrun.sh`, `deploy/scheduler.sh`, `deploy/secrets.sh`, `deploy/firestore.rules`, `deploy/README.md`, `.github/workflows/ci.yml`, `scripts/record_replay.py`, `scripts/count_traffic.py`, `scripts/plume_eval.py`, `scripts/make_plume_cases.py`, `evals/plume/README.md`, `data/replay/README.md`, `tests/test_scripts.py`, `tests/test_record_replay.py`, `tests/fixtures/ops_evals/` |
+| ops-evals | `Dockerfile`, `.dockerignore`, `.gcloudignore`, `.env.example`, `deploy/_common.sh`, `deploy/cloudbuild.yaml`, `deploy/cloudrun.sh`, `deploy/ar-cleanup.json`, `scripts/live_smoke.sh`, `deploy/scheduler.sh`, `deploy/secrets.sh`, `deploy/firestore.rules`, `deploy/README.md`, `.github/workflows/ci.yml`, `scripts/record_replay.py`, `scripts/count_traffic.py`, `scripts/plume_eval.py`, `scripts/make_plume_cases.py`, `evals/plume/README.md`, `data/replay/README.md`, `tests/test_scripts.py`, `tests/test_record_replay.py`, `tests/fixtures/ops_evals/` |
 
 Each module may also create test fixtures under `tests/fixtures/<module_key>/` (e.g.
 `tests/fixtures/feeds_text/`). There is **no shared `tests/conftest.py`**: each test file
@@ -315,6 +315,9 @@ overhead); a pasted notice has `MAX_NOTICE_BODY_BYTES`, every other route `MAX_B
 `max_event_streams` (`TEPHRA_MAX_EVENT_STREAMS`,
 default 200, at least 1) caps open `GET /api/events` streams; each holds a Cloud Run request
 slot, so it must stay below the service's `--concurrency`.
+`build_sha` (`TEPHRA_BUILD_SHA`, default unset) is the commit the image was built from: the
+Dockerfile sets it from the `BUILD_SHA` build arg (`unknown` when none is given), and
+`GET /api/state` shows it. Leave it unset locally.
 
 ### 4.6 `tephra.feeds.base`
 
@@ -1479,6 +1482,7 @@ class Runtime:
     retired: bool                                                 # another instance ticked after this one
     adsb_passes: asyncio.Task[None] | None                        # the pending extra ADS-B passes
     last_tick_clock: float | None                                 # time.monotonic() when the last tick began
+    last_tick: TickReport | None; last_tick_wall_at: datetime | None  # set by scheduler._tick_steps; wall clock, not restored
     @property
     def urgency_limits_min(self) -> tuple[int, int]              # (policy divert_within_min, hold_within_min)
     @property
@@ -1850,7 +1854,7 @@ configuration and any credential override (access-token file, credential-file ov
 impersonation). `deploy/cloudrun.sh` builds with Cloud Build (`deploy/cloudbuild.yaml`),
 creates the runtime service account `tephra-run` with exactly the three roles in
 `docs/ARCHITECTURE.md` section 4, and deploys Cloud Run with `--service-account`,
-`--min-instances` 1 (`TEPHRA_MIN_INSTANCES`), `--max-instances=1`, `--no-cpu-throttling`,
+`--min-instances` and CPU throttling from `TEPHRA_HOSTING` (below), `--max-instances=1`,
 1 CPU, 1 GiB (2 GiB with science) and `--timeout 3600`; secrets `GEMINI_API_KEY`,
 `TEPHRA_DESK_PIN`, `TEPHRA_TASK_TOKEN`, `TEPHRA_SESSION_SECRET` from Secret Manager
 (`deploy/secrets.sh` refuses a session secret or task token under 32 characters, and a token
@@ -1867,6 +1871,26 @@ Plume evals score bearing error with `tephra.geo.units.bearing_diff_deg` against
 polygon centroid (no IoU; research/10 section 5); Arm I's wind is the VAA's `WIND FL180`
 group, else Open-Meteo's 500 hPa (FL180) wind at the vent. CI (manual `workflow_dispatch`
 only) runs `ruff check`, `ruff format --check`, and `pytest` with `TEPHRA_LLM=stub`.
+
+Deploys are gated and traceable (`deploy/README.md`). `cloudrun.sh` refuses a dirty tree or a
+`HEAD` not on `origin/main`, tags the image `<12-char commit>-<UTC time>` and builds it with
+`_BUILD_SHA` (`--build-arg BUILD_SHA`); `.gcloudignore` uploads only what the Dockerfile
+copies. `TEPHRA_HOSTING` is `always-on` (default: `--min-instances 1`,
+`--no-cpu-throttling`, Scheduler ticks) or `on-demand` (`--min-instances 0`,
+`--cpu-throttling`, `TEPHRA_LOCAL_SCHEDULER=true`; untested). It forwards `TEPHRA_MODE`,
+`TEPHRA_REPLAY_CASE`, `TEPHRA_REPLAY_START`, `TEPHRA_REPLAY_END`, `TEPHRA_REPLAY_SPEED`,
+`TEPHRA_AUTO_REPLAY`, `TEPHRA_REGION`, `TEPHRA_MODEL`, `TEPHRA_MODEL_LITE`, `TEPHRA_MODEL_DAILY_BUDGET` and
+`TEPHRA_MODEL_LITE_DAILY_BUDGET` when set. A new revision is deployed `--no-traffic --tag
+candidate`, smoke-tested read-only, then given 100% and smoke-tested on the main URL; a
+failure leaves traffic alone and prints the rollback to the previous revision. It applies
+`deploy/ar-cleanup.json` (keep `keep-*` tags, keep the 5 newest, delete the rest after 30
+days) and adds `TEPHRA_KEEP_TAG` to the image when set. `scripts/live_smoke.sh <url>
+[--read-only] [--watch MINUTES]` (python3 standard library, public endpoints, no secrets)
+checks `/healthz`, `/api/state` (tick age under 3 x `TICK_INTERVAL_S`, policy hash against
+`/api/policy` and the newest pin in `tests/test_policy.py`, `EXPECT_SHA`, `EXPECT_MODE`,
+`EXPECT_CASE`, store health when exposed), `/` and `/desk` with CSP and their `/static/`
+files, a first SSE event within 30 s, and a refused token-less `POST /tasks/tick`; it exits
+non-zero on any failure. `--read-only` skips the two tick checks.
 
 ### 5.11 reroute
 
@@ -2296,7 +2320,7 @@ route sets its own), and `Strict-Transport-Security: max-age=31536000` over http
 
 | Method, path | Response model |
 |---|---|
-| `GET /api/state` | `SystemState` (`store`: `StoreHealth`; `draft_count` null when the drafts could not be read) |
+| `GET /api/state` | `SystemState` (`store`: `StoreHealth`; `draft_count` null when the drafts could not be read); besides the picture's counts it carries `server_time` (wall clock), `last_tick_wall_at` (wall-clock end of this process's last tick, `null` until its first) and `build_sha` (`TEPHRA_BUILD_SHA`), which `scripts/live_smoke.sh` checks. `/healthz` stays exactly `{ok, mode}` |
 | `GET /api/wall` | `WallResponse` = `{state: SystemState, snapshot: WallSnapshot, advisories: [Advisory] (newest 50, all statuses), trace: [TraceEvent] (last 100, oldest first)}` |
 | `GET /api/advisories?status=DRAFT&limit=50` | `AdvisoryList` (newest first; every status when `status` is absent) |
 | `GET /api/audit?advisory_id=...&limit=100` | `AuditList` (newest first; `advisory_id` must match `adv_[0-9a-f]{12}`) |

@@ -234,6 +234,8 @@ class Runtime:
     satellite: dict[str, SatelliteReading] = field(init=False, default_factory=dict)
     """volcano id -> the newest Satellite Reader reading"""
     last_tick: TickReport | None = field(init=False, default=None)
+    last_tick_wall_at: datetime | None = field(init=False, default=None)
+    """Wall-clock time the last tick of this process finished; not restored on a restart"""
     duty: DutyRun | None = field(init=False, default=None)
     """The newest Duty Officer run, for the Wall and the Desk"""
     _planned: dict[str, tuple[str, int]] = field(init=False, default_factory=dict)
@@ -337,6 +339,8 @@ class Runtime:
             store=self.store_health,
             policy=self.policy_summary,
             last_tick=self.last_tick,
+            last_tick_wall_at=self.last_tick_wall_at,
+            build_sha=self.settings.build_sha,
         )
 
     async def wall_snapshot(self) -> WallSnapshot:
