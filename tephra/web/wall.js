@@ -13,6 +13,8 @@ import { renderLayers, helpContent, aboutContent } from "./wall/controls.js";
 import { ext, loadExt, ingest, noteTrace, renderXTabs, renderXPanel, renderAiChip, reroutePopup, PANELS } from "./wall/ext.js";
 
 const STREAM_TIMEOUT_MS = 45e3;
+// A Wall hidden this long gives its stream (a Cloud Run request slot) back until it is shown.
+const HIDDEN_PAUSE_MS = 5 * 60e3;
 const TRACE_KEEP = 200;
 const SAT_CYCLE = ["off", "ir", "vis", "airmass"];
 const DEFAULT_LAYERS = { tephra: true, rose: true, aircraft: true, paths: true, acLabels: true, context: true, navaids: false, terrain: false, reroutes: true, satboxes: true };
@@ -51,7 +53,7 @@ const ui = {
   freshDecisions: new Set(),
   present: new URLSearchParams(location.search).get("present") === "1",
 };
-const conn = { lostAt: null, source: null, watchdog: null, lastEventAt: 0, loaded: false, everLost: false };
+const conn = { lostAt: null, source: null, watchdog: null, lastEventAt: 0, loaded: false, everLost: false, hiddenTimer: null, paused: false };
 const extra = { error: null, basemap: null };
 const clock = { base: NaN, at: 0 };
 const seenDis = new Set();
@@ -141,7 +143,6 @@ function openStream() {
     }
   });
   on("heartbeat", (h) => { if (h.now) setClock(h.now); });
-  on("feeds", (f) => { store.feeds = f.feeds || []; if (store.state) store.state.feeds = store.feeds; });
   for (const name of ["volcanoes", "official", "cones", "exposures", "aircraft", "reroutes"]) on(name, (fc) => { if (store.snapshot) store.snapshot[name] = fc; });
   for (const name of ["notice", "recovery", "budget"]) on(name, (d) => ingest(name, d));
   on("satellite", (r) => {
@@ -243,10 +244,34 @@ function streamLost() {
   if (conn.source && conn.source.readyState === EventSource.OPEN) {
     conn.source.close();
     conn.source = null;
-    setTimeout(() => { if (!conn.source) openStream(); }, 3000);
+    setTimeout(() => { if (!conn.source && !conn.paused) openStream(); }, 3000);
   }
   renderNow();
 }
+
+// Hidden for HIDDEN_PAUSE_MS: close the stream quietly (no lost banner). Shown again: resync
+// from /api/wall, which opens a new stream, as the reconnect path does. A visible Wall never
+// pauses: it is an unattended display.
+function pauseHiddenStream() {
+  conn.hiddenTimer = null;
+  if (!document.hidden || !conn.source) return;
+  conn.paused = true;
+  clearTimeout(conn.watchdog);
+  conn.source.close();
+  conn.source = null;
+}
+
+document.addEventListener("visibilitychange", () => {
+  clearTimeout(conn.hiddenTimer);
+  conn.hiddenTimer = null;
+  if (document.hidden) {
+    conn.hiddenTimer = setTimeout(pauseHiddenStream, HIDDEN_PAUSE_MS);
+    return;
+  }
+  if (!conn.paused) return;
+  conn.paused = false;
+  load();
+});
 
 // ------------------------------------------------------------------ rendering
 

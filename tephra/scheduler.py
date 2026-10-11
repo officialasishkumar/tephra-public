@@ -10,6 +10,11 @@ of the tick; a tick that arrives while a pass holds the runtime's lock waits for
 
 A step after the analysis that raises (exposure, recovery, the Duty Officer, draft
 retirement) becomes a note and a trace line; the Wall is still published and checkpointed.
+
+Every tick names its instance in ``runtime/writer``. During a rollout the old revision's
+instance stays up while its streams are open; :func:`run_writer_watchdog` and every ADS-B
+pass read that doc, and an instance that another one has out-ticked retires (see
+``Runtime.check_writer``).
 """
 
 import asyncio
@@ -34,7 +39,7 @@ from tephra.util import timeutil
 if TYPE_CHECKING:
     from tephra.pipeline import Runtime
 
-__all__ = ["run_adsb_pass", "run_local_scheduler", "run_tick"]
+__all__ = ["run_adsb_pass", "run_local_scheduler", "run_tick", "run_writer_watchdog"]
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +47,10 @@ SCHEDULER_INTERVAL_S: Final = 60
 """Cloud Scheduler's period (one job, every minute)."""
 ADSB_PASS_MARGIN_S: Final = 10
 """No extra ADS-B pass this close to the next tick."""
+WRITER_WATCH_S: Final = 60
+"""How often an instance checks whether another one has taken the ticks."""
+QUIET_TICKS: Final = 3
+"""Ticks missed (Cloud Scheduler mode) before open streams are ended once."""
 BUSY_NOTE: Final = "busy: another tick is still running"
 FEED_LABELS: Final[dict[FeedId, str]] = {
     FeedId.SIGMET: "VA SIGMET",
@@ -95,6 +104,8 @@ async def _tick_steps(runtime: "Runtime", reason: str) -> TickReport:
     mode = runtime.mode
     started = timeutil.now()
     report = TickReport(started_at=started, finished_at=started, mode=mode, reason=reason)
+    if reason != "startup":  # a revision's startup tick may run before traffic reaches it
+        await runtime.claim_writer()
     await runtime.maybe_switch_mode(report)
     if runtime.mode is not mode:  # the rest of the tick runs on the other mode's clock
         report.started_at = timeutil.now()
@@ -130,6 +141,8 @@ async def _step(runtime: "Runtime", report: TickReport, name: str, step: Awaitab
 
 async def run_adsb_pass(runtime: "Runtime") -> None:
     """Refresh aircraft and exposures between ticks (only while something is active)."""
+    if await runtime.check_writer():  # retired: the serving instance polls
+        return
     if runtime.tick_running or runtime.lock.locked() or not runtime.live.active:
         return
     replay = runtime.mode is RunMode.REPLAY
@@ -238,6 +251,10 @@ def _schedule_adsb_passes(runtime: "Runtime", reason: str, started: float) -> No
         interval = runtime.settings.tick_interval_s
     else:
         return
+    previous = runtime.adsb_passes
+    if previous is not None:
+        previous.cancel()
+    runtime.adsb_passes = None
     cadence = runtime.settings.cadence_adsb_s
     if cadence <= 0:
         return
@@ -248,7 +265,7 @@ def _schedule_adsb_passes(runtime: "Runtime", reason: str, started: float) -> No
         if offset > elapsed
     ]
     if offsets:
-        runtime.spawn(_adsb_passes(runtime, started, offsets))
+        runtime.adsb_passes = runtime.spawn(_adsb_passes(runtime, started, offsets))
 
 
 async def _adsb_passes(runtime: "Runtime", started: float, offsets: Sequence[int]) -> None:
@@ -260,3 +277,30 @@ async def _adsb_passes(runtime: "Runtime", started: float, offsets: Sequence[int
             await run_adsb_pass(runtime)
         except Exception:  # a background task's error would otherwise vanish
             logger.exception("extra ADS-B pass failed")
+
+
+async def run_writer_watchdog(runtime: "Runtime") -> None:
+    """Every :data:`WRITER_WATCH_S`: retire this instance if another one took the ticks.
+
+    With Cloud Scheduler driving ticks, :data:`QUIET_TICKS` intervals with no tick also end
+    the open streams, once per quiet spell (not again until a tick has come), so a tab left
+    on an instance that no longer gets ticks reconnects.
+    """
+    started = time.monotonic()
+    ended_after: float | None = None
+    while True:
+        await asyncio.sleep(WRITER_WATCH_S)
+        try:
+            await runtime.check_writer()
+        except Exception:  # the next check runs in a minute; a store error must be seen
+            logger.exception("writer check failed")
+        if runtime.settings.local_scheduler:
+            continue
+        last = runtime.last_tick_clock if runtime.last_tick_clock is not None else started
+        quiet = time.monotonic() - last > QUIET_TICKS * runtime.settings.tick_interval_s
+        if quiet and ended_after != last:
+            ended_after = last
+            logger.warning(
+                "no tick for %d intervals; ending the open event streams once", QUIET_TICKS
+            )
+            runtime.end_streams()

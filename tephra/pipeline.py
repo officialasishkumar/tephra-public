@@ -18,7 +18,9 @@ tick (an unread list is never taken as empty), and ``store_health`` says so on t
 
 import asyncio
 import logging
+import os
 import time
+import uuid
 from collections.abc import Awaitable, Coroutine, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -119,7 +121,6 @@ from tephra.models import (
     Vona,
     WallSnapshot,
     blob_url,
-    dump_all,
     feature,
     feature_collection,
     point,
@@ -157,6 +158,8 @@ __all__ = ["Runtime", "create_runtime"]
 logger = logging.getLogger(__name__)
 
 CHECKPOINT_S: Final = 300.0
+WRITER_DOC: Final = "writer"
+"""``runtime/writer``: the instance that ticked last; only the serving revision gets ticks"""
 OPEN_DRAFT_LIMIT: Final = 500
 RESTORE_LIMIT: Final = 500
 VAA_RESTORE_H: Final = 30
@@ -242,6 +245,15 @@ class Runtime:
     _unseen_since: dict[str, datetime] = field(init=False, default_factory=dict)
     """flight id -> since when an open draft's flight is missing from the ADS-B picture"""
     _digests: dict[str, str] = field(init=False, default_factory=dict)
+    _published: dict[str, str] = field(init=False, default_factory=dict)
+    """Wall layer (or ``situation/<volcano id>``) -> digest of the payload last published"""
+    instance_id: str = field(init=False, default_factory=lambda: uuid.uuid4().hex)
+    retired: bool = field(init=False, default=False)
+    """Another instance ticked after this one (a rollout): no ADS-B passes, no checkpoints"""
+    adsb_passes: asyncio.Task[None] | None = field(init=False, default=None, repr=False)
+    last_tick_clock: float | None = field(init=False, default=None)
+    """``time.monotonic()`` when the last tick began"""
+    _writer_at: datetime | None = field(init=False, default=None)
     _quiet_ticks: int = field(init=False, default=0)
     _closed_airports: frozenset[str] | None = field(init=False, default=None)
     """RFA-network airports with a closure now or in the horizon, at the last recovery run"""
@@ -676,17 +688,33 @@ class Runtime:
         state = await self.system_state()
         bus = self.bus
         bus.publish(SseEvent.STATE, state)
-        bus.publish(SseEvent.FEEDS, {"feeds": dump_all(state.feeds)})
-        bus.publish(SseEvent.VOLCANOES, snapshot.volcanoes)
-        bus.publish(SseEvent.OFFICIAL, snapshot.official)
-        bus.publish(SseEvent.CONES, snapshot.cones)
+        self._publish_changed(SseEvent.VOLCANOES, snapshot.volcanoes)
+        self._publish_changed(SseEvent.OFFICIAL, snapshot.official)
+        self._publish_changed(SseEvent.CONES, snapshot.cones)
         bus.publish(SseEvent.EXPOSURES, snapshot.exposures)
-        bus.publish(SseEvent.REROUTES, snapshot.reroutes)
+        self._publish_changed(SseEvent.REROUTES, snapshot.reroutes)
         bus.publish(SseEvent.AIRCRAFT, snapshot.aircraft)
-        bus.publish(SseEvent.OVERLAYS, snapshot.overlays)
+        self._publish_changed(SseEvent.OVERLAYS, snapshot.overlays)
+        prefix = f"{SseEvent.SITUATION.value}/"
+        shown = {f"{prefix}{card.volcano_id}" for card in snapshot.situations}
         for card in snapshot.situations:
-            bus.publish(SseEvent.SITUATION, card)
+            self._publish_changed(SseEvent.SITUATION, card, key=f"{prefix}{card.volcano_id}")
+        # The Wall drops a card whose volcano left the active list; one that comes back is new.
+        for key in [key for key in self._published if key.startswith(prefix) and key not in shown]:
+            del self._published[key]
         await self.publish_budget()
+
+    def _publish_changed(
+        self, name: SseEvent, data: BaseModel | dict[str, Any], *, key: str | None = None
+    ) -> None:
+        """Publish a Wall layer only when it changed: a new or reconnecting page reads the
+        whole picture from ``/api/wall`` (or the bus history), so a repeat carries nothing."""
+        key = key or name.value
+        digest = sha256_json(data)
+        if self._published.get(key) == digest:
+            return
+        self.bus.publish(name, data)
+        self._published[key] = digest
 
     async def publish_budget(self) -> None:
         """The day's model-call counts, after the tick's model calls (the Wall's AI tray)."""
@@ -701,7 +729,11 @@ class Runtime:
         self.bus.publish(SseEvent.STATE, await self.system_state())
 
     async def checkpoint(self, *, force: bool = False) -> None:
-        """Persist the live picture, at most every :data:`CHECKPOINT_S` unless forced."""
+        """Persist the live picture, at most every :data:`CHECKPOINT_S` unless forced. A
+        retired instance writes nothing: the serving one owns ``runtime/state`` (so ``aclose``
+        on a retired instance leaves it as the serving instance wrote it)."""
+        if self.retired:
+            return
         clock = time.monotonic()
         last = self._last_checkpoint
         if not force and last is not None and clock - last < CHECKPOINT_S:
@@ -721,10 +753,74 @@ class Runtime:
     def aircraft(self) -> list[Aircraft]:
         return merge_aircraft(self.live.adsb)
 
-    def spawn(self, coroutine: Coroutine[Any, Any, None]) -> None:
+    def spawn(self, coroutine: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
         task = asyncio.create_task(coroutine)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+        return task
+
+    # --- the writer fence (rollouts) -----------------------------------------------------
+
+    async def claim_writer(self) -> None:
+        """Name this instance in ``runtime/writer`` at the start of every tick.
+
+        ``--max-instances 1`` holds per revision: during a rollout the old revision's instance
+        lives on while its streams stay open, but ticks reach only the serving revision. A
+        tick is therefore the proof of serving, and it also ends a retirement (traffic moved
+        back to this revision).
+        """
+        at = timeutil.SystemClock().now()
+        await self.store.put(
+            Collection.RUNTIME,
+            WRITER_DOC,
+            {
+                "revision": os.environ.get("K_REVISION") or "local",
+                "instance": self.instance_id,
+                "at": timeutil.to_iso(at),
+            },
+        )
+        self._writer_at = at
+        self.last_tick_clock = time.monotonic()
+        if self.retired:
+            self.retired = False
+            logger.warning("ticks reach this instance again; it polls and checkpoints again")
+
+    async def check_writer(self) -> bool:
+        """True when this instance is retired: another instance ticked after it last did.
+
+        An instance that has not ticked yet has nothing of its own to fence, so it never
+        retires on a writer doc it found at startup.
+        """
+        if self.retired:
+            return True
+        if self._writer_at is None:
+            return False
+        doc = await self.store.get(Collection.RUNTIME, WRITER_DOC)
+        if doc is None or doc.get("instance") == self.instance_id:
+            return False
+        if timeutil.parse_iso(doc["at"]) <= self._writer_at:
+            return False
+        self._retire(doc)
+        return True
+
+    def _retire(self, writer: Mapping[str, Any]) -> None:
+        self.retired = True
+        passes = self.adsb_passes
+        if passes is not None and passes is not asyncio.current_task():
+            passes.cancel()
+        self.adsb_passes = None
+        self.end_streams()
+        logger.warning(
+            "retired: revision %s (instance %s) ticked after this instance; no more ADS-B "
+            "passes, checkpoints or events here, and open streams were ended",
+            writer.get("revision"),
+            writer.get("instance"),
+        )
+
+    def end_streams(self) -> None:
+        """End every open event stream once; each browser reconnects (to the serving
+        revision) and resyncs from ``/api/wall``."""
+        self.bus.publish(SseEvent.END_STREAMS)
 
     def trace(
         self,
@@ -1530,6 +1626,7 @@ class Runtime:
         self._plan_failures.clear()
         self._forget_absences()
         self._digests.clear()
+        self._published.clear()
         self._quiet_ticks = 0
         self._replay_at = None
 

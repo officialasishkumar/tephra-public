@@ -292,7 +292,6 @@ class SseEvent(StrEnum):
     """Server-Sent Event names. Payload shapes are listed in MODULES.md."""
 
     STATE = "state"
-    FEEDS = "feeds"
     VOLCANOES = "volcanoes"
     SITUATION = "situation"
     OFFICIAL = "official"
@@ -312,6 +311,8 @@ class SseEvent(StrEnum):
     DUTY = "duty"
     BUDGET = "budget"
     HEARTBEAT = "heartbeat"
+    END_STREAMS = "end_streams"
+    """Never sent: on the bus it ends every open stream, so browsers reconnect"""
 
 
 # --- GeoJSON ----------------------------------------------------------------------------

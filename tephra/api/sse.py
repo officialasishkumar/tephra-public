@@ -32,7 +32,9 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 RETRY_MS: Final = 3000
-_RESUMABLE: Final = tuple(name.value for name in SseEvent if name is not SseEvent.HEARTBEAT)
+_RESUMABLE: Final = tuple(
+    name.value for name in SseEvent if name not in (SseEvent.HEARTBEAT, SseEvent.END_STREAMS)
+)
 _MAX_EVENT_ID_DIGITS: Final = 18
 
 
@@ -55,6 +57,9 @@ async def event_stream(
     away, and leaving the ``async with`` unsubscribes it. A client so slow that its queue
     dropped events is cut off before anything newer is sent: the browser reconnects with
     the last id it received, and :func:`missed_events` replays the gap from the history.
+    An ``end_streams`` event on the bus ends the stream too: the runtime sends one when this
+    instance is retired by a newer revision, or when ticks stop arriving, so the browser
+    reconnects to the instance that is serving.
     """
     async with bus.subscribe() as subscription:
         yield f"retry: {RETRY_MS}\n\n"
@@ -67,6 +72,8 @@ async def event_stream(
             event = await subscription.get(within_s=heartbeat_s)
             if subscription.dropped:
                 logger.info("closing a slow event stream: %d events dropped", subscription.dropped)
+                return
+            if event is not None and event.name == SseEvent.END_STREAMS:
                 return
             if event is None:
                 heartbeat = {"now": timeutil.to_iso(timeutil.now()), "mode": mode().value}

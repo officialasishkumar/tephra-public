@@ -1430,6 +1430,7 @@ Registry rules:
 async def run_tick(runtime: "Runtime", *, reason: str) -> TickReport
 async def run_adsb_pass(runtime: "Runtime") -> None
 async def run_local_scheduler(runtime: "Runtime", stop: asyncio.Event) -> None
+async def run_writer_watchdog(runtime: "Runtime") -> None     # every WRITER_WATCH_S (60 s): check_writer, quiet-tick stream end
 ```
 `tephra/pipeline.py`
 ```python
@@ -1444,6 +1445,10 @@ class Runtime:
     situations; assessments; cones; exposed                      # the picture, by volcano id or flight id
     reroutes: dict[str, list[RerouteOption]]                      # flight id -> options computed at planning
     satellite: dict[str, SatelliteReading]                        # volcano id -> newest Satellite Reader reading
+    instance_id: str                                              # uuid4 hex, made once per Runtime
+    retired: bool                                                 # another instance ticked after this one
+    adsb_passes: asyncio.Task[None] | None                        # the pending extra ADS-B passes
+    last_tick_clock: float | None                                 # time.monotonic() when the last tick began
     @property
     def urgency_limits_min(self) -> tuple[int, int]              # (policy divert_within_min, hold_within_min)
     @property
@@ -1470,6 +1475,10 @@ class Runtime:
                               report: TickReport) -> dict[str, Any]
     def plan_due(self, flight: ExposedFlight, drafts: Sequence[Advisory], at: datetime) -> int | None
     def start_recovery(self, report: TickReport) -> dict[str, Any]
+    async def claim_writer(self) -> None                         # every tick but the startup one: write runtime/writer, end a retirement
+    async def check_writer(self) -> bool                         # True when retired (reads runtime/writer)
+    def end_streams(self) -> None                                # publish END_STREAMS: every open stream ends once
+    def spawn(self, coroutine: Coroutine[Any, Any, None]) -> asyncio.Task[None]   # cancelled by aclose
     async def aclose(self) -> None
 async def create_runtime(settings: Settings) -> Runtime     # loads the policy, then airports with its min_runway_m, then routes_apac.json (raises when missing)
 ```
@@ -1487,7 +1496,29 @@ Core rules:
   once by the next). After a tick, extra ADS-B passes run every `cadence_adsb_s` timed from
   the tick's start, none within `ADSB_PASS_MARGIN_S` (10 s) of the next tick (one pass 30 s
   into a 60 s tick); a pass runs only while a volcano is active, ADS-B is not DISABLED (a
-  replay case without aircraft) and the lock is free.
+  replay case without aircraft) and the lock is free. A new tick cancels the passes the previous
+  tick left pending (`Runtime.adsb_passes`).
+- Writer fence (rollouts). `--max-instances 1` holds per revision: during a rollout the old
+  revision's instance stays up while its event streams are open, but ticks reach only the
+  serving revision. Every tick but the startup tick starts with `claim_writer`, which puts `runtime/writer`
+  `{revision: K_REVISION or "local", instance: instance_id, at: wall-clock ISO}`. Every extra
+  ADS-B pass and the lifespan's `run_writer_watchdog` (every 60 s) call `check_writer`: when
+  the doc names another instance and its `at` is newer than this instance's own last claim,
+  the runtime retires. It cancels its pending ADS-B passes, `run_adsb_pass` and `checkpoint`
+  become no-ops (so `aclose` leaves `runtime/state` as the serving instance wrote it), it
+  publishes `SseEvent.END_STREAMS` so every open stream ends and the browser reconnects to the
+  serving revision, and it logs one warning. An instance that has not ticked yet never
+  retires. A tick that reaches a retired instance (traffic moved back) ends the retirement.
+  With Cloud Scheduler (`local_scheduler` false), `QUIET_TICKS` (3) x `tick_interval_s` with no
+  tick ends the open streams once per quiet spell, so a tab left on an instance without ticks
+  reconnects (a paused Scheduler costs each tab one reconnect). Advisory ids stay random.
+- Publish only what changed. `publish` always sends `state`, `exposures`, `aircraft` and
+  `budget`. `volcanoes`, `official`, `cones`, `reroutes`, `overlays` and each `situation` card
+  (per `volcano_id`) are sent only when their `sha256_json` digest differs from the last one
+  sent (`Runtime._published`); a card whose volcano leaves the active list loses its digest,
+  so it is sent again if the volcano comes back. Every mode switch (a replay loop included)
+  clears the digests, so the Wall is republished whole. A page that opens or reconnects reads
+  the whole picture from `/api/wall` or the bus history, so a skipped repeat carries nothing.
 - Tick order: auto-replay check -> replay clock check -> due product feeds (SIGMET, VONA,
   VAACs) -> `find_active` -> due context feeds (ADS-B, TAF, METAR, winds, frames; HSD and
   the BTD only with `settings.science`) -> per active volcano: `select_records` ->
@@ -1659,11 +1690,14 @@ type RuntimeFactory = Callable[[Settings], Awaitable[Runtime]]
 def create_app(settings: Settings | None = None, *, runtime_factory: RuntimeFactory | None = None) -> FastAPI
 def configure_logging(level: str) -> None    # one JSON object per line on stdout (Cloud Logging shape)
 ```
-The lifespan creates the runtime with `runtime_factory` (default `create_runtime`; tests swap
-it), starts `run_local_scheduler` when `settings.local_scheduler`, and otherwise runs one
-`tick(reason="startup")` in the background, so the picture does not wait up to a minute for
-Cloud Scheduler (an overlapping scheduler tick skips itself). On shutdown it stops the loop or
-that tick (waiting up to 10 s) and closes the runtime. Until the runtime exists, routes that need
+The lifespan builds the replay catalogue for `GET /api/replays` (section 8.2), creates the
+runtime with `runtime_factory` (default `create_runtime`; tests swap it), starts
+`run_writer_watchdog`, and starts `run_local_scheduler` when `settings.local_scheduler`, and
+otherwise runs one `tick(reason="startup")` in the background, so the picture does not wait up
+to a minute for Cloud Scheduler (an overlapping scheduler tick skips itself; the startup tick
+does not claim `runtime/writer`, since it may run before traffic reaches the revision). On
+shutdown it cancels the watchdog, stops the loop or that tick (waiting up to 10 s) and closes
+the runtime. Until the runtime exists, routes that need
 it answer 503 `starting`. `create_app` mounts the six feature routers (`routes_ask`,
 `routes_notices`, `routes_recovery`, `routes_comms`, `routes_regdocs`, `routes_backtest`) under
 `/api` through `_include_feature_routers`, which imports them at call time. A pure ASGI
@@ -2163,6 +2197,7 @@ call is made and every step but voice has a deterministic answer labelled NO MOD
 | `outbound` | message id | `OutboundMessage` (approved advisories; approved messages, with `advisory_id` set to the message id) | desk.approvals, comms.messages |
 | `audit` | entry id | `ChainedAuditEntry` (append-only, hash-chained) | desk.audit only |
 | `feed_state` | FeedId value | `FeedHealth` | core (throttled; when status, error or record count changes, not for `age_s`, `last_attempt_at` or `last_success_at` alone, so a restored `last_success_at` may be older than the true one) |
+| `runtime` | `writer` | `{revision, instance, at}`: the instance that ticked last (the writer fence, section 5.7) | core (every tick) |
 | `runtime` | `state` | core bookkeeping: `mode`, `auto_replay`, `case_id` (read at startup to resume a replay), `quiet_ticks`, `planned` (`{flight_id: [cone_id, urgency]}`), `closed_airports`, `assessment_ids` (read back after a LIVE restart), `saved_at` | core (first at every checkpoint, and at every mode switch) |
 | blobs | `frames/*.png`, `btd/*.png` | PNG bytes | core |
 
@@ -2223,7 +2258,7 @@ route sets its own), and `Strict-Transport-Security: max-age=31536000` over http
 | `GET /api/outbound?limit=50` | `OutboundList` (newest first by `queued_wall_at`, so recorded and live rows never interleave by replay time; rows whose `queued_wall_at` is null come last; Firestore leaves out records written before the field, which lack the key) |
 | `GET /api/feeds` | `FeedList` = `{feeds: [FeedHealth]}` (ages as of now) |
 | `GET /api/policy` | `PolicyResponse` = `{policy: OperatorPolicy, policy_hash}`: the active operator policy and its `content_hash()` |
-| `GET /api/replays` | `ReplayCaseList` = `{cases: [ReplayCaseSummary]}`: each recorded case without its records (`case_id`, `label`, `recorded_from`, `recorded_to`, `region`, `volcano_ids`, `notes`, `record_count`, `banner`) |
+| `GET /api/replays` | `ReplayCaseList` = `{cases: [ReplayCaseSummary]}`: each recorded case without its records (`case_id`, `label`, `recorded_from`, `recorded_to`, `region`, `volcano_ids`, `notes`, `record_count`, `banner`). Built once per app in the lifespan (`ReplayCatalogue` on `app.state.replays`: summaries, serialised bytes, strong `ETag` = quoted sha256 of the bytes); a manifest that cannot be read fails startup. Served with `Cache-Control: no-cache` and the `ETag`; a matching `If-None-Match` answers 304 with no body |
 | `GET /api/blobs/{key}` | PNG bytes; `key` must match `BLOB_KEY_PATTERN` (else 404); `Cache-Control: public, max-age=86400, immutable` |
 | `GET /api/duty?limit=10` | `DutyRunList` `{runs: [DutyRun]}`, current mode, newest first (`limit` 1 to 20) |
 | `GET /api/budget` | `BudgetView` `{backend, as_of, tiers: [{tier, model_id, used, limit, remaining}], note}` |
@@ -2265,8 +2300,7 @@ Wall resyncs from `/api/wall` and the Desk reloads its list when the stream reop
 
 | `event` | `data` | Client action |
 |---|---|---|
-| `state` | `SystemState` | replace top bar state |
-| `feeds` | `{"feeds": [FeedHealth]}` | replace feed health |
+| `state` | `SystemState` (its `feeds` is the feed health) | replace top bar state and feed health |
 | `volcanoes` | FeatureCollection | replace layer |
 | `official` | FeatureCollection | replace layer |
 | `cones` | FeatureCollection | replace layer |
@@ -2287,11 +2321,20 @@ Wall resyncs from `/api/wall` and the Desk reloads its list when the stream reop
 | `duty` | `DutyRun` | replace the Duty Officer panel and the Desk's brief card |
 | `heartbeat` | `{"now": iso, "mode": "LIVE"}` (no `id`) | update clock |
 
-Core publishes `state`, `feeds`, `volcanoes`, `situation`, `official`, `cones`, `exposures`,
+Core publishes `state`, `volcanoes`, `situation`, `official`, `cones`, `exposures`,
 `reroutes`, `aircraft`, `overlays`, `trace`, `advisory`, `ai_failure`, `satellite`, `recovery`
-and `budget`; the feature routes publish `notice`, `message`, `doc` and `budget` (after a model
-call) too. The SSE endpoint sends `heartbeat`. NaN and
-infinities in a payload are sent as null.
+and `budget` (the Wall layers only when they changed, section 5.7); the feature routes publish
+`notice`, `message`, `doc` and `budget` (after a model call) too. The SSE endpoint sends
+`heartbeat`. NaN and infinities in a payload are sent as null. There is no `feeds` event:
+`state.feeds` carries the feed health.
+
+`SseEvent.END_STREAMS` (`end_streams`) is never sent: on the bus it ends every open stream at
+once (no frame), so the browser reconnects. Core publishes it when the runtime retires and
+when ticks stop arriving (section 5.7). It is not replayed from the history.
+
+The Wall closes its stream after its tab has been hidden for 5 minutes (no lost banner) and,
+when the tab is shown again, resyncs from `/api/wall` and opens a new stream. A visible Wall
+never pauses. The Desk keeps its stream open while hidden: its tab title counts new drafts.
 
 ### 8.5 Desk endpoints (cookie session; CSRF guard on every POST)
 

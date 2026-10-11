@@ -14,6 +14,7 @@ import sys
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Final, Self
@@ -78,9 +79,10 @@ from tephra.models import (
 )
 from tephra.pipeline import Runtime, create_runtime
 from tephra.replay.cases import list_cases, load_case, replay_banner
-from tephra.scheduler import run_local_scheduler
+from tephra.scheduler import run_local_scheduler, run_writer_watchdog
 from tephra.store.base import BLOB_KEY_PATTERN, Collection
 from tephra.util import timeutil
+from tephra.util.hashing import sha256_bytes
 
 __all__ = ["CONTENT_SECURITY_POLICY", "WEB_DIR", "configure_logging", "create_app"]
 
@@ -188,6 +190,23 @@ class ReplayCaseList(TephraModel):
     cases: list[ReplayCaseSummary]
 
 
+@dataclass(frozen=True, slots=True)
+class ReplayCatalogue:
+    """``GET /api/replays``, built once per app: the manifests are part of the image and
+    nothing writes them while the server runs, and validating them takes real CPU."""
+
+    cases: list[ReplayCaseSummary]
+    """Newest ``recorded_from`` first, as :func:`list_cases` orders them"""
+    body: bytes
+    etag: str
+
+    @classmethod
+    def build(cls, data_dir: Path) -> Self:
+        cases = [ReplayCaseSummary.of(case) for case in list_cases(data_dir)]
+        body = ReplayCaseList(cases=cases).model_dump_json().encode()
+        return cls(cases=cases, body=body, etag=f'"{sha256_bytes(body)}"')
+
+
 class ModeRequest(TephraModel):
     mode: RunMode
     case_id: str | None = Field(default=None, pattern=_CASE_ID_PATTERN)
@@ -208,8 +227,16 @@ def get_app_settings(request: Request) -> Settings:
     return settings
 
 
+def get_replay_catalogue(request: Request) -> ReplayCatalogue:
+    catalogue: ReplayCatalogue | None = getattr(request.app.state, "replays", None)
+    if catalogue is None:
+        raise ApiError(503, "starting", "TEPHRA is starting")
+    return catalogue
+
+
 RuntimeDep = Annotated[Runtime, Depends(get_runtime)]
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
+ReplaysDep = Annotated[ReplayCatalogue, Depends(get_replay_catalogue)]
 DeskSession = Annotated[SessionInfo, Depends(require_desk)]
 Limit = Annotated[int, Query(ge=1, le=200)]
 
@@ -346,13 +373,20 @@ async def get_policy(runtime: RuntimeDep) -> Response:
 
 
 @read_api.get("/replays", response_model=ReplayCaseList)
-async def get_replays(settings: SettingsDep) -> Response:
-    try:
-        cases = await asyncio.to_thread(list_cases, settings.data_dir)
-    except OSError:
-        logger.warning("replay cases unreadable", exc_info=True)
-        cases = []
-    return _json(ReplayCaseList(cases=[ReplayCaseSummary.of(case) for case in cases]))
+async def get_replays(request: Request, catalogue: ReplaysDep) -> Response:
+    # no-cache, not no-store: the browser keeps the list and revalidates it with the ETag.
+    headers = {"ETag": catalogue.etag, "Cache-Control": "no-cache"}
+    if _etag_matches(request.headers.get("if-none-match"), catalogue.etag):
+        return Response(status_code=304, headers=headers)
+    return Response(content=catalogue.body, media_type="application/json", headers=headers)
+
+
+def _etag_matches(header: str | None, etag: str) -> bool:
+    """``If-None-Match`` uses the weak comparison: ``W/`` is ignored, ``*`` matches."""
+    if header is None:
+        return False
+    tags = {tag.strip().removeprefix("W/") for tag in header.split(",")}
+    return "*" in tags or etag in tags
 
 
 @read_api.get(
@@ -552,11 +586,16 @@ async def handle_ai_failure(
 
 @desk_api.post("/mode", response_model=SystemState, dependencies=[Depends(require_csrf)])
 async def switch_mode(
-    body: ModeRequest, session: DeskSession, runtime: RuntimeDep, settings: SettingsDep
+    body: ModeRequest,
+    session: DeskSession,
+    runtime: RuntimeDep,
+    settings: SettingsDep,
+    # A plain default, not Annotated: only a switch that names no case reads the catalogue.
+    catalogue: ReplayCatalogue = Depends(get_replay_catalogue),
 ) -> Response:
     before = _mode_facts(runtime)
     if body.mode is RunMode.REPLAY:
-        case = await _replay_case_for(body.case_id, runtime, settings)
+        case = await _replay_case_for(body.case_id, runtime, settings, catalogue)
         await runtime.switch_mode(body.mode, case=case)  # the case is set under its lock
     else:
         await runtime.switch_mode(body.mode)
@@ -576,14 +615,15 @@ def _mode_facts(runtime: Runtime) -> dict[str, Any]:
     return {"mode": runtime.mode.value, "case_id": case.case_id if case else None}
 
 
-async def _replay_case_for(case_id: str | None, runtime: Runtime, settings: Settings) -> ReplayCase:
+async def _replay_case_for(
+    case_id: str | None, runtime: Runtime, settings: Settings, catalogue: ReplayCatalogue
+) -> ReplayCase:
     if case_id is None:
         if runtime.replay_case is not None:
             return runtime.replay_case
-        cases = await asyncio.to_thread(list_cases, settings.data_dir)
-        if not cases:
+        if not catalogue.cases:
             raise ApiError(409, "invalid_transition", "No replay case has been recorded")
-        return cases[0]
+        case_id = catalogue.cases[0].case_id
     try:
         return await asyncio.to_thread(load_case, settings.data_dir, case_id)
     except (OSError, ValueError) as exc:
@@ -803,15 +843,18 @@ def _lifespan(
 ) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        app.state.replays = await asyncio.to_thread(ReplayCatalogue.build, settings.data_dir)
         runtime = await runtime_factory(settings)
         app.state.runtime = runtime
+        watchdog = asyncio.create_task(run_writer_watchdog(runtime), name="tephra-writer-watchdog")
+        watchdog.add_done_callback(_report_task_exit)
         stop = asyncio.Event()
         scheduler: asyncio.Task[None] | None = None
         if settings.local_scheduler:
             scheduler = asyncio.create_task(
                 run_local_scheduler(runtime, stop), name="tephra-local-scheduler"
             )
-            scheduler.add_done_callback(_report_scheduler_exit)
+            scheduler.add_done_callback(_report_task_exit)
         else:
             # Cloud Scheduler's first tick may be a minute away; the picture (official
             # polygons, cones, aircraft) is built now. An overlapping tick skips itself.
@@ -832,11 +875,15 @@ def _lifespan(
             yield
         finally:
             stop.set()
+            watchdog.cancel()
+            with suppress(asyncio.CancelledError):
+                await watchdog
             if scheduler is not None:
                 with suppress(TimeoutError, asyncio.CancelledError):
                     await asyncio.wait_for(scheduler, SCHEDULER_STOP_TIMEOUT_S)
             await runtime.aclose()
             del app.state.runtime
+            del app.state.replays
 
     return lifespan
 
@@ -848,9 +895,9 @@ async def _startup_tick(runtime: Runtime) -> None:
         logger.exception("startup tick failed")
 
 
-def _report_scheduler_exit(task: asyncio.Task[None]) -> None:
+def _report_task_exit(task: asyncio.Task[None]) -> None:
     if not task.cancelled() and (exc := task.exception()) is not None:
-        logger.error("local scheduler stopped", exc_info=exc)
+        logger.error("%s stopped", task.get_name(), exc_info=exc)
 
 
 def _include_feature_routers(app: FastAPI) -> None:
