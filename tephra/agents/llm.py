@@ -78,13 +78,14 @@ def temperature_for(model_id: str) -> float:
 
 
 class LlmPart(TephraModel):
-    """One piece of the user turn: text, or an image with the label it is announced by."""
+    """One piece of the user turn: text, an image with the label it is announced by, or audio
+    (an unlabelled-to-the-model recording; the label is for logs and the prompt hash)."""
 
     model_config = ConfigDict(
         extra="ignore", protected_namespaces=(), populate_by_name=True, ser_json_bytes="base64"
     )
 
-    kind: Literal["text", "image"]
+    kind: Literal["text", "image", "audio"]
     text: str | None = None
     data: bytes | None = None
     mime_type: str | None = None
@@ -97,6 +98,10 @@ class LlmPart(TephraModel):
     @classmethod
     def of_image(cls, data: bytes, *, label: str, mime_type: str = "image/png") -> Self:
         return cls(kind="image", data=data, mime_type=mime_type, label=label)
+
+    @classmethod
+    def of_audio(cls, data: bytes, *, label: str, mime_type: str) -> Self:
+        return cls(kind="audio", data=data, mime_type=mime_type, label=label)
 
 
 class LlmCall(TephraModel):
@@ -251,13 +256,13 @@ def _process_budget(path: Path) -> DailyBudget:
 
 
 def prompt_hash(system: str, parts: Sequence[LlmPart]) -> str:
-    """Content hash of a prompt; an image contributes the sha256 of its bytes."""
+    """Content hash of a prompt; an image or a recording contributes the sha256 of its bytes."""
     pieces: list[dict[str, Any]] = []
     for part in parts:
-        if part.kind == "image":
+        if part.kind in ("image", "audio"):
             pieces.append(
                 {
-                    "kind": "image",
+                    "kind": part.kind,
                     "label": part.label,
                     "mime_type": part.mime_type,
                     "sha256": sha256_bytes(part.data or b""),
@@ -540,6 +545,9 @@ def _contents(parts: Sequence[LlmPart]) -> list["genai_types.Part"]:
         if part.kind == "image":
             contents.append(types.Part.from_text(text=f"IMAGE {part.label or 'UNLABELLED'}"))
             mime_type = part.mime_type or "image/png"
+            contents.append(types.Part.from_bytes(data=part.data or b"", mime_type=mime_type))
+        elif part.kind == "audio":
+            mime_type = part.mime_type or "audio/wav"
             contents.append(types.Part.from_bytes(data=part.data or b"", mime_type=mime_type))
         else:
             contents.append(types.Part.from_text(text=part.text or ""))

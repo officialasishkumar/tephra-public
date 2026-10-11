@@ -13,6 +13,7 @@ tests
 evals
 scripts
 docs
+!docs/backtest
 deploy
 *.md
 !README.md

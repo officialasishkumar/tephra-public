@@ -1,4 +1,4 @@
-"""Exposure Planner: one action per exposed flight, from a fixed set, never a reroute.
+"""Exposure Planner: one action per exposed flight, from a fixed set.
 
 With Gemini the planner is a Google ADK ``LlmAgent`` (built in ``tephra.agents.adk_app``)
 whose function tools read this flight's ``PlannerContext`` from session state and record
@@ -6,8 +6,9 @@ the decision through ``submit_plan``. The stub backend uses ``rule_based_decisio
 way ``validators.validate_decision`` has the last word. When the model gives no plan that
 passes it, there is no substitute: the plan has no decision and a dispatcher plans by hand.
 
-There is no free airway database, so any waypoint would be invented: the actions are
-CONTINUE, MONITOR, CHANGE_LEVEL, HOLD (present position) and DIVERT (a screened alternate).
+There is no free airway database, so the model never names a waypoint: the actions are
+CONTINUE, MONITOR, CHANGE_LEVEL, HOLD (present position), DIVERT (a screened alternate) and
+REROUTE, which only picks one of the lateral routes ``tephra.geo.reroute`` computed.
 """
 
 import asyncio
@@ -25,19 +26,23 @@ from tephra.agents.validators import (
     allowed_actions,
     band_clears_hazard,
     first_problems,
+    reroute_of,
     validate_decision,
 )
 from tephra.config import Settings
 from tephra.feeds.airports import AirportCatalogue
+from tephra.feeds.routes import RouteTable
 from tephra.feeds.taf import assess_alternate
 from tephra.geo.cone import polygon_iou
 from tephra.geo.fuel import divert_line
+from tephra.geo.reroute import plan_reroutes
 from tephra.geo.units import destination_point, ft_to_fl, initial_bearing_deg, nm_to_km
 from tephra.models import (
     ActionKind,
     Airport,
     AlternateCandidate,
     ExposedFlight,
+    FlightRoute,
     FuelLine,
     HazardCone,
     LlmBackendName,
@@ -46,6 +51,9 @@ from tephra.models import (
     PlannerContext,
     PlannerDecision,
     PlumeMode,
+    RerouteOption,
+    RerouteStatus,
+    Situation,
     Taf,
     ToolCallRecord,
     TraceActor,
@@ -90,7 +98,11 @@ def build_planner_context(
     tafs: Mapping[str, Taf],
     at: datetime,
     policy: OperatorPolicy,
+    routes: RouteTable | None = None,
+    situation: Situation | None = None,
 ) -> PlannerContext:
+    """``routes`` and ``situation`` (its winds time the reroutes) are optional: without
+    routes no destination is known, and without winds a reroute is timed in still air."""
     nearby = airports.nearest(
         flight.lat, flight.lon, max_nm=policy.alternates.search_radius_nm.value
     )
@@ -98,6 +110,11 @@ def build_planner_context(
         _alternate(flight, cone, airport, distance, tafs.get(airport.icao), at, policy)
         for airport, distance in nearby
     ]
+    route = routes.lookup(flight, airports, policy) if routes is not None else None
+    reroutes = _reroutes(flight, cone, situation, route, routes, airports, policy)
+    allowed = allowed_actions(cone.mode)
+    if cheapest_reroute(reroutes) is None:
+        allowed = [action for action in allowed if action is not ActionKind.REROUTE]
     return PlannerContext(
         flight=flight,
         volcano_name=volcano_name,
@@ -106,11 +123,37 @@ def build_planner_context(
         hazard_base_ft=cone.base_ft,
         hazard_top_ft=cone.top_ft,
         vertical_margin_ft=policy.exposure.vertical_margin_ft.value,
-        allowed_actions=allowed_actions(cone.mode),
+        allowed_actions=allowed,
         alternates=alternates,
         hold=flight.hold,
+        route=route,
+        reroutes=reroutes,
         **planner_limits(policy),
     )
+
+
+def _reroutes(
+    flight: ExposedFlight,
+    cone: HazardCone,
+    situation: Situation | None,
+    route: FlightRoute | None,
+    routes: RouteTable | None,
+    airports: AirportCatalogue,
+    policy: OperatorPolicy,
+) -> list[RerouteOption]:
+    """Lateral options for the flight; none in HYPOTHESIS mode, which allows no route."""
+    if cone.mode is PlumeMode.HYPOTHESIS:
+        return []
+    position = None
+    if route is not None and routes is not None:
+        position = routes.position(route.dest_icao, airports)
+    return plan_reroutes(flight, cone, situation, route, policy, dest_position=position)
+
+
+def cheapest_reroute(reroutes: Sequence[RerouteOption]) -> RerouteOption | None:
+    """The OK option with the fewest extra minutes."""
+    ok = [option for option in reroutes if option.status is RerouteStatus.OK]
+    return min(ok, key=lambda option: (option.extra_min or 0.0, option.id), default=None)
 
 
 def planner_limits(policy: OperatorPolicy) -> dict[str, int]:
@@ -210,8 +253,17 @@ def rule_based_decision(ctx: PlannerContext) -> PlannerDecision:
             change_level_fl_min=band[0],
             change_level_fl_max=band[1],
         )
-    alternate = nearest_ok_alternate(ctx)
     urgent = flight.inside_now or flight.minutes_to_entry <= ctx.divert_within_min
+    reroute = cheapest_reroute(ctx.reroutes)
+    if reroute is not None and not urgent:
+        return _rule(
+            ActionKind.REROUTE,
+            f"{hazard}, {entry}. NO CLEAR LEVEL WITHIN {ctx.level_search_ft} FT. THE LATERAL"
+            f" ROUTE ({_side_text(reroute)}) ADDS {_minutes_text(reroute)}.",
+            [ActionKind.HOLD, ActionKind.DIVERT, ActionKind.MONITOR],
+            reroute_id=reroute.id,
+        )
+    alternate = nearest_ok_alternate(ctx)
     if urgent and alternate is not None:
         return _rule(
             ActionKind.DIVERT,
@@ -305,6 +357,14 @@ def nearest_ok_alternate(ctx: PlannerContext) -> str | None:
     return min(candidates, key=lambda alt: alt.distance_nm).icao if candidates else None
 
 
+def _side_text(option: RerouteOption) -> str:
+    return f"{option.side} SIDE" if option.side else "DIRECT"
+
+
+def _minutes_text(option: RerouteOption) -> str:
+    return f"{option.fuel.minutes} MIN" if option.fuel is not None else "TIME"
+
+
 def present_fl(flight: ExposedFlight) -> int | None:
     return ft_to_fl(flight.alt_baro_ft) if flight.alt_baro_ft is not None else None
 
@@ -334,6 +394,7 @@ def normalise_decision(decision: PlannerDecision) -> PlannerDecision:
             ),
             "hold_fl": decision.hold_fl if action is ActionKind.HOLD else None,
             "alternate_icao": icao if action is ActionKind.DIVERT else None,
+            "reroute_id": decision.reroute_id if action is ActionKind.REROUTE else None,
             "reasoning": decision.reasoning.strip(),
         }
     )
@@ -346,6 +407,9 @@ def fuel_for(decision: PlannerDecision, ctx: PlannerContext) -> FuelLine | None:
         return next(
             (alt.divert for alt in ctx.alternates if alt.icao == decision.alternate_icao), None
         )
+    if decision.action is ActionKind.REROUTE:
+        option = reroute_of(decision, ctx)
+        return option.fuel if option is not None else None
     return None
 
 
@@ -446,6 +510,43 @@ def level_band_summary(ctx: PlannerContext, fl_min: int, fl_max: int) -> dict[st
     }
 
 
+def reroutes_summary(ctx: PlannerContext) -> dict[str, Any]:
+    """The lateral routes code computed: the usable ones in full, the rest with their reason."""
+    usable = [_reroute_dict(o) for o in ctx.reroutes if o.status is RerouteStatus.OK]
+    return {
+        "reroutes": usable,
+        "not_available": [
+            {"kind": o.kind.value, "status": o.status.value, "reason": o.note}
+            for o in ctx.reroutes
+            if o.status is not RerouteStatus.OK
+        ],
+        "published_route": (
+            {"origin": ctx.route.origin_icao, "destination": ctx.route.dest_icao}
+            if ctx.route is not None
+            else None
+        ),
+        "note": "Routes are free-route direct legs between computed turn points and need ATC"
+        " approval; extra minutes and fuel are against the present track or the direct route.",
+    }
+
+
+def _reroute_dict(option: RerouteOption) -> dict[str, Any]:
+    fuel = option.fuel
+    return {
+        "reroute_id": option.id,
+        "kind": option.kind.value,
+        "side": option.side,
+        "turn_points": len(option.waypoints),
+        "extra_nm": option.extra_nm,
+        "extra_minutes": option.extra_min,
+        "extra_fuel_kg": fuel.fuel_kg if fuel is not None else None,
+        "cost": fuel.formula if fuel is not None else None,
+        "route": option.route_string,
+        "buffer_nm": option.buffer_nm,
+        "wind": option.wind_note,
+    }
+
+
 def _margin_text(ctx: PlannerContext) -> str:
     return band_text(
         max(0, ctx.hazard_base_ft - ctx.vertical_margin_ft),
@@ -453,7 +554,9 @@ def _margin_text(ctx: PlannerContext) -> str:
     )
 
 
-def cost_summary(ctx: PlannerContext, action: str, alternate_icao: str | None) -> dict[str, Any]:
+def cost_summary(
+    ctx: PlannerContext, action: str, alternate_icao: str | None, reroute_id: str | None = None
+) -> dict[str, Any]:
     try:
         kind = ActionKind(action.strip().upper())
     except ValueError:
@@ -468,6 +571,11 @@ def cost_summary(ctx: PlannerContext, action: str, alternate_icao: str | None) -
         if candidate is None:
             return {"error": f"{code} IS NOT A LISTED ALTERNATE"}
         return _fuel_dict(candidate.divert)
+    if kind is ActionKind.REROUTE:
+        option = next((o for o in ctx.reroutes if o.id == reroute_id), None)
+        if option is None or option.fuel is None:
+            return {"error": "REROUTE COST NEEDS reroute_id OF A LISTED OPTION"}
+        return _fuel_dict(option.fuel)
     return {
         "action": kind.value,
         "minutes": 0,
@@ -495,6 +603,7 @@ def submit_decision(
     hold_fl: int | None,
     alternate_icao: str | None,
     alternatives_considered: Sequence[str] | None,
+    reroute_id: str | None = None,
 ) -> tuple[PlannerDecision | None, list[str]]:
     """Build and check a submitted plan; the problems go straight back to the model."""
     try:
@@ -515,6 +624,7 @@ def submit_decision(
             change_level_fl_max=change_level_fl_max,
             hold_fl=hold_fl,
             alternate_icao=alternate_icao,
+            reroute_id=reroute_id.strip() if reroute_id else None,
             reasoning=reasoning,
             alternatives_considered=considered,
         )
@@ -751,7 +861,7 @@ async def _read_decision(
 def _task_text(ctx: PlannerContext) -> str:
     return (
         f"Plan for exposed flight {ctx.flight.proxy_flight} near {ctx.volcano_name}."
-        " Read the flight and alternates with the tools, check any level band before"
+        " Read the flight, alternates and reroutes with the tools, check any level band before"
         " proposing it, then call submit_plan exactly once."
     )
 
@@ -762,7 +872,8 @@ def _repair_text(problems: Sequence[str]) -> str:
         "Code rejected the plan:\n"
         f"{listed}\n"
         "Fix these problems and call submit_plan again. Use only the allowed actions,"
-        " listed alternates that are acceptable, and levels clear of the hazard band."
+        " listed alternates that are acceptable, listed reroutes that are available, and levels"
+        " clear of the hazard band."
     )
 
 
@@ -813,6 +924,7 @@ def _decision_line(decision: PlannerDecision) -> str:
         ),
         ActionKind.HOLD: f" FL{decision.hold_fl}",
         ActionKind.DIVERT: f" {decision.alternate_icao}",
+        ActionKind.REROUTE: f" {decision.reroute_id}",
     }.get(decision.action, "")
     return f"{decision.action.value}{target}"
 

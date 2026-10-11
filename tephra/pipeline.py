@@ -16,16 +16,24 @@ import logging
 import time
 from collections.abc import Coroutine, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ValidationError
 from pydantic.main import IncEx
 
+from tephra.agents.budget import budget_view
 from tephra.agents.dispatch_drafter import ai_failure, draft_advisory
 from tephra.agents.exposure_planner import build_planner_context, plan_flight
 from tephra.agents.llm import LlmBackend, LlmPart, get_llm
 from tephra.agents.plume_reader import read_plume
+from tephra.agents.satellite_reader import (
+    SatelliteReading,
+    is_current,
+    plume_part,
+    read_satellite,
+    select_frames,
+)
 from tephra.config import (
     AIRLINE_CODE,
     AIRLINE_NAME,
@@ -41,10 +49,12 @@ from tephra.feeds.adsb import merge_aircraft
 from tephra.feeds.airports import AirportCatalogue, load_airports
 from tephra.feeds.base import FetchError, HttpSource, Source
 from tephra.feeds.registry import LiveData, disabled_reason, health_view, initial_health
+from tephra.feeds.routes import RouteTable, load_routes
 from tephra.feeds.sigmet import fetch_sigmets
 from tephra.feeds.volcanoes import VolcanoCatalogue, load_volcanoes
 from tephra.geo.cone import build_cone
 from tephra.geo.exposure import find_exposed
+from tephra.geo.reroute import coordinate_text
 from tephra.geo.units import deg_to_compass, distance_nm, ft_to_fl
 from tephra.models import (
     Advisory,
@@ -70,6 +80,9 @@ from tephra.models import (
     PlumeAssessment,
     PolicySummary,
     ReplayCase,
+    RerouteFeatureProps,
+    RerouteKind,
+    RerouteOption,
     RunMode,
     SatelliteFrame,
     Severity,
@@ -78,6 +91,7 @@ from tephra.models import (
     SituationCard,
     SourceCard,
     SseEvent,
+    SupportingEvidence,
     SystemState,
     TickReport,
     TraceActor,
@@ -102,6 +116,11 @@ from tephra.reconcile.discrepancies import (
     find_active,
     select_records,
 )
+from tephra.recovery import decisions as recovery_decisions
+from tephra.recovery.agent import recommend_recovery
+from tephra.recovery.models import Closure, Schedule
+from tephra.recovery.network import network_closures, run_lock
+from tephra.recovery.schedule import ScheduleError, load_schedule
 from tephra.replay.cases import (
     ReplaySource,
     case_path,
@@ -152,6 +171,7 @@ class Runtime:
     llm: LlmBackend
     catalogue: VolcanoCatalogue
     airports: AirportCatalogue
+    routes: RouteTable
     policy: OperatorPolicy
     mode: RunMode
     replay_case: ReplayCase | None
@@ -164,12 +184,19 @@ class Runtime:
     assessments: dict[str, PlumeAssessment] = field(init=False, default_factory=dict)
     cones: dict[str, HazardCone] = field(init=False, default_factory=dict)
     exposed: dict[str, ExposedFlight] = field(init=False, default_factory=dict)
+    reroutes: dict[str, list[RerouteOption]] = field(init=False, default_factory=dict)
+    """flight id -> the lateral options computed when the flight was planned"""
+    satellite: dict[str, SatelliteReading] = field(init=False, default_factory=dict)
+    """volcano id -> the newest Satellite Reader reading"""
     last_tick: TickReport | None = field(init=False, default=None)
     _planned: dict[str, tuple[str, int]] = field(init=False, default_factory=dict)
     """flight id -> (cone id, the most urgent bucket it was planned in for that cone)"""
     _missing_runs: dict[str, int] = field(init=False, default_factory=dict)
     _digests: dict[str, str] = field(init=False, default_factory=dict)
     _quiet_ticks: int = field(init=False, default=0)
+    _closed_airports: frozenset[str] | None = field(init=False, default=None)
+    """RFA-network airports with a closure now or in the horizon, at the last recovery check"""
+    _schedule: tuple[date, Schedule] | None = field(init=False, default=None)
     _live_source: Source | None = field(init=False, default=None)
     _snapshot: WallSnapshot | None = field(init=False, default=None)
     _replay_at: datetime | None = field(init=False, default=None)
@@ -244,6 +271,7 @@ class Runtime:
             cones=feature_collection(part for cone in cones for part in cone.to_features()),
             exposures=_exposure_features(self.exposed.values()),
             aircraft=_aircraft_features(self.aircraft(), self.exposed.values()),
+            reroutes=_reroute_features(self.reroutes, self.exposed),
             situations=[self._situation_card(situation, at, colors) for situation in situations],
             overlays=Overlays(
                 btd=[
@@ -253,6 +281,11 @@ class Runtime:
                 ],
                 frames=[_frame_thumb(frame) for s in situations for frame in s.frames],
             ),
+            satellite=[
+                self.satellite[s.volcano.id].model_dump(mode="json")
+                for s in situations
+                if s.volcano.id in self.satellite
+            ],
         )
 
     async def switch_mode(
@@ -369,6 +402,7 @@ class Runtime:
                 for fid, flight in self.exposed.items()
                 if flight.volcano_id in self.cones
             }
+            self._keep_current_reroutes()
             report.exposed_flights = len(self.exposed)
             report.notes.append(
                 "ADS-B is stale: exposures and open drafts kept until positions refresh"
@@ -399,6 +433,7 @@ class Runtime:
                     detail={"minutes_to_entry": flight.minutes_to_entry, "cone_id": flight.cone_id},
                 )
         self.exposed = exposed
+        self._keep_current_reroutes()
         report.exposed_flights = len(exposed)
 
         open_drafts = await self._open_drafts()
@@ -409,6 +444,96 @@ class Runtime:
             await self._plan_once(flight, drafts_by_flight.get(flight.id, []), at, report)
         report.drafts_superseded += await self._retire_drafts(open_drafts, at, report)
         self._planned = {fid: mark for fid, mark in self._planned.items() if fid in exposed}
+
+    async def run_recovery(self, at: datetime, report: TickReport) -> None:
+        """Start the recovery agent once when the set of airports the hazard closes changes.
+
+        The first look only records the set (a restart restores it from the bookkeeping); a
+        later change to a non-empty set makes one draft plan on the lite budget, and no airport
+        closed makes none. A Desk run in progress covers the change and is not repeated. The
+        change is recorded before the agent runs, so a failed plan is not retried every tick.
+        """
+        if not self.settings.recovery_auto:
+            return
+        schedule = await self._rfa_schedule(at)
+        if schedule is None:
+            return
+        closures = network_closures(
+            self, schedule, at=at, tafs=self.live.tafs, metars=self.live.metars
+        )
+        closed = frozenset(closure.icao for closure in closures)
+        if closed == self._closed_airports:
+            return
+        self._closed_airports = closed
+        if not closed:
+            self.trace(TraceStage.RECOVERY, "code", "No RFA airport is closed by the hazard now")
+            return
+        if run_lock(self).locked():
+            return
+        self.trace(
+            TraceStage.RECOVERY,
+            "code",
+            f"Closed airports changed: {', '.join(sorted(closed))}; "
+            "running the recovery agent once",
+            level="warn",
+            detail={"airports": sorted(closed)},
+        )
+        report.recovery_plans += 1
+        # In the background: three CP-SAT solves and a model run must not hold the tick.
+        self.spawn(self._recover(schedule, closures))
+
+    async def _recover(self, schedule: Schedule, closures: Sequence[Closure]) -> None:
+        try:
+            async with run_lock(self):
+                plan = await recommend_recovery(
+                    schedule,
+                    closures,
+                    self.llm,
+                    settings=self.settings,
+                    policy=self.policy,
+                    airports={airport.icao: airport for airport in self.airports.all()},
+                    replay=self.mode is RunMode.REPLAY,
+                    trace=self._sink,
+                )
+                await recovery_decisions.submit_plan(self.store, self.bus, plan)
+            await self.publish_budget()
+        except Exception:  # a background task's error would otherwise vanish
+            logger.exception("automatic recovery plan failed")
+            self.trace(
+                TraceStage.RECOVERY, "system", "Automatic recovery plan failed", level="error"
+            )
+
+    async def _rfa_schedule(self, at: datetime) -> Schedule | None:
+        """The fictional RFA day for ``at``'s date, read once a day."""
+        held = self._schedule
+        if held is not None and held[0] == at.date():
+            return held[1]
+        try:
+            schedule = await asyncio.to_thread(load_schedule, self.settings.data_dir, at)
+        except ScheduleError as exc:
+            self.trace(
+                TraceStage.RECOVERY,
+                "system",
+                f"No RFA schedule: {exc}; no recovery plans",
+                level="error",
+            )
+            return None
+        self._schedule = (at.date(), schedule)
+        return schedule
+
+    async def add_verified_notice(self, vona: Vona) -> None:
+        """A pasted notice that passed every check joins the live picture like a VONA."""
+        key = vona.provenance.source_id
+        self.live.vonas[key] = vona
+        await self.store.put(Collection.VONAS, key, vona.model_dump(mode="json"))
+
+    def _keep_current_reroutes(self) -> None:
+        """Reroutes only for flights still exposed to the cone they were computed for."""
+        self.reroutes = {
+            fid: options
+            for fid, options in self.reroutes.items()
+            if fid in self.exposed and options and options[0].cone_id == self.exposed[fid].cone_id
+        }
 
     def count_quiet_tick(self) -> None:
         if self.mode is RunMode.LIVE and self.settings.auto_replay:
@@ -426,10 +551,16 @@ class Runtime:
         bus.publish(SseEvent.OFFICIAL, snapshot.official)
         bus.publish(SseEvent.CONES, snapshot.cones)
         bus.publish(SseEvent.EXPOSURES, snapshot.exposures)
+        bus.publish(SseEvent.REROUTES, snapshot.reroutes)
         bus.publish(SseEvent.AIRCRAFT, snapshot.aircraft)
         bus.publish(SseEvent.OVERLAYS, snapshot.overlays)
         for card in snapshot.situations:
             bus.publish(SseEvent.SITUATION, card)
+        await self.publish_budget()
+
+    async def publish_budget(self) -> None:
+        """The day's model-call counts, after the tick's model calls (the Wall's AI tray)."""
+        self.bus.publish(SseEvent.BUDGET, await budget_view(self.settings, self.llm))
 
     async def publish_live(self) -> None:
         """The between-ticks update after an extra ADS-B poll: aircraft, exposures, state."""
@@ -518,6 +649,30 @@ class Runtime:
         self.live.vonas = {record.provenance.source_id: record for record in vonas}
         self.live.vaas = {record.provenance.source_id: record for record in vaas}
         await self._restore_bookkeeping()
+        await self._restore_readings()
+
+    async def _restore_readings(self) -> None:
+        """The newest Satellite Reader reading per volcano and the stored reroutes, so a restart
+        neither re-reads a scan it already read nor loses the routes of flights still exposed
+        (``_keep_current_reroutes`` drops those that no longer apply)."""
+        docs = await self.store.query(
+            Collection.SAT_READINGS, [], order_by="created_at", descending=True, limit=RESTORE_LIMIT
+        )
+        for doc in docs:
+            try:
+                reading = SatelliteReading.model_validate(doc)
+            except ValidationError:
+                logger.warning("ignoring unreadable stored satellite reading")
+                continue
+            if not reading.replay:
+                self.satellite.setdefault(reading.volcano_id, reading)
+        for doc in await self.store.list_docs(Collection.REROUTES, limit=RESTORE_LIMIT):
+            try:
+                option = RerouteOption.model_validate(doc)
+            except ValidationError:
+                logger.warning("ignoring unreadable stored reroute")
+                continue
+            self.reroutes.setdefault(option.flight_id, []).append(option)
 
     # --- per volcano ---------------------------------------------------------------------
 
@@ -585,6 +740,8 @@ class Runtime:
                 volcano_id=volcano.id,
             )
         images = await self._images(situation) if call_model else []
+        if call_model:
+            situation = await self._with_satellite(situation, report)
         assessment = await read_plume(
             situation,
             self.llm,
@@ -610,6 +767,52 @@ class Runtime:
                 note="; ".join(assessment.validation_errors) or "model returned nothing usable",
             )
         return assessment
+
+    async def _with_satellite(self, situation: Situation, report: TickReport) -> Situation:
+        """The Satellite Reader, gated twice: it runs only when the Plume Reader is about to
+        be asked about this volcano (the caller) and only when the newest frames are not the
+        ones the last reading used. A reading made from the current frames, read or failed,
+        is not repeated; its text goes to the Plume Reader as supporting evidence."""
+        volcano = situation.volcano
+        held = self.satellite.get(volcano.id)
+        probe = [(frame, b"") for frame in self.live.frames.get(volcano.id, [])]
+        if not is_current(held, volcano, probe):
+            chosen = select_frames(volcano, probe)
+            pairs: list[tuple[SatelliteFrame, bytes]] = []
+            for frame, _ in chosen.values():
+                blob = await self.store.get_blob(frame.image_key)
+                if blob is not None:
+                    pairs.append((frame, blob[0]))
+            if not any(frame.product is FrameProduct.DUST_RGB for frame, _ in pairs):
+                return situation
+            held = await read_satellite(
+                volcano,
+                pairs,
+                situation.official_layers,
+                self.llm,
+                replay=self.mode is RunMode.REPLAY,
+                trace=self._sink,
+            )
+            report.satellite_reads += 1
+            self.satellite[volcano.id] = held
+            await self.store.put(Collection.SAT_READINGS, held.id, held.model_dump(mode="json"))
+            self.bus.publish(SseEvent.SATELLITE, held)
+            if held.status == "ai_unavailable":
+                await audit.record(
+                    self.store,
+                    actor=SYSTEM_ACTOR,
+                    action=AuditAction.AI_FAILED,
+                    after={"volcano_id": volcano.id, "satellite_reading_id": held.id},
+                    model_id=held.model_id,
+                    prompt_hash=held.prompt_hash,
+                    note=held.reason,
+                )
+            await self.publish_budget()
+        part = plume_part(held) if held is not None else None
+        if held is None or part is None or not is_current(held, volcano, probe):
+            return situation
+        evidence = SupportingEvidence(source_id=held.id, text=part.text or "")
+        return situation.model_copy(update={"supporting": [evidence]})
 
     def _model_call_matters(self, situation: Situation) -> bool:
         if any(
@@ -713,7 +916,10 @@ class Runtime:
             tafs=self.live.tafs,
             at=at,
             policy=self.policy,
+            routes=self.routes,
+            situation=situation,
         )
+        await self._store_reroutes(flight, ctx.reroutes)
         plan = await plan_flight(ctx, self.llm, settings=self.settings, trace=self._sink)
         await self.store.put(Collection.PLANS, plan.id, plan.model_dump(mode="json"))
         if plan.decision is None:
@@ -771,6 +977,18 @@ class Runtime:
             flight_id=flight.id,
             detail={"advisory_id": created.id},
         )
+
+    async def _store_reroutes(
+        self, flight: ExposedFlight, options: Sequence[RerouteOption]
+    ) -> None:
+        """Keep the lateral options computed for the flight: in the store (``reroutes``) and,
+        for the Wall, in memory until the flight leaves the cone."""
+        if not options:
+            self.reroutes.pop(flight.id, None)
+            return
+        self.reroutes[flight.id] = list(options)
+        for option in options:
+            await self.store.put(Collection.REROUTES, option.id, option.model_dump(mode="json"))
 
     async def _record_failure(self, failure: AiFailure) -> None:
         """No plan or no draft: the flight goes to the Desk for a dispatcher, and outdated
@@ -868,6 +1086,7 @@ class Runtime:
         self.situations.pop(volcano_id, None)
         self.assessments.pop(volcano_id, None)
         self.cones.pop(volcano_id, None)
+        self.satellite.pop(volcano_id, None)
 
     def _volcano_name(self, volcano_id: str) -> str:
         volcano = self.catalogue.get(volcano_id)
@@ -984,6 +1203,10 @@ class Runtime:
         self.assessments.clear()
         self.cones.clear()
         self.exposed.clear()
+        self.reroutes.clear()
+        self.satellite.clear()
+        self._closed_airports = None
+        self._schedule = None
         self._planned.clear()
         self._missing_runs.clear()
         self._digests.clear()
@@ -1041,6 +1264,9 @@ class Runtime:
             "auto_replay": self.auto_replay,
             "case_id": self.replay_case.case_id if self.replay_case is not None else None,
             "quiet_ticks": self._quiet_ticks,
+            "closed_airports": None
+            if self._closed_airports is None
+            else sorted(self._closed_airports),
             "planned": {
                 fid: [cone_id, urgency] for fid, (cone_id, urgency) in self._planned.items()
             },
@@ -1054,6 +1280,8 @@ class Runtime:
         if doc is None or doc.get("mode") != RunMode.LIVE.value:
             return
         self._quiet_ticks = int(doc.get("quiet_ticks") or 0)
+        closed = doc.get("closed_airports")
+        self._closed_airports = frozenset(map(str, closed)) if isinstance(closed, list) else None
         self._planned = _planned_marks(doc.get("planned"))
         for vid, assessment_id in (doc.get("assessment_ids") or {}).items():
             stored = await self.store.get(Collection.ASSESSMENTS, str(assessment_id))
@@ -1088,6 +1316,7 @@ async def create_runtime(settings: Settings) -> Runtime:
     airports = await asyncio.to_thread(
         load_airports, settings.data_dir, min_runway_m=policy.alternates.min_runway_m.value
     )
+    routes = await asyncio.to_thread(load_routes, settings.data_dir)
     replay_case: ReplayCase | None = None
     source: Source
     if settings.mode is RunMode.REPLAY:
@@ -1104,6 +1333,7 @@ async def create_runtime(settings: Settings) -> Runtime:
         llm=get_llm(settings),
         catalogue=catalogue,
         airports=airports,
+        routes=routes,
         policy=policy,
         mode=settings.mode,
         replay_case=replay_case,
@@ -1290,6 +1520,50 @@ def _exposure_features(exposed: Iterable[ExposedFlight]) -> dict[str, Any]:
                 else point(flight.entry_lat, flight.entry_lon)
             )
             features.append(feature(geometry, props, feature_id=f"{flight.id}#{kind}"))
+    return feature_collection(features)
+
+
+def _reroute_features(
+    reroutes: Mapping[str, Sequence[RerouteOption]], exposed: Mapping[str, ExposedFlight]
+) -> dict[str, Any]:
+    """Each option with a path: the path as a LineString and every turn point as a Point.
+
+    Options with no path (no route, level outside the band) have nothing to draw.
+    """
+    features: list[dict[str, Any]] = []
+    for flight in sorted(exposed.values(), key=_entry_order):
+        for option in reroutes.get(flight.id, ()):
+            if len(option.path) < 2:
+                continue
+            labels = [coordinate_text(lat, lon) for lon, lat in option.waypoints]
+            shared = {
+                "flight_id": flight.id,
+                "proxy_flight": flight.proxy_flight,
+                "volcano_id": flight.volcano_id,
+                "kind": option.kind,
+                "status": option.status,
+                "route_string": option.route_string,
+                "extra_nm": option.extra_nm,
+                "extra_min": option.extra_min,
+                "side": option.side,
+            }
+            name = "REJOIN" if option.kind is RerouteKind.REJOIN_TRACK else "DIRECT"
+            extra = f" +{option.extra_nm:.0f} NM" if option.extra_nm is not None else ""
+            path = RerouteFeatureProps(
+                **shared,
+                feature="path",
+                label=f"{flight.proxy_flight} {name}{extra}",
+                waypoint_labels=labels,
+            )
+            features.append(
+                feature(
+                    GeoLineString(coordinates=option.path), path, feature_id=f"{option.id}#path"
+                )
+            )
+            for index, (position, label) in enumerate(zip(option.waypoints, labels, strict=True)):
+                props = RerouteFeatureProps(**shared, feature="waypoint", label=label)
+                geometry = point(position[1], position[0])
+                features.append(feature(geometry, props, feature_id=f"{option.id}#wp{index + 1}"))
     return feature_collection(features)
 
 

@@ -29,7 +29,9 @@ from tephra.feeds import registry
 from tephra.feeds.adsb import MAX_CACHED_COPY_AGE_S
 from tephra.feeds.airports import load_airports
 from tephra.feeds.base import FetchError, FetchResult, HttpSource, Source, build_url
+from tephra.feeds.jma_volcano import JMA_EQVOL_URL
 from tephra.feeds.registry import due_feeds, initial_health
+from tephra.feeds.routes import load_routes
 from tephra.feeds.volcanoes import load_volcanoes
 from tephra.geo.cone import covers_official
 from tephra.models import (
@@ -58,6 +60,7 @@ from tephra.util.timeutil import FixedClock, use_clock
 FIXTURES = Path(__file__).parent / "fixtures"
 DATA_DIR = PROJECT_ROOT / "data"
 POLICY = load_policy(DATA_DIR)
+ROUTES = load_routes(DATA_DIR)
 AT = datetime(2026, 10, 9, 19, 40, tzinfo=UTC)
 
 KRAKATAU, SEMERU, DUKONO, IBU = "262000", "263300", "268010", "268030"
@@ -245,6 +248,8 @@ class FixtureSource:
             return self._adsb(fetched_at), "application/json"
         if url == FVAU02_URL:
             return FVAU02_SEMERU.encode(), "text/plain"
+        if url == JMA_EQVOL_URL:  # JMA's real Atom feed: no eruption report among its entries
+            return (FIXTURES / "jma" / "eqvol.xml").read_bytes(), "application/atom+xml"
         name = PAGES.get(url) or next(
             (path for prefix, path in PREFIXES.items() if url.startswith(prefix)), None
         )
@@ -277,7 +282,7 @@ def make_settings(tmp_path: Path, **changes: Any) -> Settings:
         store="sqlite",
         sqlite_path=tmp_path / "tephra.sqlite3",
         cache_dir=tmp_path / "cache",
-        **changes,
+        **{"recovery_auto": False, **changes},
     )
 
 
@@ -290,6 +295,7 @@ def make_runtime(settings: Settings, source: Source, *, mode: RunMode = RunMode.
         llm=get_llm(settings),
         catalogue=load_volcanoes(DATA_DIR),
         airports=load_airports(DATA_DIR, min_runway_m=POLICY.alternates.min_runway_m.value),
+        routes=ROUTES,
         policy=POLICY,
         mode=mode,
         replay_case=None,
@@ -390,7 +396,9 @@ async def test_one_tick_from_feeds_to_a_draft(runtime: Runtime) -> None:
     for_semeru = [
         e["stage"] for e in events if e["volcano_id"] == SEMERU and e["stage"] != "SYSTEM"
     ]
-    assert for_semeru[:2] == ["PLUME", "CONE"]
+    # The Satellite Reader runs just before the Plume Reader it supports, then the cone.
+    assert set(for_semeru[:2]) == {"SATELLITE"}
+    assert [stage for stage in for_semeru if stage != "SATELLITE"][:2] == ["PLUME", "CONE"]
     assert for_semeru[-4:] == ["EXPOSURE", "PLANNER", "DRAFTER", "DESK"]
 
 

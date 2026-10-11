@@ -1,9 +1,10 @@
 """Code checks on the Exposure Planner's decision and the Dispatch Drafter's text.
 
 Each check returns a list of upper-case, code-written problems (empty = accepted). The
-agents send these back to the model for one repair and then fall back to code. Nothing
-here asks a model anything: what counts as a safe action, a known place or an honest
-number is decided by these rules alone.
+agents send these back to the model for one repair; a plan or draft that still fails is
+reported as AI UNAVAILABLE and nothing is substituted. Nothing here asks a model anything:
+what counts as a safe action, a known place or an honest number is decided by these rules
+alone.
 """
 
 import re
@@ -20,6 +21,8 @@ from tephra.models import (
     PlannerContext,
     PlannerDecision,
     PlumeMode,
+    RerouteOption,
+    RerouteStatus,
 )
 
 MAX_LEVEL_FL: Final = 600
@@ -56,6 +59,7 @@ ACTION_WORDS: Final[dict[ActionKind, tuple[str, ...]]] = {
     ActionKind.CHANGE_LEVEL: ("CLIMB", "DESCEND", "CHANGE LEVEL", "LEVEL CHANGE"),
     ActionKind.HOLD: ("HOLD",),
     ActionKind.DIVERT: ("DIVERT",),
+    ActionKind.REROUTE: ("REROUTE",),
 }
 """Words that name each action in an advisory body."""
 
@@ -89,6 +93,7 @@ behind it: HEAT (Assiut) and SAME (Mendoza) are station ids, and TOKYO is a city
 _CAPS_WORD = re.compile(r"(?<![A-Za-z0-9])[A-Z]{4,5}(?![A-Za-z0-9])")
 _ALPHA_WORD = re.compile(r"[A-Z]+")
 _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+_COORDINATE = re.compile(r"(?<![A-Z0-9])\d{4}[NS]\d{5}[EW](?![A-Z0-9])")
 _VAR = re.compile(r"(?<![A-Z0-9])VAR(?![A-Z0-9])")
 _CLOSED = re.compile(r"(?<![A-Z])CLOS(?:E|ED|ES|ING|URE)(?![A-Z])")
 
@@ -103,6 +108,13 @@ def band_clears_hazard(fl_min: int, fl_max: int, *, ctx: PlannerContext) -> bool
     below = fl_max * 100 < ctx.hazard_base_ft - ctx.vertical_margin_ft
     above = fl_min * 100 > ctx.hazard_top_ft + ctx.vertical_margin_ft
     return below or above
+
+
+def reroute_of(decision: PlannerDecision, ctx: PlannerContext) -> RerouteOption | None:
+    """The option a REROUTE decision names, if the context has it."""
+    if decision.reroute_id is None:
+        return None
+    return next((option for option in ctx.reroutes if option.id == decision.reroute_id), None)
 
 
 def clock_problems(text: str, field: str) -> list[str]:
@@ -133,10 +145,14 @@ def validate_decision(decision: PlannerDecision, ctx: PlannerContext) -> list[st
             problems.extend(_hold_problems(decision, ctx))
         case ActionKind.DIVERT:
             problems.extend(_divert_problems(decision, ctx))
+        case ActionKind.REROUTE:
+            problems.extend(_reroute_problems(decision, ctx))
         case ActionKind.CONTINUE:
             problems.extend(_continue_problems(ctx))
         case ActionKind.MONITOR:
             pass
+    if decision.action is not ActionKind.REROUTE and decision.reroute_id is not None:
+        problems.append("reroute_id BELONGS ONLY TO A REROUTE")
     reasoning = decision.reasoning.strip()
     if not reasoning:
         problems.append("REASONING IS EMPTY")
@@ -219,6 +235,29 @@ def _divert_problems(decision: PlannerDecision, ctx: PlannerContext) -> list[str
     return []
 
 
+def _reroute_problems(decision: PlannerDecision, ctx: PlannerContext) -> list[str]:
+    if decision.reroute_id is None:
+        return ["REROUTE NEEDS reroute_id"]
+    option = reroute_of(decision, ctx)
+    if option is None:
+        listed = ", ".join(o.id for o in ctx.reroutes if o.status is RerouteStatus.OK) or "NONE"
+        return [f"REROUTE {decision.reroute_id} IS NOT ONE OF THE LISTED OPTIONS ({listed})"]
+    problems: list[str] = []
+    if option.status is not RerouteStatus.OK:
+        problems.append(f"REROUTE {option.id} IS NOT AVAILABLE ({option.status.value})")
+    if any(
+        value is not None
+        for value in (
+            decision.change_level_fl_min,
+            decision.change_level_fl_max,
+            decision.hold_fl,
+            decision.alternate_icao,
+        )
+    ):
+        problems.append("REROUTE TAKES NO LEVEL, HOLD OR ALTERNATE FIELDS")
+    return problems
+
+
 def _hazard_with_margin(ctx: PlannerContext) -> str:
     low = ft_to_fl(max(0, ctx.hazard_base_ft - ctx.vertical_margin_ft))
     high = ft_to_fl(ctx.hazard_top_ft + ctx.vertical_margin_ft)
@@ -237,6 +276,8 @@ def validate_draft(draft: DraftText, *, ctx: PlannerContext, plan: PlannedAction
         )
     if decision.action is ActionKind.DIVERT:
         problems.extend(_divert_draft_problems(decision.alternate_icao, ctx))
+    if decision.action is ActionKind.REROUTE and reroute_of(decision, ctx) is None:
+        problems.append(f"REROUTE {decision.reroute_id} IS NOT A LISTED OPTION")
     problems.extend(_body_problems(draft.body, ctx=ctx, plan=plan))
     problems.extend(_cost_note_problems(draft.cost_note, ctx=ctx, plan=plan))
     return problems
@@ -315,8 +356,23 @@ def _action_word_problems(upper: str, *, ctx: PlannerContext, plan: PlannedActio
             problems.append("BODY MUST STATE THE NEW FLIGHT LEVEL BAND")
         case ActionKind.HOLD if not _has_flight_level(upper, decision.hold_fl):
             problems.append("BODY MUST STATE THE HOLDING FLIGHT LEVEL")
+        case ActionKind.REROUTE:
+            problems.extend(_route_text_problems(upper, reroute_of(decision, ctx)))
         case _:
             pass
+    return problems
+
+
+def _route_text_problems(upper: str, option: RerouteOption | None) -> list[str]:
+    """The body carries the route string verbatim and no coordinate that is not in it."""
+    if option is None:
+        return []
+    problems: list[str] = []
+    if option.route_string not in upper:
+        problems.append(f"BODY MUST CONTAIN THE ROUTE STRING VERBATIM: {option.route_string}")
+    written = set(_COORDINATE.findall(option.route_string))
+    if stray := sorted(set(_COORDINATE.findall(upper)) - written):
+        problems.append(f"BODY HAS COORDINATES NOT IN THE ROUTE STRING: {', '.join(stray)}")
     return problems
 
 
@@ -393,6 +449,15 @@ def _input_texts(ctx: PlannerContext, plan: PlannedAction) -> list[str]:
         texts += [alternate.name, alternate.divert.formula, *alternate.check.reasons]
     if plan.fuel is not None:
         texts.append(plan.fuel.formula)
+    option = reroute_of(plan.decision, ctx)
+    if option is not None:
+        texts += [
+            option.route_string,
+            option.note,
+            option.wind_note or "",
+            f"BUFFER {option.buffer_nm} NM",
+            option.end_icao or "",
+        ]
     return texts
 
 

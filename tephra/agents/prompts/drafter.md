@@ -23,7 +23,9 @@ Return JSON with two fields:
    or DESCEND; when `flight.present_fl` is already inside that band (its selected level
    would take it into the hazard), write DO NOT CLIMB ABOVE or DO NOT DESCEND BELOW the
    band's edge instead. For HOLD give `FL` with `action.hold_fl` and say present position;
-   for DIVERT name the ICAO code in `action.alternate.icao`. For MONITOR while
+   for DIVERT name the ICAO code in `action.alternate.icao`; for REROUTE write the word
+   REROUTE and `action.reroute.route_string` exactly as given, character for character, and
+   say it is subject to ATC approval. For MONITOR while
    `flight.inside_hazard_now` is true in an official or widened cone, ask the crew to
    coordinate the exit with ATC and say dispatch will advise; never write NO CHANGE there.
 3. Say where the hazard is: the volcano, the hazard band, and the minutes to entry or that
@@ -31,12 +33,15 @@ Return JSON with two fields:
 4. When `hazard.official_product_valid` is false, say the hazard is a TEPHRA estimate with
    no valid official product, and do not mention climbing, descending or diverting.
 5. Ask the crew to report any volcanic activity: include the word VAR.
-6. Add "ATC PERMITTING" when the action needs a clearance (level change, hold, diversion).
+6. Add "ATC PERMITTING" when the action needs a clearance (level change, hold, diversion,
+   reroute).
 7. Do not write:
    - any clock time, date or timestamp (code adds the times in the header);
    - any number that does not appear in the facts' fields. `action.planner_reasoning` is
      background only: do not copy its numbers or names unless another field has them;
-   - any ICAO code other than those in `listed_icao_codes`, and no waypoint names;
+   - any ICAO code other than those in `listed_icao_codes` (and the destination in
+     `action.reroute.end`), and no waypoint names or coordinates other than those inside
+     `action.reroute.route_string`;
    - the word WILL, which is the ICAO code of Radin Inten II (Lampung); write "TO FOLLOW"
      instead;
    - "CLOSED" or "AIRSPACE CLOSED" - this is a company advisory, not a NOTAM;

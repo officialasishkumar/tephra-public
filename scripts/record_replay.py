@@ -158,6 +158,7 @@ def _settings(args: argparse.Namespace, workdir: Path) -> Settings:
         region=args.region,
         vona_live=args.with_vona,
         science=args.science,
+        recovery_auto=False,
     )
 
 

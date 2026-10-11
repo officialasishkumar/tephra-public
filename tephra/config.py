@@ -42,6 +42,10 @@ polygons drop out of the cone for a tick."""
 MIN_SECRET_CHARS = 32
 """Session secret and task token: shorter values make the desk cookie HMAC guessable."""
 ADVISORY_BODY_MAX_CHARS = 400
+MAX_BODY_BYTES = 16 * 1024
+"""Desk bodies are a PIN, a reason or a 400-character advisory; nothing needs more."""
+MAX_NOTICE_BODY_BYTES = 32 * 1024
+"""A pasted notice is up to 6,000 characters, and Japanese text takes three bytes each."""
 
 MOVED_TO_POLICY: dict[str, str] = {
     "TEPHRA_VERTICAL_MARGIN_FT": "vertical_margin_ft",
@@ -108,7 +112,15 @@ class Settings(BaseSettings):
     )
     model: str = Field(default="gemini-3.8-flash", description="Plume Reader (multimodal)")
     model_lite: str = Field(
-        default="gemini-3.5-flash-lite", description="Exposure Planner (ADK) and Dispatch Drafter"
+        default="gemini-3.5-flash-lite",
+        description=(
+            "Exposure Planner and Dispatch Drafter (ADK), Ask, Notice and Satellite Readers, "
+            "recovery, messages, handover, SRA narrative, backtest report, transcription"
+        ),
+    )
+    model_tts: str = Field(
+        default="gemini-3.8-flash-lite-tts",
+        description="Ask TEPHRA's spoken answers (text-to-speech)",
     )
     model_daily_budget: int = Field(
         default=18, ge=0, description="Max calls/UTC day to TEPHRA_MODEL (free tier ~20 RPD)"
@@ -156,6 +168,13 @@ class Settings(BaseSettings):
     )
     tick_interval_s: int = Field(default=60, ge=10)
     region: RegionKey = "java_bali"
+    recovery_auto: bool = Field(
+        default=True,
+        description=(
+            "Run the recovery agent once when the set of closed RFA airports changes; the Desk's "
+            "'run' button works either way. Each run is one lite-tier agent session."
+        ),
+    )
     science: bool = Field(default=False, description="Raw Himawari HSD BTD; needs [science]")
     nict_frames: bool = Field(
         default=False,
@@ -192,6 +211,7 @@ class Settings(BaseSettings):
     # Feed cadences (seconds).
     cadence_sigmet_s: int = 60
     cadence_vona_s: int = 300
+    cadence_jma_volcano_s: int = 300
     cadence_vaac_s: int = 300
     cadence_frames_s: int = 600
     cadence_hsd_s: int = 600
@@ -213,6 +233,15 @@ class Settings(BaseSettings):
     # Server.
     port: int = Field(default=8080, validation_alias=AliasChoices("PORT", "TEPHRA_PORT"))
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    max_upload_bytes: int = Field(
+        default=1_310_720,
+        ge=MAX_BODY_BYTES,
+        description=(
+            "Largest request body of POST /api/desk/ask/voice (one recording up to 1 MiB plus "
+            "multipart overhead); every other route is held to MAX_BODY_BYTES or "
+            "MAX_NOTICE_BODY_BYTES"
+        ),
+    )
     max_event_streams: int = Field(
         default=200,
         ge=1,
@@ -269,6 +298,7 @@ class Settings(BaseSettings):
         cadences = {
             FeedId.SIGMET: self.cadence_sigmet_s,
             FeedId.VONA: self.cadence_vona_s,
+            FeedId.JMA_VOLCANO: self.cadence_jma_volcano_s,
             FeedId.VAAC_TOKYO: self.cadence_vaac_s,
             FeedId.VAAC_DARWIN: self.cadence_vaac_s,
             FeedId.TAF: self.cadence_taf_s,

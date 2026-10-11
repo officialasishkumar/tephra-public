@@ -43,6 +43,7 @@ BUSY_NOTE: Final = "busy: another tick is still running"
 FEED_LABELS: Final[dict[FeedId, str]] = {
     FeedId.SIGMET: "VA SIGMET",
     FeedId.VONA: "MAGMA VONA",
+    FeedId.JMA_VOLCANO: "JMA volcano reports",
     FeedId.VAAC_TOKYO: "Tokyo VAAC",
     FeedId.VAAC_DARWIN: "Darwin VAAC",
     FeedId.TAF: "TAF",
@@ -101,6 +102,7 @@ async def _tick_steps(runtime: "Runtime", reason: str) -> TickReport:
     at = timeutil.now()
     await runtime.analyse(at, report)
     await runtime.run_exposures(at, report)
+    await runtime.run_recovery(at, report)
     runtime.count_quiet_tick()
     report.active_volcano_ids = sorted(active)
     report.finished_at = timeutil.now()

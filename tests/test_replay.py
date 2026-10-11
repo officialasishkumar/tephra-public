@@ -73,7 +73,7 @@ BANNER = "REPLAY: recorded real feeds from 09 Oct 2026"
 def data_dir(tmp_path: Path) -> Path:
     data = tmp_path / "data"
     data.mkdir()
-    for name in ("volcanoes.json", "airports.json"):
+    for name in ("volcanoes.json", "airports.json", "routes_apac.json"):
         shutil.copy(DATA_DIR / name, data / name)
     shutil.copytree(DATA_DIR / "policy", data / "policy")
     return data

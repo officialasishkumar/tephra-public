@@ -83,6 +83,8 @@ Legend:
 | `feeds_text/` | 7 SIGMET and 1 TAF JSON, 2 tgftp texts, README (untracked) | AWC: public domain. tgftp: NWS relay of Darwin VAAC (BoM) and Wellington VAAC text | GREEN / AMBER (low) | Credit the originating VAAC for the two tgftp texts |
 | `himawari/jma_*` | 4 (committed) | JMA MSC images and the slot page, JMA PDL 1.0 | GREEN | Credit "Source: JMA Meteorological Satellite Center" |
 | `himawari/nict_*` | 5 (committed) | NICT: "This web application and data included are not allowed for commercial uses." A public repo invites reuse that these terms forbid | RED (recommended) | Remove. feeds-geo: synthetic PNGs of the same size and shape for `tests/test_feeds_geo.py` and `tests/test_pipeline.py` |
+| `jma/` | 6 XML files saved byte for byte (an Atom feed and five JMAXML reports) | JMA Public Data License 1.0; credit "Source: Japan Meteorological Agency website" | GREEN | Credit JMA; the README says TEPHRA parses, not edits, them |
+| `notices/` | 4 synthetic notices (Indonesian, Filipino, Japanese) | Ours, written for the tests; no real MAGMA or PHIVOLCS text | GREEN | — |
 | `isigmet/` | 2 (committed) | AWC, public domain | GREEN | — |
 | `magma/vona_22880_semeru_ash.html`, `vona_22881_ibu_ash.html`, `vona_22889_semeru_no_ash.html` | 3 (committed) | MAGMA detail pages, all rights reserved | RED | Remove |
 | `magma/vona_list.html`, `vona_list_p010_20261009.html` … `p012` | 1 committed, 3 untracked | MAGMA list pages that name staff | RED | Remove. feeds-text: synthetic pages in MAGMA's structure, with invented content and observer names such as "Observer A", for `tests/test_feeds_text.py`, `tests/test_vona_archive.py` and `tests/test_pipeline.py` |
@@ -97,6 +99,9 @@ Legend:
 |---|---|---|---|
 | `airports.json` | OurAirports (positions, elevations, runways), checked against aviationweather.gov | "All data is released to the Public Domain" (ourairports.com/data) | GREEN |
 | `volcanoes.json` | Smithsonian GVP Volcanoes of the World (WFS). MAGMA volcano codes are taken from VONA notice numbers (facts only) | The GVP database compilation is a work of US government employees; Smithsonian's site terms say "personal, educational, and other non-commercial purposes" | GREEN for the entry. Cite "Global Volcanism Program, 2025. Volcanoes of the World (v. 5.3.x), https://doi.org/10.5479/si.GVP.VOTW5-2025.5.3". Recheck the terms for a commercial product |
+| `routes_apac.json` | VRS standing data `routes.csv.gz` and `airports.csv.gz` (vradarserver/standing-data, via vrs-standing-data.adsb.lol), fetched 2026-10-11; the file header holds both URLs, SHA-256 values and the licence. Crowd-sourced callsign-to-airport chains and chain-airport positions | CC0-1.0 | GREEN |
+| `rfa/*.json` | Our own synthetic fleet, crews and schedule (fixed seed, built by `scripts/build_rfa_schedule.py`) on real airport pairs from `routes_apac.json` | MIT, fictional | GREEN |
+| `policy/policy_a.json` | Our own illustrative operator policy; quotes Doc 9974 and PM 89/2015 text with references | MIT; short quotations | GREEN |
 
 ### 2.5 `data/replay/**` (untracked; also shipped in the Docker image)
 

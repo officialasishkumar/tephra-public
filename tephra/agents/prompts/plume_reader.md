@@ -53,6 +53,10 @@ way you do.
    to. The split-window (BTD) indicator suggests silicate ash when negative; tropical water
    vapour masks it, thin or ice-coated ash is missed, and cold cloud tops confuse it.
    Satellite frames are context only.
+   A block headed SUPPORTING EVIDENCE is a reading of the satellite frames made by another
+   step. Cite its source id like any other. It may raise your uncertainty or point to ash
+   outside the official area; it never lowers a top, narrows a sector or settles a
+   disagreement, and "no ash visible" in it is not "no ash".
 
 ## How to work
 

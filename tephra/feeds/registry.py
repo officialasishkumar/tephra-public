@@ -29,6 +29,7 @@ from tephra.feeds.adsb import (
     query_points,
 )
 from tephra.feeds.base import FetchError, FetchResult, Source, build_url
+from tephra.feeds.jma_volcano import fetch_jma_volcano
 from tephra.feeds.satellite import fetch_frames
 from tephra.feeds.sigmet import fetch_sigmets
 from tephra.feeds.taf import fetch_metars, fetch_tafs
@@ -78,7 +79,13 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-PRODUCT_FEEDS: Final = (FeedId.SIGMET, FeedId.VONA, FeedId.VAAC_TOKYO, FeedId.VAAC_DARWIN)
+PRODUCT_FEEDS: Final = (
+    FeedId.SIGMET,
+    FeedId.VONA,
+    FeedId.JMA_VOLCANO,
+    FeedId.VAAC_TOKYO,
+    FeedId.VAAC_DARWIN,
+)
 """Polled before activity is decided: they are what makes a volcano active."""
 CONTEXT_FEEDS: Final = (
     FeedId.ADSB,
@@ -112,6 +119,8 @@ ALTERNATES_PER_FLIGHT: Final = 5
 STALE_NOTE: Final = "live fetch failed; serving the last good copy"
 UNREACHABLE_ERRORS: Final = (httpx.TimeoutException, httpx.ConnectError)
 """Transport failures that say the host itself is not answering (not an HTTP error)."""
+NOTICE_PREFIX: Final = "NOTICE-"
+"""Source ids of verified pasted notices (``tephra.agents.notice_reader``)."""
 VONA_OFF_NOTE: Final = (
     "live polling off: MAGMA's robots.txt disallows crawling (TEPHRA_VONA_LIVE); "
     "replays serve recorded VONAs"
@@ -431,21 +440,60 @@ async def _poll_sigmets(runtime: "Runtime", at: datetime) -> _Outcome:
     return _Outcome(len(fetched), new, _any_stale(fetched))
 
 
+def _expire(held: dict[str, Vona] | dict[str, VaacAdvisory], cutoff: datetime) -> None:
+    """Drop records issued before ``cutoff``, in place: pollers run side by side (the two VAACs,
+    MAGMA and JMA) and each merges into the same dict, so one that rebinds the attribute would
+    lose the records another is still adding to the old dict."""
+    for key in [key for key, record in held.items() if record.issued_at < cutoff]:
+        del held[key]
+
+
+def _is_magma(vona: Vona) -> bool:
+    """A MAGMA VONA, as opposed to a JMA report or a verified pasted notice, which share the
+    ``live.vonas`` picture."""
+    return vona.provenance.feed is FeedId.VONA and not vona.provenance.source_id.startswith(
+        NOTICE_PREFIX
+    )
+
+
 async def _poll_vonas(runtime: "Runtime", at: datetime) -> _Outcome:
     live = runtime.live
     window = timedelta(hours=runtime.settings.vona_window_h)
+    held = [vona for vona in live.vonas.values() if _is_magma(vona)]
     fetched = await fetch_vonas(
         runtime.source,
         since=at - window,
-        known_urls=frozenset(vona.provenance.url for vona in live.vonas.values()),
-        known_ids=frozenset(
-            vona.magma_id for vona in live.vonas.values() if vona.magma_id is not None
-        ),
-        max_pages=1 if live.vonas else COLD_START_VONA_PAGES,
+        known_urls=frozenset(vona.provenance.url for vona in held),
+        known_ids=frozenset(vona.magma_id for vona in held if vona.magma_id is not None),
+        max_pages=1 if held else COLD_START_VONA_PAGES,
     )
     new = await _merge(runtime, Collection.VONAS, live.vonas, _issued_by(runtime, fetched, at))
-    live.vonas = {key: vona for key, vona in live.vonas.items() if vona.issued_at >= at - window}
-    return _Outcome(len(live.vonas), new, _any_stale(fetched))
+    _expire(live.vonas, at - window)
+    count = sum(1 for vona in live.vonas.values() if _is_magma(vona))
+    return _Outcome(count, new, _any_stale(fetched))
+
+
+async def _poll_jma_volcano(runtime: "Runtime", at: datetime) -> _Outcome:
+    """JMA eruption reports (VFVO52 and VFVO56), parsed without a model, join the same
+    ``live.vonas`` picture as MAGMA VONAs. Not behind ``TEPHRA_VONA_LIVE``: that switch is
+    about MAGMA's robots.txt; JMA's feed is open data (PDL 1.0)."""
+    live = runtime.live
+    window = timedelta(hours=runtime.settings.vona_window_h)
+    held = {key: vona for key, vona in live.vonas.items() if _is_jma(vona)}
+    fetched = await fetch_jma_volcano(
+        runtime.source,
+        runtime.catalogue,
+        since=at - window,
+        known_urls=frozenset(vona.provenance.url for vona in held.values()),
+    )
+    new = await _merge(runtime, Collection.VONAS, live.vonas, _issued_by(runtime, fetched, at))
+    _expire(live.vonas, at - window)
+    count = sum(1 for vona in live.vonas.values() if _is_jma(vona))
+    return _Outcome(count, new, _any_stale(fetched))
+
+
+def _is_jma(vona: Vona) -> bool:
+    return vona.provenance.feed is FeedId.JMA_VOLCANO
 
 
 def _vaa_poller(feed: FeedId) -> Callable[["Runtime", datetime], Awaitable[_Outcome]]:
@@ -463,7 +511,7 @@ def _vaa_poller(feed: FeedId) -> Callable[["Runtime", datetime], Awaitable[_Outc
         )
         new = await _merge(runtime, Collection.VAAS, live.vaas, _issued_by(runtime, fetched, at))
         cutoff = at - timedelta(hours=VAA_RETENTION_H)
-        live.vaas = {key: vaa for key, vaa in live.vaas.items() if vaa.issued_at >= cutoff}
+        _expire(live.vaas, cutoff)
         count = sum(1 for vaa in live.vaas.values() if vaa.provenance.feed is feed)
         return _Outcome(count, new, _any_stale(fetched))
 
@@ -696,6 +744,7 @@ def _unreachable(reason: str) -> bool:
 _POLLERS: Final[dict[FeedId, Callable[["Runtime", datetime], Awaitable[_Outcome]]]] = {
     FeedId.SIGMET: _poll_sigmets,
     FeedId.VONA: _poll_vonas,
+    FeedId.JMA_VOLCANO: _poll_jma_volcano,
     FeedId.VAAC_TOKYO: _vaa_poller(FeedId.VAAC_TOKYO),
     FeedId.VAAC_DARWIN: _vaa_poller(FeedId.VAAC_DARWIN),
     FeedId.TAF: _poll_tafs,

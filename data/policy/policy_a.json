@@ -1,6 +1,6 @@
 {
   "policy_id": "RFA-POLICY-A",
-  "version": "2026.10.2",
+  "version": "2026.10.4",
   "preset": "A",
   "title": "Ring of Fire Air operator policy A (default)",
   "label": "ILLUSTRATIVE, not an airline SRA",
@@ -97,9 +97,9 @@
       "source": "TEPHRA illustrative choice: Douglas-Peucker tolerance on the hazard outline; it is added to the buffer, so the simplified obstacle still contains the true area."
     },
     "max_waypoints_count": {
-      "value": 3,
+      "value": 4,
       "unit": "count",
-      "source": "TEPHRA illustrative choice: at most this many inserted turn points, so the route fits one ACARS message and a dispatcher can check it (NASA DWR inserts at most two)."
+      "source": "TEPHRA illustrative choice: at most this many inserted turn points. Four ICAO coordinates still fit one ACARS message and a dispatcher can check them; with three, a third of the flights in the jagged-hazard benchmark found no route (research/18a; NASA DWR inserts at most two around convective cells)."
     },
     "max_turn_deg": {
       "value": 90,
@@ -207,6 +207,11 @@
       "value": 20,
       "unit": "NM",
       "source": "TEPHRA illustrative choice: an airport counts as closed while the hazard area at any level below FL100 comes within this distance, or its TAF or METAR reports VA."
+    },
+    "pax_notice_min_delay_min": {
+      "value": 30,
+      "unit": "min",
+      "source": "Indonesia PM 89/2015 Pasal 3: delay category 1 starts at 30 minutes (research/18d section 4.1); a delay shorter than this gets no passenger notice, a cancellation always does."
     }
   },
   "fuel": {

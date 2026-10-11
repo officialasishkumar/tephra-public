@@ -20,6 +20,7 @@ from tephra.agents.validators import (
     ACTION_WORDS,
     COST_NOTE_MAX_CHARS,
     first_problems,
+    reroute_of,
     validate_draft,
 )
 from tephra.config import AIRLINE_NAME, Settings
@@ -39,6 +40,7 @@ from tephra.models import (
     PlannerDecision,
     PlumeAssessment,
     PlumeMode,
+    RerouteOption,
     RunMode,
     Situation,
     SourceRef,
@@ -99,6 +101,8 @@ def _action_text(decision: PlannerDecision) -> str:
             return f"HOLD FL{decision.hold_fl:03d}"
         case ActionKind.DIVERT:
             return f"DIVERT {decision.alternate_icao}"
+        case ActionKind.REROUTE:
+            return "REROUTE AROUND HAZARD"
         case _:
             return decision.action.value
 
@@ -170,6 +174,10 @@ def _instruction_line(ctx: PlannerContext, plan: PlannedAction) -> str:
             distance = plan.fuel.distance_nm if plan.fuel is not None else None
             via = f" {round(distance)} NM" if distance is not None else ""
             return f"DIVERT {decision.alternate_icao}{via}, ATC PERMITTING."
+        case ActionKind.REROUTE:
+            option = reroute_of(decision, ctx)
+            route = option.route_string if option is not None else ""
+            return f"REROUTE AROUND HAZARD {route}, ATC PERMITTING."
         case ActionKind.CONTINUE:
             return "CONTINUE, PRESENT LEVEL IS ABOVE HAZARD WITH MARGIN."
         case ActionKind.MONITOR if ctx.flight.inside_now and (
@@ -393,6 +401,7 @@ def _advisory(
         change_level_fl_max=decision.change_level_fl_max,
         hold_fl=decision.hold_fl,
         alternate_icao=decision.alternate_icao,
+        reroute=reroute_of(decision, ctx),
         minutes_to_entry=flight.minutes_to_entry,
         inside_now=flight.inside_now,
         fuel=plan.fuel,
@@ -421,6 +430,7 @@ def _advisory(
             decision.change_level_fl_min,
             decision.hold_fl,
             decision.alternate_icao,
+            *([decision.reroute_id] if decision.reroute_id else []),
         ),
     )
 
@@ -432,6 +442,7 @@ def _facts(ctx: PlannerContext, plan: PlannedAction) -> dict[str, Any]:
     """Everything the drafter may say, with no clock times, ids or hashes in it."""
     decision = plan.decision
     alternate = next((alt for alt in ctx.alternates if alt.icao == decision.alternate_icao), None)
+    reroute = reroute_of(decision, ctx)
     return {
         "airline": f"{AIRLINE_NAME} (fictional)",
         "flight": flight_summary(ctx),
@@ -461,10 +472,23 @@ def _facts(ctx: PlannerContext, plan: PlannedAction) -> dict[str, Any]:
                 if alternate is not None
                 else None
             ),
+            "reroute": _reroute_facts(reroute),
             "planner_reasoning": decision.reasoning,
         },
         "cost": _cost_facts(plan),
         "listed_icao_codes": [alt.icao for alt in ctx.alternates],
+    }
+
+
+def _reroute_facts(option: RerouteOption | None) -> dict[str, Any] | None:
+    if option is None:
+        return None
+    return {
+        "route_string": option.route_string,
+        "side": option.side,
+        "buffer_nm": option.buffer_nm,
+        "end": option.end_icao,
+        "wind": option.wind_note,
     }
 
 

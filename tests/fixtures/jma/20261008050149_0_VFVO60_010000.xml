@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/" xmlns="http://xml.kishou.go.jp/jmaxml1/">
+	<Control>
+		<Title>推定噴煙流向報</Title>
+		<DateTime>2026-10-08T05:01:00Z</DateTime>
+		<Status>通常</Status>
+		<EditorialOffice>気象庁本庁</EditorialOffice>
+		<PublishingOffice>気象庁</PublishingOffice>
+	</Control>
+	<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
+		<Title>桜島　推定噴煙流向報</Title>
+		<ReportDateTime>2026-10-08T14:01:00+09:00</ReportDateTime>
+		<TargetDateTime>2026-10-08T13:53:00+09:00</TargetDateTime>
+		<EventID>20261008140100_506</EventID>
+		<InfoType>発表</InfoType>
+		<Serial>1</Serial>
+		<InfoKind>推定噴煙流向報</InfoKind>
+		<InfoKindVersion>1.0_0</InfoKindVersion>
+		<Headline>
+			<Text/>
+			<Information type="推定噴煙流向報">
+				<Item>
+					<Kind>
+						<Name>噴火</Name>
+						<Code>52</Code>
+					</Kind>
+					<Areas codeType="火山名">
+						<Area>
+							<Name>桜島</Name>
+							<Code>506</Code>
+						</Area>
+					</Areas>
+				</Item>
+			</Information>
+		</Headline>
+	</Head>
+	<Body xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/" xmlns="http://xml.kishou.go.jp/jmaxml1/body/volcanology1/">
+		<VolcanoInfo type="推定噴煙流向報">
+			<Item>
+				<EventTime>
+					<EventDateTime significant="yyyy-mm-ddThh:mm">2026-10-08T13:53:00+09:00</EventDateTime>
+					<EventDateTimeUTC significant="yyyy-mm-ddThh:mm">2026-10-08T04:53:00Z</EventDateTimeUTC>
+				</EventTime>
+				<Kind>
+					<Name>噴火</Name>
+					<Code>52</Code>
+				</Kind>
+				<Areas codeType="火山名">
+					<Area>
+						<Name>桜島</Name>
+						<Code>506</Code>
+						<Coordinate description="北緯３１度３５．５５分　東経１３０度３９．４０分　標高１１１７ｍ">+3135.55+13039.40+1117/</Coordinate>
+						<CraterName>南岳山頂火口</CraterName>
+						<CraterCoordinate description="北緯３１度３４．６３分　東経１３０度３９．５３分　標高１０６０ｍ">+3134.63+13039.53+1060/</CraterCoordinate>
+					</Area>
+				</Areas>
+			</Item>
+		</VolcanoInfo>
+		<VolcanoObservation>
+			<ColorPlume>
+				<jmx_eb:PlumeHeightAboveCrater description="火口上1000m" type="火口上噴煙高度" unit="m">1000</jmx_eb:PlumeHeightAboveCrater>
+				<jmx_eb:PlumeHeightAboveSeaLevel description="海抜6800FT" type="海抜噴煙高度" unit="FT">6800</jmx_eb:PlumeHeightAboveSeaLevel>
+				<jmx_eb:PlumeDirection description="直上" type="噴煙の流向" unit="漢字">直上</jmx_eb:PlumeDirection>
+			</ColorPlume>
+			<WindAboveCrater>
+				<jmx_eb:DateTime significant="yyyy-mm-ddThh:mm">2026-10-08T14:00:00+09:00</jmx_eb:DateTime>
+				<WindAboveCraterElements description="SFC 030/17">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜0FT" type="海抜高度" unit="FT">0</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="30" type="風向" unit="度（真方位）">30</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１７ノット" type="風速" unit="ノット">17</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL010 030/18">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜1000FT" type="海抜高度" unit="FT">1000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="30" type="風向" unit="度（真方位）">30</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１８ノット" type="風速" unit="ノット">18</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL020 030/18">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜2000FT" type="海抜高度" unit="FT">2000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="30" type="風向" unit="度（真方位）">30</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１８ノット" type="風速" unit="ノット">18</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL030 040/18">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜3000FT" type="海抜高度" unit="FT">3000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="40" type="風向" unit="度（真方位）">40</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１８ノット" type="風速" unit="ノット">18</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL040 040/17">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜4000FT" type="海抜高度" unit="FT">4000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="40" type="風向" unit="度（真方位）">40</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１７ノット" type="風速" unit="ノット">17</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL050 060/12" heightProperty="代表高度">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜5000FT" type="海抜高度" unit="FT">5000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="60" type="風向" unit="度（真方位）">60</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１２ノット" type="風速" unit="ノット">12</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL060 080/12">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜6000FT" type="海抜高度" unit="FT">6000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="80" type="風向" unit="度（真方位）">80</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１２ノット" type="風速" unit="ノット">12</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL070 080/14">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜7000FT" type="海抜高度" unit="FT">7000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="80" type="風向" unit="度（真方位）">80</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１４ノット" type="風速" unit="ノット">14</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL080 080/14">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜8000FT" type="海抜高度" unit="FT">8000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="80" type="風向" unit="度（真方位）">80</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１４ノット" type="風速" unit="ノット">14</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL090 070/11">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜9000FT" type="海抜高度" unit="FT">9000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="70" type="風向" unit="度（真方位）">70</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１１ノット" type="風速" unit="ノット">11</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL100 070/10" heightProperty="代表高度">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜10000FT" type="海抜高度" unit="FT">10000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="70" type="風向" unit="度（真方位）">70</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１０ノット" type="風速" unit="ノット">10</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL110 070/10">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜11000FT" type="海抜高度" unit="FT">11000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="70" type="風向" unit="度（真方位）">70</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１０ノット" type="風速" unit="ノット">10</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL120 070/11">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜12000FT" type="海抜高度" unit="FT">12000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="70" type="風向" unit="度（真方位）">70</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１１ノット" type="風速" unit="ノット">11</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL130 060/12">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜13000FT" type="海抜高度" unit="FT">13000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="60" type="風向" unit="度（真方位）">60</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１２ノット" type="風速" unit="ノット">12</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL140 060/13">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜14000FT" type="海抜高度" unit="FT">14000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="60" type="風向" unit="度（真方位）">60</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１３ノット" type="風速" unit="ノット">13</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL150 070/13">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜15000FT" type="海抜高度" unit="FT">15000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="70" type="風向" unit="度（真方位）">70</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１３ノット" type="風速" unit="ノット">13</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL160 080/12">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜16000FT" type="海抜高度" unit="FT">16000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="80" type="風向" unit="度（真方位）">80</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１２ノット" type="風速" unit="ノット">12</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL170 090/08">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜17000FT" type="海抜高度" unit="FT">17000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="90" type="風向" unit="度（真方位）">90</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="８ノット" type="風速" unit="ノット">8</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL180 170/01" heightProperty="代表高度">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜18000FT" type="海抜高度" unit="FT">18000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="170" type="風向" unit="度（真方位）">170</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１ノット" type="風速" unit="ノット">1</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL190 260/12">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜19000FT" type="海抜高度" unit="FT">19000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="260" type="風向" unit="度（真方位）">260</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="１２ノット" type="風速" unit="ノット">12</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL200 260/27">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜20000FT" type="海抜高度" unit="FT">20000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="260" type="風向" unit="度（真方位）">260</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="２７ノット" type="風速" unit="ノット">27</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL210 260/32">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜21000FT" type="海抜高度" unit="FT">21000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="260" type="風向" unit="度（真方位）">260</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="３２ノット" type="風速" unit="ノット">32</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL220 250/34">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜22000FT" type="海抜高度" unit="FT">22000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="250" type="風向" unit="度（真方位）">250</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="３４ノット" type="風速" unit="ノット">34</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL230 250/35">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜23000FT" type="海抜高度" unit="FT">23000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="250" type="風向" unit="度（真方位）">250</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="３５ノット" type="風速" unit="ノット">35</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL240 250/37">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜24000FT" type="海抜高度" unit="FT">24000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="250" type="風向" unit="度（真方位）">250</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="３７ノット" type="風速" unit="ノット">37</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL250 250/41">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜25000FT" type="海抜高度" unit="FT">25000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="250" type="風向" unit="度（真方位）">250</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="４１ノット" type="風速" unit="ノット">41</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL260 250/47">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜26000FT" type="海抜高度" unit="FT">26000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="250" type="風向" unit="度（真方位）">250</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="４７ノット" type="風速" unit="ノット">47</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL270 250/50">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜27000FT" type="海抜高度" unit="FT">27000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="250" type="風向" unit="度（真方位）">250</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="５０ノット" type="風速" unit="ノット">50</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL280 250/52">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜28000FT" type="海抜高度" unit="FT">28000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="250" type="風向" unit="度（真方位）">250</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="５２ノット" type="風速" unit="ノット">52</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL290 250/52">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜29000FT" type="海抜高度" unit="FT">29000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="250" type="風向" unit="度（真方位）">250</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="５２ノット" type="風速" unit="ノット">52</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL300 250/53">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜30000FT" type="海抜高度" unit="FT">30000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="250" type="風向" unit="度（真方位）">250</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="５３ノット" type="風速" unit="ノット">53</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL310 260/53">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜31000FT" type="海抜高度" unit="FT">31000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="260" type="風向" unit="度（真方位）">260</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="５３ノット" type="風速" unit="ノット">53</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL320 260/54">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜32000FT" type="海抜高度" unit="FT">32000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="260" type="風向" unit="度（真方位）">260</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="５４ノット" type="風速" unit="ノット">54</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL330 260/58">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜33000FT" type="海抜高度" unit="FT">33000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="260" type="風向" unit="度（真方位）">260</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="５８ノット" type="風速" unit="ノット">58</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL340 260/62">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜34000FT" type="海抜高度" unit="FT">34000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="260" type="風向" unit="度（真方位）">260</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="６２ノット" type="風速" unit="ノット">62</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL350 260/64">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜35000FT" type="海抜高度" unit="FT">35000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="260" type="風向" unit="度（真方位）">260</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="６４ノット" type="風速" unit="ノット">64</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL360 260/65">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜36000FT" type="海抜高度" unit="FT">36000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="260" type="風向" unit="度（真方位）">260</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="６５ノット" type="風速" unit="ノット">65</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL370 250/65">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜37000FT" type="海抜高度" unit="FT">37000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="250" type="風向" unit="度（真方位）">250</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="６５ノット" type="風速" unit="ノット">65</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL380 250/64">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜38000FT" type="海抜高度" unit="FT">38000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="250" type="風向" unit="度（真方位）">250</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="６４ノット" type="風速" unit="ノット">64</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL390 250/63">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜39000FT" type="海抜高度" unit="FT">39000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="250" type="風向" unit="度（真方位）">250</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="６３ノット" type="風速" unit="ノット">63</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL400 240/63">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜40000FT" type="海抜高度" unit="FT">40000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="240" type="風向" unit="度（真方位）">240</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="６３ノット" type="風速" unit="ノット">63</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL410 240/63">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜41000FT" type="海抜高度" unit="FT">41000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="240" type="風向" unit="度（真方位）">240</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="６３ノット" type="風速" unit="ノット">63</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL420 240/63">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜42000FT" type="海抜高度" unit="FT">42000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="240" type="風向" unit="度（真方位）">240</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="６３ノット" type="風速" unit="ノット">63</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL430 240/61">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜43000FT" type="海抜高度" unit="FT">43000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="240" type="風向" unit="度（真方位）">240</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="６１ノット" type="風速" unit="ノット">61</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL440 240/59">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜44000FT" type="海抜高度" unit="FT">44000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="240" type="風向" unit="度（真方位）">240</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="５９ノット" type="風速" unit="ノット">59</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+				<WindAboveCraterElements description="FL450 240/57">
+					<jmx_eb:WindHeightAboveSeaLevel description="海抜45000FT" type="海抜高度" unit="FT">45000</jmx_eb:WindHeightAboveSeaLevel>
+					<jmx_eb:WindDegree description="240" type="風向" unit="度（真方位）">240</jmx_eb:WindDegree>
+					<jmx_eb:WindSpeed description="５７ノット" type="風速" unit="ノット">57</jmx_eb:WindSpeed>
+				</WindAboveCraterElements>
+			</WindAboveCrater>
+			<OtherObservation/>
+		</VolcanoObservation>
+		<Text/>
+	</Body>
+</Report>

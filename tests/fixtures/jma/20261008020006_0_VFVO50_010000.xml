@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/">
+<Control>
+<Title>噴火警報・予報</Title>
+<DateTime>2026-10-08T02:00:06Z</DateTime>
+<Status>通常</Status>
+<EditorialOffice>気象庁本庁</EditorialOffice>
+<PublishingOffice>気象庁</PublishingOffice>
+</Control>
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
+<Title>火山名  ベヨネース列岩  噴火予報：警報解除</Title>
+<ReportDateTime>2026-10-08T11:00:00+09:00</ReportDateTime>
+<TargetDateTime>2026-10-08T11:00:00+09:00</TargetDateTime>
+<EventID>323</EventID>
+<InfoType>発表</InfoType>
+<Serial />
+<InfoKind>噴火警報・予報</InfoKind>
+<InfoKindVersion>1.0_0</InfoKindVersion>
+<Headline>
+<Text>＜ベヨネース列岩に噴火予報（活火山であることに留意）：警報解除を発表＞
+　ベヨネース列岩（明神礁）では、周辺海域に影響を及ぼす噴火が発生する可能性は低くなったと考えられます。
+＜噴火警報（周辺海域）から噴火予報（活火山であることに留意）に引下げ＞</Text>
+<Information type="噴火警報・予報（対象火山）">
+<Item>
+<Kind>
+<Name>活火山であることに留意（海底火山）</Name>
+<Code>35</Code>
+<Condition>引下げ</Condition>
+</Kind>
+<LastKind>
+<Name>周辺海域警戒</Name>
+<Code>36</Code>
+<Condition />
+</LastKind>
+<Areas codeType="火山名">
+<Area>
+<Name>ベヨネース列岩</Name>
+<Code>323</Code>
+</Area>
+</Areas>
+</Item>
+</Information>
+<Information type="噴火警報・予報（対象市町村等）">
+<Item>
+<Kind>
+<Name>噴火予報：警報解除</Name>
+<Code>04</Code>
+<Condition>解除</Condition>
+</Kind>
+<LastKind>
+<Name>噴火警報（周辺海域）</Name>
+<Code>03</Code>
+<Condition />
+</LastKind>
+<Areas codeType="気象・地震・火山情報／市町村等">
+<Area>
+<Name>東京都八丈支庁</Name>
+<Code>1340000</Code>
+</Area>
+</Areas>
+</Item>
+</Information>
+<Information type="噴火警報・予報（対象市町村の防災対応等）">
+<Item>
+<Kind>
+<Name>活火山であることに留意</Name>
+<Code>45</Code>
+<Condition>解除</Condition>
+</Kind>
+<LastKind>
+<Name>噴火警報（周辺海域）：周辺海域警戒</Name>
+<Code>44</Code>
+<Condition />
+</LastKind>
+<Areas codeType="気象・地震・火山情報／市町村等">
+<Area>
+<Name>東京都八丈支庁</Name>
+<Code>1340000</Code>
+</Area>
+</Areas>
+</Item>
+</Information>
+</Headline>
+</Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/volcanology1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
+<VolcanoInfo type="噴火警報・予報（対象火山）">
+<Item>
+<Kind>
+<Name>活火山であることに留意（海底火山）</Name>
+<Code>35</Code>
+<Condition>引下げ</Condition>
+</Kind>
+<LastKind>
+<Name>周辺海域警戒</Name>
+<Code>36</Code>
+<Condition />
+</LastKind>
+<Areas codeType="火山名">
+<Area>
+<Name>ベヨネース列岩</Name>
+<Code>323</Code>
+<Coordinate description="北緯３１度５５．１０分　東経１４０度０１．３０分　水深５０ｍ">+3155.10+14001.30-50/</Coordinate>
+</Area>
+</Areas>
+</Item>
+</VolcanoInfo>
+<VolcanoInfo type="噴火警報・予報（対象市町村等）">
+<Item>
+<Kind>
+<Name>噴火予報：警報解除</Name>
+<Code>04</Code>
+<Condition>解除</Condition>
+</Kind>
+<LastKind>
+<Name>噴火警報（周辺海域）</Name>
+<Code>03</Code>
+<Condition />
+</LastKind>
+<Areas codeType="気象・地震・火山情報／市町村等">
+<Area>
+<Name>東京都八丈支庁</Name>
+<Code>1340000</Code>
+</Area>
+</Areas>
+</Item>
+</VolcanoInfo>
+<VolcanoInfo type="噴火警報・予報（対象市町村の防災対応等）">
+<Item>
+<Kind>
+<Name>活火山であることに留意</Name>
+<Code>45</Code>
+<Condition>解除</Condition>
+</Kind>
+<LastKind>
+<Name>噴火警報（周辺海域）：周辺海域警戒</Name>
+<Code>44</Code>
+<Condition />
+</LastKind>
+<Areas codeType="気象・地震・火山情報／市町村等">
+<Area>
+<Name>東京都八丈支庁</Name>
+<Code>1340000</Code>
+</Area>
+</Areas>
+</Item>
+</VolcanoInfo>
+<VolcanoInfoContent>
+<VolcanoHeadline>＜ベヨネース列岩に噴火予報（活火山であることに留意）：警報解除を発表＞
+　ベヨネース列岩（明神礁）では、周辺海域に影響を及ぼす噴火が発生する可能性は低くなったと考えられます。
+＜噴火警報（周辺海域）から噴火予報（活火山であることに留意）に引下げ＞</VolcanoHeadline>
+<VolcanoActivity>　ベヨネース列岩（明神礁）（北緯３１度５５．１分、東経１４０度０１．３分、青ヶ島の南南東約６５ｋｍ）付近では、令和５年１月に海上保安庁が実施した上空からの観測で変色水が確認されたことから、噴火警報（周辺海域）を発表しました。
+　その後の観測では、令和５年２月を最後に、変色水、浮遊物等の特異事象は確認されていません。
+　このことから、ベヨネース列岩の周辺海域に影響を及ぼす噴火が発生する可能性は低くなったと考えられます。</VolcanoActivity>
+<VolcanoPrevention>　活火山であることに留意してください。</VolcanoPrevention>
+</VolcanoInfoContent>
+</Body>
+</Report>

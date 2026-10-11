@@ -88,6 +88,7 @@ class TephraModel(BaseModel):
 class FeedId(StrEnum):
     SIGMET = "sigmet"
     VONA = "vona"
+    JMA_VOLCANO = "jma_volcano"
     VAAC_TOKYO = "vaac_tokyo"
     VAAC_DARWIN = "vaac_darwin"
     TAF = "taf"
@@ -298,6 +299,7 @@ class SseEvent(StrEnum):
     EXPOSURES = "exposures"
     AIRCRAFT = "aircraft"
     OVERLAYS = "overlays"
+    REROUTES = "reroutes"
     TRACE = "trace"
     ADVISORY = "advisory"
     AI_FAILURE = "ai_failure"
@@ -877,6 +879,15 @@ class OfficialLayer(TephraModel):
         return feature(self.polygon, props, feature_id=f"{self.source_id}#{self.layer}")
 
 
+class SupportingEvidence(TephraModel):
+    """A text another model step produced (the Satellite Reader's), given to the Plume Reader
+    under its own source id. It is context only and is not part of ``Situation.input_hash``:
+    a new picture alone never triggers a Plume Reader call."""
+
+    source_id: str
+    text: str
+
+
 class Situation(TephraModel):
     """Everything known about one active volcano at one instant: the Plume Reader's input."""
 
@@ -892,6 +903,9 @@ class Situation(TephraModel):
     btd: BtdResult | None = None
     official_layers: list[OfficialLayer] = Field(default_factory=list)
     discrepancies: list[Discrepancy] = Field(default_factory=list)
+    supporting: list[SupportingEvidence] = Field(
+        default_factory=list, description="Set by the pipeline just before the Plume Reader call"
+    )
 
     def provenances(self) -> list[Provenance]:
         records: list[Any] = [
@@ -906,7 +920,8 @@ class Situation(TephraModel):
         return [record.provenance for record in records]
 
     def source_ids(self) -> set[str]:
-        return {provenance.source_id for provenance in self.provenances()}
+        ids = {provenance.source_id for provenance in self.provenances()}
+        return ids | {item.source_id for item in self.supporting}
 
     def official_valid_now(self) -> bool:
         return any(layer.is_valid(self.as_of) for layer in self.official_layers)
@@ -1155,6 +1170,7 @@ class RecoveryPolicy(PolicyModel):
     ferry_cost_per_block_min_usd: PolicyValue
     max_fdp_min: PolicyValue
     airport_closure_radius_nm: PolicyValue
+    pax_notice_min_delay_min: PolicyValue
 
 
 class FuelPolicy(PolicyModel):
@@ -1594,6 +1610,8 @@ class TickReport(TephraModel):
     feed_errors: dict[str, str] = Field(default_factory=dict)
     active_volcano_ids: list[str] = Field(default_factory=list)
     assessments_run: int = 0
+    satellite_reads: int = 0
+    recovery_plans: int = 0
     exposed_flights: int = 0
     drafts_created: int = 0
     drafts_superseded: int = 0
@@ -1695,6 +1713,26 @@ class ExposureFeatureProps(TephraModel):
     minutes_to_entry: int
 
 
+class RerouteFeatureProps(TephraModel):
+    """A reroute on the Wall: its path as a LineString, each turn point as a Point.
+
+    ``route_string`` and ``waypoint_labels`` are written by code (``tephra.geo.reroute``).
+    """
+
+    flight_id: str
+    proxy_flight: str
+    volcano_id: str
+    kind: RerouteKind
+    status: RerouteStatus
+    feature: Literal["path", "waypoint"]
+    route_string: str
+    extra_nm: float | None = None
+    extra_min: float | None = None
+    side: Literal["LEFT", "RIGHT"] | None = None
+    label: str = Field(description="Path: 'RFA417 REROUTE +14 NM'; waypoint: '0812S11245E'")
+    waypoint_labels: list[str] = Field(default_factory=list, description="Path only")
+
+
 class BtdOverlay(TephraModel):
     source_id: str
     volcano_id: str
@@ -1772,8 +1810,16 @@ class WallSnapshot(TephraModel):
     cones: dict[str, Any] = Field(description="FeatureCollection, ConeFeatureProps")
     exposures: dict[str, Any] = Field(description="FeatureCollection, ExposureFeatureProps")
     aircraft: dict[str, Any] = Field(description="FeatureCollection, AircraftFeatureProps")
+    reroutes: dict[str, Any] = Field(
+        default_factory=lambda: feature_collection([]),
+        description="FeatureCollection, RerouteFeatureProps",
+    )
     situations: list[SituationCard]
     overlays: Overlays
+    satellite: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Latest SatelliteReading per active volcano (agents.satellite_reader)",
+    )
 
 
 class LlmInfo(TephraModel):

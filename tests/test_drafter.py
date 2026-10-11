@@ -36,7 +36,7 @@ from tephra.agents.validators import (
 )
 from tephra.config import PROJECT_ROOT, Settings
 from tephra.feeds.airports import AirportCatalogue
-from tephra.geo.fuel import category_for_type, divert_line, hold_line
+from tephra.geo.fuel import category_for_type, divert_line, hold_line, reroute_line
 from tephra.geo.units import destination_point
 from tephra.models import (
     ActionKind,
@@ -57,6 +57,9 @@ from tephra.models import (
     PlumeEstimate,
     PlumeMode,
     Provenance,
+    RerouteKind,
+    RerouteOption,
+    RerouteStatus,
     RunMode,
     Sigmet,
     Situation,
@@ -624,15 +627,51 @@ def test_templates_and_prompt_example_use_no_unlisted_icao_code() -> None:
     assert words & _catalogue_icaos() <= listed, sorted(words & _catalogue_icaos())
 
 
+def make_reroute_case() -> tuple[PlannerContext, PlannedAction]:
+    """A flight with one usable lateral route, which the planner picked."""
+    ctx = make_ctx(make_flight(alt_ft=35_000), top_ft=45_000)
+    option = RerouteOption(
+        id="RR-0123456789ab",
+        flight_id=ctx.flight.id,
+        cone_id=CONE_ID,
+        kind=RerouteKind.DIRECT_DEST,
+        status=RerouteStatus.OK,
+        note="LATERAL ROUTE AROUND THE BUFFERED HAZARD",
+        side="LEFT",
+        fl=350,
+        waypoints=[(112.5, -6.9)],
+        end=(115.1672, -8.7482),
+        end_icao="WADD",
+        dist_nm=545.5,
+        extra_nm=15.0,
+        time_min=72.7,
+        extra_min=2.0,
+        buffer_nm=20,
+        fuel=reroute_line(ctx.flight.category, 2.0, 15.0),
+        route_string="DCT 0654S11230E DCT WADD",
+        wind_note="WIND FL350 270/28 KT, 14 KT TAILWIND ON THE ROUTE",
+    )
+    ctx = ctx.model_copy(update={"reroutes": [option]})
+    decision = PlannerDecision(
+        action=ActionKind.REROUTE,
+        reroute_id=option.id,
+        reasoning="NO CLEAR LEVEL; THE LATERAL ROUTE ADDS 2 MIN.",
+    )
+    return ctx, make_plan(ctx, decision)
+
+
 def test_drafter_prompt_names_only_fields_the_facts_carry() -> None:
     ctx = make_ctx(make_flight(alt_ft=35_000, inside=True), top_ft=45_000)
     plan = make_plan(ctx, rule_based_decision(ctx))
     assert plan.decision.action is ActionKind.DIVERT  # every optional fact is filled
-    facts = _facts(ctx, plan)
+    reroute_ctx, reroute_plan = make_reroute_case()
     prompt = DRAFTER_PROMPT.read_text(encoding="utf-8")
     paths = set(re.findall(r"`([a-z_]+(?:\.[a-z_]+)*)`", prompt)) - set(DraftText.model_fields)
     assert {"cost", "cost.formula", "action.alternate.icao", "flight.present_fl"} <= paths
+    assert {"action.reroute.route_string", "action.reroute.end"} <= paths
     for path in sorted(paths):
+        # The alternate is filled by the DIVERT case and the route by the REROUTE case.
+        facts = _facts(reroute_ctx, reroute_plan) if ".reroute" in path else _facts(ctx, plan)
         node: object = facts
         for key in path.split("."):
             assert isinstance(node, dict), path
@@ -983,7 +1022,8 @@ def test_alternate_inside_or_near_the_cone_is_not_acceptable() -> None:
     assert "INSIDE HAZARD CONE" in by_icao["WARR"].check.reasons
     assert not by_icao["WARR"].check.ok
     assert "INSIDE HAZARD CONE" not in by_icao["WADD"].check.reasons
-    assert ctx.allowed_actions == list(ActionKind)
+    # No lateral route is known here, so REROUTE is not on offer.
+    assert ctx.allowed_actions == [a for a in ActionKind if a is not ActionKind.REROUTE]
 
 
 @pytest.mark.parametrize("bearing", [60, 90, 150, 180])

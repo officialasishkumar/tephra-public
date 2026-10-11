@@ -674,9 +674,11 @@ def build_parts(situation: Situation, images: Sequence[LlmPart]) -> list[LlmPart
         _btd_block(situation),
         _images_block(situation, usable),
     ]
+    supporting = _supporting_block(situation)
     return [
         *(LlmPart.of_text(block) for block in blocks),
         *usable,
+        *([LlmPart.of_text(supporting)] if supporting else []),
         LlmPart.of_text(_task_block(situation)),
     ]
 
@@ -798,6 +800,16 @@ def _btd_block(situation: Situation) -> str:
     lines.extend(f"Caveat: {caveat}" for caveat in btd.caveats)
     if btd.indicator in _BLIND_BTD:
         lines.append(f"{btd.indicator.value} never means no ash.")
+    return "\n".join(lines)
+
+
+def _supporting_block(situation: Situation) -> str:
+    """Texts other model steps wrote (the Satellite Reader's), each under its own source id.
+    Empty when there are none, so an input without them is unchanged."""
+    if not situation.supporting:
+        return ""
+    lines = ["SUPPORTING EVIDENCE (read by another step; it can only raise the hazard)"]
+    lines.extend(item.text for item in situation.supporting)
     return "\n".join(lines)
 
 

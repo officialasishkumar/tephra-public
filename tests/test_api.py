@@ -389,6 +389,69 @@ def test_csp_allows_what_maplibre_and_openfreemap_need() -> None:
     assert "blob:" in directives["child-src"]
 
 
+def test_csp_allows_blob_media_for_spoken_answers_and_no_new_script_host() -> None:
+    directives = {part.split()[0]: part.split()[1:] for part in CONTENT_SECURITY_POLICY.split("; ")}
+    assert directives["media-src"] == ["'self'", "blob:"]
+    assert directives["script-src"] == [
+        "'self'",
+        "https://unpkg.com/maplibre-gl@4.7.1/",
+        "https://unpkg.com/@maplibre/maplibre-gl-compare@0.5.0/",
+    ]
+
+
+def test_only_the_desk_page_may_use_the_microphone(client: TestClient) -> None:
+    assert client.get("/desk").headers["permissions-policy"] == (
+        "camera=(), microphone=(self), geolocation=()"
+    )
+    closed = "camera=(), microphone=(), geolocation=()"
+    for path in ("/", "/healthz", "/api/state", "/static/desk.js"):
+        assert client.get(path).headers["permissions-policy"] == closed, path
+
+
+@pytest.mark.parametrize(
+    ("path", "method"),
+    [
+        ("/api/budget", "GET"),
+        ("/api/notices", "GET"),
+        ("/api/recovery", "GET"),
+        ("/api/docs", "GET"),
+        ("/api/backtest", "GET"),
+        ("/api/desk/ask", "POST"),
+        ("/api/desk/ask/voice", "POST"),
+        ("/api/desk/ask/speak", "POST"),
+        ("/api/desk/notices", "POST"),
+        ("/api/desk/recovery/run", "POST"),
+        ("/api/desk/messages", "GET"),
+        ("/api/desk/messages/draft", "POST"),
+        ("/api/desk/handover", "POST"),
+        ("/api/desk/docs/sra", "POST"),
+        ("/api/desk/docs/var", "POST"),
+    ],
+)
+def test_the_feature_routers_are_mounted_under_api(
+    client: TestClient, path: str, method: str
+) -> None:
+    paths = client.get("/api/openapi.json").json()["paths"]
+    mounted = {(name, verb.upper()) for name, item in paths.items() for verb in item}
+    assert (path, method) in mounted
+
+
+def test_a_recording_may_be_large_but_other_bodies_stay_small(client: TestClient) -> None:
+    """Only the voice route takes a body of about a megabyte; a pasted notice a few dozen
+    kilobytes; anything else is refused above 16 KiB before it reaches a handler."""
+    megabyte = b"x" * 1_000_000
+    voice = client.post("/api/desk/ask/voice", content=megabyte)
+    assert voice.status_code != 413  # passes the guard; the session check refuses it
+    too_big = client.post(
+        "/api/desk/ask/voice", content=b"x" * (client.app.state.settings.max_upload_bytes + 1)
+    )  # type: ignore[attr-defined]
+    assert too_big.status_code == 413
+    notice = client.post("/api/desk/notices", content=b"x" * 30_000)
+    assert notice.status_code != 413
+    assert client.post("/api/desk/notices", content=b"x" * 40_000).status_code == 413
+    assert client.post("/api/desk/ask", content=b"x" * 20_000).status_code == 413
+
+
 @pytest.mark.parametrize("path", ["/", "/desk"])
 def test_pages_are_html_with_csp(client: TestClient, path: str) -> None:
     response = client.get(path)

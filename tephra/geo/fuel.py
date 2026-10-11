@@ -1,4 +1,4 @@
-"""TEPHRA's labelled planning formula for the time and fuel cost of a hold or a diversion.
+"""TEPHRA's labelled planning formula for the time and fuel cost of a hold, diversion or reroute.
 
 This is a deliberately simple, flat burn rate per aircraft category, not airline
 performance data. Every number it produces carries its formula, written by code, so the
@@ -99,6 +99,27 @@ def divert_line(
         category=category,
         alternate_icao=alternate_icao,
         distance_nm=round(distance_nm, 1),
+        formula=formula,
+    )
+
+
+def reroute_line(category: AircraftCategory, extra_min: float, extra_nm: float) -> FuelLine:
+    """The extra time and distance of a lateral reroute over the present track (never negative)."""
+    burn = BURN_KG_PER_MIN[category]
+    distance = max(0, round(extra_nm))
+    minutes = _ceil(max(0.0, extra_min))
+    fuel_kg = _ceil(minutes * burn)
+    formula = (
+        f"REROUTE +{distance} NM = +{minutes} MIN x {_num(burn)} KG/MIN"
+        f" ({_rate_label(category)}) = {fuel_kg} KG"
+    )
+    return FuelLine(
+        action=ActionKind.REROUTE,
+        minutes=minutes,
+        fuel_kg=fuel_kg,
+        burn_kg_per_min=burn,
+        category=category,
+        distance_nm=float(distance),
         formula=formula,
     )
 

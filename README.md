@@ -5,7 +5,7 @@
 > **Decision support only. Ring of Fire Air (RFA) is a fictional airline. Nothing is sent to any real system. Not for operational use.**
 
 
-> **Status (2026-10-10):** the code is written and passes static checks (compile, `ruff`, `node --check`, cross-module import check). It has **not been run yet**, and no Gemini call has been made. The first run is the next step: see [Getting started](#getting-started).
+> **Status (2026-10-11):** the test suite (stub LLM, no network) and `ruff` pass, and the app has been run end to end in REPLAY on the stub LLM. No Gemini call has been made by the code in this repository, so every model prompt and the Gemini speech call are untested against the real API. See [Getting started](#getting-started).
 
 ## The problem
 
@@ -27,22 +27,54 @@ flowchart LR
   D --> P["Plume Reader<br/>Gemini 3.8 Flash<br/>structured output"]
   P --> C["Cautious hazard area<br/>code: union, never shrinks"]
   C --> E["3D exposure<br/>code: alt_baro, policy margins"]
-  E --> PL["Exposure Planner<br/>ADK agent + tools"]
+  E --> R["Lateral reroute<br/>code: wind-priced visibility graph"]
+  R --> PL["Exposure Planner<br/>ADK agent + tools"]
   PL --> DR["Dispatch Drafter<br/>Gemini"]
   DR --> H{"Dispatcher<br/>approve · edit · reject"}
   H --> Q[("Own outbound queue<br/>+ hash-chained audit")]
+  C --> RC["Closed airports → recovery<br/>CP-SAT solver + ADK agent"]
+  RC --> H
 ```
 
 | Step | Who does it | What it does |
 |---|---|---|
 | Poll | code | Collects VA SIGMETs (aviationweather.gov), Tokyo and Darwin VAAs (NWS tgftp, public domain), TAFs, Open-Meteo winds and adsb.lol positions. Every record keeps its source, fetch time and sha256. |
 | Discrepancies | code | Labels every difference: LAG, ENVELOPE, non-observation, DIRECTION_MISMATCH (including drift outside the polygon), HEIGHT_MISMATCH, SILENCE or CONFLICT. Gemini never decides what counts as a disagreement. |
-| Plume Reader | Gemini | Reads the texts, the remarks and the discrepancy list. Grades each source's evidence, explains it, and proposes a widened area (OFFICIAL / WIDENED / HYPOTHESIS). Code validates the output: only input sources may be cited, no model-written times, never below the official top, size caps. It allows one repair, then falls back to the official products. |
+| Satellite Reader | Gemini (Flash-Lite, images) | Looks at the newest JMA Dust RGB and IR frames and says whether ash is visible, whether cloud hides the area, and where. Runs only when the Plume Reader is about to be called and the frame is new. Supporting evidence only: it can raise the hazard, never lower it. |
+| Plume Reader | Gemini | Reads the texts, the remarks, the discrepancy list and the satellite reading. Grades each source's evidence, explains it, and proposes a widened area (OFFICIAL / WIDENED / HYPOTHESIS). Code validates the output: only input sources may be cited, no model-written times, never below the official top, size caps. It allows one repair. If that fails the result is `AI UNAVAILABLE` and the cone is the official products alone. |
 | Hazard area | code | The union of every valid official polygon and the model's sector. A property test checks that it contains every official polygon. |
 | Exposure | code | Projects each aircraft along its track. A flight is exposed only if its pressure altitude band meets the hazard band within the operator policy's vertical margin (2,000 ft, illustrative). Gives minutes to entry. |
-| Planner | ADK agent | Uses geometry, alternate and TAF tools to pick CONTINUE, MONITOR, CHANGE_LEVEL, HOLD or DIVERT. There are no reroutes, because the free data has no airways and any waypoint would be invented. HYPOTHESIS mode allows only MONITOR or HOLD. |
-| Drafter | Gemini | Writes the ACARS-style body. Code writes the header with the flight, UTC times, sources and hashes, and a validator rejects any invented code or time. |
+| Reroute | code | A lateral route around the hazard: free-route legs between latitude and longitude points (no airways in the free data, and no waypoint is invented), priced in minutes of wind, at most three turn points. The destination comes from VRS standing data when the aircraft is on a known leg. Not in HYPOTHESIS mode. |
+| Planner | ADK agent | Uses geometry, alternate, TAF and reroute tools to pick CONTINUE, MONITOR, CHANGE_LEVEL, HOLD, DIVERT or REROUTE (one of the code's routes, by id). HYPOTHESIS mode allows only MONITOR or HOLD. If it cannot produce a plan that passes the checks, the flight goes to the Desk as an AI failure for a dispatcher to handle by hand. |
+| Drafter | Gemini | Writes the ACARS-style body. Code writes the header with the flight, UTC times, sources and hashes, and a validator rejects any invented code or time. No draft passes the checks: AI failure on the Desk, no template. |
 | Desk | human | Approve, edit (both versions kept) or reject (a reason is required). Only approved advisories reach the outbound queue, which never leaves the store. |
+
+More on the Desk, all drafts until a person decides:
+
+| Feature | Who does it | What it does |
+|---|---|---|
+| Network recovery | CP-SAT solver, ADK agent | When the hazard closes RFA airports, re-plans a synthetic day of 142 flights in three scenarios (closure as forecast, +3 h, +6 h): delay, cancel or swap, with costs. The agent compares the scenarios and recommends one. |
+| Crew and passenger messages | Gemini writes templates, code fills facts | Indonesian, Japanese and English notices for an approved recovery plan; a crew briefing for an approved advisory. A digit outside a placeholder is rejected. |
+| Shift handover | code, Gemini for two paragraphs | A WEST and I-PASS brief. Open drafts are listed as handed over open; the incoming dispatcher's read-back records them. |
+| Regulator paperwork | code, Gemini for four boxes | A draft safety risk assessment (SRA) and a volcanic activity report (VAR), headed as drafts for human sign-off, with sign-off lines per role. |
+| Notices in any language | Gemini, code verifies | Paste a notice in English, Bahasa Indonesia, Japanese or Filipino. Every field needs verbatim evidence; a notice that passes joins the picture like a VONA. JMA eruption reports are parsed by code, with no model. |
+| Ask TEPHRA | ADK agent with read-only tools, Gemini voice | Typed or spoken questions about the current picture, with evidence for every claim and what-if checks that change nothing. Spoken answers use Gemini text-to-speech. |
+| Backtest | code | Replays the recorded cases and scores TEPHRA's cone against the official areas published later. |
+
+## Where AI is used
+
+All steps run on the free tier; none runs on every tick without a gate.
+
+| Model | Steps |
+|---|---|
+| `gemini-3.8-flash` (about 20 calls a day) | Plume Reader |
+| `gemini-3.5-flash-lite` (about 500 calls a day) | Exposure Planner, Dispatch Drafter, Satellite Reader, Notice Reader, recovery agent, messages, handover, SRA narrative, Ask TEPHRA, voice transcription, backtest report |
+| `gemini-3.8-flash-lite-tts` | Spoken answers in Ask TEPHRA |
+
+There are no fallbacks. When a model fails, runs out of budget or fails the code's checks
+after one repair, the step says `AI UNAVAILABLE` and nothing is substituted (HTTP 503 from the
+API; a flight with no plan goes to the Desk). With `TEPHRA_LLM=stub` every step has a
+deterministic answer for tests, labelled NO MODEL, except voice, which has none.
 
 \* MAGMA VONAs are off by default (`TEPHRA_VONA_LIVE`), because MAGMA's robots.txt disallows crawling. Replays carry recorded VONAs.
 
@@ -69,21 +101,21 @@ TEPHRA_MODE=REPLAY TEPHRA_REPLAY_CASE=<case_id> uv run tephra          # labelle
 GEMINI_API_KEY=<personal AI Studio key> TEPHRA_LLM=gemini uv run tephra  # real Gemini (free tier ~20 calls/day)
 ```
 
-All settings are in [`.env.example`](.env.example). Gemini is reached only with a personal `GEMINI_API_KEY`, never through Vertex AI or Application Default Credentials. Daily call budgets fall back to code before the free-tier quota runs out.
+All settings are in [`.env.example`](.env.example). Gemini is reached only with a personal `GEMINI_API_KEY`, never through Vertex AI or Application Default Credentials. Daily call budgets stop model calls before the free-tier quota runs out, and the affected step reports `AI UNAVAILABLE`.
 
 | Path | Purpose |
 |---|---|
 | `/` | The Wall: map, official polygons, the hazard area, aircraft, the three source cards, the live reasoning trace |
-| `/desk` | The phone desk: PIN login, draft cards, approve / edit / reject |
-| `/api/wall`, `/api/state`, `/api/events` (SSE) | Read endpoints the Wall uses |
-| `/api/desk/...` | Desk endpoints (cookie session, CSRF header, optimistic versioning) |
+| `/desk` | The phone desk: PIN login, draft cards, approve / edit / reject, plus Ask, recovery, messages, handover and documents |
+| `/api/wall`, `/api/state`, `/api/events` (SSE), `/api/budget`, `/api/backtest`, `/api/notices`, `/api/recovery`, `/api/docs` | Read endpoints the Wall uses |
+| `/api/desk/...` | Desk endpoints (cookie session, CSRF header, optimistic versioning); the full list is in [`MODULES.md`](MODULES.md) section 8 |
 | `POST /tasks/tick` | Scheduler tick (`X-Tephra-Task-Token`) |
 
 Deployment to Cloud Run (one service and one Cloud Scheduler job, with Firestore, Secret Manager and Artifact Registry) is in [`deploy/README.md`](deploy/README.md). The scripts there are run by a person from a personal Google account and refuse any other login.
 
 ## Evaluation
 
-- `tests/`: unit tests on real recorded feed responses (`tests/fixtures/`). They cover parsers, discrepancy rules on the real Semeru cases, never-shrink geometry, exposure, validators, the Plume Reader's repair and fallback paths, the desk state machine with its audit hash chain, the store and the API.
+- `tests/`: unit tests on real recorded feed responses (`tests/fixtures/`). They cover parsers, discrepancy rules on the real Semeru cases, never-shrink geometry, exposure, validators, the model steps' repair and `AI UNAVAILABLE` paths, the reroute geometry, the recovery solver, the desk state machine with its audit hash chain, the store and the API.
 - `evals/plume/`: the 10-case Gemini test on Tokyo VAAC's labelled archive (images) plus the Semeru text-reconciliation case, with pass criteria fixed in advance ([evals/plume/README.md](evals/plume/README.md)).
 - `scripts/count_traffic.py`: whether there is enough traffic near a volcano for a live per-flight moment.
 - `scripts/record_replay.py`: records or reconstructs a labelled replay.
@@ -115,7 +147,7 @@ What it adds is the evidence reconciliation in front of them.
 |---|---|
 | `tephra/` | The application (see `MODULES.md` for the contract and `docs/ARCHITECTURE.md` for the design and safety rules) |
 | `tephra/web/` | Wall and Desk (plain HTML/CSS/JS, MapLibre GL 4.7.1, OpenFreeMap) |
-| `data/` | Volcano and airport catalogues; `replay/` cases |
+| `data/` | Volcano and airport catalogues, the operator policy, `routes_apac.json` (VRS standing data, CC0), the synthetic RFA schedule in `rfa/`; `replay/` cases |
 | `tests/`, `evals/`, `scripts/` | Tests, the Plume Reader evaluation, recording and counting tools |
 | `deploy/` | Cloud Run, Scheduler, secrets and Firestore rules |
 | `research/`, `docs/` | Research, decision memo, pitch |
@@ -128,6 +160,8 @@ MIT (see `LICENSE`). Data:
 - JMA / Tokyo VAAC;
 - Bureau of Meteorology / Darwin VAAC (via NWS);
 - adsb.lol (ODbL);
+- VRS standing data, routes and airports (CC0, via the adsb.lol mirror; `data/routes_apac.json` records the source and SHA-256);
+- JMA eruption reports and frames (Public Data License 1.0, credit "Source: Japan Meteorological Agency website");
 - Open-Meteo (CC BY 4.0, non-commercial free tier);
 - Himawari-9 data from JMA, distributed by NOAA on AWS Open Data (derived products are labelled);
 - the volcano catalogue from the Smithsonian GVP.

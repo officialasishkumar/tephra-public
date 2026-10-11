@@ -36,6 +36,7 @@ from tephra.agents.exposure_planner import (
     flight_summary,
     level_band_summary,
     limits_summary,
+    reroutes_summary,
     submit_decision,
 )
 from tephra.agents.llm import temperature_for
@@ -73,6 +74,14 @@ def check_alternate(icao: str, tool_context: ToolContext) -> dict[str, Any]:
     return alternate_summary(ctx, icao) if ctx is not None else _NO_CONTEXT
 
 
+def list_reroutes(tool_context: ToolContext) -> dict[str, Any]:
+    """List the lateral routes around the hazard that code computed for this flight: each
+    usable one with its reroute_id, side, number of turn points, extra distance, extra minutes
+    and fuel and its route string, and the ones that are not available with the reason."""
+    ctx = _context(tool_context)
+    return reroutes_summary(ctx) if ctx is not None else _NO_CONTEXT
+
+
 def check_level_band(fl_min: int, fl_max: int, tool_context: ToolContext) -> dict[str, Any]:
     """Check whether a flight-level band (e.g. 180 to 200) is clear of the hazard band plus
     the vertical margin and at or below FL410, and how far it is from the present level."""
@@ -81,12 +90,18 @@ def check_level_band(fl_min: int, fl_max: int, tool_context: ToolContext) -> dic
 
 
 def estimate_cost(
-    action: str, tool_context: ToolContext, alternate_icao: str | None = None
+    action: str,
+    tool_context: ToolContext,
+    alternate_icao: str | None = None,
+    reroute_id: str | None = None,
 ) -> dict[str, Any]:
-    """Return TEPHRA's labelled time and fuel formula for HOLD, or for DIVERT to a listed
-    alternate (pass alternate_icao). Other actions carry no extra hold or diversion fuel."""
+    """Return TEPHRA's labelled time and fuel formula for HOLD, for DIVERT to a listed
+    alternate (pass alternate_icao) or for REROUTE along a listed route (pass reroute_id).
+    Other actions carry no extra hold, diversion or reroute fuel."""
     ctx = _context(tool_context)
-    return cost_summary(ctx, action, alternate_icao) if ctx is not None else _NO_CONTEXT
+    if ctx is None:
+        return _NO_CONTEXT
+    return cost_summary(ctx, action, alternate_icao, reroute_id)
 
 
 def submit_plan(
@@ -98,10 +113,12 @@ def submit_plan(
     hold_fl: int | None = None,
     alternate_icao: str | None = None,
     alternatives_considered: list[str] | None = None,
+    reroute_id: str | None = None,
 ) -> dict[str, Any]:
     """Submit the plan for this flight. action is one of CONTINUE, MONITOR, CHANGE_LEVEL,
-    HOLD, DIVERT. CHANGE_LEVEL needs change_level_fl_min and change_level_fl_max; HOLD
-    needs hold_fl; DIVERT needs alternate_icao. reasoning is two or three sentences of
+    HOLD, DIVERT, REROUTE. CHANGE_LEVEL needs change_level_fl_min and change_level_fl_max; HOLD
+    needs hold_fl; DIVERT needs alternate_icao; REROUTE needs the reroute_id of a usable
+    option from list_reroutes. reasoning is two or three sentences of
     operational language with no clock times. The result lists any problems to fix."""
     ctx = _context(tool_context)
     if ctx is None:
@@ -115,6 +132,7 @@ def submit_plan(
         hold_fl=hold_fl,
         alternate_icao=alternate_icao,
         alternatives_considered=alternatives_considered,
+        reroute_id=reroute_id,
     )
     if decision is not None:
         tool_context.state[DECISION_STATE_KEY] = decision.model_dump(mode="json")
@@ -153,6 +171,7 @@ def build_planner_agent(
             get_flight,
             list_alternates,
             check_alternate,
+            list_reroutes,
             check_level_band,
             estimate_cost,
             submit_plan,

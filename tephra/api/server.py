@@ -45,7 +45,7 @@ from tephra.api.auth import (
     wall_clock_now,
 )
 from tephra.api.sse import EventStreamResponse, StreamSlots, event_stream, parse_last_event_id
-from tephra.config import Settings, get_settings
+from tephra.config import MAX_BODY_BYTES, MAX_NOTICE_BODY_BYTES, Settings, get_settings
 from tephra.desk import approvals, audit, failures
 from tephra.models import (
     Advisory,
@@ -99,6 +99,8 @@ CONTENT_SECURITY_POLICY: Final = "; ".join(
         " https://gibs.earthdata.nasa.gov https://tiles.mapterhorn.com",
         "connect-src 'self' https://tiles.openfreemap.org"
         " https://gibs.earthdata.nasa.gov https://tiles.mapterhorn.com",
+        # Ask TEPHRA's spoken answers are WAV files played from a blob: URL.
+        "media-src 'self' blob:",
         "worker-src 'self' blob:",
         "child-src blob:",
         "font-src 'self'",
@@ -107,6 +109,11 @@ CONTENT_SECURITY_POLICY: Final = "; ".join(
         "form-action 'self'",
     ]
 )
+DESK_PATH: Final = "/desk"
+DESK_PERMISSIONS_POLICY: Final = "camera=(), microphone=(self), geolocation=()"
+"""Only the Desk page may ask for the microphone (push-to-talk in Ask TEPHRA)."""
+VOICE_PATH: Final = "/api/desk/ask/voice"
+NOTICE_PATH: Final = "/api/desk/notices"
 SECURITY_HEADERS: Final = {
     "content-security-policy": CONTENT_SECURITY_POLICY,
     "x-content-type-options": "nosniff",
@@ -114,8 +121,6 @@ SECURITY_HEADERS: Final = {
     "x-frame-options": "DENY",
     "permissions-policy": "camera=(), microphone=(), geolocation=()",
 }
-MAX_BODY_BYTES: Final = 16 * 1024
-"""Desk bodies are a PIN, a reason or a 400-character advisory; nothing needs more."""
 STREAMS_RETRY_AFTER_S: Final = 5
 """The Wall and the Desk reopen a refused event stream after 5 s on their own."""
 SCHEDULER_STOP_TIMEOUT_S: Final = 10.0
@@ -657,8 +662,9 @@ class HttpGuardMiddleware:
     Pure ASGI rather than ``BaseHTTPMiddleware`` so the SSE stream is not buffered.
     """
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, *, upload_bytes: int | None = None) -> None:
         self.app = app
+        self.upload_bytes = upload_bytes or MAX_BODY_BYTES
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -680,17 +686,28 @@ class HttpGuardMiddleware:
                 _add_security_headers(MutableHeaders(scope=message), path=path, https=https)
             await send(message)
 
+        limit = self._limit(path)
         try:
-            if _body_too_large(request_headers):
+            if _body_too_large(request_headers, limit):
                 body = ErrorBody(error="too_large", detail="Request body too large")
                 await _json(body, 413)(scope, receive, guarded_send)
             else:
-                await self.app(scope, _capped(receive), guarded_send)
+                await self.app(scope, _capped(receive, limit), guarded_send)
         finally:
             _log_request(scope, status, time.perf_counter() - started)
 
+    def _limit(self, path: str) -> int:
+        """A recording may be about a megabyte, a pasted notice a few dozen kilobytes."""
+        if path == VOICE_PATH:
+            return self.upload_bytes
+        if path == NOTICE_PATH:
+            return MAX_NOTICE_BODY_BYTES
+        return MAX_BODY_BYTES
+
 
 def _add_security_headers(headers: MutableHeaders, *, path: str, https: bool) -> None:
+    if path == DESK_PATH:
+        headers["permissions-policy"] = DESK_PERMISSIONS_POLICY
     for name, value in SECURITY_HEADERS.items():
         headers.setdefault(name, value)
     headers.setdefault("cache-control", "no-store" if path.startswith("/api/") else "no-cache")
@@ -698,12 +715,12 @@ def _add_security_headers(headers: MutableHeaders, *, path: str, https: bool) ->
         headers.setdefault("strict-transport-security", "max-age=31536000")
 
 
-def _body_too_large(headers: Headers) -> bool:
+def _body_too_large(headers: Headers, limit: int) -> bool:
     length = headers.get("content-length")
-    return length is not None and (not length.isdigit() or int(length) > MAX_BODY_BYTES)
+    return length is not None and (not length.isdigit() or int(length) > limit)
 
 
-def _capped(receive: Receive) -> Receive:
+def _capped(receive: Receive, limit: int) -> Receive:
     """Count the body as it streams in: a chunked request carries no Content-Length."""
     received = 0
 
@@ -712,7 +729,7 @@ def _capped(receive: Receive) -> Receive:
         message = await receive()
         if message["type"] == "http.request":
             received += len(message.get("body", b""))
-            if received > MAX_BODY_BYTES:
+            if received > limit:
                 raise StarletteHTTPException(413, "Request body too large")
         return message
 
@@ -815,6 +832,29 @@ def _report_scheduler_exit(task: asyncio.Task[None]) -> None:
         logger.error("local scheduler stopped", exc_info=exc)
 
 
+def _include_feature_routers(app: FastAPI) -> None:
+    """The feature routers import the dependencies above, so they are imported here, not at the
+    top of the module (a top-level import would be circular)."""
+    from tephra.api import (
+        routes_ask,
+        routes_backtest,
+        routes_comms,
+        routes_notices,
+        routes_recovery,
+        routes_regdocs,
+    )
+
+    for module in (
+        routes_ask,
+        routes_notices,
+        routes_recovery,
+        routes_comms,
+        routes_regdocs,
+        routes_backtest,
+    ):
+        app.include_router(module.router, prefix="/api")
+
+
 def create_app(
     settings: Settings | None = None, *, runtime_factory: RuntimeFactory | None = None
 ) -> FastAPI:
@@ -833,10 +873,11 @@ def create_app(
     app.state.login_throttle = LoginThrottle()
     app.state.event_streams = StreamSlots(settings.max_event_streams)
     _install_error_handlers(app)
-    app.add_middleware(HttpGuardMiddleware)
+    app.add_middleware(HttpGuardMiddleware, upload_bytes=settings.max_upload_bytes)
     app.include_router(pages)
     app.include_router(read_api)
     app.include_router(desk_api)
+    _include_feature_routers(app)
     app.include_router(tasks)
     app.mount("/static", StaticFiles(directory=WEB_DIR, check_dir=False), name="static")
     return app
