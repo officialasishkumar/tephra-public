@@ -17,6 +17,9 @@ const ANT_STEPS = [
   [0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0],
   [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5], [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5],
 ];
+// The WebGL buffer is kept only for automated screenshots (?shots=1, 7.4); it costs memory and
+// a copy per frame otherwise.
+const SHOTS = new URLSearchParams(window.location.search).get("shots") === "1";
 const STEP_STYLE = {
   now: { fill: 0.14, w: 2.6, dash: null, op: 1 },
   f6: { fill: 0.05, w: 2, dash: [4, 2], op: 0.9 },
@@ -181,11 +184,13 @@ export class WallMap {
     this.pulseKey = null;
     this.compare = null;
     this.compareMap = null;
+    this.sent = new Map();
+    this.compareSent = new Map();
     this.container = container;
     this.map = new window.maplibregl.Map({
       container, style: STYLE_URL, center: [111, -7.6], zoom: 5.5, maxPitch: 70,
       attributionControl: false, dragRotate: false, pitchWithRotate: false, fadeDuration: 150,
-      preserveDrawingBuffer: true, keyboard: true,
+      preserveDrawingBuffer: SHOTS, keyboard: true,
     });
     this.map.touchZoomRotate.disableRotation();
     window.__tephra = Object.freeze({ map: this.map });
@@ -254,6 +259,7 @@ export class WallMap {
       }
       this.gibs.key = null;
       this.btdIds = [];
+      this.sent.clear();
       if (this.D) this.update(this.D);
     } catch (err) {
       console.error("TEPHRA map setup failed", err);
@@ -266,10 +272,10 @@ export class WallMap {
     this.D = D;
     if (!this.loaded) return;
     const map = this.map;
-    map.getSource("official").setData(fc(D.official));
-    map.getSource("cones").setData(fc(D.cones));
-    map.getSource("exposures").setData(D.exposures);
-    map.getSource("aircraft").setData(fc(D.aircraft));
+    this.send("official", fc(D.official));
+    this.send("cones", fc(D.cones));
+    this.send("exposures", D.exposures);
+    this.send("aircraft", fc(D.aircraft));
     map.setFilter("fir-active", ["in", ["get", "icao"], ["literal", D.firsWithSigmet]]);
     this.updateExt();
     this.updateVolcanoes();
@@ -290,6 +296,16 @@ export class WallMap {
       this.waitReady();
     }
     this.followNewFlights();
+  }
+
+  // setData only when the derived data changed. derive() rebuilds every feature on each render
+  // (time-dependent valid, show and age values), so the serialised result is compared, never the
+  // store object; a timer render with nothing changed then sends nothing.
+  send(id, data, map = this.map, sent = this.sent) {
+    const json = JSON.stringify(data);
+    if (sent.get(id) === json) return;
+    map.getSource(id).setData(data);
+    sent.set(id, json);
   }
 
   // reroutes and Satellite check boxes: data comes from the store, set by wall.js
@@ -338,7 +354,7 @@ export class WallMap {
       }
     }
     const feats = D.volcanoes.map((f) => (f.properties.sel ? { ...f, properties: { ...f.properties, anchor: selAnchor, offset: selOffset } } : f));
-    this.map.getSource("volcanoes").setData(fc(feats));
+    this.send("volcanoes", fc(feats));
   }
 
   updatePulse() {
@@ -373,7 +389,7 @@ export class WallMap {
     const src = map.getSource("rose");
     if (!src) return;
     const r = D.rose;
-    if (!r || !this.ui.layers.rose) { src.setData(empty()); this.offTip = null; return; }
+    if (!r || !this.ui.layers.rose) { this.send("rose", empty()); this.offTip = null; return; }
     const v = r.vent;
     const S = this.roseSizes();
     const mpp = (78271.517 * Math.cos((v[1] * Math.PI) / 180)) / 2 ** map.getZoom();
@@ -394,7 +410,7 @@ export class WallMap {
     ];
     if (r.probe) feats.push({ type: "Feature", properties: { role: "probe" }, geometry: { type: "Point", coordinates: dest(v, r.obsDeg, 15) } });
     this.offTip = dest(v, r.offDeg, L + km(10));
-    src.setData(fc(feats));
+    this.send("rose", fc(feats));
   }
 
   // ---------------------------------------------------------------- label stack (5.1, 5.2)
@@ -469,8 +485,8 @@ export class WallMap {
     const map = this.map;
     if (!map.getSource("official-labels")) return;
     const { boxes, areas } = this.labelPoints();
-    map.getSource("official-labels").setData(fc(boxes));
-    map.getSource("area-labels").setData(fc(areas));
+    this.send("official-labels", fc(boxes));
+    this.send("area-labels", fc(areas));
     this.lastLabels = { boxes, areas };
   }
 
@@ -877,7 +893,7 @@ export class WallMap {
       feats.push({ type: "Feature", geometry: sq(0.25), properties: { part: "stem", exposed: !!p.exposed, h: lo } });
       feats.push({ type: "Feature", geometry: sq(1.77), properties: { part: "box", exposed: !!p.exposed, b: lo, h: hi } });
     }
-    src.setData(fc(feats));
+    this.send("ac3d", fc(feats));
   }
 
   // ---------------------------------------------------------------- swipe compare (8.2)
@@ -888,6 +904,7 @@ export class WallMap {
       this.compare = null;
       this.compareMap?.remove();
       this.compareMap = null;
+      this.compareSent.clear();
       $("map-a")?.remove();
       this.container.style.clip = "";
       this.container.style.clipPath = "";
@@ -902,11 +919,12 @@ export class WallMap {
     wrap.prepend(node);
     const a = new window.maplibregl.Map({
       container: node, style: this.fallbackUsed ? this.map.getStyle() : STYLE_URL, center: this.map.getCenter(), zoom: this.map.getZoom(),
-      pitch: this.map.getPitch(), bearing: this.map.getBearing(), attributionControl: false, interactive: true, preserveDrawingBuffer: true, fadeDuration: 150,
+      pitch: this.map.getPitch(), bearing: this.map.getBearing(), attributionControl: false, interactive: true, preserveDrawingBuffer: SHOTS, fadeDuration: 150,
     });
     a.on("styleimagemissing", (e) => { if (!a.hasImage(e.id)) a.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) }); });
     this.compareMap = a;
     a.on("style.load", () => {
+      this.compareSent.clear();
       if (!this.noText) tuneBasemap(a, this.C, this.ui);
       addImages(a, this.C);
       addContext(a, this.C, this.ui, this.noText);
@@ -921,10 +939,11 @@ export class WallMap {
     const a = this.compareMap;
     if (!a || !a.getSource("official")) return;
     const D = this.D;
-    a.getSource("official").setData(fc(D.official));
-    a.getSource("aircraft").setData(fc(D.aircraft));
-    a.getSource("volcanoes").setData(fc(D.volcanoes));
-    a.getSource("official-labels").setData(fc(this.lastLabels?.boxes || []));
+    const sent = this.compareSent;
+    this.send("official", fc(D.official), a, sent);
+    this.send("aircraft", fc(D.aircraft), a, sent);
+    this.send("volcanoes", fc(D.volcanoes), a, sent);
+    this.send("official-labels", fc(this.lastLabels?.boxes || []), a, sent);
     a.setFilter("fir-active", ["in", ["get", "icao"], ["literal", D.firsWithSigmet]]);
   }
 

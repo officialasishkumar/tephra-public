@@ -302,15 +302,16 @@ y 1080 └───────────────────────�
 - Stage columns: map `minmax(0, 1fr)`, rail 640 (560 at 1600-1799).
 - Map insets 16. Legend top-left 296 wide. Headline pill from x = 296 + 32 to the tools
   column. Tools column top-right, 76 wide, five 52 px tiles. Level filter under the tools
-  (top 304, 420 tall). Zoom and compass (MapLibre `NavigationControl`, restyled) bottom-right
-  above the timeline. Trace dock bottom-left, flights dock bottom-right left of the tool
+  (top 304, track sized by the height rule in 4.2). Zoom and compass (MapLibre
+  `NavigationControl`, restyled) sit just left of the level filter, level with its top, so they
+  never share its column. Trace dock bottom-left, flights dock bottom-right left of the tool
   column, both 12 px above the timeline. Timeline 96 tall, inset 16 on all sides.
 - Camera framing (`fitBounds`) pads for the panels: top 120, left legend width + 60, right 140,
   bottom timeline + docks + 40. Max zoom 8.6 when framing.
 
 ### 4.2 Wall at 1440x900
 
-Root 15 px. Banner 36, command bar 56, strip 30, rail 500, inset 16, timeline 84, legend 260
+Root 15 px. Banner 36, command bar 56, strip 30, rail 500, inset 16, timeline 100, legend 260
 (collapsed to a "Legend" button by default below 1600 px; it opens over the map). Tools column
 keeps icons and short labels; the region buttons drop their key hints; the command bar drops
 the brand subtitle and the "FEEDS" caption, KPI values step down to 20 px and the clock to 24 px.
@@ -320,12 +321,25 @@ dropped); T expands it.
 Rail: tabs 52, head 64, sources grid ~270 (cells may wrap to two lines), disagreements ≤ 200,
 area ~130, decisions rest.
 
+The MapLibre zoom control is hidden at 1599 px and below (wheel and keys still zoom); from
+1600 px it sits left of the level filter (4.1).
+
+Height rule (every width from 1360 px): laptops are short (1366x768 and 1536x864 leave a map
+pane of about 535 to 610 px), so the level track is sized from the map pane, never from the
+window. `panels.renderLevels` works out the room under the tools column:
+available = pane height − filter top (inset + 5 tiles + 24) − (timeline + inset + dock gap) −
+the filter's measured height without its track − 8, and the track is min(270, available). When
+that is under 140 px it adds `body.levels-pop`: the filter becomes the 4.3 popover (the "Levels"
+tool shows; the filter opens beside the tools column, its track sized to the pane). The rule runs
+again on resize and whenever the map pane changes height (the REPLAY or lost-stream banner
+showing or wrapping), and on every render, so compare labels and new state are covered.
+
 ### 4.3 Wall at 1280x720
 
 Root 14 px. Banner 32 (one line; the case label is hidden, still in the banner's tooltip and the
 About dialog), command bar 48 (wordmark, mode badge, region menu button instead of three
 buttons, clock, model chip, feeds chip, Desk icon button with label "Desk"), strip 28, rail 440,
-inset 12, timeline 72. Tools column becomes icon-only (40 px tiles with tooltips and
+inset 12, timeline 84. Tools column becomes icon-only (40 px tiles with tooltips and
 `aria-label`s). The level filter collapses to a "Levels" tool that opens it as a popover. The
 headline pill is hidden (the rail head carries it). The MapLibre zoom control is hidden (keys and
 wheel still zoom). Trace dock: 1 line, expands on T. Flights dock: 300 wide with one-line rows, or
@@ -341,11 +355,20 @@ Single column, page scrolls:
 2. Command bar, two rows (88): row 1 wordmark, mode badge, clock; row 2 model chip, feeds chip,
    "Desk" link.
 3. Map, `height: 46vh` (min 320). Overlays: headline hidden; a "Legend" button top-left; tools as
-   a horizontal row of three icon buttons top-right (Frame, Layers, 3D); level filter, compare
-   and satellite live in the Layers sheet; the timeline becomes one line under the map
+   a horizontal row of three icon buttons top-right (Frame, Layers, 3D); the level presets and
+   satellite live in the Layers sheet; swipe compare is not offered under 600 px (a swipe on a
+   390 px map adds little); the timeline becomes one line under the map
    ("REPLAY · 25 SEP 16:30Z · 58%"). Map label boxes drop to 12 px and the rose to 78 px arrows.
 4. A tab bar (sticky under the map, 48): Brief · Sources · Flights · Trace.
-5. Tab panels (sections 7.11-7.14 stacked); the sources grid becomes three stacked cards.
+5. Tab panels (sections 7.11-7.14 stacked). The sources grid becomes one card per source
+   (SIGMET, VAA, VONA), rendered by a phone branch in `panels.js`, not by CSS alone: the column
+   head, then label and value rows (Seen at, Height, Movement, Valid, Colour code) with values
+   wrapping in full, never clamped or left in a tooltip, then the hash and "Raw text". A flagged
+   value keeps its caution ring and shape. Long verbatim fields (VAA info source and remarks,
+   VONA activity and cloud height) are never grid rows at any width: they render as full-width
+   quoted lines under the grid or cards, headed by their source kind ("VAA · VAAC",
+   "VONA · observatory").
+   Text floor at phone width: 12 px (`--fs-1`); no rule sets a smaller size.
 6. Honesty strip fixed to the bottom, two lines (40); add `padding-bottom` to the page so it never
    covers content.
 
@@ -673,11 +696,18 @@ estimate, never a forecast), the full GIBS acknowledgement, the credits table fr
 ### 7.4 Map container and camera
 
 - `new maplibregl.Map({ container, style, maxPitch: 70, attributionControl: false, dragRotate:
-  false, pitchWithRotate: false, fadeDuration: 150, preserveDrawingBuffer: true })`; enable
-  drag-rotate only in 3D. `preserveDrawingBuffer` keeps automated screenshots honest: browsers
-  that throttle `requestAnimationFrame` (headless runs, background windows) otherwise capture a
-  stale or empty canvas. Expose the map read-only for tooling as `window.__tephra = { map }`;
-  screenshot scripts call `window.__tephra.map.redraw()` before capturing.
+  false, pitchWithRotate: false, fadeDuration: 150, preserveDrawingBuffer })`; enable
+  drag-rotate only in 3D. `preserveDrawingBuffer` is true only when the URL carries `?shots=1`
+  (both the main and the compare map); present mode and everyday use do not pay for it. It keeps
+  automated screenshots honest: browsers that throttle `requestAnimationFrame` (headless runs,
+  background windows) otherwise capture a stale or empty canvas. Screenshot scripts load the Wall
+  with `?shots=1` (for example `/?shots=1&present=1`). Expose the map read-only for tooling as
+  `window.__tephra = { map }`; screenshot scripts call `window.__tephra.map.redraw()` before
+  capturing.
+- Map sources are sent with `setData` only when their derived data changed: the map keeps the
+  last JSON string sent to each source and compares the derived FeatureCollection, never the
+  store object. The 15 s timer still runs derive and the map update through this check, so an
+  official area expires or becomes valid on time with no new event.
 - The map element is focusable (`tabindex="0"`, `aria-label="Map. Arrow keys pan, plus and minus
   zoom."`) and keeps MapLibre's keyboard handler.
 - First view: select the top-priority volcano (7.10) and frame it (4.1 padding), instantly. After
@@ -965,7 +995,7 @@ forecast.
 ### 8.4 Flight-level filter
 
 A vertical instrument under the tools column (76 wide): caps "LEVELS", a readout ("All",
-"FL180–FL550"), a 300 px track from SFC (bottom) to FL550 (top) with scale ticks SFC, FL180,
+"FL180–FL550"), a track up to 270 px tall (the height rule in 4.2) from SFC (bottom) to FL550 (top) with scale ticks SFC, FL180,
 FL350, FL550 (mono 10, text-3), and on the track: the official band of the selected volcano
 (magenta bar, left), TEPHRA's band (amber dashed bar, right), and one tick per aircraft at its
 `alt_baro_ft` (amber 3 px for exposed, grey 2 px for others; at most 60). This mini profile

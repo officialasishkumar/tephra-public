@@ -470,13 +470,6 @@ function sourcesSection(D, sit) {
     for (const sid of ids) flagged.set(`${sid}|${row}`, d);
   }
   const vent = D.vents.get(sit.volcano_id);
-  const grid = el("div", { class: "cmp", role: "table", "aria-label": "Sources side by side: SIGMET, VAA and VONA" });
-  const hdrRow = el("div", { class: "cmp__row cmp__row--head", role: "row" }, el("div", { class: "cmp__corner", role: "columnheader" }, el("span", { class: "sr-only", text: "Field" })));
-  order.forEach((card, i) => {
-    if (i === 2) hdrRow.append(el("div", { class: "cmp__divider", "aria-hidden": "true" }));
-    hdrRow.append(colHead(D, sit, card, vent, flagged));
-  });
-  grid.append(hdrRow);
   const value = (card, row) => {
     const f = card.display_fields || {};
     if (row === "seen") {
@@ -503,32 +496,72 @@ function sourcesSection(D, sit) {
   };
   const compact = window.innerWidth < 1360 && window.innerWidth > 600;
   const rows = [["seen", "Seen at"], ["height", "Height"], ["move", "Movement"], ["valid", "Valid"], ["code", "Colour code"]].filter(([r]) => !compact || ["seen", "height", "move"].includes(r));
+  const cell = (card, row, role) => {
+    let v = value(card, row);
+    let title = null;
+    if (Array.isArray(v)) [v, title] = v;
+    const flag = flagged.get(`${card.source_id}|${row}`);
+    const cls = ["cmp__cell", v === "—" ? "cmp__cell--empty" : "", flag ? "cmp__cell--flag" : card.kind === "VONA" && row === "move" ? "cmp__cell--observer" : ""].filter(Boolean).join(" ");
+    return el("div", { class: cls, role, title: title || (v !== "—" ? v : null) }, flag ? st("st-caution", "var(--c-caution)") : null, el("span", { text: v }), flag ? el("span", { class: "sr-only", text: " (flagged: disagrees)" }) : null);
+  };
+  const footOf = (card, role) => el("div", { class: "cmp__foot", role },
+    el("span", { class: "mono", text: `#${card.sha256_short || ""}` }),
+    el("button", { type: "button", class: "link-btn", dataset: { act: "raw", kind: card.kind, focus: `raw-${card.kind}` }, "aria-label": `Raw text of ${card.title}` }, icon("i-raw-text"), "Raw text"));
+  const parts = { D, sit, order, rows, vent, flagged, cell, footOf };
+  const body = window.innerWidth <= 600 ? sourceCards(parts) : sourceGrid(parts);
+  return el("section", { class: "sec", "aria-labelledby": "h-sources", "data-ptab": "sources" }, secHead("h-sources", "What the sources say", "Official products are binding"), body, sourceQuotes(order));
+}
+
+// wide screens: the row-major table, SIGMET and VAA | VONA
+function sourceGrid({ D, sit, order, rows, vent, flagged, cell, footOf }) {
+  const grid = el("div", { class: "cmp", role: "table", "aria-label": "Sources side by side: SIGMET, VAA and VONA" });
+  const hdrRow = el("div", { class: "cmp__row cmp__row--head", role: "row" }, el("div", { class: "cmp__corner", role: "columnheader" }, el("span", { class: "sr-only", text: "Field" })));
+  order.forEach((card, i) => {
+    if (i === 2) hdrRow.append(el("div", { class: "cmp__divider", "aria-hidden": "true" }));
+    hdrRow.append(colHead(D, sit, card, vent, flagged));
+  });
+  grid.append(hdrRow);
   for (const [row, label] of rows) {
     const r = el("div", { class: "cmp__row", role: "row" }, el("div", { class: "cmp__rowlabel", role: "rowheader", text: label }));
     order.forEach((card, i) => {
       if (i === 2) r.append(el("div", { class: "cmp__divider", "aria-hidden": "true" }));
-      if (card.missing) {
-        r.append(el("div", { class: "cmp__cell cmp__cell--missing", role: "cell" }, el("span", { class: "sr-only", text: "none" })));
-        return;
-      }
-      let v = value(card, row);
-      let title = null;
-      if (Array.isArray(v)) [v, title] = v;
-      const flag = flagged.get(`${card.source_id}|${row}`);
-      const cls = ["cmp__cell", v === "—" ? "cmp__cell--empty" : "", flag ? "cmp__cell--flag" : card.kind === "VONA" && row === "move" ? "cmp__cell--observer" : ""].filter(Boolean).join(" ");
-      r.append(el("div", { class: cls, role: "cell", title: title || (v !== "—" ? v : null) }, flag ? st("st-caution", "var(--c-caution)") : null, el("span", { text: v }), flag ? el("span", { class: "sr-only", text: " (flagged: disagrees)" }) : null));
+      r.append(card.missing ? el("div", { class: "cmp__cell cmp__cell--missing", role: "cell" }, el("span", { class: "sr-only", text: "none" })) : cell(card, row, "cell"));
     });
     grid.append(r);
   }
   const foot = el("div", { class: "cmp__row cmp__row--foot", role: "row" }, el("div", { role: "cell" }));
   order.forEach((card, i) => {
     if (i === 2) foot.append(el("div", { class: "cmp__divider", "aria-hidden": "true" }));
-    foot.append(card.missing ? el("div", { role: "cell" }) : el("div", { class: "cmp__foot", role: "cell" },
-      el("span", { class: "mono", text: `#${card.sha256_short || ""}` }),
-      el("button", { type: "button", class: "link-btn", dataset: { act: "raw", kind: card.kind, focus: `raw-${card.kind}` }, "aria-label": `Raw text of ${card.title}` }, icon("i-raw-text"), "Raw text")));
+    foot.append(card.missing ? el("div", { role: "cell" }) : footOf(card, "cell"));
   });
   grid.append(foot);
-  return el("section", { class: "sec", "aria-labelledby": "h-sources", "data-ptab": "sources" }, secHead("h-sources", "What the sources say", "Official products are binding"), grid);
+  return grid;
+}
+
+// phone width (4.4): one card per source, its head then label and value rows wrapping in full
+function sourceCards({ D, sit, order, rows, vent, flagged, cell, footOf }) {
+  return el("div", { class: "cmp-cards" }, ...order.map((card) => {
+    const head = colHead(D, sit, card, vent, flagged);
+    head.removeAttribute("role");
+    const box = el("div", { class: `cmp-card${card.missing ? " cmp-card--missing" : ""}`, role: "group", "aria-label": head.querySelector(".cmp__kind").textContent }, head);
+    if (card.missing) return box;
+    for (const [row, label] of rows) box.append(el("div", { class: "cmp-card__row" }, el("div", { class: "cmp__rowlabel", text: label }), cell(card, row, null)));
+    box.append(footOf(card, null));
+    return box;
+  }));
+}
+
+// Long verbatim fields stay out of the grid: full-width quoted lines under it, by source kind.
+const QUOTED = { VAA: ["Info source", "Remarks"], VONA: ["Activity", "Cloud height"] };
+function sourceQuotes(order) {
+  const blocks = order.filter((c) => !c.missing && QUOTED[c.kind]).map((c) => {
+    const f = c.display_fields || {};
+    const lines = QUOTED[c.kind].filter((k) => f[k]).map((k) => el("p", { class: "cmp-quote__line" }, el("span", { class: "cmp-quote__label", text: `${k}: ` }), el("q", { text: f[k] })));
+    if (!lines.length) return null;
+    const observer = c.kind === "VONA";
+    return el("div", { class: `cmp-quote${observer ? " cmp-quote--observer" : ""}` }, el("div", { class: "cmp__kind", text: observer ? "VONA · observatory" : "VAA · VAAC" }), ...lines);
+  }).filter(Boolean);
+  return blocks.length ? el("div", { class: "cmp-quotes" }, ...blocks) : null;
 }
 
 function colHead(D, sit, card, vent, flagged) {
@@ -700,9 +733,34 @@ function decisionsSection(D, store, ui) {
 
 // ------------------------------------------------------------------ level filter (8.4)
 
-export function renderLevels(D, ui) {
+// Height of the filter's title, readout, track margins and presets, measured whenever the filter
+// is on screen (it is hidden while it is a closed popover).
+let levelChromeH = 0;
+
+// 4.2: size the track from the map pane, not the window. Docked under the tools (1360 px and up)
+// it must stop above the docks and timeline; under 140 px it becomes the popover instead.
+function levelTrackH() {
+  const pane = $("map-pane");
+  const css = getComputedStyle(document.body);
+  const px = (name) => parseFloat(css.getPropertyValue(name)) || 0;
+  const paneH = pane.clientHeight;
+  const inset = px("--inset");
+  let pop = window.innerWidth < 1360;
+  if (!pop) {
+    const top = inset + 5 * px("--tile-h") + 24;
+    const docked = Math.min(270, paneH - top - (px("--timeline-h") + inset + px("--dock-gap")) - levelChromeH - 8);
+    pop = docked < 140;
+    document.body.classList.toggle("levels-pop", pop);
+    if (!pop) return docked;
+  } else {
+    document.body.classList.remove("levels-pop");
+  }
+  return Math.max(60, Math.min(270, paneH - 2 * inset - levelChromeH));
+}
+
+export function renderLevels(D, ui, remeasured = false) {
   const box = $("levels");
-  const H = window.innerWidth < 1600 ? (window.innerHeight < 1000 ? 190 : 220) : window.innerHeight < 1000 ? 240 : 270;
+  const H = levelTrackH();
   const y = (ft) => (1 - levelFrac(ft)) * H;
   const track = el("div", { class: "levels__track", dataset: { act: "level-track" } });
   track.style.height = `${H}px`;
@@ -759,6 +817,13 @@ export function renderLevels(D, ui) {
       el("button", { type: "button", dataset: { act: "level-preset", preset: "all", focus: "lv-all" }, "aria-pressed": levelIsAll(ui.level) ? "true" : "false", text: "All" }),
       el("button", { type: "button", dataset: { act: "level-preset", preset: "hazard", focus: "lv-hazard" }, "aria-pressed": hazardOn ? "true" : "false", text: "Hazard" })));
   box.dataset.h = String(H);
+  if (box.offsetHeight) {
+    const chrome = box.offsetHeight - track.offsetHeight;
+    if (Math.abs(chrome - levelChromeH) > 1) {
+      levelChromeH = chrome;
+      if (!remeasured) renderLevels(D, ui, true);
+    }
+  }
 }
 
 // ------------------------------------------------------------------ timeline (8.3)

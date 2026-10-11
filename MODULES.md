@@ -2328,6 +2328,11 @@ no-referrer`, `X-Frame-Options: DENY`, `Permissions-Policy: camera=(), microphon
 geolocation=()` (`microphone=(self)` on `GET /desk` only, for push-to-talk), `Cache-Control: no-store` under `/api/` and `no-cache` elsewhere (unless the
 route sets its own), and `Strict-Transport-Security: max-age=31536000` over https.
 
+Responses of 1024 bytes or more are gzip-compressed when the client sends
+`Accept-Encoding: gzip` (Starlette `GZipMiddleware`, which adds `Vary: Accept-Encoding`). Its
+default exclusions keep `text/event-stream` (the SSE stream, 8.4), images and fonts as they are.
+The headers above are unchanged by compression.
+
 ### 8.2 Read endpoints (public, read-only)
 
 | Method, path | Response model |

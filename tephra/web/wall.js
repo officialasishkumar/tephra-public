@@ -539,7 +539,7 @@ function levelPreset(k) {
 }
 
 function focusLevels() {
-  if (window.innerWidth < 1360 && window.innerWidth > 600) { ui.levelsOpen = true; ui.layersOpen = false; renderNow(); }
+  if (!phone() && (window.innerWidth < 1360 || document.body.classList.contains("levels-pop"))) { ui.levelsOpen = true; ui.layersOpen = false; renderNow(); }
   $("levels").querySelector('[data-thumb="max"]')?.focus();
 }
 
@@ -823,6 +823,9 @@ function escape(e) {
 setInterval(() => { if (D) { D.now = now(); renderClock(D, conn); } }, 1000);
 setInterval(() => { if (store.state) renderNow(); }, 15000);
 window.addEventListener("resize", () => scheduleRender());
+// The level track is sized from the map pane (4.2): re-render when the pane changes height, as it
+// does when the REPLAY banner or the lost-stream banner shows or wraps.
+new ResizeObserver(() => { if (store.state) scheduleRender(); }).observe($("map-pane"));
 window.matchMedia("(prefers-reduced-motion: reduce)").addEventListener?.("change", () => scheduleRender());
 
 renderShell();

@@ -26,6 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tephra import __version__
@@ -126,6 +127,8 @@ SECURITY_HEADERS: Final = {
 STREAMS_RETRY_AFTER_S: Final = 5
 """The Wall and the Desk reopen a refused event stream after 5 s on their own."""
 SCHEDULER_STOP_TIMEOUT_S: Final = 10.0
+GZIP_MIN_BYTES: Final = 1024
+"""Responses smaller than this go out uncompressed; gzip would not pay for itself."""
 
 _ADVISORY_ID = re.compile(r"adv_[0-9a-f]{12}")
 _PRINT_DOC_ID = re.compile(r"(?:DOC-|ho_)[0-9a-f]{12}")
@@ -943,6 +946,10 @@ def create_app(
     app.state.login_throttle = LoginThrottle()
     app.state.event_streams = StreamSlots(settings.max_event_streams)
     _install_error_handlers(app)
+    # Starlette's GZip skips text/event-stream, images and woff2 by default, so the SSE stream is
+    # never buffered or compressed. Added first so HttpGuard stays outermost and still sees every
+    # response, including the 413 it sends itself.
+    app.add_middleware(GZipMiddleware, minimum_size=GZIP_MIN_BYTES)
     app.add_middleware(HttpGuardMiddleware, upload_bytes=settings.max_upload_bytes)
     app.include_router(pages)
     app.include_router(read_api)
