@@ -113,6 +113,9 @@
   --map-fir-active: #8aa2bb;
   --map-vaac: #7d8fa3;
   --map-navaid: #8fa0b2;
+  --map-label-minor: #7d8a97; /* basemap place names, inactive volcano names (5.6:1 on land) */
+  --map-label-fir: #7f92a6; /* FIR names along the boundary line (6.1:1 on land) */
+  --map-label-vaac: #8a9bb0; /* VAAC area names (6.9:1 on land) */
   --map-official-fill-opacity: 0.14;
   --map-tephra-fill-opacity: 0.07;
 
@@ -150,7 +153,9 @@
   /* --- type --- */
   --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --fs-1: 0.75rem; /* 12 px: attribution, hashes */
+  /* 12 px floor: 0.75rem is only 11.25 px at the Wall's 15 px root and 10.5 px at its 14 px root,
+     so the smallest step is never allowed under 12 px. wall.css sets no smaller size either. */
+  --fs-1: max(12px, 0.75rem); /* 12 px: attribution, hashes, caps labels */
   --fs-2: 0.875rem; /* 14 px: secondary text, table cells */
   --fs-3: 1rem; /* 16 px: body */
   --fs-4: 1.125rem; /* 18 px: key values */

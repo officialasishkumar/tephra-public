@@ -114,7 +114,26 @@ q { quotes: "“" "”"; }
 .seg { display: inline-flex; padding: 2px; gap: 2px; background: var(--c-bg); border: 1px solid var(--c-line-2); border-radius: var(--radius-pill); }
 .seg button { min-height: 26px; padding: 0 10px; background: transparent; border: 0; border-radius: var(--radius-pill); color: var(--c-text-3); font-size: var(--fs-1); font-weight: var(--fw-semibold); white-space: nowrap; }
 .seg button:hover { color: var(--c-text-1); }
-.seg button[aria-pressed="true"] { background: var(--c-surface-3); color: var(--c-text-1); box-shadow: inset 0 0 0 1px var(--c-line-input); }
+/* Selected: a lighter fill and a text-2 ring (not just a darker shade of the resting pill). */
+.seg button[aria-pressed="true"] { background: var(--c-line-2); color: var(--c-text-1); box-shadow: inset 0 0 0 1.5px var(--c-text-2); }
+
+/* Hover and press feedback (3.5): colour changes ease over --dur-2 and presses answer within
+   --dur-1; both are 0 ms under reduced motion (tokens.css). The press nudge (scale) is motion,
+   so it only runs when motion is allowed; the pressed fill shows either way. */
+.btn, .icon-btn, .link-btn, .seg button, .region-btn, .feeds-chip, .ai-chip, .desk-link, .tool,
+.chip-btn, .levels__presets button, .vtab, .xtab, .flights__row, .tl__mark, .dlg__close,
+.honesty__about, .legend__toggle, .ptabs button {
+  transition: background-color var(--dur-2) var(--ease-standard), color var(--dur-2) var(--ease-standard),
+    border-color var(--dur-2) var(--ease-standard), box-shadow var(--dur-2) var(--ease-standard),
+    transform var(--dur-1) var(--ease-standard);
+}
+.btn:active, .icon-btn:active, .seg button:active, .region-btn:active, .feeds-chip:active, .ai-chip:active,
+.desk-link:active, .tool:active, .chip-btn:active, .levels__presets button:active, .dlg__close:active,
+.vtab:active, .xtab:active { background-color: var(--c-line-1); }
+@media (prefers-reduced-motion: no-preference) {
+  .btn:active, .icon-btn:active, .seg button:active, .region-btn:active, .tool:active, .chip-btn:active,
+  .levels__presets button:active, .dlg__close:active { transform: scale(0.97); }
+}
 
 .skeleton { height: 14px; margin: 8px 0; border-radius: var(--radius-sm); background: var(--c-surface-3); }
 .skeleton--tab { display: inline-block; width: 120px; height: 36px; margin: 0 4px; }
@@ -181,7 +200,8 @@ body.is-stale .brand__sub { display: none; }
 }
 .region-btn:hover { color: var(--c-text-1); background: var(--c-surface-2); }
 .region-btn .count { min-width: 20px; padding: 0 6px; border-radius: var(--radius-pill); background: var(--c-surface-3); color: var(--c-text-1); font-size: var(--fs-1); text-align: center; }
-.region-btn[aria-pressed="true"] { background: var(--c-surface-3); color: var(--c-text-1); box-shadow: inset 0 0 0 1px var(--c-line-input); }
+.region-btn[aria-pressed="true"] { background: var(--c-line-2); color: var(--c-text-1); box-shadow: inset 0 0 0 1.5px var(--c-text-2); }
+.region-btn[aria-pressed="true"] .count { background: var(--c-bg); }
 .regions__menu { display: none; }
 .regions__menu select { height: 36px; padding: 0 var(--sp-3); background: var(--c-surface-2); border: 1px solid var(--c-line-input); border-radius: var(--radius-md); color: var(--c-text-1); font-size: var(--fs-2); }
 
@@ -436,7 +456,7 @@ body.is-stale .map-scrim { opacity: 1; }
 .trace--expanded .trace__msg > span:not(.tag) { white-space: normal; }
 .trace--expanded .trace__msg .st { vertical-align: -2px; margin-right: 4px; }
 .trace__empty { color: var(--c-text-3); font-size: var(--fs-2); }
-.trace.is-stale { opacity: 0.6; }
+.trace.is-stale { opacity: 0.8; } /* dimmed, but text-3 stays above 4.5:1 */
 .actor { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--radius-sm); font-size: var(--fs-1); font-weight: var(--fw-semibold); letter-spacing: 0.04em; border: 1px solid var(--c-line-input); color: var(--c-text-2); white-space: nowrap; justify-self: start; align-self: center; }
 .actor .icon { width: 12px; height: 12px; }
 .actor--stub { border-style: dashed; }
@@ -453,7 +473,7 @@ body.is-stale .map-scrim { opacity: 1; }
   height: var(--timeline-h); display: grid; grid-template-columns: 210px 92px minmax(0, 1fr) auto; gap: var(--sp-3);
   padding: var(--sp-2) var(--sp-4);
 }
-.timeline.is-stale { opacity: 0.65; }
+.timeline.is-stale { opacity: 0.8; }
 .tl__meta { display: flex; flex-direction: column; justify-content: center; gap: 4px; border-right: 1px solid var(--c-line-1); padding-right: var(--sp-3); min-width: 0; }
 .tl__mode { display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-bold); letter-spacing: var(--tracking-caps); font-size: var(--fs-1); color: var(--c-replay-text); }
 .tl__mode--live { color: var(--c-ok); }
@@ -483,7 +503,7 @@ body.is-stale .map-scrim { opacity: 1; }
 .tl__mark--tephra { color: var(--c-tephra); }
 .tl__mark--ok { color: var(--c-ok); }
 .tl__mark--serious { color: var(--c-serious); }
-.tl__bar { position: absolute; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: var(--c-official); opacity: 0.55; }
+.tl__bar { position: absolute; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: var(--c-official); opacity: 0.7; }
 .tl__gap { position: absolute; top: calc(var(--lane-h) / 2); height: calc(var(--lane-h) + 4px); border-left: 1.5px dashed var(--c-info); border-right: 1.5px dashed var(--c-info); pointer-events: none; }
 .tl__gap span { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 0 6px; border-radius: 3px; background: var(--c-surface-1); font-size: 13px; font-weight: var(--fw-semibold); color: var(--c-info); white-space: nowrap; }
 .tl__now { position: absolute; top: -4px; bottom: 0; width: 2px; background: var(--c-text-1); transform: translateX(-1px); z-index: 2; pointer-events: none; }
@@ -544,7 +564,7 @@ body:has(#compare-labels:not([hidden])) .top-center { top: calc(var(--inset) + 4
 
 .rail { display: flex; flex-direction: column; min-height: 0; background: var(--c-surface-1); border-left: 1px solid var(--c-line-1); box-shadow: var(--shadow-1); }
 .vtabs { position: relative; display: flex; gap: var(--sp-1); padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--c-line-1); overflow-x: auto; scrollbar-width: none; flex: none; mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); }
-.vtabs.is-stale .badge { filter: grayscale(1); opacity: 0.7; }
+.vtabs.is-stale .badge { filter: grayscale(1); opacity: 0.8; }
 .vtab {
   display: inline-flex; align-items: center; gap: var(--sp-2);
   min-height: 44px; padding: 0 var(--sp-3);
@@ -630,6 +650,9 @@ body:has(#compare-labels:not([hidden])) .top-center { top: calc(var(--inset) + 4
 /* 7.13 disagreements */
 .dis { display: flex; flex-direction: column; gap: var(--sp-2); }
 .dis__item { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-md); background: var(--c-surface-2); border: 1px solid var(--c-line-1); }
+/* CAUTION and SERIOUS: a solid 4 px edge in the severity colour (padding trimmed by the extra 3 px
+   so the text does not move), the same pattern as the failure and caveat boxes. */
+.dis__item--caution, .dis__item--serious { border-left-width: 4px; padding-left: calc(var(--sp-3) - 3px); }
 .dis__item--caution { border-color: var(--c-caution); background: linear-gradient(90deg, var(--c-caution-bg), var(--c-surface-2) 70%); }
 .dis__item--serious { border-color: var(--c-serious); background: linear-gradient(90deg, var(--c-serious-bg), var(--c-surface-2) 70%); }
 .dis__item--info { padding: 4px var(--sp-3); background: transparent; border-color: transparent; border-top: 1px solid var(--c-line-1); border-radius: 0; }
@@ -637,6 +660,9 @@ body:has(#compare-labels:not([hidden])) .top-center { top: calc(var(--inset) + 4
 .dis__item.is-new { animation: flash var(--dur-5) var(--ease-standard) 2; }
 .sev { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-1); font-weight: var(--fw-bold); letter-spacing: var(--tracking-caps); }
 .sev .st { width: 16px; height: 16px; }
+/* On the CAUTION and SERIOUS cards the severity word is the first thing read: one step larger. */
+.dis__item--caution .sev, .dis__item--serious .sev { font-size: var(--fs-2); }
+.dis__item--caution .sev .st, .dis__item--serious .sev .st { width: 18px; height: 18px; }
 .sev--caution { color: var(--c-caution); }
 .sev--info { color: var(--c-info); }
 .sev--serious { color: var(--c-serious); }
@@ -648,7 +674,7 @@ body:has(#compare-labels:not([hidden])) .top-center { top: calc(var(--inset) + 4
 .dis__explain b.obs { color: var(--c-observer-text); }
 .dis__body .link-btn { margin-top: 4px; }
 .dis__item--info .dis__headline { font-size: var(--fs-2); font-weight: var(--fw-medium); color: var(--c-text-2); }
-.dis__item--info .dis__detail { font-size: 11.5px; color: var(--c-text-3); }
+.dis__item--info .dis__detail { font-size: var(--fs-1); color: var(--c-text-3); }
 .dis__more { font-size: var(--fs-2); text-decoration: none; color: var(--c-text-2); }
 .empty { padding: var(--sp-3); border: 1px dashed var(--c-line-2); border-radius: var(--radius-md); color: var(--c-text-2); font-size: var(--fs-2); }
 
@@ -1013,7 +1039,7 @@ body[data-rail]:not([data-rail="brief"]) .brief { display: none; }
 .x-frame__tag { fill: var(--c-sat-text); font: 700 38px var(--font-sans); paint-order: stroke; stroke: #05080c; stroke-width: 8px; }
 .x-key { font-size: var(--fs-2); color: var(--c-text-2); }
 .x-key summary { display: flex; align-items: center; gap: 4px; min-height: 32px; cursor: pointer; font-weight: var(--fw-medium); }
-.x-key__chev { width: 14px; height: 14px; transition: transform var(--dur-quick, 120ms); }
+.x-key__chev { width: 14px; height: 14px; transition: transform var(--dur-2) var(--ease-standard); }
 .x-key[open] .x-key__chev { transform: rotate(90deg); }
 .x-key__list { display: flex; flex-direction: column; gap: 4px; padding: 2px 0 var(--sp-2); }
 .x-key__list li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; line-height: 1.3; }
@@ -1141,7 +1167,7 @@ body[data-rail]:not([data-rail="brief"]) .brief { display: none; }
 .duty__prio li::marker { font-family: var(--font-mono); font-weight: var(--fw-semibold); color: var(--c-tephra-text); }
 .duty__label { display: block; font-size: var(--fs-2); font-weight: var(--fw-semibold); color: var(--c-text-1); overflow-wrap: anywhere; }
 .duty__why { display: block; margin-top: 2px; font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.4; overflow-wrap: anywhere; }
-.duty__must { display: inline-block; margin-right: var(--sp-2); padding: 0 5px; border: 1px solid var(--c-caution); border-radius: var(--radius-xs); font-size: 0.6875rem; letter-spacing: 0.04em; color: var(--c-caution); vertical-align: 1px; }
+.duty__must { display: inline-block; margin-right: var(--sp-2); padding: 0 5px; border: 1px solid var(--c-caution); border-radius: var(--radius-xs); font-size: var(--fs-1); letter-spacing: 0.04em; color: var(--c-caution); vertical-align: 1px; }
 .duty__watch { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-2); color: var(--c-text-2); list-style: none; }
 .duty__defer { display: flex; flex-direction: column; gap: var(--sp-2); }
 .duty__undone { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-serious); border-left-width: 4px; border-radius: var(--radius-sm); background: var(--c-serious-bg); display: flex; flex-direction: column; gap: var(--sp-1); }
@@ -1222,4 +1248,27 @@ body[data-rail]:not([data-rail="brief"]) .brief { display: none; }
   .verdict--hypothesis { background: var(--c-hypothesis-bg); border-bottom-color: var(--c-tephra); }
   .verdict--hypothesis .verdict__line { color: var(--c-tephra-text); }
   .vhead__headline, .vhead__why { display: none; }
+}
+
+/* ---------------------------------------------------------------- forced colours (12)
+   Windows High Contrast and similar modes replace every colour and drop box-shadows and
+   backgrounds. States carried only by a fill or an inset shadow get a system colour instead,
+   and the data swatches keep their own colours so the key still matches the map canvas
+   (the canvas is not recoloured). Every swatch also has its shape, so meaning never rests on
+   colour alone. */
+@media (forced-colors: active) {
+  :focus-visible { outline-color: Highlight; }
+  .seg button[aria-pressed="true"], .region-btn[aria-pressed="true"], .tool[aria-pressed="true"],
+  .tool[aria-expanded="true"], .levels__presets button[aria-pressed="true"], .vtab[aria-selected="true"],
+  .xtab[aria-selected="true"], .ptabs button[aria-pressed="true"] {
+    forced-color-adjust: none; background: SelectedItem; color: SelectedItemText; border-color: SelectedItem;
+  }
+  .seg, .regions__group, .tool, .chip-btn, .vtab, .xtab, .badge, .xtab__badge, .region-btn .count,
+  .code-chip, .mode-chip, .pill, .actor, .levels__thumb { border: 1px solid CanvasText; }
+  .seg button, .region-btn, .ptabs button { border: 1px solid transparent; }
+  .cmp__cell--flag, .cmp__colhead--flag, .x-card--sel, .duty { outline: 2px solid CanvasText; outline-offset: -2px; }
+  .legend .sw, .legend .codes svg, .code-chip svg, .levels__band, .levels__tick, .levels__sel,
+  .tl__mark .st, .tl__bar, .tl__now, .tl__progress span, .x-meter__bar > span, .x-key__sw,
+  .flights__plane, .headline__volcano .icon, .verdict__volcano .icon { forced-color-adjust: none; }
+  .levels__rail { background: CanvasText; }
 }

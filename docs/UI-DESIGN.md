@@ -138,7 +138,11 @@ Data semantics (map and panels, one meaning each):
 
 Map-only (`--map-*`): land `#0c0c0c` (OpenFreeMap's own), water `#0b1a2a` (override), label
 halo `#05070a`, volcano label `#d5dee7`, FIR line `#56697e`, FIR with a valid SIGMET
-`#8aa2bb`, VAAC boundary `#7d8fa3`, navaid `#8fa0b2`.
+`#8aa2bb`, VAAC boundary `#7d8fa3`, navaid `#8fa0b2`. Label colours (contrast on land
+`#0c0c0c`): `--map-label-minor` `#7d8a97` (basemap place names, inactive volcano names, 5.6:1),
+`--map-label-fir` `#7f92a6` (FIR names, 6.1:1), `--map-label-vaac` `#8a9bb0` (VAAC names,
+6.9:1); other aircraft labels use `--c-text-3` (7.6:1). `map.js` reads all of them with
+`readTokens()`, so no map label colour is a literal any more.
 
 Status (panels only; always shape + word; section 3.2):
 
@@ -239,7 +243,7 @@ none on our host. Preload the Sans latin file:
 
 | Token | Size | Wall use (1920) | Desk use |
 |---|---|---|---|
-| `--fs-1` | 12 px | Hashes, attribution, caps labels (600, +0.08em, upper case) | Hashes, fine print |
+| `--fs-1` | 12 px (`max(12px, 0.75rem)`) | Hashes, attribution, caps labels (600, +0.08em, upper case) | Hashes, fine print |
 | `--fs-2` | 14 px | Secondary text, grid cells, trace lines | Labels of values, hints |
 | `--fs-3` | 16 px | Body, tabs | Body |
 | `--fs-4` | 18 px | Headline pill, area band | Entry time |
@@ -251,7 +255,15 @@ none on our host. Preload the Sans latin file:
 Weights 400/500/600/700. Line heights `--lh-tight` 1.15 (numbers), `--lh-snug` 1.3 (UI),
 `--lh-body` 1.5 (paragraphs, advisory text). Root size: the Wall sets `html { font-size: 16px }`
 at 1600 px wide and up, 15 px from 1360 to 1599, 14 px below 1360, and 16 px again at 600 px and
-below; the Desk keeps 16 px and respects browser zoom.
+below; the Desk keeps 16 px and respects browser zoom. Type floor: `--fs-1` is
+`max(12px, 0.75rem)`, because 0.75rem alone is 11.25 px at the 15 px root and 10.5 px at the
+14 px root. `wall.css` has no literal size under 12 px (the old 11.5 px INFO summary and the
+11 px "must" tag now use `--fs-1`). The map's own symbol labels (`text-size` 11 in `map.js`)
+are canvas text, not CSS, and are not covered by this floor yet. Places that got wider when
+the floor came in and need a look at 1280x720 and 1440x900: the comparison grid cells at 1359
+and below (`.cmp__cell` drops to `--fs-1` in a 72 px label column), the tool tile labels in the
+76 px column, the level-filter thumb ("FL350" in a 52 px pill), the timeline hour labels and the
+compact rail tab labels (`.xtab__label`).
 
 ### 3.5 Space, radii, elevation, stacking, motion
 
@@ -271,7 +283,11 @@ below; the Desk keeps 16 px and respects browser zoom.
   (0, 0, 0, 1), `--ease-exit` (0.3, 0, 1, 1). Under `prefers-reduced-motion: reduce` every
   duration except `--dur-hold` is 0 (in `tokens.css`): camera moves become `jumpTo`, pulses and
   marching paths are still, slide-ins are cuts. Read the media query in JS too (MapLibre
-  animations do not read CSS).
+  animations do not read CSS). Wall controls (buttons, chips, segmented controls, region
+  buttons, tools, tabs, flight rows, timeline marks) ease background, colour, border and shadow
+  over `--dur-2` on hover; on press they take a `--c-line-1` fill within `--dur-1`, plus a 0.97
+  scale only when motion is allowed. Every duration in `wall.css` is a token (the old
+  `--dur-quick` fallback, which ignored reduced motion, is gone).
 - Tap targets: `--tap-min` 44 px (contract), `--tap-comfort` 48 px (Desk primary actions).
 
 ## 4. Layout grids
@@ -428,7 +444,7 @@ load. No modal sheet at this width.
 
 Basemap: OpenFreeMap `dark`, tuned after `load` (each call guarded with `map.getLayer`):
 `water` fill `--map-water`; `landuse_park` fill-opacity 0.35; `place_city`, `place_city_large`,
-`place_town` text colour `#7d8a97`; add the style's `ne2_shaded` raster as `ne2-relief` under
+`place_town` text colour `--map-label-minor` (`#7d8a97`); add the style's `ne2_shaded` raster as `ne2-relief` under
 `water` (saturation -1, contrast 0.15, brightness-max 0.45, opacity 0.5, maxzoom 8); add
 Mapterhorn `raster-dem` (`https://tiles.mapterhorn.com/{z}/{x}/{y}.webp`, terrarium, tileSize
 512, maxzoom 12, attribution "© Mapterhorn") and a `hillshade` layer before `waterway` (minzoom
@@ -458,12 +474,12 @@ Layer order, bottom to top (all after the basemap unless noted):
 | 20 | `exposure-path` | line | exposures, `kind == path` | `--c-tephra` 2.4 px dash [1.5,1.5]; marching (5.4) |
 | 21 | `exposure-entry` | circle | `kind == entry` and `minutes_to_entry > 0` | r 6, fill `--map-halo`, stroke `--c-tephra` 2.5 (no ring for a flight already inside) |
 | 22 | `exposure-entry-label` | symbol | same filter | "+12 MIN", Noto Sans Bold 13, `--c-tephra-text`, offset [0,-1.3] |
-| 23 | `volcano-inactive` | symbol | `active == false` | hollow eruption icon 0.5, opacity 0.8; name from z7.5, 11 px `#7d8a97` |
+| 23 | `volcano-inactive` | symbol | `active == false` | hollow eruption icon 0.5, opacity 0.8; name from z7.5, 11 px `--map-label-minor` |
 | 24 | `volcano-active` | symbol | `active == true` | eruption icon by code (5.3); name Noto Sans Bold 14 (16 selected), `--map-label`, halo 2 |
 | 25 | `aircraft-icon` | symbol | aircraft | SDF plane (5.3) |
 | 26 | `aircraft-inside` | circle | `inside` | r 18, stroke `--c-tephra` 2, no fill |
 | 27 | `aircraft-label-exposed` | symbol | `exposed` | two lines (5.3), Bold 14, allow overlap |
-| 28 | `aircraft-label` | symbol | not exposed, minzoom 7.5 | "GIA123 FL350", Regular 11, `#93a3b5`, optional |
+| 28 | `aircraft-label` | symbol | not exposed, minzoom 7.5 | "GIA123 FL350", Regular 11, `--c-text-3`, optional |
 | 29 | `official-label` | symbol | `official-labels` point source (5.1) | stretchable box `box-official`, `icon-text-fit: both`, padding [5,9,5,9], two-line `format`, data-driven `text-anchor` and `text-offset`, icon and text allow overlap |
 | 30 | `tephra-label` | symbol | `area-labels` point source (5.2) | box `box-tephra`, same style, stacked against the official box |
 | 31 | `rose-*` | line, circle, symbol | `rose` source (section 6) | above all labels so it wins collisions |
@@ -666,7 +682,9 @@ chip; clock; "Open Desk" link.
   state = neutral outline "CONNECTING".
 - Region presets: a segmented control (pill group) of `state.regions`, each button "1 Java /
   Bali" with the key hint in a `kbd`, the name, and a count badge of active volcanoes inside its
-  bbox (hidden when 0). `aria-pressed` on the current one. Fly to the region with `--dur-camera`.
+  bbox (hidden when 0). `aria-pressed` on the current one: a `--c-line-2` fill with a 1.5 px
+  `--c-text-2` ring (10:1 text), the same selected look as every `.seg` segmented control. Fly
+  to the region with `--dur-camera`.
 - KPIs: first the hero, "RFA (fictional) flights entering" (`exposed_count` over all volcanoes,
   said in its tooltip; value 32 px, 24 px below 1600 px, over a caps label that may wrap to two
   lines). It is `--c-tephra-text` amber only when above 0. At 0 it shows "—" in text-3, never
@@ -927,8 +945,9 @@ columns are missing or expired; the head says "No valid official product").
 ### 7.13 Where they disagree; TEPHRA cautious area
 
 **Disagreements.** Caps title "WHERE THEY DISAGREE", aside "2 to check · 2 harmless". CAUTION
-and SERIOUS items as cards (`--c-caution-bg` gradient, caution border; serious uses
-`--c-serious-bg`): left column (132 px) the severity shape and word, and the kind label under it
+and SERIOUS items as cards (`--c-caution-bg` gradient, caution border with a solid 4 px left
+edge; serious uses `--c-serious-bg` and the serious colour): left column (132 px) the severity
+shape (18 px) and word (14 px bold caps, one step above the INFO rows), and the kind label under it
 (section 11.4); right column the plain-English headline (16 px 600), the code `summary` verbatim
 (14 px text-2), and for direction items an explainer line built from the values: "Official area
 moves **SE**. Observatory reports ash moving **N**. 135° apart." (the two words in their role
@@ -1061,6 +1080,9 @@ the playhead follows `state.now`.
   matching column or item in the rail and frames it; tooltips name the product and time.
 - States: loading (empty axis), LIVE (no progress bar), no events (axis only), stale (dimmed,
   playhead frozen with "last update 16:07Z").
+- The official validity bar is `--c-official` at 0.7 opacity (3.3:1 against the panel). Stale
+  panels (timeline, trace dock) dim to 0.8 opacity, which keeps text-3 at about 5.1:1 and text-2
+  at about 7.1:1; stale volcano-tab badges are greyed and dimmed to 0.8.
 
 Forecast steps control: in the Layers panel and as a small segmented control at the right end
 of the timeline: Now · +6 h · +12 h · +18 h · All (`aria-pressed`). Choosing a step shows that
@@ -1426,7 +1448,14 @@ or DGCA endorse TEPHRA.
 - Text: resizable to 200% on the Desk without loss (cards reflow; the action bar stays); the Wall
   is a fixed-viewport display and must stay usable at 1280x720.
 - Forced colours: icons use `currentColor`; borders exist on every control so they survive
-  `forced-colors: active`.
+  `forced-colors: active`. `wall.css` ends with a `forced-colors: active` block: selected
+  segments, region buttons, tools, tabs and phone tabs use `SelectedItem` / `SelectedItemText`
+  (their normal fill and inset ring are dropped in that mode); borderless controls and chips get a
+  `CanvasText` border; flagged grid cells, the selected extension card and the Duty Officer card
+  get an outline in place of their inset shadow; the focus ring uses `Highlight`; and the data
+  swatches (legend, colour-code symbols, level bands, timeline marks and bars, meters) keep their
+  own colours (`forced-color-adjust: none`) so the key still matches the map canvas, which the
+  mode does not recolour. Each of those swatches also has its shape.
 
 ## 13. Data rules (what the UI computes)
 
