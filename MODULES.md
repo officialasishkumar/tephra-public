@@ -298,7 +298,11 @@ set, must hold at least `MIN_SECRET_CHARS` characters after stripping, or `Setti
 `FEED_CLOCK_SLACK` is how long after "now" a product may be stamped and still count as
 issued; `reconcile.select_records` and `geo.cone.official_layers` share it, or a VAAC's
 polygons would drop out of the cone for a tick. `replay_start` (`TEPHRA_REPLAY_START`) is the
-UTC time the replay clock starts at, clamped into the case window. `nict_frames`
+UTC time the replay clock starts at, clamped into the case window. `replay_end`
+(`TEPHRA_REPLAY_END`, UTC, default unset) ends a looping window that starts at `replay_start`:
+`Settings` refuses it without `replay_start` and `replay_case`, when `replay_start` has no UTC
+offset, and when it is not after `replay_start`; `start_replay_clock` refuses a window outside
+the case's recording, and neither clamps it. `nict_frames`
 (`TEPHRA_NICT_FRAMES`, default false) turns on the NICT true-colour crops (non-commercial
 terms; research/05 did not clear them). `model_tts` (`TEPHRA_MODEL_TTS`, default `gemini-3.8-flash-lite-tts`) is the speech model of Ask
 TEPHRA's spoken answers; `model_lite` carries every other new model step (section 6).
@@ -1357,8 +1361,10 @@ class ReplaySource(Source):
     @property
     def case(self) -> ReplayCase
 def replay_banner(case: ReplayCase) -> str                     # REPLAY_BANNER_TEMPLATE
-def replay_info(case: ReplayCase, *, auto: bool) -> ReplayInfo
-def start_replay_clock(case: ReplayCase, *, speed: float, begin: datetime | None = None
+def replay_info(case: ReplayCase, *, auto: bool,
+                window: tuple[datetime, datetime] | None = None) -> ReplayInfo   # window -> window_from/to
+def start_replay_clock(case: ReplayCase, *, speed: float, begin: datetime | None = None,
+                       end: datetime | None = None
                        ) -> timeutil.ReplayClock               # set_clock(ReplayClock(...)); raises on a bad case
 def stop_replay_clock() -> None                                # set_clock(SystemClock())
 ```
@@ -1670,7 +1676,13 @@ Core rules:
   writes `runtime/state` at once, so the choice survives a restart before the next checkpoint.
 - REPLAY: `create_runtime` (with `TEPHRA_MODE=REPLAY`) and `switch_mode` call
   `start_replay_clock(case, speed=settings.replay_speed, begin=settings.replay_start)` and
-  use `ReplaySource`. A replay case's missing feeds read DISABLED with `NOT_RECORDED_NOTE` and
+  use `ReplaySource`. With `replay_end` set, the case named by `replay_case` plays
+  `ReplayClock(replay_start, replay_end, speed, loop=True)` instead, after checking
+  `recorded_from <= replay_start < replay_end <= recorded_to` (a `ValueError` naming the case
+  window otherwise, so `create_runtime` fails at startup and a switch fails without changing
+  mode); `Runtime.replay_window` holds the window and `system_state` reports it as
+  `ReplayInfo.window_from`/`window_to`. Any other case chosen at the Desk plays its whole
+  recording from its start. A replay case's missing feeds read DISABLED with `NOT_RECORDED_NOTE` and
   are never polled (`Runtime.recorded_feeds`). When the looping replay clock goes back to the
   start, the picture starts afresh (every feed due again), with a note and a SYSTEM trace
   line.
@@ -1683,11 +1695,13 @@ Core rules:
   `runtime.replay_case`. Every switch starts a fresh picture, writes a `MODE_SWITCH` audit
   entry and a SYSTEM trace line, and publishes the Wall at once.
 - Auto-replay: with `settings.auto_replay`, after `auto_replay_after_ticks` consecutive LIVE
-  ticks with no active volcano and no exposed flight, switch to REPLAY (`ReplayInfo.auto=True`,
-  audit `MODE_SWITCH`); while auto-replaying, each tick also polls the live SIGMET feed only
-  (through the live `HttpSource` it kept) and switches back to LIVE when a VA SIGMET for a
-  catalogue volcano is valid at wall-clock time (`SystemClock().now()`, not the replay
-  clock). `HttpSource` always stamps `fetched_at` with wall-clock time.
+  ticks with no active volcano inside `settings.region_preset.bbox` and no exposed flight,
+  switch to REPLAY (`ReplayInfo.auto=True`, audit `MODE_SWITCH`); while auto-replaying, each
+  tick also polls the live SIGMET feed only (through the live `HttpSource` it kept) and
+  switches back to LIVE when a VA SIGMET for a catalogue volcano inside the region's bbox is
+  valid at wall-clock time (`SystemClock().now()`, not the replay clock). Activity at a
+  volcano outside the region counts for neither. A REPLAY a person chose (`auto=False`) is
+  never left automatically. `HttpSource` always stamps `fetched_at` with wall-clock time.
 - `wall_snapshot()` builds `WallSnapshot` (section 8.3) from memory. Situation cards: for
   each active volcano, exactly three `SourceCard`s in the order SIGMET, VONA, VAA (the
   latest of each; others listed in `extra_source_ids`; a missing kind gets `missing=True`
@@ -2300,6 +2314,11 @@ route sets its own), and `Strict-Transport-Security: max-age=31536000` over http
 | `GET /api/events` | `text/event-stream` (section 8.4); 503 `too_many_streams` while `TEPHRA_MAX_EVENT_STREAMS` streams are open |
 
 `limit` is 1 to 200 everywhere.
+
+`SystemState.replay` is a `ReplayInfo` (`case_id`, `label`, `recorded_from`, `recorded_to`,
+`banner`, `auto`, `window_from`, `window_to`). `window_from` and `window_to` are null unless
+the replay loops over a configured window (`TEPHRA_REPLAY_START` to `TEPHRA_REPLAY_END`); the
+Wall's timeline then shows `Replay loops 1028Z-1058Z` and its progress through the loop.
 
 ### 8.3 Wall snapshot sections
 

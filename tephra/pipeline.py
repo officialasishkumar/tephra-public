@@ -269,6 +269,8 @@ class Runtime:
     _schedule: tuple[date, Schedule] | None = field(init=False, default=None)
     _live_source: Source | None = field(init=False, default=None)
     _replay_at: datetime | None = field(init=False, default=None)
+    replay_window: tuple[datetime, datetime] | None = field(init=False, default=None)
+    """The looping window the replay clock plays (TEPHRA_REPLAY_START to TEPHRA_REPLAY_END)"""
     _last_checkpoint: float | None = field(init=False, default=None)
     _tasks: set[asyncio.Task[None]] = field(init=False, default_factory=set, repr=False)
     store_health: StoreHealth = field(init=False, default_factory=StoreHealth)
@@ -317,7 +319,7 @@ class Runtime:
             draft_count = len(drafts)
         replay = None
         if self.mode is RunMode.REPLAY and self.replay_case is not None:
-            replay = replay_info(self.replay_case, auto=self.auto_replay)
+            replay = replay_info(self.replay_case, auto=self.auto_replay, window=self.replay_window)
         return SystemState(
             mode=self.mode,
             now=at,
@@ -393,7 +395,8 @@ class Runtime:
 
     async def maybe_switch_mode(self, report: TickReport) -> None:
         """Auto-replay (``TEPHRA_AUTO_REPLAY=1``): enter a labelled REPLAY after enough quiet
-        LIVE ticks; leave it as soon as a live VA SIGMET for a catalogue volcano is valid."""
+        LIVE ticks; leave it as soon as a live VA SIGMET for a catalogue volcano inside the
+        region is valid. A REPLAY a person chose is never left here."""
         if not self.settings.auto_replay:
             return
         if self.mode is RunMode.LIVE and self._quiet_ticks >= self.settings.auto_replay_after_ticks:
@@ -406,7 +409,7 @@ class Runtime:
                 report.notes.append("nothing active: switched to labelled REPLAY")
         elif self.mode is RunMode.REPLAY and self.auto_replay and await self._live_activity():
             await self._switch(RunMode.LIVE)
-            report.notes.append("live VA SIGMET for a catalogue volcano: switched back to LIVE")
+            report.notes.append("live VA SIGMET for a volcano in the region: switched back to LIVE")
         report.mode = self.mode
 
     def follow_replay_clock(self, at: datetime, report: TickReport) -> None:
@@ -680,7 +683,7 @@ class Runtime:
 
     def count_quiet_tick(self) -> None:
         if self.mode is RunMode.LIVE and self.settings.auto_replay:
-            quiet = not self.live.active and not self.exposed
+            quiet = not any(self._in_region(vid) for vid in self.live.active) and not self.exposed
             self._quiet_ticks = self._quiet_ticks + 1 if quiet else 0
 
     async def publish(self) -> None:
@@ -1564,15 +1567,14 @@ class Runtime:
             if playing is not None and playing.case_id == case.case_id:
                 return
             replay_source = ReplaySource(case_path(self.settings.data_dir, case.case_id), case)
-            start_replay_clock(  # raises on a bad case
-                case, speed=self.settings.replay_speed, begin=self.settings.replay_start
-            )
+            window = _start_clock(self.settings, case)  # raises on a bad case or window
             if playing is None:
                 self._live_source = self.source
             else:
                 await self.source.aclose()
             self.source = replay_source
             self.replay_case, self.auto_replay = case, auto
+            self.replay_window = window
         else:
             if playing is None:
                 return
@@ -1581,6 +1583,7 @@ class Runtime:
             self.source = self._live_source or HttpSource.from_settings(self.settings)
             self._live_source = None
             self.replay_case, self.auto_replay = None, False
+            self.replay_window = None
         self.mode = mode
         self._reset_picture()
         case_id = self.replay_case.case_id if self.replay_case is not None else None
@@ -1644,7 +1647,15 @@ class Runtime:
         active = find_active(
             self.catalogue, sigmets=valid, vonas=[], vaas=[], at=wall_clock, settings=self.settings
         )
-        return bool(active)
+        return any(self._in_region(vid) for vid in active)
+
+    def _in_region(self, volcano_id: str) -> bool:
+        """Auto-replay weighs only the deployed region's volcanoes: activity elsewhere in the
+        catalogue neither keeps LIVE from going quiet nor ends a replay."""
+        volcano = self.catalogue.get(volcano_id)
+        return volcano is not None and self.settings.region_preset.bbox.contains(
+            volcano.lat, volcano.lon
+        )
 
     # --- persistence ---------------------------------------------------------------------
 
@@ -1731,7 +1742,7 @@ class Runtime:
             self.trace(
                 TraceStage.SYSTEM,
                 "system",
-                "Live VA SIGMET for a catalogue volcano: the automatic replay from before the "
+                "Live VA SIGMET for a volcano in the region: the automatic replay from before the "
                 "restart is not resumed",
             )
             return
@@ -1780,11 +1791,12 @@ async def create_runtime(settings: Settings) -> Runtime:
     )
     routes = await asyncio.to_thread(load_routes, settings.data_dir)
     replay_case: ReplayCase | None = None
+    window: tuple[datetime, datetime] | None = None
     source: Source
     if settings.mode is RunMode.REPLAY:
         replay_case = select_case(settings.data_dir, settings.replay_case)
         source = ReplaySource(case_path(settings.data_dir, replay_case.case_id), replay_case)
-        start_replay_clock(replay_case, speed=settings.replay_speed, begin=settings.replay_start)
+        window = _start_clock(settings, replay_case)
     else:
         source = HttpSource.from_settings(settings)
     runtime = Runtime(
@@ -1801,9 +1813,27 @@ async def create_runtime(settings: Settings) -> Runtime:
         replay_case=replay_case,
         auto_replay=False,
     )
+    runtime.replay_window = window
     await runtime.restore_replay_choice()
     await runtime.restore()
     return runtime
+
+
+def _start_clock(settings: Settings, case: ReplayCase) -> tuple[datetime, datetime] | None:
+    """Start the replay clock on ``case`` and return the looping window it plays, if any.
+
+    The configured window (TEPHRA_REPLAY_START to TEPHRA_REPLAY_END) belongs to
+    TEPHRA_REPLAY_CASE alone; another case chosen at the Desk plays its whole recording.
+    """
+    if settings.replay_start is None or settings.replay_end is None:
+        start_replay_clock(case, speed=settings.replay_speed, begin=settings.replay_start)
+        return None
+    if case.case_id != settings.replay_case:
+        start_replay_clock(case, speed=settings.replay_speed)
+        return None
+    window = (settings.replay_start, settings.replay_end)
+    start_replay_clock(case, speed=settings.replay_speed, begin=window[0], end=window[1])
+    return window
 
 
 # --- quota and planning rules (pure) ----------------------------------------------------

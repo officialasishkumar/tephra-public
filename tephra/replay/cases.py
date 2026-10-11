@@ -105,7 +105,10 @@ def replay_banner(case: ReplayCase) -> str:
     return REPLAY_BANNER_TEMPLATE.format(date=case.recorded_from.strftime("%d %b %Y"))
 
 
-def replay_info(case: ReplayCase, *, auto: bool) -> ReplayInfo:
+def replay_info(
+    case: ReplayCase, *, auto: bool, window: tuple[datetime, datetime] | None = None
+) -> ReplayInfo:
+    """``window`` is the looping window the clock plays, when one is in use."""
     return ReplayInfo(
         case_id=case.case_id,
         label=case.label,
@@ -113,14 +116,36 @@ def replay_info(case: ReplayCase, *, auto: bool) -> ReplayInfo:
         recorded_to=case.recorded_to,
         banner=replay_banner(case),
         auto=auto,
+        window_from=window[0] if window else None,
+        window_to=window[1] if window else None,
     )
 
 
 def start_replay_clock(
-    case: ReplayCase, *, speed: float, begin: datetime | None = None
+    case: ReplayCase,
+    *,
+    speed: float,
+    begin: datetime | None = None,
+    end: datetime | None = None,
 ) -> timeutil.ReplayClock:
-    """Move every module's ``now()`` to the recording, from ``begin`` or its first fetch."""
-    clock = timeutil.ReplayClock(case.recorded_from, case.recorded_to, speed=speed, begin=begin)
+    """Move every module's ``now()`` to the recording, from ``begin`` or its first fetch.
+
+    With ``end`` the clock loops over ``begin`` to ``end`` instead of the whole recording; a
+    window outside the case is refused, never clamped.
+    """
+    if end is None:
+        clock = timeutil.ReplayClock(case.recorded_from, case.recorded_to, speed=speed, begin=begin)
+    else:
+        if begin is None:
+            raise ValueError("a replay window needs a start as well as an end")
+        start, stop = timeutil.ensure_utc(begin), timeutil.ensure_utc(end)
+        if not case.recorded_from <= start < stop <= case.recorded_to:
+            raise ValueError(
+                f"replay window {timeutil.to_iso(start)} to {timeutil.to_iso(stop)} is not inside "
+                f"case {case.case_id} ({timeutil.to_iso(case.recorded_from)} to "
+                f"{timeutil.to_iso(case.recorded_to)})"
+            )
+        clock = timeutil.ReplayClock(start, stop, speed=speed, loop=True)
     timeutil.set_clock(clock)
     return clock
 

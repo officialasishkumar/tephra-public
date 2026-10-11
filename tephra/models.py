@@ -2024,6 +2024,12 @@ class ReplayInfo(TephraModel):
     recorded_to: UtcDatetime
     banner: str = Field(description="'REPLAY: recorded real feeds from <date>'")
     auto: bool = Field(description="True when switched by TEPHRA_AUTO_REPLAY")
+    window_from: UtcDatetime | None = Field(
+        default=None, description="Start of the looping window (TEPHRA_REPLAY_START), when set"
+    )
+    window_to: UtcDatetime | None = Field(
+        default=None, description="End of the looping window (TEPHRA_REPLAY_END), when set"
+    )
 
 
 class AirlineInfo(TephraModel):

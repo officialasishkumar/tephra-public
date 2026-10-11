@@ -15,7 +15,7 @@ from typing import Any, Literal, Self
 from pydantic import AliasChoices, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from tephra.models import AdsbQueryPoint, BBox, FeedId, Region, RunMode
+from tephra.models import AdsbQueryPoint, BBox, FeedId, Region, RunMode, UtcDatetime
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 """Repository root when running from a checkout (the Docker image keeps that layout)."""
@@ -172,7 +172,16 @@ class Settings(BaseSettings):
     replay_speed: float = Field(default=1.0, gt=0)
     replay_start: datetime | None = Field(
         default=None,
-        description="UTC time to start the replay clock at (clamped into the case window)",
+        description=(
+            "UTC time to start the replay clock at (clamped into the case window); with "
+            "replay_end, the start of the looping window"
+        ),
+    )
+    replay_end: UtcDatetime | None = Field(
+        default=None,
+        description=(
+            "UTC end of a looping replay window; needs TEPHRA_REPLAY_START and TEPHRA_REPLAY_CASE"
+        ),
     )
     auto_replay: bool = False
     auto_replay_after_ticks: int = Field(default=3, ge=1)
@@ -295,11 +304,27 @@ class Settings(BaseSettings):
                     f"TEPHRA_{name.upper()} must be at least {MIN_SECRET_CHARS} characters; "
                     "generate one with secrets.token_urlsafe(32)"
                 )
+        self._check_replay_window()
         if self.store == "firestore" and not (self.gcp_project and self.gcs_bucket):
             raise ValueError(
                 "TEPHRA_STORE=firestore needs TEPHRA_GCP_PROJECT and TEPHRA_GCS_BUCKET"
             )
         return self
+
+    def _check_replay_window(self) -> None:
+        """A window is refused, never clamped: it loops inside one named case, and
+        ``replay.start_replay_clock`` checks that it lies within that case's recording."""
+        if self.replay_end is None:
+            return
+        if self.replay_start is None or not self.replay_case:
+            raise ValueError(
+                "TEPHRA_REPLAY_END needs TEPHRA_REPLAY_START and TEPHRA_REPLAY_CASE: the replay "
+                "loops over that window of that case"
+            )
+        if self.replay_start.tzinfo is None:
+            raise ValueError("TEPHRA_REPLAY_START must carry a UTC offset (e.g. ...Z)")
+        if self.replay_end <= self.replay_start:
+            raise ValueError("TEPHRA_REPLAY_END must be after TEPHRA_REPLAY_START")
 
     @property
     def region_preset(self) -> Region:

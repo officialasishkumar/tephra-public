@@ -768,14 +768,18 @@ export function renderTimeline(D, store, ui, conn) {
   const meta = el("div", { class: "tl__meta" });
   if (s.mode === "REPLAY" && s.replay) {
     const a = ms(s.replay.recorded_from), b = ms(s.replay.recorded_to);
-    const p = Math.max(0, Math.min(1, (D.now - a) / (b - a)));
+    // A looping window (TEPHRA_REPLAY_START to TEPHRA_REPLAY_END) measures progress through the loop.
+    const loop = s.replay.window_from ? `Replay loops ${hhmmz(ms(s.replay.window_from))}-${hhmmz(ms(s.replay.window_to))}` : null;
+    const pa = loop ? ms(s.replay.window_from) : a, pb = loop ? ms(s.replay.window_to) : b;
+    const p = Math.max(0, Math.min(1, (D.now - pa) / (pb - pa)));
     const bar = el("span");
     bar.style.width = `${(p * 100).toFixed(1)}%`;
     meta.append(el("span", { class: "tl__mode" }, icon("i-replay"), "REPLAY"),
       el("span", { class: "tl__window", text: `${dayMon(a)} ${hhmmz(a)} → ${dayMon(b)} ${hhmmz(b)}` }),
-      el("span", { class: "tl__progress", role: "progressbar", "aria-label": "Replay progress", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(p * 100)) }, bar),
-      el("span", { class: "tl__window tl__pct", text: `${Math.round(p * 100)}% through the recording` }),
-      el("span", { class: "tl__phone", text: `REPLAY · ${dayMon(D.now)} ${hhmmz(D.now)} · ${Math.round(p * 100)}%` }));
+      ...(loop ? [el("span", { class: "tl__window tl__loop", text: loop })] : []),
+      el("span", { class: "tl__progress", role: "progressbar", "aria-label": loop ? "Loop progress" : "Replay progress", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(p * 100)) }, bar),
+      el("span", { class: "tl__window tl__pct", text: `${Math.round(p * 100)}% through the ${loop ? "loop" : "recording"}` }),
+      el("span", { class: "tl__phone", text: `REPLAY · ${dayMon(D.now)} ${hhmmz(D.now)} · ${loop ? `${loop} · ` : ""}${Math.round(p * 100)}%` }));
   } else {
     meta.append(el("span", { class: "tl__mode tl__mode--live" }, icon("i-live"), "LIVE"), el("span", { class: "tl__window", text: "Last 9 h and next 3 h" }),
       el("span", { class: "tl__phone", text: `LIVE · ${dayMon(D.now)} ${hhmmz(D.now)}` }));
