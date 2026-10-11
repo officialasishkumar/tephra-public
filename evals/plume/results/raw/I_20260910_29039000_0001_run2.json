@@ -1,0 +1,38 @@
+{
+  "image_finding": "ash_seen",
+  "frames_with_feature": [1, 2, 3],
+  "plume_box_2d": [465, 415, 535, 590],
+  "drift_direction": "E",
+  "top_fl": null,
+  "top_fl_basis": "none",
+  "horizon_h": 0,
+  "confidence": "high",
+  "confidence_reason": "Ash plume clearly visible extending east-northeast from Alaid vent across all three Ash RGB frames, consistent with FL180 wind.",
+  "sources": [
+    {
+      "id": "IMG-1",
+      "used_for": "existence"
+    },
+    {
+      "id": "IMG-2",
+      "used_for": "existence"
+    },
+    {
+      "id": "IMG-3",
+      "used_for": "position"
+    },
+    {
+      "id": "IMG-4",
+      "used_for": "existence"
+    },
+    {
+      "id": "VENT",
+      "used_for": "position"
+    },
+    {
+      "id": "WIND",
+      "used_for": "direction"
+    }
+  ],
+  "disagreements": []
+}

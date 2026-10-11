@@ -164,6 +164,8 @@ IMAGE_FILES = [
 
 # --- model call ---------------------------------------------------------------------------
 
+CALL_TIMEOUT_MS = 120_000
+
 
 class Caller:
     """google-genai with a personal API key only (never Vertex AI, never ADC).
@@ -189,7 +191,12 @@ class Caller:
             self._types.GenerateContentConfig.model_validate(self._config(SYSTEM_ARM_I))
         except ValueError as exc:
             raise SystemExit(f"google-genai cannot express the protocol settings: {exc}") from exc
-        self._client = genai.Client(api_key=key, vertexai=False)
+        # A request that never answers hung a whole run for 17 h; fail it and retry next run.
+        self._client = genai.Client(
+            api_key=key,
+            vertexai=False,
+            http_options=genai.types.HttpOptions(timeout=CALL_TIMEOUT_MS),
+        )
         self.model = model
         self.calls_left = max_calls
         self._pause_s = pause_s
