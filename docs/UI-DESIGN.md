@@ -699,7 +699,7 @@ chip; clock; "Open Desk" link.
   to the region with `--dur-camera`.
 - KPIs: first the hero, "RFA (fictional) flights entering" (`exposed_count` over all volcanoes,
   said in its tooltip; value 32 px, 24 px below 1600 px, over a caps label that may wrap to two
-  lines). It is `--c-tephra-text` amber only when above 0. At 0 it shows "—" in text-3, never
+  lines). It is `--c-tephra-text` amber only when above 0. At 0 it shows "–" in text-3, never
   "0", "none" or "clear", with the tooltip "No RFA (fictional) flight seen entering. Receiver
   coverage is patchy: an empty map is not an empty sky." Then "Active"
   (`active_volcano_ids.length`) and "Drafts" (`draft_count`); value 24 px over a 12 px caps

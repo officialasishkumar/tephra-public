@@ -55,8 +55,9 @@ log = logging.getLogger(__name__)
 
 # The same public NODD bucket is also at https://noaa-himawari9.s3.amazonaws.com/ with the
 # same keys; research/17-data-sources.md L17 read the Google Cloud Storage copy keyless.
-# The GCS XML API takes the same list-type=2&prefix= query; one live listing is to be
-# checked by a person before relying on it.
+# The GCS XML API takes the same list-type=2&prefix= query. Checked live on 2026-10-12:
+# AHI-L1b-FLDK/2026/10/11/0300/ listed 160 objects in one untruncated page, parse_listing
+# read all of them, and a band 13 segment downloaded anonymously (HTTP 200).
 HSD_BUCKET_URL: Final = "https://storage.googleapis.com/noaa-himawari9/"
 FLDK_PREFIX: Final = "AHI-L1b-FLDK"
 SLOT_MINUTES: Final = 10
