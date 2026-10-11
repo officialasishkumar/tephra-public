@@ -43,6 +43,7 @@ from tephra.util import timeutil
 from tephra.util.hashing import sha256_text, short_hash
 
 __all__ = [
+    "JMA_SOURCE_PREFIX",
     "MAX_NOTICE_CHARS",
     "PROMPT_PATH",
     "Check",
@@ -50,6 +51,7 @@ __all__ = [
     "NoticeField",
     "NoticeReading",
     "check_extraction",
+    "jma_reading",
     "normalise_notice",
     "notice_id",
     "parse_notice_time",
@@ -221,6 +223,10 @@ class NoticeReading(TephraModel):
     replay: bool = False
     language: str | None = None
     text: str = Field(description="The notice as read: NFKC-normalised")
+    source_kind: Literal["pasted", "jma_xml"] = Field(
+        default="pasted",
+        description="jma_xml: parsed by code from JMA's XML; no model, verified by construction",
+    )
     status: Literal["verified", "unverified", "ai_unavailable"]
     reason: str | None = Field(
         default=None, description="Why it is not verified, or the AI UNAVAILABLE reason"
@@ -237,6 +243,31 @@ class NoticeReading(TephraModel):
     @property
     def verified(self) -> bool:
         return self.status == "verified"
+
+
+JMA_SOURCE_PREFIX: Final = "JMA-"
+
+
+def jma_reading(vona: Vona, *, replay: bool) -> NoticeReading:
+    """A JMA volcano report from the live picture, listed beside the pasted notices. Code parsed
+    it from JMA's XML, so it is verified by construction; no model read it."""
+    fields = [NoticeField(name="volcano", value=vona.volcano_name, evidence="")]
+    if vona.cloud_top_ft is not None:
+        fields.append(NoticeField(name="cloud_top_ft", value=str(vona.cloud_top_ft), evidence=""))
+    if vona.movement_text:
+        fields.append(NoticeField(name="movement", value=vona.movement_text, evidence=""))
+    return NoticeReading(
+        id=vona.provenance.source_id,
+        sha256=sha256_text(vona.raw_text),
+        created_at=vona.issued_at,
+        replay=replay,
+        language="ja",
+        text=vona.raw_text,
+        source_kind="jma_xml",
+        status="verified",
+        fields=fields,
+        vona=vona,
+    )
 
 
 # --- the call ---------------------------------------------------------------------------

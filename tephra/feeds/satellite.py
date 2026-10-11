@@ -10,10 +10,16 @@ Two public sources, both images rather than data:
   "not allowed for commercial uses"; TEPHRA is a non-commercial demo.
 
 Neither publishes its georeference. The crops below use projections inferred from the
-burned-in graticule and coastlines (JMA) or the standard 2 km full-disk grid (NICT), which
-is close enough to centre a crop but not to overlay it on the map. Every frame therefore
-has ``bbox=None`` and the Wall shows it in a side strip. Frames are context only and are
-never used to draw the cone.
+burned-in graticule and coastlines (JMA) or the standard 2 km full-disk grid (NICT).
+
+Only the JMA ``se3`` area is a plain equirectangular grid (0.05 deg/px). Its inferred origin
+was checked against TEPHRA's own coastline file (``web/data/land_apac.geojson``) and the
+fixture image: the coastlines line up within about one pixel (0.05 deg, 5 km) and the best
+fit is within half a pixel of the stated origin. A crop of such an image is itself an
+equirectangular grid, so its frame carries a ``bbox`` that is exact to that tolerance. The
+Mercator ``jpn`` area and NICT's geostationary tiles have no lat/lon rectangle, so their
+frames keep ``bbox=None`` and the Wall shows them in a side strip; nothing is guessed.
+Frames are context only and are never used to draw the cone.
 
 The registry asks for frames one volcano at a time, while every volcano in one JMA area
 shares the slot list and the two JPEGs, and neighbours share NICT tiles. Each source's
@@ -36,7 +42,15 @@ from PIL import Image
 
 from tephra.feeds.base import FetchError, FetchResult, Source, build_url
 from tephra.geo.units import destination_point, solar_hour
-from tephra.models import FeedId, FrameProduct, Provenance, SatelliteFrame, Volcano, make_source_id
+from tephra.models import (
+    BBox,
+    FeedId,
+    FrameProduct,
+    Provenance,
+    SatelliteFrame,
+    Volcano,
+    make_source_id,
+)
 from tephra.util import timeutil
 from tephra.util.hashing import combine_hashes
 
@@ -171,6 +185,19 @@ class JmaArea:
     def covers(self, lat: float, lon: float) -> bool:
         x, y = self.projection.to_pixel(lat, lon)
         return 0 <= x < self.width_px and 0 <= y < self.height_px
+
+    def crop_bbox(self, box: tuple[int, int, int, int]) -> BBox | None:
+        """Lat/lon rectangle of a pixel crop; None unless the grid is equirectangular."""
+        grid = self.projection
+        if not isinstance(grid, PlateCarree):
+            return None
+        left, top, right, bottom = box
+        return BBox(
+            west=grid.west_deg + left * grid.deg_per_px,
+            east=grid.west_deg + right * grid.deg_per_px,
+            north=grid.north_deg - top * grid.deg_per_px,
+            south=grid.north_deg - bottom * grid.deg_per_px,
+        )
 
 
 JMA_AREAS: Final[tuple[JmaArea, ...]] = (
@@ -320,7 +347,8 @@ async def _jma_frames(
             f"{JMA_CREDIT.format(area=area.name)}; {FRAME_CAPTION_SUFFIX}"
         )
         provenance = result.provenance(_source_id(product, volcano, slot), issued_at=slot)
-        frames.append((_frame(product, volcano, slot, provenance, size, caption), png))
+        frame = _frame(product, volcano, slot, provenance, size, caption, area.crop_bbox(box))
+        frames.append((frame, png))
     return frames, failures
 
 
@@ -528,6 +556,7 @@ def _frame(
     provenance: Provenance,
     size: tuple[int, int],
     caption: str,
+    bbox: BBox | None = None,
 ) -> SatelliteFrame:
     return SatelliteFrame(
         provenance=provenance,
@@ -537,7 +566,7 @@ def _frame(
         image_key=frame_key(volcano.id, product, observed_at),
         width_px=size[0],
         height_px=size[1],
-        bbox=None,
+        bbox=bbox,
         caption=caption,
     )
 

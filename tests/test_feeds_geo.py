@@ -714,7 +714,6 @@ async def test_fetch_frames_at_night_returns_jma_crops_only(volcanoes: VolcanoCa
     slot = datetime(2026, 10, 9, 19, 0, tzinfo=UTC)
     for frame, png in frames:
         assert frame.observed_at == slot
-        assert frame.bbox is None
         assert frame.volcano_id == "263300"
         assert frame.image_key == frame_key("263300", frame.product, slot)
         assert frame.provenance.source_id == f"FRAME:{frame.product.value}:263300:20261009T1900Z"
@@ -724,6 +723,18 @@ async def test_fetch_frames_at_night_returns_jma_crops_only(volcanoes: VolcanoCa
             assert image.format == "PNG"
             assert image.size == (frame.width_px, frame.height_px)
         assert 100 <= frame.width_px <= 130  # 600 km at 0.05 deg/px
+        # se3 is an equirectangular 0.05 deg grid: the crop's rectangle is exact, and it is
+        # the same square of ground as the pixels (pixel size * 0.05 deg).
+        assert frame.bbox is not None
+        assert frame.bbox.east - frame.bbox.west == pytest.approx(frame.width_px * 0.05)
+        assert frame.bbox.north - frame.bbox.south == pytest.approx(frame.height_px * 0.05)
+        assert frame.bbox.contains(semeru.lat, semeru.lon)
+        x = (semeru.lon - frame.bbox.west) / 0.05
+        y = (frame.bbox.north - semeru.lat) / 0.05
+        assert 0 < x < frame.width_px
+        assert 0 < y < frame.height_px
+        assert abs(x - frame.width_px / 2) < 3  # the crop is centred on the vent
+        assert abs(y - frame.height_px / 2) < 3
     assert not any("/D531106/" in call and call.endswith(".png") for call in source.calls)
 
 
@@ -738,6 +749,17 @@ async def test_fetch_frames_skips_jma_when_the_slot_list_is_stale(
     with pytest.raises(FetchError, match="slot list served from cache"):
         await fetch_frames(source, semeru)
     assert not any(call.endswith(".jpg") for call in source.calls)
+
+
+def test_only_the_equirectangular_jma_area_can_name_a_bbox() -> None:
+    se3, jpn = JMA_AREAS
+    assert (se3.code, jpn.code) == ("se3", "jpn")
+    box = (400, 300, 520, 420)
+    bbox = se3.crop_bbox(box)
+    assert bbox is not None
+    assert (bbox.west, bbox.east) == pytest.approx((110.0, 116.0))
+    assert (bbox.north, bbox.south) == pytest.approx((-5.0, -11.0))
+    assert jpn.crop_bbox(box) is None  # Mercator: no lat/lon rectangle, so nothing is guessed
 
 
 def _nict_day_source(tile: Path) -> FakeSource:

@@ -65,6 +65,7 @@ from tephra.recovery.models import (
     RecoveryScenario,
     SolveStatus,
 )
+from tephra.regdocs.models import DocKind, DocStatus, DocSummary
 from tephra.store import open_store
 from tephra.store.base import Collection, Store
 from tephra.util import timeutil
@@ -217,6 +218,7 @@ def recovery_plan(*, approved: bool = True) -> RecoveryInput:
         changes=[
             RecoveryChange(
                 flight_no="RFA101",
+                flight_key="RFA101/12OCT",
                 origin_icao="WIII",
                 dest_icao="WARR",
                 std=at(3),
@@ -226,6 +228,7 @@ def recovery_plan(*, approved: bool = True) -> RecoveryInput:
             ),
             RecoveryChange(
                 flight_no="RFA102",
+                flight_key="RFA102/12OCT",
                 origin_icao="WARR",
                 dest_icao="WIII",
                 std=at(6),
@@ -234,6 +237,7 @@ def recovery_plan(*, approved: bool = True) -> RecoveryInput:
             ),
             RecoveryChange(
                 flight_no="RFA103",
+                flight_key="RFA103/12OCT",
                 origin_icao="WADD",
                 dest_icao="WIII",
                 std=at(5),
@@ -243,6 +247,7 @@ def recovery_plan(*, approved: bool = True) -> RecoveryInput:
             ),
             RecoveryChange(
                 flight_no="RFA201",
+                flight_key="RFA201/12OCT",
                 origin_icao="RJFK",
                 dest_icao="RJFF",
                 std=at(5),
@@ -278,6 +283,8 @@ def plan_doc(
     actions = [
         FlightAction(
             flight_no=c.flight_no,
+            flight_key=c.flight_key,
+            service_date=c.std.date(),
             origin=c.origin_icao,
             dest=c.dest_icao,
             std=c.std,
@@ -291,6 +298,8 @@ def plan_doc(
     ]
     keep = FlightAction(
         flight_no="RFA999",
+        flight_key="RFA999/12OCT",
+        service_date=AT.date(),
         origin="WIII",
         dest="WARR",
         std=AT,
@@ -508,7 +517,11 @@ async def test_a_recovery_plan_gives_passenger_and_crew_drafts(store: Store) -> 
     drafted = await messages.draft_messages(runtime, recovery_id=RECOVERY_ID, actor=ACTOR)
 
     by_flight = {m.flight_no: m for m in drafted if m.kind is MessageKind.PASSENGER_NOTICE}
-    assert set(by_flight) == {"RFA101", "RFA102", "RFA201"}  # the swap has no passenger notice
+    assert set(by_flight) == {
+        "RFA101/12OCT",
+        "RFA102/12OCT",
+        "RFA201/12OCT",
+    }  # the swap has no passenger notice
     tails = {m.tail for m in drafted if m.kind is MessageKind.CREW_NOTICE}
     assert tails == {"PK-RFA1", "PK-RFA2", "PK-RFA3", "PK-RFA4"}
     assert all(m.status is MessageStatus.DRAFT and m.version == 1 for m in drafted)
@@ -529,8 +542,8 @@ def test_a_delay_shorter_than_the_policy_minimum_gets_no_passenger_notice() -> N
         }
     )
     flights = {t.flight_no for t in messages.passenger_targets(plan, AIRPORTS, POLICY)}
-    assert "RFA101" not in flights  # the delay is one minute under the minimum
-    assert "RFA102" in flights  # a cancellation always gets a notice
+    assert "RFA101/12OCT" not in flights  # the delay is one minute under the minimum
+    assert "RFA102/12OCT" in flights  # a cancellation always gets a notice
 
     at_minimum = plan.model_copy(
         update={
@@ -540,7 +553,7 @@ def test_a_delay_shorter_than_the_policy_minimum_gets_no_passenger_notice() -> N
             ]
         }
     )
-    assert "RFA101" in {
+    assert "RFA101/12OCT" in {
         t.flight_no for t in messages.passenger_targets(at_minimum, AIRPORTS, POLICY)
     }
 
@@ -555,7 +568,7 @@ def test_a_delay_shorter_than_the_policy_minimum_gets_no_passenger_notice() -> N
             )
         }
     )
-    assert "RFA101" not in {
+    assert "RFA101/12OCT" not in {
         t.flight_no for t in messages.passenger_targets(plan, AIRPORTS, stricter)
     }
 
@@ -565,7 +578,7 @@ async def test_a_delay_notice_is_filled_by_code_in_both_languages(store: Store) 
     drafted = await messages.draft_messages(
         await runtime_for(store), recovery_id=RECOVERY_ID, actor=ACTOR
     )
-    delay = next(m for m in drafted if m.flight_no == "RFA101")
+    delay = next(m for m in drafted if m.flight_no == "RFA101/12OCT")
     assert [text.language for text in delay.texts] == ["id", "en"]
     for language in ("id", "en"):
         body = body_of(delay, language)
@@ -587,7 +600,7 @@ async def test_a_cancellation_names_the_closure_end_as_the_next_update(store: St
     drafted = await messages.draft_messages(
         await runtime_for(store), recovery_id=RECOVERY_ID, actor=ACTOR
     )
-    cancelled = next(m for m in drafted if m.flight_no == "RFA102")
+    cancelled = next(m for m in drafted if m.flight_no == "RFA102/12OCT")
     assert "2026-10-12 15:00 WIB" in body_of(cancelled, "en")  # the closure ends 08:00Z
     assert "cancelled" in body_of(cancelled, "en")
     assert "dibatalkan" in body_of(cancelled, "id")
@@ -598,7 +611,7 @@ async def test_a_japanese_route_gets_japanese_and_english(store: Store) -> None:
     drafted = await messages.draft_messages(
         await runtime_for(store), recovery_id=RECOVERY_ID, actor=ACTOR
     )
-    japan = next(m for m in drafted if m.flight_no == "RFA201")
+    japan = next(m for m in drafted if m.flight_no == "RFA201/12OCT")
     assert [text.language for text in japan.texts] == ["ja", "en"]
     assert "欠航" in body_of(japan, "ja")
     assert "2026-10-12 19:00 JST" in body_of(japan, "ja")  # the closure ends 10:00Z
@@ -686,7 +699,7 @@ async def test_only_the_changed_flights_get_messages(store: Store) -> None:
     drafted = await messages.draft_messages(
         await runtime_for(store), recovery_id=RECOVERY_ID, actor=ACTOR
     )
-    assert "RFA999" not in {m.flight_no for m in drafted}  # a KEEP flight
+    assert "RFA999/12OCT" not in {m.flight_no for m in drafted}  # a KEEP flight
 
 
 async def test_an_open_ended_closure_gives_no_invented_end_or_update_time(store: Store) -> None:
@@ -696,7 +709,7 @@ async def test_an_open_ended_closure_gives_no_invented_end_or_update_time(store:
     drafted = await messages.draft_messages(
         await runtime_for(store), recovery_id=RECOVERY_ID, actor=ACTOR
     )
-    cancelled = next(m for m in drafted if m.flight_no == "RFA102")
+    cancelled = next(m for m in drafted if m.flight_no == "RFA102/12OCT")
     body = body_of(cancelled, "en")
     assert "end not yet published" in body
     assert "Next update by the time the end of the closure is published" in body
@@ -806,7 +819,7 @@ async def draft_one(store: Store) -> tuple[FakeRuntime, CrewPaxMessage]:
     await seed_recovery(store)
     runtime = await runtime_for(store)
     drafted = await messages.draft_messages(runtime, recovery_id=RECOVERY_ID, actor=ACTOR)
-    return runtime, next(m for m in drafted if m.flight_no == "RFA101")
+    return runtime, next(m for m in drafted if m.flight_no == "RFA101/12OCT")
 
 
 async def test_approval_queues_the_message_on_the_outbound_collection(store: Store) -> None:
@@ -821,7 +834,7 @@ async def test_approval_queues_the_message_on_the_outbound_collection(store: Sto
     assert doc["destination"] == "tephra-outbound"
     assert doc["advisory_id"] == draft.id
     assert doc["status"] == "APPROVED"
-    assert doc["proxy_flight"] == "RFA101"
+    assert doc["proxy_flight"] == "RFA101/12OCT"
     assert "[ID]" in doc["text"]
     assert "[EN]" in doc["text"]
     assert "NOT FOR OPERATIONAL USE" in doc["text"]
@@ -1277,6 +1290,7 @@ def test_the_comms_routes_need_a_desk_session(settings: Settings) -> None:
         post = client.post("/api/desk/messages/draft", json={"recovery_id": RECOVERY_ID})
         assert post.status_code == 401
         assert client.get("/api/desk/handover/ho_000000000000").status_code == 401
+        assert client.get("/api/desk/handovers").status_code == 401
 
 
 def test_drafting_listing_and_approving_over_http(settings: Settings) -> None:
@@ -1288,7 +1302,7 @@ def test_drafting_listing_and_approving_over_http(settings: Settings) -> None:
         assert len(items) == 7
         listed = client.get("/api/desk/messages")
         assert {m["id"] for m in listed.json()["messages"]} == {m["id"] for m in items}
-        target = next(m for m in items if m["flight_no"] == "RFA101")
+        target = next(m for m in items if m["flight_no"] == "RFA101/12OCT")
         assert target["status"] == "DRAFT"
         assert target["final_bodies"]["en"].startswith("Flight RFA101")
 
@@ -1405,6 +1419,17 @@ def test_the_handover_flow_over_http(settings: Settings) -> None:
         forged = client.post(f"/api/desk/handover/{brief['id']}/ack")
         assert forged.status_code == 403
 
+        with timeutil.use_clock(FixedClock(AT + timedelta(minutes=5))):
+            later = client.post(
+                "/api/desk/handover", json={"since": since, "incoming": "Cy M"}
+            ).json()
+        listed = client.get("/api/desk/handovers").json()["handovers"]
+        assert [b["id"] for b in listed] == [later["id"], brief["id"]]  # latest first
+        assert listed[1]["receiver_ack"]["read_back_by"] == f"desk:{DISPATCHER}"
+        assert [b["id"] for b in client.get("/api/desk/handovers?limit=1").json()["handovers"]] == [
+            later["id"]
+        ]
+
 
 def test_a_handover_the_model_cannot_write_is_a_503(settings: Settings) -> None:
     since = timeutil.to_iso(AT - timedelta(hours=8))
@@ -1413,3 +1438,26 @@ def test_a_handover_the_model_cannot_write_is_a_503(settings: Settings) -> None:
         response = client.post("/api/desk/handover", json={"since": since, "incoming": "Bo L"})
         assert response.status_code == 503
         assert response.json()["error"] == "ai_unavailable"
+
+
+async def test_the_doc_event_of_a_brief_is_a_doc_summary(store: Store) -> None:
+    await seed_shift(store)
+    runtime = await runtime_for(store)
+    async with runtime.bus.subscribe() as events:
+        brief = await handover.draft_handover(runtime, SINCE, "Ana K", "Bo L")
+        drafted = await events.get(0.1)
+        acked = await handover.acknowledge(runtime, brief.id, actor="desk:Bo L")
+        read_back = await events.get(0.1)
+    assert drafted is not None
+    assert read_back is not None
+    summary = DocSummary.model_validate(drafted.data)
+    assert (summary.id, summary.kind, summary.status) == (
+        brief.id,
+        DocKind.HANDOVER,
+        DocStatus.DRAFT,
+    )
+    assert summary.title == "Handover brief: Ana K to Bo L"
+    assert summary.created_at == brief.created_at
+    assert "situation" not in drafted.data  # the summary never carries the document
+    assert DocSummary.model_validate(read_back.data).status is DocStatus.ACKNOWLEDGED
+    assert acked.receiver_ack.read_back_by == "desk:Bo L"

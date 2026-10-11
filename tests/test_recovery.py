@@ -5,6 +5,7 @@ The demo instance is the 5-7 Sep 2026 Anak Krakatau closure of CGK and HLP (NOTA
 to 11:00Z on 7 Sep). No network, no real model.
 """
 
+import asyncio
 import importlib.util
 import json
 import time
@@ -61,6 +62,7 @@ from tephra.recovery.models import (
     RfaCrew,
     RfaFlight,
     RfaTail,
+    RfaTemplateFlight,
     Schedule,
     ScheduleHeader,
     SolveStatus,
@@ -117,7 +119,8 @@ def demo(schedule: Schedule) -> dict[int, RecoveryScenario]:
             airports=AIRPORTS,
             extend_min=extend,
         )
-        assert time.perf_counter() - started < 2.0, f"+{extend} min took too long"
+        took_s = time.perf_counter() - started
+        assert took_s < RULES.solve_time_limit_s.value, f"+{extend} min took too long"
     return scenarios
 
 
@@ -126,7 +129,8 @@ def demo(schedule: Schedule) -> dict[int, RecoveryScenario]:
 
 def test_the_schedule_is_a_labelled_synthetic_day(schedule: Schedule) -> None:
     assert len(schedule.tails) == 30
-    assert 120 <= len(schedule.flights) <= 150
+    assert len(schedule.flights) == 2 * 142
+    assert {f.day_offset for f in schedule.flights} == {0, 1}
     assert "fictional" in schedule.header.label
     assert {t.home_base for t in schedule.tails} == {"WIII", "WARR", "WADD", "WAAA", "WIMM"}
     assert all(f.origin in AIRPORTS and f.dest in AIRPORTS for f in schedule.flights)
@@ -138,6 +142,23 @@ def test_the_schedule_follows_the_clock_s_local_day(schedule: Schedule) -> None:
     late = load_schedule(DATA, datetime(2026, 9, 7, 18, 0, tzinfo=UTC))  # 01:00 WIB on 8 Sep
     assert late.day.isoformat() == "2026-09-08"
     assert [f.flight_no for f in late.flights] == [f.flight_no for f in schedule.flights]
+    assert late.flights[0].key == "RFA101/08SEP"
+    assert late.flights[-1].service_date.isoformat() == "2026-09-09"
+
+
+def test_the_window_holds_two_days_under_unique_keys(schedule: Schedule) -> None:
+    keys = [f.key for f in schedule.flights]
+    assert len(set(keys)) == len(keys) == 284
+    today = {f.flight_no: f for f in schedule.flights if f.day_offset == 0}
+    tomorrow = {f.flight_no: f for f in schedule.flights if f.day_offset == 1}
+    assert today.keys() == tomorrow.keys()
+    assert "RFA101/07SEP" in keys
+    assert "RFA101/08SEP" in keys
+    for number, first in today.items():
+        second = tomorrow[number]
+        assert second.std_min == first.std_min + 1440
+        assert schedule.at(second.std_min) - schedule.at(first.std_min) == timedelta(days=1)
+        assert (second.origin, second.dest, second.tail) == (first.origin, first.dest, first.tail)
 
 
 def test_the_build_script_reproduces_the_committed_files(schedule: Schedule) -> None:
@@ -151,7 +172,12 @@ def test_the_build_script_reproduces_the_committed_files(schedule: Schedule) -> 
     tails, crews, flights = script.build({a.icao: a for a in CATALOGUE.all()})
     assert tails == schedule.tails
     assert crews == schedule.crews
-    assert sorted(flights, key=lambda f: (f.std_min, f.flight_no)) == schedule.flights
+    today = [f for f in schedule.flights if f.day_offset == 0]
+    template = [
+        RfaTemplateFlight(**f.model_dump(exclude={"service_date", "day_offset", "key"}))
+        for f in today
+    ]
+    assert sorted(flights, key=lambda f: (f.std_min, f.flight_no)) == template
 
 
 def test_every_excursion_is_a_real_route(schedule: Schedule) -> None:
@@ -317,6 +343,42 @@ def test_overlapping_closures_of_one_airport_merge() -> None:
     assert merged[0].reason == "A; B"
 
 
+def test_a_closure_has_a_short_code_written_summary_beside_its_full_reason() -> None:
+    jakarta = AIRPORTS[CGK]
+    ring = [(jakarta.lat - 0.1, jakarta.lon - 0.1), (jakarta.lat - 0.1, jakarta.lon + 0.1)]
+    ring += [(jakarta.lat + 0.1, jakarta.lon + 0.1)]
+    layers = [
+        OfficialLayer(
+            source_id=f"{kind}:WIII:{n}",
+            kind=kind,  # type: ignore[arg-type]
+            layer="SIGMET" if kind == "SIGMET" else "OBS",
+            label=f"{kind} WIII {n}",
+            polygon=cast(GeoPolygon, polygon_from_latlon(ring)),
+            base_ft=0,
+            top_ft=top,
+            valid_from=NOW + timedelta(hours=1),
+            valid_to=NOW + timedelta(hours=4),
+        )
+        for n, (kind, top) in enumerate((("SIGMET", 20_000), ("VAA", 30_000), ("SIGMET", 10_000)))
+    ]
+    (closure,) = closures_for([jakarta], layers=layers)
+    assert closure.summary == "Ash SFC/FL300 within 20 NM · 3 official products"
+    assert closure.reason.count("NEAR WIII") == 3  # the full reason is kept for audit
+    assert len(closure.source_ids) == 3
+    assert closure.model_dump(mode="json")["summary"] == closure.summary  # served by the API
+
+    cone = make_cone(jakarta.lat, jakarta.lon)
+    (by_cone,) = closures_for([jakarta], [cone])
+    assert by_cone.summary == "Ash SFC/FL400 within 20 NM · 1 official product"
+    entered = Closure(
+        icao=CGK, start=NOW, end=NOW + timedelta(hours=1), reason="X", basis=["ENTERED"]
+    )
+    assert entered.summary == "Entered by dispatcher"
+    metar = merge_closures([entered, entered.model_copy(update={"basis": ["METAR"]})])[0]
+    assert metar.summary == "METAR reports VA · Entered by dispatcher"
+    assert metar.basis == ["ENTERED", "METAR"]
+
+
 # --- the solver ---------------------------------------------------------------------------------
 
 
@@ -344,13 +406,13 @@ def check_plan(schedule: Schedule, scenario: RecoveryScenario, now: datetime = N
     def closed(icao: str, minute: float) -> bool:
         return any(start <= minute < end for start, end in windows[icao])
 
-    actions = {a.flight_no: a for a in scenario.actions}
+    actions = {a.flight_key: a for a in scenario.actions}
     seats = {t.tail: t.seats for t in schedule.tails}
     reports = {c.crew_id: c.report_min for c in schedule.crews}
     limit = {t.tail: reports[t.crew_id] + RULES.max_fdp_min.value for t in schedule.tails}
     chains: dict[str, list[Leg]] = defaultdict(list)
     for flight in schedule.flights:
-        action = actions.get(flight.flight_no)
+        action = actions.get(flight.key)
         if action is not None:
             assert flight.std_min >= now_min, "a flight that had left was changed"
             assert action.tail == flight.tail
@@ -365,9 +427,9 @@ def check_plan(schedule: Schedule, scenario: RecoveryScenario, now: datetime = N
         if flight.std_min >= now_min:
             assert not closed(flight.origin, std)
             assert not closed(flight.dest, std + flight.block_min)
-            assert std + flight.block_min <= limit[tail]
+            assert std + flight.block_min <= limit[tail] + 1440 * flight.day_offset
         chains[tail].append(
-            Leg(flight.flight_no, tail, flight.origin, flight.dest, std, flight.block_min)
+            Leg(flight.key, tail, flight.origin, flight.dest, std, flight.block_min)
         )
     ferries: dict[str, list[Any]] = defaultdict(list)
     for leg in scenario.ferry_legs:
@@ -390,25 +452,29 @@ def check_plan(schedule: Schedule, scenario: RecoveryScenario, now: datetime = N
                 ready = schedule.minutes_of(hop.arr) + turn
             assert leg.std >= ready, f"{tail}: {leg.flight_no} leaves before the aircraft is ready"
             position, ready = leg.dest, leg.std + leg.block + turn
-    by_pair: dict[str, set[bool]] = defaultdict(set)
+    by_pair: dict[tuple[str | None, Any], set[bool]] = defaultdict(set)
     for flight in schedule.flights:
-        if flight.pair_id is not None and flight.flight_no in actions:
-            by_pair[flight.pair_id].add(actions[flight.flight_no].kind is RecoveryActionKind.CANCEL)
+        if flight.pair_id is not None and flight.key in actions:
+            by_pair[(flight.pair_id, flight.service_date)].add(
+                actions[flight.key].kind is RecoveryActionKind.CANCEL
+            )
     cancelled_pairs = {
         pair
         for pair in by_pair
         if all(
-            flight.flight_no in actions
-            and actions[flight.flight_no].kind is RecoveryActionKind.CANCEL
+            flight.key in actions and actions[flight.key].kind is RecoveryActionKind.CANCEL
             for flight in schedule.flights
-            if flight.pair_id == pair
+            if (flight.pair_id, flight.service_date) == pair
         )
     }
     for pair in by_pair:
-        members = [f for f in schedule.flights if f.pair_id == pair and f.std_min >= now_min]
+        members = [
+            f
+            for f in schedule.flights
+            if (f.pair_id, f.service_date) == pair and f.std_min >= now_min
+        ]
         statuses = {
-            f.flight_no in actions and actions[f.flight_no].kind is RecoveryActionKind.CANCEL
-            for f in members
+            f.key in actions and actions[f.key].kind is RecoveryActionKind.CANCEL for f in members
         }
         assert len(statuses) == 1 or not cancelled_pairs, f"{pair} is cancelled in part"
 
@@ -418,7 +484,7 @@ def test_the_demo_instance_solves_each_scenario_in_under_two_seconds(
 ) -> None:
     for scenario in demo.values():
         assert scenario.status in (SolveStatus.OPTIMAL, SolveStatus.FEASIBLE)
-        assert scenario.solve_ms < 2000
+        assert scenario.solve_ms < RULES.solve_time_limit_s.value * 1000
 
 
 def test_every_demo_plan_obeys_the_rules(
@@ -451,7 +517,7 @@ def test_totals_add_up_from_the_actions(demo: dict[int, RecoveryScenario]) -> No
             totals.delay_usd + totals.cancel_usd + totals.swap_usd + totals.ferry_usd
         )
         assert (
-            totals.kept_flights + len({a.flight_no for a in scenario.actions})
+            totals.kept_flights + len({a.flight_key for a in scenario.actions})
             == totals.free_flights
         )
 
@@ -464,7 +530,7 @@ def test_flights_blocked_by_the_closure_are_not_flown_into_it(
     assert found.airborne_at_risk
     assert found.frozen_flights + found.free_flights <= len(schedule.flights)
     plan = demo[0]
-    changed = {a.flight_no for a in plan.actions}
+    changed = {a.flight_key for a in plan.actions}
     assert set(found.blocked_flights) <= changed
 
 
@@ -472,40 +538,121 @@ def test_a_flight_that_has_left_or_is_about_to_is_never_moved(
     schedule: Schedule, demo: dict[int, RecoveryScenario]
 ) -> None:
     edge = schedule.minutes_of(NOW) + RULES.freeze_window_min.value
-    moved = {a.flight_no for s in demo.values() for a in s.actions}
-    free_start = {f.flight_no for f in schedule.flights if f.std_min >= schedule.minutes_of(NOW)}
+    moved = {a.flight_key for s in demo.values() for a in s.actions}
+    free_start = {f.key for f in schedule.flights if f.std_min >= schedule.minutes_of(NOW)}
     assert moved <= free_start
     stable = {
-        f.flight_no
+        f.key
         for f in schedule.flights
         if f.std_min < edge and not (f.origin in (CGK, HLP) or f.dest in (CGK, HLP))
     }
     assert not stable & moved
 
 
+def test_the_same_disruption_gives_the_same_plan_every_run(
+    schedule: Schedule, demo: dict[int, RecoveryScenario]
+) -> None:
+    """A deterministic search limit: the dispatcher, the replay and the video see one plan."""
+    again = solve_recovery(schedule, notam_closures(), now=NOW, policy=POLICY, airports=AIRPORTS)
+    first = demo[0]
+    assert again.totals == first.totals
+    assert [(a.flight_key, a.kind, a.delay_min) for a in again.actions] == [
+        (a.flight_key, a.kind, a.delay_min) for a in first.actions
+    ]
+
+
 def test_protecting_a_flight_keeps_it_flying(
     schedule: Schedule, demo: dict[int, RecoveryScenario]
 ) -> None:
-    # The latest cancelled departure from CGK can still wait for the reopening.
-    cancelled = max(
+    # The latest cancelled CGK departure that can still wait for the reopening: a later one
+    # fails on its crew's duty limit, and the solver says so (next test).
+    candidates = sorted(
         (a for a in demo[0].actions if a.kind is RecoveryActionKind.CANCEL and a.origin == CGK),
         key=lambda a: a.std,
+        reverse=True,
     )
+    for cancelled in candidates:
+        scenario = solve_recovery(
+            schedule,
+            notam_closures(),
+            now=NOW,
+            policy=POLICY,
+            airports=AIRPORTS,
+            protect_flights=[cancelled.flight_key],
+        )
+        if scenario.status is not SolveStatus.NO_PLAN:
+            break
+    else:
+        pytest.fail("no cancelled CGK departure can be protected")
+    kept = {a.flight_key: a for a in scenario.actions}.get(cancelled.flight_key)
+    assert kept is None or kept.kind is not RecoveryActionKind.CANCEL
+    check_plan(schedule, scenario)
+    assert scenario.totals is not None
+    assert demo[0].totals is not None
+    assert scenario.totals.total_usd >= demo[0].totals.total_usd
+
+
+def test_protecting_a_flight_the_crew_cannot_legally_fly_makes_no_plan(
+    schedule: Schedule,
+) -> None:
+    """RFA231 leaves CGK at 16:00 local, before the reopening. Its excursion partner RFA192 would
+    have to wait for the reopening too, and the pair would end after the crew's duty limit; the
+    solver says so and nothing is substituted."""
     scenario = solve_recovery(
         schedule,
         notam_closures(),
         now=NOW,
         policy=POLICY,
         airports=AIRPORTS,
-        protect_flights=[cancelled.flight_no],
+        protect_flights=["RFA231/07SEP"],
     )
-    assert scenario.status is not SolveStatus.NO_PLAN
-    kept = {a.flight_no: a for a in scenario.actions}.get(cancelled.flight_no)
-    assert kept is None or kept.kind is not RecoveryActionKind.CANCEL
-    check_plan(schedule, scenario)
+    assert scenario.status is SolveStatus.NO_PLAN
+    assert scenario.solver_status == "INFEASIBLE"
+
+
+KRAKATAU_NOW = datetime(2026, 9, 5, 10, 30, tzinfo=UTC)  # 17:30 WIB, the day is nearly over
+
+
+def krakatau_closures() -> list[Closure]:
+    """CGK closed from 05 SEP 10:10Z to 06 SEP 07:10Z, as in the Anak Krakatau replay."""
+    return [
+        Closure(
+            icao=CGK,
+            start=datetime(2026, 9, 5, 10, 10, tzinfo=UTC),
+            end=datetime(2026, 9, 6, 7, 10, tzinfo=UTC),
+            reason="TEST CLOSURE",
+            source_ids=["TEST"],
+        )
+    ]
+
+
+def test_a_late_evening_closure_still_has_a_whole_day_to_re_plan() -> None:
+    """With one day anchored to the clock's date only 3 flights were free and 139 frozen; the
+    window holds the next day, so the recovery is the real size of the disruption."""
+    late = load_schedule(DATA, KRAKATAU_NOW)
+    assert late.day.isoformat() == "2026-09-05"
+    found = describe_disruption(late, krakatau_closures(), now=KRAKATAU_NOW, policy=POLICY)
+    assert found.free_flights >= 100
+    assert len(found.blocked_flights) >= 24
+    assert {key.split("/")[1] for key in found.blocked_flights} == {"05SEP", "06SEP"}
+    scenario = solve_recovery(
+        late,
+        krakatau_closures(),
+        now=KRAKATAU_NOW,
+        policy=POLICY,
+        airports=AIRPORTS,
+    )
+    assert scenario.status in (SolveStatus.OPTIMAL, SolveStatus.FEASIBLE)
+    assert scenario.solve_ms <= RULES.solve_time_limit_s.value * 1000
     assert scenario.totals is not None
-    assert demo[0].totals is not None
-    assert scenario.totals.total_usd >= demo[0].totals.total_usd
+    assert scenario.totals.free_flights == found.free_flights
+    assert scenario.totals.cancelled_flights + scenario.totals.delayed_flights >= 24
+    keys = [a.flight_key for a in scenario.actions]
+    assert len(set(keys)) == len(keys)
+    assert all(
+        a.flight_key == f"{a.flight_no}/{a.service_date:%d%b}".upper() for a in scenario.actions
+    )
+    check_plan(late, scenario, now=KRAKATAU_NOW)
 
 
 def test_a_flight_that_cannot_fly_inside_the_delay_limit_makes_no_plan(schedule: Schedule) -> None:
@@ -577,6 +724,8 @@ def tiny_schedule(*, idle_aircraft_at_sub: bool) -> Schedule:
             origin=origin,
             dest=dest,
             std_min=std,
+            service_date=NOW.date(),
+            day_offset=0,
             block_min=block,
             tail=tail,
             pax_booked=150,
@@ -610,10 +759,10 @@ def test_a_flight_whose_aircraft_is_stuck_moves_to_one_that_is_at_hand() -> None
     schedule = tiny_schedule(idle_aircraft_at_sub=True)
     scenario = solve_tiny(schedule)
     assert scenario.status is SolveStatus.OPTIMAL
-    by_flight = {a.flight_no: a for a in scenario.actions}
-    assert by_flight["RFA801"].kind is RecoveryActionKind.CANCEL
-    assert by_flight["RFA802"].kind is RecoveryActionKind.SWAP
-    assert by_flight["RFA802"].new_tail == "RFA-T02"
+    by_flight = {a.flight_key: a for a in scenario.actions}
+    assert by_flight["RFA801/07SEP"].kind is RecoveryActionKind.CANCEL
+    assert by_flight["RFA802/07SEP"].kind is RecoveryActionKind.SWAP
+    assert by_flight["RFA802/07SEP"].new_tail == "RFA-T02"
     assert scenario.ferry_legs == []
     assert scenario.totals is not None
     assert scenario.totals.swap_usd == RULES.swap_cost_usd.value
@@ -624,7 +773,7 @@ def test_without_an_aircraft_at_hand_the_stuck_one_is_ferried_to_the_next_flight
     schedule = tiny_schedule(idle_aircraft_at_sub=False)
     scenario = solve_tiny(schedule)
     assert scenario.status is SolveStatus.OPTIMAL
-    assert {a.flight_no for a in scenario.actions} == {"RFA801"}
+    assert {a.flight_key for a in scenario.actions} == {"RFA801/07SEP"}
     (leg,) = scenario.ferry_legs
     assert (leg.tail, leg.origin, leg.dest) == ("RFA-T01", CGK, "WARR")
     assert schedule.minutes_of(leg.dep) >= 500  # not before now
@@ -688,7 +837,7 @@ def test_a_rationale_made_of_tool_figures_passes(solved: Toolbox) -> None:
             "The plan saves 7777 USD against the alternative.",
             "NUMBERS NOT IN THE TOOL RESULTS: 7777",
         ),
-        ("CGK reopens at 11:45Z, so the plan holds.", "times 11:45"),
+        ("CGK reopens at 04:07Z, so the plan holds.", "times 4:07"),
         ("RFA999 is cancelled by the plan, which is fine.", "flight RFA999"),
         ("RFA-T99 is stranded at the closed airport now.", "aircraft RFA-T99"),
         ("The plan diverts everything to WXYZ instead.", "airports WXYZ"),
@@ -1191,6 +1340,12 @@ def test_a_dispatcher_runs_approves_and_lists_a_plan(api: tuple[TestClient, Fake
     assert any("RECOVERY" in message or "NO MODEL" in message for message in runtime.traces)
     listed = client.get("/api/recovery").json()["plans"]
     assert [p["id"] for p in listed] == [plan["id"]]
+    assert plan["chosen"]["id"] == plan["chosen_scenario_id"]  # the API returns the scenario
+    assert listed[0]["chosen"] == plan["chosen"]
+    assert plan["chosen"]["actions"][0]["flight_key"].startswith("RFA")
+    stored = asyncio.run(runtime.store.get(Collection.RECOVERY, plan["id"]))
+    assert stored is not None
+    assert "chosen" not in stored  # derived, so not stored twice
     approved = client.post(f"/api/desk/recovery/{plan['id']}/approve", json={"version": 1})
     assert approved.status_code == 200
     assert approved.json()["status"] == "APPROVED"

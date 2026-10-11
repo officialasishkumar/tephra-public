@@ -63,7 +63,8 @@ from tephra.models import (
     TephraModel,
     TraceStage,
 )
-from tephra.store.base import Collection, Store
+from tephra.regdocs.models import DocKind, DocStatus, DocSummary
+from tephra.store.base import Collection, Store, Where
 from tephra.util import timeutil
 
 __all__ = [
@@ -72,7 +73,9 @@ __all__ = [
     "acknowledge",
     "draft_handover",
     "get_handover",
+    "list_handovers",
     "narrative_problems",
+    "summary_of",
 ]
 
 PROMPT_PATH: Final[Path] = (
@@ -582,7 +585,7 @@ async def draft_handover(
         model_id=brief.model_id,
         prompt_hash=brief.prompt_hash,
     )
-    runtime.bus.publish(SseEvent.DOC, brief)
+    runtime.bus.publish(SseEvent.DOC, summary_of(brief))
     return brief
 
 
@@ -611,6 +614,38 @@ async def get_handover(store: Store, handover_id: str) -> HandoverBrief | None:
     if doc is None or doc.get("doc_type") != "handover":
         return None
     return HandoverBrief.model_validate(doc)
+
+
+async def list_handovers(
+    store: Store, *, replay: bool | None = None, limit: int = 20
+) -> list[HandoverBrief]:
+    """Newest first; ``replay`` keeps only the briefs made in that mode."""
+    docs = await store.query(
+        Collection.DOCS,
+        [Where("doc_type", "==", "handover")],
+        order_by="created_at",
+        descending=True,
+        limit=FETCH_LIMIT,
+    )
+    briefs = [HandoverBrief.model_validate(doc) for doc in docs]
+    return [b for b in briefs if replay is None or b.replay == replay][:limit]
+
+
+def summary_of(brief: HandoverBrief) -> DocSummary:
+    """The ``doc`` SSE payload of a brief: the same shape as for SRA and VAR drafts."""
+    read_back = brief.receiver_ack.read_back_by is not None
+    return DocSummary(
+        id=brief.id,
+        kind=DocKind.HANDOVER,
+        status=DocStatus.ACKNOWLEDGED if read_back else DocStatus.DRAFT,
+        title=f"Handover brief: {brief.outgoing} to {brief.incoming}",
+        created_at=brief.created_at,
+        updated_at=brief.receiver_ack.utc or brief.created_at,
+        replay=brief.replay,
+        signed_roles=[],
+        missing_roles=[],
+        llm_backend=brief.llm_backend,
+    )
 
 
 async def acknowledge(runtime: HandoverRuntime, handover_id: str, *, actor: str) -> HandoverBrief:
@@ -644,7 +679,7 @@ async def acknowledge(runtime: HandoverRuntime, handover_id: str, *, actor: str)
             "handed_over_open": acked.receiver_ack.open_drafts,
         },
     )
-    runtime.bus.publish(SseEvent.DOC, acked)
+    runtime.bus.publish(SseEvent.DOC, summary_of(acked))
     return acked
 
 

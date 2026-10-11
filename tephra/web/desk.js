@@ -23,7 +23,7 @@ import { app, draftList } from './desk/state.js';
 import { toast } from './desk/toast.js';
 import { initAsk, focusAsk, setFlightContext } from './desk/ask.js';
 import { loadBudget, openBudget, setBudget } from './desk/budget.js';
-import { loadDocs, loadHandover, onDocEvent, onDocsClick, renderDocs, docsToSign } from './desk/docs.js';
+import { clearHandover, loadDocs, loadHandover, onDocEvent, onDocsClick, renderDocs, docsToSign } from './desk/docs.js';
 import { loadFailures, onFailureEvent, openFailures, openHandled } from './desk/failures.js';
 import { draftMessages, loadMessages, onMessageEvent, openMessage, requestMessageDrafts } from './desk/messages.js';
 import { draftPlans, loadPlans, onNetworkClick, onRecoveryEvent, renderNetwork, chosenOf } from './desk/network.js';
@@ -511,6 +511,7 @@ function leaveDesk() {
   app.plans = [];
   app.plansLoaded = false;
   app.docs = [];
+  clearHandover();
   app.notices = [];
   byId('cards').replaceChildren();
   for (const id of ['fail-section', 'msg-section', 'plan-section', 'notice-section']) byId(id).replaceChildren();

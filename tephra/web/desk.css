@@ -4501,6 +4501,14 @@ body[data-review="1"] .tabbar {
   font-weight: var(--fw-semibold);
 }
 
+.clo__sum {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--fs-2);
+  line-height: 1.4;
+  color: var(--c-text);
+}
+
 .clo__why,
 .clo__src {
   grid-column: 1 / -1;

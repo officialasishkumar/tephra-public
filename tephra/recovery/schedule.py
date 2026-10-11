@@ -1,12 +1,15 @@
-"""Loads the synthetic RFA schedule (``data/rfa/``) and anchors it to a calendar day.
+"""Loads the synthetic RFA schedule (``data/rfa/``) and rolls it over calendar days.
 
-The files hold minutes after the start of an operating day, not dates, so the same fictional
-day can stand on the replay's or the live clock's day.
+The file holds one template day, in minutes after the start of that day. The schedule the
+solver sees is a window of ``OPERATING_DAYS`` consecutive days that starts with the operating
+day holding the clock, so a late-evening clock still has the whole next day to re-plan. Every
+aircraft's rotation returns to where it started, so each later day repeats the template one
+``MINUTES_PER_DAY`` later, under the same flight numbers and a new service date.
 """
 
 import math
 from collections import defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from itertools import pairwise
 from pathlib import Path
 from typing import Final
@@ -14,11 +17,28 @@ from typing import Final
 from pydantic import ValidationError
 
 from tephra.models import TephraModel
-from tephra.recovery.models import RfaCrew, RfaFlight, RfaTail, Schedule, ScheduleHeader
+from tephra.recovery.models import (
+    MINUTES_PER_DAY,
+    RfaCrew,
+    RfaFlight,
+    RfaTail,
+    RfaTemplateFlight,
+    Schedule,
+    ScheduleHeader,
+)
 
-__all__ = ["SCHEDULE_DIR", "ScheduleError", "block_minutes", "load_schedule", "operating_day"]
+__all__ = [
+    "OPERATING_DAYS",
+    "SCHEDULE_DIR",
+    "ScheduleError",
+    "block_minutes",
+    "load_schedule",
+    "operating_day",
+]
 
 SCHEDULE_DIR: Final = "rfa"
+OPERATING_DAYS: Final = 2
+"""The clock's operating day and the next one."""
 BLOCK_STEP_MIN: Final = 5
 """Block times are rounded up to this step, like the delay steps the solver offers."""
 
@@ -37,7 +57,7 @@ class _CrewFile(TephraModel):
 
 class _FlightFile(TephraModel):
     header: ScheduleHeader
-    flights: list[RfaFlight]
+    flights: list[RfaTemplateFlight]
 
 
 def block_minutes(distance_nm: float, header: ScheduleHeader) -> int:
@@ -59,12 +79,13 @@ def load_schedule(data_dir: Path, at: datetime) -> Schedule:
         flights = _FlightFile.model_validate_json((folder / "flights.json").read_bytes())
     except (OSError, ValidationError) as exc:
         raise ScheduleError(f"RFA schedule files in {folder} are unusable: {exc}") from exc
+    day = operating_day(at, flights.header).date()
     schedule = Schedule(
-        day=operating_day(at, flights.header).date(),
+        day=day,
         header=flights.header,
         tails=fleet.tails,
         crews=crews.crews,
-        flights=sorted(flights.flights, key=lambda f: (f.std_min, f.flight_no)),
+        flights=_window(flights.flights, day),
     )
     problems = _problems(schedule)
     if problems:
@@ -72,36 +93,45 @@ def load_schedule(data_dir: Path, at: datetime) -> Schedule:
     return schedule
 
 
+def _window(template: list[RfaTemplateFlight], first_day: date) -> list[RfaFlight]:
+    flights = [
+        RfaFlight(
+            **flight.model_dump(),
+            service_date=first_day + timedelta(days=offset),
+            day_offset=offset,
+        ).model_copy(update={"std_min": flight.std_min + offset * MINUTES_PER_DAY})
+        for offset in range(OPERATING_DAYS)
+        for flight in template
+    ]
+    return sorted(flights, key=lambda f: (f.std_min, f.flight_no))
+
+
 def _problems(schedule: Schedule) -> list[str]:
     tails = {tail.tail: tail for tail in schedule.tails}
     crews = {crew.crew_id for crew in schedule.crews}
-    numbers = [flight.flight_no for flight in schedule.flights]
+    numbers = [flight.key for flight in schedule.flights]
     problems = [
         f"tail {tail.tail} has unknown crew {tail.crew_id}"
         for tail in schedule.tails
         if tail.crew_id not in crews
     ]
     if len(set(numbers)) != len(numbers):
-        problems.append("duplicate flight numbers")
+        problems.append("duplicate flight keys")
     chains: dict[str, list[RfaFlight]] = defaultdict(list)
     for flight in schedule.flights:
         tail = tails.get(flight.tail)
         if tail is None:
-            problems.append(f"{flight.flight_no} is on unknown tail {flight.tail}")
+            problems.append(f"{flight.key} is on unknown tail {flight.tail}")
             continue
         if flight.origin == flight.dest:
-            problems.append(f"{flight.flight_no} departs and lands at {flight.origin}")
+            problems.append(f"{flight.key} departs and lands at {flight.origin}")
         if flight.pax_booked > tail.seats:
-            problems.append(f"{flight.flight_no} has more passengers than {tail.tail} has seats")
+            problems.append(f"{flight.key} has more passengers than {tail.tail} has seats")
         chains[flight.tail].append(flight)
     for tail, chain in chains.items():
         for before, after in pairwise(chain):
             if before.dest != after.origin:
-                problems.append(
-                    f"{tail}: {before.flight_no} lands where {after.flight_no} does not start"
-                )
+                problems.append(f"{tail}: {before.key} lands where {after.key} does not start")
             if before.std_min + before.block_min > after.std_min:
-                problems.append(
-                    f"{tail}: {after.flight_no} departs before {before.flight_no} lands"
-                )
+                problems.append(f"{tail}: {after.key} departs before {before.key} lands")
     return problems

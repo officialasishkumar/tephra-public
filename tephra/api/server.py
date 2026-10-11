@@ -126,6 +126,7 @@ STREAMS_RETRY_AFTER_S: Final = 5
 SCHEDULER_STOP_TIMEOUT_S: Final = 10.0
 
 _ADVISORY_ID = re.compile(r"adv_[0-9a-f]{12}")
+_PRINT_DOC_ID = re.compile(r"(?:DOC-|ho_)[0-9a-f]{12}")
 _FAILURE_ID = re.compile(r"AIF-[0-9a-f]{1,64}")
 _BLOB_KEY = re.compile(BLOB_KEY_PATTERN)
 _CASE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
@@ -265,6 +266,15 @@ async def wall_page() -> FileResponse:
 @pages.get("/desk", include_in_schema=False)
 async def desk_page() -> FileResponse:
     return await _page("desk.html")
+
+
+@pages.get("/docs/{doc_id}", include_in_schema=False)
+async def doc_page(doc_id: str) -> FileResponse:
+    """The printable page for an SRA/VAR draft (DOC-...) or a shift handover (ho_...). The page
+    reads the id from the last path segment and fetches the JSON itself."""
+    if _PRINT_DOC_ID.fullmatch(doc_id) is None:
+        raise ApiError(404, "not_found", "No such document")
+    return await _page("doc.html")
 
 
 @pages.get("/healthz", response_model=Health)

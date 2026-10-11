@@ -771,18 +771,18 @@ def _change_line(
     route = _route_text(origin, dest)
     match change.kind:
         case "CANCEL":
-            return pack.change_cancel.format(flight=change.flight_no, route=route)
+            return pack.change_cancel.format(flight=change.flight_key, route=route)
         case "DELAY":
             new_std = change.std + timedelta(minutes=change.delay_min)
             return pack.change_delay.format(
-                flight=change.flight_no,
+                flight=change.flight_key,
                 route=route,
                 delay_min=change.delay_min,
                 new=local_text(new_std, origin),
             )
         case "SWAP":
             return pack.change_swap.format(
-                flight=change.flight_no, route=route, tail=change.new_tail or "-"
+                flight=change.flight_key, route=route, tail=change.new_tail or "-"
             )
 
 
@@ -793,7 +793,7 @@ def passenger_targets(
     (PM 89/2015 category 1 starts at 30 minutes); a swap changes nothing a passenger sees."""
     min_delay = policy.recovery.pax_notice_min_delay_min.value
     targets: list[Target] = []
-    for change in sorted(plan.changes, key=lambda c: (c.std, c.flight_no)):
+    for change in sorted(plan.changes, key=lambda c: (c.std, c.flight_key)):
         if change.kind == "SWAP" or (change.kind == "DELAY" and change.delay_min < min_delay):
             continue
         origin = _airport(airports, change.origin_icao)
@@ -809,7 +809,7 @@ def passenger_targets(
         targets.append(
             Target(
                 kind=MessageKind.PASSENGER_NOTICE,
-                key=stable_id("MSG", plan.id, MessageKind.PASSENGER_NOTICE, change.flight_no),
+                key=stable_id("MSG", plan.id, MessageKind.PASSENGER_NOTICE, change.flight_key),
                 spec=passenger_spec(status, jurisdiction, languages),
                 values={
                     language: _pax_values(
@@ -823,7 +823,7 @@ def passenger_targets(
                     )
                     for language in languages
                 },
-                flight_no=change.flight_no,
+                flight_no=change.flight_key,
                 route=_route_text(origin, dest),
             )
         )
@@ -833,7 +833,7 @@ def passenger_targets(
 def crew_notice_targets(plan: RecoveryInput, airports: AirportCatalogue) -> list[Target]:
     """One notice per aircraft the plan touches: the tail a flight leaves and the one it joins."""
     by_tail: dict[str, list[RecoveryChange]] = {}
-    for change in sorted(plan.changes, key=lambda c: (c.std, c.flight_no)):
+    for change in sorted(plan.changes, key=lambda c: (c.std, c.flight_key)):
         for tail in dict.fromkeys([change.tail, change.new_tail or change.tail]):
             by_tail.setdefault(tail, []).append(change)
     targets: list[Target] = []
@@ -944,6 +944,7 @@ def recovery_input(doc: Mapping[str, Any]) -> RecoveryInput:
         changes=[
             RecoveryChange(
                 flight_no=action.flight_no,
+                flight_key=action.flight_key,
                 origin_icao=action.origin,
                 dest_icao=action.dest,
                 std=action.std,

@@ -14,8 +14,10 @@ from fastapi import APIRouter, Depends, Query, Response
 from pydantic import Field
 
 from tephra.agents.notice_reader import (
+    JMA_SOURCE_PREFIX,
     MAX_NOTICE_CHARS,
     NoticeReading,
+    jma_reading,
     normalise_notice,
     notice_id,
     read_notice,
@@ -88,10 +90,18 @@ async def post_notice(body: NoticeRequest, session: DeskSession, runtime: Runtim
 
 @router.get("/notices", response_model=NoticeList)
 async def get_notices(runtime: RuntimeDep, limit: Limit = 50) -> Response:
-    """Notices read in the current mode, newest first."""
+    """Notices read in the current mode, newest first: pasted ones and the JMA volcano reports
+    (``JMA-`` records of the live picture, read by code, so verified and in Japanese)."""
     docs = await runtime.store.query(
         Collection.NOTICES, [], order_by="created_at", descending=True, limit=200
     )
     replay = runtime.mode is RunMode.REPLAY
     notices = [NoticeReading.model_validate(doc) for doc in docs]
-    return _json(NoticeList(notices=[n for n in notices if n.replay == replay][:limit]))
+    notices = [n for n in notices if n.replay == replay]
+    notices += [
+        jma_reading(vona, replay=replay)
+        for vona in runtime.live.vonas.values()
+        if vona.provenance.source_id.startswith(JMA_SOURCE_PREFIX)
+    ]
+    notices.sort(key=lambda n: n.created_at, reverse=True)
+    return _json(NoticeList(notices=notices[:limit]))

@@ -209,7 +209,7 @@ Files: `tephra/recovery/{__init__,models,schedule,closures,solver,agent}.py`,
   120-150 flights on real airport pairs from `data/routes_apac.json` and `data/airports.json`
   among Java/Bali/Sumatra/Sulawesi/Lombok airports, rotations by tail, bank structure,
   seats and booked pax, crews paired to tails with report times. Everything labelled
-  fictional. The schedule is anchored to the replay or live clock's day.
+  fictional. The template day is rolled into a two-day window (the clock's operating day and the next); a flight is keyed by number and service date (`RFA239/06SEP`).
 - **Closures** (`closures.py`): an airport is closed while the hazard area (cone, and every
   official layer) at any level from the surface to FL100 comes within
   `recovery.airport_closure_radius_nm`, or its TAF/METAR has `VA`. Closure start/end from
@@ -220,7 +220,8 @@ Files: `tephra/recovery/{__init__,models,schedule,closures,solver,agent}.py`,
   FDP limit; no departure/arrival at a closed airport during its window; objective = the
   policy's USD weights. Time limit `recovery.solve_time_limit_s`. If CP-SAT returns no
   feasible plan, the result is `NO_PLAN` with the solver status: no greedy substitute.
-  Must solve the demo instance (Sep 2026 Krakatau CGK closure) in < 2 s.
+  Deterministic: `recovery.solve_work_s` of CP-SAT deterministic time, interleaved search,
+  fixed workers and seed (the Krakatau window: about 15 s, the same plan every run).
 - **Agent** (`agent.py`): an ADK agent on the lite model that is the planner of the
   recovery: tools `disruption()` (closures, affected flights, pax), `run_scenario(extend_min,
   protect_flights[], max_delay_min)` (calls the solver; scenarios: closure as forecast,

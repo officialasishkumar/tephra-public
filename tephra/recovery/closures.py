@@ -66,7 +66,9 @@ def _hazard_closures(
         if layer.base_ft > top_ft or layer.valid_to <= at:
             continue
         if _within(airport, geometry_to_shape(layer.polygon, ref_lon=airport.lon), radius_km):
-            found.append(_layer_closure(airport, layer))
+            found.append(
+                _layer_closure(airport, layer, policy.recovery.airport_closure_radius_nm.value)
+            )
     return found
 
 
@@ -82,11 +84,25 @@ def merge_closures(closures: Iterable[Closure]) -> list[Closure]:
                     "reason": _join(last.reason, closure.reason),
                     "source_ids": sorted({*last.source_ids, *closure.source_ids}),
                     "open_ended": last.open_ended or closure.open_ended,
+                    "basis": sorted({*last.basis, *closure.basis}),
+                    "base_ft": _lowest(last.base_ft, closure.base_ft),
+                    "top_ft": _highest(last.top_ft, closure.top_ft),
+                    "radius_nm": last.radius_nm
+                    if last.radius_nm is not None
+                    else closure.radius_nm,
                 }
             )
         else:
             merged.append(closure)
     return sorted(merged, key=lambda c: (c.start, c.icao))
+
+
+def _lowest(first: int | None, second: int | None) -> int | None:
+    return second if first is None else first if second is None else min(first, second)
+
+
+def _highest(first: int | None, second: int | None) -> int | None:
+    return second if first is None else first if second is None else max(first, second)
 
 
 def _join(first: str, second: str) -> str:
@@ -109,16 +125,24 @@ def _cone_closure(airport: Airport, cone: HazardCone, policy: OperatorPolicy) ->
         end=cone.valid_to,
         reason=f"HAZARD CONE {cone.id} WITHIN {radius} NM OF {airport.icao}",
         source_ids=[cone.id, *cone.official_source_ids],
+        basis=["HAZARD"],
+        base_ft=cone.base_ft,
+        top_ft=cone.top_ft,
+        radius_nm=radius,
     )
 
 
-def _layer_closure(airport: Airport, layer: OfficialLayer) -> Closure:
+def _layer_closure(airport: Airport, layer: OfficialLayer, radius_nm: float) -> Closure:
     return Closure(
         icao=airport.icao,
         start=layer.valid_from,
         end=layer.valid_to,
         reason=f"{layer.label} NEAR {airport.icao}",
         source_ids=[layer.source_id],
+        basis=["OFFICIAL"],
+        base_ft=layer.base_ft,
+        top_ft=layer.top_ft,
+        radius_nm=radius_nm,
     )
 
 
@@ -132,6 +156,7 @@ def _forecast_closures(airport: Airport, taf: Taf | None, at: datetime) -> list[
             end=period.valid_to,
             reason=f"TAF {airport.icao} FORECASTS VA",
             source_ids=[taf.provenance.source_id],
+            basis=["TAF"],
         )
         for period in taf.periods
         if period.valid_to > at and any(_is_va(token) for token in period.weather)
@@ -151,6 +176,7 @@ def _observed_closure(
             reason=f"METAR {airport.icao} REPORTS VA; NO END IS PUBLISHED",
             source_ids=[metar.provenance.source_id],
             open_ended=True,
+            basis=["METAR"],
         )
     ]
 

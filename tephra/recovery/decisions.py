@@ -62,7 +62,7 @@ def _lock(store: Store) -> asyncio.Lock:
 async def submit_plan(store: Store, bus: EventBus, plan: RecoveryPlan) -> RecoveryPlan:
     """Store a new plan. A DRAFT retires the open DRAFTs of the same mode."""
     async with _lock(store):
-        await store.put(Collection.RECOVERY, plan.id, plan.model_dump(mode="json"))
+        await store.put(Collection.RECOVERY, plan.id, plan.to_doc())
         if plan.status == "AI_UNAVAILABLE":
             await audit.record(
                 store,
@@ -155,7 +155,7 @@ async def _decide(
                 "reject_reason": reject_reason,
             }
         )
-        await store.put(Collection.RECOVERY, plan_id, decided.model_dump(mode="json"))
+        await store.put(Collection.RECOVERY, plan_id, decided.to_doc())
         await audit.record(
             store,
             actor=actor,
@@ -175,7 +175,7 @@ async def _retire_older(store: Store, bus: EventBus, plan: RecoveryPlan) -> None
         if old.id == plan.id or old.status != "DRAFT":
             continue
         retired = old.model_copy(update={"status": "SUPERSEDED", "version": old.version + 1})
-        await store.put(Collection.RECOVERY, old.id, retired.model_dump(mode="json"))
+        await store.put(Collection.RECOVERY, old.id, retired.to_doc())
         bus.publish(SseEvent.RECOVERY, retired)
 
 

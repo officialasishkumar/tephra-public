@@ -185,16 +185,22 @@ function satPanel(D, store) {
 const LANG = { en: "EN", id: "ID", ja: "JA", fil: "FIL" };
 const langBadge = (code) => el("span", { class: "lang", title: { EN: "English", ID: "Indonesian", JA: "Japanese", FIL: "Filipino" }[LANG[code]] || "Another language" }, LANG[code] || "??");
 
+const isJma = (n) => n.source_kind === "jma_xml";
+
 function noticeStatus(n) {
+  if (isJma(n)) return pill("ok", "Verified", "Read by code from JMA's published XML. No model was used.");
   if (n.status === "verified") return pill("ok", "Verified", "Every claim was found word for word in the notice and checked by code.");
   if (n.status === "ai_unavailable") return pill("serious", "AI unavailable", n.reason || "");
   return pill("caution", "Not verified", n.reason || "A check failed, so nothing from this notice entered the picture.");
 }
 
+// A JMA report comes from /api/notices like a pasted notice but was parsed by code from JMA's XML:
+// its fields carry no quoted evidence and no model is named.
 function noticeCard(n) {
   const card = el("article", { class: "x-card" });
   card.append(el("header", { class: "x-card__head" },
     langBadge(n.language), noticeStatus(n),
+    isJma(n) ? el("span", { class: "x-card__title x-card__title--sm", text: `JMA · ${n.vona?.volcano_name || "volcano report"}` }) : null,
     n.replay ? el("span", { class: "tag tag--replay", text: "recorded" }) : null,
     el("span", { class: "x-card__time mono", text: clock(n.created_at) })));
   if (n.status === "ai_unavailable") card.append(unavailable(n.reason));
@@ -202,45 +208,25 @@ function noticeCard(n) {
   if (n.fields?.length) {
     const dl = el("dl", { class: "x-fields" });
     for (const f of n.fields) {
-      dl.append(el("dt", { text: f.name.replace(/_/g, " ") }), el("dd", {}, el("span", { class: "mono", text: f.derived || f.value }), el("q", { class: "x-fields__ev", text: f.evidence })));
+      dl.append(el("dt", { text: f.name.replace(/_/g, " ") }), el("dd", {}, el("span", { class: "mono", text: f.derived || f.value }), f.evidence ? el("q", { class: "x-fields__ev", text: f.evidence }) : null));
     }
     card.append(dl);
   }
   if (n.problems?.length) card.append(el("ul", { class: "x-problems" }, ...n.problems.map((p) => el("li", { text: p }))));
-  if (n.status !== "ai_unavailable") card.append(aiMark(n.model_id, n.label));
+  if (isJma(n)) card.append(el("p", { class: "x-sub mono", text: n.id }));
+  else if (n.status !== "ai_unavailable") card.append(aiMark(n.model_id, n.label));
   return card;
 }
 
-// JMA reports arrive through the VONA card as source ids "JMA-VFVO52-...": parsed by code from
-// JMA's own XML, so they are verified by construction and no model wrote them.
-function jmaNotices(D) {
-  const out = [];
-  for (const s of D.sits) for (const c of s.cards || []) {
-    if (c.kind === "VONA" && c.source_id && /^JMA-/.test(c.source_id) && !c.missing) out.push({ sit: s, card: c });
-  }
-  return out;
-}
-
-function jmaCard({ sit, card }) {
-  const art = el("article", { class: "x-card" });
-  art.append(el("header", { class: "x-card__head" },
-    langBadge("ja"), pill("ok", "Verified", "Read by code from JMA's published XML. No model was used."),
-    el("span", { class: "x-card__title x-card__title--sm", text: `JMA · ${sit.volcano_name}` }),
-    el("span", { class: "x-card__time mono", text: card.issued_at ? clock(card.issued_at) : "" })));
-  const dl = el("dl", { class: "x-fields" });
-  for (const [k, v] of Object.entries(card.display_fields || {})) dl.append(el("dt", { text: k }), el("dd", { class: "mono", text: v }));
-  art.append(dl, el("p", { class: "x-sub mono", text: card.source_id }));
-  return art;
-}
-
-function noticesPanel(D) {
-  const kids = [el("p", { class: "x-lede", text: "Notices pasted on the Desk, and JMA volcano reports. A pasted notice is read by a model, then every claim is checked against its own words; only a verified notice can enter the picture." })];
+function noticesPanel() {
+  const kids = [el("p", { class: "x-lede", text: "Notices pasted on the Desk, and JMA volcano reports. A pasted notice is read by a model, then every claim is checked against its own words; only a verified notice can enter the picture. JMA reports are read by code from JMA's XML." })];
   if (!ext.loaded.notices) kids.push(loadingBox());
   else if (ext.errors.notices) kids.push(errBox("Notices", ext.errors.notices));
-  const jma = jmaNotices(D);
-  if (ext.loaded.notices && !ext.errors.notices && !ext.notices.length && !jma.length) kids.push(empty("No notices yet", "Paste a notice on the Desk (EN, ID, JA or FIL) and it shows up here."));
-  if (ext.notices.length) kids.push(section(`Pasted notices · ${ext.notices.length}`, ...ext.notices.map(noticeCard)));
-  if (jma.length) kids.push(section(`JMA reports · ${jma.length}`, ...jma.map(jmaCard)));
+  const pasted = ext.notices.filter((n) => !isJma(n));
+  const jma = ext.notices.filter(isJma);
+  if (ext.loaded.notices && !ext.errors.notices && !ext.notices.length) kids.push(empty("No notices yet", "Paste a notice on the Desk (EN, ID, JA or FIL) and it shows up here."));
+  if (pasted.length) kids.push(section(`Pasted notices · ${pasted.length}`, ...pasted.map(noticeCard)));
+  if (jma.length) kids.push(section(`JMA reports · ${jma.length}`, ...jma.map(noticeCard)));
   return kids;
 }
 
@@ -276,10 +262,15 @@ function recoveryPanel(D) {
   card.append(el("p", { class: "x-fict", text: "Fictional airline RFA · synthetic schedule" }));
   if (plan.status === "AI_UNAVAILABLE") card.append(unavailable(plan.unavailable_reason));
   card.append(el("h4", { class: "caps x-h", text: `Closed airports · ${plan.closures.length}` }),
-    el("ul", { class: "x-closures" }, ...plan.closures.map((c) => el("li", { class: "x-closure", title: c.reason }, el("strong", { class: "mono", text: c.icao }),
-      el("span", { class: "mono", text: `${hhmmz(ms(c.start))}–${c.open_ended ? "open" : hhmmz(ms(c.end))}` })))));
+    el("ul", { class: "x-closures" }, ...plan.closures.map((c) => el("li", { class: "x-closure" }, el("strong", { class: "mono", text: c.icao }),
+      el("span", { class: "mono", text: `${clock(c.start)} – ${c.open_ended ? "open" : clock(c.end)}` }),
+      // One line written by code; the full reason and every source id stay behind the disclosure.
+      c.summary ? el("span", { class: "x-closure__sum", text: c.summary }) : null,
+      el("details", { class: "x-closure__more" }, el("summary", { text: "Full reason and sources" }),
+        el("p", { class: "x-closure__why", text: c.reason }),
+        c.source_ids?.length ? el("p", { class: "x-closure__src mono", text: c.source_ids.join(" · ") }) : null)))));
   if (plan.disruption) card.append(el("p", { class: "x-sub", text: `${plan.disruption.blocked_flights.length} flights and ${plan.disruption.blocked_pax.toLocaleString("en")} passengers blocked before re-planning.` }));
-  const chosen = plan.scenarios.find((s) => s.id === plan.chosen_scenario_id);
+  const chosen = plan.chosen;
   if (chosen) {
     card.append(el("h4", { class: "caps x-h" }, "Chosen scenario"), el("p", { class: "x-chosen" }, el("strong", { text: chosen.label }), ` · ${chosen.status}`));
     if (chosen.totals) card.append(totalsGrid(chosen.totals));
@@ -450,7 +441,7 @@ export const PANELS = [
 
 function tabBadge(id, D, store) {
   if (id === "sat") { const n = (store.snapshot?.satellite || []).filter((r) => r.status === "read").length; return n ? { text: String(n) } : null; }
-  if (id === "notices") { const n = ext.notices.length + jmaNotices(D).length; return n ? { text: String(n) } : null; }
+  if (id === "notices") { const n = ext.notices.length; return n ? { text: String(n) } : null; }
   if (id === "recovery") { const p = ext.recovery.find((x) => x.status !== "SUPERSEDED"); return p ? { text: p.status === "DRAFT" ? "draft" : p.status === "APPROVED" ? "ok" : "!" , tone: p.status === "AI_UNAVAILABLE" || p.status === "REJECTED" ? "serious" : null } : null; }
   if (id === "ai") { const f = failureCount(store); return f ? { text: String(f), tone: "serious" } : null; }
   return null;

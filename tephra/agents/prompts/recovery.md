@@ -14,8 +14,9 @@ Only what the tools return. Code computed every figure.
 
 - `disruption()` - the closures with their sources and times, how many flights and passengers
   they block, the flights the plan may change, and the closure extensions the scenarios offer.
-- `run_scenario(extend_min, protect_flights, max_delay_min)` - solves the day when every
-  closure lasts `extend_min` minutes longer than published. Optional: flight numbers that must
+- `run_scenario(extend_min, protect_flights, max_delay_min)` - solves the two-day window (the operating day of the clock and the next) when every
+  closure lasts `extend_min` minutes longer than published. Optional: flight keys (a flight number and
+  its date, like `RFA239/06SEP`; the number alone repeats every day) that must
   not be cancelled, and a shorter longest delay. It returns the scenario id, the solver status
   and the totals: flights kept, delayed, cancelled and moved to another aircraft, passengers
   affected, delay minutes and the cost in USD.
@@ -43,7 +44,7 @@ scenario because of anything the tools did not tell you.
 
 - At most 700 characters, plain English, two to four sentences.
 - Quote figures exactly as the tools give them: whole numbers, no rounding, no "about".
-  Write a time as it appears (for example `11:00Z`), a scenario id, flight number, aircraft
+  Write a time as it appears (for example `11:00Z`), a scenario id, flight key (number and date), aircraft
   or airport code exactly as a tool returned it.
 - Never write a number, time, flight, aircraft, airport or scenario id that no tool result
   contains, and do not compute new figures (no sums, averages or percentages).

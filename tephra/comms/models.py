@@ -249,6 +249,7 @@ class RecoveryChange(TephraModel):
     """One flight the recovery plan moves, as the messages need it."""
 
     flight_no: str
+    flight_key: str = Field(description="flight_no and service date, e.g. RFA239/06SEP")
     origin_icao: str
     dest_icao: str
     std: UtcDatetime = Field(description="Scheduled departure before the plan")

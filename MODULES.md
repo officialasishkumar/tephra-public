@@ -336,7 +336,7 @@ mode), `reroute` (`buffer_nm`, `simplify_nm`, `max_waypoints_count`,
 `max_turn_deg`, `rejoin_step_nm`, `max_extra_min`, `min_extra_min`, `route_max_cross_track_nm`,
 `cruise_tas_kt`), `recovery` (`min_turn_min`, `max_delay_min`, `freeze_window_min`,
 `horizon_after_closure_min`, `scenario_extend_1_min`, `scenario_extend_2_min`,
-`solve_time_limit_s`, the delay, cancel, swap and ferry costs in USD, `max_fdp_min`,
+`solve_work_s`, `solve_time_limit_s`, the delay, cancel, swap and ferry costs in USD, `max_fdp_min`,
 `airport_closure_radius_nm`, `pax_notice_min_delay_min`), `fuel` (`hold_min`, `divert_extra_min`),
 `drafts` (`unexposed_retire_min`, `position_lost_retire_min`: how long an open draft waits
 after its flight leaves the cone, section 5.7).
@@ -586,9 +586,10 @@ only, so the slot's date comes from the `sat_img.php` slot list, and only a slot
 date-less name may hold another day's image. NICT true colour only in local daylight (solar
 hours 7 to 17), from at most four tiles; `nict=False` skips it entirely (the registry passes
 `settings.nict_frames`, off by default). Crop around the volcano with Pillow, re-encode PNG.
-Set `bbox` only if the image projection and corner coordinates are known exactly; otherwise
-`bbox=None` and the Wall shows the frame in a side strip, never on the map (every frame today
-has `bbox=None`). The caption names the product and scan time, cites the source
+Set `bbox` only if the image is a plain lat/lon grid: JMA `se3` crops (equirectangular, 0.05 deg/px,
+origin checked against `web/data/land_apac.geojson` to about one pixel) carry the crop's exact
+rectangle; the Mercator `jpn` crops and NICT's geostationary tiles keep `bbox=None` and the Wall shows
+them in a side strip, never on the map. The caption names the product and scan time, cites the source
 ("Source: JMA Meteorological Satellite Center (<area> image)" or "Source: NICT Himawari
 real-time web (non-commercial use only)"), says "cropped by TEPHRA" (JMA's Public Data
 License 1.0 asks for the source and an edit notice) and ends "context only; not used to
@@ -1768,14 +1769,23 @@ async submit_plan / approve / reject(store, bus, plan_id, *, expected_version, .
 ```
 Data: `data/rfa/{fleet,crews,flights}.json`, built by `scripts/build_rfa_schedule.py` with seed
 20260907: 30 tails (25 A320, 5 A321), 142 flights on real airport pairs from
-`routes_apac.json`, anchored to the replay or live clock's day, all labelled fictional. An airport
+`routes_apac.json`, all labelled fictional. `data/rfa/flights.json` is one template day (`RfaTemplateFlight`);
+`load_schedule` rolls it into a window of two operating days, the one holding the clock and the next
+(every rotation returns to its start, so day 2 repeats the template `MINUTES_PER_DAY` later). A flight
+(`RfaFlight`) has `service_date`, `day_offset` and the stable key `key`, e.g. `RFA239/06SEP`, used for solver
+variables, `protect_flights`, `FlightAction.flight_key`, `Disruption.blocked_flights`, comms targets
+(`RecoveryChange.flight_key`) and the UIs; the bare number repeats daily. `RecoveryPlan.chosen` is a computed
+field (the chosen scenario) so the API returns it; it is not stored. `Closure` carries `basis`, `base_ft`,
+`top_ft`, `radius_nm` and the computed one-line `summary`, beside the full `reason` and `source_ids`. An airport
 is closed while a hazard area from the surface to FL100 comes within
 `recovery.airport_closure_radius_nm`, or its TAF or METAR carries `VA` (a METAR `VA` with no end
 is closed until the planning horizon and marked `open_ended`). The solver frees flights from now
 to `horizon_after_closure_min` after the last closure, freezes the rest, and chooses keep (a delay
 in 5-minute steps up to `max_delay_min`), cancel with the paired leg, or swap, under minimum turn,
-`max_fdp_min`, closed-airport and seat constraints, minimising the policy's USD weights, with a
-`solve_time_limit_s` limit (the demo solves in under a second). The ADK agent has the tools
+`max_fdp_min`, closed-airport and seat constraints, minimising the policy's USD weights. The search
+is deterministic: `solve_work_s` of CP-SAT deterministic time with interleaved search on a fixed 8
+workers and seed, so the same disruption gives the same plan on every run and machine;
+`solve_time_limit_s` is only a wall-clock guard. There is no solution hint and no greedy plan. The ADK agent has the tools
 `disruption`, `run_scenario(extend_min, protect_flights, max_delay_min)`, `compare` and
 `submit_recommendation(scenario_id, rationale, risks)`; scenarios are the closure as forecast,
 `+scenario_extend_1_min` and `+scenario_extend_2_min`; every number, flight and airport in the
@@ -1978,7 +1988,7 @@ route sets its own), and `Strict-Transport-Security: max-age=31536000` over http
 | `GET /api/replays` | `ReplayCaseList` = `{cases: [ReplayCaseSummary]}`: each recorded case without its records (`case_id`, `label`, `recorded_from`, `recorded_to`, `region`, `volcano_ids`, `notes`, `record_count`, `banner`) |
 | `GET /api/blobs/{key}` | PNG bytes; `key` must match `BLOB_KEY_PATTERN` (else 404); `Cache-Control: public, max-age=86400, immutable` |
 | `GET /api/budget` | `BudgetView` `{backend, as_of, tiers: [{tier, model_id, used, limit, remaining}], note}` |
-| `GET /api/notices?limit=` | `{notices: [NoticeReading]}`, current mode, newest first |
+| `GET /api/notices?limit=` | `{notices: [NoticeReading]}`, current mode, newest first; includes the JMA volcano reports of the live picture (`JMA-` VONA records) as `source_kind "jma_xml"`, language `ja`, verified, no model |
 | `GET /api/recovery?limit=` | `{plans: [RecoveryPlan]}`, current mode, newest first |
 | `GET /api/docs?kind=&limit=` and `GET /api/docs/{DOC-id}` | `{docs: [DocSummary]}`; `SraDraft` or `VarDraft` |
 | `GET /api/backtest` | `BacktestScorecard` (the store's `backtest/latest`, else `docs/backtest/scorecard.json`); 404 `not_found`, 503 `unavailable` |
@@ -2032,7 +2042,7 @@ Wall resyncs from `/api/wall` and the Desk reloads its list when the stream reop
 | `notice` | `NoticeReading` | upsert by `id` |
 | `recovery` | `RecoveryPlan` | upsert by `id` |
 | `message` | `CrewPaxMessage` | upsert by `id` |
-| `doc` | `DocSummary` (SRA, VAR) or `HandoverBrief` | upsert by `id` |
+| `doc` | `DocSummary` (`kind` SRA, VAR or HANDOVER; status DRAFT, SIGNED or ACKNOWLEDGED) | upsert by `id`; a HANDOVER summary tells the Desk to refetch `/api/desk/handovers` |
 | `budget` | `BudgetView` | replace the AI budget chip |
 | `heartbeat` | `{"now": iso, "mode": "LIVE"}` (no `id`) | update clock |
 
@@ -2092,7 +2102,9 @@ failure is HTTP 503 `{"error": "ai_unavailable", "message": "AI UNAVAILABLE: <re
 | `POST /api/desk/messages/draft` | `{advisory_id}` or `{recovery_id}` | `{messages: [...]}`; 409 `source_not_approved`, `source_unusable`; 503 |
 | `POST /api/desk/messages/{id}/approve`, `.../edit`, `.../reject` | `{version}`, `{version, bodies: {lang: text}}`, `{version, reason}` | `CrewPaxMessage`; 409 `version_conflict` (`current` set), `invalid_transition`; 422 |
 | `POST /api/desk/handover` | `{since, incoming, outgoing?}` | `HandoverBrief` (`outgoing` defaults to the session name); 503 |
+| `GET /api/desk/handovers?limit=` | none | `{handovers: [HandoverBrief]}`, current mode, latest first |
 | `GET /api/desk/handover/{ho_id}` | none | `HandoverBrief` |
+| `GET /docs/{DOC-id or ho_id}` | none | the printable page `web/doc.html` (same headers as the other pages); 404 for any other id |
 | `POST /api/desk/handover/{ho_id}/ack` | none (send `X-Tephra-Desk: 1`) | `HandoverBrief` with `receiver_ack`; open drafts are recorded, not refused |
 | `POST /api/desk/docs/sra` | `{region}` | `SraDraft`; 404 unknown region; 409 `no_active_volcano`; 503 |
 | `POST /api/desk/docs/var` | `{flight_id}` | `VarDraft`; 404 flight not exposed |

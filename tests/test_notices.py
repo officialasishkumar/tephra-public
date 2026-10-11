@@ -687,6 +687,7 @@ async def desk(tmp_path: Path) -> AsyncIterator[SimpleNamespace]:
         llm=ScriptedLlm([]),
         add_verified_notice=add_verified_notice,
         joined=joined,
+        live=SimpleNamespace(vonas={}),
     )
     app = FastAPI()
     app.include_router(router, prefix="/api")
@@ -779,3 +780,35 @@ async def test_get_lists_notices_newest_first_for_the_current_mode(desk: SimpleN
     desk.runtime.mode = RunMode.REPLAY
     assert (await desk.client.get("/api/notices")).json()["notices"] == []
     assert (await desk.client.get("/api/notices", params={"limit": 0})).status_code == 422
+
+
+async def test_get_lists_jma_reports_from_the_live_picture_as_verified_japanese(
+    desk: SimpleNamespace,
+) -> None:
+    source = text_of("synthetic_id_ash_seen.txt")
+    desk.runtime.llm = ScriptedLlm([indonesian()])
+    await desk.client.post("/api/desk/notices", json={"text": source})
+    pasted = desk.runtime.joined[0]
+    jma = pasted.model_copy(
+        update={
+            "provenance": pasted.provenance.model_copy(update={"source_id": "JMA-VFVO52-20261009"}),
+            "issued_at": pasted.issued_at + timedelta(hours=1),
+        }
+    )
+    other = pasted.model_copy(
+        update={"provenance": pasted.provenance.model_copy(update={"source_id": "MAGMA-1"})}
+    )
+    desk.runtime.live.vonas = {"JMA-VFVO52-20261009": jma, "MAGMA-1": other}
+    notices = (await desk.client.get("/api/notices")).json()["notices"]
+    assert len(notices) == 2  # the MAGMA record is not a JMA report
+    assert [n["created_at"] for n in notices] == sorted(
+        (n["created_at"] for n in notices), reverse=True
+    )
+    report = next(n for n in notices if n["id"] == "JMA-VFVO52-20261009")
+    assert (report["language"], report["verified"], report["source_kind"]) == (
+        "ja",
+        True,
+        "jma_xml",
+    )
+    assert report["model_id"] is None
+    assert [n["source_kind"] for n in notices if n is not report] == ["pasted"]

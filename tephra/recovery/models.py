@@ -2,16 +2,18 @@
 
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
-from pydantic import Field
+from pydantic import Field, computed_field
 
 from tephra.models import LlmBackendName, TephraModel, ToolCallRecord, UtcDatetime
 
 __all__ = [
     "AI_UNAVAILABLE",
+    "MINUTES_PER_DAY",
     "AiUnavailableBody",
     "Closure",
+    "ClosureBasis",
     "Disruption",
     "FerryLeg",
     "FlightAction",
@@ -25,10 +27,12 @@ __all__ = [
     "RfaCrew",
     "RfaFlight",
     "RfaTail",
+    "RfaTemplateFlight",
     "RunRequest",
     "Schedule",
     "ScheduleHeader",
     "SolveStatus",
+    "flight_key",
 ]
 
 AI_UNAVAILABLE: Final = "AI UNAVAILABLE"
@@ -63,11 +67,17 @@ class RfaCrew(TephraModel):
     report_min: int = Field(description="Duty starts this many minutes after the day's anchor")
 
 
-class RfaFlight(TephraModel):
+MINUTES_PER_DAY: Final = 1440
+
+
+class RfaTemplateFlight(TephraModel):
+    """One line of the daily template in ``data/rfa/flights.json``: the same flight number flies
+    every day, at ``std_min`` minutes after the start of that day."""
+
     flight_no: str = Field(pattern=r"^RFA\d{3}$")
     origin: str = Field(pattern=r"^[A-Z]{4}$")
     dest: str = Field(pattern=r"^[A-Z]{4}$")
-    std_min: int = Field(description="Scheduled departure, minutes after the day's anchor")
+    std_min: int = Field(description="Scheduled departure, minutes after the start of the day")
     block_min: int = Field(gt=0)
     tail: str
     pax_booked: int = Field(ge=0)
@@ -76,8 +86,28 @@ class RfaFlight(TephraModel):
     )
 
 
+class RfaFlight(RfaTemplateFlight):
+    """A template flight on one service date. Real airlines reuse the flight number every day,
+    so a flight is identified by :attr:`key`, for example ``RFA239/06SEP``."""
+
+    service_date: date = Field(description="Local calendar date of the departure")
+    day_offset: int = Field(ge=0, description="Days after the schedule's first operating day")
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def key(self) -> str:
+        return flight_key(self.flight_no, self.service_date)
+
+
+def flight_key(flight_no: str, service_date: date) -> str:
+    return f"{flight_no}/{service_date:%d%b}".upper()
+
+
 class Schedule(TephraModel):
-    """One operating day of RFA, anchored to a calendar day by :func:`load_schedule`."""
+    """A rolling window of RFA flights: the operating day that holds the clock and the next one.
+
+    ``std_min`` of every flight counts from the first day's anchor, so the second day's flights
+    leave ``MINUTES_PER_DAY`` later than the template says. :func:`load_schedule` builds it."""
 
     day: date
     header: ScheduleHeader
@@ -101,6 +131,14 @@ class Schedule(TephraModel):
 # --- closures and disruption ----------------------------------------------------------------
 
 
+ClosureBasis = Literal["HAZARD", "OFFICIAL", "TAF", "METAR", "ENTERED"]
+OFFICIAL_PREFIXES: Final = ("SIGMET:", "VAA:")
+
+
+def _level(ft: int) -> str:
+    return "SFC" if ft <= 0 else f"FL{round(ft / 100):03d}"
+
+
 class Closure(TephraModel):
     """An airport that cannot be used between two instants. Reason and sources are code-written."""
 
@@ -112,16 +150,46 @@ class Closure(TephraModel):
     open_ended: bool = Field(
         default=False, description="No end is published; planned to the end of the horizon"
     )
+    basis: list[ClosureBasis] = Field(
+        default_factory=list, description="What closed it: written by code, merged with the reason"
+    )
+    base_ft: int | None = Field(default=None, description="Lowest base of the ash behind it")
+    top_ft: int | None = Field(default=None, description="Highest top of the ash behind it")
+    radius_nm: float | None = Field(default=None, description="The policy's closure radius")
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def summary(self) -> str:
+        """One line for a card; ``reason`` and ``source_ids`` keep the full audit trail."""
+        parts: list[str] = []
+        if {"HAZARD", "OFFICIAL"} & set(self.basis):
+            band = (
+                f" {_level(self.base_ft)}/{_level(self.top_ft)}"
+                if self.base_ft is not None and self.top_ft is not None
+                else ""
+            )
+            near = f" within {self.radius_nm:g} NM" if self.radius_nm is not None else " nearby"
+            parts.append(f"Ash{band}{near}")
+        if "TAF" in self.basis:
+            parts.append("TAF forecasts VA")
+        if "METAR" in self.basis:
+            parts.append("METAR reports VA")
+        if "ENTERED" in self.basis:
+            parts.append("Entered by dispatcher")
+        official = sum(1 for source in self.source_ids if source.startswith(OFFICIAL_PREFIXES))
+        if official:
+            parts.append(f"{official} official product{'' if official == 1 else 's'}")
+        return " · ".join(parts)
 
 
 class Disruption(TephraModel):
     """What the closures do to the unmodified schedule."""
 
     closures: list[Closure]
-    blocked_flights: list[str] = Field(description="Flight numbers that depart or land closed")
+    blocked_flights: list[str] = Field(description="Keys of flights that depart or land closed")
     blocked_pax: int
     airborne_at_risk: list[str] = Field(
-        description="Flights already airborne to an airport that is closed on arrival"
+        description="Keys of flights already airborne to an airport that is closed on arrival"
     )
     free_flights: int = Field(description="Flights the solver may change")
     frozen_flights: int
@@ -146,6 +214,8 @@ class RecoveryActionKind(StrEnum):
 
 class FlightAction(TephraModel):
     flight_no: str
+    flight_key: str = Field(description="flight_no and service date, e.g. RFA239/06SEP")
+    service_date: date
     origin: str
     dest: str
     std: UtcDatetime
@@ -233,9 +303,15 @@ class RecoveryPlan(TephraModel):
     decided_at: UtcDatetime | None = None
     reject_reason: str | None = None
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def chosen(self) -> RecoveryScenario | None:
+        """The recommended scenario, so a client need not search ``scenarios`` for it."""
         return next((s for s in self.scenarios if s.id == self.chosen_scenario_id), None)
+
+    def to_doc(self) -> dict[str, Any]:
+        """The stored form: ``chosen`` is derived, so it is not kept a second time."""
+        return self.model_dump(mode="json", exclude={"chosen"})
 
 
 class RecoveryPlanList(TephraModel):

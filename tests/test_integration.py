@@ -344,6 +344,12 @@ async def test_the_recovery_agent_runs_once_when_the_closed_airports_change(
         await asyncio.gather(*runtime._tasks)
         plans = await runtime.store.list_docs(Collection.RECOVERY)
         assert len(plans) == 1
+        print(
+            "DBG",
+            plans[0].get("unavailable_reason"),
+            plans[0].get("validation_errors"),
+            [(sc["status"], sc["solver_status"], sc["solve_ms"]) for sc in plans[0]["scenarios"]],
+        )
         assert plans[0]["status"] == "DRAFT"
         assert plans[0]["llm_backend"] == "stub"
         event = runtime.bus.last(SseEvent.RECOVERY)

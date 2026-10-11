@@ -1012,6 +1012,9 @@ body[data-rail]:not([data-rail="brief"]) .brief { display: none; }
 .x-closure { display: inline-flex; flex-direction: column; gap: 1px; padding: 6px 10px; border: 1px solid var(--c-serious); border-radius: var(--radius-sm); background: var(--c-serious-bg); }
 .x-closure strong { color: var(--c-serious); font-size: var(--fs-3); }
 .x-closure span { font-size: var(--fs-1); color: var(--c-text-2); }
+.x-closure .x-closure__sum { font-size: var(--fs-2); color: var(--c-text); }
+.x-closure__more > summary { font-size: var(--fs-1); color: var(--c-text-2); cursor: pointer; }
+.x-closure__why, .x-closure__src { margin: 2px 0 0; font-size: var(--fs-1); line-height: 1.45; color: var(--c-text-2); overflow-wrap: anywhere; max-width: 36ch; }
 .x-chosen { font-size: var(--fs-3); }
 .x-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2); }
 .x-stat { display: flex; flex-direction: column-reverse; padding: 8px 10px; border: 1px solid var(--c-line-1); border-radius: var(--radius-sm); background: var(--c-surface-1); min-width: 0; }

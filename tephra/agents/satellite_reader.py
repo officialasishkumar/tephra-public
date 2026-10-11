@@ -7,9 +7,10 @@ bearing and distance from the vent when the frame is georeferenced. The reading 
 supporting evidence only: ``plume_part`` offers it to the Plume Reader as text with its own
 source id, it never narrows anything, and the model never sets a height, a number or a time.
 
-The crops carry no georeference today (``SatelliteFrame.bbox`` is None), so boxes stay as
-pixel boxes until the feed sets one. A model failure, or an answer that fails the checks
-after one repair, is ``AI UNAVAILABLE``: nothing is substituted.
+JMA ``se3`` crops carry a ``bbox`` (an equirectangular grid), so their boxes become lat/lon
+polygons; a frame without one (Mercator or geostationary crops) keeps pixel boxes.
+A model failure, or an answer that fails the checks after one repair, is
+``AI UNAVAILABLE``: nothing is substituted.
 """
 
 import re

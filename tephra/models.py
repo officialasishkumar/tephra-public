@@ -1160,6 +1160,7 @@ class RecoveryPolicy(PolicyModel):
     horizon_after_closure_min: PolicyValue
     scenario_extend_1_min: PolicyValue
     scenario_extend_2_min: PolicyValue
+    solve_work_s: PolicyValue
     solve_time_limit_s: PolicyValue
     delay_cost_per_min_usd: PolicyValue
     delay_cost_per_pax_hour_usd: PolicyValue

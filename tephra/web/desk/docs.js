@@ -9,7 +9,6 @@ import { app } from './state.js';
 import { toast } from './toast.js';
 import { emptyPanel, openBSheet, sectionHead, unavailableCard } from './ui.js';
 
-const HO_KEY = 'tephra.desk.handover';
 const WINDOWS = [4, 8, 12];
 
 let handover = null;
@@ -19,23 +18,6 @@ let hoHours = 8;
 let ackBusy = false;
 let drafting = ''; // key of the draft in progress
 let draftError = null;
-
-const store = {
-  get() {
-    try {
-      return window.localStorage.getItem(HO_KEY);
-    } catch {
-      return null;
-    }
-  },
-  set(v) {
-    try {
-      window.localStorage.setItem(HO_KEY, v);
-    } catch {
-      // The brief is still on screen; it just is not remembered.
-    }
-  },
-};
 
 export const docsToSign = () => app.docs.filter((d) => d.status === 'DRAFT');
 
@@ -48,33 +30,33 @@ export async function loadDocs() {
   }
 }
 
+// The latest brief of this mode comes from the server (GET /api/desk/handovers, latest first), so
+// it survives a reload and a change of phone; nothing is kept in the browser.
 export async function loadHandover() {
-  const id = store.get();
-  if (!id || handover) return;
-  const res = await api(PATHS.handoverGet(id));
-  if (res.ok && res.data && res.data.id) {
-    handover = res.data;
+  const res = await api(PATHS.handovers);
+  if (res.ok && res.data && Array.isArray(res.data.handovers)) {
+    handover = res.data.handovers.find((b) => b && b.id) || null;
     renderDocs();
   }
 }
 
+export function clearHandover() {
+  handover = null;
+}
+
+// The `doc` event carries a DocSummary: id, kind (SRA, VAR or HANDOVER), status, title,
+// created_at, updated_at, replay, signed_roles, missing_roles and the region or flight it is about.
+const SUMMARY_KINDS = new Set(['SRA', 'VAR', 'HANDOVER']);
+const isSummary = (s) => s && typeof s === 'object' && typeof s.id === 'string' && SUMMARY_KINDS.has(s.kind)
+  && typeof s.status === 'string' && typeof s.title === 'string' && typeof s.created_at === 'string'
+  && Array.isArray(s.missing_roles) && Array.isArray(s.signed_roles);
+
 export function onDocEvent(summary) {
-  if (!summary || typeof summary !== 'object' || typeof summary.id !== 'string') return;
-  if (summary.doc_type === 'handover') return;
-  if (!Array.isArray(summary.missing_roles)) {
-    // The event may carry the whole document: reduce it to the list line.
-    if (!Array.isArray(summary.signatures)) return;
-    summary = {
-      id: summary.id,
-      kind: summary.kind,
-      status: summary.status,
-      title: summary.kind === 'SRA' ? `SRA draft: ${summary.region_name}` : `VAR draft: ${summary.proxy_flight} / ${summary.volcano_name}`,
-      created_at: summary.created_at,
-      updated_at: summary.updated_at,
-      replay: summary.replay,
-      signed_roles: summary.signatures.filter((l) => l.signed_at).map((l) => l.role),
-      missing_roles: summary.signatures.filter((l) => !l.signed_at).map((l) => l.role),
-    };
+  if (!isSummary(summary)) return;
+  if (summary.kind === 'HANDOVER') {
+    // A brief or its read-back: fetch the brief itself; the event is only the list line.
+    loadHandover();
+    return;
   }
   app.docs = [summary, ...app.docs.filter((d) => d.id !== summary.id)].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   renderDocs();
@@ -274,7 +256,6 @@ async function generateHandover(incomingInput, msg) {
   hoBusy = false;
   if (res.ok && res.data && res.data.id) {
     handover = res.data;
-    store.set(res.data.id);
     hoError = null;
     announce('Handover brief ready.');
   } else if (isUnavailable(res)) hoError = { reason: unavailableReason(res) };

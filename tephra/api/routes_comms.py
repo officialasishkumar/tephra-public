@@ -24,7 +24,7 @@ from tephra.comms.models import (
     MessageList,
     MessageStatus,
 )
-from tephra.models import DecisionRequest, ErrorBody, RejectRequest, RunMode
+from tephra.models import DecisionRequest, ErrorBody, RejectRequest, RunMode, TephraModel
 
 __all__ = ["router"]
 
@@ -194,6 +194,18 @@ async def desk_handover(
     except messages.AiUnavailable as exc:
         return _ai_unavailable(exc)
     return _json(brief)
+
+
+class HandoverList(TephraModel):
+    handovers: list[HandoverBrief]
+
+
+@router.get("/desk/handovers", response_model=HandoverList)
+async def list_handovers(session: DeskSession, runtime: RuntimeDep, limit: Limit = 20) -> Response:
+    """The shift handover briefs of the current mode, latest first."""
+    replay = runtime.mode is RunMode.REPLAY
+    briefs = await handover.list_handovers(runtime.store, replay=replay, limit=limit)
+    return _json(HandoverList(handovers=briefs))
 
 
 @router.get("/desk/handover/{handover_id}", response_model=HandoverBrief)

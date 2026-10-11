@@ -205,10 +205,10 @@ def build_recovery_agent(
         max_delay_min: int | None = None,
     ) -> dict[str, Any]:
         """Solve the day with every closure lasting extend_min minutes longer than published
-        (0 for as published). protect_flights lists flight numbers that must not be cancelled;
-        max_delay_min shortens the longest delay allowed. Returns the scenario id, solver
-        status and the totals of kept, delayed, cancelled and moved flights, passengers and
-        USD cost."""
+        (0 for as published). protect_flights lists flight keys (number/date, like
+        RFA239/06SEP) that must not be cancelled; max_delay_min shortens the longest delay
+        allowed. Returns the scenario id, solver status and the totals of kept, delayed,
+        cancelled and moved flights, passengers and USD cost."""
         return await box.run_scenario(extend_min, protect_flights, max_delay_min)
 
     async def compare(scenario_ids: list[str]) -> dict[str, Any]:

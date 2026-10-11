@@ -38,7 +38,7 @@ LISTED_FLIGHTS: Final = 25
 
 _SCENARIO_ID = re.compile(rf"\bSC-[0-9a-f]{{{SHORT_HASH_LEN}}}\b")
 _TAIL = re.compile(r"\bRFA-T\d{2}\b")
-_FLIGHT = re.compile(r"\bRFA\d{3,4}\b")
+_FLIGHT = re.compile(r"\bRFA\d{3,4}(?:/\d{2}[A-Z]{3})?\b")
 _CODE = re.compile(r"\b[A-Z]{3,4}\b")
 _TIME = re.compile(r"\b\d{1,2}:\d{2}Z?")
 _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
@@ -112,7 +112,7 @@ class Toolbox:
     ) -> dict[str, Any]:
         """Solve the day with every closure lasting ``extend_min`` minutes longer."""
         rules = self.policy.recovery
-        known = {flight.flight_no for flight in self.schedule.flights}
+        known = {flight.key for flight in self.schedule.flights}
         protect = [code.strip().upper() for code in protect_flights or ()]
         problems = []
         if not 0 <= extend_min <= rules.scenario_extend_2_min.value:
@@ -204,9 +204,9 @@ class Toolbox:
         swaps = [a for a in scenario.actions if a.kind is RecoveryActionKind.SWAP]
         result |= {
             "totals": scenario.totals.model_dump(),
-            "cancelled_flights": [a.flight_no for a in cancelled][:LISTED_FLIGHTS],
+            "cancelled_flights": [a.flight_key for a in cancelled][:LISTED_FLIGHTS],
             "swaps": [
-                {"flight": a.flight_no, "from_tail": a.tail, "to_tail": a.new_tail}
+                {"flight": a.flight_key, "from_tail": a.tail, "to_tail": a.new_tail}
                 for a in swaps[:LISTED_FLIGHTS]
             ],
             "ferry_flights": [

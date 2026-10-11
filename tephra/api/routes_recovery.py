@@ -193,6 +193,7 @@ def _entered(body: RunRequest, network: set[str]) -> list[Closure]:
             start=closure.start,
             end=closure.end,
             reason=f"ENTERED BY DISPATCHER {closure.reference}".strip(),
+            basis=["ENTERED"],
         )
         for closure in body.closures
     ]

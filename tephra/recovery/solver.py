@@ -15,12 +15,11 @@ has to reach it. There is no heuristic plan: when CP-SAT finds none, the scenari
 """
 
 import math
-import os
 import time
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Final
 
 from ortools.sat.python import cp_model
@@ -28,6 +27,7 @@ from ortools.sat.python import cp_model
 from tephra.geo.units import distance_nm
 from tephra.models import Airport, OperatorPolicy
 from tephra.recovery.models import (
+    MINUTES_PER_DAY,
     Closure,
     Disruption,
     FerryLeg,
@@ -51,7 +51,13 @@ at most this long after the aircraft is ready, unless it is the aircraft's publi
 flight."""
 FERRIES_PER_FLIGHT: Final = 2
 """Ferry hops offered after each flight: the ones that arrive soonest before a departure."""
-MAX_WORKERS: Final = 8
+SEARCH_WORKERS: Final = 8
+"""Fixed, not the CPU count: interleaved search is reproducible only for one worker count."""
+SEARCH_SEED: Final = 7
+STOP_MARGIN_S: Final = 0.1
+"""The policy's time limit covers building the model and the solver's own stop latency, so the
+search gets the limit minus the time already spent minus this much."""
+MIN_SEARCH_S: Final = 0.2
 _PER_HOUR: Final = 60
 """Objective terms are scaled by 60 so that a cost per passenger-hour stays an integer."""
 _Window = tuple[int, int]
@@ -71,6 +77,9 @@ class _Frame:
     free: list[RfaFlight] = field(default_factory=list)
     pinned: list[RfaFlight] = field(default_factory=list)
     frozen: int = 0
+    kept_pairs: set[tuple[str, date]] = field(default_factory=set)
+    """Excursions with a leg after the horizon: that leg stays as published, so the other
+    leg cannot be cancelled."""
     tail_loc: list[str | None] = field(default_factory=list)
     tail_ready: list[int | None] = field(default_factory=list)
 
@@ -115,6 +124,9 @@ def _frame(
         frame.free += [flight for flight in rest if flight.std_min <= horizon_end]
         beyond = [flight for flight in rest if flight.std_min > horizon_end]
         frame.pinned += beyond[:1]
+        frame.kept_pairs |= {
+            (flight.pair_id, flight.service_date) for flight in beyond if flight.pair_id
+        }
         if cut:
             last = chain[cut - 1]
             frame.tail_loc.append(last.dest)
@@ -146,9 +158,9 @@ def describe_disruption(
     ]
     return Disruption(
         closures=list(closures),
-        blocked_flights=[f.flight_no for f in blocked],
+        blocked_flights=[f.key for f in blocked],
         blocked_pax=sum(f.pax_booked for f in blocked),
-        airborne_at_risk=[f.flight_no for f in airborne],
+        airborne_at_risk=[f.key for f in airborne],
         free_flights=len(frame.free),
         frozen_flights=frame.frozen,
         horizon_end=schedule.at(frame.horizon_end_min),
@@ -205,6 +217,7 @@ class _Model:
         self.offset = 0
         self.ferries: list[_Ferry] = []
         self.starts: dict[int, list[cp_model.IntVar]] = defaultdict(list)
+        self.first_lits: dict[tuple[int, int], cp_model.IntVar] = {}
         schedule = frame.schedule
         self.tail_index = {tail.tail: i for i, tail in enumerate(schedule.tails)}
         reports = {crew.crew_id: crew.report_min for crew in schedule.crews}
@@ -242,11 +255,12 @@ class _Model:
         model.Add(tail == orig).OnlyEnforceIf(skip)
         if flight.std_min not in starts:
             model.Add(st != flight.std_min).OnlyEnforceIf(skip.Not())
-        if flight.flight_no in self.protect:
+        if flight.key in self.protect:
             model.Add(skip == 0)
         limit = model.NewIntVar(min(self.duty_limits), max(self.duty_limits), f"limit{index}")
         model.AddElement(tail, self.duty_limits, limit)
-        model.Add(st + flight.block_min <= limit).OnlyEnforceIf(skip.Not())
+        shift = flight.day_offset * MINUTES_PER_DAY
+        model.Add(st + flight.block_min <= limit + shift).OnlyEnforceIf(skip.Not())
         if len(seats) > 1:
             node.moved = model.NewBoolVar(f"moved{index}")
             model.Add(tail == orig).OnlyEnforceIf(node.moved.Not())
@@ -279,11 +293,14 @@ class _Model:
 
     def _link_pairs(self) -> None:
         """Both legs of an excursion are flown or both are cancelled."""
-        first: dict[str, cp_model.IntVar] = {}
+        first: dict[tuple[str, date], cp_model.IntVar] = {}
         for node in self.nodes:
             if node.skip is None or node.flight.pair_id is None:
                 continue
-            other = first.setdefault(node.flight.pair_id, node.skip)
+            pair = (node.flight.pair_id, node.flight.service_date)
+            if pair in self.frame.kept_pairs:
+                self.model.Add(node.skip == 0)
+            other = first.setdefault(pair, node.skip)
             if other is not node.skip:
                 self.model.Add(node.skip == other)
 
@@ -324,6 +341,7 @@ class _Model:
             lit = self.model.NewBoolVar(f"start{k}_{node.index}")
             self.arcs.append((0, node.index, lit))
             self.starts[k].append(lit)
+            self.first_lits[(k, node.index)] = lit
             self.model.Add(node.tail == k).OnlyEnforceIf(lit)
             if ready is not None:
                 self.model.Add(node.st >= ready).OnlyEnforceIf(lit)
@@ -359,7 +377,7 @@ class _Model:
             gap = follower.flight.std_min - (ready + hop + turn)
             if gap >= 0:
                 offers.append((gap, follower.index, follower, hop))
-        for *_, follower, hop in sorted(offers, key=lambda offer: offer[:2])[:FERRIES_PER_FLIGHT]:
+        for follower, hop in _chosen_offers(offers, node.orig_tail):
             made = self._ferry(flight.dest, follower, hop, ready, turn)
             if made is None:
                 continue
@@ -389,7 +407,7 @@ class _Model:
             gap = follower.flight.std_min - (earliest + hop + turn)
             if gap >= 0:
                 offers.append((gap, follower.index, follower, hop))
-        for *_, follower, hop in sorted(offers, key=lambda offer: offer[:2])[:FERRIES_PER_FLIGHT]:
+        for follower, hop in _chosen_offers(offers, k):
             made = self._ferry(here, follower, hop, earliest, turn)
             if made is None:
                 continue
@@ -432,6 +450,17 @@ class _Model:
         self.arcs += [(0, sentinel, present), (sentinel, 0, present)]
         self.model.AddMultipleCircuit(self.arcs)
         self.model.Minimize(sum(coef * var for coef, var in self.terms) + self.offset)
+
+
+def _chosen_offers(
+    offers: Sequence[tuple[int, int, _Node, int]], tail: int
+) -> list[tuple[_Node, int]]:
+    """The ferries that arrive soonest, and always the way to the aircraft's own pinned flight:
+    that flight stays as published, so a chain that was displaced has to be able to reach it."""
+    ranked = sorted(offers, key=lambda offer: offer[:2])
+    soonest = ranked[:FERRIES_PER_FLIGHT]
+    own = [o for o in ranked[FERRIES_PER_FLIGHT:] if o[2].pinned and o[2].orig_tail == tail]
+    return [(follower, hop) for *_, follower, hop in [*soonest, *own]]
 
 
 # --- solving and reading the answer ------------------------------------------------------------
@@ -484,8 +513,16 @@ def solve_recovery(
         )
     built = _Model(frame, policy, airports, protect=protect, max_delay_min=delay_limit)
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = float(rules.solve_time_limit_s.value)
-    solver.parameters.num_workers = min(MAX_WORKERS, os.cpu_count() or 1)
+    spent = time.perf_counter() - started
+    solver.parameters.max_time_in_seconds = max(
+        MIN_SEARCH_S, float(rules.solve_time_limit_s.value) - spent - STOP_MARGIN_S
+    )
+    # A deterministic limit with interleaved search returns the same plan on every run and
+    # every machine (only the wall time differs); the wall-clock limit above is a guard.
+    solver.parameters.max_deterministic_time = float(rules.solve_work_s.value)
+    solver.parameters.num_workers = SEARCH_WORKERS
+    solver.parameters.interleave_search = True
+    solver.parameters.random_seed = SEARCH_SEED
     code = solver.Solve(built.model)
     name = solver.StatusName(code)
     if code not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -531,6 +568,8 @@ def _read(
         actions.append(
             FlightAction(
                 flight_no=flight.flight_no,
+                flight_key=flight.key,
+                service_date=flight.service_date,
                 origin=flight.origin,
                 dest=flight.dest,
                 std=schedule.at(flight.std_min),
@@ -555,7 +594,7 @@ def _read(
         for f in built.ferries
         if solver.Value(f.lit)
     ]
-    return sorted(actions, key=lambda a: (a.std, a.flight_no)), sorted(
+    return sorted(actions, key=lambda a: (a.std, a.flight_key)), sorted(
         legs, key=lambda leg: leg.dep
     )
 
@@ -589,7 +628,7 @@ def _totals(
     parts = [round(delay_usd), cancel_usd, swap_usd, ferry_usd]
     return RecoveryTotals(
         free_flights=len(frame.free),
-        kept_flights=len(frame.free) - len({a.flight_no for a in actions}),
+        kept_flights=len(frame.free) - len({a.flight_key for a in actions}),
         delayed_flights=len(delayed),
         cancelled_flights=len(cancelled),
         swapped_flights=len(swapped),

@@ -33,6 +33,7 @@ export const PATHS = {
   docVar: '/api/desk/docs/var',
   docSign: (id) => `/api/desk/docs/${encodeURIComponent(id)}/sign`,
   handover: '/api/desk/handover',
+  handovers: '/api/desk/handovers?limit=1',
   handoverGet: (id) => `/api/desk/handover/${encodeURIComponent(id)}`,
   handoverAck: (id) => `/api/desk/handover/${encodeURIComponent(id)}/ack`,
 };

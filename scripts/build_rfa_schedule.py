@@ -21,7 +21,7 @@ from pathlib import Path
 from tephra.config import PROJECT_ROOT
 from tephra.geo.units import distance_nm
 from tephra.models import Airport, AirportFile
-from tephra.recovery.models import RfaCrew, RfaFlight, RfaTail, ScheduleHeader
+from tephra.recovery.models import RfaCrew, RfaTail, RfaTemplateFlight, ScheduleHeader
 from tephra.recovery.schedule import SCHEDULE_DIR, block_minutes
 
 SEED = 20260907
@@ -77,7 +77,9 @@ LOAD_FACTOR_RANGE = (0.72, 0.97)
 FLIGHT_COUNT_RANGE = (120, 150)
 
 
-def build(airports: dict[str, Airport]) -> tuple[list[RfaTail], list[RfaCrew], list[RfaFlight]]:
+def build(
+    airports: dict[str, Airport],
+) -> tuple[list[RfaTail], list[RfaCrew], list[RfaTemplateFlight]]:
     rng = random.Random(SEED)
     tails: list[RfaTail] = []
     crews: list[RfaCrew] = []
@@ -104,7 +106,7 @@ def build(airports: dict[str, Airport]) -> tuple[list[RfaTail], list[RfaCrew], l
             drafts.extend(legs)
     drafts.sort(key=lambda leg: (leg["std_min"], leg["origin"], leg["tail"]))
     flights = [
-        RfaFlight(flight_no=f"RFA{101 + index}", **leg)  # type: ignore[arg-type]
+        RfaTemplateFlight(flight_no=f"RFA{101 + index}", **leg)  # type: ignore[arg-type]
         for index, leg in enumerate(drafts)
     ]
     return tails, crews, flights
@@ -160,7 +162,7 @@ def _lines(items: list[dict[str, object]]) -> str:
 
 
 def write(
-    out_dir: Path, tails: list[RfaTail], crews: list[RfaCrew], flights: list[RfaFlight]
+    out_dir: Path, tails: list[RfaTail], crews: list[RfaCrew], flights: list[RfaTemplateFlight]
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     files = {

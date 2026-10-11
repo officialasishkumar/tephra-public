@@ -39,7 +39,8 @@ export async function loadPlans() {
   app.hub.afterPlans();
 }
 
-export const chosenOf = (p) => (p.scenarios || []).find((s) => s.id === p.chosen_scenario_id) || null;
+// The API returns the recommended scenario as `chosen` (a computed field of the plan).
+export const chosenOf = (p) => p.chosen || null;
 
 const byNewest = (a, b) => String(b.created_at).localeCompare(String(a.created_at));
 
@@ -78,8 +79,10 @@ function closuresBlock(p) {
     el('li', { class: 'clo' },
       el('span', { class: 'clo__icao' }, icon('i-airport', 'st'), el('span', { text: c.icao })),
       el('span', { class: 'clo__win' }, el('span', { text: window_(c) }), c.open_ended ? el('span', { class: 'chip chip--caution chip--sm' }, icon('st-caution', 'st'), el('span', { text: 'no end published' })) : null),
+      // `summary` is one line written by code; the full reason and every source id stay for audit.
+      c.summary ? el('p', { class: 'clo__sum', text: c.summary }) : null,
       el('details', { class: 'clo__more' },
-        el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: 'Why it is closed' })),
+        el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: 'Full reason and sources' })),
         el('p', { class: 'clo__why', text: c.reason }),
         c.source_ids && c.source_ids.length ? el('p', { class: 'clo__src mono', text: c.source_ids.join(' · ') }) : null)))));
   const d = p.disruption;
@@ -156,11 +159,14 @@ function rationaleBlock(p) {
   return el('section', { class: 'nsec', 'aria-labelledby': 'net-why' }, sectionHead('Why this scenario', { id: 'net-why' }), card);
 }
 
+// A flight number repeats every day, so a flight is shown by its key: number and service date.
+const flightLabel = (a) => a.flight_key || a.flight_no;
+
 function actionRow(a) {
   const [shape, word] = KIND[a.kind] || KIND.KEEP;
-  const detail = a.kind === 'DELAY' ? `+${a.delay_min} min, departs ${hhmmz(a.new_std)}` : a.kind === 'SWAP' ? `to ${a.new_tail} (was ${a.tail})` : a.kind === 'CANCEL' ? (a.pair_id ? 'cancelled with its return leg' : 'cancelled') : '';
+  const detail = a.kind === 'DELAY' ? `+${a.delay_min} min, departs ${dayMonthHhmm(a.new_std)}` : a.kind === 'SWAP' ? `to ${a.new_tail} (was ${a.tail})` : a.kind === 'CANCEL' ? (a.pair_id ? 'cancelled with its return leg' : 'cancelled') : '';
   return el('tr', { class: `ar ar--${a.kind.toLowerCase()}` },
-    el('th', { scope: 'row' }, el('span', { class: 'ar__f mono', text: a.flight_no }), el('span', { class: 'ar__r', text: `${a.origin} → ${a.dest} · ${hhmmz(a.std)}` })),
+    el('th', { scope: 'row' }, el('span', { class: 'ar__f mono', text: flightLabel(a) }), el('span', { class: 'ar__r', text: `${a.origin} → ${a.dest} · ${dayMonthHhmm(a.std)}` })),
     el('td', {}, el('span', { class: `akind akind--${a.kind.toLowerCase()}` }, icon(shape, 'st'), el('span', { text: word })), detail ? el('span', { class: 'ar__d', text: detail }) : null),
     el('td', { class: 'ar__p', text: String(a.pax_booked) }));
 }
@@ -168,7 +174,7 @@ function actionRow(a) {
 function actionsBlock(p) {
   const s = (p.scenarios || []).find((x) => x.id === (viewing || p.chosen_scenario_id)) || chosenOf(p);
   if (!s) return null;
-  const acts = [...(s.actions || [])].sort((a, b) => String(a.std).localeCompare(String(b.std)));
+  const acts = [...(s.actions || [])].sort((a, b) => String(a.std).localeCompare(String(b.std)) || String(a.flight_key).localeCompare(String(b.flight_key)));
   const sec = el('section', { class: 'nsec', 'aria-labelledby': 'net-acts' },
     sectionHead('Flight by flight', { id: 'net-acts', count: acts.length, sub: `${s.label}${s.id === p.chosen_scenario_id ? ' (recommended)' : ''}. Every other free flight keeps its schedule.` }));
   if (!acts.length) {
@@ -181,7 +187,7 @@ function actionsBlock(p) {
     el('tbody', {}, acts.map(actionRow)))));
   if (s.ferry_legs && s.ferry_legs.length) {
     sec.append(el('p', { class: 'caps', text: 'Ferry legs (no passengers)' }),
-      el('ul', { class: 'plist' }, s.ferry_legs.map((f) => el('li', { text: `${f.tail} ${f.origin} → ${f.dest}, departs ${hhmmz(f.dep)}, ${f.block_min} min` }))));
+      el('ul', { class: 'plist' }, s.ferry_legs.map((f) => el('li', { text: `${f.tail} ${f.origin} → ${f.dest}, departs ${dayMonthHhmm(f.dep)}, ${f.block_min} min` }))));
   }
   return sec;
 }

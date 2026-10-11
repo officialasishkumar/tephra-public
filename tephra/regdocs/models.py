@@ -45,14 +45,18 @@ FieldOrigin = Literal["code", "ai", "human"]
 class DocKind(StrEnum):
     SRA = "SRA"
     VAR = "VAR"
+    HANDOVER = "HANDOVER"
+    """Only in :class:`DocSummary`: a shift handover brief (``tephra.comms``), not paperwork."""
 
 
 class DocStatus(StrEnum):
     """DRAFT until every signature line is filled. SIGNED is not an approval: the regulator
-    accepts an SRA, and a VAR goes out only by the crew's and the operator's own channels."""
+    accepts an SRA, and a VAR goes out only by the crew's and the operator's own channels.
+    A handover brief is DRAFT until the incoming dispatcher reads it back (ACKNOWLEDGED)."""
 
     DRAFT = "DRAFT"
     SIGNED = "SIGNED"
+    ACKNOWLEDGED = "ACKNOWLEDGED"
 
 
 class SignRole(StrEnum):
@@ -190,7 +194,8 @@ RegDocAdapter: Final[TypeAdapter[SraDraft | VarDraft]] = TypeAdapter(RegDoc)
 
 
 class DocSummary(TephraModel):
-    """One line of ``GET /api/docs`` and the payload of the ``doc`` SSE event."""
+    """One line of ``GET /api/docs`` and the payload of every ``doc`` SSE event (SRA, VAR and
+    handover briefs alike): enough to list and open the document, never the document itself."""
 
     id: str
     kind: DocKind
@@ -202,13 +207,17 @@ class DocSummary(TephraModel):
     signed_roles: list[SignRole]
     missing_roles: list[SignRole]
     llm_backend: LlmBackendName | None = None
+    region: str | None = Field(default=None, description="SRA: the region key")
+    flight: str | None = Field(default=None, description="VAR: the proxy flight")
 
     @classmethod
     def of(cls, doc: SraDraft | VarDraft) -> Self:
         if isinstance(doc, SraDraft):
             title, backend = f"SRA draft: {doc.region_name}", doc.llm_backend
+            region, flight = doc.region_key, None
         else:
             title, backend = f"VAR draft: {doc.proxy_flight} / {doc.volcano_name}", None
+            region, flight = None, doc.proxy_flight
         return cls(
             id=doc.id,
             kind=DocKind(doc.kind),
@@ -220,6 +229,8 @@ class DocSummary(TephraModel):
             signed_roles=doc.signed_roles(),
             missing_roles=[line.role for line in doc.signatures if line.signed_at is None],
             llm_backend=backend,
+            region=region,
+            flight=flight,
         )
 
 

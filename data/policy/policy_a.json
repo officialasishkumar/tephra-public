@@ -1,6 +1,6 @@
 {
   "policy_id": "RFA-POLICY-A",
-  "version": "2026.10.5",
+  "version": "2026.10.6",
   "preset": "A",
   "title": "Ring of Fire Air operator policy A (default)",
   "label": "ILLUSTRATIVE, not an airline SRA",
@@ -158,10 +158,15 @@
       "unit": "min",
       "source": "Second, longer closure-extension scenario (research/18d section 7.1)."
     },
-    "solve_time_limit_s": {
-      "value": 2,
+    "solve_work_s": {
+      "value": 40,
       "unit": "s",
-      "source": "TEPHRA illustrative choice: the CP-SAT solver's time limit per scenario."
+      "source": "TEPHRA illustrative choice: CP-SAT deterministic time per scenario (about seconds of single-core work). A deterministic limit with interleaved search gives the same plan on every run; on the Krakatau replay it takes about 15 s on 8 cores and costs 767k USD, against 0.89-0.95M and a different plan each run with a 2 s wall-clock limit."
+    },
+    "solve_time_limit_s": {
+      "value": 60,
+      "unit": "s",
+      "source": "TEPHRA illustrative choice: wall-clock guard per scenario; the deterministic limit normally ends the search first."
     },
     "delay_cost_per_min_usd": {
       "value": 25,

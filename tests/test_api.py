@@ -371,6 +371,23 @@ def test_healthz_carries_security_headers(client: TestClient) -> None:
     assert response.headers["cache-control"] == "no-cache"
 
 
+def test_the_printable_document_page_is_served_for_document_and_handover_ids(
+    client: TestClient,
+) -> None:
+    desk = client.get("/desk")
+    for doc_id in ("DOC-0123456789ab", "ho_0123456789ab"):
+        page = client.get(f"/docs/{doc_id}")
+        assert page.status_code == 200, doc_id
+        assert page.headers["content-type"].startswith("text/html")
+        assert "/static/doc.js" in page.text
+        assert page.headers["content-security-policy"] == CONTENT_SECURITY_POLICY
+        assert page.headers["x-content-type-options"] == "nosniff"
+        assert page.headers["permissions-policy"] == "camera=(), microphone=(), geolocation=()"
+    assert client.get("/docs/DOC-0123456789ab").text != desk.text
+    for bad in ("DOC-xyz", "ho_ABCDEF", "DOC-0123456789abcd", "adv_0123456789ab", "x"):
+        assert client.get(f"/docs/{bad}").status_code == 404, bad
+
+
 def test_csp_allows_no_inline_code() -> None:
     assert "'unsafe-inline'" not in CONTENT_SECURITY_POLICY
     assert "'unsafe-eval'" not in CONTENT_SECURITY_POLICY

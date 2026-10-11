@@ -42,7 +42,7 @@ __all__ = [
 
 MAX_SIGN_NAME_CHARS: Final = 60
 MIN_SIGN_NAME_CHARS: Final = 2
-_KINDS: Final = [kind.value for kind in DocKind]
+_KINDS: Final = [DocKind.SRA.value, DocKind.VAR.value]
 _locks: "weakref.WeakKeyDictionary[Store, asyncio.Lock]" = weakref.WeakKeyDictionary()
 logger = logging.getLogger(__name__)
 
