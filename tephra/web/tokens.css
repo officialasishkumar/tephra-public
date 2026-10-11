@@ -224,6 +224,14 @@
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-enter: cubic-bezier(0, 0, 0, 1);
   --ease-exit: cubic-bezier(0.3, 0, 1, 1);
+
+  /* --- redesign (docs/UI-REDESIGN.md R13.2) --- */
+  --c-cta: var(--c-text-1); /* the one filled button on the Wall and the Desk's neutral primary */
+  --c-cta-ink: var(--c-text-ink); /* 17.6:1 on --c-cta */
+  --c-cta-hover: #ffffff;
+  --fs-story: 1.5rem; /* 24 px; wall.css sets 28 / 22 / 20 px per width (R4) */
+  --lh-story: 1.25;
+  --fs-eyebrow: var(--fs-1);
 }
 
 @media (prefers-reduced-motion: reduce) {

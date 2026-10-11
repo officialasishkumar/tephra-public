@@ -1365,7 +1365,7 @@ class ReplaySource(Source):
     def case(self) -> ReplayCase
 def replay_banner(case: ReplayCase) -> str                     # REPLAY_BANNER_TEMPLATE
 def replay_info(case: ReplayCase, *, auto: bool,
-                window: tuple[datetime, datetime] | None = None) -> ReplayInfo   # window -> window_from/to
+                window: tuple[datetime, datetime] | None = None) -> ReplayInfo   # window -> window_from/to; case volcano_ids
 def start_replay_clock(case: ReplayCase, *, speed: float, begin: datetime | None = None,
                        end: datetime | None = None
                        ) -> timeutil.ReplayClock               # set_clock(ReplayClock(...)); raises on a bad case

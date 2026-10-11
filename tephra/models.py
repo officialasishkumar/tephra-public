@@ -2036,6 +2036,10 @@ class ReplayInfo(TephraModel):
     window_to: UtcDatetime | None = Field(
         default=None, description="End of the looping window (TEPHRA_REPLAY_END), when set"
     )
+    volcano_ids: list[str] = Field(
+        default_factory=list,
+        description="The case's volcanoes (manifest); the Wall opens on the first with a situation",
+    )
 
 
 class AirlineInfo(TephraModel):

@@ -1,15 +1,6 @@
-// Plain-language copy for a first-time viewer: how to read the Wall, the glossary of the
-// aviation terms on screen (docs/UI-DESIGN.md 7.3a), the plain line under each source
-// column head, and the scope line for volcanic gases. Strings only; panels build the DOM.
-
-export const HOW_TO_READ = [
-  "The map shows the official ash areas from the SIGMETs and VAAs, and TEPHRA's cautious area, which is never smaller than the official one.",
-  "The right rail compares what each source says about the selected volcano and lists where they disagree.",
-  "The flight list shows aircraft heading into an area.",
-  "The Desk is where a person approves or rejects each advisory. Nothing is sent to a real system.",
-  "REPLAY means the data was recorded or reconstructed earlier; it is not live.",
-  "Times end in Z, which means UTC.",
-];
+// Plain-language copy for a first-time viewer: the glossary of the aviation terms on screen
+// (docs/UI-REDESIGN.md R9.1), the plain meaning of each source kind, and the scope line for
+// volcanic gases. Strings only; panels build the DOM.
 
 export const GLOSSARY = [
   ["SIGMET", "A warning issued for one flight information region by its meteorological watch office. For ash it is a VA SIGMET."],
@@ -20,10 +11,16 @@ export const GLOSSARY = [
   ["Z", "UTC. 06:30Z is 06:30 UTC."],
   ["ADS-B", "Positions that aircraft broadcast, collected here from adsb.lol. A gap in coverage is not an empty sky."],
   ["RFA proxy flight", "Ring of Fire Air (RFA) is a fictional airline. Each RFA flight number stands in for a real aircraft seen on ADS-B."],
-  ["NO MODEL", "No AI model is connected. Code does every step, and code templates write the text a model would."],
+  ["AI off (NO MODEL)", "No AI model is connected. Code does every step, and code templates write the text a model would."],
   ["REPLAY and reconstructed", "REPLAY plays recorded real feeds and is labelled for the whole session. A reconstructed case was rebuilt after the event from archived bulletins."],
   ["Affected area", "The area an official product says the ash covers."],
   ["Policy A (illustrative)", "An example operator policy: every margin, minimum and threshold TEPHRA applies, with its reason. It is not a real airline's policy."],
+  ["Alert colour", "The aviation colour code a volcano observatory gives: green, yellow, orange, red (rising concern). Grey means it was not given."],
+  ["Estimate", "TEPHRA's ash area. Never smaller than the official area, which stays binding. It is an estimate, not a forecast."],
+  ["Advisory", "A message drafted for one flight (for example keep watching, hold, change level or divert). A person approves or rejects it on the Desk."],
+  ["Dispatcher", "The airline person who plans and watches flights from the ground. Here, the person who decides on the Desk."],
+  ["Proxy flight", "An RFA flight number that stands in for a real aircraft seen on ADS-B. RFA is a fictional airline."],
+  ["SO2", "Sulphur dioxide, a volcanic gas. It is not ash. TEPHRA shows it as context only and does not model gases."],
 ];
 
 // The plain meaning shown as a second line under each source column head (7.12).

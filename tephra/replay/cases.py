@@ -118,6 +118,7 @@ def replay_info(
         auto=auto,
         window_from=window[0] if window else None,
         window_to=window[1] if window else None,
+        volcano_ids=list(case.volcano_ids),
     )
 
 

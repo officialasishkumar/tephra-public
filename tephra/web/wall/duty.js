@@ -20,7 +20,7 @@ export const SPECIALISTS = {
 const OUTCOME = {
   ACCEPTED: ["ok", "ACCEPTED", "The brief passed the code's checks."],
   REPAIRED: ["caution", "REPAIRED", "The brief passed after one repair."],
-  STUB: ["off", "STUB · NO MODEL", "The offline stub ran the work in urgency order. No model wrote the brief."],
+  STUB: ["off", "AI off", "The offline stub ran the work in urgency order. No model wrote the brief."],
   MODEL_FAILED: ["serious", "AI unavailable", "The model gave no brief that passed the code's checks."],
 };
 
@@ -66,9 +66,9 @@ function facts(run) {
   const mandatory = run.worklist.filter((i) => i.mandatory).length;
   const model = dutyModel(run);
   return el("dl", { class: "duty__facts" },
-    el("div", {}, el("dt", { text: "Model" }), el("dd", { class: "mono", text: model || "NO MODEL" })),
+    el("div", {}, el("dt", { text: "Model" }), el("dd", { class: "mono", text: model || "AI off" })),
     el("div", {}, el("dt", { text: "Turns" }), el("dd", { class: "mono", text: String(run.turns) })),
-    el("div", {}, el("dt", { text: "Offered" }), el("dd", { class: "mono", text: `${run.worklist.length}${mandatory ? ` · ${mandatory} mandatory` : ""}` })),
+    el("div", {}, el("dt", { text: "Jobs given" }), el("dd", { class: "mono", text: `${run.worklist.length}${mandatory ? ` (${mandatory} must do)` : ""}` })),
     el("div", {}, el("dt", { text: "Run by" }), el("dd", { text: run.trigger === "adsb" ? "new aircraft" : "scheduler tick" })));
 }
 
@@ -91,7 +91,7 @@ function brief(run) {
     const row = (p) => {
       const item = run.worklist.find((i) => i.id === p.item_id);
       return el("li", {},
-        el("span", { class: "duty__label" }, item?.mandatory ? el("span", { class: "duty__must", title: "Code requires this work this run", text: "MANDATORY" }) : null, itemLabel(run, p.item_id)),
+        el("span", { class: "duty__label" }, item?.mandatory ? el("span", { class: "duty__must", title: "Code requires this work this run", text: "Must do" }) : null, itemLabel(run, p.item_id)),
         el("span", { class: "duty__why duty__ai", text: p.why }));
     };
     kids.push(el("h4", { class: "caps x-h", text: "Priorities" }),
@@ -127,7 +127,7 @@ function diagram(run) {
   const root = el("div", { class: "dg__root" },
     icon("i-agent", "icon dg__icon"),
     el("span", { class: "dg__rootmain" }, el("strong", { text: "Duty Officer" }),
-      el("span", { class: "dg__sub mono", text: `${model || "NO MODEL"} · ${plural(run.worklist.length, "item")} offered` })));
+      el("span", { class: "dg__sub mono", text: `${model || "AI off"} · ${plural(run.worklist.length, "job")} offered` })));
   if (!groups.length) {
     return el("div", { class: "dg", role: "group", "aria-label": "Delegation diagram" }, root,
       el("p", { class: "dg__none", text: "It delegated nothing this run." }));

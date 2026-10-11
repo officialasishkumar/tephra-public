@@ -49,13 +49,26 @@ export const levelFromFrac = (f) => {
   return c <= 0.5 ? (c / 0.5) * LEVEL_KNEE : LEVEL_KNEE + ((c - 0.5) / 0.5) * (LEVEL_MAX - LEVEL_KNEE);
 };
 
+// The first region whose bbox contains the vent, else null ("All areas").
+export function regionOfVent(state, vent) {
+  if (!vent) return null;
+  return (state.regions || []).find((r) => inBbox(vent, r.bbox))?.key || null;
+}
+
 // The view's derived data. `ui` holds the selection and view choices.
 export function derive(store, ui, now) {
   const { state, snapshot: snap } = store;
   const sits = sortSituations(snap.situations || []);
   const vents = new Map();
   for (const f of snap.volcanoes?.features || []) vents.set(f.properties.id, f.geometry.coordinates);
-  const selected = ui.emptyRegion ? null : sits.some((s) => s.volcano_id === ui.selected) ? ui.selected : sits[0]?.volcano_id || null;
+  // The area (region) scope is derived on every render, never stored (UI-REDESIGN R2.1): the
+  // region chip's count and the empty-region story come from the same list, so they cannot
+  // disagree. With no area chosen ("All areas") every active volcano is in scope.
+  const regionOf = (key) => (state.regions || []).find((r) => r.key === key) || null;
+  const area = ui.region ? regionOf(ui.region) : null;
+  const inRegion = area ? sits.filter((s) => vents.get(s.volcano_id) && inBbox(vents.get(s.volcano_id), area.bbox)) : sits;
+  const selected = inRegion.some((s) => s.volcano_id === ui.selected) ? ui.selected : inRegion[0]?.volcano_id ?? null;
+  const regionEmpty = !!area && inRegion.length === 0;
   const sit = sits.find((s) => s.volcano_id === selected) || null;
   const lvAll = levelIsAll(ui.level);
   const outOfLevel = (p) => !lvAll && (p.top_ft < ui.level.min || p.base_ft > ui.level.max);
@@ -92,10 +105,13 @@ export function derive(store, ui, now) {
     const p = f.properties;
     if (p.show && p.step === "now") p.fill = p.kind === "SIGMET" ? latestSet.has(f) : !sigVolcanoes.has(p.volcano_id);
     p.sel = p.volcano_id === selected;
-    let fade = p.sel ? 1 : 0.5;
-    if (ui.steps !== "now" && ui.steps !== "all" && p.step !== ui.steps) fade *= 0.5;
-    if (outOfLevel(p)) { fade = 0.15; if (p.show && p.sel) hiddenOfficial++; }
+    // other volcanoes' areas: 0.6 of the fill and 0.85 of the edge (R6.1); never switched off
+    let fade = p.sel ? 1 : 0.6;
+    let lfade = p.sel ? 1 : 0.85;
+    if (ui.steps !== "now" && ui.steps !== "all" && p.step !== ui.steps) { fade *= 0.5; lfade *= 0.5; }
+    if (outOfLevel(p)) { fade = 0.15; lfade = 0.15; if (p.show && p.sel) hiddenOfficial++; }
     p.fade = fade;
+    p.lfade = lfade;
   }
   const firsWithSigmet = [...new Set(official.filter((f) => f.properties.kind === "SIGMET" && f.properties.valid).map((f) => f.properties.source_id.split(":")[1]))];
 
@@ -110,9 +126,13 @@ export function derive(store, ui, now) {
 
   // ---- advisories by flight
   const advByFlight = new Map();
+  // the flight's current advisory: the newest one that has not been replaced
   for (const a of store.advisories) {
     const prev = advByFlight.get(a.flight_id);
-    if (!prev || ms(a.updated_at) > ms(prev.updated_at)) advByFlight.set(a.flight_id, a);
+    const better = !prev
+      || (prev.status === "SUPERSEDED" && a.status !== "SUPERSEDED")
+      || ((prev.status === "SUPERSEDED") === (a.status === "SUPERSEDED") && ms(a.updated_at) > ms(prev.updated_at));
+    if (better) advByFlight.set(a.flight_id, a);
   }
 
   // ---- aircraft
@@ -149,6 +169,8 @@ export function derive(store, ui, now) {
         l2, l3, l3ok: !!ok,
         l4: stale ? `position ${mins} min old` : "",
         short: `${p.callsign || p.hex} ${lvl}`,
+        // One line on the map (R6.3); level, decision and position age are in Details › This flight.
+        elabel: p.exposed ? `${p.proxy_flight} · ${inside ? "inside" : `in ${p.minutes_to_entry} min`}` : "",
       },
     });
   }
@@ -224,9 +246,12 @@ export function derive(store, ui, now) {
   const regionCounts = {};
   for (const r of state.regions || []) regionCounts[r.key] = sits.filter((s) => vents.get(s.volcano_id) && inBbox(vents.get(s.volcano_id), r.bbox)).length;
 
+  if (regionEmpty && regionCounts[ui.region] > 0) console.error("region invariant");
+
   return {
-    state, now, mode: state.mode, sits, selected, sit, vents, official, cones, coneOf, sectorOf,
+    state, now, mode: state.mode, sits, inRegion, regionEmpty, area, selected, sit, vents, official, cones, coneOf, sectorOf,
     hasReroutes: (snap.reroutes?.features || []).length > 0,
+    rerouteKeys: new Set((snap.reroutes?.features || []).map((f) => f.properties.flight_id)),
     hasSatBoxes: (snap.satellite || []).some((r) => r.boxes?.length),
     aircraft, exposed, exposures: snap.exposures || { type: "FeatureCollection", features: [] },
     volcanoes, rose, moveByVolcano, firsWithSigmet, advByFlight, regionCounts,
@@ -235,9 +260,22 @@ export function derive(store, ui, now) {
   };
 }
 
-// Official label box text for one volcano (section 5.1): product names, SIGMET first.
+// Movement in plain words: "MOV SE 10KT" -> "moving SE at 10 kt". Text that does not match the
+// known forms is returned as it is, never paraphrased (UI-REDESIGN R12.4).
+export function plainMove(text) {
+  const t = String(text || "").trim();
+  if (!t) return "";
+  const m = /^(?:MOV(?:ING)?\s+)?(NNE|ENE|ESE|SSE|SSW|WSW|WNW|NNW|NE|SE|SW|NW|N|E|S|W)\s*(?:AT\s*)?(\d+)\s*KT$/i.exec(t);
+  if (m) return `moving ${m[1].toUpperCase()} at ${m[2]} kt`;
+  if (/^STNR$/i.test(t)) return "not moving (STNR)";
+  return t;
+}
+
+// Official label for one volcano (UI-REDESIGN R6.3). The selected volcano gets two lines,
+// "Official ash area · SFC–FL500 · until 1045Z" and "moving SE at 10 kt" (when movement is given);
+// every other volcano gets its name only. Product ids stay out of the map; they are listed in
+// Details › This ash area. `products` keeps them for that section.
 export function officialLabelText(D, vid) {
-  const now = D.now;
   const feats = D.official.filter((f) => f.properties.volcano_id === vid && f.properties.show && f.properties.step === "now" && f.properties.valid);
   if (!feats.length) return null;
   const sigs = feats.filter((f) => f.properties.kind === "SIGMET");
@@ -248,28 +286,40 @@ export function officialLabelText(D, vid) {
     if (!latest.has(fir) || ms(f.properties.valid_from) > ms(latest.get(fir).properties.valid_from)) latest.set(fir, f);
   }
   const vaas = feats.filter((f) => f.properties.kind !== "SIGMET");
-  const names = [];
-  for (const f of latest.values()) names.push(f.properties.label);
+  const products = [];
+  for (const f of latest.values()) products.push(f.properties.label);
   for (const f of vaas) {
     const n = f.properties.label.replace(/ (EST|OBS)$/, "");
-    if (!names.includes(n)) names.push(n);
+    if (!products.includes(n)) products.push(n);
   }
   const main = [...latest.values()][0] || vaas[0];
   const p = main.properties;
   const base = Math.min(...feats.map((f) => f.properties.base_ft));
   const top = Math.max(...feats.map((f) => f.properties.top_ft));
-  const vt = ms(p.valid_to);
   const sel = vid === D.selected;
-  const move = D.moveByVolcano[vid];
-  const parts = [band(base, top)];
-  if (sel && move) parts.push(move);
-  if (sel && p.kind === "SIGMET") parts.push(`until ${hhmmz(vt)} (${untilText(vt - now)})`);
-  return { line1: names.join(" + "), line2: sel ? parts.join(" · ") : parts[0], geometry: main.geometry, sel };
+  const name = D.sits.find((s) => s.volcano_id === vid)?.volcano_name || vid;
+  // line 2 only when a movement is given (R6.3)
+  const rawMove = D.moveByVolcano[vid];
+  const move = rawMove && !/^NOT (STATED|GIVEN)$/i.test(rawMove.trim()) ? plainMove(rawMove) : "";
+  const vt = ms(p.valid_to);
+  return {
+    line1: sel ? `Official ash area · ${band(base, top)} · until ${hhmmz(vt)}` : name,
+    line2: sel ? move : "",
+    geometry: main.geometry, sel, name, products, base, top, validTo: vt, until: untilText(vt - D.now), kind: p.kind,
+  };
 }
 
-function untilText(deltaMs) {
+export function untilText(deltaMs) {
   const m = Math.round(deltaMs / 60e3);
   if (m <= 0) return "expiring";
   if (m < 60) return `${m} min`;
   return `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+// TEPHRA's label for the selected volcano (R6.3): what the estimate is, in plain words.
+export function tephraLabelText(cone, stub) {
+  if (!cone) return null;
+  if (cone.mode === "HYPOTHESIS") return "TEPHRA's estimate · hypothesis";
+  if (cone.mode === "WIDENED") return "TEPHRA's estimate · wider than official";
+  return stub ? "TEPHRA's estimate · same as official (AI off)" : "TEPHRA's estimate · same as official";
 }

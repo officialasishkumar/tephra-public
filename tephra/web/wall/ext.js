@@ -5,10 +5,9 @@
 // Every feed or model string goes in through el() (textContent); AI-written text carries an
 // "AI-written" mark with the model id, code-written values are plain.
 
-import { $, el, icon, ms, hhmmz, hhmmssz, dayMon, age, fl, compassWord } from "./util.js";
-import { advisoryLine } from "./panels.js";
+import { $, el, icon, ms, hhmmz, dayMon } from "./util.js";
 import { frameFor } from "./ext-map.js";
-import { st, aiMark, pill, section } from "./x-parts.js";
+import { st, aiMark, pill, section, plainLine, techDetail, usd, planProblem } from "./x-parts.js";
 import { dutyPanel, dispatchedTools } from "./duty.js";
 
 // ------------------------------------------------------------------ state
@@ -76,14 +75,6 @@ const empty = (title, text) => el("div", { class: "x-empty" }, el("strong", { te
 const loadingBox = () => el("div", { class: "x-loading" }, el("div", { class: "skeleton" }), el("div", { class: "skeleton" }), el("div", { class: "skeleton" }));
 const errBox = (what, msg) => el("div", { class: "x-fail", role: "status" }, st("st-caution", "var(--c-caution)"), el("p", {}, el("strong", { text: `${what} unavailable: ` }), msg));
 
-// ------------------------------------------------------------------ Satellite check
-
-const ANSWER = {
-  yes: ["caution", "Ash seen in the picture", "The AI read red ash colours in the frame."],
-  no: ["info", "No ash seen in the picture", "Not seeing ash in a picture is not evidence that there is none."],
-  uncertain: ["caution", "Unclear", "The AI could not tell."],
-};
-
 function frameView(reading, frame) {
   const wrap = el("div", { class: "x-frame" });
   const safe = frame?.image_url && /^\/[^/]/.test(frame.image_url);
@@ -126,47 +117,62 @@ function colourKey() {
     el("p", { class: "x-key__note", text: "Colour alone cannot separate ash from dust, and the picture gives no height and no concentration." }));
 }
 
-function satCard(D, reading, sit, store, ui) {
+// ------------------------------------------------------------------ Satellite picture (R8.3, R12.5)
+
+// Neutral words (G26): they never say an AI looked when AI is off.
+const ASH_WORD = { yes: "yes", no: "not seen", uncertain: "can't tell" };
+const yesNo = (v) => ({ yes: "yes", no: "no", uncertain: "can't tell" }[v] || "not given");
+
+function readBy(reading) {
+  const no = !reading.model_id || reading.model_id === "stub" || reading.label === "NO MODEL";
+  return no ? "code stub (AI off)" : reading.model_id;
+}
+
+function satCard(D, reading, sit, store) {
   const vid = reading.volcano_id;
   const name = sit?.volcano_name || vid;
   const frames = [...(sit?.frames || []), ...(store.snapshot?.overlays?.frames || [])];
   const frame = frameFor(reading, frames);
   const card = el("article", { class: `x-card${vid === D.selected ? " x-card--sel" : ""}` });
-  const head = el("header", { class: "x-card__head" },
+  card.append(el("header", { class: "x-card__head" },
     el("h3", { class: "x-card__title", text: name }),
     D.mode === "REPLAY" || reading.replay ? el("span", { class: "tag tag--replay", text: "recorded" }) : null,
-    el("span", { class: "x-card__time mono", text: reading.observed_at ? `scan ${clock(reading.observed_at)}` : "" }));
-  card.append(head);
+    el("span", { class: "x-card__time mono", text: reading.observed_at ? `scan ${clock(reading.observed_at)}` : "" })));
   if (reading.status === "ai_unavailable") { card.append(unavailable(reading.reason)); return card; }
   if (reading.status === "no_frames") {
-    card.append(el("p", { class: "x-quiet", text: reading.reason || "No satellite frame was available to read." }));
+    card.append(el("p", { class: "x-quiet", text: reading.reason || "No satellite picture was available to read." }));
     return card;
   }
-  const [kind, label, why] = ANSWER[reading.ash_visible] || ANSWER.uncertain;
-  card.append(el("p", { class: "x-verdict" }, el("span", { class: "x-verdict__cap caps", text: "Satellite check" }), pill(kind, label, why)));
-  const facts = el("div", { class: "x-pills" },
-    pill(reading.so2_visible === "yes" ? "caution" : "off", `SO2: ${reading.so2_visible || "n/a"}`, "SO2 is not ash. Shown as context only."),
-    pill(reading.obscured_by_cloud === "no" ? "ok" : "caution", `Cloud covers it: ${reading.obscured_by_cloud || "n/a"}`, "Cloud over a plume can hide it."),
-    pill("info", `${reading.boxes.length} box${reading.boxes.length === 1 ? "" : "es"}`));
-  card.append(facts, frameView(reading, frame));
+  const n = reading.boxes.length;
+  card.append(el("dl", { class: "x-facts" },
+    el("dt", { text: "Ash visible?" }), el("dd", { class: reading.ash_visible === "yes" ? "x-facts--caution" : null, text: ASH_WORD[reading.ash_visible] ? capFirst(ASH_WORD[reading.ash_visible]) : "Can't tell" }),
+    el("dt", { text: "Gas (SO2, not ash)" }), el("dd", { text: capFirst(yesNo(reading.so2_visible)) }),
+    el("dt", { text: "Cloud in the way" }), el("dd", { text: capFirst(yesNo(reading.obscured_by_cloud)) }),
+    el("dt", { text: "Ash marked on the picture" }), el("dd", { text: n ? `${n} box${n === 1 ? "" : "es"}` : "none" }),
+    el("dt", { text: "Read by" }), el("dd", { text: readBy(reading) })));
   const placed = frame?.corners || reading.boxes.some((b) => b.polygon);
-  card.append(el("p", { class: "x-sub" }, reading.boxes.length
-    ? (placed ? "Boxes are placed on the map by code from the frame bounds." : "These boxes sit on the picture only: this frame has no map position, so none is drawn on the map.")
-    : "The AI drew no box."));
-  if (reading.limits) card.append(el("blockquote", { class: "x-quote" }, el("p", { text: reading.limits }), aiMark(reading.model_id, reading.label)));
-  else card.append(aiMark(reading.model_id, reading.label));
-  card.append(colourKey(), el("p", { class: "x-support" }, icon("i-info"), reading.note || "Supporting evidence only."));
+  const pic = el("details", { class: "more", dataset: { k: `sat-pic-${vid}` } }, el("summary", { text: "Show the picture" }),
+    frameView(reading, frame),
+    el("p", { class: "x-sub", text: n ? (placed ? "Boxes are placed on the map by code from the picture's bounds." : "These boxes sit on the picture only: it has no map position, so none is drawn on the map.") : "No box was drawn." }),
+    reading.limits ? el("blockquote", { class: "x-quote" }, el("p", { text: reading.limits }), aiMark(reading.model_id, reading.label)) : aiMark(reading.model_id, reading.label),
+    colourKey());
+  card.append(pic, el("p", { class: "x-support" }, icon("i-info"), reading.note || "Supporting evidence only. It never changes the official area, TEPHRA's estimate, the heights or an advisory."));
   return card;
 }
 
 function satPanel(D, store) {
   const readings = store.snapshot?.satellite || [];
   const list = readings.slice().sort((a, b) => (a.volcano_id === D.selected ? -1 : 0) - (b.volcano_id === D.selected ? -1 : 0));
-  const kids = [el("p", { class: "x-lede", text: "A model looks at the latest Himawari picture for each active volcano and says whether it sees ash. It never changes the hazard area, the flight levels or an action." })];
-  if (!list.length) kids.push(empty("No satellite reading yet", "A reading appears when a new frame arrives for an active volcano."));
+  const stub = D.state.llm?.backend === "stub";
+  const kids = [el("p", { class: "dnote", text: stub
+    ? "The latest Himawari picture for each active volcano, read by a code stub while AI is off. It is supporting evidence only and never changes the hazard area, the flight levels or an action."
+    : "A model looks at the latest Himawari picture for each active volcano and says whether it sees ash. It never changes the hazard area, the flight levels or an action." })];
+  if (!list.length) kids.push(empty("No satellite reading yet", "A reading appears when a new picture arrives for an active volcano."));
   for (const r of list) kids.push(satCard(D, r, D.sits.find((s) => s.volcano_id === r.volcano_id), store));
   return kids;
 }
+
+const capFirst = (t) => (t ? t[0].toUpperCase() + t.slice(1) : t);
 
 // ------------------------------------------------------------------ Notices
 
@@ -207,24 +213,33 @@ function noticeCard(n) {
 }
 
 function noticesPanel() {
-  const kids = [el("p", { class: "x-lede", text: "Notices pasted on the Desk, and JMA volcano reports. A pasted notice is read by a model, then every claim is checked against its own words; only a verified notice can enter the picture. JMA reports are read by code from JMA's XML." })];
-  if (!ext.loaded.notices) kids.push(loadingBox());
-  else if (ext.errors.notices) kids.push(errBox("Notices", ext.errors.notices));
+  const kids = [];
+  if (!ext.loaded.notices) return [loadingBox()];
+  if (ext.errors.notices) return [errBox("Notices", ext.errors.notices)];
   const pasted = ext.notices.filter((n) => !isJma(n));
   const jma = ext.notices.filter(isJma);
-  if (ext.loaded.notices && !ext.errors.notices && !ext.notices.length) kids.push(empty("No notices yet", "Paste a notice on the Desk (EN, ID, JA or FIL) and it shows up here."));
-  if (pasted.length) kids.push(section(`Pasted notices · ${pasted.length}`, ...pasted.map(noticeCard)));
-  if (jma.length) kids.push(section(`JMA reports · ${jma.length}`, ...jma.map(noticeCard)));
+  const newest = ext.notices.slice().sort((a, b) => ms(b.created_at) - ms(a.created_at))[0];
+  kids.push(el("p", { class: "dsum", text: ext.notices.length ? `${ext.notices.length} notice${ext.notices.length === 1 ? "" : "s"} · newest ${clock(newest.created_at)}` : "No notices yet" }),
+    el("p", { class: "dnote", text: "Notices pasted on the Desk, and JMA volcano reports. A pasted notice is read by a model, then every claim is checked against its own words; only a verified notice can enter the picture. JMA reports are read by code from JMA's XML." }));
+  if (!ext.notices.length) { kids.push(empty("Nothing to show", "Paste a notice on the Desk (EN, ID, JA or FIL) and it shows up here.")); return kids; }
+  kids.push(noticeCard(newest));
+  const rest = ext.notices.filter((n) => n !== newest);
+  if (rest.length) {
+    const more = el("details", { class: "more", dataset: { k: "notices-all" } }, el("summary", { text: `All notices and their claims (${ext.notices.length})` }));
+    if (pasted.length) more.append(section(`Pasted notices · ${pasted.length}`, ...pasted.map(noticeCard)));
+    if (jma.length) more.append(section(`JMA reports · ${jma.length}`, ...jma.map(noticeCard)));
+    kids.push(more);
+  }
   return kids;
 }
 
 // ------------------------------------------------------------------ Recovery board
 
-const usd = (n) => (n == null ? "n/a" : `$${Number(n).toLocaleString("en")}`);
 const PLAN_STATUS = {
-  DRAFT: ["caution", "Draft · waiting for a dispatcher"], APPROVED: ["ok", "Approved"], REJECTED: ["serious", "Rejected"],
-  SUPERSEDED: ["off", "Superseded"], AI_UNAVAILABLE: ["serious", "AI unavailable"],
+  DRAFT: ["caution", "Waiting for a dispatcher"], APPROVED: ["ok", "Approved"], REJECTED: ["serious", "Rejected"],
+  SUPERSEDED: ["off", "Superseded"], AI_UNAVAILABLE: ["serious", "No plan"],
 };
+const LEVEL = (ft) => (ft == null ? "?" : ft <= 0 ? "SFC" : `FL${String(Math.round(ft / 100)).padStart(3, "0")}`);
 
 function totalsGrid(t) {
   const cell = (n, l, cls) => el("div", { class: `x-stat${cls ? ` x-stat--${cls}` : ""}` }, el("dd", { text: String(n) }), el("dt", { text: l }));
@@ -234,22 +249,41 @@ function totalsGrid(t) {
     cell(t.pax_affected.toLocaleString("en"), "passengers affected"), cell(usd(t.total_usd), "total cost"));
 }
 
+// The plan in one line, for the summary and the Details index (R8.3 `recovery`).
+export function recoverySummary(plan) {
+  if (!plan) return null;
+  const p = planProblem(plan);
+  if (p) return p.words;
+  if (plan.status === "AI_UNAVAILABLE") return `No plan: AI unavailable (${String(plan.unavailable_reason || "no reason given").replace(/^AI UNAVAILABLE:?\s*/i, "")}). A dispatcher must plan the network by hand.`;
+  const icaos = [...new Set(plan.closures.map((c) => c.icao))];
+  const tops = plan.closures.filter((c) => c.top_ft != null);
+  const band = tops.length ? ` ${LEVEL(Math.min(...tops.map((c) => c.base_ft ?? 0)))}/${LEVEL(Math.max(...tops.map((c) => c.top_ft)))}` : "";
+  const r = plan.closures.find((c) => c.radius_nm != null)?.radius_nm;
+  const head = `${icaos.join(", ")} closed by ash${band}${r != null ? ` within ${Math.round(r)} NM` : ""}`;
+  const t = plan.chosen?.totals;
+  const what = t ? `cancel ${t.cancelled_flights}${t.delayed_flights ? `, delay ${t.delayed_flights}` : ""}, ${usd(t.total_usd)}` : "no scenario chosen";
+  const status = plan.status === "DRAFT" ? "Plan waiting on the Desk" : plan.status === "APPROVED" ? "Plan approved" : plan.status === "REJECTED" ? "Plan rejected" : "Plan";
+  return `${head} · ${status}: ${what}`;
+}
+
 function recoveryPanel(D) {
-  const kids = [el("p", { class: "x-lede", text: "Airports the ash closes, and the day's flights re-planned around them. An optimiser (code) builds the scenarios; a model only picks one and explains it. A dispatcher approves on the Desk." })];
-  if (!ext.loaded.recovery) return [...kids, loadingBox()];
-  if (ext.errors.recovery) return [...kids, errBox("Recovery", ext.errors.recovery)];
+  if (!ext.loaded.recovery) return [loadingBox()];
+  if (ext.errors.recovery) return [errBox("Airport plan", ext.errors.recovery)];
   const plans = ext.recovery.slice().sort((a, b) => ms(b.created_at) - ms(a.created_at));
   const plan = plans.find((p) => p.status !== "SUPERSEDED") || plans[0];
-  if (!plan) return [...kids, empty("No recovery plan", "No RFA airport is closed by the hazard right now.")];
+  const lede = el("p", { class: "dnote", text: "Airports the ash closes, and the day's flights of RFA (a fictional airline, synthetic schedule) re-planned around them. An optimiser (code) builds the scenarios; a model only picks one and explains it. A dispatcher approves on the Desk." });
+  if (!plan) return [el("p", { class: "dsum", text: "No RFA airport is closed by the ash right now." }), lede];
   const [kind, text] = PLAN_STATUS[plan.status] || ["info", plan.status];
+  const problem = planProblem(plan);
+  const kids = [
+    el("p", { class: "dsum", title: `as of ${clock(plan.created_at)}` }, el("span", { text: recoverySummary(plan) }), plan.replay ? el("span", { class: "tag tag--replay", text: "recorded" }) : null),
+    el("p", { class: "dnote", text: `as of ${clock(plan.created_at)} · ${plan.outcome === "STUB" ? "planned by code (AI off)" : `chosen by ${plan.model_id}`} · version ${plan.version}` }),
+  ];
+  if (problem) kids.push(el("div", { class: "x-fail", role: "status" }, st("st-serious", "var(--c-serious)"), el("p", {}, el("strong", { text: problem.words })), techDetail(problem.raw)));
+  else if (plan.status === "AI_UNAVAILABLE") kids.push(unavailable(plan.unavailable_reason));
   const card = el("article", { class: "x-card x-card--plan" });
-  card.append(el("header", { class: "x-card__head" }, pill(kind, text),
-    plan.replay ? el("span", { class: "tag tag--replay", text: "recorded" }) : null,
-    el("span", { class: "tag", text: `v${plan.version}` }),
-    el("span", { class: "x-card__time mono", text: clock(plan.created_at) })));
-  card.append(el("p", { class: "x-fict", text: "Fictional airline RFA · synthetic schedule" }));
-  if (plan.status === "AI_UNAVAILABLE") card.append(unavailable(plan.unavailable_reason));
-  card.append(el("h4", { class: "caps x-h", text: `Closed airports · ${plan.closures.length}` }),
+  card.append(el("header", { class: "x-card__head" }, pill(kind, text), el("span", { class: "x-card__time mono", text: clock(plan.created_at) })));
+  card.append(el("h4", { class: "x-h", text: `Closed airports · ${plan.closures.length}` }),
     el("ul", { class: "x-closures" }, ...plan.closures.map((c) => el("li", { class: "x-closure" }, el("strong", { class: "mono", text: c.icao }),
       el("span", { class: "mono", text: `${clock(c.start)} – ${c.open_ended ? "open" : clock(c.end)}` }),
       // One line written by code; the full reason and every source id stay behind the disclosure.
@@ -257,26 +291,29 @@ function recoveryPanel(D) {
       el("details", { class: "x-closure__more" }, el("summary", { text: "Full reason and sources" }),
         el("p", { class: "x-closure__why", text: c.reason }),
         c.source_ids?.length ? el("p", { class: "x-closure__src mono", text: c.source_ids.join(" · ") }) : null)))));
-  if (plan.disruption) card.append(el("p", { class: "x-sub", text: `${plan.disruption.blocked_flights.length} flights and ${plan.disruption.blocked_pax.toLocaleString("en")} passengers blocked before re-planning.` }));
+  if (plan.disruption) {
+    const d = plan.disruption;
+    card.append(el("p", { class: "x-sub", text: `${d.blocked_flights.length} flights and ${d.blocked_pax.toLocaleString("en")} passengers blocked before re-planning · can still change ${d.free_flights} · can't change (already departed) ${d.frozen_flights}${d.airborne_at_risk?.length ? ` · in the air and at risk: ${d.airborne_at_risk.join(", ")}` : ""}` }));
+  }
   const chosen = plan.chosen;
   if (chosen) {
-    card.append(el("h4", { class: "caps x-h" }, "Chosen scenario"), el("p", { class: "x-chosen" }, el("strong", { text: chosen.label }), ` · ${chosen.status}`));
+    card.append(el("h4", { class: "x-h" }, "Chosen scenario"), el("p", { class: "x-chosen" }, el("strong", { text: chosen.label }), ` · ${chosen.solver_status === "OPTIMAL" ? "best plan found" : chosen.solver_status === "UNKNOWN" ? "solver gave no answer" : chosen.status.toLowerCase()} (${Math.round(chosen.solve_ms / 1000)} s)`));
     if (chosen.totals) card.append(totalsGrid(chosen.totals));
   } else if (plan.status !== "AI_UNAVAILABLE") card.append(el("p", { class: "x-quiet", text: "No scenario chosen." }));
   if (plan.scenarios.length > 1) {
-    const rows = plan.scenarios.map((s) => el("tr", { class: s.id === plan.chosen_scenario_id ? "is-chosen" : null },
-      el("th", { scope: "row", text: s.label }), el("td", { class: "num", text: s.totals ? String(s.totals.cancelled_flights) : "–" }),
-      el("td", { class: "num", text: s.totals ? String(s.totals.delayed_flights) : "–" }), el("td", { class: "num", text: s.totals ? usd(s.totals.total_usd) : s.status })));
+    const rows = plan.scenarios.map((sc) => el("tr", { class: sc.id === plan.chosen_scenario_id ? "is-chosen" : null },
+      el("th", { scope: "row", text: sc.label }), el("td", { class: "num", text: sc.totals ? String(sc.totals.cancelled_flights) : "–" }),
+      el("td", { class: "num", text: sc.totals ? String(sc.totals.delayed_flights) : "–" }), el("td", { class: "num", text: sc.totals ? usd(sc.totals.total_usd) : sc.solver_status === "UNKNOWN" ? "no plan (solver did not finish)" : sc.status })));
     card.append(el("table", { class: "x-table" }, el("caption", { class: "sr-only", text: "Recovery scenarios" }),
       el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Scenario" }), el("th", { scope: "col", class: "num", text: "Cancel" }), el("th", { scope: "col", class: "num", text: "Delay" }), el("th", { scope: "col", class: "num", text: "Cost" }))),
       el("tbody", {}, ...rows)));
   }
-  if (plan.rationale) card.append(el("h4", { class: "caps x-h", text: "Why" }), el("blockquote", { class: "x-quote" }, el("p", { text: plan.rationale }), aiMark(plan.model_id, plan.outcome === "STUB" ? "NO MODEL" : null)));
-  if (plan.risks?.length) card.append(el("h4", { class: "caps x-h", text: "Risks" }), el("ul", { class: "x-problems" }, ...plan.risks.map((r) => el("li", { text: r }))));
+  if (plan.rationale) card.append(el("h4", { class: "x-h", text: "Why" }), el("blockquote", { class: "x-quote" }, el("p", { text: plainLine(plan.rationale) }), aiMark(plan.model_id, plan.outcome === "STUB" ? "NO MODEL" : null), techDetail(plan.rationale)));
+  if (plan.risks?.length) card.append(el("h4", { class: "x-h", text: "Risks" }), el("ul", { class: "x-problems" }, ...plan.risks.map((r) => el("li", { text: r }))));
   const decided = plan.decided_at ? `${plan.status === "REJECTED" ? "Rejected" : "Approved"} by ${(plan.decided_by || "a dispatcher").replace(/^desk:/, "")} at ${hhmmz(ms(plan.decided_at))}` : null;
   card.append(el("p", { class: "x-approval" }, icon(plan.status === "APPROVED" ? "i-approved" : "i-dispatcher"),
     decided || (plan.status === "DRAFT" ? "Waiting for a dispatcher. Nothing is sent anywhere." : "No decision.")));
-  kids.push(card);
+  kids.push(el("details", { class: "more", dataset: { k: "plan-more" } }, el("summary", { text: "Per-airport reasons, scenarios and numbers" }), card), lede);
   if (plans.length > 1) kids.push(el("p", { class: "x-sub", text: `${plans.length - 1} earlier plan${plans.length === 2 ? "" : "s"} not shown.` }));
   return kids;
 }
@@ -292,46 +329,54 @@ function meter(label, value, tone) {
     el("div", { class: `x-meter__bar x-meter__bar--${tone}`, role: "img", "aria-label": `${label} ${pct(value)}` }, fill(w)));
 }
 
-function armBlock(arm, s, lead) {
+function armStats(arm, s, lead) {
   const gain = s.coverage_gain_mean;
   const l = (lead || [])[0];
-  const box = el("div", { class: "x-arm" }, el("h4", { class: "x-arm__title", text: ARM[arm] || `Arm ${arm}` }));
-  box.append(
-    meter("Area TEPHRA covers of later official areas", s.coverage_mean, "tephra"),
-    meter("Area the official area alone covers", s.coverage_official_mean, "official"),
+  const box = el("div", { class: "x-arm" }, el("h4", { class: "x-arm__title", text: ARM[arm] || `Arm ${arm}` }),
     el("dl", { class: "x-stats x-stats--proof" },
       el("div", { class: "x-stat" }, el("dd", { text: gain == null ? "n/a" : `${gain >= 0 ? "+" : ""}${(gain * 100).toFixed(2)} pts` }), el("dt", { text: "coverage gain vs official" })),
       el("div", { class: "x-stat" }, el("dd", { text: pct(s.overwarn_mean, 0) }), el("dt", { text: "over-warning" })),
       el("div", { class: "x-stat" }, el("dd", { text: s.excess_vs_official_mean == null ? "n/a" : `${s.excess_vs_official_mean.toFixed(2)}×` }), el("dt", { text: "area vs official" })),
       el("div", { class: "x-stat" }, el("dd", { text: l?.median_min == null ? "n/a" : `${Math.round(l.median_min)} min` }), el("dt", { text: l ? `median lead · ${l.n_covered_before_official} of ${l.n_footprints} earlier` : "median lead" })),
       el("div", { class: "x-stat" }, el("dd", { text: pct(s.vertical_hit_rate, 0) }), el("dt", { text: "top level reached" })),
-      el("div", { class: "x-stat" }, el("dd", { text: s.ticks_scored.toLocaleString("en") }), el("dt", { text: "ticks scored" }))));
+      el("div", { class: "x-stat" }, el("dd", { text: s.ticks_scored.toLocaleString("en") }), el("dt", { text: "moments scored" }))));
   if (arm === "D") box.append(el("p", { class: "x-sub", text: "This baseline makes no model call, so the zone equals the official area and the gain is zero by design. It checks the safety floor and the scoring; it is not a result for the AI." }));
   return box;
 }
 
+export function proofTicks() {
+  const b = ext.backtest;
+  if (!b?.overall) return null;
+  return Object.values(b.overall).reduce((n, a) => n + (a.ticks_scored || 0), 0);
+}
+
 function proofPanel() {
-  const kids = [];
   if (!ext.loaded.backtest) return [loadingBox()];
-  if (ext.errors.backtest) return [errBox("Backtest", ext.errors.backtest)];
+  if (ext.errors.backtest) return [errBox("Track record", ext.errors.backtest)];
   const b = ext.backtest;
   const arms = Object.keys(b.overall || {});
-  kids.push(el("div", { class: "x-caveat", role: "note" }, icon("i-alert"),
-    el("div", {}, el("strong", { text: "Later official areas are not ash truth." }), el("p", { text: "TEPHRA is scored against the official areas issued after each moment. Those are partly built from the same reports and satellite data, so this measures agreement, not what the ash did." }))));
-  for (const a of arms) kids.push(armBlock(a, b.overall[a], (b.overall_lead || {})[a]));
+  const kids = [el("div", { class: "x-caveat", role: "note" }, icon("i-alert"),
+    el("div", {}, el("strong", { text: "Later official areas are not ash truth." }), el("p", { text: "TEPHRA is scored against the official areas issued after each moment. Those are partly built from the same reports and satellite data, so this measures agreement, not what the ash did." })))];
+  for (const a of arms) {
+    kids.push(el("div", { class: "x-arm x-arm--sum" }, el("h4", { class: "x-arm__title", text: ARM[a] || `Arm ${a}` }),
+      meter("Area TEPHRA covers of later official areas", b.overall[a].coverage_mean, "tephra"),
+      meter("Area the official area alone covers", b.overall[a].coverage_official_mean, "official")));
+  }
   if (!arms.includes("G")) kids.push(el("p", { class: "x-sub x-sub--warn", text: "The Gemini arm has not been run on these cases, so no improvement is claimed." }));
-  kids.push(el("div", { class: "x-checks" },
-    pill(b.floor_violations === 0 ? "ok" : "serious", `Safety floor: ${b.floor_violations} violations`, "A violation means the cone left out part of an official area."),
-    pill(b.input_leaks === 0 ? "ok" : "serious", `Future data used: ${b.input_leaks}`, "Inputs stamped after the replayed moment. Must be zero.")));
   const rows = b.cases.map((c) => el("tr", {},
     el("th", { scope: "row" }, el("span", { class: "x-case__name", text: c.label.split(":")[0] }), el("span", { class: "x-case__meta mono", text: `${c.case_id} · arm ${c.arm}` })),
     el("td", { class: "num", text: pct(c.summary.coverage_mean) }), el("td", { class: "num", text: pct(c.summary.coverage_official_mean) }),
     el("td", { class: "num", text: pct(c.summary.overwarn_mean, 0) }), el("td", { class: "num", text: c.summary.ticks_scored.toLocaleString("en") })));
-  kids.push(section("Per case", el("div", { class: "x-tablewrap" }, el("table", { class: "x-table x-table--cases" }, el("caption", { class: "sr-only", text: "Backtest results per case" }),
-    el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Case" }), el("th", { scope: "col", class: "num", text: "TEPHRA" }), el("th", { scope: "col", class: "num", text: "Official" }), el("th", { scope: "col", class: "num", text: "Over-warn" }), el("th", { scope: "col", class: "num", text: "Ticks" }))),
-    el("tbody", {}, ...rows)))));
-  kids.push(section("Caveats", el("ul", { class: "x-problems x-problems--plain" }, ...(b.caveats || []).map((c) => el("li", { text: c })))));
-  kids.push(el("p", { class: "x-sub mono", text: `Scored by code, no model writes a number · generated ${clock(b.generated_at)}Z · every case is a recorded replay` }));
+  kids.push(el("details", { class: "more", dataset: { k: "proof-more" } }, el("summary", { text: "Every number, check and case" }),
+    ...arms.map((a) => armStats(a, b.overall[a], (b.overall_lead || {})[a])),
+    el("div", { class: "x-checks" },
+      pill(b.floor_violations === 0 ? "ok" : "serious", `Safety floor: ${b.floor_violations} violations`, "A violation means the estimate left out part of an official area."),
+      pill(b.input_leaks === 0 ? "ok" : "serious", `Future data used: ${b.input_leaks}`, "Inputs stamped after the replayed moment. Must be zero.")),
+    section("Per case", el("div", { class: "x-tablewrap" }, el("table", { class: "x-table x-table--cases" }, el("caption", { class: "sr-only", text: "Backtest results per case" }),
+      el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Case" }), el("th", { scope: "col", class: "num", text: "TEPHRA" }), el("th", { scope: "col", class: "num", text: "Official" }), el("th", { scope: "col", class: "num", text: "Over-warn" }), el("th", { scope: "col", class: "num", text: "Moments" }))),
+      el("tbody", {}, ...rows)))),
+    section("Caveats", el("ul", { class: "x-problems x-problems--plain" }, ...(b.caveats || []).map((c) => el("li", { text: c })))),
+    el("p", { class: "x-sub mono", text: `Scored by code, no model writes a number · generated ${clock(b.generated_at)}Z · every case is a recorded replay` })));
   return kids;
 }
 
@@ -400,231 +445,76 @@ function budgetBlock() {
     el("p", { class: "x-sub", text: b.note }));
 }
 
+export function budgetWords() {
+  const b = ext.budget;
+  const main = b?.tiers?.find((t) => t.tier === "main");
+  if (!main) return null;
+  return `AI calls today: ${Math.max(0, main.limit - main.remaining)} of ${main.limit}`;
+}
+
 function aiPanel(D, store) {
   const agents = agentStatus(store);
   const failed = failureCount(store);
   const lines = (store.trace || []).filter((t) => t.level === "error" && AI_STAGES.has(t.stage)).slice(-5).reverse();
-  return [
-    ...dutyPanel(store.snapshot?.duty, !!store.snapshot),
-    section("All AI agents",
-    el("p", { class: "x-lede x-lede--tight", text: "Every AI step on the Wall. Status comes from the reasoning trace. When a step fails it says why and nothing is made up in its place." }),
-    failed ? el("div", { class: "x-fail x-fail--count", role: "status" }, st("st-serious", "var(--c-serious)"), el("p", {}, el("strong", { text: `${failed} AI step${failed === 1 ? "" : "s"} failed. ` }), "Each one is in the trace as an error.")) : null,
-    el("ul", { class: "x-agents" }, ...agents.map((a) => {
-      const [ic, col, word] = STATE_UI[a.state];
-      return el("li", { class: `x-agent x-agent--${a.state}`, title: a.detail },
-        el("span", { class: "x-agent__dot" }, st(ic, col)),
-        el("span", { class: "x-agent__main" }, el("strong", { class: "x-agent__name", text: a.name }), el("span", { class: "x-agent__what", text: a.what }),
-          a.delegated ? el("span", { class: "x-agent__via" }, icon("i-agent"), "delegated by Duty Officer") : null),
-        el("span", { class: "x-agent__state" }, el("span", { class: "x-agent__word", text: word }), el("span", { class: "x-agent__n mono", text: a.stage ? `${a.count} step${a.count === 1 ? "" : "s"}${a.fails ? ` · ${a.fails} failed` : ""}` : a.detail })));
-    }))),
-    lines.length ? section("Latest failures", el("ul", { class: "x-fails" }, ...lines.map((t) => el("li", {}, el("span", { class: "mono x-fails__t", text: hhmmssz(ms(t.at)) }), el("span", { class: "trace__stage", text: t.stage }), el("span", { text: t.message }))))) : null,
-    section("Model budget", budgetBlock()),
+  const run = store.snapshot?.duty;
+  const stub = D.state.llm?.backend === "stub";
+  const jobsN = run ? (run.dispatches || []).length : 0;
+  const duty = run
+    ? `Duty Officer (${run.outcome === "MODEL_FAILED" ? "AI unavailable" : stub || run.outcome === "STUB" ? "AI off" : dutyModelLabel(run)}): handed out ${jobsN} job${jobsN === 1 ? "" : "s"} in urgency order`
+    : "Duty Officer: no run yet";
+  const kids = [
+    el("p", { class: "dsum", text: `${stub ? "AI off: code does every step, and code templates write the text a model would." : `AI on (${D.state.llm?.label}): it can widen TEPHRA's estimate, never shrink the official area.`}` }),
+    el("p", { class: "dline" }, icon("i-agent"), el("span", { text: duty })),
   ];
+  if (failed) kids.push(el("div", { class: "x-fail x-fail--count", role: "status" }, st("st-serious", "var(--c-serious)"), el("p", {}, el("strong", { text: `${failed} AI step${failed === 1 ? "" : "s"} failed. ` }), "Each one is in How TEPHRA decided as an error; nothing was made up in its place.")));
+  if (lines.length) kids.push(el("ul", { class: "x-fails" }, ...lines.map((t) => el("li", {}, el("span", { class: "mono x-fails__t", text: hhmmz(ms(t.at)) }), el("span", { text: plainLine(t.message) }), techDetail(`${t.stage} · ${t.message}`)))));
+  const bw = budgetWords();
+  if (bw) kids.push(el("p", { class: "dline" }, icon("i-gauge"), el("span", { text: bw })));
+  kids.push(el("details", { class: "more", dataset: { k: "ai-more" } }, el("summary", { text: "Delegation, every helper and the budget" }),
+    ...dutyPanel(run, !!store.snapshot),
+    section("Every AI helper",
+      el("p", { class: "x-lede x-lede--tight", text: "Every AI step on the Wall. Status comes from How TEPHRA decided. When a step fails it says why and nothing is made up in its place." }),
+      el("ul", { class: "x-agents" }, ...agents.map((a) => {
+        const [ic, col, word] = STATE_UI[a.state];
+        return el("li", { class: `x-agent x-agent--${a.state}`, title: plainLine(a.detail) },
+          el("span", { class: "x-agent__dot" }, st(ic, col)),
+          el("span", { class: "x-agent__main" }, el("strong", { class: "x-agent__name", text: a.name }), el("span", { class: "x-agent__what", text: a.what }),
+            a.delegated ? el("span", { class: "x-agent__via" }, icon("i-agent"), "given a job by the Duty Officer") : null),
+          el("span", { class: "x-agent__state" }, el("span", { class: "x-agent__word", text: word }), el("span", { class: "x-agent__n mono", text: a.stage ? `${a.count} step${a.count === 1 ? "" : "s"}${a.fails ? ` · ${a.fails} failed` : ""}` : a.detail })));
+      }))),
+    section("Model budget", budgetBlock())));
+  return kids;
 }
 
-// ------------------------------------------------------------------ tabs and the chip
+const dutyModelLabel = (run) => run.model_id || "model";
 
-export const PANELS = [
-  { id: "brief", label: "Situation", icon: "i-list" },
-  { id: "sat", label: "Satellite", icon: "i-satellite" },
-  { id: "notices", label: "Notices", icon: "i-raw-text" },
-  { id: "recovery", label: "Recovery", icon: "i-recovery" },
-  { id: "proof", label: "Proof", icon: "i-proof" },
-  { id: "ai", label: "AI", icon: "i-model" },
-];
+// ------------------------------------------------------------------ Details sections hosted in #xpanel
 
-function tabBadge(id, D, store) {
-  if (id === "sat") { const n = (store.snapshot?.satellite || []).filter((r) => r.status === "read").length; return n ? { text: String(n) } : null; }
-  if (id === "notices") { const n = ext.notices.length; return n ? { text: String(n) } : null; }
-  if (id === "recovery") { const p = ext.recovery.find((x) => x.status !== "SUPERSEDED"); return p ? { text: p.status === "DRAFT" ? "draft" : p.status === "APPROVED" ? "ok" : "!" , tone: p.status === "AI_UNAVAILABLE" || p.status === "REJECTED" ? "serious" : null } : null; }
-  if (id === "ai") { const f = failureCount(store); return f ? { text: String(f), tone: "serious" } : null; }
-  return null;
-}
+export const XSECTIONS = { sat: satPanel, notices: noticesPanel, recovery: recoveryPanel, proof: proofPanel, ai: aiPanel };
 
-export function renderXTabs(D, store, ui) {
-  const box = $("xtabs");
-  box.replaceChildren(...PANELS.map((p, i) => {
-    const sel = ui.rail === p.id;
-    const badge = D ? tabBadge(p.id, D, store) : null;
-    return el("button", { type: "button", class: "xtab", role: "tab", id: `xtab-${p.id}`, "aria-selected": sel ? "true" : "false", "aria-controls": p.id === "brief" ? "brief" : "xpanel", tabindex: sel ? "0" : "-1", dataset: { xtab: p.id, focus: `xtab-${p.id}` } },
-      icon(p.icon), el("span", { class: "xtab__label", text: p.label }),
-      badge ? el("span", { class: `xtab__badge${badge.tone ? ` xtab__badge--${badge.tone}` : ""}`, text: badge.text }) : null);
-  }));
-}
-
-export function renderXPanel(D, store, ui) {
+export function renderXPanel(key, D, store) {
   const panel = $("xpanel");
-  const on = ui.rail !== "brief";
-  panel.hidden = !on;
-  document.body.dataset.rail = ui.rail;
-  if (!on || !D) return;
-  const top = panel.scrollTop;
-  const title = PANELS.find((p) => p.id === ui.rail)?.label || "";
-  panel.setAttribute("aria-labelledby", `xtab-${ui.rail}`);
-  panel.dataset.panel = ui.rail;
-  const body = { sat: satPanel, notices: noticesPanel, recovery: recoveryPanel, proof: proofPanel, ai: aiPanel }[ui.rail](D, store);
-  panel.replaceChildren(el("h2", { class: "x-title", text: title === "AI" ? "AI activity" : title === "Sat" ? "Satellite check" : title }), ...body.filter(Boolean));
-  panel.scrollTop = top;
+  const build = XSECTIONS[key];
+  if (!build || !D) return;
+  panel.dataset.panel = key;
+  panel.replaceChildren(...build(D, store).filter(Boolean));
 }
 
-export function renderAiChip(store) {
-  const chip = $("ai-chip");
-  if (!chip) return;
-  const failed = failureCount(store);
-  const agents = agentStatus(store);
-  const running = agents.filter((a) => a.state === "running").length;
-  const b = ext.budget;
-  const main = b?.tiers?.find((t) => t.tier === "main");
-  const stub = b?.backend === "stub";
-  const kids = [icon("i-model"), el("span", { class: "caps ai-chip__cap", text: "AI" })];
-  if (running) kids.push(el("span", { class: "ai-chip__run" }, st("st-info", "var(--c-observer)"), `${running} running`));
-  if (b && !stub) kids.push(el("span", { class: "ai-chip__left mono", text: `${main.remaining} left` }));
-  if (failed) kids.push(el("span", { class: "ai-chip__fail", "aria-label": `${failed} AI failures` }, st("st-serious", "var(--c-serious)"), String(failed)));
-  chip.replaceChildren(...kids);
-  chip.setAttribute("aria-label", `AI activity: ${running} running, ${failed} failed${b && !stub ? `, ${main.remaining} main-model calls left today` : ""}. Opens the AI panel.`);
-  chip.classList.toggle("ai-chip--fail", failed > 0);
-}
+// ------------------------------------------------------------------ a reroute, inside Details › This flight
 
-// ------------------------------------------------------------------ reroute popup
-
-export function reroutePopup(props, D) {
+export function rerouteBlock(props, D) {
   const dl = el("dl", { class: "pop__facts" });
   const row = (k, v, mono) => { if (v == null || v === "") return; dl.append(el("dt", { text: k }), el("dd", { class: mono ? "mono" : null, text: String(v) })); };
   row("Kind", props.kind === "REJOIN_TRACK" ? "Go around, then rejoin the track" : "Direct to destination");
   row("Side", props.side ? props.side.toLowerCase() : null);
   row("Extra distance", props.extra_nm != null ? `+${Math.round(props.extra_nm)} NM` : null, true);
   row("Extra time", props.extra_min != null ? `+${Math.round(props.extra_min)} min` : null, true);
-  row("Status", props.status);
+  row("Status", props.status ? String(props.status).toLowerCase() : null);
   const wps = Array.isArray(props.waypoint_labels) ? props.waypoint_labels : [];
   if (wps.length) row("Turn points", wps.join("  "), true);
-  const adv = D?.advByFlight?.get(props.flight_id);
-  const kids = [el("p", { class: "pop__title", text: `${props.proxy_flight} reroute` }), el("p", { class: "pop__sub", text: "Computed by code around the cautious area · a draft route for the dispatcher" }), dl];
+  const kids = [el("h3", { class: "sec__title", text: "Suggested reroute" }), el("p", { class: "dnote", text: "Computed by code around TEPHRA's estimate · a draft route for the dispatcher" }), dl];
   if (props.route_string) kids.push(el("p", { class: "pop__route mono", text: props.route_string }));
-  if (adv) kids.push(el("p", { class: "pop__sub", text: `Advisory ${adv.action}${adv.status ? ` · ${adv.status.toLowerCase()}` : ""}` }));
-  return el("div", { class: "pop" }, ...kids);
-}
-
-// ------------------------------------------------------------------ Wall view additions
-// Small additions to panels drawn by panels.js, applied after each render (docs/UI-DESIGN.md
-// 5.6, 7.6, 7.8, 8.3, 8.4). They add controls and labels; they never change what the panels
-// say about the data, and they never draw a substitute when data is missing.
-
-const STEP_WORD = { f6: "+6 h", f12: "+12 h", f18: "+18 h" };
-
-// Map notes (7.6): a Reset on the level-filter note, and a note when the chosen forecast step
-// has no official polygon for the selected volcano. The note is worded from the data: a VAA
-// can say NOT AVBL or NO VA EXP, or a polygon can fail to parse, and these differ, so it only
-// says what is not in the current products. No other step is drawn in its place.
-export function extendNotes(notes, D, ui) {
-  if (!D) return notes;
-  if (!D.levelAll) {
-    const lv = notes.find((n) => n.tone === "caution" && !n.action && n.text.startsWith("Level filter"));
-    if (lv) { lv.action = "level-reset"; lv.actionText = "Reset"; }
-  }
-  if (D.sit && D.stepsMissing?.length) {
-    const name = D.sit.volcano_name;
-    notes.push({
-      tone: "info",
-      text: ui.steps === "all"
-        ? `No official forecast area (+6, +12 or +18 h) for ${name} in the current products.`
-        : `No official ${STEP_WORD[D.stepsMissing[0]]} area for ${name} in the current products.`,
-    });
-  }
-  return notes;
-}
-
-// Level filter (8.4): visible labels beside the scale ticks. The FL060 label is left out on a
-// short track, where it would touch the SFC label.
-export function labelLevelAxis() {
-  const box = $("levels");
-  if (!box) return;
-  const H = Number(box.dataset.h) || 0;
-  for (const s of box.querySelectorAll(".levels__scale")) {
-    if (s.firstChild || !s.title) continue;
-    if (s.title === "FL060" && H < 150) continue;
-    s.append(el("span", { class: "levels__scale-label", text: s.title }));
-  }
-}
-
-// Timeline (8.3): previous and next event buttons. The events are the timeline's markers in
-// time order; with none chosen yet, "previous" is the latest marker at or before NOW.
-const leftOf = (n) => parseFloat(n.style.left);
-const sortedMarks = () => [...document.querySelectorAll("#timeline .tl__mark")].sort((a, b) => leftOf(a) - leftOf(b));
-
-export function timelineTarget(dir, current) {
-  const marks = sortedMarks();
-  if (!marks.length) return null;
-  const i = current ? marks.findIndex((m) => m.title === current) : -1;
-  if (i >= 0) return marks[i + dir] || null;
-  const nowEl = document.querySelector("#timeline .tl__now");
-  const now = nowEl ? leftOf(nowEl) : Infinity;
-  if (dir < 0) return marks.filter((m) => leftOf(m) <= now).pop() || null;
-  return marks.find((m) => leftOf(m) > now) || null;
-}
-
-export function timelineNav(ui) {
-  const right = document.querySelector("#timeline .tl__right");
-  if (!right) return;
-  const marks = sortedMarks();
-  const cur = ui.tlCurrent ? marks.find((m) => m.title === ui.tlCurrent) : null;
-  if (cur) {
-    cur.classList.add("is-current");
-    cur.setAttribute("aria-current", "true");
-    for (const m of marks) m.tabIndex = m === cur ? 0 : -1;
-  }
-  // aria-disabled, not disabled: the focused button keeps focus when it reaches the end.
-  const btn = (dir, label, text) => {
-    const off = !timelineTarget(dir, ui.tlCurrent);
-    return el("button", { type: "button", class: "tl__step", title: label, "aria-label": label, "aria-disabled": off ? "true" : "false", dataset: { act: "tl-step", dir: String(dir), focus: `tl-step-${dir}` }, text });
-  };
-  right.prepend(el("div", { class: "tl__nav", role: "group", "aria-label": "Timeline events" },
-    btn(-1, "Previous timeline event", "‹ Previous"), btn(1, "Next timeline event", "Next ›")));
-}
-
-// Flights dock (7.8): the picked aircraft stays marked (row and map ring) and gets a detail
-// block. The entry is an estimate from code: a straight-line projection from the last
-// position, if track, speed and level are held (tephra/geo/exposure.py). No clock time is
-// derived from it.
-export function renderFlightDetail(D, ui, target) {
-  if (!target || !D) return;
-  const pick = ui.selFlight;
-  for (const row of target.querySelectorAll(".flights__row")) {
-    const on = !!pick && row.dataset.focus === `flight-${pick.hex}`;
-    row.classList.toggle("is-picked", on);
-    if (on) row.setAttribute("aria-current", "true"); else row.removeAttribute("aria-current");
-  }
-  if (!pick) return;
-  const f = D.selFlight;
-  const clear = el("button", { type: "button", class: "link-btn fdetail__clear", "aria-label": "Clear the selected flight", dataset: { act: "flight-clear", focus: "flight-clear" }, text: "Clear" });
-  const head = el("div", { class: "fdetail__head" }, el("span", { class: "caps", text: "Selected" }),
-    el("strong", { class: "fdetail__id", text: f ? f.properties.proxy_flight : pick.proxy }), clear);
-  const box = el("section", { class: "fdetail", "aria-label": "Selected flight" }, head);
-  if (!f) {
-    box.append(D.selHiddenByLevel
-      ? el("p", { class: "fdetail__gone" }, `Hidden by the level filter ${fl(ui.level.min)}–${fl(ui.level.max)}. `,
-        el("button", { type: "button", class: "link-btn", dataset: { act: "level-reset", focus: "fdetail-reset" }, text: "Reset" }))
-      : el("p", { class: "fdetail__gone", text: "No current position for this flight in the aircraft data." }));
-    target.append(box);
-    return;
-  }
-  const p = f.properties;
-  box.append(el("p", { class: "fdetail__sub", text: `RFA is a fictional airline · stands in for ADS-B ${p.callsign || "(no callsign)"}, hex ${String(p.hex || "").toUpperCase()}` }));
-  const dl = el("dl", { class: "fdetail__facts" });
-  const row = (k, v) => { if (v != null && v !== "") dl.append(el("dt", { text: k }), el("dd", { text: String(v) })); };
-  if (p.exposed) {
-    row("Entry (est.)", p.inside ? "Inside TEPHRA's area now" : `In ${p.minutes_to_entry} min`);
-    row("Basis", "Code projection from the last position, if track, speed and level are held");
-  } else {
-    row("Entry (est.)", "Not projected to enter TEPHRA's area");
-  }
-  row("Level", p.alt_baro_ft != null ? `${fl(p.alt_baro_ft)}${p.nav_altitude_mcp_ft != null ? ` · selected ${fl(p.nav_altitude_mcp_ft)}` : ""}` : "level unknown");
-  const move = [p.gs_kt != null ? `${Math.round(p.gs_kt)} kt` : null, p.track_deg != null ? `${Math.round(p.track_deg)}° ${compassWord(p.track_deg)}` : null].filter(Boolean).join(" · ");
-  row("Speed, track", move);
-  row("Position age", age(p.ageS));
-  box.append(dl);
-  const adv = p.exposed ? D.advByFlight.get(`${p.hex}:${p.volcano_id}`) : null;
-  if (adv) box.append(el("p", { class: "fdetail__adv" }, advisoryLine(adv, D.mode === "REPLAY")));
-  target.append(box);
+  return el("section", { class: "sec reroute" }, ...kids);
 }
 
 // Satellite context scale (5.6): only for layers whose NASA GIBS entry publishes a colour map

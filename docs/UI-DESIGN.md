@@ -1,10 +1,11 @@
 # TEPHRA UI design spec: the Wall and the Desk
 
-Version 2, 10 Oct 2026. Owner: lead product designer. Builders implement this document;
+Version 3, 12 Oct 2026. Owner: lead product designer. Builders implement this document;
 reviewers check the result against it. Where this spec and the code disagree, the spec wins until
-it is changed here.
+it is changed here. Version 3 records the Wall redesign ("The Story"): its source and full
+rationale is `docs/UI-REDESIGN.md`, and the sections below describe the Wall as built from it.
 
-What this covers: the Wall (`/`, `index.html` + `wall.js` + `wall.css`) and the Desk
+What this covers: the Wall (`/`, `index.html` + `wall.js` + `wall/*.js` + `wall.css`) and the Desk
 (`/desk`, `desk.html` + `desk.js` + `desk.css`). Shared assets that already exist and must be
 used as they are:
 
@@ -35,9 +36,9 @@ files. Renders, all in `…/screens/v2/`:
 The "before" screenshots of the current pages are `…/screens/v2/before-*.png`.
 
 Contents: 1 Principles · 2 The story in one glance · 3 Tokens · 4 Layout grids · 5 Map
-symbology · 6 Direction-mismatch rose · 7 Wall components · 8 3D, compare, timeline, level
-filter · 9 Keyboard · 10 Desk · 11 Copy deck · 12 Accessibility · 13 Data rules · 14 Video
-shot list · 15 Open issues.
+symbology · 6 Direction-mismatch rose · 7 Wall components (7.19 Details drawer) · 8 3D,
+compare, time bar, height filter · 9 Keyboard · 10 Desk · 11 Copy deck · 12 Accessibility ·
+13 Data rules · 14 Video shot list · 15 Open issues.
 
 ---
 
@@ -55,9 +56,10 @@ shot list · 15 Open issues.
    dashed TEPHRA, dashed observatory arrow), a shape (status symbols, eruption symbol), a letter
    (G/Y/O/R/U in the volcano symbol) or a word. The colour-vision tables in section 3.3 are the
    evidence; keep them true.
-4. **Honest by construction.** The disclaimer, the REPLAY banner, the model label and every
-   credit are layout, not decoration: they are always on screen and never collapse, scroll away
-   or truncate. TEPHRA's output is "cautious area", "estimate", "hypothesis", "advisory draft";
+4. **Honest by construction.** The disclaimer, the REPLAY banner and the model label are layout,
+   not decoration: they are always on screen and never collapse, scroll away or truncate. Credits
+   are always reachable (the footer's "Map and data credits", About › Credits, the drawer's end),
+   and the OpenStreetMap credit is always visible on the map. TEPHRA's output is "cautious area", "estimate", "hypothesis", "advisory draft";
    never "forecast", "warning", "detection" or "release". Satellite and SO2 layers say "context
    only" on screen.
 5. **Official stays on top of meaning.** The official area cannot be switched off on the main
@@ -67,30 +69,36 @@ shot list · 15 Open issues.
    map vignette; motion only when something changes (a new flight, a decision), three pulses at
    most, nothing loops except the slow march of exposure paths, and none of it under
    `prefers-reduced-motion`.
-7. **Readable at two metres and in a 1080p video.** At 1920x1080 the key numbers are 24-40 px,
-   body text 16 px, map labels 14-16 px with a 2 px halo, nothing meaningful below 12 px.
+7. **Readable at two metres and in a 1080p video.** At 1920x1080 the story lines are 28 px, body
+   text 16 px, map labels 12-16 px with a 2 px halo, nothing below 12 px, map canvas labels
+   included.
 8. **Text comes from the data.** Feed and model text is inserted with `textContent` only. Code
    may compose labels from fields (section 13); it never invents a time, a number or a place.
 9. **A human decides, visibly.** The Desk names the outcome on every button, asks once (hold or
    tap-and-confirm), never queues a decision offline, and shows the audit line after.
+10. **One primary thing per screen.** The Wall's is the story and its one filled button, "Decide on
+   the Desk →"; each Details section opens on its summary.
+11. **Summary first, detail on demand; nothing deleted.** Everything the Wall showed before the
+   redesign is still reachable, at most two taps away, behind a "Show all", "Technical detail" or a
+   Details row with its live status (UI-REDESIGN R11 is the inventory; `tests/test_ui_inventory.py`
+   keeps it true).
+12. **Nothing floats over the map except map controls, status pills and labels.**
 
 ## 2. The story in one glance
 
 | Beat | Carried by (Wall) | Where | Must read at 2 m |
 |---|---|---|---|
-| Official ash area | Magenta filled polygon, solid 2.6 px edge, VAG-style label box "SIGMET WAAF 12 + VAA DARWIN 2026/1098 · SFC–FL150 · MOV SE 10 KT · until 1720Z (50 min)" | Map | The box and the magenta shape |
-| Where sources disagree | The direction rose at the vent (magenta official arrow vs sky dashed observatory arrow, "135° apart"); the flagged cell in the sources grid; the CAUTION card | Map and rail | The two arrows and the angle |
-| TEPHRA's cautious area | Amber dashed outline drawn 5 px outside the official edge; amber hatch where the model widened it; label "TEPHRA CAUTIOUS AREA · SFC–FL150 / OFFICIAL 100% (NO MODEL)" | Map | The amber dashes around the magenta |
-| Who is flying into it | Amber aircraft with a marching path to an entry ring labelled "+12 MIN"; the flights dock | Map | Amber planes and minutes |
-| A human deciding | Flights dock and Decisions list: "Approved by AK · 16:07Z" with a check; the Desk's named buttons | Map dock, rail, phone | The check or cross and the name |
+| Official ash area | Story L1 "Official reports put the ash up to 50,000 ft (FL500)."; the pink filled polygon with its label box "Official ash area · SFC–FL500 · until 1045Z / moving SE at 10 kt" | Story, map | The sentence and the pink shape |
+| Where sources disagree | Story L2 "The sources disagree on where the ash is heading (135° apart)."; the direction rose at the vent; Details › Where the sources disagree | Story, map | The sentence and the two arrows |
+| TEPHRA's area | The amber dashed outline drawn just outside the official edge with its tag "TEPHRA's estimate · same as official (AI off)"; the key row "TEPHRA's estimate · never smaller than official" | Map, key | The amber dashes around the pink |
+| Who is flying into it | Story L4 "23 flights of RFA, our fictional airline, are in or heading into TEPHRA's estimated ash area."; amber planes with marching paths, one-line labels or a "23 RFA flights" cluster | Story, map | The number and the amber planes |
+| A human deciding | Story L5 "23 of their advisories wait for a dispatcher." and the one filled button "Decide on the Desk →"; Details › Decisions | Story, Desk | The button |
 
-The headline pill on the map (section 7.6) repeats all five in one line, so a still frame of
-the Wall explains itself: `SEMERU · ⚠ Direction disagreement 135° · TEPHRA area widened · 2
-flights entering · 1 approved`.
-
-Reference renders: `ref-wall-1920-semeru.png` (OFFICIAL mode, the 25 Sep replay as it is today)
-and `ref-wall-1920-widened-illustrative.png` (WIDENED, with an illustrative sector, stamped as
-such).
+A still frame of the story column explains itself (UI-REDESIGN R5): `ANAK KRAKATAU · JAVA / BALI ·
+ALERT RED · as of 1030Z` / `Recorded Official reports put the ash up to 50,000 ft (FL500).` / `Ash
+closes 2 RFA airports: WIHH, WIII.` / `23 flights of RFA, our fictional airline, are in or heading
+into TEPHRA's estimated ash area.` / `23 of their advisories wait for a dispatcher.` /
+`[Decide on the Desk →]`.
 
 ## 3. Design tokens
 
@@ -112,7 +120,7 @@ Neutrals (cool blue-black; the UI is dark only, `color-scheme: dark`, on both pa
 | Token | Hex | Use |
 |---|---|---|
 | `--c-bg` | `#05080c` | Page background, behind everything |
-| `--c-surface-1` | `#0a1017` | Command bar, rail, honesty strip, Desk header |
+| `--c-surface-1` | `#0a1017` | Top bar, story column, Details drawer, footer, time bar, Desk header |
 | `--c-surface-2` | `#0f1720` | Cards, grid column heads, Desk cards |
 | `--c-surface-3` | `#16212c` | Selected tab, hover, pressed tool |
 | `--c-surface-glass` | `rgb(10 16 23 / .88)` + `--glass-blur` | Panels floating over the map |
@@ -228,6 +236,13 @@ surface-1/2 only (5.2/4.9). Fills with text: approve 8.0, approve hold fill 13.6
 replay banner 13.0, caution banner 12.5, hypothesis banner 10.6, serious banner 8.9, amber chip
 11.0, magenta chip 6.0. Control borders `--c-line-input` 3.2-3.9:1; focus ring 15-19:1.
 
+Redesign pairs (R13.2, WCAG ratios): `--c-cta-ink` on `--c-cta` (the "Decide on the Desk" button)
+17.6:1; story text `--c-text-1` on `--c-surface-1` 16.8:1 and `--c-text-2` 10.6:1; map pills
+(`--c-text-1` on `--c-surface-glass` composited over land `#0c0c0c` 16.8:1, water 16.6:1, a pink
+official fill 15.1:1, even pure white 12.2:1); the failure line's text on `--c-serious-bg` 15.5:1 and
+its `--c-serious` edge 7.0:1 against that fill; the Details index's serious status `--c-serious` on
+`--c-surface-1` 7.5:1; amber index status `--c-tephra-text` on `--c-surface-1` 12.4:1.
+
 Status pairs under CVD that collide (always shape + word): ok vs serious 5.3 (deutan), caution vs
 tephra 8.8 (deutan with `#ffe566`; the earlier `#f5d04a` was 4.9 and was dropped), ok vs caution
 8.2.
@@ -246,31 +261,32 @@ none on our host. Preload the Sans latin file:
 | `--fs-1` | 12 px (`max(12px, 0.75rem)`) | Hashes, attribution, caps labels (600, +0.08em, upper case) | Hashes, fine print |
 | `--fs-2` | 14 px | Secondary text, grid cells, trace lines | Labels of values, hints |
 | `--fs-3` | 16 px | Body, tabs | Body |
-| `--fs-4` | 18 px | Headline pill, area band | Entry time |
+| `--fs-4` | 18 px | Dialog leads, area band | Entry time |
 | `--fs-5` | 20 px | — | Card action |
 | `--fs-6` | 24 px | Volcano name, KPIs, wordmark | Flight number, sheet title |
 | `--fs-7` | 32 px | Clock | Minutes to entry |
 | `--fs-8` | 40 px | (one hero number per screen at most) | — |
+
+Story lines (the Wall's largest text): 28 px at 1600 px and up, 24 at 1360-1599, 22 at 601-1359,
+20 on a phone (`--story-size` in `wall.css`; `--fs-story` 24 px and `--lh-story` 1.25 in
+`tokens.css`), semibold for the flight-count line, medium for the others. Drawer section titles
+`--fs-5`, drawer body `--fs-3`, key rows, trust line and Details rows `--fs-2` (`--fs-3` at 1920),
+eyebrow and drawer group headers `--fs-1` caps. Map canvas labels are at least 12 px.
 
 Weights 400/500/600/700. Line heights `--lh-tight` 1.15 (numbers), `--lh-snug` 1.3 (UI),
 `--lh-body` 1.5 (paragraphs, advisory text). Root size: the Wall sets `html { font-size: 16px }`
 at 1600 px wide and up, 15 px from 1360 to 1599, 14 px below 1360, and 16 px again at 600 px and
 below; the Desk keeps 16 px and respects browser zoom. Type floor: `--fs-1` is
 `max(12px, 0.75rem)`, because 0.75rem alone is 11.25 px at the 15 px root and 10.5 px at the
-14 px root. `wall.css` has no literal size under 12 px (the old 11.5 px INFO summary and the
-11 px "must" tag now use `--fs-1`). The map's own symbol labels (`text-size` 11 in `map.js`)
-are canvas text, not CSS, and are not covered by this floor yet. Places that got wider when
-the floor came in and need a look at 1280x720 and 1440x900: the comparison grid cells at 1359
-and below (`.cmp__cell` drops to `--fs-1` in a 72 px label column), the tool tile labels in the
-76 px column, the level-filter thumb ("FL350" in a 52 px pill), the timeline hour labels and the
-compact rail tab labels (`.xtab__label`).
+14 px root. `wall.css` has no literal size under 12 px, and every map `text-size` (`map.js`,
+`ext-map.js`) is at least 12; `tests/test_ui_inventory.py` checks both.
 
 ### 3.5 Space, radii, elevation, stacking, motion
 
 - Space: 4 px grid, `--sp-1` 4 … `--sp-16` 64 (rem, so the Wall scales with its root size).
 - Radii: `--radius-xs` 2, `-sm` 4 (chips, inputs), `-md` 8 (buttons, cards), `-lg` 12 (floating
   map panels, sheets on desktop), `-xl` 16 (phone sheets), `-pill`.
-- Elevation: e0 flat surfaces; e1 `--shadow-1` (rail, bars); e2 `--shadow-2` + glass (map
+- Elevation: e0 flat surfaces; e1 `--shadow-1` (story, drawer, bars); e2 `--shadow-2` + glass (map
   panels); e3 `--shadow-3` + `--c-scrim` (dialogs, sheets). On dark UI the border carries most of
   the edge; never use white glows.
 - Stacking (`--z-*`): map overlays 10, panels 20, sticky bars 30, banners 40, popovers 50,
@@ -288,113 +304,72 @@ compact rail tab labels (`.xtab__label`).
   border and shadow over `--dur-2` on hover; on press they take a `--c-line-1` fill within `--dur-1`, plus a 0.97
   scale only when motion is allowed. Every duration in `wall.css` is a token (the old
   `--dur-quick` fallback, which ignored reduced motion, is gone).
-- Tap targets: `--tap-min` 44 px (contract), `--tap-comfort` 48 px (Desk primary actions).
+- Redesign motion: the Details drawer's column slides open over `--dur-4` with `--ease-enter` (a
+  cut under reduced motion); a changed flight count in the story gets a `--dur-5` highlight (none
+  under reduced motion).
+- Tap targets: `--tap-min` 44 px (contract), `--tap-comfort` 48 px (Desk primary actions and the
+  Wall's "Decide on the Desk").
 
 ## 4. Layout grids
 
-Dimensions are CSS px at the named viewport. "Inset" is the gap between a floating map panel and
-the map edge.
+Dimensions are CSS px at the named viewport. The Wall's layout tokens (`--band-h`, `--bar-h`,
+`--story-w`, `--drawer-w`, `--time-h`, `--foot-h`, `--story-size`) are set per width on `:root` in
+`wall.css` (UI-REDESIGN R4).
 
 ### 4.1 Wall at 1920x1080 (the video frame)
 
 ```
-y 0    ┌──────────────────────────── REPLAY banner 40 (REPLAY only) ────────────────────────────┐
-y 40   ├──────────────────────────────── command bar 64 ───────────────────────────────────────┤
-y 104  ├──────────────────── map 1280 ─────────────────────┬────────── rail 640 ───────────────┤
-       │ legend 296 │ headline pill (≤ 844)  │  tools 76  │ volcano tabs 56                     │
-       │ (≤ 360 h)  │                        │  (272 h)   │ volcano head 72                     │
-       │            │                        │            │ What the sources say  ~300          │
-       │            │     framed story       │  levels 76 │ Where they disagree  ≤ 240 (scroll) │
-       │            │   (vent, areas, rose,  │  (420 h)   │ TEPHRA cautious area  ~150          │
-       │            │    flights, paths)     │            │ Decisions             rest (scroll) │
-       │ trace dock 600 x 132    flights dock 440 x ≤260   zoom 3x30│                           │
-       │ timeline (full width − 32) x 96                            │                           │
-y 1048 ├──────────────────────────────── honesty strip 32 ──────────────────────────────────────┤
-y 1080 └─────────────────────────────────────────────────────────────────────────────────────────┘
+y 0    ┌─ REPLAY band 32 (REPLAY only): "REPLAY: recorded real feeds from 05 Sep 2026 · not live · {case}" ─┐
+y 32   ├─ top bar 56: TEPHRA · sub-line · Replay · Area ▾ ……… AI chip · Data chip · clock · Desk → ────────┤
+y 88   ├─ story 460 ─────────────┬─ map 1460 (980 with Details open) ─────────────┬─ Details 480 (open) ─┤
+       │ failure line (if any)   │ official label box (selected volcano)          │ (pushes the map;     │
+       │ eyebrow · story lines   │ pink area, amber dashed estimate, amber planes │  the story stays)    │
+       │ [Decide on the Desk →]  │ name-only labels for other volcanoes           │                      │
+       │ key (two columns)       │ pills bottom-left        Fit · Layers · ± ·  © │                      │
+       │ trust line              ├─ time bar 52: mode · scrubber · Forecast · ‹ › · History ───────────────┤
+       │ All volcanoes + 3 rows  │                                                │                      │
+       │ [☰ Details]             │                                                │                      │
+y 1048 ├─ footer 32: disclaimer · RFA line · credits · Policy A · Help · About · Privacy ──────────────────┤
 ```
 
-- Rows: banner 40 (0 in LIVE), command bar 64, stage `1fr`, honesty strip 32. The body never
-  scrolls (`overflow: hidden`); the rail and docks scroll inside.
-- Stage columns: map `minmax(0, 1fr)`, rail 640 (560 at 1600-1799).
-- Map insets 16. Legend top-left 296 wide. Headline pill from x = 296 + 32 to the tools
-  column. Tools column top-right, 76 wide, five 52 px tiles. Level filter under the tools
-  (top 304, track sized by the height rule in 4.2). Zoom and compass (MapLibre
-  `NavigationControl`, restyled) sit just left of the level filter, level with its top, so they
-  never share its column. Trace dock bottom-left, flights dock bottom-right left of the tool
-  column, both 12 px above the timeline. Timeline 96 tall, inset 16 on all sides.
-- Camera framing (`fitBounds`) pads for the panels: top 120, left legend width + 60, right 140,
-  bottom timeline + docks + 40. Max zoom 8.6 when framing.
+- Rows: band 32 (0 in LIVE), bar 56, stage `1fr`, footer 32. Stage columns: story 460, map
+  `minmax(0, 1fr)`, drawer 0 or 480 (animated over `--dur-4`, a cut under reduced motion). The map
+  column is the map plus the 52 px time bar. A 24 px fade runs from the story column into the map.
+- The story fits about 900 px without scrolling in the Krakatau case (tighter rhythm, the key in
+  two columns, "Show the n flights" beside the button); it scrolls inside itself if it must.
+- Framing pads 48 px (7.4), max zoom 8.6.
 
 ### 4.2 Wall at 1440x900
 
-Root 15 px. Banner 36, command bar 56, strip 30, rail 500, inset 16, timeline 100, legend 260
-(collapsed to a "Legend" button by default below 1600 px, except on a viewer's first visit, when
-it starts open at every width (7.5); it opens over the map). Tools column
-keeps icons and short labels; the region buttons drop their key hints; the command bar drops
-the brand subtitle and the "FEEDS" caption, KPI values step down to 20 px and the clock to 24 px.
-The flights dock is 360 wide and shows 3 flights then "+N"; the trace dock takes the remaining
-width (at least 320) and shows its 2 latest lines (time, actor chip, message; the stage column is
-dropped); T expands it.
-Rail: tabs 52, head 64, sources grid ~270 (cells may wrap to two lines), disagreements ≤ 200,
-area ~130, decisions rest.
-
-The MapLibre zoom control is hidden at 1599 px and below (wheel and keys still zoom); from
-1600 px it sits left of the level filter (4.1).
-
-Height rule (every width from 1360 px): laptops are short (1366x768 and 1536x864 leave a map
-pane of about 535 to 610 px), so the level track is sized from the map pane, never from the
-window. `panels.renderLevels` works out the room under the tools column:
-available = pane height − filter top (inset + 5 tiles + 24) − (timeline + inset + dock gap) −
-the filter's measured height without its track − 8, and the track is min(270, available). When
-that is under 140 px it adds `body.levels-pop`: the filter becomes the 4.3 popover (the "Levels"
-tool shows; the filter opens beside the tools column, its track sized to the pane). The rule runs
-again on resize and whenever the map pane changes height (the REPLAY or lost-stream banner
-showing or wrapping), and on every render, so compare labels and new state are covered.
+Root 15 px. The same structure: story 400, map about 1040 x 732, story lines 24 px, the brand
+sub-line hidden, the zoom buttons hidden (wheel, pinch and keys still zoom), the footer's airline line
+in full. Details takes the story column's place at 480 px (the map shrinks to about 960 px and is
+never covered), with the story strip on top and the key pinned at the bottom. The other-volcanoes
+list shows 2 rows. The time bar (48) keeps every control; in a map column under 1080 px it drops the
+"Forecast:" word and shows "‹" "›" as 44 px icon buttons with labels and tooltips.
 
 ### 4.3 Wall at 1280x720
 
-Root 14 px. Banner 32 (one line; the case label is hidden, still in the banner's tooltip and the
-About dialog), command bar 48 (wordmark, mode badge, region menu button instead of three
-buttons, clock, model chip, feeds chip, Desk icon button with label "Desk"), strip 28, rail 440,
-inset 12, timeline 84. Tools column becomes icon-only (40 px tiles with tooltips and
-`aria-label`s). The level filter collapses to a "Levels" tool that opens it as a popover. The
-headline pill is hidden; the rail head carries the verdict (7.6) under the volcano name as a
-wrapped sentence, never clipped (the discrepancy, the area mode, "N RFA (fictional) flights
-entering", "N approved", led by "Recorded:" in REPLAY), then the area's second line; left out
-in HYPOTHESIS, where the rail head already shows the hypothesis banner). The MapLibre zoom control is hidden (keys and
-wheel still zoom). Trace dock: 1 line, expands on T. Flights dock: 300 wide with one-line rows, or
-a pill "✈ 2 entering · first in 12 min" that expands when more than two flights enter. Rail: tabs 44, head 56, sources
-grid compact (rows Seen, Height, Movement; Valid and Colour code move into the column head
-tooltip), disagreements show CAUTION/SERIOUS items and one "Harmless (n)" line, area ~90,
-decisions scroll.
+Root 14 px. Band 28 (case label hidden; still in the tooltip, About and Data feeds), bar 48 (AI chip
+"AI: off", Data chip short form "Data: 6 ok · 5 off", clock sub-line "Replay · UTC"), story 360, lines
+22 px, map about 920 x 600, time bar 44, footer 28 ("RFA is a fictional airline."). Map controls are
+icon-only. Details takes the left column at 440 px (map about 840 px), with the sources as cards. The
+other-volcanoes list shows 1 row.
 
-### 4.4 Wall at 390x844 (phone width; usable, not the target)
+### 4.4 Wall at 390x844 (phone)
 
-Single column, page scrolls:
-1. REPLAY banner, two lines allowed (48).
-2. Command bar, two rows (88): row 1 wordmark, mode badge, clock; row 2 model chip, feeds chip,
-   "Desk" link.
-3. Verdict block (`#verdict`, `role="status"`), full width above the map: the volcano with its
-   colour symbol (and "RECORDED" in REPLAY), then the two verdict lines of 7.6 wrapped in full
-   (14 px), or the HYPOTHESIS line on the hypothesis tint. The rail head does not repeat them
-   at this width. Hidden with no volcano selected.
-4. Map, `height: 46vh` (min 320). Overlays: headline hidden; a "Legend" button top-left; tools as
-   a horizontal row of three icon buttons top-right (Frame, Layers, 3D); the level presets and
-   satellite live in the Layers sheet; swipe compare is not offered under 600 px (a swipe on a
-   390 px map adds little); the timeline becomes one line under the map
-   ("REPLAY · 25 SEP 16:30Z · 58%"). Map label boxes drop to 12 px and the rose to 78 px arrows.
-5. A tab bar (sticky under the map, 48): Brief · Sources · Flights · Trace.
-6. Tab panels (sections 7.11-7.14 stacked). The sources grid becomes one card per source
-   (SIGMET, VAA, VONA), rendered by a phone branch in `panels.js`, not by CSS alone: the column
-   head, then label and value rows (Seen at, Height, Movement, Valid, Colour code) with values
-   wrapping in full, never clamped or left in a tooltip, then the hash and "Raw text". A flagged
-   value keeps its caution ring and shape. Long verbatim fields (VAA info source and remarks,
-   VONA activity and cloud height) are never grid rows at any width: they render as full-width
-   quoted lines under the grid or cards, headed by their source kind ("VAA · VAAC",
-   "VONA · observatory").
-   Text floor at phone width: 12 px (`--fs-1`); no rule sets a smaller size.
-7. Honesty strip fixed to the bottom, two lines (40); add `padding-bottom` to the page so it never
-   covers content.
+One column that scrolls; the document is exactly 390 px wide (`overflow-x: clip` after the causes
+were fixed). Sticky: the REPLAY band (1-2 lines), then the header in three rows: brand, mode pill,
+clock, "Desk →"; the native area picker ("Java / Bali · 2"), the AI chip, the Data chip; the
+disclaimer line (12 px). Then: the failure line, the story card (20 px lines, full-width "Decide on
+the Desk →"), the map (42vh, min 300; Fit and Layers 40 px with words; the time pill "⟲ 1030Z · Now
+▾" bottom-left opens the full time bar as a bottom sheet), the key strip, the trust line, All
+volcanoes with every row, "☰ Details" (a full-screen sheet below the header, with "‹ Details" and
+Close), then the footer. A sticky bottom call to action "Decide on the Desk (23) →" (or "Open the
+Desk" at secondary weight) shows only while the story's own button is out of view
+(IntersectionObserver); the page has `padding-bottom: calc(56px + env(safe-area-inset-bottom))`.
+Compare is not offered; 3D is in Map layers. The old phone tabs (`#ptabs`) are gone: their content
+is in Details.
 
 ### 4.5 Desk at 390x844 (primary)
 
@@ -461,31 +436,35 @@ Layer order, bottom to top (all after the basemap unless noted):
 | 3 | `btd-<id>` | raster (image) | `overlays.btd[*]` corners | before `water_name`; opacity 0.75 |
 | 4 | `fir-line` | line | `/static/data/firs.geojson` | `--map-fir`, 1 px |
 | 5 | `fir-active` | line | FIRs named in a valid SIGMET id (`SIGMET:<FIR>:…`) | `--map-fir-active`, 1.6 px |
-| 6 | `fir-label` | symbol | firs, minzoom 5 | line placement, spacing 700, `label` ("WAAF UJUNG PANDANG FIR"), Noto Sans Regular 11, letter-spacing 0.08, `#7f92a6`, halo 1.5 |
+| 6 | `fir-label` | symbol | firs, minzoom 5 | line placement, spacing 700, `label` ("WAAF UJUNG PANDANG FIR"), Noto Sans Regular 12, letter-spacing 0.08, `#7f92a6`, halo 1.5; FIR and VAAC lines are off by default (Map layers) |
 | 7 | `vaac-line` | line | `/static/data/vaac_aor.geojson` | `--map-vaac`, 1.2 px, dash [6,3,1,3]; label "DARWIN VAAC" / "TOKYO VAAC" like FIRs |
-| 8 | `navaid` | circle + symbol | `/static/data/navaids.geojson`, minzoom 8 | 3 px ring `--map-navaid`; ident 11 px; off by default |
+| 8 | `navaid` | circle + symbol | `/static/data/navaids.geojson`, minzoom 8 | 3 px ring `--map-navaid`; ident 12 px; off by default |
 | 9 | `tephra-fill` | fill | cones, `part == cone` | `--c-tephra` 0.07 (dimmed 0.03) |
 | 10 | `tephra-hatch` | fill | cones, `part == sector` | `fill-pattern` hatch image (section 5.2), opacity 1 (dimmed 0.4) |
 | 11 | `official-fill-now` | fill | official, step `now`, shown, `fill == true` (5.1) | `--c-official` 0.14 (dimmed 0.07) |
 | 12-14 | `official-fill-f6/f12/f18` | fill | steps | 0.05 / 0.035 / 0.025 |
 | 15 | `official-line-now` | line | step `now` | 2.6 px at z8 (1.6 at z4), solid, join round |
 | 16-18 | `official-line-f6/f12/f18` | line | steps | 2 px dash [4,2] op 0.9; 1.8 px dash [2,2] op 0.75; 1.8 px dots [0.1,2] round cap op 0.6 |
-| 19 | `tephra-line` | line | cones, `part == cone` | `--c-tephra` 2.6 px at z8, dash [3,2], `line-offset: -5` (outset), join round |
+| 19 | `tephra-line` | line | cones, `part == cone` | `--c-tephra` 2.6 px at z8 for the selected volcano, 1.4 px for the others, dash [3,2], `line-offset: -5` (outset), join round |
 | 20 | `exposure-path` | line | exposures, `kind == path` | `--c-tephra` 2.4 px dash [1.5,1.5]; marching (5.4) |
 | 21 | `exposure-entry` | circle | `kind == entry` and `minutes_to_entry > 0` | r 6, fill `--map-halo`, stroke `--c-tephra` 2.5 (no ring for a flight already inside) |
 | 22 | `exposure-entry-label` | symbol | same filter | "+12 MIN", Noto Sans Bold 13, `--c-tephra-text`, offset [0,-1.3] |
-| 23 | `volcano-inactive` | symbol | `active == false` | hollow eruption icon 0.5, opacity 0.8; name from z7.5, 11 px `--map-label-minor` |
-| 24 | `volcano-active` | symbol | `active == true` | eruption icon by code (5.3); name Noto Sans Bold 14 (16 selected), `--map-label`, halo 2 |
-| 25 | `aircraft-icon` | symbol | aircraft | SDF plane (5.3) |
-| 26 | `aircraft-inside` | circle | `inside` | r 18, stroke `--c-tephra` 2, no fill |
-| 27 | `aircraft-label-exposed` | symbol | `exposed` | two lines (5.3), Bold 14, allow overlap |
-| 28 | `aircraft-label` | symbol | not exposed, minzoom 7.5 | "GIA123 FL350", Regular 11, `--c-text-3`, optional |
-| 29 | `official-label` | symbol | `official-labels` point source (5.1) | stretchable box `box-official`, `icon-text-fit: both`, padding [5,9,5,9], two-line `format`, data-driven `text-anchor` and `text-offset`, icon and text allow overlap |
-| 30 | `tephra-label` | symbol | `area-labels` point source (5.2) | box `box-tephra`, same style, stacked against the official box |
-| 31 | `rose-*` | line, circle, symbol | `rose` source (section 6) | above all labels so it wins collisions |
+| 23 | `volcano-inactive` | symbol | `active == false` | hollow eruption icon 0.5, opacity 0.8; name from z7.5, 12 px `--map-label-minor` |
+| 24 | `volcano-active` | symbol | `active == true` | eruption icon by code (5.3); name Noto Sans Bold 14 (16 selected), `--map-label`, halo 2; left out for a non-selected volcano whose area label already names it |
+| 25 | `aircraft-icon` | symbol | aircraft | SDF plane (5.3); every plane is always drawn |
+| 26 | `aircraft-inside` | circle | `inside`, minzoom 6 | r 18, stroke `--c-tephra` 2, no fill |
+| 27 | `exposed-cluster` | symbol | `exposed-pts` (clustered: radius 60, min points 6) | `box-tephra` with "8 RFA flights", 44 px hit area; a click zooms in |
+| 28 | `aircraft-label-exposed` | symbol | `exposed-pts`, not clustered, minzoom 6 | one line "RFA1225 · inside" / "RFA6178 · in 12 min", Bold 13, right of the plane, collides |
+| 29 | `aircraft-label` | symbol | not exposed, minzoom 7.5 | "GIA123 FL350", Regular 12, `--c-text-3`, optional |
+| 30 | `official-step-label` | symbol | `official-labels`, kind `step` | "Forecast for 0000Z (+6 h)" while a forecast step is chosen; collides |
+| 31 | `official-label` | symbol | `official-labels`, kind `name` | other volcanoes: the name only, 12 px `--c-official-text`, above the area's northern vertex; collides (sort key 10) |
+| 32 | `tephra-label` | symbol | `area-labels` (5.2) | box `box-tephra`, one line, collides (sort key 5) |
+| 33 | `official-label-selected` | symbol | `official-labels`, kind `box` | the selected volcano's box `box-official`, two lines (5.1), the only layer with `text-allow-overlap: true` (sort key 0): never hidden |
+| 34 | `rose-*` | line, circle, symbol | `rose` source (section 6) | above the labels; the angle box collides like the others |
 
-`dim` is true for features of volcanoes other than the selected one: they stay visible at
-reduced opacity (official areas are never hidden on the main map).
+Other volcanoes' official areas are drawn at 0.6 of the fill and 0.85 of the edge (`fade`,
+`lfade`); official areas are never hidden on the main map (the height filter fades them to 0.15 and a
+map pill says so).
 
 ### 5.1 Official products and labels
 
@@ -501,22 +480,21 @@ reduced opacity (official areas are never hidden on the main map).
   `true` for the latest valid SIGMET per FIR and volcano (an office's latest SIGMET replaces its
   earlier ones, as in the discrepancy finder), `true` for VAA OBS features only when the volcano has
   no valid SIGMET, `false` otherwise. Every feature still draws its outline.
-- Label (`official-labels`, a point source the client computes): **one box per volcano** for the
-  official area valid now. Line 1 (`--c-official-text`): product names, SIGMET first, joined
-  with " + " ("SIGMET WAAF 12 + VAA DARWIN 2026/1098"); the VAA name is its `label` without the
-  trailing `EST`/`OBS`. Line 2 (`--c-text-1`, scale 0.9): band "SFC–FL150", then for the
-  selected volcano the movement from the SIGMET (or VAA) card's `display_fields.Movement`, then
-  "until 1720Z (50 min)" from the SIGMET `valid_to`, recomputed every 15 s. Anchor: just beyond the
+- Label (`official-labels`, a point source the client computes; UI-REDESIGN R6.3): for the
+  selected volcano one box, line 1 (`--c-official-text`) "Official ash area · SFC–FL150 · until
+  1720Z" (band over every valid official area, `valid_to` of the latest SIGMET, else the VAA), line 2
+  (`--c-text-1`, scale 0.9) the movement in plain words ("moving SE at 10 kt", from the SIGMET or VAA
+  card; left out when not given). Product ids are not on the map: they are in Details › This ash
+  area and What the official reports say. Every other volcano gets its name only (12 px, no box). Anchor: just beyond the
   tip of the official arrow when the rose is shown (section 6; `text-anchor` from the bearing,
   limited to `top`, `top-left`, `top-right`, `bottom`, `bottom-left`, `bottom-right`); otherwise the
   centroid of the SIGMET (or OBS) polygon's vertices with anchor `top`; if that centroid lies within
   25 km of the vent (circular SIGMETs centred on the volcano), the polygon's northernmost vertex
-  with anchor `bottom` (the box sits above the area, clear of the vent). Other volcanoes' boxes are
-  12 px, line 2 is the band only.
-- After framing (7.4), if the label stack would cross a panel or the map edge, pan the camera by the
-  overlap (`panBy`) so the whole stack is visible.
-- Forecast-step labels appear only when the steps view is on: plain text "+6 h · 1700Z"
-  (forecast time = `valid_from + 3 h`), 12 px, `--c-official-text`, at the step polygon's centroid.
+  with anchor `bottom` (the box sits above the area, clear of the vent).
+- After framing (7.4), if the selected official box would cross a map pill, a control or the map
+  edge, pan the camera by the overlap (`panBy`) so it is visible.
+- Forecast-step labels appear only while a forecast step is chosen: "Forecast for 1700Z (+6 h)"
+  (forecast time = `valid_from + 3 h`), 13 px, `--c-official-text`, at the step polygon's centroid.
 - The stretchable box: a 36x36 canvas at pixel ratio 2, fill `rgba(8,12,18,.92)`, 3 px border in
   the role colour, radius 6, registered with `stretchX: [[9,27]]`, `stretchY: [[9,27]]`,
   `content: [9,9,27,27]` (reference: `labelBox()` in `wall-ref.mjs`).
@@ -525,21 +503,19 @@ reduced opacity (official areas are never hidden on the main map).
 
 - Outline `tephra-line`: amber dash [3,2], `line-offset: -5` so it sits just outside the official
   edge when the two coincide (OFFICIAL mode) and reads "contains" (research shot-coincident).
-  Legend note: "drawn just outside the area it contains".
+  Key row: "TEPHRA's estimate · never smaller than official".
 - Fill 0.07 under the official fill. Where the model widened it (`part == sector` exists, modes
   WIDENED and HYPOTHESIS) the sector gets a 45° amber hatch: a 24x24 canvas at ratio 2, three
   3 px lines at alpha 0.55, added with `addImage` and used as `fill-pattern`.
-- Label (`area-labels` point source): an amber-bordered box stacked against the selected volcano's
-  official box: same anchor point and `text-anchor`, `text-offset` 3.1 em further away from the
-  point (below the official box when it hangs below its anchor, above it otherwise), so the two read
-  in order (official, then TEPHRA) and never cover each other, the vent or the rose. Line 1
-  `--c-tephra-text` "TEPHRA CAUTIOUS AREA · SFC–FL150" (cone base/top), line 2 `--c-text-1` the
-  cone's `label` verbatim ("OFFICIAL 100% (NO MODEL)", "WIDENED 62%"). With no official box
-  (HYPOTHESIS), it sits at the area's southernmost vertex with anchor `top`.
-- HYPOTHESIS (no valid official product): the whole area is hatched (cone = sector), the label
-  line 2 is "HYPOTHESIS 40% · MONITOR OR HOLD ONLY", the headline pill turns into the
-  hypothesis banner style (`--c-hypothesis-bg`, `st-caution`, "HYPOTHESIS: no valid official
-  product. MONITOR or HOLD only."), and the rail area card says the same (section 7.13).
+- Label (`area-labels` point source; R6.3): one amber-bordered line on the edge opposite the
+  official box, at the cone vertex farthest from it, reading inward (so it stays over the map):
+  "TEPHRA's estimate · same as official (AI off)" (OFFICIAL with the stub; without "(AI off)" with a
+  model), "TEPHRA's estimate · wider than official" (WIDENED) or "TEPHRA's estimate · hypothesis".
+  It collides (sort key 5): if it drops out, the key row still explains the dashed line. The cone's
+  raw `label` ("OFFICIAL 100% (NO MODEL)") is under Technical detail in Details.
+- HYPOTHESIS (no valid official product): the whole area is hatched (cone = sector), the story's
+  first line is the hypothesis banner ("HYPOTHESIS: no valid official product. Only MONITOR or HOLD
+  may be advised."), and Details › TEPHRA's estimate says the same.
 
 ### 5.3 Volcanoes and aircraft
 
@@ -561,12 +537,12 @@ reduced opacity (official areas are never hidden on the main map).
 | State | Rule | Icon | Size | Label |
 |---|---|---|---|---|
 | Normal | `exposed == false` | `--c-aircraft`, halo `--map-halo` 1.5 | 0.3 at z3, 0.42 at z6, 0.5 from z8 (thinned when zoomed out) | from z7.5: callsign (or hex) + level, 11 px grey |
-| Exposed | `exposed == true` | `--c-tephra` | 0.7 | always: line 1 `--c-tephra-text` "RFA4821 · GIA208" (proxy · callsign), line 2 `--c-text-1` "FL350 · 12 MIN"; Bold 14 |
-| Inside now | exposed and `minutes_to_entry == 0` | `--c-tephra` + ring r 18 | 0.7 | line 2 "FL350 · INSIDE NOW" |
-| Picked | the viewer chose it on the map or in the flights dock (7.8) | unchanged + `--c-text-1` ring r 23, 2.5 px | unchanged | unchanged; details in the flights dock |
-| Stale | `state.now − observed_at > 60 s` | `--c-aircraft-stale`, opacity 0.55 | as above | append " · 2 MIN OLD" |
-| Level unknown | `alt_baro_ft == null` | as above | | "level unknown"; never hidden by the level filter |
-| Decided | an advisory for this flight is APPROVED/EDITED/REJECTED | unchanged | | line 2 appends " · HOLD approved" / " · rejected" (from the advisory) |
+| Exposed | `exposed == true` | `--c-tephra` | 0.7 | from z6: one line `--c-tephra-text` "RFA4821 · in 12 min", Bold 13, right of the plane; six or more within 60 px merge into a "n RFA flights" box (row 27) |
+| Inside now | exposed and `minutes_to_entry == 0` | `--c-tephra` + ring r 18 from z6 | 0.7 | "RFA4821 · inside" |
+| Picked | the viewer chose it on the map or in Flights heading in (7.8) | unchanged + `--c-text-1` ring r 23, 2.5 px | unchanged | details in Details › This flight |
+| Stale | `state.now − observed_at > 60 s` | `--c-aircraft-stale`, opacity 0.55 | as above | the age is in This flight and the flights list |
+| Level unknown | `alt_baro_ft == null` | as above | | "level unknown" in This flight; never hidden by the height filter |
+| Decided | an advisory for this flight is APPROVED/EDITED/REJECTED | unchanged | | the decision is in This flight, the flights list and Decisions |
 
 ### 5.4 Exposure paths
 
@@ -577,14 +553,14 @@ this layer animates continuously.
 
 ### 5.5 Context layers
 
-- FIR outlines always on (thin, quiet), labelled "approximate" in the legend's context line and
-  in About. The FIR containing a valid SIGMET is brighter: that explains why a SIGMET stops at a
-  line.
-- VAAC boundary on; navaids off by default (Layers panel); airports are not drawn (no data
-  contract for them on the Wall).
-- ADS-B coverage note: when the aircraft layer is on and no aircraft feature lies within 150 km
-  of the selected volcano, show the map note in 7.6 and the flights dock text in 7.8. An empty map
-  is never presented as an empty sky.
+- FIR and VAAC outlines are off by default (Map layers), "approximate" in Map layers, Help and
+  About. When on, the FIR containing a valid SIGMET is brighter: that explains why a SIGMET stops at
+  a line. Navaids off by default; airports are not drawn (no data contract for them on the Wall).
+- Reroutes are drawn only for the picked flight, unless Map layers turns them all on.
+- ADS-B coverage: when no RFA flight is heading in, the story says "Aircraft coverage here is
+  patchy: an empty map is not an empty sky." (or that aircraft data is failing or off); the 150 km
+  coverage note goes to the story notes when the flight line has not said it. An empty map is never
+  presented as an empty sky.
 
 ### 5.6 Satellite and SO2 context (GIBS)
 
@@ -643,7 +619,7 @@ Inputs (all code-written by the backend):
   `/\b(NNE|ENE|ESE|SSE|SSW|WSW|WNW|NNW|NE|SE|SW|NW|N|E|S|W)\b/` → index × 22.5°. Keys starting
   `VONA:` are the observatory; `SIGMET:` and `VAA:` keys are the official movement (they agree
   when the backend has grouped them). Values look like `MOV SE 10KT` and `moving N`. If either
-  bearing does not parse, draw no rose; the rail card still explains the discrepancy.
+  bearing does not parse, draw no rose; the Details card still explains the discrepancy.
 - The angle: `discrepancy.magnitude` (degrees), printed as given, rounded.
 
 Geometry, rebuilt on `zoomend` so it keeps a constant screen size (512 px tiles):
@@ -660,404 +636,293 @@ eruption symbol), arc radius 52 px, angle label at arc radius + 30 px on the bis
 | Official label | the official area box itself (5.1), anchored just beyond the official arrow's tip, anchor chosen from the bearing (SE → `top-left`), so the arrow points at the box that names the movement |
 | Drift probe | when the same discrepancy set has `aspect == "polygon"`: a 5 px ring (`--c-observer` stroke) 15 km along the observatory bearing (the backend's probe distance). It sits visibly outside the magenta edge. |
 
-Legend rows: "Official movement" (`lg-arrow-official`) and "Observatory drift"
-(`lg-arrow-observer`). Never call either arrow right or wrong; the rail card says "TEPHRA's
+Key row: "Observatory's reported drift" (`lg-arrow-observer`); Help's full key also lists "Official
+movement" (`lg-arrow-official`). Never call either arrow right or wrong; the disagreement card says "TEPHRA's
 area covers both" only when the cone mode is WIDENED and the sector contains the observatory
 bearing.
 
 ## 7. Wall components
 
-Every component lists its states. "Stale" means the stream is lost (7.17) or the data are older
-than their cadence allows; "replay" means `state.mode == "REPLAY"`.
+The Wall is built as `docs/UI-REDESIGN.md` ("The Story") describes; this section records what was
+built and where. The code is `index.html`, `wall.js` (state, stream, actions, keyboard, drawer
+placement), `wall/story.js` (story column), `wall/details.js` (Details drawer), `wall/panels.js`
+(top bar, footer, time bar, section builders, dialogs), `wall/ext.js` (satellite, notices, airport
+plan, track record, AI helpers), `wall/duty.js`, `wall/controls.js` (layers, Help, About),
+`wall/map.js` and `wall/ext-map.js` (the map), `wall/x-parts.js` (shared parts and `plainLine`).
 
-### 7.1 REPLAY banner
+Structure (R3): `body.wall` is a grid of four rows: the REPLAY band, the top bar, the stage and the
+footer. The stage is a grid of three columns: the story (`#story`), the map column (`.mapcol`: the
+map, then the slim time bar) and the drawer (`#details`, 0 px wide while closed). Nothing floats over
+the map except its labels, the status pills (bottom-left), the map controls and the attribution
+(bottom-right), and the compare labels in compare mode. The body never scrolls at 601 px and up;
+the story column and the drawer scroll inside themselves.
 
-Full-width band above the command bar, `role="status"`, never dismissible, present for the whole
-REPLAY session and absent in LIVE. Background `--c-replay-bg` with a 120 px band of 135°
-stripes at the left (`repeating-linear-gradient`, violet at 16%), 2 px bottom border
-`--c-replay`. Content: `i-replay` icon, a solid violet tag "REPLAY" (ink `#120a24`), the text
-`state.replay.banner` verbatim at 18 px semibold, then "· " + `state.replay.label` in
-`--c-replay-text` (hidden below 1360 px, kept in `title`). If `state.replay.auto` is true, add
-"· switched automatically: no live activity". The document title is prefixed "REPLAY - ".
-The banner's text is written only when it changes, so a screen reader announces it once and not
-on every render. The same rule holds for the stream-lost banner (`role="alert"`) and the
-headline pill (`role="status"`, 7.6).
+### 7.1 REPLAY band
 
-### 7.2 Command bar
+`#replay-banner` (violet, 32 px; 28 px at 1280; 1-2 lines on a phone, sticky there): the REPLAY icon,
+`state.replay.banner` verbatim, " · not live", then " · {case label}" (and " · switched
+automatically: no live activity" when the switch was automatic). At 1280 the case label is hidden
+and stays in the band's tooltip, About and Details › Data feeds. `role="status"`: written only when
+the words change.
 
-Left to right: wordmark "TEPHRA" (24 px, 700, letter-spacing 0.18em) and subtitle "Volcanic-ash
-decision desk" (14 px, text-3); mode badge; region presets; spacer; KPIs; model chip; feeds
-chip; clock; "Open Desk" link.
+### 7.2 Top bar
 
-- Mode badge (32 tall pill): LIVE = `--c-ok-bg` fill, `--c-ok` border and text, `i-live` icon,
-  "LIVE"; REPLAY = solid `--c-replay`, ink `#120a24`, `i-replay`, "REPLAY"; before the first
-  state = neutral outline "CONNECTING".
-- Region presets: a segmented control (pill group) of `state.regions`, each button "1 Java /
-  Bali" with the key hint in a `kbd`, the name, and a count badge of active volcanoes inside its
-  bbox (hidden when 0). `aria-pressed` on the current one: a `--c-line-2` fill with a 1.5 px
-  `--c-text-2` ring (10:1 text), the same selected look as every `.seg` segmented control. Fly
-  to the region with `--dur-camera`.
-- KPIs: first the hero, "RFA (fictional) flights entering" (`exposed_count` over all volcanoes,
-  said in its tooltip; value 32 px, 24 px below 1600 px, over a caps label that may wrap to two
-  lines). It is `--c-tephra-text` amber only when above 0. At 0 it shows "–" in text-3, never
-  "0", "none" or "clear", with the tooltip "No RFA (fictional) flight seen entering. Receiver
-  coverage is patchy: an empty map is not an empty sky." Then "Active"
-  (`active_volcano_ids.length`) and "Drafts" (`draft_count`); value 24 px over a 12 px caps
-  label. The KPIs are hidden at 1359 px and below, where the verdict (7.6) carries the count.
-- Model chip: `state.llm.label` in Plex Mono 500. Stub: dashed border, `i-code` icon, "NO MODEL".
-  Gemini: solid border, `i-model` icon, the model id ("gemini-3.8-flash"). Tooltip with NO MODEL
-  reuses the area outcome wording (11.5): "NO MODEL: official products only. Text that a model
-  would write comes from code templates; nothing on screen was written by a model." With a
-  model: "Steps that call a model are marked AI-drafted. Times, ids and hashes are always
-  written by code." The Desk chip and its NO MODEL marks use the same words; no screen calls
-  the stub a test mode.
-- Feeds chip: caps "FEEDS" then counts by status with their shapes, worst first ("● 3 OK · ○ 6
-  off", "⬢ 1 error"). It opens the feed health dialog (7.16). The chip never turns red as a
-  whole; only the ERROR count does.
-- Clock: `HH:MM:SSZ` (32 px, 600, tabular) from the active clock, ticking locally between
-  heartbeats; under it "25 SEP · REPLAY CLOCK · UTC" (violet) or "10 OCT · UTC". The timeline's
-  window line and hour axis carry the tooltip "Times ending in Z are UTC".
-- Open Desk: outlined button with `i-dispatcher`, opens `/desk` in a new tab (`rel="noopener"`).
-- States: loading (all values "–", badge "CONNECTING"), stale (clock caption "STREAM LOST ·
-  last 16:07:12Z" in caution, the badge keeps the mode), replay (as above).
+`header.cmdbar`, 56 px (48 at 1280), never clipped (`scrollWidth <= clientWidth` at every width in
+R17.2). Left to right:
+1. Brand "TEPHRA"; the sub-line "Volcanic-ash decision desk" only at 1600 px and up.
+2. Mode pill `#mode-badge`: "Live" (green, live icon), "Replay" (violet, replay icon),
+   "Connecting…".
+3. Area picker: `#area-btn` "Area: Java / Bali · 2 with ash ▾" opens the menu `#regions`
+   (`role="menu"`, `menuitemradio` rows "Halmahera · 2 with ash", "Kyushu · none", "All areas"; the
+   current one checked; arrow keys, Home/End, Esc). Keys 1-9 still choose areas. On a phone the
+   native `#region-select` replaces it ("Java / Bali · 2").
+4. Spacer.
+5. AI chip `#ai-chip` (button) with `#model-chip` as its text: "AI: off · code only" (stub; "AI:
+   off" at 1280 and on a phone) or "AI: on · {state.llm.label}", plus a red "· 2 failed" with the
+   serious shape when AI steps failed. Title: "No AI model is connected. Code does every step;
+   code templates write the text." It opens Details › AI helpers.
+6. Data chip `#feeds-chip`: "Data: 6 working · 5 off", worst first ("Data: 1 error · 5 working ·
+   5 off", serious shape and border; "2 stale" in caution); "ok" for "working" below 1360 px. It
+   opens Details › Data feeds.
+7. Clock: `#clock-time` (fixed 9ch) and `#clock-sub` "11 Oct · UTC" or "Replay clock · 5 Sep · UTC"
+   ("UTC" / "Replay · UTC" below 1360 px; "Stopped · …" while the stream is lost).
+8. `#stale-chip` "Not updating since 10:31Z", only while the stream is lost.
+9. "Desk →" (`.desk-link`, quiet outline, new tab). The filled button is in the story.
 
-### 7.3 Honesty strip
+### 7.3 Footer
 
-Bottom row, always visible, never truncated on the left part: `i-info` (info colour), the
-disclaimer `state.disclaimer` verbatim in 14 px semibold text-1 (the same text is in the HTML
-before JS runs), "RFA flight numbers are proxies for real aircraft." in text-3, then on the right
-the attribution line (12 px, text-3, may ellipsize only at 1280 and below; full text in About):
-"OpenFreeMap © OpenMapTiles · Data © OpenStreetMap contributors · © Mapterhorn · Aircraft:
-adsb.lol (ODbL 1.0) · Himawari-9 data: JMA via NOAA · FIR and VAAC lines: NOAA/NWS AWC
-(approximate)" plus, while a GIBS layer is on, "· Imagery: NASA GIBS" (and "· Contains modified
-Copernicus Sentinel data 2026" for SO2), plus "· Weather data by Open-Meteo.com" (a link) when a
-wind value is visible. Then, once `state.policy` is known, the short "Policy A · illustrative"
-button (its title gives the policy id, version and label), which opens the operator policy panel
-(7.18); that button is hidden at 600 px and below, where the About dialog's link is the way in.
-After it come the "Help" button (7.3a) and the "About and credits" button. MapLibre's own attribution control
-is not added (`attributionControl: false`); this strip replaces it and must keep every credit
-the style and sources declare.
+`footer.honesty`, one line (32 px; 28 at 1280): the info icon and `#disclaimer` (from
+`state.disclaimer`); "RFA (Ring of Fire Air) is a fictional airline; its flight numbers are proxies
+for real aircraft." ("RFA is a fictional airline." below 1360 px); then "Map and data credits"
+(`#attribution`, opens About › Credits), "Policy A (illustrative)" (`#policy-btn`), "Help"
+(`#help-btn`), "About" (`#about-btn`), "Privacy". On a phone the disclaimer line moves (the node is
+re-parented) into the sticky header (`#phone-honesty`), so it is always visible without a fixed
+footer covering content; the rest of the footer is the last thing on the page.
 
-About dialog: what TEPHRA is (three sentences), the honesty statements (decision support only;
-the airline is fictional; nothing is sent anywhere; REPLAY is recorded data; TEPHRA's area is an
-estimate, never a forecast), the full GIBS acknowledgement, the credits table from
-`THIRD_PARTY.md`, an "Operator policy" heading with the button "Open the operator policy"
-(focus returns to About when the panel closes), and a Help section whose
-button opens the Help dialog (7.3a). The honesty list
-also says "SO2 is not ash. Volcanic gases may also be undesirable to fly through; TEPHRA does not
-model them."
+### 7.3a Help (`?`)
 
-### 7.3a Help and glossary
-
-For a viewer who does not work in aviation. A visible "Help" button in the honesty strip, next to
-"About and credits" and in the same style, opens the shared dialog titled "Help"; the `?` key and
-the button in About open the same dialog. It is visible at every width. The strings live in
-`tephra/web/wall/glossary.js`; the dialog has three parts, in this order:
-
-1. "How to read this screen", six short lines: the map shows the official ash areas and TEPHRA's
-   cautious area, never smaller than the official one; the right rail compares what each source
-   says and lists where they disagree; the flight list shows aircraft heading into an area; the
-   Desk is where a person approves or rejects each advisory, and nothing is sent to a real
-   system; REPLAY means recorded or reconstructed data, not live; times end in Z, which is UTC.
-2. "Glossary", a definition list: SIGMET; VAA and VAAC; VONA; FIR; FL; Z; ADS-B (a gap in
-   coverage is not an empty sky); RFA proxy flight; NO MODEL; REPLAY and reconstructed; Affected
-   area; Policy A (illustrative). Every acronym the Wall shows has an entry. The entries never call
-   TEPHRA's own output binding, a forecast or a warning.
-3. "Keyboard shortcuts", the table from section 9 and the single-key toggle.
-
-First-look card: at the top of the rail brief (Brief tab on a phone), a small surface-2 card:
-"New here? Pink is the official ash area, which is binding. Amber is TEPHRA's cautious area, an
-estimate never smaller than the official one. Times ending in Z are UTC. RFA (Ring of Fire Air)
-is a fictional airline." with two link buttons, "Help and glossary" (opens this dialog) and "Got
-it, hide this" (sets `introDismissed` in the per-viewer prefs; with storage blocked it returns
-next visit). Never shown in presentation layout. It is not a map overlay: the legend, the trace
-dock and the flights dock already hold the map's corners.
+Help (`controls.helpContent`): "Read the map in 3 steps" (pink = the official ash area, binding;
+amber dashes = TEPHRA's estimate, never smaller; amber planes = flights of RFA, our fictional
+airline; a person approves every advisory on the Desk), a short list (the story and Details, nothing
+is sent anywhere, REPLAY, Z = UTC), "Full map key" (every key row with its swatch, "Alert colour:
+green, yellow, orange, red; grey = not given", "FIR and VAAC lines are approximate", context-only
+layers), "Words used here" (the glossary, with Alert colour, Estimate, Advisory, Dispatcher, Proxy
+flight and SO2 added), and "Keyboard" (section 9) with the shortcut switch (WCAG 2.1.4). The key's
+"Full map key and alert colours ›" opens Help at the full key.
 
 ### 7.4 Map container and camera
 
-- `new maplibregl.Map({ container, style, maxPitch: 70, attributionControl: false, dragRotate:
-  false, pitchWithRotate: false, fadeDuration: 150, preserveDrawingBuffer })`; enable
-  drag-rotate only in 3D. `preserveDrawingBuffer` is true only when the URL carries `?shots=1`
-  (both the main and the compare map); present mode and everyday use do not pay for it. It keeps
-  automated screenshots honest: browsers that throttle `requestAnimationFrame` (headless runs,
-  background windows) otherwise capture a stale or empty canvas. Screenshot scripts load the Wall
-  with `?shots=1` (for example `/?shots=1&present=1`). Expose the map read-only for tooling as
-  `window.__tephra = { map }`; screenshot scripts call `window.__tephra.map.redraw()` before
-  capturing.
-- Map sources are sent with `setData` only when their derived data changed: the map keeps the
-  last JSON string sent to each source and compares the derived FeatureCollection, never the
-  store object. The 15 s timer still runs derive and the map update through this check, so an
-  official area expires or becomes valid on time with no new event.
-- The map element is focusable (`tabindex="0"`, `aria-label="Map. Arrow keys pan, plus and minus
-  zoom."`) and keeps MapLibre's keyboard handler.
-- First view: select the top-priority volcano (7.10) and frame it (4.1 padding), instantly. After
-  that, the camera moves only when the user asks (region, Frame, a flight, a volcano tab) or when
-  a new flight enters the selected volcano's area (fly to fit it, once per flight).
-- Vignette: a non-interactive overlay `radial-gradient(ellipse 75% 70% at 50% 46%, transparent
-  62%, rgb(2 4 8 / .5) 100%)`.
-- Readiness: set `document.body.dataset.mapReady = "true"` once `map.areTilesLoaded()` after the
-  first framing (do not wait for `idle`; animated images stop it firing). The video operator and
-  the critics' screenshots wait for it.
-- Re-frame on container resize (`ResizeObserver`), not only on load.
-- Popups: click (or Enter on a focused feature list item) opens a dark popup (glass, 320 wide)
-  with the feature's facts as a definition list; never hover-only. Official: label, kind,
-  layer, band, valid from–to with countdown, source id, a "Show raw text" button (opens 7.15).
-  TEPHRA area: mode, confidence, band, label, valid to, "never smaller than the official area".
-  Aircraft: proxy, callsign, hex, type, level (baro and selected), ground speed, track, observed
-  age, exposure line, advisory status. Volcano: name, code word with symbol, active reasons.
+The map fills `.map-pane`. Framing (`WallMap.frame`) pads 48 px on every side (56 at the bottom and
+the controls' width on the right), max zoom 8.6; nothing else is avoided because no panel sits on
+the map. After a frame, `keepLabelsInView` pans so the selected official label clears the pills and
+controls. Clicks (R6.5): a polygon (official or TEPHRA) opens Details › This ash area for its
+volcano; a plane (or its entry ring, or its reroute) picks the flight and opens Details › This
+flight; a vent selects its volcano; a flight cluster zooms in (`getClusterExpansionZoom`, `jumpTo`
+under reduced motion). There are no MapLibre popups. Keyboard users reach the same views through the
+flight list and the sources section. The camera re-frames when the selected volcano changes (also
+when it changes because an area was chosen and its first volcano arrived later).
 
-### 7.5 Legend
+### 7.5 Key block
 
-Glass panel top-left, caps title "LEGEND". It starts open on a viewer's first visit at every
-width (a `visited` flag in the per-viewer prefs; with storage blocked every visit counts as the
-first); afterwards the viewer's own open or closed choice holds, or, before any choice, it is open
-at 1600 px and up. With `?present=1` it never opens on its own. Rows of a 26 px sprite swatch +
-text (14 px): Official
-ash area · binding; Official forecast · +6 h dashed (only when a step polygon is drawn); TEPHRA
-cautious area · never smaller (drawn just outside what it contains); Widened by the model
-(only when a sector exists); Official movement; Observatory drift (only with a rose); Flight
-entering the area; Other airline flight; then a full-width row of the five eruption symbols with
-"Aviation colour code, lowest to highest: green, yellow, orange, red; grey means unknown"; then a
-context line "FIR and VAAC lines approximate". Rows appear only when the thing is on the map.
-Collapsible (L). Folded, it keeps a mini key under the "LEGEND" button: up to three 18 px
-swatches with one word each, stacked so the folded panel stays narrow: "Official" (always),
-"TEPHRA" (when the cautious area is drawn) and "Entering" (when a flight enters), under the same
-conditions as the full rows. It is never lowered below 1600 px to open by default: open, it
-would cover a quarter of the map at 1440 px and squeeze the headline. States: loading
-(skeleton rows), 3D (adds "Heights ×6"), compare (adds the A/B meaning), context layer on (adds
-its legend image or scale).
+`#legend` is a fixed list in the story column (R5.5), never a floating panel, listing what is drawn
+now: "Official ash area · binding", "TEPHRA's estimate · never smaller than official", "RFA flight in
+or heading in", "Official forecast area (+6 h)", "Other aircraft (not RFA)", "Suggested reroute",
+"Observatory's reported drift", "Where TEPHRA widened the area", "AI-marked satellite box ·
+supporting only", then the link "Full map key and alert colours ›" (Help). At 1600 px and up it runs
+in two columns. From 601 to 1599 px, while Details is open, the same node is moved to the bottom of
+the drawer as a compact strip; on a phone it is the strip under the map. Swatches keep their colours
+in forced-colours mode.
 
-### 7.6 Headline pill and map notes
+### 7.6 Story card, failure line, trust line, notes
 
-The verdict. At the top of the map, between the legend and the tools, 18 px semibold, glass:
-`[eruption symbol] SEMERU · ⚠ Direction disagreement 135° · TEPHRA area widened · 2 RFA
-(fictional) flights entering · 1 approved`. Parts are present only when true: the discrepancy part uses the highest
-severity's shape and word ("SERIOUS: a VAA says no ash while another source saw it" for
-CONFLICT); the area part is "TEPHRA area = official", "TEPHRA area widened" or "HYPOTHESIS:
-MONITOR or HOLD only"; flights "0 RFA (fictional) flights entering" stays (it is information;
-every count of RFA flights says the airline is fictional); decisions appear after the first
-decision. In REPLAY a violet "RECORDED" tag leads the line.
+The story (R5, `wall/story.js`), built by code from fields, about the selected volcano:
+- Failure line `#fail-line` (only when something failed; red edge and the serious shape; at most two
+  items, then "+ n more problems ›" to the Details section that holds the next): the lost stream
+  (`#lost-banner`, `role="alert"`), the Wall data not loading ("Could not load the Wall data: …
+  Trying again in n s."), the map library not loading, a failing SIGMET, VAA, VONA or aircraft feed
+  ("Aircraft data is failing. Showing the last good positions, from 10:20Z." — the time only from
+  `last_success_at`), the database failing, an airport plan with no plan ("no plan found, the
+  solver did not finish in time…", R2.6), a satellite reading or the Duty Officer with AI
+  unavailable, and the count of failed AI steps. A new failure is announced once (`role="alert"` on
+  its first render only).
+- Eyebrow: the eruption symbol, `#volcano-name` (the page's h1), " · {area} · alert {Red}" ("alert
+  colour not given" for UNKNOWN), and "as of 1030Z".
+- Lines `#headline` (28/24/22/20 px by width), replaced only when their words change: in REPLAY a
+  "Recorded" tag first; L1 "Official reports put the ash up to 50,000 ft (FL500)." (or "between …
+  and …"; the HYPOTHESIS banner replaces it: "HYPOTHESIS: no valid official product. Only MONITOR or
+  HOLD may be advised."); L2 "The sources disagree on where the ash is heading (135° apart)." with
+  "TEPHRA's estimate covers both." (WIDENED) or "TEPHRA's estimate has not been widened (AI off)."
+  (OFFICIAL, stub); SILENCE and CONFLICT lines; L3 "Ash closes 2 RFA airports: WIHH, WIII." (the
+  current plan's closures whose source ids are this volcano's official products or cone; the plan's
+  time in the title); L4 "23 flights of RFA, our fictional airline, are in or heading into TEPHRA's
+  estimated ash area." or, at 0, "No RFA flight is seen heading into TEPHRA's area right now." with
+  "Aircraft coverage here is patchy: an empty map is not an empty sky." (or "Aircraft data is
+  failing/off: …"); L5 "23 of their advisories wait for a dispatcher." ("At least 23 …" when the
+  Wall's page of the 50 newest advisories cannot hold them all), "All n advisories are decided: a
+  approved, r rejected.", "Their advisories are not drafted yet." or "Advisory count unknown
+  (database error)."
+- Buttons: the one filled button on the Wall, "Decide on the Desk →", linking to
+  `/desk#review/{the most urgent DRAFT advisory of this volcano}` (inside now first, then the
+  soonest entry); with no draft it is the secondary "Open the Desk". "Show the n flights" opens
+  Details › Flights heading in (hidden at 0).
+- Empty area (`D.regionEmpty`): h1 the area; "No ash reported near Kyushu right now." then "Ash
+  elsewhere:" with a button per area that has ash ("Java / Bali · 1"). Nothing active anywhere: "No
+  official ash report is in force in the watched regions right now." Connecting: "Connecting to
+  TEPHRA…" with a spinner and no numbers. Never "clear" or "safe".
+- Trust line `#trust`: "AI: off · code built this summary from the official reports" or "AI: on
+  ({label}) · it can widen TEPHRA's estimate, never shrink the official area" (the second
+  always-visible model state).
+- Story notes `#story-notes`: notes that are not map pills (the basemap note; the 150 km coverage
+  note when the flight line has not said it).
+- The changed flight count gets a `--dur-5` highlight (not under reduced motion). `#announce` speaks
+  "{volcano}: {L4} {L5}" at most once every 30 s, only when the volcano, the flight count or the
+  waiting count changes.
 
-A second line (14 px, text-2, wraps) says what the area means, from the area card's mode line:
-"Same as the official area: TEPHRA adds nothing." or "Official area plus the observatory's
-drift, never smaller." When the area is OFFICIAL and no model accepted a reading, it appends the
-outcome text (11.5), so "TEPHRA area = official" never reads as a model endorsing the official
-area: with the stub "… TEPHRA adds nothing. NO MODEL: official products only."; likewise "AI
-unavailable: …", "No model call needed: …" or "Plume read queued …". HYPOTHESIS keeps its own
-single line.
+### 7.7 Map controls and status pills
 
-The same two lines are the verdict at every width: at 1359 px and below the rail head carries
-them under the volcano name, wrapped in full (line 1 starts "Recorded:" in REPLAY); at phone
-width a block above the map carries them (4.4). Below it, map notes (same pill style, 14 px, text-2) when needed:
-"No aircraft seen within 150 km of Semeru in the open ADS-B feed. Receiver coverage is patchy
-here: an empty map is not an empty sky." · "Level filter FL180–FL550 hides 1 official area and
-2 flights" (caution, with a "Reset" link that returns the filter to All) · "No official +12 h
-area for Semeru in the current products." (when the forecast step chosen on the timeline has no
-official polygon for the selected volcano; with All chosen, only when none of +6, +12 and +18 h
-has one; worded from the data, because a VAA saying NOT AVBL, one saying NO VA EXP and a polygon
-that did not parse all look the same here; no other step is drawn in its place) · "Basemap
-offline: simplified coastline (Natural Earth)".
+Bottom-right, stacked by MapLibre: `#tools` (a custom control) with "Fit" (`data-tool="frame"`, F)
+and "Layers" (`data-tool="layers"`, L, opens Details › Map layers), zoom +/- at 1600 px and up (the
+compass only in 3D), and the attribution (`AttributionControl`, `compact: false`, 12 px:
+"OpenFreeMap © OpenMapTiles Data from OpenStreetMap"). Icon-only below 1360 px; 40 px icon and word
+on a phone. Bottom-left, `.map-pills`, only while true and one line each: `#ctx-label` (the CONTEXT
+ONLY caption of each satellite, SO2 or BTD layer, never folded, with ✕ to turn the layer off and the
+GIBS scale where one is published), and `#map-notes`: "Height filter FL180–FL350 hides 1 official
+area and 4 flights · Reset", "Showing the official forecast for 0000Z (+6 h) · Back to now" or "No
+official +12 h area in the current products · Back to now". More than three: "+n more map settings ·
+Show". While History is open the pills and controls move up above it.
 
-### 7.7 Tools column
+### 7.8 Details › Flights heading in, This flight
 
-Vertical glass column top-right, five 52 px tiles (icon 20 px over an 11 px label): Frame (F),
-3D (D, `aria-pressed`), Compare (S, `aria-pressed`), Satellite (I; label shows "Satellite",
-"Infrared", "Visible", "Air mass"), Layers (L). Pressed state: `--c-surface-3` with a 1.5 px
-amber inset ring. Every tile has `aria-keyshortcuts` and a tooltip with its key.
+`#flights` (R8.3): the count sentence and the RECORDED tag, the first 5 rows (plane, "RFA1225",
+"proxy for GIA616 · FL310", "inside now" or "in 12 min, est.", the advisory status when one is
+loaded), then "All n" (`<details>`), the RFA and coverage note, and "+n heading in at Semeru" links.
+A row picks the flight (white ring on the map), flies to it and opens This flight: the proxy and
+the real callsign and hex, the estimated entry and its basis, level (and selected level), speed and
+track, position age, the drafted action and its decision, "Open on the Desk ›"
+(`/desk#review/{id}`), and the suggested reroute when there is one. "Clear" (or Esc) unpicks it.
 
-Layers panel (popover from the Layers tile, 320 wide, `role="dialog"`): groups with headings:
-Hazard (Official ash area · always on, shown checked and disabled with "binding"; Official
-forecast steps: Now / +6 h / +12 h / +18 h / All (radio); TEPHRA cautious area; Disagreement
-markers), Traffic (Aircraft; Exposure paths; Other aircraft labels), Context (FIR and VAAC lines;
-Navaids; Terrain shading), Satellite context (radio Off / Infrared / Visible / Air mass, each with
-"context only"; checkbox SO2 "context only · SO2 is not ash. Volcanic gases may also be
-undesirable to fly through; TEPHRA does not model them."), Levels (the filter, section 8.4). Changes apply at once;
-the choice persists in `localStorage`.
+### 7.9 Details › How TEPHRA decided
 
-### 7.8 Flights dock
+`#trace` (`role="log"`, `aria-live="off"`): "This volcano / Everything", then plain lines
+(`plainLine`, R12.7), newest first, 14 shown and "Show all (n)"; each line has its time, "· by code"
+/ "· by an AI helper" / "· AI off", and "Technical detail" with the stage, the actor chip and the
+raw message. Lines with no plain wording are shown verbatim, never paraphrased. Human decisions
+composed from advisory events are merged in (stage DESK).
 
-Glass panel bottom-right of the map (440 wide at 1920, left of the tools column, 12 px above the
-timeline). Title row: caps "FLIGHTS ENTERING TEPHRA'S AREA" + count. Rows (56 tall), sorted
-inside-now first, then minutes ascending: amber plane icon rotated by track · "RFA4821" (18 px
-600) · "GIA208 · A320 · FL350" (14 px text-2) · right-aligned "12 MIN" (24 px 600 tephra-text)
-or the `st-inside` shape and "INSIDE NOW" · an advisory status line under it (section 3.2 shape +
-"HOLD drafted · awaiting dispatcher" / "Approved by AK · 1607Z" / "Rejected by AK · 1608Z").
-Activating a row flies to the flight and opens its popup. States: loading (two skeleton rows);
-empty (one line: "No flight is projected to enter TEPHRA's area." plus the coverage note when
-5.5 applies, or "No aircraft data in this recording." when ADS-B is not OK); replay (rows tagged
-"recorded"); stale aircraft (row text dimmed, "position 2 min old"); more than 4 rows (the dock
-scrolls, title shows "4 of 7").
+### 7.10 Other volcanoes
 
-Picked flight: clicking an aircraft on the map (or its entry ring) or activating a row picks
-that flight. It stays picked until "Clear" or Esc: a white ring on the map (5.3), the row marked
-(`aria-current`, a white left edge) and a "Selected" block at the foot of the dock: the RFA
-number; "RFA is a fictional airline · stands in for ADS-B GIA208, hex 8A0123"; "Entry (est.)"
-("In 12 min", "Inside TEPHRA's area now" or "Not projected to enter TEPHRA's area"); for an
-entering flight, "Basis: Code projection from the last position, if track, speed and level are
-held"; level (and selected level), speed and track, position age; and the advisory status line.
-No clock time is derived from the minutes. When the flight is no longer in the data the block
-says so: "Hidden by the level filter FL180–FL550. Reset" or "No current position for this flight
-in the aircraft data."
+`#volcano-tabs` is a list of buttons in the story's "All volcanoes" block (`<dl class="kpis">`:
+`#kpi-active` with ash · `#kpi-exposed` RFA flights in or heading in (– at 0, amber above 0, its
+title and aria-label kept) · `#kpi-drafts` advisories waiting): "{symbol} Semeru · 1 flight · 1 thing
+to check ›", priority order, the selected volcano left out; 3 rows at 1920, 2 at 1440, 1 at 1280,
+all on a phone, then "+ n more" (expands in place). `[` and `]` step through volcanoes. The drawer
+header has the same volcanoes in a switcher (`#details-volcano`).
 
-### 7.9 Trace dock
+### 7.11 Details › What the official reports say
 
-Glass panel bottom-left of the map (600 wide, 132 tall with four lines at 1920; T expands it to
-fourteen lines, about 360 tall, over the map). Header: caps "REASONING TRACE", the count ("49
-steps"), a toggle "This volcano / All" (default: the selected volcano plus lines with no volcano),
-and the hint "T expand". Each line: time (mono 12, text-3), stage (11 px caps, text-2), the actor
-chip (3.2: CODE, GEMINI, ADK, NO MODEL, HUMAN, SYSTEM), the message (14 px; one line with an
-ellipsis when collapsed, full text in its `title`; wrapped when expanded). `warn` and `error`
-lines start with the caution or serious shape. New lines slide in from the bottom (`--dur-3`);
-the list keeps the last 200 (contract); it follows the newest line unless the user has scrolled
-up, then a "New steps" button appears. `role="log"`, `aria-live="off"`. States: loading (two
-skeleton lines), empty ("No steps yet."), stale (dimmed, header "paused at 16:07:12Z").
+`#brief` hosts it: "2 official reports name Anak Krakatau. Official reports are binding.", "Why
+Anak Krakatau is on the Wall (n)" (the `active_reasons`, folded), then one card per source (SIGMET
+(airspace warning) · binding, VAA (ash advisory), VONA (volcano observatory notice); pink or blue top
+edge; title, age, evidence chip, day or night at the vent, stale line) with rows Seen, Height,
+Movement, Valid, Alert colour (plain words: "seen 1010Z", "estimated", "moving W at 30 kt", "not
+given"; codes stay mono; flagged cells keep the caution ring and shape) and "Raw text"; then "Raw texts
+side by side (C)", "What they say in their own words" (VAA info source and remarks, VONA activity and
+cloud height, folded) and "Technical ids" (source ids and hashes, folded). Cards are used at every
+drawer width, so no column is cut off.
 
-### 7.10 Volcano tabs (rail)
+### 7.12 Details › Where the sources disagree, TEPHRA's estimate
 
-`role="tablist"`; each tab: eruption symbol in the code colour, the name, then badges: the
-count of CAUTION and SERIOUS discrepancies with the worst shape, and the exposed-flight count
-with a plane. Sort: exposed count, then worst severity, then discrepancy count, then name. The
-first tab is selected on load. Arrow keys move between tabs; Enter selects and frames.
-Selecting changes the rail, the headline, the rose and the dimming. Overflow scrolls
-horizontally with fade edges. States: empty (no tabs; the rail shows the empty-region state in 7.17), stale (tabs
-keep their data, greyed badges).
+Disagree: "2 to check · 12 minor" or "Nothing that needs checking (12 minor differences)", the
+CAUTION and SERIOUS cards (unchanged builders, "Show on the map" for a direction mismatch), then
+"Minor differences (n)" folded (INFO items and the "could not see the ash" rows). Estimate: the
+outcome sentence ("Same as the official area (AI off, nothing added)."), the note that it is an
+estimate, drawn amber dashed, never smaller; Rule, Heights, Read by, Valid until (and Confidence when
+widened), "Technical detail" (mode, label, cone id), and "How the model read it" (model runs only).
 
-### 7.11 Volcano head
+### 7.13 Details › Decisions, Airport closures, Notices, Satellite picture, Track record, AI helpers
 
-Name (24 px 600), a code chip (eruption symbol + the code word in caps), "as of 1630Z" (mono,
-text-3) on the right; under it `active_reasons` joined with " · " (14 px text-3). In HYPOTHESIS,
-the hypothesis banner sits under the head (7.13).
+- Decisions (`#decisions`): "{state.draft_count} waiting · a approved · r rejected", "Approve on the
+  Desk · nothing is sent anywhere…", then the full list (folded).
+- Airport closures (`#xpanel`, `recovery`): "WIII, WIHH closed by ash SFC/FL500 within 20 NM · Plan
+  waiting on the Desk: cancel 47, delay 29, $893,032", or the solver wording (R2.6) in a red box
+  with the raw string under "Technical detail"; the as-of time and who planned it; then
+  "Per-airport reasons, scenarios and numbers" (closures with "Full reason and sources", blocked /
+  can still change / can't change, the chosen scenario, the scenario table, why, risks, decision).
+  Dollar amounts use `Intl.NumberFormat` ("$62,525").
+- Notices: the count and newest notice, its card, then "All notices and their claims".
+- Satellite picture: per reading, "Ash visible?", "Gas (SO2, not ash)", "Cloud in the way" (yes, no,
+  "can't tell"), "Ash marked on the picture" (none or n boxes) and "Read by" (code stub (AI off) or
+  the model id); "Show the picture" folds the frame with its boxes, the limits quote and the JMA
+  colour key. AI unavailable stays a red box with the reason; nothing is put in its place.
+- Track record: the caveat "Later official areas are not ash truth.", the two coverage bars per arm,
+  "The Gemini arm has not been run…", then "Every number, check and case" (tiles, the safety-floor
+  and future-data chips, the per-case table, caveats).
+- AI helpers: "AI off: code does every step…", the Duty Officer line ("Duty Officer (AI off): handed
+  out 3 jobs in urgency order"), failures in red first, "AI calls today: 0 of 450", then
+  "Delegation, every helper and the budget" (the Duty Officer card and delegation diagram, every
+  helper with its state, the budget tiers).
 
-### 7.12 Sources side by side (comparison grid)
+### 7.14 Details › Timeline history, Height filter, Data feeds, Map layers
 
-Section title caps "WHAT THE SOURCES SAY", aside "Official products are binding". A
-`role="table"` grid: a 92 px row-label column, then **SIGMET, VAA, a 1 px divider, VONA** (the
-two official products together, the observatory apart; the data order SIGMET, VONA, VAA is only
-the order the cards arrive in).
-
-Column head (`--c-surface-2`, 3 px top bar magenta for SIGMET and VAA, sky for VONA, dashed grey
-when missing): kind caps "SIGMET · binding", "VAA · VAAC", "VONA · observatory", with a plain second line under
-each in 12 px text-3 ("met office warning for the airspace", "ash advisory centre", "volcano
-observatory notice"; also on a missing card); title (14 px
-600, wraps to two lines; VONA shows "VONA 1629Z"); issued time and age "1120Z · 5 h 10 min ago"
-(mono 12); the evidence chip (3.2); for VONA, a day/night line "Night at the vent · 00:01 local
-solar" (caution colour at night). A `stale` card adds the `st-stale` chip "Stale: last good copy
-14 min old" (from `stale_age_s`).
-
-Rows and the value each column shows (mono 14, 500):
-
-| Row | SIGMET | VAA | VONA |
-|---|---|---|---|
-| Seen at | the LAG discrepancy's value for this source if present ("OBS 1100Z"), else `display_fields.Observed` | LAG value, else "EST"/"OBS" from `Observation` | LAG value, else the time part of `Issued` |
-| Height | `Band` | `Band` | `Cloud top` without the metres in brackets ("14,685 FT AMSL"); full text in the cell's title |
-| Movement | the direction discrepancy's value for this source ("MOV SE 10KT"), else `Movement` | same | the direction discrepancy's value ("moving N"), else `Movement` |
-| Valid | "until 1720Z" from `valid_to` | "next by 1720Z" from `Next advisory` | — |
-| Colour code | — | `Colour code` ("NOT GIVEN") | `Colour code` |
-
-Cells wrap to two lines, then ellipsize with the full value in `title` ("NOT STATED/NOT
-IDENTIFIABLE" must stay readable). Footer row: `#sha256_short` (mono 12, text-3) and an
-`i-raw-text` button "Raw text" that opens
-7.15 at that column. Flagging: a cell whose source is cited by a CAUTION or SERIOUS discrepancy
-for the matching aspect (direction or polygon → Movement; top or base → Height; ash_observed →
-Seen at; presence → the column head) gets `--c-caution-bg`, a 1.5 px caution inset ring, the
-`st-caution` shape and caution text; the VONA movement cell is flagged, the official ones are
-not (they agree with each other). Unflagged VONA movement text is `--c-observer-text`.
-
-States: missing card (dashed column: "None in force" head; one cell spanning the rows with
-`missing_note` and "Absence is not evidence of no ash."; when `missing_reason` is not
-`NONE_SEEN` the head instead reads "Not read", "Not recorded" or "Feed down" in grey with the
-`st-off` shape, and the raw-text panel (7.15) uses the same head); loading (skeleton cells); replay (no
-change: the times are the recorded ones); stale (card chip as above); hypothesis (SIGMET and VAA
-columns are missing or expired; the head says "No valid official product").
-
-### 7.13 Where they disagree; TEPHRA cautious area
-
-**Disagreements.** Caps title "WHERE THEY DISAGREE", aside "2 to check · 2 harmless". CAUTION
-and SERIOUS items as cards (`--c-caution-bg` gradient, caution border with a solid 4 px left
-edge; serious uses `--c-serious-bg` and the serious colour): left column (132 px) the severity
-shape (18 px) and word (14 px bold caps, one step above the INFO rows), and the kind label under it
-(section 11.4); right column the plain-English headline (16 px 600), the code `summary` verbatim
-(14 px text-2), and for direction items an explainer line built from the values: "Official area
-moves **SE**. Observatory reports ash moving **N**. 135° apart." (the two words in their role
-colours). A "Show on map" text button frames the vent with the rose. INFO items collapse into
-compact rows (14 px headline + the summary in 12 px text-3), and when there are more than two
-they collapse into one row "Harmless (3): LAG · ENVELOPE · NOT OBSERVED" that expands. Each card
-with evidence NOT_OBSERVED, NOT_IDENTIFIABLE or NIGHT_BLIND adds an INFO row "NOT OBSERVED ·
-{kind} could not see the ash. Not evidence of no ash; it never shrinks TEPHRA's area or weakens
-an advisory." Empty: "No differences found between the products in force." Loading: two
-skeleton rows. New item: inserted with `--dur-3`, highlighted for `--dur-5`, announced politely.
-
-**TEPHRA cautious area card.** Caps title "TEPHRA CAUTIOUS AREA", aside "an estimate, not a
-forecast". Card with a 1 px dashed amber border: mode chip (solid amber, ink text: OFFICIAL,
-WIDENED, HYPOTHESIS), the band in mono 18 tephra-text, the cone `label` in mono; one sentence by
-mode (section 11.2); a facts list: Rule "Never smaller than any valid official polygon"; Read by
-"`state.llm.label` · outcome text" (11.5); Valid until; Confidence (WIDENED and HYPOTHESIS only,
-"62% in the widening"). With a Gemini assessment, add "How the model read it" (collapsed by
-default): each `disagreements_explained` reading with the source it leaned on and why, the
-`rationale` and `uncertainty_notes`, all marked "AI-written" with `i-model` and inserted with
-`textContent`. HYPOTHESIS adds the banner: `--c-hypothesis-bg`, `st-caution`, "HYPOTHESIS: no
-valid official product for Semeru. TEPHRA's area is a hypothesis built from the observatory
-report. Advisories are limited to MONITOR or HOLD." States: no cone ("No TEPHRA area yet for
-this volcano."), fallback outcome ("Model output rejected by the validators: official products
-only" with `st-info`), replay (unchanged), stale (dim).
-
-### 7.14 Decisions list (rail)
-
-Caps title "DECISIONS", aside "Approve on the Desk · nothing is sent anywhere". Newest first,
-up to 20: status shape and word (3.2), "RFA4821 · HOLD FL250", actor and time "AK · 1607Z" (from
-`decided_by` without the `desk:` prefix, `decided_at`), reject reason in quotes (text-2,
-`textContent`), "edited" marker for EDITED. DRAFT items show "Awaiting dispatcher · drafted 2 min
-ago". A decision arriving over SSE gets a one-time stamp (scale 0.96→1 and a `--c-ok` or
-`--c-serious` left bar fading over `--dur-5`) and a polite announcement "AK approved HOLD FL250
-for RFA4821". Empty: "No advisories yet. A draft appears when a flight's projected track enters
-TEPHRA's area."
+- Timeline history (`#history`): the lag in words, the note that a lag is usual, "Show History on
+  the time bar", the forecast-step note, and the events newest first with their times.
+- Height filter (`#levels`): "Showing: All heights", the vertical double slider (track fixed at
+  270 px, labels SFC FL060 FL180 FL350 FL550, the official and TEPHRA bands, aircraft ticks), a key,
+  and the presets All, Hazard, ≤FL180, ≥FL180. Arrow keys, Page keys, Home/End and drag.
+- Data feeds (`#feeds`): one row per feed (R12.8 names), the status word with its shape, the age,
+  "recorded" in REPLAY, and "Technical detail" (last good time, records, feed key, the raw error);
+  the database row last.
+- Map layers (`#layers-pop`): the status ("satellite off"), "On the map" (official locked on;
+  TEPHRA's estimate; aircraft; other aircraft labels; flight paths; suggested reroutes (off by
+  default: only the picked flight's reroute is drawn); satellite boxes; disagreement arrows; FIR and
+  VAAC lines (off by default); navaids; terrain), "Height filter ›", then "Satellite pictures, 3D and
+  compare" (Off, Infrared, Visible, Air mass, "Next picture" `data-tool="sat"` with `#sat-state`, SO2,
+  BTD, View 2D/3D `data-tool="3d"`, "Compare" `data-tool="compare"`, not on a phone).
 
 ### 7.15 Sources side by side dialog (C)
 
-`<dialog>` 90vw × 80vh, three columns in the grid's order with the full `raw_text` in Plex Mono
-14 (pre-wrap), the source id, issued, fetched, `#sha256_short`, a link to the source URL
-(`safeExternalUrl`, `rel="noopener noreferrer"`, opens a new tab), and the card's
-`extra_source_ids` as a list. Close with Esc or the button; focus returns to the opener.
+Unchanged: three columns of raw text with source id, issued, fetched and hash; opened by C and by
+"Raw text".
 
-### 7.16 Feed health dialog
+### 7.16 Data feeds
 
-Table: Feed (label from 11.6), Status (shape + word), Age (on the active clock), Last good
-(UTC), Records, Note (`last_error` verbatim, `textContent`, wraps). A "recorded" tag for replay
-feeds. The worst status sorts first. Refreshed by `feeds` and `state` events.
+The feed health dialog became Details › Data feeds (7.14); the Data chip opens it.
 
 ### 7.17 Global Wall states
 
-| State | Trigger | What shows |
-|---|---|---|
-| Loading | before `/api/wall` answers | Static HTML already shows the honesty strip text and the wordmark. Map area: basemap as it loads; panels show skeleton bars (no shimmer under reduced motion); the badge says CONNECTING. |
-| Error | `/api/wall` fails | Map note (serious): "Can't reach TEPHRA. Retrying in 5 s…" with a "Retry now" button; panels keep skeletons; retry every 5 s. |
-| Stream lost | no SSE event (heartbeat included) for 45 s, or `EventSource` error | Caution banner under the command bar: "Live updates lost at 16:07:12Z. Showing the last data received; reconnecting…"; the map gets a 15% dark scrim and a "STALE VIEW" chip next to the clock. On reconnect, re-fetch `/api/wall` and announce "Live updates restored." A 503 `too_many_streams` says "Too many screens are following TEPHRA right now. Retrying in 30 s." |
-| Replay | `state.mode == REPLAY` | 7.1 banner, badge, violet clock caption, "recorded" tags, timeline in replay form. |
-| Hypothesis | any active volcano's cone mode HYPOTHESIS | Its tab badge `st-caution` "H"; area card banner; headline; map hatch and label. |
-| Empty region | no active volcano in the current region | Rail: "No active volcano in Java / Bali." + the definition of active + buttons for regions that have some ("Halmahera · 2 active"). Map stays usable. |
-| Basemap failed | style error or not loaded in 8 s | `setStyle` with a minimal style: background `--map-water`, `land_apac.geojson` fill `#15181c`, coast line `#2a3442`; re-add TEPHRA layers without text layers that need glyphs except labels drawn as HTML markers; note "Basemap offline: simplified coastline (Natural Earth)". |
+Connecting (story "Connecting to TEPHRA…", mode pill "Connecting…", no numbers); load error (the
+failure line only, retried every 5 s with a countdown; never a cached story); stream lost (the
+failure line, `#stale-chip`, the clock stops, a light scrim on the map, the time bar dims);
+REPLAY (the band, the mode pill, "Recorded" on the story, "recorded" tags); HYPOTHESIS (the banner
+replaces L1); empty area and nothing active (7.6); 3D and compare (8.1, 8.2).
 
-### 7.18 Operator policy panel
+### 7.18 Operator policy
 
-A dialog (up to 960 px wide) opened from the footer button or the About dialog (7.3). It
-fetches `GET /api/policy` with an 8 s timeout; when the request fails, times out or returns no
-policy, the dialog says only "The operator policy could not be loaded." Contents, in order:
+Summary first (R9.3): "Policy A (illustrative): avoid every official ash area, with 2,000 ft above
+and below. Not reviewed by an airline." (the margin from `exposure.vertical_margin_ft`), the
+policy id, version, risk owner, SRA and hash, then folded: the full summary text, "Show all n
+values" (every block that has values, grouped), the source-trust order, the citations.
 
-- the title line: title, version and label ("ILLUSTRATIVE, not an airline SRA");
-- a muted line "Values are illustrative and have not been reviewed by an airline dispatcher.";
-- a muted line with the risk owner, the SRA reference ("none (illustrative)") and the first 12
-  characters of the content hash;
-- the Policy A summary text;
-- "Values": a table of name, value with unit, why this value (the source and the refs of its
-  citations) and block;
-- "Source-trust order (what the code does today)": a muted line "Operator choice. Doc 9974 asks
-  the operator to resolve conflicts among its sources (2.4(d)).", then each rule's text with a
-  muted "Applied by:" and its `enforced_by`;
-- "Citations": each ref, the quoted text and a "Source" link that opens in a new tab.
+### 7.19 The Details drawer
 
-The Desk review sheet (10.4) shows the policy each draft was made under.
+`#details` (`<aside role="region" aria-labelledby="details-title">`, `wall/details.js`), opened by
+`#details-btn` ("☰ Details · Sources, timeline, how TEPHRA decided, AI, data feeds"), the chips, the
+key, map clicks and the shortcuts. Placement (R8.1): at 1600 px and up a 480 px column that pushes
+the map (the story stays); from 601 to 1599 px it takes the story column's place at 480 px (440 at
+1280) with the story strip `#story-strip` ("‹ Story · Anak Krakatau · 23 flights · 23 waiting ·
+Desk →") on top and the key pinned at the bottom; at 600 px and below it is moved into the dialog
+`#details-sheet` (`showModal`) that starts below the sticky header. The header has "‹ Details" (in
+a section), the title `#details-title` (h2, focused on open), the volcano switcher and Close. The
+index `#xtabs` (`role="list"`) has four groups (The ash, The flights, Time and height, Behind the
+scenes), each row a button with its live status in words (serious and caution rows carry their
+shape); rows keep `data-xtab` for the old rail panel ids (brief, sat, notices, recovery, proof,
+ai), and `setRail(id)` opens the matching section. Sections re-render in place on new data,
+keeping scroll, focus (`data-focus`) and open `<details>`. Esc: section → index → closed, focus
+back to the opener. The state (`tephra.wall.details`: a section key, "index" or "closed") is kept in
+`sessionStorage` (wrapped in try/catch), never in presentation (`?present=1`, P) or screenshot
+(`?shots=1`) runs. The drawer ends with the full attribution string `#drawer-attrib`.
 
-## 8. 3D, compare, the timeline and the level filter
+## 8. 3D, compare, the time bar and the height filter
 
 ### 8.1 3D mode (D)
 
@@ -1084,95 +949,63 @@ Fixed top labels: left "A · OFFICIAL PRODUCTS ONLY", right "B · WITH TEPHRA'S 
 (`role="slider"`, `aria-valuenow` = percent): ← / → move it 5%, Home/End to the edges. Remove the
 second map on exit (S or Esc); never keep two maps alive.
 
-### 8.3 Replay timeline
+### 8.3 The time bar
 
-A glass bar across the bottom of the map. It never changes TEPHRA's clock (there is no seek API);
-the playhead follows `state.now`.
+`#timeline` (`wall/panels.renderTimeline`), slim and always visible under the map (52/48/44 px). It
+never changes TEPHRA's clock (there is no seek API). Left to right:
+1. Mode and window: "Live · 9 h back, 3 h ahead", or "Replay · 1030Z · 9% of 1030Z–1930Z" (with the
+   dates when the window spans more than 20 h) and a progress bar (`role="progressbar"`,
+   `aria-valuetext` "9% of the recording").
+2. The scrubber: one 8 px track over the last 9 h and the next 3 h, the now-line, hour labels and
+   the event marks (official reports, observatory notices, TEPHRA's disagreements, flights and
+   decisions), focusable with ← / →; choosing one opens its Details section and frames the map.
+3. "Forecast: [Now] +6 h +12 h +18 h All" (`aria-pressed`; 44 px targets).
+4. "‹ Previous" and "Next ›" (disabled at the ends with the reason in the title, "No earlier
+   event").
+5. "History ▴" (`aria-expanded`): the bar grows upward over the map (the only thing that ever
+   does, on this explicit action) with three lanes, "When each source last reported": Official
+   (with each product's validity bar), Observatory, TEPHRA; the marks move there. The lag bracket's
+   words sit above the lanes ("lag 2 h 0 min between the observatory and the official reports"),
+   never on the now-line. Esc or "History ▾" closes it; 3D closes it. The map's pills and controls
+   move up while it is open.
 
-- Left block (210 px): REPLAY: violet "REPLAY" with `i-replay`, the window "23 SEP 1200Z → 27
-  SEP 0600Z", a 4 px progress bar (`(now − recorded_from) / (recorded_to − recorded_from)`) and
-  "58% through the recording". LIVE: "LIVE" and "Last 9 h and next 3 h".
-- Lane labels (92 px): Official · Observatory · TEPHRA.
-- Track: the window `[now − 9 h, now + 3 h]`, hour ticks "16Z" (mono 10). Lanes:
-  - Official: for the selected volcano's SIGMET and VAA cards, a bar from `valid_from` to
-    `valid_to` (magenta at 55%) and an issue marker at `issued_at` (`st-stale` diamond for SIGMET,
-    `st-ok` circle for VAA, magenta).
-  - Observatory: one marker per VONA: the card's `source_id` (filled) and each
-    `extra_source_ids` entry (hollow), times parsed from the id (`…T1540Z`).
-  - TEPHRA: a caution triangle at each DISCREPANCY trace event for the volcano; an amber plane
-    at each EXPOSURE event; a green check or red cross at each decision (`decided_at`).
-  - The lag: when a LAG discrepancy exists, a bracket between the two observation times parsed
-    from its values, labelled "lag 5 h 29 min" (from `magnitude`).
-- NOW: a 2 px white line with the active time in a dark tag.
-- Markers are buttons (roving tabindex; ← / → between markers), 28 px wide and as tall as the
-  lane pitch (lane height + 4 px, at most 28 px); activating one selects the matching column or
-  item in the rail and frames it; tooltips name the product and time. The chosen marker keeps a
-  ring (`aria-current`).
-- "‹ Previous" and "Next ›" buttons at the top of the right block step through the markers in
-  time order and act as a click on the marker (and announce its title). With no marker chosen,
-  Previous goes to the latest marker at or before NOW and Next to the first after it; at either
-  end the button is `aria-disabled`. They move the choice, never TEPHRA's clock.
-- States: loading (empty axis), LIVE (no progress bar), no events (axis only), stale (dimmed,
-  playhead frozen with "last update 16:07Z").
-- The official validity bar is `--c-official` at 0.7 opacity (3.3:1 against the panel). Stale
-  panels (timeline, trace dock) dim to 0.8 opacity, which keeps text-3 at about 5.1:1 and text-2
-  at about 7.1:1; stale volcano-tab badges are greyed and dimmed to 0.8.
+On a phone the bar is the time pill on the map and opens as a bottom sheet.
 
-Forecast steps control: in the Layers panel and as a small segmented control at the right end
-of the timeline: Now · +6 h · +12 h · +18 h · All (`aria-pressed`). Choosing a step shows that
-VAA step's polygon and dims the rest; it is a view of the official forecast, not a TEPHRA
-forecast.
+### 8.4 Height filter
 
-### 8.4 Flight-level filter
-
-A vertical instrument under the tools column (76 wide): caps "LEVELS", a readout ("All",
-"FL180–FL550"), a track up to 270 px tall (the height rule in 4.2) from SFC (bottom) to FL550 (top) with scale ticks SFC, FL060, FL180,
-FL350, FL550, each with a visible label left of the track (mono, at least 12 px, text-2; the box
-is 44 px wider than the tools column to hold them; FL060's label is left out when the track is
-under 150 px), and on the track: the official band of the selected volcano
-(magenta bar, left), TEPHRA's band (amber dashed bar, right), and one tick per aircraft at its
-`alt_baro_ft` (amber 3 px for exposed, grey 2 px for others; at most 60). This mini profile
-answers "who is in the band" at a glance (the 2D twin of 3D).
-
-Two thumbs (40x18 white labels "FL550", "SFC"), each `role="slider"` with
-`aria-valuemin/max/now` in feet and `aria-valuetext` "FL180": ↑/↓ 10 FL, PgUp/PgDn 50 FL,
-Home/End to the limits; pointer drag; a click on the track moves the nearer thumb. Presets
-under it: "All", "Hazard" (the selected cone's base–top), and in the Layers panel also
-"≤FL180" and "≥FL180" (Tokyo's split). Effect: official and TEPHRA features whose `[base_ft,
-top_ft]` misses the range draw at 15% (never removed); aircraft outside the range are hidden
-unless exposed (exposed aircraft are never hidden) or their level is unknown. While the filter is
-not "All", the map note "Level filter FL180–FL550 hides 1 official area and 2 flights" shows
-(caution colour) with a "Reset" link back to All.
+The filter lives in Details › Height filter (7.14) with a fixed 270 px track; the old height rule
+(sizing the track from the map pane, `body.levels-pop`) is gone. While it hides anything a map pill
+says so, with "Reset" (7.7). H opens the section and focuses the top thumb.
 
 ## 9. Keyboard
 
 Single-key shortcuts work when focus is not in a text field and no modifier is held; they can be
-switched off in the help dialog (WCAG 2.1.4, stored in `localStorage`). `?` opens the help
-dialog (7.3a), which lists all of them after the reading guide and the glossary. Every shortcut
-has a visible control too.
+switched off in Help (WCAG 2.1.4, stored in `localStorage`). Every shortcut has a visible control
+too, and controls carry `aria-keyshortcuts`.
 
 | Key | Action |
 |---|---|
-| `1` `2` `3` | Region presets (in `state.regions` order) |
-| `[` / `]` | Previous / next active volcano |
-| `F` | Frame the selected volcano (official + TEPHRA area + entering flights) |
+| `1`-`9` | Choose an area (in `state.regions` order) |
+| `[` / `]` | Previous / next volcano; the area follows |
+| `F` | Fit the selected volcano |
 | `D` | 3D on/off |
-| `S` | Swipe compare on/off |
+| `S` | Compare on/off (not on a phone) |
 | `C` | Sources side by side (raw texts) |
-| `I` | Satellite context: off → infrared → visible → air mass → off |
-| `O` | SO2 context on/off |
-| `B` | BTD indicator on/off |
-| `L` | Legend and layers |
-| `T` | Expand or collapse the trace dock |
-| `H` | Focus the level filter |
-| `?` | Help: how to read the screen, glossary, shortcuts |
-| `Esc` | Close the dialog, popup or popover; collapse the trace; clear the picked flight; leave compare or 3D |
+| `I` / `O` / `B` | Satellite picture cycle / SO2 / BTD on and off; each shows its map pill |
+| `L` | Details › Map layers (again: close) |
+| `T` | Details › How TEPHRA decided |
+| `H` | Details › Height filter, focus on the top thumb |
+| `P` | Presentation layout (keeps Details closed) |
+| `?` | Help |
+| `Esc` | Close the dialog or menu → the section → the Details index → close Details → collapse History → clear the picked flight → leave compare → leave 3D |
 
-Focus order on the Wall: skip links ("Skip to map", "Skip to situation brief", "Skip to
-decisions") → command bar → map → map tools → level filter → trace dock → flights dock →
-timeline → rail (tabs, then sections) → honesty strip. Focus is always visible (3.1 focus ring);
-on the map canvas the ring is drawn on the container. Dialogs trap focus and return it on close.
-The Desk has no single-key shortcuts at all: no key press ever approves or rejects.
+Focus order on the Wall: skip links ("Skip to the story", "Skip to map", "Skip to details") → top
+bar → story column (failure line, story, buttons, key, other volcanoes, Details) → map → map
+controls → time bar → drawer (when open) → footer. Focus is always visible. Opening Details moves
+focus to its title; a section to its title; "‹ Details" back to the row it came from; closing back to
+the opener. The area menu and the History overlay take Esc. Dialogs and the phone Details sheet trap
+focus and return it on close. The Desk has no single-key shortcuts: no key press ever approves or
+rejects.
 
 ## 10. The Desk
 
@@ -1372,24 +1205,26 @@ the disclaimer exactly as `state.disclaimer` gives them.
 |---|---|
 | Disclaimer (both pages, always) | `Decision support only - fictional airline - not for operational use` (from `state.disclaimer`; the HTML ships the same text) |
 | REPLAY banner (both pages, whole session) | `state.replay.banner`, e.g. "REPLAY: recorded real feeds from 23 Sep 2026" |
-| Model label (both pages, always) | `state.llm.label`: "NO MODEL" for the stub, else the model id |
-| AI marking | "AI-drafted" (advisory body), "AI-written" (plume reading); stub: "Template · NO MODEL" |
+| Model label (both pages, always) | Wall: the AI chip "AI: off · code only" / "AI: on · {state.llm.label}" and the story's trust line; the exact `state.llm.label` stays in the chip's title, Details › AI helpers and the Desk |
+| AI marking | "AI-drafted" (advisory body), "AI-written · {model}" (plume reading, satellite limits); with no model the Wall says "Written by code (AI off)" |
 | Every satellite layer | "CONTEXT ONLY · {layer} {time} · not ash detection · Imagery: NASA GIBS · Himawari-9 data: JMA via NOAA" |
 | SO2 layer | "CONTEXT ONLY · SO2 (TROPOMI, daily) {date} · SO2 is not ash; gases not modelled · Imagery: NASA GIBS · Contains modified Copernicus Sentinel data 2026" |
 | BTD overlay | "Split-window BTD (computed by TEPHRA) · an indicator, not ash detection" |
 | Airline | "Ring of Fire Air (RFA) is a fictional airline. RFA flight numbers are proxies for real aircraft." |
 | Outbound | "Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system." |
-| TEPHRA's area | "TEPHRA cautious area" · "an estimate, not a forecast" · "never smaller than the official area" |
+| TEPHRA's area | On the Wall "TEPHRA's estimate" · "an estimate, not a forecast" · "never smaller than official" |
 
 ### 11.2 Mode words
 
 | Mode | Short | Sentence |
 |---|---|---|
-| LIVE | LIVE | "Live feeds" |
-| REPLAY | REPLAY | the banner; "recorded" on tags |
-| OFFICIAL (cone) | "TEPHRA area = official" | "Same as the official area: TEPHRA adds nothing." |
-| WIDENED | "TEPHRA area widened" | "Official area plus the observatory's drift, never smaller." |
-| HYPOTHESIS | "HYPOTHESIS: MONITOR or HOLD only" | "No valid official product: a hypothesis. Only MONITOR or HOLD may be advised." |
+| LIVE | "Live" (mode pill), "Live · 9 h back, 3 h ahead" (time bar) | "Live feeds" |
+| REPLAY | "Replay" (mode pill), "Replay clock · 5 Sep · UTC" | the band + " · not live"; "Recorded" on the story; "recorded" on tags |
+| OFFICIAL (cone) | "TEPHRA's estimate · same as official (AI off)" | "Same as the official area (AI off, nothing added)." |
+| WIDENED | "TEPHRA's estimate · wider than official" | "The official area plus the observatory's drift, never smaller." |
+| HYPOTHESIS | "TEPHRA's estimate · hypothesis" | "HYPOTHESIS: no valid official product. Only MONITOR or HOLD may be advised." |
+| Area picker | "Area: Halmahera · 2 with ash" / "Kyushu · none" / "All areas" | |
+| Stale | "Not updating since 10:31Z" | "Lost the live connection at 10:31Z. Reconnecting…" |
 
 ### 11.3 Evidence states
 
@@ -1426,7 +1261,7 @@ headline.
 
 | `assessment.outcome` | Text |
 |---|---|
-| STUB | "NO MODEL: official products only" |
+| STUB | "AI off: official reports only" (the estimate's outcome sentence: "Same as the official area (AI off, nothing added).") |
 | ACCEPTED | "Gemini reading accepted by the validators" |
 | REPAIRED | "Accepted after one repair" |
 | MODEL_FAILED | "AI unavailable: official products only, nothing assessed beyond them" |
@@ -1436,8 +1271,9 @@ headline.
 ### 11.6 Feed names and status wording
 
 Names: sigmet "VA SIGMET (AWC)", vona "VONA (MAGMA)", vaac_tokyo "VAA Tokyo", vaac_darwin "VAA
-Darwin", taf "TAF", metar "METAR", adsb "ADS-B (adsb.lol)", winds "Winds (Open-Meteo)", frames
-"Satellite frames", hsd "Himawari split window". Status lines: OK "OK · updated 27 s ago"; STALE
+Darwin", taf "TAF", metar "METAR", adsb "Aircraft data (adsb.lol)", winds "Winds (Open-Meteo)",
+frames "Satellite pictures", hsd "Himawari raw processing", jma_volcano "JMA volcano reports". Raw
+errors go under "Technical detail". Status lines: OK "Working · updated 27 s ago"; STALE
 "Stale · last good 14 min ago · showing the last good copy"; ERROR "Error · last good 2 h ago"
 (or "never") + the error; DISABLED "Off" + the reason verbatim (the VONA feed's status word is
 "Off: no PVMBG permission (replay only)", so it is not read as the operator policy); NEVER "Not
@@ -1477,36 +1313,45 @@ the new version", "Sign in", "Sign out", "Try again", "Refresh".
 or "sees ash" for any satellite, SO2 or BTD layer; "Gemini found the ash"; "no traffic" for an
 empty ADS-B map; "the observatory was right" or "the official area was wrong"; "sent to the
 aircraft"; any staff name from MAGMA pages; anything implying NASA, NOAA, JMA, BoM, USGS, PVMBG
-or DGCA endorse TEPHRA.
+or DGCA endorse TEPHRA. Added by the redesign (UI-REDESIGN R12.9): "clear", "safe", "all fine", "no
+traffic", or "0" for an unseen count; "must avoid" (Policy A is illustrative); "AI unavailable" for a
+solver result; "The AI could not tell" while AI is off; any paraphrase of an unknown trace line;
+"deduplicated" for evidence.
 
 ## 12. Accessibility
 
-- Contrast: section 3.3 (text ≥ 4.5:1, graphics and control borders ≥ 3:1, focus ring ≥ 3:1
-  against both neighbours via the dark halo).
-- Colour never alone: section 1 principle 3 and the tables in 3.2 and 5.
-- Keyboard: every function reachable without a pointer (section 9); no keyboard trap; visible
-  focus everywhere; dialogs trap and restore focus; `aria-keyshortcuts` on controls.
-- Semantics: landmarks (`header`, `main`, `aside`, `footer`, `nav` for regions), `h1` per page
-  (the Wall's is the volcano name, the Desk's the queue or sheet title), tables for the grid and
-  feed health, `role="tablist"` for volcano tabs, `role="log"` with `aria-live="off"` for the
-  trace, one polite live region for announcements (new draft, decision, stream lost/restored,
-  new disagreement). Never announce every trace line.
-- Map: features are also reachable as lists (rail, flights dock, timeline); popups open on
-  click or Enter, never on hover only.
-- Motion: section 3.5; no flashing; nothing loops except the exposure paths (static under
-  reduced motion).
-- Targets: 44 px minimum on the Desk and for every Wall control; 48 for Desk primaries.
-- Text: resizable to 200% on the Desk without loss (cards reflow; the action bar stays); the Wall
-  is a fixed-viewport display and must stay usable at 1280x720.
-- Forced colours: icons use `currentColor`; borders exist on every control so they survive
-  `forced-colors: active`. `wall.css` ends with a `forced-colors: active` block: selected
-  segments, region buttons, tools, tabs and phone tabs use `SelectedItem` / `SelectedItemText`
-  (their normal fill and inset ring are dropped in that mode); borderless controls and chips get a
-  `CanvasText` border; flagged grid cells, the selected extension card and the Duty Officer card
-  get an outline in place of their inset shadow; the focus ring uses `Highlight`; and the data
-  swatches (legend, colour-code symbols, level bands, timeline marks and bars, meters) keep their
-  own colours (`forced-color-adjust: none`) so the key still matches the map canvas, which the
-  mode does not recolour. Each of those swatches also has its shape.
+As `docs/UI-REDESIGN.md` R15, built on the Wall as follows (the Desk keeps its own rules in 10):
+1. Keyboard: every function without a pointer (section 9); no trap except dialogs and the phone
+   sheet, which trap and restore.
+2. Focus: always visible (`--focus-ring`, `--focus-offset`, `--focus-halo`, on every control and the
+   map container); drawer and section changes move focus to the new heading and return it.
+3. 12 px floor: `--fs-1` is `max(12px, 0.75rem)`; `wall.css` has no literal size under 12 px and every
+   map `text-size` is at least 12 (`tests/test_ui_inventory.py` checks both).
+4. Contrast: text ≥ 4.5:1 (≥ 3:1 at 24 px or 18.66 px bold), control borders and swatches ≥ 3:1;
+   new pairs are in 3.3; `prefers-contrast: more` works through the tokens.
+5. Colour never alone: key rows pair colour with line style, failures with the serious shape and
+   words, status chips have a shape, selected states have a ring or a check.
+6. Live regions: `#announce` (polite) speaks a story change at most every 30 s and only when the
+   volcano, the flight count or the waiting count changes; a new failure is `role="alert"` once;
+   trace lines are never announced (`role="log"`, `aria-live="off"`); the lost-stream line keeps
+   `role="alert"`.
+7. Semantics: `header`, `main` (story, map, time bar), `aside#details` (`role="region"`), `footer`;
+   one h1 (the volcano name, or the area, or "Watched regions"); the area picker is a menu button
+   (`aria-haspopup="menu"`, arrow keys, Esc); the Details index is a list of buttons; tables for the
+   credits, policy, scenarios and backtest.
+8. Reduced motion: every token duration is 0 except `--dur-hold`; the camera and cluster expansion
+   use `jumpTo`, exposure paths are still, no pulses, no drawer slide, no count highlight.
+9. Targets: 44 px for every Wall control (Details rows 48, time bar steps and buttons 44, map
+   controls 44 and 40 on a phone, area menu rows 44); the time bar's event marks are 28 px (dense
+   track) and are also reachable as Timeline history rows.
+10. Zoom and reflow: at 200% the Wall's viewport falls into the phone or 1280 layout and nothing is
+    lost.
+11. Forced colours: `wall.css` ends with a `forced-colors: active` block: selected segments, menu
+    rows, chips and the Details button use `SelectedItem`; borderless controls, rows, pills and the
+    failure line get a `CanvasText` border; flagged cells and the picked flight get an outline; the
+    swatches keep their colours (`forced-color-adjust: none`).
+12. Language: plain words first, the ICAO code in brackets or mono after; every acronym shown has a
+    glossary entry.
 
 ## 13. Data rules (what the UI computes)
 
@@ -1526,35 +1371,66 @@ All inputs are MODULES.md section 8 shapes. Nothing below calls a model or inven
 | Direction bearings | compass regex on `discrepancy.values` (section 6) |
 | VONA times | from the id suffix `YYYYMMDDTHHMMZ` |
 | FIR with a SIGMET | the second field of `SIGMET:<FIR>:<series>:<time>` |
-| Region of a volcano | its point inside `region.bbox` |
+| Region of a volcano | the first region whose `bbox` contains the vent, else none ("All areas") |
+| Area scope (R2.1) | derived on every render, never stored: `inRegion` = situations whose vent is in the chosen area; the selected volcano is the chosen one if it is in scope, else the first in scope; `regionEmpty` = an area is chosen and nothing is in it. Choosing a volcano sets the area to its region. On the first load an empty server region with ash elsewhere moves to the region of the top-priority volcano; in REPLAY the first case volcano (`state.replay.volcano_ids`) with a situation is chosen. A debug guard logs "region invariant" if the area count and the empty story ever disagree |
+| Story counts | per selected volcano (`volcano_id`); the "All volcanoes" line is global |
+| Waiting advisories | the server's `draft_count` for the global count; per volcano, DRAFT advisories among the 50 loaded ("at least" when that page cannot hold them all) |
+| Closures for a volcano | the current (not superseded) recovery plan's closures whose `source_ids` include the volcano's official product or cone ids |
+| Extension data | recovery, notices, budget and backtest reload 2 s after an SSE `state` with a new `last_tick`, with the 60 s poll as a backstop; numbers drawn from them carry their as-of time |
+| Plain lines | `plainLine()` in `wall/x-parts.js`: a fixed table of patterns; unknown lines verbatim |
+| Deep link | "Decide on the Desk" goes to `/desk#review/{id}` of the volcano's most urgent DRAFT (inside now, then the soonest entry); the Desk resolves it (UI-REDESIGN R10.3) |
 | Priority of volcanoes | exposed count, worst severity, discrepancy count, name |
 | Flight ↔ advisory | `advisory.flight_id == "<hex>:<volcano_id>"`; aircraft props carry `hex` and `volcano_id` |
 | Official area label | grouped per volcano (5.1); SIGMET and VAA polygons are compared by the backend, not the client |
 | Official fill | latest valid SIGMET per FIR and volcano; VAA OBS only where no SIGMET is valid (5.1) |
-| Label stack | official box at the arrow tip / centroid / northern vertex; TEPHRA box stacked 3.1 em beyond it (5.1, 5.2) |
+| Labels | official box at the arrow tip / southern vertex / northern vertex (circles on the vent); TEPHRA tag at the cone vertex farthest from it (5.1, 5.2) |
 | GIBS time | section 5.6 |
 
 ## 14. Video shot list
 
 The storyboard is `docs/PITCH.md` (rows as of 10 Oct). Record the Wall at 1920x1080, browser
-zoom 100%, `prefers-reduced-motion` off, after `body[data-map-ready="true"]`. Every replay shot
-shows the REPLAY banner; the disclaimer strip is in every frame. Captions that are not TEPHRA
+zoom 100%, `prefers-reduced-motion` off, after `body[data-map-ready="true"]`, with `?present=1`
+(Details stays closed until opened on purpose). Every replay shot shows the REPLAY band; the
+disclaimer is in every frame. The opening uses the Krakatau window of UI-REDESIGN R2.2
+(`TEPHRA_REPLAY_CASE=anak-krakatau-20260905`, `TEPHRA_REPLAY_START=2026-09-05T10:30:00Z`,
+`TEPHRA_REPLAY_END=2026-09-05T19:30:00Z`): the Wall opens on Anak Krakatau with flights and
+advisories, and the story card carries the beat. For the disagreement beat open Details › What the
+official reports say and Where the sources disagree; for the trace beat Details › How TEPHRA
+decided; the decision beat is the story's "Decide on the Desk →" and the Desk's 3-tap flow. The key
+block is always in the story column (there is no legend to open). Rows below that name the old
+headline pill, legend, docks or rail map to the story card, the key and the Details sections. Captions that are not TEPHRA
 data (news stills, the sounding) are added in the edit, not drawn by the UI.
 
 | PITCH row | UI state needed | How to get it |
 |---|---|---|
 | 0:00–0:15 hook (stills) | none | edit only |
-| 0:15–0:30 Wall over Java: SIGMET box; SIGMET, VONA, VAA side by side | Semeru selected, OFFICIAL area box visible, sources grid fully visible, legend open, no satellite layer | Replay `semeru-20260923`, `TEPHRA_REPLAY_START=2026-09-25T16:00:00Z`, stub LLM; region 1 (the 1554Z VONA is already in) |
-| 0:30–0:55 badges LAG, ENVELOPE, NOT OBSERVED, DIRECTION OUTSIDE; VONA "north, ground observer, night"; SIGMET "MOV SE" | Rose visible ("135° apart"); VONA column head with "Night at the vent"; disagreement list with CAUTION cards and the harmless row expanded; headline pill | Same replay. NOT OBSERVED appears only if a VONA in the window carries a non-observation; if none, the line says LAG and ENVELOPE and the voice-over must not name NOT OBSERVED |
+| 0:15–0:30 Wall over Java: SIGMET box; SIGMET, VONA, VAA side by side | Semeru selected, official label box visible, Details › What the official reports say open (the three source cards), no satellite layer | Replay `semeru-20260923`, `TEPHRA_REPLAY_START=2026-09-25T16:00:00Z`, stub LLM; region 1 (the 1554Z VONA is already in) |
+| 0:30–0:55 badges LAG, ENVELOPE, NOT OBSERVED, DIRECTION OUTSIDE; VONA "north, ground observer, night"; SIGMET "MOV SE" | Rose visible ("135° apart"); VONA column head with "Night at the vent"; Details › Where the sources disagree with the CAUTION card and "Minor differences" open; story line L2 | Same replay. NOT OBSERVED appears only if a VONA in the window carries a non-observation; if none, the line says LAG and ENVELOPE and the voice-over must not name NOT OBSERVED |
 | 0:55–1:20 trace streams; Plume Reader's card; cautious area over the official box covering both directions | Trace dock expanded (T); TEPHRA area card with "How the model read it" open; map in WIDENED mode with the hatch over the north drift | Needs a Gemini-backed run (`TEPHRA_LLM=gemini`, key in env) so the cone is WIDENED. With the stub the cone stays OFFICIAL and the shot shows "TEPHRA area = official"; do not fake it. The sounding caption is an edit overlay. Optional beat: S (compare) dragged from A to B |
-| 1:20–1:50 Jakarta and Krakatau: CGK traffic through the band; two flights turn amber; drafts appear | Region Java / Bali framed on Krakatau; aircraft layer; level filter showing ticks crossing the band (H, preset "Hazard"); flights dock with minutes; Decisions list showing DRAFT; optional D (3D) for 5 s | Live by day if a Krakatau SIGMET is open, else replay `java-live-20261010` (labelled) |
-| 1:50–2:15 phone: approve one, reject one; audit line | Desk at 390x844: queue with two cards; hold-to-approve on one (show the fill), reject the other with a quick reason; toast with the audit line; then the Wall's Decisions list and flights dock showing "Approved by …" and "Rejected by …" | Same run as the previous row; sign in with a dispatcher name (not a real person's) |
+| 1:20–1:50 Jakarta and Krakatau: CGK traffic through the band; two flights turn amber; drafts appear | Region Java / Bali framed on Krakatau; aircraft layer; Details › Height filter showing ticks crossing the band (H, preset "Hazard"); story L4 and L5, Details › Flights heading in with minutes; Details › Decisions showing waiting; optional D (3D) for 5 s | Live by day if a Krakatau SIGMET is open, else replay `java-live-20261010` (labelled) |
+| 1:50–2:15 phone: approve one, reject one; audit line | Desk at 390x844: queue with two cards; hold-to-approve on one (show the fill), reject the other with a quick reason; toast with the audit line; then the Wall's Details › Decisions and This flight showing "Approved by …" and "Rejected by …" | Same run as the previous row; sign in with a dispatcher name (not a real person's) |
 | 2:15–2:30 evaluation slide | none | deck |
 
 Credits that must be legible when their source is on screen are in the honesty strip and the
 context label (section 7.3, 5.6).
 
 ## 15. Open issues and notes for builders
+
+- Redesign (UI-REDESIGN R19): the recovery agent still writes "NO FEASIBLE PLAN FOR THE PUBLISHED
+  CLOSURE (UNKNOWN)" into `run.problems`; the Wall shows it as "No plan found: the solver did not
+  finish in time…" and keeps the raw string under "Technical detail" (`planProblem()` in
+  `wall/x-parts.js`). Changing the backend string is left for later.
+- `ReplayInfo.volcano_ids` (additive) carries the case manifest's volcanoes; the Wall opens a
+  replay on the first one with a situation.
+- The stub keeps the cone OFFICIAL, so the story's L2 reads "TEPHRA's estimate has not been widened
+  (AI off)" in every stub shot.
+- When the basemap style fails, the map still falls back to the Natural Earth coastline (credited in
+  About) and the story says so in its notes; UI-REDESIGN R14.4 asks for no fallback tiles and a
+  failure line ("The map could not load: …"), which the Wall shows only when the map library itself
+  does not load. Decide before the video whether to drop the coastline.
+- `scripts/ui_check.mjs` is the R17.2 screenshot and DOM pass (not in CI); `tests/test_ui_inventory.py`
+  is the R17.1 "nothing deleted" test (in CI). Its two Desk checks are `xfail(strict=True)` until the
+  Desk part of the redesign lands.
 
 - The CSP (MODULES.md 8.1 and `server.py`) allows GIBS and Mapterhorn for images and fetches,
   and scripts only from the two pinned unpkg packages; any other script host is refused.

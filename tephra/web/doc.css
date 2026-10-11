@@ -635,3 +635,7 @@
 .dtable__wrap {
   position: relative;
 }
+
+/* Privacy page (docs/UI-REDESIGN.md R9.4): the disclaimer line at the top and a 680 px measure. */
+.docdisclaimer { margin: 0; padding: 8px 16px; background: #e8edf2; border-bottom: 1px solid #c9d2dc; color: #05080c; font-size: 14px; text-align: center; }
+.docmain--measure { max-width: 680px; }

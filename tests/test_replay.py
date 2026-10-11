@@ -54,6 +54,7 @@ from tephra.replay.cases import (
     list_cases,
     load_case,
     replay_banner,
+    replay_info,
     select_case,
     start_replay_clock,
     stop_replay_clock,
@@ -562,3 +563,19 @@ async def test_adsb_pass_leaves_a_feed_the_case_never_recorded_alone(
         assert adsb.last_error == NOT_RECORDED_NOTE
     finally:
         await runtime.aclose()
+
+
+def test_replay_info_names_the_case_volcanoes() -> None:
+    """The Wall opens a replay on the case's own volcano (UI-REDESIGN R2.2)."""
+    case = ReplayCase(
+        case_id=CASE_ID,
+        label=LABEL,
+        recorded_from=AT,
+        recorded_to=AT + timedelta(hours=1),
+        region="java_bali",
+        volcano_ids=["262000"],
+        records=[],
+    )
+    info = replay_info(case, auto=False)
+    assert info.volcano_ids == ["262000"]
+    assert replay_info(case.model_copy(update={"volcano_ids": []}), auto=False).volcano_ids == []

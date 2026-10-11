@@ -1,26 +1,28 @@
-// The Wall's HTML panels (docs/UI-DESIGN.md section 7): command bar, honesty strip, legend,
-// headline, flights and trace docks, timeline, level filter, the situation rail and the
-// dialogs. Every feed or model string goes in with textContent (via el()).
+// The Wall's HTML parts (docs/UI-REDESIGN.md R3, R7, R8): the top bar and footer, the time bar,
+// and the builders for the Details sections that show the official reports, the disagreements,
+// TEPHRA's estimate, the flights, the decisions, the trace, the height filter and the data feeds,
+// plus the dialogs. Every feed or model string goes in with textContent (via el()).
 
 import {
   $, el, icon, age, band, dayMon, durMin, fl, hhmmz, hhmmssz, idTime, hhmmBefore, ms, pad, solarHour, isNight,
   compassWord, kmBetween, safeExternalUrl, pointInGeom, dest, inBbox,
 } from "./util.js";
 import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
-import { CODE_LETTER } from "./images.js";
-import { SAT } from "./map.js";
-import { KIND_PLAIN, GASES_SCOPE } from "./glossary.js";
+import { plainMove } from "./derive.js";
+import { plainLine, techDetail, ACTOR_WORDS } from "./x-parts.js";
 
 // ------------------------------------------------------------------ vocabulary (section 11)
 
+// Feed names on screen (UI-REDESIGN R12.8).
 export const FEED_NAME = {
   sigmet: "VA SIGMET (AWC)", vona: "VONA (MAGMA)", vaac_tokyo: "VAA Tokyo", vaac_darwin: "VAA Darwin", taf: "TAF",
-  metar: "METAR", adsb: "ADS-B (adsb.lol)", winds: "Winds (Open-Meteo)", frames: "Satellite frames", hsd: "Himawari split window",
+  metar: "METAR", adsb: "Aircraft data (adsb.lol)", winds: "Winds (Open-Meteo)", frames: "Satellite pictures",
+  hsd: "Himawari raw processing", jma_volcano: "JMA volcano reports",
 };
-const FEED_STATUS = {
+export const FEED_STATUS = {
   ERROR: ["st-serious", "var(--c-serious)", "Error", 0],
   STALE: ["st-stale", "var(--c-caution)", "Stale", 1],
-  OK: ["st-ok", "var(--c-ok)", "OK", 2],
+  OK: ["st-ok", "var(--c-ok)", "Working", 2],
   NEVER: ["st-never", "var(--c-off)", "Not polled yet", 3],
   DISABLED: ["st-off", "var(--c-off)", "Off", 4],
 };
@@ -57,14 +59,13 @@ const SEV = {
   CAUTION: ["caution", "st-caution", "CAUTION"],
   INFO: ["info", "st-info", "INFO"],
 };
-const MODE_SHORT = { OFFICIAL: "TEPHRA area = official", WIDENED: "TEPHRA area widened", HYPOTHESIS: "HYPOTHESIS: MONITOR or HOLD only" };
 const MODE_LINE = {
   OFFICIAL: "Same as the official area: TEPHRA adds nothing.",
-  WIDENED: "Official area plus the observatory's drift, never smaller.",
+  WIDENED: "The official area plus the observatory's drift, never smaller.",
   HYPOTHESIS: "No valid official product: a hypothesis. Only MONITOR or HOLD may be advised.",
 };
 const OUTCOME = {
-  STUB: "NO MODEL: official products only",
+  STUB: "AI off: official reports only",
   ACCEPTED: "Gemini reading accepted by the validators",
   REPAIRED: "Accepted after one repair",
   MODEL_FAILED: "AI unavailable: official products only, nothing assessed beyond them",
@@ -75,6 +76,16 @@ const ACTOR = {
   code: ["i-code", "CODE"], gemini: ["i-model", "GEMINI"], adk: ["i-agent", "ADK"], stub: ["st-never", "NO MODEL"],
   human: ["i-user", "HUMAN"], system: ["i-system", "SYSTEM"],
 };
+// Plain words for values in the sources grid (R12.4). The mono codes stay as they are.
+const PLAIN_VALUE = { EST: "estimated", "NOT GIVEN": "not given", "NOT STATED": "not stated", "NOT OBSERVED": "not observed", OBSERVED: "observed", OBS: "observed" };
+const plainValue = (v) => {
+  if (typeof v !== "string") return v;
+  if (PLAIN_VALUE[v]) return PLAIN_VALUE[v];
+  const seen = /^OBS (\d{4}Z)$/.exec(v);
+  if (seen) return `seen ${seen[1]}`;
+  return v;
+};
+const KIND_LABEL = { SIGMET: "SIGMET (airspace warning) · binding", VAA: "VAA (ash advisory)", VONA: "VONA (volcano observatory notice)" };
 export const ATTRIBUTION = "OpenFreeMap © OpenMapTiles · Data © OpenStreetMap contributors · © Mapterhorn · Aircraft: adsb.lol (ODbL 1.0) · Himawari-9 data: JMA via NOAA · FIR and VAAC lines: NOAA/NWS AWC (approximate)";
 
 const codeColor = (code) => `var(--c-code-${(code || "UNKNOWN").toLowerCase()})`;
@@ -89,11 +100,22 @@ const sevOf = (d) => SEV[d.severity] || SEV.INFO;
 const kindOf = (d) => KIND[`${d.kind}/${d.aspect}`] || KIND[d.kind] || [d.kind, d.kind];
 const cardName = (sit, sid) => sit.cards.find((c) => c.source_id === sid)?.title || sid.split(":").slice(0, 3).join(" ");
 
-// ------------------------------------------------------------------ command bar, banner, strip
+// ------------------------------------------------------------------ top bar, band, footer (R3.1, R3.3)
 
-const setText = (node, text) => { if (node.textContent !== text) node.textContent = text; };
+const setText = (node, text) => { if (node && node.textContent !== text) node.textContent = text; };
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export const dayMonth = (t) => { if (!Number.isFinite(t)) return "—"; const d = new Date(t); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]}`; };
+const narrow = () => window.innerWidth < 1360;
 
-export function renderChrome(D, store, ui, A) {
+// The area picker's words: "Area: Java / Bali · 2 with ash", or "Area: All areas".
+export function areaWords(D, key) {
+  const r = (D.state.regions || []).find((x) => x.key === key);
+  if (!r) return "All areas";
+  const n = D.regionCounts[r.key] || 0;
+  return `${r.name} · ${n ? `${n} with ash` : "none"}`;
+}
+
+export function renderChrome(D, store, ui) {
   const s = D.state;
   const replay = s.mode === "REPLAY";
   document.body.dataset.mode = s.mode;
@@ -103,272 +125,135 @@ export function renderChrome(D, store, ui, A) {
   if (replay && s.replay) {
     // role=status: write only when the words change, so a screen reader announces it once.
     setText($("replay-banner-text"), s.replay.banner);
-    setText($("replay-banner-case"), `· ${s.replay.label}${s.replay.auto ? " · switched automatically: no live activity" : ""}`);
-    banner.title = s.replay.label;
+    setText($("replay-banner-case"), ` · ${s.replay.label}${s.replay.auto ? " · switched automatically: no live activity" : ""}`);
+    banner.title = `${s.replay.banner} · not live · ${s.replay.label}`;
   }
   const badge = $("mode-badge");
   badge.className = `mode-badge mode-badge--${replay ? "replay" : "live"}`;
-  badge.replaceChildren(icon(replay ? "i-replay" : "i-live"), replay ? "REPLAY" : "LIVE");
+  const word = replay ? "Replay" : "Live";
+  if (badge.dataset.word !== word) { badge.dataset.word = word; badge.replaceChildren(icon(replay ? "i-replay" : "i-live"), word); }
 
-  // region presets
-  const cur = ui.region || s.region?.key;
+  // Area picker (R3.1): one menu button; the phone keeps the native select.
   const regions = s.regions || [];
-  $("regions").replaceChildren(...regions.map((r, i) => {
-    const n = D.regionCounts[r.key] || 0;
-    return el("button", { class: "region-btn", type: "button", "aria-pressed": r.key === cur ? "true" : "false", "aria-keyshortcuts": String(i + 1), dataset: { region: r.key, focus: `region-${r.key}` }, title: `${r.name} (key ${i + 1})` },
-      el("kbd", { text: String(i + 1) }), el("span", { class: "region-btn__name", text: r.name }),
-      n ? el("span", { class: "count", text: String(n), "aria-label": `${n} active` }) : null);
-  }));
-  const sel = $("region-select");
-  if (sel) {
-    sel.replaceChildren(...regions.map((r) => el("option", { value: r.key, text: `${r.name}${D.regionCounts[r.key] ? ` · ${D.regionCounts[r.key]} active` : ""}` })));
-    sel.value = cur;
+  const cur = ui.region;
+  setText($("area-label"), `Area: ${areaWords(D, cur)}`);
+  const menu = $("regions");
+  const items = [
+    ...regions.map((r, i) => ({ key: r.key, text: areaWords(D, r.key), kbd: String(i + 1) })),
+    { key: "", text: "All areas", kbd: null },
+  ];
+  const mkey = items.map((x) => `${x.key}:${x.text}:${x.key === (cur || "")}`).join("|");
+  if (menu.dataset.key !== mkey) {
+    menu.dataset.key = mkey;
+    menu.replaceChildren(...items.map((x) => el("button", { type: "button", role: "menuitemradio", class: "area-menu__item", "aria-checked": x.key === (cur || "") ? "true" : "false", tabindex: "-1", "aria-keyshortcuts": x.kbd, dataset: { region: x.key || "all" } },
+      icon("i-check", "icon area-menu__check"), el("span", { text: x.text }), x.kbd ? el("kbd", { text: x.kbd }) : null)));
   }
+  const sel = $("region-select");
+  const skey = items.map((x) => `${x.key}:${x.text}`).join("|");
+  if (sel.dataset.key !== skey) {
+    sel.dataset.key = skey;
+    // the phone's native picker: the short form, "Java / Bali · 2" (R4.4)
+    sel.replaceChildren(...items.map((x) => el("option", { value: x.key || "all", text: x.text.replace(/ with ash$/, "").replace(/ · none$/, "") })));
+  }
+  sel.value = cur || "all";
 
-  $("kpi-active").textContent = String(s.active_volcano_ids?.length ?? 0);
-  // The hero KPI (UI-DESIGN 7.1): amber only when a flight is entering. At 0 it shows a dash,
-  // never "0", "none" or "clear": the feed only sees aircraft that broadcast on ADS-B.
-  const exposed = s.exposed_count ?? 0;
-  const kx = $("kpi-exposed");
-  kx.textContent = exposed > 0 ? String(exposed) : "–";
-  kx.closest(".kpi").classList.toggle("kpi--hot", exposed > 0);
-  kx.closest(".kpi").title = exposed > 0
-    ? `${exposed} RFA (fictional) flight${exposed === 1 ? "" : "s"} entering TEPHRA's cautious area, all volcanoes.`
-    : "No RFA (fictional) flight seen entering. Receiver coverage is patchy: an empty map is not an empty sky.";
-  kx.setAttribute("aria-label", exposed > 0 ? String(exposed) : "0 seen; an empty map is not an empty sky");
-  // null: the server could not read the drafts; an older count is not shown as current.
-  $("kpi-drafts").textContent = s.draft_count === null ? "unknown (database error)" : String(s.draft_count ?? 0);
-
-  const model = $("model-chip");
+  // The merged AI chip (R3.1): the model state in words, failures in red with their shape.
   const stub = s.llm?.backend === "stub";
-  model.className = `model-chip${stub ? "" : " model-chip--model"}`;
-  model.replaceChildren(icon(stub ? "i-code" : "i-model"), el("span", { text: s.llm?.label || "NO MODEL" }));
-  model.title = stub
-    ? `${OUTCOME.STUB}. Text that a model would write comes from code templates; nothing on screen was written by a model.`
-    : "Steps that call a model are marked AI-drafted. Times, ids and hashes are always written by code.";
+  const fails = failedSteps(store);
+  const chip = $("ai-chip");
+  const label = stub ? `AI: off${narrow() ? "" : " · code only"}` : `AI: on · ${s.llm?.label || "model"}`;
+  setText($("model-chip"), label);
+  const failBox = chip.querySelector(".ai-chip__fail");
+  failBox.hidden = !fails;
+  if (fails && failBox.dataset.n !== String(fails)) { failBox.dataset.n = String(fails); failBox.replaceChildren(st("st-serious", "var(--c-serious)"), ` · ${fails} failed`); }
+  chip.classList.toggle("ai-chip--fail", fails > 0);
+  chip.querySelector("use")?.setAttribute("href", `${chip.querySelector("use").getAttribute("href").split("#")[0]}#${stub ? "i-code" : "i-model"}`);
+  chip.title = stub
+    ? "No AI model is connected. Code does every step; code templates write the text."
+    : `AI model: ${s.llm?.label || ""}. Steps that call a model are marked AI-written. Times, ids and hashes are always written by code.`;
+  chip.setAttribute("aria-label", `${label}${fails ? `, ${fails} failed` : ""}. Opens Details, AI helpers.`);
 
+  // Data chip: "Data: 6 working · 5 off", worst first.
   const by = {};
   for (const f of store.feeds) by[f.status] = (by[f.status] || 0) + 1;
+  const words = { ERROR: ["error", "errors"], STALE: ["stale", "stale"], OK: narrow() ? ["ok", "ok"] : ["working", "working"], NEVER: ["not read", "not read"], DISABLED: ["off", "off"] };
   const parts = [];
   for (const k of ["ERROR", "STALE", "OK", "NEVER", "DISABLED"]) {
     if (!by[k]) continue;
     const [id, color] = FEED_STATUS[k];
-    const word = { ERROR: "error", STALE: "stale", OK: "OK", NEVER: "not polled", DISABLED: "off" }[k];
-    parts.push(el("span", { class: `feeds-chip__part feeds-chip__part--${k.toLowerCase()}` }, st(id, color), `${by[k]} ${word}`));
+    const w = words[k][by[k] === 1 ? 0 : 1];
+    parts.push(el("span", { class: `feeds-chip__part feeds-chip__part--${k.toLowerCase()}` }, k === "ERROR" || k === "STALE" ? st(id, color) : null, `${by[k]} ${w}`));
   }
-  $("feeds-chip").replaceChildren(el("span", { class: "caps feeds-chip__cap", text: "Feeds" }), ...parts);
-  $("feeds-chip").setAttribute("aria-label", `Feed health: ${parts.map((p) => p.textContent).join(", ")}. Open details.`);
+  const fc = $("feeds-chip");
+  const fkey = parts.map((p) => p.textContent).join("|");
+  if (fc.dataset.key !== fkey) {
+    fc.dataset.key = fkey;
+    const kids = [el("span", { class: "feeds-chip__cap", text: "Data:" })];
+    parts.forEach((p, i) => { if (i) kids.push(el("span", { class: "feeds-chip__sep", "aria-hidden": "true", text: "·" })); kids.push(p); });
+    fc.replaceChildren(...kids);
+  }
+  fc.classList.toggle("feeds-chip--error", !!by.ERROR);
+  fc.setAttribute("aria-label", `Data feeds: ${parts.map((p) => p.textContent).join(", ")}. Opens Details, Data feeds.`);
 
-  $("disclaimer").textContent = s.disclaimer || "Decision support only - fictional airline - not for operational use";
+  setText($("disclaimer"), s.disclaimer || "Decision support only - fictional airline - not for operational use");
   const policy = s.policy;
   const policyBtn = $("policy-btn");
   policyBtn.hidden = !policy;
   if (policy) {
-    // Short: the footer's credit line shares this row (phones open it from About instead).
-    policyBtn.textContent = `Policy ${policy.preset} · illustrative`;
+    setText(policyBtn, `Policy ${policy.preset} (illustrative)`);
     policyBtn.title = `${policy.policy_id} v${policy.version}: ${policy.label}. Open its values and sources.`;
   }
   const extra = [];
   if (ui.sat !== "off") extra.push("Imagery: NASA GIBS");
   if (ui.so2) extra.push(`${ui.sat === "off" ? "Imagery: NASA GIBS · " : ""}Contains modified Copernicus Sentinel data ${new Date(D.now).getUTCFullYear()}`);
   const attrib = [ATTRIBUTION, ...extra].join(" · ");
-  $("attribution").textContent = attrib;
+  // The full credit string: in the drawer footer and About › Credits; OSM stays on the map (R6.6).
+  setText($("drawer-attrib"), attrib);
   $("attribution").title = attrib;
 }
+
+let failedSteps = () => 0;
+export function setFailureCounter(fn) { failedSteps = fn; }
 
 export function renderClock(D, conn) {
   if (!D) return;
   // While the stream is lost the clock stops at the last event: the data froze there too.
-  $("clock-time").textContent = hhmmssz(conn.lostAt ? conn.lostAt : D.now);
+  setText($("clock-time"), hhmmssz(conn.lostAt ? conn.lostAt : D.now));
   $("clock-time").dataset.stale = conn.lostAt ? "true" : "false";
   const sub = $("clock-sub");
+  const replay = D.mode === "REPLAY";
   if (conn.lostAt) {
-    sub.textContent = `STREAM LOST · last ${hhmmssz(conn.lostAt)}`;
+    setText(sub, `Stopped · ${dayMonth(conn.lostAt)} · UTC`);
     sub.dataset.tone = "caution";
   } else {
-    sub.textContent = `${dayMon(D.now)} · ${D.mode === "REPLAY" ? "REPLAY CLOCK · UTC" : "UTC"}`;
-    sub.dataset.tone = D.mode === "REPLAY" ? "replay" : "";
+    setText(sub, narrow() ? (replay ? "Replay · UTC" : "UTC") : `${replay ? "Replay clock · " : ""}${dayMonth(D.now)} · UTC`);
+    sub.dataset.tone = replay ? "replay" : "";
   }
+  setText($("stale-text"), conn.lostAt ? `Not updating since ${hhmmz(conn.lostAt)}` : "");
 }
 
-// ------------------------------------------------------------------ legend (7.5)
-
-export function renderLegend(D, ui) {
-  const box = $("legend");
-  const open = ui.legendOpen;
-  box.classList.toggle("legend--collapsed", !open);
-  const btn = el("button", { class: "legend__toggle", type: "button", "aria-expanded": open ? "true" : "false", "aria-controls": "legend-body", "aria-keyshortcuts": "L", dataset: { act: "legend", focus: "legend-toggle" } },
-    el("span", { class: "caps", text: "Legend" }), icon(open ? "i-chevron-up" : "i-chevron-down"), el("kbd", { text: "L" }));
-  const sw = (id, cls) => icon(id, `sw ${cls}`);
-  const showTephra = !!(D && ui.layers.tephra && D.cones.length);
-  const anyExposed = !!(D && D.exposed.length > 0);
-  if (!open) {
-    // Folded: the three marks a first look needs, under the same conditions as the full key.
-    const mini = (s, label) => el("li", {}, s, el("span", { text: label }));
-    const key = D ? el("ul", { class: "legend__mini", "aria-label": "Key" },
-      mini(sw("lg-area-official", "sw--official"), "Official"),
-      showTephra ? mini(sw("lg-area-tephra", "sw--tephra"), "TEPHRA") : null,
-      anyExposed ? mini(sw("i-aircraft", "sw--exposed"), "Entering") : null) : null;
-    box.replaceChildren(btn, ...(key ? [key] : []));
-    return;
+// Map status pills (R6.4): only while true, at most 3 (the third becomes "+n more").
+export function mapPills(D, ui, extra) {
+  const pills = [];
+  if (!D) return pills;
+  if (!D.levelAll) {
+    const what = D.hiddenOfficial
+      ? ` hides ${D.hiddenOfficial} official area${D.hiddenOfficial === 1 ? "" : "s"}${D.hiddenFlights ? ` and ${D.hiddenFlights} flight${D.hiddenFlights === 1 ? "" : "s"}` : ""}`
+      : D.hiddenFlights ? ` hides ${D.hiddenFlights} flight${D.hiddenFlights === 1 ? "" : "s"}` : "";
+    pills.push({ tone: "caution", text: `Height filter ${fl(ui.level.min)}–${fl(ui.level.max)}${what}`, action: "level-reset", actionText: "Reset" });
   }
-  const li = (sw, label, sub) => el("li", {}, sw, el("span", {}, el("strong", { text: label }), sub ? el("span", { class: "legend__sub", text: ` ${sub}` }) : null));
-  const hasStep = D.official.some((f) => f.properties.show && f.properties.step !== "now");
-  const hasSector = D.cones.some((f) => f.properties.part === "sector");
-  const anyOther = D.aircraft.some((f) => !f.properties.exposed);
-  const rows = [
-    li(sw("lg-area-official", "sw--official"), "Official ash area", "· binding"),
-    hasStep ? li(sw("lg-area-forecast", "sw--official"), "Official forecast", "· +6 h dashed") : null,
-    showTephra ? li(sw("lg-area-tephra", "sw--tephra"), "TEPHRA cautious area", "· never smaller; drawn just outside what it contains") : null,
-    hasSector ? li(sw("lg-area-hatch", "sw--tephra"), "Widened by the model") : null,
-    D.rose && ui.layers.rose ? li(sw("lg-arrow-official", "sw--official"), "Official movement") : null,
-    D.rose && ui.layers.rose ? li(sw("lg-arrow-observer", "sw--observer"), "Observatory drift") : null,
-    anyExposed ? li(sw("i-aircraft", "sw--exposed"), "Flight entering the area") : null,
-    ui.layers.reroutes && D.hasReroutes ? li(sw("lg-reroute", "sw--reroute"), "Reroute", "· turn points in ICAO form") : null,
-    ui.layers.satboxes && D.hasSatBoxes ? li(sw("lg-satbox", "sw--sat"), "Satellite check box", "· AI-drawn, supporting only") : null,
-    anyOther ? li(sw("i-aircraft", "sw--aircraft"), "Other airline flight") : null,
-    el("li", { class: "legend__codes" }, el("span", { class: "codes" }, ...["GREEN", "YELLOW", "ORANGE", "RED", "UNKNOWN"].map((c) => eruptIcon(c, "icon"))), el("span", { text: "Aviation colour code, lowest to highest: green, yellow, orange, red; grey means unknown" })),
-    ui.d3 ? li(sw("i-3d", "sw--plain"), "3D view", "· heights ×6") : null,
-    ui.compare ? li(sw("i-swipe", "sw--plain"), "Compare", "· A official products only, B with TEPHRA's area") : null,
-  ];
-  if (ui.sat !== "off") rows.push(li(sw("i-satellite", "sw--plain"), `${SAT[ui.sat].short} satellite`, "· context only"));
-  if (ui.so2) rows.push(li(sw("i-satellite", "sw--plain"), "SO2 column", `· context only. ${GASES_SCOPE}`));
-  const body = el("div", { id: "legend-body" }, el("ul", {}, rows), el("p", { class: "legend__ctx", text: "FIR and VAAC lines approximate" }));
-  box.replaceChildren(btn, body);
-}
-
-// ------------------------------------------------------------------ headline and notes (7.6)
-
-// The headline's facts, shared by the map headline and the rail head line that stands in
-// for it at 1359 px and below (4.3).
-function headlineFacts(D, sit, store) {
-  const cone = D.coneOf(sit.volcano_id)?.properties;
-  const worst = sit.discrepancies.filter((d) => d.severity !== "INFO").sort((a, b) => (SEV_RANK[b.severity] || 0) - (SEV_RANK[a.severity] || 0))[0];
-  let dis = null;
-  if (worst) {
-    const [tone, sid, word] = sevOf(worst);
-    const dir = sit.discrepancies.find((d) => d.kind === "DIRECTION_MISMATCH" && d.aspect === "direction");
-    const text = worst.severity === "WARNING" ? `${word}: ${kindOf(worst)[1].replace(/^A /, "a ")}` : dir ? `Direction disagreement ${Math.round(dir.magnitude)}°` : kindOf(worst)[1];
-    dis = { tone, sid, text };
-  }
-  const n = sit.exposed_count || 0;
-  const decided = store.advisories.filter((a) => a.volcano_id === sit.volcano_id && (a.status === "APPROVED" || a.status === "EDITED")).length;
-  // RFA is a fictional airline: every count of its flights says so.
-  const flights = `${n} RFA (fictional) flight${n === 1 ? "" : "s"} entering`;
-  return { cone, dis, area: cone ? MODE_SHORT[cone.mode] || cone.mode : null, n, flights, decided, replay: D.mode === "REPLAY", why: areaWhy(D, sit, cone) };
-}
-
-// The verdict's second line: what TEPHRA's area means, and who read the sources. "TEPHRA area =
-// official" alone could read as a model endorsing the official area; when no model assessed it,
-// the line says so (UI-DESIGN 7.6).
-function areaWhy(D, sit, cone) {
-  if (!cone || cone.mode === "HYPOTHESIS") return null;
-  const line = MODE_LINE[cone.mode] || "";
-  if (cone.mode !== "OFFICIAL") return line;
-  const outcome = sit.assessment?.outcome;
-  const stub = outcome === "STUB" || (!outcome && D.state?.llm?.backend === "stub");
-  const why = stub ? OUTCOME.STUB : outcome && outcome !== "ACCEPTED" && outcome !== "REPAIRED" ? OUTCOME[outcome] : null;
-  return why ? `${line} ${capFirst(why)}.` : line;
-}
-
-// The verdict as plain text: line 1 the facts, line 2 what the area means.
-function verdictLines(D, sit, store) {
-  const f = headlineFacts(D, sit, store);
-  const line1 = [f.dis?.text, f.area, f.flights, f.decided ? `${f.decided} approved` : null].filter(Boolean).join(" · ");
-  return { line1: f.replay ? `Recorded: ${line1}` : line1, line2: f.why };
-}
-
-export function renderHeadline(D, ui, notes, store) {
-  const h = $("headline");
-  const sit = D.sit;
-  if (!sit) { h.hidden = true; } else {
-    h.hidden = false;
-    const { cone, dis, area, n, flights, decided, replay, why } = headlineFacts(D, sit, store);
-    const kids = [];
-    if (replay) kids.push(el("span", { class: "headline__rec", text: "RECORDED" }));
-    kids.push(el("span", { class: "headline__volcano" }, eruptIcon(sit.color_code), sit.volcano_name.toUpperCase()));
-    const sep = () => el("span", { class: "headline__sep", "aria-hidden": "true", text: "·" });
-    if (dis) kids.push(sep(), el("span", { class: `headline__dis headline__dis--${dis.tone}` }, st(dis.sid, `var(--c-${dis.tone})`), dis.text));
-    if (area) kids.push(sep(), el("span", { class: "headline__area", text: area }));
-    kids.push(sep(), el("span", { class: n ? "headline__flights" : "", text: flights }));
-    if (decided) kids.push(sep(), el("span", { class: "headline__ok" }, icon("i-approved"), `${decided} approved`));
-    if (ui.d3) kids.push(el("span", { class: "headline__chip", title: "3D view, heights exaggerated six times", text: "3D ×6" }));
-    if (why) kids.push(el("span", { class: "headline__line2", text: why }));
-    const hyp = cone?.mode === "HYPOTHESIS";
-    const next = hyp
-      ? [st("st-caution", "var(--c-caution)"), el("span", { text: `HYPOTHESIS: no valid official product for ${sit.volcano_name}. MONITOR or HOLD only.` })]
-      : kids;
-    // role=status: rebuild only when what it shows changes, so it is not re-announced on
-    // every render.
-    const key = [hyp, sit.color_code, dis?.tone, ...next.map((k) => k.textContent)].join("|");
-    if (h.dataset.key !== key) {
-      h.dataset.key = key;
-      h.classList.toggle("headline--hypothesis", hyp);
-      h.replaceChildren(...next);
+  if (ui.steps !== "now" && D.sit) {
+    const word = { f6: "+6 h", f12: "+12 h", f18: "+18 h" }[ui.steps];
+    if (D.stepsMissing?.length) {
+      pills.push({ tone: "info", text: ui.steps === "all" ? "No official forecast area (+6, +12 or +18 h) in the current products" : `No official ${word} area in the current products`, action: "steps-now", actionText: "Back to now" });
+    } else {
+      const f = D.official.find((x) => x.properties.sel && x.properties.show && (ui.steps === "all" ? x.properties.step !== "now" : x.properties.step === ui.steps));
+      const at = f ? ` for ${hhmmz(ms(f.properties.valid_from) + 3 * 3600e3)}` : "";
+      pills.push({ tone: "info", text: ui.steps === "all" ? "Showing every official forecast area" : `Showing the official forecast${at} (${word})`, action: "steps-now", actionText: "Back to now" });
     }
   }
-  renderVerdict(D, store);
-  const box = $("map-notes");
-  box.replaceChildren(...notes.map((n) => el("p", { class: `map-note map-note--${n.tone || "info"}`, role: n.tone === "serious" ? "alert" : null },
-    n.tone === "serious" ? st("st-serious", "var(--c-serious)") : n.tone === "caution" ? st("st-caution", "var(--c-caution)") : st("st-info", "var(--c-info)"),
-    el("span", { text: n.text }), n.action ? el("button", { type: "button", class: "link-btn", dataset: { act: n.action }, text: n.actionText }) : null)));
-}
-
-// Phone width (UI-DESIGN 4.4): the map headline does not fit over a 390 px map, so the same
-// verdict sits in a block above the map. Hidden by CSS above 600 px.
-function renderVerdict(D, store) {
-  const box = $("verdict");
-  if (!box) return;
-  const sit = D.sit;
-  if (!sit) { box.hidden = true; box.dataset.key = ""; box.replaceChildren(); return; }
-  box.hidden = false;
-  const cone = D.coneOf(sit.volcano_id)?.properties;
-  const hyp = cone?.mode === "HYPOTHESIS";
-  const head = el("p", { class: "verdict__head" },
-    D.mode === "REPLAY" ? el("span", { class: "headline__rec", text: "RECORDED" }) : null,
-    el("span", { class: "verdict__volcano" }, eruptIcon(sit.color_code), sit.volcano_name.toUpperCase()));
-  let kids;
-  if (hyp) {
-    kids = [head, el("p", { class: "verdict__line" }, st("st-caution", "var(--c-caution)"), el("span", { text: ` HYPOTHESIS: no valid official product for ${sit.volcano_name}. MONITOR or HOLD only.` }))];
-  } else {
-    const { line1, line2 } = verdictLines(D, sit, store);
-    kids = [head, el("p", { class: "verdict__line", text: D.mode === "REPLAY" ? line1.replace(/^Recorded: /, "") : line1 }),
-      line2 ? el("p", { class: "verdict__why", text: line2 }) : null];
-  }
-  // role=status: rebuild only when the words change.
-  const key = [hyp, sit.color_code, ...kids.map((k) => k?.textContent || "")].join("|");
-  if (box.dataset.key !== key) {
-    box.dataset.key = key;
-    box.classList.toggle("verdict--hypothesis", hyp);
-    box.replaceChildren(...kids);
-  }
-}
-
-export function mapNotes(D, ui, store, extra) {
-  const notes = [];
-  if (extra.error) notes.push({ tone: "serious", text: extra.error, action: "retry", actionText: "Retry now" });
-  if (extra.basemap) notes.push({ tone: "info", text: extra.basemap });
-  if (!D) return notes;
-  if (!D.levelAll) {
-    const parts = [];
-    if (D.hiddenOfficial) parts.push(`${D.hiddenOfficial} official area${D.hiddenOfficial === 1 ? "" : "s"}`);
-    if (D.hiddenFlights) parts.push(`${D.hiddenFlights} flight${D.hiddenFlights === 1 ? "" : "s"}`);
-    notes.push({ tone: "caution", text: `Level filter ${fl(ui.level.min)}–${fl(ui.level.max)}${parts.length ? ` hides ${parts.join(" and ")}` : " is on"}` });
-  }
-  const cov = coverageNote(D, store);
-  if (cov && ui.layers.aircraft) notes.push({ tone: "info", text: cov });
-  return notes;
-}
-
-function coverageNote(D, store) {
-  const sit = D.sit;
-  if (!sit) return null;
-  const adsb = store.feeds.find((f) => f.feed === "adsb");
-  if (!adsb || adsb.status !== "OK") return null;
-  const v = D.vents.get(sit.volcano_id);
-  if (!v) return null;
-  const near = D.aircraft.some((f) => kmBetween(f.geometry.coordinates, v) < 150);
-  return near ? null : `No aircraft seen within 150 km of ${sit.volcano_name} in the open ADS-B feed. Receiver coverage is patchy here: an empty map is not an empty sky.`;
+  if (extra.basemap && extra.basemapPill) pills.push({ tone: "info", text: extra.basemap });
+  return pills;
 }
 
 // ------------------------------------------------------------------ advisory status line (3.2)
@@ -389,68 +274,58 @@ export function advisoryLine(a, recorded) {
   return el("span", { class: `adv adv--${tone}` }, icon(ic), el("span", { text }), a.status === "EDITED" ? icon("i-pencil") : null, recorded ? el("span", { class: "tag tag--replay", text: "recorded" }) : null);
 }
 
-// ------------------------------------------------------------------ flights dock (7.8)
+// ------------------------------------------------------------------ Details › Flights heading in (R8.3)
 
-export function renderFlights(D, store, ui, target = $("flights"), opts = {}) {
-  if (!D) {
-    target.replaceChildren(el("div", { class: "dock__head" }, el("h2", { class: "caps", text: "Flights entering TEPHRA's area" })), el("div", { class: "skeleton" }), el("div", { class: "skeleton" }));
-    return;
-  }
-  // Scoped to the selected volcano (or the empty region), so the dock, the headline and the
-  // map count the same flights; the rest are one click away.
-  const region = (D.state.regions || []).find((r) => r.key === (ui.region || D.state.region?.key));
-  const scopeName = D.sit ? D.sit.volcano_name : region ? region.name : null;
-  const inScope = (f) => (D.sit ? f.properties.volcano_id === D.selected : region ? (D.vents.get(f.properties.volcano_id) ? inBbox(D.vents.get(f.properties.volcano_id), region.bbox) : false) : true);
+const FLIGHTS_FIRST = 5;
+
+function flightRow(D, f) {
+  const p = f.properties;
+  const plane = icon("i-aircraft", "flights__plane");
+  plane.style.transform = `rotate(${p.track_deg || 0}deg)`;
+  const entry = p.inside ? "inside now" : `in ${p.minutes_to_entry} min, est.`;
+  const lvl = p.alt_baro_ft != null ? fl(p.alt_baro_ft) : "level unknown";
+  const old = p.stale ? `position ${Math.max(1, Math.round(p.ageS / 60))} min old` : null;
+  const adv = D.advByFlight.get(`${p.hex}:${p.volcano_id}`);
+  return el("li", {}, el("button", { class: "flights__row", type: "button", dataset: { flight: f.id ?? p.hex, focus: `flight-${p.hex}` }, "aria-label": `${p.proxy_flight}, proxy for ${p.callsign || p.hex}, ${p.inside ? "inside TEPHRA's area now" : `enters in ${p.minutes_to_entry} minutes, estimated`}, ${lvl}${old ? `, ${old}` : ""}. Show this flight.` },
+    plane,
+    el("span", { class: "flights__id" },
+      el("span", { class: "flights__proxy", text: p.proxy_flight }),
+      el("span", { class: "flights__meta", text: `proxy for ${p.callsign || String(p.hex || "").toUpperCase()} · ${lvl}${old ? ` · ${old}` : ""}` })),
+    el("span", { class: p.inside ? "flights__inside" : "flights__mins" }, p.inside ? st("st-inside", "var(--c-tephra)") : null, entry),
+    adv ? el("span", { class: "flights__status" }, advisoryLine(adv, false)) : null));
+}
+
+export function renderFlights(D, store, ui, target = $("flights")) {
+  if (!D) { target.replaceChildren(el("div", { class: "skeleton" }), el("div", { class: "skeleton" })); return; }
+  // Scoped to the selected volcano (or the empty area), so the story, this list and the map count
+  // the same flights; the rest are one click away.
+  const area = D.area;
+  const scopeName = D.sit ? D.sit.volcano_name : area ? area.name : null;
+  const inScope = (f) => (D.sit ? f.properties.volcano_id === D.selected : area ? (D.vents.get(f.properties.volcano_id) ? inBbox(D.vents.get(f.properties.volcano_id), area.bbox) : false) : true);
   const flights = D.exposed.filter(inScope);
   const others = new Map();
   for (const f of D.exposed) if (!inScope(f)) others.set(f.properties.volcano_id, (others.get(f.properties.volcano_id) || 0) + 1);
-  const max = opts.max ?? (window.innerWidth < 1600 ? 3 : 4);
   const replay = D.mode === "REPLAY";
-  const shownN = opts.all ? flights.length : Math.min(max, flights.length);
-  const head = el("div", { class: "dock__head" },
-    el("h2", { class: "caps flights__title" }, "Flights entering", scopeName ? el("span", { class: "flights__scope", text: ` · ${scopeName}` }) : null),
-    el("span", { class: "dock__count", text: flights.length > shownN ? `${shownN} of ${flights.length}` : String(flights.length) }),
+  const adsb = store.feeds.find((f) => f.feed === "adsb");
+  const coverage = !adsb || adsb.status !== "OK"
+    ? (replay ? "No aircraft data in this recording." : `Aircraft data is ${({ ERROR: "failing", STALE: "stale", DISABLED: "off" })[adsb?.status] || "not working"}: an empty map is not an empty sky.`)
+    : "Aircraft coverage is patchy: an empty map is not an empty sky. Entry times are estimates: a straight line from the last position.";
+  const head = el("p", { class: "dsum" },
+    el("strong", { text: flights.length ? `${flights.length} RFA ${flights.length === 1 ? "flight" : "flights"} in or heading into TEPHRA's estimated area${scopeName ? ` at ${scopeName}` : ""}` : `No RFA flight is projected to enter TEPHRA's area${scopeName ? ` at ${scopeName}` : ""}.` }),
     replay ? el("span", { class: "tag tag--replay", text: "recorded" }) : null);
-  const foot = others.size ? el("div", { class: "flights__foot" }, ...[...others].slice(0, 2).map(([vid, n]) => {
-    const name = D.sits.find((s) => s.volcano_id === vid)?.volcano_name || vid;
-    return el("button", { type: "button", class: "link-btn", dataset: { act: "select", vid, focus: `others-${vid}` }, text: `+${n} entering at ${name}` });
+  const note = el("p", { class: "dnote", text: `RFA (Ring of Fire Air) is a fictional airline; each flight number stands in for a real aircraft. ${coverage}` });
+  const foot = others.size ? el("div", { class: "flights__foot" }, ...[...others].map(([vid, n]) => {
+    const name = D.sits.find((x) => x.volcano_id === vid)?.volcano_name || vid;
+    return el("button", { type: "button", class: "link-btn", dataset: { act: "select", vid, focus: `others-${vid}` }, text: `+${n} heading in at ${name}` });
   })) : null;
-  if (!flights.length) {
-    const adsb = store.feeds.find((f) => f.feed === "adsb");
-    let note;
-    if (!adsb || adsb.status !== "OK") note = replay ? "No aircraft data in this recording." : "No aircraft data right now (ADS-B feed not OK).";
-    else note = coverageNote(D, store) || "Tracks are projected on current heading, speed and level.";
-    const where = D.sit ? "TEPHRA's area" : scopeName ? `a TEPHRA area in ${scopeName}` : "TEPHRA's area";
-    target.replaceChildren(head, el("p", { class: "dock__empty" }, el("strong", { text: `No flight is projected to enter ${where}.` }), " ", note), ...(foot ? [foot] : []));
-    target.classList.add("dock--empty");
-    return;
-  }
-  target.classList.remove("dock--empty");
-  const list = el("ol", { class: "flights__list" });
-  for (const f of flights.slice(0, shownN)) {
-    const p = f.properties;
-    const plane = icon("i-aircraft", "flights__plane");
-    plane.style.transform = `rotate(${p.track_deg || 0}deg)`;
-    const right = p.inside
-      ? el("span", { class: "flights__inside" }, st("st-inside", "var(--c-tephra)"), "INSIDE NOW")
-      : el("span", { class: "flights__mins" }, el("b", { text: String(p.minutes_to_entry) }), " MIN");
-    const lvl = p.alt_baro_ft != null ? fl(p.alt_baro_ft) : "level unknown";
-    const meta = [p.callsign, p.type_icao, lvl].filter(Boolean).join(" · ");
-    const old = p.stale ? `position ${Math.max(1, Math.round(p.ageS / 60))} min old` : null;
-    const adv = D.advByFlight.get(`${p.hex}:${p.volcano_id}`);
-    const btn = el("button", { class: "flights__row", type: "button", title: old ? `${p.proxy_flight}: ${old}` : null, dataset: { flight: f.id ?? p.hex, focus: `flight-${p.hex}` }, "aria-label": `${p.proxy_flight}, ${meta}, ${p.inside ? "inside TEPHRA's area now" : `enters in ${p.minutes_to_entry} minutes`}${old ? `, ${old}` : ""}. Show on map.` },
-      plane,
-      el("span", { class: "flights__id" },
-        el("span", { class: "flights__proxy", text: p.proxy_flight }),
-        el("span", { class: "flights__meta", text: meta })),
-      right,
-      adv ? el("span", { class: "flights__status" }, advisoryLine(adv, false)) : null);
-    list.append(el("li", {}, btn));
-  }
-  target.replaceChildren(head, list, ...(foot ? [foot] : []));
+  if (!flights.length) { target.replaceChildren(head, note, ...(foot ? [foot] : [])); return; }
+  const first = el("ol", { class: "flights__list" }, ...flights.slice(0, FLIGHTS_FIRST).map((f) => flightRow(D, f)));
+  const rest = flights.slice(FLIGHTS_FIRST);
+  const more = rest.length ? el("details", { class: "more", dataset: { k: "flights-all" } }, el("summary", { text: `All ${flights.length}` }), el("ol", { class: "flights__list", start: String(FLIGHTS_FIRST + 1) }, ...rest.map((f) => flightRow(D, f)))) : null;
+  target.replaceChildren(head, first, ...(more ? [more] : []), note, ...(foot ? [foot] : []));
 }
 
-// ------------------------------------------------------------------ trace dock (7.9)
+// ------------------------------------------------------------------ Details › How TEPHRA decided (R8.3, R12.7)
 
 export function traceLines(store, D, ui) {
   const sel = D?.selected;
@@ -458,119 +333,53 @@ export function traceLines(store, D, ui) {
   return store.trace.filter((t) => all || !t.volcano_id || t.volcano_id === sel);
 }
 
-export function renderTrace(D, store, ui, conn, target = $("trace"), opts = {}) {
+const TRACE_FIRST = 14;
+
+function traceItem(t, ui) {
+  const [ic, name] = ACTOR[t.actor] || ["i-system", String(t.actor || "").toUpperCase()];
+  const lvl = t.level === "error" ? st("st-serious", "var(--c-serious)") : t.level === "warn" ? st("st-caution", "var(--c-caution)") : null;
+  const plain = plainLine(t.message);
+  return el("li", { class: `trace__line${ui.freshTrace?.has(t.id) ? " is-new" : ""}${t.level === "error" ? " trace__line--error" : ""}` },
+    el("span", { class: "trace__time", text: hhmmz(ms(t.at)) }),
+    el("span", { class: "trace__msg" }, lvl, el("span", { text: plain }), el("span", { class: "trace__who", text: ` · ${ACTOR_WORDS[t.actor] || String(t.actor || "")}` })),
+    techDetail(
+      el("p", { class: "tech__line" }, el("span", { class: "mono", text: `${hhmmssz(ms(t.at))} · ${t.stage}` }), " ", el("span", { class: `actor actor--${t.actor}` }, icon(ic), name)),
+      el("p", { class: "tech__line mono", text: t.message })));
+}
+
+export function renderTrace(D, store, ui, conn, target = $("trace")) {
   const lines = traceLines(store, D, ui);
-  const expanded = ui.traceExpanded || opts.full;
-  const n = opts.full ? 60 : expanded ? 14 : window.innerWidth < 1360 ? 1 : window.innerWidth < 1600 || ui.present ? 2 : 4;
-  const shown = lines.slice(-n);
-  target.classList.toggle("trace--expanded", !!ui.traceExpanded && !opts.full);
-  target.classList.toggle("is-stale", !!conn.lostAt);
-  const scope = el("div", { class: "seg seg--small", role: "group", "aria-label": "Trace scope" },
+  const scope = el("div", { class: "seg", role: "group", "aria-label": "Which steps" },
     el("button", { type: "button", "aria-pressed": ui.traceScope !== "all" ? "true" : "false", dataset: { act: "trace-scope", scope: "volcano", focus: "trace-scope-v" }, text: "This volcano" }),
-    el("button", { type: "button", "aria-pressed": ui.traceScope === "all" ? "true" : "false", dataset: { act: "trace-scope", scope: "all", focus: "trace-scope-a" }, text: "All" }));
-  const head = el("div", { class: "dock__head" },
-    el("h2", { class: "caps", text: "Reasoning trace" }),
-    D?.mode === "REPLAY" ? el("span", { class: "tag tag--replay", text: "recorded" }) : null,
-    el("span", { class: "dock__count", text: conn.lostAt ? `paused at ${hhmmssz(conn.lostAt)}` : `${lines.length} step${lines.length === 1 ? "" : "s"}` }),
-    scope,
-    opts.full ? null : el("button", { type: "button", class: "link-btn trace__expand", "aria-expanded": ui.traceExpanded ? "true" : "false", "aria-keyshortcuts": "T", dataset: { act: "trace-expand", focus: "trace-expand" } }, ui.traceExpanded ? "Collapse" : "Expand", el("kbd", { text: "T" })));
-  if (!D) { target.replaceChildren(head, el("div", { class: "skeleton" }), el("div", { class: "skeleton" })); return; }
-  const ol = el("ol", { class: "trace__list", role: "log", "aria-live": "off", "aria-label": "Reasoning trace steps", tabindex: "0" });
-  if (!shown.length) ol.append(el("li", { class: "trace__empty", text: "No steps yet." }));
-  for (const t of shown) {
-    const [ic, name] = ACTOR[t.actor] || ["i-system", String(t.actor || "").toUpperCase()];
-    const lvl = t.level === "error" ? st("st-serious", "var(--c-serious)") : t.level === "warn" ? st("st-caution", "var(--c-caution)") : null;
-    ol.append(el("li", { class: `trace__line${ui.freshTrace?.has(t.id) ? " is-new" : ""}`, title: t.message },
-      el("span", { class: "trace__time", text: hhmmssz(ms(t.at)) }),
-      el("span", { class: "trace__stage", text: t.stage }),
-      el("span", { class: `actor actor--${t.actor}` }, icon(ic), name),
-      el("span", { class: "trace__msg" }, lvl, el("span", { text: t.message }))));
-  }
-  target.replaceChildren(head, ol);
-  ol.scrollTop = ol.scrollHeight;
+    el("button", { type: "button", "aria-pressed": ui.traceScope === "all" ? "true" : "false", dataset: { act: "trace-scope", scope: "all", focus: "trace-scope-a" }, text: "Everything" }));
+  const head = el("div", { class: "dsum dsum--row" },
+    el("strong", { text: conn.lostAt ? `${lines.length} steps · paused at ${hhmmz(conn.lostAt)}` : `${lines.length} step${lines.length === 1 ? "" : "s"}, newest first` }),
+    D?.mode === "REPLAY" ? el("span", { class: "tag tag--replay", text: "recorded" }) : null, scope);
+  if (!D) { target.replaceChildren(head, el("div", { class: "skeleton" })); return; }
+  const newest = lines.slice().reverse();
+  const ol = el("ol", { class: "trace__list", role: "log", "aria-live": "off", "aria-label": "How TEPHRA decided, newest first" });
+  if (!newest.length) ol.append(el("li", { class: "trace__empty", text: "No steps yet." }));
+  for (const t of newest.slice(0, TRACE_FIRST)) ol.append(traceItem(t, ui));
+  const rest = newest.slice(TRACE_FIRST);
+  const more = rest.length ? el("details", { class: "more", dataset: { k: "trace-all" } }, el("summary", { text: `Show all (${newest.length})` }), el("ol", { class: "trace__list", "aria-live": "off" }, ...rest.map((t) => traceItem(t, ui)))) : null;
+  target.classList.toggle("is-stale", !!conn.lostAt);
+  target.replaceChildren(head, el("p", { class: "dnote", text: "Each step in plain words. Lines TEPHRA has no plain wording for are shown as written; the raw line is under Technical detail." }), ol, ...(more ? [more] : []));
 }
 
-// ------------------------------------------------------------------ volcano tabs (7.10)
+// ------------------------------------------------------------------ Details › the ash (R8.3)
 
-export function renderTabs(D, conn) {
-  const box = $("volcano-tabs");
-  if (!D) { box.replaceChildren(el("span", { class: "skeleton skeleton--tab" }), el("span", { class: "skeleton skeleton--tab" })); return; }
-  box.classList.toggle("is-stale", !!conn.lostAt);
-  const anySel = D.sits.some((s) => s.volcano_id === D.selected);
-  box.replaceChildren(...D.sits.map((s, i) => {
-    const sel = s.volcano_id === D.selected;
-    const worst = worstSeverity(s);
-    const nCheck = s.discrepancies.filter((d) => (SEV_RANK[d.severity] || 0) >= 2).length;
-    const cone = D.coneOf(s.volcano_id)?.properties;
-    const kids = [eruptIcon(s.color_code), el("span", { class: "vtab__name", text: s.volcano_name })];
-    if (cone?.mode === "HYPOTHESIS") kids.push(el("span", { class: "badge badge--caution", "aria-label": "hypothesis" }, st("st-caution", "var(--c-caution)"), "H"));
-    if (nCheck) kids.push(el("span", { class: `badge badge--${worst >= 3 ? "serious" : "caution"}`, "aria-label": `${nCheck} difference${nCheck === 1 ? "" : "s"} to check` }, st(worst >= 3 ? "st-serious" : "st-caution", worst >= 3 ? "var(--c-serious)" : "var(--c-caution)"), String(nCheck)));
-    if (s.exposed_count) kids.push(el("span", { class: "badge badge--flights", "aria-label": `${s.exposed_count} flight${s.exposed_count === 1 ? "" : "s"} entering` }, icon("i-aircraft"), String(s.exposed_count)));
-    return el("button", { class: "vtab", role: "tab", type: "button", id: `tab-${s.volcano_id}`, "aria-selected": sel ? "true" : "false", "aria-controls": "brief", tabindex: sel || (!anySel && i === 0) ? "0" : "-1", dataset: { vid: s.volcano_id, focus: `tab-${s.volcano_id}` } }, ...kids);
-  }));
-}
-
-// ------------------------------------------------------------------ situation rail
-
-export function renderBrief(D, store, ui, A) {
-  const brief = $("brief");
-  if (!D) {
-    brief.replaceChildren(...[1, 2, 3, 4, 5].map(() => el("div", { class: "skeleton skeleton--block" })));
-    return;
-  }
-  const sit = D.sit;
-  if (!sit) {
-    const region = (D.state.regions || []).find((r) => r.key === (ui.region || D.state.region?.key));
-    const others = (D.state.regions || []).filter((r) => D.regionCounts[r.key]);
-    brief.replaceChildren(
-      ...introCard(ui),
-      el("section", { class: "sec sec--empty", "data-ptab": "brief" },
-        el("h1", { class: "vhead__name", text: `No active volcano in ${region?.name || "this region"}.` }),
-        el("p", { class: "muted", text: "A volcano is active when it has a VONA in the last 24 h, a current VAA, or a valid VA SIGMET near it." }),
-        el("div", { class: "btn-row" }, ...others.map((r) => el("button", { type: "button", class: "btn", dataset: { region: r.key }, text: `${r.name} · ${D.regionCounts[r.key]} active` })))),
-      decisionsSection(D, store, ui));
-    return;
-  }
-  const cone = D.coneOf(sit.volcano_id)?.properties;
-  // The map headline is hidden at 1359 px and below; these lines carry the verdict there (4.3).
-  const verdict = cone?.mode === "HYPOTHESIS" ? null : verdictLines(D, sit, store);
-  const head = el("section", { class: "vhead-wrap", "data-ptab": "brief" },
-    el("div", { class: "vhead" },
-      el("h1", { class: "vhead__name", id: "volcano-name", tabindex: "-1", text: sit.volcano_name }),
-      el("span", { class: "code-chip", title: `Aviation colour code ${sit.color_code}` }, eruptIcon(sit.color_code), sit.color_code),
-      el("span", { class: "vhead__asof", text: `as of ${hhmmz(ms(sit.as_of))}` })),
-    verdict ? el("p", { class: "vhead__headline", text: verdict.line1 }) : null,
-    verdict?.line2 ? el("p", { class: "vhead__why", text: verdict.line2 }) : null,
-    el("p", { class: "vreasons", text: sit.active_reasons.join(" · ") }),
-    cone?.mode === "HYPOTHESIS" ? hypothesisBanner(sit) : null);
-  brief.replaceChildren(...introCard(ui), head, sourcesSection(D, sit, A), disagreeSection(D, sit, ui), areaSection(D, sit, ui),
-    el("section", { class: "sec sec--phone", "data-ptab": "flights", id: "rail-flights" }),
-    decisionsSection(D, store, ui),
-    el("section", { class: "sec sec--phone", "data-ptab": "trace", id: "rail-trace" }));
-}
-
-// A first-look card at the top of the brief (UI-DESIGN 7.3a): the few words a newcomer needs,
-// with Help one click away. Dismissed once per browser; never shown in presentation layout.
-function introCard(ui) {
-  if (!ui.introOpen || ui.present) return [];
-  return [el("section", { class: "intro", "aria-label": "Reading this screen", "data-ptab": "brief" },
-    el("p", { class: "intro__text", text: "New here? Pink is the official ash area, which is binding. Amber is TEPHRA's cautious area, an estimate never smaller than the official one. Times ending in Z are UTC. RFA (Ring of Fire Air) is a fictional airline." }),
-    el("div", { class: "intro__actions" },
-      el("button", { type: "button", class: "link-btn", dataset: { act: "help", focus: "intro-help" }, text: "Help and glossary" }),
-      el("button", { type: "button", class: "link-btn", dataset: { act: "intro-dismiss", focus: "intro-dismiss" }, text: "Got it, hide this" })))];
-}
-
-function hypothesisBanner(sit) {
+export function hypothesisBanner(sit) {
   return el("p", { class: "hyp-banner", role: "note" }, st("st-caution", "var(--c-caution)"),
     el("span", { text: `HYPOTHESIS: no valid official product for ${sit.volcano_name}. TEPHRA's area is a hypothesis built from the observatory report. Advisories are limited to MONITOR or HOLD.` }));
 }
 
 function secHead(id, title, aside) {
-  return el("div", { class: "sec__head" }, el("h2", { id, class: "caps", text: title }), aside ? el("span", { class: "sec__aside", text: aside }) : null);
+  return el("div", { class: "sec__head" }, el("h3", { id, class: "sec__title", text: title }), aside ? el("span", { class: "sec__aside", text: aside }) : null);
 }
 
-// 7.12 the comparison grid: SIGMET, VAA | VONA
-function sourcesSection(D, sit) {
+// What the official reports say (R8.3 `sources`): the provenance line, then SIGMET and VAA | VONA
+// side by side with plain row labels (R12.4). Raw text, hashes and ids are one tap away.
+export function sourcesSection(D, sit) {
   const byKind = Object.fromEntries(sit.cards.map((c) => [c.kind, c]));
   const order = [byKind.SIGMET, byKind.VAA, byKind.VONA].filter(Boolean);
   const lag = sit.discrepancies.find((d) => d.kind === "LAG");
@@ -587,16 +396,16 @@ function sourcesSection(D, sit) {
   const value = (card, row) => {
     const f = card.display_fields || {};
     if (row === "seen") {
-      if (lag?.values[card.source_id]) return lag.values[card.source_id];
+      if (lag?.values[card.source_id]) return plainValue(lag.values[card.source_id]);
       if (card.kind === "VONA") return f.Issued ? `${f.Issued.split("/")[1] || f.Issued}` : "—";
-      if (card.kind === "VAA") return f.Observation || "—";
-      return f.Observed || "—";
+      if (card.kind === "VAA") return plainValue(f.Observation) || "—";
+      return plainValue(f.Observed) || "—";
     }
     if (row === "height") {
-      if (card.kind === "VONA") return f["Cloud top"] ? [f["Cloud top"].replace(/\s*\(.*\)$/, ""), f["Cloud top"]] : "—";
+      if (card.kind === "VONA") return f["Cloud top"] ? [plainValue(f["Cloud top"].replace(/\s*\(.*\)$/, "")), f["Cloud top"]] : "—";
       return f.Band || "—";
     }
-    if (row === "move") return dirD?.values[card.source_id] || f.Movement || "—";
+    if (row === "move") return plainValue(plainMove(dirD?.values[card.source_id] || f.Movement)) || "—";
     if (row === "valid") {
       if (card.kind === "SIGMET") return card.valid_to ? `until ${hhmmz(ms(card.valid_to))}` : "—";
       if (card.kind === "VAA") {
@@ -605,30 +414,40 @@ function sourcesSection(D, sit) {
       }
       return "—";
     }
-    if (row === "code") return card.kind === "SIGMET" ? "—" : f["Colour code"] || "—";
+    if (row === "code") return card.kind === "SIGMET" ? "—" : plainValue(f["Colour code"]) || "—";
     return "—";
   };
-  const compact = window.innerWidth < 1360 && window.innerWidth > 600;
-  const rows = [["seen", "Seen at"], ["height", "Height"], ["move", "Movement"], ["valid", "Valid"], ["code", "Colour code"]].filter(([r]) => !compact || ["seen", "height", "move"].includes(r));
+  const rows = [["seen", "Seen"], ["height", "Height"], ["move", "Movement"], ["valid", "Valid"], ["code", "Alert colour"]];
   const cell = (card, row, role) => {
     let v = value(card, row);
     let title = null;
     if (Array.isArray(v)) [v, title] = v;
     const flag = flagged.get(`${card.source_id}|${row}`);
     const cls = ["cmp__cell", v === "—" ? "cmp__cell--empty" : "", flag ? "cmp__cell--flag" : card.kind === "VONA" && row === "move" ? "cmp__cell--observer" : ""].filter(Boolean).join(" ");
-    return el("div", { class: cls, role, title: title || (v !== "—" ? v : null) }, flag ? st("st-caution", "var(--c-caution)") : null, el("span", { text: v }), flag ? el("span", { class: "sr-only", text: " (flagged: disagrees)" }) : null);
+    return el("div", { class: cls, role, title: title || null }, flag ? st("st-caution", "var(--c-caution)") : null, el("span", { text: v }), flag ? el("span", { class: "sr-only", text: " (flagged: disagrees)" }) : null);
   };
   const footOf = (card, role) => el("div", { class: "cmp__foot", role },
-    el("span", { class: "mono", text: `#${card.sha256_short || ""}` }),
     el("button", { type: "button", class: "link-btn", dataset: { act: "raw", kind: card.kind, focus: `raw-${card.kind}` }, "aria-label": `Raw text of ${card.title}` }, icon("i-raw-text"), "Raw text"));
   const parts = { D, sit, order, rows, vent, flagged, cell, footOf };
-  const body = window.innerWidth <= 600 ? sourceCards(parts) : sourceGrid(parts);
-  return el("section", { class: "sec", "aria-labelledby": "h-sources", "data-ptab": "sources" }, secHead("h-sources", "What the sources say", "Official products are binding"), body, sourceQuotes(order));
+  // The drawer is narrow (480 or 440 px), so each source is one card with its rows in full and no
+  // column is ever cut off (R2.8). The side-by-side view of the raw texts is the C dialog.
+  const body = sourceCards(parts);
+  const ids = order.filter((c) => !c.missing).map((c) => `${c.title}: ${c.source_id} · #${c.sha256_short || ""}`);
+  const named = order.filter((c) => !c.missing && c.kind !== "VONA").length;
+  return el("section", { class: "sec", "aria-labelledby": "h-sources" },
+    el("p", { class: "dsum", id: "h-sources", text: `${named} official report${named === 1 ? "" : "s"} name ${sit.volcano_name}. Official reports are binding.` }),
+    el("details", { class: "more", dataset: { k: "src-why" } }, el("summary", { text: `Why ${sit.volcano_name} is on the Wall (${sit.active_reasons.length})` }),
+      el("ul", { class: "reasons" }, ...sit.active_reasons.map((r) => el("li", { text: r })))),
+    el("p", { class: "dnote", text: "A pink edge marks an official report, a blue edge the observatory. A yellow cell disagrees with another source." }),
+    body,
+    el("button", { type: "button", class: "btn btn--small", dataset: { act: "raw", kind: "", focus: "src-side" } }, icon("i-raw-text"), "Raw texts side by side (C)"),
+    sourceQuotes(order),
+    el("details", { class: "more", dataset: { k: "src-ids" } }, el("summary", { text: "Technical ids" }), el("ul", { class: "tech__list mono" }, ...ids.map((t) => el("li", { text: t })))));
 }
 
-// wide screens: the row-major table, SIGMET and VAA | VONA
+// wide drawer: the row-major table, SIGMET and VAA | VONA. No empty label header cell (R2.8).
 function sourceGrid({ D, sit, order, rows, vent, flagged, cell, footOf }) {
-  const grid = el("div", { class: "cmp", role: "table", "aria-label": "Sources side by side: SIGMET, VAA and VONA" });
+  const grid = el("div", { class: "cmp", role: "table", "aria-label": "Official reports side by side: SIGMET, VAA and VONA" });
   const hdrRow = el("div", { class: "cmp__row cmp__row--head", role: "row" }, el("div", { class: "cmp__corner", role: "columnheader" }, el("span", { class: "sr-only", text: "Field" })));
   order.forEach((card, i) => {
     if (i === 2) hdrRow.append(el("div", { class: "cmp__divider", "aria-hidden": "true" }));
@@ -652,7 +471,7 @@ function sourceGrid({ D, sit, order, rows, vent, flagged, cell, footOf }) {
   return grid;
 }
 
-// phone width (4.4): one card per source, its head then label and value rows wrapping in full
+// narrow drawer and phone: one card per source, its head then label and value rows wrapping in full
 function sourceCards({ D, sit, order, rows, vent, flagged, cell, footOf }) {
   return el("div", { class: "cmp-cards" }, ...order.map((card) => {
     const head = colHead(D, sit, card, vent, flagged);
@@ -673,18 +492,18 @@ function sourceQuotes(order) {
     const lines = QUOTED[c.kind].filter((k) => f[k]).map((k) => el("p", { class: "cmp-quote__line" }, el("span", { class: "cmp-quote__label", text: `${k}: ` }), el("q", { text: f[k] })));
     if (!lines.length) return null;
     const observer = c.kind === "VONA";
-    return el("div", { class: `cmp-quote${observer ? " cmp-quote--observer" : ""}` }, el("div", { class: "cmp__kind", text: observer ? "VONA · observatory" : "VAA · VAAC" }), ...lines);
+    return el("div", { class: `cmp-quote${observer ? " cmp-quote--observer" : ""}` }, el("div", { class: "cmp__kind", text: KIND_LABEL[c.kind] }), ...lines);
   }).filter(Boolean);
-  return blocks.length ? el("div", { class: "cmp-quotes" }, ...blocks) : null;
+  return blocks.length ? el("details", { class: "more", dataset: { k: "src-quotes" } }, el("summary", { text: "What they say in their own words" }), el("div", { class: "cmp-quotes" }, ...blocks)) : null;
 }
 
 function colHead(D, sit, card, vent, flagged) {
   const observer = card.kind === "VONA";
   const cls = `cmp__colhead${observer ? " cmp__colhead--observer" : ""}${card.missing ? " cmp__colhead--missing" : ""}${flagged.get(`${card.source_id}|head`) ? " cmp__colhead--flag" : ""}`;
-  const kind = card.kind === "VONA" ? "VONA · observatory" : card.kind === "SIGMET" ? "SIGMET · binding" : "VAA · VAAC";
+  const kind = KIND_LABEL[card.kind] || card.kind;
   if (card.missing) {
     const hyp = D.coneOf(sit.volcano_id)?.properties.mode === "HYPOTHESIS" && !observer;
-    return el("div", { class: cls, role: "columnheader" }, el("div", { class: "cmp__kind", text: kind }), el("div", { class: "cmp__plain", text: KIND_PLAIN[card.kind] }), el("div", { class: "cmp__title" }, missingHead(card, hyp ? "No valid official product" : "None in force")),
+    return el("div", { class: cls, role: "columnheader" }, el("div", { class: "cmp__kind", text: kind }), el("div", { class: "cmp__title" }, missingHead(card, hyp ? "No valid official product" : "None in force")),
       card.missing_note ? el("div", { class: "cmp__note", text: card.missing_note }) : null,
       el("div", { class: "cmp__note cmp__note--quiet", text: "Absence is not evidence of no ash." }));
   }
@@ -692,7 +511,6 @@ function colHead(D, sit, card, vent, flagged) {
   const [tone, sid, word, long] = EVID[card.evidence] || EVID.UNKNOWN;
   const kids = [
     el("div", { class: "cmp__kind", text: kind }),
-    el("div", { class: "cmp__plain", text: KIND_PLAIN[card.kind] }),
     el("div", { class: "cmp__title", text: observer ? `VONA ${hhmmz(t)}` : card.title }),
     el("div", { class: "cmp__age", text: `${hhmmz(t)} · ${age((D.now - t) / 1000)} ago` }),
     el("div", { class: `evid evid--${tone}`, title: long }, st(sid, tone === "seen" ? "var(--c-ok)" : tone === "est" ? "var(--c-info)" : tone === "off" ? "var(--c-off)" : "var(--c-caution)"), word),
@@ -707,13 +525,11 @@ function colHead(D, sit, card, vent, flagged) {
   return el("div", { class: cls, role: "columnheader" }, ...kids);
 }
 
-// 7.13 where they disagree
-function disagreeSection(D, sit, ui) {
+// Where the sources disagree (R8.3 `disagree`): CAUTION and SERIOUS first; minor ones folded.
+export function disagreeSection(D, sit, ui) {
   const items = sit.discrepancies.slice().sort((a, b) => (SEV_RANK[b.severity] || 0) - (SEV_RANK[a.severity] || 0));
   const check = items.filter((d) => d.severity !== "INFO");
   const info = items.filter((d) => d.severity === "INFO");
-  const list = el("ol", { class: "dis" });
-  for (const d of check) list.append(disCard(D, sit, d, ui));
   const infoRows = info.map((d) => infoRow(d));
   for (const card of sit.cards) {
     if (card.missing || !NON_OBS.has(card.evidence)) continue;
@@ -721,17 +537,14 @@ function disagreeSection(D, sit, ui) {
       el("div", { class: "dis__sev" }, el("span", { class: "sev sev--info" }, st("st-info", "var(--c-info)"), "INFO"), el("span", { class: "dis__kind", text: "NOT OBSERVED" })),
       el("div", {}, el("p", { class: "dis__headline", text: `${card.kind} could not see the ash` }), el("p", { class: "dis__detail", text: "Not evidence of no ash; it never shrinks TEPHRA's area or weakens an advisory." }))));
   }
-  if (infoRows.length > 2 && !ui.harmlessOpen) {
-    const kinds = [...info.map((d) => kindOf(d)[0]), ...sit.cards.filter((c) => !c.missing && NON_OBS.has(c.evidence)).map(() => "NOT OBSERVED")];
-    list.append(el("li", { class: "dis__item dis__item--info dis__item--more" },
-      el("button", { type: "button", class: "link-btn dis__more", "aria-expanded": "false", dataset: { act: "harmless", focus: "harmless" } }, st("st-info", "var(--c-info)"), `Harmless (${infoRows.length}): ${kinds.join(" · ")}`, icon("i-chevron-down"))));
-  } else {
-    list.append(...infoRows);
-    if (infoRows.length > 2) list.append(el("li", {}, el("button", { type: "button", class: "link-btn", "aria-expanded": "true", dataset: { act: "harmless", focus: "harmless" } }, "Collapse the harmless items", icon("i-chevron-up"))));
-  }
-  if (!items.length && !infoRows.length) list.append(el("li", { class: "empty", text: "No differences found between the products in force." }));
-  return el("section", { class: "sec", "aria-labelledby": "h-dis", "data-ptab": "brief" },
-    secHead("h-dis", "Where they disagree", `${check.length} to check · ${infoRows.length} harmless`), list);
+  const head = check.length
+    ? `${check.length} to check${infoRows.length ? ` · ${infoRows.length} minor` : ""}`
+    : `Nothing that needs checking${infoRows.length ? ` (${infoRows.length} minor difference${infoRows.length === 1 ? "" : "s"})` : ""}`;
+  const list = el("ol", { class: "dis" }, ...check.map((d) => disCard(D, sit, d, ui)));
+  if (!items.length && !infoRows.length) list.append(el("li", { class: "empty", text: "No differences found between the reports in force." }));
+  const minor = infoRows.length ? el("details", { class: "more", dataset: { k: "dis-minor" } }, el("summary", { text: `Minor differences (${infoRows.length})` }), el("ol", { class: "dis" }, ...infoRows)) : null;
+  return el("section", { class: "sec", "aria-labelledby": "h-dis" },
+    el("p", { class: "dsum", id: "h-dis", text: head }), list, minor);
 }
 
 function disCard(D, sit, d, ui) {
@@ -750,12 +563,12 @@ function disCard(D, sit, d, ui) {
     const sector = D.sectorOf(sit.volcano_id);
     let tail = "";
     if (cone?.mode === "WIDENED" && sector && D.rose) tail = pointInGeom(dest(D.rose.vent, D.rose.obsDeg, 15), sector.geometry) || pointInGeom(dest(D.rose.vent, D.rose.obsDeg, 15), D.coneOf(sit.volcano_id).geometry) ? " TEPHRA's area covers it." : "";
-    else if (cone?.mode === "OFFICIAL") tail = ` TEPHRA has not widened the area (${D.state.llm?.label || "NO MODEL"}).`;
+    else if (cone?.mode === "OFFICIAL") tail = D.state.llm?.backend === "stub" ? " TEPHRA has not widened the area (AI off)." : " TEPHRA has not widened the area.";
     body.append(el("p", { class: "dis__explain", text: `A point 15 km along the observatory's drift is outside the official polygon.${tail}` }));
   } else if (EXPLAIN[d.kind]) {
     body.append(el("p", { class: "dis__explain", text: EXPLAIN[d.kind] }));
   }
-  if (d.kind === "DIRECTION_MISMATCH" && D.rose) body.append(el("button", { type: "button", class: "link-btn", dataset: { act: "frame", focus: `show-${d.id}` } }, icon("i-frame"), "Show on map"));
+  if (d.kind === "DIRECTION_MISMATCH" && D.rose) body.append(el("button", { type: "button", class: "link-btn", dataset: { act: "frame", focus: `show-${d.id}` } }, icon("i-frame"), "Show on the map"));
   return el("li", { class: `dis__item dis__item--${tone}${ui.freshDis?.has(d.id) ? " is-new" : ""}` },
     el("div", { class: "dis__sev" }, el("span", { class: `sev sev--${tone}` }, st(sid, `var(--c-${tone})`), word), el("span", { class: "dis__kind", text: kind })),
     body);
@@ -770,29 +583,38 @@ function infoRow(d) {
     el("div", {}, el("p", { class: "dis__headline", text: `${headline}. ${capFirst(EXPLAIN[d.kind] ? EXPLAIN[d.kind].replace(/^Harmless: /, "") : "")}`.trim() }), el("p", { class: "dis__detail", text: d.summary })));
 }
 
-// 7.13 TEPHRA cautious area card
-function areaSection(D, sit, ui) {
+// TEPHRA's estimate (R8.3 `estimate`): the outcome sentence, the rule, who read it, valid until.
+export function estimateOutcome(D, sit, cone) {
+  const outcome = sit.assessment?.outcome;
+  const stub = outcome === "STUB" || (!outcome && D.state.llm?.backend === "stub");
+  if (cone.mode === "OFFICIAL") return stub ? "Same as the official area (AI off, nothing added)." : outcome === "MODEL_FAILED" ? "Same as the official area: AI unavailable, nothing assessed beyond the official reports." : "Same as the official area: the model found nothing to add.";
+  return MODE_LINE[cone.mode] || "";
+}
+
+export function areaSection(D, sit, ui) {
   const coneF = D.coneOf(sit.volcano_id);
-  const wrap = (kids) => el("section", { class: "sec", "aria-labelledby": "h-area", "data-ptab": "brief" }, secHead("h-area", "TEPHRA cautious area", "an estimate, not a forecast"), ...kids);
-  if (!coneF) return wrap([el("p", { class: "empty", text: "No TEPHRA area yet for this volcano." })]);
+  const wrap = (kids) => el("section", { class: "sec", "aria-labelledby": "h-area" }, ...kids);
+  if (!coneF) return wrap([el("p", { class: "empty", id: "h-area", text: "No TEPHRA estimate yet for this volcano." })]);
   const cone = coneF.properties;
   const a = sit.assessment;
   const outcome = a?.outcome;
+  const stub = outcome === "STUB" || (!outcome && D.state.llm?.backend === "stub");
   const facts = el("dl", { class: "area__facts" },
-    el("dt", { text: "Rule" }), el("dd", { text: "Never smaller than any valid official polygon" }),
-    el("dt", { text: "Read by" }), el("dd", { text: outcome === "STUB" || (!outcome && D.state.llm?.backend === "stub") ? OUTCOME.STUB : outcome === "PENDING" ? OUTCOME.PENDING : `${a && a.llm_backend !== "stub" && a.model_id ? a.model_id : D.state.llm?.label || "NO MODEL"} · ${OUTCOME[outcome] || "—"}` }),
+    el("dt", { text: "Rule" }), el("dd", { text: "Never smaller than any valid official area" }),
+    el("dt", { text: "Heights" }), el("dd", { class: "mono", text: band(cone.base_ft, cone.top_ft) }),
+    el("dt", { text: "Read by" }), el("dd", { text: stub ? "Code (AI off): official reports only" : outcome === "PENDING" ? OUTCOME.PENDING : `${a && a.llm_backend !== "stub" && a.model_id ? a.model_id : D.state.llm?.label || "model"} · ${OUTCOME[outcome] || "—"}` }),
     el("dt", { text: "Valid until" }), el("dd", { class: "mono", text: hhmmz(ms(cone.valid_to)) }));
   if (cone.mode !== "OFFICIAL") facts.append(el("dt", { text: "Confidence" }), el("dd", { text: `${Math.round((cone.confidence ?? 0) * 100)}% in the widening` }));
   const kids = [
-    el("div", { class: "area__top" }, el("span", { class: `mode-chip mode-chip--${cone.mode.toLowerCase()}`, text: cone.mode }), el("span", { class: "area__band", text: band(cone.base_ft, cone.top_ft) }), el("span", { class: "area__label mono", text: cone.label })),
-    el("p", { class: "area__line", text: MODE_LINE[cone.mode] || "" }),
+    el("p", { class: "dsum", id: "h-area", text: estimateOutcome(D, sit, cone) }),
+    el("p", { class: "dnote", text: "TEPHRA's estimate is an estimate, not a forecast. It is drawn as the amber dashed line, never smaller than the official area, which stays binding." }),
   ];
   if (outcome === "MODEL_FAILED") kids.push(el("p", { class: "area__note" }, st("st-caution", "var(--c-caution)"), `AI unavailable: ${a?.estimate?.uncertainty_notes || "no usable model output"}`));
-  kids.push(facts);
+  kids.push(facts, techDetail(`Mode ${cone.mode} · label ${cone.label} · ${cone.cone_id || ""}`));
   const est = a?.estimate;
   const model = a && a.llm_backend && a.llm_backend !== "stub" && outcome !== "STUB";
   if (model && est) {
-    const read = el("details", { class: "area__read", open: ui.readOpen ? true : null, dataset: { act: "read-toggle" } },
+    const read = el("details", { class: "area__read more", open: ui.readOpen ? true : null, dataset: { k: "area-read" } },
       el("summary", {}, icon("i-model"), "How the model read it", el("span", { class: "tag", text: "AI-written" })));
     const ul = el("ul", { class: "area__readings" });
     for (const r of est.disagreements_explained || []) {
@@ -810,13 +632,16 @@ function areaSection(D, sit, ui) {
   return wrap([cone.mode === "HYPOTHESIS" ? hypothesisBanner(sit) : null, card]);
 }
 
-// 7.14 decisions list
-function decisionsSection(D, store, ui) {
-  const all = store.advisories.slice().sort((a, b) => ms(b.updated_at) - ms(a.updated_at)).slice(0, 20);
+// Decisions (R8.3 `decisions`): the counts first, then the list.
+export function decisionsSection(D, store, ui, target = $("decisions")) {
+  const all = store.advisories.slice().sort((a, b) => ms(b.updated_at) - ms(a.updated_at));
   const advs = all.filter((a) => a.status !== "SUPERSEDED");
   const superseded = all.filter((a) => a.status === "SUPERSEDED");
-  const list = el("ol", { class: "decisions" });
+  const waiting = advs.filter((a) => a.status === "DRAFT").length;
+  const approved = advs.filter((a) => a.status === "APPROVED" || a.status === "EDITED").length;
+  const rejected = advs.filter((a) => a.status === "REJECTED").length;
   const replay = D.mode === "REPLAY";
+  const list = el("ol", { class: "decisions" });
   for (const a of advs) {
     const decided = a.status === "APPROVED" || a.status === "EDITED" || a.status === "REJECTED";
     const tone = a.status === "REJECTED" ? "serious" : decided ? "ok" : "draft";
@@ -825,7 +650,7 @@ function decisionsSection(D, store, ui) {
       ? el("span", { class: "decisions__who", text: `drafted ${age((D.now - ms(a.created_at)) / 1000)} ago` })
       : el("span", { class: "decisions__who mono", text: `${deciderName(a)}${a.decided_at ? ` · ${hhmmz(ms(a.decided_at))}` : ""}` });
     const status = {
-      DRAFT: ["i-clock", "Awaiting dispatcher"], APPROVED: ["i-approved", "Approved"], EDITED: ["i-approved", "Approved with edits"],
+      DRAFT: ["i-clock", "Waiting for a dispatcher"], APPROVED: ["i-approved", "Approved"], EDITED: ["i-approved", "Approved with edits"],
       REJECTED: ["i-rejected", "Rejected"],
     }[a.status] || ["i-clock", a.status];
     list.append(el("li", { class: `decisions__item decisions__item--${tone}${fresh ? " is-stamped" : ""}`, dataset: { adv: a.id } },
@@ -840,49 +665,30 @@ function decisionsSection(D, store, ui) {
       el("span", { class: "decisions__what", text: `${superseded.length} earlier draft${superseded.length === 1 ? "" : "s"}: ${[...new Set(superseded.map((a) => a.proxy_flight))].join(", ")}` }),
       el("span", { class: "decisions__who", text: "" })));
   }
-  if (!all.length) list.append(el("li", { class: "empty", text: "No advisories yet. A draft appears when a flight's projected track enters TEPHRA's area." }));
-  const head = secHead("h-dec", "Decisions", "Approve on the Desk · nothing is sent anywhere");
-  if (replay) head.querySelector("h2").after(el("span", { class: "tag tag--replay", text: "recorded" }));
-  return el("section", { class: "sec", "aria-labelledby": "h-dec", "data-ptab": "flights", id: "decisions" }, head, list);
+  // The waiting count is the server's (the same one the Desk reads, R2.7); the list holds the newest 50.
+  const summary = all.length
+    ? `${D.state.draft_count === null ? "unknown (database error)" : D.state.draft_count ?? waiting} waiting · ${approved} approved · ${rejected} rejected${all.length >= 50 ? " (of the newest 50)" : ""}`
+    : "No advisories yet. A draft appears when a flight's projected track enters TEPHRA's area.";
+  target.replaceChildren(
+    el("p", { class: "dsum", id: "h-dec" }, el("strong", { text: summary }), replay ? el("span", { class: "tag tag--replay", text: "recorded" }) : null),
+    el("p", { class: "dnote", text: "Approve on the Desk · nothing is sent anywhere. Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system." }),
+    all.length ? el("details", { class: "more", dataset: { k: "dec-all" } }, el("summary", { text: `The full list (${advs.length}${all.length >= 50 ? ", newest 50 loaded" : ""})` }), list) : el("span"));
 }
 
-// ------------------------------------------------------------------ level filter (8.4)
+// ------------------------------------------------------------------ Details › Height filter (8.4, R8.3)
 
-// Height of the filter's title, readout, track margins and presets, measured whenever the filter
-// is on screen (it is hidden while it is a closed popover).
-let levelChromeH = 0;
+const LEVEL_TRACK_H = 270;
 
-// 4.2: size the track from the map pane, not the window. Docked under the tools (1360 px and up)
-// it must stop above the docks and timeline; under 140 px it becomes the popover instead.
-function levelTrackH() {
-  const pane = $("map-pane");
-  const css = getComputedStyle(document.body);
-  const px = (name) => parseFloat(css.getPropertyValue(name)) || 0;
-  const paneH = pane.clientHeight;
-  const inset = px("--inset");
-  let pop = window.innerWidth < 1360;
-  if (!pop) {
-    const top = inset + 5 * px("--tile-h") + 24;
-    const docked = Math.min(270, paneH - top - (px("--timeline-h") + inset + px("--dock-gap")) - levelChromeH - 8);
-    pop = docked < 140;
-    document.body.classList.toggle("levels-pop", pop);
-    if (!pop) return docked;
-  } else {
-    document.body.classList.remove("levels-pop");
-  }
-  return Math.max(60, Math.min(270, paneH - 2 * inset - levelChromeH));
-}
-
-export function renderLevels(D, ui, remeasured = false) {
+export function renderLevels(D, ui) {
   const box = $("levels");
-  const H = levelTrackH();
+  const H = LEVEL_TRACK_H;
   const y = (ft) => (1 - levelFrac(ft)) * H;
   const track = el("div", { class: "levels__track", dataset: { act: "level-track" } });
   track.style.height = `${H}px`;
   track.append(el("div", { class: "levels__rail" }));
-  const hc0 = D?.sit ? D.coneOf(D.sit.volcano_id)?.properties : null;
-  const hazardOn0 = !!hc0 && ui.level.min === Math.max(0, hc0.base_ft) && ui.level.max === Math.min(LEVEL_MAX, hc0.top_ft);
-  track.classList.toggle("levels__track--hazard", hazardOn0);
+  const hc = D?.sit ? D.coneOf(D.sit.volcano_id)?.properties : null;
+  const hazardOn = !!hc && ui.level.min === Math.max(0, hc.base_ft) && ui.level.max === Math.min(LEVEL_MAX, hc.top_ft);
+  track.classList.toggle("levels__track--hazard", hazardOn);
   if (D?.sit) {
     const offs = D.official.filter((f) => f.properties.volcano_id === D.sit.volcano_id && f.properties.valid && f.properties.step === "now");
     if (offs.length) {
@@ -891,10 +697,9 @@ export function renderLevels(D, ui, remeasured = false) {
       bar.style.top = `${y(t0)}px`; bar.style.height = `${Math.max(3, y(b0) - y(t0))}px`;
       track.append(bar);
     }
-    const cone = D.coneOf(D.sit.volcano_id)?.properties;
-    if (cone) {
-      const bar = el("div", { class: "levels__band levels__band--tephra", title: `TEPHRA band ${band(cone.base_ft, cone.top_ft)}` });
-      bar.style.top = `${y(cone.top_ft)}px`; bar.style.height = `${Math.max(3, y(cone.base_ft) - y(cone.top_ft))}px`;
+    if (hc) {
+      const bar = el("div", { class: "levels__band levels__band--tephra", title: `TEPHRA band ${band(hc.base_ft, hc.top_ft)}` });
+      bar.style.top = `${y(hc.top_ft)}px`; bar.style.height = `${Math.max(3, y(hc.base_ft) - y(hc.top_ft))}px`;
       track.append(bar);
     }
     let n = 0;
@@ -911,7 +716,7 @@ export function renderLevels(D, ui, remeasured = false) {
   sel.style.height = `${y(ui.level.min) - y(ui.level.max)}px`;
   track.append(sel);
   for (const ft of [0, 6000, 18000, 35000, 55000]) {
-    const s = el("span", { class: "levels__scale", title: fl(ft), "aria-hidden": "true" });
+    const s = el("span", { class: "levels__scale", "aria-hidden": "true" }, el("span", { class: "levels__scale-label", text: fl(ft) }));
     s.style.top = `${y(ft)}px`;
     track.append(s);
   }
@@ -921,27 +726,61 @@ export function renderLevels(D, ui, remeasured = false) {
     return t;
   };
   track.append(thumb("max", ui.level.max, "Highest level shown"), thumb("min", ui.level.min, "Lowest level shown"));
-  const readout = levelIsAll(ui.level) ? "All" : `${fl(ui.level.min)}–${fl(ui.level.max)}`;
-  const hc = D?.sit ? D.coneOf(D.sit.volcano_id)?.properties : null;
-  const hazardOn = !!hc && ui.level.min === Math.max(0, hc.base_ft) && ui.level.max === Math.min(LEVEL_MAX, hc.top_ft);
+  const readout = levelIsAll(ui.level) ? "All heights" : `${fl(ui.level.min)}–${fl(ui.level.max)}`;
   box.replaceChildren(
-    el("span", { class: "caps levels__title", id: "levels-title", text: "Levels" }),
-    el("span", { class: "levels__readout", "aria-live": "polite", text: readout }),
-    track,
-    el("div", { class: "levels__presets", role: "group", "aria-label": "Level presets" },
-      el("button", { type: "button", dataset: { act: "level-preset", preset: "all", focus: "lv-all" }, "aria-pressed": levelIsAll(ui.level) ? "true" : "false", text: "All" }),
-      el("button", { type: "button", dataset: { act: "level-preset", preset: "hazard", focus: "lv-hazard" }, "aria-pressed": hazardOn ? "true" : "false", text: "Hazard" })));
+    el("p", { class: "dsum" }, el("span", { id: "levels-title", text: "Showing: " }), el("strong", { class: "levels__readout", "aria-live": "polite", text: readout })),
+    el("p", { class: "dnote", text: "Drag a handle or use the arrow keys. Official areas outside the heights are faded, never removed, and a pill on the map says so. FL350 is about 35,000 ft." }),
+    el("div", { class: "levels__wrap" }, track,
+      el("ul", { class: "levels__key" },
+        el("li", {}, el("span", { class: "levels__sw levels__sw--official" }), "Official band"),
+        el("li", {}, el("span", { class: "levels__sw levels__sw--tephra" }), "TEPHRA's band"),
+        el("li", {}, el("span", { class: "levels__sw levels__sw--ac" }), "Aircraft (amber: RFA heading in)"))),
+    el("div", { class: "levels__presets seg", role: "group", "aria-label": "Height presets" },
+      ...[["all", "All"], ["hazard", "Hazard"], ["low", "≤FL180"], ["high", "≥FL180"]].map(([k, t]) =>
+        el("button", { type: "button", dataset: { act: "level-preset", preset: k, focus: `lv-${k}` }, "aria-pressed": (k === "all" && levelIsAll(ui.level)) || (k === "hazard" && hazardOn) ? "true" : "false", text: t }))));
   box.dataset.h = String(H);
-  if (box.offsetHeight) {
-    const chrome = box.offsetHeight - track.offsetHeight;
-    if (Math.abs(chrome - levelChromeH) > 1) {
-      levelChromeH = chrome;
-      if (!remeasured) renderLevels(D, ui, true);
-    }
-  }
 }
 
-// ------------------------------------------------------------------ timeline (8.3)
+// ------------------------------------------------------------------ the time bar (R7)
+
+// The timeline's events for the selected volcano: official reports, observatory notices, TEPHRA's
+// disagreements, flights and decisions. Shared by the time bar and Details › Timeline history.
+export function timelineEvents(D, store) {
+  const sit = D?.sit;
+  const out = [];
+  if (!sit) return out;
+  for (const card of sit.cards) {
+    if (card.missing) continue;
+    if (card.kind === "VONA") {
+      for (const sid of [card.source_id, ...(card.extra_source_ids || [])]) {
+        const t = idTime(sid);
+        out.push({ lane: "observer", t, icon: sid === card.source_id ? "st-ok" : "st-off", cls: "tl__mark--observer", title: `VONA ${dayMonth(t)} ${hhmmz(t)}`, kind: "VONA", words: `Observatory notice (VONA) issued ${hhmmz(t)}` });
+      }
+    } else {
+      const t = ms(card.issued_at);
+      out.push({ lane: "official", t, icon: card.kind === "SIGMET" ? "st-stale" : "st-ok", cls: "tl__mark--official", title: `${card.title} issued ${hhmmz(t)}`, kind: card.kind, words: `${card.title} issued ${hhmmz(t)}`, vf: ms(card.valid_from), vt: ms(card.valid_to) });
+    }
+  }
+  const seen = new Set();
+  for (const t of store.trace) {
+    if (t.volcano_id !== sit.volcano_id) continue;
+    const k = `${t.stage}|${t.at.slice(0, 16)}`;
+    if (seen.has(k)) continue;
+    if (t.stage === "DISCREPANCY") { seen.add(k); out.push({ lane: "tephra", t: ms(t.at), icon: "st-caution", cls: "tl__mark--caution", title: `Disagreement found ${hhmmz(ms(t.at))}`, kind: "dis", words: `TEPHRA found a disagreement ${hhmmz(ms(t.at))}` }); }
+    if (t.stage === "EXPOSURE" && t.flight_id) { seen.add(k); out.push({ lane: "tephra", t: ms(t.at), icon: "i-aircraft", cls: "tl__mark--tephra", title: `Flight heading in ${hhmmz(ms(t.at))}`, kind: "flight", words: `A flight heading in was found ${hhmmz(ms(t.at))}` }); }
+  }
+  for (const a of store.advisories) {
+    if (a.volcano_id !== sit.volcano_id || !a.decided_at) continue;
+    const ok = a.status === "APPROVED" || a.status === "EDITED";
+    const t = ms(a.decided_at);
+    out.push({ lane: "tephra", t, icon: ok ? "i-approved" : "i-rejected", cls: ok ? "tl__mark--ok" : "tl__mark--serious", title: `${a.proxy_flight} ${ok ? "approved" : "rejected"} by ${deciderName(a)} ${hhmmz(t)}`, kind: "decision", words: `${a.proxy_flight} ${ok ? "approved" : "rejected"} by ${deciderName(a)} ${hhmmz(t)}` });
+  }
+  return out.filter((e) => Number.isFinite(e.t)).sort((a, b) => a.t - b.t);
+}
+
+export function lagOf(sit) {
+  return sit?.discrepancies.find((d) => d.kind === "LAG") || null;
+}
 
 export function renderTimeline(D, store, ui, conn) {
   const box = $("timeline");
@@ -949,114 +788,161 @@ export function renderTimeline(D, store, ui, conn) {
   const s = D.state, sit = D.sit;
   const t0 = D.now - 9 * 3600e3, t1 = D.now + 3 * 3600e3;
   const pct = (t) => `${(((t - t0) / (t1 - t0)) * 100).toFixed(3)}%`;
+  const replay = s.mode === "REPLAY" && s.replay;
   box.classList.toggle("is-stale", !!conn.lostAt);
+  box.classList.toggle("timebar--history", !!ui.historyOpen);
+
+  // 1. mode and window
   const meta = el("div", { class: "tl__meta", title: "Times ending in Z are UTC" });
-  if (s.mode === "REPLAY" && s.replay) {
+  let pill;
+  if (replay) {
     const a = ms(s.replay.recorded_from), b = ms(s.replay.recorded_to);
-    // A looping window (TEPHRA_REPLAY_START to TEPHRA_REPLAY_END) measures progress through the loop.
-    const loop = s.replay.window_from ? `Replay loops ${hhmmz(ms(s.replay.window_from))}-${hhmmz(ms(s.replay.window_to))}` : null;
+    const loop = !!s.replay.window_from;
     const pa = loop ? ms(s.replay.window_from) : a, pb = loop ? ms(s.replay.window_to) : b;
     const p = Math.max(0, Math.min(1, (D.now - pa) / (pb - pa)));
     const bar = el("span");
     bar.style.width = `${(p * 100).toFixed(1)}%`;
-    meta.append(el("span", { class: "tl__mode" }, icon("i-replay"), "REPLAY"),
-      el("span", { class: "tl__window", text: `${dayMon(a)} ${hhmmz(a)} → ${dayMon(b)} ${hhmmz(b)}` }),
-      ...(loop ? [el("span", { class: "tl__window tl__loop", text: loop })] : []),
-      el("span", { class: "tl__progress", role: "progressbar", "aria-label": loop ? "Loop progress" : "Replay progress", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(p * 100)) }, bar),
-      el("span", { class: "tl__window tl__pct", text: `${Math.round(p * 100)}% through the ${loop ? "loop" : "recording"}` }),
-      el("span", { class: "tl__phone", text: `REPLAY · ${dayMon(D.now)} ${hhmmz(D.now)} · ${loop ? `${loop} · ` : ""}${Math.round(p * 100)}%` }));
+    const pctText = `${Math.round(p * 100)}%`;
+    meta.append(
+      el("span", { class: "tl__mode" }, icon("i-replay"), "Replay"),
+      el("span", { class: "tl__window", text: `${hhmmz(D.now)} · ${pctText} of ${pb - pa > 20 * 3600e3 ? `${dayMonth(pa)} ${hhmmz(pa)} – ${dayMonth(pb)} ${hhmmz(pb)}` : `${hhmmz(pa)}–${hhmmz(pb)}`}`, title: `${loop ? "The replay loops over" : "Recording"} ${dayMonth(pa)} ${hhmmz(pa)} to ${dayMonth(pb)} ${hhmmz(pb)}` }),
+      el("span", { class: "tl__progress", role: "progressbar", "aria-label": loop ? "Replay loop progress" : "Replay progress", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(p * 100)), "aria-valuetext": `${pctText} of the recording` }, bar));
+    pill = `⟲ ${hhmmz(D.now)} · ${ui.steps === "now" ? "Now" : { f6: "+6 h", f12: "+12 h", f18: "+18 h", all: "All steps" }[ui.steps]} ▾`;
   } else {
-    meta.append(el("span", { class: "tl__mode tl__mode--live" }, icon("i-live"), "LIVE"), el("span", { class: "tl__window", text: "Last 9 h and next 3 h" }),
-      el("span", { class: "tl__phone", text: `LIVE · ${dayMon(D.now)} ${hhmmz(D.now)}` }));
+    meta.append(el("span", { class: "tl__mode tl__mode--live" }, icon("i-live"), "Live"), el("span", { class: "tl__window", text: "9 h back, 3 h ahead" }));
+    pill = `● ${hhmmz(D.now)} · ${ui.steps === "now" ? "Now" : { f6: "+6 h", f12: "+12 h", f18: "+18 h", all: "All steps" }[ui.steps]} ▾`;
   }
   if (conn.lostAt) meta.append(el("span", { class: "tl__window tl__stale", text: `last update ${hhmmz(conn.lostAt)}` }));
-  const labels = el("div", { class: "tl__labels", "aria-hidden": "true" }, el("span", { text: "Official" }), el("span", { text: "Observatory" }), el("span", { text: "TEPHRA" }));
-  const track = el("div", { class: "tl__track", role: "group", "aria-label": `Timeline ${hhmmz(t0)} to ${hhmmz(t1)}. Arrow keys move between markers.` });
-  const lane = (n) => { const l = el("div", { class: `tl__lane tl__lane--${n}` }); track.append(l); return l; };
-  const offL = lane("official"), obsL = lane("observer"), tepL = lane("tephra");
+  const tp = $("time-pill");
+  if (tp) { tp.textContent = pill; tp.setAttribute("aria-expanded", document.body.classList.contains("tl-sheet") ? "true" : "false"); }
+
+  // 2. the scrubber: one slim track; with History open the marks move to three lanes above it
+  const events = timelineEvents(D, store).filter((e) => e.t >= t0 && e.t <= t1);
   const marks = [];
-  const mark = (laneEl, t, id, cls, title, act) => {
-    if (!(t >= t0 && t <= t1)) return;
-    const b = el("button", { type: "button", class: `tl__mark ${cls}`, title, "aria-label": title, tabindex: "-1", dataset: { act: "tl-mark", ...act, focus: `tl-${marks.length}` } }, icon(id, "st"));
-    b.style.left = pct(t);
-    laneEl.append(b);
+  const mark = (e) => {
+    const b = el("button", { type: "button", class: `tl__mark ${e.cls}`, title: e.title, "aria-label": e.title, tabindex: "-1", dataset: { act: "tl-mark", kind: e.kind, focus: `tl-${marks.length}` } }, icon(e.icon, "st"));
+    b.style.left = pct(e.t);
     marks.push(b);
+    return b;
   };
-  if (sit) {
-    for (const card of sit.cards) {
-      if (card.missing) continue;
-      if (card.kind === "VONA") {
-        for (const sid of [card.source_id, ...(card.extra_source_ids || [])]) {
-          const t = idTime(sid);
-          mark(obsL, t, sid === card.source_id ? "st-ok" : "st-off", "tl__mark--observer", `VONA ${dayMon(t)} ${hhmmz(t)}`, { kind: "VONA" });
-        }
-      } else {
-        const vf = ms(card.valid_from), vt = ms(card.valid_to);
-        if (Number.isFinite(vf) && Number.isFinite(vt) && vt > t0 && vf < t1) {
-          const bar = el("div", { class: "tl__bar", "aria-hidden": "true" });
-          bar.style.left = pct(Math.max(vf, t0));
-          bar.style.width = `${((Math.min(vt, t1) - Math.max(vf, t0)) / (t1 - t0)) * 100}%`;
-          offL.append(bar);
-        }
-        mark(offL, ms(card.issued_at), card.kind === "SIGMET" ? "st-stale" : "st-ok", "tl__mark--official", `${card.title} issued ${hhmmz(ms(card.issued_at))}`, { kind: card.kind });
-      }
-    }
-    const lag = sit.discrepancies.find((d) => d.kind === "LAG");
-    if (lag) {
-      const times = Object.values(lag.values).map((v) => hhmmBefore(v, D.now)).filter(Number.isFinite);
-      if (times.length >= 2) {
-        const a = Math.max(t0, Math.min(...times)), b = Math.min(t1, Math.max(...times));
-        if (b > a) {
-          const g = el("div", { class: "tl__gap", "aria-hidden": "true" }, el("span", { text: `lag ${durMin(lag.magnitude)}` }));
-          g.style.left = pct(a);
-          g.style.width = `${((b - a) / (t1 - t0)) * 100}%`;
-          track.append(g);
-        }
-      }
-    }
-    const seen = new Set();
-    for (const t of store.trace) {
-      if (t.volcano_id !== sit.volcano_id) continue;
-      const k = `${t.stage}|${t.at.slice(0, 16)}`;
-      if (seen.has(k)) continue;
-      if (t.stage === "DISCREPANCY") { seen.add(k); mark(tepL, ms(t.at), "st-caution", "tl__mark--caution", `Disagreement found ${hhmmz(ms(t.at))}`, { kind: "dis" }); }
-      if (t.stage === "EXPOSURE" && t.flight_id) { seen.add(k); mark(tepL, ms(t.at), "i-aircraft", "tl__mark--tephra", `Flight entering ${hhmmz(ms(t.at))}`, { kind: "flight" }); }
-    }
-    for (const a of store.advisories) {
-      if (a.volcano_id !== sit.volcano_id || !a.decided_at) continue;
-      const ok = a.status === "APPROVED" || a.status === "EDITED";
-      mark(tepL, ms(a.decided_at), ok ? "i-approved" : "i-rejected", ok ? "tl__mark--ok" : "tl__mark--serious", `${a.proxy_flight} ${ok ? "approved" : "rejected"} by ${deciderName(a)} ${hhmmz(ms(a.decided_at))}`, { kind: "decision" });
-    }
-  }
-  if (marks.length) marks[marks.length - 1].tabIndex = 0;
-  // Hour ticks: every hour at 1600+, every second hour below; none within 36 px of NOW.
-  const axis = el("div", { class: "tl__axis", "aria-hidden": "true", title: "Times ending in Z are UTC" });
-  const every = window.innerWidth < 1600 ? 2 : 1;
-  const trackW = box.querySelector(".tl__track")?.clientWidth || Math.max(1, window.innerWidth - 1000);
-  const nearNow = (t) => (Math.abs(t - D.now) / (t1 - t0)) * trackW < 36;
+  const track = el("div", { class: "tl__track", role: "group", "aria-label": `Timeline ${hhmmz(t0)} to ${hhmmz(t1)}. Arrow keys move between events.` });
+  const rail = el("div", { class: "tl__rail", "aria-hidden": "true" });
+  track.append(rail);
+  const nowEl = el("div", { class: "tl__now", "aria-hidden": "true" });
+  nowEl.style.left = pct(D.now);
+  track.append(nowEl);
+  const axis = el("div", { class: "tl__axis", "aria-hidden": "true" });
+  const every = window.innerWidth < 1600 ? 3 : 2;
   for (let h = Math.ceil(t0 / 3600e3) * 3600e3; h <= t1; h += 3600e3) {
     const hr = new Date(h).getUTCHours();
-    if (hr % every || nearNow(h)) continue;
+    if (hr % every || Math.abs(h - D.now) < 0.6 * 3600e3) continue;
     const sp = el("span", { class: "tl__hour", text: `${pad(hr)}Z` });
     sp.style.left = pct(h);
     axis.append(sp);
   }
   track.append(axis);
-  const nowEl = el("div", { class: "tl__now", "aria-hidden": "true" }, el("span", { text: hhmmz(D.now) }));
-  nowEl.style.left = pct(D.now);
-  track.append(nowEl);
-  const steps = el("div", { class: "tl__steps seg seg--small", role: "group", "aria-label": "Official forecast steps" },
-    ...[["now", "Now"], ["f6", "+6 h"], ["f12", "+12 h"], ["f18", "+18 h"], ["all", "All"]].map(([k, label]) =>
-      el("button", { type: "button", "aria-pressed": ui.steps === k ? "true" : "false", dataset: { act: "steps", steps: k, focus: `steps-${k}` }, text: label })));
-  box.replaceChildren(meta, labels, track, el("div", { class: "tl__right" }, el("span", { class: "caps", text: "Forecast steps" }), steps));
+  let history = null;
+  if (ui.historyOpen) {
+    history = el("div", { class: "tl__history glass", role: "group", "aria-label": "When each source last reported" });
+    const lanes = el("div", { class: "tl__lanes" });
+    const lane = (name, label) => {
+      const l = el("div", { class: `tl__lane tl__lane--${name}` }, el("span", { class: "tl__lanelabel", text: label }));
+      lanes.append(l);
+      return l;
+    };
+    const L = { official: lane("official", "Official"), observer: lane("observer", "Observatory"), tephra: lane("tephra", "TEPHRA") };
+    for (const e of events) {
+      if (e.lane === "official" && Number.isFinite(e.vf) && Number.isFinite(e.vt) && e.vt > t0 && e.vf < t1) {
+        const bar = el("div", { class: "tl__bar", "aria-hidden": "true" });
+        bar.style.left = pct(Math.max(e.vf, t0));
+        bar.style.width = `${((Math.min(e.vt, t1) - Math.max(e.vf, t0)) / (t1 - t0)) * 100}%`;
+        L.official.append(bar);
+      }
+      L[e.lane].append(mark(e));
+    }
+    const hnow = el("div", { class: "tl__now tl__now--lanes", "aria-hidden": "true" });
+    hnow.style.left = pct(D.now);
+    L.official.append(hnow);
+    // Lag bracket (R7.3): its label sits above the lanes, left of the now-line, never on it.
+    const lag = lagOf(sit);
+    let lagEl = null;
+    if (lag) {
+      const times = Object.values(lag.values).map((v) => hhmmBefore(v, D.now)).filter(Number.isFinite);
+      if (times.length >= 2) {
+        const a = Math.max(t0, Math.min(...times)), b = Math.min(t1, Math.max(...times));
+        if (b > a) {
+          const g = el("div", { class: "tl__gap", "aria-hidden": "true" });
+          g.style.left = pct(a);
+          g.style.width = `${((b - a) / (t1 - t0)) * 100}%`;
+          L.official.append(g);
+          lagEl = el("span", { class: "tl__lag", text: `lag ${durMin(lag.magnitude)} between the observatory and the official reports` });
+        }
+      }
+    }
+    history.append(el("div", { class: "tl__histhead" }, el("strong", { text: "When each source last reported" }), lagEl), lanes);
+  } else {
+    for (const e of events) track.append(mark(e));
+  }
+  if (marks.length) marks[marks.length - 1].tabIndex = 0;
+
+  // 3. forecast steps, 4. previous / next, 5. History
+  const steps = el("div", { class: "tl__steps" }, el("span", { class: "tl__label", text: "Forecast:" }),
+    el("div", { class: "seg", role: "group", "aria-label": "Official forecast steps" },
+      ...[["now", "Now"], ["f6", "+6 h"], ["f12", "+12 h"], ["f18", "+18 h"], ["all", "All"]].map(([k, label]) =>
+        el("button", { type: "button", "aria-pressed": ui.steps === k ? "true" : "false", dataset: { act: "steps", steps: k, focus: `steps-${k}` }, text: label }))));
+  const nav = el("div", { class: "tl__nav", role: "group", "aria-label": "Timeline events" });
+  const hist = el("button", { type: "button", class: "tl__histbtn", "aria-expanded": ui.historyOpen ? "true" : "false", dataset: { act: "history", focus: "tl-history" } }, ui.historyOpen ? "History ▾" : "History ▴");
+  box.replaceChildren(meta, track, steps, nav, hist, ...(history ? [history] : []));
+  // aria-disabled, not disabled: the focused button keeps focus when it reaches the end.
+  const btn = (dir, label, text, reason) => {
+    const off = !timelineTargetIn(box, dir, ui.tlCurrent);
+    const word = el("span", { class: "tl__stepword", text: text.replace(/[‹›]/g, "").trim() });
+    return el("button", { type: "button", class: "tl__step", title: off ? reason : label, "aria-label": label, "aria-disabled": off ? "true" : "false", dataset: { act: "tl-step", dir: String(dir), focus: `tl-step-${dir}` } },
+      dir < 0 ? "‹ " : null, word, dir > 0 ? " ›" : null);
+  };
+  nav.append(btn(-1, "Previous timeline event", "‹ Previous", "No earlier event"), btn(1, "Next timeline event", "Next ›", "No later event"));
+  const cur = ui.tlCurrent ? marks.find((m) => m.title === ui.tlCurrent) : null;
+  if (cur) {
+    cur.classList.add("is-current");
+    cur.setAttribute("aria-current", "true");
+    for (const m of marks) m.tabIndex = m === cur ? 0 : -1;
+  }
 }
 
-// ------------------------------------------------------------------ dialogs
+const leftOf = (n) => parseFloat(n.style.left);
+function timelineTargetIn(box, dir, current) {
+  const marks = [...box.querySelectorAll(".tl__mark")].sort((a, b) => leftOf(a) - leftOf(b));
+  if (!marks.length) return null;
+  const i = current ? marks.findIndex((m) => m.title === current) : -1;
+  if (i >= 0) return marks[i + dir] || null;
+  const nowEl = box.querySelector(".tl__now");
+  const now = nowEl ? leftOf(nowEl) : Infinity;
+  if (dir < 0) return marks.filter((m) => leftOf(m) <= now).pop() || null;
+  return marks.find((m) => leftOf(m) > now) || null;
+}
+export const timelineTarget = (dir, current) => timelineTargetIn($("timeline"), dir, current);
 
-export function feedsDialog(D, store) {
+// Details › Timeline history (R8.3): the same events in words, newest first, with the lag.
+export function historySection(D, store, ui) {
+  const box = $("history");
+  if (!D?.sit) { box.replaceChildren(el("p", { class: "dsum", text: "No volcano is selected." })); return; }
+  const events = timelineEvents(D, store).slice().reverse();
+  const lag = lagOf(D.sit);
+  box.replaceChildren(...[
+    el("p", { class: "dsum", text: lag ? `The observatory and the official reports are ${durMin(lag.magnitude)} apart (lag).` : "No lag between the sources." }),
+    el("p", { class: "dnote", text: "Official reports are reissued every few hours, so they trail the observatory: a lag is usual. The time bar's History shows these events on three lanes." }),
+    el("button", { type: "button", class: "btn btn--small", dataset: { act: "history", focus: "hist-open" }, text: ui.historyOpen ? "Hide History on the time bar" : "Show History on the time bar" }),
+    D.stepsMissing?.length ? el("p", { class: "dnote", text: "The chosen forecast step has no official area in the current products; no other step is drawn in its place." }) : null,
+    el("ol", { class: "hist" }, ...events.map((e) => el("li", { class: `hist__item hist__item--${e.lane}` }, el("span", { class: "mono hist__t", text: hhmmz(e.t) }), el("span", { text: e.words })))),
+    events.length ? null : el("p", { class: "empty", text: "No events in the last 9 hours." })].filter(Boolean));
+}
+
+// ------------------------------------------------------------------ Details › Data feeds (R8.3, R12.8)
+
+export function feedsSection(D, store, target = $("feeds")) {
   const rows = store.feeds.slice().sort((a, b) => (FEED_STATUS[a.status]?.[3] ?? 9) - (FEED_STATUS[b.status]?.[3] ?? 9));
   const now = D?.now ?? Date.now();
-  const tbody = el("tbody");
+  const ul = el("ul", { class: "feeds" });
   for (const f of rows) {
     const [id, color, word] = FEED_STATUS[f.status] || FEED_STATUS.NEVER;
     const last = ms(f.last_success_at);
@@ -1066,54 +952,55 @@ export function feedsDialog(D, store) {
     else if (f.status === "STALE") line = `last good ${age((now - last) / 1000)} ago · showing the last good copy`;
     else if (f.status === "ERROR") line = `last good ${Number.isFinite(last) ? `${age((now - last) / 1000)} ago` : "never"}`;
     else line = "";
-    tbody.append(el("tr", {},
-      el("th", { scope: "row" }, FEED_NAME[f.feed] || f.feed, f.replay ? el("span", { class: "tag tag--replay", text: "recorded" }) : null),
-      el("td", {}, el("span", { class: `status status--${f.status.toLowerCase()}` }, st(id, color), statusWord)),
-      el("td", { class: "mono", text: Number.isFinite(last) ? age((now - last) / 1000) : "—" }),
-      el("td", { class: "mono", text: Number.isFinite(last) ? `${dayMon(last)} ${hhmmz(last)}` : "never" }),
-      el("td", { class: "mono", text: String(f.record_count ?? 0) }),
-      el("td", { class: "feeds__note", text: [line, f.last_error].filter(Boolean).join(" · ") })));
+    ul.append(el("li", { class: `feeds__row feeds__row--${f.status.toLowerCase()}` },
+      el("span", { class: "feeds__name" }, FEED_NAME[f.feed] || f.feed, f.replay ? el("span", { class: "tag tag--replay", text: "recorded" }) : null),
+      el("span", { class: `status status--${f.status.toLowerCase()}` }, st(id, color), statusWord),
+      el("span", { class: "feeds__age", text: line }),
+      techDetail(`last good (UTC): ${Number.isFinite(last) ? `${dayMonth(last)} ${hhmmz(last)}` : "never"} · records: ${f.record_count ?? 0} · feed key: ${f.feed}`, f.last_error || null)));
   }
   const db = store.state?.store;
-  if (db) tbody.append(databaseRow(db));
-  return el("table", { class: "table" }, el("caption", { class: "sr-only", text: "Feed health" }),
-    el("thead", {}, el("tr", {}, ...["Feed", "Status", "Age", "Last good (UTC)", "Records", "Note"].map((h) => el("th", { scope: "col", text: h })))), tbody);
+  if (db) {
+    const [id, color] = FEED_STATUS[db.ok ? "OK" : "ERROR"];
+    const okAt = ms(db.last_ok_at);
+    ul.append(el("li", { class: `feeds__row feeds__row--${db.ok ? "ok" : "error"}` },
+      el("span", { class: "feeds__name", text: "Database" }),
+      el("span", { class: `status status--${db.ok ? "ok" : "error"}` }, st(id, color), db.ok ? "Working" : "Error"),
+      el("span", { class: "feeds__age", text: db.ok ? "reads and writes go through" : `failing since ${hhmmz(ms(db.last_error_at))}` }),
+      techDetail(`last good (UTC): ${Number.isFinite(okAt) ? `${dayMonth(okAt)} ${hhmmz(okAt)}` : "never"}`, db.ok ? null : db.last_error)));
+  }
+  const by = {};
+  for (const f of store.feeds) by[f.status] = (by[f.status] || 0) + 1;
+  const replay = D?.mode === "REPLAY" && D.state.replay;
+  target.replaceChildren(
+    el("p", { class: "dsum", text: `${by.ERROR ? `${by.ERROR} failing · ` : ""}${by.STALE ? `${by.STALE} stale · ` : ""}${by.OK || 0} working · ${(by.DISABLED || 0) + (by.NEVER || 0)} off or not read` }),
+    el("p", { class: "dnote", text: replay ? `REPLAY: every feed below plays a recording (${replay.label}). Nothing is live.` : "When a feed fails, TEPHRA shows the last good data with its time, and says so. It never shows substitute data." }),
+    ul);
 }
 
-// The database (Firestore or SQLite) is not a feed: its row says whether TEPHRA's last checked
-// read or write went through. Records it could not write stay on the map and are retried.
-function databaseRow(db) {
-  const [id, color] = FEED_STATUS[db.ok ? "OK" : "ERROR"];
-  const okAt = ms(db.last_ok_at);
-  const since = ms(db.last_error_at);
-  const note = db.ok ? "OK" : `Error since ${hhmmz(since)}: ${db.last_error}`;
-  return el("tr", {},
-    el("th", { scope: "row" }, "Database"),
-    el("td", {}, el("span", { class: `status status--${db.ok ? "ok" : "error"}` }, st(id, color), db.ok ? "OK" : "Error")),
-    el("td", { class: "mono", text: "—" }),
-    el("td", { class: "mono", text: Number.isFinite(okAt) ? `${dayMon(okAt)} ${hhmmz(okAt)}` : "never" }),
-    el("td", { class: "mono", text: "—" }),
-    el("td", { class: "feeds__note", text: note }));
-}
-
-// The operator policy (GET /api/policy): every margin, buffer and minimum the code applies,
-// with its unit and why it has that value.
-const POLICY_BLOCKS = [["exposure", "Exposure"], ["alternates", "Alternates"], ["planner", "Planner"], ["fuel", "Fuel"]];
+// The operator policy (GET /api/policy), summary first (R9.3): what it does in one sentence, then
+// every margin, buffer and minimum the code applies, with its unit and why it has that value.
+const POLICY_BLOCKS = [["exposure", "Exposure"], ["alternates", "Alternates"], ["planner", "Planner"], ["reroute", "Reroutes"], ["recovery", "Airport plan"], ["fuel", "Fuel"], ["drafts", "Drafts"], ["duty", "Duty Officer"]];
+const isValue = (v) => v && typeof v === "object" && "value" in v && "unit" in v;
 
 export function policyDialog(data) {
   const p = data?.policy;
   if (!p) return el("p", { text: "The operator policy could not be loaded." });
   const cites = Object.fromEntries((p.citations || []).map((c) => [c.id, c]));
-  const tbody = el("tbody");
+  const margin = p.exposure?.vertical_margin_ft;
+  const tbody = [];
+  let n = 0;
   for (const [key, title] of POLICY_BLOCKS) {
-    for (const [name, v] of Object.entries(p[key] || {})) {
-      const refs = (v.citation_ids || []).map((id) => cites[id]?.ref).filter(Boolean);
-      tbody.append(el("tr", {},
-        el("th", { scope: "row", class: "mono", text: `${key}.${name}` }),
-        el("td", { class: "mono", text: `${v.value} ${v.unit}` }),
-        el("td", { text: [v.source, ...refs].join(" · ") }),
-        el("td", { class: "muted", text: title })));
-    }
+    const rows = Object.entries(p[key] || {}).filter(([, v]) => isValue(v));
+    if (!rows.length) continue;
+    tbody.push(el("tbody", {}, el("tr", {}, el("th", { scope: "colgroup", colspan: "3", class: "policy__block", text: title })),
+      ...rows.map(([name, v]) => {
+        n++;
+        const refs = (v.citation_ids || []).map((id) => cites[id]?.ref).filter(Boolean);
+        return el("tr", {},
+          el("th", { scope: "row", class: "mono", text: `${key}.${name}` }),
+          el("td", { class: "mono", text: `${v.value} ${v.unit}` }),
+          el("td", { text: [v.source, ...refs].join(" · ") }));
+      })));
   }
   const quotes = (p.citations || []).map((c) => {
     const url = safeExternalUrl(c.url);
@@ -1121,19 +1008,18 @@ export function policyDialog(data) {
       url ? el("a", { class: "link-btn", href: url, target: "_blank", rel: "noopener noreferrer" }, icon("i-external-link"), "Source") : null);
   });
   return el("div", { class: "policy" },
-    el("p", {}, el("strong", { text: `${p.title} · v${p.version} · ${p.label}` })),
-    el("p", { class: "muted", text: "Values are illustrative and have not been reviewed by an airline dispatcher." }),
-    el("p", { class: "muted", text: `Risk owner: ${p.risk_owner} · SRA: ${p.sra_ref || "none (illustrative)"} · content hash #${String(data.policy_hash || "").slice(0, 12)}` }),
-    el("p", { text: p.summary_text }),
-    el("h3", { text: "Values" }),
-    el("table", { class: "table" }, el("caption", { class: "sr-only", text: "Operator policy values" }),
-      el("thead", {}, el("tr", {}, ...["Name", "Value", "Why this value", "Block"].map((h) => el("th", { scope: "col", text: h })))), tbody),
-    el("h3", { text: "Source-trust order (what the code does today)" }),
-    el("p", { class: "muted", text: "Operator choice. Doc 9974 asks the operator to resolve conflicts among its sources (2.4(d))." }),
-    el("ol", {}, ...(p.source_order || []).map((r) => el("li", {}, el("span", { text: r.text }),
-      el("span", { class: "muted", text: ` Applied by: ${r.enforced_by}` })))),
-    el("h3", { text: "Citations" }),
-    el("ul", { class: "policy__cites" }, ...quotes));
+    el("p", { class: "policy__lede" }, el("strong", { text: `Policy ${p.preset} (illustrative): ` }),
+      `avoid every official ash area${isValue(margin) ? `, with ${Number(margin.value).toLocaleString("en")} ${margin.unit} above and below` : ""}. Not reviewed by an airline.`),
+    el("p", { class: "muted", text: `${p.title} · v${p.version} · ${p.label} · risk owner: ${p.risk_owner} · SRA: ${p.sra_ref || "none (illustrative)"} · content hash #${String(data.policy_hash || "").slice(0, 12)}` }),
+    el("details", { class: "more" }, el("summary", { text: "What the policy says in full" }), el("p", { text: p.summary_text })),
+    el("details", { class: "more" }, el("summary", { text: `Show all ${n} values` }),
+      el("table", { class: "table" }, el("caption", { class: "sr-only", text: "Operator policy values" }),
+        el("thead", {}, el("tr", {}, ...["Name", "Value", "Why this value"].map((h) => el("th", { scope: "col", text: h })))), ...tbody)),
+    el("details", { class: "more" }, el("summary", { text: "Source-trust order (what the code does today)" }),
+      el("p", { class: "muted", text: "Operator choice. Doc 9974 asks the operator to resolve conflicts among its sources (2.4(d))." }),
+      el("ol", { class: "policy__order" }, ...(p.source_order || []).map((r) => el("li", {}, el("span", { text: r.text }),
+        el("span", { class: "muted", text: ` Applied by: ${r.enforced_by}` }))))),
+    el("details", { class: "more" }, el("summary", { text: `Citations (${quotes.length})` }), el("ul", { class: "policy__cites" }, ...quotes)));
 }
 
 export function sourcesDialog(D, focusKind) {
@@ -1143,7 +1029,7 @@ export function sourcesDialog(D, focusKind) {
   const cols = [byKind.SIGMET, byKind.VAA, byKind.VONA].filter(Boolean).map((c) => {
     const url = c.url ? safeExternalUrl(c.url) : null;
     const col = el("section", { class: `raw raw--${c.kind.toLowerCase()}`, "aria-label": c.title, dataset: { kind: c.kind } },
-      el("h3", { class: "raw__title" }, el("span", { class: "cmp__kind", text: c.kind === "VONA" ? "VONA · observatory" : c.kind === "SIGMET" ? "SIGMET · binding" : "VAA · VAAC" }), c.missing ? missingHead(c, "None in force") : el("span", { text: c.title })));
+      el("h3", { class: "raw__title" }, el("span", { class: "cmp__kind", text: KIND_LABEL[c.kind] || c.kind }), c.missing ? missingHead(c, "None in force") : el("span", { text: c.title })));
     if (c.missing) { col.append(el("p", { class: "muted", text: `${c.missing_note || "None in force"}. Absence is not evidence of no ash.` })); return col; }
     col.append(
       el("dl", { class: "raw__facts" },
@@ -1159,46 +1045,4 @@ export function sourcesDialog(D, focusKind) {
   const grid = el("div", { class: "raw-grid" }, ...cols);
   if (focusKind) grid.dataset.focus = focusKind;
   return grid;
-}
-
-export function popupContent(kind, props, D, store) {
-  const dl = el("dl", { class: "pop__facts" });
-  const row = (k, v, mono) => { if (v == null || v === "") return; dl.append(el("dt", { text: k }), el("dd", { class: mono ? "mono" : null, text: String(v) })); };
-  let title = "", sub = null, extra = null;
-  if (kind === "official") {
-    title = props.label;
-    sub = props.kind === "SIGMET" ? "Official · binding" : "Official · VAAC";
-    const vf = ms(props.valid_from), vt = ms(props.valid_to);
-    row("Kind", props.kind); row("Layer", props.layer); row("Band", band(props.base_ft, props.top_ft), true);
-    row("Valid", `${dayMon(vf)} ${hhmmz(vf)} – ${dayMon(vt)} ${hhmmz(vt)}`, true);
-    if (vt > D.now) row("Ends in", durMin((vt - D.now) / 60e3));
-    row("Source id", props.source_id, true);
-    const k = props.kind === "SIGMET" ? "SIGMET" : "VAA";
-    extra = el("button", { type: "button", class: "btn btn--small", dataset: { act: "raw", kind: k } }, icon("i-raw-text"), "Show raw text");
-  } else if (kind === "area") {
-    title = "TEPHRA cautious area";
-    sub = "an estimate, not a forecast";
-    row("Mode", props.mode); row("Confidence", `${Math.round((props.confidence ?? 0) * 100)}%`); row("Band", band(props.base_ft, props.top_ft), true);
-    row("Label", props.label); row("Valid to", hhmmz(ms(props.valid_to)), true); row("Rule", "Never smaller than the official area");
-  } else if (kind === "aircraft") {
-    title = props.proxy_flight;
-    sub = `proxy for ADS-B ${props.callsign || ""} (hex ${String(props.hex || "").toUpperCase()})`;
-    row("Type", props.type_icao); row("Level", props.alt_baro_ft != null ? `${fl(props.alt_baro_ft)} (${props.alt_baro_ft} ft baro)` : "level unknown", true);
-    if (props.nav_altitude_mcp_ft != null) row("Selected", fl(props.nav_altitude_mcp_ft), true);
-    if (props.gs_kt != null) row("Ground speed", `${Math.round(props.gs_kt)} kt`, true);
-    if (props.track_deg != null) row("Track", `${Math.round(props.track_deg)}° (${compassWord(props.track_deg)})`, true);
-    row("Position age", age((D.now - ms(props.observed_at)) / 1000));
-    if (props.exposed) row("TEPHRA area", props.minutes_to_entry === 0 ? "INSIDE NOW" : `enters in ${props.minutes_to_entry} min`);
-    const adv = D.advByFlight.get(`${props.hex}:${props.volcano_id}`);
-    if (adv) extra = advisoryLine(adv, D.mode === "REPLAY");
-  } else if (kind === "volcano") {
-    title = props.name;
-    const sit = D.sits.find((s) => s.volcano_id === props.id);
-    sub = props.active ? "Active" : "Catalogue volcano";
-    dl.append(el("dt", { text: "Colour code" }), el("dd", {}, eruptIcon(props.color_code, "icon"), ` ${props.color_code} (${CODE_LETTER[props.color_code] || "U"})`));
-    if (sit) row("Why active", sit.active_reasons.join(" · "));
-    if (props.summit_elev_ft) row("Summit", `${props.summit_elev_ft.toLocaleString("en")} ft`, true);
-    if (sit && sit.volcano_id !== D.selected) extra = el("button", { type: "button", class: "btn btn--small", dataset: { vid: sit.volcano_id, act: "select" } }, "Select this volcano");
-  }
-  return el("div", { class: "pop" }, el("p", { class: "pop__title", text: title }), sub ? el("p", { class: "pop__sub", text: sub }) : null, dl, extra);
 }

@@ -5,11 +5,11 @@ import { el, icon } from "./util.js";
 
 export const st = (id, color) => icon(id, "st", color);
 
-// Marks AI-written text with the model id; the stub says NO MODEL.
+// Marks AI-written text with the model id; with no model it says code wrote it (AI off).
 export function aiMark(modelId, label) {
   const no = label === "NO MODEL" || !modelId || modelId === "stub";
-  return el("span", { class: `ai-mark${no ? " ai-mark--none" : ""}`, title: no ? "No model wrote this: the offline stub" : "Written by a model. Code checked every number, time and id." },
-    icon("i-model"), el("span", { text: no ? "NO MODEL" : `AI-written · ${modelId}` }));
+  return el("span", { class: `ai-mark${no ? " ai-mark--none" : ""}`, title: no ? "No model wrote this: a code template (the offline stub, NO MODEL)" : "Written by a model. Code checked every number, time and id." },
+    icon(no ? "i-code" : "i-model"), el("span", { text: no ? "Written by code (AI off)" : `AI-written · ${modelId}` }));
 }
 
 export function pill(kind, text, title) {
@@ -19,3 +19,86 @@ export function pill(kind, text, title) {
 }
 
 export const section = (title, ...kids) => el("section", { class: "x-sec" }, el("h3", { class: "caps x-sec__title", text: title }), ...kids);
+
+// ------------------------------------------------------------------ plain words (UI-REDESIGN R12.7)
+// Code-written trace and AI lines in plain words. A fixed table of patterns: a line that matches
+// none is shown verbatim and never paraphrased, and the raw line always stays reachable under
+// "Technical detail". Shared with the Desk.
+
+const HELPER = {
+  assess_volcanoes: "the Satellite and Plume helpers", plan_flights: "the Planner and Drafter",
+  run_recovery: "the Recovery helper", draft_sra: "the SRA drafter",
+};
+const jobs = (n) => `${n} job${Number(n) === 1 ? "" : "s"}`;
+// An action word in plain words with the ICAO word kept in brackets (R12.10).
+export function actionPlain(text) {
+  const t = String(text || "").trim();
+  let m;
+  if (/^MONITOR$/.test(t)) return "keep watching (MONITOR)";
+  if (/^CONTINUE$/.test(t)) return "continue (CONTINUE)";
+  if ((m = /^HOLD(?: (FL\d{3}))?$/.exec(t))) return m[1] ? `hold at ${m[1]} (HOLD)` : "hold (HOLD)";
+  if ((m = /^DIVERT(?: ([A-Z]{4}))?$/.exec(t))) return m[1] ? `divert to ${m[1]} (DIVERT)` : "divert (DIVERT)";
+  if ((m = /^CHANGE[ _]LEVEL(?: (.+))?$/.exec(t))) return m[1] ? `change level to ${m[1]} (CHANGE LEVEL)` : "change level (CHANGE LEVEL)";
+  if (/^REROUTE\b/.test(t)) return "reroute around the ash (REROUTE)";
+  return null;
+}
+const PLAIN = [
+  [/^NO MODEL: (.+)$/, (m) => (actionPlain(m[1]) ? `Planner (AI off) chose: ${actionPlain(m[1])}` : null)],
+  [/^DRAFT (.+?) \(NO MODEL\)$/, (m) => `Advisory text written by a code template (AI off): ${actionPlain(m[1].replace(/ AROUND HAZARD$/, "")) || m[1].toLowerCase()}`],
+  [/^(RFA\d+): DRAFT (\w+(?: LEVEL)?) waiting for a dispatcher$/, (m) => `${m[1]}: advisory drafted (${m[2]}), waiting for a dispatcher`],
+  [/^(RFA\d+): draft superseded \(entry now in (\d+) min\)$/, (m) => `${m[1]}: draft replaced by a newer one (entry now in ${m[2]} min)`],
+  [/^(.+): cone OFFICIAL (\d+)% \(NO MODEL\), (\S+), (\d+) official layer\(s\)$/, (m) => `${m[1]}: TEPHRA's estimate is the official area (AI off), ${m[3]}, from ${m[4]} official layer${m[4] === "1" ? "" : "s"}`],
+  [/^RECOVERY DRAFT STUB: CLOSURE AS FORECAST\b.*$/i, () => "Airport plan drafted by code (AI off): closure as forecast"],
+  [/^Duty Officer -> run_recovery: Recovery agent started for (.+)$/, (m) => `Duty Officer asked the Recovery helper to re-plan ${m[1]}`],
+  [/^Duty Officer -> (\w+): ([^:;]+?)(?::|;|$)/, (m) => `Duty Officer handed ${m[2]} to ${HELPER[m[1]] || m[1]}`],
+  [/^Duty Officer -> (\w+)\b.*$/, (m) => `Duty Officer handed a job to ${HELPER[m[1]] || m[1]}`],
+  [/^Duty Officer brief: (\d+) delegation\(s\)$/, (m) => `Duty Officer handed out ${jobs(m[1])}`],
+  [/^ADS-B: no answer within (\d+) s; last good data kept\b.*$/, (m) => `Aircraft data did not answer in ${m[1]} s. Showing the last good positions.`],
+  [/^ADS-B: (\d+) of (\d+) adsb\.lol points failed\b.*$/, (m) => `Aircraft data: ${m[1]} of ${m[2]} areas failed (bad reply)`],
+  [/^plan_flights\(\).*$/, () => "Planned and drafted per flight"],
+  [/^Closed airports changed: (.+); recovery agent started$/, (m) => `Airports closed by ash changed (${m[1]}). Re-planning.`],
+  [/^Duty Officer · STUB · NO MODEL · TURNS 0 · OFFERED (\d+)$/, (m) => `Duty Officer (AI off): handed out ${jobs(m[1])} in urgency order`],
+  [/^OFFERED (\d+) · (\d+) mandatory$/, (m) => `${jobs(m[1])} given (${m[2]} must do)`],
+  [/^MANDATORY$/, () => "Must do"],
+];
+
+export function plainLine(text) {
+  const raw = String(text ?? "");
+  for (const [re, fn] of PLAIN) {
+    const m = re.exec(raw);
+    const out = m ? fn(m) : null;
+    if (out) return out;
+  }
+  return raw;
+}
+
+// Who did a step, in words (stage chips: CODE / ADK / NO MODEL).
+export const ACTOR_WORDS = { code: "by code", gemini: "by an AI helper", adk: "by an AI helper", stub: "AI off", human: "by a person", system: "by the system" };
+
+// "$62,525" (R2.8)
+const USD = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+export const usd = (n) => (n == null || !Number.isFinite(Number(n)) ? "n/a" : USD.format(Number(n)));
+
+// A recovery plan that found no plan: the solver's status in plain words, never "AI unavailable"
+// (R2.6). Returns null when the plan's failure is not a solver result.
+export function planProblem(plan) {
+  if (!plan) return null;
+  const raw = [plan.unavailable_reason, ...(plan.validation_errors || [])].filter(Boolean).join("; ");
+  const fromText = /NO FEASIBLE PLAN[^(]*\(([A-Z_]+)\)|HAS NO PLAN \(([A-Z_]+)\)/.exec(raw);
+  const noPlan = (plan.scenarios || []).find((s) => s.status === "NO_PLAN");
+  const status = fromText ? fromText[1] || fromText[2] : plan.status === "AI_UNAVAILABLE" && noPlan ? noPlan.solver_status : null;
+  if (!status) return null;
+  const words = status === "INFEASIBLE"
+    ? "No plan found: no plan fits the closures. A dispatcher must plan the network by hand."
+    : status === "UNKNOWN"
+      ? "No plan found: the solver did not finish in time. A dispatcher must plan the network by hand."
+      : `No plan found (solver: ${status}). A dispatcher must plan the network by hand.`;
+  return { status, words, raw };
+}
+
+// "Technical detail" disclosure holding raw machine text (R12.7).
+export function techDetail(...lines) {
+  const kept = lines.flat().filter((l) => l != null && l !== "");
+  if (!kept.length) return null;
+  return el("details", { class: "tech" }, el("summary", { text: "Technical detail" }), ...kept.map((l) => (l instanceof Node ? l : el("p", { class: "tech__line mono", text: String(l) }))));
+}
