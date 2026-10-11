@@ -72,7 +72,7 @@ Gaps, also in the manifest notes:
 What the replay shows (stub LLM, probed with `probe --from 2026-09-05T06:00Z --every 1`):
 
 - Active: Anak Krakatau, Semeru, Ili Lewotolok, Dukono and Ibu, each with a SIGMET and a Darwin VAA.
-- Anak Krakatau: the WIIF SIGMET's eastern area and the Darwin VAA top out at FL200, 30,000 ft below the YMMM SIGMET's FL500 (ENVELOPE), and the RED VONA is hours older than both and could not observe the ash (LAG, never a conflict). The official cone runs FL000-FL500.
+- Anak Krakatau: Darwin VAA 2026/176 and WIIF SIGMET 16 both carry two areas from the same 10:10Z observation, SFC/FL200 moving south-east and SFC/FL500 moving west, and the YMMM SIGMETs carry SFC/FL500 areas to the south-west. So the 30,000 ft difference in tops (ENVELOPE) is between the two layers, not between the products. The RED VONA is hours older than both and could not observe the ash (LAG, never a conflict). The official cone merges the layers and runs FL000-FL500 (`docs/ARCHITECTURE.md`, section 3).
 - 5 Sep 10:30Z-10:50Z is the strongest moment: 27 flights are exposed at 10:40Z, and HOLD drafts appear for flights at cruise level minutes from the cloud. GIA315 (FL360) is 11 min from entry at 10:34Z, GIA419 (FL360) 23 min at 10:35Z, HVN791 (FL390) 6 min at 10:39Z, and BTK6401 (FL360) 4 min at 10:46Z.
 - After the CGK closure, CTV217 (FL340, 15 min out) at 18:03Z and QFA77 (FL360, 13 min out) at 18:49Z get HOLD drafts.
 

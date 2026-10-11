@@ -254,7 +254,7 @@ Do these in order. The owners are the module keys in `MODULES.md`. "User" means 
 6. **Delete `emis3.json`** at the repo root (user).
 7. **Evals:** add `evals/plume/arm_t/vona.txt` to `.gitignore` (ops-evals).
 8. **Ask Akash** to agree to publishing `research/prior/` (user).
-9. **Rebuild the Docker image after the removals** (user, personal context; never on this machine's work gcloud). Then list `data/replay` inside it, because the demo serves those files.
+9. **Rebuild the Docker image after the removals** (user, from the dedicated personal-account gcloud configuration; never an agent). Then list `data/replay` inside it, because the demo serves those files.
 10. **Run the checks in section 6** on the tree and on the history that will be published.
 11. **Optional permissions** (user):
     - BoM: become a Registered User to publish Bureau data, or ask.

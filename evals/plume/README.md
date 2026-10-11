@@ -14,10 +14,13 @@ Scoring takes the majority of the 3 runs. Existence is "ash" (`ash_seen`) agains
 ```bash
 uv run python scripts/make_plume_cases.py --arm-t-date 2026-09-26T23:00:00Z   # downloads cases; check needs_human_check in each case.json
 # paste the MAGMA VONA text for that hour into evals/plume/arm_t/vona.txt (MAGMA disallows crawling)
-GEMINI_API_KEY=... uv run python scripts/plume_eval.py --max-calls 18        # day 1 (free tier ~20/day)
-GEMINI_API_KEY=... uv run python scripts/plume_eval.py --max-calls 18        # day 2 finishes the 33 calls from cache
+read -rs GEMINI_API_KEY && export GEMINI_API_KEY                            # paste the key; it is not echoed
+uv run python scripts/plume_eval.py --max-calls 18        # day 1 (free tier ~20/day)
+uv run python scripts/plume_eval.py --max-calls 18        # day 2 finishes the 33 calls from cache
 uv run python scripts/plume_eval.py --score-only                              # re-score without calling
 ```
+
+The eval key is a team member's own default AI Studio project, used only by the eval harness. It is never a project created to double the free quota; if the quota runs out, publish the results as they stand, with each unfinished verdict reading INCOMPLETE.
 
 Responses are cached in `results/raw/`; scorecards go to `results/scorecard-*.md`. A call that fails (a 429 or 503, say) is reported and left for the next run. Arm T will not call the model until `vona.txt` holds the VONA text. AWC keeps SIGMET history for 30 days only, so fetch the Arm T snapshot before about 25 Oct 2026; `make_plume_cases.py` refuses a snapshot with no Semeru SIGMET.
 

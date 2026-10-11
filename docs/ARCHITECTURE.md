@@ -217,6 +217,27 @@ answer `AI UNAVAILABLE`. Gemini 3 models run at their default temperature of 1.0
 | Only the Desk page may ask for the microphone | `api/server` sends `Permissions-Policy: microphone=(self)` on `/desk` and `microphone=()` everywhere else; the CSP gains `media-src 'self' blob:` for spoken answers and no script host |
 | Gemini sees only public feed content | `plume_reader.build_parts` and `PlannerContext`, which carry no dispatcher names, audit data or registrations; `pipeline` never sends NICT true-colour frames (research/05) |
 
+### How the official floor is merged (Policy A)
+
+`geo/cone.official_layers` and `geo/cone.build_cone` build one cone per volcano. What the code
+does:
+
+- It takes every official layer matched to that volcano: each SIGMET polygon, and each area of
+  the newest current VAA from each VAAC (the observation and every forecast step). Each band of
+  a two-layer VAA or SIGMET is its own layer. A layer is kept while it is still valid at the
+  tick and starts within the 18 h planning horizon.
+- The lateral area is the union of all those polygons, plus the model's sector when there is one.
+- The vertical band is one band for the whole union, from the lowest base to the highest top of
+  any layer (and of the model's estimate). So the separately banded areas of a two-layer VAA or
+  SIGMET, such as SFC/FL200 moving south-east and SFC/FL500 moving west, become one area from
+  the surface to FL500.
+- Layers of different volcanoes are never merged: each volcano has its own cone.
+
+This is a conservative operator choice under Doc 9974 2.4(d) (the operator resolves conflicts
+among its data sources), not a requirement of App 5 5.4(d)(2), which only says to treat an area
+with no contamination grading as high contamination. Its cost is extra caution: a flight above
+the lower layer's top but inside that layer's lateral area counts as exposed.
+
 ## 4. Deploy topology
 
 ```mermaid
@@ -281,9 +302,37 @@ flowchart TB
   runs the tick loop in process. Nothing needs a cloud account.
 - Deploy scripts in `deploy/` take the project and region from the environment
   (`TEPHRA_PROJECT`, `TEPHRA_GCP_REGION`) and refuse the `default` gcloud configuration and
-  any credential override. They are run by the user from a personal-account context, never
-  by an agent on a machine whose gcloud is logged into another account. Cloud Scheduler
-  calls the tick every minute with a 120 s attempt deadline.
+  any credential override. They are run by the user from a dedicated personal-account gcloud
+  configuration, never by an agent. Cloud Scheduler calls the tick every minute with a 120 s
+  attempt deadline.
+
+### Scaling path and running cost
+
+- **One instance today, on purpose.** The event bus behind SSE is in process, and one pipeline
+  is the single writer of the picture, the drafts and the hash-chained audit. A second
+  instance would split the streams and race on the audit chain, so `max-instances=1`.
+- **What would change for more airlines.** The in-process bus would become a shared,
+  store-backed event feed that any instance can stream from. One writer per region would run
+  the tick, so each audit chain keeps a single writer. Each airline would get its own policy
+  file under `data/policy/` and its own desk, over the same public-feed picture. None of this
+  is built.
+- **Model calls are gated and budgeted.** No model step runs every tick without a gate (section
+  3, free-tier row). Daily caps are `TEPHRA_MODEL_DAILY_BUDGET` (18) for the main model and
+  `TEPHRA_MODEL_LITE_DAILY_BUDGET` (450) for Flash-Lite; past them a step reports
+  `AI UNAVAILABLE` and nothing is substituted.
+- **Cost per advisory is not stated.** Once token totals are recorded on each plume
+  assessment and planned action (a separate change), a replay can measure the tokens behind
+  one advisory. Until that is measured, no cost figure is given.
+
+### If TEPHRA is unavailable
+
+TEPHRA is decision support; the operator's own procedure stays in force without it.
+
+- Dispatch returns to the operator's own VAA, SIGMET and NOTAM briefing.
+- Drafts that were not approved before the outage are void. They are not sent later.
+- Crews still avoid ash they see, whatever TEPHRA showed.
+- The duty manager declares the outage and, later, the recovery. After recovery, dispatchers
+  check TEPHRA's picture against the current official products before acting on it.
 
 ## 5. Modes
 

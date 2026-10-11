@@ -5,7 +5,7 @@
 > **Decision support only. Ring of Fire Air (RFA) is a fictional airline. Nothing is sent to any real system. Not for operational use.**
 
 
-> **Status (2026-10-11):** the test suite (stub LLM, no network) and `ruff` pass, and the app runs end to end in REPLAY. A live run on the free tier (the `java-live-20261010` case, real Gemini) had the Duty Officer delegate three plume reads, three flight plans (two REROUTE drafts priced at +9 and +10 NM) and network recovery, defer the SRA for budget, and file an accepted brief, with no rate-limit errors. Ask TEPHRA, voice, the Notice Reader, messages, the handover brief and the SRA narrative have not yet been run against the real API. See [Getting started](#getting-started).
+> **Status (2026-10-12):** as reported in commit `9ada34f`, the test suite (1,281 tests, stub LLM, no network) and `ruff` pass, and the app runs end to end in REPLAY. A live run on the free tier (the `java-live-20261010` case, real Gemini) had the Duty Officer delegate three plume reads, three flight plans (two REROUTE drafts priced at +9 and +10 NM) and network recovery, defer the SRA for budget, and file an accepted brief, with no rate-limit errors. Ask TEPHRA, voice, the Notice Reader, messages, the handover brief and the SRA narrative have not yet been run against the real API. Changes committed after `9ada34f` were checked statically only (`py_compile`, `ruff`, `node --check`) until the suite is run on them again. See [Getting started](#getting-started).
 
 ## The problem
 

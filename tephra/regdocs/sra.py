@@ -499,6 +499,52 @@ _RISK_ROWS: Final[tuple[tuple[str, str, str, str], ...]] = (
         "A crew flies on without knowing the hazard.",
         "Advisory text is drafted per exposed flight. Delivery to the crew is outside TEPHRA.",
     ),
+    (
+        "R7",
+        "TEPHRA's AI adds caution that is not needed",
+        "Flights are delayed, rerouted or held for ash that is not there.",
+        "A model widening is shown as its own mode (WIDENED) with a confidence beside the official"
+        " areas. A dispatcher decides every advisory, and model text is marked AI-written with"
+        " its model id.",
+    ),
+    (
+        "R8",
+        "TEPHRA's AI gives false reassurance",
+        "A flight is planned into ash the official products already cover.",
+        "The model may never shrink the official area. With no official area only MONITOR or HOLD"
+        " may be advised. A non-observation never removes caution. Model output passes code"
+        " validators with at most one repair, then the step reports AI UNAVAILABLE and nothing"
+        " is substituted.",
+    ),
+    (
+        "R9",
+        "A feed is stale or missing",
+        "The picture is incomplete and reads as an empty sky.",
+        "Feed health and age are shown (section 7). A feed outage is reported as an outage, never"
+        " as no ash or no aircraft, and no draft is retired while aircraft positions are stale.",
+    ),
+    (
+        "R10",
+        "The wrong operator policy is in force",
+        "Margins and thresholds differ from the ones the risk owner accepted.",
+        "Each advisory and its audit entries carry the policy id and version. The Wall shows the"
+        " active policy and its content hash.",
+    ),
+    (
+        "R11",
+        "An avoidance manoeuvre conflicts with other traffic",
+        "Loss of separation while avoiding the ash.",
+        "Advice goes to the crew through dispatch; the captain decides and ATC clears any change"
+        " of route or level. TEPHRA does not see other traffic's clearances.",
+    ),
+    (
+        "R12",
+        "TEPHRA is unavailable",
+        "Dispatch loses the reconciled picture and the drafts.",
+        "Dispatch returns to the operator's own VAA, SIGMET and NOTAM briefing. Drafts not yet"
+        " approved are void. Crews still avoid ash they see. The duty manager declares the"
+        " outage and the recovery.",
+    ),
 )
 
 
