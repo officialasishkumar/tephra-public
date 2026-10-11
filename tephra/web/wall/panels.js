@@ -130,7 +130,7 @@ export function renderChrome(D, store, ui, A) {
   // never "0", "none" or "clear": the feed only sees aircraft that broadcast on ADS-B.
   const exposed = s.exposed_count ?? 0;
   const kx = $("kpi-exposed");
-  kx.textContent = exposed > 0 ? String(exposed) : "—";
+  kx.textContent = exposed > 0 ? String(exposed) : "–";
   kx.closest(".kpi").classList.toggle("kpi--hot", exposed > 0);
   kx.closest(".kpi").title = exposed > 0
     ? `${exposed} RFA (fictional) flight${exposed === 1 ? "" : "s"} entering TEPHRA's cautious area, all volcanoes.`

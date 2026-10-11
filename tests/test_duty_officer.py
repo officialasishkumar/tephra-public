@@ -17,7 +17,7 @@ from test_pipeline import GIA417, SEMERU, FixtureSource, make_runtime, make_sett
 from test_planner import _CALLS, _SCRIPT, GeminiStandIn, Turn, call, text
 
 from tephra import duty as duty_module
-from tephra import scheduler as scheduler_module
+from tephra import pipeline as pipeline_module
 from tephra.agents.duty_officer import DutyToolkit, run_duty_officer, validate_brief
 from tephra.agents.llm import StubBackend
 from tephra.config import Settings
@@ -421,7 +421,7 @@ async def test_a_volcano_with_a_mandatory_flight_has_a_mandatory_plume_read(
     async def no_dispatch(*args: Any, **kwargs: Any) -> None:
         return None
 
-    monkeypatch.setattr(scheduler_module, "dispatch_duty", no_dispatch)
+    monkeypatch.setattr(pipeline_module, "dispatch_duty", no_dispatch)
     report = await run_tick(runtime, reason="manual")
     assert report.exposed_flights == 1
     semeru = runtime.situations[SEMERU]

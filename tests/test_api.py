@@ -98,6 +98,8 @@ class FakeRuntime:
     replay_case: ReplayCase | None = None
     auto_replay: bool = False
     ticks: int = 0
+    startup_ticks: int = 0
+    """The lifespan's own tick at startup, kept apart from the ticks a request asked for."""
     fail_tick: bool = False
     closed: bool = False
     policy: OperatorPolicy = field(default_factory=lambda: POLICY)
@@ -106,7 +108,10 @@ class FakeRuntime:
     async def tick(self, *, reason: str = "scheduler") -> TickReport:
         if self.fail_tick:
             raise RuntimeError("database password is hunter2")
-        self.ticks += 1
+        if reason == "startup":
+            self.startup_ticks += 1
+        else:
+            self.ticks += 1
         at = timeutil.now()
         return TickReport(started_at=at, finished_at=at, mode=self.mode, reason=reason)
 
