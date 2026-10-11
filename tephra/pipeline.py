@@ -57,6 +57,8 @@ from tephra.feeds.adsb import merge_aircraft
 from tephra.feeds.airports import AirportCatalogue, load_airports
 from tephra.feeds.base import FetchError, HttpSource, Source
 from tephra.feeds.registry import (
+    NOT_RECORDED_NOTE,
+    VONA_OFF_NOTE,
     LiveData,
     disabled_reason,
     health_view,
@@ -84,17 +86,21 @@ from tephra.models import (
     DutyRun,
     ExposedFlight,
     ExposureFeatureProps,
+    FeedHealth,
     FeedId,
+    FeedStatus,
     FrameProduct,
     FrameThumb,
     GeoLineString,
     HazardCone,
     LlmInfo,
+    MissingReason,
     OperatorPolicy,
     Overlays,
     PlumeAssessment,
     PlumeMode,
     PolicySummary,
+    ProductKind,
     ReplayCase,
     RerouteFeatureProps,
     RerouteKind,
@@ -115,6 +121,7 @@ from tephra.models import (
     TraceEvent,
     TraceStage,
     VaacAdvisory,
+    VaacCentre,
     VaacStep,
     Volcano,
     VolcanoFeatureProps,
@@ -172,6 +179,11 @@ REASK_UNCHANGED: Final = timedelta(hours=3)
 this long after it was asked: a lasting disagreement (Semeru's DIRECTION_MISMATCH held for
 78 census hours) would otherwise cost a call every horizon."""
 BTD_CREDIT: Final = "Himawari-9 data: JMA via NOAA (NODD), processed by TEPHRA."
+_VAA_FEEDS: Final = {VaacCentre.TOKYO: FeedId.VAAC_TOKYO, VaacCentre.DARWIN: FeedId.VAAC_DARWIN}
+VONA_NOT_READ_NOTE: Final = (
+    "Not read: live MAGMA polling is off (robots.txt disallows crawling); "
+    "replays play recorded VONAs"
+)
 SITUATION_CLOCK_FIELDS: Final[IncEx] = {
     "as_of": True,
     "discrepancies": {"__all__": {"magnitude", "summary"}},
@@ -1527,6 +1539,7 @@ class Runtime:
     ) -> SituationCard:
         volcano = situation.volcano
         cone = self.cones.get(volcano.id)
+        health = self.live.health
         return SituationCard(
             volcano_id=volcano.id,
             volcano_name=volcano.name,
@@ -1534,9 +1547,9 @@ class Runtime:
             active_reasons=situation.active_reasons,
             as_of=situation.as_of,
             cards=[
-                _sigmet_card(situation, at),
-                _vona_card(situation, at, self.settings.vona_window_h),
-                _vaa_card(situation, at),
+                _sigmet_card(situation, at, health.get(FeedId.SIGMET)),
+                _vona_card(situation, at, self.settings.vona_window_h, health.get(FeedId.VONA)),
+                _vaa_card(situation, at, health.get(_VAA_FEEDS[volcano.vaac])),
             ],
             discrepancies=situation.discrepancies,
             assessment=self.assessments.get(volcano.id),
@@ -2169,16 +2182,44 @@ def _source_card(
     )
 
 
-def _sigmet_card(situation: Situation, at: datetime) -> SourceCard:
+def _missing_card(kind: ProductKind, health: FeedHealth | None, none_seen: str) -> SourceCard:
+    reason, note = _missing_reason(kind, health, none_seen)
+    return SourceCard(kind=kind, missing=True, missing_reason=reason, missing_note=note, title=kind)
+
+
+def _missing_reason(
+    kind: ProductKind, health: FeedHealth | None, none_seen: str
+) -> tuple[MissingReason, str]:
+    """Why ``kind`` has no product. Only a feed that answers may say none was issued: a
+    feed TEPHRA does not read, one the replay did not record, or one that is down says so.
+    Situations exist only for active volcanoes, so a feed never polled yet counts as down."""
+    if health is None or health.status in (FeedStatus.ERROR, FeedStatus.NEVER):
+        since = (
+            f"since {timeutil.hhmmz(health.last_success_at)}"
+            if health is not None and health.last_success_at is not None
+            else "yet"
+        )
+        return "FEED_DOWN", f"{kind} feed not answering {since}: none seen"
+    if health.status is FeedStatus.DISABLED:
+        if health.last_error == VONA_OFF_NOTE:
+            return "NOT_READ", VONA_NOT_READ_NOTE
+        if health.last_error == NOT_RECORDED_NOTE:
+            return "NOT_RECORDED", f"Not in this replay: no {kind} archive was recorded"
+        return (
+            "NOT_READ",
+            f"Not read: {health.last_error}" if health.last_error else "Not read: this feed is off",
+        )
+    return "NONE_SEEN", none_seen
+
+
+def _sigmet_card(situation: Situation, at: datetime, health: FeedHealth | None) -> SourceCard:
     records = sorted(
         situation.sigmets,
         key=lambda sigmet: (sigmet.valid_from, sigmet.provenance.source_id),
         reverse=True,
     )
     if not records:
-        return SourceCard(
-            kind="SIGMET", missing=True, missing_note="No valid VA SIGMET", title="SIGMET"
-        )
+        return _missing_card("SIGMET", health, "No valid VA SIGMET")
     latest = records[0]
     if latest.observed_at is not None:
         observed = f"OBS {timeutil.hhmmz(latest.observed_at)}"
@@ -2209,11 +2250,12 @@ def _sigmet_card(situation: Situation, at: datetime) -> SourceCard:
     )
 
 
-def _vona_card(situation: Situation, at: datetime, window_h: float) -> SourceCard:
+def _vona_card(
+    situation: Situation, at: datetime, window_h: float, health: FeedHealth | None
+) -> SourceCard:
     records = sorted(situation.vonas, key=lambda vona: vona.issued_at, reverse=True)
     if not records:
-        note = f"No VONA in the last {window_h:g} h"
-        return SourceCard(kind="VONA", missing=True, missing_note=note, title="VONA")
+        return _missing_card("VONA", health, f"No VONA in the last {window_h:g} h")
     latest = records[0]
     if latest.cloud_top_ft is not None:
         top = f"{latest.cloud_top_ft:,} FT AMSL"
@@ -2243,12 +2285,10 @@ def _vona_card(situation: Situation, at: datetime, window_h: float) -> SourceCar
     )
 
 
-def _vaa_card(situation: Situation, at: datetime) -> SourceCard:
+def _vaa_card(situation: Situation, at: datetime, health: FeedHealth | None) -> SourceCard:
     records = sorted(situation.vaas, key=lambda vaa: vaa.issued_at, reverse=True)
     if not records:
-        return SourceCard(
-            kind="VAA", missing=True, missing_note=_missing_vaa_note(situation, at), title="VAA"
-        )
+        return _missing_card("VAA", health, _missing_vaa_note(situation, at))
     latest = records[0]
     observation = latest.observation
     layers = observation.layers if observation is not None else []

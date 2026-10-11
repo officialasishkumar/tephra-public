@@ -79,6 +79,11 @@ export const ATTRIBUTION = "OpenFreeMap © OpenMapTiles · Data © OpenStreetMap
 const codeColor = (code) => `var(--c-code-${(code || "UNKNOWN").toLowerCase()})`;
 export const eruptIcon = (code, cls = "icon erupt") => icon("i-eruption", cls, codeColor(code));
 const st = (id, color, cls = "st") => icon(id, cls, color);
+// A missing card whose feed was not read, not recorded or down never says "None in force".
+const UNREAD = { NOT_READ: "Not read", NOT_RECORDED: "Not recorded", FEED_DOWN: "Feed down" };
+const missingHead = (card, noneText) => UNREAD[card.missing_reason]
+  ? el("span", { class: "cmp__note--quiet" }, st("st-off", "var(--c-off)"), el("span", { text: ` ${UNREAD[card.missing_reason]}` }))
+  : el("span", { text: noneText });
 const sevOf = (d) => SEV[d.severity] || SEV.INFO;
 const kindOf = (d) => KIND[`${d.kind}/${d.aspect}`] || KIND[d.kind] || [d.kind, d.kind];
 const cardName = (sit, sid) => sit.cards.find((c) => c.source_id === sid)?.title || sid.split(":").slice(0, 3).join(" ");
@@ -532,7 +537,7 @@ function colHead(D, sit, card, vent, flagged) {
   const kind = card.kind === "VONA" ? "VONA · observatory" : card.kind === "SIGMET" ? "SIGMET · binding" : "VAA · VAAC";
   if (card.missing) {
     const hyp = D.coneOf(sit.volcano_id)?.properties.mode === "HYPOTHESIS" && !observer;
-    return el("div", { class: cls, role: "columnheader" }, el("div", { class: "cmp__kind", text: kind }), el("div", { class: "cmp__title", text: hyp ? "No valid official product" : "None in force" }),
+    return el("div", { class: cls, role: "columnheader" }, el("div", { class: "cmp__kind", text: kind }), el("div", { class: "cmp__title" }, missingHead(card, hyp ? "No valid official product" : "None in force")),
       card.missing_note ? el("div", { class: "cmp__note", text: card.missing_note }) : null,
       el("div", { class: "cmp__note cmp__note--quiet", text: "Absence is not evidence of no ash." }));
   }
@@ -958,7 +963,7 @@ export function sourcesDialog(D, focusKind) {
   const cols = [byKind.SIGMET, byKind.VAA, byKind.VONA].filter(Boolean).map((c) => {
     const url = c.url ? safeExternalUrl(c.url) : null;
     const col = el("section", { class: `raw raw--${c.kind.toLowerCase()}`, "aria-label": c.title, dataset: { kind: c.kind } },
-      el("h3", { class: "raw__title" }, el("span", { class: "cmp__kind", text: c.kind === "VONA" ? "VONA · observatory" : c.kind === "SIGMET" ? "SIGMET · binding" : "VAA · VAAC" }), el("span", { text: c.missing ? "None in force" : c.title })));
+      el("h3", { class: "raw__title" }, el("span", { class: "cmp__kind", text: c.kind === "VONA" ? "VONA · observatory" : c.kind === "SIGMET" ? "SIGMET · binding" : "VAA · VAAC" }), c.missing ? missingHead(c, "None in force") : el("span", { text: c.title })));
     if (c.missing) { col.append(el("p", { class: "muted", text: `${c.missing_note || "None in force"}. Absence is not evidence of no ash.` })); return col; }
     col.append(
       el("dl", { class: "raw__facts" },

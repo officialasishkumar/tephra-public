@@ -813,7 +813,9 @@ Seen at; presence → the column head) gets `--c-caution-bg`, a 1.5 px caution i
 not (they agree with each other). Unflagged VONA movement text is `--c-observer-text`.
 
 States: missing card (dashed column: "None in force" head; one cell spanning the rows with
-`missing_note` and "Absence is not evidence of no ash."); loading (skeleton cells); replay (no
+`missing_note` and "Absence is not evidence of no ash."; when `missing_reason` is not
+`NONE_SEEN` the head instead reads "Not read", "Not recorded" or "Feed down" in grey with the
+`st-off` shape, and the raw-text panel (7.15) uses the same head); loading (skeleton cells); replay (no
 change: the times are the recorded ones); stale (card chip as above); hypothesis (SIGMET and VAA
 columns are missing or expired; the head says "No valid official product").
 

@@ -1709,11 +1709,23 @@ Core rules:
 - `wall_snapshot()` builds `WallSnapshot` (section 8.3) from memory. Situation cards: for
   each active volcano, exactly three `SourceCard`s in the order SIGMET, VONA, VAA (the
   latest of each; others listed in `extra_source_ids`; a missing kind gets `missing=True`
-  and a code-written `missing_note`: `"No valid VA SIGMET"`, `"No VONA in the last 24 h"`,
-  `"No VAA since VONA 2221Z (47 min)"` or `"No VAA in the last 24 h"`), `evidence` from
-  `reconcile.evidence_state`, code-written `display_fields` (band, movement, ash observed,
-  colour code, validity), and `discrepancy_ids` of the discrepancies that cite that card's
-  source.
+  and a code-written `missing_note`), `evidence` from `reconcile.evidence_state`,
+  code-written `display_fields` (band, movement, ash observed, colour code, validity), and
+  `discrepancy_ids` of the discrepancies that cite that card's source. A missing card's
+  `missing_reason` (`NONE_SEEN`, `NOT_READ`, `NOT_RECORDED` or `FEED_DOWN`; default
+  `NONE_SEEN`) and note follow the health of the feed that carries the kind
+  (`FeedId.SIGMET`, `FeedId.VONA`, or the volcano's VAAC feed), so a feed TEPHRA did not
+  read never reads as "none issued":
+  - `DISABLED` with `VONA_OFF_NOTE`: `NOT_READ`, `"Not read: live MAGMA polling is off
+    (robots.txt disallows crawling); replays play recorded VONAs"`. Any other `DISABLED`:
+    `NOT_READ`, `"Not read: <last_error>"`.
+  - `DISABLED` with `NOT_RECORDED_NOTE`: `NOT_RECORDED`, `"Not in this replay: no VONA
+    archive was recorded"` (SIGMET, VONA or VAA).
+  - `ERROR` or `NEVER` (a situation's volcano is always active): `FEED_DOWN`, `"SIGMET feed
+    not answering since 0412Z: none seen"`, or `"... not answering yet: none seen"` with no
+    success yet.
+  - Otherwise `NONE_SEEN`: `"No valid VA SIGMET"`, `"No VONA in the last 24 h"`,
+    `"No VAA since VONA 2221Z (47 min)"` or `"No VAA in the last 24 h"`.
 
 ### 5.8 api
 

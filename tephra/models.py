@@ -59,6 +59,7 @@ _AIRLINE_CALLSIGN = re.compile(r"[A-Z]{3}[0-9][0-9A-Z]{0,3}")
 
 LlmBackendName = Literal["gemini", "stub"]
 ProductKind = Literal["SIGMET", "VONA", "VAA"]
+MissingReason = Literal["NONE_SEEN", "NOT_READ", "NOT_RECORDED", "FEED_DOWN"]
 
 PRESSURE_LEVEL_FL: dict[int, int] = {
     850: 50,
@@ -1953,6 +1954,11 @@ class SourceCard(TephraModel):
     kind: ProductKind
     missing: bool
     missing_note: str | None = Field(default=None, description="Code-written, e.g. 'No VAA'")
+    missing_reason: MissingReason = Field(
+        default="NONE_SEEN",
+        description="Why a missing card has no product: none seen on a feed that answers, "
+        "a feed TEPHRA does not read, a feed the replay case did not record, or a feed down",
+    )
     evidence: EvidenceState = EvidenceState.UNKNOWN
     source_id: str | None = None
     title: str
