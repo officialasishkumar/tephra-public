@@ -240,7 +240,7 @@ async def test_supersede_racing_a_dispatcher_moves_the_draft_once(
 async def test_audit_chain_holds_under_concurrent_writers(store: SqliteStore) -> None:
     await asyncio.gather(
         *(
-            audit.record(store, actor=SYSTEM_ACTOR, action=AuditAction.PLUME_FALLBACK, note=str(n))
+            audit.record(store, actor=SYSTEM_ACTOR, action=AuditAction.AI_FAILED, note=str(n))
             for n in range(30)
         )
     )
@@ -250,9 +250,7 @@ async def test_audit_chain_holds_under_concurrent_writers(store: SqliteStore) ->
 
 async def test_audit_chain_detects_an_edited_entry(store: SqliteStore) -> None:
     for n in range(3):
-        await audit.record(
-            store, actor=SYSTEM_ACTOR, action=AuditAction.PLUME_FALLBACK, note=str(n)
-        )
+        await audit.record(store, actor=SYSTEM_ACTOR, action=AuditAction.AI_FAILED, note=str(n))
     middle = (await audit.list_entries(store, limit=3))[1]
     doc = await store.get(Collection.AUDIT, middle.id)
     assert doc is not None

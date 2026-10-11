@@ -1,0 +1,30 @@
+{
+  "image_finding": "no_ash_seen",
+  "frames_with_feature": [],
+  "plume_box_2d": [],
+  "drift_direction": "none",
+  "top_fl": null,
+  "top_fl_basis": "none",
+  "horizon_h": 0,
+  "confidence": "high",
+  "confidence_reason": "Clear skies in the vicinity of the vent across all three Ash RGB frames and the IR frame with no ash plume observed.",
+  "sources": [
+    {
+      "id": "IMG-1",
+      "used_for": "existence"
+    },
+    {
+      "id": "IMG-2",
+      "used_for": "existence"
+    },
+    {
+      "id": "IMG-3",
+      "used_for": "existence"
+    },
+    {
+      "id": "IMG-4",
+      "used_for": "existence"
+    }
+  ],
+  "disagreements": []
+}

@@ -5,6 +5,7 @@ import re
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
@@ -12,7 +13,6 @@ from test_plume_reader import ScriptedClient
 
 from tephra.agents.dispatch_drafter import (
     HEADER_TITLE,
-    NEEDS_HUMAN,
     _facts,
     draft_advisory,
     render_header,
@@ -40,8 +40,8 @@ from tephra.geo.fuel import category_for_type, divert_line, hold_line
 from tephra.geo.units import destination_point
 from tephra.models import (
     ActionKind,
-    Advisory,
     AdvisoryStatus,
+    AiFailure,
     Airport,
     AlternateCandidate,
     AlternateCheck,
@@ -802,7 +802,7 @@ def make_assessment(situation: Situation) -> PlumeAssessment:
     )
 
 
-async def _draft(llm: FakeLlm) -> tuple[PlannerContext, PlannedAction, Advisory]:
+async def _draft(llm: FakeLlm) -> tuple[PlannerContext, PlannedAction, Any]:
     situation = make_situation()
     ctx, plan = change_level_case()
     with use_clock(FixedClock(AT)):
@@ -876,14 +876,48 @@ async def test_unparseable_draft_gets_its_one_repair() -> None:
     assert advisory.body == repaired.body
 
 
-async def test_draft_advisory_fails_closed_after_one_repair() -> None:
+async def test_a_draft_failing_after_one_repair_gives_no_advisory() -> None:
+    """No template stands in: the flight goes to the Desk as an AI failure."""
     bad = DraftText(body="please divert to wxyz at 1830z", cost_note="unknown")
     llm = FakeLlm(name="gemini", draft=bad)
-    ctx, plan, advisory = await _draft(llm)
+    ctx, plan, failure = await _draft(llm)
     assert llm.calls == 2
-    assert advisory.body == stub_draft(ctx, plan).body
-    assert advisory.llm_backend == "stub"
-    assert any(note.startswith(NEEDS_HUMAN) for note in advisory.validation_notes)
+    assert isinstance(failure, AiFailure)
+    assert failure.stage == "drafter"
+    assert failure.plan_id == plan.id
+    assert failure.flight_id == ctx.flight.id
+    assert failure.reason.startswith("DRAFT FAILED CHECKS AFTER REPAIR")
+
+
+class NoAnswerLlm(FakeLlm):
+    """A 'gemini' whose call fails outright (budget, API error): nothing to repair."""
+
+    async def structured[T: BaseModel](
+        self,
+        *,
+        tier: str,
+        system: str,
+        parts: Sequence[LlmPart],
+        schema: type[T],
+        stub: Callable[[], T],
+        temperature: float | None = None,
+    ) -> tuple[T | None, LlmCall]:
+        self.calls += 1
+        call = LlmCall(
+            backend="gemini",
+            model_id=self.model_id(tier),
+            prompt_hash=prompt_hash(system, parts),
+            error="budget_exhausted",
+        )
+        return None, call
+
+
+async def test_no_answer_at_all_gives_no_advisory_and_no_repair() -> None:
+    llm = NoAnswerLlm(name="gemini")
+    _, _, failure = await _draft(llm)
+    assert llm.calls == 1
+    assert isinstance(failure, AiFailure)
+    assert failure.reason.startswith("NO DRAFT RETURNED")
 
 
 async def test_the_drafter_runs_gemini_3_at_temperature_one(tmp_path: Path) -> None:

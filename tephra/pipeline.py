@@ -22,7 +22,7 @@ from typing import Any, Final, Literal
 from pydantic import BaseModel, ValidationError
 from pydantic.main import IncEx
 
-from tephra.agents.dispatch_drafter import draft_advisory
+from tephra.agents.dispatch_drafter import ai_failure, draft_advisory
 from tephra.agents.exposure_planner import build_planner_context, plan_flight
 from tephra.agents.llm import LlmBackend, LlmPart, get_llm
 from tephra.agents.plume_reader import read_plume
@@ -36,6 +36,7 @@ from tephra.config import (
 )
 from tephra.desk import audit
 from tephra.desk.approvals import SYSTEM_ACTOR, list_advisories, submit_draft, supersede
+from tephra.desk.failures import record_failure
 from tephra.feeds.adsb import merge_aircraft
 from tephra.feeds.airports import AirportCatalogue, load_airports
 from tephra.feeds.base import FetchError, HttpSource, Source
@@ -48,6 +49,7 @@ from tephra.geo.units import deg_to_compass, distance_nm, ft_to_fl
 from tephra.models import (
     Advisory,
     AdvisoryStatus,
+    AiFailure,
     Aircraft,
     AircraftFeatureProps,
     AirlineInfo,
@@ -596,11 +598,11 @@ class Runtime:
         await self.store.put(
             Collection.ASSESSMENTS, assessment.id, assessment.model_dump(mode="json")
         )
-        if assessment.outcome == "FALLBACK_OFFICIAL":
+        if assessment.outcome == "MODEL_FAILED":
             await audit.record(
                 self.store,
                 actor=SYSTEM_ACTOR,
-                action=AuditAction.PLUME_FALLBACK,
+                action=AuditAction.AI_FAILED,
                 after={"volcano_id": volcano.id, "assessment_id": assessment.id},
                 input_hashes=[situation.input_hash],
                 model_id=assessment.model_id,
@@ -714,6 +716,17 @@ class Runtime:
         )
         plan = await plan_flight(ctx, self.llm, settings=self.settings, trace=self._sink)
         await self.store.put(Collection.PLANS, plan.id, plan.model_dump(mode="json"))
+        if plan.decision is None:
+            reason = "; ".join(plan.validation_errors[:3]) or "NO PLAN"
+            failure = ai_failure(
+                ctx,
+                stage="planner",
+                reason=reason,
+                model_id=plan.model_id,
+                replay=self.mode is RunMode.REPLAY,
+            )
+            await self._record_failure(failure)
+            return
         advisory = await draft_advisory(
             situation=situation,
             assessment=assessment,
@@ -725,6 +738,9 @@ class Runtime:
             policy=self.policy,
             trace=self._sink,
         )
+        if isinstance(advisory, AiFailure):
+            await self._record_failure(advisory)
+            return
         # Outdated drafts go once the new advice is drafted (a failed plan leaves them up) and
         # before it is submitted: advice that kept its dedupe key would otherwise be refused
         # as a repeat of the outdated draft.
@@ -754,6 +770,22 @@ class Runtime:
             volcano_id=flight.volcano_id,
             flight_id=flight.id,
             detail={"advisory_id": created.id},
+        )
+
+    async def _record_failure(self, failure: AiFailure) -> None:
+        """No plan or no draft: the flight goes to the Desk for a dispatcher, and outdated
+        drafts stay up, since there is no newer advice to replace them."""
+        if await record_failure(self.store, self.bus, failure) is None:
+            return
+        self.trace(
+            TraceStage.DESK,
+            "code",
+            f"{failure.proxy_flight}: AI UNAVAILABLE ({failure.stage}); "
+            "a dispatcher must handle this flight by hand",
+            level="error",
+            volcano_id=failure.volcano_id,
+            flight_id=failure.flight_id,
+            detail={"failure_id": failure.id, "reason": failure.reason},
         )
 
     async def _supersede_draft(self, draft: Advisory, reason: str) -> bool:

@@ -3,8 +3,8 @@
 Gemini (structured output, Flash-Lite) writes only ``body`` and ``cost_note``. Code renders
 the header: the flight, the UTC times and every source with its timestamps and short
 hash, so the model never writes a time, an id or a hash. ``validators.validate_draft``
-checks the text; after one repair a code template takes over and the advisory carries a
-``NEEDS_HUMAN`` note listing what the model got wrong.
+checks the text and allows one repair. A draft that still fails, or no answer at all, gives
+no advisory: an ``AiFailure`` goes to the Desk and a dispatcher writes the message.
 """
 
 import json
@@ -27,6 +27,7 @@ from tephra.models import (
     ActionKind,
     Advisory,
     AdvisoryStatus,
+    AiFailure,
     DraftText,
     ExposedFlight,
     FeedId,
@@ -51,7 +52,7 @@ from tephra.util import timeutil
 from tephra.util.hashing import stable_id
 
 PROMPT_PATH: Final[Path] = Path(__file__).resolve().parent / "prompts" / "drafter.md"
-NEEDS_HUMAN: Final = "NEEDS_HUMAN"
+AI_UNAVAILABLE: Final = "AI UNAVAILABLE"
 REPAIR_ECHO_CHARS: Final = 2000
 """How much of an unreadable answer the repair prompt quotes back."""
 HEADER_TITLE: Final = (
@@ -140,7 +141,7 @@ def _wind_used(profiles: Sequence[WindProfile], at: datetime) -> WindProfile | N
     return min(profiles, key=lambda profile: abs((profile.valid_at - at).total_seconds()))
 
 
-# --- template (stub and last resort) ----------------------------------------------------
+# --- template (stub backend only) ----------------------------------------------------
 
 
 def stub_draft(ctx: PlannerContext, plan: PlannedAction) -> DraftText:
@@ -217,16 +218,18 @@ async def draft_advisory(
     settings: Settings,
     policy: OperatorPolicy,
     trace: TraceSink | None = None,
-) -> Advisory:
+) -> Advisory | AiFailure:
     """``policy`` is stamped on the advisory (id and version) so every decision on it records
     the operator policy it was drafted under."""
+    if plan.decision is None:
+        raise ValueError(f"plan {plan.id} has no decision to draft")
     system = PROMPT_PATH.read_text(encoding="utf-8")
     parts = [_text_part(json.dumps(_facts(ctx, plan), indent=1), "facts")]
     draft, call = await _ask(llm, system, parts, ctx, plan)
     drafter_prompt_hash = call.prompt_hash
     problems = _problems(draft, call, ctx, plan)
     # The model answered (even unreadably): one repair. No answer at all (budget, API
-    # error) goes straight to the template.
+    # error) is a failure straight away.
     answered = draft is not None or bool(call.raw_text)
     if problems and answered and llm.name != "stub":
         _emit(
@@ -243,22 +246,25 @@ async def draft_advisory(
 
     backend: LlmBackendName = llm.name
     model_id = call.model_id
-    notes = _planner_notes(plan)
     if draft is None or problems:
-        if llm.name != "stub":
-            notes.append(_fallback_note(draft, call, problems))
-            backend, model_id = "stub", "stub"
-        draft = stub_draft(ctx, plan)
-        leftover = validate_draft(draft, ctx=ctx, plan=plan)
-        if leftover:
-            notes.append(f"{NEEDS_HUMAN}: TEMPLATE CHECKS: {'; '.join(first_problems(leftover))}")
-    _emit(
-        trace,
-        ctx,
-        _actor(backend),
-        _draft_line(plan, backend, notes),
-        level="warn" if notes else "info",
-    )
+        reason = _failure_reason(draft, call, problems)
+        _emit(
+            trace,
+            ctx,
+            "code",
+            f"DRAFTER {AI_UNAVAILABLE} ({reason}): NO DRAFT, A DISPATCHER MUST WRITE THE MESSAGE",
+            level="error",
+            detail={"problems": problems},
+        )
+        return ai_failure(
+            ctx,
+            stage="drafter",
+            reason=reason,
+            model_id=model_id,
+            replay=_replay(situation),
+            plan_id=plan.id,
+        )
+    _emit(trace, ctx, _actor(backend), _draft_line(plan, backend))
 
     created = timeutil.now()
     sources = select_sources(situation, ctx.flight)
@@ -280,7 +286,6 @@ async def draft_advisory(
             "planner": plan.prompt_hash,
             "drafter": drafter_prompt_hash,
         },
-        notes=notes,
     )
 
 
@@ -308,20 +313,46 @@ def _problems(
     return validate_draft(draft, ctx=ctx, plan=plan)
 
 
-def _fallback_note(draft: DraftText | None, call: LlmCall, problems: Sequence[str]) -> str:
+def _failure_reason(draft: DraftText | None, call: LlmCall, problems: Sequence[str]) -> str:
     if draft is None:
-        return f"DRAFTER MODEL UNAVAILABLE ({call.error or 'unknown error'}); TEMPLATE USED"
-    return (
-        f"{NEEDS_HUMAN}: MODEL DRAFT FAILED CHECKS AFTER REPAIR; TEMPLATE USED:"
-        f" {'; '.join(first_problems(problems))}"
+        return f"NO DRAFT RETURNED ({call.error or 'unknown error'})"
+    return f"DRAFT FAILED CHECKS AFTER REPAIR: {'; '.join(first_problems(problems, 3))}"
+
+
+def _replay(situation: Situation) -> bool:
+    return situation.mode is RunMode.REPLAY
+
+
+def ai_failure(
+    ctx: PlannerContext,
+    *,
+    stage: Literal["planner", "drafter"],
+    reason: str,
+    model_id: str,
+    replay: bool,
+    plan_id: str | None = None,
+) -> AiFailure:
+    """The Desk item for a flight the AI could not plan or draft for."""
+    flight = ctx.flight
+    return AiFailure(
+        id=stable_id("AIF", flight.id, flight.cone_id, stage),
+        created_at=timeutil.now(),
+        replay=replay,
+        stage=stage,
+        reason=reason,
+        model_id=model_id,
+        volcano_id=flight.volcano_id,
+        volcano_name=ctx.volcano_name,
+        flight_id=flight.id,
+        proxy_flight=flight.proxy_flight,
+        callsign=flight.callsign,
+        hex=flight.hex,
+        type_icao=flight.type_icao,
+        cone_id=flight.cone_id,
+        minutes_to_entry=flight.minutes_to_entry,
+        inside_now=flight.inside_now,
+        plan_id=plan_id,
     )
-
-
-def _planner_notes(plan: PlannedAction) -> list[str]:
-    if plan.outcome != "FALLBACK_RULES":
-        return []
-    reasons = "; ".join(first_problems(plan.validation_errors, 3)) or "NO PLAN"
-    return [f"PLANNER FELL BACK TO RULES: {reasons}"]
 
 
 def _advisory(
@@ -339,7 +370,6 @@ def _advisory(
     backend: LlmBackendName,
     model_id: str,
     prompt_hashes: dict[str, str],
-    notes: list[str],
 ) -> Advisory:
     flight = ctx.flight
     decision = plan.decision
@@ -382,7 +412,7 @@ def _advisory(
         llm_backend=backend,
         model_id=model_id,
         prompt_hashes=prompt_hashes,
-        validation_notes=notes,
+        validation_notes=[],
         dedupe_key=stable_id(
             "DD",
             flight.hex,
@@ -474,10 +504,9 @@ def _actor(backend: LlmBackendName) -> TraceActor:
     return "gemini" if backend == "gemini" else "stub"
 
 
-def _draft_line(plan: PlannedAction, backend: LlmBackendName, notes: Sequence[str]) -> str:
+def _draft_line(plan: PlannedAction, backend: LlmBackendName) -> str:
     label = "AI-DRAFTED" if backend == "gemini" else "NO MODEL"
-    text = f"DRAFT {_action_text(plan.decision)} ({label})"
-    return f"{text}; {notes[-1]}" if notes else text
+    return f"DRAFT {_action_text(plan.decision)} ({label})"
 
 
 def _emit(

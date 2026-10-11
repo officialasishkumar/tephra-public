@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Final, Literal
 
 from tephra.agents.llm import BUDGET_EXHAUSTED, LlmBackend, LlmCall, LlmPart, prompt_hash
-from tephra.agents.validators import ZONE_TIME_PATTERN
+from tephra.agents.validators import ZONE_TIME_PATTERN, first_problems
 from tephra.config import (
     MAX_HORIZON_H,
     MAX_PLUME_EXTENT_KM,
@@ -30,7 +30,6 @@ from tephra.geo.units import KM_PER_NM, ft_to_fl
 from tephra.models import (
     BtdIndicator,
     EvidenceState,
-    LlmBackendName,
     PlumeAssessment,
     PlumeEstimate,
     PlumeMode,
@@ -49,7 +48,7 @@ from tephra.util.hashing import stable_id
 __all__ = [
     "PROMPT_PATH",
     "build_parts",
-    "official_fallback",
+    "official_only",
     "read_plume",
     "stub_estimate",
     "validate_estimate",
@@ -57,7 +56,7 @@ __all__ = [
 
 PROMPT_PATH: Final[Path] = Path(__file__).resolve().parent / "prompts" / "plume_reader.md"
 
-FALLBACK_NOTE: Final = "Model output rejected; official products only."
+AI_UNAVAILABLE: Final = "AI UNAVAILABLE"
 OFFICIAL_ONLY_NOTE: Final = "No model call was needed; official products only."
 
 STUB_VONA_WINDOW_H: Final = 6.0
@@ -109,7 +108,7 @@ _NEGATIONS: Final = frozenset({"not", "never", "no", "cannot", "nor", "without",
 _SENTENCE_END: Final = re.compile(r"[.;!?\n]+")
 
 Actor = Literal["code", "gemini", "stub"]
-Outcome = Literal["ACCEPTED", "REPAIRED", "FALLBACK_OFFICIAL", "OFFICIAL_ONLY", "STUB"]
+Outcome = Literal["ACCEPTED", "REPAIRED", "MODEL_FAILED", "OFFICIAL_ONLY", "STUB"]
 
 
 # --- the call ---------------------------------------------------------------------------
@@ -136,9 +135,7 @@ async def read_plume(
     if llm.name == "stub":
         return await _read_with_stub(situation, llm, system, parts, p_hash, settings, report)
     if not call_model:
-        estimate = official_fallback(situation, settings).model_copy(
-            update={"uncertainty_notes": OFFICIAL_ONLY_NOTE}
-        )
+        estimate = official_only(situation, settings, OFFICIAL_ONLY_NOTE)
         report("code", f"Plume: official products only ({_estimate_line(estimate)})")
         return _assessment(
             situation, estimate, llm, model_id="none", p_hash=p_hash, outcome="OFFICIAL_ONLY"
@@ -197,26 +194,25 @@ async def _read_with_model(
                 situation, estimate, llm, model_id, p_hash, "REPAIRED", calls, images_used
             )
 
-    fallback = _fallback(situation, settings)
-    by_stub = fallback.mode is PlumeMode.HYPOTHESIS
-    floor = f"the {NO_MODEL_LABEL} hypothesis" if by_stub else "official products only"
+    reason = "; ".join(first_problems(problems, 3)) or "no usable model output"
+    estimate = official_only(situation, settings, f"{AI_UNAVAILABLE}: {reason}.")
+    unassessed = "" if situation.official_layers else "; no official area, so nothing is drawn"
     report(
         "code",
-        f"Plume Reader fell back to {floor} ({_estimate_line(fallback)})",
-        level="warn",
+        f"Plume Reader: {AI_UNAVAILABLE} ({reason}); official products only{unassessed}",
+        level="error",
         detail={"validation_errors": problems, "model_id": model_id},
     )
     return _assessment(
         situation,
-        fallback,
+        estimate,
         llm,
         model_id,
         p_hash,
-        "FALLBACK_OFFICIAL",
+        "MODEL_FAILED",
         calls,
         images_used,
         validation_errors=problems,
-        backend="stub" if by_stub else llm.name,
     )
 
 
@@ -241,7 +237,7 @@ async def _read_with_stub(
     elif not _is_empty_floor(estimate, situation):
         errors = validate_estimate(estimate, situation)
     if estimate is None or errors:
-        estimate = official_fallback(situation, settings)
+        estimate = official_only(situation, settings, "NO MODEL: stub estimate rejected.")
         report("stub", "NO MODEL: stub estimate rejected; official products only", level="warn")
     report("stub", f"{NO_MODEL_LABEL}: stub plume estimate {_estimate_line(estimate)}")
     return _assessment(
@@ -272,10 +268,7 @@ def _assessment(
     images_used: Sequence[str] = (),
     *,
     validation_errors: Sequence[str] = (),
-    backend: LlmBackendName | None = None,
 ) -> PlumeAssessment:
-    """``backend`` is who produced the estimate when it is not ``llm`` (code's stub after a
-    rejected answer), so the cone and advisories built on it read NO MODEL."""
     made = [call for call in calls if call.error != BUDGET_EXHAUSTED]
     volcano_id = situation.volcano.id
     input_hash = situation.input_hash
@@ -285,7 +278,7 @@ def _assessment(
         created_at=timeutil.now(),
         input_hash=input_hash,
         estimate=estimate,
-        llm_backend=backend or llm.name,
+        llm_backend=llm.name,
         model_id=model_id,
         prompt_hash=p_hash,
         outcome=outcome,
@@ -525,22 +518,12 @@ def _narrows_on_non_observation(sentence: str) -> bool:
     return False
 
 
-# --- fallbacks --------------------------------------------------------------------------
+# --- official products only and the stub ------------------------------------------------
 
 
-def _fallback(situation: Situation, settings: Settings) -> PlumeEstimate:
-    """After a rejected or missing answer: official products only, or with no official layer
-    at all, code's NO MODEL hypothesis, so a recent ash report never leaves the cone empty.
-    The hypothesis must pass the same rules as a model's answer."""
-    if not situation.official_layers:
-        estimate = stub_estimate(situation, settings)
-        if estimate.mode is PlumeMode.HYPOTHESIS and not validate_estimate(estimate, situation):
-            return estimate
-    return official_fallback(situation, settings)
-
-
-def official_fallback(situation: Situation, settings: Settings) -> PlumeEstimate:
-    """Official products only: the band of the official layers (0/0 when there are none)."""
+def official_only(situation: Situation, settings: Settings, note: str) -> PlumeEstimate:
+    """The band of the official layers (0/0 when there are none) and nothing beyond them:
+    what the cone holds when no model reading is in force. ``note`` says why."""
     base_fl, top_fl = _official_band_fl(situation)
     return PlumeEstimate(
         mode=PlumeMode.OFFICIAL,
@@ -553,7 +536,7 @@ def official_fallback(situation: Situation, settings: Settings) -> PlumeEstimate
         confidence=1.0,
         sources_used=sorted({layer.source_id for layer in situation.official_layers}),
         disagreements_explained=[],
-        uncertainty_notes=FALLBACK_NOTE,
+        uncertainty_notes=note,
         rationale=_official_rationale(situation),
     )
 
@@ -561,12 +544,9 @@ def official_fallback(situation: Situation, settings: Settings) -> PlumeEstimate
 def stub_estimate(situation: Situation, settings: Settings) -> PlumeEstimate:
     """Deterministic estimate for ``TEPHRA_LLM=stub`` (labelled NO MODEL everywhere)."""
     if situation.official_layers:
-        return official_fallback(situation, settings).model_copy(
-            update={
-                "uncertainty_notes": "NO MODEL: no model read the products; official band only.",
-                "rationale": f"NO MODEL: {_official_rationale(situation)}",
-            }
-        )
+        return official_only(
+            situation, settings, "NO MODEL: no model read the products; official band only."
+        ).model_copy(update={"rationale": f"NO MODEL: {_official_rationale(situation)}"})
     vona = _recent_ash_vona(situation)
     if vona is not None:
         hypothesis = _stub_hypothesis(situation, vona)

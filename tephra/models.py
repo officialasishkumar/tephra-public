@@ -194,6 +194,7 @@ class ActionKind(StrEnum):
     CHANGE_LEVEL = "CHANGE_LEVEL"
     HOLD = "HOLD"
     DIVERT = "DIVERT"
+    REROUTE = "REROUTE"
 
 
 ALLOWED_ACTIONS: dict[PlumeMode, frozenset[ActionKind]] = {
@@ -240,7 +241,17 @@ class AuditAction(StrEnum):
     REJECTED = "REJECTED"
     SUPERSEDED = "SUPERSEDED"
     OUTBOUND_QUEUED = "OUTBOUND_QUEUED"
-    PLUME_FALLBACK = "PLUME_FALLBACK"
+    AI_FAILED = "AI_FAILED"
+    AI_FAILURE_HANDLED = "AI_FAILURE_HANDLED"
+    ASKED = "ASKED"
+    NOTICE_READ = "NOTICE_READ"
+    RECOVERY_PROPOSED = "RECOVERY_PROPOSED"
+    RECOVERY_DECIDED = "RECOVERY_DECIDED"
+    MESSAGE_DRAFTED = "MESSAGE_DRAFTED"
+    MESSAGE_DECIDED = "MESSAGE_DECIDED"
+    DOC_DRAFTED = "DOC_DRAFTED"
+    DOC_SIGNED = "DOC_SIGNED"
+    HANDOVER_ACKED = "HANDOVER_ACKED"
     LOGIN_OK = "LOGIN_OK"
     LOGIN_FAILED = "LOGIN_FAILED"
     MODE_SWITCH = "MODE_SWITCH"
@@ -263,6 +274,12 @@ class TraceStage(StrEnum):
     PLANNER = "PLANNER"
     DRAFTER = "DRAFTER"
     DESK = "DESK"
+    SATELLITE = "SATELLITE"
+    NOTICE = "NOTICE"
+    ASK = "ASK"
+    RECOVERY = "RECOVERY"
+    MESSAGES = "MESSAGES"
+    DOCS = "DOCS"
     SYSTEM = "SYSTEM"
 
 
@@ -283,6 +300,13 @@ class SseEvent(StrEnum):
     OVERLAYS = "overlays"
     TRACE = "trace"
     ADVISORY = "advisory"
+    AI_FAILURE = "ai_failure"
+    SATELLITE = "satellite"
+    NOTICE = "notice"
+    RECOVERY = "recovery"
+    MESSAGE = "message"
+    DOC = "doc"
+    BUDGET = "budget"
     HEARTBEAT = "heartbeat"
 
 
@@ -955,7 +979,7 @@ class PlumeAssessment(TephraModel):
     llm_backend: LlmBackendName
     model_id: str
     prompt_hash: str
-    outcome: Literal["ACCEPTED", "REPAIRED", "FALLBACK_OFFICIAL", "OFFICIAL_ONLY", "STUB"]
+    outcome: Literal["ACCEPTED", "REPAIRED", "MODEL_FAILED", "OFFICIAL_ONLY", "STUB"]
     attempts: int = Field(
         ge=0, description="Model calls made: 0 (stub or OFFICIAL_ONLY), 1, or 2 with repair"
     )
@@ -1076,7 +1100,7 @@ class PolicyValue(PolicyModel):
     """One operator value, with its unit and the reason it has this value."""
 
     value: int
-    unit: Literal["ft", "FL", "NM", "m", "min"]
+    unit: Literal["ft", "FL", "NM", "m", "min", "kt", "deg", "s", "USD", "count", "pct"]
     source: str = Field(min_length=1)
     citation_ids: list[str] = Field(default_factory=list)
 
@@ -1101,6 +1125,36 @@ class PlannerPolicy(PolicyModel):
     divert_within_min: PolicyValue
     hold_within_min: PolicyValue
     hypothesis_hold_within_min: PolicyValue
+
+
+class ReroutePolicy(PolicyModel):
+    buffer_nm: PolicyValue
+    simplify_nm: PolicyValue
+    max_waypoints_count: PolicyValue
+    max_turn_deg: PolicyValue
+    rejoin_step_nm: PolicyValue
+    max_extra_min: PolicyValue
+    min_extra_min: PolicyValue
+    route_max_cross_track_nm: PolicyValue
+    cruise_tas_kt: PolicyValue
+
+
+class RecoveryPolicy(PolicyModel):
+    min_turn_min: PolicyValue
+    max_delay_min: PolicyValue
+    freeze_window_min: PolicyValue
+    horizon_after_closure_min: PolicyValue
+    scenario_extend_1_min: PolicyValue
+    scenario_extend_2_min: PolicyValue
+    solve_time_limit_s: PolicyValue
+    delay_cost_per_min_usd: PolicyValue
+    delay_cost_per_pax_hour_usd: PolicyValue
+    cancel_cost_per_pax_usd: PolicyValue
+    cancel_cost_fixed_usd: PolicyValue
+    swap_cost_usd: PolicyValue
+    ferry_cost_per_block_min_usd: PolicyValue
+    max_fdp_min: PolicyValue
+    airport_closure_radius_nm: PolicyValue
 
 
 class FuelPolicy(PolicyModel):
@@ -1140,6 +1194,8 @@ class OperatorPolicy(PolicyModel):
     exposure: ExposurePolicy
     alternates: AlternatePolicy
     planner: PlannerPolicy
+    reroute: ReroutePolicy
+    recovery: RecoveryPolicy
     fuel: FuelPolicy
     source_order: list[SourceRule] = Field(min_length=1)
     citations: list[PolicyCitation] = Field(min_length=1)
@@ -1162,6 +1218,8 @@ class OperatorPolicy(PolicyModel):
             "exposure": self.exposure,
             "alternates": self.alternates,
             "planner": self.planner,
+            "reroute": self.reroute,
+            "recovery": self.recovery,
             "fuel": self.fuel,
         }
         return {
@@ -1217,6 +1275,68 @@ class AlternateCandidate(TephraModel):
     divert: FuelLine
 
 
+class RerouteKind(StrEnum):
+    REJOIN_TRACK = "REJOIN_TRACK"
+    """Around the hazard and back onto the present track beyond it: needs no destination."""
+    DIRECT_DEST = "DIRECT_DEST"
+    """Around the hazard and direct to the destination of the flight's published route."""
+
+
+class RerouteStatus(StrEnum):
+    OK = "OK"
+    NOT_EXPOSED = "NOT_EXPOSED"
+    START_INSIDE = "START_INSIDE"
+    DEST_INSIDE = "DEST_INSIDE"
+    NO_ROUTE = "NO_ROUTE"
+    NO_DEST = "NO_DEST"
+    NO_BENEFIT = "NO_BENEFIT"
+    TOO_LONG = "TOO_LONG"
+
+
+class FlightRoute(TephraModel):
+    """Origin and destination of an ADS-B callsign from VRS standing data (CC0), kept only
+    when the aircraft lies near that leg's great circle."""
+
+    callsign: str
+    origin_icao: str = Field(pattern=r"^[A-Z0-9]{4}$")
+    dest_icao: str = Field(pattern=r"^[A-Z0-9]{4}$")
+    cross_track_nm: float = Field(ge=0, description="Aircraft's distance from the leg")
+    source: Literal["vrs-standing-data"] = "vrs-standing-data"
+
+
+class RerouteOption(TephraModel):
+    """A lateral route around the hazard, computed by code (``tephra.geo.reroute``).
+
+    Turn points are latitude/longitude only (no named waypoint is ever invented), rounded to
+    one arc-minute and written in ICAO ``DDMM[NS]DDDMM[EW]`` form in ``route_string``.
+    """
+
+    id: str = Field(description="stable_id('RR', flight_id, cone_id, kind)")
+    flight_id: str
+    cone_id: str
+    kind: RerouteKind
+    status: RerouteStatus
+    note: str = Field(description="Code-written reason for the status")
+    side: Literal["LEFT", "RIGHT"] | None = None
+    fl: int | None = Field(default=None, description="Level the route is flown at")
+    waypoints: list[Position] = Field(default_factory=list, description="(lon, lat) turn points")
+    end: Position | None = Field(default=None, description="Rejoin point or destination")
+    end_icao: str | None = None
+    path: list[Position] = Field(
+        default_factory=list, description="(lon, lat) polyline from the present position"
+    )
+    dist_nm: float | None = None
+    extra_nm: float | None = None
+    time_min: float | None = None
+    extra_min: float | None = None
+    buffer_nm: int | None = None
+    max_turn_deg: float | None = None
+    fuel: FuelLine | None = Field(default=None, description="Cost of the extra minutes")
+    route_string: str = Field(default="", description="'DCT 0540S10930E DCT 0701S11215E DCT WADD'")
+    wind_note: str | None = None
+    compute_ms: float | None = None
+
+
 class PlannerContext(TephraModel):
     """Everything the Exposure Planner may use for one flight; held in ADK session state.
 
@@ -1240,6 +1360,10 @@ class PlannerContext(TephraModel):
     divert_within_min: int
     hold_within_min: int
     hypothesis_hold_within_min: int
+    route: FlightRoute | None = Field(default=None, description="Published route, if known")
+    reroutes: list[RerouteOption] = Field(
+        default_factory=list, description="Code-computed lateral options (OK and not OK)"
+    )
 
 
 class PlannerDecision(TephraModel):
@@ -1250,6 +1374,7 @@ class PlannerDecision(TephraModel):
     change_level_fl_max: int | None = None
     hold_fl: int | None = None
     alternate_icao: str | None = None
+    reroute_id: str | None = Field(default=None, description="An OK RerouteOption id (REROUTE)")
     reasoning: str = Field(description="Operational language, no clock times")
     alternatives_considered: list[ActionKind] = Field(default_factory=list)
 
@@ -1264,13 +1389,15 @@ class PlannedAction(TephraModel):
     id: str = Field(description="stable_id('PLAN', flight_id, cone_id)")
     flight_id: str
     cone_id: str
-    decision: PlannerDecision
+    decision: PlannerDecision | None = Field(
+        description="None when the model gave no plan that passed the checks (MODEL_FAILED)"
+    )
     fuel: FuelLine | None = Field(default=None, description="HOLD or DIVERT cost line")
     tool_calls: list[ToolCallRecord] = Field(default_factory=list)
     llm_backend: LlmBackendName
     model_id: str
     prompt_hash: str
-    outcome: Literal["ACCEPTED", "REPAIRED", "FALLBACK_RULES", "STUB"]
+    outcome: Literal["ACCEPTED", "REPAIRED", "MODEL_FAILED", "STUB"]
     validation_errors: list[str] = Field(default_factory=list)
 
 
@@ -1305,6 +1432,7 @@ class Advisory(TephraModel):
     change_level_fl_max: int | None = None
     hold_fl: int | None = None
     alternate_icao: str | None = None
+    reroute: RerouteOption | None = None
     minutes_to_entry: int
     inside_now: bool
     fuel: FuelLine | None = None
@@ -1343,6 +1471,32 @@ class Advisory(TephraModel):
     @property
     def final_text(self) -> str:
         return "\n".join(part for part in (self.header, self.final_body, self.cost_note) if part)
+
+
+class AiFailure(TephraModel):
+    """An exposed flight the AI could not plan or draft for. There is no substitute plan or
+    template: the Desk shows it so a dispatcher handles the flight by hand."""
+
+    id: str = Field(description="stable_id('AIF', flight_id, cone_id, stage)")
+    created_at: UtcDatetime
+    replay: bool
+    stage: Literal["planner", "drafter"]
+    reason: str = Field(description="Code-written: the error or the checks that failed")
+    model_id: str
+    volcano_id: str
+    volcano_name: str
+    flight_id: str
+    proxy_flight: str
+    callsign: str | None = None
+    hex: str
+    type_icao: str | None = None
+    cone_id: str
+    minutes_to_entry: int
+    inside_now: bool
+    plan_id: str | None = Field(default=None, description="Set when the drafter failed")
+    handled_by: str | None = None
+    handled_at: UtcDatetime | None = None
+    handled_note: str | None = None
 
 
 class OutboundMessage(TephraModel):
@@ -1702,6 +1856,14 @@ class RejectRequest(DecisionRequest):
 
 class AdvisoryList(TephraModel):
     advisories: list[Advisory]
+
+
+class AiFailureList(TephraModel):
+    failures: list[AiFailure]
+
+
+class HandledRequest(TephraModel):
+    note: str = Field(default="", max_length=500, description="What the dispatcher did")
 
 
 class AuditList(TephraModel):

@@ -1,0 +1,30 @@
+{
+  "image_finding": "obscured_by_met_cloud",
+  "frames_with_feature": [],
+  "plume_box_2d": [],
+  "drift_direction": "unclear",
+  "top_fl": null,
+  "top_fl_basis": "none",
+  "horizon_h": 0,
+  "confidence": "high",
+  "confidence_reason": "Meteorological cloud cover obscures the vent and the downwind sector to the south-southeast across all Ash RGB and IR frames.",
+  "sources": [
+    {
+      "id": "IMG-1",
+      "used_for": "existence"
+    },
+    {
+      "id": "IMG-2",
+      "used_for": "existence"
+    },
+    {
+      "id": "IMG-3",
+      "used_for": "existence"
+    },
+    {
+      "id": "IMG-4",
+      "used_for": "existence"
+    }
+  ],
+  "disagreements": []
+}

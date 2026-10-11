@@ -46,6 +46,7 @@ from tephra.models import (
     ActionKind,
     Advisory,
     AdvisoryStatus,
+    AiFailure,
     AirlineInfo,
     FeedHealth,
     FeedId,
@@ -68,7 +69,7 @@ from tephra.models import (
 from tephra.pipeline import Runtime
 from tephra.policy import load_policy
 from tephra.store import open_store
-from tephra.store.base import Store
+from tephra.store.base import Collection, Store
 from tephra.util import timeutil
 from tephra.util.events import Event, EventBus
 from tephra.util.hashing import proxy_flight_number
@@ -186,6 +187,29 @@ def make_advisory() -> Advisory:
     )
 
 
+FAILURE_ID = "AIF-0123456789ab"
+
+
+def make_failure() -> AiFailure:
+    hex_id = "8a0456"
+    return AiFailure(
+        id=FAILURE_ID,
+        created_at=timeutil.now(),
+        replay=False,
+        stage="planner",
+        reason="PLANNER AGENT ERROR: RuntimeError",
+        model_id="gemini-3.5-flash-lite",
+        volcano_id="263300",
+        volcano_name="Semeru",
+        flight_id=f"{hex_id}:263300",
+        proxy_flight=proxy_flight_number(hex_id),
+        hex=hex_id,
+        cone_id="CONE-0123456789ab",
+        minutes_to_entry=9,
+        inside_now=False,
+    )
+
+
 class Harness:
     """Builds the stand-in runtime inside the app's lifespan and keeps a handle on it."""
 
@@ -203,6 +227,7 @@ class Harness:
             ADVISORY_ID, 0, make_advisory().model_dump(mode="json")
         )
         assert created
+        await store.put(Collection.AI_FAILURES, FAILURE_ID, make_failure().model_dump(mode="json"))
         self._runtime = FakeRuntime(settings=settings, store=store)
         return cast(Runtime, self._runtime)
 
@@ -748,6 +773,22 @@ def test_reject_needs_a_reason(client: TestClient) -> None:
     assert rejected.json()["status"] == "REJECTED"
     assert rejected.json()["reject_reason"] == "Crew already holding on company frequency"
     assert client.get("/api/outbound").json() == {"messages": []}
+
+
+def test_desk_lists_ai_failures_and_a_dispatcher_closes_one(client: TestClient) -> None:
+    assert client.get("/api/desk/ai-failures").status_code == 401
+    login(client)
+    listed = client.get("/api/desk/ai-failures").json()["failures"]
+    assert [item["id"] for item in listed] == [FAILURE_ID]
+    handled = client.post(
+        f"/api/desk/ai-failures/{FAILURE_ID}/handled", json={"note": "Crew told to climb"}
+    )
+    assert handled.status_code == 200
+    assert handled.json()["handled_by"] == f"desk:{DISPATCHER}"
+    assert client.get("/api/desk/ai-failures").json() == {"failures": []}
+    missing = client.post("/api/desk/ai-failures/AIF-ffffffffffff/handled", json={})
+    assert missing.status_code == 404
+    assert client.post("/api/desk/ai-failures/../x/handled", json={}).status_code == 404
 
 
 @pytest.mark.parametrize("advisory_id", ["adv_ffffffffffff", "not-an-id"])

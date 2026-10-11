@@ -254,20 +254,21 @@ async def test_bad_tool_arguments_go_back_to_the_model(script: list[Turn]) -> No
     assert "error" in band_check.result_summary
 
 
-async def test_agent_error_falls_back_to_rules_and_keeps_the_trace(script: list[Turn]) -> None:
+async def test_agent_error_gives_no_plan_and_keeps_the_trace(script: list[Turn]) -> None:
     script += [call("get_flight"), RuntimeError("model unavailable")]
     planned, trace = await plan(GeminiStandIn())
-    assert planned.outcome == "FALLBACK_RULES"
-    assert planned.decision.reasoning.startswith("NO MODEL:")
+    assert planned.outcome == "MODEL_FAILED"
+    assert planned.decision is None
+    assert planned.fuel is None
     assert planned.validation_errors == ["PLANNER AGENT ERROR: RuntimeError"]
     assert [record.name for record in planned.tool_calls] == ["get_flight"]
-    fallback = trace[-1]
-    assert fallback.level == "warn"
-    assert "FELL BACK TO RULES" in fallback.message
-    assert "NO MODEL" in fallback.message
+    failed = trace[-1]
+    assert failed.level == "error"
+    assert "AI UNAVAILABLE" in failed.message
+    assert "A DISPATCHER MUST PLAN THIS FLIGHT" in failed.message
 
 
-async def test_without_an_api_key_adk_falls_back_to_rules(
+async def test_without_an_api_key_there_is_no_plan(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # The real ADK Gemini model, Gemini API (never Vertex AI) and no key: the client refuses
@@ -277,25 +278,25 @@ async def test_without_an_api_key_adk_falls_back_to_rules(
     monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "FALSE")
     monkeypatch.setenv("GOOGLE_GENAI_USE_ENTERPRISE", "FALSE")
     planned, trace = await plan(GeminiStandIn(), model="gemini-3.5-flash-lite")
-    assert planned.outcome == "FALLBACK_RULES"
-    assert planned.decision.reasoning.startswith("NO MODEL:")
+    assert planned.outcome == "MODEL_FAILED"
+    assert planned.decision is None
     assert planned.validation_errors == ["PLANNER AGENT ERROR: ValueError"]
-    assert any("FELL BACK TO RULES" in event.message for event in trace)
+    assert any("AI UNAVAILABLE" in event.message for event in trace)
 
 
 async def test_exhausted_budget_stops_before_any_model_call(script: list[Turn]) -> None:
     script += [call("get_flight")]
     planned, trace = await plan(GeminiStandIn(budget_left=False))
     assert _CALLS == []
-    assert planned.outcome == "FALLBACK_RULES"
+    assert planned.outcome == "MODEL_FAILED"
     assert "budget_exhausted" in planned.validation_errors
-    assert "FELL BACK TO RULES" in trace[-1].message
+    assert "AI UNAVAILABLE" in trace[-1].message
 
 
 async def test_a_spent_daily_quota_closes_the_lite_tier(script: list[Turn], tmp_path: Path) -> None:
     """A 429 naming a per-day quota reaches the planner as ADK's wrapped ClientError. Nothing
-    clears it before Google's quota day ends, so the run stops without a repair turn, rules
-    take over, and the lite tier stays closed for the Drafter and later flights."""
+    clears it before Google's quota day ends, so the run stops without a repair turn, no plan
+    is made, and the lite tier stays closed for the Drafter and later flights."""
     script += [_ResourceExhaustedError(genai_errors.ClientError(429, DAILY_QUOTA_429))]
     settings = Settings(
         _env_file=None, llm="gemini", GEMINI_API_KEY="test-key", model_lite=SCRIPTED_MODEL
@@ -303,9 +304,9 @@ async def test_a_spent_daily_quota_closes_the_lite_tier(script: list[Turn], tmp_
     llm = GeminiBackend(settings, cache_dir=tmp_path, budget=DailyBudget())
     planned, trace = await plan(llm)
     assert len(_CALLS) == 1
-    assert planned.outcome == "FALLBACK_RULES"
+    assert planned.outcome == "MODEL_FAILED"
     assert any("DAILY QUOTA" in problem for problem in planned.validation_errors)
-    assert "FELL BACK TO RULES" in trace[-1].message
+    assert "AI UNAVAILABLE" in trace[-1].message
     assert not llm.reserve("lite")
     assert llm.reserve("main")
 
@@ -345,5 +346,5 @@ async def test_a_looping_model_is_stopped_by_the_turn_limit(script: list[Turn]) 
     script += [call("get_flight") for _ in range(30)]
     planned, _ = await plan(GeminiStandIn())
     assert len(_CALLS) == 10
-    assert planned.outcome == "FALLBACK_RULES"
+    assert planned.outcome == "MODEL_FAILED"
     assert any("TURN LIMIT" in problem for problem in planned.validation_errors)

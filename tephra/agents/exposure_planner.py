@@ -2,8 +2,9 @@
 
 With Gemini the planner is a Google ADK ``LlmAgent`` (built in ``tephra.agents.adk_app``)
 whose function tools read this flight's ``PlannerContext`` from session state and record
-the decision through ``submit_plan``. The stub backend, and every fallback, use
-``rule_based_decision``. Either way ``validators.validate_decision`` has the last word.
+the decision through ``submit_plan``. The stub backend uses ``rule_based_decision``. Either
+way ``validators.validate_decision`` has the last word. When the model gives no plan that
+passes it, there is no substitute: the plan has no decision and a dispatcher plans by hand.
 
 There is no free airway database, so any waypoint would be invented: the actions are
 CONTINUE, MONITOR, CHANGE_LEVEL, HOLD (present position) and DIVERT (a screened alternate).
@@ -74,7 +75,7 @@ _RING_POINTS: Final = 64
 """Vertices of the buffer disc; its edges fall at most 0.03 NM inside the true circle."""
 _SUMMARY_CHARS: Final = 240
 
-PlanOutcome = Literal["ACCEPTED", "REPAIRED", "FALLBACK_RULES", "STUB"]
+PlanOutcome = Literal["ACCEPTED", "REPAIRED", "MODEL_FAILED", "STUB"]
 
 
 # --- context ----------------------------------------------------------------------------
@@ -548,7 +549,7 @@ async def plan_flight(
     run = _AgentRun()
     try:
         await _run_agent(ctx, llm, run, settings=settings, trace=trace)
-    except Exception as exc:  # ADK or API failure: agents fall back, they never raise
+    except Exception as exc:  # ADK or API failure: no plan, agents never raise
         logger.warning("planner agent failed for %s: %s", ctx.flight.id, type(exc).__name__)
         run.decision = None
         run.problems = [f"PLANNER AGENT ERROR: {type(exc).__name__}"]
@@ -563,22 +564,22 @@ async def plan_flight(
             outcome=run.outcome,
             tool_calls=run.records,
         )
-    decision = rule_based_decision(ctx)
+    reasons = "; ".join(first_problems(run.problems, 3)) or "NO PLAN"
     _emit(
         trace,
         ctx,
         "code",
-        f"PLANNER FELL BACK TO RULES (NO MODEL): {_decision_line(decision)}",
-        level="warn",
+        f"PLANNER AI UNAVAILABLE ({reasons}): NO PLAN, A DISPATCHER MUST PLAN THIS FLIGHT",
+        level="error",
         detail={"problems": run.problems},
     )
     return _planned(
         ctx,
-        decision,
+        None,
         backend=llm.name,
         model_id=model_id,
         prompt_hash=phash,
-        outcome="FALLBACK_RULES",
+        outcome="MODEL_FAILED",
         tool_calls=run.records,
         errors=run.problems,
     )
@@ -770,7 +771,7 @@ def _repair_text(problems: Sequence[str]) -> str:
 
 def _planned(
     ctx: PlannerContext,
-    decision: PlannerDecision,
+    decision: PlannerDecision | None,
     *,
     backend: LlmBackendName,
     model_id: str,
@@ -785,7 +786,7 @@ def _planned(
         flight_id=flight.id,
         cone_id=flight.cone_id,
         decision=decision,
-        fuel=fuel_for(decision, ctx),
+        fuel=fuel_for(decision, ctx) if decision is not None else None,
         tool_calls=list(tool_calls),
         llm_backend=backend,
         model_id=model_id,

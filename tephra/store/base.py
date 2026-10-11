@@ -42,6 +42,15 @@ class Collection(StrEnum):
     EXPOSURES = "exposures"  # flight id -> ExposedFlight (current set only)
     PLANS = "plans"  # plan id -> PlannedAction
     ADVISORIES = "advisories"  # advisory id -> Advisory (compare-and-set on version)
+    AI_FAILURES = "ai_failures"  # failure id -> AiFailure (no plan or draft; handled by hand)
+    REROUTES = "reroutes"  # RerouteOption id -> RerouteOption
+    SAT_READINGS = "sat_readings"  # reading id -> SatelliteReading
+    NOTICES = "notices"  # notice id -> NoticeReading (Gemini read of a free-text notice)
+    ASK_LOG = "ask_log"  # answer id -> AskAnswer
+    RECOVERY = "recovery"  # recovery plan id -> RecoveryPlan
+    MESSAGES = "messages"  # message id -> CrewPaxMessage (DRAFT -> APPROVED/EDITED/REJECTED)
+    DOCS = "docs"  # doc id -> SraDraft | VarDraft | HandoverBrief
+    BACKTEST = "backtest"  # "latest" -> BacktestScorecard
     OUTBOUND = "outbound"  # message id -> OutboundMessage
     AUDIT = "audit"  # entry id -> AuditEntry (append-only)
     FEED_STATE = "feed_state"  # FeedId value -> FeedHealth

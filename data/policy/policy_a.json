@@ -1,19 +1,24 @@
 {
   "policy_id": "RFA-POLICY-A",
-  "version": "2026.10.1",
+  "version": "2026.10.2",
   "preset": "A",
   "title": "Ring of Fire Air operator policy A (default)",
   "label": "ILLUSTRATIVE, not an airline SRA",
   "sra_ref": null,
   "risk_owner": "Flight Operations",
   "summary_text": "Operator policy A (default, illustrative): the current VAA and SIGMET affected areas, merged, up to the highest top, are treated as high contamination and avoided at dispatch. This follows the Doc 9974 App 5 5.4(d)(2) default for ungraded areas, \"unless the operator’s safety risk assessment allows it to do otherwise safely\". Under Doc 9974 2.10 an operator whose SMS shows it can do so safely may plan through, under or over (Policy B).",
-  "summary_citation_ids": ["9974-app5-5.4d2", "9974-2.10"],
+  "summary_citation_ids": [
+    "9974-app5-5.4d2",
+    "9974-2.10"
+  ],
   "exposure": {
     "vertical_margin_ft": {
       "value": 2000,
       "unit": "ft",
       "source": "Added above the hazard top and below its base. For comparison, UK practice (CAP 1236 2.24) puts the assumed minimum safe altitude at least 2,000 ft above the ash top.",
-      "citation_ids": ["cap1236-2.24"]
+      "citation_ids": [
+        "cap1236-2.24"
+      ]
     }
   },
   "alternates": {
@@ -80,6 +85,130 @@
       "source": "TEPHRA illustrative choice: with no valid official product, entry this close makes the rules advise a hold."
     }
   },
+  "reroute": {
+    "buffer_nm": {
+      "value": 20,
+      "unit": "NM",
+      "source": "TEPHRA illustrative choice: lateral buffer kept outside the hazard area. No ICAO or UK figure exists (research/18a section 2); it must exceed the turn anticipation of a 90 degree turn at cruise speed (about 6.4 NM at 450 kt and 25 degrees of bank)."
+    },
+    "simplify_nm": {
+      "value": 2,
+      "unit": "NM",
+      "source": "TEPHRA illustrative choice: Douglas-Peucker tolerance on the hazard outline; it is added to the buffer, so the simplified obstacle still contains the true area."
+    },
+    "max_waypoints_count": {
+      "value": 3,
+      "unit": "count",
+      "source": "TEPHRA illustrative choice: at most this many inserted turn points, so the route fits one ACARS message and a dispatcher can check it (NASA DWR inserts at most two)."
+    },
+    "max_turn_deg": {
+      "value": 90,
+      "unit": "deg",
+      "source": "TEPHRA illustrative choice: the largest track change allowed at a turn point."
+    },
+    "rejoin_step_nm": {
+      "value": 25,
+      "unit": "NM",
+      "source": "TEPHRA illustrative choice: spacing of the candidate points where the route rejoins the present track beyond the hazard."
+    },
+    "max_extra_min": {
+      "value": 30,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: a lateral route longer than this many extra minutes is not offered; the planner weighs a level change, hold or diversion instead."
+    },
+    "min_extra_min": {
+      "value": 1,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: a reroute saving less than this over the present track is reported as no benefit."
+    },
+    "route_max_cross_track_nm": {
+      "value": 100,
+      "unit": "NM",
+      "source": "TEPHRA illustrative choice: a published route is used only when the aircraft lies within this distance of that leg's great circle (VRS standing data is crowd-sourced)."
+    },
+    "cruise_tas_kt": {
+      "value": 450,
+      "unit": "kt",
+      "source": "TEPHRA illustrative choice: true airspeed assumed for timing a route when ADS-B gives no ground speed (jet cruise)."
+    }
+  },
+  "recovery": {
+    "min_turn_min": {
+      "value": 40,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: minimum ground time between two flights of one aircraft (narrowbody)."
+    },
+    "max_delay_min": {
+      "value": 360,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: a flight delayed longer than this is cancelled instead."
+    },
+    "freeze_window_min": {
+      "value": 30,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: flights departing within this many minutes, and airborne flights, are not moved by the recovery model."
+    },
+    "horizon_after_closure_min": {
+      "value": 240,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: the recovery model re-plans flights departing up to this long after the closure is expected to end."
+    },
+    "scenario_extend_1_min": {
+      "value": 180,
+      "unit": "min",
+      "source": "Closures were extended repeatedly in the 5-7 Sep 2026 Java event (CGK 05:30, then 09:30, then 18:00), so the recovery agent also plans for the closure lasting this much longer (research/18d section 7.1)."
+    },
+    "scenario_extend_2_min": {
+      "value": 360,
+      "unit": "min",
+      "source": "Second, longer closure-extension scenario (research/18d section 7.1)."
+    },
+    "solve_time_limit_s": {
+      "value": 2,
+      "unit": "s",
+      "source": "TEPHRA illustrative choice: the CP-SAT solver's time limit per scenario."
+    },
+    "delay_cost_per_min_usd": {
+      "value": 25,
+      "unit": "USD",
+      "source": "TEPHRA illustrative choice: placeholder fixed cost of one minute of delay (research/18d section 7.3)."
+    },
+    "delay_cost_per_pax_hour_usd": {
+      "value": 20,
+      "unit": "USD",
+      "source": "Placeholder delay cost per passenger-hour: 0.4 USD per minute x 0.85 load, about 20 USD (research/18d section 7.3)."
+    },
+    "cancel_cost_per_pax_usd": {
+      "value": 85,
+      "unit": "USD",
+      "source": "TEPHRA illustrative choice: placeholder cost per booked passenger of a cancellation (research/18d section 7.3)."
+    },
+    "cancel_cost_fixed_usd": {
+      "value": 1500,
+      "unit": "USD",
+      "source": "TEPHRA illustrative choice: placeholder fixed cost of a cancellation (research/18d section 7.3)."
+    },
+    "swap_cost_usd": {
+      "value": 300,
+      "unit": "USD",
+      "source": "TEPHRA illustrative choice: placeholder cost of moving a flight to another aircraft (research/18d section 7.3)."
+    },
+    "ferry_cost_per_block_min_usd": {
+      "value": 100,
+      "unit": "USD",
+      "source": "Placeholder ferry cost per block minute, near the A4A 2024 figure of 100.76 USD (research/18d section 7.3)."
+    },
+    "max_fdp_min": {
+      "value": 780,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: 13 h planning limit on a crew's flight duty period, inside the 14 h of CASR 121 (research/18d section 7.3)."
+    },
+    "airport_closure_radius_nm": {
+      "value": 20,
+      "unit": "NM",
+      "source": "TEPHRA illustrative choice: an airport counts as closed while the hazard area at any level below FL100 comes within this distance, or its TAF or METAR reports VA."
+    }
+  },
   "fuel": {
     "hold_min": {
       "value": 20,
@@ -96,17 +225,23 @@
     {
       "rule_id": "S1_OFFICIAL_AREAS",
       "text": "VAA and SIGMET affected areas set the planning floor.",
-      "citation_ids": ["9974-2.4d"]
+      "citation_ids": [
+        "9974-2.4d"
+      ]
     },
     {
       "rule_id": "S2_VONA_ADDS",
       "text": "VONA observations may add caution, never remove it.",
-      "citation_ids": ["9974-2.4d"]
+      "citation_ids": [
+        "9974-2.4d"
+      ]
     },
     {
       "rule_id": "S3_NON_OBSERVATION",
       "text": "Non-observations never remove caution: 'not observed', 'not identifiable', a silent satellite indicator and silence.",
-      "citation_ids": ["9974-2.4d"]
+      "citation_ids": [
+        "9974-2.4d"
+      ]
     }
   ],
   "citations": [

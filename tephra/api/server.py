@@ -46,17 +46,20 @@ from tephra.api.auth import (
 )
 from tephra.api.sse import EventStreamResponse, StreamSlots, event_stream, parse_last_event_id
 from tephra.config import Settings, get_settings
-from tephra.desk import approvals, audit
+from tephra.desk import approvals, audit, failures
 from tephra.models import (
     Advisory,
     AdvisoryList,
     AdvisoryStatus,
+    AiFailure,
+    AiFailureList,
     AuditAction,
     AuditList,
     DecisionRequest,
     EditRequest,
     ErrorBody,
     FeedHealth,
+    HandledRequest,
     LoginRequest,
     OutboundList,
     OutboundMessage,
@@ -118,6 +121,7 @@ STREAMS_RETRY_AFTER_S: Final = 5
 SCHEDULER_STOP_TIMEOUT_S: Final = 10.0
 
 _ADVISORY_ID = re.compile(r"adv_[0-9a-f]{12}")
+_FAILURE_ID = re.compile(r"AIF-[0-9a-f]{1,64}")
 _BLOB_KEY = re.compile(BLOB_KEY_PATTERN)
 _CASE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
 _NAME_PUNCTUATION = frozenset(" .'-_")
@@ -496,6 +500,39 @@ async def reject_advisory(
         actor=_actor(session),
     )
     return _json(advisory)
+
+
+@desk_api.get("/desk/ai-failures", response_model=AiFailureList)
+async def desk_ai_failures(
+    session: DeskSession, runtime: RuntimeDep, open_only: bool = True, limit: Limit = 50
+) -> Response:
+    """Flights the AI could not plan or draft for, in the current mode."""
+    listed = await failures.list_failures(
+        runtime.store,
+        open_only=open_only,
+        replay=runtime.mode is RunMode.REPLAY,
+        limit=limit,
+    )
+    return _json(AiFailureList(failures=listed))
+
+
+@desk_api.post(
+    "/desk/ai-failures/{failure_id}/handled",
+    response_model=AiFailure,
+    dependencies=[Depends(require_csrf)],
+)
+async def handle_ai_failure(
+    failure_id: str, body: HandledRequest, session: DeskSession, runtime: RuntimeDep
+) -> Response:
+    if _FAILURE_ID.fullmatch(failure_id) is None:
+        raise ApiError(404, "not_found", "No such AI failure")
+    try:
+        handled = await failures.mark_handled(
+            runtime.store, runtime.bus, failure_id, actor=_actor(session), note=body.note
+        )
+    except failures.FailureNotFound:
+        raise ApiError(404, "not_found", "No such AI failure") from None
+    return _json(handled)
 
 
 @desk_api.post("/mode", response_model=SystemState, dependencies=[Depends(require_csrf)])

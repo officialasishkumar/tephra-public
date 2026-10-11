@@ -20,9 +20,11 @@ from typing import Any
 import httpx
 import pytest
 
+from tephra import pipeline as pipeline_module
 from tephra.agents.llm import get_llm
 from tephra.config import PROJECT_ROOT, Settings
 from tephra.desk.approvals import list_advisories
+from tephra.desk.failures import list_failures
 from tephra.feeds import registry
 from tephra.feeds.adsb import MAX_CACHED_COPY_AGE_S
 from tephra.feeds.airports import load_airports
@@ -390,6 +392,36 @@ async def test_one_tick_from_feeds_to_a_draft(runtime: Runtime) -> None:
     ]
     assert for_semeru[:2] == ["PLUME", "CONE"]
     assert for_semeru[-4:] == ["EXPOSURE", "PLANNER", "DRAFTER", "DESK"]
+
+
+async def test_a_flight_the_planner_cannot_plan_goes_to_the_desk_without_a_draft(
+    runtime: Runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No rule-based plan stands in for the model: no advisory, one AI failure, and the
+    trace says a dispatcher must handle the flight."""
+    real_plan_flight = pipeline_module.plan_flight
+
+    async def failing_plan_flight(*args: Any, **kwargs: Any) -> Any:
+        plan = await real_plan_flight(*args, **kwargs)
+        return plan.model_copy(
+            update={
+                "decision": None,
+                "fuel": None,
+                "outcome": "MODEL_FAILED",
+                "validation_errors": ["PLANNER AGENT ERROR: RuntimeError"],
+            }
+        )
+
+    monkeypatch.setattr(pipeline_module, "plan_flight", failing_plan_flight)
+    report = await run_tick(runtime, reason="manual")
+    assert report.exposed_flights == 1
+    assert report.drafts_created == 0
+    assert await list_advisories(runtime.store) == []
+    failures = await list_failures(runtime.store)
+    assert [(f.stage, f.flight_id) for f in failures] == [("planner", f"{GIA417}:{SEMERU}")]
+    assert failures[0].reason == "PLANNER AGENT ERROR: RuntimeError"
+    messages = [e["message"] for e in trace_events(runtime) if e["level"] == "error"]
+    assert any("AI UNAVAILABLE" in message for message in messages)
 
 
 async def test_a_second_tick_does_not_draft_again(runtime: Runtime, clock: FixedClock) -> None:

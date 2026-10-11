@@ -24,11 +24,24 @@ POLICY = load_policy(DATA_DIR)
 
 PINNED_HASHES = {
     "2026.10.1": "8ce2e026c5f7de766c74c07a8ccb0998d23e9710675ab4946422ce01a0472a42",
+    "2026.10.2": "4df955f1bda2326697374ba053d62004677759615d2cdfda947cff5cb712263a",
 }
 """Each version's content hash. An edit without a new version fails here: every audit entry
 names the version its draft was made under, so one version must mean one content."""
 
-UNIT_BY_SUFFIX = {"ft": "ft", "fl": "FL", "nm": "NM", "m": "m", "min": "min"}
+UNIT_BY_SUFFIX = {
+    "ft": "ft",
+    "fl": "FL",
+    "nm": "NM",
+    "m": "m",
+    "min": "min",
+    "kt": "kt",
+    "deg": "deg",
+    "s": "s",
+    "usd": "USD",
+    "count": "count",
+    "pct": "pct",
+}
 
 
 def raw_policy() -> dict[str, Any]:
@@ -46,7 +59,7 @@ def test_the_policy_file_loads_and_is_labelled_illustrative() -> None:
 
 def test_every_value_has_a_reason_and_a_unit_that_matches_its_name() -> None:
     values = POLICY.named_values()
-    assert len(values) == 15
+    assert len(values) == 39
     for name, value in values.items():
         assert value.source.strip(), name
         suffix = name.rsplit("_", 1)[1]

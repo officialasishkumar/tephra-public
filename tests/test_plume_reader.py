@@ -262,26 +262,27 @@ async def test_one_repair_then_accepted(situation: Situation) -> None:
     assert assessment.attempts == 2
 
 
-async def test_two_rejections_fall_back_to_official_never_smaller(situation: Situation) -> None:
+async def test_two_rejections_leave_official_products_only(situation: Situation) -> None:
     shrunk = good_estimate(situation, top_fl=90)
     llm = ScriptedLlm([shrunk, shrunk, shrunk])
     with use_clock(FixedClock(AT)):
         assessment = await read_plume(situation, llm, settings=SETTINGS)
     assert llm.calls == 2, "exactly one repair call"
-    assert assessment.outcome == "FALLBACK_OFFICIAL"
+    assert assessment.outcome == "MODEL_FAILED"
     assert assessment.validation_errors
     estimate = assessment.estimate
+    assert estimate.uncertainty_notes.startswith("AI UNAVAILABLE:")
     assert estimate.mode is PlumeMode.OFFICIAL
     assert estimate.top_fl * 100 >= situation.official_top_ft()
     assert estimate.confidence == 1.0
     assert set(estimate.sources_used) <= situation.source_ids()
 
 
-async def test_unparseable_output_falls_back(situation: Situation) -> None:
+async def test_unparseable_output_is_a_model_failure(situation: Situation) -> None:
     llm = ScriptedLlm([None, None])
     with use_clock(FixedClock(AT)):
         assessment = await read_plume(situation, llm, settings=SETTINGS)
-    assert assessment.outcome == "FALLBACK_OFFICIAL"
+    assert assessment.outcome == "MODEL_FAILED"
 
 
 async def test_stub_backend_is_labelled_and_never_shrinks(situation: Situation) -> None:
@@ -418,11 +419,11 @@ def test_the_task_states_the_hypothesis_floor(no_official_floor: Situation) -> N
     assert "When a recent VONA reports ash" in PROMPT_PATH.read_text(encoding="utf-8")
 
 
-async def test_a_rejected_answer_with_no_official_polygon_falls_back_to_the_stub_hypothesis(
+async def test_a_rejected_answer_with_no_official_polygon_draws_nothing(
     no_official_floor: Situation,
 ) -> None:
-    """The official-products fallback drew nothing at all when no official polygon existed,
-    although a VONA reported ash; code's NO MODEL hypothesis is the floor instead."""
+    """No code hypothesis stands in for the model: with no official polygon the cone is
+    empty and the trace says the AI was unavailable."""
     widened = vona_hypothesis(no_official_floor).model_copy(update={"mode": PlumeMode.WIDENED})
     llm = ScriptedLlm([widened, widened])
     events: list[TraceEvent] = []
@@ -431,26 +432,22 @@ async def test_a_rejected_answer_with_no_official_polygon_falls_back_to_the_stub
             no_official_floor, llm, settings=SETTINGS, trace=events.append
         )
     assert llm.calls == 2
-    assert assessment.outcome == "FALLBACK_OFFICIAL"
+    assert assessment.outcome == "MODEL_FAILED"
     assert assessment.validation_errors
-    assert assessment.llm_backend == "stub"
+    assert assessment.llm_backend == "gemini"
     estimate = assessment.estimate
-    assert estimate == stub_estimate(no_official_floor, SETTINGS)
-    assert estimate.mode is PlumeMode.HYPOTHESIS
-    assert estimate.rationale.startswith("NO MODEL:")
-    assert estimate.extent_km > 0
-    assert estimate.top_fl * 100 >= (VONA_1806.cloud_top_ft or 0)
-    assert "fell back to the NO MODEL hypothesis" in events[-1].message
-    cone = build_cone(no_official_floor, assessment)
-    assert cone.geometry is not None
-    assert cone.label.endswith("(NO MODEL)")
+    assert estimate.mode is PlumeMode.OFFICIAL
+    assert estimate.extent_km == 0
+    assert estimate.uncertainty_notes.startswith("AI UNAVAILABLE:")
+    assert "AI UNAVAILABLE" in events[-1].message
+    assert "nothing is drawn" in events[-1].message
+    assert events[-1].level == "error"
+    assert build_cone(no_official_floor, assessment).geometry is None
 
 
-async def test_no_answer_with_no_official_polygon_also_gets_the_stub_hypothesis(
+async def test_no_answer_with_no_official_polygon_makes_no_request_and_draws_nothing(
     no_official_floor: Situation, tmp_path: Path
 ) -> None:
-    """The model gave nothing (today's budget is spent): no request, no repair, and the cone
-    still draws code's sector rather than nothing."""
     client = ScriptedClient([])
     settings = Settings(
         _env_file=None, llm="gemini", GEMINI_API_KEY="test-key", model_daily_budget=0
@@ -459,9 +456,9 @@ async def test_no_answer_with_no_official_polygon_also_gets_the_stub_hypothesis(
     with use_clock(FixedClock(AT)):
         assessment = await read_plume(no_official_floor, llm, settings=SETTINGS)
     assert client.models.calls == 0
-    assert assessment.outcome == "FALLBACK_OFFICIAL"
+    assert assessment.outcome == "MODEL_FAILED"
     assert assessment.attempts == 0
-    assert assessment.estimate == stub_estimate(no_official_floor, SETTINGS)
+    assert build_cone(no_official_floor, assessment).geometry is None
 
 
 ZONE_TIMES = [
@@ -739,14 +736,14 @@ async def test_a_per_minute_429_is_still_retried(tmp_path: Path) -> None:
         "",
     ],
 )
-async def test_malformed_output_gets_one_repair_then_the_official_fallback(
+async def test_malformed_output_gets_one_repair_then_official_products_only(
     situation: Situation, tmp_path: Path, malformed: str
 ) -> None:
     client = ScriptedClient([malformed, malformed])
     with use_clock(FixedClock(AT)):
         assessment = await read_plume(situation, gemini(client, tmp_path), settings=SETTINGS)
     assert client.models.calls == (1 if malformed == "" else 2)
-    assert assessment.outcome == "FALLBACK_OFFICIAL"
+    assert assessment.outcome == "MODEL_FAILED"
     assert assessment.validation_errors
     assert assessment.estimate.top_fl * 100 >= situation.official_top_ft()
 
