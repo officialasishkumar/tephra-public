@@ -117,6 +117,8 @@ export function derive(store, ui, now) {
 
   // ---- aircraft
   let hiddenFlights = 0;
+  let selHiddenByLevel = false;
+  const selHex = ui.selFlight?.hex || null;
   const aircraft = [];
   for (const f of snap.aircraft?.features || []) {
     const p = f.properties;
@@ -124,7 +126,11 @@ export function derive(store, ui, now) {
     const stale = ageS > 60;
     const inside = !!p.exposed && p.minutes_to_entry === 0;
     const known = p.alt_baro_ft != null;
-    if (!lvAll && known && !p.exposed && (p.alt_baro_ft < ui.level.min || p.alt_baro_ft > ui.level.max)) { hiddenFlights++; continue; }
+    if (!lvAll && known && !p.exposed && (p.alt_baro_ft < ui.level.min || p.alt_baro_ft > ui.level.max)) {
+      hiddenFlights++;
+      if (p.hex === selHex) selHiddenByLevel = true;
+      continue;
+    }
     const lvl = known ? fl(p.alt_baro_ft) : "level unknown";
     const mins = Math.max(1, Math.round(ageS / 60));
     // Exposed planes keep the TEPHRA colour when their position is old; the age is a word
@@ -138,7 +144,7 @@ export function derive(store, ui, now) {
       id: f.id,
       geometry: f.geometry,
       properties: {
-        ...p, stale, inside, ageS, sel_vid: selected || "",
+        ...p, stale, inside, ageS, sel_vid: selected || "", picked: p.hex === selHex,
         l1: `${p.proxy_flight}${p.callsign ? ` · ${p.callsign}` : ""}`,
         l2, l3, l3ok: !!ok,
         l4: stale ? `position ${mins} min old` : "",
@@ -153,6 +159,20 @@ export function derive(store, ui, now) {
     if (pa.inside !== pb.inside) return pa.inside ? -1 : 1;
     return (pa.minutes_to_entry ?? 999) - (pb.minutes_to_entry ?? 999);
   });
+
+  // The aircraft the viewer picked on the map or in the flights dock (7.8). It stays picked
+  // until cleared; when it is missing, `selHiddenByLevel` says whether the level filter hid it.
+  const selFlight = selHex ? aircraft.find((f) => f.properties.hex === selHex) || null : null;
+
+  // Forecast steps chosen on the timeline that have no official polygon for the selected
+  // volcano in the current products (8.3). Only a note: no other step is drawn in their place.
+  let stepsMissing = [];
+  if (sit && ui.steps !== "now") {
+    const want = ui.steps === "all" ? ["f6", "f12", "f18"] : [ui.steps];
+    const has = new Set(official.filter((f) => f.properties.volcano_id === selected && f.properties.show).map((f) => f.properties.step));
+    stepsMissing = want.filter((k) => !has.has(k));
+    if (ui.steps === "all" && stepsMissing.length < want.length) stepsMissing = [];
+  }
 
   const selVent = selected ? vents.get(selected) : null;
   const volcanoes = (snap.volcanoes?.features || []).map((f) => ({
@@ -210,7 +230,7 @@ export function derive(store, ui, now) {
     hasSatBoxes: (snap.satellite || []).some((r) => r.boxes?.length),
     aircraft, exposed, exposures: snap.exposures || { type: "FeatureCollection", features: [] },
     volcanoes, rose, moveByVolcano, firsWithSigmet, advByFlight, regionCounts,
-    levelAll: lvAll, hiddenOfficial, hiddenFlights,
+    levelAll: lvAll, hiddenOfficial, hiddenFlights, selFlight, selHiddenByLevel, stepsMissing,
     overlays: snap.overlays || { btd: [], frames: [] },
   };
 }

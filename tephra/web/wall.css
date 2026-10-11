@@ -121,7 +121,7 @@ q { quotes: "“" "”"; }
    --dur-1; both are 0 ms under reduced motion (tokens.css). The press nudge (scale) is motion,
    so it only runs when motion is allowed; the pressed fill shows either way. */
 .btn, .icon-btn, .link-btn, .seg button, .region-btn, .feeds-chip, .ai-chip, .desk-link, .tool,
-.chip-btn, .levels__presets button, .vtab, .xtab, .flights__row, .tl__mark, .dlg__close,
+.chip-btn, .levels__presets button, .vtab, .xtab, .flights__row, .tl__mark, .tl__step, .dlg__close,
 .honesty__about, .legend__toggle, .ptabs button {
   transition: background-color var(--dur-2) var(--ease-standard), color var(--dur-2) var(--ease-standard),
     border-color var(--dur-2) var(--ease-standard), box-shadow var(--dur-2) var(--ease-standard),
@@ -1248,6 +1248,60 @@ body[data-rail]:not([data-rail="brief"]) .brief { display: none; }
   .verdict--hypothesis { background: var(--c-hypothesis-bg); border-bottom-color: var(--c-tephra); }
   .verdict--hypothesis .verdict__line { color: var(--c-tephra-text); }
   .vhead__headline, .vhead__why { display: none; }
+}
+
+/* ---------------------------------------------------------------- map and timeline additions
+   (wall/ext.js, applied after the panels render; docs/UI-DESIGN.md 5.6, 7.8, 8.3, 8.4) */
+
+/* 8.4 level filter: visible SFC / FL060 / FL180 / FL350 / FL550 labels left of the track */
+.levels { width: calc(var(--tools-w) + 44px); min-width: 116px; }
+.levels__track { margin-left: 44px; }
+.levels__scale-label {
+  position: absolute; right: calc(100% + 4px); top: 50%; transform: translateY(-50%);
+  font-family: var(--font-mono); font-size: max(12px, var(--fs-1)); line-height: 1;
+  color: var(--c-text-2); white-space: nowrap; pointer-events: none;
+}
+
+/* 8.3 timeline: larger markers, the chosen marker, previous / next event */
+.tl__mark { width: 28px; height: min(28px, calc(var(--lane-h) + 4px)); }
+@media (max-width: 1359px) { .tl__mark { width: 28px; height: calc(var(--lane-h) + 4px); } }
+.tl__mark.is-current { background: var(--c-surface-3); box-shadow: 0 0 0 2px currentColor; }
+.tl__nav { display: flex; gap: 4px; }
+.tl__step {
+  min-height: 26px; padding: 0 10px; background: transparent; border: 1px solid var(--c-line-input);
+  border-radius: var(--radius-pill); color: var(--c-text-2); font-size: max(12px, var(--fs-1));
+  font-weight: var(--fw-semibold); white-space: nowrap;
+}
+.tl__step:hover:not([aria-disabled="true"]) { background: var(--c-surface-3); color: var(--c-text-1); }
+.tl__step[aria-disabled="true"] { opacity: 0.45; cursor: default; }
+
+/* 7.8 flights dock: the picked flight's row and its detail block */
+.flights__row.is-picked { background: var(--c-surface-3); box-shadow: inset 3px 0 0 var(--c-text-1); }
+.fdetail { flex: none; margin-top: 4px; padding: 6px 4px 2px; border-top: 1px solid var(--c-line-2); }
+.fdetail__head { display: flex; align-items: center; gap: var(--sp-2); min-height: 28px; }
+.fdetail__head .caps { color: var(--c-text-2); }
+.fdetail__id { font-weight: var(--fw-semibold); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fdetail__clear { margin: 0 0 0 auto; }
+.fdetail__sub { font-size: max(12px, var(--fs-1)); color: var(--c-text-2); }
+.fdetail__facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 1px var(--sp-3); margin: 4px 0 0; font-size: max(12px, var(--fs-2)); }
+.fdetail__facts dt { color: var(--c-text-2); }
+.fdetail__facts dd { margin: 0; color: var(--c-text-1); }
+.fdetail__gone { font-size: max(12px, var(--fs-2)); color: var(--c-text-2); }
+.fdetail__gone .link-btn { margin: 0; }
+.fdetail__adv { margin-top: 4px; font-size: max(12px, var(--fs-2)); }
+
+/* 5.6 satellite context: the published GIBS scale under its CONTEXT ONLY line */
+.ctx-scale { display: flex; flex-direction: column; gap: 2px; width: min(360px, 100%); padding: 6px var(--sp-3) 4px; border-radius: var(--radius-md); }
+.ctx-scale--note, .ctx-scale__cap { font-size: max(12px, var(--fs-1)); color: var(--c-text-2); }
+.ctx-scale__bar { display: block; height: 10px; border-radius: 2px; box-shadow: inset 0 0 0 1px var(--c-line-2); }
+.ctx-scale__ticks { position: relative; display: block; height: 16px; margin: 0 2px; }
+.ctx-scale__tick { position: absolute; top: 0; transform: translateX(-50%); font-family: var(--font-mono); font-size: 12px; color: var(--c-text-1); white-space: nowrap; }
+.ctx-scale__tick--start { transform: none; }
+.ctx-scale__tick--end { transform: translateX(-100%); }
+
+@media (forced-colors: active) {
+  .tl__mark.is-current, .flights__row.is-picked { outline: 2px solid Highlight; }
+  .ctx-scale__bar { forced-color-adjust: none; }
 }
 
 /* ---------------------------------------------------------------- forced colours (12)

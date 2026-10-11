@@ -284,7 +284,8 @@ compact rail tab labels (`.xtab__label`).
   duration except `--dur-hold` is 0 (in `tokens.css`): camera moves become `jumpTo`, pulses and
   marching paths are still, slide-ins are cuts. Read the media query in JS too (MapLibre
   animations do not read CSS). Wall controls (buttons, chips, segmented controls, region
-  buttons, tools, tabs, flight rows, timeline marks) ease background, colour, border and shadow
+  buttons, tools, tabs, flight rows, timeline marks and step buttons) ease background, colour,
+  border and shadow
   over `--dur-2` on hover; on press they take a `--c-line-1` fill within `--dur-1`, plus a 0.97
   scale only when motion is allowed. Every duration in `wall.css` is a token (the old
   `--dur-quick` fallback, which ignored reduced motion, is gone).
@@ -560,9 +561,10 @@ reduced opacity (official areas are never hidden on the main map).
 
 | State | Rule | Icon | Size | Label |
 |---|---|---|---|---|
-| Normal | `exposed == false` | `--c-aircraft`, halo `--map-halo` 1.5 | 0.5 | from z7.5: callsign (or hex) + level, 11 px grey |
+| Normal | `exposed == false` | `--c-aircraft`, halo `--map-halo` 1.5 | 0.3 at z3, 0.42 at z6, 0.5 from z8 (thinned when zoomed out) | from z7.5: callsign (or hex) + level, 11 px grey |
 | Exposed | `exposed == true` | `--c-tephra` | 0.7 | always: line 1 `--c-tephra-text` "RFA4821 · GIA208" (proxy · callsign), line 2 `--c-text-1` "FL350 · 12 MIN"; Bold 14 |
 | Inside now | exposed and `minutes_to_entry == 0` | `--c-tephra` + ring r 18 | 0.7 | line 2 "FL350 · INSIDE NOW" |
+| Picked | the viewer chose it on the map or in the flights dock (7.8) | unchanged + `--c-text-1` ring r 23, 2.5 px | unchanged | unchanged; details in the flights dock |
 | Stale | `state.now − observed_at > 60 s` | `--c-aircraft-stale`, opacity 0.55 | as above | append " · 2 MIN OLD" |
 | Level unknown | `alt_baro_ft == null` | as above | | "level unknown"; never hidden by the level filter |
 | Decided | an advisory for this flight is APPROVED/EDITED/REJECTED | unchanged | | line 2 appends " · HOLD approved" / " · rejected" (from the advisory) |
@@ -615,6 +617,17 @@ When the slot changes (check on every `state` and `heartbeat`), replace the sour
 position). If tiles 404 (gaps), step back one slot at a time, at most six, then show "No
 Himawari frame near 1620Z" in the label. The label shows the slot actually requested. One
 satellite layer at a time (radio group); SO2 is a separate checkbox. Both off by default.
+
+Scale strip: under the CONTEXT ONLY line, only for the layers whose GIBS entry publishes a
+colour-map legend: infrared band 13 (`Clean_Longwave_Infrared_Window_Band`, °C) and SO2
+(`OMI_SO2_Lower_Troposphere`, DU). The Wall fetches `colormaps/v1.3/<name>.xml` from GIBS at run
+time and draws the legend entries, `minLabel`, `maxLabel` and the labelled entries; the caption
+names the colour map title and units and "NASA GIBS colour map". The infrared strip applies the
+map's own filter (saturation -1, contrast 0.2, as MapLibre computes them) and says "drawn in
+grey, as on the map". Visible and Air Mass RGB have no published legend, so no scale is drawn
+for them. While loading: "Scale loading from NASA GIBS…"; on failure: "Scale unavailable: the
+NASA GIBS colour map did not load. No scale is shown in its place." (retried after 5 min). No
+strip when the label says "No Himawari frame near …".
 
 The BTD overlay from `overlays.btd` keeps its own caption and is labelled "Split-window BTD
 (computed by TEPHRA) · an indicator, not ash detection · Himawari-9 data: JMA via NOAA".
@@ -839,7 +852,12 @@ them under the volcano name, wrapped in full (line 1 starts "Recorded:" in REPLA
 width a block above the map carries them (4.4). Below it, map notes (same pill style, 14 px, text-2) when needed:
 "No aircraft seen within 150 km of Semeru in the open ADS-B feed. Receiver coverage is patchy
 here: an empty map is not an empty sky." · "Level filter FL180–FL550 hides 1 official area and
-2 flights" (caution) · "Basemap offline: simplified coastline (Natural Earth)".
+2 flights" (caution, with a "Reset" link that returns the filter to All) · "No official +12 h
+area for Semeru in the current products." (when the forecast step chosen on the timeline has no
+official polygon for the selected volcano; with All chosen, only when none of +6, +12 and +18 h
+has one; worded from the data, because a VAA saying NOT AVBL, one saying NO VA EXP and a polygon
+that did not parse all look the same here; no other step is drawn in its place) · "Basemap
+offline: simplified coastline (Natural Earth)".
 
 ### 7.7 Tools column
 
@@ -870,6 +888,17 @@ empty (one line: "No flight is projected to enter TEPHRA's area." plus the cover
 5.5 applies, or "No aircraft data in this recording." when ADS-B is not OK); replay (rows tagged
 "recorded"); stale aircraft (row text dimmed, "position 2 min old"); more than 4 rows (the dock
 scrolls, title shows "4 of 7").
+
+Picked flight: clicking an aircraft on the map (or its entry ring) or activating a row picks
+that flight. It stays picked until "Clear" or Esc: a white ring on the map (5.3), the row marked
+(`aria-current`, a white left edge) and a "Selected" block at the foot of the dock: the RFA
+number; "RFA is a fictional airline · stands in for ADS-B GIA208, hex 8A0123"; "Entry (est.)"
+("In 12 min", "Inside TEPHRA's area now" or "Not projected to enter TEPHRA's area"); for an
+entering flight, "Basis: Code projection from the last position, if track, speed and level are
+held"; level (and selected level), speed and track, position age; and the advisory status line.
+No clock time is derived from the minutes. When the flight is no longer in the data the block
+says so: "Hidden by the level filter FL180–FL550. Reset" or "No current position for this flight
+in the aircraft data."
 
 ### 7.9 Trace dock
 
@@ -1076,8 +1105,14 @@ the playhead follows `state.now`.
   - The lag: when a LAG discrepancy exists, a bracket between the two observation times parsed
     from its values, labelled "lag 5 h 29 min" (from `magnitude`).
 - NOW: a 2 px white line with the active time in a dark tag.
-- Markers are buttons (roving tabindex; ← / → between markers); activating one selects the
-  matching column or item in the rail and frames it; tooltips name the product and time.
+- Markers are buttons (roving tabindex; ← / → between markers), 28 px wide and as tall as the
+  lane pitch (lane height + 4 px, at most 28 px); activating one selects the matching column or
+  item in the rail and frames it; tooltips name the product and time. The chosen marker keeps a
+  ring (`aria-current`).
+- "‹ Previous" and "Next ›" buttons at the top of the right block step through the markers in
+  time order and act as a click on the marker (and announce its title). With no marker chosen,
+  Previous goes to the latest marker at or before NOW and Next to the first after it; at either
+  end the button is `aria-disabled`. They move the choice, never TEPHRA's clock.
 - States: loading (empty axis), LIVE (no progress bar), no events (axis only), stale (dimmed,
   playhead frozen with "last update 16:07Z").
 - The official validity bar is `--c-official` at 0.7 opacity (3.3:1 against the panel). Stale
@@ -1092,8 +1127,10 @@ forecast.
 ### 8.4 Flight-level filter
 
 A vertical instrument under the tools column (76 wide): caps "LEVELS", a readout ("All",
-"FL180–FL550"), a track up to 270 px tall (the height rule in 4.2) from SFC (bottom) to FL550 (top) with scale ticks SFC, FL180,
-FL350, FL550 (mono 10, text-3), and on the track: the official band of the selected volcano
+"FL180–FL550"), a track up to 270 px tall (the height rule in 4.2) from SFC (bottom) to FL550 (top) with scale ticks SFC, FL060, FL180,
+FL350, FL550, each with a visible label left of the track (mono, at least 12 px, text-2; the box
+is 44 px wider than the tools column to hold them; FL060's label is left out when the track is
+under 150 px), and on the track: the official band of the selected volcano
 (magenta bar, left), TEPHRA's band (amber dashed bar, right), and one tick per aircraft at its
 `alt_baro_ft` (amber 3 px for exposed, grey 2 px for others; at most 60). This mini profile
 answers "who is in the band" at a glance (the 2D twin of 3D).
@@ -1106,7 +1143,7 @@ under it: "All", "Hazard" (the selected cone's base–top), and in the Layers pa
 top_ft]` misses the range draw at 15% (never removed); aircraft outside the range are hidden
 unless exposed (exposed aircraft are never hidden) or their level is unknown. While the filter is
 not "All", the map note "Level filter FL180–FL550 hides 1 official area and 2 flights" shows
-(caution colour).
+(caution colour) with a "Reset" link back to All.
 
 ## 9. Keyboard
 
@@ -1130,7 +1167,7 @@ has a visible control too.
 | `T` | Expand or collapse the trace dock |
 | `H` | Focus the level filter |
 | `?` | Help: how to read the screen, glossary, shortcuts |
-| `Esc` | Close the dialog, popup or popover; leave compare or 3D |
+| `Esc` | Close the dialog, popup or popover; collapse the trace; clear the picked flight; leave compare or 3D |
 
 Focus order on the Wall: skip links ("Skip to map", "Skip to situation brief", "Skip to
 decisions") → command bar → map → map tools → level filter → trace dock → flights dock →

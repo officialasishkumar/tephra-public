@@ -10,7 +10,10 @@ import {
   renderBrief, renderLevels, renderTimeline, feedsDialog, sourcesDialog, policyDialog, popupContent,
 } from "./wall/panels.js";
 import { renderLayers, helpContent, aboutContent } from "./wall/controls.js";
-import { ext, loadExt, ingest, noteTrace, renderXTabs, renderXPanel, renderAiChip, reroutePopup, PANELS } from "./wall/ext.js";
+import {
+  ext, loadExt, ingest, noteTrace, renderXTabs, renderXPanel, renderAiChip, reroutePopup, PANELS,
+  extendNotes, labelLevelAxis, timelineNav, timelineTarget, renderFlightDetail, satScale,
+} from "./wall/ext.js";
 
 const STREAM_TIMEOUT_MS = 45e3;
 // A Wall hidden this long gives its stream (a Cloud Run request slot) back until it is shown.
@@ -60,6 +63,8 @@ const ui = {
   freshDis: new Set(),
   freshDecisions: new Set(),
   present: PRESENT,
+  selFlight: null, // { hex, proxy } of the aircraft picked on the map or in the flights dock (7.8)
+  tlCurrent: null, // title of the timeline marker last chosen (8.3)
 };
 const conn = { lostAt: null, source: null, watchdog: null, lastEventAt: 0, loaded: false, everLost: false, hiddenTimer: null, paused: false };
 const extra = { error: null, basemap: null };
@@ -324,21 +329,24 @@ function renderNow() {
     renderChrome(D, store, ui);
     renderClock(D, conn);
     renderLegend(D, ui);
-    renderHeadline(D, ui, mapNotes(D, ui, store, extra), store);
+    renderHeadline(D, ui, extendNotes(mapNotes(D, ui, store, extra), D, ui), store);
     renderTabs(D, conn);
     renderBrief(D, store, ui);
     renderXTabs(D, store, ui);
     renderXPanel(D, store, ui);
     renderAiChip(store);
     renderFlights(D, store, ui);
+    renderFlightDetail(D, ui, $("flights"));
     renderTrace(D, store, ui, conn);
     if (phone()) {
       const rf = $("rail-flights"), rt = $("rail-trace");
-      if (rf) renderFlights(D, store, ui, rf, { all: true });
+      if (rf) { renderFlights(D, store, ui, rf, { all: true }); renderFlightDetail(D, ui, rf); }
       if (rt) renderTrace(D, store, ui, conn, rt, { full: true });
     }
     renderLevels(D, ui);
+    labelLevelAxis();
     renderTimeline(D, store, ui, conn);
+    timelineNav(ui);
     renderTools();
     renderCtx();
     if (ui.layersOpen) renderLayers(ui);
@@ -392,12 +400,18 @@ function renderTools() {
   $("compare-labels").hidden = !ui.compare;
 }
 
-// "CONTEXT ONLY" labels for satellite, SO2 and BTD layers (5.6), always on screen while shown.
+// "CONTEXT ONLY" labels for satellite, SO2 and BTD layers (5.6), always on screen while shown,
+// each followed by its scale where NASA GIBS publishes one (infrared band 13 and SO2 only).
 function renderCtx() {
   const box = $("ctx-label");
   const lines = map ? map.satLabel() : [];
   box.hidden = !lines.length;
-  box.replaceChildren(...lines.map((t) => el("p", { class: "ctx-label__line glass" }, el("strong", { text: "CONTEXT ONLY" }), el("span", { text: t.replace(/^CONTEXT ONLY · /, " · ") }))));
+  const scaleOf = (t) => (t.includes("SO2 (TROPOMI") ? "so2" : ui.sat === "ir" && t.includes(SAT.ir.title) ? "ir" : null);
+  box.replaceChildren(...lines.map((t) => {
+    const line = el("p", { class: "ctx-label__line glass" }, el("strong", { text: "CONTEXT ONLY" }), el("span", { text: t.replace(/^CONTEXT ONLY · /, " · ") }));
+    const key = scaleOf(t);
+    return key ? [line, satScale(key, renderCtx)] : line;
+  }).flat());
 }
 
 // ------------------------------------------------------------------ actions
@@ -604,6 +618,7 @@ function onFeature(hit, lngLat) {
   if (id === "aircraft-icon" || id === "exposure-entry") {
     const f = D.aircraft.find((a) => a.properties.hex === p.hex);
     if (!f) return;
+    pickFlight(f);
     map.popup(f.geometry.coordinates, popupContent("aircraft", f.properties, D, store));
   } else if (id === "reroute-line" || id === "reroute-wp") {
     map.popup(lngLat, reroutePopup(p, D));
@@ -616,9 +631,23 @@ function onFeature(hit, lngLat) {
   }
 }
 
+// The picked aircraft stays marked on the map and in the flights dock until cleared (7.8).
+function pickFlight(f) {
+  ui.selFlight = { hex: f.properties.hex, proxy: f.properties.proxy_flight };
+  renderNow();
+}
+
+function clearFlight() {
+  const hex = ui.selFlight?.hex;
+  ui.selFlight = null;
+  renderNow();
+  if (hex) document.querySelector(`[data-focus="flight-${CSS.escape(hex)}"]`)?.focus({ preventScroll: true });
+}
+
 function flyToFlight(key) {
   const f = D?.aircraft.find((a) => String(a.id ?? a.properties.hex) === key || a.properties.hex === key);
   if (!f || !map) return;
+  pickFlight(f);
   map.map.once("moveend", () => map.popup(f.geometry.coordinates, popupContent("aircraft", f.properties, D, store)));
   map.flyToFlight(f);
 }
@@ -687,11 +716,24 @@ document.addEventListener("click", (e) => {
   else if (act === "retry") { extra.error = "Retrying…"; renderNow(); load(); }
   else if (act === "level-preset") levelPreset(t.dataset.preset);
   else if (act === "steps") setSteps(t.dataset.steps);
-  else if (act === "tl-mark") onTimelineMark(t);
+  else if (act === "tl-mark") { ui.tlCurrent = t.title; renderNow(); onTimelineMark(t); }
+  else if (act === "tl-step") { if (t.getAttribute("aria-disabled") !== "true") stepTimeline(Number(t.dataset.dir)); }
+  else if (act === "level-reset") levelPreset("all");
+  else if (act === "flight-clear") clearFlight();
   else if (act === "dlg-close") $("dlg").close();
   else if (act === "help") openHelp(t.closest("#dlg") ? dialogOpener : t);
   else if (act === "policy") openPolicy(t.closest("#dlg") ? dialogOpener : t);  // About's button: focus goes back to About
 });
+
+// Previous / next event (8.3): choose the neighbouring marker and act as if it was clicked.
+function stepTimeline(dir) {
+  const m = timelineTarget(dir, ui.tlCurrent);
+  if (!m) return;
+  ui.tlCurrent = m.title;
+  renderNow();
+  announce(m.title);
+  onTimelineMark(m);
+}
 
 function onTimelineMark(t) {
   const kind = t.dataset.kind;
@@ -831,6 +873,7 @@ function escape(e) {
   if (ui.layersOpen) { toggleLayers(false); document.querySelector('[data-tool="layers"]').focus(); e.preventDefault(); return; }
   if (ui.levelsOpen) { ui.levelsOpen = false; renderNow(); e.preventDefault(); return; }
   if (ui.traceExpanded) { ui.traceExpanded = false; renderNow(); e.preventDefault(); return; }
+  if (ui.selFlight) { clearFlight(); e.preventDefault(); return; }
   if (ui.compare) { toggleCompare(false); e.preventDefault(); return; }
   if (ui.d3) { toggle3d(false); e.preventDefault(); }
 }

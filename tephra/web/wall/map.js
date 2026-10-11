@@ -32,6 +32,9 @@ export const SAT = {
   vis: { layer: "Himawari_AHI_Band3_Red_Visible_1km", matrix: "GoogleMapsCompatible_Level7", maxzoom: 7, title: "Himawari-9 visible (band 3), daylight only", short: "Visible" },
   airmass: { layer: "Himawari_AHI_Air_Mass", matrix: "GoogleMapsCompatible_Level6", maxzoom: 6, title: "Himawari-9 Air Mass RGB", short: "Air mass" },
 };
+// Aircraft icon size (5.3): exposed aircraft stay 0.7 at every zoom; background traffic is
+// thinned when zoomed out, so a busy region does not bury the flights that matter.
+const AC_SIZE = ["interpolate", ["linear"], ["zoom"], 3, ["case", ["get", "exposed"], 0.7, 0.3], 6, ["case", ["get", "exposed"], 0.7, 0.42], 8, ["case", ["get", "exposed"], 0.7, 0.5]];
 const GIBS = (layer, time, matrix) => `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${layer}/default/${time}/${matrix}/{z}/{y}/{x}.png`;
 
 // GIBS TIME follows TEPHRA's active clock, never the browser's (section 5.6).
@@ -135,10 +138,12 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
   map.addLayer({ id: "volcano-active", type: "symbol", source: "volcanoes", filter: ["get", "active"], layout: { "icon-image": ["concat", "volcano-", ["get", "color_code"]], "icon-size": ["match", ["get", "color_code"], "RED", CODE_SIZE.RED, "ORANGE", CODE_SIZE.ORANGE, "YELLOW", CODE_SIZE.YELLOW, CODE_SIZE.GREEN], "icon-allow-overlap": true, "icon-ignore-placement": true, ...(noText ? {} : { "text-field": ["get", "name"], "text-font": FONT_BOLD, "text-size": ["case", ["get", "sel"], 16, 14], "text-anchor": ["coalesce", ["get", "anchor"], "top"], "text-radial-offset": ["case", ["get", "sel"], 2.6, 1.35], "text-optional": true }) }, paint: { "text-color": C.label, "text-halo-color": C.halo, "text-halo-width": 2.5 } });
   // aircraft
   const acVis = ui.layers.aircraft ? "visible" : "none";
-  map.addLayer({ id: "aircraft-icon", type: "symbol", source: "aircraft", layout: { visibility: acVis, "icon-image": "ac-sdf", "icon-size": ["case", ["get", "exposed"], 0.7, 0.5], "icon-rotate": ["coalesce", ["get", "track_deg"], 0], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true, "symbol-sort-key": ["case", ["get", "exposed"], 1, 0] }, paint: { "icon-color": withTephra ? ["case", ["get", "exposed"], C.tephra, ["get", "stale"], C.stale, C.aircraft] : ["case", ["get", "stale"], C.stale, C.aircraft], "icon-halo-color": C.halo, "icon-halo-width": 1.5, "icon-opacity": withTephra ? ["case", ["all", ["get", "exposed"], ["get", "stale"]], 0.8, ["get", "stale"], 0.55, 1] : ["case", ["get", "stale"], 0.55, 1] } });
+  map.addLayer({ id: "aircraft-icon", type: "symbol", source: "aircraft", layout: { visibility: acVis, "icon-image": "ac-sdf", "icon-size": AC_SIZE, "icon-rotate": ["coalesce", ["get", "track_deg"], 0], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true, "symbol-sort-key": ["case", ["get", "exposed"], 1, 0] }, paint: { "icon-color": withTephra ? ["case", ["get", "exposed"], C.tephra, ["get", "stale"], C.stale, C.aircraft] : ["case", ["get", "stale"], C.stale, C.aircraft], "icon-halo-color": C.halo, "icon-halo-width": 1.5, "icon-opacity": withTephra ? ["case", ["all", ["get", "exposed"], ["get", "stale"]], 0.8, ["get", "stale"], 0.55, 1] : ["case", ["get", "stale"], 0.55, 1] } });
   if (!noText) map.addLayer({ id: "aircraft-label", type: "symbol", source: "aircraft", minzoom: 7.5, filter: withTephra ? ["!=", ["get", "exposed"], true] : ["literal", true], layout: { visibility: ui.layers.acLabels && ui.layers.aircraft ? "visible" : "none", "text-field": ["get", "short"], "text-font": FONT_REG, "text-size": 11, "text-offset": [0, 1.2], "text-anchor": "top", "text-optional": true }, paint: { "text-color": C.text3, "text-halo-color": C.halo, "text-halo-width": 1.5 } });
   if (withTephra) {
     map.addLayer({ id: "aircraft-inside", type: "circle", source: "aircraft", filter: ["==", ["get", "inside"], true], layout: { visibility: acVis }, paint: { "circle-radius": 18, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": C.tephra, "circle-stroke-width": 2 } });
+    // The aircraft picked by the viewer (7.8): a white ring outside the inside-now ring.
+    map.addLayer({ id: "aircraft-picked", type: "circle", source: "aircraft", filter: ["==", ["get", "picked"], true], layout: { visibility: acVis }, paint: { "circle-radius": 23, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": C.text1, "circle-stroke-width": 2.5 } });
     // Four explicit lines (5.3): id; entry and level; the decision, when there is one; the
     // position's age, when it is old. text-max-width keeps MapLibre from re-wrapping them.
     const opt = (key) => ["case", ["!=", ["get", key], ""], ["concat", "\n", ["get", key]], ""];
@@ -723,7 +728,7 @@ export class WallMap {
     this.setVisible(["navaid", "navaid-label"], L.navaids);
     this.setVisible(["tephra-fill", "tephra-hatch", "tephra-line", "tephra-label"], L.tephra);
     this.setVisible(["exposure-path", "exposure-entry", "exposure-entry-label"], L.paths);
-    this.setVisible(["aircraft-icon", "aircraft-inside", "aircraft-label-exposed"], L.aircraft);
+    this.setVisible(["aircraft-icon", "aircraft-inside", "aircraft-picked", "aircraft-label-exposed"], L.aircraft);
     this.setVisible(["aircraft-label"], L.aircraft && L.acLabels);
     setExtVisible(this.map, L.reroutes, L.satboxes);
     this.setVisible(["rose-casing", "rose-arc", "rose-off", "rose-obs", "rose-probe", "rose-heads", "rose-labels", "rose-angle"], L.rose);

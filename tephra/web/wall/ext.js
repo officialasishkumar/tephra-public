@@ -5,7 +5,8 @@
 // Every feed or model string goes in through el() (textContent); AI-written text carries an
 // "AI-written" mark with the model id, code-written values are plain.
 
-import { $, el, icon, ms, hhmmz, hhmmssz, dayMon } from "./util.js";
+import { $, el, icon, ms, hhmmz, hhmmssz, dayMon, age, fl, compassWord } from "./util.js";
+import { advisoryLine } from "./panels.js";
 import { frameFor } from "./ext-map.js";
 import { st, aiMark, pill, section } from "./x-parts.js";
 import { dutyPanel, dispatchedTools } from "./duty.js";
@@ -501,4 +502,195 @@ export function reroutePopup(props, D) {
   if (props.route_string) kids.push(el("p", { class: "pop__route mono", text: props.route_string }));
   if (adv) kids.push(el("p", { class: "pop__sub", text: `Advisory ${adv.action}${adv.status ? ` · ${adv.status.toLowerCase()}` : ""}` }));
   return el("div", { class: "pop" }, ...kids);
+}
+
+// ------------------------------------------------------------------ Wall view additions
+// Small additions to panels drawn by panels.js, applied after each render (docs/UI-DESIGN.md
+// 5.6, 7.6, 7.8, 8.3, 8.4). They add controls and labels; they never change what the panels
+// say about the data, and they never draw a substitute when data is missing.
+
+const STEP_WORD = { f6: "+6 h", f12: "+12 h", f18: "+18 h" };
+
+// Map notes (7.6): a Reset on the level-filter note, and a note when the chosen forecast step
+// has no official polygon for the selected volcano. The note is worded from the data: a VAA
+// can say NOT AVBL or NO VA EXP, or a polygon can fail to parse, and these differ, so it only
+// says what is not in the current products. No other step is drawn in its place.
+export function extendNotes(notes, D, ui) {
+  if (!D) return notes;
+  if (!D.levelAll) {
+    const lv = notes.find((n) => n.tone === "caution" && !n.action && n.text.startsWith("Level filter"));
+    if (lv) { lv.action = "level-reset"; lv.actionText = "Reset"; }
+  }
+  if (D.sit && D.stepsMissing?.length) {
+    const name = D.sit.volcano_name;
+    notes.push({
+      tone: "info",
+      text: ui.steps === "all"
+        ? `No official forecast area (+6, +12 or +18 h) for ${name} in the current products.`
+        : `No official ${STEP_WORD[D.stepsMissing[0]]} area for ${name} in the current products.`,
+    });
+  }
+  return notes;
+}
+
+// Level filter (8.4): visible labels beside the scale ticks. The FL060 label is left out on a
+// short track, where it would touch the SFC label.
+export function labelLevelAxis() {
+  const box = $("levels");
+  if (!box) return;
+  const H = Number(box.dataset.h) || 0;
+  for (const s of box.querySelectorAll(".levels__scale")) {
+    if (s.firstChild || !s.title) continue;
+    if (s.title === "FL060" && H < 150) continue;
+    s.append(el("span", { class: "levels__scale-label", text: s.title }));
+  }
+}
+
+// Timeline (8.3): previous and next event buttons. The events are the timeline's markers in
+// time order; with none chosen yet, "previous" is the latest marker at or before NOW.
+const leftOf = (n) => parseFloat(n.style.left);
+const sortedMarks = () => [...document.querySelectorAll("#timeline .tl__mark")].sort((a, b) => leftOf(a) - leftOf(b));
+
+export function timelineTarget(dir, current) {
+  const marks = sortedMarks();
+  if (!marks.length) return null;
+  const i = current ? marks.findIndex((m) => m.title === current) : -1;
+  if (i >= 0) return marks[i + dir] || null;
+  const nowEl = document.querySelector("#timeline .tl__now");
+  const now = nowEl ? leftOf(nowEl) : Infinity;
+  if (dir < 0) return marks.filter((m) => leftOf(m) <= now).pop() || null;
+  return marks.find((m) => leftOf(m) > now) || null;
+}
+
+export function timelineNav(ui) {
+  const right = document.querySelector("#timeline .tl__right");
+  if (!right) return;
+  const marks = sortedMarks();
+  const cur = ui.tlCurrent ? marks.find((m) => m.title === ui.tlCurrent) : null;
+  if (cur) {
+    cur.classList.add("is-current");
+    cur.setAttribute("aria-current", "true");
+    for (const m of marks) m.tabIndex = m === cur ? 0 : -1;
+  }
+  // aria-disabled, not disabled: the focused button keeps focus when it reaches the end.
+  const btn = (dir, label, text) => {
+    const off = !timelineTarget(dir, ui.tlCurrent);
+    return el("button", { type: "button", class: "tl__step", title: label, "aria-label": label, "aria-disabled": off ? "true" : "false", dataset: { act: "tl-step", dir: String(dir), focus: `tl-step-${dir}` }, text });
+  };
+  right.prepend(el("div", { class: "tl__nav", role: "group", "aria-label": "Timeline events" },
+    btn(-1, "Previous timeline event", "‹ Previous"), btn(1, "Next timeline event", "Next ›")));
+}
+
+// Flights dock (7.8): the picked aircraft stays marked (row and map ring) and gets a detail
+// block. The entry is an estimate from code: a straight-line projection from the last
+// position, if track, speed and level are held (tephra/geo/exposure.py). No clock time is
+// derived from it.
+export function renderFlightDetail(D, ui, target) {
+  if (!target || !D) return;
+  const pick = ui.selFlight;
+  for (const row of target.querySelectorAll(".flights__row")) {
+    const on = !!pick && row.dataset.focus === `flight-${pick.hex}`;
+    row.classList.toggle("is-picked", on);
+    if (on) row.setAttribute("aria-current", "true"); else row.removeAttribute("aria-current");
+  }
+  if (!pick) return;
+  const f = D.selFlight;
+  const clear = el("button", { type: "button", class: "link-btn fdetail__clear", "aria-label": "Clear the selected flight", dataset: { act: "flight-clear", focus: "flight-clear" }, text: "Clear" });
+  const head = el("div", { class: "fdetail__head" }, el("span", { class: "caps", text: "Selected" }),
+    el("strong", { class: "fdetail__id", text: f ? f.properties.proxy_flight : pick.proxy }), clear);
+  const box = el("section", { class: "fdetail", "aria-label": "Selected flight" }, head);
+  if (!f) {
+    box.append(D.selHiddenByLevel
+      ? el("p", { class: "fdetail__gone" }, `Hidden by the level filter ${fl(ui.level.min)}–${fl(ui.level.max)}. `,
+        el("button", { type: "button", class: "link-btn", dataset: { act: "level-reset", focus: "fdetail-reset" }, text: "Reset" }))
+      : el("p", { class: "fdetail__gone", text: "No current position for this flight in the aircraft data." }));
+    target.append(box);
+    return;
+  }
+  const p = f.properties;
+  box.append(el("p", { class: "fdetail__sub", text: `RFA is a fictional airline · stands in for ADS-B ${p.callsign || "(no callsign)"}, hex ${String(p.hex || "").toUpperCase()}` }));
+  const dl = el("dl", { class: "fdetail__facts" });
+  const row = (k, v) => { if (v != null && v !== "") dl.append(el("dt", { text: k }), el("dd", { text: String(v) })); };
+  if (p.exposed) {
+    row("Entry (est.)", p.inside ? "Inside TEPHRA's area now" : `In ${p.minutes_to_entry} min`);
+    row("Basis", "Code projection from the last position, if track, speed and level are held");
+  } else {
+    row("Entry (est.)", "Not projected to enter TEPHRA's area");
+  }
+  row("Level", p.alt_baro_ft != null ? `${fl(p.alt_baro_ft)}${p.nav_altitude_mcp_ft != null ? ` · selected ${fl(p.nav_altitude_mcp_ft)}` : ""}` : "level unknown");
+  const move = [p.gs_kt != null ? `${Math.round(p.gs_kt)} kt` : null, p.track_deg != null ? `${Math.round(p.track_deg)}° ${compassWord(p.track_deg)}` : null].filter(Boolean).join(" · ");
+  row("Speed, track", move);
+  row("Position age", age(p.ageS));
+  box.append(dl);
+  const adv = p.exposed ? D.advByFlight.get(`${p.hex}:${p.volcano_id}`) : null;
+  if (adv) box.append(el("p", { class: "fdetail__adv" }, advisoryLine(adv, D.mode === "REPLAY")));
+  target.append(box);
+}
+
+// Satellite context scale (5.6): only for layers whose NASA GIBS entry publishes a colour map
+// legend (Himawari band 13 infrared and TROPOMI SO2). Visible and Air Mass RGB have none, and
+// none is drawn. The colours and labels come from GIBS at run time; when that file does not
+// load, the strip says so and shows nothing in its place.
+const SCALE = {
+  ir: { file: "Clean_Longwave_Infrared_Window_Band", note: "drawn in grey, as on the map" },
+  so2: { file: "OMI_SO2_Lower_Troposphere", note: null },
+};
+const scales = new Map();
+
+// The map shows infrared with raster-saturation -1 and raster-contrast 0.2 (map.js); MapLibre
+// turns those into "average of r, g, b" and "(c - 0.5) * 1.25 + 0.5". The strip does the same.
+const greyIr = ([r, g, b]) => {
+  const v = Math.round(Math.min(255, Math.max(0, ((r + g + b) / 3 / 255 - 0.5) * 1.25 * 255 + 127.5)));
+  return [v, v, v];
+};
+
+async function loadScale(key, onChange) {
+  scales.set(key, { state: "loading", at: Date.now() });
+  try {
+    const res = await fetch(`https://gibs.earthdata.nasa.gov/colormaps/v1.3/${SCALE[key].file}.xml`, { cache: "force-cache", signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const doc = new DOMParser().parseFromString(await res.text(), "application/xml");
+    if (doc.querySelector("parsererror")) throw new Error("unreadable colour map");
+    const cmap = [...doc.getElementsByTagName("ColorMap")].find((c) => c.getAttribute("units"));
+    const legend = cmap?.getElementsByTagName("Legend")[0];
+    if (!legend) throw new Error("no legend in the colour map");
+    const entries = [...legend.getElementsByTagName("LegendEntry")]
+      .filter((e) => /\d/.test(e.getAttribute("tooltip") || ""))
+      .map((e) => ({ rgb: (e.getAttribute("rgb") || "").split(",").map(Number), label: e.getAttribute("showLabel") === "true" ? e.getAttribute("label") : null }));
+    if (entries.length < 2 || entries.some((e) => e.rgb.length !== 3 || e.rgb.some((v) => !Number.isFinite(v)))) throw new Error("unexpected legend entries");
+    scales.set(key, { state: "ok", title: cmap.getAttribute("title") || "", units: cmap.getAttribute("units"), min: legend.getAttribute("minLabel"), max: legend.getAttribute("maxLabel"), entries });
+  } catch (e) {
+    scales.set(key, { state: "failed", at: Date.now(), reason: e.message });
+  }
+  onChange();
+}
+
+export function satScale(key, onChange) {
+  const spec = SCALE[key];
+  if (!spec) return null;
+  const s = scales.get(key);
+  if (!s || (s.state === "failed" && Date.now() - s.at > 5 * 60e3)) loadScale(key, onChange);
+  const cur = scales.get(key);
+  if (cur.state === "loading") return el("p", { class: "ctx-scale glass ctx-scale--note", text: "Scale loading from NASA GIBS…" });
+  if (cur.state === "failed") return el("p", { class: "ctx-scale glass ctx-scale--note", role: "status", text: "Scale unavailable: the NASA GIBS colour map did not load. No scale is shown in its place." });
+  const n = cur.entries.length;
+  const colour = (rgb) => `rgb(${(key === "ir" ? greyIr(rgb) : rgb).join(" ")})`;
+  const stops = cur.entries.map((e, i) => `${colour(e.rgb)} ${((i / n) * 100).toFixed(2)}% ${(((i + 1) / n) * 100).toFixed(2)}%`);
+  const bar = el("span", { class: "ctx-scale__bar", "aria-hidden": "true" });
+  bar.style.backgroundImage = `linear-gradient(to right, ${stops.join(", ")})`;
+  const ticks = el("span", { class: "ctx-scale__ticks", "aria-hidden": "true" });
+  const tick = (text, at, edge) => {
+    const t = el("span", { class: `ctx-scale__tick${edge ? ` ctx-scale__tick--${edge}` : ""}`, text });
+    t.style.left = `${at}%`;
+    ticks.append(t);
+  };
+  if (cur.min) tick(cur.min, 0, "start");
+  // inner labels too close to an end label would overlap it on a 360 px strip
+  cur.entries.forEach((e, i) => {
+    const at = ((i + 0.5) / n) * 100;
+    if (e.label && !(cur.min && at < 12) && !(cur.max && at > 88)) tick(e.label, at, null);
+  });
+  if (cur.max) tick(cur.max, 100, "end");
+  const caption = `Scale: ${cur.title}${cur.units ? ` (${cur.units})` : ""} · NASA GIBS colour map${spec.note ? ` · ${spec.note}` : ""}`;
+  return el("div", { class: "ctx-scale glass", role: "img", "aria-label": `${caption}, from ${cur.min} to ${cur.max}` }, el("span", { class: "ctx-scale__cap", text: caption }), bar, ticks);
 }
