@@ -20,7 +20,7 @@ export const GLOSSARY = [
   ["Z", "UTC. 06:30Z is 06:30 UTC."],
   ["ADS-B", "Positions that aircraft broadcast, collected here from adsb.lol. A gap in coverage is not an empty sky."],
   ["RFA proxy flight", "Ring of Fire Air (RFA) is a fictional airline. Each RFA flight number stands in for a real aircraft seen on ADS-B."],
-  ["NO MODEL", "TEPHRA is running in its offline test mode with no AI model connected."],
+  ["NO MODEL", "No AI model is connected. Code does every step, and code templates write the text a model would."],
   ["REPLAY and reconstructed", "REPLAY plays recorded real feeds and is labelled for the whole session. A reconstructed case was rebuilt after the event from archived bulletins."],
   ["Affected area", "The area an official product says the ash covers."],
   ["Policy A (illustrative)", "An example operator policy: every margin, minimum and threshold TEPHRA applies, with its reason. It is not a real airline's policy."],

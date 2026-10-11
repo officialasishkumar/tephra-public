@@ -342,9 +342,10 @@ About dialog), command bar 48 (wordmark, mode badge, region menu button instead 
 buttons, clock, model chip, feeds chip, Desk icon button with label "Desk"), strip 28, rail 440,
 inset 12, timeline 84. Tools column becomes icon-only (40 px tiles with tooltips and
 `aria-label`s). The level filter collapses to a "Levels" tool that opens it as a popover. The
-headline pill is hidden; the rail head carries its text as one line under the volcano name (the
-discrepancy, the area mode, "N flights entering", "N approved"; ellipsized, full text in the
-`title`; left out in HYPOTHESIS, where the rail head already shows the hypothesis banner). The MapLibre zoom control is hidden (keys and
+headline pill is hidden; the rail head carries the verdict (7.6) under the volcano name as a
+wrapped sentence, never clipped (the discrepancy, the area mode, "N RFA (fictional) flights
+entering", "N approved", led by "Recorded:" in REPLAY), then the area's second line; left out
+in HYPOTHESIS, where the rail head already shows the hypothesis banner). The MapLibre zoom control is hidden (keys and
 wheel still zoom). Trace dock: 1 line, expands on T. Flights dock: 300 wide with one-line rows, or
 a pill "✈ 2 entering · first in 12 min" that expands when more than two flights enter. Rail: tabs 44, head 56, sources
 grid compact (rows Seen, Height, Movement; Valid and Colour code move into the column head
@@ -357,13 +358,17 @@ Single column, page scrolls:
 1. REPLAY banner, two lines allowed (48).
 2. Command bar, two rows (88): row 1 wordmark, mode badge, clock; row 2 model chip, feeds chip,
    "Desk" link.
-3. Map, `height: 46vh` (min 320). Overlays: headline hidden; a "Legend" button top-left; tools as
+3. Verdict block (`#verdict`, `role="status"`), full width above the map: the volcano with its
+   colour symbol (and "RECORDED" in REPLAY), then the two verdict lines of 7.6 wrapped in full
+   (14 px), or the HYPOTHESIS line on the hypothesis tint. The rail head does not repeat them
+   at this width. Hidden with no volcano selected.
+4. Map, `height: 46vh` (min 320). Overlays: headline hidden; a "Legend" button top-left; tools as
    a horizontal row of three icon buttons top-right (Frame, Layers, 3D); the level presets and
    satellite live in the Layers sheet; swipe compare is not offered under 600 px (a swipe on a
    390 px map adds little); the timeline becomes one line under the map
    ("REPLAY · 25 SEP 16:30Z · 58%"). Map label boxes drop to 12 px and the rose to 78 px arrows.
-4. A tab bar (sticky under the map, 48): Brief · Sources · Flights · Trace.
-5. Tab panels (sections 7.11-7.14 stacked). The sources grid becomes one card per source
+5. A tab bar (sticky under the map, 48): Brief · Sources · Flights · Trace.
+6. Tab panels (sections 7.11-7.14 stacked). The sources grid becomes one card per source
    (SIGMET, VAA, VONA), rendered by a phone branch in `panels.js`, not by CSS alone: the column
    head, then label and value rows (Seen at, Height, Movement, Valid, Colour code) with values
    wrapping in full, never clamped or left in a tooltip, then the hash and "Raw text". A flagged
@@ -372,7 +377,7 @@ Single column, page scrolls:
    quoted lines under the grid or cards, headed by their source kind ("VAA · VAAC",
    "VONA · observatory").
    Text floor at phone width: 12 px (`--fs-1`); no rule sets a smaller size.
-6. Honesty strip fixed to the bottom, two lines (40); add `padding-bottom` to the page so it never
+7. Honesty strip fixed to the bottom, two lines (40); add `padding-bottom` to the page so it never
    covers content.
 
 ### 4.5 Desk at 390x844 (primary)
@@ -662,16 +667,26 @@ chip; clock; "Open Desk" link.
 - Region presets: a segmented control (pill group) of `state.regions`, each button "1 Java /
   Bali" with the key hint in a `kbd`, the name, and a count badge of active volcanoes inside its
   bbox (hidden when 0). `aria-pressed` on the current one. Fly to the region with `--dur-camera`.
-- KPIs: "Active" (`active_volcano_ids.length`), "Flights entering (all volcanoes)" (`exposed_count`, in
-  `--c-tephra-text`), "Drafts" (`draft_count`); value 24 px over a 12 px caps label.
+- KPIs: first the hero, "RFA (fictional) flights entering" (`exposed_count` over all volcanoes,
+  said in its tooltip; value 32 px, 24 px below 1600 px, over a caps label that may wrap to two
+  lines). It is `--c-tephra-text` amber only when above 0. At 0 it shows "—" in text-3, never
+  "0", "none" or "clear", with the tooltip "No RFA (fictional) flight seen entering. Receiver
+  coverage is patchy: an empty map is not an empty sky." Then "Active"
+  (`active_volcano_ids.length`) and "Drafts" (`draft_count`); value 24 px over a 12 px caps
+  label. The KPIs are hidden at 1359 px and below, where the verdict (7.6) carries the count.
 - Model chip: `state.llm.label` in Plex Mono 500. Stub: dashed border, `i-code` icon, "NO MODEL".
-  Gemini: solid border, `i-model` icon, the model id ("gemini-3.8-flash"). Tooltip: "Steps that
-  call a model are marked AI-drafted; with NO MODEL, code templates stand in."
+  Gemini: solid border, `i-model` icon, the model id ("gemini-3.8-flash"). Tooltip with NO MODEL
+  reuses the area outcome wording (11.5): "NO MODEL: official products only. Text that a model
+  would write comes from code templates; nothing on screen was written by a model." With a
+  model: "Steps that call a model are marked AI-drafted. Times, ids and hashes are always
+  written by code." The Desk chip and its NO MODEL marks use the same words; no screen calls
+  the stub a test mode.
 - Feeds chip: caps "FEEDS" then counts by status with their shapes, worst first ("● 3 OK · ○ 6
   off", "⬢ 1 error"). It opens the feed health dialog (7.16). The chip never turns red as a
   whole; only the ERROR count does.
 - Clock: `HH:MM:SSZ` (32 px, 600, tabular) from the active clock, ticking locally between
-  heartbeats; under it "25 SEP · REPLAY CLOCK" (violet) or "10 OCT · UTC".
+  heartbeats; under it "25 SEP · REPLAY CLOCK · UTC" (violet) or "10 OCT · UTC". The timeline's
+  window line and hour axis carry the tooltip "Times ending in Z are UTC".
 - Open Desk: outlined button with `i-dispatcher`, opens `/desk` in a new tab (`rel="noopener"`).
 - States: loading (all values "–", badge "CONNECTING"), stale (clock caption "STREAM LOST ·
   last 16:07:12Z" in caution, the badge keeps the mode), replay (as above).
@@ -720,6 +735,14 @@ the button in About open the same dialog. It is visible at every width. The stri
    TEPHRA's own output binding, a forecast or a warning.
 3. "Keyboard shortcuts", the table from section 9 and the single-key toggle.
 
+First-look card: at the top of the rail brief (Brief tab on a phone), a small surface-2 card:
+"New here? Pink is the official ash area, which is binding. Amber is TEPHRA's cautious area, an
+estimate never smaller than the official one. Times ending in Z are UTC. RFA (Ring of Fire Air)
+is a fictional airline." with two link buttons, "Help and glossary" (opens this dialog) and "Got
+it, hide this" (sets `introDismissed` in the per-viewer prefs; with storage blocked it returns
+next visit). Never shown in presentation layout. It is not a map overlay: the legend, the trace
+dock and the flights dock already hold the map's corners.
+
 ### 7.4 Map container and camera
 
 - `new maplibregl.Map({ container, style, maxPitch: 70, attributionControl: false, dragRotate:
@@ -764,20 +787,38 @@ ash area · binding; Official forecast · +6 h dashed (only when a step polygon 
 cautious area · never smaller (drawn just outside what it contains); Widened by the model
 (only when a sector exists); Official movement; Observatory drift (only with a rose); Flight
 entering the area; Other airline flight; then a full-width row of the five eruption symbols with
-"Aviation colour code: G Y O R, U unknown"; then a context line "FIR and VAAC lines
-approximate". Rows appear only when the thing is on the map. Collapsible (L). States: loading
+"Aviation colour code, lowest to highest: green, yellow, orange, red; grey means unknown"; then a
+context line "FIR and VAAC lines approximate". Rows appear only when the thing is on the map.
+Collapsible (L). Folded, it keeps a mini key under the "LEGEND" button: up to three 18 px
+swatches with one word each, stacked so the folded panel stays narrow: "Official" (always),
+"TEPHRA" (when the cautious area is drawn) and "Entering" (when a flight enters), under the same
+conditions as the full rows. It is never lowered below 1600 px to open by default: open, it
+would cover a quarter of the map at 1440 px and squeeze the headline. States: loading
 (skeleton rows), 3D (adds "Heights ×6"), compare (adds the A/B meaning), context layer on (adds
 its legend image or scale).
 
 ### 7.6 Headline pill and map notes
 
-A single line at the top of the map, between the legend and the tools, 18 px semibold, glass:
-`[eruption symbol] SEMERU · ⚠ Direction disagreement 135° · TEPHRA area widened · 2 flights
-entering · 1 approved`. Parts are present only when true: the discrepancy part uses the highest
+The verdict. At the top of the map, between the legend and the tools, 18 px semibold, glass:
+`[eruption symbol] SEMERU · ⚠ Direction disagreement 135° · TEPHRA area widened · 2 RFA
+(fictional) flights entering · 1 approved`. Parts are present only when true: the discrepancy part uses the highest
 severity's shape and word ("SERIOUS: a VAA says no ash while another source saw it" for
 CONFLICT); the area part is "TEPHRA area = official", "TEPHRA area widened" or "HYPOTHESIS:
-MONITOR or HOLD only"; flights "0 flights entering" stays (it is information); decisions appear
-after the first decision. Below it, map notes (same pill style, 14 px, text-2) when needed:
+MONITOR or HOLD only"; flights "0 RFA (fictional) flights entering" stays (it is information;
+every count of RFA flights says the airline is fictional); decisions appear after the first
+decision. In REPLAY a violet "RECORDED" tag leads the line.
+
+A second line (14 px, text-2, wraps) says what the area means, from the area card's mode line:
+"Same as the official area: TEPHRA adds nothing." or "Official area plus the observatory's
+drift, never smaller." When the area is OFFICIAL and no model accepted a reading, it appends the
+outcome text (11.5), so "TEPHRA area = official" never reads as a model endorsing the official
+area: with the stub "… TEPHRA adds nothing. NO MODEL: official products only."; likewise "AI
+unavailable: …", "No model call needed: …" or "Plume read queued …". HYPOTHESIS keeps its own
+single line.
+
+The same two lines are the verdict at every width: at 1359 px and below the rail head carries
+them under the volcano name, wrapped in full (line 1 starts "Recorded:" in REPLAY); at phone
+width a block above the map carries them (4.4). Below it, map notes (same pill style, 14 px, text-2) when needed:
 "No aircraft seen within 150 km of Semeru in the open ADS-B feed. Receiver coverage is patchy
 here: an empty map is not an empty sky." · "Level filter FL180–FL550 hides 1 official area and
 2 flights" (caution) · "Basemap offline: simplified coastline (Natural Earth)".
@@ -1315,8 +1356,9 @@ headline.
 | STUB | "NO MODEL: official products only" |
 | ACCEPTED | "Gemini reading accepted by the validators" |
 | REPAIRED | "Accepted after one repair" |
-| FALLBACK_OFFICIAL | "Model output rejected by the validators: official products only" |
+| MODEL_FAILED | "AI unavailable: official products only, nothing assessed beyond them" |
 | OFFICIAL_ONLY | "No model call needed: official products only" |
+| PENDING | "Plume read queued for the Duty Officer: official products only until it runs" |
 
 ### 11.6 Feed names and status wording
 

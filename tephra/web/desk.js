@@ -76,7 +76,9 @@ function applyState(state) {
   const chip = byId('model-chip');
   chip.classList.toggle('model-chip--stub', stub);
   chip.replaceChildren(icon(stub ? 'i-code' : 'i-model'), el('span', { text: String(llm.label || 'NO MODEL') }));
-  chip.title = "Steps that call a model are marked AI-drafted; with NO MODEL, code templates stand in.";
+  chip.title = stub
+    ? "NO MODEL: official products only. Text that a model would write comes from code templates; no model wrote anything here."
+    : "Steps that call a model are marked AI-drafted. Times, ids and hashes are always written by code.";
   setTitle();
   measure();
   if (before && (before.mode !== state.mode || (before.replay || {}).case_id !== (state.replay || {}).case_id)) {

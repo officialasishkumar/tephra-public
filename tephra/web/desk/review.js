@@ -261,7 +261,7 @@ function draftedByValue(adv) {
     ? el('span', { class: 'v-strong' }, 'Template · NO MODEL')
     : el('span', { class: 'v-strong' }, `${adv.model_id} · AI-drafted`);
   const out = [who];
-  out.push(fine(isStub(adv) ? 'Code templates stand in for the model.' : 'Model-written body; times, ids and hashes are written by code.'));
+  out.push(fine(isStub(adv) ? 'NO MODEL: official products only. Code templates wrote this text.' : 'Model-written body; times, ids and hashes are written by code.'));
   const notes = (adv.validation_notes || []).filter((n) => typeof n === 'string');
   if (notes.length) {
     const careful = needsCarefulRead(adv);

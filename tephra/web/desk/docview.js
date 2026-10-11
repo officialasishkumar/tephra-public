@@ -19,7 +19,7 @@ const blank = (note) => el('span', { class: 'blank' }, el('span', { class: 'blan
 
 function modelMark(modelId, backend) {
   const stub = backend === 'stub' || modelId === 'stub' || !modelId;
-  return el('span', { class: `dmark ${stub ? 'dmark--stub' : 'dmark--ai'}`, title: stub ? 'Written by the offline test stub' : `Written by ${modelId}, checked by code` },
+  return el('span', { class: `dmark ${stub ? 'dmark--stub' : 'dmark--ai'}`, title: stub ? 'NO MODEL: written by code templates, not a model' : `Written by ${modelId}, checked by code` },
     icon(stub ? 'i-code' : 'i-sparkle', 'st'), el('span', { text: stub ? 'NO MODEL' : `AI-written · ${modelId}` }));
 }
 

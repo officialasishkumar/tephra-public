@@ -46,6 +46,7 @@ const ui = {
   d3: false,
   compare: false,
   legendOpen: PRESENT ? false : legendDefault(),
+  introOpen: !PRESENT && !prefs.get("introDismissed", false),
   layersOpen: false,
   levelsOpen: false,
   traceExpanded: false,
@@ -675,6 +676,7 @@ document.addEventListener("click", (e) => {
   else if (t.dataset.flight) flyToFlight(t.dataset.flight);
   else if (t.getAttribute("role") === "tab" && t.dataset.vid) select(t.dataset.vid);
   else if (act === "select" && t.dataset.vid) { map?.closePopup(); select(t.dataset.vid); }
+  else if (act === "intro-dismiss") { ui.introOpen = false; prefs.set("introDismissed", true); renderNow(); $("brief").focus({ preventScroll: true }); }
   else if (act === "legend") { ui.legendOpen = !ui.legendOpen; prefs.set("legendOpen", ui.legendOpen); renderNow(); }
   else if (act === "layers-close") { toggleLayers(false); document.querySelector('[data-tool="layers"]').focus(); }
   else if (act === "trace-expand") { ui.traceExpanded = !ui.traceExpanded; renderNow(); }

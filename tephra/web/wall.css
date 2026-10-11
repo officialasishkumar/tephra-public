@@ -1178,3 +1178,48 @@ body[data-rail]:not([data-rail="brief"]) .brief { display: none; }
 .duty__more[open] > summary { margin-bottom: var(--sp-2); }
 .dg__resmore > summary { cursor: pointer; margin-top: var(--sp-1); font-size: var(--fs-1); color: var(--c-tephra-text); }
 .dg__resmore .dg__result { display: block; }
+
+/* ---- Verdict, key and first look (UI-DESIGN 7.1, 7.3a, 7.5, 7.6, 4.3, 4.4) ----
+   Kept as one block: the verdict sentence and its second line, the folded legend's mini key,
+   the hero KPI, the phone verdict block above the map and the first-look card in the rail. */
+
+/* Map headline: a RECORDED tag in REPLAY and the second line (what the area means). */
+.headline__rec { padding: 1px 8px; border: 1px solid var(--c-replay); border-radius: var(--radius-sm); background: var(--c-replay-bg); color: var(--c-replay-text); font-size: var(--fs-2); font-weight: var(--fw-bold); letter-spacing: var(--tracking-caps); }
+.headline > .headline__line2 { flex-basis: 100%; white-space: normal; font-size: var(--fs-2); font-weight: var(--fw-regular); color: var(--c-text-2); line-height: 1.35; }
+@media (min-width: 1600px) { .headline:has(.headline__line2) { flex-wrap: wrap; } }
+
+/* Rail head at 601-1359 px: the verdict as a full sentence, not one clipped line. */
+.vhead__headline { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.35; }
+.vhead__why { display: none; margin-top: 2px; font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.35; }
+@media (max-width: 1359px) { .vhead__why { display: block; } }
+
+/* Folded legend: three marks, only those that are on the map. */
+.legend__mini { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 2px 4px; }
+.legend .legend__mini li { display: flex; align-items: center; gap: 6px; padding: 0; font-size: var(--fs-1); color: var(--c-text-2); }
+.legend .legend__mini .sw { width: 18px; height: 18px; margin: 0; }
+
+/* Hero KPI: flights entering. Amber only when above 0. */
+.kpi--hero dt { max-width: 190px; white-space: normal; text-align: center; line-height: 1.1; }
+.kpi--hero dd { font-size: var(--fs-7); }
+.kpis .kpi--tephra:not(.kpi--hot) dd { color: var(--c-text-3); }
+.kpis .kpi--hot dd { color: var(--c-tephra-text); }
+@media (max-width: 1599px) { .kpi--hero dd { font-size: var(--fs-6); } .kpi--hero dt { max-width: 160px; } }
+
+/* Phone verdict block above the map (4.4). Hidden above 600 px, where the map headline or the
+   rail head carries the verdict. */
+.verdict { display: none; }
+.intro { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-2) var(--sp-3); background: var(--c-surface-2); border: 1px solid var(--c-line-2); border-radius: var(--radius-md); }
+.intro__text { font-size: var(--fs-2); color: var(--c-text-1); line-height: 1.4; }
+.intro__actions { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); }
+@media (max-width: 600px) {
+  .verdict { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; background: var(--c-surface-1); border-bottom: 1px solid var(--c-line-1); }
+  .verdict__head { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-3); font-weight: var(--fw-semibold); letter-spacing: 0.04em; }
+  .verdict__volcano { display: inline-flex; align-items: center; gap: 6px; }
+  .verdict__volcano .icon { width: 18px; height: 18px; }
+  .verdict__line { font-size: var(--fs-2); font-weight: var(--fw-semibold); color: var(--c-text-1); line-height: 1.35; }
+  .verdict__line .st { vertical-align: -2px; }
+  .verdict__why { font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.35; }
+  .verdict--hypothesis { background: var(--c-hypothesis-bg); border-bottom-color: var(--c-tephra); }
+  .verdict--hypothesis .verdict__line { color: var(--c-tephra-text); }
+  .vhead__headline, .vhead__why { display: none; }
+}

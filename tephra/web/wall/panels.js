@@ -126,7 +126,16 @@ export function renderChrome(D, store, ui, A) {
   }
 
   $("kpi-active").textContent = String(s.active_volcano_ids?.length ?? 0);
-  $("kpi-exposed").textContent = String(s.exposed_count ?? 0);
+  // The hero KPI (UI-DESIGN 7.1): amber only when a flight is entering. At 0 it shows a dash,
+  // never "0", "none" or "clear": the feed only sees aircraft that broadcast on ADS-B.
+  const exposed = s.exposed_count ?? 0;
+  const kx = $("kpi-exposed");
+  kx.textContent = exposed > 0 ? String(exposed) : "—";
+  kx.closest(".kpi").classList.toggle("kpi--hot", exposed > 0);
+  kx.closest(".kpi").title = exposed > 0
+    ? `${exposed} RFA (fictional) flight${exposed === 1 ? "" : "s"} entering TEPHRA's cautious area, all volcanoes.`
+    : "No RFA (fictional) flight seen entering. Receiver coverage is patchy: an empty map is not an empty sky.";
+  kx.setAttribute("aria-label", exposed > 0 ? String(exposed) : "0 seen; an empty map is not an empty sky");
   // null: the server could not read the drafts; an older count is not shown as current.
   $("kpi-drafts").textContent = s.draft_count === null ? "unknown (database error)" : String(s.draft_count ?? 0);
 
@@ -134,7 +143,9 @@ export function renderChrome(D, store, ui, A) {
   const stub = s.llm?.backend === "stub";
   model.className = `model-chip${stub ? "" : " model-chip--model"}`;
   model.replaceChildren(icon(stub ? "i-code" : "i-model"), el("span", { text: s.llm?.label || "NO MODEL" }));
-  model.title = "Steps that call a model are marked AI-drafted; with NO MODEL, code templates stand in.";
+  model.title = stub
+    ? `${OUTCOME.STUB}. Text that a model would write comes from code templates; nothing on screen was written by a model.`
+    : "Steps that call a model are marked AI-drafted. Times, ids and hashes are always written by code.";
 
   const by = {};
   for (const f of store.feeds) by[f.status] = (by[f.status] || 0) + 1;
@@ -175,7 +186,7 @@ export function renderClock(D, conn) {
     sub.textContent = `STREAM LOST · last ${hhmmssz(conn.lostAt)}`;
     sub.dataset.tone = "caution";
   } else {
-    sub.textContent = `${dayMon(D.now)} · ${D.mode === "REPLAY" ? "REPLAY CLOCK" : "UTC"}`;
+    sub.textContent = `${dayMon(D.now)} · ${D.mode === "REPLAY" ? "REPLAY CLOCK · UTC" : "UTC"}`;
     sub.dataset.tone = D.mode === "REPLAY" ? "replay" : "";
   }
 }
@@ -188,17 +199,27 @@ export function renderLegend(D, ui) {
   box.classList.toggle("legend--collapsed", !open);
   const btn = el("button", { class: "legend__toggle", type: "button", "aria-expanded": open ? "true" : "false", "aria-controls": "legend-body", "aria-keyshortcuts": "L", dataset: { act: "legend", focus: "legend-toggle" } },
     el("span", { class: "caps", text: "Legend" }), icon(open ? "i-chevron-up" : "i-chevron-down"), el("kbd", { text: "L" }));
-  if (!open) { box.replaceChildren(btn); return; }
-  const li = (sw, label, sub) => el("li", {}, sw, el("span", {}, el("strong", { text: label }), sub ? el("span", { class: "legend__sub", text: ` ${sub}` }) : null));
   const sw = (id, cls) => icon(id, `sw ${cls}`);
+  const showTephra = !!(D && ui.layers.tephra && D.cones.length);
+  const anyExposed = !!(D && D.exposed.length > 0);
+  if (!open) {
+    // Folded: the three marks a first look needs, under the same conditions as the full key.
+    const mini = (s, label) => el("li", {}, s, el("span", { text: label }));
+    const key = D ? el("ul", { class: "legend__mini", "aria-label": "Key" },
+      mini(sw("lg-area-official", "sw--official"), "Official"),
+      showTephra ? mini(sw("lg-area-tephra", "sw--tephra"), "TEPHRA") : null,
+      anyExposed ? mini(sw("i-aircraft", "sw--exposed"), "Entering") : null) : null;
+    box.replaceChildren(btn, ...(key ? [key] : []));
+    return;
+  }
+  const li = (sw, label, sub) => el("li", {}, sw, el("span", {}, el("strong", { text: label }), sub ? el("span", { class: "legend__sub", text: ` ${sub}` }) : null));
   const hasStep = D.official.some((f) => f.properties.show && f.properties.step !== "now");
   const hasSector = D.cones.some((f) => f.properties.part === "sector");
-  const anyExposed = D.exposed.length > 0;
   const anyOther = D.aircraft.some((f) => !f.properties.exposed);
   const rows = [
     li(sw("lg-area-official", "sw--official"), "Official ash area", "· binding"),
     hasStep ? li(sw("lg-area-forecast", "sw--official"), "Official forecast", "· +6 h dashed") : null,
-    ui.layers.tephra && D.cones.length ? li(sw("lg-area-tephra", "sw--tephra"), "TEPHRA cautious area", "· never smaller; drawn just outside what it contains") : null,
+    showTephra ? li(sw("lg-area-tephra", "sw--tephra"), "TEPHRA cautious area", "· never smaller; drawn just outside what it contains") : null,
     hasSector ? li(sw("lg-area-hatch", "sw--tephra"), "Widened by the model") : null,
     D.rose && ui.layers.rose ? li(sw("lg-arrow-official", "sw--official"), "Official movement") : null,
     D.rose && ui.layers.rose ? li(sw("lg-arrow-observer", "sw--observer"), "Observatory drift") : null,
@@ -206,7 +227,7 @@ export function renderLegend(D, ui) {
     ui.layers.reroutes && D.hasReroutes ? li(sw("lg-reroute", "sw--reroute"), "Reroute", "· turn points in ICAO form") : null,
     ui.layers.satboxes && D.hasSatBoxes ? li(sw("lg-satbox", "sw--sat"), "Satellite check box", "· AI-drawn, supporting only") : null,
     anyOther ? li(sw("i-aircraft", "sw--aircraft"), "Other airline flight") : null,
-    el("li", { class: "legend__codes" }, el("span", { class: "codes" }, ...["GREEN", "YELLOW", "ORANGE", "RED", "UNKNOWN"].map((c) => eruptIcon(c, "icon"))), el("span", { text: "Aviation colour code: G Y O R, U unknown" })),
+    el("li", { class: "legend__codes" }, el("span", { class: "codes" }, ...["GREEN", "YELLOW", "ORANGE", "RED", "UNKNOWN"].map((c) => eruptIcon(c, "icon"))), el("span", { text: "Aviation colour code, lowest to highest: green, yellow, orange, red; grey means unknown" })),
     ui.d3 ? li(sw("i-3d", "sw--plain"), "3D view", "· heights ×6") : null,
     ui.compare ? li(sw("i-swipe", "sw--plain"), "Compare", "· A official products only, B with TEPHRA's area") : null,
   ];
@@ -232,12 +253,29 @@ function headlineFacts(D, sit, store) {
   }
   const n = sit.exposed_count || 0;
   const decided = store.advisories.filter((a) => a.volcano_id === sit.volcano_id && (a.status === "APPROVED" || a.status === "EDITED")).length;
-  return { cone, dis, area: cone ? MODE_SHORT[cone.mode] || cone.mode : null, n, flights: `${n} flight${n === 1 ? "" : "s"} entering`, decided };
+  // RFA is a fictional airline: every count of its flights says so.
+  const flights = `${n} RFA (fictional) flight${n === 1 ? "" : "s"} entering`;
+  return { cone, dis, area: cone ? MODE_SHORT[cone.mode] || cone.mode : null, n, flights, decided, replay: D.mode === "REPLAY", why: areaWhy(D, sit, cone) };
 }
 
-function headlineLine(D, sit, store) {
+// The verdict's second line: what TEPHRA's area means, and who read the sources. "TEPHRA area =
+// official" alone could read as a model endorsing the official area; when no model assessed it,
+// the line says so (UI-DESIGN 7.6).
+function areaWhy(D, sit, cone) {
+  if (!cone || cone.mode === "HYPOTHESIS") return null;
+  const line = MODE_LINE[cone.mode] || "";
+  if (cone.mode !== "OFFICIAL") return line;
+  const outcome = sit.assessment?.outcome;
+  const stub = outcome === "STUB" || (!outcome && D.state?.llm?.backend === "stub");
+  const why = stub ? OUTCOME.STUB : outcome && outcome !== "ACCEPTED" && outcome !== "REPAIRED" ? OUTCOME[outcome] : null;
+  return why ? `${line} ${capFirst(why)}.` : line;
+}
+
+// The verdict as plain text: line 1 the facts, line 2 what the area means.
+function verdictLines(D, sit, store) {
   const f = headlineFacts(D, sit, store);
-  return [f.dis?.text, f.area, f.flights, f.decided ? `${f.decided} approved` : null].filter(Boolean).join(" · ");
+  const line1 = [f.dis?.text, f.area, f.flights, f.decided ? `${f.decided} approved` : null].filter(Boolean).join(" · ");
+  return { line1: f.replay ? `Recorded: ${line1}` : line1, line2: f.why };
 }
 
 export function renderHeadline(D, ui, notes, store) {
@@ -245,14 +283,17 @@ export function renderHeadline(D, ui, notes, store) {
   const sit = D.sit;
   if (!sit) { h.hidden = true; } else {
     h.hidden = false;
-    const { cone, dis, area, n, flights, decided } = headlineFacts(D, sit, store);
-    const kids = [el("span", { class: "headline__volcano" }, eruptIcon(sit.color_code), sit.volcano_name.toUpperCase())];
+    const { cone, dis, area, n, flights, decided, replay, why } = headlineFacts(D, sit, store);
+    const kids = [];
+    if (replay) kids.push(el("span", { class: "headline__rec", text: "RECORDED" }));
+    kids.push(el("span", { class: "headline__volcano" }, eruptIcon(sit.color_code), sit.volcano_name.toUpperCase()));
     const sep = () => el("span", { class: "headline__sep", "aria-hidden": "true", text: "·" });
     if (dis) kids.push(sep(), el("span", { class: `headline__dis headline__dis--${dis.tone}` }, st(dis.sid, `var(--c-${dis.tone})`), dis.text));
     if (area) kids.push(sep(), el("span", { class: "headline__area", text: area }));
     kids.push(sep(), el("span", { class: n ? "headline__flights" : "", text: flights }));
     if (decided) kids.push(sep(), el("span", { class: "headline__ok" }, icon("i-approved"), `${decided} approved`));
     if (ui.d3) kids.push(el("span", { class: "headline__chip", title: "3D view, heights exaggerated six times", text: "3D ×6" }));
+    if (why) kids.push(el("span", { class: "headline__line2", text: why }));
     const hyp = cone?.mode === "HYPOTHESIS";
     const next = hyp
       ? [st("st-caution", "var(--c-caution)"), el("span", { text: `HYPOTHESIS: no valid official product for ${sit.volcano_name}. MONITOR or HOLD only.` })]
@@ -266,10 +307,41 @@ export function renderHeadline(D, ui, notes, store) {
       h.replaceChildren(...next);
     }
   }
+  renderVerdict(D, store);
   const box = $("map-notes");
   box.replaceChildren(...notes.map((n) => el("p", { class: `map-note map-note--${n.tone || "info"}`, role: n.tone === "serious" ? "alert" : null },
     n.tone === "serious" ? st("st-serious", "var(--c-serious)") : n.tone === "caution" ? st("st-caution", "var(--c-caution)") : st("st-info", "var(--c-info)"),
     el("span", { text: n.text }), n.action ? el("button", { type: "button", class: "link-btn", dataset: { act: n.action }, text: n.actionText }) : null)));
+}
+
+// Phone width (UI-DESIGN 4.4): the map headline does not fit over a 390 px map, so the same
+// verdict sits in a block above the map. Hidden by CSS above 600 px.
+function renderVerdict(D, store) {
+  const box = $("verdict");
+  if (!box) return;
+  const sit = D.sit;
+  if (!sit) { box.hidden = true; box.dataset.key = ""; box.replaceChildren(); return; }
+  box.hidden = false;
+  const cone = D.coneOf(sit.volcano_id)?.properties;
+  const hyp = cone?.mode === "HYPOTHESIS";
+  const head = el("p", { class: "verdict__head" },
+    D.mode === "REPLAY" ? el("span", { class: "headline__rec", text: "RECORDED" }) : null,
+    el("span", { class: "verdict__volcano" }, eruptIcon(sit.color_code), sit.volcano_name.toUpperCase()));
+  let kids;
+  if (hyp) {
+    kids = [head, el("p", { class: "verdict__line" }, st("st-caution", "var(--c-caution)"), el("span", { text: ` HYPOTHESIS: no valid official product for ${sit.volcano_name}. MONITOR or HOLD only.` }))];
+  } else {
+    const { line1, line2 } = verdictLines(D, sit, store);
+    kids = [head, el("p", { class: "verdict__line", text: D.mode === "REPLAY" ? line1.replace(/^Recorded: /, "") : line1 }),
+      line2 ? el("p", { class: "verdict__why", text: line2 }) : null];
+  }
+  // role=status: rebuild only when the words change.
+  const key = [hyp, sit.color_code, ...kids.map((k) => k?.textContent || "")].join("|");
+  if (box.dataset.key !== key) {
+    box.dataset.key = key;
+    box.classList.toggle("verdict--hypothesis", hyp);
+    box.replaceChildren(...kids);
+  }
 }
 
 export function mapNotes(D, ui, store, extra) {
@@ -451,6 +523,7 @@ export function renderBrief(D, store, ui, A) {
     const region = (D.state.regions || []).find((r) => r.key === (ui.region || D.state.region?.key));
     const others = (D.state.regions || []).filter((r) => D.regionCounts[r.key]);
     brief.replaceChildren(
+      ...introCard(ui),
       el("section", { class: "sec sec--empty", "data-ptab": "brief" },
         el("h1", { class: "vhead__name", text: `No active volcano in ${region?.name || "this region"}.` }),
         el("p", { class: "muted", text: "A volcano is active when it has a VONA in the last 24 h, a current VAA, or a valid VA SIGMET near it." }),
@@ -459,20 +532,32 @@ export function renderBrief(D, store, ui, A) {
     return;
   }
   const cone = D.coneOf(sit.volcano_id)?.properties;
-  // The map headline is hidden at 1359 px and below; this line carries it there (4.3).
-  const line = cone?.mode === "HYPOTHESIS" ? null : headlineLine(D, sit, store);
+  // The map headline is hidden at 1359 px and below; these lines carry the verdict there (4.3).
+  const verdict = cone?.mode === "HYPOTHESIS" ? null : verdictLines(D, sit, store);
   const head = el("section", { class: "vhead-wrap", "data-ptab": "brief" },
     el("div", { class: "vhead" },
       el("h1", { class: "vhead__name", id: "volcano-name", tabindex: "-1", text: sit.volcano_name }),
       el("span", { class: "code-chip", title: `Aviation colour code ${sit.color_code}` }, eruptIcon(sit.color_code), sit.color_code),
       el("span", { class: "vhead__asof", text: `as of ${hhmmz(ms(sit.as_of))}` })),
-    line ? el("p", { class: "vhead__headline", title: line, text: line }) : null,
+    verdict ? el("p", { class: "vhead__headline", text: verdict.line1 }) : null,
+    verdict?.line2 ? el("p", { class: "vhead__why", text: verdict.line2 }) : null,
     el("p", { class: "vreasons", text: sit.active_reasons.join(" · ") }),
     cone?.mode === "HYPOTHESIS" ? hypothesisBanner(sit) : null);
-  brief.replaceChildren(head, sourcesSection(D, sit, A), disagreeSection(D, sit, ui), areaSection(D, sit, ui),
+  brief.replaceChildren(...introCard(ui), head, sourcesSection(D, sit, A), disagreeSection(D, sit, ui), areaSection(D, sit, ui),
     el("section", { class: "sec sec--phone", "data-ptab": "flights", id: "rail-flights" }),
     decisionsSection(D, store, ui),
     el("section", { class: "sec sec--phone", "data-ptab": "trace", id: "rail-trace" }));
+}
+
+// A first-look card at the top of the brief (UI-DESIGN 7.3a): the few words a newcomer needs,
+// with Help one click away. Dismissed once per browser; never shown in presentation layout.
+function introCard(ui) {
+  if (!ui.introOpen || ui.present) return [];
+  return [el("section", { class: "intro", "aria-label": "Reading this screen", "data-ptab": "brief" },
+    el("p", { class: "intro__text", text: "New here? Pink is the official ash area, which is binding. Amber is TEPHRA's cautious area, an estimate never smaller than the official one. Times ending in Z are UTC. RFA (Ring of Fire Air) is a fictional airline." }),
+    el("div", { class: "intro__actions" },
+      el("button", { type: "button", class: "link-btn", dataset: { act: "help", focus: "intro-help" }, text: "Help and glossary" }),
+      el("button", { type: "button", class: "link-btn", dataset: { act: "intro-dismiss", focus: "intro-dismiss" }, text: "Got it, hide this" })))];
 }
 
 function hypothesisBanner(sit) {
@@ -865,7 +950,7 @@ export function renderTimeline(D, store, ui, conn) {
   const t0 = D.now - 9 * 3600e3, t1 = D.now + 3 * 3600e3;
   const pct = (t) => `${(((t - t0) / (t1 - t0)) * 100).toFixed(3)}%`;
   box.classList.toggle("is-stale", !!conn.lostAt);
-  const meta = el("div", { class: "tl__meta" });
+  const meta = el("div", { class: "tl__meta", title: "Times ending in Z are UTC" });
   if (s.mode === "REPLAY" && s.replay) {
     const a = ms(s.replay.recorded_from), b = ms(s.replay.recorded_to);
     // A looping window (TEPHRA_REPLAY_START to TEPHRA_REPLAY_END) measures progress through the loop.
@@ -945,7 +1030,7 @@ export function renderTimeline(D, store, ui, conn) {
   }
   if (marks.length) marks[marks.length - 1].tabIndex = 0;
   // Hour ticks: every hour at 1600+, every second hour below; none within 36 px of NOW.
-  const axis = el("div", { class: "tl__axis", "aria-hidden": "true" });
+  const axis = el("div", { class: "tl__axis", "aria-hidden": "true", title: "Times ending in Z are UTC" });
   const every = window.innerWidth < 1600 ? 2 : 1;
   const trackW = box.querySelector(".tl__track")?.clientWidth || Math.max(1, window.innerWidth - 1000);
   const nearNow = (t) => (Math.abs(t - D.now) / (t1 - t0)) * trackW < 36;

@@ -9,7 +9,7 @@ export function aiChip(modelId, backend, { verb = 'AI-written', sm = false } = {
   const stub = backend === 'stub' || modelId === 'stub' || !modelId;
   const cls = `chip ${stub ? 'chip--stub' : 'chip--ai'}${sm ? ' chip--sm' : ''}`;
   if (stub) {
-    return el('span', { class: cls, title: 'Written by the offline test stub: no model wrote this text' },
+    return el('span', { class: cls, title: 'NO MODEL: code templates wrote this text, not a model' },
       icon('i-code', 'st'), el('span', { text: 'NO MODEL' }));
   }
   return el('span', { class: cls, title: `${verb} by ${modelId}. Checked by code before it is shown.` },

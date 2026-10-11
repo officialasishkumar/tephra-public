@@ -46,8 +46,8 @@
     </nav>
     <div class="cmdbar__spacer"></div>
     <dl class="kpis">
+      <div class="kpi kpi--tephra kpi--hero"><dt>RFA (fictional) flights entering</dt><dd id="kpi-exposed">–</dd></div>
       <div class="kpi"><dt>Active</dt><dd id="kpi-active">–</dd></div>
-      <div class="kpi kpi--tephra"><dt>Flights entering (all volcanoes)</dt><dd id="kpi-exposed">–</dd></div>
       <div class="kpi"><dt>Drafts</dt><dd id="kpi-drafts">–</dd></div>
     </dl>
     <button id="ai-chip" class="ai-chip" type="button" aria-label="AI activity">AI</button>
@@ -70,6 +70,7 @@
   <div id="lost-banner" class="lost-banner" role="alert" hidden></div>
 
   <main class="stage" id="main">
+    <section id="verdict" class="verdict" role="status" aria-label="Verdict for the selected volcano" hidden></section>
     <section class="map-pane" id="map-pane" aria-label="Map">
       <div id="map-wrap" class="map-wrap">
         <div id="map" class="map"></div>
