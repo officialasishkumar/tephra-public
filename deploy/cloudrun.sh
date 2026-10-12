@@ -56,6 +56,20 @@ if [ -n "$KEEP_TAG" ] && ! [[ "$KEEP_TAG" =~ ^keep-[a-z0-9][a-z0-9._-]*$ ]]; the
   exit 1
 fi
 
+# In CI, how far the deploy got, for the workflow's step after this one
+# (deploy/report_interrupted.sh) when this script is stopped part-way. KEY=VALUE lines; a later
+# line wins.
+stage() {
+  [ "$CI_MODE" = true ] && [ -n "${TEPHRA_DEPLOY_STAGE_FILE:-}" ] || return 0
+  printf '%s\n' "$@" >>"$TEPHRA_DEPLOY_STAGE_FILE"
+}
+stage stage=checks
+# In CI, and in the step summary on the run's page, so the outcome is visible without the log.
+summary() {
+  [ "$CI_MODE" = true ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ] || return 0
+  printf '%s\n' "$@" >>"$GITHUB_STEP_SUMMARY"
+}
+
 # --- the commit being deployed ----------------------------------------------------------
 # Only a clean tree that main already contains is deployed, so the image's commit is the
 # whole story of what runs.
@@ -66,9 +80,13 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 if [ "$CI_MODE" = true ]; then
-  # CI: HEAD must be the commit that was pushed, and still the newest on origin/main. A run
-  # that a newer push overtook (or a re-run of an old one) stands down instead of rolling
-  # the site back; the newer push's own run deploys it.
+  # CI: HEAD must be the commit that was pushed, and on origin/main as it is now. When main
+  # has moved on since, this run stands down only if a later push changed something the
+  # workflow's paths filter deploys: that push started a run of its own, which (or a newer
+  # one that replaced it while waiting) deploys a commit containing this one, after this run.
+  # Otherwise (only docs and the like came after, which start no run) this run deploys HEAD,
+  # which then runs the same code as the tip. So a re-run of an old run can never roll the
+  # site back, and a code push followed by a docs-only push still deploys.
   git fetch --quiet origin main
   head="$(git rev-parse HEAD)"
   tip="$(git rev-parse FETCH_HEAD)"
@@ -77,9 +95,26 @@ if [ "$CI_MODE" = true ]; then
     exit 1
   fi
   if [ "$head" != "$tip" ]; then
-    echo "::notice::Not deploying ${head:0:12}: origin/main is already at ${tip:0:12}, whose own run deploys it."
-    echo "Not deploying ${head:0:12}: origin/main has moved on to ${tip:0:12}."
-    exit 0
+    if ! git merge-base --is-ancestor "$head" "$tip"; then
+      echo "::error::${head:0:12} is no longer on origin/main (now ${tip:0:12}; history was rewritten). Not deploying."
+      echo "Refusing: HEAD (${head:0:12}) is not an ancestor of origin/main (${tip:0:12})." >&2
+      exit 1
+    fi
+    # --no-renames lists both sides of a move, so code moved out of tephra/ still counts.
+    if ! later="$(git diff --no-renames --name-only "$head" "$tip" \
+                  | python3 -I deploy/deploy_paths.py .github/workflows/deploy.yml)"; then
+      echo "Refusing: could not read the paths filter of .github/workflows/deploy.yml." >&2
+      exit 1
+    fi
+    if [ -n "$later" ]; then
+      echo "::notice::Not deploying ${head:0:12}: origin/main is at ${tip:0:12}, and a later push changed deployable files, so its own run deploys them."
+      echo "Not deploying ${head:0:12}: origin/main has moved on to ${tip:0:12}, which changes:"
+      sed -n '1,20s/^/  /p' <<<"$later"
+      summary "### Not deployed: ${head:0:12}" "" \
+        "origin/main had moved on to \`${tip:0:12}\`, whose changes to deployable files have a run of their own."
+      exit 0
+    fi
+    echo "origin/main is at ${tip:0:12}, but nothing after ${head:0:12} changes what deploys (no run of its own): deploying ${head:0:12}."
   fi
 else
   git fetch origin
@@ -182,6 +217,7 @@ else
 fi
 
 # --- image --------------------------------------------------------------------------------
+stage stage=building "sha=$SHA"
 IMAGE_BASE="$REGION-docker.pkg.dev/$TEPHRA_PROJECT/$REPO/$SERVICE"
 IMAGE="$IMAGE_BASE:$SHA-$(date -u +%Y%m%d-%H%M%S)"
 
@@ -198,7 +234,9 @@ else
   build_id="$(gcloud builds submit "${build_args[@]}" --async \
     --gcs-source-staging-dir "gs://${TEPHRA_PROJECT}_cloudbuild/source" --format='value(id)')"
   echo "Cloud Build $build_id: $(gcloud builds describe "$build_id" --format='value(logUrl)')"
-  build_deadline=$((SECONDS + 3600))
+  # Cloud Build stops a build itself after its timeout (10 minutes; deploy/cloudbuild.yaml
+  # sets none). Waiting 30 leaves room for the queue and keeps the step inside its limit.
+  build_deadline=$((SECONDS + 1800))
   while :; do
     status="$(gcloud builds describe "$build_id" --format='value(status)')"
     case "$status" in
@@ -209,7 +247,7 @@ else
          exit 1 ;;
     esac
     if [ "$SECONDS" -ge "$build_deadline" ]; then
-      echo "Build $build_id still $status after an hour; nothing was deployed." >&2
+      echo "Build $build_id still $status after 30 minutes; nothing was deployed." >&2
       exit 1
     fi
     sleep 15
@@ -266,16 +304,14 @@ print(urls[0])
 }
 report_revision() {
   local digest
-  digest="$(gcloud run revisions describe "$1" --region "$REGION" --format='value(status.imageDigest)')"
+  # The deployer's run.developer is granted on the service only; if reading a revision is
+  # refused, the digest is cosmetic here, so say so rather than stop mid-rollout.
+  digest="$(gcloud run revisions describe "$1" --region "$REGION" --format='value(status.imageDigest)' 2>/dev/null)" \
+    || digest="(could not read the revision)"
   echo "Revision: $1"
   echo "Image:    $digest"
 }
 
-# In CI, and in the step summary on the run's page, so the outcome is visible without the log.
-summary() {
-  [ "$CI_MODE" = true ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ] || return 0
-  printf '%s\n' "$@" >>"$GITHUB_STEP_SUMMARY"
-}
 # How a person rolls back: from the tephra-personal configuration (CI never rolls back).
 person_config="${TEPHRA_GCLOUD_CONFIG:-tephra-personal}"
 
@@ -301,15 +337,18 @@ if ! gcloud run services describe "$SERVICE" --region "$REGION" >/dev/null 2>&1;
   exit 0
 fi
 
-PREV="$(describe | serving_revision)"
+svc="$(describe)"
+PREV="$(serving_revision <<<"$svc")"
+url="$(python3 -I -c 'import json,sys; print(json.load(sys.stdin)["status"]["url"])' <<<"$svc")"
+rollback="gcloud run services update-traffic $SERVICE --region $REGION --to-revisions $PREV=100"
 echo "Serving now: $PREV"
+stage stage=candidate "prev=$PREV" "url=$url" "rollback=$rollback"
 gcloud run deploy "$SERVICE" "${deploy_args[@]}" --no-traffic --tag candidate
 svc="$(describe)"
 CANDIDATE="$(python3 -I -c 'import json,sys; print(json.load(sys.stdin)["status"]["latestCreatedRevisionName"])' <<<"$svc")"
 candidate_url="$(tag_url candidate <<<"$svc")"
-url="$(python3 -I -c 'import json,sys; print(json.load(sys.stdin)["status"]["url"])' <<<"$svc")"
+stage "candidate=$CANDIDATE"
 report_revision "$CANDIDATE"
-rollback="gcloud run services update-traffic $SERVICE --region $REGION --to-revisions $PREV=100"
 
 # Read-only: the candidate gets no Scheduler ticks, and nothing is POSTed to it.
 echo "Smoke test of the candidate at $candidate_url"
@@ -318,10 +357,13 @@ if ! env "${smoke_env[@]}" scripts/live_smoke.sh "$candidate_url" --read-only; t
   [ "$CI_MODE" = false ] || echo "::error::Candidate $CANDIDATE failed its smoke test; traffic stays on $PREV."
   summary "### Not deployed: $SHA" "" "Candidate \`$CANDIDATE\` failed its read-only smoke test." \
     "Traffic was not moved: \`$PREV\` still serves $url."
+  stage stage=reported
   exit 1
 fi
 
+stage stage=moving-traffic
 gcloud run services update-traffic "$SERVICE" --region "$REGION" --to-revisions "$CANDIDATE=100"
+stage stage=traffic-moved
 echo "Smoke test of $url after moving traffic to $CANDIDATE"
 if ! env "${smoke_env[@]}" scripts/live_smoke.sh "$url"; then
   echo "The live URL FAILED its smoke test on $CANDIDATE. Traffic was left as it is." >&2
@@ -330,6 +372,7 @@ if ! env "${smoke_env[@]}" scripts/live_smoke.sh "$url"; then
   [ "$CI_MODE" = false ] || echo "::error::$url failed its smoke test on $CANDIDATE (traffic left on it). Roll back: $rollback"
   summary "### Live smoke test FAILED: $SHA" "" "Traffic is on \`$CANDIDATE\` (was \`$PREV\`); it was left as it is." \
     "" "Roll back with (\`CLOUDSDK_ACTIVE_CONFIG_NAME=$person_config\`):" "" '```' "$rollback" '```'
+  stage stage=reported
   exit 1
 fi
 if [ "$HOSTING" = on-demand ]; then
@@ -340,4 +383,5 @@ echo "Deployed $SHA as $CANDIDATE at $url (previous: $PREV)."
 echo "Roll back with: $rollback"
 summary "### Deployed $SHA" "" "Revision \`$CANDIDATE\` serves $url (previous: \`$PREV\`)." \
   "" "Roll back with (\`CLOUDSDK_ACTIVE_CONFIG_NAME=$person_config\`):" "" '```' "$rollback" '```'
+stage stage=reported
 echo "Reload any open Wall and Desk so they load the new code."

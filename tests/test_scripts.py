@@ -605,3 +605,175 @@ def test_docker_context_leaves_out_local_state_and_research() -> None:
         "CLAUDE.md",
     ]
     assert [path for path in unwanted if not _ignored(path, rules)] == []
+
+
+# --- deploy: which pushes deploy (deploy/deploy_paths.py) ----------------------------------
+
+_DEPLOY_WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "deploy.yml"
+
+
+def _deploy_paths() -> ModuleType:
+    spec = importlib.util.spec_from_file_location(
+        "tephra_deploy_paths", PROJECT_ROOT / "deploy" / "deploy_paths.py"
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _deploy_rules() -> tuple[ModuleType, Any]:
+    module = _deploy_paths()
+    patterns = module.read_patterns(_DEPLOY_WORKFLOW.read_text(encoding="utf-8"))
+    return module, module.compile_filter(patterns)
+
+
+def test_deploy_paths_reads_the_same_list_github_does() -> None:
+    import yaml
+
+    workflow = yaml.safe_load(_DEPLOY_WORKFLOW.read_text(encoding="utf-8"))
+    on = workflow.get("on", workflow.get(True))  # YAML 1.1 reads a bare `on` as true
+    module = _deploy_paths()
+    assert module.read_patterns(_DEPLOY_WORKFLOW.read_text(encoding="utf-8")) == on["push"]["paths"]
+
+
+@pytest.mark.parametrize(
+    ("path", "deploys"),
+    [
+        ("tephra/main.py", True),
+        ("tephra/agents/prompts/plume_reader.md", True),
+        ("data/replay/README.md", True),
+        ("docs/backtest/results.json", True),
+        ("deploy/cloudrun.sh", True),
+        ("Dockerfile", True),
+        ("uv.lock", True),
+        ("scripts/live_smoke.sh", True),
+        ("tests/test_policy.py", True),
+        (".github/workflows/deploy.yml", True),
+        ("README.md", False),
+        ("CLAUDE.md", False),
+        ("docs/ARCHITECTURE.md", False),
+        ("research/18e-ask-voice-satellite-handover-ui.md", False),
+        ("tests/test_scripts.py", False),
+        ("scripts/plume_eval.py", False),
+        ("evals/README.md", False),
+        (".github/workflows/ci.yml", False),
+        (".claude/skills/tephra-deploy/SKILL.md", False),
+        ("tephraX/main.py", False),
+    ],
+)
+def test_deploy_paths_filter(path: str, deploys: bool) -> None:
+    module, rules = _deploy_rules()
+    assert module.triggers(path, rules) is deploys
+
+
+def test_deploy_paths_cover_everything_the_image_is_built_from() -> None:
+    module, rules = _deploy_rules()
+    # README.md and LICENSE are copied for the package metadata only; they change no behaviour.
+    exempt = {"README.md", "LICENSE"}
+    sources = []
+    for line in (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8").splitlines():
+        words = line.split()
+        if not words or words[0] != "COPY" or any(w.startswith("--from") for w in words):
+            continue
+        sources += [w for w in words[1:-1] if not w.startswith("--")]
+    assert sources
+    missing = []
+    for source in sources:
+        if source in exempt:
+            continue
+        probe = source if (PROJECT_ROOT / source).is_file() else f"{source.rstrip('/')}/x.py"
+        if not module.triggers(probe, rules):
+            missing.append(source)
+    assert missing == []
+
+
+def test_deploy_paths_refuses_patterns_it_cannot_match() -> None:
+    module = _deploy_paths()
+    with pytest.raises(ValueError, match="unsupported path pattern"):
+        module.compile_filter(["tephra/**", "docs/[ab]*"])
+    with pytest.raises(ValueError, match=r"no on\.push\.paths"):
+        module.read_patterns("on:\n  push:\n    branches: [main]\n")
+
+
+# --- live_smoke.sh: waiting out 429/503 ----------------------------------------------------
+
+
+def _smoke_against(script: dict[str, list[int]], env: dict[str, str]) -> str:
+    """Run scripts/live_smoke.sh --read-only against a local server answering each path with
+    the listed statuses in turn (the last one repeats); return its output."""
+    import subprocess
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    state_body = json.dumps({"mode": "REPLAY", "build_sha": "abc", "policy": {}}).encode()
+    calls: dict[str, int] = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            statuses = script.get(self.path, [404])
+            n = calls.get(self.path, 0)
+            calls[self.path] = n + 1
+            status = statuses[min(n, len(statuses) - 1)]
+            body = b""
+            if status == 200 and self.path == "/health":
+                body = b'{"mode": "REPLAY"}'
+            elif status == 200 and self.path == "/api/state":
+                body = state_body
+            self.send_response(status)
+            if status in (429, 503):
+                self.send_header("Retry-After", "1")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args: Any) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        result = subprocess.run(
+            [
+                "bash",
+                str(PROJECT_ROOT / "scripts" / "live_smoke.sh"),
+                f"http://127.0.0.1:{server.server_address[1]}",
+                "--read-only",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={"PATH": os.environ["PATH"], **env},
+        )
+    finally:
+        server.shutdown()
+    return result.stdout
+
+
+def _line(output: str, check: str) -> str:
+    return next(line for line in output.splitlines() if f" {check}: " in line)
+
+
+def test_smoke_waits_out_a_start_up_429_and_says_so() -> None:
+    out = _smoke_against({"/health": [429, 429, 200]}, {})
+    line = _line(out, "healthz")
+    assert line.startswith("PASS healthz: 200, mode=REPLAY (429 for ")
+    assert line.endswith(", then 200)")
+    assert "waited out 429/503" in out.splitlines()[-1]
+
+
+def test_smoke_fails_a_429_after_the_service_had_answered() -> None:
+    out = _smoke_against({"/health": [200], "/api/state": [429, 200]}, {})
+    assert _line(out, "healthz").startswith("PASS healthz")
+    line = _line(out, "state")
+    assert line.startswith("FAIL state: ")
+    assert "then 200, after the service had answered" in line
+
+
+def test_smoke_without_retries_reports_the_429() -> None:
+    out = _smoke_against({"/health": [429, 200]}, {"SMOKE_RETRY_S": "0"})
+    line = _line(out, "healthz")
+    assert line.startswith("FAIL healthz: 429")
+    assert "not retried: no retries" in line

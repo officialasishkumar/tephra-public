@@ -13,11 +13,16 @@
 # EXPECT_CASE (replay case id), TICK_INTERVAL_S (default 60; a tick older than 3x fails).
 # Exit status is non-zero when any check fails.
 #
-# Cloud Run answers 429 or 503 while the single instance starts or traffic moves to a new
-# revision. A request that gets one is retried with backoff for up to SMOKE_RETRY_S (default
-# 90) seconds, and SMOKE_RETRY_BUDGET_S (default 240) caps the waiting in one run, so a
-# service that never comes up still fails in minutes. The check's line says so, for example
-# "PASS page /desk: 200, CSP present (429 for 20 s, then 200)".
+# Cloud Run answers 429 or 503 while the single instance starts. A request that gets one is
+# retried with backoff for up to SMOKE_RETRY_S (default 90) seconds, and SMOKE_RETRY_BUDGET_S
+# (default 240) caps the waiting in one run, so a service that never comes up still fails in
+# minutes. The check's line says so, for example "PASS healthz: 200, mode=REPLAY (429 for
+# 20 s, then 200)". Two limits keep that from hiding a broken service:
+#   - A 429 or 503 after the service has already answered in this run is not a start-up: the
+#     instance went away or filled up under a running service, and real users got it too. That
+#     check FAILS even when a retry then succeeds ("... after the service had answered").
+#   - --watch does not retry at all (SMOKE_RETRY_S defaults to 0 there): a monitor reports
+#     what a visitor gets, and a visitor's browser does not retry.
 set -euo pipefail
 
 usage() {
@@ -49,9 +54,11 @@ if [ -n "$WATCH_MIN" ] && ! [[ "$WATCH_MIN" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 PIN_FILE="$(cd "$(dirname "$0")/.." && pwd)/tests/test_policy.py"
+DEFAULT_RETRY_S=90
+[ -z "$WATCH_MIN" ] || DEFAULT_RETRY_S=0
 
 run_once() {
-  python3 -I - "$BASE" "$READ_ONLY" "$PIN_FILE" <<'PY'
+  python3 -I - "$BASE" "$READ_ONLY" "$PIN_FILE" "$DEFAULT_RETRY_S" <<'PY'
 import json
 import os
 import re
@@ -65,18 +72,26 @@ BASE, READ_ONLY, PIN_FILE = sys.argv[1], sys.argv[2] == "1", sys.argv[3]
 TICK_S = int(os.environ.get("TICK_INTERVAL_S", "60"))
 TIMEOUT_S = 20
 RETRY_STATUSES = (429, 503)
-RETRY_S = float(os.environ.get("SMOKE_RETRY_S", "90"))
+RETRY_S = float(os.environ.get("SMOKE_RETRY_S", sys.argv[4]))
 RETRY_BUDGET_S = float(os.environ.get("SMOKE_RETRY_BUDGET_S", "240"))
 failures = 0
 retry_waited = 0.0  # seconds spent waiting out 429/503 in this run
 retry_notes = []  # what the waiting looked like, for the next line printed
+retried_checks = 0  # lines that carried such a note
+answered = False  # the service has answered something other than 429/503 in this run
+flapped = False  # a 429/503 came after that, since the last line printed
 
 
 def report(ok, name, detail):
-    global failures
+    global failures, flapped, retried_checks
     if retry_notes:
         detail = f"{detail} ({'; '.join(retry_notes)})"
         retry_notes.clear()
+        retried_checks += 1
+    if flapped:
+        # Not a start-up: the service had answered, then refused. Whatever the retry got.
+        ok = False
+        flapped = False
     if ok is None:
         print(f"WARN {name}: {detail}")
         return
@@ -99,16 +114,21 @@ def open_retrying(req, timeout):
     429/503 or the time runs out. Either way a note like "429 for 20 s, then 200" is left
     for the next line printed.
     """
-    global retry_waited
+    global retry_waited, answered, flapped
     started = time.monotonic()
     seen = []
     pause = 2.0
+    after_answer = answered
     while True:
         try:
             resp = urllib.request.urlopen(req, timeout=timeout)
             final, error = resp.status, None
         except urllib.error.HTTPError as exc:
             final, error = exc.code, exc
+        if final not in RETRY_STATUSES:
+            answered = True
+        elif after_answer:
+            flapped = True
         if error is not None and final in RETRY_STATUSES:
             left = min(RETRY_S - (time.monotonic() - started), RETRY_BUDGET_S - retry_waited)
             if left > 0:
@@ -124,7 +144,12 @@ def open_retrying(req, timeout):
             codes = "/".join(str(code) for code in seen)
             waited = time.monotonic() - started
             outcome = "gave up" if final in RETRY_STATUSES else f"then {final}"
-            retry_notes.append(f"{codes} for {waited:.0f} s, {outcome}")
+            when = ", after the service had answered" if after_answer else ""
+            retry_notes.append(f"{codes} for {waited:.0f} s, {outcome}{when}")
+        elif final in RETRY_STATUSES:
+            when = " after the service had answered" if after_answer else ""
+            why = "no retries" if RETRY_S <= 0 else "the run's retry time is used up"
+            retry_notes.append(f"{final}{when}, not retried: {why}")
         if error is not None:
             raise error
         return resp
@@ -311,7 +336,8 @@ check("page /", lambda: page("/"))
 check("page /desk", lambda: page("/desk"))
 check("events", events)
 check("tick-auth", tick_refused)
-print(f"{'OK' if failures == 0 else 'FAILED'}: {failures} failed check(s) against {BASE}")
+waited = f"; waited out 429/503 for {retry_waited:.0f} s in {retried_checks} check(s)" if retried_checks else ""
+print(f"{'OK' if failures == 0 else 'FAILED'}: {failures} failed check(s) against {BASE}{waited}")
 sys.exit(1 if failures else 0)
 PY
 }

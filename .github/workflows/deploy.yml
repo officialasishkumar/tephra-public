@@ -12,18 +12,26 @@ name: deploy
 on:
   push:
     branches: [main]
-    # Changes that cannot alter what runs do not deploy: docs (except docs/backtest, which is
-    # in the image), Markdown (except under tephra/ and data/: the prompts and the replay
-    # notes ship), research and tests. Later patterns override earlier ones.
+    # Only changes that can alter what runs or how it is deployed: what the image is built from
+    # (the Dockerfile's COPY sources, except README.md and LICENSE, which change no behaviour),
+    # the deploy scripts and this file, the smoke test that gates the rollout and the policy
+    # pins it reads. Other docs and Markdown, research/, evals/, the other
+    # tests and scripts, ci.yml and .claude/ do not deploy. deploy/cloudrun.sh reads this list
+    # (deploy/deploy_paths.py) to tell whether a newer commit on main deploys by itself, and
+    # tests/test_scripts.py checks it covers every COPY in the Dockerfile.
     paths:
-      - "**"
-      - "!docs/**"
-      - "docs/backtest/**"
-      - "!**.md"
+      - Dockerfile
+      - .dockerignore
+      - .gcloudignore
+      - pyproject.toml
+      - uv.lock
       - "tephra/**"
       - "data/**"
-      - "!research/**"
-      - "!tests/**"
+      - "docs/backtest/**"
+      - "deploy/**"
+      - scripts/live_smoke.sh
+      - tests/test_policy.py
+      - .github/workflows/deploy.yml
   workflow_dispatch:
 
 # One deploy at a time, in push order. A running deploy is never cancelled (that could stop it
@@ -62,7 +70,9 @@ jobs:
     # Never on a fork, and only from main (a manual run on another branch does nothing).
     if: github.repository == 'officialasishkumar/tephra' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    # The deploy step has its own, shorter limit, so a step that hangs is stopped while the
+    # job still has time for the step after it to say where traffic was left.
+    timeout-minutes: 70
     steps:
       - name: Check the workflow is set up
         run: |
@@ -88,5 +98,19 @@ jobs:
           project_id: ${{ env.TEPHRA_PROJECT }}
 
       - name: Build, test the candidate, move traffic, test the live URL
+        id: deploy
         working-directory: src
+        timeout-minutes: 55
+        env:
+          # cloudrun.sh records how far it got here, for the step below.
+          TEPHRA_DEPLOY_STAGE_FILE: ${{ runner.temp }}/tephra-deploy-stage
         run: ./deploy/cloudrun.sh
+
+      # When cloudrun.sh was stopped (timeout, cancelled run) or died before writing its own
+      # summary, say where traffic was left and how to roll back. No gcloud here.
+      - name: Report where an interrupted deploy left traffic
+        if: always() && steps.deploy.outcome != 'success' && steps.deploy.outcome != 'skipped'
+        env:
+          STAGE_FILE: ${{ runner.temp }}/tephra-deploy-stage
+          OUTCOME: ${{ steps.deploy.outcome }}
+        run: ./src/deploy/report_interrupted.sh

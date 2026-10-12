@@ -10,7 +10,8 @@
 #     https://token.actions.githubusercontent.com, accepting only tokens from the deploy
 #     workflow of $GITHUB_REPO on refs/heads/main (checked by name and by numeric id);
 #   - service account $DEPLOY_SA_NAME with:
-#       roles/run.developer                    project  deploy revisions, move traffic (no IAM)
+#       roles/run.developer                    on the $SERVICE service only (deploy revisions,
+#                                              move traffic; no IAM, no other service or job)
 #       roles/cloudbuild.builds.editor         project  submit the image build, read its status
 #       roles/serviceusage.serviceUsageConsumer project  call the APIs on the project's quota
 #       roles/iam.serviceAccountUser           on the runtime account only (deploy as it)
@@ -21,6 +22,14 @@
 #   - roles/iam.workloadIdentityUser on that account for the repository's principal set.
 #
 # Then it prints the two values for .github/workflows/deploy.yml and offers to write them in.
+#
+# What this trusts: anyone who can push to main (every collaborator with write access) can
+# change deploy.yml or the code on main and so act as the deployer: deploy any image as the
+# runtime account (which reads the four secrets, Firestore and the bucket) and run any build
+# step as Cloud Build's service account. The provider's condition pins the repository, the
+# branch and the workflow file's path, not what the file says. That is what "every push to
+# main deploys" means; keep write access to the people you would hand the project to, and see
+# the check of the build's service account at the end.
 # shellcheck source=deploy/_common.sh
 source "$(dirname "$0")/_common.sh"
 
@@ -63,6 +72,8 @@ look() {
   "$@"
 }
 
+echo "Anyone who can push to main of $GITHUB_REPO will be able to deploy, and through that"
+echo "reach what the runtime account can (the secrets, Firestore, the bucket). See the header."
 confirm "Set up GitHub Actions deploys for $GITHUB_REPO (main) through pool $POOL, provider $PROVIDER_ID, deployer $DEPLOY_SA?"
 
 # What the deploys build on must already exist: a hand deploy (deploy/cloudrun.sh) makes it.
@@ -124,10 +135,25 @@ if ! look gcloud iam service-accounts describe "$DEPLOY_SA" --format='value(emai
 fi
 member="serviceAccount:$DEPLOY_SA"
 
-for role in roles/run.developer roles/cloudbuild.builds.editor roles/serviceusage.serviceUsageConsumer; do
+# Building and quota have no narrower scope than the project.
+for role in roles/cloudbuild.builds.editor roles/serviceusage.serviceUsageConsumer; do
   step gcloud projects add-iam-policy-binding "$TEPHRA_PROJECT" --member "$member" \
     --role "$role" --condition=None --format=none
 done
+# Deploying and moving traffic: on the one service only, so the deployer cannot create or
+# change any other Cloud Run service or job in the project.
+step gcloud run services add-iam-policy-binding "$SERVICE" --region "$REGION" --member "$member" \
+  --role roles/run.developer --format=none
+# An earlier version of this script granted run.developer on the whole project; take it back.
+project_run_dev="$(look gcloud projects get-iam-policy "$TEPHRA_PROJECT" \
+  --flatten='bindings[].members' \
+  --filter="bindings.role=roles/run.developer AND bindings.members=$member" \
+  --format='value(bindings.role)' || true)"
+if [ -n "$project_run_dev" ]; then
+  echo "  $DEPLOY_SA has roles/run.developer on the whole project; the service-level grant above replaces it."
+  step gcloud projects remove-iam-policy-binding "$TEPHRA_PROJECT" --member "$member" \
+    --role roles/run.developer --condition=None --format=none
+fi
 step gcloud iam service-accounts add-iam-policy-binding "$RUN_SA" --member "$member" \
   --role roles/iam.serviceAccountUser --format=none
 step gcloud artifacts repositories add-iam-policy-binding "$REPO" --location "$REGION" \
@@ -158,6 +184,30 @@ if [ -n "$build_sa" ] && [[ "$build_sa" != *@cloudbuild.gserviceaccount.com ]]; 
   echo "  the workflow:"
   echo "    gcloud iam service-accounts add-iam-policy-binding $build_sa \\"
   echo "      --member $member --role roles/iam.serviceAccountUser"
+fi
+# The deployer can submit any build config (cloudbuild.builds.editor has no narrower scope),
+# and every build step runs as this account. So whoever can push to main can do whatever it
+# can. Say plainly what that is.
+if [ -n "$build_sa" ]; then
+  build_roles="$(look gcloud projects get-iam-policy "$TEPHRA_PROJECT" \
+    --flatten='bindings[].members' --filter="bindings.members=serviceAccount:$build_sa" \
+    --format='value(bindings.role)' || true)"
+  echo "  Its roles on the project: $(echo "${build_roles:-none found}" | tr '\n' ' ')"
+  if grep -qE '^roles/(editor|owner)$' <<<"$build_roles"; then
+    echo
+    echo "  WARNING: $build_sa has Editor or Owner on $TEPHRA_PROJECT. The deployer can submit"
+    echo "  any build config, and its steps run as that account, so anyone who can push to main"
+    echo "  of $GITHUB_REPO could act with Editor (or Owner) on the whole project, not just deploy."
+    echo "  TEPHRA's build needs only roles/cloudbuild.builds.builder on it (push to Artifact"
+    echo "  Registry, read the staged source, write logs). If nothing else in the project uses"
+    echo "  that account, replace the broad role (from tephra-personal):"
+    echo "    gcloud projects add-iam-policy-binding $TEPHRA_PROJECT \\"
+    echo "      --member serviceAccount:$build_sa --role roles/cloudbuild.builds.builder"
+    echo "    gcloud projects remove-iam-policy-binding $TEPHRA_PROJECT \\"
+    echo "      --member serviceAccount:$build_sa --role roles/editor"
+    echo "  (The Compute Engine default account is also what VMs and some services run as by"
+    echo "  default; check before taking Editor from it.)"
+  fi
 fi
 
 # --- the two values for the workflow ------------------------------------------------------
