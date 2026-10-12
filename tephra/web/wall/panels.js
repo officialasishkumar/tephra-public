@@ -293,13 +293,14 @@ export function advisoryLine(a, recorded) {
 const FLIGHTS_FIRST = 5;
 
 // One flight as a row that opens This flight: the proxy flight, what it stands in for and its
-// level, the entry, and the advisory's state in a word.
+// level, the entry, and the advisory's state in a word. The rows are grouped "Inside now" and
+// "Heading in", so a row inside says nothing more about its entry; one heading in gives its time.
 const ADV_WORD = { DRAFT: ["Advisory waiting", "i-clock"], APPROVED: ["Advisory approved", "i-approved"], EDITED: ["Approved with edits", "i-approved"], REJECTED: ["Advisory rejected", "i-rejected"], SUPERSEDED: ["Advisory replaced", "i-superseded"] };
 function flightRow(D, f, ui, allStale = false) {
   const p = f.properties;
   const plane = icon("i-aircraft", "icon dk-plane");
   plane.style.transform = `rotate(${p.track_deg || 0}deg)`;
-  const entry = p.inside ? "inside now" : `in ${p.minutes_to_entry} min (est.)`;
+  const entry = p.inside ? null : `in ${p.minutes_to_entry} min (est.)`;
   const lvl = p.alt_baro_ft != null ? fl(p.alt_baro_ft) : "level unknown";
   const old = p.stale ? `position ${Math.max(1, Math.round(p.ageS / 60))} min old` : null;
   const adv = D.advByFlight.get(`${p.hex}:${p.volcano_id}`);
@@ -307,7 +308,7 @@ function flightRow(D, f, ui, allStale = false) {
   const [advWord, advIcon] = adv ? ADV_WORD[adv.status] || ADV_WORD.DRAFT : [null, null];
   return dkLinkRow({
     dot: plane,
-    title: [p.proxy_flight, " ", el("span", { class: `dk-entry${p.inside ? " dk-entry--inside" : ""}` }, p.inside ? st("st-inside", "var(--c-tephra)") : null, entry)],
+    title: entry ? [p.proxy_flight, " ", el("span", { class: "dk-entry" }, entry)] : p.proxy_flight,
     sub: [`${lvl} · real aircraft ${p.callsign || String(p.hex || "").toUpperCase()}`, oldShown ? [" · ", el("span", { class: "dk-warn", text: oldShown })] : null, p.crew_report ? [" · ", el("span", { class: "dk-crewword" }, icon("i-pin", "icon"), "crew report on this route")] : null],
     meta: adv ? el("span", { class: `dk-adv dk-adv--${adv.status.toLowerCase()}` }, icon(advIcon), el("span", { text: advWord })) : el("span", { class: "dk-adv", text: "No advisory yet" }),
     dataset: { flight: f.id ?? p.hex, focus: `flight-${p.hex}` },
@@ -346,7 +347,8 @@ export function renderFlights(D, store, ui, target = $("flights")) {
   const head = dkHeader({
     id: "flights-head",
     sub: allStale ? el("span", { class: "dk-warn", text: `Every position is old: up to ${oldest} min.` }) : null,
-    pills: [inside ? dkPill("inside", `${inside} inside now`) : heading ? dkPill("tephra", "Heading in") : dkPill("ok", "None projected"), dkRecorded(D.mode === "REPLAY")],
+    // the counts are the tiles' and the groups' to say; the header pill only marks the empty case
+    pills: [flights.length ? null : dkPill("ok", "None projected"), dkRecorded(D.mode === "REPLAY")],
     title: flights.length ? `${flights.length} RFA ${flights.length === 1 ? "flight" : "flights"} in or heading into TEPHRA's estimated area${scopeName ? ` at ${scopeName}` : ""}` : `No RFA flight is projected to enter TEPHRA's area${scopeName ? ` at ${scopeName}` : ""}.`,
   });
   const tiles = flights.length || crew ? dkTiles([
@@ -359,8 +361,11 @@ export function renderFlights(D, store, ui, target = $("flights")) {
     const name = D.sits.find((x) => x.volcano_id === vid)?.volcano_name || vid;
     return el("button", { type: "button", class: "btn btn--small", dataset: { act: "select", vid, focus: `others-${vid}` }, text: `+${n} heading in at ${name}` });
   }))) : null;
-  const list = flights.length ? dkGroup("Flights", "soonest first", dkList(flights.map((f) => flightRow(D, f, ui, allStale)), { first: FLIGHTS_FIRST, key: "flights-all", label: "Flights heading in" })) : dkEmpty("No flight heading in", "TEPHRA projects each RFA flight's last position along its track and level.");
-  target.replaceChildren(dkSection("flights-head", head, tiles, list, crew?.node, note, othersBox));
+  const group = (title, aside, rows, key) => (rows.length ? dkGroup(title, aside, dkList(rows.map((f) => flightRow(D, f, ui, allStale)), { first: FLIGHTS_FIRST, key, label: title })) : null);
+  const list = flights.length
+    ? [group("Inside now", null, flights.filter((f) => f.properties.inside), "flights-inside"), group("Heading in", "soonest first", flights.filter((f) => !f.properties.inside), "flights-heading")]
+    : dkEmpty("No flight heading in", "TEPHRA projects each RFA flight's last position along its track and level.");
+  target.replaceChildren(dkSection("flights-head", head, tiles, ...[list].flat(), crew?.node, note, othersBox));
 }
 
 // RFA flights only a crew report of ash flags (not TEPHRA's area): their own short list, so
