@@ -743,8 +743,10 @@ function onFeature(hit) {
   const id = hit.layer.id;
   const p = hit.properties || {};
   const canvas = $("map-canvas");
-  if (id === "aircraft-icon" || id === "exposure-entry") {
-    const f = D.aircraft.find((a) => a.properties.hex === p.hex);
+  if (id === "aircraft-icon" || id === "exposed-icon" || id === "exposure-entry" || id === "exposure-entry-sel") {
+    // an entry point carries its flight's id ("<hex>:<volcano>"), a plane its hex
+    const hex = p.hex || String(p.flight_id || "").split(":")[0];
+    const f = D.aircraft.find((a) => a.properties.hex === hex);
     if (!f) return;
     pickFlight(f);
     openDetails("flight", { opener: canvas });
