@@ -174,7 +174,9 @@ a {
 .dhead {
   position: sticky;
   top: 0;
-  z-index: var(--z-sticky);
+  /* Above the tab bar, which sits pinned under the header at 1100 px and wider: the
+     account menu opens inside the header and must not slide under the tabs. */
+  z-index: var(--z-banner);
   background: var(--c-surface-1);
   border-bottom: var(--border-hair);
   box-shadow: var(--shadow-1);
