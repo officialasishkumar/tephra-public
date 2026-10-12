@@ -301,11 +301,12 @@ function flightRow(D, f) {
   const lvl = p.alt_baro_ft != null ? fl(p.alt_baro_ft) : "level unknown";
   const old = p.stale ? `position ${Math.max(1, Math.round(p.ageS / 60))} min old` : null;
   const adv = D.advByFlight.get(`${p.hex}:${p.volcano_id}`);
-  return el("li", {}, el("button", { class: "flights__row", type: "button", dataset: { flight: f.id ?? p.hex, focus: `flight-${p.hex}` }, "aria-label": `${p.proxy_flight}, proxy for ${p.callsign || p.hex}, ${p.inside ? "inside TEPHRA's area now" : `enters in ${p.minutes_to_entry} minutes, estimated`}, ${lvl}${old ? `, ${old}` : ""}. Show this flight.` },
+  return el("li", {}, el("button", { class: "flights__row", type: "button", dataset: { flight: f.id ?? p.hex, focus: `flight-${p.hex}` }, "aria-label": `${p.proxy_flight}, proxy for ${p.callsign || p.hex}, ${p.inside ? "inside TEPHRA's area now" : `enters in ${p.minutes_to_entry} minutes, estimated`}, ${lvl}${old ? `, ${old}` : ""}${p.crew_report ? ", crew report of ash on this route" : ""}. Show this flight.` },
     plane,
     el("span", { class: "flights__id" },
       el("span", { class: "flights__proxy", text: p.proxy_flight }),
-      el("span", { class: "flights__meta", text: `proxy for ${p.callsign || String(p.hex || "").toUpperCase()} · ${lvl}${old ? ` · ${old}` : ""}` })),
+      el("span", { class: "flights__meta", text: `proxy for ${p.callsign || String(p.hex || "").toUpperCase()} · ${lvl}${old ? ` · ${old}` : ""}` }),
+      p.crew_report ? el("span", { class: "flights__crew" }, icon("i-pin", "icon"), "Crew report of ash on this route") : null),
     el("span", { class: p.inside ? "flights__inside" : "flights__mins" }, p.inside ? st("st-inside", "var(--c-tephra)") : null, entry),
     adv ? el("span", { class: "flights__status" }, advisoryLine(adv, false)) : null));
 }

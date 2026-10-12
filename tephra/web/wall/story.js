@@ -217,7 +217,34 @@ function storyLines(D, store, ui, sit) {
     lines.push({ text: "No RFA flight is seen heading into TEPHRA's area right now." });
     lines.push({ text: ok ? "Aircraft coverage here is patchy: an empty map is not an empty sky." : `Aircraft data is ${adsbWord(adsb?.status)}: an empty map is not an empty sky.`, cls: "story__note" });
   }
-  return lines;
+  return [...lines, ...crewLines(D, sit)];
+}
+
+// Crew reports of ash (UI-DESIGN 7.6, 7.20): at most two lines, after the flights. A crew area
+// is an operator-policy flag, so its lines never change the official or TEPHRA lines above.
+// The reports shown are this volcano's, plus any report near no active volcano.
+export function crewLines(D, sit) {
+  const C = D.crew;
+  const mine = C.drawn.filter((v) => (sit && v.report.volcano_id === sit.volcano_id) || C.homeless(v));
+  if (!mine.length) return [];
+  const ids = new Set(mine.map((v) => v.report.id));
+  const flagged = C.flags.filter((f) => f.report_ids.some((id) => ids.has(id)));
+  const out = [];
+  if (flagged.length) {
+    const names = flagged.slice(0, 3).map((f) => f.proxy_flight).join(", ");
+    const more = flagged.length > 3 ? ` and ${flagged.length - 3} more` : "";
+    out.push({ text: `Crew report of ash on the route of ${plural(flagged.length, "RFA flight", "RFA flights")}: ${names}${more}.`, cls: "story__crew", mark: "pin" });
+  } else {
+    const v = mine[0];
+    const place = v.place_text.startsWith("near ") ? v.place_text : `(${v.place_text})`;
+    out.push({ text: `Crew report of ash ${place}, ${v.age_text}: no RFA flight is seen crossing its caution area.`, cls: "story__crew", mark: "pin" });
+  }
+  const outside = mine.filter((v) => v.discrepancy);
+  if (outside.length) {
+    const v = outside[0];
+    out.push({ text: `${v.discrepancy}: ${v.report.flight}, ${v.age_text}${outside.length > 1 ? ` (+${outside.length - 1} more)` : ""}.`, cls: "story__crew story__crewdis", mark: "caution" });
+  }
+  return out;
 }
 
 let lastAnnounce = { at: 0, key: "" };
@@ -235,6 +262,7 @@ function renderLines(D, store, ui, sit, announce) {
     const name = D.area?.name || "this area";
     lines = [{ text: `No ash reported near ${name} right now.` }];
   } else lines = [{ text: "No official ash report is in force in the watched regions right now." }];
+  if (D && !sit) lines.push(...crewLines(D, null));
   const replay = D?.mode === "REPLAY" && !!sit;
   // Replace the lines only when their words change, so screen readers are not re-read every render.
   const key = [replay, ...lines.map((l) => `${l.cls || ""}:${l.text}`)].join("|");
@@ -245,6 +273,8 @@ function renderLines(D, store, ui, sit, announce) {
       if (l.banner) return el("p", { class: "story__hyp", role: "note" }, st("st-caution", "var(--c-caution)"), el("span", { text: l.text }));
       const p = el("p", { class: `story__line ${l.cls || ""}`.trim(), title: l.title || null });
       if (replay && i === 0) p.append(el("span", { class: "tag tag--replay story__rec", text: "Recorded" }), " ");
+      if (l.mark === "pin") p.append(icon("i-pin", "icon story__pin"), " ");
+      else if (l.mark === "caution") p.append(st("st-caution", "var(--c-caution)"), " ");
       p.append(l.text);
       return p;
     }));
@@ -289,6 +319,7 @@ function renderActions(D, store, ui, sit) {
     kids.push(el("a", { id: "cta", class: primary ? "cta" : "btn cta--quiet", href: ctaHref, target: "_blank", rel: "noopener", dataset: { focus: "cta" } }, ctaText));
     const n = sit ? D.exposed.filter((f) => f.properties.volcano_id === sit.volcano_id).length : 0;
     if (sit && n > 0) kids.push(el("button", { type: "button", class: "link-btn story__show", dataset: { act: "details-open", sec: "flights", focus: "show-flights" }, text: `Show the ${n} ${n === 1 ? "flight" : "flights"}` }));
+    if (crewLines(D, sit).length) kids.push(el("button", { type: "button", class: "link-btn story__show", dataset: { act: "details-open", sec: "crew", focus: "show-crew" }, text: "Crew reports" }));
   }
   const key = kids.map((k) => `${k.textContent}|${k.getAttribute?.("href") || ""}`).join("§");
   if (box.dataset.key !== key) { box.dataset.key = key; box.replaceChildren(...kids); }
@@ -309,6 +340,7 @@ export function keyRows(D, ui) {
   if (!D) return rows;
   if (D.official.some((f) => f.properties.show)) rows.push([sw("lg-area-official", "sw--official"), "Official ash area", "binding"]);
   if (ui.layers.tephra && D.cones.length) rows.push([sw("lg-area-tephra", "sw--tephra"), "TEPHRA's estimate", "never smaller than official"]);
+  if (D.crew.drawn.length) rows.push([sw("lg-area-crew", "sw--crew"), "Crew report caution area", "operator policy, not a VAA or SIGMET"]);
   if (ui.layers.aircraft && D.exposed.length) rows.push([sw("i-aircraft", "sw--exposed"), "RFA flight in or heading in", null]);
   const step = D.official.find((f) => f.properties.show && f.properties.step !== "now");
   if (step) rows.push([sw("lg-area-forecast", "sw--official"), `Official forecast area\u00a0(${step.properties.layer.replace("FCST+", "+").replace("H", "\u00a0h")})`, null]);

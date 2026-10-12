@@ -6,7 +6,7 @@
 // 1599 px, a full-screen sheet at 600 px and below. Feed text goes in with textContent (el()).
 
 import { $, el, icon, ms, hhmmz, age, fl, compassWord } from "./util.js";
-import { SEV_RANK, NON_OBS, actionWords, deciderName, officialLabelText, plainMove, levelIsAll, tephraLabelText, untilText } from "./derive.js";
+import { SEV_RANK, NON_OBS, actionWords, deciderName, officialLabelText, plainMove, levelIsAll, tephraLabelText, untilText, crewBand } from "./derive.js";
 import {
   sourcesSection, disagreeSection, areaSection, decisionsSection, renderFlights, renderTrace, traceLines, renderLevels,
   historySection, feedsSection, lagOf, timelineEvents, advisoryLine, actionText, estimateOutcome, dayMonth, FEED_STATUS,
@@ -23,6 +23,7 @@ export const SECTIONS = [
   { key: "estimate", group: "The ash", title: "TEPHRA's estimate", host: "brief" },
   { key: "sat", group: "The ash", title: "Satellite picture", host: "xpanel", xtab: "sat" },
   { key: "notices", group: "The ash", title: "Notices", host: "xpanel", xtab: "notices" },
+  { key: "crew", group: "The ash", title: "Crew reports of ash", host: "crew" },
   { key: "flights", group: "The flights", title: "Flights heading in", host: "flights" },
   { key: "decisions", group: "The flights", title: "Decisions", host: "decisions" },
   { key: "recovery", group: "The flights", title: "Airport closures", host: "xpanel", xtab: "recovery" },
@@ -37,7 +38,7 @@ export const SECTIONS = [
   { key: "area", title: "This ash area", host: "brief", hidden: true },
   { key: "flight", title: "This flight", host: "flights", hidden: true },
 ];
-const HOSTS = ["brief", "xpanel", "flights", "decisions", "trace", "levels", "layers-pop", "feeds", "history"];
+const HOSTS = ["brief", "xpanel", "flights", "decisions", "trace", "levels", "layers-pop", "feeds", "history", "crew"];
 export const sectionOf = (key) => SECTIONS.find((s) => s.key === key) || null;
 // the old rail panel ids (setRail, ui.rail) map to section keys
 export const PANELS = [{ id: "brief", sec: "sources" }, ...SECTIONS.filter((s) => s.xtab && s.xtab !== "brief").map((s) => ({ id: s.xtab, sec: s.key }))];
@@ -91,6 +92,16 @@ export function indexStatus(key, D, store, ui) {
       if (!ext.loaded.notices) return { text: "loading…" };
       if (ext.errors.notices) return { text: "could not load", tone: "serious" };
       return { text: ext.notices.length ? plural(ext.notices.length, "notice", "notices") : "none" };
+    case "crew": {
+      const C = D?.crew;
+      if (!C || !C.reports.length) return { text: "none in the last 24 h" };
+      const act = C.reports.filter((v) => v.state === "ACTIVE").length;
+      const cov = C.reports.filter((v) => v.state === "COVERED").length;
+      const out = C.reports.filter((v) => v.discrepancy).length;
+      const parts = [act ? `${act} active` : null, cov ? `${cov} covered` : null, !act && !cov ? `${plural(C.reports.length, "report", "reports")}, none active` : null,
+        C.flags.length ? `${plural(C.flags.length, "flight", "flights")} flagged` : null, out ? `${out} outside the official area` : null].filter(Boolean);
+      return { text: parts.join(" · "), tone: out ? "caution" : null };
+    }
     case "flights": {
       const list = sit ? D.exposed.filter((f) => f.properties.volcano_id === sit.volcano_id) : [];
       if (!list.length) return { text: "– · coverage is patchy" };
@@ -271,17 +282,93 @@ function flightDetail(D, ui) {
   row("Speed and track", move);
   row("Position age", age(p.ageS));
   kids.push(dl);
+  const flag = D.crew.flagByHex.get(p.hex);
+  if (flag) kids.push(crewFlagBlock(D, flag));
   const adv = p.exposed ? D.advByFlight.get(`${p.hex}:${p.volcano_id}`) : null;
   if (adv) {
     kids.push(el("p", { class: "fdetail__adv" }, el("span", { class: "fdetail__k", text: "Drafted action: " }), el("strong", { text: actionText(adv) })),
       el("p", { class: "fdetail__adv" }, advisoryLine(adv, D.mode === "REPLAY")),
       el("p", {}, el("a", { class: "btn btn--small", href: `/desk#review/${encodeURIComponent(adv.id)}`, target: "_blank", rel: "noopener", text: adv.status === "DRAFT" ? "Open on the Desk ›" : "See it on the Desk ›" })));
+    if (adv.decision_reason) kids.push(el("p", { class: "fdetail__adv", text: `Reason given: ${adv.decision_reason}` }));
   } else if (p.exposed) kids.push(el("p", { class: "dnote", text: "No advisory is drafted for this flight yet." }));
   const rr = (store_reroutes(D) || []).find((r) => r.properties.flight_id === `${p.hex}:${p.volcano_id}` || r.properties.proxy_flight === p.proxy_flight);
   if (rr) kids.push(rerouteBlock(rr.properties, D));
   host.replaceChildren(...kids);
 }
 let store_reroutes = () => [];
+
+// ------------------------------------------------------------------ Crew reports of ash (7.20)
+
+const CUE_WORDS = { ASH_SEEN: "ash seen", SULPHUR_SMELL: "sulphur smell", HAZE: "haze or dust in the cabin", ST_ELMOS_FIRE: "St Elmo's fire", ENGINE: "engine signs", NO_ASH_SEEN: "no ash seen" };
+const CREW_STATE_SHAPE = { ACTIVE: ["i-pin", "var(--c-crew-text)"], COVERED: ["st-info", "var(--c-info)"], EXPIRED: ["st-off", "var(--c-off)"], WITHDRAWN: ["st-off", "var(--c-off)"], NO_AREA: ["st-info", "var(--c-info)"] };
+const latLon = (r) => `${Math.abs(r.lat).toFixed(2)}${r.lat >= 0 ? "N" : "S"} ${Math.abs(r.lon).toFixed(2)}${r.lon >= 0 ? "E" : "W"}`;
+const whenFlag = (f) => (f.inside_now ? "is inside the crew report area now" : `enters the crew report area in ${f.minutes_to_entry} min if track and level are held`);
+
+// "Crew report of ash on this route" in This flight (7.8): which report, and when the projected
+// track meets its area. A flag only: nothing is re-planned because of it.
+function crewFlagBlock(D, flag) {
+  const views = flag.report_ids.map((id) => D.crew.byId.get(id)).filter(Boolean);
+  return el("section", { class: "crew-flag" },
+    el("p", { class: "crew-flag__line" }, icon("i-pin", "icon crew-flag__pin"), el("strong", { text: flag.line })),
+    el("p", { class: "dnote", text: `${flag.proxy_flight} ${whenFlag(flag)}.` }),
+    ...views.map((v) => el("p", { class: "dnote", text: `${v.report.flight} reported ${v.report.cues.map((c) => CUE_WORDS[c] || c).join(", ")} at ${crewBand(v.report)}, ${v.age_text} · ${v.state_label}` })),
+    el("p", { class: "dnote", text: "Operator policy A caution area; not a VAA or SIGMET. Approving Keep watching or Continue for this flight needs a written reason on the Desk." }),
+    el("button", { type: "button", class: "link-btn", dataset: { act: "details-open", sec: "crew", focus: `flag-crew-${flag.hex}` }, text: "Crew reports of ash ›" }));
+}
+
+function crewCard(D, v, picked) {
+  const r = v.report;
+  const a = r.area;
+  const [shape, colour] = CREW_STATE_SHAPE[v.state] || CREW_STATE_SHAPE.NO_AREA;
+  const flagged = D.crew.flags.filter((f) => f.report_ids.includes(r.id));
+  const dl = el("dl", { class: "area__facts" });
+  const row = (k, val, mono) => { if (val) dl.append(el("dt", { text: k }), el("dd", { class: mono ? "mono" : null, text: val })); };
+  row("Crew reported", r.cues.map((c) => CUE_WORDS[c] || c).join(", "));
+  row("At", `${crewBand(r)} · observed ${hhmmz(ms(r.observed_at))}`);
+  row("Position", `${latLon(r)} · ${r.position_basis === "ADSB_FIX" ? `ADS-B fix at ${hhmmz(ms(r.position_observed_at))}` : "typed by dispatcher"}`);
+  row("Near", v.place_text);
+  if (a) {
+    row("Caution area", `${a.radius_nm} NM around the position · ${fl(a.base_ft)}–${fl(a.top_ft)}`);
+    row("Wind stretch", a.stretch_note);
+    row("Valid", `${hhmmz(ms(a.valid_from))} to ${hhmmz(ms(a.valid_to))}${v.state === "ACTIVE" || v.state === "COVERED" ? ` (${untilText(ms(a.valid_to) - D.now)} left)` : ""}`);
+  }
+  row("Entered", `${String(r.entered_by || "").replace(/^desk:/, "")} at ${hhmmz(ms(r.created_at))} on the Desk`);
+  if (r.remarks) row("Remarks", r.remarks);
+  if (v.state === "COVERED") row("Covered by", `${plural(v.covered_by.length, "official area", "official areas")} (display only: the area and its flags stay)`);
+  if (v.state === "WITHDRAWN") row("Withdrawn", `by ${String(r.withdrawn_by || "").replace(/^desk:/, "")} at ${hhmmz(ms(r.withdrawn_at))}: ${r.withdraw_reason || "no reason recorded"}`);
+  if (a) row("Flights flagged", flagged.length ? flagged.map((f) => `${f.proxy_flight} (${f.inside_now ? "inside now" : `in ${f.minutes_to_entry} min`})`).join(", ") : "none seen crossing it");
+  const drawn = v.state === "ACTIVE" || v.state === "COVERED";
+  return el("article", { class: `crew-card crew-card--${v.state.toLowerCase()}${picked ? " is-picked" : ""}`, "aria-labelledby": `crew-${r.id}` },
+    el("p", { class: "crew-card__head" },
+      el("strong", { id: `crew-${r.id}`, class: "crew-card__flight", text: r.flight }),
+      el("span", { class: "crew-card__state" }, icon(shape, "st", colour), el("span", { text: v.state_label })),
+      el("span", { class: "crew-card__age", text: v.age_text }),
+      r.replay ? el("span", { class: "tag tag--replay", text: "entered in REPLAY" }) : null),
+    v.discrepancy ? el("p", { class: "crew-card__dis" }, st("st-caution", "var(--c-caution)"), el("span", { text: `${v.discrepancy}. A dispatcher can start a message to the weather office and the VAAC on the Desk.` })) : null,
+    dl,
+    el("p", { class: "crew-card__sum", text: v.summary }),
+    el("div", { class: "btn-row" },
+      drawn ? el("button", { type: "button", class: "btn btn--small", dataset: { act: "crew-show", report: r.id, focus: `crew-show-${r.id}` } }, icon("i-frame"), "Show on the map") : null,
+      el("a", { class: "btn btn--small", href: `/desk#crew/${encodeURIComponent(r.id)}`, target: "_blank", rel: "noopener" }, "Open on the Desk ›")),
+    techDetail(`report ${r.id}`, r.position_source_id ? `position ${r.position_source_id}` : null, a?.wind_source_id ? `wind ${a.wind_source_id}` : null,
+      v.covered_by.length ? `covered by ${v.covered_by.join(", ")}` : null, `policy ${r.policy_id} v${r.policy_version} #${r.policy_hash}`, r.replay_case_id ? `replay case ${r.replay_case_id}` : null));
+}
+
+function crewSection(D, ui) {
+  const C = D.crew;
+  const host = $("crew");
+  const label = C.label || "Crew report caution area (operator policy A; not a VAA or SIGMET)";
+  const lede = el("p", { class: "dnote", text: `${label}. A dispatcher enters a crew (pilot) report on the Desk; code draws a caution area around the reported position over the reported levels. It flags flights whose projected track crosses it. It never shrinks or replaces an official area, re-plans nothing and calls no model. A sulphur smell alone is a routine report with no area; a no-ash report never removes one.` });
+  if (!C.reports.length) {
+    host.replaceChildren(el("p", { class: "dsum", text: "No crew report of ash in the last 24 hours." }), lede,
+      el("p", {}, el("a", { class: "btn btn--small", href: "/desk#crew-report", target: "_blank", rel: "noopener", text: "Report ash from a crew on the Desk ›" })));
+    return;
+  }
+  const act = C.reports.filter((v) => v.state === "ACTIVE" || v.state === "COVERED").length;
+  const head = el("p", { class: "dsum" }, el("strong", { text: `${plural(C.reports.length, "crew report", "crew reports")} in the last 24 hours · ${act} with a caution area now` }), D.mode === "REPLAY" ? el("span", { class: "tag tag--replay", text: "recorded" }) : null);
+  host.replaceChildren(head, lede, ...C.reports.map((v) => crewCard(D, v, ui.details.vid === v.report.id)),
+    el("p", {}, el("a", { class: "btn btn--small", href: "/desk#crew-report", target: "_blank", rel: "noopener", text: "Report ash from a crew on the Desk ›" })));
+}
 
 // ------------------------------------------------------------------ rendering
 
@@ -312,6 +399,7 @@ function renderSection(key, D, store, ui, conn) {
     case "area": areaDetail(D, store, ui.details.vid || D.selected); return;
     case "sat": case "notices": case "recovery": case "proof": case "ai": renderXPanel(key, D, store); return;
     case "flights": renderFlights(D, store, ui); return;
+    case "crew": crewSection(D, ui); return;
     case "flight": flightDetail(D, ui); return;
     case "decisions": decisionsSection(D, store, ui); return;
     case "history": historySection(D, store, ui); return;

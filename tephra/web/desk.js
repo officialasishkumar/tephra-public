@@ -32,6 +32,7 @@ import { draftPlans, loadPlans, noteTrace, onNetworkClick, onRecoveryEvent, rend
 import { loadNotices, onNoticeEvent, openNotice, openPaste } from './desk/notice.js';
 import { goTab, initTabs, setBadges } from './desk/tabs.js';
 import { closeBSheet } from './desk/ui.js';
+import { draftCrewVar, loadCrewPolicy, openCrewForm, openCrewReport, renderCrewSection, setAircraft, setCrew } from './desk/crew.js';
 
 const TICK_MS = 15000;
 const SSE_OFFLINE_AFTER_MS = 10000;
@@ -115,6 +116,7 @@ async function loadCones() {
     applyActiveRegions(res.data.snapshot.volcanoes);
     applyCones(res.data.snapshot.cones);
     applyExposed(res.data.snapshot.aircraft);
+    setCrew(res.data.snapshot.crew);
   }
   if (res.ok && res.data && Array.isArray(res.data.trace)) noteTrace(res.data.trace);
 }
@@ -124,6 +126,7 @@ async function loadCones() {
 // and the server accepts every row (a VAR needs the flight in the current exposure set).
 function applyExposed(fc) {
   if (!fc || !Array.isArray(fc.features)) return;
+  setAircraft(fc);
   const ids = new Set();
   for (const f of fc.features) {
     const p = f && f.properties;
@@ -222,6 +225,7 @@ function openEvents() {
   source.addEventListener('cones', (e) => applyCones(parseEvent(e)));
   source.addEventListener('aircraft', (e) => applyExposed(parseEvent(e)));
   source.addEventListener('trace', (e) => noteTrace(parseEvent(e)));
+  source.addEventListener('crew', (e) => setCrew(parseEvent(e)));
   source.addEventListener('budget', (e) => setBudget(parseEvent(e)));
   source.addEventListener('ai_failure', (e) => {
     if (app.me) onFailureEvent(parseEvent(e));
@@ -383,6 +387,7 @@ function afterListChange() {
   }
   renderQueue();
   syncSheet();
+  renderCrewSection();
   setTitle();
   updateWake();
   updateBadges();
@@ -524,11 +529,16 @@ async function decisionToast(adv, nextUp, inSheet) {
 
 const REVIEW_HASH = /^#review\/(adv_[0-9a-f]{12})$/;
 const TAB_HASH = /^#tab\/(queue|ask|network|docs)$/;
+// #crew-report opens the crew report form; #crew/<CR-id> opens one report (the Wall links both).
+const CREW_HASH = /^#crew\/(CR-[0-9a-f]{12})$/;
 
 function readHash() {
   const h = window.location.hash;
   const review = REVIEW_HASH.exec(h);
   if (review) return { review: review[1] };
+  if (h === '#crew-report') return { crewForm: true };
+  const crew = CREW_HASH.exec(h);
+  if (crew) return { crew: crew[1] };
   const tab = TAB_HASH.exec(h);
   return tab ? { tab: tab[1] } : null;
 }
@@ -563,6 +573,15 @@ async function route() {
   if (r.tab) {
     clearHash();
     goTab(r.tab, { focus: true });
+    return;
+  }
+  if (r.crewForm || r.crew) {
+    // The form needs the tracked flights and a report needs the picture: both come with /api/wall.
+    if (!app.crew) return; // crewChanged routes again once the picture is in
+    clearHash();
+    goTab('queue', { focus: false, quiet: true });
+    if (r.crewForm) openCrewForm();
+    else openCrewReport(r.crew);
     return;
   }
   if (!app.listLoaded) return; // enterDesk routes again once the list is in
@@ -654,6 +673,8 @@ function enterDesk(session, { focus = true } = {}) {
   });
   loadCones();
   loadExtras();
+  loadCrewPolicy();
+  renderCrewSection();
   goTab(app.tab, { focus: false, quiet: true });
   window.clearInterval(tickTimer);
   tickTimer = window.setInterval(() => {
@@ -692,7 +713,8 @@ function leaveDesk() {
   app.notices = [];
   byId('cards').replaceChildren();
   byId('q-next').replaceChildren();
-  for (const id of ['fail-section', 'msg-section', 'plan-section', 'notice-section']) byId(id).replaceChildren();
+  for (const id of ['fail-section', 'msg-section', 'plan-section', 'notice-section', 'crew-section']) byId(id).replaceChildren();
+  byId('crew-section').hidden = true;
   byId('tabbar').hidden = true;
   for (const t of ['ask', 'network', 'docs']) byId(`panel-${t}`).hidden = true;
   delete document.body.dataset.tab;
@@ -845,6 +867,14 @@ function wire() {
     askAbout,
     afterPlans,
     badges: updateBadges,
+    // A new crew picture can flag or unflag a draft: its card, row and review follow.
+    crewChanged: () => {
+      if (!app.me) return;
+      renderQueue();
+      syncSheet();
+      const r = readHash();
+      if (r && (r.crewForm || r.crew)) route();
+    },
   };
   initLogin((session) => {
     enterDesk(session);
@@ -856,6 +886,13 @@ function wire() {
   document.addEventListener('click', (event) => {
     if (onSheetClick(event)) return;
     if (onNetworkClick(event) || onDocsClick(event)) return;
+    const crew = event.target.closest('[data-crewform], [data-crew], [data-crewvar]');
+    if (crew) {
+      if (crew.dataset.crewform) openCrewForm();
+      else if (crew.dataset.crew) openCrewReport(crew.dataset.crew);
+      else if (crew.dataset.crewvar) draftCrewVar(crew.dataset.crewvar, crew);
+      return;
+    }
     const extra = event.target.closest('[data-handle], [data-msg], [data-notice], [data-paste], [data-goto]');
     if (extra) {
       if (extra.dataset.handle) openHandled(extra.dataset.handle);

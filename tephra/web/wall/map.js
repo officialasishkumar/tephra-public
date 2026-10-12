@@ -53,6 +53,7 @@ export function readTokens() {
     official: tok("--c-official"), officialText: tok("--c-official-text"),
     tephra: tok("--c-tephra"), tephraText: tok("--c-tephra-text"),
     observer: tok("--c-observer"), observerText: tok("--c-observer-text"),
+    crew: tok("--c-crew"), crewText: tok("--c-crew-text"),
     aircraft: tok("--c-aircraft"), stale: tok("--c-aircraft-stale"),
     land: tok("--map-land"), water: tok("--map-water"), halo: tok("--map-halo"), label: tok("--map-label"),
     fir: tok("--map-fir"), firActive: tok("--map-fir-active"), vaac: tok("--map-vaac"), navaid: tok("--map-navaid"),
@@ -111,7 +112,7 @@ const labelEm = () => (window.innerWidth <= 600 ? 16 : 40);
 
 // The hazard and traffic layers. `withTephra` false builds the compare map's "official only" side.
 function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
-  for (const id of ["official", "cones", "exposures", "aircraft", "volcanoes", "official-labels", "area-labels", "rose", "ac3d"]) map.addSource(id, { type: "geojson", data: empty() });
+  for (const id of ["official", "cones", "exposures", "aircraft", "volcanoes", "official-labels", "area-labels", "rose", "ac3d", "crew", "crew-labels"]) map.addSource(id, { type: "geojson", data: empty() });
   // Exposed flights again, clustered for their labels only (R6.3): every plane is still drawn by
   // aircraft-icon; more than five labels within 60 px merge into one "8 RFA flights" bubble.
   if (withTephra) map.addSource("exposed-pts", { type: "geojson", data: empty(), cluster: true, clusterRadius: 60, clusterMinPoints: 6, clusterMaxZoom: 11 });
@@ -120,6 +121,14 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
   if (withTephra) {
     map.addLayer({ id: "tephra-fill", type: "fill", source: "cones", filter: ["==", ["get", "part"], "cone"], layout: { visibility: tVis }, paint: { "fill-color": C.tephra, "fill-opacity": fade(0.07) } });
     map.addLayer({ id: "tephra-hatch", type: "fill", source: "cones", filter: ["==", ["get", "part"], "sector"], layout: { visibility: tVis }, paint: { "fill-pattern": "hatch-tephra", "fill-opacity": fade(1) } });
+  }
+  // Crew report caution areas (5.7): an operator-policy layer drawn from a dispatcher's entry,
+  // beneath every official area so it never hides or replaces one. Long ivory dashes, a faint
+  // fill. Not on the compare map's "official only" side.
+  if (withTephra) {
+    const area = ["==", ["get", "feature"], "area"];
+    map.addLayer({ id: "crew-fill", type: "fill", source: "crew", filter: area, paint: { "fill-color": C.crew, "fill-opacity": 0.06 } });
+    map.addLayer({ id: "crew-line", type: "line", source: "crew", filter: area, layout: { "line-join": "round" }, paint: { "line-color": C.crew, "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.4, 8, 2.2], "line-dasharray": [4, 3], "line-opacity": 0.95 } });
   }
   for (const [step, s] of Object.entries(STEP_STYLE)) {
     const filter = ["all", ["==", ["get", "step"], step], ["==", ["get", "show"], true]];
@@ -138,6 +147,8 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
     map.addLayer({ id: "exposure-path", type: "line", source: "exposures", filter: ["==", ["get", "kind"], "path"], layout: { visibility: pVis, "line-cap": "butt" }, paint: { "line-color": C.tephra, "line-width": 2.4, "line-dasharray": [1.5, 1.5] } });
     const entry = ["all", ["==", ["get", "kind"], "entry"], [">", ["coalesce", ["get", "minutes_to_entry"], 0], 0]];
     map.addLayer({ id: "exposure-entry", type: "circle", source: "exposures", filter: entry, layout: { visibility: pVis }, paint: { "circle-radius": 6, "circle-color": C.halo, "circle-stroke-color": C.tephra, "circle-stroke-width": 2.5 } });
+    // a flagged flight's projected track into a crew report area: fine ivory dots
+    map.addLayer({ id: "crew-path", type: "line", source: "crew", filter: ["==", ["get", "feature"], "path"], layout: { visibility: pVis, "line-cap": "round" }, paint: { "line-color": C.crew, "line-width": 1.8, "line-dasharray": [0.1, 2.2] } });
     if (!noText) map.addLayer({ id: "exposure-entry-label", type: "symbol", source: "exposures", minzoom: 8, filter: entry, layout: { visibility: pVis, "text-field": ["concat", "in ", ["to-string", ["get", "minutes_to_entry"]], " min"], "text-font": FONT_BOLD, "text-size": 13, "text-variable-anchor": ["bottom", "top", "left", "right"], "text-radial-offset": 0.9, "symbol-sort-key": ["coalesce", ["get", "minutes_to_entry"], 999] }, paint: { "text-color": C.tephraText, "text-halo-color": C.halo, "text-halo-width": 2 } });
   }
   // volcanoes
@@ -150,6 +161,9 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
   if (withTephra) {
     // the inside-now ring from zoom 6: zoomed out, the flight cluster speaks for the group
     map.addLayer({ id: "aircraft-inside", type: "circle", source: "aircraft", minzoom: 6, filter: ["==", ["get", "inside"], true], layout: { visibility: acVis }, paint: { "circle-radius": 18, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": C.tephra, "circle-stroke-width": 2 } });
+    // A flight whose projected track crosses a crew report area (5.7): an ivory ring outside the
+    // inside-now and picked rings, from zoom 4, so it reads at the zoom the areas are framed at.
+    map.addLayer({ id: "aircraft-crew", type: "circle", source: "aircraft", minzoom: 4, filter: ["==", ["get", "crew_report"], true], layout: { visibility: acVis }, paint: { "circle-radius": 28, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": C.crew, "circle-stroke-width": 1.8 } });
     // The aircraft picked by the viewer (7.8): a white ring outside the inside-now ring.
     map.addLayer({ id: "aircraft-picked", type: "circle", source: "aircraft", filter: ["==", ["get", "picked"], true], layout: { visibility: acVis }, paint: { "circle-radius": 23, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": C.text1, "circle-stroke-width": 2.5 } });
     // One line per entering flight, right of the plane, from zoom 6 (R6.3). Labels collide;
@@ -166,11 +180,21 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
     map.addLayer({ id: "official-step-label", type: "symbol", source: "official-labels", filter: ["==", ["get", "kind"], "step"], layout: { "text-field": ["get", "text"], "text-font": FONT_BOLD, "text-size": 13, "text-anchor": ["coalesce", ["get", "anchor"], "center"], "text-offset": ["coalesce", ["get", "offset"], ["literal", [0, 0]]], "text-max-width": 9, "text-allow-overlap": false, "symbol-sort-key": 8 }, paint: { "text-color": C.officialText, "text-halo-color": C.halo, "text-halo-width": 2 } });
     map.addLayer({ id: "official-label", type: "symbol", source: "official-labels", filter: ["==", ["get", "kind"], "name"], layout: { "text-field": ["get", "line1"], "text-font": FONT_BOLD, "text-size": 12, "text-anchor": "bottom", "text-offset": [0, -0.4], "text-allow-overlap": false, "symbol-sort-key": 10 }, paint: { "text-color": C.officialText, "text-halo-color": C.halo, "text-halo-width": 2 } });
     if (withTephra) map.addLayer({ id: "tephra-label", type: "symbol", source: "area-labels", layout: { visibility: tVis, "icon-image": "box-tephra", "icon-text-fit": "both", "icon-text-fit-padding": [5, 9, 5, 9], "text-field": ["get", "line1"], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-max-width": labelEm(), "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "icon-allow-overlap": false, "text-allow-overlap": false, "symbol-sort-key": 5 }, paint: { "text-color": C.tephraText } });
+    // The crew report's label box (5.7): it collides, and gives way to the flight count.
+    if (withTephra) {
+      map.addLayer({ id: "crew-label", type: "symbol", source: "crew-labels", layout: { "icon-image": "box-crew", "icon-text-fit": "both", "icon-text-fit-padding": [5, 9, 5, 9], "text-field": ["format", ["get", "line1"], { "text-color": C.crewText }, "\n", {}, ["get", "line2"], { "text-color": C.text2, "font-scale": 0.88 }], "text-font": FONT_BOLD, "text-size": 13, "text-max-width": labelEm(), "text-justify": "left", "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "icon-allow-overlap": false, "text-allow-overlap": false, "text-optional": false, "symbol-sort-key": 6 } });
+    }
     map.addLayer({ id: "official-label-selected", type: "symbol", source: "official-labels", filter: ["==", ["get", "kind"], "box"], layout: { "icon-image": "box-official", "icon-text-fit": "both", "icon-text-fit-padding": [5, 9, 5, 9], "text-field": ["case", ["==", ["get", "line2"], ""], ["format", ["get", "line1"], { "text-color": C.officialText }], ["format", ["get", "line1"], { "text-color": C.officialText }, "\n", {}, ["get", "line2"], { "text-color": C.text1, "font-scale": 0.9 }]], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-max-width": labelEm(), "text-justify": "left", "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "icon-allow-overlap": true, "text-allow-overlap": true, "symbol-sort-key": 0 } });
   }
   // The flight count is placed before the forecast-step and other-volcano labels (review 1,
   // item 10): when they collide those labels give way, never the count.
   if (withTephra && !noText) map.moveLayer("exposed-cluster", "tephra-label");
+  // a crew report's label gives way to the flight count, TEPHRA's tag and the official labels
+  if (withTephra && !noText) map.moveLayer("crew-label", "exposed-cluster");
+  // The crew report pin (5.7): an icon, so it shows with the simplified basemap too. It sits on
+  // top of every area and is never hidden by collision; planes, the flight count and the labels
+  // draw over it.
+  if (withTephra) map.addLayer({ id: "crew-pin", type: "symbol", source: "crew", filter: ["==", ["get", "feature"], "pin"], layout: { "icon-image": "crew-pin", "icon-anchor": "bottom", "icon-size": 0.9, "icon-allow-overlap": true, "icon-ignore-placement": true } }, "aircraft-icon");
   if (withTephra) addRoseLayers(map, C, ui, noText);
 }
 
@@ -283,7 +307,7 @@ export class WallMap {
       this.loaded = true;
       if (!this.hoverBound) {
         this.hoverBound = true;
-        for (const id of ["aircraft-icon", "exposed-cluster", "volcano-active", "official-fill-now", "tephra-fill", "reroute-line", "reroute-wp"]) {
+        for (const id of ["aircraft-icon", "exposed-cluster", "volcano-active", "official-fill-now", "tephra-fill", "reroute-line", "reroute-wp", "crew-pin", "crew-label", "crew-fill"]) {
           map.on("mouseenter", id, () => { map.getCanvas().style.cursor = "pointer"; });
           map.on("mouseleave", id, () => { map.getCanvas().style.cursor = ""; });
         }
@@ -307,6 +331,7 @@ export class WallMap {
     this.send("cones", fc(D.cones));
     this.send("exposures", D.exposures);
     this.send("aircraft", fc(D.aircraft));
+    if (map.getSource("crew")) this.send("crew", D.crew.map);
     // A cluster that holds only some of the flights says "here" (review 2, item 14): "20 RFA
     // flights here" beside the story's 22, the other two drawn as single planes. "20 of 22" read
     // as a second, different count.
@@ -564,6 +589,11 @@ export class WallMap {
     const fb = this.fitLabels(boxes, map, bounds), fa = this.fitLabels(areas, map, bounds);
     this.send("official-labels", fc(fb));
     this.send("area-labels", fc(fa));
+    // each crew report's label box, beside its pin and nudged inside the canvas like the others
+    if (map.getSource("crew-labels")) {
+      const crew = this.D.crew.map.features.filter((f) => f.properties.feature === "pin").map((f) => ({ type: "Feature", geometry: f.geometry, properties: { report_id: f.properties.report_id, feature: "label", line1: f.properties.line1, line2: f.properties.line2, size: 13, anchor: "left", offset: [1.6, -1.1] } }));
+      this.send("crew-labels", fc(this.fitLabels(crew, map, bounds)));
+    }
     this.lastLabels = { boxes: fb, areas: fa, raw: boxes };
     this.fitCluster();
     if (this.compareMap) this.updateCompare();
@@ -656,7 +686,9 @@ export class WallMap {
     if (!D?.sit) return;
     const vid = D.sit.volcano_id;
     const geoms = D.official.filter((f) => f.properties.volcano_id === vid && f.properties.show).map((f) => f.geometry)
-      .concat(D.cones.filter((f) => f.properties.volcano_id === vid).map((f) => f.geometry));
+      .concat(D.cones.filter((f) => f.properties.volcano_id === vid).map((f) => f.geometry))
+      // a crew report area near this volcano is part of its picture (5.7)
+      .concat(D.crew.map.features.filter((f) => f.properties.feature === "area" && f.properties.volcano_id === vid).map((f) => f.geometry));
     const v = D.vents.get(vid);
     if (v) geoms.push({ type: "Polygon", coordinates: [[dest(v, 0, 45), dest(v, 90, 45), dest(v, 180, 45), dest(v, 270, 45)]] });
     // each entering flight with room around it for its label
@@ -781,6 +813,14 @@ export class WallMap {
     this.map.fitBounds([[b.west, b.south], [b.east, b.north]], { padding: this.safeInsets(), duration: animate && !reducedMotion() ? 1600 : 0, maxZoom: 8 });
   }
 
+  // Frame one crew report area (Details › Crew reports, the story's "Show on the map").
+  flyToCrew(reportId) {
+    const area = this.D?.crew.map.features.find((f) => f.properties.feature === "area" && f.properties.report_id === reportId);
+    const b = area ? bboxOf([area.geometry]) : null;
+    if (!b) return;
+    try { this.map.fitBounds(b, { padding: this.safeInsets(), maxZoom: 8, pitch: 0, bearing: 0, duration: reducedMotion() ? 0 : 1600 }); } catch { /* not laid out yet */ }
+  }
+
   flyToFlight(feature) {
     const c = feature.geometry.coordinates;
     const p = this.safeInsets();
@@ -803,7 +843,7 @@ export class WallMap {
   // No popups: a click opens the matching Details section (wall.js), and a flight cluster zooms in.
 
   onClick(e) {
-    const order = ["exposed-cluster", "aircraft-icon", "exposure-entry", "reroute-wp", "reroute-line", "volcano-active", "volcano-inactive", "official-fill-now", "official-line-now", "official-line-f6", "official-line-f12", "official-line-f18", "tephra-line", "tephra-fill", "tephra-hatch"];
+    const order = ["exposed-cluster", "aircraft-icon", "exposure-entry", "reroute-wp", "reroute-line", "crew-pin", "crew-label", "crew-path", "volcano-active", "volcano-inactive", "crew-line", "official-fill-now", "official-line-now", "official-line-f6", "official-line-f12", "official-line-f18", "tephra-line", "tephra-fill", "tephra-hatch", "crew-fill"];
     const layers = order.filter((id) => this.map.getLayer(id));
     const hits = this.map.queryRenderedFeatures([[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]], { layers });
     if (!hits.length) return;
@@ -848,8 +888,8 @@ export class WallMap {
     this.setVisible(["fir-line", "fir-active", "fir-label", "vaac-line", "vaac-label"], L.context);
     this.setVisible(["navaid", "navaid-label"], L.navaids);
     this.setVisible(["tephra-fill", "tephra-hatch", "tephra-line", "tephra-label"], L.tephra);
-    this.setVisible(["exposure-path", "exposure-entry", "exposure-entry-label"], L.paths);
-    this.setVisible(["aircraft-icon", "aircraft-inside", "aircraft-picked", "aircraft-label-exposed", "exposed-cluster"], L.aircraft);
+    this.setVisible(["exposure-path", "exposure-entry", "exposure-entry-label", "crew-path"], L.paths);
+    this.setVisible(["aircraft-icon", "aircraft-inside", "aircraft-crew", "aircraft-picked", "aircraft-label-exposed", "exposed-cluster"], L.aircraft);
     this.setVisible(["aircraft-label"], L.aircraft && L.acLabels);
     setExtVisible(this.map, true, L.satboxes);
     this.setVisible(["rose-casing", "rose-arc", "rose-off", "rose-obs", "rose-probe", "rose-heads", "rose-labels", "rose-angle"], L.rose);

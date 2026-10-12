@@ -44,10 +44,13 @@ import { anyStaleSource, coneFor, decidedLine, modeChip, needsCarefulRead, repla
 import { app } from './state.js';
 import { routeMap } from './route.js';
 import { codeChip } from './ui.js';
+import { crewBox, crewKey, crewReasonNeeded } from './crew.js';
 
 const GHOST_TAP_MS = 450;
 const OFFLINE_NOTE = "You're offline. Can't approve right now: reconnect to decide. Drafts stay readable.";
 const QUEUE_SENTENCE = 'Nothing is sent to an aircraft.';
+// A crew report of ash on the flight's route: keeping it on its route needs a written reason.
+const CREW_REASON_HINT = 'A crew reported ash on this route: write the reason above before approving.';
 const REJECT_REASONS = [
   'Flight already clear of the area',
   'Level already outside the hazard band',
@@ -79,6 +82,11 @@ export function openSheet(adv, { focus = true } = {}) {
     reasonTouched: false,
     stamp: null,
     whyOpen: isWide(),
+    crewReason: '',
+    crewError: '',
+    crewKey: crewKey(adv),
+    // set when the server asked for a reason the page had not seen a flag for yet (422)
+    crewForced: false,
   };
   render();
   if (focus) focusTitle();
@@ -134,8 +142,63 @@ export function syncSheet() {
     return;
   }
   if (draft) sheet.seen = draft;
+  // A crew report that flags (or stops flagging) this flight changes the review itself.
+  if ((sheet.view === 'review' || sheet.view === 'edit') && crewKey(sheet.seen) !== sheet.crewKey) {
+    sheet.crewKey = crewKey(sheet.seen);
+    const typing = document.activeElement && document.activeElement.id;
+    render();
+    const again = typing && byId(typing);
+    if (again) again.focus({ preventScroll: true });
+    return;
+  }
   renderBar();
   updateSheetTimes();
+}
+
+const reasonNeeded = (adv) => crewReasonNeeded(adv) || Boolean(sheet && sheet.crewForced);
+const reasonShort = (adv) => reasonNeeded(adv) && sheet.crewReason.trim().length < REASON_MIN_CHARS;
+
+// The reason box (UI-DESIGN 10.15): CONTINUE or MONITOR for an airborne flight whose projected
+// track crosses a crew report area. Every tracked flight is airborne (ADS-B ground targets are
+// dropped). The reason goes with the decision and into the audit log.
+function crewReasonField(adv) {
+  const area = el('textarea', {
+    id: 'crew-reason', class: 'field', rows: '3', maxlength: String(REASON_MAX_CHARS), autocomplete: 'off',
+    'aria-describedby': 'crew-reason-note crew-reason-msg', required: true, 'aria-invalid': sheet.crewError ? 'true' : null,
+  });
+  area.value = sheet.crewReason;
+  const count = el('p', { class: 'counter' });
+  const msg = el('div', { id: 'crew-reason-msg', class: 'field-msg', 'aria-live': 'polite' });
+  const update = () => {
+    const n = sheet.crewReason.trim().length;
+    count.textContent = n < REASON_MIN_CHARS ? `${n} / ${REASON_MAX_CHARS} · at least ${REASON_MIN_CHARS} characters` : `${n} / ${REASON_MAX_CHARS}`;
+    count.dataset.level = n < REASON_MIN_CHARS && sheet.crewError ? 'caution' : 'ok';
+    msg.replaceChildren(...(sheet.crewError ? [el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: sheet.crewError }))] : []));
+  };
+  area.addEventListener('input', () => {
+    sheet.crewReason = area.value;
+    sheet.crewError = '';
+    area.removeAttribute('aria-invalid');
+    update();
+    renderBar();
+  });
+  update();
+  return el('div', { class: 'crewreason' },
+    el('label', { class: 'flabel', for: 'crew-reason', text: `Reason to ${adv.action === 'CONTINUE' ? 'continue' : 'keep watching'} on this route (required)` }),
+    el('p', { id: 'crew-reason-note', class: 'fine', text: 'Recorded with the decision and in the audit log. The crew report stays on the Wall either way.' }),
+    area, count, msg);
+}
+
+function crewReasonMissing() {
+  sheet.crewError = `Give a reason of at least ${REASON_MIN_CHARS} characters: a crew reported ash on this route.`;
+  sheet.bar = 'decide';
+  render();
+  const f = byId('crew-reason');
+  if (f) {
+    f.focus();
+    f.scrollIntoView({ block: 'center' });
+  }
+  announce(sheet.crewError);
 }
 
 export function updateSheetTimes() {
@@ -415,6 +478,8 @@ function reviewView(adv) {
     el('p', { class: 'rv__entry v-entry', 'data-slot': 'entry' }, entryValue(adv)),
     careful || stale ? el('p', { class: 'rv__careful' }, icon('st-caution', 'st'),
       el('span', { text: [careful ? 'Needs a careful read: the code checks flagged this text (see Drafted by)' : '', stale ? 'Some sources are stale' : ''].filter(Boolean).join('. ') + '.' })) : null,
+    crewBox(adv, { reason: sheet.view === 'review' && reasonNeeded(adv) }),
+    sheet.view === 'review' && reasonNeeded(adv) ? crewReasonField(adv) : null,
     el('p', { class: 'rv__k', text: adv.edited_body != null ? 'Advisory text (edited)' : 'Advisory text' }),
     el('pre', { class: 'acars acars--body', text }),
     writerNote(adv),
@@ -511,7 +576,9 @@ function editView(adv) {
       el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: 'Show the drafted text' })),
       el('pre', { class: 'acars', text: adv.body })),
     el('p', { class: 'note', text: 'Both versions are kept in the audit log. The header with sources and times is written by code and cannot be edited.' }),
-  ];
+    reasonNeeded(adv) ? crewBox(adv, { reason: true }) : null,
+    reasonNeeded(adv) ? crewReasonField(adv) : null,
+  ].filter(Boolean);
 }
 
 function rejectView() {
@@ -716,6 +783,7 @@ function renderBar() {
     put(inner, offlineNote, el('div', { class: 'confirm', role: 'group', 'aria-labelledby': 'confirm-q' },
       el('p', { id: 'confirm-q', class: 'confirm__q', tabindex: '-1' }, approveWords(adv, edited, true)),
       el('p', { id: 'confirm-entry', class: 'confirm__facts', text: confirmFacts(adv) }),
+      reasonNeeded(adv) ? el('p', { class: 'confirm__facts', text: `Reason (crew report of ash on this route): ${sheet.crewReason.trim()}` }) : null,
       el('p', { class: 'confirm__note', text: `Queued under ${app.me ? app.me.name : 'your name'} on TEPHRA's own outbound queue · nothing is sent to an aircraft.` }),
       el('div', { class: 'secondary' }, go,
         el('button', { type: 'button', class: 'btn btn--outline', 'data-confirm-back': '1', disabled: Boolean(sheet.busy) }, el('span', { text: 'Cancel' })))));
@@ -735,11 +803,14 @@ function renderBar() {
       offlineAttrs(primary);
       // Long outcomes ("CHANGE LEVEL FL300–FL340") step down a size on phones: two lines, not three.
       if (primary.querySelector('.approve__label').textContent.length > 34) primary.classList.add('approve--long');
-      if (blockedByRule || editBad) primary.setAttribute('aria-disabled', 'true');
+      if (blockedByRule || editBad || reasonShort(adv)) primary.setAttribute('aria-disabled', 'true');
+      // A tap on the blocked button says why and goes to the reason box.
+      if (!blockedByRule && !editBad && reasonShort(adv)) primary.addEventListener('click', crewReasonMissing);
     }
     const hint = el('p', { class: 'approve__hint', id: 'approve-hint' },
       el('span', { text: `Hold to approve, or tap to confirm. ${QUEUE_SENTENCE}` }));
     if (sheet.hint) hint.replaceChildren(el('span', { class: 'hint-early', text: sheet.hint }));
+    else if (reasonShort(adv)) hint.replaceChildren(el('span', { class: 'hint-early', text: CREW_REASON_HINT }));
     if (blockedByRule) {
       hint.replaceChildren(el('span', { class: 'hint-early', text: 'HYPOTHESIS allows only MONITOR or HOLD: this draft cannot be approved. Reject it.' }));
     }
@@ -895,6 +966,10 @@ async function decide(kind) {
   if (!sheet || sheet.busy || app.offline) return;
   const adv = sheet.seen;
   let body = { version: adv.version };
+  if (kind !== 'reject' && reasonShort(adv)) {
+    crewReasonMissing();
+    return;
+  }
   if (kind === 'edit') {
     if (editProblem(sheet.edit)) return;
     body = { version: adv.version, body: sheet.edit.trim() };
@@ -902,6 +977,7 @@ async function decide(kind) {
     if (sheet.reason.trim().length < REASON_MIN_CHARS) return;
     body = { version: adv.version, reason: sheet.reason.trim() };
   }
+  if (kind !== 'reject' && reasonNeeded(adv)) body.reason = sheet.crewReason.trim();
   const mine = sheet;
   mine.busy = kind;
   renderBar();
@@ -935,6 +1011,17 @@ async function decide(kind) {
     sheet.view = 'gone';
     render();
     focusTitle();
+    return;
+  }
+  if (res.status === 422 && code === 'reason_required') {
+    // The server knows of a crew report flag this page had not drawn yet: ask for the reason.
+    sheet.crewForced = true;
+    sheet.bar = 'decide';
+    sheet.crewError = `${(res.data && res.data.detail) || 'A crew reported ash on this route'}. Give a reason of at least ${REASON_MIN_CHARS} characters.`;
+    render();
+    const f = byId('crew-reason');
+    if (f) f.focus();
+    announce(sheet.crewError);
     return;
   }
   if (res.status === 422) {

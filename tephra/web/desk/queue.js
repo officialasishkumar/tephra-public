@@ -22,6 +22,7 @@ import {
   sourcesSummary,
 } from './format.js';
 import { openFailures } from './failures.js';
+import { crewFlag, crewKey } from './crew.js';
 import { draftMessages } from './messages.js';
 import { app, draftList } from './state.js';
 
@@ -98,6 +99,9 @@ function ageMinutes(adv, now) {
 // to its shape, never a bare icon (review 1, item 15).
 function cautions(adv, now) {
   const out = [];
+  // A crew report of ash on the route comes first: it is the newest evidence and needs a reason
+  // to keep the flight on its route (UI-DESIGN 10.15).
+  if (crewFlag(adv)) out.push(['i-pin', 'Crew report of ash on this route', 'crew report']);
   if (adv.plume_mode === 'HYPOTHESIS') out.push(['st-caution', 'HYPOTHESIS: only MONITOR or HOLD', 'hypothesis']);
   if (needsCarefulRead(adv)) out.push(['st-caution', 'Needs a careful read', 'read carefully']);
   if (anyStaleSource(adv)) out.push(['st-stale', 'Sources stale', 'sources stale']);
@@ -143,7 +147,7 @@ function metaText(adv, now) {
 function buildNext(adv, items) {
   const now = activeNow();
   const position = items.findIndex((a) => a.id === adv.id) + 1;
-  const card = el('article', { class: 'next__card', 'data-id': adv.id, 'data-version': String(adv.version), 'data-band': band(coneFor(adv)), 'aria-labelledby': 'next-flight' },
+  const card = el('article', { class: 'next__card', 'data-id': adv.id, 'data-version': String(adv.version), 'data-band': band(coneFor(adv)), 'data-crewkey': crewKey(adv), 'aria-labelledby': 'next-flight' },
     el('div', { class: 'next__row' },
       el('p', { class: 'next__who' },
         el('span', { class: 'next__flight', id: 'next-flight', text: adv.proxy_flight }),
@@ -172,7 +176,7 @@ function buildRow(adv) {
     el('span', { class: 'row__marks', 'data-slot': 'tags' }, rowMark(marks)),
     el('span', { class: 'card__new', 'data-slot': 'new', hidden: true }, el('span', { text: 'New' })),
     icon('i-chevron-right', 'icon row__go'));
-  return el('li', { class: 'cards__item', 'data-id': adv.id, 'data-version': String(adv.version), 'data-band': band(coneFor(adv)) }, button);
+  return el('li', { class: 'cards__item', 'data-id': adv.id, 'data-version': String(adv.version), 'data-band': band(coneFor(adv)), 'data-crewkey': crewKey(adv) }, button);
 }
 
 function setSlot(root, name, node) {
@@ -303,7 +307,7 @@ export function renderQueue() {
   // The Next decision card.
   const shown = slot.querySelector('.next__card');
   if (!nextAdv) slot.replaceChildren();
-  else if (!shown || shown.dataset.id !== nextAdv.id || Number(shown.dataset.version) !== nextAdv.version || shown.dataset.band !== band(coneFor(nextAdv))) {
+  else if (!shown || shown.dataset.id !== nextAdv.id || Number(shown.dataset.version) !== nextAdv.version || shown.dataset.band !== band(coneFor(nextAdv)) || shown.dataset.crewkey !== crewKey(nextAdv)) {
     const hadFocus = shown && shown.contains(document.activeElement);
     slot.replaceChildren(buildNext(nextAdv, items));
     if (hadFocus) slot.querySelector('.next__go').focus({ preventScroll: true });
@@ -325,7 +329,7 @@ export function renderQueue() {
   const capped = !showAllRows && rest.length > ROWS_FIRST + 1;
   rest.forEach((adv, index) => {
     let li = list.querySelector(`li[data-id="${CSS.escape(adv.id)}"]`);
-    if (!li || Number(li.dataset.version) !== adv.version || li.dataset.band !== band(coneFor(adv))) {
+    if (!li || Number(li.dataset.version) !== adv.version || li.dataset.band !== band(coneFor(adv)) || li.dataset.crewkey !== crewKey(adv)) {
       const row = buildRow(adv);
       if (li) li.replaceWith(row);
       li = row;

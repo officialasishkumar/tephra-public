@@ -1896,6 +1896,15 @@ hashes, cone mode and confidence, the operator policy the draft was made under (
 (reason required). Send `version`; on 409 show the current version and let the dispatcher
 re-decide. Refresh on `advisory` SSE events. Works at 375 px width, tap targets >= 44 px.
 
+Crew reports of ash (section 5.19; the screens are docs/UI-DESIGN.md 5.7, 7.20 and 10.15): the
+Wall draws `WallSnapshot.crew` (replaced whole by the `crew` event) beneath the official areas,
+with the story lines, Details › Crew reports of ash and the flag in This flight; it is
+read-only. The Desk (`tephra/web/desk/crew.js`) enters reports (`GET /api/desk/crew-reports/fix`,
+then `POST /api/desk/crew-reports`), withdraws them, starts the VAR (`POST
+/api/desk/crew-reports/{id}/var`), marks flagged drafts from `CrewPicture.flags`, and sends the
+dispatcher's `reason` with approve and edit for a flagged CONTINUE or MONITOR (422
+`reason_required` opens the reason box).
+
 ### 5.10 ops-evals
 
 Files are listed in section 1. Requirements: `Dockerfile` (python:3.12-slim, uv 0.11.17,

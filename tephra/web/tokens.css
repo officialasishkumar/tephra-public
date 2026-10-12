@@ -96,6 +96,11 @@
   --c-observer-soft: rgb(56 189 248 / 0.13);
   --c-aircraft: #aab4be;
   --c-aircraft-stale: #7a8796;
+  /* Crew report caution area (operator policy, not an official product): a warm ivory that no
+     other data role uses, always drawn with long dashes and a pin, beneath the official area. */
+  --c-crew: #e8dcc6;
+  --c-crew-text: #f2e9d8;
+  --c-crew-soft: rgb(232 220 198 / 0.1);
 
   /* Aviation colour code: always inside the eruption symbol with its letter, and the word. */
   --c-code-green: #2ec4a0;

@@ -21,6 +21,8 @@ export const GLOSSARY = [
   ["Dispatcher", "The airline person who plans and watches flights from the ground. Here, the person who decides on the Desk."],
   ["Proxy flight", "An RFA flight number that stands in for a real aircraft seen on ADS-B. RFA is a fictional airline."],
   ["SO2", "Sulphur dioxide, a volcanic gas. It is not ash. TEPHRA shows it as context only and does not model gases."],
+  ["Crew report caution area", "An area code draws around ash a crew (pilot) reported, from a report a dispatcher enters on the Desk. It is operator policy A, not a VAA or SIGMET: it flags flights for a dispatcher, never shrinks an official area and re-plans nothing."],
+  ["VAR", "Volcanic activity report: the ICAO form a crew fills in after seeing ash. TEPHRA only drafts it for a person to complete and sign; nothing is sent."],
 ];
 
 // The plain meaning shown as a second line under each source column head (7.12).

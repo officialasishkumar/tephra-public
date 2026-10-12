@@ -6693,3 +6693,325 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
 .sheet__receipts { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) var(--sp-4) 0; }
 .toast--inline { box-shadow: none; animation: none; }
 .toast--inline .toast__title { font-size: var(--fs-3); }
+
+/* ---------------------------------------------------------------------------------------------
+   Crew reports of ash (UI-DESIGN 10.15): the Decide link, the form, a report's record, the line
+   on affected drafts and the reason box. The crew colour is a warm ivory that no other data role
+   uses; a dashed edge marks every crew element, as on the Wall's map. */
+
+.crewsec__dis {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  color: var(--c-caution);
+  font-weight: var(--fw-semibold);
+}
+
+.crewsec__dis .st {
+  width: 14px;
+  height: 14px;
+}
+
+.crewsec .nlist {
+  margin-bottom: var(--sp-3);
+}
+
+.crewsec__new {
+  display: flex;
+  width: auto;
+}
+
+.crew-another {
+  align-self: flex-start;
+}
+
+.crow .crew-state {
+  flex: none;
+}
+
+.crew-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px dashed var(--c-line-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+}
+
+.crew-state .st {
+  width: 13px;
+  height: 13px;
+}
+
+.crew-state--crew {
+  border-color: var(--c-crew);
+  color: var(--c-crew-text);
+}
+
+.crew-state--info {
+  color: var(--c-info);
+}
+
+.crew-state--off {
+  color: var(--c-off);
+}
+
+.crewdis {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--c-caution);
+  border-radius: var(--radius-md);
+  background: var(--c-caution-bg);
+}
+
+.crewdis__t {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  font-weight: var(--fw-semibold);
+}
+
+.crewdis__t .st {
+  flex: none;
+  margin-top: 3px;
+  color: var(--c-caution);
+}
+
+.crewdis__go {
+  align-self: flex-start;
+}
+
+.crewbox {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--sp-3);
+  border: 1px dashed var(--c-crew);
+  border-radius: var(--radius-md);
+  background: var(--c-crew-soft);
+  font-size: var(--fs-2);
+}
+
+.crewbox__line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-3);
+}
+
+.crewbox__pin {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--c-crew);
+}
+
+.crewbox__rep .linkbtn {
+  display: inline-flex;
+  min-height: var(--tap-min);
+  vertical-align: middle;
+}
+
+.crewreason {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--sp-3);
+  border: 1px solid var(--c-line-input);
+  border-radius: var(--radius-md);
+  background: var(--c-surface-1);
+}
+
+.crewreason .flabel {
+  margin: 0;
+  color: var(--c-text-1);
+}
+
+.crewform fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.crewform .fgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.crewform legend.flabel {
+  padding: 0;
+}
+
+.crewkind {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  margin-top: 4px;
+  font-size: var(--fs-2);
+  color: var(--c-text-2);
+}
+
+.crewkind .st {
+  flex: none;
+  margin-top: 3px;
+}
+
+.crewkind[data-tone="area"] {
+  color: var(--c-crew-text);
+}
+
+.crewkind[data-tone="area"] .st {
+  color: var(--c-crew);
+}
+
+.crewkind[data-tone="serious"] {
+  color: var(--c-serious);
+}
+
+.crewlevel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.crewlevel__k {
+  font-family: var(--font-mono);
+  font-size: var(--fs-3);
+  color: var(--c-text-2);
+}
+
+.crewfl,
+.crewtime {
+  width: 7.5ch;
+  flex: none;
+  text-align: center;
+}
+
+.crewtime {
+  width: 9ch;
+}
+
+.crewnow {
+  min-height: var(--tap-min);
+}
+
+.crewpos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.crewfix {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  font-size: var(--fs-2);
+}
+
+.crewfix .st {
+  flex: none;
+  margin-top: 3px;
+  color: var(--c-ok);
+}
+
+.crewfix--none .st {
+  color: var(--c-caution);
+}
+
+.crewtyped {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--sp-3);
+}
+
+.crewtyped .fine {
+  grid-column: 1 / -1;
+}
+
+.crewll__row {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.crewll__row .field {
+  min-width: 0;
+}
+
+.crewhemi {
+  flex: none;
+  width: 5.5em;
+}
+
+.crewhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.crewsum {
+  font-size: var(--fs-2);
+  line-height: var(--lh-body);
+  color: var(--c-text-2);
+}
+
+@media (forced-colors: active) {
+  .crewbox,
+  .crew-state,
+  .crewreason {
+    border: 1px dashed CanvasText;
+  }
+
+  .crewbox__pin {
+    forced-color-adjust: none;
+  }
+}
+
+.crewmono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-3);
+  text-transform: uppercase;
+}
+
+.crewform .field--select,
+.crewll__row .field--select {
+  flex: none;
+}
+
+.crewform .crewhemi {
+  width: 5.5em;
+}
+
+.crewll__row .crewmono {
+  flex: 1 1 auto;
+  width: 0;
+}
+
+.crow .nrow__vol {
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.crewdrafts__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: 6px;
+}
+
+.crewdrafts__list .reason-chip .icon {
+  width: 16px;
+  height: 16px;
+}

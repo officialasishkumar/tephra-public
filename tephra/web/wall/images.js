@@ -1,7 +1,7 @@
 // Map images drawn on a canvas and added with map.addImage. Under TEPHRA's CSP MapLibre
 // cannot load data: or SVG images (docs/UI-DESIGN.md 15), so every symbol is drawn here:
-// the SDF plane, the SDF arrowhead, the eruption symbols, the stretchable label boxes and
-// the hatch pattern.
+// the SDF plane, the SDF arrowhead, the eruption symbols, the stretchable label boxes, the
+// hatch pattern and the crew report pin.
 
 const MATERIAL_FLIGHT =
   "M409-421 137-311q-20 8-38.5-4T80-350v-18q0-11 5-19.5T98-402l311-219v-188q0-29 21-50t50-21q29 0 50 21t21 50v188l311 219q8 6 13 14.5t5 19.5v18q0 23-18.5 35t-38.5 4L551-421v172l109 76q7 5 11 12.5t4 15.5v19q0 17-13.5 27.5T631-93l-151-46-151 46q-17 5-30.5-5.5T285-126v-19q0-8 4-15.5t11-12.5l109-76v-172Z";
@@ -148,6 +148,30 @@ function hatch(color, size = 24) {
   return ctx.getImageData(0, 0, size, size);
 }
 
+// The crew report pin (UI-DESIGN 5.7): a map pin in the crew colour with a dark outline and a
+// dark centre, drawn on top of its dashed caution area so the report position is never lost.
+function crewPin(fill, size = 48) {
+  const ctx = canvas(size, size);
+  const s = size / 48;
+  const pin = new Path2D();
+  pin.moveTo(24 * s, 44 * s);
+  pin.bezierCurveTo(24 * s, 44 * s, 9 * s, 29 * s, 9 * s, 19 * s);
+  pin.arc(24 * s, 19 * s, 15 * s, Math.PI, 0);
+  pin.bezierCurveTo(39 * s, 29 * s, 24 * s, 44 * s, 24 * s, 44 * s);
+  pin.closePath();
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "#05070a";
+  ctx.lineWidth = 5 * s;
+  ctx.stroke(pin);
+  ctx.fillStyle = fill;
+  ctx.fill(pin);
+  ctx.beginPath();
+  ctx.arc(24 * s, 19 * s, 5.5 * s, 0, 2 * Math.PI);
+  ctx.fillStyle = "#05070a";
+  ctx.fill();
+  return ctx.getImageData(0, 0, size, size);
+}
+
 let cache = null;
 
 // Build once (the SDFs take a few ms), add to any map (the compare map reuses them).
@@ -163,6 +187,8 @@ export function addImages(map, C) {
       boxAngle: labelBox(C.text1),
       boxObserver: labelBox(C.observer),
       hatch: hatch(C.tephra),
+      boxCrew: labelBox(C.crew),
+      pin: crewPin(C.crew),
     };
   }
   const add = (id, img, opts) => { if (!map.hasImage(id)) map.addImage(id, img, opts); };
@@ -175,4 +201,6 @@ export function addImages(map, C) {
   add("box-angle", ...cache.boxAngle);
   add("box-observer", ...cache.boxObserver);
   add("hatch-tephra", cache.hatch, { pixelRatio: 2 });
+  add("box-crew", ...cache.boxCrew);
+  add("crew-pin", cache.pin, { pixelRatio: 2 });
 }

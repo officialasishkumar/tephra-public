@@ -91,6 +91,9 @@
               <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-more"></use></svg>
             </button>
             <div id="q-more" class="menu qmore__menu" hidden>
+              <button id="crew-report-btn" type="button" class="menu__item" data-crewform="1">
+                <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-pin"></use></svg><span>Report ash from a crew</span>
+              </button>
               <button id="paste-notice" type="button" class="menu__item" data-paste="1">
                 <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-clipboard"></use></svg><span>Paste a notice</span>
               </button>
@@ -114,6 +117,7 @@
         <ul id="cards" class="cards" aria-labelledby="more-title"></ul>
         <button id="cards-all" type="button" class="linkbtn cards__all" hidden><span>Show all</span></button>
         <div class="qlinks">
+          <section id="crew-section" class="qsec qlink" aria-label="Crew reports of ash" hidden></section>
           <section id="plan-section" class="qsec qlink" hidden></section>
           <section id="msg-section" class="qsec qlink" hidden></section>
           <section id="notice-section" class="qsec qlink" hidden></section>

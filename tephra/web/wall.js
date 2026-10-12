@@ -197,6 +197,8 @@ function openStream() {
     store.snapshot.duty = run;
   });
   on("overlays", (o) => { if (store.snapshot) store.snapshot.overlays = o; });
+  // crew reports of ash: the whole picture each time (MODULES.md 8.4)
+  on("crew", (pic) => { if (store.snapshot) store.snapshot.crew = pic; });
   on("situation", (card) => {
     if (!store.snapshot) return;
     const list = store.snapshot.situations;
@@ -700,6 +702,8 @@ function onFeature(hit) {
     if (f) { pickFlight(f); openDetails("flight", { opener: canvas }); }
   } else if (id.startsWith("volcano")) {
     if (D.sits.some((s) => s.volcano_id === p.id)) select(p.id);
+  } else if (id.startsWith("crew")) {
+    openDetails("crew", { vid: p.report_id || null, opener: canvas });
   } else if (id.startsWith("official") || id.startsWith("tephra")) {
     openDetails("area", { vid: p.volcano_id || D.selected, opener: canvas });
   }
@@ -794,6 +798,12 @@ document.addEventListener("click", (e) => {
   else if (act === "tl-mark") { ui.tlCurrent = t.title; renderNow(); onTimelineMark(t); }
   else if (act === "tl-step") { if (t.getAttribute("aria-disabled") !== "true") stepTimeline(Number(t.dataset.dir)); }
   else if (act === "flight-clear") clearFlight();
+  else if (act === "crew-show") {
+    // On a phone the Details sheet covers the map: close it and bring the map into view first.
+    if (phone()) { closeDetails(false); $("map-pane").scrollIntoView({ block: "center" }); } else ui.details.vid = t.dataset.report;
+    map?.flyToCrew(t.dataset.report);
+    renderNow();
+  }
   else if (act === "ctx-off") { if (t.dataset.layer === "sat") setSat("off"); else setLayer(t.dataset.layer, false); }
   else if (act === "view-2d") toggle3d(false);
   else if (act === "dlg-close") $("dlg").close();

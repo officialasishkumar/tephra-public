@@ -37,6 +37,10 @@ export const PATHS = {
   handovers: '/api/desk/handovers?limit=1',
   handoverGet: (id) => `/api/desk/handover/${encodeURIComponent(id)}`,
   handoverAck: (id) => `/api/desk/handover/${encodeURIComponent(id)}/ack`,
+  crewReports: '/api/desk/crew-reports',
+  crewFix: '/api/desk/crew-reports/fix',
+  crewWithdraw: (id) => `/api/desk/crew-reports/${encodeURIComponent(id)}/withdraw`,
+  crewVar: (id) => `/api/desk/crew-reports/${encodeURIComponent(id)}/var`,
 };
 
 export const BODY_MAX_CHARS = 400; // tephra.config.ADVISORY_BODY_MAX_CHARS

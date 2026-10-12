@@ -258,6 +258,8 @@ export function derive(store, ui, now) {
 
   if (regionEmpty && regionCounts[ui.region] > 0) console.error("region invariant");
 
+  const crew = deriveCrew(snap.crew, new Set(sits.map((x) => x.volcano_id)));
+
   return {
     state, now, mode: state.mode, sits, inRegion, regionEmpty, reading, activeCount: activeIds.length, area, selected, sit, vents, official, cones, coneOf, sectorOf,
     hasReroutes: (snap.reroutes?.features || []).length > 0,
@@ -267,6 +269,44 @@ export function derive(store, ui, now) {
     volcanoes, rose, moveByVolcano, firsWithSigmet, advByFlight, regionCounts,
     levelAll: lvAll, hiddenOfficial, hiddenFlights, selFlight, selHiddenByLevel, stepsMissing,
     overlays: snap.overlays || { btd: [], frames: [] },
+    crew,
+  };
+}
+
+// ---- crew reports of ash (UI-DESIGN 5.7, 7.20): the server's CrewPicture, as the Wall draws it.
+// Every word comes from the server's code-written fields (state_label, age_text, place_text,
+// summary, discrepancy); the Wall only joins them. A crew area is a flag layer: it never changes
+// an official area, a count or a cone here.
+export const crewBand = (r) => (r.level_from_fl === r.level_to_fl ? fl(r.level_from_fl * 100) : `${fl(r.level_from_fl * 100)}–${fl(r.level_to_fl * 100)}`);
+
+function deriveCrew(pic, activeIds) {
+  const reports = Array.isArray(pic?.reports) ? pic.reports : [];
+  const flags = Array.isArray(pic?.flags) ? pic.flags : [];
+  const byId = new Map(reports.map((v) => [v.report.id, v]));
+  const drawn = reports.filter((v) => v.state === "ACTIVE" || v.state === "COVERED");
+  const flagByHex = new Map(flags.map((f) => [f.hex, f]));
+  // The map source: the server's area, pin and path features, with the pin's two label lines.
+  const features = (pic?.features?.features || []).map((f) => {
+    const p = f.properties || {};
+    if (p.feature !== "pin") return f;
+    const v = byId.get(p.report_id);
+    const r = v?.report;
+    const band = r?.area ? `${fl(r.area.base_ft)}–${fl(r.area.top_ft)}` : "";
+    const line1 = `Crew report caution area · ${p.age_text}`;
+    const line2 = [p.flight, band, v?.state === "COVERED" ? "covered by official area" : "operator policy A; not a VAA or SIGMET"].filter(Boolean).join(" · ");
+    return { ...f, properties: { ...p, line1, line2 } };
+  });
+  return {
+    label: pic?.label || "",
+    reports,
+    flags,
+    byId,
+    drawn,
+    flagByHex,
+    // a report belongs to a volcano's story when it names that volcano; a report near no active
+    // volcano (none catalogued, or a quiet one) belongs to every story, so it is never lost
+    homeless: (v) => !v.report.volcano_id || !activeIds.has(v.report.volcano_id),
+    map: { type: "FeatureCollection", features },
   };
 }
 

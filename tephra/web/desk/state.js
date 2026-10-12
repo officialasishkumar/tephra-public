@@ -22,6 +22,8 @@ export const app = {
   budget: null, // BudgetView
   activeRegions: new Set(), // region keys with an active volcano (Paperwork's SRA select)
   exposedIds: null, // Set of "hex:volcano_id" in or heading into TEPHRA's area now; null until read
+  crew: null, // CrewPicture of the current mode (crew reports of ash), from /api/wall and `crew` events
+  aircraft: [], // AircraftFeatureProps of tracked RFA flights (airline callsigns): the crew form's list
   tab: 'queue', // queue | ask | network | docs
   askFlight: null, // { id, proxy } the flight Ask is about
   listLoaded: false,
