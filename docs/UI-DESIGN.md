@@ -1000,6 +1000,11 @@ widened), "Technical detail" (mode, label, cone id), and "How the model read it"
 
 ### 7.13 Details › Decisions, Airport closures, Notices, Satellite picture, Track record, AI helpers
 
+Amended 2026-10-13: the layout of these sections (and of 7.19's drawer) is now the Details kit in
+`docs/UI-DETAILS-PANELS.md` sections 2-4 (header, tiles, rows, Technical detail last). The words
+below still hold except where that document's table 5.3 replaces them (for example "AI on" as a
+pill with the model ids as chips, failures grouped by cause, "Passed the checks" for ACCEPTED).
+
 - Decisions (`#decisions`): "{state.draft_count} waiting · a approved · r rejected", "Approve on the
   Desk · nothing is sent anywhere…", then the full list (folded).
 - Airport closures (`#xpanel`, `recovery`): "WIII, WIHH closed by ash SFC/FL500 within 20 NM · Plan
@@ -1065,6 +1070,11 @@ policy id, version, risk owner, SRA and hash, then folded: the full summary text
 values" (every block that has values, grouped), the source-trust order, the citations.
 
 ### 7.19 The Details drawer
+
+Amended 2026-10-13: index rows carry a status shape and stack the title over its live status, a
+"Needs a look" card lists up to three serious or caution rows, the key pinned under the drawer at
+601-1599 px folds to a 44 px "Map key" bar (`data-act="key-toggle"`), and the phone sheet's top
+edge is measured on every render (`docs/UI-DETAILS-PANELS.md` 2.6).
 
 `#details` (`<aside role="region" aria-labelledby="details-title">`, `wall/details.js`), opened by
 `#details-btn` ("☰ Details · Sources, timeline, how TEPHRA decided, AI, data feeds"), the chips, the

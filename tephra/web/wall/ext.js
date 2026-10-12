@@ -106,7 +106,7 @@ const COLOUR_KEY = [
 ];
 
 function colourKey() {
-  return el("details", { class: "x-key" },
+  return el("details", { class: "x-key", dataset: { k: "sat-colour-key" } },
     el("summary", {}, icon("i-chevron-right", "icon x-key__chev"), "Colour key · JMA RGB guide"),
     el("ul", { class: "x-key__list" }, ...COLOUR_KEY.map(([c, n, m]) => el("li", {}, swatch(c), el("strong", { text: n }), ` ${m}`))),
     el("p", { class: "x-key__note", text: "Colour alone cannot separate ash from dust, and the picture gives no height and no concentration." }));

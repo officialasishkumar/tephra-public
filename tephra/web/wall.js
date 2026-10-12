@@ -372,6 +372,7 @@ function renderNow() {
     renderDetails(D, store, ui, conn, { reroutes: () => store.snapshot?.reroutes?.features || [] });
     if (dialogKind === "about") { /* static; nothing to refresh */ }
   });
+  if (phone() && ui.details.open) syncSheetTop();
   document.body.classList.toggle("is-stale", !!conn.lostAt);
   document.body.classList.toggle("is-3d", ui.d3);
   document.body.classList.toggle("history-open", ui.historyOpen);
@@ -578,6 +579,14 @@ function saveDetails() {
   try { sessionStorage.setItem(DETAILS_KEY, ui.details.open ? ui.details.sec || "index" : "closed"); } catch { /* storage blocked */ }
 }
 
+// The phone sheet starts under the sticky header. The header grows after the first render (the
+// REPLAY band, the disclaimer row), so the edge is measured again on every render; a stale edge
+// left a clipped line of header text showing above the sheet.
+function syncSheetTop() {
+  const bottom = `${Math.max(0, document.querySelector(".cmdbar").getBoundingClientRect().bottom)}px`;
+  if (document.documentElement.style.getPropertyValue("--sheet-top") !== bottom) document.documentElement.style.setProperty("--sheet-top", bottom);
+}
+
 function placeDetails() {
   const box = $("details");
   const sheet = $("details-sheet");
@@ -585,7 +594,7 @@ function placeDetails() {
   document.body.classList.toggle("details-open", open);
   // phone: a full-screen sheet below the sticky header (R8.1)
   if (phone()) {
-    document.documentElement.style.setProperty("--sheet-top", `${Math.max(0, document.querySelector(".cmdbar").getBoundingClientRect().bottom)}px`);
+    syncSheetTop();
     if (open && box.parentElement !== sheet) sheet.append(box);
     if (open && !sheet.open) sheet.showModal();
     if (!open && sheet.open) sheet.close();
