@@ -570,12 +570,12 @@ async def _crew_reason(
     flag = runtime.crew_flag(advisory.hex)
     if flag is None:
         return reason, None
-    if reason is None or len(reason) < approvals.MIN_REJECT_REASON_CHARS:
+    if reason is None or len(reason) < approvals.MIN_CREW_REASON_CHARS:
         raise ApiError(
             422,
             "reason_required",
             f"{flag.line}: approving {advisory.action.value} needs a written reason",
-            problems=[f"reason: at least {approvals.MIN_REJECT_REASON_CHARS} characters"],
+            problems=[f"reason: at least {approvals.MIN_CREW_REASON_CHARS} characters"],
         )
     return reason, f"{flag.line} ({', '.join(flag.report_ids)}): reason given"
 

@@ -187,7 +187,6 @@ export function addImages(map, C) {
       boxAngle: labelBox(C.text1),
       boxObserver: labelBox(C.observer),
       hatch: hatch(C.tephra),
-      boxCrew: labelBox(C.crew),
       pin: crewPin(C.crew),
     };
   }
@@ -201,6 +200,5 @@ export function addImages(map, C) {
   add("box-angle", ...cache.boxAngle);
   add("box-observer", ...cache.boxObserver);
   add("hatch-tephra", cache.hatch, { pixelRatio: 2 });
-  add("box-crew", ...cache.boxCrew);
   add("crew-pin", cache.pin, { pixelRatio: 2 });
 }

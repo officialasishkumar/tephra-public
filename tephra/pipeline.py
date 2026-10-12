@@ -18,6 +18,7 @@ tick (an unread list is never taken as empty), and ``store_health`` says so on t
 
 import asyncio
 import logging
+import math
 import os
 import time
 import uuid
@@ -51,7 +52,7 @@ from tephra.config import (
 )
 from tephra.desk import audit, crew_reports
 from tephra.desk.approvals import SYSTEM_ACTOR, submit_draft, supersede
-from tephra.desk.crew_reports import CrewEntry, FixHistory, FixLookup
+from tephra.desk.crew_reports import CheckedEntry, CrewEntry, FixHistory, FixLookup
 from tephra.desk.failures import record_failure
 from tephra.duty import dispatch_duty
 from tephra.feeds.adsb import merge_aircraft
@@ -69,10 +70,11 @@ from tephra.feeds.registry import (
 from tephra.feeds.routes import RouteTable, load_routes
 from tephra.feeds.sigmet import fetch_sigmets
 from tephra.feeds.volcanoes import VolcanoCatalogue, load_volcanoes
+from tephra.feeds.winds import fetch_winds
 from tephra.geo.cone import build_cone
 from tephra.geo.exposure import find_exposed
 from tephra.geo.reroute import coordinate_text
-from tephra.geo.units import deg_to_compass, distance_nm, ft_to_fl
+from tephra.geo.units import deg_to_compass, distance_nm, ft_to_fl, haversine_km
 from tephra.models import (
     CREW_CUE_TEXT,
     Advisory,
@@ -88,6 +90,7 @@ from tephra.models import (
     CrewFlag,
     CrewPicture,
     CrewReport,
+    CrewReportKind,
     CrewReportView,
     DutyRun,
     ExposedFlight,
@@ -133,6 +136,7 @@ from tephra.models import (
     VolcanoFeatureProps,
     Vona,
     WallSnapshot,
+    WindProfile,
     blob_url,
     feature,
     feature_collection,
@@ -151,6 +155,7 @@ from tephra.recovery.agent import recommend_recovery
 from tephra.recovery.models import Closure, Schedule
 from tephra.recovery.network import network_closures, run_lock
 from tephra.recovery.schedule import ScheduleError, load_schedule
+from tephra.regdocs.registry import withdraw_crew_messages
 from tephra.replay.cases import (
     ReplaySource,
     case_path,
@@ -304,10 +309,14 @@ class Runtime:
     """Recent airline ADS-B positions, to place a crew report entered after its observation"""
     _crew_traced: set[str] = field(init=False, default_factory=set)
     """'<report id>' (outside the official area) and '<report id>/<hex>' (flag) lines traced"""
+    _replay_run_wall: datetime = field(init=False)
+    """Wall-clock start of the replay run playing: a process start, a switch to REPLAY or a
+    loop. Crew reports entered in an earlier run end with it and are not shown again."""
 
     def __post_init__(self) -> None:
         self.policy_summary = PolicySummary.of(self.policy)
         self.fixes = FixHistory(timedelta(minutes=self.settings.crew_fix_history_min))
+        self._replay_run_wall = timeutil.SystemClock().now()
         self.live.health = initial_health(
             self.settings, replay=self.mode is RunMode.REPLAY, recorded=self.recorded_feeds
         )
@@ -740,9 +749,9 @@ class Runtime:
             replay=self.mode is RunMode.REPLAY,
             replay_case_id=self._replay_case_id(),
             aircraft=self.aircraft(),
+            replay_run_since=self._replay_run_wall if self.mode is RunMode.REPLAY else None,
             layers=layers,
             lookahead_min=self.settings.exposure_lookahead_min,
-            vertical_margin_ft=self.policy.exposure.vertical_margin_ft.value,
         )
 
     async def update_crew(self, at: datetime, report: TickReport) -> None:
@@ -750,19 +759,30 @@ class Runtime:
         flag and each area outside the official ones once. A flag only: nothing is planned,
         drafted or asked of a model here."""
         replay_case_id = self._replay_case_id()
+        replay = self.mode is RunMode.REPLAY
         for item in list(self.crew_reports.values()):
             area = item.area
             if (
                 area is None
                 or item.withdrawn_at is not None
                 or item.expiry_recorded_at is not None
-                or item.replay != (self.mode is RunMode.REPLAY)
+                or item.replay != replay
                 or item.replay_case_id != replay_case_id
-                or at <= area.valid_to
             ):
                 continue
+            earlier_run = replay and item.entered_wall_at < self._replay_run_wall
+            if not earlier_run and at <= area.valid_to:
+                continue
+            note = (
+                "the replay run it was entered in has ended; a replay played again never"
+                " brings it back"
+                if earlier_run
+                else None
+            )
             try:
-                self.crew_reports[item.id] = await crew_reports.expire(self.store, item, at)
+                self.crew_reports[item.id] = await crew_reports.expire(
+                    self.store, item, at, note=note
+                )
             except Exception as exc:  # retried next update: the area is expired either way
                 logger.warning("recording the expiry of crew report %s failed: %s", item.id, exc)
                 self.store_failed(exc)
@@ -770,8 +790,11 @@ class Runtime:
             self.trace(
                 TraceStage.SYSTEM,
                 "code",
-                f"Crew report area of {item.flight} ({timeutil.hhmmz(item.observed_at)}) expired"
-                f" at {timeutil.hhmmz(area.valid_to)}",
+                f"Crew report area of {item.flight} ({timeutil.hhmmz(item.observed_at)}) ended"
+                f" with the replay run it was entered in"
+                if earlier_run
+                else f"Crew report area of {item.flight} ({timeutil.hhmmz(item.observed_at)})"
+                f" expired at {timeutil.hhmmz(area.valid_to)}",
                 volcano_id=item.volcano_id,
                 detail={"report_id": item.id},
             )
@@ -818,7 +841,11 @@ class Runtime:
         return next((flag for flag in self.crew.flags if flag.hex == hex_id), None)
 
     def crew_fix(self, entry_hex: str | None, callsign: str | None, at: datetime) -> FixLookup:
-        """The fix a crew report entered now would be placed at, or why there is none."""
+        """The fix a crew report entered now would be placed at, or why there is none. A time
+        the report would be refused for is refused here too, before any position is asked."""
+        problem = crew_reports.observed_problem(at, timeutil.now(), self.policy.crew_reports)
+        if problem is not None:
+            raise crew_reports.CrewReportRefused([problem])
         hex_id, flight_callsign = crew_reports.resolve_flight(
             entry_hex, callsign, self.aircraft(), self.fixes
         )
@@ -856,17 +883,29 @@ class Runtime:
         fix = crew_reports.find_fix(
             flight[0], entry.observed_at, self.aircraft(), self.fixes, within=within
         )
+        checked = crew_reports.check_entry(
+            entry,
+            at=at,
+            flight=flight,
+            fix=fix,
+            fix_within=within,
+            policy=self.policy.crew_reports,
+        )
+        radius_km = self.settings.active_radius_km
+        volcano = self.catalogue.nearest(checked.lat, checked.lon, radius_km)
+        winds, wind_place, no_wind = await self._crew_winds(checked, volcano)
         item = crew_reports.build_report(
             entry,
+            checked,
             actor=actor,
             at=at,
             replay_case_id=self._replay_case_id(),
             flight=flight,
             fix=fix,
-            fix_within=within,
-            catalogue=self.catalogue,
-            active_radius_km=self.settings.active_radius_km,
-            winds=self.live.winds,
+            volcano=volcano,
+            winds=winds,
+            wind_place=wind_place,
+            no_wind_reason=no_wind,
             policy=self.policy.crew_reports,
             summary=self.policy_summary,
         )
@@ -882,6 +921,33 @@ class Runtime:
         )
         return await self._show_crew(item.id, at)
 
+    async def _crew_winds(
+        self, checked: CheckedEntry, volcano: Volcano | None
+    ) -> tuple[list[WindProfile], str, str]:
+        """``(profiles, where they are from, why there are none)`` for a report's stretch. LIVE
+        asks Open-Meteo for the profile at the report position (a public GET, no model);
+        REPLAY never reaches a live feed, so only a profile recorded above a volcano near the
+        report can be used, and the note says which and how far."""
+        if checked.kind is not CrewReportKind.ASH:
+            return [], "", ""
+        if self.mode is RunMode.LIVE:
+            hours = math.ceil(self.policy.crew_reports.valid_min.value / 60) + 1
+            try:
+                profiles = await fetch_winds(
+                    self.source, checked.lat, checked.lon, past_hours=hours
+                )
+            except (FetchError, ValueError) as exc:
+                reason = exc.reason if isinstance(exc, FetchError) else str(exc)
+                return [], "", f"the wind fetch at the report position failed: {reason}"
+            return profiles, "at the report position", ""
+        if volcano is None:
+            return [], "", "this replay recorded winds only above active volcanoes"
+        profiles = list(self.live.winds.get(volcano.id, ()))
+        distance = round(haversine_km(checked.lat, checked.lon, volcano.lat, volcano.lon))
+        if not profiles:
+            return [], "", f"this replay recorded no winds above {volcano.name}"
+        return profiles, f"recorded above {volcano.name}, {distance} km from the report", ""
+
     async def withdraw_crew_report(
         self, report_id: str, *, reason: str, actor: str
     ) -> CrewReportView:
@@ -890,6 +956,9 @@ class Runtime:
             raise crew_reports.CrewReportNotFound(report_id)
         withdrawn = await crew_reports.withdraw(self.store, item, reason=reason, actor=actor)
         self.crew_reports[report_id] = withdrawn
+        await withdraw_crew_messages(
+            self.store, self.bus, report_id, reason=withdrawn.withdraw_reason or reason, actor=actor
+        )
         self.trace(
             TraceStage.DESK,
             "human",
@@ -1889,6 +1958,7 @@ class Runtime:
         self._replay_at = None
         self.fixes.clear()
         self._crew_traced.clear()
+        self._replay_run_wall = timeutil.SystemClock().now()
         self.crew = self.crew_picture(timeutil.now())
 
     async def _live_activity(self) -> bool:

@@ -310,7 +310,7 @@ function crewFlagBlock(D, flag) {
   const views = flag.report_ids.map((id) => D.crew.byId.get(id)).filter(Boolean);
   return el("section", { class: "crew-flag" },
     el("p", { class: "crew-flag__line" }, icon("i-pin", "icon crew-flag__pin"), el("strong", { text: flag.line })),
-    el("p", { class: "dnote", text: `${flag.proxy_flight} ${whenFlag(flag)}.` }),
+    flag.reporter ? null : el("p", { class: "dnote", text: `${flag.proxy_flight} ${whenFlag(flag)}.` }),
     ...views.map((v) => el("p", { class: "dnote", text: `${v.report.flight} reported ${v.report.cues.map((c) => CUE_WORDS[c] || c).join(", ")} at ${crewBand(v.report)}, ${v.age_text} · ${v.state_label}` })),
     el("p", { class: "dnote", text: "Operator policy A caution area; not a VAA or SIGMET. Approving Keep watching or Continue for this flight needs a written reason on the Desk." }),
     el("button", { type: "button", class: "link-btn", dataset: { act: "details-open", sec: "crew", focus: `flag-crew-${flag.hex}` }, text: "Crew reports of ash ›" }));
@@ -320,7 +320,8 @@ function crewCard(D, v, picked) {
   const r = v.report;
   const a = r.area;
   const [shape, colour] = CREW_STATE_SHAPE[v.state] || CREW_STATE_SHAPE.NO_AREA;
-  const flagged = D.crew.flags.filter((f) => f.report_ids.includes(r.id));
+  // the flights it flags, from the report's own view (v.flagged), named from the picture's flags
+  const flagged = (v.flagged || []).map((hex) => D.crew.flagByHex.get(hex)).filter(Boolean);
   const dl = el("dl", { class: "area__facts" });
   const row = (k, val, mono) => { if (val) dl.append(el("dt", { text: k }), el("dd", { class: mono ? "mono" : null, text: val })); };
   row("Crew reported", r.cues.map((c) => CUE_WORDS[c] || c).join(", "));
@@ -335,18 +336,20 @@ function crewCard(D, v, picked) {
   row("Entered", `${String(r.entered_by || "").replace(/^desk:/, "")} at ${hhmmz(ms(r.created_at))} on the Desk`);
   if (r.remarks) row("Remarks", r.remarks);
   if (v.state === "COVERED") row("Covered by", `${plural(v.covered_by.length, "official area", "official areas")} (display only: the area and its flags stay)`);
-  if (v.state === "WITHDRAWN") row("Withdrawn", `by ${String(r.withdrawn_by || "").replace(/^desk:/, "")} at ${hhmmz(ms(r.withdrawn_at))}: ${r.withdraw_reason || "no reason recorded"}`);
-  if (a) row("Flights flagged", flagged.length ? flagged.map((f) => `${f.proxy_flight} (${f.inside_now ? "inside now" : `in ${f.minutes_to_entry} min`})`).join(", ") : "none seen crossing it");
   const drawn = v.state === "ACTIVE" || v.state === "COVERED";
+  if (a && drawn) row("Flights flagged", flagged.length ? flagged.map((f) => `${f.proxy_flight} (${f.reporter ? "the reporting flight" : f.inside_now ? "inside now" : `in ${f.minutes_to_entry} min`})`).join(", ") : "none seen crossing it");
+  const ended = v.state === "WITHDRAWN"
+    ? `Withdrawn by ${String(r.withdrawn_by || "").replace(/^desk:/, "")} at ${hhmmz(ms(r.withdrawn_at))}: ${r.withdraw_reason || "no reason recorded"}. It no longer flags any flight.`
+    : v.state === "EXPIRED" ? "Expired: it no longer flags any flight." : null;
   return el("article", { class: `crew-card crew-card--${v.state.toLowerCase()}${picked ? " is-picked" : ""}`, "aria-labelledby": `crew-${r.id}` },
     el("p", { class: "crew-card__head" },
       el("strong", { id: `crew-${r.id}`, class: "crew-card__flight", text: r.flight }),
       el("span", { class: "crew-card__state" }, icon(shape, "st", colour), el("span", { text: v.state_label })),
       el("span", { class: "crew-card__age", text: v.age_text }),
       r.replay ? el("span", { class: "tag tag--replay", text: "entered in REPLAY" }) : null),
-    v.discrepancy ? el("p", { class: "crew-card__dis" }, st("st-caution", "var(--c-caution)"), el("span", { text: `${v.discrepancy}. A dispatcher can start a message to the weather office and the VAAC on the Desk.` })) : null,
+    ended ? el("p", { class: "dnote", text: ended }) : null,
+    v.discrepancy ? el("p", { class: "crew-card__dis" }, st("st-caution", "var(--c-caution)"), el("span", { text: `${v.discrepancy}. ${v.outside_detail || ""} A dispatcher can start a message to the weather office and the VAAC on the Desk.`.replace(/\s+/g, " ") })) : null,
     dl,
-    el("p", { class: "crew-card__sum", text: v.summary }),
     el("div", { class: "btn-row" },
       drawn ? el("button", { type: "button", class: "btn btn--small", dataset: { act: "crew-show", report: r.id, focus: `crew-show-${r.id}` } }, icon("i-frame"), "Show on the map") : null,
       el("a", { class: "btn btn--small", href: `/desk#crew/${encodeURIComponent(r.id)}`, target: "_blank", rel: "noopener" }, "Open on the Desk ›")),
@@ -358,7 +361,7 @@ function crewSection(D, ui) {
   const C = D.crew;
   const host = $("crew");
   const label = C.label || "Crew report caution area (operator policy A; not a VAA or SIGMET)";
-  const lede = el("p", { class: "dnote", text: `${label}. A dispatcher enters a crew (pilot) report on the Desk; code draws a caution area around the reported position over the reported levels. It flags flights whose projected track crosses it. It never shrinks or replaces an official area, re-plans nothing and calls no model. A sulphur smell alone is a routine report with no area; a no-ash report never removes one.` });
+  const lede = el("p", { class: "dnote", text: `${label}. A dispatcher enters a crew (pilot) report on the Desk; code draws a caution area around the reported position over the reported levels. It flags flights whose projected track crosses it. It never shrinks or replaces an official area, re-plans nothing and calls no model. A sulphur smell or haze alone is a routine report with no area; a no-ash report never removes one.` });
   if (!C.reports.length) {
     host.replaceChildren(el("p", { class: "dsum", text: "No crew report of ash in the last 24 hours." }), lede,
       el("p", {}, el("a", { class: "btn btn--small", href: "/desk#crew-report", target: "_blank", rel: "noopener", text: "Report ash from a crew on the Desk ›" })));
@@ -430,7 +433,7 @@ function renderStrip(D, store) {
     el("a", { class: "desk-link desk-link--small", href: "/desk", target: "_blank", rel: "noopener", text: "Desk →" }));
 }
 
-function renderSwitcher(D) {
+function renderSwitcher(D, ui) {
   const sel = $("details-volcano");
   if (!D) return;
   const key = D.sits.map((s) => s.volcano_id).join("|");
@@ -438,7 +441,8 @@ function renderSwitcher(D) {
     sel.dataset.key = key;
     sel.replaceChildren(...D.sits.map((s) => el("option", { value: s.volcano_id, text: s.volcano_name })));
   }
-  sel.hidden = !D.sits.length;
+  // Crew reports are listed for every volcano and for none: the volcano picker does nothing there.
+  sel.hidden = !D.sits.length || ui.details.sec === "crew";
   if (D.selected) sel.value = D.selected;
 }
 
@@ -454,7 +458,7 @@ export function renderDetails(D, store, ui, conn, extras = {}) {
   const title = $("details-title");
   const t = sec ? sec.title : "Details";
   if (title.textContent !== t) title.textContent = t;
-  renderSwitcher(D);
+  renderSwitcher(D, ui);
   renderStrip(D, store);
   $("xtabs").hidden = !!sec;
   if (!sec) renderIndex(D, store, ui);

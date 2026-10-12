@@ -1,4 +1,4 @@
-// Renders an SRA draft, a VAR draft or a shift handover brief. Shared by the Desk (docs tab) and
+// Renders an SRA draft, a VAR draft, a crew report message or a shift handover brief. Shared by the Desk (docs tab) and
 // the printable page (doc.html), so it imports nothing from the Desk's state. Blanks stay
 // visibly blank: a person fills them, never the page. Model-written boxes carry the model id.
 // All text goes in through textContent.
@@ -49,10 +49,17 @@ function table(t) {
     t.note ? el('p', { class: 'fnote', text: t.note }) : null);
 }
 
+const SIGN_NOTE = {
+  SRA: 'Signing records who signed and when. It is not a regulator approval.',
+  VAR: 'Signing records who signed and when. A VAR is sent only by the crew\'s and the operator\'s own channels, never by TEPHRA.',
+  CREW_MESSAGE: 'Signing records who checked the message and when. It goes out only through the operator\'s own channel, never from TEPHRA.',
+};
+
 function signatures(doc, onSign) {
+  if (doc.status === 'WITHDRAWN') onSign = null;
   return el('section', { class: 'dsec dsec--sig' },
     el('h2', { class: 'dsec__t', text: 'Sign-off' }),
-    el('p', { class: 'fnote', text: doc.kind === 'SRA' ? 'Signing records who signed and when. It is not a regulator approval.' : 'Signing records who signed and when. A VAR is sent only by the crew\'s and the operator\'s own channels, never by TEPHRA.' }),
+    el('p', { class: 'fnote', text: SIGN_NOTE[doc.kind] || SIGN_NOTE.VAR }),
     el('ul', { class: 'sigs' }, doc.signatures.map((s) => el('li', { class: `sig ${s.signed_at ? 'is-signed' : ''}`.trim() },
       el('span', { class: 'sig__role', text: s.label || roleName(s.role) }),
       s.signed_at
@@ -62,12 +69,13 @@ function signatures(doc, onSign) {
 }
 
 function docHead(doc) {
-  const title = doc.kind === 'SRA' ? `Safety risk assessment: ${doc.region_name}` : `Volcanic activity report: ${doc.proxy_flight} / ${doc.volcano_name}`;
+  const title = doc.kind === 'SRA' ? `Safety risk assessment: ${doc.region_name}` : doc.kind === 'CREW_MESSAGE' ? doc.title : `Volcanic activity report: ${doc.proxy_flight} / ${doc.volcano_name}`;
+  const status = doc.status === 'SIGNED' ? ['dchip--ok', 'All lines signed'] : doc.status === 'WITHDRAWN' ? ['dchip--warn', 'WITHDRAWN: not to be sent'] : ['', 'DRAFT'];
   return el('header', { class: 'dhd' },
     el('p', { class: 'dhd__banner', role: 'note', text: doc.header }),
     el('h1', { class: 'dhd__title', id: 'doc-title', tabindex: '-1', text: title }),
     el('p', { class: 'dhd__chips' },
-      el('span', { class: `dchip ${doc.status === 'SIGNED' ? 'dchip--ok' : ''}`.trim(), text: doc.status === 'SIGNED' ? 'All lines signed' : 'DRAFT' }),
+      el('span', { class: `dchip ${status[0]}`.trim(), text: status[1] }),
       ...(doc.labels || []).filter((l) => !/^NO MODEL$/i.test(l)).map((l) => el('span', { class: `dchip ${/REPLAY/i.test(l) ? 'dchip--replay' : ''}`.trim(), text: l })),
       doc.kind === 'SRA' ? modelMark(doc.model_id, doc.llm_backend) : null),
     el('p', { class: 'dhd__meta mono', text: `${doc.id} · v${doc.version} · drafted ${dayMonthHhmm(doc.created_at)}${doc.kind === 'SRA' ? ` · policy ${doc.policy_id} v${doc.policy_version}` : ''}` }));
@@ -108,7 +116,24 @@ function renderVar(doc, opts) {
   return root;
 }
 
+// The message to the weather office and the VAAC from a crew report: who it is for, the subject
+// and the code-written text, then what each line rests on.
+function renderCrewMessage(doc, opts) {
+  const root = el('article', { class: 'docv', 'aria-labelledby': 'doc-title' }, docHead(doc));
+  if (doc.withdrawn_note) root.append(el('p', { class: 'dmsg__withdrawn', role: 'note', text: `${doc.withdrawn_note}. This message is not to be sent.` }));
+  root.append(el('section', { class: 'dsec' }, el('h2', { class: 'dsec__t', text: 'Message' }),
+    fieldList([...doc.to, doc.subject], doc),
+    el('pre', { class: 'dmsg__body', text: doc.body })));
+  root.append(el('section', { class: 'dsec' }, el('h2', { class: 'dsec__t', text: 'What it rests on' }), fieldList(doc.facts, doc)));
+  if (doc.followups && doc.followups.length) {
+    root.append(el('section', { class: 'dsec' }, el('h2', { class: 'dsec__t', text: 'Before it goes' }), el('ul', { class: 'plist' }, doc.followups.map((f) => el('li', { text: f })))));
+  }
+  root.append(signatures(doc, opts.onSign));
+  return root;
+}
+
 export function renderDoc(doc, opts = {}) {
+  if (doc.kind === 'CREW_MESSAGE') return renderCrewMessage(doc, opts);
   return doc.kind === 'VAR' ? renderVar(doc, opts) : renderSra(doc, opts);
 }
 

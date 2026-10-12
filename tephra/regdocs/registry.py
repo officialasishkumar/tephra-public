@@ -2,8 +2,9 @@
 
 Documents live in the ``docs`` collection next to other work packages' records (the shift
 handover brief), so a stored document of another kind is never returned here. Every signature
-is an audit entry and a ``doc`` event. Nothing is queued to ``outbound``: an SRA or a VAR goes
-to an authority only through the operator's own channels, outside TEPHRA.
+is an audit entry and a ``doc`` event. Nothing is queued to ``outbound``: an SRA, a VAR or a
+crew report message goes to an authority only through the operator's own channels, outside
+TEPHRA. A crew report message is withdrawn with its crew report and can no longer be signed.
 """
 
 import asyncio
@@ -17,13 +18,14 @@ from pydantic import ValidationError
 from tephra.desk import audit
 from tephra.models import AuditAction, SseEvent
 from tephra.regdocs.models import (
+    CrewMessageDraft,
     DocKind,
+    DocModel,
     DocStatus,
     DocSummary,
     RegDocAdapter,
     SignRole,
     SraDraft,
-    VarDraft,
 )
 from tephra.store.base import Collection, Store, Where
 from tephra.util import timeutil
@@ -38,11 +40,12 @@ __all__ = [
     "list_docs",
     "record_new_doc",
     "sign_doc",
+    "withdraw_crew_messages",
 ]
 
 MAX_SIGN_NAME_CHARS: Final = 60
 MIN_SIGN_NAME_CHARS: Final = 2
-_KINDS: Final = [DocKind.SRA.value, DocKind.VAR.value]
+_KINDS: Final = [DocKind.SRA.value, DocKind.VAR.value, DocKind.CREW_MESSAGE.value]
 _locks: "weakref.WeakKeyDictionary[Store, asyncio.Lock]" = weakref.WeakKeyDictionary()
 logger = logging.getLogger(__name__)
 
@@ -65,7 +68,7 @@ class AlreadySigned(InvalidSignature):
 async def record_new_doc(
     store: Store,
     bus: EventBus,
-    doc: SraDraft | VarDraft,
+    doc: DocModel,
     *,
     actor: str,
     model_id: str | None = None,
@@ -86,17 +89,17 @@ async def record_new_doc(
     bus.publish(SseEvent.DOC, DocSummary.of(doc))
 
 
-async def _put(store: Store, doc: SraDraft | VarDraft) -> None:
+async def _put(store: Store, doc: DocModel) -> None:
     await store.put(Collection.DOCS, doc.id, doc.model_dump(mode="json"))
 
 
-async def get_doc(store: Store, doc_id: str) -> SraDraft | VarDraft | None:
+async def get_doc(store: Store, doc_id: str) -> DocModel | None:
     return _parse(await store.get(Collection.DOCS, doc_id))
 
 
 async def list_docs(
     store: Store, *, kind: DocKind | None = None, limit: int = 50
-) -> list[SraDraft | VarDraft]:
+) -> list[DocModel]:
     """Newest first."""
     kinds = _KINDS if kind is None else [kind.value]
     docs = await store.query(
@@ -118,7 +121,7 @@ async def sign_doc(
     role: SignRole,
     name: str,
     actor: str,
-) -> SraDraft | VarDraft:
+) -> DocModel:
     """Fill one signature line. The line's role must be on the document and still blank."""
     cleaned = " ".join(name.split())
     if not MIN_SIGN_NAME_CHARS <= len(cleaned) <= MAX_SIGN_NAME_CHARS or not cleaned.isprintable():
@@ -134,6 +137,8 @@ async def sign_doc(
             raise InvalidSignature([f"role: {role.value} has no signature line on this document"])
         if line.signed_at is not None:
             raise AlreadySigned([f"role: {role.value} has already signed this document"])
+        if current.status is DocStatus.WITHDRAWN:
+            raise InvalidSignature(["status: the crew report it came from was withdrawn"])
         at = timeutil.now()
         lines = [
             item.model_copy(update={"signed_name": cleaned, "signed_at": at, "recorded_by": actor})
@@ -164,10 +169,51 @@ async def sign_doc(
     return signed
 
 
-def _audit_view(doc: SraDraft | VarDraft) -> dict[str, Any]:
-    subject = (
-        {"region": doc.region_key} if isinstance(doc, SraDraft) else {"flight_id": doc.flight_id}
-    )
+async def withdraw_crew_messages(
+    store: Store, bus: EventBus, report_id: str, *, reason: str, actor: str
+) -> list[CrewMessageDraft]:
+    """Mark every message drafted from a withdrawn crew report WITHDRAWN, signed or not: it
+    stays in the store and the audit trail and can no longer be signed or sent."""
+    withdrawn: list[CrewMessageDraft] = []
+    async with _lock(store):
+        stored = await store.query(
+            Collection.DOCS, [Where("crew_report_id", "==", report_id)], limit=50
+        )
+        for doc in (_parse(item) for item in stored):
+            if not isinstance(doc, CrewMessageDraft) or doc.status is DocStatus.WITHDRAWN:
+                continue
+            at = timeutil.now()
+            after = doc.model_copy(
+                update={
+                    "status": DocStatus.WITHDRAWN,
+                    "version": doc.version + 1,
+                    "updated_at": at,
+                    "withdrawn_note": f"The crew report was withdrawn: {reason}",
+                }
+            )
+            await _put(store, after)
+            await audit.record(
+                store,
+                actor=actor,
+                action=AuditAction.DOC_WITHDRAWN,
+                before=_audit_view(doc),
+                after=_audit_view(after),
+                input_hashes=[after.input_hash],
+                note=f"{after.kind} {after.id} withdrawn with crew report {report_id}",
+            )
+            withdrawn.append(after)
+    for doc in withdrawn:
+        bus.publish(SseEvent.DOC, DocSummary.of(doc))
+    return withdrawn
+
+
+def _audit_view(doc: DocModel) -> dict[str, Any]:
+    if isinstance(doc, SraDraft):
+        subject = {"region": doc.region_key}
+    elif isinstance(doc, CrewMessageDraft):
+        subject = {"crew_report_id": doc.crew_report_id, "flight": doc.flight}
+    else:
+        subject = {"flight_id": doc.flight_id}
     return {
         "doc_id": doc.id,
         "kind": doc.kind,
@@ -178,7 +224,7 @@ def _audit_view(doc: SraDraft | VarDraft) -> dict[str, Any]:
     }
 
 
-def _parse(stored: dict[str, Any] | None) -> SraDraft | VarDraft | None:
+def _parse(stored: dict[str, Any] | None) -> DocModel | None:
     if stored is None or stored.get("kind") not in _KINDS:
         return None
     try:

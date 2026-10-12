@@ -334,11 +334,37 @@ export function renderFlights(D, store, ui, target = $("flights")) {
     const name = D.sits.find((x) => x.volcano_id === vid)?.volcano_name || vid;
     return el("button", { type: "button", class: "link-btn", dataset: { act: "select", vid, focus: `others-${vid}` }, text: `+${n} heading in at ${name}` });
   })) : null;
-  if (!flights.length) { target.replaceChildren(head, note, ...(foot ? [foot] : [])); return; }
+  // RFA flights only a crew report of ash flags (not TEPHRA's area): their own short list, so
+  // This flight opens from here too (UI-DESIGN 5.7).
+  const crew = crewList(D);
+  if (!flights.length) { target.replaceChildren(head, ...crew, note, ...(foot ? [foot] : [])); return; }
   const first = el("ol", { class: "flights__list" }, ...flights.slice(0, FLIGHTS_FIRST).map((f) => flightRow(D, f)));
   const rest = flights.slice(FLIGHTS_FIRST);
   const more = rest.length ? el("details", { class: "more", dataset: { k: "flights-all" } }, el("summary", { text: `All ${flights.length}` }), el("ol", { class: "flights__list", start: String(FLIGHTS_FIRST + 1) }, ...rest.map((f) => flightRow(D, f)))) : null;
-  target.replaceChildren(head, first, ...(more ? [more] : []), note, ...(foot ? [foot] : []));
+  target.replaceChildren(head, first, ...(more ? [more] : []), ...crew, note, ...(foot ? [foot] : []));
+}
+
+function crewList(D) {
+  const flagged = D.crewFlights
+    .map((f) => [f, D.crew.flagByHex.get(f.properties.hex)])
+    .filter(([, flag]) => flag)
+    .sort(([, a], [, b]) => a.minutes_to_entry - b.minutes_to_entry);
+  if (!flagged.length) return [];
+  return [
+    el("p", { class: "dsum flights__crewhead" }, icon("i-pin", "icon"), el("strong", { text: `${flagged.length} more RFA ${flagged.length === 1 ? "flight" : "flights"} on the route of a crew report of ash` })),
+    el("ol", { class: "flights__list" }, ...flagged.map(([f, flag]) => {
+      const p = f.properties;
+      const lvl = p.alt_baro_ft != null ? fl(p.alt_baro_ft) : "level unknown";
+      const when = flag.reporter ? "reported ash" : flag.inside_now ? "inside now" : `in ${flag.minutes_to_entry} min`;
+      return el("li", {}, el("button", { class: "flights__row", type: "button", dataset: { flight: f.id ?? p.hex, focus: `flight-${p.hex}` }, "aria-label": `${p.proxy_flight}, proxy for ${p.callsign || p.hex}, ${flag.line}, ${when}, ${lvl}. Show this flight.` },
+        icon("i-aircraft", "flights__plane flights__plane--crew"),
+        el("span", { class: "flights__id" },
+          el("span", { class: "flights__proxy", text: p.proxy_flight }),
+          el("span", { class: "flights__meta", text: `proxy for ${p.callsign || String(p.hex || "").toUpperCase()} · ${lvl}` }),
+          el("span", { class: "flights__crew" }, icon("i-pin", "icon"), flag.line)),
+        el("span", { class: "flights__mins", text: when })));
+    })),
+  ];
 }
 
 // ------------------------------------------------------------------ Details › How TEPHRA decided (R8.3, R12.7)

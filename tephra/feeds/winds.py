@@ -30,11 +30,12 @@ OPEN_METEO_URL: Final = "https://api.open-meteo.com/v1/forecast"
 PRESSURE_LEVELS_HPA: Final[tuple[int, ...]] = tuple(sorted(PRESSURE_LEVEL_FL))
 
 
-def wind_params(lat: float, lon: float) -> dict[str, str]:
+def wind_params(lat: float, lon: float, *, past_hours: int = 1) -> dict[str, str]:
     """Query parameters in a fixed key order (the URL is the cache and replay key).
 
     ``forecast_hours=24`` rather than ``forecast_days=1``: the latter stops at 23:00 UTC of
-    the current day, which late in the UTC day leaves almost no forecast.
+    the current day, which late in the UTC day leaves almost no forecast. ``past_hours`` is
+    longer for a crew report, whose observation may be hours old.
     """
     hourly = ",".join(f"wind_speed_{hpa}hPa,wind_direction_{hpa}hPa" for hpa in PRESSURE_LEVELS_HPA)
     return {
@@ -43,7 +44,7 @@ def wind_params(lat: float, lon: float) -> dict[str, str]:
         "hourly": hourly,
         "wind_speed_unit": "kn",
         "timezone": "GMT",
-        "past_hours": "1",
+        "past_hours": str(past_hours),
         "forecast_hours": "24",
     }
 
@@ -82,8 +83,12 @@ def parse_winds(result: FetchResult, *, lat: float, lon: float) -> list[WindProf
     return profiles
 
 
-async def fetch_winds(source: Source, lat: float, lon: float) -> list[WindProfile]:
-    result = await source.fetch(OPEN_METEO_URL, feed=FeedId.WINDS, params=wind_params(lat, lon))
+async def fetch_winds(
+    source: Source, lat: float, lon: float, *, past_hours: int = 1
+) -> list[WindProfile]:
+    result = await source.fetch(
+        OPEN_METEO_URL, feed=FeedId.WINDS, params=wind_params(lat, lon, past_hours=past_hours)
+    )
     return parse_winds(result, lat=lat, lon=lon)
 
 

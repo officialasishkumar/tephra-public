@@ -44,7 +44,7 @@ import { anyStaleSource, coneFor, decidedLine, modeChip, needsCarefulRead, repla
 import { app } from './state.js';
 import { routeMap } from './route.js';
 import { codeChip } from './ui.js';
-import { crewBox, crewKey, crewReasonNeeded } from './crew.js';
+import { CREW_REASON_MIN, crewBox, crewKey, crewReasonNeeded } from './crew.js';
 
 const GHOST_TAP_MS = 450;
 const OFFLINE_NOTE = "You're offline. Can't approve right now: reconnect to decide. Drafts stay readable.";
@@ -156,7 +156,7 @@ export function syncSheet() {
 }
 
 const reasonNeeded = (adv) => crewReasonNeeded(adv) || Boolean(sheet && sheet.crewForced);
-const reasonShort = (adv) => reasonNeeded(adv) && sheet.crewReason.trim().length < REASON_MIN_CHARS;
+const reasonShort = (adv) => reasonNeeded(adv) && sheet.crewReason.trim().length < CREW_REASON_MIN;
 
 // The reason box (UI-DESIGN 10.15): CONTINUE or MONITOR for an airborne flight whose projected
 // track crosses a crew report area. Every tracked flight is airborne (ADS-B ground targets are
@@ -171,8 +171,8 @@ function crewReasonField(adv) {
   const msg = el('div', { id: 'crew-reason-msg', class: 'field-msg', 'aria-live': 'polite' });
   const update = () => {
     const n = sheet.crewReason.trim().length;
-    count.textContent = n < REASON_MIN_CHARS ? `${n} / ${REASON_MAX_CHARS} · at least ${REASON_MIN_CHARS} characters` : `${n} / ${REASON_MAX_CHARS}`;
-    count.dataset.level = n < REASON_MIN_CHARS && sheet.crewError ? 'caution' : 'ok';
+    count.textContent = n < CREW_REASON_MIN ? `${n} / ${REASON_MAX_CHARS} · at least ${CREW_REASON_MIN} characters` : `${n} / ${REASON_MAX_CHARS}`;
+    count.dataset.level = n < CREW_REASON_MIN && sheet.crewError ? 'caution' : 'ok';
     msg.replaceChildren(...(sheet.crewError ? [el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: sheet.crewError }))] : []));
   };
   area.addEventListener('input', () => {
@@ -190,7 +190,7 @@ function crewReasonField(adv) {
 }
 
 function crewReasonMissing() {
-  sheet.crewError = `Give a reason of at least ${REASON_MIN_CHARS} characters: a crew reported ash on this route.`;
+  sheet.crewError = `Give a reason of at least ${CREW_REASON_MIN} characters: a crew reported ash on this route.`;
   sheet.bar = 'decide';
   render();
   const f = byId('crew-reason');
@@ -1017,7 +1017,7 @@ async function decide(kind) {
     // The server knows of a crew report flag this page had not drawn yet: ask for the reason.
     sheet.crewForced = true;
     sheet.bar = 'decide';
-    sheet.crewError = `${(res.data && res.data.detail) || 'A crew reported ash on this route'}. Give a reason of at least ${REASON_MIN_CHARS} characters.`;
+    sheet.crewError = `${(res.data && res.data.detail) || 'A crew reported ash on this route'}. Give a reason of at least ${CREW_REASON_MIN} characters.`;
     render();
     const f = byId('crew-reason');
     if (f) f.focus();

@@ -253,6 +253,7 @@ class AuditAction(StrEnum):
     MESSAGE_DECIDED = "MESSAGE_DECIDED"
     DOC_DRAFTED = "DOC_DRAFTED"
     DOC_SIGNED = "DOC_SIGNED"
+    DOC_WITHDRAWN = "DOC_WITHDRAWN"
     HANDOVER_ACKED = "HANDOVER_ACKED"
     LOGIN_OK = "LOGIN_OK"
     LOGIN_FAILED = "LOGIN_FAILED"
@@ -1871,13 +1872,15 @@ class ReplayCase(TephraModel):
 
 CREW_AREA_LABEL: Final = "Crew report caution area (operator policy A; not a VAA or SIGMET)"
 CREW_FLAG_LINE: Final = "Crew report of ash on this route"
+CREW_REPORTER_LINE: Final = "This flight's crew reported ash"
 CREW_OUTSIDE_LINE: Final = "Crew report outside the official area"
 NO_CATALOGUED_VOLCANO: Final = "no catalogued volcano"
 
 
 class CrewCue(StrEnum):
-    """What the crew reported. Ash seen or any encounter cue draws a caution area; a sulphur
-    smell alone is a routine report (FAA JO 7110.65 2-6-2); no ash seen never removes one."""
+    """What the crew reported. Ash seen or an encounter cue (a smell together with haze, St
+    Elmo's fire, engine signs) draws a caution area; a sulphur smell alone (FAA JO 7110.65
+    2-6-2) or haze alone is a routine report; no ash seen never removes one."""
 
     ASH_SEEN = "ASH_SEEN"
     SULPHUR_SMELL = "SULPHUR_SMELL"
@@ -1896,17 +1899,19 @@ CREW_CUE_TEXT: Final[dict[CrewCue, str]] = {
     CrewCue.NO_ASH_SEEN: "no ash seen",
 }
 
-CREW_AREA_CUES: Final = frozenset(
-    {CrewCue.ASH_SEEN, CrewCue.HAZE, CrewCue.ST_ELMOS_FIRE, CrewCue.ENGINE}
-)
-"""Ash seen and the encounter cues: any of them draws a caution area."""
+CREW_AREA_CUES: Final = frozenset({CrewCue.ASH_SEEN, CrewCue.ST_ELMOS_FIRE, CrewCue.ENGINE})
+"""Ash seen and the encounter cues that stand alone: any of them draws a caution area."""
+
+CREW_SMELL_AND_HAZE: Final = frozenset({CrewCue.SULPHUR_SMELL, CrewCue.HAZE})
+"""The encounter cue made of two: a smell together with haze or dust in the cabin draws a
+caution area; either one alone is a routine report."""
 
 
 class CrewReportKind(StrEnum):
     ASH = "ASH"
     """Ash seen or an encounter cue: a caution area is drawn"""
     ROUTINE = "ROUTINE"
-    """A sulphur smell with no ash seen: recorded as a routine report, no area"""
+    """A sulphur smell or haze alone, no ash seen: recorded as a routine report, no area"""
     NO_ASH = "NO_ASH"
     """No ash seen: recorded; it never removes or shortens anything"""
 
@@ -2009,13 +2014,17 @@ class CrewReportView(TephraModel):
         default_factory=list, description="Official layer ids that together cover it (COVERED)"
     )
     outside_official: bool = Field(
-        default=False, description="Active and meets no official area, laterally and vertically"
+        default=False,
+        description="Active and not covered: all or part of it lies outside every valid "
+        "official area, laterally or vertically",
     )
     discrepancy: str | None = Field(default=None, description="CREW_OUTSIDE_LINE when outside")
+    outside_detail: str | None = Field(
+        default=None, description="Code-written: wholly or partly outside, and how"
+    )
     flagged: list[str] = Field(
         default_factory=list, description="ICAO addresses of the flights it flags"
     )
-    summary: str = Field(description="Code-written popup body")
 
 
 class CrewFlag(TephraModel):
@@ -2033,7 +2042,10 @@ class CrewFlag(TephraModel):
     entry_lat: float
     entry_lon: float
     path: list[Position]
-    line: str = CREW_FLAG_LINE
+    reporter: bool = Field(
+        default=False, description="The flight whose crew made one of the reports"
+    )
+    line: str = Field(default=CREW_FLAG_LINE, description="CREW_REPORTER_LINE for the reporter")
 
 
 class CrewFeatureProps(TephraModel):

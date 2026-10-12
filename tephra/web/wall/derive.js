@@ -156,7 +156,10 @@ export function derive(store, ui, now) {
     const stale = ageS > 60;
     const inside = !!p.exposed && p.minutes_to_entry === 0;
     const known = p.alt_baro_ft != null;
-    if (!lvAll && known && !p.exposed && (p.alt_baro_ft < ui.level.min || p.alt_baro_ft > ui.level.max)) {
+    // An RFA flight a crew report flags but TEPHRA's area does not: drawn and listed as an RFA
+    // flight in the crew colour (UI-DESIGN 5.7), never as "other aircraft" under its callsign.
+    const crewOnly = !!p.crew_report && !p.exposed;
+    if (!lvAll && known && !p.exposed && !crewOnly && (p.alt_baro_ft < ui.level.min || p.alt_baro_ft > ui.level.max)) {
       hiddenFlights++;
       if (p.hex === selHex) selHiddenByLevel = true;
       continue;
@@ -174,16 +177,18 @@ export function derive(store, ui, now) {
       id: f.id,
       geometry: f.geometry,
       properties: {
-        ...p, stale, inside, ageS, sel_vid: selected || "", picked: p.hex === selHex,
+        ...p, stale, inside, ageS, sel_vid: selected || "", picked: p.hex === selHex, crew_only: crewOnly,
         l1: `${p.proxy_flight}${p.callsign ? ` · ${p.callsign}` : ""}`,
         l2, l3, l3ok: !!ok,
         l4: stale ? `position ${mins} min old` : "",
         short: `${p.callsign || p.hex} ${lvl}`,
         // One line on the map (R6.3); level, decision and position age are in Details › This flight.
-        elabel: p.exposed ? `${p.proxy_flight} · ${inside ? "inside" : `in ${p.minutes_to_entry} min`}` : "",
+        elabel: p.exposed ? `${p.proxy_flight} · ${inside ? "inside" : `in ${p.minutes_to_entry} min`}` : crewOnly ? `${p.proxy_flight} · crew report` : "",
       },
     });
   }
+  // flights flagged only by a crew report, soonest into the crew area first
+  const crewFlights = aircraft.filter((f) => f.properties.crew_only);
   const exposed = aircraft.filter((f) => f.properties.exposed).sort((a, b) => {
     const pa = a.properties, pb = b.properties;
     const sa = pa.volcano_id === selected, sb = pb.volcano_id === selected;
@@ -265,7 +270,7 @@ export function derive(store, ui, now) {
     hasReroutes: (snap.reroutes?.features || []).length > 0,
     rerouteKeys: new Set((snap.reroutes?.features || []).map((f) => f.properties.flight_id)),
     hasSatBoxes: (snap.satellite || []).some((r) => r.boxes?.length),
-    aircraft, exposed, exposures: snap.exposures || { type: "FeatureCollection", features: [] },
+    aircraft, exposed, crewFlights, exposures: snap.exposures || { type: "FeatureCollection", features: [] },
     volcanoes, rose, moveByVolcano, firsWithSigmet, advByFlight, regionCounts,
     levelAll: lvAll, hiddenOfficial, hiddenFlights, selFlight, selHiddenByLevel, stepsMissing,
     overlays: snap.overlays || { btd: [], frames: [] },
@@ -286,15 +291,14 @@ function deriveCrew(pic, activeIds) {
   const drawn = reports.filter((v) => v.state === "ACTIVE" || v.state === "COVERED");
   const flagByHex = new Map(flags.map((f) => [f.hex, f]));
   // The map source: the server's area, pin and path features, with the pin's two label lines.
+  // The map source: the server's area, pin and path features. A pin's label is one short line
+  // ("Crew report · 47 min ago"); the full label, band and flight are in Details › Crew reports.
   const features = (pic?.features?.features || []).map((f) => {
     const p = f.properties || {};
     if (p.feature !== "pin") return f;
-    const v = byId.get(p.report_id);
-    const r = v?.report;
-    const band = r?.area ? `${fl(r.area.base_ft)}–${fl(r.area.top_ft)}` : "";
-    const line1 = `Crew report caution area · ${p.age_text}`;
-    const line2 = [p.flight, band, v?.state === "COVERED" ? "covered by official area" : "operator policy A; not a VAA or SIGMET"].filter(Boolean).join(" · ");
-    return { ...f, properties: { ...p, line1, line2 } };
+    const age = String(p.age_text || "").replace(/^reported /, "");
+    const line1 = p.state === "COVERED" ? "Crew report · covered by official area" : `Crew report · ${age}`;
+    return { ...f, properties: { ...p, line1 } };
   });
   return {
     label: pic?.label || "",
@@ -303,8 +307,9 @@ function deriveCrew(pic, activeIds) {
     byId,
     drawn,
     flagByHex,
-    // a report belongs to a volcano's story when it names that volcano; a report near no active
-    // volcano (none catalogued, or a quiet one) belongs to every story, so it is never lost
+    // a report belongs to a volcano's story when it names that volcano; one near no active
+    // volcano is in the all-volcanoes summary and in Details › Crew reports, never in another
+    // volcano's story
     homeless: (v) => !v.report.volcano_id || !activeIds.has(v.report.volcano_id),
     map: { type: "FeatureCollection", features },
   };

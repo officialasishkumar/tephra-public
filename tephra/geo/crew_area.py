@@ -130,15 +130,17 @@ def stretch_note(
     *,
     threshold_kt: int,
     stretch_nm: float,
+    wind_place: str,
     no_wind_reason: str,
 ) -> str:
-    """Why the area was stretched, and how far, or why not."""
+    """Why the area was stretched, and how far, or why not. ``wind_place`` says where the
+    wind profile is from (the report position, or a volcano's recorded profile)."""
     if wind is None:
         return f"Not stretched: wind not known ({no_wind_reason})"
     level = wind.level
     speed, source = round(level.speed_kt), round(level.from_deg)
     at = f"{speed} kt from {source:03d} at FL{level.flight_level:03d}"
-    when = f"{timeutil.hhmmz(wind.valid_at)} profile"
+    when = f"{timeutil.hhmmz(wind.valid_at)} profile {wind_place}"
     if stretch_nm <= 0:
         return f"Not stretched: wind {at} ({when}) is not above {threshold_kt} kt"
     toward = deg_to_compass(level.toward_deg)

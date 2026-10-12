@@ -3,8 +3,8 @@
 ``router`` is mounted under ``/api`` by the app factory. Every route needs a desk session and
 every POST the CSRF guard. A report is refused (422 ``validation_failed`` with every problem)
 rather than completed with a guess. The areas drawn are flags only: nothing here plans,
-drafts an advisory or calls a model. The VAR route starts the message to the weather office
-and the VAAC as a document a human signs; nothing is sent.
+drafts an advisory or calls a model. The message route starts the message to the weather
+office and the VAAC as a document a human signs; nothing is sent.
 """
 
 import re
@@ -25,8 +25,8 @@ from tephra.desk.crew_reports import (
     WithdrawRequest,
 )
 from tephra.models import CrewPicture, CrewReportView, UtcDatetime
-from tephra.regdocs.models import VarDraft
-from tephra.regdocs.var import NotAnAshReport, draft_crew_var
+from tephra.regdocs.crew_message import NotAnAshReport, draft_crew_message
+from tephra.regdocs.models import CrewMessageDraft
 
 __all__ = ["router"]
 
@@ -106,14 +106,14 @@ async def withdraw_crew_report(
 
 
 @router.post(
-    "/desk/crew-reports/{report_id}/var",
-    response_model=VarDraft,
+    "/desk/crew-reports/{report_id}/message",
+    response_model=CrewMessageDraft,
     dependencies=[Depends(require_csrf)],
 )
-async def draft_crew_report_var(
+async def draft_crew_report_message(
     report_id: str, session: DeskSession, runtime: RuntimeDep
 ) -> Response:
-    """Start the message to the weather office and the VAAC: a VAR draft from the report."""
+    """Start the message to the weather office and the VAAC from the report (a draft)."""
     _check_report_id(report_id)
     report = runtime.crew_reports.get(report_id)
     if report is None:
@@ -123,7 +123,7 @@ async def draft_crew_report_var(
         raise ApiError(409, "invalid_transition", "The crew report is not in the current picture")
     volcano = runtime.catalogue.get(report.volcano_id) if report.volcano_id else None
     try:
-        doc = await draft_crew_var(
+        doc = await draft_crew_message(
             runtime,
             view,
             vaac=volcano.vaac if volcano is not None else None,
@@ -133,6 +133,6 @@ async def draft_crew_report_var(
         raise ApiError(
             409,
             "invalid_transition",
-            "Only a crew report of ash that is not withdrawn becomes a VAR",
+            "Only a crew report of ash that is not withdrawn starts a message",
         ) from None
     return _json(doc)

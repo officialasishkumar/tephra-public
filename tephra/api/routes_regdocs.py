@@ -17,7 +17,7 @@ from tephra.api.auth import require_csrf
 from tephra.api.server import DeskSession, RuntimeDep, _json
 from tephra.models import TephraModel
 from tephra.regdocs.evidence import NoActiveVolcano, UnknownRegion
-from tephra.regdocs.models import DocKind, DocSummary, SignRole, SraDraft, VarDraft
+from tephra.regdocs.models import DocKind, DocModel, DocSummary, SignRole, SraDraft, VarDraft
 from tephra.regdocs.narrative import AiUnavailable
 from tephra.regdocs.registry import (
     AlreadySigned,
@@ -66,7 +66,7 @@ async def get_docs(runtime: RuntimeDep, kind: DocKind | None = None, limit: Limi
     return _json(DocList(docs=[DocSummary.of(doc) for doc in docs]))
 
 
-@router.get("/docs/{doc_id}", response_model=SraDraft | VarDraft)
+@router.get("/docs/{doc_id}", response_model=DocModel)
 async def get_one_doc(doc_id: str, runtime: RuntimeDep) -> Response:
     _check_doc_id(doc_id)
     doc = await get_doc(runtime.store, doc_id)
@@ -101,7 +101,7 @@ async def draft_var_route(body: VarRequest, session: DeskSession, runtime: Runti
 
 @router.post(
     "/desk/docs/{doc_id}/sign",
-    response_model=SraDraft | VarDraft,
+    response_model=DocModel,
     dependencies=[Depends(require_csrf)],
 )
 async def sign_route(

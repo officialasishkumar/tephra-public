@@ -24,7 +24,7 @@ import {
 import { openFailures } from './failures.js';
 import { crewFlag, crewKey } from './crew.js';
 import { draftMessages } from './messages.js';
-import { app, draftList } from './state.js';
+import { app, draftList, setAsideCount } from './state.js';
 
 const OLD_DRAFT_MIN = 10;
 const ROWS_FIRST = 5;
@@ -101,7 +101,8 @@ function cautions(adv, now) {
   const out = [];
   // A crew report of ash on the route comes first: it is the newest evidence and needs a reason
   // to keep the flight on its route (UI-DESIGN 10.15).
-  if (crewFlag(adv)) out.push(['i-pin', 'Crew report of ash on this route', 'crew report']);
+  const flag = crewFlag(adv);
+  if (flag) out.push(['i-pin', flag.line || 'Crew report of ash on this route', 'crew report']);
   if (adv.plume_mode === 'HYPOTHESIS') out.push(['st-caution', 'HYPOTHESIS: only MONITOR or HOLD', 'hypothesis']);
   if (needsCarefulRead(adv)) out.push(['st-caution', 'Needs a careful read', 'read carefully']);
   if (anyStaleSource(adv)) out.push(['st-stale', 'Sources stale', 'sources stale']);
@@ -239,7 +240,7 @@ const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
 // "23 advisories · 3 messages · 2 problems to acknowledge" (R2.7): what the Decide badge counts.
 export function breakdownText() {
-  const parts = [plural(app.drafts.size, 'advisory', 'advisories')];
+  const parts = [plural(draftList().length, 'advisory', 'advisories')];
   const m = draftMessages().length;
   const f = openFailures().length;
   if (m) parts.push(plural(m, 'message'));
@@ -249,7 +250,10 @@ export function breakdownText() {
 
 // Under the Next decision header only when it adds something to "1 of 23 advisories".
 function breakdownLine() {
-  return draftMessages().length || openFailures().length ? breakdownText() : '';
+  const aside = setAsideCount();
+  const other = app.state && app.state.mode === 'REPLAY' ? 'live' : 'replay';
+  const note = aside ? `${plural(aside, `${other} draft`)} set aside until ${other === 'live' ? 'live feeds play' : 'that replay plays'} again` : '';
+  return [draftMessages().length || openFailures().length ? breakdownText() : '', note].filter(Boolean).join(' · ');
 }
 
 export function renderQueue() {

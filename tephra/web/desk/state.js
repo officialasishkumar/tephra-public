@@ -38,4 +38,8 @@ export const app = {
   hub: {}, // functions registered by desk.js
 };
 
-export const draftList = () => [...app.drafts.values()];
+// Drafts of the mode playing: a replay's drafts are set aside while live feeds play, and live
+// drafts while a replay plays (the server keeps both; pipeline.open_drafts does the same).
+const ofMode = (adv) => !app.state || Boolean(adv.replay) === (app.state.mode === 'REPLAY');
+export const draftList = () => [...app.drafts.values()].filter(ofMode);
+export const setAsideCount = () => app.drafts.size - draftList().length;

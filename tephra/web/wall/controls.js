@@ -109,6 +109,7 @@ export function helpContent(enabled) {
       keyRow(sw("lg-area-hatch", "sw--tephra"), "Where TEPHRA widened the area", null),
       keyRow(sw("lg-area-crew", "sw--crew"), "Crew report caution area, with a pin at the report", "operator policy A; not a VAA or SIGMET; drawn beneath the official area"),
       keyRow(sw("i-aircraft", "sw--exposed"), "RFA flight in or heading in", "RFA is a fictional airline"),
+      keyRow(sw("i-aircraft", "sw--crew"), "RFA flight on a crew report's route", "when TEPHRA's area does not reach it"),
       keyRow(sw("i-aircraft", "sw--aircraft"), "Other aircraft (not RFA)", null),
       keyRow(sw("lg-reroute", "sw--reroute"), "Suggested reroute", null),
       keyRow(sw("lg-arrow-official", "sw--official"), "Official movement", null),

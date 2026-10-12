@@ -147,7 +147,7 @@ Data semantics (map and panels, one meaning each):
 | `--c-observer` | `#38bdf8` sky | Observatory: VONA, ground observer, drift arrow | `--c-observer-text` `#7dd3fc` |
 | `--c-aircraft` | `#aab4be` | Other airline aircraft (context) | — |
 | `--c-aircraft-stale` | `#7a8796` | Aircraft position older than 60 s | — |
-| `--c-crew` | `#e8dcc6` warm ivory | Crew report caution area (operator policy A, not an official product): its long-dashed outline, pin, label box, the ring on a flagged plane, the Desk's crew box | `--c-crew-text` `#f2e9d8`; `--c-crew-soft` for the Desk and Wall flag boxes |
+| `--c-crew` | `#e8dcc6` warm ivory | Crew report caution area (operator policy A, not an official product): its long-dashed outline, pin and label, an RFA plane only a crew report flags, the Desk's crew box | `--c-crew-text` `#f2e9d8`; `--c-crew-soft` for the Desk and Wall flag boxes |
 | `--c-code-green/yellow/orange/red/unknown` | `#2ec4a0` `#fff176` `#f2711c` `#e8273b` `#8a96a3` | Aviation colour code, only inside the eruption symbol with its letter, and next to the word | Print the word in `--c-text-1`, never in the code colour |
 
 Map-only (`--map-*`): land `#0c0c0c` (OpenFreeMap's own), water `#0b1a2a` (override), label
@@ -502,13 +502,13 @@ Layer order, bottom to top (all after the basemap unless noted):
 | 24a | `crew-pin` | symbol | `crew`, `feature == pin` | the canvas pin `crew-pin` (ivory, dark outline and centre), anchor bottom at the report position, allow overlap; above every area, under the planes and labels |
 | 25 | `aircraft-icon` | symbol | aircraft | SDF plane (5.3); every plane is always drawn |
 | 26 | `aircraft-inside` | circle | `inside`, minzoom 6 | r 18, stroke `--c-tephra` 2, no fill |
-| 26a | `aircraft-crew` | circle | `crew_report == true`, minzoom 4 | r 28, stroke `--c-crew` 1.8, no fill: outside the inside-now (18) and picked (23) rings |
 | 27 | `exposed-cluster` | symbol | `exposed-pts` (clustered: radius 60, min points 6) | `box-tephra` with "8 RFA flights", or "20 RFA flights here" when some exposed planes are outside the cluster (the text field is rebuilt when the total changes); beside its centre (variable anchor left, right, bottom-left, top-left, radial offset 2.2; right first when the planes are within 180 px of the right edge), so it never sits on the vent; moved above the forecast-step and other-volcano labels so those give way to it; 44 px hit area; a click zooms in |
 | 28 | `aircraft-label-exposed` | symbol | `exposed-pts`, not clustered, minzoom 6 | one line "RFA1225 · inside" / "RFA6178 · in 12 min", Bold 13, right of the plane, collides |
 | 29 | `aircraft-label` | symbol | not exposed, minzoom 7.5 | "GIA123 FL350", Regular 12, `--c-text-3`, optional |
 | 30 | `official-step-label` | symbol | `official-labels`, kind `step` | "Forecast for 0000Z (+6 h)" while a forecast step is chosen; collides |
 | 31 | `official-label` | symbol | `official-labels`, kind `name` | other volcanoes: the name only, 12 px `--c-official-text`, above the area's northern vertex; collides (sort key 10) |
-| 31a | `crew-label` | symbol | `crew-labels` (5.7) | box `box-crew`, two lines, beside the pin and nudged inside the canvas; collides and sits below the flight count, so the count, TEPHRA's tag and the official labels win |
+| 31a | `crew-label` | symbol | `crew-labels` (5.7) | one line of haloed `--c-crew-text` text, no box, beside the pin on the side towards the middle of the map and nudged inside the canvas; moved beneath the volcano layers, so every other label (volcano names, flight labels and count, area labels) is placed first and wins |
+| 31b | `aircraft-label-crew` | symbol | `aircraft`, `crew_only == true`, minzoom 6 | "RFA4538 · crew report" in `--c-crew-text`, one line, right of the plane, colliding |
 | 32 | `tephra-label` | symbol | `area-labels` (5.2) | box `box-tephra`, one line, collides (sort key 5) |
 | 33 | `official-label-selected` | symbol | `official-labels`, kind `box` | the selected volcano's box `box-official`, two lines (5.1), the only layer with `text-allow-overlap: true` (sort key 0): never hidden |
 | 34 | `rose-*` | line, circle, symbol | `rose` source (section 6) | above the labels; the angle box collides like the others |
@@ -679,13 +679,18 @@ official area on the map, in the story and in Details.
   no fade with age: the age is a number in words ("reported 47 min ago").
 - Pin (`crew-pin`): at the report position (the ADS-B fix or the typed position), drawn on top
   of every area so the report is not lost under them.
-- Label (`crew-label`): line 1 "Crew report caution area · reported 47 min ago" (`--c-crew-text`),
-  line 2 "RFA6186 · FL260–FL300 · operator policy A; not a VAA or SIGMET" (the area's band, the
-  reporting flight), or "… · covered by official area" for a COVERED report. Beside the pin,
-  nudged inside the canvas (`fitLabels`), colliding; it gives way to the flight count.
-- Flagged flights: a flight whose projected track crosses an active area (`crew_report` on its
-  aircraft feature) gets an ivory ring (`aircraft-crew`, r 28); a flight that will enter later
-  gets the dotted ivory path to its entry point (`crew-path`).
+- Label (`crew-label`): one short line, "Crew report · 47 min ago" ("Crew report · covered by
+  official area" for a COVERED report), haloed text with no box, beside the pin on the side
+  towards the middle of the map, nudged inside the canvas (`fitLabels`), colliding and placed
+  last, so it never covers a volcano name, a flight label or an area label. The full label, band
+  and flight are in Details › Crew reports of ash.
+- Flagged flights: an RFA flight only a crew report flags (`crew_report` and not `exposed`;
+  `crew_only` in `derive`) is an RFA plane in the crew colour, never a grey "other aircraft":
+  large like the exposed planes, labelled "RFA4538 · crew report" from zoom 6
+  (`aircraft-label-crew`), kept by the height filter, and listed in Details › Flights heading in
+  under "n more RFA flights on the route of a crew report of ash", so This flight opens from
+  there. A flight in TEPHRA's area keeps its amber plane. There is no ring. A flight that will
+  enter later gets the dotted ivory path to its entry point (`crew-path`).
 - Clicks: the pin, label, outline, fill or path opens Details › Crew reports of ash with that
   report marked (`ui.details.vid`). Framing (7.4) includes the crew areas named after the
   selected volcano. "Show on the map" in Details fits one area (`WallMap.flyToCrew`; on a phone
@@ -861,15 +866,18 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
   seen heading in." when some drafts' flights are not among the flights counted in L4; "All n
   advisories are decided: a approved, r rejected.", "Their advisories are not drafted yet." or
   "Advisory count unknown (database error)."
-- Crew report lines (`crewLines()` in `wall/story.js`), after the flights, one size down, at most
-  two: with a pin, "Crew report of ash on the route of 4 RFA flights: RFA7554, RFA4090, RFA8094
-  and 1 more." or, with no flight flagged, "Crew report of ash near Slamet (100 km), reported 5
-  min ago: no RFA flight is seen crossing its caution area." ("(no catalogued volcano)" in place
-  of the place when none is within 300 km); with the caution shape, "Crew report outside the
-  official area: RFA4259, reported 1 min ago (+1 more)." The reports counted are the selected
-  volcano's plus any report near no active volcano (none catalogued, or a quiet one), so a
-  report is never lost from the story; with no volcano selected the lines still show. A
-  "Crew reports" link beside "Show the n flights" opens Details › Crew reports of ash.
+- Crew report line (`crewLines()` in `wall/story.js`), after the flights, one size down, at most
+  one, for the selected volcano's ACTIVE crew areas only (a COVERED one adds nothing the
+  official lines do not say): "Crew report of ash: 4 RFA flights on its route." with the pin (the
+  flight numbers are in Details, one tap away), or "Crew report of ash outside the official area: …" with the
+  caution shape when any of them is wholly or partly outside; with no flight flagged "Crew
+  report of ash, reported 5 min ago." ("2 crew reports …" for more). The sentence is one button that opens Details › Crew reports of ash; there is
+  no separate link, so "Decide on the Desk" keeps one line. A report near no active volcano
+  never shows under another volcano's story: with no volcano selected it is the story's line;
+  otherwise the All volcanoes list has the row "3 crew reports of ash elsewhere ›" (caution
+  shape when outside) after the volcano rows, only when they all fit with room for it, else
+  "+ 4 more · 3 crew reports" (the full list holds the row). The key row is "Crew report area"
+  (one line).
 - Re-planning: while the newest airport-plan step in the trace is "Closed airports changed: …;
   recovery agent started" and no plan has landed since (`ext.replanning`), L3 is "Ash closes 3 RFA
   airports (all volcanoes): WARA, WIHH, WIII. Re-planning the day's flights…" (the trace does not
@@ -936,7 +944,8 @@ flags gets the box "Crew report of ash on this route" (ivory dashed edge, pin): 
 the crew report area now." or "… enters the crew report area in 9 min if track and level are
 held.", each report it crosses in one line ("RFA4259 reported ash seen, engine signs at FL360,
 reported 1 min ago · Active"), the policy line and that approving Keep watching or Continue
-needs a written reason on the Desk, and "Crew reports of ash ›". An approved decision's reason
+needs a written reason on the Desk, and "Crew reports of ash ›". For the reporting flight the
+box reads "This flight's crew reported ash" with no entry line. An approved decision's reason
 shows as "Reason given: …". The flights list row carries "Crew report of ash on this route"
 with the pin.
 
@@ -1074,20 +1083,23 @@ outside the official area" (caution shape while any report is outside), "1 repor
 or "none in the last 24 h". The section: "3 crew reports in the last 24 hours · 1 with a caution
 area now" with the "recorded" tag in REPLAY; the label and a plain explanation (a dispatcher
 enters it on the Desk; code draws the area; it flags flights, never shrinks or replaces an
-official area, re-plans nothing and calls no model; a sulphur smell alone is a routine report
-with no area; a no-ash report never removes one); then one card per report, newest first,
-with its full record: the flight, the state with its shape and word (Active, Covered by official
-area, Expired, Withdrawn, or the no-area wording), the age, "entered in REPLAY", the discrepancy
-line "Crew report outside the official area. A dispatcher can start a message to the weather
-office and the VAAC on the Desk." (caution box), then Crew reported (cues in words), At (band,
+official area, re-plans nothing and calls no model; a sulphur smell or haze alone is a routine
+report with no area; a no-ash report never removes one); then one card per report, newest first,
+with its record: the flight, the state with its shape and word (Active, Covered by official
+area, Expired, Withdrawn, or the no-area wording), the age, "entered in REPLAY", for a
+withdrawn or expired report what ended it ("Withdrawn by AK at 1052Z: Wrong position. It no
+longer flags any flight."), the discrepancy line "Crew report outside the official area. Part of
+it lies outside every valid official area, sideways or in height. A dispatcher can start a
+message to the weather office and the VAAC on the Desk." (caution box), then Crew reported (cues in words), At (band,
 observed time), Position (latitude and longitude, "ADS-B fix at 1039Z" or "typed by
 dispatcher"), Near ("near Slamet (100 km)" or "no catalogued volcano"), Caution area (radius and
 band), Wind stretch (the server's note), Valid (from, to, time left), Entered (who, when),
-Remarks, Covered by (display only: the area and its flags stay), Withdrawn (who, when, reason),
-Flights flagged; the server's summary sentence; "Show on the map" and "Open on the Desk ›"
-(`/desk#crew/<id>`); "Technical detail" with the report, position, wind and covered-by ids and
-the policy. The section ends with "Report ash from a crew on the Desk ›" (`/desk#crew-report`).
-The Wall is read-only: entering, withdrawing and the VAR are on the Desk.
+Remarks, Covered by (display only: the area and its flags stay), Flights flagged (active and
+covered only, from the report's own `flagged`); no second paragraph repeats them; "Show on the
+map" and "Open on the Desk ›" (`/desk#crew/<id>`); "Technical detail" with the report, position,
+wind and covered-by ids and the policy. The section ends with "Report ash from a crew on the
+Desk ›" (`/desk#crew-report`). The drawer's volcano picker is hidden here: the list is the same
+for every volcano. The Wall is read-only: entering, withdrawing and the message are on the Desk.
 
 ## 8. 3D, compare, the time bar and the height filter
 
@@ -1527,68 +1539,83 @@ A dispatcher enters what a crew reported; code draws the area (MODULES.md 5.19).
 nothing is re-planned and no model is called. A report is refused rather than completed with a
 guess.
 
-- Reach (two taps at most): Decide › ⋯ › "Report ash from a crew"; with no report yet, the first
-  one-line link is "Report ash from a crew · a pilot saw ash, smelled sulphur or had engine signs ›"
-  (one tap); the Wall links `/desk#crew-report`.
-- The Decide link `#crew-section`: "Crew reports of ash (3) · 2 with a caution area · 6 flights
-  flagged" with "⚠ 2 outside the official area"; it opens in place (open by default while a report
-  is outside or a draft is flagged) to "Drafts for flagged flights (4). Keep watching or Continue
-  needs a written reason:" with one chip per draft ("RFA7554 · Keep watching: reason needed", "RFA5275 · Hold at FL250")
-  that opens its review; one row per report (short state word with its shape, "RFA6186 · FL280",
-  "reported 4 min ago · near Slamet (100 km)"); under each outside report the caution box "Crew
-  report outside the official area: RFA6186, reported 4 min ago." with "No valid official area
-  meets it, sideways or in height. Pass the difference on to the weather office and the VAAC."
-  and "Start a message to the weather office and VAAC" (the VAR draft, below); and the button
-  "Report ash from a crew".
+- Reach (two taps): Decide › ⋯ › "Report ash from a crew"; the Wall links `/desk#crew-report`.
+  There is no second button for it on the Decide tab.
+- The Decide link `#crew-section`, shown only while there are reports: one line, "Crew reports of
+  ash (3) · 2 with a caution area · 6 flights flagged" with "⚠ 2 outside the official area",
+  closed until opened (the queue stays the tab's one primary thing). Open, it holds one row per
+  report (short state word with its shape, "RFA6186 · FL280", "⚠ outside the official area ·
+  reported 4 min ago · near Slamet (100 km)"); a row opens the record. Drafts of flagged flights
+  are marked in the queue itself, not listed again here.
 - The form (bottom sheet "Report ash from a crew"): the lead line; Flight (a select of the
   tracked RFA flights, airline callsigns only, "RFA4259 · BTK6401 · FL360", and "Another flight:
   type its callsign"); What the crew reported (toggle chips: Ash seen, Haze or dust in the cabin,
   St Elmo's fire, Engine signs, Sulphur smell, No ash seen) with the live result line ("Draws a
-  crew report caution area of 60 NM around the position.", "A sulphur smell alone is recorded as
-  a routine report: no area is drawn.", "Recorded. A no-ash report never removes or shortens any
+  crew report caution area of 60 NM around the position." for ash seen, St Elmo's fire, engine
+  signs, or a sulphur smell with haze; "A sulphur smell alone is recorded as a routine report: no
+  area is drawn. With haze or dust in the cabin it draws one." and the same for haze alone;
+  "Recorded. A no-ash report never removes or shortens any
   area.", "'Ash seen' and 'No ash seen' cannot both be reported."); Reported level ("FL [350] to
   FL [ ]", the margin from the policy, "A report with no level is refused: TEPHRA never invents
-  one."); Observed at (UTC) (Today / Yesterday with their dates on TEPHRA's clock, HHMM, "Now");
-  Position (after the flight and the time: "ADS-B fix of RFA4259 at 1046Z: 6.20S 109.40E, FL360.
+  one."); Observed at (UTC) (Today / Yesterday with their dates on TEPHRA's clock, HHMM, "Now";
+  a time later than TEPHRA's clock or older than the area lasts is refused under the field at
+  once, "1159Z is later than TEPHRA's clock (1035Z): a crew report cannot be in the future.",
+  and Position then says "Correct the time first", so no position is asked for; the fix lookup
+  refuses such a time too); Position (after the flight and the time: "ADS-B fix of RFA4259 at 1046Z: 6.20S 109.40E, FL360.
   The report is placed at this fix." from `GET …/crew-reports/fix`, or the server's "No ADS-B fix
   of … within 90 s of …: type the position the crew reported" with latitude and longitude in
   degrees and N/S, E/W selects that start empty, marked "Typed by dispatcher"); Remarks
   (optional, 300). Numbers in hints come from `GET /api/policy` (`crew_reports`).
-- Refusals: the page checks only the empty and malformed fields; the server checks the rest and
-  lists every problem (422). Both show "Not recorded …" at the top and each problem under its
+- Refusals: the page checks the empty and malformed fields and the time against TEPHRA's clock;
+  the server checks everything again and lists every problem (422), the time before the position.
+  Both show "Not recorded. Correct these and record it again:" at the top and each problem under its
   field (no flight, no cue, "A crew report needs the reported flight level or band; TEPHRA never
   invents one.", a time in the future or older than the area lasts, no position, a typed position
   when a fix exists). A position problem looks the fix up again.
 - Recorded: the toast "Crew report recorded: RFA4259 · caution area drawn · 4 flights flagged.",
   then the record in the sheet with "Recorded under AK at 1047Z. The Wall shows it now; the
-  audit log has the entry." and "Report another".
+  audit log has the entry." and "Report another". Flights flagged comes from the report's own
+  `flagged` (the server's answer), named from the picture's flags or the tracked flights, so it
+  is right before the `crew` event arrives; the open record redraws on every new picture.
 - A report's record (`openCrewReport`, from a row, "See the report" or `#crew/<id>`): the state,
-  age and REPLAY chip; the outside box when it applies; the label line; Crew reported, Level,
-  Observed, Position, Near, Caution area, Wind stretch, Flights flagged, Covered by, Entered,
-  Remarks, Withdrawn; the server's summary; "Technical ids". Footer: "Draft the VAR (weather
-  office and VAAC)" (when no outside box already offers it) and "Withdraw (entry error)…".
+  age and REPLAY chip; the outside box ("Crew report outside the official area" with the
+  server's `outside_detail` and "Pass the difference on to the weather office and the VAAC (EUR
+  Doc 019 3.2.9 e)."); one line of what the area does now (active or covered: the label and that
+  it flags flights; withdrawn: "Withdrawn by AK at 1052Z: Wrong position. Its area no longer
+  flags any flight; the report and its audit entries are kept."; expired; no area); Crew
+  reported, Level, Observed, Position, Near, Caution area, Wind stretch, Flights flagged (active
+  and covered only), Covered by, Entered, Remarks; "Technical ids". Footer, stacked: "Start a
+  message to the weather office and VAAC" (any report of ash not withdrawn; the main button when
+  the report is outside) and "Withdraw (entry error)…".
 - Withdraw: "Withdraw only an entry error: the wrong flight, position, time or level. The report
   and its audit entries are kept. A later "no ash" report is not a reason: it never removes an
   area." Reason required (3 to 500), quick reasons Wrong flight, Wrong position, Wrong time, Wrong
   level, Entered twice; "Withdraw report" (reject style); 409 "This report is already withdrawn."
-- The VAR: `POST …/{id}/var` opens the VAR draft in the Paperwork sheet ("Volcanic activity
-  report: RFA4259 / Slamet", "CREW REPORT ENTERED BY A DISPATCHER - NOT FROM A FEED"); a person
-  completes and signs it; nothing is sent.
+  Done: "Withdrawn by AK: Wrong position. Any message started from it is withdrawn too."
+- The message: `POST …/{id}/message` opens the message draft in the Paperwork sheet ("Message to
+  the weather office and VAAC: crew report from RFA4259"): To (the MWO for the FIR, the VAAC),
+  From, Subject ("CREW REPORT OF VOLCANIC ASH OUTSIDE THE PUBLISHED VA AREA"), the code-written
+  text, what it rests on, and one Dispatcher signature line; nothing is sent. Paperwork lists it
+  as "MSG". When its crew report is withdrawn the message is "WITHDRAWN: not to be sent" and
+  cannot be signed.
 - On drafts: a flagged flight's Next decision card and row carry "Crew report of ash on this
-  route" (first caution). The review shows the crew box (dashed ivory edge): "Crew report of ash
+  route" ("This flight's crew reported ash" for the reporting flight; first caution). The review shows the crew box (dashed ivory edge): "Crew report of ash
   on this route", "RFA7554 is inside the crew report area now." (or enters in n min), one line per
   report with "See the report ›", and "Crew report caution area (operator policy A; not a VAA or
   SIGMET). A flag only: nothing was re-planned."
 - The reason box: for Keep watching (MONITOR) or Continue (CONTINUE) on a flagged flight (every
   tracked flight is airborne), "Reason to keep watching on this route (required)" with "Recorded
-  with the decision and in the audit log. The crew report stays on the Wall either way.", 3 to 500
-  characters. Until it is filled, the approve button is `aria-disabled`, its hint reads "A crew
+  with the decision and in the audit log. The crew report stays on the Wall either way.", 12 to
+  500 characters (`approvals.MIN_CREW_REASON_CHARS`). Until it is filled, the approve button is `aria-disabled`, its hint reads "A crew
   reported ash on this route: write the reason above before approving.", and a tap on it moves to
-  the box with "Give a reason of at least 3 characters: a crew reported ash on this route." The
+  the box with "Give a reason of at least 12 characters: a crew reported ash on this route." The
   confirm step repeats "Reason (crew report of ash on this route): …". The reason goes as `reason`
   with approve and with edit and approve (Edit shows the same boxes). A 422 `reason_required`
   (the server saw a flag the page had not drawn yet) opens the box with the server's words.
 - Mode: the picture is of the current mode; a draft of the other mode is never matched to it.
+  The queue itself lists only the drafts of the mode playing (as the server's `open_drafts`
+  does); the others are counted under the Next decision header ("30 replay drafts set aside
+  until that replay plays again").
 
 ## 11. Copy deck
 

@@ -6717,9 +6717,15 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   margin-bottom: var(--sp-3);
 }
 
-.crewsec__new {
-  display: flex;
-  width: auto;
+.crow__dis {
+  color: var(--c-caution);
+  font-weight: var(--fw-semibold);
+}
+
+.crow__dis .st {
+  width: 12px;
+  height: 12px;
+  vertical-align: -1px;
 }
 
 .crew-another {
@@ -6783,10 +6789,6 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   flex: none;
   margin-top: 3px;
   color: var(--c-caution);
-}
-
-.crewdis__go {
-  align-self: flex-start;
 }
 
 .crewbox {
@@ -6958,12 +6960,6 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2) var(--sp-3);
-}
-
-.crewsum {
-  font-size: var(--fs-2);
-  line-height: var(--lh-body);
-  color: var(--c-text-2);
 }
 
 @media (forced-colors: active) {

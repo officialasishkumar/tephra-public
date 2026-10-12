@@ -32,7 +32,7 @@ import { draftPlans, loadPlans, noteTrace, onNetworkClick, onRecoveryEvent, rend
 import { loadNotices, onNoticeEvent, openNotice, openPaste } from './desk/notice.js';
 import { goTab, initTabs, setBadges } from './desk/tabs.js';
 import { closeBSheet } from './desk/ui.js';
-import { draftCrewVar, loadCrewPolicy, openCrewForm, openCrewReport, renderCrewSection, setAircraft, setCrew } from './desk/crew.js';
+import { loadCrewPolicy, openCrewForm, openCrewReport, renderCrewSection, setAircraft, setCrew } from './desk/crew.js';
 
 const TICK_MS = 15000;
 const SSE_OFFLINE_AFTER_MS = 10000;
@@ -99,7 +99,7 @@ function applyState(state) {
 }
 
 function setTitle() {
-  const n = app.me ? app.drafts.size + openFailures().length + draftMessages().length + draftPlans().length : 0;
+  const n = app.me ? draftList().length + openFailures().length + draftMessages().length + draftPlans().length : 0;
   const replay = app.state && app.state.mode === 'REPLAY';
   document.title = `${replay ? 'REPLAY - ' : ''}${n ? `(${n}) ` : ''}TEPHRA Desk`;
 }
@@ -741,7 +741,7 @@ async function signOut() {
 // --- wake lock (10.9): only while signed in, visible, and drafts wait ------------------------
 
 async function updateWake() {
-  const want = app.wakeWanted && app.me && app.drafts.size > 0 && document.visibilityState === 'visible';
+  const want = app.wakeWanted && app.me && draftList().length > 0 && document.visibilityState === 'visible';
   if (!('wakeLock' in navigator)) return;
   if (want && !wakeLock) {
     try {
@@ -816,7 +816,7 @@ function loadAll() {
 // R2.7: the Decide badge counts advisories, messages and open problems together, and says so.
 function updateBadges() {
   setBadges({
-    queue: app.drafts.size + openFailures().length + draftMessages().length,
+    queue: draftList().length + openFailures().length + draftMessages().length,
     network: draftPlans().length,
     docs: docsToSign().length,
   }, { queue: breakdownText() });
@@ -886,11 +886,10 @@ function wire() {
   document.addEventListener('click', (event) => {
     if (onSheetClick(event)) return;
     if (onNetworkClick(event) || onDocsClick(event)) return;
-    const crew = event.target.closest('[data-crewform], [data-crew], [data-crewvar]');
+    const crew = event.target.closest('[data-crewform], [data-crew]');
     if (crew) {
       if (crew.dataset.crewform) openCrewForm();
       else if (crew.dataset.crew) openCrewReport(crew.dataset.crew);
-      else if (crew.dataset.crewvar) draftCrewVar(crew.dataset.crewvar, crew);
       return;
     }
     const extra = event.target.closest('[data-handle], [data-msg], [data-notice], [data-paste], [data-goto]');

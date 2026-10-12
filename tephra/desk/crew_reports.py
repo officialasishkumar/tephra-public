@@ -1,10 +1,11 @@
 """Crew (pilot) reports of ash, entered by a dispatcher on the Desk.
 
-A report of ash seen, or of any encounter cue, draws a "crew report caution area": a circle
-of the policy radius around the reported position, stretched downwind when the wind at the
-reported level is strong, within the reported level band plus the policy margin, for the
-policy validity from the observation time. A sulphur smell alone is a routine report and a
-"no ash seen" report is recorded; neither draws or removes anything.
+A report of ash seen, or of any encounter cue (a smell together with haze, St Elmo's fire,
+engine signs), draws a "crew report caution area": a circle of the policy radius around the
+reported position, stretched downwind when the wind at the reported level is strong, within
+the reported level band plus the policy margin, for the policy validity from the observation
+time. A sulphur smell or haze alone is a routine report and a "no ash seen" report is
+recorded; neither draws or removes anything.
 
 The area is a flag only. It never shrinks or replaces an official area, an official product
 never shortens or removes it, and it never makes the code think an official area is in force:
@@ -23,20 +24,22 @@ from pydantic import Field, model_validator
 
 from tephra.desk import audit
 from tephra.desk.approvals import SYSTEM_ACTOR
-from tephra.feeds.volcanoes import VolcanoCatalogue
 from tephra.geo.crew_area import (
+    WIND_PROFILE_SLACK,
     area_polygon,
     pick_wind,
     relation_to_official,
     stretch_note,
 )
 from tephra.geo.exposure import Crossing, find_crossings
-from tephra.geo.units import ft_to_fl, haversine_km
+from tephra.geo.units import haversine_km
 from tephra.models import (
     CREW_AREA_CUES,
     CREW_AREA_LABEL,
-    CREW_CUE_TEXT,
+    CREW_FLAG_LINE,
     CREW_OUTSIDE_LINE,
+    CREW_REPORTER_LINE,
+    CREW_SMELL_AND_HAZE,
     NO_CATALOGUED_VOLCANO,
     Aircraft,
     AuditAction,
@@ -56,6 +59,7 @@ from tephra.models import (
     PolicySummary,
     TephraModel,
     UtcDatetime,
+    Volcano,
     WindProfile,
     feature,
     feature_collection,
@@ -70,6 +74,7 @@ __all__ = [
     "LIST_WINDOW",
     "LOAD_LIMIT",
     "AlreadyWithdrawn",
+    "CheckedEntry",
     "CrewEntry",
     "CrewFix",
     "CrewReportNotFound",
@@ -79,6 +84,7 @@ __all__ = [
     "WithdrawRequest",
     "build_picture",
     "build_report",
+    "check_entry",
     "expire",
     "find_fix",
     "load_reports",
@@ -218,9 +224,9 @@ def report_kind(cues: Sequence[CrewCue]) -> CrewReportKind:
     given = set(cues)
     if CrewCue.ASH_SEEN in given and CrewCue.NO_ASH_SEEN in given:
         raise CrewReportRefused(["cues: 'ash seen' and 'no ash seen' cannot both be reported"])
-    if given & CREW_AREA_CUES:
+    if given & CREW_AREA_CUES or given >= CREW_SMELL_AND_HAZE:
         return CrewReportKind.ASH
-    if CrewCue.SULPHUR_SMELL in given:
+    if given & CREW_SMELL_AND_HAZE:
         return CrewReportKind.ROUTINE
     return CrewReportKind.NO_ASH
 
@@ -286,22 +292,28 @@ def find_fix(
     return min(near, key=lambda fix: (abs(fix.observed_at - observed_at), fix.observed_at))
 
 
-def build_report(
+class CheckedEntry(NamedTuple):
+    """An entry that passed every check: what it is, its levels and where it was."""
+
+    kind: CrewReportKind
+    levels: tuple[int, int]
+    lat: float
+    lon: float
+    basis: CrewPositionBasis
+
+
+def check_entry(
     entry: CrewEntry,
     *,
-    actor: str,
     at: datetime,
-    replay_case_id: str | None,
     flight: tuple[str | None, str | None],
     fix: CrewFix | None,
     fix_within: timedelta,
-    catalogue: VolcanoCatalogue,
-    active_radius_km: float,
-    winds: Mapping[str, Sequence[WindProfile]],
     policy: CrewReportPolicy,
-    summary: PolicySummary,
-) -> CrewReport:
-    """Validate the entry and draw its area; :class:`CrewReportRefused` lists every problem."""
+) -> CheckedEntry:
+    """Validate the entry; :class:`CrewReportRefused` lists every problem. The time is checked
+    before the position: the ADS-B fix is looked up at the observation time, so a time that
+    cannot be right says nothing about the position."""
     problems: list[str] = []
     kind: CrewReportKind | None = None
     try:
@@ -309,39 +321,69 @@ def build_report(
     except CrewReportRefused as exc:
         problems += exc.problems
     levels = _levels(entry, problems)
-    valid = timedelta(minutes=policy.valid_min.value)
-    if entry.observed_at > at:
-        problems.append("observed_at: in the future")
-    elif entry.observed_at < at - valid:
-        problems.append(
-            f"observed_at: more than {policy.valid_min.value} min ago, longer than a crew"
-            " report area lasts"
-        )
-    hex_id, callsign = flight
-    name = proxy_flight_number(hex_id) if hex_id else callsign
-    position = _position(entry, fix, name or "the flight", fix_within, problems)
+    time_problem = observed_problem(entry.observed_at, at, policy)
+    position = None
+    if time_problem is not None:
+        problems.append(time_problem)
+    else:
+        hex_id, callsign = flight
+        name = proxy_flight_number(hex_id) if hex_id else callsign
+        position = _position(entry, fix, name or "the flight", fix_within, problems)
     if problems or kind is None or levels is None or position is None:
         raise CrewReportRefused(problems)
-    lat, lon, basis = position
-    volcano = catalogue.nearest(lat, lon, active_radius_km)
+    return CheckedEntry(kind, levels, *position)
+
+
+def observed_problem(observed_at: datetime, at: datetime, policy: CrewReportPolicy) -> str | None:
+    """Why an observation time cannot be used, or None."""
+    valid_min = policy.valid_min.value
+    if observed_at > at:
+        return (
+            f"observed_at: {timeutil.hhmmz(observed_at)} is later than TEPHRA's clock"
+            f" ({timeutil.hhmmz(at)}); a crew report cannot be in the future"
+        )
+    if observed_at < at - timedelta(minutes=valid_min):
+        return (
+            f"observed_at: {timeutil.hhmmz(observed_at)} is more than {valid_min} min before"
+            f" TEPHRA's clock ({timeutil.hhmmz(at)}), longer than a crew report area lasts"
+        )
+    return None
+
+
+def build_report(
+    entry: CrewEntry,
+    checked: CheckedEntry,
+    *,
+    actor: str,
+    at: datetime,
+    replay_case_id: str | None,
+    flight: tuple[str | None, str | None],
+    fix: CrewFix | None,
+    volcano: Volcano | None,
+    winds: Sequence[WindProfile],
+    wind_place: str,
+    no_wind_reason: str,
+    policy: CrewReportPolicy,
+    summary: PolicySummary,
+) -> CrewReport:
+    """The report of a checked entry, with its area drawn when it is a report of ash.
+    ``winds`` are the profiles at ``wind_place`` (or none, for ``no_wind_reason``)."""
+    kind, levels, lat, lon, basis = checked
     distance = haversine_km(lat, lon, volcano.lat, volcano.lon) if volcano else None
     area = None
     if kind is CrewReportKind.ASH:
-        no_wind = (
-            f"TEPHRA holds no winds near {volcano.name}; winds are fetched only for active"
-            " volcanoes"
-            if volcano is not None
-            else f"{NO_CATALOGUED_VOLCANO} within {active_radius_km:.0f} km, so no winds"
-        )
         area = _area(
             lat,
             lon,
             levels,
             entry.observed_at,
-            winds.get(volcano.id, ()) if volcano is not None else (),
-            no_wind,
+            winds,
+            wind_place,
+            no_wind_reason,
             policy,
         )
+    hex_id, callsign = flight
+    adsb = basis is CrewPositionBasis.ADSB_FIX and fix is not None
     return CrewReport(
         id=f"CR-{uuid4().hex[:12]}",
         created_at=at,
@@ -360,10 +402,8 @@ def build_report(
         lat=lat,
         lon=lon,
         position_basis=basis,
-        position_source_id=fix.source_id if basis is CrewPositionBasis.ADSB_FIX and fix else None,
-        position_observed_at=fix.observed_at
-        if basis is CrewPositionBasis.ADSB_FIX and fix
-        else None,
+        position_source_id=fix.source_id if adsb and fix else None,
+        position_observed_at=fix.observed_at if adsb and fix else None,
         volcano_id=volcano.id if volcano is not None else None,
         volcano_name=volcano.name if volcano is not None else None,
         volcano_distance_km=round(distance, 1) if distance is not None else None,
@@ -424,6 +464,7 @@ def _area(
     levels: tuple[int, int],
     observed_at: datetime,
     profiles: Sequence[WindProfile],
+    wind_place: str,
     no_wind_reason: str,
     policy: CrewReportPolicy,
 ) -> CrewArea:
@@ -431,6 +472,11 @@ def _area(
     base_ft = max(0, levels[0] * 100 - margin)
     top_ft = levels[1] * 100 + margin
     wind = pick_wind(profiles, observed_at, base_ft, top_ft)
+    if wind is None and profiles:
+        slack = round(WIND_PROFILE_SLACK.total_seconds() / 60)
+        no_wind_reason = (
+            f"no wind profile {wind_place} within {slack} min of {timeutil.hhmmz(observed_at)}"
+        )
     threshold = policy.stretch_wind_kt.value
     stretch_nm = 0.0
     if wind is not None and wind.level.speed_kt > threshold:
@@ -452,7 +498,11 @@ def _area(
         wind_fl=wind.level.flight_level if wind is not None else None,
         wind_source_id=wind.source_id if wind is not None else None,
         stretch_note=stretch_note(
-            wind, threshold_kt=threshold, stretch_nm=stretch_nm, no_wind_reason=no_wind_reason
+            wind,
+            threshold_kt=threshold,
+            stretch_nm=stretch_nm,
+            wind_place=wind_place,
+            no_wind_reason=no_wind_reason,
         ),
     )
 
@@ -494,18 +544,23 @@ async def withdraw(store: Store, report: CrewReport, *, reason: str, actor: str)
     return withdrawn
 
 
-async def expire(store: Store, report: CrewReport, at: datetime) -> CrewReport:
-    """Write the expiry once: the area lapsed at its ``valid_to``; nothing else ended it."""
+async def expire(
+    store: Store, report: CrewReport, at: datetime, *, note: str | None = None
+) -> CrewReport:
+    """Write the expiry once: the area lapsed at its ``valid_to``, or ``note`` says what else
+    ended it (the replay run it was entered in). An official product never ends one."""
     expired = report.model_copy(update={"expiry_recorded_at": at})
     await store.put(Collection.CREW_REPORTS, report.id, expired.model_dump(mode="json"))
     valid_to = report.area.valid_to if report.area is not None else None
+    if note is None and valid_to is not None:
+        note = f"crew report area lapsed at {timeutil.hhmmz(valid_to)}"
     await audit.record(
         store,
         actor=SYSTEM_ACTOR,
         action=AuditAction.CREW_REPORT_EXPIRED,
         before=_audit_view(report),
         after=_audit_view(expired),
-        note=f"crew report area lapsed at {timeutil.hhmmz(valid_to)}" if valid_to else None,
+        note=note,
     )
     return expired
 
@@ -547,7 +602,7 @@ def _audit_view(report: CrewReport) -> dict[str, object]:
 
 def _entry_note(report: CrewReport) -> str:
     if report.kind is CrewReportKind.ROUTINE:
-        return "routine report (sulphur smell only): no area"
+        return "routine report (sulphur smell or haze alone): no area"
     if report.kind is CrewReportKind.NO_ASH:
         return "no ash seen: recorded; it removes nothing"
     return f"{CREW_AREA_LABEL} drawn"
@@ -562,20 +617,25 @@ def build_picture(
     at: datetime,
     replay_case_id: str | None,
     replay: bool,
+    replay_run_since: datetime | None,
     aircraft: Sequence[Aircraft],
     layers: Sequence[OfficialLayer],
     lookahead_min: int,
-    vertical_margin_ft: int,
 ) -> CrewPicture:
-    """The reports of the current mode (and replay case) observed by ``at`` and within
-    :data:`LIST_WINDOW`, with their states, the flights their active areas flag, and the map
-    features. The official layers only set the display state; they never change an area."""
+    """The reports of the current mode (and replay case, and replay run: entered on the wall
+    clock at or after ``replay_run_since``) observed by ``at`` and within :data:`LIST_WINDOW`,
+    with their states, the flights their active areas flag, and the map features. The official
+    layers only set the display state; they never change an area.
+
+    A flight is flagged when its projected level is inside the area's band, which already
+    holds the policy level margin around the reported level: no second margin is added."""
     shown = sorted(
         (
             report
             for report in reports
             if report.replay == replay
             and (not replay or report.replay_case_id == replay_case_id)
+            and (replay_run_since is None or report.entered_wall_at >= replay_run_since)
             and at - LIST_WINDOW <= report.observed_at <= at
         ),
         key=lambda report: (report.observed_at, report.id),
@@ -596,7 +656,7 @@ def build_picture(
                 aircraft,
                 at,
                 lookahead_min=max(0, min(lookahead_min, remaining)),
-                vertical_margin_ft=vertical_margin_ft,
+                vertical_margin_ft=0,
             )
             crossings[report.id] = hits
         views.append(_view(report, state, covered_by, outside, hits, at))
@@ -613,20 +673,29 @@ def report_view(
     return _view(report, state, covered_by, outside, [], at)
 
 
+_OUTSIDE_DETAIL: Final = {
+    "OUTSIDE": "No valid official area meets it, sideways or in height.",
+    "OVERLAPS": "Part of it lies outside every valid official area, sideways or in height.",
+}
+
+
 def _state(
     report: CrewReport, layers: Sequence[OfficialLayer], at: datetime
-) -> tuple[CrewReportState, list[str], bool]:
+) -> tuple[CrewReportState, list[str], str | None]:
+    """The state, the official layers covering the area, and why it is outside them (None
+    when covered or not drawn). An expiry once recorded stands: a replay played again from
+    an earlier time never brings the area back."""
     if report.withdrawn_at is not None:
-        return "WITHDRAWN", [], False
+        return "WITHDRAWN", [], None
     area = report.area
     if area is None:
-        return "NO_AREA", [], False
-    if not area.is_valid(at):
-        return "EXPIRED", [], False
+        return "NO_AREA", [], None
+    if report.expiry_recorded_at is not None or not area.is_valid(at):
+        return "EXPIRED", [], None
     relation = relation_to_official(area.polygon, area.base_ft, area.top_ft, layers, at)
     if relation.relation == "COVERED":
-        return "COVERED", relation.covered_by, False
-    return "ACTIVE", [], relation.relation == "OUTSIDE"
+        return "COVERED", relation.covered_by, None
+    return "ACTIVE", [], _OUTSIDE_DETAIL[relation.relation]
 
 
 _STATE_LABELS: Final[dict[CrewReportState, str]] = {
@@ -641,7 +710,8 @@ def _state_label(report: CrewReport, state: CrewReportState) -> str:
     if state != "NO_AREA":
         return _STATE_LABELS[state]
     if report.kind is CrewReportKind.ROUTINE:
-        return "Routine report, no area (sulphur smell only)"
+        alone = "haze only" if CrewCue.HAZE in report.cues else "sulphur smell only"
+        return f"Routine report, no area ({alone})"
     return "No ash seen: no area, and it removes nothing"
 
 
@@ -649,7 +719,7 @@ def _view(
     report: CrewReport,
     state: CrewReportState,
     covered_by: list[str],
-    outside: bool,
+    outside: str | None,
     hits: Sequence[Crossing],
     at: datetime,
 ) -> CrewReportView:
@@ -659,13 +729,13 @@ def _view(
         state=state,
         state_label=_state_label(report, state),
         age_min=age_min,
-        age_text=f"reported {_duration_text(age_min)} ago",
+        age_text="reported just now" if age_min < 1 else f"reported {_duration_text(age_min)} ago",
         place_text=_place_text(report),
         covered_by=covered_by,
-        outside_official=outside,
-        discrepancy=CREW_OUTSIDE_LINE if outside else None,
+        outside_official=outside is not None,
+        discrepancy=CREW_OUTSIDE_LINE if outside is not None else None,
+        outside_detail=outside,
         flagged=sorted({hit.target.hex for hit in hits}),
-        summary=_summary(report),
     )
 
 
@@ -680,47 +750,6 @@ def _place_text(report: CrewReport) -> str:
     if report.volcano_name is None or report.volcano_distance_km is None:
         return NO_CATALOGUED_VOLCANO
     return f"near {report.volcano_name} ({report.volcano_distance_km:.0f} km)"
-
-
-def _level_text(report: CrewReport) -> str:
-    if report.level_from_fl == report.level_to_fl:
-        return f"FL{report.level_from_fl:03d}"
-    return f"FL{report.level_from_fl:03d}-FL{report.level_to_fl:03d}"
-
-
-def _position_text(report: CrewReport) -> str:
-    lat = f"{abs(report.lat):.2f}{'N' if report.lat >= 0 else 'S'}"
-    lon = f"{abs(report.lon):.2f}{'E' if report.lon >= 0 else 'W'}"
-    basis = (
-        "ADS-B fix"
-        if report.position_basis is CrewPositionBasis.ADSB_FIX
-        else "typed by dispatcher"
-    )
-    return f"{lat} {lon} (position: {basis})"
-
-
-def _summary(report: CrewReport) -> str:
-    cues = ", ".join(CREW_CUE_TEXT[cue] for cue in report.cues)
-    who = report.entered_by.removeprefix("desk:")
-    text = (
-        f"{report.flight} reported {cues} at {_position_text(report)}, {_level_text(report)},"
-        f" {timeutil.hhmmz(report.observed_at)}. Entered by {who}"
-        f" {timeutil.hhmmz(report.created_at)}."
-    )
-    area = report.area
-    if area is None:
-        return f"{text} No area drawn. A no-ash report never removes anything."
-    band = f"FL{ft_to_fl(area.base_ft):03d}-FL{ft_to_fl(area.top_ft):03d}"
-    return (
-        f"{text} Drawn by code: {area.radius_nm} NM; {band}; {_lower_first(area.stretch_note)}."
-        " Valid to"
-        f" {timeutil.hhmmz(area.valid_to)}. Not ingested from any feed. A no-ash report never"
-        " removes it."
-    )
-
-
-def _lower_first(text: str) -> str:
-    return text[:1].lower() + text[1:]
 
 
 def _flags(
@@ -740,6 +769,7 @@ def _flags(
     for hex_id, (hit, report_ids) in by_hex.items():
         target = hit.target
         volcanoes = {reports[rid].volcano_id for rid in report_ids} - {None}
+        reporter = any(reports[rid].hex == hex_id for rid in report_ids)
         flags.append(
             CrewFlag(
                 hex=hex_id,
@@ -753,6 +783,8 @@ def _flags(
                 entry_lat=hit.entry[0],
                 entry_lon=hit.entry[1],
                 path=hit.path,
+                reporter=reporter,
+                line=CREW_REPORTER_LINE if reporter else CREW_FLAG_LINE,
             )
         )
     return sorted(flags, key=lambda flag: (flag.minutes_to_entry, flag.hex))

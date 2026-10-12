@@ -220,31 +220,24 @@ function storyLines(D, store, ui, sit) {
   return [...lines, ...crewLines(D, sit)];
 }
 
-// Crew reports of ash (UI-DESIGN 7.6, 7.20): at most two lines, after the flights. A crew area
-// is an operator-policy flag, so its lines never change the official or TEPHRA lines above.
-// The reports shown are this volcano's, plus any report near no active volcano.
+// Crew reports of ash (UI-DESIGN 7.6, 7.20): one line at most, after the flights, for this
+// volcano's active crew areas (a report near no active volcano: the all-volcanoes story, and a
+// row in the volcano list). A covered area adds nothing the official lines do not already say,
+// so it has no line. The line opens Details › Crew reports. A crew area is an operator-policy
+// flag: its line never changes the official or TEPHRA lines above.
 export function crewLines(D, sit) {
   const C = D.crew;
-  const mine = C.drawn.filter((v) => (sit && v.report.volcano_id === sit.volcano_id) || C.homeless(v));
+  const mine = C.drawn.filter((v) => v.state === "ACTIVE" && (sit ? v.report.volcano_id === sit.volcano_id : C.homeless(v)));
   if (!mine.length) return [];
   const ids = new Set(mine.map((v) => v.report.id));
   const flagged = C.flags.filter((f) => f.report_ids.some((id) => ids.has(id)));
-  const out = [];
-  if (flagged.length) {
-    const names = flagged.slice(0, 3).map((f) => f.proxy_flight).join(", ");
-    const more = flagged.length > 3 ? ` and ${flagged.length - 3} more` : "";
-    out.push({ text: `Crew report of ash on the route of ${plural(flagged.length, "RFA flight", "RFA flights")}: ${names}${more}.`, cls: "story__crew", mark: "pin" });
-  } else {
-    const v = mine[0];
-    const place = v.place_text.startsWith("near ") ? v.place_text : `(${v.place_text})`;
-    out.push({ text: `Crew report of ash ${place}, ${v.age_text}: no RFA flight is seen crossing its caution area.`, cls: "story__crew", mark: "pin" });
-  }
-  const outside = mine.filter((v) => v.discrepancy);
-  if (outside.length) {
-    const v = outside[0];
-    out.push({ text: `${v.discrepancy}: ${v.report.flight}, ${v.age_text}${outside.length > 1 ? ` (+${outside.length - 1} more)` : ""}.`, cls: "story__crew story__crewdis", mark: "caution" });
-  }
-  return out;
+  const outside = mine.some((v) => v.discrepancy);
+  const what = `${mine.length === 1 ? "Crew report" : `${mine.length} crew reports`} of ash${outside ? " outside the official area" : ""}`;
+  let text;
+  // the flight numbers are one tap away (the line opens Details), so the line stays two lines
+  if (flagged.length) text = `${what}: ${plural(flagged.length, "RFA flight", "RFA flights")} on ${mine.length === 1 ? "its" : "their"} route.`;
+  else text = `${what}, ${mine[0].age_text}.`;
+  return [{ text, cls: "story__crew", mark: outside ? "caution" : "pin", act: "crew" }];
 }
 
 let lastAnnounce = { at: 0, key: "" };
@@ -273,9 +266,12 @@ function renderLines(D, store, ui, sit, announce) {
       if (l.banner) return el("p", { class: "story__hyp", role: "note" }, st("st-caution", "var(--c-caution)"), el("span", { text: l.text }));
       const p = el("p", { class: `story__line ${l.cls || ""}`.trim(), title: l.title || null });
       if (replay && i === 0) p.append(el("span", { class: "tag tag--replay story__rec", text: "Recorded" }), " ");
-      if (l.mark === "pin") p.append(icon("i-pin", "icon story__pin"), " ");
-      else if (l.mark === "caution") p.append(st("st-caution", "var(--c-caution)"), " ");
-      p.append(l.text);
+      // a line that opens its Details section is one button, the whole sentence its label
+      const host = l.act ? el("button", { type: "button", class: "story__act", dataset: { act: "details-open", sec: l.act, focus: `story-${l.act}` } }) : p;
+      if (l.mark === "pin") host.append(icon("i-pin", "icon story__pin"), " ");
+      else if (l.mark === "caution") host.append(st("st-caution", "var(--c-caution)"), " ");
+      host.append(l.text);
+      if (l.act) p.append(host);
       return p;
     }));
     const flights = lines.find((l) => l.count != null);
@@ -319,7 +315,6 @@ function renderActions(D, store, ui, sit) {
     kids.push(el("a", { id: "cta", class: primary ? "cta" : "btn cta--quiet", href: ctaHref, target: "_blank", rel: "noopener", dataset: { focus: "cta" } }, ctaText));
     const n = sit ? D.exposed.filter((f) => f.properties.volcano_id === sit.volcano_id).length : 0;
     if (sit && n > 0) kids.push(el("button", { type: "button", class: "link-btn story__show", dataset: { act: "details-open", sec: "flights", focus: "show-flights" }, text: `Show the ${n} ${n === 1 ? "flight" : "flights"}` }));
-    if (crewLines(D, sit).length) kids.push(el("button", { type: "button", class: "link-btn story__show", dataset: { act: "details-open", sec: "crew", focus: "show-crew" }, text: "Crew reports" }));
   }
   const key = kids.map((k) => `${k.textContent}|${k.getAttribute?.("href") || ""}`).join("§");
   if (box.dataset.key !== key) { box.dataset.key = key; box.replaceChildren(...kids); }
@@ -340,7 +335,7 @@ export function keyRows(D, ui) {
   if (!D) return rows;
   if (D.official.some((f) => f.properties.show)) rows.push([sw("lg-area-official", "sw--official"), "Official ash area", "binding"]);
   if (ui.layers.tephra && D.cones.length) rows.push([sw("lg-area-tephra", "sw--tephra"), "TEPHRA's estimate", "never smaller than official"]);
-  if (D.crew.drawn.length) rows.push([sw("lg-area-crew", "sw--crew"), "Crew report caution area", "operator policy, not a VAA or SIGMET"]);
+  if (D.crew.drawn.length) rows.push([sw("lg-area-crew", "sw--crew"), "Crew report area", null]);
   if (ui.layers.aircraft && D.exposed.length) rows.push([sw("i-aircraft", "sw--exposed"), "RFA flight in or heading in", null]);
   const step = D.official.find((f) => f.properties.show && f.properties.step !== "now");
   if (step) rows.push([sw("lg-area-forecast", "sw--official"), `Official forecast area\u00a0(${step.properties.layer.replace("FCST+", "+").replace("H", "\u00a0h")})`, null]);
@@ -408,7 +403,16 @@ function renderAll(D, ui) {
   const ul = $("volcano-tabs");
   if (!D) { ul.replaceChildren(); return; }
   const others = D.sits.filter((x) => x.volcano_id !== D.selected);
-  const limit = ui.vlistOpen ? Infinity : listRows();
+  // Crew areas near no active volcano belong to no volcano's story: one row says where they are.
+  const away = D.sit ? D.crew.drawn.filter((v) => v.state === "ACTIVE" && D.crew.homeless(v)) : [];
+  const outside = away.some((v) => v.discrepancy);
+  const crewRow = away.length ? el("li", {}, el("button", { type: "button", class: "vrow", dataset: { act: "details-open", sec: "crew", focus: "vrow-crew" }, "aria-label": `${plural(away.length, "crew report", "crew reports")} of ash away from these volcanoes${outside ? ", outside the official area" : ""}. Show the crew reports.` },
+    outside ? st("st-caution", "var(--c-caution)") : icon("i-pin", "icon vrow__crew"), el("span", { class: "vrow__text", text: `${plural(away.length, "crew report", "crew reports")} of ash elsewhere` }), el("span", { class: "vrow__go", "aria-hidden": "true", text: "›" }))) : null;
+  // The volcano rows come first; the crew row shows only when they all fit with room for it,
+  // else it folds into the "+ n more" line, which opens the full list with the row in it.
+  const room = ui.vlistOpen ? Infinity : listRows();
+  const crewShown = crewRow && room - others.length >= 1;
+  const limit = room - (crewShown ? 1 : 0);
   const rows = others.slice(0, limit).map((x) => {
     const nCheck = x.discrepancies.filter((d) => (SEV_RANK[d.severity] || 0) >= 2).length;
     const n = x.exposed_count || 0;
@@ -416,7 +420,9 @@ function renderAll(D, ui) {
     return el("li", {}, el("button", { type: "button", class: "vrow", dataset: { act: "select", vid: x.volcano_id, focus: `vrow-${x.volcano_id}` } },
       eruptIcon(x.color_code), el("span", { class: "vrow__text", text: words }), el("span", { class: "vrow__go", "aria-hidden": "true", text: "›" })));
   });
-  if (others.length > limit) rows.push(el("li", {}, el("button", { type: "button", class: "link-btn vlist__more", "aria-expanded": "false", dataset: { act: "vlist-more", focus: "vlist-more" }, text: `+ ${others.length - limit} more` })));
+  if (crewShown) rows.push(crewRow);
+  const folded = crewRow && !crewShown ? ` · ${plural(away.length, "crew report", "crew reports")}` : "";
+  if (others.length > limit || folded) rows.push(el("li", {}, el("button", { type: "button", class: "link-btn vlist__more", "aria-expanded": "false", dataset: { act: "vlist-more", focus: "vlist-more" }, text: `+ ${Math.max(0, others.length - limit)} more${folded}` })));
   const key = rows.map((r) => r.textContent).join("|");
   if (ul.dataset.key !== key) { ul.dataset.key = key; ul.replaceChildren(...rows); }
 }

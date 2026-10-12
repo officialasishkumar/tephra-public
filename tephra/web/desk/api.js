@@ -40,7 +40,7 @@ export const PATHS = {
   crewReports: '/api/desk/crew-reports',
   crewFix: '/api/desk/crew-reports/fix',
   crewWithdraw: (id) => `/api/desk/crew-reports/${encodeURIComponent(id)}/withdraw`,
-  crewVar: (id) => `/api/desk/crew-reports/${encodeURIComponent(id)}/var`,
+  crewMessage: (id) => `/api/desk/crew-reports/${encodeURIComponent(id)}/message`,
 };
 
 export const BODY_MAX_CHARS = 400; // tephra.config.ADVISORY_BODY_MAX_CHARS

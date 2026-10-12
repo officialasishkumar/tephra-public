@@ -639,3 +639,26 @@
 /* Privacy page (docs/UI-REDESIGN.md R9.4): the disclaimer line at the top and a 680 px measure. */
 .docdisclaimer { margin: 0; padding: 8px 16px; background: #e8edf2; border-bottom: 1px solid #c9d2dc; color: #05080c; font-size: 14px; text-align: center; }
 .docmain--measure { max-width: 680px; }
+
+/* A crew report message (CREW_MESSAGE): the code-written text, wrapped, ready to read out. */
+.dmsg__body {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--dv-line, currentColor);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.dmsg__withdrawn {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--dv-blank);
+  border-radius: 6px;
+  background: var(--dv-blank-bg);
+  color: var(--dv-blank);
+  font-weight: 600;
+}

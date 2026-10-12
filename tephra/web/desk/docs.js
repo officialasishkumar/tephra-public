@@ -48,9 +48,13 @@ export function clearHandover() {
   handover = null;
 }
 
-// The `doc` event carries a DocSummary: id, kind (SRA, VAR or HANDOVER), status, title,
+// The `doc` event carries a DocSummary: id, kind (SRA, VAR, CREW_MESSAGE or HANDOVER), status, title,
 // created_at, updated_at, replay, signed_roles, missing_roles and the region or flight it is about.
-const SUMMARY_KINDS = new Set(['SRA', 'VAR', 'HANDOVER']);
+const SUMMARY_KINDS = new Set(['SRA', 'VAR', 'CREW_MESSAGE', 'HANDOVER']);
+// The short kind word on a row; a crew report message is a message, not a form.
+const KIND_WORD = { CREW_MESSAGE: 'MSG' };
+// Status words and tones: a withdrawn message (its crew report was withdrawn) is never sent.
+const STATUS_VIEW = { SIGNED: ['ok', 'i-approved', 'Signed'], WITHDRAWN: ['neutral', 'i-x', 'Withdrawn'], DRAFT: ['neutral', 'i-clock', 'Draft'] };
 const isSummary = (s) => s && typeof s === 'object' && typeof s.id === 'string' && SUMMARY_KINDS.has(s.kind)
   && typeof s.status === 'string' && typeof s.title === 'string' && typeof s.created_at === 'string'
   && Array.isArray(s.missing_roles) && Array.isArray(s.signed_roles);
@@ -95,11 +99,13 @@ function draftBtn(key, label, onclick) {
 
 function docRow(d) {
   const open = d.missing_roles.length;
+  const [tone, shape, word] = STATUS_VIEW[d.status] || STATUS_VIEW.DRAFT;
+  const signing = d.status === 'WITHDRAWN' ? 'crew report withdrawn, not to be sent' : d.status === 'SIGNED' ? 'all lines signed' : `${d.signed_roles.length} of ${d.signed_roles.length + open} signed`;
   return el('li', {}, el('button', { type: 'button', class: 'drow', 'data-doc': d.id },
-    el('span', { class: 'drow__kind', text: d.kind }),
+    el('span', { class: 'drow__kind', text: KIND_WORD[d.kind] || d.kind }),
     el('span', { class: 'drow__what' }, el('span', { class: 'drow__t', text: d.title }),
-      el('span', { class: 'drow__m', text: `${d.status === 'SIGNED' ? 'all lines signed' : `${d.signed_roles.length} of ${d.signed_roles.length + open} signed`} · drafted ${dayMonthHhmm(d.created_at)}${d.replay ? ' · recorded' : ''}` })),
-    el('span', { class: `adv-status adv-status--${d.status === 'SIGNED' ? 'ok' : 'neutral'}` }, icon(d.status === 'SIGNED' ? 'i-approved' : 'i-clock', 'st'), el('span', { text: d.status === 'SIGNED' ? 'Signed' : 'Draft' })),
+      el('span', { class: 'drow__m', text: `${signing} · drafted ${dayMonthHhmm(d.created_at)}${d.replay ? ' · recorded' : ''}` })),
+    el('span', { class: `adv-status adv-status--${tone}` }, icon(shape, 'st'), el('span', { text: word })),
     icon('i-chevron-right', 'icon nrow__go')));
 }
 
@@ -187,7 +193,7 @@ export function renderDocs() {
     : el('p', { class: 'ready__none', text: 'Nothing waits for your signature. Start a document below.' }));
   if (signed.length) {
     const box = el('details', { class: 'ready__signed', open: opened.has('signed') },
-      el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: `Signed (${signed.length})` })),
+      el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: `${signed.some((d) => d.status === 'WITHDRAWN') ? 'Signed or withdrawn' : 'Signed'} (${signed.length})` })),
       el('ul', { class: 'drows' }, signed.map(docRow)));
     box.addEventListener('toggle', () => (box.open ? opened.add('signed') : opened.delete('signed')));
     ready.append(box);
@@ -268,9 +274,11 @@ export async function openDocById(id) {
   else toast({ tone: 'caution', title: res.status === 404 ? 'That document no longer exists.' : "Can't open the document." });
 }
 
+const docTitle = (doc) => (doc.kind === 'SRA' ? `SRA draft: ${doc.region_name}` : doc.kind === 'CREW_MESSAGE' ? `Message draft: ${doc.flight}` : `VAR draft: ${doc.proxy_flight}`);
+
 export function openDoc(doc) {
   let current = doc;
-  const sheet = openBSheet({ title: current.kind === 'SRA' ? `SRA draft: ${current.region_name}` : `VAR draft: ${current.proxy_flight}`, wide: true });
+  const sheet = openBSheet({ title: docTitle(current), wide: true });
   const draw = () => {
     sheet.setBody(renderDoc(current, { onSign: signLine }));
     sheet.setFooter(el('div', { class: 'fstack' },

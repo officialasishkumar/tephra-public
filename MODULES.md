@@ -234,10 +234,12 @@ Officer: official products only until it runs, never reused as current). Duty Of
 `PlannerContext.route` and `.reroutes` carry the published route and the code's lateral options;
 `PlannerDecision.reroute_id` names the chosen option; `Advisory.reroute` embeds it.
 Crew reports (section 5.19): `AuditAction` `CREW_REPORT_ENTERED`, `CREW_REPORT_WITHDRAWN`,
-`CREW_REPORT_EXPIRED`; `SseEvent.CREW` (`crew`); `CrewCue` (+ `CREW_CUE_TEXT`,
-`CREW_AREA_CUES`), `CrewReportKind`, `CrewPositionBasis`, `CrewArea` (`is_valid`), `CrewReport`
-(`flight`), `CrewReportState`, `CrewReportView`, `CrewFlag`, `CrewFeatureProps`, `CrewPicture`,
-the labels `CREW_AREA_LABEL`, `CREW_FLAG_LINE`, `CREW_OUTSIDE_LINE`, `NO_CATALOGUED_VOLCANO`;
+`CREW_REPORT_EXPIRED` and `DOC_WITHDRAWN` (a crew report message withdrawn with its report);
+`SseEvent.CREW` (`crew`); `CrewCue` (+ `CREW_CUE_TEXT`, `CREW_AREA_CUES`,
+`CREW_SMELL_AND_HAZE`), `CrewReportKind`, `CrewPositionBasis`, `CrewArea` (`is_valid`),
+`CrewReport` (`flight`), `CrewReportState`, `CrewReportView`, `CrewFlag`, `CrewFeatureProps`,
+`CrewPicture`, the labels `CREW_AREA_LABEL`, `CREW_FLAG_LINE`, `CREW_REPORTER_LINE`,
+`CREW_OUTSIDE_LINE`, `NO_CATALOGUED_VOLCANO`;
 `WallSnapshot.crew`; `AircraftFeatureProps.crew_report`; `Advisory.decision_reason` (the
 dispatcher's written reason when a rule asks for one, None otherwise); `DecisionRequest.reason`
 (optional, at most 500 characters; `EditRequest` inherits it); `CrewReportPolicy` and
@@ -1900,8 +1902,8 @@ Crew reports of ash (section 5.19; the screens are docs/UI-DESIGN.md 5.7, 7.20 a
 Wall draws `WallSnapshot.crew` (replaced whole by the `crew` event) beneath the official areas,
 with the story lines, Details › Crew reports of ash and the flag in This flight; it is
 read-only. The Desk (`tephra/web/desk/crew.js`) enters reports (`GET /api/desk/crew-reports/fix`,
-then `POST /api/desk/crew-reports`), withdraws them, starts the VAR (`POST
-/api/desk/crew-reports/{id}/var`), marks flagged drafts from `CrewPicture.flags`, and sends the
+then `POST /api/desk/crew-reports`), withdraws them, starts the message to the weather office
+and the VAAC (`POST /api/desk/crew-reports/{id}/message`), marks flagged drafts from `CrewPicture.flags`, and sends the
 dispatcher's `reason` with approve and edit for a flagged CONTINUE or MONITOR (422
 `reason_required` opens the reason box).
 
@@ -2159,9 +2161,10 @@ first. `HandoverBrief` is stored in `docs` with `doc_type = "handover"` (ids `ho
 ```python
 async def draft_sra(runtime: DocsRuntime, region: str, *, actor: str = "system") -> SraDraft   # sra.py; raises UnknownRegion, NoActiveVolcano, AiUnavailable
 async def draft_var(runtime: DocsRuntime, flight_id: str, *, actor: str = "system") -> VarDraft  # var.py; raises FlightNotExposed; no model call
-async def draft_crew_var(runtime: DocsRuntime, view: CrewReportView, *, vaac: VaacCentre | None,
-                         actor: str = "system") -> VarDraft      # var.py; raises NotAnAshReport; no model call
-async def sign_doc(store, bus, doc_id: str, *, role, name, actor) -> doc                         # registry.py
+async def draft_crew_message(runtime: DocsRuntime, view: CrewReportView, *, vaac: VaacCentre | None,
+                             actor: str = "system") -> CrewMessageDraft   # crew_message.py; raises NotAnAshReport; no model call
+async def sign_doc(store, bus, doc_id: str, *, role, name, actor) -> doc                         # registry.py; a WITHDRAWN doc is refused
+async def withdraw_crew_messages(store, bus, report_id: str, *, reason, actor) -> list[CrewMessageDraft]  # registry.py
 async def get_doc / list_docs(store, ...); record_new_doc(store, bus, doc, *, actor, ...)
 ```
 The SRA (regions `java_bali`, `halmahera`, `kyushu`) follows the sections of research/18b: code
@@ -2174,15 +2177,20 @@ is `DRAFT - NOT AN APPROVED SRA - FOR HUMAN SIGN-OFF`; ICAO Doc 9974 is cited as
 2012 by title; the Indonesian circular SE-DJPU 15/2026 is "per press reports; verify against the
 PDF". The VAR fills items 1 to 5 from the ADS-B proxy flight (item 5 labelled "NOT a crew
 observation") and leaves items 6 to 16 "PILOT/DISPATCHER TO COMPLETE", with an AIREP SPECIAL
-template. A VAR started from a crew report (`draft_crew_var`, the Desk's message to the weather
-office and the VAAC) fills items 1 to 5 and 8 from the report, 14 (engines) and 15 (St Elmo's
-fire, fumes or smell, haze) from its cues and 16 from the dispatcher's remarks, each noted "from
-the crew report entered by <name> at <HHMM>Z; the crew confirms or corrects it"; its context
-gives the caution area and how it stands against the official areas (outside, partly inside,
-covered), and its follow-ups ask a human to pass the difference to the MWO and the VAAC through
-the operator's own channel. `VarDraft.volcano_id` is None for an unattributed report, `volcano_name`
-then `no catalogued volcano`, and `crew_report_id` names the report. Only an `ASH` report that is
-not withdrawn qualifies. Signatures are per role (`DISPATCHER`, `SAFETY_MANAGER`, `ACCOUNTABLE_EXECUTIVE`,
+template. The message to the weather office and the VAAC (`CrewMessageDraft`, kind
+`CREW_MESSAGE`, EUR Doc 019 3.2.9 e) is started from a crew report (`draft_crew_message`): its
+`to` lines (the MWO for the FIR, the attributed volcano's VAAC or "the VAAC responsible for the
+area", from the fictional airline's dispatch), a `subject` (outside, partly outside or inside
+the published VA area) and a code-written `body`: who reported what, where, at which level and
+when; whether the position is the ADS-B fix or typed; how it stands against the valid VA SIGMET
+and advisory areas; the nearest catalogued volcano only as a distance ("the source is not
+known"), or none within `active_radius_km`; the crew remarks; a request to take it into
+account. A tracked flight is named as the fictional airline's proxy flight for its ADS-B
+callsign; a typed callsign as "typed by the dispatcher; not tracked by TEPHRA". `facts` give
+what each line rests on; one `DISPATCHER` signature line. Only an `ASH` report that is not
+withdrawn qualifies. Withdrawing the report sets every message drafted from it `WITHDRAWN`
+(`withdrawn_note`, audit `DOC_WITHDRAWN`), signed or not; a withdrawn message cannot be
+signed. Signatures are per role (`DISPATCHER`, `SAFETY_MANAGER`, `ACCOUNTABLE_EXECUTIVE`,
 `PILOT_IN_COMMAND`); a document is `SIGNED` when every line is filled and its header never changes.
 Nothing is queued to `outbound`.
 
@@ -2291,7 +2299,8 @@ def area_polygon(lat: float, lon: float, radius_nm: float, *, stretch_nm: float 
                  toward_deg: float = 0.0) -> GeoPolygon      # circle, or hull of it and the circle moved downwind
 def pick_wind(profiles: Sequence[WindProfile], observed_at: datetime, base_ft: int, top_ft: int
               ) -> StretchWind | None
-def stretch_note(wind: StretchWind | None, *, threshold_kt: int, stretch_nm: float, no_wind_reason: str) -> str
+def stretch_note(wind: StretchWind | None, *, threshold_kt: int, stretch_nm: float, wind_place: str,
+                 no_wind_reason: str) -> str          # wind_place: "at the report position", or the recorded volcano profile
 def relation_to_official(polygon: GeoPolygon, base_ft: int, top_ft: int,
                          layers: Sequence[OfficialLayer], at: datetime) -> AreaRelation
 ```
@@ -2309,24 +2318,29 @@ class FixHistory:                   # airline ADS-B positions per hex, kept TEPH
 def report_kind(cues: Sequence[CrewCue]) -> CrewReportKind
 def resolve_flight(hex_id: str | None, typed: str | None, aircraft, history: FixHistory) -> tuple[str | None, str | None]
 def find_fix(hex_id: str | None, observed_at: datetime, aircraft, history, *, within: timedelta) -> CrewFix | None
-def build_report(entry: CrewEntry, *, actor, at, replay_case_id, flight, fix, fix_within, catalogue,
-                 active_radius_km, winds, policy: CrewReportPolicy, summary: PolicySummary) -> CrewReport
+def observed_problem(observed_at, at, policy) -> str | None          # "observed_at: ..." when in the future or too old
+class CheckedEntry(NamedTuple): kind; levels: tuple[int, int]; lat; lon; basis: CrewPositionBasis
+def check_entry(entry: CrewEntry, *, at, flight, fix, fix_within, policy) -> CheckedEntry   # raises CrewReportRefused
+def build_report(entry, checked: CheckedEntry, *, actor, at, replay_case_id, flight, fix, volcano: Volcano | None,
+                 winds: Sequence[WindProfile], wind_place: str, no_wind_reason: str, policy, summary) -> CrewReport
 async def record_entry(store, report) -> None                       # put + CREW_REPORT_ENTERED
 async def withdraw(store, report, *, reason, actor) -> CrewReport   # put + CREW_REPORT_WITHDRAWN (note = reason)
-async def expire(store, report, at) -> CrewReport                   # put + CREW_REPORT_EXPIRED (system), once
+async def expire(store, report, at, *, note=None) -> CrewReport     # put + CREW_REPORT_EXPIRED (system), once
 async def load_reports(store) -> list[CrewReport]
-def build_picture(reports, *, at, replay_case_id, replay, aircraft, layers, lookahead_min,
-                  vertical_margin_ft) -> CrewPicture
+def build_picture(reports, *, at, replay_case_id, replay, replay_run_since: datetime | None, aircraft,
+                  layers, lookahead_min) -> CrewPicture
 def report_view(report, layers, at) -> CrewReportView               # a report the picture does not list
 ```
 Rules:
-- **Kind.** `ASH_SEEN`, `HAZE`, `ST_ELMOS_FIRE` or `ENGINE` (`CREW_AREA_CUES`) make an `ASH`
-  report, which draws an area. `SULPHUR_SMELL` with none of them is `ROUTINE` (FAA JO 7110.65
-  2-6-2): recorded, no area. `NO_ASH_SEEN` alone is `NO_ASH`: recorded, and it never removes
+- **Kind.** `ASH_SEEN`, `ST_ELMOS_FIRE` or `ENGINE` (`CREW_AREA_CUES`), or `SULPHUR_SMELL`
+  together with `HAZE` (`CREW_SMELL_AND_HAZE`, the smell-plus-haze encounter cue), make an `ASH`
+  report, which draws an area. `SULPHUR_SMELL` or `HAZE` alone is `ROUTINE` (FAA JO 7110.65
+  2-6-2 for the smell): recorded, no area. `NO_ASH_SEEN` alone is `NO_ASH`: recorded, and it never removes
   or shortens anything. `ASH_SEEN` with `NO_ASH_SEEN` is refused.
 - **Refused, never guessed** (422 `validation_failed`, every problem listed): no level (no band
   is invented); the upper level below the lower; `observed_at` in the future or more than
-  `crew_reports.valid_min` ago; a `hex` that is not a tracked airline flight; a callsign that is
+  `crew_reports.valid_min` ago (checked before the position, which is looked up at that time,
+  and by `GET .../fix` too, so the form says so before asking for a position); a `hex` that is not a tracked airline flight; a callsign that is
   not airline-style, or that more than one tracked flight flies; half a position; no position
   when no fix is held; a typed position when a fix is held.
 - **Position.** The reporting flight's ADS-B fix nearest `observed_at` within the ADS-B stale
@@ -2339,32 +2353,44 @@ Rules:
   never the nearest volcano further away. A report never makes a volcano active.
 - **Area** (`ASH` only): `area_polygon` of `crew_reports.radius_nm` (60 NM) around the
   position, circumscribed; band `[max(0, from_fl x 100 - level_margin_ft), to_fl x 100 +
-  level_margin_ft]`; valid `observed_at` to `observed_at + valid_min` (360). Stretch: the wind
-  from the attributed volcano's held winds (`live.winds`, fetched only for active volcanoes),
-  the hourly profile within 60 min of `observed_at`, the strongest pressure level inside the
-  band (else the level nearest its middle); when its speed is above `stretch_wind_kt` (30) the
+  level_margin_ft]`; valid `observed_at` to `observed_at + valid_min` (360). Stretch: in LIVE
+  the Open-Meteo profile at the report position, fetched at entry (`fetch_winds(...,
+  past_hours=ceil(valid_min / 60) + 1)`, a public GET; a failed fetch is said in the note); in
+  REPLAY, which never reaches a live feed, the profile recorded above the attributed volcano,
+  named with its distance in the note, or none. The hourly profile within 60 min of
+  `observed_at`, the strongest pressure level inside the band (else the level nearest its
+  middle); when its speed is above `stretch_wind_kt` (30) the
   area is the hull of the circle and the circle moved `speed x downwind_stretch_min / 60` NM
   downwind (30 min), fixed at entry. No wind held: not stretched, and `stretch_note` says why.
   A new report draws a new area; nothing extends an old one.
 - **States** (`build_picture`, each update): `WITHDRAWN`; `NO_AREA` (ROUTINE, NO_ASH);
   `EXPIRED` after `valid_to`; `COVERED` when the official layers valid now whose band spans the
   area's together contain it ("Covered by official area", display only: the area and its flags
-  stay); otherwise `ACTIVE`, with `outside_official` and `discrepancy` "Crew report outside the
-  official area" when no valid official layer meets it both laterally and vertically. No
-  official product, NO VA EXP, NOT IDENTIFIABLE or no-ash report ends or shortens an area.
+  stay); otherwise `ACTIVE`, with `outside_official`, `discrepancy` "Crew report outside the
+  official area" and `outside_detail` whenever any of it lies outside every valid official
+  layer, laterally or vertically ("No valid official area meets it, sideways or in height." or
+  "Part of it lies outside every valid official area, sideways or in height."). No official
+  product, NO VA EXP, NOT IDENTIFIABLE or no-ash report ends or shortens an area.
 - **Flags.** For each ACTIVE or COVERED area, `find_crossings` over the airline aircraft with
-  the area's band plus `exposure.vertical_margin_ft`, looking ahead `min(exposure_lookahead_min,
-  minutes to valid_to)`. One `CrewFlag` per flight (the earliest entry; every report id), line
-  "Crew report of ash on this route". `AircraftFeatureProps.crew_report` marks it on the map.
-- **Picture.** Reports of the current mode (and, in REPLAY, the playing case) observed by now and
-  within `LIST_WINDOW`, newest first, with code-written `age_text` ("reported 47 min ago"),
-  `place_text`, `state_label` and `summary`. Features: `area` (Polygon) and `pin` (Point at the
-  report position) for ACTIVE and COVERED areas, and a `path` LineString per flag.
+  the area's band as it is (it already holds `level_margin_ft`; no exposure margin is added),
+  looking ahead `min(exposure_lookahead_min, minutes to valid_to)`. One `CrewFlag` per flight
+  (the earliest entry; every report id); `reporter` and line `CREW_REPORTER_LINE` ("This
+  flight's crew reported ash") for the reporting flight, else "Crew report of ash on this
+  route". `AircraftFeatureProps.crew_report` marks it on the map.
+- **Picture.** Reports of the current mode (and, in REPLAY, the playing case and run) observed by
+  now and within `LIST_WINDOW`, newest first, with code-written `age_text` ("reported just
+  now", "reported 47 min ago"), `place_text` and `state_label`. Features: `area` (Polygon) and
+  `pin` (Point at the report position) for ACTIVE and COVERED areas, and a `path` LineString
+  per flag.
 - **Expiry.** `Runtime.update_crew` writes `CREW_REPORT_EXPIRED` once per lapsed area of the
-  current mode (`expiry_recorded_at`); a failed write is retried at the next update.
+  current mode (`expiry_recorded_at`); a failed write is retried at the next update. A recorded
+  expiry stands: the state is `EXPIRED` from then on, whatever the clock says.
 - **REPLAY.** Reports entered in REPLAY carry `replay` and `replay_case_id`, are shown only while
-  that case plays, and never mix with LIVE ones. After the replay clock loops, a report observed
-  later in the recording reappears when the clock reaches it.
+  that case plays, and never mix with LIVE ones. Each replay run (a process start, a switch to
+  REPLAY, a loop of the replay clock) starts at `Runtime._replay_run_wall`; a report entered in
+  an earlier run (`entered_wall_at` before it) is not shown and its area is ended with
+  `CREW_REPORT_EXPIRED` ("the replay run it was entered in has ended"), so a replay played
+  again never brings it back.
 
 ## 6. Quota and model use
 
@@ -2429,7 +2455,7 @@ metrics.
 | `ask_log` | `ask_<12 hex>` | `AskAnswer` or an unavailable `AskFailure` | `agents.ask` |
 | `recovery` | plan id (`REC-...`) | `RecoveryPlan` | `recovery.decisions` |
 | `messages` | message id | `CrewPaxMessage` (DRAFT, APPROVED, EDITED, REJECTED) | `comms.messages` |
-| `docs` | `DOC-<12 hex>` or `ho_<12 hex>` | `SraDraft`, `VarDraft`, `HandoverBrief` | `regdocs.registry`, `comms.handover` |
+| `docs` | `DOC-<12 hex>` or `ho_<12 hex>` | `SraDraft`, `VarDraft`, `CrewMessageDraft`, `HandoverBrief` | `regdocs.registry`, `comms.handover` |
 | `backtest` | `latest` | `BacktestScorecard` | `backtest.runner.store_scorecard` |
 | `advisories` | advisory id | `Advisory` (CAS on `version`) | desk.approvals only |
 | `outbound` | message id | `OutboundMessage` (approved advisories; approved messages, with `advisory_id` set to the message id) | desk.approvals, comms.messages |
@@ -2510,7 +2536,7 @@ The headers above are unchanged by compression.
 | `GET /api/budget` | `BudgetView` `{backend, as_of, tiers: [{tier, model_id, used, limit, remaining}], note}` |
 | `GET /api/notices?limit=` | `{notices: [NoticeReading]}`, current mode, newest first; includes the JMA volcano reports of the live picture (`JMA-` VONA records) as `source_kind "jma_xml"`, language `ja`, verified, no model |
 | `GET /api/recovery?limit=` | `{plans: [RecoveryPlan]}`, current mode, newest first |
-| `GET /api/docs?kind=&limit=` and `GET /api/docs/{DOC-id}` | `{docs: [DocSummary]}`; `SraDraft` or `VarDraft` |
+| `GET /api/docs?kind=&limit=` and `GET /api/docs/{DOC-id}` | `{docs: [DocSummary]}`; `SraDraft`, `VarDraft` or `CrewMessageDraft` |
 | `GET /api/backtest` | `BacktestScorecard` (the store's `backtest/latest`, else `docs/backtest/scorecard.json`); 404 `not_found`, 503 `unavailable` |
 | `GET /api/events` | `text/event-stream` (section 8.4); 503 `too_many_streams` while `TEPHRA_MAX_EVENT_STREAMS` streams are open |
 
@@ -2574,7 +2600,7 @@ Wall resyncs from `/api/wall` and the Desk reloads its list when the stream reop
 | `notice` | `NoticeReading` | upsert by `id` |
 | `recovery` | `RecoveryPlan` | upsert by `id` |
 | `message` | `CrewPaxMessage` | upsert by `id` |
-| `doc` | `DocSummary` (`kind` SRA, VAR or HANDOVER; status DRAFT, SIGNED or ACKNOWLEDGED) | upsert by `id`; a HANDOVER summary tells the Desk to refetch `/api/desk/handovers` |
+| `doc` | `DocSummary` (`kind` SRA, VAR, CREW_MESSAGE or HANDOVER; status DRAFT, SIGNED, ACKNOWLEDGED or WITHDRAWN) | upsert by `id`; a HANDOVER summary tells the Desk to refetch `/api/desk/handovers` |
 | `budget` | `BudgetView` | replace the AI budget chip |
 | `duty` | `DutyRun` | replace the Duty Officer panel and the Desk's brief card |
 | `crew` | `CrewPicture` | replace the crew report areas, their list and the flags (Wall and Desk) |
@@ -2619,7 +2645,8 @@ config prevents). It comes after the CSRF guard (403) and before body or query v
 (422); the exception is malformed JSON, which FastAPI rejects with 422 before any dependency
 runs. An advisory id that does not match `adv_[0-9a-f]{12}` answers 404. Approve and edit of a
 CONTINUE or MONITOR draft of the current mode whose flight (`hex`) a crew report area flags now
-(`Runtime.crew_flag`; every tracked flight is airborne) need `reason`, at least 3 characters once
+(`Runtime.crew_flag`; every tracked flight is airborne) need `reason`, at least 12 characters
+(`approvals.MIN_CREW_REASON_CHARS`) once
 whitespace is collapsed, else 422 `reason_required` ("Crew report of ash on this route: approving
 MONITOR needs a written reason"); the reason is kept as `Advisory.decision_reason` and the audit
 note names the reports. Any other approval keeps a reason it is given. The actor recorded
@@ -2658,7 +2685,7 @@ failure is HTTP 503 `{"error": "ai_unavailable", "message": "AI UNAVAILABLE: <re
 | `POST /api/desk/docs/var` | `{flight_id}` | `VarDraft`; 404 flight not exposed |
 | `POST /api/desk/docs/{DOC-id}/sign` | `{name, role}` | the document; 409 `invalid_transition` (role already signed); 422 |
 | `GET /api/desk/crew-reports` | none | `CrewPicture` (the current mode; the same as `WallSnapshot.crew`) |
-| `GET /api/desk/crew-reports/fix?observed_at=&hex=` or `&callsign=` | none | `FixLookup`: the ADS-B fix within 90 s that an entry would use (`found`), or why none; 422 |
+| `GET /api/desk/crew-reports/fix?observed_at=&hex=` or `&callsign=` | none | `FixLookup`: the ADS-B fix within 90 s that an entry would use (`found`), or why none; 422 (an `observed_at` in the future or older than `valid_min` is refused here first) |
 | `POST /api/desk/crew-reports` | `CrewEntry` `{hex \| callsign, cues: [ASH_SEEN, SULPHUR_SMELL, HAZE, ST_ELMOS_FIRE, ENGINE, NO_ASH_SEEN], level_from_fl, level_to_fl?, observed_at, lat?, lon?, remarks? (300)}` | `CrewReportView`; 422 `validation_failed` with every problem (section 5.19); writes `CREW_REPORT_ENTERED`, publishes `crew` and `aircraft` |
-| `POST /api/desk/crew-reports/{CR-id}/withdraw` | `{reason (3-500 chars)}` | `CrewReportView` (WITHDRAWN); 404; 409 `invalid_transition` when already withdrawn; writes `CREW_REPORT_WITHDRAWN` |
-| `POST /api/desk/crew-reports/{CR-id}/var` | none (send `X-Tephra-Desk: 1`) | `VarDraft` from the report (the message to the weather office and the VAAC; nothing is sent); 404; 409 `invalid_transition` (not an ASH report, withdrawn, or not in the current picture) |
+| `POST /api/desk/crew-reports/{CR-id}/withdraw` | `{reason (3-500 chars)}` | `CrewReportView` (WITHDRAWN); 404; 409 `invalid_transition` when already withdrawn; writes `CREW_REPORT_WITHDRAWN` and withdraws every message drafted from it (`DOC_WITHDRAWN`) |
+| `POST /api/desk/crew-reports/{CR-id}/message` | none (send `X-Tephra-Desk: 1`) | `CrewMessageDraft` (the message to the weather office and the VAAC, section 5.16; nothing is sent); 404; 409 `invalid_transition` (not an ASH report, withdrawn, or not in the current picture) |

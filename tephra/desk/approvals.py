@@ -45,6 +45,9 @@ SYSTEM_ACTOR: Final = "system"
 RECENT_DECISION_MIN: Final = 60
 """An APPROVED/EDITED advisory suppresses an identical new draft for this long."""
 MIN_REJECT_REASON_CHARS: Final = 3
+MIN_CREW_REASON_CHARS: Final = 12
+"""A reason to keep a flight on a route a crew report of ash flags must say something: a
+sentence fragment, not a word."""
 _QUEUED_STATUSES: Final = frozenset({AdvisoryStatus.APPROVED, AdvisoryStatus.EDITED})
 
 

@@ -1,4 +1,4 @@
-"""Shapes of the SRA and VAR drafts, stored in the ``docs`` collection.
+"""Shapes of the SRA, VAR and crew report message drafts, stored in the ``docs`` collection.
 
 A document is a list of fields and tables. Each field says who wrote it: ``code`` (filled
 from TEPHRA's evidence or fixed wording), ``ai`` (a Gemini narrative box that passed the
@@ -17,8 +17,10 @@ __all__ = [
     "SRA_HEADER",
     "TO_COMPLETE",
     "VAR_HEADER",
+    "CrewMessageDraft",
     "DocField",
     "DocKind",
+    "DocModel",
     "DocStatus",
     "DocSummary",
     "DocTable",
@@ -45,6 +47,8 @@ FieldOrigin = Literal["code", "ai", "human"]
 class DocKind(StrEnum):
     SRA = "SRA"
     VAR = "VAR"
+    CREW_MESSAGE = "CREW_MESSAGE"
+    """A message to the weather office and the VAAC started from a crew report of ash"""
     HANDOVER = "HANDOVER"
     """Only in :class:`DocSummary`: a shift handover brief (``tephra.comms``), not paperwork."""
 
@@ -52,11 +56,13 @@ class DocKind(StrEnum):
 class DocStatus(StrEnum):
     """DRAFT until every signature line is filled. SIGNED is not an approval: the regulator
     accepts an SRA, and a VAR goes out only by the crew's and the operator's own channels.
-    A handover brief is DRAFT until the incoming dispatcher reads it back (ACKNOWLEDGED)."""
+    A handover brief is DRAFT until the incoming dispatcher reads it back (ACKNOWLEDGED). A
+    crew report message is WITHDRAWN when its crew report is withdrawn: never to be sent."""
 
     DRAFT = "DRAFT"
     SIGNED = "SIGNED"
     ACKNOWLEDGED = "ACKNOWLEDGED"
+    WITHDRAWN = "WITHDRAWN"
 
 
 class SignRole(StrEnum):
@@ -172,20 +178,14 @@ class VarItem(DocField):
 
 
 class VarDraft(_DocBase):
-    """The ICAO Model VAR layout, with items 1 to 5 from ADS-B and the hazard, or items 1 to 5,
-    8, 14 and 15 from a crew report a dispatcher entered. The aircraft is an ADS-B proxy flight
-    of the fictional airline, never a real operator's flight."""
+    """The ICAO Model VAR layout with items 1 to 5 from ADS-B and the hazard. The aircraft is
+    an ADS-B proxy flight of the fictional airline, never a real operator's flight."""
 
     kind: Literal["VAR"] = "VAR"
-    flight_id: str = Field(description="'<hex>:<volcano_id>', or a crew report's hex or callsign")
+    flight_id: str
     proxy_flight: str
-    volcano_id: str | None = Field(
-        default=None, description="None for a crew report with no catalogued volcano near it"
-    )
+    volcano_id: str
     volcano_name: str
-    crew_report_id: str | None = Field(
-        default=None, description="The crew report it was pre-filled from (CR-...), if any"
-    )
     header_fields: list[DocField]
     items: list[VarItem]
     airep_special: DocField
@@ -195,8 +195,29 @@ class VarDraft(_DocBase):
     followups: list[str]
 
 
-RegDoc = Annotated[SraDraft | VarDraft, Field(discriminator="kind")]
-RegDocAdapter: Final[TypeAdapter[SraDraft | VarDraft]] = TypeAdapter(RegDoc)
+class CrewMessageDraft(_DocBase):
+    """A message to the meteorological watch office and the VAAC about a crew report of ash
+    (EUR Doc 019 3.2.9 e): forward differences between published information and pilot
+    reports). Code writes every line from the report and the official products; no model is
+    involved. A dispatcher signs it and sends it through the operator's own channel."""
+
+    kind: Literal["CREW_MESSAGE"] = "CREW_MESSAGE"
+    crew_report_id: str
+    flight: str = Field(description="How the report names the flight (proxy or typed callsign)")
+    title: str
+    to: list[DocField]
+    subject: DocField
+    body: str = Field(description="Code-written message text, ready to read out or paste")
+    facts: list[DocField] = Field(description="What each line of the body rests on")
+    followups: list[str]
+    withdrawn_note: str | None = Field(
+        default=None, description="Set when the crew report was withdrawn (status WITHDRAWN)"
+    )
+
+
+DocModel = SraDraft | VarDraft | CrewMessageDraft
+RegDoc = Annotated[DocModel, Field(discriminator="kind")]
+RegDocAdapter: Final[TypeAdapter[DocModel]] = TypeAdapter(RegDoc)
 
 
 class DocSummary(TephraModel):
@@ -214,13 +235,18 @@ class DocSummary(TephraModel):
     missing_roles: list[SignRole]
     llm_backend: LlmBackendName | None = None
     region: str | None = Field(default=None, description="SRA: the region key")
-    flight: str | None = Field(default=None, description="VAR: the proxy flight")
+    flight: str | None = Field(
+        default=None, description="VAR: the proxy flight; CREW_MESSAGE: the reporting flight"
+    )
 
     @classmethod
-    def of(cls, doc: SraDraft | VarDraft) -> Self:
+    def of(cls, doc: DocModel) -> Self:
         if isinstance(doc, SraDraft):
             title, backend = f"SRA draft: {doc.region_name}", doc.llm_backend
             region, flight = doc.region_key, None
+        elif isinstance(doc, CrewMessageDraft):
+            title, backend = doc.title, None
+            region, flight = None, doc.flight
         else:
             title, backend = f"VAR draft: {doc.proxy_flight} / {doc.volcano_name}", None
             region, flight = None, doc.proxy_flight
@@ -233,7 +259,9 @@ class DocSummary(TephraModel):
             updated_at=doc.updated_at,
             replay=doc.replay,
             signed_roles=doc.signed_roles(),
-            missing_roles=[line.role for line in doc.signatures if line.signed_at is None],
+            missing_roles=[]
+            if doc.status is DocStatus.WITHDRAWN
+            else [line.role for line in doc.signatures if line.signed_at is None],
             llm_backend=backend,
             region=region,
             flight=flight,
