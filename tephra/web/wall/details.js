@@ -14,7 +14,8 @@ import {
 import { ext, renderXPanel, failureCount, recoverySummary, proofTicks, budgetWords, rerouteBlock, replanning } from "./ext.js";
 import { renderLayers, layersStatus } from "./controls.js";
 import { currentPlan, advisoryFacts, closuresFor } from "./story.js";
-import { planProblem, techDetail } from "./x-parts.js";
+import { planFailure, techDetail } from "./x-parts.js";
+import { dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkSection, dkRecorded, dkDot } from "./dk.js";
 
 // Section key, index group, title, host element id, the old rail panel id it stands for (R8.2).
 export const SECTIONS = [
@@ -122,7 +123,7 @@ export function indexStatus(key, D, store, ui) {
       const re = replanning(store);
       if (re) return { text: `${plural(re.airports.length, "airport", "airports")} (all volcanoes) · re-planning…`, tone: "caution" };
       if (!plan) return { text: "no airport closed" };
-      if (plan.status === "AI_UNAVAILABLE") return { text: planProblem(plan) ? "no plan found" : "AI unavailable", tone: "serious" };
+      if (plan.status === "AI_UNAVAILABLE") return { text: planFailure(plan).short, tone: "serious" };
       // the same scope words as the story and the Desk: this volcano's, then every volcano's (G8)
       const n = new Set(plan.closures.map((c) => c.icao)).size;
       const mine = sit ? new Set(closuresFor(D, sit.volcano_id, plan).map((c) => c.icao)).size : 0;
@@ -204,12 +205,14 @@ function renderIndex(D, store, ui) {
 
 // ------------------------------------------------------------------ This ash area, This flight (R8.3)
 
+const inWords = (dt) => (Number.isFinite(dt) && dt > 0 ? `in ${untilText(dt)}` : untilText(dt));
+
 function areaDetail(D, store, vid) {
   const sit = D.sits.find((s) => s.volcano_id === vid);
   const host = $("brief");
-  if (!sit) { host.replaceChildren(el("p", { class: "dsum", text: "This volcano is no longer active." })); return; }
+  if (!sit) { host.replaceChildren(dkSection("area-d-head", dkHeader({ id: "area-d-head", title: "This ash area" }), dkEmpty("This volcano is no longer active.", null))); return; }
   const t = officialLabelText(D, vid);
-  const kids = [el("p", { class: "dsum", text: sit.volcano_name })];
+  const kids = [dkHeader({ id: "area-d-head", pills: [t ? dkPill("ok", "Official area in force") : dkPill("caution", "No valid official area")], title: sit.volcano_name })];
   if (t) {
     const rawMove = (D.moveByVolcano[vid] || "").trim();
     const moves = /^NOT (STATED|GIVEN)$/i.test(rawMove) ? rawMove.toLowerCase() : plainMove(rawMove);
@@ -218,40 +221,45 @@ function areaDetail(D, store, vid) {
     const stepAt = new Map();
     for (const f of D.official.filter((x) => x.properties.volcano_id === vid && x.properties.step !== "now")) {
       const k = f.properties.layer.replace("FCST+", "+").replace("H", " h");
-      const t = ms(f.properties.valid_from);
-      if (!stepAt.has(k) || t < stepAt.get(k)) stepAt.set(k, t);
+      const ft = ms(f.properties.valid_from);
+      if (!stepAt.has(k) || ft < stepAt.get(k)) stepAt.set(k, ft);
     }
-    const steps = [...stepAt].sort((a, b) => a[1] - b[1]).map(([k, t]) => `${k} (${hhmmz(t)})`);
-    const dl = el("dl", { class: "area__facts" });
-    const row = (k, v, mono) => { if (v) dl.append(el("dt", { text: k }), el("dd", { class: mono ? "mono" : null, text: v })); };
-    // Which reports, in words; their ids are under Technical ids.
+    const steps = [...stepAt].sort((a, b) => a[1] - b[1]);
+    // Which reports, in words; their ids are under Technical detail.
     // One VAA can draw several layers (observed, estimated): it is counted once, by its number.
     const sigs = t.products.filter((x) => /^SIGMET\b/.test(x)).length;
     const vaas = new Set(t.products.filter((x) => /^VAA\b/.test(x)).map((x) => x.split(" ").slice(0, 3).join(" "))).size;
-    row("Drawn from", [sigs ? `${sigs} ${sigs === 1 ? "SIGMET (airspace warning)" : "SIGMETs (airspace warnings), the newest per office"}` : null, vaas ? `${vaas} ${vaas === 1 ? "VAA (ash advisory)" : "VAAs (ash advisories)"}` : null].filter(Boolean).join(" + ") || `${t.products.length} official reports`);
-    row("Issued by", [...new Set(D.official.filter((f) => f.properties.volcano_id === vid && f.properties.valid).map((f) => issuerWords(f.properties)))].join(" · "));
-    row("Heights", `${fl(t.base)}–${fl(t.top)}`, true);
-    row("Movement", moves || "not given");
-    row("Valid until", `${hhmmz(t.validTo)} (${untilText(t.validTo - D.now)})`, true);
-    row("Forecast steps", steps.length ? steps.join(" · ") : "none in the current reports");
-    kids.push(el("section", { class: "sec" }, el("h3", { class: "sec__title sec__title--official", text: "Official ash area · binding" }), dl,
-      el("div", { class: "btn-row" }, ...["SIGMET", "VAA"].filter((k) => sit.cards.some((c) => c.kind === k && !c.missing)).map((k) => el("button", { type: "button", class: "btn btn--small", dataset: { act: "raw", kind: k } }, icon("i-raw-text"), `Raw text: ${k}`))),
-      el("details", { class: "more", dataset: { k: "area-ids" } }, el("summary", { text: "Technical ids" }), el("ul", { class: "tech__list mono" }, ...t.products.map((x) => el("li", { text: x }))))));
+    kids.push(el("section", { class: "dk-card dk-card--official", "aria-labelledby": "area-off-h" },
+      el("h3", { class: "dk-card__title dk-card__title--official", id: "area-off-h", text: "Official ash area · binding" }),
+      dkTiles([
+        { label: "Heights", value: `${fl(t.base)}–${fl(t.top)}` },
+        { label: "Valid until", value: hhmmz(t.validTo), sub: inWords(t.validTo - D.now) },
+      ], "Official area in numbers"),
+      dkFacts([
+        ["Movement", moves || "not given"],
+        ["Drawn from", [sigs ? `${sigs} ${sigs === 1 ? "SIGMET (airspace warning)" : "SIGMETs (airspace warnings), the newest per office"}` : null, vaas ? `${vaas} ${vaas === 1 ? "VAA (ash advisory)" : "VAAs (ash advisories)"}` : null].filter(Boolean).join(" + ") || `${t.products.length} official reports`],
+        ["Issued by", [...new Set(D.official.filter((f) => f.properties.volcano_id === vid && f.properties.valid).map((f) => issuerWords(f.properties)))].join(" · ")],
+        ["Forecast steps", steps.length ? el("span", { class: "dk-chips" }, ...steps.map(([k, ft]) => dkChip(`${k} · ${hhmmz(ft)}`))) : "none in the current reports"],
+      ]),
+      el("div", { class: "dk-actions" }, ...["SIGMET", "VAA"].filter((k) => sit.cards.some((c) => c.kind === k && !c.missing)).map((k) => el("button", { type: "button", class: "btn btn--small", dataset: { act: "raw", kind: k } }, icon("i-raw-text"), `Raw text: ${k}`))),
+      techDetail(...t.products)));
   } else {
-    kids.push(el("p", { class: "dnote", text: "No official area is valid for this volcano right now." }));
+    kids.push(dkNote("caution", "No official area is valid for this volcano right now."));
   }
   const cone = D.coneOf(vid)?.properties;
   if (cone) {
-    const dl = el("dl", { class: "area__facts" },
-      el("dt", { text: "Rule" }), el("dd", { text: "Never smaller than any valid official area" }),
-      el("dt", { text: "What it is" }), el("dd", { text: estimateOutcome(D, sit, cone) }),
-      el("dt", { text: "Heights" }), el("dd", { class: "mono", text: `${fl(cone.base_ft)}–${fl(cone.top_ft)}` }),
-      el("dt", { text: "Valid until" }), el("dd", { class: "mono", text: hhmmz(ms(cone.valid_to)) }));
-    kids.push(el("section", { class: "sec" }, el("h3", { class: "sec__title sec__title--tephra", text: "TEPHRA's estimate · an estimate, not a forecast" }), dl,
+    kids.push(el("section", { class: "dk-card dk-card--tephra", "aria-labelledby": "area-tep-h" },
+      el("h3", { class: "dk-card__title dk-card__title--tephra", id: "area-tep-h", text: "TEPHRA's estimate · an estimate, not a forecast" }),
+      el("p", { class: "dk-card__line", text: estimateOutcome(D, sit, cone) }),
+      dkTiles([
+        { label: "Heights", value: `${fl(cone.base_ft)}–${fl(cone.top_ft)}` },
+        { label: "Valid until", value: hhmmz(ms(cone.valid_to)), sub: inWords(ms(cone.valid_to) - D.now) },
+      ], "Estimate in numbers"),
+      el("div", { class: "dk-chips" }, dkChip("Never smaller than any valid official area", { kind: "tephra" })),
       techDetail(`mode ${cone.mode} · ${cone.label} · confidence ${Math.round((cone.confidence ?? 0) * 100)}%`)));
   }
   kids.push(el("p", {}, el("button", { type: "button", class: "link-btn", dataset: { act: "details-sec", sec: "sources", focus: "area-sources" }, text: "What the official reports say ›" })));
-  host.replaceChildren(...kids);
+  host.replaceChildren(dkSection("area-d-head", kids));
 }
 
 // The office behind a report, in words with its code kept: "Jakarta airspace (WIIF)". A code
@@ -271,47 +279,47 @@ function issuerWords(p) {
 function flightDetail(D, ui) {
   const host = $("flights");
   const pick = ui.selFlight;
-  if (!pick) { host.replaceChildren(el("p", { class: "dsum", text: "No flight is picked. Choose one on the map or in Flights heading in." })); return; }
+  if (!pick) { host.replaceChildren(dkSection("fl-head", dkHeader({ id: "fl-head", title: "This flight" }), dkEmpty("No flight is picked.", "Choose one on the map or in Flights heading in."))); return; }
   const f = D.selFlight;
-  const kids = [el("p", { class: "dsum" }, el("strong", { text: f ? f.properties.proxy_flight : pick.proxy }), D.mode === "REPLAY" ? el("span", { class: "tag tag--replay", text: "recorded" }) : null,
-    el("button", { type: "button", class: "link-btn fdetail__clear", "aria-label": "Clear the picked flight", dataset: { act: "flight-clear", focus: "flight-clear" }, text: "Clear" }))];
+  const clear = el("button", { type: "button", class: "link-btn fdetail__clear", "aria-label": "Clear the picked flight", dataset: { act: "flight-clear", focus: "flight-clear" }, text: "Clear" });
   if (!f) {
-    kids.push(D.selHiddenByLevel
-      ? el("p", { class: "fdetail__gone" }, `Hidden by the height filter ${fl(ui.level.min)}–${fl(ui.level.max)}. `,
-        el("button", { type: "button", class: "link-btn", dataset: { act: "level-reset", focus: "fdetail-reset" }, text: "Reset" }))
-      : el("p", { class: "fdetail__gone", text: "No current position for this flight in the aircraft data." }));
-    host.replaceChildren(...kids);
+    host.replaceChildren(dkSection("fl-head", dkHeader({ id: "fl-head", pills: [dkRecorded(D.mode === "REPLAY")], title: pick.proxy, extra: clear }),
+      D.selHiddenByLevel
+        ? dkNote("info", `Hidden by the height filter ${fl(ui.level.min)}–${fl(ui.level.max)}.`, { action: el("button", { type: "button", class: "link-btn", dataset: { act: "level-reset", focus: "fdetail-reset" }, text: "Reset" }) })
+        : dkEmpty("No current position for this flight in the aircraft data.", null)));
     return;
   }
   const p = f.properties;
-  kids.push(el("p", { class: "dnote", text: `RFA is a fictional airline · this flight stands in for ADS-B ${p.callsign || "(no callsign)"}, hex ${String(p.hex || "").toUpperCase()}${p.type_icao ? `, a ${p.type_icao}` : ""}` }));
-  const dl = el("dl", { class: "fdetail__facts" });
-  const row = (k, v) => { if (v != null && v !== "") dl.append(el("dt", { text: k }), el("dd", { text: String(v) })); };
-  if (p.exposed) {
-    row("Entry (estimated)", p.inside ? "Inside TEPHRA's area now" : `In ${p.minutes_to_entry} min`);
-    row("Basis", "Code projection from the last position, if track, speed and level are held");
-  } else {
-    row("Entry (estimated)", "Not projected to enter TEPHRA's area");
-  }
-  row("Level", p.alt_baro_ft != null ? `${fl(p.alt_baro_ft)} (${Number(p.alt_baro_ft).toLocaleString("en")} ft)${p.nav_altitude_mcp_ft != null ? ` · selected ${fl(p.nav_altitude_mcp_ft)}` : ""}` : "level unknown");
-  const move = [p.gs_kt != null ? `${Math.round(p.gs_kt)} kt` : null, p.track_deg != null ? `${Math.round(p.track_deg)}° ${compassWord(p.track_deg)}` : null].filter(Boolean).join(" · ");
-  row("Speed and track", move);
-  row("Position age", age(p.ageS));
-  // The callsign's usual route from VRS standing data (code, never guessed): not the filed plan.
-  row("Route", p.origin_icao && p.dest_icao ? `${p.origin_icao} → ${p.dest_icao} (usual route for this callsign, VRS standing data; not the filed flight plan)` : "Not known");
-  kids.push(dl);
+  const entryPill = p.exposed ? (p.inside ? dkPill("inside", "Inside TEPHRA's area now") : dkPill("tephra", `Enters in ${p.minutes_to_entry} min (estimated)`)) : dkPill("ok", "Not projected to enter TEPHRA's area");
+  const kids = [
+    dkHeader({ id: "fl-head", pills: [entryPill, dkRecorded(D.mode === "REPLAY")], title: f.properties.proxy_flight, extra: clear }),
+    dkNote("info", `RFA is a fictional airline. This flight stands in for ${p.callsign || "an aircraft with no callsign"}.`),
+    dkTiles([
+      { label: "Level", value: p.alt_baro_ft != null ? fl(p.alt_baro_ft) : "unknown", sub: p.alt_baro_ft != null ? `${Number(p.alt_baro_ft).toLocaleString("en")} ft${p.nav_altitude_mcp_ft != null ? ` · selected ${fl(p.nav_altitude_mcp_ft)}` : ""}` : null },
+      { label: "Speed", value: p.gs_kt != null ? `${Math.round(p.gs_kt)} kt` : "unknown" },
+      { label: "Track", value: p.track_deg != null ? `${Math.round(p.track_deg)}° ${compassWord(p.track_deg)}` : "unknown" },
+      // The callsign's usual route from VRS standing data (code, never guessed): not the filed plan.
+      { label: "Route", value: p.origin_icao && p.dest_icao ? `${p.origin_icao} → ${p.dest_icao}` : "Not known", sub: p.origin_icao && p.dest_icao ? "usual route, not the filed plan" : null },
+    ], "This flight in numbers"),
+    el("p", { class: "dk-foot", text: `Position ${age(p.ageS)} old.` }),
+  ];
   const flag = D.crew.flagByHex.get(p.hex);
   if (flag) kids.push(crewFlagBlock(D, flag));
   const adv = p.exposed ? D.advByFlight.get(`${p.hex}:${p.volcano_id}`) : null;
   if (adv) {
-    kids.push(el("p", { class: "fdetail__adv" }, el("span", { class: "fdetail__k", text: "Drafted action: " }), el("strong", { text: actionText(adv) })),
-      el("p", { class: "fdetail__adv" }, advisoryLine(adv, D.mode === "REPLAY")),
-      el("p", {}, el("a", { class: "btn btn--small", href: `/desk#review/${encodeURIComponent(adv.id)}`, target: "_blank", rel: "noopener", text: adv.status === "DRAFT" ? "Open on the Desk ›" : "See it on the Desk ›" })));
-    if (adv.decision_reason) kids.push(el("p", { class: "fdetail__adv", text: `Reason given: ${adv.decision_reason}` }));
-  } else if (p.exposed) kids.push(el("p", { class: "dnote", text: "No advisory is drafted for this flight yet." }));
+    kids.push(el("section", { class: "dk-card", "aria-labelledby": "fl-adv-h" },
+      el("p", { class: "dk-tile__label", id: "fl-adv-h", text: "Drafted action" }),
+      el("p", { class: "dk-card__big", text: actionText(adv) }),
+      el("p", {}, advisoryLine(adv, false)),
+      adv.decision_reason ? el("p", { class: "dk-sub__note" }, "Reason given: ", el("q", { text: adv.decision_reason })) : null,
+      el("div", { class: "dk-actions" }, el("a", { class: "btn btn--small", href: `/desk#review/${encodeURIComponent(adv.id)}`, target: "_blank", rel: "noopener", text: adv.status === "DRAFT" ? "Open on the Desk ›" : "See it on the Desk ›" }))));
+  } else if (p.exposed) kids.push(dkEmpty("No advisory is drafted for this flight yet.", null));
   const rr = (store_reroutes(D) || []).find((r) => r.properties.flight_id === `${p.hex}:${p.volcano_id}` || r.properties.proxy_flight === p.proxy_flight);
   if (rr) kids.push(rerouteBlock(rr.properties, D));
-  host.replaceChildren(...kids);
+  kids.push(el("div", { class: "dk-abouts" }, dkAbout("How the entry is estimated", "flight", p.exposed ? "Code projection from the last position, if track, speed and level are held." : "Code projects the last position along its track, speed and level; this flight does not reach TEPHRA's area."),
+    dkAbout("Where the route comes from", "flight-route", "The usual route for this callsign, from VRS standing data. It is not the filed flight plan, and TEPHRA never guesses one.")),
+    techDetail(`ADS-B ${p.callsign || "(no callsign)"} · hex ${String(p.hex || "").toUpperCase()}${p.type_icao ? ` · type ${p.type_icao}` : ""}`));
+  host.replaceChildren(dkSection("fl-head", kids));
 }
 let store_reroutes = () => [];
 
@@ -326,69 +334,86 @@ const whenFlag = (f) => (f.inside_now ? "is inside the crew report area now" : `
 // track meets its area. A flag only: nothing is re-planned because of it.
 function crewFlagBlock(D, flag) {
   const views = flag.report_ids.map((id) => D.crew.byId.get(id)).filter(Boolean);
-  return el("section", { class: "crew-flag" },
-    el("p", { class: "crew-flag__line" }, icon("i-pin", "icon crew-flag__pin"), el("strong", { text: flag.line })),
-    flag.reporter ? null : el("p", { class: "dnote", text: `${flag.proxy_flight} ${whenFlag(flag)}.` }),
-    ...views.map((v) => el("p", { class: "dnote", text: `${v.report.flight} reported ${v.report.cues.map((c) => CUE_WORDS[c] || c).join(", ")} at ${crewBand(v.report)}, ${v.age_text} · ${v.state_label}` })),
-    el("p", { class: "dnote", text: "Operator policy A caution area; not a VAA or SIGMET. Approving Keep watching or Continue for this flight needs a written reason on the Desk." }),
-    el("button", { type: "button", class: "link-btn", dataset: { act: "details-open", sec: "crew", focus: `flag-crew-${flag.hex}` }, text: "Crew reports of ash ›" }));
+  return dkNote("crew", [
+    el("p", {}, el("strong", { text: flag.line })),
+    flag.reporter ? null : el("p", { text: `${flag.proxy_flight} ${whenFlag(flag)}.` }),
+    ...views.map((v) => el("p", { text: `${v.report.flight} reported ${v.report.cues.map((c) => CUE_WORDS[c] || c).join(", ")} at ${crewBand(v.report)}, ${v.age_text} · ${v.state_label}` })),
+    el("p", { class: "dk-sub__note", text: "Operator policy A caution area; not a VAA or SIGMET. Approving Keep watching or Continue for this flight needs a written reason on the Desk." }),
+  ].filter(Boolean), { iconId: "i-pin", action: el("button", { type: "button", class: "link-btn", dataset: { act: "details-open", sec: "crew", focus: `flag-crew-${flag.hex}` }, text: "Crew reports of ash ›" }) });
 }
 
-function crewCard(D, v, picked) {
+const CREW_TONE = { ACTIVE: "caution", COVERED: "info", EXPIRED: "off", WITHDRAWN: "off", NO_AREA: "info" };
+function crewRow(D, v, picked) {
   const r = v.report;
   const a = r.area;
   const [shape, colour] = CREW_STATE_SHAPE[v.state] || CREW_STATE_SHAPE.NO_AREA;
   // the flights it flags, from the report's own view (v.flagged), named from the picture's flags
   const flagged = (v.flagged || []).map((hex) => D.crew.flagByHex.get(hex)).filter(Boolean);
-  const dl = el("dl", { class: "area__facts" });
-  const row = (k, val, mono) => { if (val) dl.append(el("dt", { text: k }), el("dd", { class: mono ? "mono" : null, text: val })); };
-  row("Crew reported", r.cues.map((c) => CUE_WORDS[c] || c).join(", "));
-  row("At", `${crewBand(r)} · observed ${hhmmz(ms(r.observed_at))}`);
-  row("Position", `${latLon(r)} · ${r.position_basis === "ADSB_FIX" ? `ADS-B fix at ${hhmmz(ms(r.position_observed_at))}` : "typed by dispatcher"}`);
-  row("Near", v.place_text);
-  if (a) {
-    row("Caution area", `${a.radius_nm} NM around the position · ${fl(a.base_ft)}–${fl(a.top_ft)}`);
-    row("Wind stretch", a.stretch_note);
-    row("Valid", `${hhmmz(ms(a.valid_from))} to ${hhmmz(ms(a.valid_to))}${v.state === "ACTIVE" || v.state === "COVERED" ? ` (${untilText(ms(a.valid_to) - D.now)} left)` : ""}`);
-  }
-  row("Entered", `${String(r.entered_by || "").replace(/^desk:/, "")} at ${hhmmz(ms(r.created_at))} on the Desk`);
-  if (r.remarks) row("Remarks", r.remarks);
-  if (v.state === "COVERED") row("Covered by", `${plural(v.covered_by.length, "official area", "official areas")} (display only: the area and its flags stay)`);
   const drawn = v.state === "ACTIVE" || v.state === "COVERED";
-  if (a && drawn) row("Flights flagged", flagged.length ? flagged.map((f) => `${f.proxy_flight} (${f.reporter ? "the reporting flight" : f.inside_now ? "inside now" : `in ${f.minutes_to_entry} min`})`).join(", ") : "none seen crossing it");
   const ended = v.state === "WITHDRAWN"
     ? `Withdrawn by ${String(r.withdrawn_by || "").replace(/^desk:/, "")} at ${hhmmz(ms(r.withdrawn_at))}: ${r.withdraw_reason || "no reason recorded"}. It no longer flags any flight.`
     : v.state === "EXPIRED" ? "Expired: it no longer flags any flight." : null;
-  return el("article", { class: `crew-card crew-card--${v.state.toLowerCase()}${picked ? " is-picked" : ""}`, "aria-labelledby": `crew-${r.id}` },
-    el("p", { class: "crew-card__head" },
-      el("strong", { id: `crew-${r.id}`, class: "crew-card__flight", text: r.flight }),
-      el("span", { class: "crew-card__state" }, icon(shape, "st", colour), el("span", { text: v.state_label })),
-      el("span", { class: "crew-card__age", text: v.age_text }),
-      r.replay ? el("span", { class: "tag tag--replay", text: "entered in REPLAY" }) : null),
-    ended ? el("p", { class: "dnote", text: ended }) : null,
-    v.discrepancy ? el("p", { class: "crew-card__dis" }, st("st-caution", "var(--c-caution)"), el("span", { text: `${v.discrepancy}. ${v.outside_detail || ""} A dispatcher can start a message to the weather office and the VAAC on the Desk.`.replace(/\s+/g, " ") })) : null,
-    dl,
-    el("div", { class: "btn-row" },
-      drawn ? el("button", { type: "button", class: "btn btn--small", dataset: { act: "crew-show", report: r.id, focus: `crew-show-${r.id}` } }, icon("i-frame"), "Show on the map") : null,
-      el("a", { class: "btn btn--small", href: `/desk#crew/${encodeURIComponent(r.id)}`, target: "_blank", rel: "noopener" }, "Open on the Desk ›")),
-    techDetail(`report ${r.id}`, r.position_source_id ? `position ${r.position_source_id}` : null, a?.wind_source_id ? `wind ${a.wind_source_id}` : null,
-      v.covered_by.length ? `covered by ${v.covered_by.join(", ")}` : null, `policy ${r.policy_id} v${r.policy_version} #${r.policy_hash}`, r.replay_case_id ? `replay case ${r.replay_case_id}` : null));
+  const reported = dkFacts([
+    ["Crew reported", r.cues.map((c) => CUE_WORDS[c] || c).join(", ")],
+    ["At", `${crewBand(r)} · observed ${hhmmz(ms(r.observed_at))}`],
+    ["Position", `${latLon(r)} · ${r.position_basis === "ADSB_FIX" ? `ADS-B fix at ${hhmmz(ms(r.position_observed_at))}` : "typed by dispatcher"}`],
+    ["Near", v.place_text],
+    ["Entered", `${String(r.entered_by || "").replace(/^desk:/, "")} at ${hhmmz(ms(r.created_at))} on the Desk`],
+    ["Remarks", r.remarks ? el("q", { text: r.remarks }) : null],
+  ]);
+  const area = a ? dkFacts([
+    ["Caution area", `${a.radius_nm} NM around the position · ${fl(a.base_ft)}–${fl(a.top_ft)}`],
+    ["Wind stretch", a.stretch_note],
+    ["Valid", `${hhmmz(ms(a.valid_from))} to ${hhmmz(ms(a.valid_to))}${drawn ? ` (${untilText(ms(a.valid_to) - D.now)} left)` : ""}`],
+    ["Covered by", v.state === "COVERED" ? `${plural(v.covered_by.length, "official area", "official areas")} (display only: the area and its flags stay)` : null],
+    ["Flights flagged", drawn ? (flagged.length ? el("span", { class: "dk-chips" }, ...flagged.map((f) => el("button", { type: "button", class: "dk-chip dk-chip--btn", dataset: { flight: f.hex, focus: `crew-flight-${r.id}-${f.hex}` }, text: `${f.proxy_flight} · ${f.reporter ? "the reporting flight" : f.inside_now ? "inside now" : `in ${f.minutes_to_entry} min`}` }))) : "none seen crossing it") : null],
+  ]) : null;
+  return dkRow({
+    key: `crew-${r.id}`, open: picked, dot: icon(shape, "st", colour), edge: v.discrepancy ? "caution" : drawn ? "crew" : null, cls: drawn ? null : "dk-row--muted",
+    title: [el("span", { id: `crew-${r.id}`, text: r.flight }), r.replay ? [" ", el("span", { class: "tag tag--replay", text: "entered in REPLAY" })] : null],
+    sub: [r.cues.map((c) => CUE_WORDS[c] || c).join(", "), ` · ${crewBand(r)}`, v.place_text ? ` · ${v.place_text}` : ""],
+    foot: [el("span", { class: `dk-crewstate dk-crewstate--${CREW_TONE[v.state] || "info"}`, text: v.state_label }), el("span", { text: v.age_text }), flagged.length && drawn ? el("span", { text: `${plural(flagged.length, "flight", "flights")} flagged` }) : null],
+    body: [
+      v.discrepancy ? dkNote("caution", `${v.discrepancy}. ${v.outside_detail || ""} A dispatcher can start a message to the weather office and the VAAC on the Desk.`.replace(/\s+/g, " ")) : null,
+      ended ? dkNote("info", ended) : null,
+      el("div", { class: "dk-sub" }, el("p", { class: "dk-sub__title", text: "What was reported" }), reported),
+      area ? el("div", { class: "dk-sub" }, el("p", { class: "dk-sub__title", text: "Caution area" }), area) : null,
+      el("div", { class: "dk-actions" },
+        drawn ? el("button", { type: "button", class: "btn btn--small", dataset: { act: "crew-show", report: r.id, focus: `crew-show-${r.id}` } }, icon("i-frame"), "Show on the map") : null,
+        el("a", { class: "btn btn--small", href: `/desk#crew/${encodeURIComponent(r.id)}`, target: "_blank", rel: "noopener" }, "Open on the Desk ›")),
+      techDetail(`report ${r.id}`, r.position_source_id ? `position ${r.position_source_id}` : null, a?.wind_source_id ? `wind ${a.wind_source_id}` : null,
+        v.covered_by.length ? `covered by ${v.covered_by.join(", ")}` : null, `policy ${r.policy_id} v${r.policy_version} #${r.policy_hash}`, r.replay_case_id ? `replay case ${r.replay_case_id}` : null),
+    ],
+  });
 }
 
 function crewSection(D, ui) {
   const C = D.crew;
   const host = $("crew");
   const label = C.label || "Crew report caution area (operator policy A; not a VAA or SIGMET)";
-  const lede = el("p", { class: "dnote", text: `${label}. A dispatcher enters a crew (pilot) report on the Desk; code draws a caution area around the reported position over the reported levels. It flags flights whose projected track crosses it. It never shrinks or replaces an official area, re-plans nothing and calls no model. A sulphur smell or haze alone is a routine report with no area; a no-ash report never removes one.` });
+  const about = el("div", { class: "dk-abouts" }, dkAbout("How crew reports work", "crew",
+    `${label}.`, "A dispatcher enters a crew (pilot) report on the Desk; code draws a caution area around the reported position over the reported levels. It flags flights whose projected track crosses it.",
+    "It never shrinks or replaces an official area, re-plans nothing and calls no model. A sulphur smell or haze alone is a routine report with no area; a no-ash report never removes one."));
+  const report = el("div", { class: "dk-actions" }, el("a", { class: "btn btn--small", href: "/desk#crew-report", target: "_blank", rel: "noopener", text: "Report ash from a crew on the Desk ›" }));
+  const chip = dkChip("Operator policy A · not a VAA or SIGMET", { kind: "crew" });
+  const title = "A dispatcher enters a crew report on the Desk; code draws a caution area and flags flights that cross it.";
   if (!C.reports.length) {
-    host.replaceChildren(el("p", { class: "dsum", text: "No crew report of ash in the last 24 hours." }), lede,
-      el("p", {}, el("a", { class: "btn btn--small", href: "/desk#crew-report", target: "_blank", rel: "noopener", text: "Report ash from a crew on the Desk ›" })));
+    host.replaceChildren(dkSection("crew-head", dkHeader({ id: "crew-head", pills: [dkPill("ok", "None in the last 24 h")], title, chips: [chip] }),
+      dkEmpty("No crew report of ash in the last 24 hours.", null), report, about));
     return;
   }
   const act = C.reports.filter((v) => v.state === "ACTIVE" || v.state === "COVERED").length;
-  const head = el("p", { class: "dsum" }, el("strong", { text: `${plural(C.reports.length, "crew report", "crew reports")} in the last 24 hours · ${act} with a caution area now` }), D.mode === "REPLAY" ? el("span", { class: "tag tag--replay", text: "recorded" }) : null);
-  host.replaceChildren(head, lede, ...C.reports.map((v) => crewCard(D, v, ui.details.vid === v.report.id)),
-    el("p", {}, el("a", { class: "btn btn--small", href: "/desk#crew-report", target: "_blank", rel: "noopener", text: "Report ash from a crew on the Desk ›" })));
+  const out = C.reports.filter((v) => v.discrepancy).length;
+  host.replaceChildren(dkSection("crew-head",
+    dkHeader({ id: "crew-head", pills: [act ? dkPill("caution", `${act} with a caution area now`) : dkPill("off", "None active"), dkRecorded(D.mode === "REPLAY")], title, chips: [chip] }),
+    dkTiles([
+      { label: "Reports (24 h)", value: String(C.reports.length) },
+      { label: "Caution area now", value: String(act), tone: act ? "caution" : null },
+      { label: "Flights flagged", value: String(C.flags.length) },
+      out ? { label: "Outside official area", value: String(out), tone: "caution" } : null,
+    ], "Crew reports in numbers"),
+    dkList(C.reports.map((v) => crewRow(D, v, ui.details.vid === v.report.id)), { first: 4, key: "crew" }),
+    report, about));
 }
 
 // ------------------------------------------------------------------ rendering

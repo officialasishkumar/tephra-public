@@ -80,7 +80,7 @@ const PLAIN = [
   [/^(.+) is active: (.+)$/, (m) => `${m[1]} is active. Reports: ${m[2].replace(/; Valid SIGMET ([A-Z]{4}) (\d+): names it/g, "; SIGMET $1 $2").replace(/^Valid SIGMET ([A-Z]{4}) (\d+): names it/, "SIGMET $1 $2")}`],
   [/^(.+?): (\d+) new or changed record\(s\)$/, (m) => `${m[1]}: ${m[2]} new or changed record${m[2] === "1" ? "" : "s"}`],
   // The helpers' own tool calls (raw JSON stays under Technical detail; docs/UI-DETAILS-PANELS.md 5.1)
-  [/^get_flight: \{"proxy_flight":"(RFA\d+)"/, (m) => `Planner looked up ${m[1]}'s position and track`],
+  [/^get_flight: \{"proxy_flight":"(RFA\d+)"/, (m) => `Planner looked up the position and track of ${m[1]}`],
   [/^list_alternates: /, () => "Planner checked alternate airports"],
   [/^list_reroutes: /, () => "Planner checked reroute options"],
   [/^check_level_band: \{"band":"FL(\d{3})-FL(\d{3})","clear_of_hazard":(true|false)/, (m) => `Planner checked levels ${m[1] === "000" ? "SFC" : `FL${m[1]}`}–FL${m[2]}: ${m[3] === "true" ? "clear of the ash" : "not clear of the ash"}`],
@@ -182,6 +182,20 @@ export function planProblem(plan) {
       ? "No plan found: the solver did not finish in time. A dispatcher must plan the network by hand."
       : `No plan found (solver: ${status}). A dispatcher must plan the network by hand.`;
   return { status, words, raw };
+}
+
+// A plan with no plan, in plain words for Details › Airport closures: the solver's result when
+// there is one (planProblem), else what stopped the recovery planner. Never "chosen by" a model
+// when nothing was chosen. `raw` is the reason as recorded, for Technical detail.
+export function planFailure(plan) {
+  if (!plan || plan.status !== "AI_UNAVAILABLE") return null;
+  const p = planProblem(plan);
+  const raw = [plan.unavailable_reason, ...(plan.validation_errors || [])].filter(Boolean).join("; ") || "no reason given";
+  if (p) return { title: p.status === "UNKNOWN" ? "Recovery found no plan: the solver did not finish in time" : p.status === "INFEASIBLE" ? "Recovery found no plan: no plan fits the closures" : `Recovery found no plan (solver: ${p.status.toLowerCase()})`, sub: "A dispatcher must plan the network by hand.", short: "no plan found", raw };
+  const m = /RECOVERY AGENT ERROR: (\w+)/.exec(raw);
+  if (m && m[1] === "TimeoutError") return { title: "Recovery planner timed out", sub: "No plan was made. A dispatcher must plan the network by hand.", short: "no plan: the planner timed out", raw };
+  if (m) return { title: "Recovery planner stopped with an error", sub: "No plan was made. A dispatcher must plan the network by hand.", short: "no plan: the planner stopped with an error", raw };
+  return { title: "No plan: AI unavailable", sub: "Nothing was put in its place. A dispatcher must plan the network by hand.", short: "no plan: AI unavailable", raw };
 }
 
 // "Technical detail" disclosure holding raw machine text (R12.7).

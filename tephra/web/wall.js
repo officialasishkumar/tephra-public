@@ -55,6 +55,7 @@ const ui = {
   // the map key pinned under the Details drawer (601-1599 px) starts folded to one bar
   keyOpen: (() => { try { return sessionStorage.getItem("tephra.wall.key") === "open"; } catch { return false; } })(),
   traceFilter: "all",
+  historyLane: "all",
   vlistOpen: false,
   layersMore: false,
   rail: "brief",
@@ -815,6 +816,7 @@ document.addEventListener("click", (e) => {
     try { sessionStorage.setItem("tephra.wall.key", ui.keyOpen ? "open" : "closed"); } catch { /* storage blocked */ }
     renderNow();
   }
+  else if (act === "history-lane") { ui.historyLane = t.dataset.lane; renderNow(); }
   else if (act === "trace-filter") { ui.traceFilter = t.dataset.filter; renderNow(); }
   else if (act === "dk-jump") {
     const to = $(t.dataset.target);

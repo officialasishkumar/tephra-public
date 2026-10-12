@@ -30,41 +30,50 @@ export function layersStatus(ui) {
 export function renderLayers(ui, phone) {
   const box = document.getElementById("layers-pop");
   const L = ui.layers;
+  // One card per kind of layer; the checkboxes are drawn as switches (wall.css), still real
+  // checkboxes for keyboards and screen readers.
   const group = (title, ...kids) => el("fieldset", { class: "opts" }, el("legend", { class: "opts__legend", text: title }), ...kids);
-  const more = el("details", { class: "more", open: ui.layersMore ? true : null, dataset: { k: "layers-more", act: "layers-more" } },
-    el("summary", { text: "Satellite pictures, 3D and compare" }),
-    group("Satellite picture (context only, never ash detection)",
-      radio("sat", "off", "Off", ui.sat === "off"),
-      radio("sat", "ir", "Infrared", ui.sat === "ir", "context only"),
-      radio("sat", "vis", "Visible", ui.sat === "vis", "context only, daylight"),
-      radio("sat", "airmass", "Air mass", ui.sat === "airmass", "context only"),
-      el("button", { type: "button", class: "chip-btn", dataset: { tool: "sat", focus: "tool-sat" }, "aria-pressed": ui.sat !== "off" ? "true" : "false", "aria-keyshortcuts": "I", title: "Next satellite picture (I)" }, "Next picture: ", el("span", { id: "sat-state", text: SAT_WORD[ui.sat] })),
-      check("so2", "SO2 (TROPOMI, daily)", ui.so2, `context only · ${GASES_SCOPE}`),
-      check("btd", "Split-window BTD", ui.btd, "an indicator, not ash detection")),
-    group("View",
-      el("div", { class: "seg", role: "group", "aria-label": "View" },
-        el("button", { type: "button", dataset: { act: "view-2d", focus: "view-2d" }, "aria-pressed": ui.d3 ? "false" : "true", text: "2D" }),
-        el("button", { type: "button", dataset: { tool: "3d", focus: "tool-3d" }, "aria-pressed": ui.d3 ? "true" : "false", "aria-keyshortcuts": "D", title: "3D view, heights exaggerated six times (D)", text: "3D" })),
-      phone ? el("p", { class: "opt__hint", text: "Compare is not offered on a phone." })
-        : el("button", { type: "button", class: "chip-btn", dataset: { tool: "compare", focus: "tool-compare" }, "aria-pressed": ui.compare ? "true" : "false", "aria-keyshortcuts": "S", title: "Swipe compare (S)" }, icon("i-swipe"), "Compare: official only vs with TEPHRA")));
-  box.replaceChildren(
-    el("p", { class: "dsum", text: layersStatus(ui) }),
-    group("On the map",
+  const status = layersStatus(ui);
+  const more = el("details", { class: "dk-about", open: ui.layersMore ? true : null, dataset: { k: "layers-more", act: "layers-more" } },
+    el("summary", { dataset: { focus: "layers-more" } }, icon("i-chevron-right", "icon dk-about__chev"), el("span", { text: "Satellite pictures, 3D and compare" })),
+    el("div", { class: "dk-about__body dk-about__body--flush" },
+      group("Satellite picture · context only, never ash detection",
+        radio("sat", "off", "Off", ui.sat === "off"),
+        radio("sat", "ir", "Infrared", ui.sat === "ir", "context only"),
+        radio("sat", "vis", "Visible", ui.sat === "vis", "context only, daylight"),
+        radio("sat", "airmass", "Air mass", ui.sat === "airmass", "context only"),
+        el("button", { type: "button", class: "chip-btn", dataset: { tool: "sat", focus: "tool-sat" }, "aria-pressed": ui.sat !== "off" ? "true" : "false", "aria-keyshortcuts": "I", title: "Next satellite picture (I)" }, "Next picture: ", el("span", { id: "sat-state", text: SAT_WORD[ui.sat] }))),
+      group("Gases and indicators · context only",
+        check("so2", "SO2 (TROPOMI, daily)", ui.so2, `context only · ${GASES_SCOPE}`),
+        check("btd", "Split-window BTD", ui.btd, "an indicator, not ash detection")),
+      group("View",
+        el("div", { class: "seg", role: "group", "aria-label": "View" },
+          el("button", { type: "button", dataset: { act: "view-2d", focus: "view-2d" }, "aria-pressed": ui.d3 ? "false" : "true", text: "2D" }),
+          el("button", { type: "button", dataset: { tool: "3d", focus: "tool-3d" }, "aria-pressed": ui.d3 ? "true" : "false", "aria-keyshortcuts": "D", title: "3D view, heights exaggerated six times (D)", text: "3D" })),
+        phone ? el("p", { class: "opt__hint", text: "Compare is not offered on a phone." })
+          : el("button", { type: "button", class: "chip-btn", dataset: { tool: "compare", focus: "tool-compare" }, "aria-pressed": ui.compare ? "true" : "false", "aria-keyshortcuts": "S", title: "Swipe compare (S)" }, icon("i-swipe"), "Compare: official only vs with TEPHRA"))));
+  box.replaceChildren(el("div", { class: "dk", role: "region", "aria-labelledby": "layers-head" },
+    el("header", { class: "dk-head" },
+      el("div", { class: "dk-head__pills" }, el("span", { class: "dk-pill dk-pill--info", text: status.charAt(0).toUpperCase() + status.slice(1) })),
+      el("p", { class: "dk-head__title", id: "layers-head", text: "Choose what the map shows. The official ash area and crew report areas are always on." })),
+    group("Ash areas",
       check("official", "Official ash area", true, "always on · binding", true),
       check("tephra", "TEPHRA's estimate", L.tephra, "never smaller than official"),
       check("crew", "Crew report caution areas", true, "always on · operator policy A, not a VAA or SIGMET", true),
+      check("rose", "Disagreement arrows", L.rose, "the directions at the vent"),
+      check("satboxes", "Satellite boxes", L.satboxes, "marked on the picture · supporting only")),
+    group("Aircraft",
       check("aircraft", "Aircraft", L.aircraft),
       check("acLabels", "Other aircraft labels", L.acLabels, "from zoom 7.5"),
       check("paths", "Flight paths into the area", L.paths),
       check("routes", "Flight routes", L.routes, "origin to destination · RFA flights heading in, and the picked one"),
-      check("reroutes", "Suggested reroutes", L.reroutes, "computed by code around TEPHRA's estimate"),
-      check("satboxes", "Satellite boxes", L.satboxes, "marked on the picture · supporting only"),
-      check("rose", "Disagreement arrows", L.rose, "the directions at the vent"),
+      check("reroutes", "Suggested reroutes", L.reroutes, "computed by code around TEPHRA's estimate")),
+    group("Map context",
       check("context", "FIR and VAAC lines", L.context, "approximate"),
       check("navaids", "Navaids", L.navaids, "from zoom 8"),
       check("terrain", "Terrain shading", L.terrain, "Mapterhorn hillshade; sea tiles are absent")),
-    el("button", { type: "button", class: "link-btn", dataset: { tool: "levels", focus: "tool-levels" }, "aria-keyshortcuts": "H", text: "Height filter ›" }),
-    more);
+    el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { tool: "levels", focus: "tool-levels" }, "aria-keyshortcuts": "H", text: "Height filter ›" })),
+    el("div", { class: "dk-abouts" }, more)));
 }
 
 // Keyboard (R16). Every shortcut also has a visible control.

@@ -221,25 +221,35 @@ export function collapseRuns(items, { textOf, timeOf, groupOf = () => "" }) {
     const first = ts.length ? Math.min(...ts) : NaN;
     const last = ts.length ? Math.max(...ts) : NaN;
     const newestText = r.texts[r.items.reduce((best, it, i) => (timeOf(it) >= timeOf(r.items[best]) ? i : best), 0)];
-    return { ...r, count: r.items.length, first, last, label: r.items.length > 1 ? mergeTexts(r.texts, newestText) : r.texts[0] };
+    const merged = r.items.length > 1 ? mergeTexts(r.texts, newestText) : { text: r.texts[0], newestOnly: false };
+    return { ...r, count: r.items.length, first, last, label: merged.text, newestOnly: merged.newestOnly };
   });
   return out.sort((a, b) => (b.last || 0) - (a.last || 0));
 }
 
+// The run's sentence. One varying number becomes a range ("22–23 jobs"); varying flights are
+// named ("RFA1225, RFA1530 and 3 more"). When several numbers vary, or a number sits next to a
+// range dash already, a range would misread: the newest line is shown and marked as the newest.
 function mergeTexts(texts, newest) {
   const flights = texts.map((t) => t.match(FLIGHT) || []);
   const nums = texts.map((t) => (t.replace(FLIGHT, "RFA#").match(NUM) || []));
+  const width = Math.max(...nums.map((n) => n.length));
+  const varies = [];
+  for (let i = 0; i < width; i++) if (new Set(nums.map((n) => n[i])).size > 1) varies.push(i);
+  const base = newest.replace(FLIGHT, "RFA#");
+  let clean = varies.length <= 1;
   let i = 0;
-  let out = newest.replace(FLIGHT, "RFA#").replace(NUM, (m, off, whole) => {
-    const col = nums.map((n) => n[i]).filter((v) => v != null);
-    i += 1;
+  let out = base.replace(NUM, (m, off, whole) => {
+    const k = i++;
+    if (!varies.includes(k)) return m;
+    if (/[–\-/]\D{0,2}$/.test(whole.slice(Math.max(0, off - 3), off)) || /^\D{0,2}[–\-/]/.test(whole.slice(off + m.length, off + m.length + 3))) clean = false;
+    const col = nums.map((n) => n[k]).filter((v) => v != null);
     const vals = col.map((v) => Number(v.replace(/,/g, "")));
     const lo = Math.min(...vals), hi = Math.max(...vals);
-    if (lo === hi) return m;
-    const loS = col[vals.indexOf(lo)], hiS = col[vals.indexOf(hi)];
     const prefix = /FL$/.test(whole.slice(0, off)) ? "FL" : "";
-    return `${loS}–${prefix}${hiS}`;
+    return `${col[vals.indexOf(lo)]}–${prefix}${col[vals.indexOf(hi)]}`;
   });
+  if (!clean) out = base;
   let j = 0;
   out = out.replace(/RFA#( is| enters| was)?/g, (m, verb) => {
     const col = [...new Set(flights.map((f) => f[j]).filter(Boolean))];
@@ -249,7 +259,7 @@ function mergeTexts(texts, newest) {
     const plur = { " is": " are", " enters": " enter", " was": " were" }[verb] || "";
     return `${names}${plur}`;
   });
-  return out;
+  return { text: out, newestOnly: !clean };
 }
 
 // One collapsed run as a row: the merged sentence, "N times", the time range, and one tap in
@@ -257,7 +267,7 @@ function mergeTexts(texts, newest) {
 export function runRow(run, { key, tone = null, dot = null, sub = null, lineOf = null, rawOf = null, extra = null, open = false, titleOf = null }) {
   const single = run.count === 1;
   const when = Number.isFinite(run.first) ? timeRange(run.first, run.last) : "";
-  const foot = dkWhen(single ? null : run.count, when);
+  const foot = [dkWhen(single ? null : run.count, when), run.newestOnly ? el("span", { text: "the newest is shown" }) : null];
   const occ = single ? [] : [dkList(run.items.slice().sort((a, b) => (b._t ?? 0) - (a._t ?? 0)).map((it) => el("div", { class: "dk-occ" },
     el("span", { class: "dk-occ__t mono", text: Number.isFinite(it._t) ? hhmmz(it._t) : "" }), el("span", { class: "dk-occ__x", text: lineOf ? lineOf(it) : "" }))), { first: 3, key: `${key}-occ` })];
   const raw = rawOf ? run.items.map(rawOf).filter(Boolean) : [];

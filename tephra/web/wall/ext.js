@@ -5,13 +5,13 @@
 // Every feed or model string goes in through el() (textContent); AI-written text carries an
 // "AI-written" mark with the model id, code-written values are plain.
 
-import { $, el, icon, ms, hhmmz, hhmmssz, dayMon } from "./util.js";
+import { $, el, icon, ms, hhmmz, hhmmssz } from "./util.js";
 import { frameFor } from "./ext-map.js";
-import { st, aiMark, pill, section, plainLine, techDetail, usd, planProblem, failureCause } from "./x-parts.js";
+import { aiMark, plainLine, techDetail, usd, planFailure, failureCause } from "./x-parts.js";
 import { dutyDetail, dispatchedTools } from "./duty.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkMeter, meterTone, dkGroup, dkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkTech,
-  dkSection, dkLink, dkRecorded, dkWhen, timeRange, times, plural,
+  dkSection, dkLink, dkRecorded, dkWhen, timeRange, times, plural, dayTime,
 } from "./dk.js";
 
 // ------------------------------------------------------------------ state
@@ -64,20 +64,11 @@ export function noteTrace(t) { ext.arrivals.set(t.id, performance.now()); }
 // ------------------------------------------------------------------ small parts
 
 const pct = (v, d = 1) => (v == null ? "n/a" : `${(v * 100).toFixed(d)}%`);
-const clock = (iso) => { const t = ms(iso); return Number.isFinite(t) ? `${dayMon(t)} ${hhmmz(t)}` : "n/a"; };
-
-function unavailable(reason) {
-  const text = String(reason || "no reason given").replace(/^AI UNAVAILABLE:?\s*/i, "");
-  return el("div", { class: "x-fail", role: "status" }, st("st-serious", "var(--c-serious)"),
-    el("p", {}, el("strong", { text: "AI unavailable: " }), text, el("span", { class: "x-fail__note", text: " Nothing was put in its place." })));
-}
+const clock = (iso) => { const t = ms(iso); return Number.isFinite(t) ? dayTime(t) : "n/a"; };
 
 // CSP: no style attributes, so sizes and colours go through the CSSOM.
-const fill = (w) => { const n = el("span"); n.style.width = `${w}%`; return n; };
 const swatch = (c) => { const n = el("span", { class: "x-key__sw" }); n.style.background = c; return n; };
-const empty = (title, text) => el("div", { class: "x-empty" }, el("strong", { text: title }), el("p", { text }));
 const loadingBox = () => el("div", { class: "x-loading" }, el("div", { class: "skeleton" }), el("div", { class: "skeleton" }), el("div", { class: "skeleton" }));
-const errBox = (what, msg) => el("div", { class: "x-fail", role: "status" }, st("st-caution", "var(--c-caution)"), el("p", {}, el("strong", { text: `${what} unavailable: ` }), msg));
 
 function frameView(reading, frame) {
   const wrap = el("div", { class: "x-frame" });
@@ -126,54 +117,72 @@ function colourKey() {
 // Neutral words (G26): they never say an AI looked when AI is off.
 const ASH_WORD = { yes: "yes", no: "not seen", uncertain: "can't tell" };
 const yesNo = (v) => ({ yes: "yes", no: "no", uncertain: "can't tell" }[v] || "not given");
+// Never green for "not seen": no ash seen is not evidence of no ash.
+const ASH_TONE = { yes: "caution", no: "info", uncertain: "never" };
 
 function readBy(reading) {
   const no = !reading.model_id || reading.model_id === "stub" || reading.label === "NO MODEL";
   return no ? "code stub (AI off)" : reading.model_id;
 }
 
-function satCard(D, reading, sit, store) {
+function satRow(D, reading, sit, store) {
   const vid = reading.volcano_id;
   const name = sit?.volcano_name || vid;
   const frames = [...(sit?.frames || []), ...(store.snapshot?.overlays?.frames || [])];
   const frame = frameFor(reading, frames);
-  const card = el("article", { class: `x-card${vid === D.selected ? " x-card--sel" : ""}` });
-  card.append(el("header", { class: "x-card__head" },
-    el("h3", { class: "x-card__title", text: name }),
-    D.mode === "REPLAY" || reading.replay ? el("span", { class: "tag tag--replay", text: "recorded" }) : null,
-    el("span", { class: "x-card__time mono", text: reading.observed_at ? `scan ${clock(reading.observed_at)}` : "" })));
-  if (reading.status === "ai_unavailable") { card.append(unavailable(reading.reason)); return card; }
+  const scan = reading.observed_at ? `scan ${clock(reading.observed_at)}` : "";
+  const rec = D.mode === "REPLAY" || reading.replay ? dkRecorded(true) : null;
+  if (reading.status === "ai_unavailable") {
+    return dkRow({ key: `sat-${vid}`, dot: "serious", edge: "serious", title: name, sub: "Satellite reader could not read the picture. Nothing was put in its place.", meta: scan,
+      body: [dkTech(String(reading.reason || "no reason given"))], open: vid === D.selected });
+  }
   if (reading.status === "no_frames") {
-    card.append(el("p", { class: "x-quiet", text: reading.reason || "No satellite picture was available to read." }));
-    return card;
+    return dkRow({ key: `sat-${vid}`, dot: "never", title: name, sub: reading.reason || "No satellite picture was available to read.", meta: scan, cls: "dk-row--muted" });
   }
   const n = reading.boxes.length;
-  card.append(el("dl", { class: "x-facts" },
-    el("dt", { text: "Ash visible?" }), el("dd", { class: reading.ash_visible === "yes" ? "x-facts--caution" : null, text: ASH_WORD[reading.ash_visible] ? capFirst(ASH_WORD[reading.ash_visible]) : "Can't tell" }),
-    el("dt", { text: "Gas (SO2, not ash)" }), el("dd", { text: capFirst(yesNo(reading.so2_visible)) }),
-    el("dt", { text: "Cloud in the way" }), el("dd", { text: capFirst(yesNo(reading.obscured_by_cloud)) }),
-    el("dt", { text: "Ash marked on the picture" }), el("dd", { text: n ? `${n} box${n === 1 ? "" : "es"}` : "none" }),
-    el("dt", { text: "Read by" }), el("dd", { text: readBy(reading) })));
   const placed = frame?.corners || reading.boxes.some((b) => b.polygon);
-  const pic = el("details", { class: "more", dataset: { k: `sat-pic-${vid}` } }, el("summary", { text: "Show the picture" }),
-    frameView(reading, frame),
-    el("p", { class: "x-sub", text: n ? (placed ? "Boxes are placed on the map by code from the picture's bounds." : "These boxes sit on the picture only: it has no map position, so none is drawn on the map.") : "No box was drawn." }),
-    reading.limits ? el("blockquote", { class: "x-quote" }, el("p", { text: reading.limits }), aiMark(reading.model_id, reading.label)) : aiMark(reading.model_id, reading.label),
-    colourKey());
-  card.append(pic, el("p", { class: "x-support" }, icon("i-info"), reading.note || "Supporting evidence only. It never changes the official area, TEPHRA's estimate, the heights or an advisory."));
-  return card;
+  const ash = ASH_WORD[reading.ash_visible] ? capFirst(ASH_WORD[reading.ash_visible]) : "Can't tell";
+  return dkRow({
+    key: `sat-${vid}`, dot: ASH_TONE[reading.ash_visible] || "never", title: [name, rec ? [" ", rec] : null], open: vid === D.selected,
+    sub: `Ash visible? ${ash}${n ? ` · ${n} box${n === 1 ? "" : "es"} marked` : ""}`, meta: el("span", { class: "mono", text: reading.observed_at ? hhmmz(ms(reading.observed_at)) : "" }),
+    body: [
+      dkFacts([
+        ["Ash visible?", ash, reading.ash_visible === "yes" ? { tone: "caution" } : {}],
+        ["Gas (SO2, not ash)", capFirst(yesNo(reading.so2_visible))],
+        ["Cloud in the way", capFirst(yesNo(reading.obscured_by_cloud))],
+        ["Ash marked on the picture", n ? `${n} box${n === 1 ? "" : "es"}` : "none"],
+        ["Read by", readBy(reading) === "code stub (AI off)" ? "code stub (AI off)" : dkChip(readBy(reading), { mono: true })],
+        ["Scan", scan.replace(/^scan /, ""), { mono: true }],
+      ]),
+      el("details", { class: "dk-about", dataset: { k: `sat-pic-${vid}` } },
+        el("summary", { dataset: { focus: `sat-pic-${vid}` } }, icon("i-chevron-right", "icon dk-about__chev"), el("span", { text: "Show the picture" })),
+        el("div", { class: "dk-about__body dk-about__body--flush" },
+          frameView(reading, frame),
+          el("p", { class: "dk-sub__note", text: n ? (placed ? "Boxes are placed on the map by code from the picture's bounds." : "These boxes sit on the picture only: it has no map position, so none is drawn on the map.") : "No box was drawn." }),
+          reading.limits ? el("blockquote", { class: "x-quote" }, el("p", { text: reading.limits }), aiMark(reading.model_id, reading.label)) : aiMark(reading.model_id, reading.label),
+          colourKey())),
+      reading.note ? el("p", { class: "dk-sub__note", text: reading.note }) : null,
+    ],
+  });
 }
 
 function satPanel(D, store) {
   const readings = store.snapshot?.satellite || [];
   const list = readings.slice().sort((a, b) => (a.volcano_id === D.selected ? -1 : 0) - (b.volcano_id === D.selected ? -1 : 0));
   const stub = D.state.llm?.backend === "stub";
-  const kids = [el("p", { class: "dnote", text: stub
-    ? "The latest Himawari picture for each active volcano, read by a code stub while AI is off. It is supporting evidence only and never changes the hazard area, the flight levels or an action."
-    : "A model looks at the latest Himawari picture for each active volcano and says whether it sees ash. It never changes the hazard area, the flight levels or an action." })];
-  if (!list.length) kids.push(empty("No satellite reading yet", "A reading appears when a new picture arrives for an active volcano."));
-  for (const r of list) kids.push(satCard(D, r, D.sits.find((s) => s.volcano_id === r.volcano_id), store));
-  return kids;
+  const bad = readings.filter((r) => r.status === "ai_unavailable").length;
+  const head = dkHeader({
+    id: "sat-head",
+    pills: [dkPill("info", "Supporting evidence only"), bad ? dkPill("serious", `${bad} could not be read`) : null],
+    title: stub ? "The newest Himawari picture for each active volcano, read by a code stub while AI is off." : "A model looks at the newest Himawari picture for each active volcano and says whether it sees ash.",
+    sub: "Supporting evidence only. It never changes the official area, TEPHRA's estimate, the heights or an advisory.",
+  });
+  const body = list.length
+    ? dkList(list.map((r) => satRow(D, r, D.sits.find((s) => s.volcano_id === r.volcano_id), store)), { first: 4, key: "sat" })
+    : dkEmpty("No satellite reading yet", "A reading appears when a new picture arrives for an active volcano.");
+  return [dkSection("sat-head", head, body, el("div", { class: "dk-abouts" }, dkAbout("How the satellite check works", "sat",
+    stub ? "The latest Himawari picture for each active volcano, read by a code stub while AI is off. It is supporting evidence only and never changes the hazard area, the flight levels or an action."
+      : "A model looks at the latest Himawari picture for each active volcano and says whether it sees ash. It never changes the hazard area, the flight levels or an action. Colour alone cannot separate ash from dust, and a picture gives no height.")))];
 }
 
 const capFirst = (t) => (t ? t[0].toUpperCase() + t.slice(1) : t);
@@ -181,60 +190,70 @@ const capFirst = (t) => (t ? t[0].toUpperCase() + t.slice(1) : t);
 // ------------------------------------------------------------------ Notices
 
 const LANG = { en: "EN", id: "ID", ja: "JA", fil: "FIL" };
-const langBadge = (code) => el("span", { class: "lang", title: { EN: "English", ID: "Indonesian", JA: "Japanese", FIL: "Filipino" }[LANG[code]] || "Another language" }, LANG[code] || "??");
+const LANG_NAME = { EN: "English", ID: "Indonesian", JA: "Japanese", FIL: "Filipino" };
+const langBadge = (code) => el("span", { class: "lang", title: LANG_NAME[LANG[code]] || "Another language" }, LANG[code] || "??");
 
 const isJma = (n) => n.source_kind === "jma_xml";
 
-function noticeStatus(n) {
-  if (isJma(n)) return pill("ok", "Verified", "Read by code from JMA's published XML. No model was used.");
-  if (n.status === "verified") return pill("ok", "Verified", "Every claim was found word for word in the notice and checked by code.");
-  if (n.status === "ai_unavailable") return pill("serious", "AI unavailable", n.reason || "");
-  return pill("caution", "Not verified", n.reason || "A check failed, so nothing from this notice entered the picture.");
+function noticeState(n) {
+  if (isJma(n)) return ["ok", "Verified", "Read by code from JMA's published XML. No model was used."];
+  if (n.status === "verified") return ["ok", "Verified", "Every claim was found word for word in the notice and checked by code."];
+  if (n.status === "ai_unavailable") return ["serious", "AI unavailable", n.reason || ""];
+  return ["caution", "Not verified", n.reason || "A check failed, so nothing from this notice entered the picture."];
 }
 
 // A JMA report comes from /api/notices like a pasted notice but was parsed by code from JMA's XML:
 // its fields carry no quoted evidence and no model is named.
-function noticeCard(n) {
-  const card = el("article", { class: "x-card" });
-  card.append(el("header", { class: "x-card__head" },
-    langBadge(n.language), noticeStatus(n),
-    isJma(n) ? el("span", { class: "x-card__title x-card__title--sm", text: `JMA · ${n.vona?.volcano_name || "volcano report"}` }) : null,
-    n.replay ? el("span", { class: "tag tag--replay", text: "recorded" }) : null,
-    el("span", { class: "x-card__time mono", text: clock(n.created_at) })));
-  if (n.status === "ai_unavailable") card.append(unavailable(n.reason));
-  else if (n.status === "unverified") card.append(el("p", { class: "x-quiet", text: (n.reason || "Could not be verified.").replace(/^NOT VERIFIED:\s*/i, "") }));
-  if (n.fields?.length) {
-    const dl = el("dl", { class: "x-fields" });
-    for (const f of n.fields) {
-      dl.append(el("dt", { text: f.name.replace(/_/g, " ") }), el("dd", {}, el("span", { class: "mono", text: f.derived || f.value }), f.evidence ? el("q", { class: "x-fields__ev", text: f.evidence }) : null));
-    }
-    card.append(dl);
-  }
-  if (n.problems?.length) card.append(el("ul", { class: "x-problems" }, ...n.problems.map((p) => el("li", { text: p }))));
-  if (isJma(n)) card.append(el("p", { class: "x-sub mono", text: n.id }));
-  else if (n.status !== "ai_unavailable") card.append(aiMark(n.model_id, n.label));
-  return card;
+function noticeRow(n) {
+  const [tone, word, why] = noticeState(n);
+  const title = isJma(n) ? `JMA · ${n.vona?.volcano_name || "volcano report"}` : "Pasted notice";
+  const fields = (n.fields || []).map((f) => [capFirst(f.name.replace(/_/g, " ")), el("span", {}, el("span", { class: "mono", text: f.derived || f.value }), f.evidence ? [" ", el("q", { class: "x-fields__ev", text: f.evidence })] : null)]);
+  return dkRow({
+    key: `notice-${n.id}`, dot: tone, edge: tone === "serious" ? "serious" : null,
+    title: [langBadge(n.language), " ", title, n.replay ? [" ", dkRecorded(true)] : null],
+    sub: `${word}${n.fields?.length ? ` · ${plural(n.fields.length, "claim")}` : ""}`,
+    meta: el("span", { class: "mono", text: clock(n.created_at) }),
+    body: [
+      el("p", { class: "dk-sub__note", text: `${LANG_NAME[LANG[n.language]] || "Another language"}. ${why}` }),
+      n.status === "ai_unavailable" ? dkNote("serious", `The notice reader could not read it: ${String(n.reason || "no reason given").replace(/^AI UNAVAILABLE:?\s*/i, "")}. Nothing was put in its place.`, { role: "status" }) : null,
+      n.status === "unverified" ? dkNote("caution", (n.reason || "Could not be verified.").replace(/^NOT VERIFIED:\s*/i, "")) : null,
+      fields.length ? dkFacts(fields) : null,
+      n.problems?.length ? el("ul", { class: "x-problems" }, ...n.problems.map((p) => el("li", { text: p }))) : null,
+      !isJma(n) && n.status !== "ai_unavailable" ? aiMark(n.model_id, n.label) : null,
+      isJma(n) ? dkTech(n.id) : null,
+    ],
+  });
 }
 
 function noticesPanel() {
-  const kids = [];
   if (!ext.loaded.notices) return [loadingBox()];
-  if (ext.errors.notices) return [errBox("Notices", ext.errors.notices)];
-  const pasted = ext.notices.filter((n) => !isJma(n));
-  const jma = ext.notices.filter(isJma);
-  const newest = ext.notices.slice().sort((a, b) => ms(b.created_at) - ms(a.created_at))[0];
-  kids.push(el("p", { class: "dsum", text: ext.notices.length ? `${ext.notices.length} notice${ext.notices.length === 1 ? "" : "s"} · newest ${clock(newest.created_at)}` : "No notices yet" }),
-    el("p", { class: "dnote", text: "Notices pasted on the Desk, and JMA volcano reports. A pasted notice is read by a model, then every claim is checked against its own words; only a verified notice can enter the picture. JMA reports are read by code from JMA's XML." }));
-  if (!ext.notices.length) { kids.push(empty("Nothing to show", "Paste a notice on the Desk (EN, ID, JA or FIL) and it shows up here.")); return kids; }
-  kids.push(noticeCard(newest));
-  const rest = ext.notices.filter((n) => n !== newest);
-  if (rest.length) {
-    const more = el("details", { class: "more", dataset: { k: "notices-all" } }, el("summary", { text: `All notices and their claims (${ext.notices.length})` }));
-    if (pasted.length) more.append(section(`Pasted notices · ${pasted.length}`, ...pasted.map(noticeCard)));
-    if (jma.length) more.append(section(`JMA reports · ${jma.length}`, ...jma.map(noticeCard)));
-    kids.push(more);
-  }
-  return kids;
+  if (ext.errors.notices) return [dkNote("caution", `Notices unavailable: ${ext.errors.notices}`, { role: "status" })];
+  const all = ext.notices.slice().sort((a, b) => ms(b.created_at) - ms(a.created_at));
+  const pasted = all.filter((n) => !isJma(n));
+  const jma = all.filter(isJma);
+  const verified = all.filter((n) => isJma(n) || n.status === "verified").length;
+  const notV = all.length - verified;
+  const newest = all[0];
+  const head = dkHeader({
+    id: "notices-head",
+    pills: newest ? [dkPill(noticeState(newest)[0], `Newest: ${noticeState(newest)[1]}`)] : [],
+    title: all.length ? `${all.length} notice${all.length === 1 ? "" : "s"} · newest ${clock(newest.created_at)}` : "No notices yet",
+    sub: "A notice only enters the picture once every claim is found word for word in it.",
+  });
+  const about = el("div", { class: "dk-abouts" }, dkAbout("How notices are checked", "notices", "Notices pasted on the Desk, and JMA volcano reports. A pasted notice is read by a model, then every claim is checked against its own words; only a verified notice can enter the picture. JMA reports are read by code from JMA's XML."));
+  if (!all.length) return [dkSection("notices-head", head, dkEmpty("Nothing to show", "Paste a notice on the Desk (EN, ID, JA or FIL) and it shows up here.", el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Open the Desk ›" })), about)];
+  const tiles = dkTiles([
+    { label: "Notices", value: String(all.length) },
+    { label: "Verified", value: String(verified), tone: verified ? "ok" : null },
+    { label: "Not verified", value: String(notV), tone: notV ? "caution" : null },
+  ], "Notices in numbers");
+  const newestRows = all.slice(0, 3).map(noticeRow);
+  const rest = all.slice(3);
+  const more = rest.length ? el("details", { class: "dk-about", dataset: { k: "notices-all" } }, el("summary", { dataset: { focus: "notices-all" } }, icon("i-chevron-right", "icon dk-about__chev"), el("span", { text: `All notices and their claims (${all.length})` })),
+    el("div", { class: "dk-about__body dk-about__body--flush" },
+      pasted.length ? dkGroup(`Pasted notices · ${pasted.length}`, null, dkList(pasted.map(noticeRow), { first: 5, key: "notices-pasted" })) : null,
+      jma.length ? dkGroup(`JMA reports · ${jma.length}`, null, dkList(jma.map(noticeRow), { first: 5, key: "notices-jma" })) : null)) : null;
+  return [dkSection("notices-head", head, tiles, dkGroup("Newest", null, dkList(newestRows, { key: "notices-new" })), more, about)];
 }
 
 // ------------------------------------------------------------------ Recovery board
@@ -245,20 +264,11 @@ const PLAN_STATUS = {
 };
 const LEVEL = (ft) => (ft == null ? "?" : ft <= 0 ? "SFC" : `FL${String(Math.round(ft / 100)).padStart(3, "0")}`);
 
-function totalsGrid(t) {
-  const cell = (n, l, cls) => el("div", { class: `x-stat${cls ? ` x-stat--${cls}` : ""}` }, el("dd", { text: String(n) }), el("dt", { text: l }));
-  return el("dl", { class: "x-stats" },
-    cell(t.kept_flights, "kept"), cell(t.delayed_flights, "delayed", t.delayed_flights ? "caution" : ""),
-    cell(t.cancelled_flights, "cancelled", t.cancelled_flights ? "serious" : ""), cell(t.swapped_flights, "swapped"),
-    cell(t.pax_affected.toLocaleString("en"), "passengers affected"), cell(usd(t.total_usd), "total cost"));
-}
-
 // The plan in one line, for the summary and the Details index (R8.3 `recovery`).
 export function recoverySummary(plan) {
   if (!plan) return null;
-  const p = planProblem(plan);
-  if (p) return p.words;
-  if (plan.status === "AI_UNAVAILABLE") return `No plan: AI unavailable (${String(plan.unavailable_reason || "no reason given").replace(/^AI UNAVAILABLE:?\s*/i, "")}). A dispatcher must plan the network by hand.`;
+  const fail = planFailure(plan);
+  if (fail) return `${fail.title}. ${fail.sub}`;
   const icaos = [...new Set(plan.closures.map((c) => c.icao))];
   const tops = plan.closures.filter((c) => c.top_ft != null);
   const band = tops.length ? ` ${LEVEL(Math.min(...tops.map((c) => c.base_ft ?? 0)))}/${LEVEL(Math.max(...tops.map((c) => c.top_ft)))}` : "";
@@ -285,89 +295,102 @@ export function replanning(store) {
   return { airports, at };
 }
 
+const solverWords = (sc) => (sc.solver_status === "OPTIMAL" ? "best plan found" : sc.solver_status === "UNKNOWN" ? "solver gave no answer" : String(sc.status || "").toLowerCase());
+const LEDE = "Airports the ash closes, and the day's flights of RFA (a fictional airline, synthetic schedule) re-planned around them. An optimiser (code) builds the scenarios; a model only picks one and explains it. A dispatcher approves on the Desk.";
+
 function recoveryPanel(D, store) {
   const re = replanning(store);
-  const busy = re ? el("p", { class: "dsum x-busy", role: "status" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text: `Re-planning for ${re.airports.join(", ")}…` })) : null;
-  const kids = recoveryKids(D);
-  return busy ? [busy, ...kids.filter((k) => !k.classList?.contains("x-none"))] : kids;
-}
-
-function recoveryKids(D) {
+  const busy = re ? dkNote("info", el("p", {}, el("span", { class: "spinner", "aria-hidden": "true" }), ` Re-planning for ${re.airports.join(", ")}…`), { role: "status", cls: "x-busy" }) : null;
   if (!ext.loaded.recovery) return [loadingBox()];
-  if (ext.errors.recovery) return [errBox("Airport plan", ext.errors.recovery)];
+  if (ext.errors.recovery) return [dkNote("caution", `Airport plan unavailable: ${ext.errors.recovery}`, { role: "status" })];
+  const about = el("div", { class: "dk-abouts" }, dkAbout("How this plan is made", "recovery", LEDE));
   const plans = ext.recovery.slice().sort((a, b) => ms(b.created_at) - ms(a.created_at));
   const plan = plans.find((p) => p.status !== "SUPERSEDED") || plans[0];
-  const lede = el("p", { class: "dnote", text: "Airports the ash closes, and the day's flights of RFA (a fictional airline, synthetic schedule) re-planned around them. An optimiser (code) builds the scenarios; a model only picks one and explains it. A dispatcher approves on the Desk." });
-  if (!plan) return [el("p", { class: "dsum x-none", text: "No RFA airport is closed by the ash right now." }), lede];
-  const [kind, text] = PLAN_STATUS[plan.status] || ["info", plan.status];
-  const problem = planProblem(plan);
-  const kids = [
-    el("p", { class: "dsum", title: `as of ${clock(plan.created_at)}` }, el("span", { text: recoverySummary(plan) }), plan.replay ? el("span", { class: "tag tag--replay", text: "recorded" }) : null),
-    el("p", { class: "dnote", text: `as of ${clock(plan.created_at)} · ${plan.outcome === "STUB" ? "planned by code (AI off)" : `chosen by ${plan.model_id}`} · version ${plan.version}` }),
-  ];
-  if (problem) kids.push(el("div", { class: "x-fail", role: "status" }, st("st-serious", "var(--c-serious)"), el("p", {}, el("strong", { text: problem.words })), techDetail(problem.raw)));
-  else if (plan.status === "AI_UNAVAILABLE") kids.push(unavailable(plan.unavailable_reason));
-  const card = el("article", { class: "x-card x-card--plan" });
-  card.append(el("header", { class: "x-card__head" }, pill(kind, text), el("span", { class: "x-card__time mono", text: clock(plan.created_at) })));
-  card.append(el("h4", { class: "x-h", text: `Closed airports, all volcanoes · ${plan.closures.length}` }),
-    el("ul", { class: "x-closures" }, ...plan.closures.map((c) => el("li", { class: "x-closure" }, el("strong", { class: "mono", text: c.icao }),
-      el("span", { class: "mono", text: `${clock(c.start)} – ${c.open_ended ? "open" : clock(c.end)}` }),
-      // One line written by code; the full reason and every source id stay behind the disclosure.
-      c.summary ? el("span", { class: "x-closure__sum", text: c.summary }) : null,
-      el("details", { class: "x-closure__more" }, el("summary", { text: "Full reason and sources" }),
-        el("p", { class: "x-closure__why", text: c.reason }),
-        c.source_ids?.length ? el("p", { class: "x-closure__src mono", text: c.source_ids.join(" · ") }) : null)))));
+  if (!plan) {
+    return [dkSection("rec-head", dkHeader({ id: "rec-head", pills: [re ? dkPill("info", "Re-planning") : dkPill("ok", "No airport closed")], title: re ? "Closed airports changed: a new plan is on its way." : "No RFA airport is closed by the ash right now." }), busy, about)];
+  }
+  const [tone, word] = PLAN_STATUS[plan.status] || ["info", plan.status];
+  const fail = planFailure(plan);
+  const icaos = [...new Set(plan.closures.map((c) => c.icao))];
+  const t = plan.chosen?.totals;
+  const title = `${plural(icaos.length, "airport")} closed by ash (all volcanoes): ${icaos.join(", ")}.`;
+  const what = fail ? `${fail.title}. ${fail.sub}` : t ? `${plan.status === "DRAFT" ? "Plan waiting on the Desk" : plan.status === "APPROVED" ? "Plan approved" : plan.status === "REJECTED" ? "Plan rejected" : "Plan"}: cancel ${t.cancelled_flights}${t.delayed_flights ? `, delay ${t.delayed_flights}` : ""}, ${usd(t.total_usd)}.` : "No scenario chosen.";
+  const chosenBy = plan.outcome === "STUB" ? dkChip("Planned by code (AI off)") : plan.chosen ? dkChip(plan.model_id, { label: "Chosen by", mono: true }) : dkChip("No plan chosen");
+  const head = dkHeader({
+    id: "rec-head",
+    pills: [dkPill(tone, word), dkRecorded(!!plan.replay)],
+    title, sub: fail ? null : what,
+    chips: [dkChip(`as of ${clock(plan.created_at)}`), chosenBy, dkChip(`version ${plan.version}`)],
+  });
+  const kids = [head, busy];
+  if (fail) {
+    kids.push(dkList([dkRow({ key: "rec-fail", dot: "serious", edge: "serious", title: fail.title, sub: fail.sub, open: false, body: [dkTech(fail.raw)] })], { key: "rec-fail" }));
+  }
+  // closed airports: a row each; the full reason and its sources are one tap further in
+  kids.push(dkGroup(`Closed airports, all volcanoes · ${plan.closures.length}`, null, dkList(plan.closures.map((c) => dkRow({
+    key: `rec-ap-${c.icao}-${c.start}`, dot: "serious", title: c.icao, titleMono: true, sub: c.summary || null,
+    foot: el("span", { class: "mono", text: `${clock(c.start)} – ${c.open_ended ? "open" : clock(c.end)}` }),
+    body: [dkFacts([["Closed from", clock(c.start), { mono: true }], ["Until", c.open_ended ? "open-ended" : clock(c.end), { mono: true }], ["Heights", c.top_ft != null ? `${LEVEL(c.base_ft ?? 0)}–${LEVEL(c.top_ft)}` : null, { mono: true }], ["Radius", c.radius_nm != null ? `${Math.round(c.radius_nm)} NM` : null]]),
+      el("details", { class: "tech x-closure__more" }, el("summary", { text: "Full reason and sources" }),
+        el("p", { class: "tech__line mono", text: c.reason }),
+        c.source_ids?.length ? el("p", { class: "tech__line mono", text: c.source_ids.join(" · ") }) : null)],
+  })), { first: 4, key: "rec-airports" })));
   if (plan.disruption) {
     const d = plan.disruption;
-    card.append(el("p", { class: "x-sub", text: `${d.blocked_flights.length} flights and ${d.blocked_pax.toLocaleString("en")} passengers blocked before re-planning · can still change ${d.free_flights} · can't change (already departed) ${d.frozen_flights}${d.airborne_at_risk?.length ? ` · in the air and at risk: ${d.airborne_at_risk.join(", ")}` : ""}` }));
+    kids.push(dkGroup("Before re-planning", null, dkTiles([
+      { label: "Flights blocked", value: d.blocked_flights.length.toLocaleString("en"), tone: d.blocked_flights.length ? "caution" : null },
+      { label: "Passengers blocked", value: d.blocked_pax.toLocaleString("en") },
+      { label: "Can still change", value: String(d.free_flights) },
+      { label: "Can't change (already departed)", value: String(d.frozen_flights) },
+    ], "Disruption in numbers"), d.airborne_at_risk?.length ? dkNote("caution", `In the air and at risk: ${d.airborne_at_risk.join(", ")}`) : null));
   }
   const chosen = plan.chosen;
   if (chosen) {
-    card.append(el("h4", { class: "x-h" }, "Chosen scenario"), el("p", { class: "x-chosen" }, el("strong", { text: chosen.label }), ` · ${chosen.solver_status === "OPTIMAL" ? "best plan found" : chosen.solver_status === "UNKNOWN" ? "solver gave no answer" : chosen.status.toLowerCase()} (${Math.round(chosen.solve_ms / 1000)} s)`));
-    if (chosen.totals) card.append(totalsGrid(chosen.totals));
-  } else if (plan.status !== "AI_UNAVAILABLE") card.append(el("p", { class: "x-quiet", text: "No scenario chosen." }));
+    const tt = chosen.totals;
+    kids.push(dkGroup("Chosen scenario", `${chosen.label} · ${solverWords(chosen)} (${Math.round(chosen.solve_ms / 1000)} s)`,
+      tt ? dkTiles([
+        { label: "Cancelled", value: String(tt.cancelled_flights), tone: tt.cancelled_flights ? "serious" : null },
+        { label: "Delayed", value: String(tt.delayed_flights), tone: tt.delayed_flights ? "caution" : null },
+        { label: "Passengers affected", value: tt.pax_affected.toLocaleString("en") },
+        { label: "Total cost", value: usd(tt.total_usd) },
+        { label: "Kept", value: String(tt.kept_flights) },
+        { label: "Swapped", value: String(tt.swapped_flights) },
+      ], "Chosen scenario in numbers") : null));
+  } else if (plan.status !== "AI_UNAVAILABLE") kids.push(dkEmpty("No scenario chosen.", null));
   if (plan.scenarios.length > 1) {
     const rows = plan.scenarios.map((sc) => el("tr", { class: sc.id === plan.chosen_scenario_id ? "is-chosen" : null },
-      el("th", { scope: "row", text: sc.label }), el("td", { class: "num", text: sc.totals ? String(sc.totals.cancelled_flights) : "–" }),
+      el("th", { scope: "row" }, sc.id === plan.chosen_scenario_id ? [icon("i-check", "icon"), " "] : null, sc.label, sc.id === plan.chosen_scenario_id ? el("span", { class: "sr-only", text: " (chosen)" }) : null),
+      el("td", { class: "num", text: sc.totals ? String(sc.totals.cancelled_flights) : "–" }),
       el("td", { class: "num", text: sc.totals ? String(sc.totals.delayed_flights) : "–" }), el("td", { class: "num", text: sc.totals ? usd(sc.totals.total_usd) : sc.solver_status === "UNKNOWN" ? "no plan (solver did not finish)" : sc.status })));
-    card.append(el("table", { class: "x-table" }, el("caption", { class: "sr-only", text: "Recovery scenarios" }),
+    kids.push(dkAbout(`Compare the scenarios (${plan.scenarios.length})`, "rec-scen", el("div", { class: "x-tablewrap" }, el("table", { class: "x-table" }, el("caption", { class: "sr-only", text: "Recovery scenarios" }),
       el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Scenario" }), el("th", { scope: "col", class: "num", text: "Cancel" }), el("th", { scope: "col", class: "num", text: "Delay" }), el("th", { scope: "col", class: "num", text: "Cost" }))),
-      el("tbody", {}, ...rows)));
+      el("tbody", {}, ...rows)))));
   }
-  if (plan.rationale) card.append(el("h4", { class: "x-h", text: "Why" }), el("blockquote", { class: "x-quote" }, el("p", { text: plainLine(plan.rationale) }), aiMark(plan.model_id, plan.outcome === "STUB" ? "NO MODEL" : null), techDetail(plan.rationale)));
-  if (plan.risks?.length) card.append(el("h4", { class: "x-h", text: "Risks" }), el("ul", { class: "x-problems" }, ...plan.risks.map((r) => el("li", { text: r }))));
+  if (plan.rationale) kids.push(dkAbout("Why this plan", "rec-why", el("p", { class: "dk-quote", text: plainLine(plan.rationale) }), aiMark(plan.model_id, plan.outcome === "STUB" ? "NO MODEL" : null), techDetail(plan.rationale)));
+  if (plan.risks?.length) kids.push(dkAbout(`Risks (${plan.risks.length})`, "rec-risks", el("ul", { class: "dk-bullets" }, ...plan.risks.map((r) => el("li", { text: r })))));
   const decided = plan.decided_at ? `${plan.status === "REJECTED" ? "Rejected" : "Approved"} by ${(plan.decided_by || "a dispatcher").replace(/^desk:/, "")} at ${hhmmz(ms(plan.decided_at))}` : null;
-  card.append(el("p", { class: "x-approval" }, icon(plan.status === "APPROVED" ? "i-approved" : "i-dispatcher"),
-    decided || (plan.status === "DRAFT" ? "Waiting for a dispatcher. Nothing is sent anywhere." : "No decision.")));
-  kids.push(el("details", { class: "more", dataset: { k: "plan-more" } }, el("summary", { text: "Per-airport reasons, scenarios and numbers" }), card), lede);
-  if (plans.length > 1) kids.push(el("p", { class: "x-sub", text: `${plans.length - 1} earlier plan${plans.length === 2 ? "" : "s"} not shown.` }));
-  return kids;
+  kids.push(dkNote(plan.status === "APPROVED" ? "info" : "info", decided || (plan.status === "DRAFT" ? "Waiting for a dispatcher. Nothing is sent anywhere." : fail ? "No plan to decide on. Nothing is sent anywhere." : "No decision."), { iconId: plan.status === "APPROVED" ? "i-approved" : "i-dispatcher" }));
+  kids.push(about);
+  if (plans.length > 1) kids.push(el("p", { class: "dk-foot", text: `${plans.length - 1} earlier plan${plans.length === 2 ? "" : "s"} not shown.` }));
+  return [dkSection("rec-head", kids)];
 }
 
 // ------------------------------------------------------------------ Proof
 
 const ARM = { D: "Baseline: code only, no model call", G: "With the Gemini Plume Reader" };
 
-function meter(label, value, tone) {
-  const w = value == null ? 0 : Math.max(0, Math.min(1, value)) * 100;
-  return el("div", { class: "x-meter" },
-    el("div", { class: "x-meter__top" }, el("span", { text: label }), el("strong", { class: "mono", text: pct(value) })),
-    el("div", { class: `x-meter__bar x-meter__bar--${tone}`, role: "img", "aria-label": `${label} ${pct(value)}` }, fill(w)));
-}
-
 function armStats(arm, s, lead) {
   const gain = s.coverage_gain_mean;
   const l = (lead || [])[0];
-  const box = el("div", { class: "x-arm" }, el("h4", { class: "x-arm__title", text: ARM[arm] || `Arm ${arm}` }),
-    el("dl", { class: "x-stats x-stats--proof" },
-      el("div", { class: "x-stat" }, el("dd", { text: gain == null ? "n/a" : `${gain >= 0 ? "+" : ""}${(gain * 100).toFixed(2)} pts` }), el("dt", { text: "coverage gain vs official" })),
-      el("div", { class: "x-stat" }, el("dd", { text: pct(s.overwarn_mean, 0) }), el("dt", { text: "over-warning" })),
-      el("div", { class: "x-stat" }, el("dd", { text: s.excess_vs_official_mean == null ? "n/a" : `${s.excess_vs_official_mean.toFixed(2)}×` }), el("dt", { text: "area vs official" })),
-      el("div", { class: "x-stat" }, el("dd", { text: l?.median_min == null ? "n/a" : `${Math.round(l.median_min)} min` }), el("dt", { text: l ? `median lead · ${l.n_covered_before_official} of ${l.n_footprints} earlier` : "median lead" })),
-      el("div", { class: "x-stat" }, el("dd", { text: pct(s.vertical_hit_rate, 0) }), el("dt", { text: "top level reached" })),
-      el("div", { class: "x-stat" }, el("dd", { text: s.ticks_scored.toLocaleString("en") }), el("dt", { text: "moments scored" }))));
-  if (arm === "D") box.append(el("p", { class: "x-sub", text: "This baseline makes no model call, so the zone equals the official area and the gain is zero by design. It checks the safety floor and the scoring; it is not a result for the AI." }));
-  return box;
+  return dkGroup(ARM[arm] || `Arm ${arm}`, null, dkTiles([
+    { label: "Coverage gain vs official", value: gain == null ? "n/a" : `${gain >= 0 ? "+" : ""}${(gain * 100).toFixed(2)} pts` },
+    { label: "Over-warning", value: pct(s.overwarn_mean, 0) },
+    { label: "Area vs official", value: s.excess_vs_official_mean == null ? "n/a" : `${s.excess_vs_official_mean.toFixed(2)}×` },
+    { label: "Median lead", value: l?.median_min == null ? "n/a" : `${Math.round(l.median_min)} min`, sub: l ? `${l.n_covered_before_official} of ${l.n_footprints} earlier` : null },
+    { label: "Top level reached", value: pct(s.vertical_hit_rate, 0) },
+    { label: "Moments scored", value: s.ticks_scored.toLocaleString("en") },
+  ], `${ARM[arm] || arm} in numbers`),
+  arm === "D" ? el("p", { class: "dk-sub__note", text: "This baseline makes no model call, so the zone equals the official area and the gain is zero by design. It checks the safety floor and the scoring; it is not a result for the AI." }) : null);
 }
 
 export function proofTicks() {
@@ -376,34 +399,47 @@ export function proofTicks() {
   return Object.values(b.overall).reduce((n, a) => n + (a.ticks_scored || 0), 0);
 }
 
+const meterRow = (label, value, tone) => el("div", { class: "dk-meterrow" },
+  el("div", { class: "dk-meterrow__top" }, el("span", { text: label }), el("strong", { class: "mono", text: pct(value) })),
+  dkMeter({ value: value == null ? 0 : value * 100, max: 100, tone, label: `${label} ${pct(value)}` }));
+
 function proofPanel() {
   if (!ext.loaded.backtest) return [loadingBox()];
-  if (ext.errors.backtest) return [errBox("Track record", ext.errors.backtest)];
+  if (ext.errors.backtest) return [dkNote("caution", `Track record unavailable: ${ext.errors.backtest}`, { role: "status" })];
   const b = ext.backtest;
   const arms = Object.keys(b.overall || {});
-  const kids = [el("div", { class: "x-caveat", role: "note" }, icon("i-alert"),
-    el("div", {}, el("strong", { text: "Later official areas are not ash truth." }), el("p", { text: "TEPHRA is scored against the official areas issued after each moment. Those are partly built from the same reports and satellite data, so this measures agreement, not what the ash did." })))];
+  const ticks = proofTicks() || 0;
+  const head = dkHeader({
+    id: "proof-head",
+    pills: [arms.includes("G") ? dkPill("ok", "Gemini arm scored") : dkPill("caution", "Baseline only"), dkRecorded(true, "recorded replays")],
+    title: "How TEPHRA's area compares with the official areas issued later, scored by code on recorded replays.",
+  });
+  const kids = [head,
+    dkNote("caution", [el("p", {}, el("strong", { text: "Later official areas are not ash truth." })), "TEPHRA is scored against the official areas issued after each moment. Those are partly built from the same reports and satellite data, so this measures agreement, not what the ash did."], { role: "note" }),
+    dkTiles([
+      { label: "Safety floor", value: String(b.floor_violations), of: " violations", tone: b.floor_violations === 0 ? "ok" : "serious", sub: "the estimate never left out an official area" },
+      { label: "Future data used", value: String(b.input_leaks), tone: b.input_leaks === 0 ? "ok" : "serious", sub: "inputs stamped after the moment; must be zero" },
+      { label: "Moments scored", value: ticks.toLocaleString("en"), sub: plural(b.cases.length, "case") },
+    ], "Checks"),
+  ];
   for (const a of arms) {
-    kids.push(el("div", { class: "x-arm x-arm--sum" }, el("h4", { class: "x-arm__title", text: ARM[a] || `Arm ${a}` }),
-      meter("Area TEPHRA covers of later official areas", b.overall[a].coverage_mean, "tephra"),
-      meter("Area the official area alone covers", b.overall[a].coverage_official_mean, "official")));
+    kids.push(dkGroup(ARM[a] || `Arm ${a}`, null, el("div", { class: "dk-card" },
+      meterRow("Area TEPHRA covers of later official areas", b.overall[a].coverage_mean, "tephra"),
+      meterRow("Area the official area alone covers", b.overall[a].coverage_official_mean, "official"))));
   }
-  if (!arms.includes("G")) kids.push(el("p", { class: "x-sub x-sub--warn", text: "The Gemini arm has not been run on these cases, so no improvement is claimed." }));
+  if (!arms.includes("G")) kids.push(dkNote("info", "The Gemini arm has not been run on these cases, so no improvement is claimed."));
   const rows = b.cases.map((c) => el("tr", {},
     el("th", { scope: "row" }, el("span", { class: "x-case__name", text: c.label.split(":")[0] }), el("span", { class: "x-case__meta mono", text: `${c.case_id} · arm ${c.arm}` })),
     el("td", { class: "num", text: pct(c.summary.coverage_mean) }), el("td", { class: "num", text: pct(c.summary.coverage_official_mean) }),
     el("td", { class: "num", text: pct(c.summary.overwarn_mean, 0) }), el("td", { class: "num", text: c.summary.ticks_scored.toLocaleString("en") })));
-  kids.push(el("details", { class: "more", dataset: { k: "proof-more" } }, el("summary", { text: "Every number, check and case" }),
-    ...arms.map((a) => armStats(a, b.overall[a], (b.overall_lead || {})[a])),
-    el("div", { class: "x-checks" },
-      pill(b.floor_violations === 0 ? "ok" : "serious", `Safety floor: ${b.floor_violations} violations`, "A violation means the estimate left out part of an official area."),
-      pill(b.input_leaks === 0 ? "ok" : "serious", `Future data used: ${b.input_leaks}`, "Inputs stamped after the replayed moment. Must be zero.")),
-    section("Per case", el("div", { class: "x-tablewrap" }, el("table", { class: "x-table x-table--cases" }, el("caption", { class: "sr-only", text: "Backtest results per case" }),
+  kids.push(el("div", { class: "dk-abouts" },
+    dkAbout("Every number", "proof-more", ...arms.map((a) => armStats(a, b.overall[a], (b.overall_lead || {})[a]))),
+    dkAbout(`Per case (${b.cases.length})`, "proof-cases", el("div", { class: "x-tablewrap" }, el("table", { class: "x-table x-table--cases" }, el("caption", { class: "sr-only", text: "Backtest results per case" }),
       el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Case" }), el("th", { scope: "col", class: "num", text: "TEPHRA" }), el("th", { scope: "col", class: "num", text: "Official" }), el("th", { scope: "col", class: "num", text: "Over-warn" }), el("th", { scope: "col", class: "num", text: "Moments" }))),
       el("tbody", {}, ...rows)))),
-    section("Caveats", el("ul", { class: "x-problems x-problems--plain" }, ...(b.caveats || []).map((c) => el("li", { text: c })))),
-    el("p", { class: "x-sub mono", text: `Scored by code, no model writes a number · generated ${clock(b.generated_at)} · every case is a recorded replay` })));
-  return kids;
+    dkAbout(`Caveats (${(b.caveats || []).length})`, "proof-caveats", el("ul", { class: "dk-bullets" }, ...(b.caveats || []).map((c) => el("li", { text: c }))))),
+  el("p", { class: "dk-foot mono", text: `Scored by code, no model writes a number · generated ${clock(b.generated_at)} · every case is a recorded replay` }));
+  return [dkSection("proof-head", kids)];
 }
 
 // ------------------------------------------------------------------ AI helpers (docs/UI-DETAILS-PANELS.md 3)
@@ -541,7 +577,7 @@ function helperRow(a, store, n, stub) {
   if (a.id === "duty") {
     body = [...dutyDetail(run, !!store.snapshot), a.detail ? dkTech(`newest step: ${a.detail}`) : null];
   } else if (a.id === "backtest") {
-    body = [dkFacts([["Status", a.state === "done" ? "Done: scored by code, no model" : "Not run yet"], ["Cases scored", a.state === "done" ? String(a.count) : null], ["Generated", Number.isFinite(last) ? `${dayMon(last)} ${hhmmz(last)}` : null, { mono: true }]]),
+    body = [dkFacts([["Status", a.state === "done" ? "Done: scored by code, no model" : "Not run yet"], ["Cases scored", a.state === "done" ? String(a.count) : null], ["Generated", Number.isFinite(last) ? dayTime(last) : null, { mono: true }]]),
       dkLink("Track record ›", { act: "details-sec", sec: "proof", focus: "helper-proof" })];
   } else {
     const status = a.state === "idle" ? `Quiet: not seen in the newest ${n} steps` : a.state === "failed" ? "Failed: its newest step failed" : a.state === "running" ? "Working on it" : "Done: its newest step worked";
@@ -618,18 +654,21 @@ export function renderXPanel(key, D, store) {
 // ------------------------------------------------------------------ a reroute, inside Details › This flight
 
 export function rerouteBlock(props, D) {
-  const dl = el("dl", { class: "pop__facts" });
-  const row = (k, v, mono) => { if (v == null || v === "") return; dl.append(el("dt", { text: k }), el("dd", { class: mono ? "mono" : null, text: String(v) })); };
-  row("Kind", props.kind === "REJOIN_TRACK" ? "Go around, then rejoin the track" : "Direct to destination");
-  row("Side", props.side ? props.side.toLowerCase() : null);
-  row("Extra distance", props.extra_nm != null ? `+${Math.round(props.extra_nm)} NM` : null, true);
-  row("Extra time", props.extra_min != null ? `+${Math.round(props.extra_min)} min` : null, true);
-  row("Status", props.status ? String(props.status).toLowerCase() : null);
+  const kind = props.kind === "REJOIN_TRACK" ? "Go around, then rejoin the track" : "Direct to destination";
+  const plus = [props.extra_nm != null ? `+${Math.round(props.extra_nm)} NM` : null, props.extra_min != null ? `+${Math.round(props.extra_min)} min` : null].filter(Boolean).join(" · ");
   const wps = Array.isArray(props.waypoint_labels) ? props.waypoint_labels : [];
-  if (wps.length) row("Turn points", wps.join("  "), true);
-  const kids = [el("h3", { class: "sec__title", text: "Suggested reroute" }), el("p", { class: "dnote", text: "Computed by code around TEPHRA's estimate · a draft route for the dispatcher" }), dl];
-  if (props.route_string) kids.push(el("p", { class: "pop__route mono", text: props.route_string }));
-  return el("section", { class: "sec reroute" }, ...kids);
+  const ok = !props.status || /^OK$/i.test(String(props.status));
+  return dkList([dkRow({
+    key: "reroute", dot: icon("i-route", "icon", "var(--c-reroute, var(--c-info))"), edge: ok ? null : "caution",
+    title: "Suggested reroute", sub: ok ? kind : `${kind} · ${String(props.status).toLowerCase().replace(/_/g, " ")}`, meta: plus || null,
+    body: [
+      el("p", { class: "dk-sub__note", text: "Computed by code around TEPHRA's estimate · a draft route for the dispatcher" }),
+      dkFacts([["Kind", kind], ["Side", props.side ? props.side.toLowerCase() : null], ["Extra distance", props.extra_nm != null ? `+${Math.round(props.extra_nm)} NM` : null, { mono: true }],
+        ["Extra time", props.extra_min != null ? `+${Math.round(props.extra_min)} min` : null, { mono: true }], ["Status", props.status ? String(props.status).toLowerCase().replace(/_/g, " ") : null],
+        ["Turn points", wps.length ? wps.join("  ") : null, { mono: true }]]),
+      props.route_string ? el("p", { class: "pop__route mono", text: props.route_string }) : null,
+    ],
+  })], { key: "reroute" });
 }
 
 // Satellite context scale (5.6): only for layers whose NASA GIBS entry publishes a colour map
