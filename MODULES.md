@@ -1955,7 +1955,7 @@ failure leaves traffic alone and prints the rollback to the previous revision. I
 `deploy/ar-cleanup.json` (keep `keep-*` tags, keep the 5 newest, delete the rest after 30
 days) and adds `TEPHRA_KEEP_TAG` to the image when set. `scripts/live_smoke.sh <url>
 [--read-only] [--watch MINUTES]` (python3 standard library, public endpoints, no secrets)
-checks `/healthz`, `/api/state` (tick age under 3 x `TICK_INTERVAL_S`, policy hash against
+checks `/health`, `/api/state` (tick age under 3 x `TICK_INTERVAL_S`, policy hash against
 `/api/policy` and the newest pin in `tests/test_policy.py`, `EXPECT_SHA`, `EXPECT_MODE`,
 `EXPECT_CASE`, store health when exposed), `/` and `/desk` with CSP and their `/static/`
 files, a first SSE event within 30 s, and a refused token-less `POST /tasks/tick`; it exits
@@ -2503,7 +2503,7 @@ request input.
 | `GET /privacy` | `tephra/web/privacy.html`, the privacy notice (linked from the Wall footer, the Desk sign-in and README) |
 | `GET /robots.txt` | `text/plain`: `User-agent: *` and `Disallow: /`; every page also carries `<meta name="robots" content="noindex, nofollow">` |
 | `GET /static/{path}` | files under `tephra/web/` (`wall.js`, `wall.css`, `desk.js`, `desk.css`, `favicon.svg` (the icon every page links), ...) |
-| `GET /healthz` | `{"ok": true, "mode": "LIVE"}` |
+| `GET /health`, `GET /healthz` | `{"ok": true, "mode": "LIVE"}`; probe `/health` on Cloud Run, which reserves `/healthz` |
 
 Every response carries:
 `Content-Security-Policy: default-src 'self'; script-src 'self'

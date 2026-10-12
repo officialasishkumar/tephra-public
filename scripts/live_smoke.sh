@@ -115,7 +115,8 @@ def check(name, func):
 
 
 def healthz():
-    status, _, body = fetch("/healthz")
+    # Cloud Run's front end answers /healthz itself with a 404 (reserved path), so probe /health.
+    status, _, body = fetch("/health")
     mode = json.loads(body).get("mode") if status == 200 else None
     report(status == 200 and bool(mode), "healthz", f"{status}, mode={mode}")
 

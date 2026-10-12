@@ -321,8 +321,12 @@ async def doc_page(doc_id: str) -> FileResponse:
     return await _page("doc.html")
 
 
+@pages.get("/health", response_model=Health)
 @pages.get("/healthz", response_model=Health)
 async def healthz(runtime: RuntimeDep) -> Response:
+    """``/health`` is the one to probe on Cloud Run, whose front end answers ``/healthz``
+    itself with a 404 (Google reserves URL paths ending in z); ``/healthz`` stays for local
+    runs and other hosts."""
     return _json(Health(ok=True, mode=runtime.mode))
 
 
@@ -837,7 +841,7 @@ def _capped(receive: Receive, limit: int) -> Receive:
 
 def _log_request(scope: Scope, status: int, elapsed_s: float) -> None:
     path: str = scope.get("path", "")
-    level = logging.DEBUG if path == "/healthz" else logging.INFO
+    level = logging.DEBUG if path in {"/health", "/healthz"} else logging.INFO
     fields = {
         "httpRequest": {
             "requestMethod": scope.get("method", ""),
