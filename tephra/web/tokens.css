@@ -121,6 +121,7 @@
   --map-label-minor: #7d8a97; /* basemap place names, inactive volcano names (5.6:1 on land) */
   --map-label-fir: #7f92a6; /* FIR names along the boundary line (6.1:1 on land) */
   --map-label-vaac: #8a9bb0; /* VAAC area names (6.9:1 on land) */
+  --map-flight-back: #9c6c00; /* the plane behind the front one in a flight-group marker */
   --map-official-fill-opacity: 0.14;
   --map-tephra-fill-opacity: 0.07;
 

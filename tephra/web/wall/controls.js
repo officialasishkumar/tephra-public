@@ -119,6 +119,7 @@ export function helpContent(enabled) {
       keyRow(sw("lg-area-hatch", "sw--tephra"), "Where TEPHRA widened the area", null),
       keyRow(sw("lg-area-crew", "sw--crew"), "Crew report caution area, with a pin at the report", "operator policy A; not a VAA or SIGMET; drawn beneath the official area"),
       keyRow(sw("i-aircraft", "sw--exposed"), "RFA flight in or heading in", "RFA is a fictional airline"),
+      keyRow(sw("lg-flight-group", "sw--exposed"), "Six or more RFA flights close together", "the badge is the count; click to zoom in"),
       keyRow(sw("i-aircraft", "sw--crew"), "RFA flight on a crew report's route", "when TEPHRA's area does not reach it"),
       keyRow(sw("i-aircraft", "sw--aircraft"), "Other aircraft (not RFA)", null),
       keyRow(sw("lg-route", "sw--route"), "Route (origin to destination)", "the callsign's usual route (VRS standing data), not the filed flight plan; the small tags at its ends are the airport codes"),

@@ -1,7 +1,7 @@
 // Map images drawn on a canvas and added with map.addImage. Under TEPHRA's CSP MapLibre
 // cannot load data: or SVG images (docs/UI-DESIGN.md 15), so every symbol is drawn here:
-// the SDF plane, the SDF arrowhead, the eruption symbols, the stretchable label boxes, the
-// hatch pattern and the crew report pin.
+// the SDF plane, the flight-group marker, the SDF arrowhead, the eruption symbols, the
+// stretchable label boxes, the hatch pattern and the crew report pin.
 
 const MATERIAL_FLIGHT =
   "M409-421 137-311q-20 8-38.5-4T80-350v-18q0-11 5-19.5T98-402l311-219v-188q0-29 21-50t50-21q29 0 50 21t21 50v188l311 219q8 6 13 14.5t5 19.5v18q0 23-18.5 35t-38.5 4L551-421v172l109 76q7 5 11 12.5t4 15.5v19q0 17-13.5 27.5T631-93l-151-46-151 46q-17 5-30.5-5.5T285-126v-19q0-8 4-15.5t11-12.5l109-76v-172Z";
@@ -177,6 +177,52 @@ function crewPin(fill, size = 48) {
   ctx.fillStyle = "#05070a";
   ctx.fill();
   return ctx.getImageData(0, 0, size, size);
+}
+
+// A group of RFA flights close together on the map (the exposed-cluster layer): an upright plane
+// in the TEPHRA colour, a darker one behind it, and the count in a badge at the top right. One
+// image per count, drawn when the map first asks for it (styleimagemissing in map.js).
+export function flightGroupImage(n, fill, back) {
+  const r = 2, P = 30, gap = 8, pad = 3, bh = 18, behind = [-7, 6];
+  const text = String(n);
+  const font = `700 ${12 * r}px "IBM Plex Sans", system-ui, sans-serif`;
+  const probe = canvas(1, 1);
+  probe.font = font;
+  const bw = Math.max(bh, Math.ceil(probe.measureText(text).width / r) + 11);
+  const cx = pad - behind[0] + P / 2, cy = pad + bh / 2 + P / 2 - 2;
+  const w = Math.ceil(cx + P / 2 - gap + bw + pad) * r, h = Math.ceil(cy + P / 2 + behind[1] + pad) * r;
+  const ctx = canvas(w, h);
+  const path = new Path2D(MATERIAL_FLIGHT);
+  const plane = (x, y, color) => {
+    ctx.save();
+    ctx.translate(x * r, y * r);
+    const s = (P * r) / 960;
+    ctx.scale(s, s);
+    ctx.translate(-480, 480);
+    ctx.lineJoin = "round";
+    ctx.lineWidth = (3 * r) / s;
+    ctx.strokeStyle = "#05070a";
+    ctx.stroke(path);
+    ctx.fillStyle = color;
+    ctx.fill(path);
+    ctx.restore();
+  };
+  plane(cx + behind[0], cy + behind[1], back);
+  plane(cx, cy, fill);
+  const bx = (cx + P / 2 - gap) * r;
+  ctx.beginPath();
+  ctx.roundRect(bx, pad * r, bw * r, bh * r, (bh / 2) * r);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.lineWidth = 2 * r;
+  ctx.strokeStyle = "#05070a";
+  ctx.stroke();
+  ctx.fillStyle = "#05070a";
+  ctx.font = font;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, bx + (bw * r) / 2, (pad + bh / 2 + 0.5) * r);
+  return ctx.getImageData(0, 0, w, h);
 }
 
 let cache = null;

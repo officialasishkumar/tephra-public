@@ -337,6 +337,7 @@ export function keyRows(D, ui) {
   if (ui.layers.tephra && D.cones.length) rows.push([sw("lg-area-tephra", "sw--tephra"), "TEPHRA's estimate", "never smaller than official"]);
   if (D.crew.drawn.length) rows.push([sw("lg-area-crew", "sw--crew"), "Crew report area", null]);
   if (ui.layers.aircraft && D.exposed.length) rows.push([sw("i-aircraft", "sw--exposed"), "RFA flight in or heading in", null]);
+  if (ui.layers.aircraft && D.exposed.length >= 6) rows.push([sw("lg-flight-group", "sw--exposed"), "RFA flights close together", "click to zoom in"]);
   const step = D.official.find((f) => f.properties.show && f.properties.step !== "now");
   if (step) rows.push([sw("lg-area-forecast", "sw--official"), `Official forecast area\u00a0(${step.properties.layer.replace("FCST+", "+").replace("H", "\u00a0h")})`, null]);
   if (ui.layers.aircraft && D.aircraft.some((f) => !f.properties.exposed)) rows.push([sw("i-aircraft", "sw--aircraft"), "Other aircraft (not RFA)", null]);

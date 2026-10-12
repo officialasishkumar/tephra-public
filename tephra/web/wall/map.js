@@ -3,7 +3,7 @@
 // compare (8.1, 8.2). Feed text reaches the map only as symbol text, never as HTML.
 
 import { addExtLayers, updateExtLayers, setExtVisible } from "./ext-map.js";
-import { addImages } from "./images.js";
+import { addImages, flightGroupImage } from "./images.js";
 import { officialLabelText, tephraLabelText, LEVEL_MAX } from "./derive.js";
 import { GASES_SCOPE_SHORT } from "./glossary.js";
 import {
@@ -36,9 +36,6 @@ export const SAT = {
 // thinned when zoomed out, so a busy region does not bury the flights that matter.
 // RFA flights in or heading into TEPHRA's area, and those only a crew report flags, are drawn large.
 const RFA = ["any", ["==", ["get", "exposed"], true], ["==", ["get", "crew_only"], true]];
-// Where the flight-count box sits on its cluster: centred on the planes, or opening inwards
-// when the cluster is near the left or right edge of the map.
-const CLUSTER_ANCHORS = { mid: ["center", "left", "right"], right: ["right", "center", "left"], left: ["left", "center", "right"] };
 const AC_SIZE = ["interpolate", ["linear"], ["zoom"], 3, ["case", RFA, 0.7, 0.3], 6, ["case", RFA, 0.7, 0.42], 8, ["case", RFA, 0.7, 0.5]];
 const GIBS = (layer, time, matrix) => `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${layer}/default/${time}/${matrix}/{z}/{y}/{x}.png`;
 
@@ -60,7 +57,7 @@ export function readTokens() {
     observer: tok("--c-observer"), observerText: tok("--c-observer-text"),
     crew: tok("--c-crew"), crewText: tok("--c-crew-text"),
     aircraft: tok("--c-aircraft"), stale: tok("--c-aircraft-stale"), route: tok("--c-route"),
-    land: tok("--map-land"), water: tok("--map-water"), halo: tok("--map-halo"), label: tok("--map-label"),
+    tephraBack: tok("--map-flight-back"), land: tok("--map-land"), water: tok("--map-water"), halo: tok("--map-halo"), label: tok("--map-label"),
     fir: tok("--map-fir"), firActive: tok("--map-fir-active"), vaac: tok("--map-vaac"), navaid: tok("--map-navaid"),
     labelMinor: tok("--map-label-minor"), labelFir: tok("--map-label-fir"), labelVaac: tok("--map-label-vaac"),
     text1: tok("--c-text-1"), text2: tok("--c-text-2"), text3: tok("--c-text-3"),
@@ -119,9 +116,9 @@ const labelEm = () => (window.innerWidth <= 600 ? 16 : 40);
 function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
   for (const id of ["official", "cones", "exposures", "aircraft", "volcanoes", "official-labels", "area-labels", "rose", "ac3d", "crew", "crew-labels", "routes"]) map.addSource(id, { type: "geojson", data: empty() });
   // RFA flights in or heading in, clustered (R6.3): six or more within 60 px are drawn as one
-  // "17 RFA flights" box in their place instead of a pile of planes and labels; a click zooms in.
-  // Zoomed in past 8 the box gives way to each plane and its label. The picked flight is never
-  // in a cluster (aircraft-icon draws it).
+  // flight-group marker with their count, in their place, instead of a pile of planes and labels;
+  // a click zooms in. Zoomed in past 8 it gives way to each plane and its label. The picked
+  // flight is never in a cluster (aircraft-icon draws it).
   if (withTephra) map.addSource("exposed-pts", { type: "geojson", data: empty(), cluster: true, clusterRadius: 60, clusterMinPoints: 6, clusterMaxZoom: 8 });
   if (withTephra) addRouteLayers(map, C, ui, noText);
   const fade = (base) => ["*", base, ["coalesce", ["get", "fade"], 1]];
@@ -179,15 +176,15 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
     // The picked flight's two airport codes (route-end-label-sel): drawn over the planes, so the
     // hub's code is never cut by the plane icons (moved up below).
     if (!noText) map.addLayer({ id: "route-end-label-sel", type: "symbol", source: "routes", filter: ["all", ["==", ["get", "feature"], "airport"], ["==", ["get", "sel"], true]], layout: { visibility: ui.layers.routes ? "visible" : "none", ...routeTag(true) }, paint: { "text-color": C.text1 } });
-    // One line per entering flight, right of the plane, from zoom 6 (R6.3). Labels collide;
-    // a cluster of six or more becomes an amber box with its count, drawn where the planes are.
+    // A cluster of six or more: the flight-group marker (images.js) with the count in its badge,
+    // centred on the planes it stands for and never hidden; labels give way to it. The click
+    // area adds 6 px on every side (onClick), so it is at least 44 px (R14.4).
+    map.addLayer({ id: "exposed-cluster", type: "symbol", source: "exposed-pts", filter: ["has", "point_count"], layout: { visibility: acVis, "icon-image": ["concat", "ac-group-", ["to-string", ["get", "point_count"]]], "icon-allow-overlap": true, "icon-ignore-placement": false } });
+    // One line per entering flight, right of the plane, from zoom 6 (R6.3). Labels collide.
     if (!noText) {
-      // a cluster is one amber box with its count, centred on the planes it stands for; its padding
-      // gives a 44 px hit area (R14.4)
-      map.addLayer({ id: "exposed-cluster", type: "symbol", source: "exposed-pts", filter: ["has", "point_count"], layout: { visibility: acVis, "icon-image": "box-tephra", "icon-text-fit": "both", "icon-text-fit-padding": [15, 12, 15, 12], "text-field": ["concat", ["to-string", ["get", "point_count"]], " RFA flights"], "text-font": FONT_BOLD, "text-size": 13, "text-variable-anchor": CLUSTER_ANCHORS.mid, "text-radial-offset": 0, "text-allow-overlap": false, "icon-allow-overlap": false, "symbol-sort-key": 0 }, paint: { "text-color": C.tephraText } });
       // An RFA flight only a crew report flags: its proxy name in the crew colour (5.7), from zoom 6.
       map.addLayer({ id: "aircraft-label-crew", type: "symbol", source: "aircraft", minzoom: 6, filter: ["==", ["get", "crew_only"], true], layout: { visibility: acVis, "text-field": ["get", "elabel"], "text-font": FONT_BOLD, "text-size": 13, "text-anchor": "left", "text-offset": [1.4, 0], "text-max-width": 30, "text-padding": 4, "text-allow-overlap": false }, paint: { "text-color": C.crewText, "text-halo-color": C.halo, "text-halo-width": 2 } });
-      map.addLayer({ id: "aircraft-label-picked", type: "symbol", source: "aircraft", minzoom: 6, filter: ["all", ["==", ["get", "picked"], true], ["==", ["get", "exposed"], true]], layout: { visibility: acVis, "text-field": ["get", "elabel"], "text-font": FONT_BOLD, "text-size": 13, "text-anchor": "left", "text-offset": [1.4, 0], "text-padding": 4, "text-allow-overlap": false }, paint: { "text-color": C.tephraText, "text-halo-color": C.halo, "text-halo-width": 2 } });
+      map.addLayer({ id: "aircraft-label-picked", type: "symbol", source: "aircraft", minzoom: 6, filter: ["all", ["==", ["get", "picked"], true], ["==", ["get", "exposed"], true]], layout: { visibility: acVis, "text-field": ["get", "elabel"], "text-font": FONT_BOLD, "text-size": 13, "text-variable-anchor": ["left", "right", "top", "bottom", "top-left", "bottom-left", "top-right", "bottom-right"], "text-radial-offset": 1.4, "text-padding": 4, "text-allow-overlap": false }, paint: { "text-color": C.tephraText, "text-halo-color": C.halo, "text-halo-width": 2 } });
       map.addLayer({ id: "aircraft-label-exposed", type: "symbol", source: "exposed-pts", minzoom: 6, filter: ["!", ["has", "point_count"]], layout: { visibility: acVis, "text-field": ["get", "elabel"], "text-font": FONT_BOLD, "text-size": 13, "text-anchor": "left", "text-offset": [1.4, 0], "text-padding": 4, "text-allow-overlap": false, "symbol-sort-key": ["+", ["case", ["==", ["get", "is_sel_vid"], true], 0, 1000], ["case", ["==", ["get", "inside"], true], 0, ["coalesce", ["get", "minutes_to_entry"], 999]]] }, paint: { "text-color": C.tephraText, "text-halo-color": C.halo, "text-halo-width": 2 } });
     }
   }
@@ -204,14 +201,12 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
     }
     map.addLayer({ id: "official-label-selected", type: "symbol", source: "official-labels", filter: ["==", ["get", "kind"], "box"], layout: { "icon-image": "box-official", "icon-text-fit": "both", "icon-text-fit-padding": [5, 9, 5, 9], "text-field": ["case", ["==", ["get", "line2"], ""], ["format", ["get", "line1"], { "text-color": C.officialText }], ["format", ["get", "line1"], { "text-color": C.officialText }, "\n", {}, ["get", "line2"], { "text-color": C.text1, "font-scale": 0.9 }]], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-max-width": labelEm(), "text-justify": "left", "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "icon-allow-overlap": true, "text-allow-overlap": true, "symbol-sort-key": 0 } });
   }
-  // The flight count is placed before the forecast-step and other-volcano labels (review 1,
-  // item 10): when they collide those labels give way, never the count.
-  if (withTephra && !noText) map.moveLayer("exposed-cluster", "tephra-label");
-  // The picked plane and its ring are never covered by the flight-count box: an invisible copy,
-  // placed before the box, makes the box open to a free side.
-  // The picked flight's label is placed first of the flight labels and before the count box.
+  // The flight-group marker is placed before the forecast-step and other-volcano labels (review 1,
+  // item 10): when they collide those labels give way, never the marker.
+  // The picked flight's label is placed first of the flight labels, after the group markers: it
+  // takes a free side of its plane rather than covering a marker's count.
   if (withTephra && !noText) map.moveLayer("aircraft-label-picked", "tephra-label");
-  if (withTephra && !noText) map.addLayer({ id: "aircraft-picked-avoid", type: "symbol", source: "aircraft", filter: ["==", ["get", "picked"], true], layout: { visibility: acVis, "icon-image": "route-avoid", "icon-size": 2.2, "icon-allow-overlap": true, "icon-ignore-placement": false } }, "tephra-label");
+  if (withTephra && !noText) map.moveLayer("exposed-cluster", "tephra-label");
   // The picked flight's airport codes are placed right after the flight count, so the count never
   // gives way to them; the flight labels, the forecast-step labels and the other volcanoes' names
   // do. The eruption symbols do not collide (icon-ignore-placement): an invisible copy placed
@@ -348,8 +343,13 @@ export class WallMap {
     this.map.addControl(this.nav, "bottom-right");
     const tools = $("tools");
     if (tools) this.map.addControl({ onAdd: () => tools, onRemove: () => {} }, "bottom-right");
+    // A flight-group marker is drawn the first time a cluster of that size shows; any other
+    // missing image (a basemap sprite) is a blank pixel.
     this.map.on("styleimagemissing", (e) => {
-      if (!this.map.hasImage(e.id)) this.map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) });
+      if (this.map.hasImage(e.id)) return;
+      const n = /^ac-group-(\d+)$/.exec(e.id);
+      if (n) this.map.addImage(e.id, flightGroupImage(Number(n[1]), this.C.tephra, this.C.tephraBack), { pixelRatio: 2 });
+      else this.map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) });
     });
     this.map.on("error", (e) => this.onError(e));
     this.map.on("style.load", () => this.onStyle());
@@ -401,7 +401,6 @@ export class WallMap {
       addImages(map, this.C);
       addContext(map, this.C, this.ui, this.noText);
       addHazard(map, this.C, this.ui, { noText: this.noText });
-      this.clusterTotal = null;
       addExtLayers(map, this.noText, this.ui.layers.reroutes);
       setExtVisible(map, true, this.ui.layers.satboxes);
       this.loaded = true;
@@ -435,14 +434,6 @@ export class WallMap {
     this.send("aircraft", fc(D.aircraft));
     if (map.getSource("routes")) this.send("routes", fc(D.routes));
     if (map.getSource("crew")) this.send("crew", D.crew.map);
-    // A cluster that holds only some of the flights says "here" (review 2, item 14): "20 RFA
-    // flights here" beside the story's 22, the other two drawn as single planes. "20 of 22" read
-    // as a second, different count.
-    const total = D.exposed.length;
-    if (map.getLayer("exposed-cluster") && this.clusterTotal !== total) {
-      this.clusterTotal = total;
-      map.setLayoutProperty("exposed-cluster", "text-field", ["case", [">=", ["get", "point_count"], total], ["concat", ["to-string", ["get", "point_count"]], " RFA flights"], ["concat", ["to-string", ["get", "point_count"]], " RFA flights here"]]);
-    }
     // The clustered copy draws the planes too (exposed-icon), so it carries what the icon reads.
     if (map.getSource("exposed-pts")) this.send("exposed-pts", fc(D.exposed.filter((f) => !f.properties.picked).map((f) => { const p = f.properties; return { type: "Feature", geometry: f.geometry, properties: { hex: p.hex, volcano_id: p.volcano_id, elabel: p.elabel, inside: p.inside, minutes_to_entry: p.minutes_to_entry, is_sel_vid: p.volcano_id === D.selected, exposed: true, crew_only: false, stale: p.stale, track_deg: p.track_deg } }; })));
     map.setFilter("fir-active", ["in", ["get", "icao"], ["literal", D.firsWithSigmet]]);
@@ -704,7 +695,6 @@ export class WallMap {
       this.send("crew-labels", fc(this.fitLabels(crew, map, bounds)));
     }
     this.lastLabels = { boxes: fb, areas: fa, raw: boxes };
-    this.fitCluster();
     if (this.compareMap) this.updateCompare();
   }
 
@@ -759,23 +749,6 @@ export class WallMap {
       const ll = map.unproject([r.p.x + dx, r.p.y + dy]);
       return { ...f, geometry: { type: "Point", coordinates: [ll.lng, ll.lat] } };
     });
-  }
-
-  // The flight-count box is centred on its planes; near the right or left edge it opens towards the
-  // middle of the map, so "23 RFA flights" is never cut by the edge (review 2, 10).
-  fitCluster() {
-    const map = this.map, D = this.D;
-    if (!map.getLayer("exposed-cluster") || !D) return;
-    const pts = D.exposed.filter((f) => f.properties.volcano_id === D.selected).map((f) => map.project(f.geometry.coordinates));
-    if (!pts.length) return;
-    const x = pts.reduce((a, q) => a + q.x, 0) / pts.length;
-    const W = map.getContainer().getBoundingClientRect().width;
-    // flip only when half the box (about 85 px) would run past an edge
-    const key = x > W - 90 ? "right" : x < 90 ? "left" : "mid";
-    const order = CLUSTER_ANCHORS[key];
-    if (this.clusterSide === key) return;
-    this.clusterSide = key;
-    map.setLayoutProperty("exposed-cluster", "text-variable-anchor", order);
   }
 
   // ---------------------------------------------------------------- camera (7.4)
@@ -1002,7 +975,7 @@ export class WallMap {
     this.setVisible(["route-avoid-cone"], L.routes && L.tephra);
     this.setVisible(["route-avoid-path", "route-avoid-entry"], L.routes && L.paths);
     this.setVisible(["route-avoid-ac"], L.routes && L.aircraft);
-    this.setVisible(["aircraft-icon", "exposed-icon", "aircraft-picked", "aircraft-picked-avoid", "aircraft-label-picked", "aircraft-label-exposed", "aircraft-label-crew", "exposed-cluster"], L.aircraft);
+    this.setVisible(["aircraft-icon", "exposed-icon", "aircraft-picked", "aircraft-label-picked", "aircraft-label-exposed", "aircraft-label-crew", "exposed-cluster"], L.aircraft);
     this.setVisible(["aircraft-label"], L.aircraft && L.acLabels);
     setExtVisible(this.map, true, L.satboxes);
     this.setVisible(["rose-casing", "rose-arc", "rose-off", "rose-obs", "rose-probe", "rose-heads", "rose-labels", "rose-angle"], L.rose);
