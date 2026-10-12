@@ -42,6 +42,11 @@ export function actionPlain(text) {
   if (/^REROUTE\b/.test(t)) return "reroute around the ash (REROUTE)";
   return null;
 }
+const DIFF_WORDS = {
+  LAG: "one source is older than another", ENVELOPE: "an observed height sits inside the official band",
+  HEIGHT_MISMATCH: "the sources report different heights", DIRECTION_MISMATCH: "the sources send the ash different ways",
+  SILENCE: "no VAA answers a reported eruption", CONFLICT: "a VAA says no ash while another source saw it",
+};
 const num = (n) => Number(n).toLocaleString("en-US");
 const usdWords = (n) => `$${num(n)}`;
 const PLAIN = [
@@ -74,6 +79,31 @@ const PLAIN = [
   [/^Plume read queued for the Duty Officer \((\w+) FL(\d{3})-FL(\d{3}), (\d+)%\)$/, (m) => `Plume read queued for the Duty Officer (${m[2] === "000" ? "SFC" : `FL${m[2]}`}–FL${m[3]})`],
   [/^(.+) is active: (.+)$/, (m) => `${m[1]} is active. Reports: ${m[2].replace(/; Valid SIGMET ([A-Z]{4}) (\d+): names it/g, "; SIGMET $1 $2").replace(/^Valid SIGMET ([A-Z]{4}) (\d+): names it/, "SIGMET $1 $2")}`],
   [/^(.+?): (\d+) new or changed record\(s\)$/, (m) => `${m[1]}: ${m[2]} new or changed record${m[2] === "1" ? "" : "s"}`],
+  // The helpers' own tool calls (raw JSON stays under Technical detail; docs/UI-DETAILS-PANELS.md 5.1)
+  [/^get_flight: \{"proxy_flight":"(RFA\d+)"/, (m) => `Planner looked up ${m[1]}'s position and track`],
+  [/^list_alternates: /, () => "Planner checked alternate airports"],
+  [/^list_reroutes: /, () => "Planner checked reroute options"],
+  [/^check_level_band: \{"band":"FL(\d{3})-FL(\d{3})","clear_of_hazard":(true|false)/, (m) => `Planner checked levels ${m[1] === "000" ? "SFC" : `FL${m[1]}`}–FL${m[2]}: ${m[3] === "true" ? "clear of the ash" : "not clear of the ash"}`],
+  [/^submit_plan: \{"accepted":(true|false)/, (m) => `Planner handed in its plan: the checks ${m[1] === "true" ? "accepted it" : "did not accept it"}`],
+  [/^PLAN ACCEPTED: (.+)$/, (m) => `Planner's choice passed the checks: ${actionPlain(m[1]) || m[1].toLowerCase()}`],
+  [/^DRAFT (.+?) \(AI-DRAFTED\)$/, (m) => `Drafter wrote the advisory (AI-written): ${actionPlain(m[1].replace(/ AROUND HAZARD$/, "")) || m[1].toLowerCase()}`],
+  [/^Plume Reader: asking \S+ \((\d+) texts?, (\d+) images?, (\d+) discrepanc(?:y|ies)\)$/, (m) => `Plume Reader is reading ${m[1]} report${m[1] === "1" ? "" : "s"}${m[2] !== "0" ? `, ${m[2]} picture${m[2] === "1" ? "" : "s"}` : ""} and ${m[3]} difference${m[3] === "1" ? "" : "s"}`],
+  [/^Plume Reader (accepted|repaired): (OFFICIAL|WIDENED|HYPOTHESIS) FL(\d{3})-FL(\d{3}), (\d+)%$/, (m) => `Plume Reader's estimate passed the checks${m[1] === "repaired" ? " after one repair" : ""}: ${m[2] === "OFFICIAL" ? "same as the official area" : m[2] === "WIDENED" ? "wider than the official area" : "a hypothesis"}, ${m[3] === "000" ? "SFC" : `FL${m[3]}`}–FL${m[4]}, confidence ${m[5]}%`],
+  [/^Duty Officer: (\d+) item\(s\) to dispatch\b.*$/, (m) => `Duty Officer has ${jobs(m[1])} to hand out`],
+  [/^Duty Officer deferred (\d+) item\(s\):/, (m) => `Duty Officer left ${m[1]} optional ${Number(m[1]) === 1 ? "job" : "jobs"} for the next run`],
+  [/^Duty Officer brief: (\d+) delegation\(s\), (\d+) deferred$/, (m) => `Duty Officer handed out ${jobs(m[1])} and left ${m[2]} for the next run`],
+  [/^Duty Officer left (\d+) mandatory item\(s\) undone: to the Desk$/, (m) => `Duty Officer passed ${m[1]} must-do ${Number(m[1]) === 1 ? "job" : "jobs"} to the Desk`],
+  [/^(RFA\d+) \([^)]*\) is inside the (.+) cone at (FL\d{3})$/, (m) => `${m[1]} is inside TEPHRA's area at ${m[2]}, ${m[3]}`],
+  [/^(RFA\d+) \([^)]*\) enters the (.+) cone in (\d+) min at (FL\d{3}) if track and level are held$/, (m) => `${m[1]} enters TEPHRA's area at ${m[2]} in ${m[3]} min, at ${m[4]}, if track and level are held`],
+  [/^(RFA\d+): draft superseded \(no longer exposed if track and level are held\)$/, (m) => `${m[1]}: draft withdrawn, no longer heading into the area if track and level are held`],
+  [/^(.+): (OFFICIAL|WIDENED|HYPOTHESIS) (\d+)% (\S+); (\d+) flight\(s\) exposed$/, (m) => `${m[1]}: TEPHRA's estimate is ${m[2] === "OFFICIAL" ? "the official area" : m[2] === "WIDENED" ? "wider than the official area" : "a hypothesis"}, ${m[4]}, confidence ${m[3]}%; ${m[5]} flight${m[5] === "1" ? "" : "s"} inside or heading in`],
+  [/^(RFA\d+): DRAFT (\w+(?: LEVEL)?) for a dispatcher$/, (m) => `${m[1]}: advisory drafted (${actionPlain(m[2]) || m[2].toLowerCase()}) for a dispatcher`],
+  [/^(RFA\d+): same advice as an open draft$/, (m) => `${m[1]}: same advice as an open draft, so no new one`],
+  [/^disruption: \{/, () => "Recovery planner was given the closed airports and the day's flights"],
+  [/^run_scenario: \{.*"label":"([^"]+)".*?"status":"([A-Z_]+)"/, (m) => `Recovery planner tried a scenario: ${m[1].toLowerCase()} (${m[2].toLowerCase().replace(/_/g, " ")})`],
+  [/^(.+): (LAG|ENVELOPE|HEIGHT_MISMATCH|DIRECTION_MISMATCH|SILENCE|CONFLICT) - /, (m) => `${m[1]}: ${DIFF_WORDS[m[2]]}`],
+  [/^AI UNAVAILABLE: RECOVERY AGENT ERROR: TimeoutError\b/, () => "Recovery planner timed out. No plan was made; a dispatcher must plan the network."],
+  [/^AI UNAVAILABLE: RECOVERY AGENT ERROR: (\w+)/, (m) => `Recovery planner stopped with an error (${m[1]}). No plan was made; a dispatcher must plan the network.`],
   // Any other code-template line: say who wrote it in words, keep the rest as written.
   [/^NO MODEL: (.+)$/, (m) => `Written by code (AI off): ${/[a-z]/.test(m[1]) ? m[1] : m[1].charAt(0) + m[1].slice(1).toLowerCase()}`],
   [/^AI UNAVAILABLE: NO FEASIBLE PLAN FOR THE PUBLISHED CLOSURE \((\w+)\).*$/, (m) => (m[1] === "UNKNOWN" ? "Airport plan: no plan found (the solver did not finish in time). A dispatcher must plan the network by hand." : `Airport plan: no plan found (solver: ${m[1]}). A dispatcher must plan the network by hand.`)],
@@ -87,6 +117,44 @@ export function plainLine(text) {
     if (out) return out;
   }
   return raw;
+}
+
+// ------------------------------------------------------------------ failures grouped by cause
+// A failed AI step's cause in plain words (docs/UI-DETAILS-PANELS.md 3.3): a fixed table, like
+// PLAIN. `title` names what failed, `sub` what it means for the dispatcher, `each` one
+// occurrence in a few words. A line the table does not know keeps the helper's name and its own
+// plain line; nothing is paraphrased beyond the table. The raw line stays under Technical detail.
+const HELPER_OF_STAGE = {
+  DUTY: "Duty Officer", PLUME: "Plume Reader", SATELLITE: "Satellite reader", PLANNER: "Planner", DRAFTER: "Drafter",
+  ASK: "Ask", NOTICE: "Notice reader", RECOVERY: "Recovery planner", MESSAGES: "Messages", DOCS: "Paperwork drafter",
+};
+const CAUSES = [
+  { stage: "DUTY", re: /^Duty Officer left (\d+) mandatory item\(s\) undone: to the Desk$/, key: "duty-undone",
+    title: (n) => `Duty Officer passed ${n} must-do jobs to the Desk`, sub: "A dispatcher does them by hand. Nothing was substituted.",
+    each: (m) => `${m[1]} jobs`, link: null },
+  { stage: "RECOVERY", re: /RECOVERY AGENT ERROR: TimeoutError/, key: "recovery-timeout",
+    title: () => "Recovery planner timed out", sub: "No plan was made. A dispatcher must plan the network.", each: () => "timed out", link: ["Airport closures", "recovery"] },
+  { stage: "RECOVERY", re: /RECOVERY AGENT ERROR: (\w+)/, key: "recovery-error",
+    title: () => "Recovery planner stopped with an error", sub: "No plan was made. A dispatcher must plan the network.", each: (m) => m[1], link: ["Airport closures", "recovery"] },
+  { stage: "RECOVERY", re: /NO FEASIBLE PLAN[^(]*\(UNKNOWN\)/, key: "recovery-unknown",
+    title: () => "Recovery found no plan: the solver did not finish in time", sub: "A dispatcher must plan the network by hand.", each: () => "no plan", link: ["Airport closures", "recovery"] },
+  { stage: "RECOVERY", re: /NO FEASIBLE PLAN[^(]*\((\w+)\)/, key: "recovery-noplan",
+    title: () => "Recovery found no plan", sub: "A dispatcher must plan the network by hand.", each: (m) => `solver: ${m[1].toLowerCase()}`, link: ["Airport closures", "recovery"] },
+  { stage: "DRAFTER", re: /DRAFT FAILED CHECKS/, key: "drafter-checks",
+    title: () => "Drafter's advisory failed the code's checks", sub: "No advisory was drafted for that flight. A dispatcher must write it.", each: () => "failed the checks", link: ["Decisions", "decisions"] },
+];
+
+export function failureCause(t) {
+  const msg = String(t.message || "");
+  for (const c of CAUSES) {
+    if (c.stage !== t.stage) continue;
+    const m = c.re.exec(msg);
+    if (m) return { key: c.key, title: c.title, sub: c.sub, each: c.each(m), num: m[1] && /^\d+$/.test(m[1]) ? Number(m[1]) : null, link: c.link };
+  }
+  const who = HELPER_OF_STAGE[t.stage] || t.stage;
+  if (/AI UNAVAILABLE/i.test(msg)) return { key: `${t.stage}-unavailable`, title: () => `${who} could not answer`, sub: "Nothing was put in its place.", each: plainLine(msg) === msg ? "could not answer" : plainLine(msg), num: null, link: null };
+  const plain = plainLine(msg);
+  return { key: `${t.stage}-other-${plain}`, title: () => `${who} reported a failure`, sub: plain !== msg ? plain : null, each: plain, num: null, link: null };
 }
 
 // Who did a step, in words (stage chips: CODE / ADK / NO MODEL).

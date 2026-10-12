@@ -5,10 +5,14 @@
 // Every feed or model string goes in through el() (textContent); AI-written text carries an
 // "AI-written" mark with the model id, code-written values are plain.
 
-import { $, el, icon, ms, hhmmz, dayMon } from "./util.js";
+import { $, el, icon, ms, hhmmz, hhmmssz, dayMon } from "./util.js";
 import { frameFor } from "./ext-map.js";
-import { st, aiMark, pill, section, plainLine, techDetail, usd, planProblem } from "./x-parts.js";
-import { dutyPanel, dispatchedTools } from "./duty.js";
+import { st, aiMark, pill, section, plainLine, techDetail, usd, planProblem, failureCause } from "./x-parts.js";
+import { dutyDetail, dispatchedTools } from "./duty.js";
+import {
+  dkHeader, dkPill, dkChip, dkTiles, dkMeter, meterTone, dkGroup, dkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkTech,
+  dkSection, dkLink, dkRecorded, dkWhen, timeRange, times, plural,
+} from "./dk.js";
 
 // ------------------------------------------------------------------ state
 
@@ -402,42 +406,43 @@ function proofPanel() {
   return kids;
 }
 
-// ------------------------------------------------------------------ AI activity tray
+// ------------------------------------------------------------------ AI helpers (docs/UI-DETAILS-PANELS.md 3)
 
 export const AGENTS = [
-  { id: "duty", name: "Duty Officer", stage: "DUTY", what: "Coordinates the others and writes the brief" },
-  { id: "plume", name: "Plume Reader", stage: "PLUME", what: "Proposes the cautious area" },
-  { id: "sat", name: "Satellite eyes", stage: "SATELLITE", what: "Reads the satellite picture" },
-  { id: "planner", name: "Planner", stage: "PLANNER", what: "Chooses an action per flight" },
+  { id: "duty", name: "Duty Officer", stage: "DUTY", what: "Orders the day's AI work" },
+  { id: "plume", name: "Plume Reader", stage: "PLUME", what: "Proposes TEPHRA's cautious area" },
+  { id: "sat", name: "Satellite reader", stage: "SATELLITE", what: "Reads the satellite picture" },
+  { id: "planner", name: "Planner", stage: "PLANNER", what: "Chooses an action for each flight" },
   { id: "drafter", name: "Drafter", stage: "DRAFTER", what: "Writes the advisories" },
+  { id: "recovery", name: "Recovery planner", stage: "RECOVERY", what: "Re-plans flights around closed airports" },
+  { id: "notice", name: "Notice reader", stage: "NOTICE", what: "Reads pasted notices" },
   { id: "ask", name: "Ask", stage: "ASK", what: "Answers questions from the data" },
-  { id: "notice", name: "Notice Reader", stage: "NOTICE", what: "Reads pasted notices" },
-  { id: "recovery", name: "Recovery", stage: "RECOVERY", what: "Re-plans the day's flights" },
   { id: "messages", name: "Messages", stage: "MESSAGES", what: "Drafts crew and passenger messages", skip: /HANDOVER/i },
-  { id: "sra", name: "SRA", stage: "DOCS", what: "Drafts regulator paperwork" },
   { id: "handover", name: "Handover", stage: "MESSAGES", what: "Writes the shift handover", only: /HANDOVER/i },
-  { id: "backtest", name: "Backtest", stage: null, what: "Scores the zone against later official areas" },
+  { id: "sra", name: "Safety risk assessment", stage: "DOCS", what: "Drafts regulator paperwork (SRA, VAR)" },
+  { id: "backtest", name: "Backtest", stage: null, what: "Scores TEPHRA against later official areas (code, no model)" },
 ];
 // The Duty Officer tool that reaches each specialist.
 const DELEGATED_VIA = { plume: "assess_volcanoes", sat: "assess_volcanoes", planner: "plan_flights", drafter: "plan_flights", recovery: "run_recovery", sra: "draft_sra" };
 const AI_STAGES = new Set(AGENTS.map((a) => a.stage).filter(Boolean));
 const RUNNING_MS = 6000;
+const STATE_ORDER = { failed: 0, running: 1, done: 2, idle: 3 };
 
 export function agentStatus(store) {
   const trace = store.trace || [];
   const nowT = performance.now();
   const delegated = dispatchedTools(store.snapshot?.duty);
-  return AGENTS.map((a) => {
+  return AGENTS.map((a, i) => {
     if (!a.stage) {
       const ok = ext.backtest && !ext.errors.backtest;
-      return { ...a, state: ok ? "done" : "idle", count: ok ? ext.backtest.cases.length : 0, fails: 0, last: ok ? ext.backtest.generated_at : null, detail: ok ? `${ext.backtest.cases.length} cases scored` : "Not run yet" };
+      return { ...a, i, state: ok ? "done" : "idle", count: ok ? ext.backtest.cases.length : 0, fails: 0, last: ok ? ext.backtest.generated_at : null, detail: ok ? `${ext.backtest.cases.length} cases scored` : "Not run yet" };
     }
     const mine = trace.filter((t) => t.stage === a.stage && (!a.skip || !a.skip.test(t.message)) && (!a.only || a.only.test(t.message)));
     const last = mine[mine.length - 1];
     const fails = mine.filter((t) => t.level === "error").length;
     let state = "idle";
     if (last) state = last.level === "error" ? "failed" : nowT - (ext.arrivals.get(last.id) ?? -1e9) < RUNNING_MS ? "running" : "done";
-    return { ...a, state, count: mine.length, fails, last: last?.at || null, detail: last?.message || "No step yet", delegated: delegated.has(DELEGATED_VIA[a.id]) };
+    return { ...a, i, state, count: mine.length, fails, last: last?.at || null, detail: last?.message || null, delegated: delegated.has(DELEGATED_VIA[a.id]) };
   });
 }
 
@@ -446,72 +451,157 @@ export function failureCount(store) {
 }
 
 const STATE_UI = {
-  idle: ["st-never", "var(--c-off)", "Idle"], running: ["st-info", "var(--c-observer)", "Running"],
-  done: ["st-ok", "var(--c-ok)", "Done"], failed: ["st-serious", "var(--c-serious)", "Failed"],
+  idle: ["never", "Quiet"], running: ["running", "Working on it"], done: ["ok", "Done"], failed: ["serious", "Failed"],
 };
 
+// Free-tier calls per model, with a meter each (`x-tier`), in Budget details.
 function budgetBlock() {
   if (!ext.loaded.budget) return loadingBox();
-  if (ext.errors.budget || !ext.budget) return errBox("Budget", ext.errors.budget || "no answer");
+  if (ext.errors.budget || !ext.budget) return dkNote("caution", `Budget unavailable: ${ext.errors.budget || "no answer"}`, { role: "status" });
   const b = ext.budget;
+  const stub = b.backend === "stub";
   return el("div", { class: "x-budget" },
-    el("p", { class: "x-lede x-lede--tight" }, b.backend === "stub" ? "Offline stub: no model is called, so no quota is spent." : "Free-tier calls left today."),
+    stub ? el("p", { class: "dk-sub__note", text: "Offline stub: no model is called, so no quota is spent." }) : null,
     ...b.tiers.map((t) => {
       const left = t.limit ? t.remaining / t.limit : 0;
-      const tone = b.backend === "stub" ? "off" : left < 0.15 ? "serious" : left < 0.4 ? "caution" : "ok";
       return el("div", { class: "x-tier" },
-        el("div", { class: "x-tier__top" }, el("span", {}, el("strong", { text: t.tier === "main" ? "Main model" : "Lite model" }), el("span", { class: "x-tier__id mono", text: ` ${t.model_id}` })),
-          el("strong", { class: "mono", text: `${t.remaining} left of ${t.limit}` })),
-        el("div", { class: `x-meter__bar x-meter__bar--${tone}`, role: "img", "aria-label": `${t.remaining} of ${t.limit} calls left` }, fill(Math.round(left * 100))));
+        el("div", { class: "x-tier__top" }, el("span", { class: "x-tier__name" }, el("strong", { text: t.tier === "main" ? "Main model" : "Lite model" }), dkChip(t.model_id, { mono: true })),
+          el("span", { class: "mono", text: `${t.remaining} left of ${t.limit}` })),
+        dkMeter({ value: t.remaining, max: t.limit, tone: meterTone(left, stub), label: `${t.tier === "main" ? "Main" : "Lite"} model: ${t.remaining} of ${t.limit} calls left` }));
     }),
-    el("p", { class: "x-sub", text: b.note }));
+    b.note ? el("p", { class: "dk-sub__note", text: b.note }) : null);
 }
 
+const liteTier = () => ext.budget?.tiers?.find((t) => t.tier === "lite") || ext.budget?.tiers?.[0] || null;
+const usedOf = (t) => (Number.isFinite(t.used) ? t.used : Math.max(0, t.limit - t.remaining));
+
 // The same tier and words as the Desk's budget chip (review 1, item 4): the lite model, which
-// makes most calls. Both tiers are listed in full under "Model budget".
+// makes most calls. Both tiers are listed in full under "Budget details".
 export function budgetWords() {
-  const b = ext.budget;
-  const lite = b?.tiers?.find((t) => t.tier === "lite") || b?.tiers?.[0];
+  const lite = liteTier();
   if (!lite) return null;
-  const used = Number.isFinite(lite.used) ? lite.used : Math.max(0, lite.limit - lite.remaining);
-  return `AI calls today: ${used} of ${lite.limit}`;
+  return `AI calls today: ${usedOf(lite)} of ${lite.limit}`;
+}
+
+function budgetTile(stub) {
+  const lite = liteTier();
+  if (!lite) {
+    return { label: "AI calls today", value: ext.loaded.budget ? "unknown" : "loading…", sub: ext.errors.budget ? `budget unavailable: ${ext.errors.budget}` : null, wide: true, tone: ext.errors.budget ? "caution" : null };
+  }
+  const main = ext.budget.tiers.find((t) => t.tier === "main" && t !== lite);
+  const used = usedOf(lite);
+  const left = lite.limit ? lite.remaining / lite.limit : 0;
+  return {
+    label: "AI calls today", value: used.toLocaleString("en"), of: ` of ${lite.limit.toLocaleString("en")}`, wide: true,
+    meter: { value: used, max: lite.limit, tone: meterTone(left, stub), label: `AI calls today: ${used} of ${lite.limit} used` },
+    sub: stub ? "Offline stub: no quota is spent" : [main ? `Main model ${usedOf(main)} of ${main.limit}` : null, "resets at midnight Pacific"].filter(Boolean).join(" · "),
+  };
+}
+
+// Failed AI steps grouped by cause (3.3): one row per cause with its count and time range,
+// every occurrence one tap in, the raw lines under Technical detail. Newest cause first.
+function failureGroups(errors) {
+  const groups = new Map();
+  for (const t of errors) {
+    const c = failureCause(t);
+    let g = groups.get(c.key);
+    if (!g) { g = { cause: c, items: [] }; groups.set(c.key, g); }
+    g.items.push({ t: ms(t.at), each: c.each, num: c.num, raw: `${hhmmssz(ms(t.at))} · ${t.stage} · ${t.message}` });
+  }
+  const list = [...groups.values()].map((g) => {
+    const ts = g.items.map((x) => x.t).filter(Number.isFinite);
+    return { ...g, first: Math.min(...ts), last: Math.max(...ts) };
+  }).sort((a, b) => b.last - a.last);
+  return list.map((g) => {
+    const nums = g.items.map((x) => x.num).filter((n) => n != null);
+    const lo = nums.length ? Math.min(...nums) : null, hi = nums.length ? Math.max(...nums) : null;
+    const n = lo == null ? null : lo === hi ? String(lo) : `${lo}–${hi}`;
+    const occ = g.items.slice().sort((a, b) => b.t - a.t);
+    const n_ = g.items.length;
+    return dkRow({
+      key: `fail-${g.cause.key}`, dot: "serious", edge: "serious", title: g.cause.title(n), sub: g.cause.sub, foot: dkWhen(n_, timeRange(g.first, g.last)),
+      body: [
+        dkList(occ.map((x) => el("div", { class: "dk-occ" }, el("span", { class: "dk-occ__t mono", text: hhmmz(x.t) }), el("span", { class: "dk-occ__x", text: x.each }))), { first: 3, key: `fail-occ-${g.cause.key}` }),
+        g.cause.link ? dkLink(`${g.cause.link[0]} ›`, { act: "details-sec", sec: g.cause.link[1], focus: `fail-go-${g.cause.key}` }) : null,
+        dkTech(...occ.map((x) => x.raw)),
+      ],
+    });
+  });
+}
+
+function helperRow(a, store, n, stub) {
+  const [tone, word] = STATE_UI[a.state];
+  const last = ms(a.last);
+  const run = store.snapshot?.duty;
+  let lastT = last;
+  if (a.id === "duty" && run && !Number.isFinite(lastT)) lastT = ms(run.finished_at);
+  const meta = Number.isFinite(lastT) ? el("span", { class: "mono", text: hhmmz(lastT) }) : el("span", { text: "Quiet" });
+  const sub = [a.what, a.fails ? `${a.fails} failed` : null, a.delegated ? "given a job by the Duty Officer" : null].filter(Boolean).join(" · ");
+  let body;
+  if (a.id === "duty") {
+    body = [...dutyDetail(run, !!store.snapshot), a.detail ? dkTech(`newest step: ${a.detail}`) : null];
+  } else if (a.id === "backtest") {
+    body = [dkFacts([["Status", a.state === "done" ? "Done: scored by code, no model" : "Not run yet"], ["Cases scored", a.state === "done" ? String(a.count) : null], ["Generated", Number.isFinite(last) ? `${dayMon(last)} ${hhmmz(last)}` : null, { mono: true }]]),
+      dkLink("Track record ›", { act: "details-sec", sec: "proof", focus: "helper-proof" })];
+  } else {
+    const status = a.state === "idle" ? `Quiet: not seen in the newest ${n} steps` : a.state === "failed" ? "Failed: its newest step failed" : a.state === "running" ? "Working on it" : "Done: its newest step worked";
+    body = [dkFacts([
+      ["Status", status],
+      ["Steps seen", a.count ? `${plural(a.count, "step")}${a.fails ? `, ${a.fails} failed` : ""} in the newest ${n}` : null],
+      ["Last step", a.detail ? plainLine(a.detail) : null],
+      ["Given a job by", a.delegated ? dkChip("Duty Officer") : null],
+      ["Model", stub ? "AI off: code follows the helper's script" : null],
+    ]), a.detail ? dkTech(`${a.stage} · ${a.detail}`) : null];
+  }
+  return dkRow({ key: `helper-${a.id}`, dot: tone, title: a.name, sub, meta, body, badge: a.state === "failed" ? word : null });
 }
 
 function aiPanel(D, store) {
   const agents = agentStatus(store);
   const failed = failureCount(store);
-  const lines = (store.trace || []).filter((t) => t.level === "error" && AI_STAGES.has(t.stage)).slice(-5).reverse();
+  const errors = (store.trace || []).filter((t) => t.level === "error" && AI_STAGES.has(t.stage));
   const run = store.snapshot?.duty;
   const stub = D.state.llm?.backend === "stub";
-  const jobsN = run ? (run.dispatches || []).length : 0;
-  const duty = run
-    ? `Duty Officer (${run.outcome === "MODEL_FAILED" ? "AI unavailable" : stub || run.outcome === "STUB" ? "AI off" : dutyModelLabel(run)}): handed out ${jobsN} job${jobsN === 1 ? "" : "s"} in urgency order`
-    : "Duty Officer: no run yet";
-  const kids = [
-    el("p", { class: "dsum", text: `${stub ? "AI off: code does every step, and code templates write the text a model would." : `AI on (${D.state.llm?.label}): it can widen TEPHRA's estimate, never shrink the official area.`}` }),
-    el("p", { class: "dline" }, icon("i-agent"), el("span", { text: duty })),
-  ];
-  if (failed) kids.push(el("div", { class: "x-fail x-fail--count", role: "status" }, st("st-serious", "var(--c-serious)"), el("p", {}, el("strong", { text: `${failed} AI step${failed === 1 ? "" : "s"} failed. ` }), "Each one is in How TEPHRA decided as an error; nothing was made up in its place.")));
-  if (lines.length) kids.push(el("ul", { class: "x-fails" }, ...lines.map((t) => el("li", {}, el("span", { class: "mono x-fails__t", text: hhmmz(ms(t.at)) }), el("span", { text: plainLine(t.message) }), techDetail(`${t.stage} · ${t.message}`)))));
-  const bw = budgetWords();
-  if (bw) kids.push(el("p", { class: "dline" }, icon("i-gauge"), el("span", { text: bw })));
-  kids.push(el("details", { class: "more", dataset: { k: "ai-more" } }, el("summary", { text: "Delegation, every helper and the budget" }),
-    ...dutyPanel(run, !!store.snapshot),
-    section("Every AI helper",
-      el("p", { class: "x-lede x-lede--tight", text: "Every AI step on the Wall. Status comes from How TEPHRA decided. When a step fails it says why and nothing is made up in its place." }),
-      el("ul", { class: "x-agents" }, ...agents.map((a) => {
-        const [ic, col, word] = STATE_UI[a.state];
-        return el("li", { class: `x-agent x-agent--${a.state}`, title: plainLine(a.detail) },
-          el("span", { class: "x-agent__dot" }, st(ic, col)),
-          el("span", { class: "x-agent__main" }, el("strong", { class: "x-agent__name", text: a.name }), el("span", { class: "x-agent__what", text: a.what }),
-            a.delegated ? el("span", { class: "x-agent__via" }, icon("i-agent"), "given a job by the Duty Officer") : null),
-          el("span", { class: "x-agent__state" }, el("span", { class: "x-agent__word", text: word }), el("span", { class: "x-agent__n mono", text: a.stage ? `${a.count} step${a.count === 1 ? "" : "s"}${a.fails ? ` · ${a.fails} failed` : ""}` : a.detail })));
-      }))),
-    section("Model budget", budgetBlock())));
-  return kids;
-}
+  const n = (store.trace || []).length;
+  const tiers = ext.budget?.tiers || [];
+  const ids = tiers.length ? tiers.map((t) => [t.tier === "main" ? "Main" : "Lite", t.model_id]) : String(D.state.llm?.label || "").split(" + ").filter(Boolean).map((id, i) => [i ? "Lite" : "Main", id]);
+  const jobsN = run ? (run.dispatches || []).length : null;
+  const runT = run ? ms(run.finished_at) : NaN;
 
-const dutyModelLabel = (run) => run.model_id || "model";
+  const head = dkHeader({
+    id: "ai-head",
+    pills: [stub ? dkPill("off", "AI off") : dkPill("ok", "AI on"), failed ? dkPill("serious", `${failed} failed`) : null, dkRecorded(D.mode === "REPLAY")],
+    title: stub ? "Code does every step, and code templates write the text a model would." : "Helpers can widen TEPHRA's estimate but never shrink the official area.",
+    chips: stub ? [dkChip("No model (offline stub)")] : ids.map(([k, id]) => dkChip(id, { label: k, mono: true })),
+  });
+  const tiles = dkTiles([
+    budgetTile(stub),
+    { label: "Steps that failed", value: String(failed), tone: failed ? "serious" : "ok", sub: `in the newest ${n} steps`, go: failed ? { act: "dk-jump", target: "ai-fails", focus: "ai-tile-fails" } : null },
+    { label: "Jobs handed out", value: jobsN == null ? "none yet" : String(jobsN), tone: jobsN == null ? "never" : null, sub: run ? `latest Duty Officer run${Number.isFinite(runT) ? `, ${hhmmz(runT)}` : ""}` : "no Duty Officer run yet" },
+  ], "AI in numbers");
+
+  const kids = [head, tiles];
+  if (errors.length) {
+    const groups = failureGroups(errors);
+    kids.push(el("div", { id: "ai-fails", tabindex: "-1", class: "dk-anchor" }, dkGroup("What went wrong", `${plural(groups.length, "kind")} · ${plural(errors.length, "step")}`,
+      dkList(groups, { first: 3, key: "ai-fails" }),
+      el("p", { class: "dk-foot" }, "Nothing was made up in their place. ", dkLink("See them in How TEPHRA decided ›", { act: "details-sec", sec: "trace", focus: "ai-trace" })))));
+  }
+
+  const order = agents.slice().sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.i - b.i);
+  const active = order.filter((a) => a.state !== "idle").length;
+  const first = Math.min(6, active) || 3;
+  const quiet = order.length - first;
+  kids.push(dkGroup("Helpers", `${active} of ${agents.length} active`,
+    dkList(order.map((a) => helperRow(a, store, n, stub)), { first, key: "ai-helpers", more: order.slice(first).every((a) => a.state === "idle") ? `Show quiet helpers (${quiet})` : `Show all ${order.length} helpers` })));
+
+  kids.push(el("div", { class: "dk-abouts" },
+    dkAbout("Budget details", "ai-budget", budgetBlock()),
+    dkAbout("How this works", "ai-how",
+      "One coordinator agent, the Duty Officer, orders the day's AI work and hands it to the specialists through tools. Code builds the work list and holds the safety line; the Duty Officer decides the order and writes the brief.",
+      `Every AI step on the Wall is listed in How TEPHRA decided. Status here comes from the newest ${n} steps the Wall holds, so a helper that ran earlier shows as quiet. When a step fails it says why, and nothing is made up in its place.`)));
+  return [dkSection("ai-head", kids)];
+}
 
 // ------------------------------------------------------------------ Details sections hosted in #xpanel
 

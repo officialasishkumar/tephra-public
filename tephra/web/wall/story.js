@@ -352,12 +352,19 @@ export function keyRows(D, ui) {
 function renderKey(D, ui) {
   const box = $("legend");
   const rows = keyRows(D, ui);
-  const key = rows.map((r) => `${r[1]}|${r[2]}`).join("§");
+  const key = `${ui.keyOpen ? "open" : "shut"}§${rows.map((r) => `${r[1]}|${r[2]}`).join("§")}`;
+  box.classList.toggle("is-open", !!ui.keyOpen);
   if (box.dataset.key === key && box.childElementCount) return;
   box.dataset.key = key;
+  // Under the Details drawer (601-1599 px, .key--pinned) the key folds to one bar with the first
+  // three swatches; the bar is hidden elsewhere (wall.css), where the rows always show.
+  const glyphs = rows.slice(0, 3).map(([s]) => s.cloneNode(true));
   box.replaceChildren(
-    el("ul", { class: "key__rows" }, ...rows.map(([s, label, sub]) => el("li", {}, s, el("span", {}, el("span", { class: "key__label", text: label }), sub ? el("span", { class: "key__sub", text: ` · ${sub}` }) : null)))),
-    el("button", { type: "button", class: "link-btn key__more", dataset: { act: "help-map", focus: "key-more" }, text: "Full map key and alert colours ›" }));
+    el("ul", { class: "key__rows", id: "key-rows" }, ...rows.map(([s, label, sub]) => el("li", {}, s, el("span", {}, el("span", { class: "key__label", text: label }), sub ? el("span", { class: "key__sub", text: ` · ${sub}` }) : null)))),
+    el("button", { type: "button", class: "link-btn key__more", dataset: { act: "help-map", focus: "key-more" }, text: "Full map key and alert colours ›" }),
+    el("button", { type: "button", class: "key__toggle", "aria-expanded": ui.keyOpen ? "true" : "false", "aria-controls": "key-rows", dataset: { act: "key-toggle", focus: "key-toggle" } },
+      el("span", { class: "key__toggle-label", text: "Map key" }), el("span", { class: "key__glyphs", "aria-hidden": "true" }, ...glyphs),
+      el("span", { class: "key__toggle-word", text: ui.keyOpen ? "Hide" : `${rows.length} item${rows.length === 1 ? "" : "s"}` }), icon("i-chevron-up", "icon key__chev")));
 }
 
 // ------------------------------------------------------------------ trust, notes, all volcanoes

@@ -52,6 +52,9 @@ const ui = {
   traceScope: "volcano",
   readOpen: false,
   historyOpen: false,
+  // the map key pinned under the Details drawer (601-1599 px) starts folded to one bar
+  keyOpen: (() => { try { return sessionStorage.getItem("tephra.wall.key") === "open"; } catch { return false; } })(),
+  traceFilter: "all",
   vlistOpen: false,
   layersMore: false,
   rail: "brief",
@@ -595,6 +598,7 @@ function placeDetails() {
   const mid = !phone() && !wide();
   if (open && mid) { if (legend.parentElement !== box) box.append(legend); }
   else if (legend.parentElement !== $("story")) $("trust").before(legend);
+  legend.classList.toggle("key--pinned", open && mid);
 }
 
 function openDetails(sec = null, { vid = null, opener = null, from = null } = {}) {
@@ -806,6 +810,16 @@ document.addEventListener("click", (e) => {
   else if (act === "details-sec") openDetails(t.dataset.sec, { opener: ui.details.opener, from: t.dataset.sec });
   else if (act === "details-index") detailsIndex();
   else if (act === "details-close") closeDetails();
+  else if (act === "key-toggle") {
+    ui.keyOpen = !ui.keyOpen;
+    try { sessionStorage.setItem("tephra.wall.key", ui.keyOpen ? "open" : "closed"); } catch { /* storage blocked */ }
+    renderNow();
+  }
+  else if (act === "trace-filter") { ui.traceFilter = t.dataset.filter; renderNow(); }
+  else if (act === "dk-jump") {
+    const to = $(t.dataset.target);
+    if (to) { to.scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "smooth" }); to.focus({ preventScroll: true }); }
+  }
   else if (act === "vlist-more") { ui.vlistOpen = true; renderNow(); }
   else if (act === "trace-scope") { ui.traceScope = t.dataset.scope; renderNow(); }
   else if (act === "frame") map?.frame({ animate: true });

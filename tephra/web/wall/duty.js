@@ -1,32 +1,31 @@
-// The Wall's Duty Officer panel (the coordinator agent, tephra/agents/duty_officer.py): its latest
-// brief, the work it delegated to the specialist agents, and what it left undone. Data is the
-// newest DutyRun (snapshot.duty, SSE "duty"). Rule 0 (no fallbacks): when the model failed the
-// panel says so and shows the undispatched work; it never invents a brief. Text the model wrote
-// (summary, reasons, watch items, deferral reasons) is marked AI-written with the model id; labels,
-// counts, timings and result lines are written by code and stay plain. Every string goes in
-// through el() (textContent).
+// The Duty Officer's latest run (the coordinator agent, tephra/agents/duty_officer.py), shown
+// inside Details › AI helpers as the body of its helper row: how the run ended, what it handed
+// to each specialist, what it passed to the Desk, its brief and what it left for later. Data is
+// the newest DutyRun (snapshot.duty, SSE "duty"). Rule 0 (no fallbacks): when the model failed
+// the row says so and shows the work it did not coordinate; it never invents a brief. Text the
+// model wrote (summary, reasons, watch items, deferral reasons) carries an AI-written mark with
+// the model id; labels, counts, timings and result lines are written by code. Every string goes
+// in through el() (textContent).
 
-import { el, icon, ms, hhmmz, dayMon } from "./util.js";
-import { st, aiMark, pill, section, plainLine } from "./x-parts.js";
+import { el, ms } from "./util.js";
+import { aiMark, plainLine } from "./x-parts.js";
+import { dkPill, dkChip, dkFacts, dkRow, dkList, dkNote, dkEmpty, dkTech, dkRecorded, collapseRuns, seconds, plural, dayTime } from "./dk.js";
 
 // What each Duty Officer tool reaches. Tool names are fixed by the backend toolkit.
 export const SPECIALISTS = {
-  assess_volcanoes: { name: "Satellite + Plume Reader", does: "reads the plume, rebuilds the cone", unit: "volcano" },
-  plan_flights: { name: "Planner + Drafter", does: "plans and drafts per flight", unit: "flight" },
-  run_recovery: { name: "Recovery", does: "re-plans the RFA network", unit: "network" },
-  draft_sra: { name: "SRA drafter", does: "drafts the safety risk assessment", unit: "region" },
+  assess_volcanoes: { name: "Satellite reader and Plume Reader", does: "reads the plume, rebuilds the area", unit: "volcano" },
+  plan_flights: { name: "Planner and Drafter", does: "plans and drafts per flight", unit: "flight" },
+  run_recovery: { name: "Recovery planner", does: "re-plans the RFA network", unit: "network" },
+  draft_sra: { name: "Safety risk assessment drafter", does: "drafts the safety risk assessment", unit: "region" },
 };
 
-const OUTCOME = {
-  ACCEPTED: ["ok", "ACCEPTED", "The brief passed the code's checks."],
-  REPAIRED: ["caution", "REPAIRED", "The brief passed after one repair."],
+// How the run ended, in words (no machine caps in the main view).
+export const OUTCOME = {
+  ACCEPTED: ["ok", "Passed the checks", "The brief passed the code's checks."],
+  REPAIRED: ["caution", "Passed after one repair", "The brief passed after one repair."],
   STUB: ["off", "AI off", "The offline stub ran the work in urgency order. No model wrote the brief."],
-  MODEL_FAILED: ["serious", "AI unavailable", "The model gave no brief that passed the code's checks."],
+  MODEL_FAILED: ["serious", "Failed", "The model gave no brief that passed the code's checks."],
 };
-
-const PRIO_SHOWN = 5;
-const RESULTS_SHOWN = 2;
-const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export const dutyModel = (run) => (run.outcome === "STUB" || run.llm_backend === "stub" ? null : run.model_id);
 
@@ -51,141 +50,115 @@ export function groupDispatches(run) {
 }
 
 const itemLabel = (run, id) => run.worklist.find((i) => i.id === id)?.label || id;
+const finishedAt = (run) => ms(run.finished_at);
 
-function head(run) {
-  const [kind, word, why] = OUTCOME[run.outcome] || ["info", run.outcome, ""];
-  const finished = ms(run.finished_at);
-  return el("header", { class: "x-card__head" },
-    el("h3", { class: "x-card__title", text: "Duty Officer" }),
-    pill(kind, word, why),
-    run.replay ? el("span", { class: "tag tag--replay", text: "recorded" }) : null,
-    el("span", { class: "x-card__time mono", text: Number.isFinite(finished) ? `${dayMon(finished)} ${hhmmz(finished)}` : "" }));
+// Lines that repeat with other flights collapse into one ("RFA1225, RFA1530 and 19 more: ...").
+function collapsedLines(lines, key, first, tone = null) {
+  const runs = collapseRuns(lines.map((text, i) => ({ text, _t: i })), { textOf: (x) => x.text, timeOf: () => NaN });
+  return dkList(runs.map((r) => el("div", { class: `dk-line${tone ? ` dk-line--${tone}` : ""}` },
+    el("span", { class: "dk-line__text", text: r.label }), r.count > 1 ? el("span", { class: "dk-badge", text: `${r.count}` }) : null)), { first, key });
 }
 
-function facts(run) {
-  const mandatory = run.worklist.filter((i) => i.mandatory).length;
-  const model = dutyModel(run);
-  return el("dl", { class: "duty__facts" },
-    el("div", {}, el("dt", { text: "Model" }), el("dd", { class: "mono", text: model || "AI off" })),
-    el("div", {}, el("dt", { text: "Turns" }), el("dd", { class: "mono", text: String(run.turns) })),
-    el("div", {}, el("dt", { text: "Jobs given" }), el("dd", { class: "mono", text: `${run.worklist.length}${mandatory ? ` (${mandatory} must do)` : ""}` })),
-    el("div", {}, el("dt", { text: "Run by" }), el("dd", { text: run.trigger === "adsb" ? "new aircraft" : "scheduler tick" })));
+// The run in one line for the helper row: "Passed the checks · 1 job handed out · 1036Z".
+export function dutySummary(run) {
+  if (!run) return null;
+  const [, word] = OUTCOME[run.outcome] || ["info", run.outcome];
+  const n = (run.dispatches || []).length;
+  return `${word} · ${plural(n, "job")} handed out`;
 }
 
-function failure(run) {
-  const reason = run.validation_errors[0] || "no reason recorded";
-  return el("div", { class: "x-fail", role: "status" }, st("st-serious", "var(--c-serious)"),
-    el("p", {}, el("strong", { text: "Duty Officer AI unavailable: " }), reason,
-      el("span", { class: "x-fail__note", text: " No brief was made up in its place. The work below was not coordinated." })));
+function handedTo(run) {
+  const groups = groupDispatches(run);
+  if (!groups.length) return dkEmpty("It handed nothing out this run", null);
+  const rows = groups.map((g) => {
+    const spec = SPECIALISTS[g.tool];
+    const bad = g.failed > 0;
+    const items = g.itemIds.size;
+    const count = spec ? plural(items, spec.unit) : plural(items, "item");
+    const bad_ = g.results.filter((r) => !r.ok);
+    const good = g.results.filter((r) => r.ok);
+    return dkRow({
+      key: `duty-tool-${g.tool}`,
+      dot: bad ? "serious" : "ok",
+      edge: bad ? "serious" : null,
+      title: spec ? spec.name : g.tool,
+      sub: [count, g.calls > 1 ? `${g.calls} calls` : null, seconds(g.ms)].filter(Boolean).join(" · "),
+      meta: bad ? (g.failed === g.calls ? "failed" : `${g.failed} of ${g.calls} failed`) : "returned",
+      body: [
+        bad_.length ? collapsedLines(bad_.map((r) => plainLine(r.text)), `duty-bad-${g.tool}`, 3, "serious") : null,
+        good.length ? collapsedLines(good.map((r) => plainLine(r.text)), `duty-good-${g.tool}`, 3) : null,
+        dkTech(`${g.tool}()${spec ? ` · ${spec.does}` : ""} · ${g.ms.toLocaleString("en")} ms in all`, ...g.results.map((r) => `${r.ok ? "ok" : "failed"} · ${r.text}`)),
+      ],
+    });
+  });
+  return el("div", { class: "dk-sub", role: "group", "aria-label": "Delegation diagram: the specialists the Duty Officer called this run" },
+    el("p", { class: "dk-sub__title", text: "Handed to" }), dkList(rows, { first: 4, key: "duty-tools" }));
+}
+
+function undispatched(run) {
+  if (!run.undispatched.length) return null;
+  return el("div", { class: "dk-sub", role: "group", "aria-label": "Mandatory work not dispatched" },
+    el("p", { class: "dk-sub__title", text: `Passed to the Desk · ${plural(run.undispatched.length, "must-do job")}` }),
+    collapsedLines(run.undispatched.map((id) => itemLabel(run, id)), "duty-undone", 3, "serious"),
+    el("p", { class: "dk-sub__note", text: "A dispatcher handles these by hand. Nothing was substituted." }));
 }
 
 function brief(run) {
   const b = run.brief;
-  if (!b) return el("p", { class: "x-quiet", text: "The run ended without a brief." });
+  if (!b) return dkNote("info", "The run ended without a brief.");
   const model = dutyModel(run);
-  const kids = [
-    el("div", { class: "duty__briefhead" }, el("h4", { class: "caps x-h", text: "Brief" }), aiMark(model, model ? null : "NO MODEL")),
-    el("p", { class: "duty__summary duty__ai", text: plainLine(b.summary) }),
-  ];
-  if (b.priorities.length) {
-    // The stub gives every item the same reason: say it once under the heading, not per row.
-    const sameStub = b.priorities.every((p) => /^NO MODEL: urgency order\.?$/.test(p.why || ""));
-    const row = (p) => {
-      const item = run.worklist.find((i) => i.id === p.item_id);
-      return el("li", {},
-        el("span", { class: "duty__label" }, item?.mandatory ? el("span", { class: "duty__must", title: "Code requires this work this run", text: "Must do" }) : null, itemLabel(run, p.item_id)),
-        sameStub ? null : el("span", { class: "duty__why duty__ai", text: plainLine(p.why) }));
-    };
-    kids.push(el("h4", { class: "caps x-h", text: "Priorities" }),
-      sameStub ? el("p", { class: "x-sub", text: "In urgency order: code ordered them (AI off)." }) : null,
-      el("ol", { class: "duty__prio" }, ...b.priorities.slice(0, PRIO_SHOWN).map(row)));
-    const rest = b.priorities.slice(PRIO_SHOWN);
-    if (rest.length) {
-      kids.push(el("details", { class: "duty__more" }, el("summary", { text: `${rest.length} more in order` }),
-        el("ol", { class: "duty__prio", start: String(PRIO_SHOWN + 1) }, ...rest.map(row))));
-    }
-  }
-  if (b.watch.length) {
-    kids.push(el("h4", { class: "caps x-h", text: "Watch" }),
-      el("ul", { class: "duty__watch" }, ...b.watch.map((w) => el("li", { class: "duty__ai", text: plainLine(w) }))));
-  }
-  return el("div", { class: "duty__brief" }, ...kids);
-}
-
-// Failed results always show; the first two good ones show, the rest sit behind a disclosure.
-function resultLines(results) {
-  const line = (r) => el("p", { class: `dg__result${r.ok ? "" : " dg__result--bad"}`, text: r.text });
-  const bad = results.filter((r) => !r.ok);
-  const good = results.filter((r) => r.ok);
-  const out = [...bad.map(line), ...good.slice(0, RESULTS_SHOWN).map(line)];
-  const rest = good.slice(RESULTS_SHOWN);
-  if (rest.length) out.push(el("details", { class: "dg__resmore" }, el("summary", { text: `${rest.length} more result${rest.length === 1 ? "" : "s"}` }), ...rest.map(line)));
-  return out;
-}
-
-// The Duty Officer at the top, an arrow to each specialist it called this run.
-function diagram(run) {
-  const groups = groupDispatches(run);
-  const model = dutyModel(run);
-  const root = el("div", { class: "dg__root" },
-    icon("i-agent", "icon dg__icon"),
-    el("span", { class: "dg__rootmain" }, el("strong", { text: "Duty Officer" }),
-      el("span", { class: "dg__sub mono", text: `${model || "AI off"} · ${plural(run.worklist.length, "job")} offered` })));
-  if (!groups.length) {
-    return el("div", { class: "dg", role: "group", "aria-label": "Delegation diagram" }, root,
-      el("p", { class: "dg__none", text: "It delegated nothing this run." }));
-  }
-  const nodes = groups.map((g) => {
-    const spec = SPECIALISTS[g.tool];
-    const bad = g.failed > 0;
-    const items = g.itemIds.size;
-    const count = spec ? `${items} ${spec.unit}${items === 1 ? "" : "s"}` : plural(items, "item");
-    return el("li", { class: `dg__node${bad ? " dg__node--bad" : ""}` }, el("div", { class: "dg__card" },
-      el("div", { class: "dg__top" },
-        el("strong", { class: "dg__name", text: spec ? spec.name : g.tool }),
-        pill(bad ? "serious" : "ok", bad ? (g.failed === g.calls ? "failed" : `${g.failed} of ${g.calls} failed`) : "ok", bad ? "The specialist reported a failure" : "The specialist returned")),
-      el("p", { class: "dg__stats mono" },
-        el("span", { text: count }), g.calls > 1 ? el("span", { text: `${g.calls} calls` }) : null, el("span", { text: `${g.ms.toLocaleString("en")} ms` })),
-      el("p", { class: "dg__tool mono", text: `${g.tool}()${spec ? ` · ${spec.does}` : ""}` }),
-      ...resultLines(g.results)));
-  });
-  return el("div", { class: "dg", role: "group", "aria-label": "Delegation diagram: the specialists the Duty Officer called this run" }, root,
-    el("ul", { class: "dg__list" }, ...nodes));
+  const mustDo = (id) => run.worklist.find((i) => i.id === id)?.mandatory;
+  // The stub gives every item the same reason: say it once, not per row.
+  const sameStub = b.priorities.every((p) => /^NO MODEL: urgency order\.?$/.test(p.why || ""));
+  const prio = b.priorities.map((p, i) => el("div", { class: "dk-prio" },
+    el("span", { class: "dk-prio__n mono", text: String(i + 1) }),
+    el("span", { class: "dk-prio__main" },
+      el("span", { class: "dk-prio__label" }, itemLabel(run, p.item_id), mustDo(p.item_id) ? [" ", dkChip("Must do", { kind: "must", title: "Code requires this work this run" })] : null),
+      sameStub ? null : el("span", { class: "dk-prio__why", text: plainLine(p.why) }))));
+  return el("div", { class: "dk-sub" },
+    el("div", { class: "dk-sub__titlerow" }, el("p", { class: "dk-sub__title", text: "Brief" }), aiMark(model, model ? null : "NO MODEL")),
+    el("p", { class: "dk-quote", text: plainLine(b.summary) }),
+    b.priorities.length ? el("p", { class: "dk-sub__title", text: `Priorities · ${b.priorities.length}` }) : null,
+    sameStub && b.priorities.length ? el("p", { class: "dk-sub__note", text: "In urgency order: code ordered them (AI off)." }) : null,
+    b.priorities.length ? dkList(prio, { first: 5, key: "duty-prio" }) : null,
+    b.watch.length ? el("p", { class: "dk-sub__title", text: "Watch" }) : null,
+    b.watch.length ? el("ul", { class: "dk-bullets" }, ...b.watch.map((w) => el("li", { text: plainLine(w) }))) : null);
 }
 
 function deferred(run) {
   if (!run.deferred.length) return null;
   const model = dutyModel(run);
-  return section(`Deferred · ${run.deferred.length}`,
-    el("p", { class: "x-sub", text: "Optional work it left for the next run. The reasons are the model's." }),
-    el("ul", { class: "duty__defer" }, ...run.deferred.map((d) => el("li", {},
-      el("span", { class: "duty__label", text: itemLabel(run, d.item_id) }),
-      el("span", { class: "duty__why duty__ai", text: plainLine(d.reason) })))),
-    aiMark(model, model ? null : "NO MODEL"));
+  return el("div", { class: "dk-sub" },
+    el("div", { class: "dk-sub__titlerow" }, el("p", { class: "dk-sub__title", text: `Left for the next run · ${run.deferred.length}` }), aiMark(model, model ? null : "NO MODEL")),
+    el("p", { class: "dk-sub__note", text: "Optional work it left for later. The reasons are the model's." }),
+    dkList(run.deferred.map((d) => el("div", { class: "dk-prio" }, el("span", { class: "dk-prio__main" },
+      el("span", { class: "dk-prio__label", text: itemLabel(run, d.item_id) }), el("span", { class: "dk-prio__why", text: plainLine(d.reason) })))), { first: 3, key: "duty-defer" }));
 }
 
-function undispatched(run) {
-  if (!run.undispatched.length) return null;
-  return el("section", { class: "duty__undone", role: "alert", "aria-label": "Mandatory work not dispatched" },
-    el("h3", { class: "duty__undonehead" }, st("st-serious", "var(--c-serious)"), `${plural(run.undispatched.length, "mandatory item")} not dispatched: sent to the Desk`),
-    el("ul", {}, ...run.undispatched.map((id) => el("li", { text: itemLabel(run, id) }))),
-    el("p", { class: "x-sub", text: "A dispatcher handles these by hand. Nothing was substituted." }));
-}
-
-export function dutyPanel(run, loaded) {
-  const lede = el("p", { class: "x-lede", text: "One coordinator agent orders the day's AI work and hands it to the specialists through tools. Code builds the work list and holds the safety line; the Duty Officer decides the order and writes the brief." });
+// The body of the Duty Officer's helper row.
+export function dutyDetail(run, loaded) {
   if (!run) {
-    return [section("Duty Officer", lede,
-      el("div", { class: "x-empty" }, el("strong", { text: loaded ? "No Duty Officer run yet" : "Waiting for the first run" }),
-        el("p", { text: "It runs when code finds AI work due: a plume to read, a flight to plan, a network to re-plan." })))];
+    return [dkEmpty(loaded ? "No Duty Officer run yet" : "Waiting for the first run", "It runs when code finds AI work due: a plume to read, a flight to plan, a network to re-plan.")];
   }
-  const card = el("article", { class: `x-card duty duty--${run.outcome.toLowerCase()}`, "aria-label": "Duty Officer" }, head(run), facts(run));
-  if (run.outcome === "MODEL_FAILED") card.append(failure(run));
-  const undone = undispatched(run);
-  if (undone) card.append(undone);
-  card.append(el("h4", { class: "caps x-h", text: "Delegation" }), diagram(run));
-  if (run.outcome !== "MODEL_FAILED") card.append(brief(run));
-  const defer = deferred(run);
-  if (defer) card.append(defer);
-  return [lede, card];
+  const [tone, word, why] = OUTCOME[run.outcome] || ["info", run.outcome, ""];
+  const t = finishedAt(run);
+  const mandatory = run.worklist.filter((i) => i.mandatory).length;
+  const model = dutyModel(run);
+  const kids = [
+    el("div", { class: "dk-inline" }, dkPill(tone, word, why), dkRecorded(run.replay), el("span", { class: "dk-inline__meta mono", text: Number.isFinite(t) ? `finished ${dayTime(t)}` : "" })),
+    dkFacts([
+      ["Model", model ? dkChip(model, { mono: true }) : "AI off"],
+      ["Turns", String(run.turns), { mono: true }],
+      ["Jobs given", `${run.worklist.length}${mandatory ? ` (${mandatory} must do)` : ""}`],
+      ["Run by", run.trigger === "adsb" ? "new aircraft" : "scheduler tick"],
+    ]),
+  ];
+  if (run.outcome === "MODEL_FAILED") {
+    kids.push(dkNote("serious", ["The model gave no brief that passed the code's checks.", "No brief was made up in its place. The work below was not coordinated."], { role: "status" }),
+      dkTech(run.validation_errors[0] || "no reason recorded"));
+  }
+  kids.push(undispatched(run), handedTo(run));
+  if (run.outcome !== "MODEL_FAILED") kids.push(brief(run));
+  kids.push(deferred(run));
+  return kids.filter(Boolean);
 }

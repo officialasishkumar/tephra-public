@@ -161,26 +161,42 @@ export function indexStatus(key, D, store, ui) {
   }
 }
 
+const INDEX_DOT = { serious: ["st-serious", "var(--c-serious)"], caution: ["st-caution", "var(--c-caution)"], tephra: ["st-inside", "var(--c-tephra)"] };
+
+// One index row: a shape for its tone, the title over its live status, a chevron.
+function indexRow(s, stt, { focus = `drow-${s.key}`, id = `xtab-${s.xtab || s.key}` } = {}) {
+  const tone = stt.tone ? ` dindex__row--${stt.tone}` : "";
+  const dot = INDEX_DOT[stt.tone];
+  return el("button", { type: "button", class: `dindex__row${tone}`, id, dataset: { act: "details-sec", sec: s.key, xtab: id ? s.xtab || null : null, focus } },
+    el("span", { class: "dindex__dot" }, dot ? st(dot[0], dot[1]) : null),
+    el("span", { class: "dindex__text" }, el("span", { class: "dindex__label", text: s.title }), el("span", { class: "dindex__status", text: stt.text })),
+    icon("i-chevron-right", "icon dindex__go"));
+}
+
 function renderIndex(D, store, ui) {
   const box = $("xtabs");
   const groups = [];
+  const attention = [];
   for (const s of SECTIONS) {
     if (s.hidden) continue;
     let g = groups.find((x) => x.name === s.group);
     if (!g) { g = { name: s.group, rows: [] }; groups.push(g); }
-    g.rows.push(s);
+    const stt = indexStatus(s.key, D, store, ui);
+    g.rows.push([s, stt]);
+    if (stt.tone === "serious" || stt.tone === "caution") attention.push([s, stt]);
   }
   const kids = [];
+  // "Needs a look": at most three rows whose status is serious or caution, serious first. The
+  // same rows stay in their groups below; this card only points at them.
+  if (attention.length) {
+    const top = attention.sort((a, b) => (a[1].tone === "serious" ? 0 : 1) - (b[1].tone === "serious" ? 0 : 1)).slice(0, 3);
+    kids.push(el("div", { role: "listitem", class: "dindex__attn" },
+      el("h3", { class: "dindex__attnhead" }, st("st-caution", "var(--c-caution)"), el("span", { text: "Needs a look" })),
+      el("div", { class: "dindex__card" }, ...top.map(([s, stt]) => indexRow(s, stt, { focus: `dattn-${s.key}`, id: null })))));
+  }
   for (const g of groups) {
     kids.push(el("div", { role: "listitem", class: "dindex__group" }, el("h3", { class: "dindex__head", text: g.name })));
-    for (const s of g.rows) {
-      const stt = indexStatus(s.key, D, store, ui);
-      const tone = stt.tone ? ` dindex__row--${stt.tone}` : "";
-      kids.push(el("div", { role: "listitem" }, el("button", { type: "button", class: `dindex__row${tone}`, id: `xtab-${s.xtab || s.key}`, dataset: { act: "details-sec", sec: s.key, xtab: s.xtab || null, focus: `drow-${s.key}` } },
-        el("span", { class: "dindex__label", text: s.title }),
-        el("span", { class: "dindex__status" }, stt.tone === "serious" ? st("st-serious", "var(--c-serious)") : stt.tone === "caution" ? st("st-caution", "var(--c-caution)") : null, el("span", { text: stt.text })),
-        el("span", { class: "dindex__go", "aria-hidden": "true", text: "›" }))));
-    }
+    kids.push(el("div", { role: "listitem", class: "dindex__card" }, ...g.rows.map(([s, stt]) => indexRow(s, stt))));
   }
   const key = kids.map((k) => k.textContent).join("|");
   if (box.dataset.key !== key) { box.dataset.key = key; box.replaceChildren(...kids); }
