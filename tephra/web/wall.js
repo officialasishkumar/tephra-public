@@ -608,7 +608,9 @@ function placeDetails() {
   const legend = $("legend");
   const mid = !phone() && !wide();
   if (open && mid) { if (legend.parentElement !== box) box.append(legend); }
-  else if (legend.parentElement !== $("story")) $("trust").before(legend);
+  // back to its own place in the story, between the story card and the notes (it once went in
+  // before the trust line, inside the card, and stayed there once Details had been opened)
+  else if (legend.parentElement !== $("story")) $("story-notes").before(legend);
   legend.classList.toggle("key--pinned", open && mid);
 }
 

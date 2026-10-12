@@ -10,6 +10,7 @@
   --time-h: 52px;
   --foot-h: 32px;
   --story-size: 28px;
+  --story-body: 17px; /* the story's fact lines; the lead line is --story-size */
   --gutter: 20px;
   --band-px: 0px; /* the REPLAY band's height on a phone, measured by wall.js */
 }
@@ -279,32 +280,54 @@ body.details-open .stage { grid-template-columns: var(--story-w) minmax(0, 1fr) 
 .story > .fail-line + .verdict, .story > .verdict:first-child { border-top: 0; padding-top: 0; }
 .story > .fail-line[hidden] + .verdict { border-top: 0; padding-top: 0; }
 
-/* failure line (R5.6): red edge, the serious shape, at most two items */
-.fail-line { padding: var(--sp-2) var(--sp-3) !important; border: 1px solid var(--c-serious) !important; border-left-width: 4px !important; border-radius: var(--radius-sm); background: var(--c-serious-bg); font-size: var(--fs-2); line-height: 1.35; }
-.fail-line__list { display: flex; flex-direction: column; gap: 4px; }
-.fail-line__item, .lost-banner { display: flex; gap: var(--sp-2); align-items: flex-start; color: var(--c-text-1); }
-.fail-line__item .st { margin-top: 2px; }
-.lost-banner { color: var(--c-serious); font-weight: var(--fw-semibold); margin-bottom: 4px; }
-.fail-line__more { color: var(--c-serious); }
+/* failure line (R5.6): plain words at body-small size on the serious background, a red edge, and
+   the serious shape centred on each item's first line; at most two items, then "+ n more" */
+.fail-line { padding: var(--sp-2) var(--sp-3) !important; border: 1px solid color-mix(in srgb, var(--c-serious) 55%, transparent) !important; border-left: 3px solid var(--c-serious) !important; border-radius: var(--radius-sm); background: var(--c-serious-bg); font-size: var(--fs-2); line-height: 1.4; }
+.fail-line__list { display: flex; flex-direction: column; gap: 6px; }
+.fail-line__item { display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: var(--sp-2); align-items: start; color: var(--c-text-1); }
+.fail-line__item .st { margin-top: calc((1.4em - 14px) / 2); }
+.fail-line__item > .link-btn { grid-column: 2; justify-self: start; min-height: 28px; }
+.fail-line__who { font-weight: var(--fw-semibold); }
+.lost-banner { color: var(--c-serious); font-weight: var(--fw-semibold); margin-bottom: 6px; }
+.fail-line__moreitem { padding-left: calc(14px + var(--sp-2)); }
+.fail-line__more { min-height: 28px; color: var(--c-serious); }
 
 .verdict { display: flex; flex-direction: column; gap: var(--sp-3); }
 .verdict--error .story__actions, .verdict--error .story__lines { display: none; }
-.eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: var(--fs-eyebrow, var(--fs-1)); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-text-2); }
-.eyebrow__icon .icon { width: 18px; height: 18px; vertical-align: -4px; }
+/* eyebrow (R5.1): the name in sentence case with "as of" on its right; under it, muted, the area,
+   the alert colour as a pill in words and the REPLAY "Recorded" tag */
+.eyebrow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "icon name asof" ". rest rest"; align-items: center; gap: 4px var(--sp-2); }
+.eyebrow:has(> .eyebrow__icon:empty) { grid-template-areas: "name name asof" "rest rest rest"; }
+.eyebrow__icon { grid-area: icon; display: inline-flex; }
+.eyebrow__icon .icon { width: 20px; height: 20px; }
 .eyebrow__icon:empty { display: none; }
-.eyebrow__main { flex: 1 1 auto; min-width: 0; }
-.eyebrow__name { display: inline; font-size: inherit; font-weight: var(--fw-bold); color: var(--c-text-1); letter-spacing: inherit; }
-.eyebrow__asof { margin-left: auto; font-family: var(--font-mono); letter-spacing: 0; text-transform: none; color: var(--c-text-3); }
+.eyebrow__name { grid-area: name; min-width: 0; font-size: var(--fs-4); font-weight: var(--fw-bold); line-height: var(--lh-snug); color: var(--c-text-1); }
+.eyebrow__asof { grid-area: asof; justify-self: end; white-space: nowrap; font-size: var(--fs-2); color: var(--c-text-3); }
+.eyebrow__rest { grid-area: rest; display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--sp-2); font-size: var(--fs-2); color: var(--c-text-2); }
+.eyebrow__rest:empty { display: none; }
+.eyebrow__rest .tag { margin-left: 0; }
+.code-pill { display: inline-flex; align-items: center; gap: 6px; min-height: 22px; padding: 0 8px; border: 1px solid color-mix(in srgb, var(--code) 60%, transparent); border-radius: var(--radius-pill); background: color-mix(in srgb, var(--code) 14%, transparent); color: var(--c-text-1); font-size: var(--fs-1); font-weight: var(--fw-semibold); white-space: nowrap; }
+.code-pill__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--code); forced-color-adjust: none; }
+.code-pill--red { --code: var(--c-code-red); }
+.code-pill--orange { --code: var(--c-code-orange); }
+.code-pill--yellow { --code: var(--c-code-yellow); }
+.code-pill--green { --code: var(--c-code-green); }
+.code-pill--unknown { --code: var(--c-code-unknown); }
 body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 8px; border: 2px solid var(--c-line-input); border-top-color: var(--c-text-1); border-radius: 50%; vertical-align: -1px; }
 @media (prefers-reduced-motion: no-preference) { body.is-connecting .eyebrow__name::before { animation: spin 0.9s linear infinite; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.story__lines { display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--story-size); line-height: var(--lh-story, 1.25); font-weight: var(--fw-medium); letter-spacing: var(--tracking-tight); }
-.story__line { margin: 0; }
-.story__flights { font-weight: var(--fw-semibold); color: var(--c-text-1); }
-.story__dis { color: var(--c-text-1); }
-.story__note, .story__connecting { font-size: max(16px, calc(var(--story-size) * 0.64)); font-weight: var(--fw-regular); color: var(--c-text-2); letter-spacing: 0; }
-.story__rec { margin: 0 4px 0 0; font-size: var(--fs-1); vertical-align: 4px; }
+/* story lines (R5.3): one lead line at the story size, the number in TEPHRA amber; the facts at
+   body size, muted where they are context, each with an optional quieter sub-line */
+.story__lines { display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--story-body); line-height: 1.4; font-weight: var(--fw-regular); color: var(--c-text-2); }
+.story__line { margin: 0; text-wrap: pretty; }
+.story__lead { margin-bottom: 2px; font-size: var(--story-fit-size, var(--story-size)); line-height: var(--lh-story, 1.25); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-tight); color: var(--c-text-1); }
+.story__num { color: var(--c-tephra-text); }
+.story__wait, .story__dis, .story__closed { color: var(--c-text-1); }
+.story__wait { font-weight: var(--fw-medium); }
+.story__sub { display: block; margin-top: 2px; font-size: var(--fs-2); line-height: 1.4; font-weight: var(--fw-regular); letter-spacing: 0; color: var(--c-text-3); }
+.story__dot { margin: 0 0.2em; }
+.story__note, .story__connecting { color: var(--c-text-2); }
 .story__hyp { display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-2) var(--sp-3); background: var(--c-hypothesis-bg); border: 1px solid var(--c-tephra); border-radius: var(--radius-md); color: var(--c-tephra-text); font-size: var(--fs-3); font-weight: var(--fw-semibold); letter-spacing: 0; line-height: 1.35; }
 .story__hyp .st { margin-top: 3px; }
 @media (prefers-reduced-motion: no-preference) {
@@ -314,6 +337,10 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 
 .story__actions { display: flex; flex-direction: column; align-items: stretch; gap: var(--sp-2); }
 .story__actions .btn-row { margin-top: 0; }
+/* the empty-area variant: "Ash elsewhere:" and its buttons keep a full row each when the actions
+   sit in one row (1920, fit 5+), so the Desk button never squeezes in beside them */
+.story__actions { flex-wrap: wrap; }
+.story__actions > .story__note, .story__actions > .btn-row { flex: 1 1 100%; }
 /* the one filled button on the Wall (R5.3, R13.3) */
 .cta {
   display: inline-flex; align-items: center; justify-content: center;
@@ -326,12 +353,21 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 .cta--quiet { min-height: var(--tap-comfort); font-size: var(--fs-3); }
 .story__show { align-self: flex-start; margin: 0; font-size: var(--fs-2); }
 
-/* key block (R5.5): fixed rows, never a floating panel */
-.key { display: flex; flex-direction: column; gap: var(--sp-1); }
-.key__rows { display: flex; flex-direction: column; gap: 2px; }
+/* key block (R5.5): fixed rows, never a floating panel. Each row: a 20 px swatch on the label's
+   line, the note under the label on its own smaller line (a hanging indent); one column, and two
+   even columns when the block is 520 px wide or more */
+.key { display: flex; flex-direction: column; gap: var(--sp-1); container-type: inline-size; }
+.key__rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px var(--sp-4); }
+@container (min-width: 520px) { .key__rows { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .key__rows li { display: grid; grid-template-columns: 26px 1fr; align-items: center; gap: var(--sp-2); min-height: 28px; font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.3; }
+.key__rows .key__row { grid-template-columns: 20px minmax(0, 1fr); align-items: start; column-gap: var(--sp-2); min-height: 20px; line-height: 20px; }
+.key__row > .sw { width: 20px; height: 20px; margin: 0; }
+.key__row > .sw--aircraft { width: 16px; height: 16px; margin: 2px; }
+.key__row > .sw--exposed { width: 18px; height: 18px; margin: 1px; }
+.key__text { display: flex; flex-direction: column; min-width: 0; }
 .key__label, .key__rows strong { color: var(--c-text-1); font-weight: var(--fw-medium); }
 .key__sub { color: var(--c-text-2); }
+.key__text .key__sub { font-size: var(--fs-1); line-height: 16px; color: var(--c-text-3); }
 .key__more { align-self: flex-start; margin: 2px 0 0; font-size: var(--fs-2); }
 .sw { width: 24px; height: 24px; forced-color-adjust: none; }
 .sw--official { color: var(--c-official); }
@@ -343,8 +379,13 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 .sw--sat { color: var(--c-sat); }
 .sw--route { color: var(--c-route); }
 
-.trust { display: flex; gap: var(--sp-2); align-items: flex-start; font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.4; }
-.trust .icon { color: var(--c-text-2); margin-top: 2px; }
+/* trust line (R5.7): the plain sentence, then the model ids as small mono chips */
+.trust { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: var(--sp-2); align-items: start; font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.4; }
+.trust__icon { width: 16px; height: 16px; margin-top: calc((1.4em - 16px) / 2); color: var(--c-text-3); }
+.trust__body { min-width: 0; }
+.trust__text { display: block; }
+.trust__models { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.trust__models .dk-chip { min-height: 20px; padding: 0 8px; color: var(--c-text-2); }
 .story-notes { display: flex; flex-direction: column; gap: var(--sp-1); }
 .story-notes:empty { display: none; }
 .story-note { display: flex; gap: var(--sp-2); align-items: flex-start; font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.4; }
@@ -1275,12 +1316,9 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .story { gap: 10px; padding-top: var(--sp-4); padding-bottom: var(--sp-2); }
   .story > * + * { padding-top: 10px; }
   .story__lines { gap: 6px; }
-  .story .key__rows { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--sp-3); }
-  .key__rows li { font-size: var(--fs-2); min-height: 26px; }
   .story__actions { flex-direction: row; align-items: center; gap: var(--sp-4); }
   .story__actions .cta, .story__actions .cta--quiet { flex: 1 1 auto; }
   .story__show { align-self: center; flex: none; }
-  .trust { font-size: var(--fs-2); }
   .allv { gap: 4px; }
   .details-btn { min-height: 48px; padding-top: 6px !important; padding-bottom: 6px; }
 }
@@ -1295,7 +1333,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 
 @media (max-width: 1599px) {
   html { font-size: 15px; }
-  :root { --story-w: 400px; --drawer-w: 480px; --time-h: 48px; --story-size: 24px; --gutter: 16px; }
+  :root { --story-w: 400px; --drawer-w: 480px; --time-h: 48px; --story-size: 24px; --story-body: 16px; --gutter: 16px; }
   .clock__time { font-size: var(--fs-6); }
   .story { padding: var(--sp-4) var(--sp-4) var(--sp-3); gap: var(--sp-3); }
   .story > * + * { padding-top: var(--sp-3); }
@@ -1312,7 +1350,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 
 @media (max-width: 1359px) {
   html { font-size: 14px; }
-  :root { --band-h: 28px; --bar-h: 48px; --story-w: 360px; --drawer-w: 440px; --time-h: 44px; --foot-h: 28px; --story-size: 22px; --gutter: 12px; }
+  :root { --band-h: 28px; --bar-h: 48px; --story-w: 360px; --drawer-w: 440px; --time-h: 44px; --foot-h: 28px; --story-size: 22px; --story-body: 15px; --gutter: 12px; }
   .replay-banner__case { display: none; }
   .cmdbar { gap: var(--sp-2); }
   .brand__mark { font-size: var(--fs-4); letter-spacing: 0.14em; }
@@ -1334,7 +1372,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 
 @media (max-width: 600px) {
   html { font-size: 16px; }
-  :root { --story-w: 100%; --drawer-w: 100%; --time-h: 0px; --story-size: 20px; --gutter: 12px; }
+  :root { --story-w: 100%; --drawer-w: 100%; --time-h: 0px; --story-size: 20px; --story-body: 16px; --gutter: 12px; }
   /* the viewport scrolls (never the body), so the band and the header can stick */
   html { height: auto; overflow-x: clip; }
   body.wall { display: block; height: auto; overflow: visible; padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
@@ -1381,7 +1419,6 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .story > .verdict, .story > .fail-line[hidden] + .verdict { order: 1; padding-top: var(--sp-4); padding-bottom: var(--sp-4); background: var(--c-surface-1); }
   .mapcol { order: 2; display: block; }
   .story > .key { order: 3; padding-top: var(--sp-3); }
-  .story > .key .key__rows { flex-direction: row; flex-wrap: wrap; gap: 0 var(--sp-3); }
   /* the failure line sits on the page background above the story card: leave room under it */
   .story > .fail-line + .verdict { padding-top: var(--sp-3); margin-top: var(--sp-3); }
   .story > .story-notes { order: 5; }
@@ -1466,10 +1503,15 @@ body.present .details-btn { border-style: dashed; }
 /* Details is the route to everything else (item 7): pinned to the bottom of the story column at
    every desktop width, with a fade above it that says the column scrolls. */
 @media (min-width: 601px) {
-  .story > .details-btn { position: sticky; bottom: 0; z-index: 1; flex: none; box-shadow: 0 -18px 16px -4px var(--c-surface-1); }
+  .story > .details-btn { position: sticky; bottom: 0; z-index: 1; flex: none; }
   .story { padding-bottom: 0; }
   .story > .details-btn { margin-bottom: var(--sp-3); }
-  .details-btn[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--c-text-1), 0 -18px 16px -4px var(--c-surface-1); }
+  /* What scrolls under the pinned button fades out above it over the column's full width, and the
+     strip below it (its margin) is solid: a shadow inset from the button's edges once left the
+     corners of the box under it showing as a stray edge (story text review, item 6). */
+  .story > .details-btn::before, .story > .details-btn::after { content: ""; position: absolute; left: calc(-1 * var(--sp-4) - 1px); right: calc(-1 * var(--sp-4) - 1px); pointer-events: none; }
+  .story > .details-btn::before { bottom: calc(100% + 1px); height: 20px; background: linear-gradient(to bottom, transparent, var(--c-surface-1)); }
+  .story > .details-btn::after { top: calc(100% + 1px); height: var(--sp-3); background: var(--c-surface-1); }
 }
 
 /* ---------------------------------------------------------------- story fit (R4.1, review 2, item 4)
@@ -1477,26 +1519,20 @@ body.present .details-btn { border-style: dashed; }
    tightens, never removes: the key keeps "binding" and "never smaller", folded rows stay one tap
    away under "+ n more". Desktop only; phones scroll the page. */
 @media (min-width: 601px) {
-  .trust { font-size: var(--fs-1); line-height: 1.35; margin-top: calc(-1 * var(--sp-1)); }
-  .story[data-fit] .story__lines { font-size: var(--story-fit-size, var(--story-size)); }
   .story[data-fit="1"], .story[data-fit="2"], .story[data-fit="3"], .story[data-fit="4"], .story[data-fit="5"], .story[data-fit="6"], .story[data-fit="7"] {
     gap: 10px; padding-top: var(--sp-3);
   }
   .story[data-fit]:not([data-fit="0"]) > * + * { padding-top: 10px; }
   .story[data-fit]:not([data-fit="0"]) .verdict { gap: var(--sp-2); }
   .story[data-fit]:not([data-fit="0"]) .story__lines { gap: 4px; }
-  .story[data-fit="2"], .story[data-fit="3"] { --story-fit-size: calc(var(--story-size) - 2px); }
-  .story[data-fit="4"], .story[data-fit="5"] { --story-fit-size: calc(var(--story-size) - 4px); }
-  .story[data-fit="6"], .story[data-fit="7"] { --story-fit-size: calc(var(--story-size) - 5px); }
-  /* 3+: the key in two columns, rows shorter; the sub-words stay */
-  .story[data-fit="3"] .key__rows, .story[data-fit="4"] .key__rows, .story[data-fit="5"] .key__rows, .story[data-fit="6"] .key__rows, .story[data-fit="7"] .key__rows {
-    display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--sp-3); row-gap: 0;
-  }
-  .story[data-fit="3"] .key__rows li, .story[data-fit="4"] .key__rows li, .story[data-fit="5"] .key__rows li, .story[data-fit="6"] .key__rows li, .story[data-fit="7"] .key__rows li {
-    min-height: 24px; font-size: var(--fs-1); grid-template-columns: 20px 1fr; gap: 6px; line-height: 1.25;
-  }
-  .story[data-fit="3"] .key .sw, .story[data-fit="4"] .key .sw, .story[data-fit="5"] .key .sw, .story[data-fit="6"] .key .sw, .story[data-fit="7"] .key .sw { width: 18px; height: 18px; }
+  /* the lead line shrinks at most 3 px, so it stays the column's largest line */
+  .story[data-fit="2"], .story[data-fit="3"] { --story-fit-size: calc(var(--story-size) - 1px); }
+  .story[data-fit="4"], .story[data-fit="5"], .story[data-fit="6"], .story[data-fit="7"] { --story-fit-size: calc(var(--story-size) - 2px); }
+  /* 3+: the key rows closer together; every row keeps its note on its own line */
+  .story[data-fit="3"] .key__rows, .story[data-fit="4"] .key__rows, .story[data-fit="5"] .key__rows, .story[data-fit="6"] .key__rows, .story[data-fit="7"] .key__rows, .story[data-fit="8"] .key__rows { row-gap: 2px; }
   .story[data-fit="3"] .key__more, .story[data-fit="4"] .key__more, .story[data-fit="5"] .key__more, .story[data-fit="6"] .key__more, .story[data-fit="7"] .key__more { font-size: var(--fs-1); min-height: 24px; }
+  /* 6+: the fact lines a pixel smaller */
+  .story[data-fit="6"], .story[data-fit="7"], .story[data-fit="8"] { --story-body: calc(var(--fs-3) - 1px); }
   /* 5+: the flights link beside the button */
   .story[data-fit="5"] .story__actions, .story[data-fit="6"] .story__actions, .story[data-fit="7"] .story__actions { flex-direction: row; align-items: center; gap: var(--sp-3); }
   .story[data-fit="5"] .story__actions .cta, .story[data-fit="6"] .story__actions .cta, .story[data-fit="7"] .story__actions .cta,
@@ -1508,11 +1544,8 @@ body.present .details-btn { border-style: dashed; }
   .story[data-fit="7"] .details-btn .icon { grid-row: 1; }
   .story[data-fit="7"] .allv { gap: 2px; }
   /* 8: the tightest rhythm (1280x720 with a long story) */
-  .story[data-fit="8"] { gap: 6px; padding-top: var(--sp-2); --story-fit-size: calc(var(--story-size) - 6px); }
+  .story[data-fit="8"] { gap: 6px; padding-top: var(--sp-2); --story-fit-size: calc(var(--story-size) - 3px); }
   .story[data-fit="8"] > * + * { padding-top: 6px !important; }
-  .story[data-fit="8"] .key__rows { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--sp-3); row-gap: 0; }
-  .story[data-fit="8"] .key__rows li { min-height: 20px; font-size: var(--fs-1); grid-template-columns: 20px 1fr; gap: 6px; line-height: 1.2; }
-  .story[data-fit="8"] .key .sw { width: 18px; height: 18px; }
   .story[data-fit="8"] .key__more, .story[data-fit="8"] .vlist__more { font-size: var(--fs-1); min-height: 24px; }
   .story[data-fit="8"] .story__actions { flex-direction: row; align-items: center; gap: var(--sp-3); }
   .story[data-fit="8"] .story__actions .cta, .story[data-fit="8"] .story__actions .cta--quiet { flex: 1 1 auto; min-height: 44px; }
@@ -1521,16 +1554,25 @@ body.present .details-btn { border-style: dashed; }
   .story[data-fit="8"] .details-btn__sub { display: none; }
   .story[data-fit="8"] .details-btn .icon { grid-row: 1; }
   .story[data-fit="8"] .allv, .story[data-fit="8"] .verdict { gap: 2px; }
-  .story[data-fit="8"] .trust { margin-top: 0; }
   /* last resort: the column scrolls, and says so with a fade above the pinned button */
-  .story:not(.story--scrolls) > .details-btn:not([aria-expanded="true"]) { box-shadow: none; }
+  .story:not(.story--scrolls) > .details-btn::before { display: none; }
+  /* last fit step (data-keyfold): the map key folds to one bar above its rows; the bar opens it */
+  .story[data-keyfold] > .key:not(.is-open) .key__rows, .story[data-keyfold] > .key:not(.is-open) .key__more { display: none; }
+  .story[data-keyfold] > .key .key__toggle {
+    order: -1; display: flex; align-items: center; gap: var(--sp-2); width: 100%; min-height: 40px; padding: 0; margin: -4px 0;
+    background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--c-text-2); font-size: var(--fs-2); font-weight: var(--fw-semibold); text-align: left;
+  }
+  .story[data-keyfold] > .key .key__toggle:hover { color: var(--c-text-1); }
+  .story[data-keyfold] > .key .key__chev { transform: rotate(180deg); }
+  .story[data-keyfold] > .key.is-open .key__chev { transform: none; }
+  .story[data-keyfold] > .key.is-open .key__toggle { margin-bottom: 0; }
 }
 
 /* ---------------------------------------------------------------- crew reports of ash (UI-DESIGN 5.7, 7.20)
    An operator-policy flag in warm ivory with long dashes and a pin: never the official magenta,
    never TEPHRA's amber. The lines sit after the flights in the story, one size down. */
 .sw--crew { color: var(--c-crew); }
-.story__crew { display: block; font-size: max(16px, calc(var(--story-size) * 0.72)); font-weight: var(--fw-medium); color: var(--c-text-1); letter-spacing: 0; line-height: 1.3; }
+.story__crew { display: block; font-weight: var(--fw-medium); color: var(--c-text-1); }
 .story__crew .story__pin { width: 0.95em; height: 0.95em; vertical-align: -0.12em; color: var(--c-crew); }
 .story__crew .st { width: 0.85em; height: 0.85em; vertical-align: -0.08em; }
 /* the crew line opens Details › Crew reports: the sentence is the button, underlined on hover */

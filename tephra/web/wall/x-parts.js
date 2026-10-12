@@ -192,16 +192,38 @@ export function planProblem(plan) {
 
 // A plan with no plan, in plain words for Details › Airport closures: the solver's result when
 // there is one (planProblem), else what stopped the recovery planner. Never "chosen by" a model
-// when nothing was chosen. `raw` is the reason as recorded, for Technical detail.
+// when nothing was chosen. `raw` is the reason as recorded, for Technical detail; `clause` is the
+// cause as a short clause for the Wall's failure line ("Airport plan: {clause}, so …").
 export function planFailure(plan) {
   if (!plan || plan.status !== "AI_UNAVAILABLE") return null;
   const p = planProblem(plan);
   const raw = [plan.unavailable_reason, ...(plan.validation_errors || [])].filter(Boolean).join("; ") || "no reason given";
-  if (p) return { title: p.status === "UNKNOWN" ? "Recovery found no plan: the solver did not finish in time" : p.status === "INFEASIBLE" ? "Recovery found no plan: no plan fits the closures" : `Recovery found no plan (solver: ${p.status.toLowerCase()})`, sub: "A dispatcher must plan the network by hand.", short: "no plan found", raw };
+  if (p) {
+    const solver = p.status.toLowerCase().replace(/_/g, " ");
+    return {
+      title: p.status === "UNKNOWN" ? "Recovery found no plan: the solver did not finish in time" : p.status === "INFEASIBLE" ? "Recovery found no plan: no plan fits the closures" : `Recovery found no plan (solver: ${solver})`,
+      sub: "A dispatcher must plan the network by hand.", short: "no plan found", raw,
+      clause: p.status === "UNKNOWN" ? "the solver did not finish in time" : p.status === "INFEASIBLE" ? "no plan fits the closures" : `no plan was found (solver: ${solver})`,
+    };
+  }
   const m = /RECOVERY AGENT ERROR: (\w+)/.exec(raw);
-  if (m && m[1] === "TimeoutError") return { title: "Recovery planner timed out", sub: "No plan was made. A dispatcher must plan the network by hand.", short: "no plan: the planner timed out", raw };
-  if (m) return { title: "Recovery planner stopped with an error", sub: "No plan was made. A dispatcher must plan the network by hand.", short: "no plan: the planner stopped with an error", raw };
-  return { title: "No plan: AI unavailable", sub: "Nothing was put in its place. A dispatcher must plan the network by hand.", short: "no plan: AI unavailable", raw };
+  if (m && m[1] === "TimeoutError") return { title: "Recovery planner timed out", sub: "No plan was made. A dispatcher must plan the network by hand.", short: "no plan: the planner timed out", raw, clause: "the recovery planner timed out" };
+  if (m) return { title: "Recovery planner stopped with an error", sub: "No plan was made. A dispatcher must plan the network by hand.", short: "no plan: the planner stopped with an error", raw, clause: "the recovery planner stopped with an error" };
+  return { title: "No plan: AI unavailable", sub: "Nothing was put in its place. A dispatcher must plan the network by hand.", short: "no plan: AI unavailable", raw, clause: "the AI was unavailable and no plan was made" };
+}
+
+// Why an AI helper could not run, as a clause in plain words for the Wall's failure line ("Duty
+// Officer could not run: {clause}."). A fixed table like CAUSES; a reason it does not know reads
+// "the AI could not answer", and the raw reason stays in the item's title and in Details.
+// `until` is when today's calls open again (the budget's resets_at, already "0700Z").
+export function aiStopClause(reason, until = null) {
+  const r = String(reason || "");
+  const tail = until ? ` until ${until}` : "";
+  if (/budget_exhausted/i.test(r)) return `today's AI calls are used up${tail}`;
+  if (/DAILY QUOTA SPENT|RESOURCE_EXHAUSTED|\b429\b/i.test(r)) return `Gemini's daily quota is spent${tail}`;
+  if (/Timeout/i.test(r)) return "the AI timed out";
+  if (/FAILED CHECKS|validation/i.test(r)) return "the AI's answer failed the code's checks";
+  return "the AI could not answer";
 }
 
 // "Technical detail" disclosure holding raw machine text (R12.7).

@@ -6,7 +6,8 @@
 import { $, el, icon, hhmmz, ms, fl, kmBetween, reducedMotion } from "./util.js";
 import { SEV_RANK, regionOfVent } from "./derive.js";
 import { ext, failureCount, replanning } from "./ext.js";
-import { planProblem } from "./x-parts.js";
+import { planFailure, aiStopClause } from "./x-parts.js";
+import { dkChip } from "./dk.js";
 import { FEED_NAME } from "./panels.js";
 
 const CODE_WORD = { RED: "Red", ORANGE: "Orange", YELLOW: "Yellow", GREEN: "Green" };
@@ -71,7 +72,9 @@ const adsbWord = (status) => ({ ERROR: "failing", STALE: "stale", DISABLED: "off
 
 // ------------------------------------------------------------------ failures (R5.6)
 
-// Every problem the story must show without a tap, worst first. `where` names the Details
+// Every problem the story must show without a tap, worst first, in plain words (R5.6). `who` is
+// the part that failed, set in bold; `raw` is the machine text the plain words came from, kept in
+// the item's title and, one tap in, under Technical detail in Details. `where` names the Details
 // section that holds it.
 export function storyFailures(D, store, conn, extra) {
   const out = [];
@@ -85,20 +88,23 @@ export function storyFailures(D, store, conn, extra) {
     const good = ms(f.last_success_at);
     const what = id === "adsb" ? "positions" : "reports";
     const name = id === "adsb" ? "Aircraft data" : FEED_NAME[id] || id;
-    out.push({ key: `feed-${id}`, text: `${name} is failing. Showing the last good ${what}${Number.isFinite(good) ? `, from ${hhmmz(good)}` : ""}.`, where: "feeds" });
+    out.push({ key: `feed-${id}`, who: name, text: `${name} is failing. Showing the last good ${what}${Number.isFinite(good) ? `, from ${hhmmz(good)}` : ""}.`, raw: f.last_error || null, where: "feeds" });
   }
-  if (D.state.store && D.state.store.ok === false) out.push({ key: "db", text: "The database is failing: some counts may be unknown.", where: "feeds" });
+  if (D.state.store && D.state.store.ok === false) out.push({ key: "db", who: "The database", text: "The database is failing: some counts may be unknown.", where: "feeds" });
+  const resets = ms(ext.budget?.resets_at);
+  const until = Number.isFinite(resets) ? hhmmz(resets) : null;
   const plan = currentPlan();
-  if (plan?.status === "AI_UNAVAILABLE") {
-    const p = planProblem(plan);
-    out.push({ key: `plan-${plan.id}`, text: p ? `Airport plan: ${p.words.replace(/^No plan found: /, "no plan found, ").replace(" the network by hand", " by hand")}` : `Airport plan: AI unavailable (${String(plan.unavailable_reason || "no reason given").replace(/^AI UNAVAILABLE:?\s*/i, "")}).`, where: "recovery" });
-  }
+  const pf = planFailure(plan);
+  if (pf) out.push({ key: `plan-${plan.id}`, who: "Airport plan", text: `Airport plan: ${pf.clause}, so a dispatcher must plan by hand.`, raw: pf.raw, where: "recovery" });
   for (const r of store.snapshot?.satellite || []) {
     if (r.status !== "ai_unavailable") continue;
-    out.push({ key: `sat-${r.volcano_id}`, text: `Satellite reader: AI unavailable (${String(r.reason || "no reason given").replace(/^AI UNAVAILABLE:?\s*/i, "")}).`, where: "sat" });
+    out.push({ key: `sat-${r.volcano_id}`, who: "Satellite reader", text: `Satellite reader could not run: ${aiStopClause(r.reason, until)}.`, raw: r.reason || "no reason given", where: "sat" });
   }
   const duty = store.snapshot?.duty;
-  if (duty?.outcome === "MODEL_FAILED") out.push({ key: `duty-${duty.id}`, text: `Duty Officer: AI unavailable (${duty.validation_errors?.[0] || "no reason recorded"}).`, where: "ai" });
+  if (duty?.outcome === "MODEL_FAILED") {
+    const reason = duty.validation_errors?.[0] || "no reason recorded";
+    out.push({ key: `duty-${duty.id}`, who: "Duty Officer", text: `Duty Officer could not run: ${aiStopClause(reason, until)}.`, raw: (duty.validation_errors || [reason]).join("; "), where: "ai" });
+  }
   const fails = failureCount(store);
   if (fails) out.push({ key: `trace-fails-${fails}`, text: `${plural(fails, "AI step", "AI steps")} failed.`, where: "ai", quiet: true });
   return out;
@@ -116,7 +122,7 @@ function renderFailures(list) {
   if (lostItem) setText(lost, lostItem.text);
   const shown = items.slice(0, lostItem ? 1 : 2);
   const more = items.length - shown.length;
-  const key = [...shown.map((f) => f.key), more].join("|");
+  const key = [...shown.map((f) => `${f.key}:${f.text}:${f.raw || ""}`), more].join("|");
   const ul = $("fail-list");
   if (ul.dataset.key !== key) {
     ul.dataset.key = key;
@@ -124,77 +130,66 @@ function renderFailures(list) {
       // role=alert only on the render where the failure first appears (R15.6)
       const fresh = !seenFailures.has(f.key);
       seenFailures.add(f.key);
-      return el("li", { class: "fail-line__item", role: fresh && !f.quiet ? "alert" : null },
-        st("st-serious", "var(--c-serious)"), el("span", { text: f.text }),
+      // the part that failed in bold, the rest in plain words; the machine text in the title
+      const words = f.who && f.text.startsWith(f.who)
+        ? el("span", { class: "fail-line__text" }, el("strong", { class: "fail-line__who", text: f.who }), f.text.slice(f.who.length))
+        : el("span", { class: "fail-line__text", text: f.text });
+      return el("li", { class: "fail-line__item", role: fresh && !f.quiet ? "alert" : null, title: f.raw ? `Recorded reason: ${f.raw}` : null },
+        st("st-serious", "var(--c-serious)"), words,
         f.action ? el("button", { type: "button", class: "link-btn", dataset: { act: f.action, focus: `fail-${f.key}` }, text: f.actionText }) : null);
-    }), ...(more > 0 ? [el("li", {}, el("button", { type: "button", class: "link-btn fail-line__more", dataset: { act: "details-open", sec: items[shown.length].where, focus: "fail-more" }, text: `+ ${plural(more, "more problem", "more problems")} ›` }))] : []));
+    }), ...(more > 0 ? [el("li", { class: "fail-line__moreitem" }, el("button", { type: "button", class: "link-btn fail-line__more", dataset: { act: "details-open", sec: items[shown.length].where, focus: "fail-more" }, text: `+ ${plural(more, "more problem", "more problems")} ›` }))] : []));
   }
   box.hidden = !list.length;
 }
 
 // ------------------------------------------------------------------ the story card (R5.1-R5.4)
 
+// Eyebrow (R5.1): the eruption symbol and the volcano's name (the h1) on the first row with "as of"
+// on its right; under them, muted, the area, the alert colour as a pill in words and, in REPLAY,
+// the "Recorded" tag, so a frame of the story alone says it is a recording.
 function eyebrow(D, sit, region, store) {
   const iconBox = $("eyebrow-icon");
+  const rest = $("eyebrow-rest");
+  const replay = D?.mode === "REPLAY";
+  const asof = $("eyebrow-asof");
+  asof.title = "Times ending in Z are UTC";
   if (!sit) {
     iconBox.replaceChildren();
-    setText($("eyebrow-rest"), "");
-    setText($("eyebrow-asof"), D ? `as of ${hhmmz(D.now)}` : "");
+    const k = replay ? "replay" : "";
+    if (rest.dataset.key !== k) { rest.dataset.key = k; rest.replaceChildren(...(replay ? [el("span", { class: "tag tag--replay eyebrow__rec", text: "Recorded" })] : [])); }
+    setText(asof, D ? `as of ${hhmmz(D.now)}` : "");
     return;
   }
   iconBox.replaceChildren(eruptIcon(sit.color_code));
   const regName = region ? (D.state.regions || []).find((r) => r.key === region)?.name : null;
-  const alert = CODE_WORD[sit.color_code] ? `alert ${CODE_WORD[sit.color_code]}` : "alert colour not given";
-  // a no-break space before each "·" keeps the dot at the end of a line, never at the start of
-  // the next one (review 2, item 13)
-  setText($("eyebrow-rest"), [regName, alert].filter(Boolean).map((t) => `\u00a0· ${t}`).join(""));
-  setText($("eyebrow-asof"), `as of ${hhmmz(ms(sit.as_of))}`);
-  $("eyebrow-asof").title = "Times ending in Z are UTC";
+  const code = CODE_WORD[sit.color_code] ? sit.color_code.toLowerCase() : "unknown";
+  const alert = CODE_WORD[sit.color_code] ? `${CODE_WORD[sit.color_code]} alert` : "Alert colour not given";
+  const k = [regName, alert, replay].join("|");
+  if (rest.dataset.key !== k) {
+    rest.dataset.key = k;
+    rest.replaceChildren(...[
+      regName ? el("span", { class: "eyebrow__region", text: regName }) : null,
+      el("span", { class: `code-pill code-pill--${code}`, title: "The volcano's aviation colour code" }, el("span", { class: "code-pill__dot", "aria-hidden": "true" }), el("span", { text: alert })),
+      replay ? el("span", { class: "tag tag--replay eyebrow__rec", text: "Recorded" }) : null].filter(Boolean));
+  }
+  setText(asof, `as of ${hhmmz(ms(sit.as_of))}`);
 }
 
-// The lines of the story, as { text, cls, title, tag } objects.
+// The lines of the story (R5.3), as { text, cls, sub, lead, count } objects. One lead line, the
+// flights (the dispatcher's first question), at the story size with the number in TEPHRA amber;
+// then the facts at body size, each with an optional quieter sub-line (`sub`: scope, plan time,
+// what follows from it). `text` is the line's words for the change key and the announcement.
 function storyLines(D, store, ui, sit) {
   const lines = [];
+  const facts = [];
   const cone = D.coneOf(sit.volcano_id)?.properties;
   const stub = D.state.llm?.backend === "stub";
   if (cone?.mode === "HYPOTHESIS") {
     lines.push({ text: "HYPOTHESIS: no valid official product. Only MONITOR or HOLD may be advised.", cls: "story__hyp", banner: true });
-  } else {
-    const b = officialBand(D, sit.volcano_id);
-    if (b) {
-      lines.push({
-        text: b.base > 0
-          ? `Official reports put the ash between ${ft(b.base)} and ${ft(b.top)} ft (${fl(b.base)}–${fl(b.top)}).`
-          : `Official reports put the ash up to ${ft(b.top)} ft (${fl(b.top)}).`,
-      });
-    }
-  }
-  const dir = sit.discrepancies.find((d) => d.kind === "DIRECTION_MISMATCH" && d.aspect === "direction" && (SEV_RANK[d.severity] || 0) >= 2);
-  if (dir) {
-    let tail = "";
-    if (cone?.mode === "WIDENED") tail = " TEPHRA's estimate covers both.";
-    else if (cone?.mode === "OFFICIAL") tail = stub ? " TEPHRA's estimate has not been widened (AI off)." : " TEPHRA's estimate has not been widened.";
-    lines.push({ text: `The sources disagree on where the ash is heading (${Math.round(dir.magnitude)}° apart).${tail}`, cls: "story__dis" });
-  }
-  const silence = sit.discrepancies.find((d) => d.kind === "SILENCE");
-  if (silence) lines.push({ text: "Ash was reported and no VAA has followed.", cls: "story__dis" });
-  const conflict = sit.discrepancies.find((d) => d.kind === "CONFLICT");
-  if (conflict) lines.push({ text: "A no-ash VAA was in force when another report saw ash after it.", cls: "story__dis" });
-  const plan = currentPlan();
-  const closed = closuresFor(D, sit.volcano_id, plan);
-  const re = replanning(store);
-  if (re) {
-    // The trace does not say which volcano closed them, so the line says its scope: every
-    // volcano (review 2, item 2, spec G8).
-    lines.push({ text: `Ash closes ${plural(re.airports.length, "RFA airport", "RFA airports")} (all volcanoes): ${re.airports.join(", ")}. Re-planning the day's flights…`, title: `Re-plan started at ${hhmmz(re.at)}` });
-  } else if (closed.length) {
-    const icaos = [...new Set(closed.map((c) => c.icao))];
-    const all = new Set(plan.closures.map((c) => c.icao)).size;
-    lines.push({ text: `Ash from ${sit.volcano_name} closes ${plural(icaos.length, "RFA airport", "RFA airports")}: ${icaos.join(", ")}${all > icaos.length ? ` (${all} across all volcanoes)` : ""}.`, title: `Airport plan as of ${hhmmz(ms(plan.created_at))}` });
   }
   const n = sit.exposed_count || 0;
   if (n > 0) {
-    lines.push({ text: `${n} ${n === 1 ? "flight" : "flights"} of RFA, our fictional airline, ${n === 1 ? "is" : "are"} in or heading into TEPHRA's estimated ash area.`, cls: "story__flights", count: n });
+    lines.push({ text: `${n} ${n === 1 ? "flight" : "flights"} of RFA, our fictional airline, ${n === 1 ? "is" : "are"} in or heading into TEPHRA's estimated ash area.`, cls: "story__flights", lead: true, count: n });
     const a = advisoryFacts(D, store, sit.volcano_id);
     let t, goneNote = null;
     if (a.unknown) t = "Advisory count unknown (database error).";
@@ -209,15 +204,48 @@ function storyLines(D, store, ui, sit) {
     }
     else if (a.decided > 0) t = `All ${a.decided} advisories are decided: ${a.approved} approved, ${a.rejected} rejected.`;
     else t = "Their advisories are not drafted yet.";
-    lines.push({ text: t, cls: "story__wait" });
-    if (goneNote) lines.push({ text: goneNote, cls: "story__note" });
+    lines.push({ text: t, cls: "story__wait", sub: goneNote ? [goneNote] : null });
   } else {
     const adsb = store.feeds.find((f) => f.feed === "adsb");
     const ok = adsb?.status === "OK";
-    lines.push({ text: "No RFA flight is seen heading into TEPHRA's area right now." });
-    lines.push({ text: ok ? "Aircraft coverage here is patchy: an empty map is not an empty sky." : `Aircraft data is ${adsbWord(adsb?.status)}: an empty map is not an empty sky.`, cls: "story__note" });
+    lines.push({ text: "No RFA flight is seen heading into TEPHRA's area right now.", lead: true,
+      sub: [ok ? "Aircraft coverage here is patchy: an empty map is not an empty sky." : `Aircraft data is ${adsbWord(adsb?.status)}: an empty map is not an empty sky.`] });
   }
-  return [...lines, ...crewLines(D, sit)];
+  if (cone?.mode !== "HYPOTHESIS") {
+    const b = officialBand(D, sit.volcano_id);
+    if (b) {
+      facts.push({
+        text: b.base > 0
+          ? `Official reports put the ash between ${ft(b.base)} and ${ft(b.top)}\u00a0ft (${fl(b.base)}–${fl(b.top)}).`
+          : `Official reports put the ash up to ${ft(b.top)}\u00a0ft (${fl(b.top)}).`,
+      });
+    }
+  }
+  const plan = currentPlan();
+  const closed = closuresFor(D, sit.volcano_id, plan);
+  const re = replanning(store);
+  if (re) {
+    // The trace does not say which volcano closed them, so the line says its scope: every
+    // volcano (review 2, item 2, spec G8).
+    facts.push({ cls: "story__closed", text: `Ash closes ${plural(re.airports.length, "RFA airport", "RFA airports")} (all volcanoes): ${re.airports.join(", ")}.`, sub: ["Re-planning the day's flights…", `started ${hhmmz(re.at)}`] });
+  } else if (closed.length) {
+    const icaos = [...new Set(closed.map((c) => c.icao))];
+    const all = new Set(plan.closures.map((c) => c.icao)).size;
+    facts.push({ cls: "story__closed", text: `Ash from ${sit.volcano_name} closes ${plural(icaos.length, "RFA airport", "RFA airports")}: ${icaos.join(", ")}.`,
+      sub: [all > icaos.length ? `${all} across all volcanoes` : null, `airport plan as of ${hhmmz(ms(plan.created_at))}`].filter(Boolean) });
+  }
+  const dir = sit.discrepancies.find((d) => d.kind === "DIRECTION_MISMATCH" && d.aspect === "direction" && (SEV_RANK[d.severity] || 0) >= 2);
+  if (dir) {
+    let tail = null;
+    if (cone?.mode === "WIDENED") tail = "TEPHRA's estimate covers both.";
+    else if (cone?.mode === "OFFICIAL") tail = stub ? "TEPHRA's estimate has not been widened (AI off)." : "TEPHRA's estimate has not been widened.";
+    facts.push({ text: `The sources disagree on where the ash is heading, ${Math.round(dir.magnitude)}° apart.`, cls: "story__dis", sub: tail ? [tail] : null });
+  }
+  const silence = sit.discrepancies.find((d) => d.kind === "SILENCE");
+  if (silence) facts.push({ text: "Ash was reported and no VAA has followed.", cls: "story__dis" });
+  const conflict = sit.discrepancies.find((d) => d.kind === "CONFLICT");
+  if (conflict) facts.push({ text: "A no-ash VAA was in force when another report saw ash after it.", cls: "story__dis" });
+  return [...lines, ...facts, ...crewLines(D, sit)];
 }
 
 // Crew reports of ash (UI-DESIGN 7.6, 7.20): one line at most, after the flights, for this
@@ -242,38 +270,49 @@ export function crewLines(D, sit) {
 
 let lastAnnounce = { at: 0, key: "" };
 
+// One story line: the lead (the number in TEPHRA amber), a fact, or a line that opens Details.
+function lineNode(l) {
+  if (l.banner) return el("p", { class: "story__hyp", role: "note" }, st("st-caution", "var(--c-caution)"), el("span", { text: l.text }));
+  const p = el("p", { class: ["story__line", l.lead ? "story__lead" : "story__fact", l.cls].filter(Boolean).join(" ") });
+  // a line that opens its Details section is one button, the whole sentence its label
+  const host = l.act ? el("button", { type: "button", class: "story__act", dataset: { act: "details-open", sec: l.act, focus: `story-${l.act}` } }) : p;
+  if (l.mark === "pin") host.append(icon("i-pin", "icon story__pin"), " ");
+  else if (l.mark === "caution") host.append(st("st-caution", "var(--c-caution)"), " ");
+  const num = l.count != null ? String(l.count) : null;
+  if (num && l.text.startsWith(num)) host.append(el("span", { class: "story__num", text: num }), l.text.slice(num.length));
+  else host.append(l.text);
+  if (l.act) p.append(host);
+  // the quieter sub-line: scope, the plan's time, what follows; parts joined by a dot that screen
+  // readers hear as a pause (a hidden "; ")
+  if (l.sub?.length) {
+    p.append(el("span", { class: "story__sub" }, ...l.sub.flatMap((t, i) => [
+      i ? [el("span", { class: "story__dot", "aria-hidden": "true", text: " · " }), el("span", { class: "sr-only", text: "; " })] : [],
+      el("span", { text: t })])));
+  }
+  return p;
+}
+
 function renderLines(D, store, ui, sit, announce) {
   const box = $("headline");
   let lines;
-  if (!D) lines = [{ text: "Connecting to TEPHRA…", cls: "story__note story__connecting" }];
+  // connecting: the h1 already says "Connecting to TEPHRA…" with its spinner; no line repeats it
+  if (!D) lines = [];
   else if (sit) lines = storyLines(D, store, ui, sit);
   else if (D.reading) {
     // Active volcanoes are known but their situation cards have not arrived: never "no ash".
-    lines = [{ text: "Reading the official reports…", cls: "story__connecting" },
+    lines = [{ text: "Reading the official reports…", cls: "story__connecting", lead: true },
       { text: D.state.last_tick ? "Ash is reported here. The summary appears when TEPHRA has read the reports, usually within a minute." : "TEPHRA has just started and is reading every feed for the first time. This takes up to a minute.", cls: "story__note" }];
   } else if (D.regionEmpty) {
     const name = D.area?.name || "this area";
-    lines = [{ text: `No ash reported near ${name} right now.` }];
-  } else lines = [{ text: "No official ash report is in force in the watched regions right now." }];
+    lines = [{ text: `No ash reported near ${name} right now.`, lead: true }];
+  } else lines = [{ text: "No official ash report is in force in the watched regions right now.", lead: true }];
   if (D && !sit) lines.push(...crewLines(D, null));
-  const replay = D?.mode === "REPLAY" && !!sit;
   // Replace the lines only when their words change, so screen readers are not re-read every render.
-  const key = [replay, ...lines.map((l) => `${l.cls || ""}:${l.text}`)].join("|");
+  const key = lines.map((l) => `${l.cls || ""}:${l.text}:${(l.sub || []).join("·")}`).join("|");
   if (box.dataset.key !== key) {
     const prev = box.dataset.count || "";
     box.dataset.key = key;
-    box.replaceChildren(...lines.map((l, i) => {
-      if (l.banner) return el("p", { class: "story__hyp", role: "note" }, st("st-caution", "var(--c-caution)"), el("span", { text: l.text }));
-      const p = el("p", { class: `story__line ${l.cls || ""}`.trim(), title: l.title || null });
-      if (replay && i === 0) p.append(el("span", { class: "tag tag--replay story__rec", text: "Recorded" }), " ");
-      // a line that opens its Details section is one button, the whole sentence its label
-      const host = l.act ? el("button", { type: "button", class: "story__act", dataset: { act: "details-open", sec: l.act, focus: `story-${l.act}` } }) : p;
-      if (l.mark === "pin") host.append(icon("i-pin", "icon story__pin"), " ");
-      else if (l.mark === "caution") host.append(st("st-caution", "var(--c-caution)"), " ");
-      host.append(l.text);
-      if (l.act) p.append(host);
-      return p;
-    }));
+    box.replaceChildren(...lines.map(lineNode));
     const flights = lines.find((l) => l.count != null);
     const now = String(flights?.count ?? "");
     if (prev && now && prev !== now && !reducedMotion()) {
@@ -361,7 +400,7 @@ function renderKey(D, ui) {
   // three swatches; the bar is hidden elsewhere (wall.css), where the rows always show.
   const glyphs = rows.slice(0, 3).map(([s]) => s.cloneNode(true));
   box.replaceChildren(
-    el("ul", { class: "key__rows", id: "key-rows" }, ...rows.map(([s, label, sub]) => el("li", {}, s, el("span", {}, el("span", { class: "key__label", text: label }), sub ? el("span", { class: "key__sub", text: ` · ${sub}` }) : null)))),
+    el("ul", { class: "key__rows", id: "key-rows" }, ...rows.map(([s, label, sub]) => el("li", { class: sub ? "key__row key__row--sub" : "key__row" }, s, el("span", { class: "key__text" }, el("span", { class: "key__label", text: label }), sub ? el("span", { class: "key__sub", text: sub }) : null)))),
     el("button", { type: "button", class: "link-btn key__more", dataset: { act: "help-map", focus: "key-more" }, text: "Full map key and alert colours ›" }),
     el("button", { type: "button", class: "key__toggle", "aria-expanded": ui.keyOpen ? "true" : "false", "aria-controls": "key-rows", dataset: { act: "key-toggle", focus: "key-toggle" } },
       el("span", { class: "key__toggle-label", text: "Map key" }), el("span", { class: "key__glyphs", "aria-hidden": "true" }, ...glyphs),
@@ -370,13 +409,21 @@ function renderKey(D, ui) {
 
 // ------------------------------------------------------------------ trust, notes, all volcanoes
 
+// The trust line (R5.7): a plain sentence first; the model ids after it as small mono chips,
+// never inside the prose.
 function renderTrust(D) {
   const box = $("trust");
-  if (!D) { box.replaceChildren(); return; }
+  if (!D) { box.replaceChildren(); box.dataset.key = ""; return; }
   const stub = D.state.llm?.backend === "stub";
-  const text = stub ? "AI: off · code built this summary from the official reports" : `AI: on (${D.state.llm?.label || "model"}) · it can widen TEPHRA's estimate, never shrink the official area`;
-  if (box.textContent === text) return;
-  box.replaceChildren(icon(stub ? "i-code" : "i-model"), el("span", { text }));
+  const text = stub ? "AI is off. Code built this summary from the official reports." : "AI is on. It can widen TEPHRA's estimate, never shrink the official area.";
+  const models = stub ? [] : String(D.state.llm?.label || D.state.llm?.model_id || "").split(/\s*\+\s*/).filter(Boolean);
+  const key = [text, ...models].join("|");
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
+  box.replaceChildren(icon(stub ? "i-code" : "i-model", "icon trust__icon"),
+    el("span", { class: "trust__body" }, el("span", { class: "trust__text", text }),
+      models.length ? el("span", { class: "trust__models" }, el("span", { class: "sr-only", text: models.length === 1 ? "Model: " : "Models: " }),
+        ...models.map((m) => dkChip(m, { mono: true, title: "Model id" }))) : null));
 }
 
 function renderNotes(notes) {
@@ -464,10 +511,13 @@ export function renderStory(D, store, ui, { conn, extra, announce, notes = [] })
 // ------------------------------------------------------------------ fit (R4.1, review 2, item 4)
 
 // The story column must not scroll at desktop widths: content was cut off half-visible under the
-// pinned Details button. Each fit level tightens the column a step (spacing, then line size, the
-// key in two columns, the button beside the flights link, the other-volcanoes rows folded into
-// "+ n more", the Details sub-line) until it fits. Nothing is removed: folded rows stay one tap
-// away, and the column still scrolls as a last resort. Phones scroll the page and skip this.
+// pinned Details button. Each fit level tightens the column a step (spacing, then the lead line's
+// size, the key rows, the button beside the flights link, the other-volcanoes rows folded into
+// "+ n more", the fact lines, the Details sub-line) until it fits. When the tightest level still
+// does not fit, the map key folds to its one-line bar ("Map key", three swatches, "7 items") and the
+// levels run again from the loosest, so the rest of the column breathes. Nothing is removed:
+// folded rows and the folded key stay one tap away, and the column still scrolls as a last resort
+// (an opened key stays open). Phones scroll the page and skip this.
 const FIT_MAX = 8;
 let fitKey = "";
 function fitStory(D, ui) {
@@ -475,6 +525,7 @@ function fitStory(D, ui) {
   if (!box) return;
   if (window.innerWidth <= 600 || !D) {
     if (box.dataset.fit) { delete box.dataset.fit; fitCap = Infinity; }
+    delete box.dataset.keyfold;
     fitKey = "";
     return;
   }
@@ -482,15 +533,21 @@ function fitStory(D, ui) {
   if (key === fitKey) return;
   fitKey = key;
   const over = () => box.scrollHeight - box.clientHeight > 1;
-  let level = 0;
-  box.dataset.fit = "0";
-  if (fitCap !== Infinity) { fitCap = Infinity; renderAll(D, ui); }
-  while (over() && level < FIT_MAX) {
-    level += 1;
-    box.dataset.fit = String(level);
-    // level 6 folds the other-volcanoes rows into "+ n more"
-    if (level === 6 && !ui.vlistOpen) { fitCap = 0; renderAll(D, ui); }
-  }
+  const run = () => {
+    let level = 0;
+    box.dataset.fit = "0";
+    if (fitCap !== Infinity) { fitCap = Infinity; renderAll(D, ui); }
+    while (over() && level < FIT_MAX) {
+      level += 1;
+      box.dataset.fit = String(level);
+      // level 6 folds the other-volcanoes rows into "+ n more"
+      if (level === 6 && !ui.vlistOpen) { fitCap = 0; renderAll(D, ui); }
+    }
+  };
+  delete box.dataset.keyfold;
+  run();
+  // an opened key keeps its bar too, so "Hide" folds it again
+  if (over() && $("legend").parentElement === box) { box.dataset.keyfold = "1"; run(); }
   // Folding every row may free more room than needed: give rows back while they still fit.
   if (fitCap === 0 && !over()) {
     for (let c = 1; c <= 3; c += 1) {
