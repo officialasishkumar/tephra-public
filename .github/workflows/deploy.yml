@@ -46,8 +46,8 @@ permissions:
 
 env:
   # Printed by deploy/github_deploy_setup.sh; it can write them in for you.
-  TEPHRA_WIF_PROVIDER: REPLACE_WITH_WIF_PROVIDER
-  TEPHRA_DEPLOY_SA: REPLACE_WITH_DEPLOY_SA
+  TEPHRA_WIF_PROVIDER: projects/647733667799/locations/global/workloadIdentityPools/github-actions/providers/tephra-main
+  TEPHRA_DEPLOY_SA: tephra-deployer@regal-wall-392020.iam.gserviceaccount.com
   # deploy/cloudrun.sh in CI mode (deploy/_common.sh): no prompt, deployer account only.
   TEPHRA_DEPLOY_CI: "true"
   TEPHRA_GITHUB_REPO: officialasishkumar/tephra
