@@ -1,6 +1,8 @@
 # Deploying TEPHRA (run these yourself, from a personal account)
 
-These scripts are written for a person to run by hand; no agent runs them. They refuse to run unless a dedicated gcloud configuration is logged into the account and project you name, so a work login on the same machine can never be used by accident.
+These scripts are written for a person to run by hand; no agent runs them on a machine. They refuse to run unless a dedicated gcloud configuration is logged into the account and project you name, so a work login on the same machine can never be used by accident.
+
+After the one-time setup below, every push to `main` deploys by itself from GitHub Actions through the same gate (see [Automatic deploys](#automatic-deploys)). The scripts stay the way to do the first deploy, change secrets or the Scheduler job, and roll back.
 
 ## One-time setup
 
@@ -59,6 +61,45 @@ What `cloudrun.sh` does, in order:
 5. When it passes, moves all traffic to the candidate and runs the full smoke test against the main URL (this waits up to 3 minutes for the new instance's first tick). If that fails, it prints the rollback command and leaves traffic alone for you to decide.
 6. Prints the revision name, the image digest and the rollback command.
 
+## Automatic deploys
+
+`.github/workflows/deploy.yml` runs `deploy/cloudrun.sh` in CI mode on every push to `main` (and on demand: Actions tab > deploy > Run workflow, from `main`).
+
+**What triggers it.** A push to `main` that changes anything that can alter what runs. Pushes that change only `docs/` (except `docs/backtest/`, which is in the image), Markdown files (except under `tephra/` and `data/`: the prompts and replay notes ship), `research/` or `tests/` do not deploy. It never runs on a fork or for another branch.
+
+**What it does.** Exactly the gate above, at the pushed commit: build it, deploy it with no traffic as tag `candidate`, `scripts/live_smoke.sh --read-only` against the candidate, move traffic only if that passes, then the full smoke test against the main URL. The settings are the `env:` block at the top of the workflow (the demo configuration: `TEPHRA_MODE=REPLAY`, `TEPHRA_REPLAY_CASE=anak-krakatau-20260905`, the 10:30Z-19:30Z window, `TEPHRA_AUTO_REPLAY=false`, `TEPHRA_LLM=gemini`, `always-on`). To change a setting for good, change it there; the push deploys it.
+
+**Order.** One deploy runs at a time, in push order (a concurrency group). A running deploy is never cancelled; a newer push replaces a run that is still waiting. A run whose commit is no longer the tip of `main` when it starts (it was overtaken, or it is a re-run of an old run) stops without deploying, so a re-run can never roll the site back to an older commit.
+
+**Watching it.** Repository > Actions > deploy. Each run's summary page says what happened: "Deployed <commit>" with the revision, the previous revision and the rollback command, or "Not deployed" (the candidate failed; traffic was not moved), or "Live smoke test FAILED" (traffic is on the new revision; roll back if the site is broken). The log shows every smoke-test line and a link to the Cloud Build log. GitHub emails the pusher when a run fails.
+
+**Rolling back.** The run prints the command; run it yourself from the tephra-personal configuration:
+
+```bash
+CLOUDSDK_ACTIVE_CONFIG_NAME=tephra-personal gcloud run services update-traffic tephra \
+  --region asia-southeast1 --to-revisions <previous revision>=100
+```
+
+Then `scripts/live_smoke.sh https://<service-url>`. The next push to `main` deploys again, so revert or fix the commit on `main` as well, or pause the workflow first.
+
+**Pausing.** Actions > deploy > `...` > Disable workflow (anyone with write access can). Pushes then deploy nothing; enable it again the same way. Deploying by hand with `./deploy/cloudrun.sh` still works while it is disabled.
+
+**What CI mode changes.** With `TEPHRA_DEPLOY_CI=true` and `GITHUB_ACTIONS=true` (both, or it refuses), `deploy/_common.sh` skips the prompt and the tephra-personal configuration, and instead refuses unless gcloud is the deployer service account in `TEPHRA_DEPLOY_SA`, the project is `TEPHRA_PROJECT`, the repository is `officialasishkumar/tephra` and the ref is `refs/heads/main`. The one credential file it lets through is the federation file the auth step wrote for this job (outside the checkout, impersonating exactly that account through exactly `TEPHRA_WIF_PROVIDER`); an access-token file or impersonation is still refused, and the hand path still refuses any credential file. `cloudrun.sh` then requires `HEAD` to be the pushed commit and the tip of `origin/main`, only checks that the runtime account, the repository and the secrets exist (no API enabling, no IAM changes, no cleanup-policy change, no first deploy), polls Cloud Build instead of streaming its log, and leaves the service's public-access binding as it is. `secrets.sh`, `scheduler.sh`, `monitoring.sh` and `github_deploy_setup.sh` refuse to run in CI.
+
+### One-time setup for automatic deploys
+
+No key is stored anywhere: GitHub's OIDC token for this repository's `main` is exchanged through workload identity federation for a short-lived token of a deployer service account. Nothing goes in GitHub secrets, and no GitHub App is installed.
+
+1. The service must already be deployed by hand once (the scripts above).
+2. Run `./deploy/github_deploy_setup.sh` with the same `TEPHRA_GCLOUD_ACCOUNT` and `TEPHRA_PROJECT` as the other scripts. It prints each gcloud command and asks before each change. It creates:
+   - workload identity pool `github-actions` and OIDC provider `tephra-main` for `https://token.actions.githubusercontent.com`, whose condition accepts only tokens from `officialasishkumar/tephra` (by name and numeric id), owner `officialasishkumar` (by name and id), `refs/heads/main` and the workflow file `.github/workflows/deploy.yml`;
+   - service account `tephra-deployer` with `roles/run.developer`, `roles/cloudbuild.builds.editor` and `roles/serviceusage.serviceUsageConsumer` on the project, `roles/iam.serviceAccountUser` on `tephra-run` only, `roles/artifactregistry.writer` on the `tephra` repository only, `roles/storage.objectCreator` and `roles/storage.legacyBucketReader` on the Cloud Build staging bucket `<project>_cloudbuild` only, and `roles/secretmanager.viewer` (metadata, never values) on the four secrets only;
+   - `roles/iam.workloadIdentityUser` on `tephra-deployer` for the principal set of that repository.
+3. It prints `TEPHRA_WIF_PROVIDER` and `TEPHRA_DEPLOY_SA` and offers to write them over the `REPLACE_WITH_...` placeholders in `.github/workflows/deploy.yml`. Until they are filled in, the workflow fails at its first step without touching Google Cloud.
+4. Commit and push that change to `main`. That push is the first automatic deploy: watch it in the Actions tab.
+
+If the first build fails with a permission error naming `iam.serviceAccounts.actAs` on the Cloud Build service account, the script printed the one grant that fixes it (projects whose builds run as the Compute Engine default account need it). Undo everything by deleting the provider, the pool and `tephra-deployer`.
+
 ## First deploy and smoke test
 
 1. Deploy with the stub model first, so a broken deploy spends no Gemini quota:
@@ -72,7 +113,7 @@ What `cloudrun.sh` does, in order:
 3. Force one more revision (run `./deploy/cloudrun.sh` again with nothing changed) and run `scripts/live_smoke.sh https://<service-url>` once more. This proves a restart restores from Firestore and the scheduler reaches the new revision.
 4. Open the Wall and the Desk in a browser and sign in to the Desk with the PIN.
 
-`scripts/live_smoke.sh <url> [--read-only] [--watch MINUTES]` uses only public endpoints and needs no secret. It checks `/health` (Cloud Run answers `/healthz` itself with a 404, since Google reserves URL paths ending in z); `/api/state` (the last tick finished under 3 ticks ago, the policy hash matches `/api/policy` and the newest pin in `tests/test_policy.py`, `build_sha` when `EXPECT_SHA` is set, the mode and case when `EXPECT_MODE` and `EXPECT_CASE` are set, and the store health when the build exposes it); `/` and `/desk` with a Content-Security-Policy header and every `/static/` file they load; a first `/api/events` event within 30 s; and that `POST /tasks/tick` without the token is refused. It prints one line per check and exits non-zero on any failure. `--read-only` skips the two tick checks.
+`scripts/live_smoke.sh <url> [--read-only] [--watch MINUTES]` uses only public endpoints and needs no secret. Cloud Run answers 429 or 503 while the single instance starts or traffic moves, so a request that gets one is retried with backoff for up to 90 s (`SMOKE_RETRY_S`; at most 240 s of waiting per run, `SMOKE_RETRY_BUDGET_S`) and the line says so, for example `PASS page /desk: 200, CSP present (429 for 20 s, then 200)`. It checks `/health` (Cloud Run answers `/healthz` itself with a 404, since Google reserves URL paths ending in z); `/api/state` (the last tick finished under 3 ticks ago, the policy hash matches `/api/policy` and the newest pin in `tests/test_policy.py`, `build_sha` when `EXPECT_SHA` is set, the mode and case when `EXPECT_MODE` and `EXPECT_CASE` are set, and the store health when the build exposes it); `/` and `/desk` with a Content-Security-Policy header and every `/static/` file they load; a first `/api/events` event within 30 s; and that `POST /tasks/tick` without the token is refused. It prints one line per check and exits non-zero on any failure. `--read-only` skips the two tick checks.
 
 ## Rollback
 
@@ -83,23 +124,23 @@ CLOUDSDK_ACTIVE_CONFIG_NAME=tephra-personal gcloud run services update-traffic <
   --region <region> --to-revisions <previous revision>=100
 ```
 
-Then run `scripts/live_smoke.sh` against the main URL and reload any open Wall and Desk. Rolling back moves traffic only: no image is built. Old revisions stay deployable as long as their image is in Artifact Registry (see Kept images).
+Then run `scripts/live_smoke.sh` against the main URL and reload any open Wall and Desk. Rolling back moves traffic only: no image is built. With automatic deploys on, the next push to `main` deploys again: revert or fix the bad commit on `main`, or disable the workflow first (see Automatic deploys). Old revisions stay deployable as long as their image is in Artifact Registry (see Kept images).
 
 ## Judging window, 19 Oct to 6 Nov, and the 4 Dec final
 
 Judges look at the live link on their own schedule from the submission (18 Oct) to 6 Nov, and again for the final on 4 Dec (re-check that date). For all of that time:
 
-- **Freeze what was submitted.** Tag the submitted commit with `git tag -a submission-2026-10-18`, deploy it with `TEPHRA_KEEP_TAG=keep-submission-20261018`, and write down the revision name and the image digest that `cloudrun.sh` prints. Keep the GitHub repository public.
-- **Merge nothing to main** until judging ends. Deploy only fixes for an outage, through the same gate, and log each one (what broke, the commit, the revision) in `docs/DECISION-MEMO.md`.
+- **Keep what was submitted as a rollback target.** Tag the submitted commit with `git tag -a submission-2026-10-18`, deploy it by hand with `TEPHRA_KEEP_TAG=keep-submission-20261018` (or tag its image afterwards with `gcloud artifacts docker tags add <image> <image base>:keep-submission-20261018`), and write down the revision name and the image digest. Keep the GitHub repository public.
+- **The site is not frozen:** every push to `main` deploys through the gate (see Automatic deploys), so `main` must stay deployable. Run the tests before pushing, watch the run in the Actions tab, and log each change that went out (what changed, the commit, the revision) in `docs/DECISION-MEMO.md`. To freeze the site for a while, disable the deploy workflow.
 - **Never pause the service or scale it to a frozen picture.** A replay and the auto-replay switch move only on ticks, so a paused or tickless service shows a stale screen.
 - **Recommended demo configuration:** `TEPHRA_MODE=REPLAY`, `TEPHRA_REPLAY_CASE=anak-krakatau-20260905`, `TEPHRA_REPLAY_START=2026-09-05T10:30:00Z` and `TEPHRA_REPLAY_END=2026-09-05T19:30:00Z` (the window whose ADS-B was reconstructed, 10:00Z-19:30Z, played as a loop; the Wall opens on the case's volcano, Anak Krakatau, with its flights and advisories: docs/UI-REDESIGN.md R2.2), and `TEPHRA_AUTO_REPLAY=false`. Before deploying, a person re-probes that window with `uv run python scripts/record_replay.py probe --case anak-krakatau-20260905 ...` and scrubs it to confirm that flights in or heading in stay above 0 through the loop.
-- **Change settings without a new image** where you can: `gcloud run services update <service> --region <region> --update-env-vars KEY=VALUE` (with the tephra-personal configuration). This makes a new revision from the same image; run `scripts/live_smoke.sh` afterwards.
+- **Change settings in `.github/workflows/deploy.yml`** (`env:`); the push deploys them through the gate. A hand change with `gcloud run services update <service> --region <region> --update-env-vars KEY=VALUE` (tephra-personal configuration) makes a new revision from the same image, but the next automatic deploy sets the environment from the workflow again, so put the same value there too.
 - **Reload the Wall and the Desk** after any deploy.
 - **Every day:** run `scripts/live_smoke.sh https://<service-url> --watch 60` (or once a day from cron or launchd), click through the Wall, and sign in to the Desk with the PIN once.
 
 ## If the model is retired
 
-A retired or renamed model makes each model step report `AI UNAVAILABLE` with an error that names the model. Read the Gemini API deprecations page, pick the next stable model id, and redeploy with `TEPHRA_MODEL` and/or `TEPHRA_MODEL_LITE` set to it (or change only the env vars as above). The judged deployment stays on the free tier. Turning on prepaid billing for the Gemini key needs the user's approval first.
+A retired or renamed model makes each model step report `AI UNAVAILABLE` with an error that names the model. Read the Gemini API deprecations page, pick the next stable model id, and add `TEPHRA_MODEL` and/or `TEPHRA_MODEL_LITE` with it to the `env:` block of `.github/workflows/deploy.yml` (the push deploys it), or redeploy by hand with them set. The judged deployment stays on the free tier. Turning on prepaid billing for the Gemini key needs the user's approval first.
 
 ## Kept images
 

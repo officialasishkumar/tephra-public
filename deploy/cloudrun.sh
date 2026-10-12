@@ -12,6 +12,14 @@
 #                        UNTESTED: confirm a cold page shows the replay advancing and the bill
 #                        stays in the free tier before relying on it. A candidate revision
 #                        also ticks itself while its smoke test keeps it up.
+#
+# By hand it runs from the tephra-personal configuration and asks before deploying. From
+# .github/workflows/deploy.yml it runs in CI mode (TEPHRA_DEPLOY_CI=true in GitHub Actions; see
+# deploy/_common.sh): no prompt, as the deployer service account, and it only builds and
+# rolls out. The one-time setup (APIs, the runtime service account and its grants, the
+# Artifact Registry repository and its cleanup policy, the first deploy) stays with a person.
+# shellcheck disable=SC2034  # read by deploy/_common.sh
+TEPHRA_CI_CAPABLE=1
 # shellcheck source=deploy/_common.sh
 source "$(dirname "$0")/_common.sh"
 
@@ -57,10 +65,28 @@ if [ -n "$(git status --porcelain)" ]; then
   git status --short >&2
   exit 1
 fi
-git fetch origin
-if ! git merge-base --is-ancestor HEAD origin/main; then
-  echo "Refusing: HEAD ($(git rev-parse --short=12 HEAD)) is not on origin/main." >&2
-  exit 1
+if [ "$CI_MODE" = true ]; then
+  # CI: HEAD must be the commit that was pushed, and still the newest on origin/main. A run
+  # that a newer push overtook (or a re-run of an old one) stands down instead of rolling
+  # the site back; the newer push's own run deploys it.
+  git fetch --quiet origin main
+  head="$(git rev-parse HEAD)"
+  tip="$(git rev-parse FETCH_HEAD)"
+  if [ "$head" != "$GITHUB_SHA" ]; then
+    echo "Refusing: HEAD ($head) is not the pushed commit ($GITHUB_SHA)." >&2
+    exit 1
+  fi
+  if [ "$head" != "$tip" ]; then
+    echo "::notice::Not deploying ${head:0:12}: origin/main is already at ${tip:0:12}, whose own run deploys it."
+    echo "Not deploying ${head:0:12}: origin/main has moved on to ${tip:0:12}."
+    exit 0
+  fi
+else
+  git fetch origin
+  if ! git merge-base --is-ancestor HEAD origin/main; then
+    echo "Refusing: HEAD ($(git rev-parse --short=12 HEAD)) is not on origin/main." >&2
+    exit 1
+  fi
 fi
 SHA="$(git rev-parse --short=12 HEAD)"
 
@@ -103,49 +129,92 @@ retry() {
   return 1
 }
 
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
-  firestore.googleapis.com storage.googleapis.com secretmanager.googleapis.com iam.googleapis.com
-
+REPO="${TEPHRA_AR_REPO:-tephra}"
+# Secret metadata only (does it exist?); the deployer never reads a secret's value.
 for secret in "${SECRETS[@]}"; do
   if ! gcloud secrets describe "$secret" >/dev/null 2>&1; then
-    echo "Secret $secret does not exist; run deploy/secrets.sh first." >&2
+    echo "Secret $secret does not exist (or this account may not see it); run deploy/secrets.sh first." >&2
     exit 1
   fi
 done
 
-# The runtime identity gets only what TEPHRA uses (docs/ARCHITECTURE.md section 4). Without
-# one the service runs as the Compute Engine default account, which holds far more than
-# this yet cannot read secret values without a grant, so --set-secrets would be refused.
-if ! gcloud iam service-accounts describe "$RUN_SA" >/dev/null 2>&1; then
-  gcloud iam service-accounts create "$RUN_SA_NAME" --display-name "TEPHRA Cloud Run runtime"
+if [ "$CI_MODE" = true ]; then
+  # The deployer service account holds no rights to enable APIs, create service accounts,
+  # change IAM or repository settings; a person did all of that with the first deploy. Check
+  # that it is there and go on.
+  if ! gcloud iam service-accounts describe "$RUN_SA" >/dev/null 2>&1; then
+    echo "Runtime service account $RUN_SA is missing: deploy once by hand first." >&2
+    exit 1
+  fi
+  if ! gcloud artifacts repositories describe "$REPO" --location "$REGION" >/dev/null 2>&1; then
+    echo "Artifact Registry repository $REPO is missing: deploy once by hand first." >&2
+    exit 1
+  fi
+else
+  gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
+    firestore.googleapis.com storage.googleapis.com secretmanager.googleapis.com iam.googleapis.com
+
+  # The runtime identity gets only what TEPHRA uses (docs/ARCHITECTURE.md section 4). Without
+  # one the service runs as the Compute Engine default account, which holds far more than
+  # this yet cannot read secret values without a grant, so --set-secrets would be refused.
+  if ! gcloud iam service-accounts describe "$RUN_SA" >/dev/null 2>&1; then
+    gcloud iam service-accounts create "$RUN_SA_NAME" --display-name "TEPHRA Cloud Run runtime"
+  fi
+  retry gcloud projects add-iam-policy-binding "$TEPHRA_PROJECT" --member "serviceAccount:$RUN_SA" \
+    --role roles/datastore.user --condition=None >/dev/null
+  retry gcloud storage buckets add-iam-policy-binding "gs://$BUCKET" --member "serviceAccount:$RUN_SA" \
+    --role roles/storage.objectAdmin >/dev/null
+  for secret in "${SECRETS[@]}"; do
+    retry gcloud secrets add-iam-policy-binding "$secret" --member "serviceAccount:$RUN_SA" \
+      --role roles/secretmanager.secretAccessor >/dev/null
+  done
+
+  if ! gcloud artifacts repositories describe "$REPO" --location "$REGION" >/dev/null 2>&1; then
+    gcloud artifacts repositories create "$REPO" --repository-format=docker --location "$REGION"
+  fi
+  # Keep every keep-* tag and the 5 newest images; delete the rest after 30 days, so the
+  # repository stays small (storage over the free 0.5 GB is billed) without losing a rollback
+  # target or the submitted build. Flags from
+  # https://cloud.google.com/artifact-registry/docs/repositories/cleanup-policy
+  # (check them there; preview with --dry-run and list with `list-cleanup-policies`).
+  gcloud artifacts repositories set-cleanup-policies "$REPO" --location "$REGION" \
+    --policy deploy/ar-cleanup.json --no-dry-run
 fi
-retry gcloud projects add-iam-policy-binding "$TEPHRA_PROJECT" --member "serviceAccount:$RUN_SA" \
-  --role roles/datastore.user --condition=None >/dev/null
-retry gcloud storage buckets add-iam-policy-binding "gs://$BUCKET" --member "serviceAccount:$RUN_SA" \
-  --role roles/storage.objectAdmin >/dev/null
-for secret in "${SECRETS[@]}"; do
-  retry gcloud secrets add-iam-policy-binding "$secret" --member "serviceAccount:$RUN_SA" \
-    --role roles/secretmanager.secretAccessor >/dev/null
-done
 
 # --- image --------------------------------------------------------------------------------
-REPO="${TEPHRA_AR_REPO:-tephra}"
 IMAGE_BASE="$REGION-docker.pkg.dev/$TEPHRA_PROJECT/$REPO/$SERVICE"
 IMAGE="$IMAGE_BASE:$SHA-$(date -u +%Y%m%d-%H%M%S)"
-if ! gcloud artifacts repositories describe "$REPO" --location "$REGION" >/dev/null 2>&1; then
-  gcloud artifacts repositories create "$REPO" --repository-format=docker --location "$REGION"
-fi
-# Keep every keep-* tag and the 5 newest images; delete the rest after 30 days, so the
-# repository stays small (storage over the free 0.5 GB is billed) without losing a rollback
-# target or the submitted build. Flags from
-# https://cloud.google.com/artifact-registry/docs/repositories/cleanup-policy
-# (check them there; preview with --dry-run and list with `list-cleanup-policies`).
-gcloud artifacts repositories set-cleanup-policies "$REPO" --location "$REGION" \
-  --policy deploy/ar-cleanup.json --no-dry-run
 
 # .gcloudignore limits the upload to what the Dockerfile copies.
-gcloud builds submit . --config deploy/cloudbuild.yaml \
-  --substitutions "_IMAGE=$IMAGE,_SCIENCE=$science_arg,_BUILD_SHA=$SHA"
+build_args=(. --config deploy/cloudbuild.yaml
+  --substitutions "_IMAGE=$IMAGE,_SCIENCE=$science_arg,_BUILD_SHA=$SHA")
+if [ "$CI_MODE" = false ]; then
+  gcloud builds submit "${build_args[@]}"
+else
+  # Streaming the log needs Viewer on the whole project (it is read from Cloud Build's own
+  # bucket), and an unnamed staging bucket needs project-wide bucket listing. So: name the
+  # staging bucket the hand deploys already use, submit without waiting, and poll the
+  # build's status. The log is in the console at the printed link.
+  build_id="$(gcloud builds submit "${build_args[@]}" --async \
+    --gcs-source-staging-dir "gs://${TEPHRA_PROJECT}_cloudbuild/source" --format='value(id)')"
+  echo "Cloud Build $build_id: $(gcloud builds describe "$build_id" --format='value(logUrl)')"
+  build_deadline=$((SECONDS + 3600))
+  while :; do
+    status="$(gcloud builds describe "$build_id" --format='value(status)')"
+    case "$status" in
+      SUCCESS) echo "Build $build_id: SUCCESS"; break ;;
+      QUEUED|PENDING|WORKING) ;;
+      *) echo "::error::Cloud Build $build_id ended $status; nothing was deployed."
+         echo "Build $build_id ended $status; nothing was deployed." >&2
+         exit 1 ;;
+    esac
+    if [ "$SECONDS" -ge "$build_deadline" ]; then
+      echo "Build $build_id still $status after an hour; nothing was deployed." >&2
+      exit 1
+    fi
+    sleep 15
+  done
+fi
 if [ -n "$KEEP_TAG" ]; then
   gcloud artifacts docker tags add "$IMAGE" "$IMAGE_BASE:$KEEP_TAG"
 fi
@@ -155,7 +224,6 @@ deploy_args=(
   --image "$IMAGE"
   --region "$REGION"
   --service-account "$RUN_SA"
-  --allow-unauthenticated
   "${scaling[@]}"
   --max-instances 1
   --memory "$MEMORY"
@@ -164,6 +232,9 @@ deploy_args=(
   --set-env-vars "$env_list"
   --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest,TEPHRA_DESK_PIN=TEPHRA_DESK_PIN:latest,TEPHRA_TASK_TOKEN=TEPHRA_TASK_TOKEN:latest,TEPHRA_SESSION_SECRET=TEPHRA_SESSION_SECRET:latest"
 )
+# Public access is an IAM binding on the service, which outlives revisions. A person sets it;
+# the deployer (roles/run.developer) cannot change IAM, and a revision keeps the binding.
+[ "$CI_MODE" = true ] || deploy_args+=(--allow-unauthenticated)
 smoke_env=("EXPECT_SHA=$SHA")
 [ -z "${TEPHRA_MODE:-}" ] || smoke_env+=("EXPECT_MODE=$TEPHRA_MODE")
 [ -z "${TEPHRA_REPLAY_CASE:-}" ] || smoke_env+=("EXPECT_CASE=$TEPHRA_REPLAY_CASE")
@@ -200,7 +271,19 @@ report_revision() {
   echo "Image:    $digest"
 }
 
+# In CI, and in the step summary on the run's page, so the outcome is visible without the log.
+summary() {
+  [ "$CI_MODE" = true ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ] || return 0
+  printf '%s\n' "$@" >>"$GITHUB_STEP_SUMMARY"
+}
+# How a person rolls back: from the tephra-personal configuration (CI never rolls back).
+person_config="${TEPHRA_GCLOUD_CONFIG:-tephra-personal}"
+
 if ! gcloud run services describe "$SERVICE" --region "$REGION" >/dev/null 2>&1; then
+  if [ "$CI_MODE" = true ]; then
+    echo "Service $SERVICE does not exist in $REGION: the first deploy is done by hand." >&2
+    exit 1
+  fi
   # First create: --no-traffic is refused, so the first revision takes all traffic.
   gcloud run deploy "$SERVICE" "${deploy_args[@]}"
   svc="$(describe)"
@@ -232,6 +315,9 @@ rollback="gcloud run services update-traffic $SERVICE --region $REGION --to-revi
 echo "Smoke test of the candidate at $candidate_url"
 if ! env "${smoke_env[@]}" scripts/live_smoke.sh "$candidate_url" --read-only; then
   echo "Candidate $CANDIDATE FAILED its smoke test. Traffic was not moved: $PREV still serves." >&2
+  [ "$CI_MODE" = false ] || echo "::error::Candidate $CANDIDATE failed its smoke test; traffic stays on $PREV."
+  summary "### Not deployed: $SHA" "" "Candidate \`$CANDIDATE\` failed its read-only smoke test." \
+    "Traffic was not moved: \`$PREV\` still serves $url."
   exit 1
 fi
 
@@ -239,14 +325,19 @@ gcloud run services update-traffic "$SERVICE" --region "$REGION" --to-revisions 
 echo "Smoke test of $url after moving traffic to $CANDIDATE"
 if ! env "${smoke_env[@]}" scripts/live_smoke.sh "$url"; then
   echo "The live URL FAILED its smoke test on $CANDIDATE. Traffic was left as it is." >&2
-  echo "Roll back with (CLOUDSDK_ACTIVE_CONFIG_NAME=$CLOUDSDK_ACTIVE_CONFIG_NAME):" >&2
+  echo "Roll back with (CLOUDSDK_ACTIVE_CONFIG_NAME=$person_config):" >&2
   echo "  $rollback" >&2
+  [ "$CI_MODE" = false ] || echo "::error::$url failed its smoke test on $CANDIDATE (traffic left on it). Roll back: $rollback"
+  summary "### Live smoke test FAILED: $SHA" "" "Traffic is on \`$CANDIDATE\` (was \`$PREV\`); it was left as it is." \
+    "" "Roll back with (\`CLOUDSDK_ACTIVE_CONFIG_NAME=$person_config\`):" "" '```' "$rollback" '```'
   exit 1
 fi
 if [ "$HOSTING" = on-demand ]; then
   echo "on-demand: the instance ticks itself, so pause the Scheduler job if it exists:"
-  echo "  CLOUDSDK_ACTIVE_CONFIG_NAME=$CLOUDSDK_ACTIVE_CONFIG_NAME gcloud scheduler jobs pause ${TEPHRA_SCHEDULER_JOB:-tephra-tick} --location $REGION"
+  echo "  CLOUDSDK_ACTIVE_CONFIG_NAME=$person_config gcloud scheduler jobs pause ${TEPHRA_SCHEDULER_JOB:-tephra-tick} --location $REGION"
 fi
 echo "Deployed $SHA as $CANDIDATE at $url (previous: $PREV)."
 echo "Roll back with: $rollback"
+summary "### Deployed $SHA" "" "Revision \`$CANDIDATE\` serves $url (previous: \`$PREV\`)." \
+  "" "Roll back with (\`CLOUDSDK_ACTIVE_CONFIG_NAME=$person_config\`):" "" '```' "$rollback" '```'
 echo "Reload any open Wall and Desk so they load the new code."

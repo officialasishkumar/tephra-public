@@ -12,6 +12,12 @@
 # Optional expectations (environment): EXPECT_SHA (build commit), EXPECT_MODE (LIVE|REPLAY),
 # EXPECT_CASE (replay case id), TICK_INTERVAL_S (default 60; a tick older than 3x fails).
 # Exit status is non-zero when any check fails.
+#
+# Cloud Run answers 429 or 503 while the single instance starts or traffic moves to a new
+# revision. A request that gets one is retried with backoff for up to SMOKE_RETRY_S (default
+# 90) seconds, and SMOKE_RETRY_BUDGET_S (default 240) caps the waiting in one run, so a
+# service that never comes up still fails in minutes. The check's line says so, for example
+# "PASS page /desk: 200, CSP present (429 for 20 s, then 200)".
 set -euo pipefail
 
 usage() {
@@ -58,17 +64,70 @@ from datetime import datetime
 BASE, READ_ONLY, PIN_FILE = sys.argv[1], sys.argv[2] == "1", sys.argv[3]
 TICK_S = int(os.environ.get("TICK_INTERVAL_S", "60"))
 TIMEOUT_S = 20
+RETRY_STATUSES = (429, 503)
+RETRY_S = float(os.environ.get("SMOKE_RETRY_S", "90"))
+RETRY_BUDGET_S = float(os.environ.get("SMOKE_RETRY_BUDGET_S", "240"))
 failures = 0
+retry_waited = 0.0  # seconds spent waiting out 429/503 in this run
+retry_notes = []  # what the waiting looked like, for the next line printed
 
 
 def report(ok, name, detail):
     global failures
+    if retry_notes:
+        detail = f"{detail} ({'; '.join(retry_notes)})"
+        retry_notes.clear()
     if ok is None:
         print(f"WARN {name}: {detail}")
         return
     if not ok:
         failures += 1
     print(f"{'PASS' if ok else 'FAIL'} {name}: {detail}")
+
+
+def retry_after_s(headers):
+    try:
+        return max(1.0, float(headers.get("Retry-After", "")))
+    except (TypeError, ValueError):
+        return None
+
+
+def open_retrying(req, timeout):
+    """urlopen that waits out 429/503 with backoff (see the header of this script).
+
+    Returns the open response; raises HTTPError with the last status when that is not a
+    429/503 or the time runs out. Either way a note like "429 for 20 s, then 200" is left
+    for the next line printed.
+    """
+    global retry_waited
+    started = time.monotonic()
+    seen = []
+    pause = 2.0
+    while True:
+        try:
+            resp = urllib.request.urlopen(req, timeout=timeout)
+            final, error = resp.status, None
+        except urllib.error.HTTPError as exc:
+            final, error = exc.code, exc
+        if error is not None and final in RETRY_STATUSES:
+            left = min(RETRY_S - (time.monotonic() - started), RETRY_BUDGET_S - retry_waited)
+            if left > 0:
+                if final not in seen:
+                    seen.append(final)
+                wait = min(retry_after_s(error.headers) or pause, 15.0, left)
+                error.close()
+                time.sleep(wait)
+                retry_waited += wait
+                pause = min(pause * 2, 15.0)
+                continue
+        if seen:
+            codes = "/".join(str(code) for code in seen)
+            waited = time.monotonic() - started
+            outcome = "gave up" if final in RETRY_STATUSES else f"then {final}"
+            retry_notes.append(f"{codes} for {waited:.0f} s, {outcome}")
+        if error is not None:
+            raise error
+        return resp
 
 
 def fetch(path, method="GET", data=None, timeout=TIMEOUT_S):
@@ -78,7 +137,7 @@ def fetch(path, method="GET", data=None, timeout=TIMEOUT_S):
     if data is not None:
         req.add_header("Content-Type", "application/json")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with open_retrying(req, timeout) as resp:
             return resp.status, resp.headers, resp.read()
     except urllib.error.HTTPError as exc:
         return exc.code, exc.headers, exc.read()
@@ -212,8 +271,8 @@ def page(path):
 
 def events():
     req = urllib.request.Request(BASE + "/api/events", headers={"User-Agent": "tephra-live-smoke"})
-    started = time.monotonic()
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with open_retrying(req, 30) as resp:
+        started = time.monotonic()
         kind = resp.headers.get("Content-Type", "")
         if not kind.startswith("text/event-stream"):
             report(False, "events", f"Content-Type {kind!r}")

@@ -41,7 +41,7 @@ modules (sections 5.11 to 5.17) were built against.
 | web-wall | `tephra/web/index.html`, `tephra/web/wall.js`, `tephra/web/wall.css` |
 | web-desk | `tephra/web/desk.html`, `tephra/web/desk.js`, `tephra/web/desk.css` |
 | crew | `tephra/geo/crew_area.py`, `tephra/desk/crew_reports.py`, `tephra/api/routes_crew.py` (crew reports of ash: section 5.19) |
-| ops-evals | `Dockerfile`, `.dockerignore`, `.gcloudignore`, `.env.example`, `deploy/_common.sh`, `deploy/cloudbuild.yaml`, `deploy/cloudrun.sh`, `deploy/ar-cleanup.json`, `scripts/live_smoke.sh`, `deploy/scheduler.sh`, `deploy/secrets.sh`, `deploy/firestore.rules`, `deploy/README.md`, `.github/workflows/ci.yml`, `scripts/record_replay.py`, `scripts/count_traffic.py`, `scripts/plume_eval.py`, `scripts/make_plume_cases.py`, `evals/plume/README.md`, `data/replay/README.md`, `tests/test_scripts.py`, `tests/test_record_replay.py`, `tests/fixtures/ops_evals/` |
+| ops-evals | `Dockerfile`, `.dockerignore`, `.gcloudignore`, `.env.example`, `deploy/_common.sh`, `deploy/cloudbuild.yaml`, `deploy/cloudrun.sh`, `deploy/ar-cleanup.json`, `scripts/live_smoke.sh`, `deploy/scheduler.sh`, `deploy/secrets.sh`, `deploy/firestore.rules`, `deploy/README.md`, `deploy/github_deploy_setup.sh`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`, `scripts/record_replay.py`, `scripts/count_traffic.py`, `scripts/plume_eval.py`, `scripts/make_plume_cases.py`, `evals/plume/README.md`, `data/replay/README.md`, `tests/test_scripts.py`, `tests/test_record_replay.py`, `tests/fixtures/ops_evals/` |
 
 Each module may also create test fixtures under `tests/fixtures/<module_key>/` (e.g.
 `tests/fixtures/feeds_text/`). There is **no shared `tests/conftest.py`**: each test file
@@ -1943,8 +1943,12 @@ polygon centroid (no IoU; research/10 section 5); Arm I's wind is the VAA's `WIN
 group, else Open-Meteo's 500 hPa (FL180) wind at the vent. CI (manual `workflow_dispatch`
 only) runs `ruff check`, `ruff format --check`, and `pytest` with `TEPHRA_LLM=stub`.
 
-Deploys are gated and traceable (`deploy/README.md`). `cloudrun.sh` refuses a dirty tree or a
-`HEAD` not on `origin/main`, tags the image `<12-char commit>-<UTC time>` and builds it with
+Deploys are gated and traceable (`deploy/README.md`). Every push to `main` (outside docs,
+research, tests and Markdown other than `tephra/` and `data/`) runs `.github/workflows/deploy.yml`,
+which runs `cloudrun.sh` in CI mode (`TEPHRA_DEPLOY_CI=true` with `GITHUB_ACTIONS=true`) as the
+`tephra-deployer` service account through workload identity federation set up once by
+`deploy/github_deploy_setup.sh`; one deploy at a time, in push order. `cloudrun.sh` refuses a
+dirty tree or a `HEAD` not on `origin/main` (in CI: not the pushed commit, or no longer the tip), tags the image `<12-char commit>-<UTC time>` and builds it with
 `_BUILD_SHA` (`--build-arg BUILD_SHA`); `.gcloudignore` uploads only what the Dockerfile
 copies. `TEPHRA_HOSTING` is `always-on` (default: `--min-instances 1`,
 `--no-cpu-throttling`, Scheduler ticks) or `on-demand` (`--min-instances 0`,
@@ -1957,7 +1961,7 @@ failure leaves traffic alone and prints the rollback to the previous revision. I
 `deploy/ar-cleanup.json` (keep `keep-*` tags, keep the 5 newest, delete the rest after 30
 days) and adds `TEPHRA_KEEP_TAG` to the image when set. `scripts/live_smoke.sh <url>
 [--read-only] [--watch MINUTES]` (python3 standard library, public endpoints, no secrets)
-checks `/health`, `/api/state` (tick age under 3 x `TICK_INTERVAL_S`, policy hash against
+retries a 429 or 503 for up to 90 s (noted on the line) and checks `/health`, `/api/state` (tick age under 3 x `TICK_INTERVAL_S`, policy hash against
 `/api/policy` and the newest pin in `tests/test_policy.py`, `EXPECT_SHA`, `EXPECT_MODE`,
 `EXPECT_CASE`, store health when exposed), `/` and `/desk` with CSP and their `/static/`
 files, a first SSE event within 30 s, and a refused token-less `POST /tasks/tick`; it exits

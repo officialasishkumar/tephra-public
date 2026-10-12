@@ -32,3 +32,6 @@ scratch/
 
 # MAGMA VONA text (no redistribution licence)
 evals/plume/arm_t/vona.txt
+
+# google-github-actions/auth credential file (deploy.yml checks out into src/, outside it)
+gha-creds-*.json

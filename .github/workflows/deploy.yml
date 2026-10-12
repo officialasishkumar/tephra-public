@@ -1,0 +1,92 @@
+name: deploy
+
+# Every push to main deploys TEPHRA to Cloud Run through deploy/cloudrun.sh's gate: build the
+# pushed commit, deploy it with no traffic as tag "candidate", read-only smoke test of the
+# candidate, move traffic only if that passes, then the full smoke test. On any failure
+# traffic stays where it is and the run prints the rollback command (deploy/README.md,
+# "Automatic deploys"). Pause it by disabling this workflow in the Actions tab.
+#
+# Authentication is keyless: GitHub's OIDC token for this repository's main branch is
+# exchanged through workload identity federation (set up once by deploy/github_deploy_setup.sh)
+# for the deployer service account. The two values below are identifiers, not secrets.
+on:
+  push:
+    branches: [main]
+    # Changes that cannot alter what runs do not deploy: docs (except docs/backtest, which is
+    # in the image), Markdown (except under tephra/ and data/: the prompts and the replay
+    # notes ship), research and tests. Later patterns override earlier ones.
+    paths:
+      - "**"
+      - "!docs/**"
+      - "docs/backtest/**"
+      - "!**.md"
+      - "tephra/**"
+      - "data/**"
+      - "!research/**"
+      - "!tests/**"
+  workflow_dispatch:
+
+# One deploy at a time, in push order. A running deploy is never cancelled (that could stop it
+# between moving traffic and its smoke test); a newer push replaces any run still waiting.
+concurrency:
+  group: deploy-tephra-cloud-run
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  # Printed by deploy/github_deploy_setup.sh; it can write them in for you.
+  TEPHRA_WIF_PROVIDER: REPLACE_WITH_WIF_PROVIDER
+  TEPHRA_DEPLOY_SA: REPLACE_WITH_DEPLOY_SA
+  # deploy/cloudrun.sh in CI mode (deploy/_common.sh): no prompt, deployer account only.
+  TEPHRA_DEPLOY_CI: "true"
+  TEPHRA_GITHUB_REPO: officialasishkumar/tephra
+  TEPHRA_PROJECT: regal-wall-392020
+  TEPHRA_GCP_REGION: asia-southeast1
+  TEPHRA_SERVICE: tephra
+  TEPHRA_GCS_BUCKET: tephra-regal-wall-392020-blobs
+  TEPHRA_HOSTING: always-on
+  TEPHRA_LLM: gemini
+  # The demo configuration (deploy/README.md, "Judging window").
+  TEPHRA_MODE: REPLAY
+  TEPHRA_REPLAY_CASE: anak-krakatau-20260905
+  TEPHRA_REPLAY_START: "2026-09-05T10:30:00Z"
+  TEPHRA_REPLAY_END: "2026-09-05T19:30:00Z"
+  TEPHRA_AUTO_REPLAY: "false"
+  CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+jobs:
+  deploy:
+    # Never on a fork, and only from main (a manual run on another branch does nothing).
+    if: github.repository == 'officialasishkumar/tephra' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Check the workflow is set up
+        run: |
+          if [[ "$TEPHRA_WIF_PROVIDER" == REPLACE_WITH_* || "$TEPHRA_DEPLOY_SA" == REPLACE_WITH_* ]]; then
+            echo "::error::Run deploy/github_deploy_setup.sh once, then put the two values it prints in .github/workflows/deploy.yml (TEPHRA_WIF_PROVIDER, TEPHRA_DEPLOY_SA)."
+            exit 1
+          fi
+
+      # Into src/ so the credential file the auth step writes to the workspace root stays
+      # outside the checkout: the tree stays clean and the file is never uploaded to Cloud Build.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: src
+
+      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          project_id: ${{ env.TEPHRA_PROJECT }}
+          workload_identity_provider: ${{ env.TEPHRA_WIF_PROVIDER }}
+          service_account: ${{ env.TEPHRA_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2.2.1
+        with:
+          project_id: ${{ env.TEPHRA_PROJECT }}
+
+      - name: Build, test the candidate, move traffic, test the live URL
+        working-directory: src
+        run: ./deploy/cloudrun.sh
