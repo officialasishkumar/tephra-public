@@ -1399,6 +1399,7 @@ def replay_info(case: ReplayCase, *, auto: bool,
 def start_replay_clock(case: ReplayCase, *, speed: float, begin: datetime | None = None,
                        end: datetime | None = None
                        ) -> timeutil.ReplayClock               # set_clock(ReplayClock(...)); raises on a bad case
+def first_aircraft_at(case: ReplayCase) -> datetime              # first ADS-B answer with status 200, else recorded_from
 def stop_replay_clock() -> None                                # set_clock(SystemClock())
 ```
 `ReplaySource.fetch` matches the exact final URL (`build_url(url, params)`): the latest
@@ -1724,7 +1725,9 @@ Core rules:
   writes `runtime/state` at once, so the choice survives a restart before the next checkpoint.
 - REPLAY: `create_runtime` (with `TEPHRA_MODE=REPLAY`) and `switch_mode` call
   `start_replay_clock(case, speed=settings.replay_speed, begin=settings.replay_start)` and
-  use `ReplaySource`. With `replay_end` set, the case named by `replay_case` plays
+  use `ReplaySource`. With no `replay_start` the clock starts, and loops back, at
+  `first_aircraft_at(case)` (anak-krakatau-20260905: 5 Sep 10:01Z, not the 06:00Z recording
+  start), so a replay never opens on hours with no aircraft data. With `replay_end` set, the case named by `replay_case` plays
   `ReplayClock(replay_start, replay_end, speed, loop=True)` instead, after checking
   `recorded_from <= replay_start < replay_end <= recorded_to` (a `ValueError` naming the case
   window otherwise, so `create_runtime` fails at startup and a switch fails without changing

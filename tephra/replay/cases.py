@@ -29,6 +29,7 @@ __all__ = [
     "ReplaySource",
     "case_path",
     "cases_dir",
+    "first_aircraft_at",
     "list_cases",
     "load_case",
     "replay_banner",
@@ -122,6 +123,18 @@ def replay_info(
     )
 
 
+def first_aircraft_at(case: ReplayCase) -> datetime:
+    """The first moment the case holds aircraft positions (an ADS-B answer with content), or
+    its recording start when it holds none: outside its ADS-B spans a case stores empty 204
+    answers, which read as a failing feed."""
+    answered = [
+        record.fetched_at
+        for record in case.records
+        if record.feed is FeedId.ADSB and record.status_code == 200
+    ]
+    return max(min(answered, default=case.recorded_from), case.recorded_from)
+
+
 def start_replay_clock(
     case: ReplayCase,
     *,
@@ -131,11 +144,15 @@ def start_replay_clock(
 ) -> timeutil.ReplayClock:
     """Move every module's ``now()`` to the recording, from ``begin`` or its first fetch.
 
-    With ``end`` the clock loops over ``begin`` to ``end`` instead of the whole recording; a
-    window outside the case is refused, never clamped.
+    With no ``begin`` the clock starts, and loops back, at the case's first aircraft data
+    (:func:`first_aircraft_at`), so a case whose positions begin hours into the recording
+    does not open on an empty sky; a case with no aircraft data starts at its recording
+    start. With ``end`` the clock loops over ``begin`` to ``end`` instead of the whole
+    recording; a window outside the case is refused, never clamped.
     """
     if end is None:
-        clock = timeutil.ReplayClock(case.recorded_from, case.recorded_to, speed=speed, begin=begin)
+        start = case.recorded_from if begin is not None else first_aircraft_at(case)
+        clock = timeutil.ReplayClock(start, case.recorded_to, speed=speed, begin=begin)
     else:
         if begin is None:
             raise ValueError("a replay window needs a start as well as an end")
