@@ -91,23 +91,31 @@ export function storyFailures(D, store, conn, extra) {
     out.push({ key: `feed-${id}`, who: name, text: `${name} is failing. Showing the last good ${what}${Number.isFinite(good) ? `, from ${hhmmz(good)}` : ""}.`, raw: f.last_error || null, where: "feeds" });
   }
   if (D.state.store && D.state.store.ok === false) out.push({ key: "db", who: "The database", text: "The database is failing: some counts may be unknown.", where: "feeds" });
-  const resets = ms(ext.budget?.resets_at);
-  const until = Number.isFinite(resets) ? hhmmz(resets) : null;
   const plan = currentPlan();
   const pf = planFailure(plan);
   if (pf) out.push({ key: `plan-${plan.id}`, who: "Airport plan", text: `Airport plan: ${pf.clause}, so a dispatcher must plan by hand.`, raw: pf.raw, where: "recovery" });
   for (const r of store.snapshot?.satellite || []) {
     if (r.status !== "ai_unavailable") continue;
-    out.push({ key: `sat-${r.volcano_id}`, who: "Satellite reader", text: `Satellite reader could not run: ${aiStopClause(r.reason, until)}.`, raw: r.reason || "no reason given", where: "sat" });
+    out.push({ key: `sat-${r.volcano_id}`, who: "Satellite reader", text: `Satellite reader could not run: ${aiStopClause(r.reason, reopensAt(D, r.model_id, false))}.`, raw: r.reason || "no reason given", where: "sat" });
   }
   const duty = store.snapshot?.duty;
   if (duty?.outcome === "MODEL_FAILED") {
     const reason = duty.validation_errors?.[0] || "no reason recorded";
-    out.push({ key: `duty-${duty.id}`, who: "Duty Officer", text: `Duty Officer could not run: ${aiStopClause(reason, until)}.`, raw: (duty.validation_errors || [reason]).join("; "), where: "ai" });
+    out.push({ key: `duty-${duty.id}`, who: "Duty Officer", text: `Duty Officer could not run: ${aiStopClause(reason, reopensAt(D, duty.model_id, duty.replay))}.`, raw: [...new Set(duty.validation_errors || [reason])].join("; "), where: "ai" });
   }
   const fails = failureCount(store);
   if (fails) out.push({ key: `trace-fails-${fails}`, text: `${plural(fails, "AI step", "AI steps")} failed.`, where: "ai", quiet: true });
   return out;
+}
+
+// When a model's calls open again ("0700Z"), for "used up until 0700Z": only while the budget still
+// marks that model closed, and never for a recorded run, whose failure is on the replay's clock
+// while the reset is on the real one. Otherwise null, and the clause has no time.
+function reopensAt(D, modelId, recorded) {
+  if (recorded || D.mode === "REPLAY" || !modelId) return null;
+  const m = (ext.budget?.models || []).find((x) => x.model_id === modelId);
+  const at = ms(ext.budget?.resets_at);
+  return m?.closed === true && Number.isFinite(at) ? hhmmz(at) : null;
 }
 
 const seenFailures = new Set();
@@ -126,18 +134,24 @@ function renderFailures(list) {
   const ul = $("fail-list");
   if (ul.dataset.key !== key) {
     ul.dataset.key = key;
-    ul.replaceChildren(...shown.map((f) => {
+    // "+ n more problems ›" runs on at the end of the last item's words, so it never takes a line
+    // of its own
+    const moreBtn = more > 0 ? el("button", { type: "button", class: "link-btn fail-line__more", dataset: { act: "details-open", sec: items[shown.length].where, focus: "fail-more" }, text: `+ ${plural(more, "more problem", "more problems")} ›` }) : null;
+    ul.replaceChildren(...shown.map((f, i) => {
       // role=alert only on the render where the failure first appears (R15.6)
       const fresh = !seenFailures.has(f.key);
       seenFailures.add(f.key);
-      // the part that failed in bold, the rest in plain words; the machine text in the title
+      // the part that failed in bold, the rest in plain words; the machine text in the words'
+      // tooltip, never on the item, where it would become the item's (and the alert's) name
+      const title = f.raw ? `Recorded reason: ${f.raw}` : null;
       const words = f.who && f.text.startsWith(f.who)
-        ? el("span", { class: "fail-line__text" }, el("strong", { class: "fail-line__who", text: f.who }), f.text.slice(f.who.length))
-        : el("span", { class: "fail-line__text", text: f.text });
-      return el("li", { class: "fail-line__item", role: fresh && !f.quiet ? "alert" : null, title: f.raw ? `Recorded reason: ${f.raw}` : null },
-        st("st-serious", "var(--c-serious)"), words,
+        ? el("span", { class: "fail-line__text", title }, el("strong", { class: "fail-line__who", text: f.who }), f.text.slice(f.who.length))
+        : el("span", { class: "fail-line__text", title, text: f.text });
+      const last = i === shown.length - 1 && moreBtn;
+      return el("li", { class: "fail-line__item", role: fresh && !f.quiet ? "alert" : null },
+        st("st-serious", "var(--c-serious)"), el("span", { class: "fail-line__body" }, words, last ? [" ", moreBtn] : null),
         f.action ? el("button", { type: "button", class: "link-btn", dataset: { act: f.action, focus: `fail-${f.key}` }, text: f.actionText }) : null);
-    }), ...(more > 0 ? [el("li", { class: "fail-line__moreitem" }, el("button", { type: "button", class: "link-btn fail-line__more", dataset: { act: "details-open", sec: items[shown.length].where, focus: "fail-more" }, text: `+ ${plural(more, "more problem", "more problems")} ›` }))] : []));
+    }));
   }
   box.hidden = !list.length;
 }
@@ -400,8 +414,9 @@ function renderKey(D, ui) {
   // three swatches; the bar is hidden elsewhere (wall.css), where the rows always show.
   const glyphs = rows.slice(0, 3).map(([s]) => s.cloneNode(true));
   box.replaceChildren(
-    el("ul", { class: "key__rows", id: "key-rows" }, ...rows.map(([s, label, sub]) => el("li", { class: sub ? "key__row key__row--sub" : "key__row" }, s, el("span", { class: "key__text" }, el("span", { class: "key__label", text: label }), sub ? el("span", { class: "key__sub", text: sub }) : null)))),
-    el("button", { type: "button", class: "link-btn key__more", dataset: { act: "help-map", focus: "key-more" }, text: "Full map key and alert colours ›" }),
+    el("ul", { class: "key__rows", id: "key-rows" }, ...rows.map(([s, label, sub]) => el("li", { class: sub ? "key__row key__row--sub" : "key__row" }, s, el("span", { class: "key__text" }, el("span", { class: "key__label", text: label }), sub ? el("span", { class: "key__sub", text: sub }) : null))),
+      // the last cell of the grid, so with an odd count it sits beside the last row, not under it
+      el("li", { class: "key__more-row" }, el("button", { type: "button", class: "link-btn key__more", dataset: { act: "help-map", focus: "key-more" }, text: "Full map key and alert colours ›" }))),
     el("button", { type: "button", class: "key__toggle", "aria-expanded": ui.keyOpen ? "true" : "false", "aria-controls": "key-rows", dataset: { act: "key-toggle", focus: "key-toggle" } },
       el("span", { class: "key__toggle-label", text: "Map key" }), el("span", { class: "key__glyphs", "aria-hidden": "true" }, ...glyphs),
       el("span", { class: "key__toggle-word", text: ui.keyOpen ? "Hide" : `${rows.length} item${rows.length === 1 ? "" : "s"}` }), icon("i-chevron-up", "icon key__chev")));
@@ -513,23 +528,38 @@ export function renderStory(D, store, ui, { conn, extra, announce, notes = [] })
 // The story column must not scroll at desktop widths: content was cut off half-visible under the
 // pinned Details button. Each fit level tightens the column a step (spacing, then the lead line's
 // size, the key rows, the button beside the flights link, the other-volcanoes rows folded into
-// "+ n more", the fact lines, the Details sub-line) until it fits. When the tightest level still
-// does not fit, the map key folds to its one-line bar ("Map key", three swatches, "7 items") and the
-// levels run again from the loosest, so the rest of the column breathes. Nothing is removed:
-// folded rows and the folded key stay one tap away, and the column still scrolls as a last resort
-// (an opened key stays open). Phones scroll the page and skip this.
+// "+ n more", the fact lines, the Details sub-line) until it fits. The map key always shows its
+// rows and notes (two columns, wall.css). Nothing is removed: folded rows stay one tap away, and the
+// column still scrolls as a last resort, with a fade above the pinned button. Phones scroll the
+// page and skip this.
+//
+// The pass measures the column as it is laid out at that moment, and the column's size can change
+// with no render after it: at 1360-1599 px it comes back from under Details at the drawer's width
+// and narrows while the stage animates, so a pass run on that render fitted a wider column than
+// the one left on screen (story text review 2, item 1). A ResizeObserver runs the pass again once
+// the column's box has settled.
 const FIT_MAX = 8;
 let fitKey = "";
+let fitArgs = null;
+let fitTimer = 0;
+const fitObserver = new ResizeObserver(() => {
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(() => { if (fitArgs) fitStory(...fitArgs); }, 80);
+});
+let observed = null;
 function fitStory(D, ui) {
   const box = $("story");
   if (!box) return;
+  fitArgs = [D, ui];
+  if (observed !== box) { fitObserver.observe(box); observed = box; }
   if (window.innerWidth <= 600 || !D) {
     if (box.dataset.fit) { delete box.dataset.fit; fitCap = Infinity; }
-    delete box.dataset.keyfold;
     fitKey = "";
     return;
   }
-  const key = `${window.innerWidth}x${window.innerHeight}|${ui.vlistOpen ? 1 : 0}|${box.querySelector("#verdict")?.textContent}|${$("legend").textContent}|${$("story-notes").textContent}|${$("fail-line").hidden ? "" : $("fail-line").textContent}|${$("allv").textContent}`;
+  // hidden under Details (1360-1599 px): nothing to measure; measure when it shows again
+  if (!box.offsetHeight) { fitKey = ""; return; }
+  const key = `${box.offsetWidth}x${box.offsetHeight}|${ui.vlistOpen ? 1 : 0}|${box.querySelector("#verdict")?.textContent}|${$("legend").textContent}|${$("story-notes").textContent}|${$("fail-line").hidden ? "" : $("fail-line").textContent}|${$("allv").textContent}`;
   if (key === fitKey) return;
   fitKey = key;
   const over = () => box.scrollHeight - box.clientHeight > 1;
@@ -544,10 +574,7 @@ function fitStory(D, ui) {
       if (level === 6 && !ui.vlistOpen) { fitCap = 0; renderAll(D, ui); }
     }
   };
-  delete box.dataset.keyfold;
   run();
-  // an opened key keeps its bar too, so "Hide" folds it again
-  if (over() && $("legend").parentElement === box) { box.dataset.keyfold = "1"; run(); }
   // Folding every row may free more room than needed: give rows back while they still fit.
   if (fitCap === 0 && !over()) {
     for (let c = 1; c <= 3; c += 1) {

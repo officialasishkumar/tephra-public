@@ -173,11 +173,15 @@ export const actorWords = (actor, stub) => (stub && (actor === "adk" || actor ==
 const USD = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 export const usd = (n) => (n == null || !Number.isFinite(Number(n)) ? "n/a" : USD.format(Number(n)));
 
+// A plan's recorded reasons, each once: the planner often writes the same text as the plan's reason
+// and as its only validation error.
+const planReasons = (plan) => [...new Set([plan.unavailable_reason, ...(plan.validation_errors || [])].filter(Boolean))];
+
 // A recovery plan that found no plan: the solver's status in plain words, never "AI unavailable"
 // (R2.6). Returns null when the plan's failure is not a solver result.
 export function planProblem(plan) {
   if (!plan) return null;
-  const raw = [plan.unavailable_reason, ...(plan.validation_errors || [])].filter(Boolean).join("; ");
+  const raw = planReasons(plan).join("; ");
   const fromText = /NO FEASIBLE PLAN[^(]*\(([A-Z_]+)\)|HAS NO PLAN \(([A-Z_]+)\)/.exec(raw);
   const noPlan = (plan.scenarios || []).find((s) => s.status === "NO_PLAN");
   const status = fromText ? fromText[1] || fromText[2] : plan.status === "AI_UNAVAILABLE" && noPlan ? noPlan.solver_status : null;
@@ -197,7 +201,7 @@ export function planProblem(plan) {
 export function planFailure(plan) {
   if (!plan || plan.status !== "AI_UNAVAILABLE") return null;
   const p = planProblem(plan);
-  const raw = [plan.unavailable_reason, ...(plan.validation_errors || [])].filter(Boolean).join("; ") || "no reason given";
+  const raw = planReasons(plan).join("; ") || "no reason given";
   if (p) {
     const solver = p.status.toLowerCase().replace(/_/g, " ");
     return {

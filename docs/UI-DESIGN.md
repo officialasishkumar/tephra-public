@@ -356,13 +356,15 @@ y 1048 ├─ footer 32: disclaimer · RFA line · credits · Policy A · Help �
   rows closer (every note keeps its own line); 4 the lead 2 px smaller (never more than 3 px in
   all); 5 "Show the n flights" beside the button; 6 the other-volcanoes rows fold into "+ n more"
   (rows are given back while they still fit) and the fact lines 1 px smaller; 7 the Details button
-  on one line (its sub-line stays in its tooltip); 8 the tightest rhythm. If level 8 still
-  overflows, the map key folds to its one-line bar ("Map key", three swatches, "7 items ⌄",
-  `data-keyfold`, R5.5) and the levels run again from 0. It re-runs when the story's words, the
-  window size or the fonts change. Only if that still overflows does the column scroll
-  (`.story--scrolls`, with the fade above the pinned button). Measured in REPLAY with the live
-  failures (two problems in the failure line): 1920 level 8 with the key open, 1440x900 the key
-  folded at level 6–7, no scroll; 1280x720 the key folded at level 8 and the column scrolls.
+  on one line (its sub-line stays in its tooltip); 8 the tightest rhythm. The map key never
+  folds in the story (R5.5). It re-runs when the story's words, the fonts or the column's own box
+  change: a ResizeObserver on `#story` measures again once the column settles, because at
+  1360-1599 px it comes back from under Details at the drawer's width and narrows while the stage
+  animates (a pass on that render once left "+ 3 more" under the pinned button). Only if level 8
+  still overflows does the column scroll (`.story--scrolls`, with the fade above the pinned
+  button). Measured in REPLAY with the live failures (two problems in the failure line, 23
+  flights, closures): 1920x1080 level 6; 1440x900 level 8, the key open, no scroll, also after
+  Details is opened and closed; 1280x720 level 8 and the column scrolls.
 - Framing pads 48 px (7.4), max zoom 8.6.
 
 ### 4.2 Wall at 1440x900
@@ -845,9 +847,9 @@ or heading in", "Official forecast area (+6 h)", "Other aircraft (not RFA)", "Ro
 "Observatory's reported drift", "Where TEPHRA widened the area", "Box marked on the satellite picture ·
 supporting only", then the link "Full map key and alert colours ›" (Help). Each row is the swatch on
 the label's line with the note under the label on its own smaller muted line (a hanging indent), in
-one column, and two even columns when the block is 520 px wide or more; the story column is narrower
-at every width, so it is one column there. When the story column overflows at its tightest fit
-level the key folds to one bar that opens it in place (section 4). From 601 to 1599 px, while Details is open, the same node is moved to the bottom of
+two columns in the story, each as wide as its longest row, with 12 px labels (14 px from 1600 px),
+and "Full map key ›" in the last cell; one column when the block is narrower than 350 px. The story
+never folds the key (section 4). Help's full key is one column, two from 520 px. From 601 to 1599 px, while Details is open, the same node is moved to the bottom of
 the drawer as a compact strip; on a phone it is the strip under the map. Swatches keep their colours
 in forced-colours mode.
 
@@ -857,7 +859,8 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
 - Failure line `#fail-line` (only when something failed; red edge and the serious shape centred on
   each item's first line, `--fs-2` body type; at most two items, then "+ n more problems ›" to the
   Details section that holds the next). Plain words only, the failing part in bold: the raw
-  reason (`RECOVERY AGENT ERROR: TimeoutError`, `budget_exhausted`) is the item's title and stays
+  reason (`RECOVERY AGENT ERROR: TimeoutError`, `budget_exhausted`) is the title of the item's
+  words (not of the list item, so screen readers do not get it as the item's name) and stays
   under Technical detail in Details. The sources: the lost stream
   (`#lost-banner`, `role="alert"`), the Wall data not loading ("Could not load the Wall data: …
   Trying again in n s."), the map library not loading, a failing SIGMET, VAA, VONA or aircraft feed
@@ -865,7 +868,8 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
   `last_success_at`), the database failing, an airport plan with no plan ("Airport plan: the
   recovery planner timed out, so a dispatcher must plan by hand." or "…the solver did not finish in
   time…", R2.6), a satellite reading or the Duty Officer that could not run ("Duty Officer could not
-  run: today's AI calls are used up until 0700Z.", the time from the budget's `resets_at`), and the
+  run: today's AI calls are used up until 0700Z.", the time from the budget's `resets_at`, shown
+  only while the budget still marks that model closed and never for a recorded run), and the
   count of failed AI steps. A new failure is announced once (`role="alert"` on
   its first render only).
 - Eyebrow, two rows in sentence case: the eruption symbol, `#volcano-name` (the page's h1, bold)

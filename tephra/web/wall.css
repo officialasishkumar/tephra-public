@@ -289,8 +289,8 @@ body.details-open .stage { grid-template-columns: var(--story-w) minmax(0, 1fr) 
 .fail-line__item > .link-btn { grid-column: 2; justify-self: start; min-height: 28px; }
 .fail-line__who { font-weight: var(--fw-semibold); }
 .lost-banner { color: var(--c-serious); font-weight: var(--fw-semibold); margin-bottom: 6px; }
-.fail-line__moreitem { padding-left: calc(14px + var(--sp-2)); }
-.fail-line__more { min-height: 28px; color: var(--c-serious); }
+.fail-line__body { min-width: 0; }
+.fail-line__more { margin: 0 0 0 2px; min-height: 0; color: var(--c-serious); white-space: nowrap; }
 
 .verdict { display: flex; flex-direction: column; gap: var(--sp-3); }
 .verdict--error .story__actions, .verdict--error .story__lines { display: none; }
@@ -320,13 +320,13 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 /* story lines (R5.3): one lead line at the story size, the number in TEPHRA amber; the facts at
    body size, muted where they are context, each with an optional quieter sub-line */
 .story__lines { display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--story-body); line-height: 1.4; font-weight: var(--fw-regular); color: var(--c-text-2); }
-.story__line { margin: 0; text-wrap: pretty; }
+/* balance: a fact never ends on a lone word or code ("WIHH, WIII.", "50,000 ft (FL500).") */
+.story__line { margin: 0; text-wrap: balance; }
 .story__lead { margin-bottom: 2px; font-size: var(--story-fit-size, var(--story-size)); line-height: var(--lh-story, 1.25); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-tight); color: var(--c-text-1); }
 .story__num { color: var(--c-tephra-text); }
 .story__wait, .story__dis, .story__closed { color: var(--c-text-1); }
 .story__wait { font-weight: var(--fw-medium); }
 .story__sub { display: block; margin-top: 2px; font-size: var(--fs-2); line-height: 1.4; font-weight: var(--fw-regular); letter-spacing: 0; color: var(--c-text-3); }
-.story__dot { margin: 0 0.2em; }
 .story__note, .story__connecting { color: var(--c-text-2); }
 .story__hyp { display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-2) var(--sp-3); background: var(--c-hypothesis-bg); border: 1px solid var(--c-tephra); border-radius: var(--radius-md); color: var(--c-tephra-text); font-size: var(--fs-3); font-weight: var(--fw-semibold); letter-spacing: 0; line-height: 1.35; }
 .story__hyp .st { margin-top: 3px; }
@@ -353,22 +353,31 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 .cta--quiet { min-height: var(--tap-comfort); font-size: var(--fs-3); }
 .story__show { align-self: flex-start; margin: 0; font-size: var(--fs-2); }
 
-/* key block (R5.5): fixed rows, never a floating panel. Each row: a 20 px swatch on the label's
-   line, the note under the label on its own smaller line (a hanging indent); one column, and two
-   even columns when the block is 520 px wide or more */
+/* key block (R5.5): fixed rows, never a floating panel, never folded in the story. Each row: a
+   20 px swatch on the label's line, the note under the label on its own smaller line (a hanging
+   indent). In the story, two columns filled row by row, each as wide as its longest row, so seven
+   rows take four lines; "Full map key ›" is the last cell, beside the seventh row. The labels are
+   12 px there (14 px from 1600 px) so the longest rows fit side by side without wrapping; a block
+   narrower than 350 px (1280 px windows, small phones) keeps one column rather than wrap them.
+   Help's full key keeps one column, two from 520 px. */
 .key { display: flex; flex-direction: column; gap: var(--sp-1); container-type: inline-size; }
 .key__rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px var(--sp-4); }
 @container (min-width: 520px) { .key__rows { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.key > .key__rows { grid-template-columns: repeat(2, minmax(0, max-content)); justify-content: space-between; column-gap: var(--sp-3); }
+.key > .key__rows .key__label, .key > .key__rows .key__more { font-size: var(--fs-1); }
+@media (min-width: 1600px) { .key > .key__rows .key__label, .key > .key__rows .key__more { font-size: var(--fs-2); } }
+@container (max-width: 349px) { .key > .key__rows { grid-template-columns: minmax(0, 1fr); } }
 .key__rows li { display: grid; grid-template-columns: 26px 1fr; align-items: center; gap: var(--sp-2); min-height: 28px; font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.3; }
 .key__rows .key__row { grid-template-columns: 20px minmax(0, 1fr); align-items: start; column-gap: var(--sp-2); min-height: 20px; line-height: 20px; }
 .key__row > .sw { width: 20px; height: 20px; margin: 0; }
 .key__row > .sw--aircraft { width: 16px; height: 16px; margin: 2px; }
 .key__row > .sw--exposed { width: 18px; height: 18px; margin: 1px; }
-.key__text { display: flex; flex-direction: column; min-width: 0; }
+.key__text { display: flex; flex-direction: column; min-width: 0; text-wrap: balance; }
 .key__label, .key__rows strong { color: var(--c-text-1); font-weight: var(--fw-medium); }
 .key__sub { color: var(--c-text-2); }
 .key__text .key__sub { font-size: var(--fs-1); line-height: 16px; color: var(--c-text-3); }
-.key__more { align-self: flex-start; margin: 2px 0 0; font-size: var(--fs-2); }
+.key__rows li.key__more-row { display: flex; align-items: flex-start; min-height: 0; }
+.key__more { min-height: 20px; line-height: 20px; font-size: var(--fs-2); text-align: left; }
 .sw { width: 24px; height: 24px; forced-color-adjust: none; }
 .sw--official { color: var(--c-official); }
 .sw--tephra { color: var(--c-tephra); }
@@ -392,7 +401,7 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 .story-note .st { margin-top: 2px; }
 
 .allv { display: flex; flex-direction: column; gap: var(--sp-2); }
-.allv__title { font-size: var(--fs-1); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-text-3); }
+.allv__title { font-size: var(--fs-2); font-weight: var(--fw-semibold); color: var(--c-text-3); }
 .kpis { display: flex; flex-wrap: wrap; gap: 2px 0.4em; font-size: var(--fs-2); color: var(--c-text-2); }
 .kpi dd span:not(.kpi__l) { color: var(--c-text-1); font-weight: var(--fw-semibold); }
 .kpi:not(:last-child) dd::after { content: ","; color: var(--c-text-2); }
@@ -619,12 +628,13 @@ body.history-open .maplibregl-ctrl-bottom-right, body.history-open .map-pills { 
 .key__toggle-word { margin-left: auto; font-weight: var(--fw-regular); font-size: var(--fs-1); }
 .key__chev { width: 16px; height: 16px; transition: transform var(--dur-2) var(--ease-standard); }
 .key.is-open .key__chev { transform: rotate(180deg); }
-.drawer > .key:not(.is-open) .key__rows, .drawer > .key:not(.is-open) .key__more { display: none; }
+.drawer > .key:not(.is-open) .key__rows { display: none; }
 .drawer > .key .key__rows { order: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--sp-3); padding: var(--sp-2) var(--sp-4) 0; }
 .drawer > .key .key__rows li { grid-template-columns: 20px auto; min-height: 26px; font-size: var(--fs-1); gap: 6px; }
 .drawer > .key .key__sub { display: none; }
 .drawer > .key .sw { width: 18px; height: 18px; }
-.drawer > .key .key__more { order: 1; font-size: var(--fs-1); min-height: 28px; margin: 2px var(--sp-4) 0; }
+.drawer > .key .key__rows li.key__more-row { min-height: 26px; align-items: center; }
+.drawer > .key .key__more { font-size: var(--fs-1); }
 
 /* the index: four groups of rows, each a button with its live status in words under its title
    (R8.2); a "Needs a look" card on top points at the rows that are serious or caution */
@@ -1516,8 +1526,9 @@ body.present .details-btn { border-style: dashed; }
 
 /* ---------------------------------------------------------------- story fit (R4.1, review 2, item 4)
    wall/story.js raises data-fit one step at a time until the column stops scrolling. Each step
-   tightens, never removes: the key keeps "binding" and "never smaller", folded rows stay one tap
-   away under "+ n more". Desktop only; phones scroll the page. */
+   tightens, never removes: the key keeps every row and its notes ("binding", "never smaller than
+   official"), and the other-volcanoes rows folded at level 6 stay one tap away under "+ n more".
+   Desktop only; phones scroll the page. */
 @media (min-width: 601px) {
   .story[data-fit="1"], .story[data-fit="2"], .story[data-fit="3"], .story[data-fit="4"], .story[data-fit="5"], .story[data-fit="6"], .story[data-fit="7"] {
     gap: 10px; padding-top: var(--sp-3);
@@ -1554,18 +1565,11 @@ body.present .details-btn { border-style: dashed; }
   .story[data-fit="8"] .details-btn__sub { display: none; }
   .story[data-fit="8"] .details-btn .icon { grid-row: 1; }
   .story[data-fit="8"] .allv, .story[data-fit="8"] .verdict { gap: 2px; }
+  .story[data-fit="8"] > .fail-line { padding-top: 6px !important; padding-bottom: 6px !important; }
+  .story[data-fit="8"] .fail-line__list { gap: 4px; }
+  .story[data-fit="8"] .trust__models { margin-top: 2px; }
   /* last resort: the column scrolls, and says so with a fade above the pinned button */
   .story:not(.story--scrolls) > .details-btn::before { display: none; }
-  /* last fit step (data-keyfold): the map key folds to one bar above its rows; the bar opens it */
-  .story[data-keyfold] > .key:not(.is-open) .key__rows, .story[data-keyfold] > .key:not(.is-open) .key__more { display: none; }
-  .story[data-keyfold] > .key .key__toggle {
-    order: -1; display: flex; align-items: center; gap: var(--sp-2); width: 100%; min-height: 40px; padding: 0; margin: -4px 0;
-    background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--c-text-2); font-size: var(--fs-2); font-weight: var(--fw-semibold); text-align: left;
-  }
-  .story[data-keyfold] > .key .key__toggle:hover { color: var(--c-text-1); }
-  .story[data-keyfold] > .key .key__chev { transform: rotate(180deg); }
-  .story[data-keyfold] > .key.is-open .key__chev { transform: none; }
-  .story[data-keyfold] > .key.is-open .key__toggle { margin-bottom: 0; }
 }
 
 /* ---------------------------------------------------------------- crew reports of ash (UI-DESIGN 5.7, 7.20)
