@@ -93,7 +93,7 @@ Paperwork, 10.14 Deep link) · 11 Copy deck · 12 Accessibility ·
 | Official ash area | Story L1 "Official reports put the ash up to 50,000 ft (FL500)."; the pink filled polygon with its label box "Official ash area · SFC–FL500 · until 1045Z / moving SE at 10 kt" | Story, map | The sentence and the pink shape |
 | Where sources disagree | Story L2 "The sources disagree on where the ash is heading (135° apart)."; the direction rose at the vent; Details › Where the sources disagree | Story, map | The sentence and the two arrows |
 | TEPHRA's area | The amber dashed outline drawn just outside the official edge with its tag "TEPHRA's estimate · same as official (AI off)"; the key row "TEPHRA's estimate · never smaller than official" | Map, key | The amber dashes around the pink |
-| Who is flying into it | Story L4 "23 flights of RFA, our fictional airline, are in or heading into TEPHRA's estimated ash area."; amber planes with marching paths, one-line labels or a "23 RFA flights" cluster ("21 of 23 RFA flights" when some planes sit outside it) | Story, map | The number and the amber planes |
+| Who is flying into it | Story L4 "23 flights of RFA, our fictional airline, are in or heading into TEPHRA's estimated ash area."; amber planes with marching paths, one-line labels or a "23 RFA flights" cluster ("20 RFA flights here" when some planes sit outside it) | Story, map | The number and the amber planes |
 | A human deciding | Story L5 "23 advisories wait for a dispatcher." (plus a small note "n of them are for flights no longer seen heading in." when drafts outnumber the flights) and the one filled button "Decide on the Desk →"; Details › Decisions | Story, Desk | The button |
 
 A still frame of the story column explains itself (UI-REDESIGN R5): `ANAK KRAKATAU · JAVA / BALI ·
@@ -326,9 +326,9 @@ y 32   ├─ top bar 56: TEPHRA · sub-line · Replay · Area ▾ ……… AI 
 y 88   ├─ story 460 ─────────────┬─ map 1460 (980 with Details open) ─────────────┬─ Details 480 (open) ─┤
        │ failure line (if any)   │ official label box (selected volcano)          │ (pushes the map;     │
        │ eyebrow · story lines   │ pink area, amber dashed estimate, amber planes │  the story stays)    │
-       │ [Decide on the Desk →]  │ name-only labels for other volcanoes           │                      │
-       │ key (two columns)       │ pills bottom-left        Fit · Layers · ± ·  © │                      │
-       │ trust line              ├─ time bar 52: mode · scrubber · Forecast · ‹ › · History ───────────────┤
+       │ trust line              │ name-only labels for other volcanoes           │                      │
+       │ [Decide on the Desk →]  │ pills bottom-left        Fit · Layers · ± ·  © │                      │
+       │ key (two columns)       ├─ time bar 52: mode · scrubber · Forecast · ‹ › · History ───────────────┤
        │ All volcanoes + 3 rows  │                                                │                      │
        │ [☰ Details]             │                                                │                      │
 y 1048 ├─ footer 32: disclaimer · RFA line · credits · Policy A · Help · About · Privacy ──────────────────┤
@@ -337,8 +337,16 @@ y 1048 ├─ footer 32: disclaimer · RFA line · credits · Policy A · Help �
 - Rows: band 32 (0 in LIVE), bar 56, stage `1fr`, footer 32. Stage columns: story 460, map
   `minmax(0, 1fr)`, drawer 0 or 480 (animated over `--dur-4`, a cut under reduced motion). The map
   column is the map plus the 52 px time bar. A 24 px fade runs from the story column into the map.
-- The story fits about 900 px without scrolling in the Krakatau case (tighter rhythm, the key in
-  two columns, "Show the n flights" beside the button); it scrolls inside itself if it must.
+- The story never scrolls at desktop widths in the Krakatau case: a fit pass (`fitStory()` in
+  `wall/story.js`, review 2 item 4) raises `#story[data-fit]` from 0 to 8 until the content fits,
+  each step tightening, never removing: 1 tighter rhythm; 2 lines 2 px smaller; 3 the key in two
+  columns (its "binding" and "never smaller" stay); 4 lines 4 px smaller; 5 "Show the n flights"
+  beside the button; 6 the other-volcanoes rows fold into "+ n more" (rows are given back while
+  they still fit); 7 the Details button on one line (its sub-line stays in its tooltip); 8 the
+  tightest rhythm. It re-runs when the story's words, the window size or the fonts change. Only if
+  level 8 still overflows does the column scroll (`.story--scrolls`, with the fade above the
+  pinned button). Measured in REPLAY: 1920 level 1–2, 1440 level 5–6, 1280x720 level 8, all with
+  no scroll; LIVE: 1920 and 1440 level 0–3, 1280 level 8.
 - Framing pads 48 px (7.4), max zoom 8.6.
 
 ### 4.2 Wall at 1440x900
@@ -347,8 +355,10 @@ Root 15 px. The same structure: story 400, map about 1040 x 732, story lines 24 
 sub-line hidden, the zoom buttons hidden (wheel, pinch and keys still zoom), the footer's airline line
 in full. Details takes the story column's place at 480 px (the map shrinks to about 960 px and is
 never covered), with the story strip on top and the key pinned at the bottom. The other-volcanoes
-list shows 2 rows. The time bar (48) keeps every control; in a map column under 1080 px it drops the
-"Forecast:" word and shows "‹" "›" as 44 px icon buttons with labels and tooltips.
+list shows 2 rows (fewer if the fit pass needs the room). The time bar (48) keeps every control; in a
+map column under 1080 px it drops the "Forecast:" word but keeps "‹ Previous" and "Next ›" in words
+(R4.2, R7.1); under 960 px (1280, or Details open) they become 44 px icon buttons with labels and
+tooltips.
 
 ### 4.3 Wall at 1280x720
 
@@ -479,7 +489,7 @@ Layer order, bottom to top (all after the basemap unless noted):
 | 24 | `volcano-active` | symbol | `active == true` | eruption icon by code (5.3); name Noto Sans Bold 14 (16 selected), `--map-label`, halo 2; left out for a non-selected volcano whose area label already names it |
 | 25 | `aircraft-icon` | symbol | aircraft | SDF plane (5.3); every plane is always drawn |
 | 26 | `aircraft-inside` | circle | `inside`, minzoom 6 | r 18, stroke `--c-tephra` 2, no fill |
-| 27 | `exposed-cluster` | symbol | `exposed-pts` (clustered: radius 60, min points 6) | `box-tephra` with "8 RFA flights", or "21 of 23 RFA flights" when some exposed planes are outside the cluster (the text field is rebuilt when the total changes); beside its centre (variable anchor left, right, bottom-left, top-left, radial offset 2.2), so it never sits on the vent; moved above the forecast-step and other-volcano labels so those give way to it; 44 px hit area; a click zooms in |
+| 27 | `exposed-cluster` | symbol | `exposed-pts` (clustered: radius 60, min points 6) | `box-tephra` with "8 RFA flights", or "20 RFA flights here" when some exposed planes are outside the cluster (the text field is rebuilt when the total changes); beside its centre (variable anchor left, right, bottom-left, top-left, radial offset 2.2; right first when the planes are within 180 px of the right edge), so it never sits on the vent; moved above the forecast-step and other-volcano labels so those give way to it; 44 px hit area; a click zooms in |
 | 28 | `aircraft-label-exposed` | symbol | `exposed-pts`, not clustered, minzoom 6 | one line "RFA1225 · inside" / "RFA6178 · in 12 min", Bold 13, right of the plane, collides |
 | 29 | `aircraft-label` | symbol | not exposed, minzoom 7.5 | "GIA123 FL350", Regular 12, `--c-text-3`, optional |
 | 30 | `official-step-label` | symbol | `official-labels`, kind `step` | "Forecast for 0000Z (+6 h)" while a forecast step is chosen; collides |
@@ -766,7 +776,7 @@ when it changes because an area was chosen and its first volcano arrived later).
 `#legend` is a fixed list in the story column (R5.5), never a floating panel, listing what is drawn
 now: "Official ash area · binding", "TEPHRA's estimate · never smaller than official", "RFA flight in
 or heading in", "Official forecast area (+6 h)", "Other aircraft (not RFA)", "Suggested reroute",
-"Observatory's reported drift", "Where TEPHRA widened the area", "AI-marked satellite box ·
+"Observatory's reported drift", "Where TEPHRA widened the area", "Box marked on the satellite picture ·
 supporting only", then the link "Full map key and alert colours ›" (Help). At 1600 px and up it runs
 in two columns. From 601 to 1599 px, while Details is open, the same node is moved to the bottom of
 the drawer as a compact strip; on a phone it is the strip under the map. Swatches keep their colours
@@ -785,15 +795,17 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
   unavailable, and the count of failed AI steps. A new failure is announced once (`role="alert"` on
   its first render only).
 - Eyebrow: the eruption symbol, `#volcano-name` (the page's h1), " · {area} · alert {Red}" ("alert
-  colour not given" for UNKNOWN), and "as of 1030Z".
+  colour not given" for UNKNOWN), and "as of 1030Z". A no-break space sits before each "·", so a
+  wrapped line never starts with a dot.
 - Lines `#headline` (28/24/22/20 px by width), replaced only when their words change: in REPLAY a
   "Recorded" tag first; L1 "Official reports put the ash up to 50,000 ft (FL500)." (or "between …
   and …"; the HYPOTHESIS banner replaces it: "HYPOTHESIS: no valid official product. Only MONITOR or
   HOLD may be advised."); L2 "The sources disagree on where the ash is heading (135° apart)." with
   "TEPHRA's estimate covers both." (WIDENED) or "TEPHRA's estimate has not been widened (AI off)."
-  (OFFICIAL, stub); SILENCE and CONFLICT lines; L3 "Ash closes 2 RFA airports: WIHH, WIII." (the
-  current plan's closures whose source ids are this volcano's official products or cone; the plan's
-  time in the title); L4 "23 flights of RFA, our fictional airline, are in or heading into TEPHRA's
+  (OFFICIAL, stub); SILENCE and CONFLICT lines; L3 "Ash from Anak Krakatau closes 2 RFA airports:
+  WIHH, WIII (3 across all volcanoes)." (the current plan's closures whose source ids are this
+  volcano's official products or cone; the all-volcano total is added when it differs, so every
+  count states its scope, G8; the plan's time in the title); L4 "23 flights of RFA, our fictional airline, are in or heading into TEPHRA's
   estimated ash area." or, at 0, "No RFA flight is seen heading into TEPHRA's area right now." with
   "Aircraft coverage here is patchy: an empty map is not an empty sky." (or "Aircraft data is
   failing/off: …"); L5 "30 advisories wait for a dispatcher." (advisories, never "n of their":
@@ -803,14 +815,17 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
   advisories are decided: a approved, r rejected.", "Their advisories are not drafted yet." or
   "Advisory count unknown (database error)."
 - Re-planning: while the newest airport-plan step in the trace is "Closed airports changed: …;
-  recovery agent started" and no plan has landed since (`ext.replanning`), L3 is "RFA airports
-  closed by ash: WARA, WIHH, WIII. Re-planning the day's flights…" (no volcano is named: the trace
-  does not say which one closed them), Details › Airport closures reads "re-planning for WARA, WIHH,
-  WIII…" (caution) and its section opens with a spinner line instead of "No RFA airport is
-  closed".
+  recovery agent started" and no plan has landed since (`ext.replanning`), L3 is "Ash closes 3 RFA
+  airports (all volcanoes): WARA, WIHH, WIII. Re-planning the day's flights…" (the trace does not
+  say which volcano closed them, so the line says its scope), Details › Airport closures reads "3
+  airports (all volcanoes) · re-planning…" (caution) and its section opens with a spinner line
+  instead of "No RFA airport is closed". With a plan, the row reads "2 from Anak Krakatau, 3 across
+  all volcanoes · plan waiting". The Desk's Airports tab follows the same trace line (section 16).
 - Buttons: the one filled button on the Wall, "Decide on the Desk →", linking to
-  `/desk#review/{the most urgent DRAFT advisory of this volcano}` (inside now first, then the
-  soonest entry); with no draft it is the secondary "Open the Desk". "Show the n flights" opens
+  `/desk#review/{the most urgent DRAFT advisory of this volcano}` in the Desk's own urgency order
+  (`byUrgency`: inside now first, then the soonest entry on the clock, then the oldest draft); the
+  Desk opens that draft as its Next decision, so one flight is primary on both screens; with no
+  draft it is the secondary "Open the Desk". "Show the n flights" opens
   Details › Flights heading in (hidden at 0).
 - Reading (`D.reading`): before the server's first tick, or while an active volcano in scope has
   no situation card yet, h1 the area, a spinner, "Reading the official reports…" and "TEPHRA has
@@ -823,12 +838,17 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
   TEPHRA…" with a spinner and no numbers. Never "clear" or "safe".
 - Trust line `#trust`: "AI: off · code built this summary from the official reports" or "AI: on
   ({label}) · it can widen TEPHRA's estimate, never shrink the official area" (the second
-  always-visible model state).
+  always-visible model state). It sits inside the story card, right under the lines it describes
+  and above the button, so it is on screen at every width (R0.2.5).
+- All volcanoes: one comma-separated sentence, "5 volcanoes with ash, 23 RFA flights in or heading
+  in, 26 advisories waiting" (`#kpi-active`, `#kpi-exposed`, `#kpi-drafts` hold the numbers); at 0
+  flights it reads "no RFA flight seen heading in", never "– RFA flights" or a line that starts
+  with a "·".
 - Story notes `#story-notes`: notes that are not map pills (the basemap note; the 150 km coverage
   note when the flight line has not said it).
-- "☰ Details" (`#details-btn`) is sticky at the bottom of the story column from 601 px up, with a
-  16 px fade above it that says the column scrolls, so the route to everything else is always on
-  screen at 1280 and 1440.
+- "☰ Details" (`#details-btn`) is sticky at the bottom of the story column from 601 px up, so the
+  route to everything else is always on screen at 1280 and 1440; the fade above it shows only when
+  the column really scrolls (after the fit pass).
 - The changed flight count gets a `--dur-5` highlight (not under reduced motion). `#announce` speaks
   "{volcano}: {L4} {L5}" at most once every 30 s, only when the volcano, the flight count or the
   waiting count changes.
@@ -988,7 +1008,7 @@ back to the opener. The state (`tephra.wall.details`: a section key, "index" or 
 
 ### 8.1 3D mode (D)
 
-`easeTo({ pitch: 60, bearing: -20, duration: --dur-camera-long })`, enable drag-rotate, set sky
+`easeTo({ pitch: 55, bearing: -20, zoom: flat fit + 0.35, duration: --dur-camera-long })` (round 2: the old zoom-out showed half of Asia), enable drag-rotate, set sky
 (`sky-color #0b1220`, `horizon-color #1b2430`, `fog-color #07090d`, blends 0.6/0.6/0.8). Add, in
 this order (extrusions share the depth buffer; inner first): `official-volume` (now-valid
 official features, `--c-official`, opacity 0.45, base/height = `base_ft`/`top_ft` × 0.3048 × 6,
@@ -1132,8 +1152,10 @@ refresh on every `advisory` event stay. Sort: inside now first, then entry time,
    The area, model and REPLAY chips left the cards: the model and REPLAY are in the header, the area
    is in the review's Why.
    - The card does not swap under the dispatcher's thumb: when a more urgent draft arrives, the
-     line "1 more urgent draft arrived · Show" (`#q-newer`, caution) appears and Show moves the
-     card to it.
+     line "1 draft is more urgent · Show the most urgent" (`#q-newer`, caution) appears and the link
+     moves the card (and, at 1100 px and up, the review pane) to it.
+   - The draft open in the review is the Next decision: a deep link from the Wall or a tapped row
+     puts it in the card, with its place in the order ("5 of 41 advisories · most urgent first").
    - At 1100 px and up, while a draft is open in the right pane (`.desk[data-view="review"]`), the
      card folds to its row: flight, entry pill, action and caution chips; the meta line, advisory
      text, writer line and sources line are hidden (they are in the pane), and the "Review" button
@@ -1146,10 +1168,10 @@ refresh on every `advisory` event stay. Sort: inside now first, then entry time,
    `--dur-5` and tagged "New" for two minutes. Only the first 5 rows show, then "Show all n"
    (`#cards-all`), so the one-line links below stay near the top; the selected row is never
    hidden.
-4. One-line links (`.qlinks`): "Airport plan waiting: 3 airports closed, cancel 133 ›"
+4. One-line links (`.qlinks`): "Airport plan waiting: 3 airports closed (all volcanoes), cancel 133 ›"
    (`#plan-section`, opens Airports); "Messages to approve (3) ›" (`#msg-section`) and "Notices (4) ›"
-   (`#notice-section`), which open in place to today's cards and rows; "Duty Officer (AI off): 3
-   flights need a plan first ›" (`#duty-section`), which opens in place to the outcome chip, the
+   (`#notice-section`), which open in place to today's cards and rows; "Duty Officer (AI off): 25
+   items put in order of urgency · latest run 1035Z ›" (`#duty-section`), which opens in place to the outcome chip, the
    summary, "Do first" (priorities with "Must do" tags; with AI off the code reason is said once in
    the heading, "Do first · in urgency order (AI off)", not under every item), "Watch", "Delegated
    to", "Deferred", and under "Technical detail" the run line (model, turns, offered, trigger, time)
@@ -1532,7 +1554,7 @@ again", "Refresh the lists", "Re-plan now", "Approve plan…", "Write the handov
 | Rejected | "Rejected: {proxy} · reason recorded." |
 | Empty Decide list | "No drafts waiting." / "A draft appears here when a flight's projected track enters TEPHRA's estimated ash area." |
 | Deep link, signed out | "Sign in to review {proxy}." |
-| Newer draft while reading | "1 more urgent draft arrived · Show" |
+| Newer draft while reading | "1 draft is more urgent · Show the most urgent" |
 | No plan (solver) | "No plan found: the solver did not finish in time. A dispatcher must plan the network by hand." |
 | No closures | "No RFA airport is closed by ash right now." + "Last checked {HHMM}Z." |
 
@@ -1665,8 +1687,9 @@ context label (section 7.3, 5.6).
   `desk/network.js`; the Ask stub's "NO MODEL: this is the offline stub…" sentence stays in the API
   (tests and the spoken reply rely on it) and is put in plain words only on screen, and only for
   the stub's code-written text.
-- The decision receipt toast stays 15 s and can sit over the next draft's text on a phone; it has
-  a close button and the next draft's action bar stays clear.
+- The decision receipt stays 15 s. On a phone it sits in the review sheet's flow under the sheet
+  head (`#sheet-receipts`), so it pushes the next draft down instead of covering it; at 1440 it is
+  the usual toast under the queue column.
 
 - The CSP (MODULES.md 8.1 and `server.py`) allows GIBS and Mapterhorn for images and fetches,
   and scripts only from the two pinned unpkg packages; any other script host is refused.
@@ -1688,3 +1711,54 @@ context label (section 7.3, 5.6).
 - MapLibre's `map.loadImage` cannot load data: or SVG under this CSP (research): every map image
   here (SDF plane, SDF arrowhead, eruption symbols, label boxes, hatch) is drawn on a canvas and
   added with `addImage`.
+
+## 16. Review round 2 (what changed and why)
+
+Every count states its scope, the same words on both screens, and no raw code text sits in
+primary text. In short:
+- Desk › Airports before the first plan: while the trace says the closed airports changed and no
+  newer plan exists (`noteTrace()` / `replanInProgress()` in `desk/network.js`, fed by `/api/wall`'s
+  trace and the `trace` stream event), it says "Re-planning for WARA, WIHH, WIII…" and "Ash closes 3
+  RFA airports (all volcanoes): …", never "No RFA airport is closed". Plan leads and the Decide link
+  say "(all volcanoes)".
+- Report counts: Details › What the official reports say names kinds, not a number ("The newest
+  SIGMET and VAA (official, binding) and the observatory's VONA (supporting) name Anak Krakatau. One
+  card per kind below, the newest of each."); its index row reads "newest SIGMET, VAA and VONA · 2
+  min ago"; the reasons list says "Why TEPHRA shows Anak Krakatau: 8 reasons"; the Desk says "7
+  sources on this draft (5 official)". This ash area says "Drawn from 2 SIGMETs (airspace warnings),
+  the newest per office + 1 VAA (ash advisory)" (a VAA's layers count once).
+- This ash area: forecast steps once each at their own time ("+6 h (1310Z) · +12 h (1910Z) · +18 h
+  (0110Z)"); issuers in words with the code kept ("Jakarta airspace office (WIIF), SIGMET · Darwin
+  ash advisory centre (VAAC), VAA"; an office not in the short list keeps its code only); product
+  ids under "Technical ids".
+- Plain words (`plainLine()` in `wall/x-parts.js`, now also used by `desk/duty.js`): the Duty
+  Officer's stub brief, its "urgency order" reason (said once above the list), the recovery stub's
+  rationale ("Planned by code (AI off): this plan cancels 47 flights and delays 29. It affects
+  12,057 passengers and costs about $893,032."), and any other "NO MODEL: …" line ("Written by code
+  (AI off): …"). The raw line stays under Technical detail. Desk review › Why: TEPHRA area "Official
+  area only" / "Wider than the official area · 80% confidence" / "HYPOTHESIS · MONITOR or HOLD only"
+  (mode code and confidence in the tooltip); the cost note in sentence case (the original in the
+  tooltip); Drafted by "AI off: built from the official reports only…". Wall flight and decision
+  lines: "Drafted: Keep watching (MONITOR) · waiting for a dispatcher".
+- Sources grid: "FCST" reads "forecast, not seen"; an empty cell says why in the same words in every
+  column ("not given", "not in a SIGMET", "no end time stated"); alert colours in words ("Red").
+- Desk Next decision follows the open review: a deep link or a tapped row puts that draft in the
+  card; "4 drafts are more urgent · Show the most urgent" opens the most urgent one in the review.
+- Desk Escape steps back one level (confirm bar → decide bar, Reject or Edit → review, even from
+  inside the text box), then on a phone closes the sheet.
+- Duty Officer one-liner on the Desk keeps one noun: "25 items put in order of urgency · latest run
+  1035Z" (or "3 jobs handed out · …").
+- Map labels: the selected official box, forecast-step labels and TEPHRA's tag are nudged inside the
+  canvas after every move (`fitLabels()` in `wall/map.js`) and wrap at 16 em on a phone; in compare
+  mode each side's labels stay on their side of the divider; the flight-count bubble opens left near
+  the right edge and reads "20 RFA flights here" when some flights sit outside it; active volcano
+  names near a side edge open inwards.
+- 3D: the camera zooms in 0.35 from the flat fit and tilts to 55°, so the areas stay as large as in
+  the flat view (it zoomed out before).
+- Time bar: "1030Z · 0% played" with the recording's span in the tooltip, the progress bar's
+  value text and the History head ("9 h back, 3 h ahead · Recording 1030Z–1930Z, 0% played"), so the
+  12 h axis never sits beside a second time scale.
+- Help › Full map key: "Suggested reroute" and "Box marked on the satellite picture" (no ICAO-form
+  note, no "AI-marked" while AI is off). Track record: "generated 11 OCT 1515Z" (one Z).
+- Phone Details sheet: the backdrop is transparent, so the band, header and disclaimer above the
+  sheet stay at full contrast. Details index statuses wrap in their own column.

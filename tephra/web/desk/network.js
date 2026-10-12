@@ -68,6 +68,31 @@ let menuOpen = false;
 const opened = new Set(); // disclosures kept open across re-renders
 
 export const draftPlans = () => app.plans.filter((p) => p.status === 'DRAFT');
+
+// The server starts a re-plan when the closed airports change and says so in the trace ("Closed
+// airports changed: WARA, WIHH, WIII; recovery agent started"). Until a plan newer than that line
+// is stored, the tab says it is re-planning for those airports, never "No airport is closed"
+// (review 2, item 1). The same line drives the Wall's story (wall/ext.js replanning()).
+const REPLAN = /^Closed airports changed: (.+); recovery agent started$/;
+export function noteTrace(lines) {
+  let changed = false;
+  for (const t of Array.isArray(lines) ? lines : [lines]) {
+    if (!t || t.stage !== 'RECOVERY') continue;
+    const m = REPLAN.exec(t.message || '');
+    const at = Date.parse(t.at);
+    if (!m || !Number.isFinite(at) || (app.replan && app.replan.at > at)) continue;
+    const airports = Array.isArray(t.detail && t.detail.airports) && t.detail.airports.length ? t.detail.airports.map(String) : m[1].split(/,\s*/);
+    app.replan = { airports, at };
+    changed = true;
+  }
+  if (changed && app.tab === 'network') renderNetwork();
+}
+// The re-plan in progress, or null once a plan as new as its trace line exists.
+export function replanInProgress() {
+  const r = app.replan;
+  if (!r) return null;
+  return app.plans.some((p) => Date.parse(p.created_at) >= r.at) ? null : r;
+}
 export const latestPlan = () => app.plans[0] || null;
 
 export async function loadPlans() {
@@ -298,12 +323,23 @@ export function renderNetwork() {
     el('h1', { id: 'net-title', class: 'phead__title', tabindex: '-1', text: 'Airport plan' }),
     moreMenu(p));
   const parts = [head];
-  if (running) {
-    const icaos = p ? (p.closures || []).map((c) => c.icao).join(', ') : '';
+  const re = replanInProgress();
+  if (running || re) {
+    const icaos = re ? re.airports.join(', ') : p ? (p.closures || []).map((c) => c.icao).join(', ') : '';
     parts.push(el('p', { class: 'plan__busy', role: 'status', 'aria-busy': 'true' }, el('span', { class: 'spinner', 'aria-hidden': 'true' }), el('span', { text: icaos ? `Re-planning for ${icaos}…` : 'Re-planning…' })));
   }
   if (runError) {
     parts.push(runError.reason ? unavailableCard(runError.reason, { instead: 'No plan was made. Re-plan the day by hand.', onRetry: runRecovery }) : el('div', { class: 'panel panel--serious', role: 'alert' }, el('p', { class: 'panel__title' }, icon('st-serious', 'st'), el('span', { text: runError.text }))));
+  }
+  if (!p && re) {
+    // Airports are closed and the first plan is being built: say which, with no other numbers.
+    parts.push(el('div', { class: 'plan plan--empty' },
+      el('p', { class: 'plan__lead', text: `Ash closes ${re.airports.length} RFA airport${re.airports.length === 1 ? '' : 's'} (all volcanoes): ${re.airports.join(', ')}.` }),
+      el('p', { class: 'plan__foot', text: `The plan for the day's flights is being built (started ${hhmmz(re.at)}). It appears here for your decision when it is ready.` }),
+      el('p', { class: 'plan__tags' }, el('span', { class: 'chip chip--fict', title: 'Ring of Fire Air and its schedule are made up' }, icon('i-info', 'st'), el('span', { text: 'Fictional airline RFA · synthetic schedule' })))));
+    panel.replaceChildren(...parts);
+    restoreFocus(panel, keep);
+    return;
   }
   if (!p) {
     parts.push(app.plansLoaded
@@ -324,7 +360,7 @@ export function renderNetwork() {
   const n = closures.length;
   const card = el('section', { class: `plan plan--${tone}`, 'aria-labelledby': 'plan-eyebrow' },
     el('p', { class: 'plan__eyebrow', id: 'plan-eyebrow' }, el('span', { text: 'Airport plan' }), el('span', { class: `plan__status plan__status--${tone}` }, icon(shape, 'st'), el('span', { text: word }))),
-    el('p', { class: 'plan__lead', text: n ? `Ash closes ${n} RFA airport${n === 1 ? '' : 's'}: ${closures.map((c) => c.icao).join(', ')}.` : 'No RFA airport is closed by ash in this plan.' }));
+    el('p', { class: 'plan__lead', text: n ? `Ash closes ${n} RFA airport${n === 1 ? '' : 's'} (all volcanoes): ${closures.map((c) => c.icao).join(', ')}.` : 'No RFA airport is closed by ash in this plan.' }));
   if (problem) {
     card.append(el('p', { class: 'plan__problem' }, icon('st-serious', 'st'), el('span', { text: problem.words })), techNode(problem.raw));
   } else if (t) {

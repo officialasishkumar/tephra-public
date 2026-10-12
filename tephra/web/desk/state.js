@@ -16,6 +16,7 @@ export const app = {
   dutyLoaded: false,
   plans: [], // RecoveryPlan, newest first
   plansLoaded: false,
+  replan: null, // { airports, at } from the newest RECOVERY trace line when no plan is newer yet
   docs: [], // DocSummary, newest first
   notices: [], // NoticeReading, newest first
   budget: null, // BudgetView

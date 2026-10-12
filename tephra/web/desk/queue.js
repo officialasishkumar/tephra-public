@@ -50,14 +50,16 @@ export const anyStaleSource = (adv) => (adv.sources || []).some((s) => s && s.st
 // certainty score; in the review the row label already says "TEPHRA area" (bare).
 export function modeChip(adv, { long = false, bare = false } = {}) {
   const shape = { OFFICIAL: 'lg-area-official', WIDENED: 'lg-area-hatch', HYPOTHESIS: 'lg-area-hatch' }[adv.plume_mode];
+  // Plain words (review 2, item 5); the mode code and confidence stay in the tooltip.
+  const conf = pct(adv.confidence);
   const words = {
-    OFFICIAL: `OFFICIAL ${pct(adv.confidence)}`,
-    WIDENED: `WIDENED ${pct(adv.confidence)}`,
-    HYPOTHESIS: long ? `HYPOTHESIS ${pct(adv.confidence)} · MONITOR or HOLD only` : `HYPOTHESIS ${pct(adv.confidence)}`,
-  }[adv.plume_mode];
+    OFFICIAL: 'Official area only',
+    WIDENED: `Wider than the official area${conf ? ` · ${conf} confidence` : ''}`,
+    HYPOTHESIS: long ? 'HYPOTHESIS · MONITOR or HOLD only' : 'HYPOTHESIS',
+  }[adv.plume_mode] || String(adv.plume_mode || '');
   return el(
     'span',
-    { class: `chip chip--mode chip--${adv.plume_mode.toLowerCase()}`, title: 'TEPHRA cautious area for this draft' },
+    { class: `chip chip--mode chip--${String(adv.plume_mode || '').toLowerCase()}`, title: `TEPHRA cautious area for this draft (${adv.plume_mode}${conf ? ` ${conf}` : ''}${isStub(adv) ? ', set by code with AI off' : ''})` },
     icon(shape, 'st'),
     bare ? null : el('span', { class: 'caps chip__k', text: 'Area' }),
     el('span', { text: words }),
@@ -252,6 +254,10 @@ export function renderQueue() {
   const slot = byId('q-next');
   const items = draftList().sort(byUrgency);
   const n = items.length;
+  // The draft open in the review is the Next decision, so one flight is primary at a time: a
+  // deep link from the Wall ("Decide on the Desk") or a tapped row puts that draft in the card
+  // (review 2, item 6). Its place in the urgency order stays visible ("5 of 41").
+  if (app.selectedId && app.drafts.has(app.selectedId)) nextId = app.selectedId;
   if (!nextId || !app.drafts.has(nextId)) nextId = items[0] ? items[0].id : null;
   const nextAdv = nextId ? app.drafts.get(nextId) : null;
   const position = nextAdv ? items.indexOf(nextAdv) + 1 : 0;
@@ -263,8 +269,8 @@ export function renderQueue() {
   newer.hidden = !(nextAdv && position > 1);
   if (!newer.hidden) {
     newer.replaceChildren(icon('st-caution', 'st'),
-      el('span', { text: `${plural(position - 1, 'more urgent draft')} arrived` }),
-      el('button', { type: 'button', class: 'linkbtn', 'data-newest': '1' }, el('span', { text: 'Show' })));
+      el('span', { text: `${plural(position - 1, 'draft')} ${position === 2 ? 'is' : 'are'} more urgent` }),
+      el('button', { type: 'button', class: 'linkbtn', 'data-newest': '1' }, el('span', { text: 'Show the most urgent' })));
   }
 
   if (!app.listLoaded && !app.listError) {

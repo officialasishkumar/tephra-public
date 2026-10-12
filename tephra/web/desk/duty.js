@@ -11,6 +11,8 @@ import { append, byId, el, icon } from './dom.js';
 import { hhmmz } from './format.js';
 import { app } from './state.js';
 import { aiChip } from './ui.js';
+// The Wall's plain-words table (wall/x-parts.js, R12.7), shared so both screens say the same.
+import { plainLine } from '../wall/x-parts.js';
 
 const RESULTS_SHOWN = 2;
 
@@ -120,10 +122,11 @@ function oneLine(run, failed, stub) {
   if (run.undispatched.length) return [who, `${plural(run.undispatched.length, 'must-do item')} not handed out`];
   const prios = run.brief ? run.brief.priorities : [];
   if (prios.length) {
-    const planning = prios.every((p) => (run.worklist.find((i) => i.id === p.item_id) || {}).kind === 'PLAN');
-    return [who, planning ? `${plural(prios.length, 'flight')} ${prios.length === 1 ? 'needs' : 'need'} a plan first` : `${plural(prios.length, 'item')} to do first`];
+    // One noun for every run, with the run's time, so the line does not read as two different
+    // counts when an aircraft-triggered run and a tick run alternate (review 2, item 14).
+    return [who, `${plural(prios.length, 'item')} put in order of urgency · latest run ${hhmmz(run.finished_at)}`];
   }
-  return [who, `${plural(run.dispatches.length, 'delegation')}`];
+  return [who, `${plural(run.dispatches.length, 'job')} handed out · latest run ${hhmmz(run.finished_at)}`];
 }
 
 function buildCard(run) {
@@ -168,7 +171,7 @@ function buildCard(run) {
       b.priorities.length ? el('h3', { class: 'dcard__h', text: stub && b.priorities.every((p) => STUB_WHY.test(p.why)) ? 'Do first · in urgency order (AI off)' : 'Do first' }) : null,
       b.priorities.length ? el('ol', { class: 'dcard__plist', 'aria-label': 'Priorities' }, b.priorities.map((p) => priority(run, p, stub))) : null,
       b.watch.length ? el('h3', { class: 'dcard__h', text: 'Watch' }) : null,
-      b.watch.length ? el('ul', { class: 'dcard__wlist dcard__ai' }, b.watch.map((w) => el('li', { text: w }))) : null,
+      b.watch.length ? el('ul', { class: 'dcard__wlist dcard__ai' }, b.watch.map((w) => el('li', { text: plainLine(w) }))) : null,
     ]);
   }
   more.append(el('h3', { class: 'dcard__h', text: 'Delegated to' }),
@@ -178,11 +181,11 @@ function buildCard(run) {
   if (run.deferred.length) {
     more.append(el('h3', { class: 'dcard__h', text: `Deferred · ${run.deferred.length}` }),
       el('ul', { class: 'dcard__wlist' }, run.deferred.map((d) =>
-        el('li', {}, el('span', { class: 'dcard__plabel', text: labelOf(run, d.item_id) }), el('span', { class: 'dcard__why dcard__ai', text: d.reason })))));
+        el('li', {}, el('span', { class: 'dcard__plabel', text: labelOf(run, d.item_id) }), el('span', { class: 'dcard__why dcard__ai', text: plainLine(d.reason) })))));
   }
   const mandatory = run.worklist.filter((i) => i.mandatory).length;
   // The run's machine facts (model, turns, offered, trigger) sit under Technical detail (item 14).
-  const meta = `${stub ? 'AI off (NO MODEL)' : run.model_id} · ${plural(run.turns, 'turn')} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · ${run.trigger === 'adsb' ? 'new aircraft' : 'tick'} ${hhmmz(run.finished_at)}${run.replay ? ' · recorded' : ''}`;
+  const meta = `${stub ? 'AI off (NO MODEL, offline stub)' : run.model_id} · ${plural(run.turns, 'turn')} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · ${run.trigger === 'adsb' ? 'new aircraft' : 'tick'} ${hhmmz(run.finished_at)}${run.replay ? ' · recorded' : ''}`;
   more.append(el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }),
     el('p', { class: 'mono tech__line dcard__meta', text: meta }),
     b && stub && b.summary ? el('p', { class: 'mono tech__line', text: b.summary }) : null));

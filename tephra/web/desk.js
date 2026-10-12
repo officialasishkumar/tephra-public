@@ -19,7 +19,7 @@ import {
 } from './desk/format.js';
 import { SESSION_ENDED, hideLogin, initLogin, setPending, showLogin } from './desk/login.js';
 import { breakdownText, flashNew, renderQueue, showAllDrafts, showMostUrgent, updateTimes } from './desk/queue.js';
-import { closeSheet, onSheetClick, openSheet, sheetBusy, sheetOpenFor, showStamp, syncSheet, updateSheetTimes } from './desk/review.js';
+import { closeSheet, onSheetClick, openSheet, sheetBusy, sheetOpenFor, sheetReceiptHost, sheetStepBack, showStamp, syncSheet, updateSheetTimes } from './desk/review.js';
 import { app, draftList } from './desk/state.js';
 import { toast } from './desk/toast.js';
 import { initAsk, focusAsk, setFlightContext } from './desk/ask.js';
@@ -28,7 +28,7 @@ import { clearHandover, loadDocs, loadHandover, onDocEvent, onDocsClick, renderD
 import { loadDuty, onDutyEvent } from './desk/duty.js';
 import { loadFailures, onFailureEvent, openFailures, openHandled } from './desk/failures.js';
 import { draftMessages, loadMessages, onMessageEvent, openMessage, requestMessageDrafts } from './desk/messages.js';
-import { draftPlans, loadPlans, onNetworkClick, onRecoveryEvent, renderNetwork, chosenOf } from './desk/network.js';
+import { draftPlans, loadPlans, noteTrace, onNetworkClick, onRecoveryEvent, renderNetwork, chosenOf } from './desk/network.js';
 import { loadNotices, onNoticeEvent, openNotice, openPaste } from './desk/notice.js';
 import { goTab, initTabs, setBadges } from './desk/tabs.js';
 import { closeBSheet } from './desk/ui.js';
@@ -116,6 +116,7 @@ async function loadCones() {
     applyCones(res.data.snapshot.cones);
     applyExposed(res.data.snapshot.aircraft);
   }
+  if (res.ok && res.data && Array.isArray(res.data.trace)) noteTrace(res.data.trace);
 }
 
 // The flights in or heading into TEPHRA's area now ("hex:volcano_id"), from the Wall's aircraft
@@ -220,6 +221,7 @@ function openEvents() {
   source.addEventListener('advisory', (e) => applyAdvisory(parseEvent(e), { stream: true }));
   source.addEventListener('cones', (e) => applyCones(parseEvent(e)));
   source.addEventListener('aircraft', (e) => applyExposed(parseEvent(e)));
+  source.addEventListener('trace', (e) => noteTrace(parseEvent(e)));
   source.addEventListener('budget', (e) => setBudget(parseEvent(e)));
   source.addEventListener('ai_failure', (e) => {
     if (app.me) onFailureEvent(parseEvent(e));
@@ -467,11 +469,13 @@ async function decide(kind, adv, body) {
   showStamp(decided);
   afterListChange();
   await new Promise((resolve) => window.setTimeout(resolve, STAMP_MS));
-  decisionToast(decided);
-  // The dispatcher may have signed out, or a stream event may have moved the sheet meanwhile.
-  if (!app.me || sheetOpenFor() !== decided.id) return res;
   const sorted = draftList().sort(byUrgency);
   const next = sorted[Math.min(index, sorted.length - 1)] || null;
+  // The dispatcher may have signed out, or a stream event may have moved the sheet meanwhile.
+  const moveOn = Boolean(app.me) && sheetOpenFor() === decided.id;
+  // The receipt names the draft the sheet moves on to; on a phone it sits in the sheet's flow.
+  decisionToast(decided, moveOn ? next : draftList().sort(byUrgency)[0], moveOn && next && !isWide());
+  if (!moveOn) return res;
   // R10.3: the sheet moves on to the next draft ("Next: RFA1530 · inside now"); no bulk approval,
   // the next one needs its own hold or confirm.
   if (next) announce(`Next: ${next.proxy_flight} · ${entryShort(next, activeNow())}`);
@@ -504,12 +508,10 @@ function toastTitle(adv) {
 // 10.8: the toast carries the audit line: the first two SRC lines and the audit entry for this
 // decision. It stays DECISION_TOAST_MS (longer than other toasts) so the receipt can be read.
 // Only the entry that records this decision is shown; another entry is never put in its place.
-async function decisionToast(adv) {
+async function decisionToast(adv, nextUp, inSheet) {
   const src = String(adv.header || '').split('\n').filter((l) => l.startsWith('SRC ')).slice(0, 2);
-  const nextUp = draftList().sort(byUrgency)[0];
-  const nextLine = nextUp ? [`Next: ${nextUp.proxy_flight} · ${entryShort(nextUp, activeNow())}`] : [];
-  const note = nextLine[0] || '';
-  const t = toast({ tone: adv.status === 'REJECTED' ? 'rejected' : 'ok', title: toastTitle(adv), note, lines: src, ttl: DECISION_TOAST_MS });
+  const note = nextUp ? `Next: ${nextUp.proxy_flight} · ${entryShort(nextUp, activeNow())}` : '';
+  const t = toast({ tone: adv.status === 'REJECTED' ? 'rejected' : 'ok', title: toastTitle(adv), note, lines: src, ttl: DECISION_TOAST_MS, inline: inSheet ? sheetReceiptHost() : null });
   const res = await api(PATHS.audit(adv.id));
   const entries = res.ok && res.data && Array.isArray(res.data.entries) ? res.data.entries : [];
   const entry = entries.find((e) => e && e.action === adv.status);
@@ -812,7 +814,7 @@ function afterPlans() {
     const sc = chosenOf(p);
     const t = sc && sc.totals;
     const n = (p.closures || []).length;
-    const bits = [`${n} airport${n === 1 ? '' : 's'} closed`];
+    const bits = [`${n} airport${n === 1 ? '' : 's'} closed (all volcanoes)`];
     if (t) bits.push(`cancel ${t.cancelled_flights}`);
     else bits.push('no plan found');
     host.replaceChildren(el('button', { type: 'button', class: 'qlink__btn', 'data-goto': 'network' },
@@ -864,8 +866,11 @@ function wire() {
       return;
     }
     if (event.target.closest('[data-newest]')) {
+      const top = draftList().sort(byUrgency)[0];
+      // The Next decision follows the open review, so the most urgent is opened in it too.
+      if (top && app.selectedId && app.selectedId !== top.id && isWide()) selectDraft(top.id, { focus: false });
       showMostUrgent();
-      focusCard(draftList().sort(byUrgency)[0] && draftList().sort(byUrgency)[0].id);
+      focusCard(top && top.id);
       return;
     }
     const open = event.target.closest('[data-open]');
@@ -892,8 +897,15 @@ function wire() {
   });
   byId('budget-chip').addEventListener('click', openBudget);
   document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape' || !sheetOpenFor() || isWide() || app.tab !== 'queue') return;
-    if (event.target.closest('textarea, input, dialog, #account-menu')) return;
+    if (event.key !== 'Escape' || !sheetOpenFor() || app.tab !== 'queue') return;
+    if (event.target.closest('dialog, #account-menu')) return;
+    // One level per press: Reject or Edit (even from inside its text box) back to the review,
+    // then, on a phone, the review back to Decide (review 2, item 9).
+    if (sheetStepBack()) {
+      event.preventDefault();
+      return;
+    }
+    if (isWide() || event.target.closest('textarea, input')) return;
     closeReview();
   });
   window.addEventListener('online', refreshOffline);

@@ -210,7 +210,10 @@ export const sourceList = (adv) =>
 export function sourcesSummary(adv, now) {
   const list = sourceList(adv);
   if (!list.length) return 'No sources listed';
-  const head = `${list.length} source${list.length === 1 ? '' : 's'}`;
+  // Scope stated (review 2, item 3): every product this draft used, the official ones counted
+  // apart. The Wall's sources section shows the newest of each kind, so it names kinds instead.
+  const official = list.filter((s) => isBindingFeed(s.feed)).length;
+  const head = `${list.length} source${list.length === 1 ? '' : 's'} on this draft (${official} official)`;
   const times = list.map(sourceTime).filter(Boolean).map((x) => x.t);
   if (!times.length) return head;
   const newest = Math.max(...times);

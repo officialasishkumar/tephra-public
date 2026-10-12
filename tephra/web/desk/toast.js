@@ -20,15 +20,17 @@ function fillAudit(audit, lines, auditLine) {
   audit.hidden = !(lines.length || auditLine);
 }
 
-export function toast({ title, lines = [], auditLine = '', note = '', tone = 'info', ttl = TTL_MS }) {
-  const host = byId('toasts');
+// `inline`: a host element in the page flow (the phone review sheet's receipt slot) instead of the
+// fixed stack at the bottom; the toast then pushes content down and covers nothing.
+export function toast({ title, lines = [], auditLine = '', note = '', tone = 'info', ttl = TTL_MS, inline = null }) {
+  const host = inline || byId('toasts');
   const audit = el('details', { class: 'toast__tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'toast__audit' }));
   fillAudit(audit, lines, auditLine);
   const noteNode = el('p', { class: 'toast__note', text: note, hidden: !note });
   const close = el('button', { type: 'button', class: 'toast__close', 'aria-label': 'Dismiss' }, icon('i-x'));
   const node = el(
     'div',
-    { class: `toast toast--${tone}`, role: 'status', tabindex: '-1' },
+    { class: `toast toast--${tone}${inline ? ' toast--inline' : ''}`, role: 'status', tabindex: '-1' },
     el('p', { class: 'toast__title' }, icon(TONE_ICON[tone] || 'i-info'), el('span', { text: title })),
     noteNode,
     audit,

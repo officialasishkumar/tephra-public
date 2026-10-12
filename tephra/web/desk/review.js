@@ -84,7 +84,13 @@ export function openSheet(adv, { focus = true } = {}) {
   if (focus) focusTitle();
 }
 
+// On a phone the decision receipt sits in the sheet's flow, under its head, so it never covers
+// the next draft's text (review 2, item 15). The slot outlives re-renders of the sheet.
+const receiptSlot = el('div', { class: 'sheet__receipts', id: 'sheet-receipts' });
+export const sheetReceiptHost = () => (sheet ? receiptSlot : null);
+
 export function closeSheet() {
+  receiptSlot.replaceChildren();
   sheet = null;
   const host = byId('sheet');
   host.replaceChildren();
@@ -175,7 +181,7 @@ function render() {
   else if (sheet.view === 'gone') body.append(...goneView());
   else body.append(...reviewView(adv));
   const bar = el('div', { class: 'actions', id: 'sheet-actions' });
-  host.replaceChildren(head, body, bar);
+  host.replaceChildren(head, receiptSlot, body, bar);
   host.dataset.view = sheet.view;
   renderBar();
 }
@@ -313,7 +319,7 @@ function draftedByValue(adv) {
     : el('span', { class: 'v-strong' }, `${adv.model_id} · AI-drafted`);
   const out = [who];
   out.push(fine(isStub(adv)
-    ? 'NO MODEL: official products only. A code template wrote the body; times, ids and hashes are written by code.'
+    ? 'AI off: built from the official reports only. A code template wrote the text; code writes every time, id and hash.'
     : 'Model-written body; times, ids and hashes are written by code.'));
   const notes = (adv.validation_notes || []).filter((n) => typeof n === 'string');
   if (notes.length) {
@@ -419,6 +425,9 @@ function reviewView(adv) {
 
   // Everything else, one tap away (R10.4): open on wide screens, closed on phones.
   const costNote = typeof adv.cost_note === 'string' ? adv.cost_note.trim() : '';
+  // Code writes the note in capitals ("NO EXTRA HOLD OR DIVERSION FUEL."): shown in sentence case,
+  // the words unchanged (review 2, item 5).
+  const costWords = /[a-z]/.test(costNote) ? costNote : (costNote.charAt(0) + costNote.slice(1).toLowerCase()).replace(/\b(fl\d{3}|atc|tephra|rfa)\b/g, (w) => w.toUpperCase()).replace(/; (\w)/g, (_, c) => `. ${c.toUpperCase()}`);
   const dl = el('dl', { class: 'summary' },
     row('Evidence', [sourceStrip(adv), sourcesValue(adv)], { stack: true, cls: 'srow--evidence' }),
     adv.reroute ? row('Route', rerouteValue(adv, cone), { stack: true, cls: 'srow--route' }) : null,
@@ -427,7 +436,7 @@ function reviewView(adv) {
     row('Fuel and time', [el('span', { class: 'mono v-fuel', text: adv.fuel_line || 'No estimate: the formula covers holds and diversions only' }),
       fine('Simple TEPHRA formula, not airline tables')], { stack: true }),
     // On diversions the cost note often repeats the fuel line word for word.
-    costNote && costNote !== String(adv.fuel_line || '').trim() ? row('Cost note', el('span', { text: costNote })) : null,
+    costNote && costNote !== String(adv.fuel_line || '').trim() ? row('Cost note', el('span', { text: costWords, title: costNote })) : null,
     row('Drafted by', draftedByValue(adv)),
     // The policy this draft was made under, which can differ from the one in force now.
     adv.policy_version ? row('Operator policy', [
@@ -947,4 +956,22 @@ async function decide(kind) {
 }
 
 export const sheetEditing = () => Boolean(sheet && (sheet.view === 'edit' || sheet.view === 'reject'));
+
+// Escape steps back one level inside the sheet (review 2, item 9): the confirm bar to the decide
+// bar, Edit or Reject to the review (their text is kept in the sheet). True when it stepped.
+export function sheetStepBack() {
+  if (!sheet || sheet.busy) return false;
+  if (sheet.bar === 'confirm') {
+    sheet.bar = 'decide';
+    renderBar();
+    const primary = byId('sheet-actions').querySelector('.approve');
+    if (primary) primary.focus({ preventScroll: true });
+    return true;
+  }
+  if (sheet.view === 'edit' || sheet.view === 'reject') {
+    goView('review');
+    return true;
+  }
+  return false;
+}
 export const EARLY_HINT = EARLY_RELEASE_HINT;

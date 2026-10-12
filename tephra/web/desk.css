@@ -6686,3 +6686,10 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   line-height: var(--lh-body, 1.5);
   color: var(--c-text-1);
 }
+
+/* Review 2, item 15: on a phone the decision receipt sits in the review sheet's flow, under its
+   head, so it never covers the next draft's text. */
+.sheet__receipts:empty { display: none; }
+.sheet__receipts { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) var(--sp-4) 0; }
+.toast--inline { box-shadow: none; animation: none; }
+.toast--inline .toast__title { font-size: var(--fs-3); }
