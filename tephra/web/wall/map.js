@@ -36,6 +36,11 @@ export const SAT = {
 // thinned when zoomed out, so a busy region does not bury the flights that matter.
 // RFA flights in or heading into TEPHRA's area, and those only a crew report flags, are drawn large.
 const RFA = ["any", ["==", ["get", "exposed"], true], ["==", ["get", "crew_only"], true]];
+// Zoomed out past the watched region, an ash area is a few pixels across: its label boxes,
+// forecast-step labels, airport codes, disagreement labels and the dormant volcanoes would only
+// pile up on it. Below this zoom the map keeps the areas, planes, flight groups and active
+// volcanoes; the story column says the rest.
+const DETAIL_ZOOM = 4;
 const AC_SIZE = ["interpolate", ["linear"], ["zoom"], 3, ["case", RFA, 0.7, 0.3], 6, ["case", RFA, 0.7, 0.42], 8, ["case", RFA, 0.7, 0.5]];
 const GIBS = (layer, time, matrix) => `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${layer}/default/${time}/${matrix}/{z}/{y}/{x}.png`;
 
@@ -78,6 +83,16 @@ function tuneBasemap(map, C, ui) {
   if (map.getLayer("water")) map.setPaintProperty("water", "fill-color", C.water);
   if (map.getLayer("landuse_park")) map.setPaintProperty("landuse_park", "fill-opacity", 0.35);
   for (const id of ["place_city", "place_city_large", "place_town"]) if (map.getLayer(id)) map.setPaintProperty(id, "text-color", C.labelMinor);
+  // Place names once, in Latin script: the basemap's second line in the local script doubled
+  // every country and city name on the map.
+  for (const layer of map.getStyle().layers) {
+    if (layer.type !== "symbol" || !JSON.stringify(layer.layout?.["text-field"] ?? "").includes("name:nonlatin")) continue;
+    map.setLayoutProperty(layer.id, "text-field", ["coalesce", ["get", "name:latin"], ["get", "name:en"], ["get", "name"]]);
+  }
+  // State and province names only from zoom 5: zoomed out they covered whole countries.
+  for (const layer of map.getStyle().layers) {
+    if (layer.type === "symbol" && /state|province/i.test(layer.id)) map.setLayerZoomRange(layer.id, Math.max(layer.minzoom ?? 0, 5), layer.maxzoom ?? 24);
+  }
   const vis = ui.layers.terrain ? "visible" : "none";
   if (map.getSource("ne2_shaded") && !map.getLayer("ne2-relief")) {
     map.addLayer({ id: "ne2-relief", type: "raster", source: "ne2_shaded", maxzoom: 8, paint: { "raster-saturation": -1, "raster-contrast": 0.15, "raster-brightness-max": 0.45, "raster-opacity": 0.5 } }, before(map, "water"));
@@ -161,7 +176,7 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
     if (!noText) map.addLayer({ id: "exposure-entry-label", type: "symbol", source: "exposures", minzoom: 8, filter: entry, layout: { visibility: pVis, "text-field": ["concat", "in ", ["to-string", ["get", "minutes_to_entry"]], " min"], "text-font": FONT_BOLD, "text-size": 13, "text-variable-anchor": ["bottom", "top", "left", "right"], "text-radial-offset": 0.9, "symbol-sort-key": ["coalesce", ["get", "minutes_to_entry"], 999] }, paint: { "text-color": C.tephraText, "text-halo-color": C.halo, "text-halo-width": 2 } });
   }
   // volcanoes
-  map.addLayer({ id: "volcano-inactive", type: "symbol", source: "volcanoes", filter: ["!=", ["get", "active"], true], layout: { "icon-image": "volcano-inactive", "icon-size": 0.5, "icon-allow-overlap": true, ...(noText ? {} : { "text-field": ["step", ["zoom"], "", 7.5, ["case", ["==", ["get", "near_sel"], true], "", ["get", "name"]]], "text-font": FONT_REG, "text-size": 12, "text-offset": [0, 1.1], "text-anchor": "top", "text-optional": true }) }, paint: { "icon-opacity": 0.8, "text-color": C.labelMinor, "text-halo-color": C.halo, "text-halo-width": 1.5 } });
+  map.addLayer({ id: "volcano-inactive", type: "symbol", minzoom: DETAIL_ZOOM, source: "volcanoes", filter: ["!=", ["get", "active"], true], layout: { "icon-image": "volcano-inactive", "icon-size": 0.5, "icon-allow-overlap": true, ...(noText ? {} : { "text-field": ["step", ["zoom"], "", 7.5, ["case", ["==", ["get", "near_sel"], true], "", ["get", "name"]]], "text-font": FONT_REG, "text-size": 12, "text-offset": [0, 1.1], "text-anchor": "top", "text-optional": true }) }, paint: { "icon-opacity": 0.8, "text-color": C.labelMinor, "text-halo-color": C.halo, "text-halo-width": 1.5 } });
   map.addLayer({ id: "volcano-active", type: "symbol", source: "volcanoes", filter: ["==", ["get", "active"], true], layout: { "icon-image": ["concat", "volcano-", ["get", "color_code"]], "icon-size": ["match", ["get", "color_code"], "RED", CODE_SIZE.RED, "ORANGE", CODE_SIZE.ORANGE, "YELLOW", CODE_SIZE.YELLOW, CODE_SIZE.GREEN], "icon-allow-overlap": true, "icon-ignore-placement": true, ...(noText ? {} : { "text-field": ["case", ["==", ["get", "named_by_area"], true], "", ["get", "name"]], "text-font": FONT_BOLD, "text-size": ["case", ["==", ["get", "sel"], true], 16, 14], "text-anchor": ["coalesce", ["get", "anchor"], "top"], "text-radial-offset": ["case", ["==", ["get", "sel"], true], 2.6, 1.35], "text-optional": true }) }, paint: { "text-color": C.label, "text-halo-color": C.halo, "text-halo-width": 2.5 } });
   // aircraft
   const acVis = ui.layers.aircraft ? "visible" : "none";
@@ -175,7 +190,7 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
     map.addLayer({ id: "aircraft-picked", type: "circle", source: "aircraft", filter: ["==", ["get", "picked"], true], layout: { visibility: acVis }, paint: { "circle-radius": 17, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": C.text1, "circle-stroke-width": 2.5 } });
     // The picked flight's two airport codes (route-end-label-sel): drawn over the planes, so the
     // hub's code is never cut by the plane icons (moved up below).
-    if (!noText) map.addLayer({ id: "route-end-label-sel", type: "symbol", source: "routes", filter: ["all", ["==", ["get", "feature"], "airport"], ["==", ["get", "sel"], true]], layout: { visibility: ui.layers.routes ? "visible" : "none", ...routeTag(true) }, paint: { "text-color": C.text1 } });
+    if (!noText) map.addLayer({ id: "route-end-label-sel", type: "symbol", minzoom: DETAIL_ZOOM, source: "routes", filter: ["all", ["==", ["get", "feature"], "airport"], ["==", ["get", "sel"], true]], layout: { visibility: ui.layers.routes ? "visible" : "none", ...routeTag(true) }, paint: { "text-color": C.text1 } });
     // A cluster of six or more: the flight-group marker (images.js) with the count in its badge,
     // centred on the planes it stands for and never hidden; labels give way to it. The click
     // area adds 6 px on every side (onClick), so it is at least 44 px (R14.4).
@@ -191,15 +206,15 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
   // labels last (R6.3). The selected volcano's official label is never hidden by collision; every
   // other label (other volcanoes' names, TEPHRA's tag, forecast steps) collides and may drop out.
   if (!noText) {
-    map.addLayer({ id: "official-step-label", type: "symbol", source: "official-labels", filter: ["==", ["get", "kind"], "step"], layout: { "text-field": ["get", "text"], "text-font": FONT_BOLD, "text-size": 13, "text-anchor": ["coalesce", ["get", "anchor"], "center"], "text-offset": ["coalesce", ["get", "offset"], ["literal", [0, 0]]], "text-max-width": 9, "text-allow-overlap": false, "symbol-sort-key": 8 }, paint: { "text-color": C.officialText, "text-halo-color": C.halo, "text-halo-width": 2 } });
-    map.addLayer({ id: "official-label", type: "symbol", source: "official-labels", filter: ["==", ["get", "kind"], "name"], layout: { "text-field": ["get", "line1"], "text-font": FONT_BOLD, "text-size": 12, "text-anchor": "bottom", "text-offset": [0, -0.4], "text-allow-overlap": false, "symbol-sort-key": 10 }, paint: { "text-color": C.officialText, "text-halo-color": C.halo, "text-halo-width": 2 } });
-    if (withTephra) map.addLayer({ id: "tephra-label", type: "symbol", source: "area-labels", layout: { visibility: tVis, "icon-image": "box-tephra", "icon-text-fit": "both", "icon-text-fit-padding": [5, 9, 5, 9], "text-field": ["get", "line1"], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-max-width": labelEm(), "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "icon-allow-overlap": false, "text-allow-overlap": false, "symbol-sort-key": 5 }, paint: { "text-color": C.tephraText } });
+    map.addLayer({ id: "official-step-label", type: "symbol", minzoom: DETAIL_ZOOM, source: "official-labels", filter: ["==", ["get", "kind"], "step"], layout: { "text-field": ["get", "text"], "text-font": FONT_BOLD, "text-size": 13, "text-anchor": ["coalesce", ["get", "anchor"], "center"], "text-offset": ["coalesce", ["get", "offset"], ["literal", [0, 0]]], "text-max-width": 9, "text-allow-overlap": false, "symbol-sort-key": 8 }, paint: { "text-color": C.officialText, "text-halo-color": C.halo, "text-halo-width": 2 } });
+    map.addLayer({ id: "official-label", type: "symbol", minzoom: DETAIL_ZOOM, source: "official-labels", filter: ["==", ["get", "kind"], "name"], layout: { "text-field": ["get", "line1"], "text-font": FONT_BOLD, "text-size": 12, "text-anchor": "bottom", "text-offset": [0, -0.4], "text-allow-overlap": false, "symbol-sort-key": 10 }, paint: { "text-color": C.officialText, "text-halo-color": C.halo, "text-halo-width": 2 } });
+    if (withTephra) map.addLayer({ id: "tephra-label", type: "symbol", minzoom: DETAIL_ZOOM, source: "area-labels", layout: { visibility: tVis, "icon-image": "box-tephra", "icon-text-fit": "both", "icon-text-fit-padding": [5, 9, 5, 9], "text-field": ["get", "line1"], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-max-width": labelEm(), "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "icon-allow-overlap": false, "text-allow-overlap": false, "symbol-sort-key": 5 }, paint: { "text-color": C.tephraText } });
     // The crew report's label (5.7): one short line of haloed text beside its pin, no box. It
     // collides, and gives way to every other label (moved beneath them below).
     if (withTephra) {
-      map.addLayer({ id: "crew-label", type: "symbol", source: "crew-labels", layout: { "text-field": ["get", "line1"], "text-font": FONT_BOLD, "text-size": 12, "text-max-width": 30, "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "text-allow-overlap": false, "text-padding": 4 }, paint: { "text-color": C.crewText, "text-halo-color": C.halo, "text-halo-width": 2 } });
+      map.addLayer({ id: "crew-label", type: "symbol", minzoom: DETAIL_ZOOM, source: "crew-labels", layout: { "text-field": ["get", "line1"], "text-font": FONT_BOLD, "text-size": 12, "text-max-width": 30, "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "text-allow-overlap": false, "text-padding": 4 }, paint: { "text-color": C.crewText, "text-halo-color": C.halo, "text-halo-width": 2 } });
     }
-    map.addLayer({ id: "official-label-selected", type: "symbol", source: "official-labels", filter: ["==", ["get", "kind"], "box"], layout: { "icon-image": "box-official", "icon-text-fit": "both", "icon-text-fit-padding": [5, 9, 5, 9], "text-field": ["case", ["==", ["get", "line2"], ""], ["format", ["get", "line1"], { "text-color": C.officialText }], ["format", ["get", "line1"], { "text-color": C.officialText }, "\n", {}, ["get", "line2"], { "text-color": C.text1, "font-scale": 0.9 }]], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-max-width": labelEm(), "text-justify": "left", "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "icon-allow-overlap": true, "text-allow-overlap": true, "symbol-sort-key": 0 } });
+    map.addLayer({ id: "official-label-selected", type: "symbol", minzoom: DETAIL_ZOOM, source: "official-labels", filter: ["==", ["get", "kind"], "box"], layout: { "icon-image": "box-official", "icon-text-fit": "both", "icon-text-fit-padding": [5, 9, 5, 9], "text-field": ["case", ["==", ["get", "line2"], ""], ["format", ["get", "line1"], { "text-color": C.officialText }], ["format", ["get", "line1"], { "text-color": C.officialText }, "\n", {}, ["get", "line2"], { "text-color": C.text1, "font-scale": 0.9 }]], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-max-width": labelEm(), "text-justify": "left", "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "icon-allow-overlap": true, "text-allow-overlap": true, "symbol-sort-key": 0 } });
   }
   // The flight-group marker is placed before the forecast-step and other-volcano labels (review 1,
   // item 10): when they collide those labels give way, never the marker.
@@ -277,7 +292,7 @@ function addRouteLayers(map, C, ui, noText) {
   add({ id: "route-line", type: "line", source: "routes", filter: ["==", ["get", "feature"], "line"], layout: { visibility: vis(L.routes), "line-join": "round", "line-cap": "round", "line-sort-key": sel(1, 0) }, paint: { "line-color": C.route, "line-width": ["interpolate", ["linear"], ["zoom"], 3, sel(1.8, 1.2), 8, sel(2.2, 1.5)], "line-opacity": ["interpolate", ["linear"], ["zoom"], 3, flown(0.4, sel(0.8, dim(0.16, 0.36))), 5, flown(0.4, sel(0.75, dim(0.13, 0.26)))] } });
   add({ id: "route-end", type: "circle", source: "routes", filter: port, layout: { visibility: vis(L.routes) }, paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, sel(3, 2.2), 8, sel(4, 3)], "circle-color": C.route, "circle-opacity": sel(1, 0.6), "circle-stroke-color": C.halo, "circle-stroke-width": 1.2 } });
   if (noText) return;
-  add({ id: "route-end-label", type: "symbol", source: "routes", filter: ["all", port, ["!=", ["get", "sel"], true]], layout: { visibility: vis(L.routes), ...routeTag(false) }, paint: { "text-color": C.text3 } });
+  add({ id: "route-end-label", type: "symbol", minzoom: DETAIL_ZOOM + 1, source: "routes", filter: ["all", port, ["!=", ["get", "sel"], true]], layout: { visibility: vis(L.routes), ...routeTag(false) }, paint: { "text-color": C.text3 } });
   const avoid = { "icon-image": "route-avoid", "icon-allow-overlap": true, "icon-ignore-placement": false };
   const along = { ...avoid, "symbol-placement": "line", "symbol-spacing": 12, "icon-size": 0.8 };
   const shown = ["==", ["get", "show"], true];
@@ -305,8 +320,8 @@ function addRoseLayers(map, C, ui, noText) {
   map.addLayer({ id: "rose-probe", type: "circle", source: "rose", filter: role("probe"), layout: { visibility: vis }, paint: { "circle-radius": 5, "circle-color": C.halo, "circle-stroke-color": C.observer, "circle-stroke-width": 2.5 } });
   map.addLayer({ id: "rose-heads", type: "symbol", source: "rose", filter: ["in", ["get", "role"], ["literal", ["off-head", "obs-head"]]], layout: { visibility: vis, "icon-image": "arrowhead", "icon-size": ["match", ["get", "role"], "off-head", 1.25, 0.62], "icon-rotate": ["get", "bearing"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true }, paint: { "icon-color": ["match", ["get", "role"], "off-head", C.officialText, C.observer], "icon-halo-color": ["match", ["get", "role"], "off-head", "#05070a", C.halo], "icon-halo-width": ["match", ["get", "role"], "off-head", 2, 1.5] } });
   if (noText) return;
-  map.addLayer({ id: "rose-labels", type: "symbol", source: "rose", filter: role("obs-head"), layout: { visibility: vis, "text-field": ["format", ["get", "line1"], { "text-color": C.observerText }, "\n", {}, ["get", "line2"], { "text-color": C.text2, "font-scale": 0.85 }], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-variable-anchor": ["left", "right", "top", "bottom"], "text-radial-offset": 1.1, "text-justify": "auto", "text-max-width": 30 }, paint: { "text-halo-color": C.halo, "text-halo-width": 2 } });
-  map.addLayer({ id: "rose-angle", type: "symbol", source: "rose", filter: role("angle"), layout: { visibility: vis, "icon-image": "box-angle", "icon-text-fit": "both", "icon-text-fit-padding": [3, 7, 3, 7], "text-field": ["get", "text"], "text-font": FONT_BOLD, "text-size": ["get", "size"], "icon-allow-overlap": false, "text-allow-overlap": false, "symbol-sort-key": 1 }, paint: { "text-color": C.text1 } });
+  map.addLayer({ id: "rose-labels", type: "symbol", minzoom: DETAIL_ZOOM, source: "rose", filter: role("obs-head"), layout: { visibility: vis, "text-field": ["format", ["get", "line1"], { "text-color": C.observerText }, "\n", {}, ["get", "line2"], { "text-color": C.text2, "font-scale": 0.85 }], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-variable-anchor": ["left", "right", "top", "bottom"], "text-radial-offset": 1.1, "text-justify": "auto", "text-max-width": 30 }, paint: { "text-halo-color": C.halo, "text-halo-width": 2 } });
+  map.addLayer({ id: "rose-angle", type: "symbol", minzoom: DETAIL_ZOOM, source: "rose", filter: role("angle"), layout: { visibility: vis, "icon-image": "box-angle", "icon-text-fit": "both", "icon-text-fit-padding": [3, 7, 3, 7], "text-field": ["get", "text"], "text-font": FONT_BOLD, "text-size": ["get", "size"], "icon-allow-overlap": false, "text-allow-overlap": false, "symbol-sort-key": 1 }, paint: { "text-color": C.text1 } });
 }
 
 // ------------------------------------------------------------------ the Wall map
