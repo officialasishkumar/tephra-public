@@ -208,8 +208,8 @@ q { quotes: "“" "”"; }
 .ai-chip:hover, .feeds-chip:hover { background: var(--c-surface-3); }
 .ai-chip .icon { width: 16px; height: 16px; color: var(--c-text-2); }
 .model-chip { font-weight: var(--fw-medium); }
-.ai-chip__fail { display: inline-flex; align-items: center; gap: 4px; color: var(--c-serious); font-weight: var(--fw-semibold); }
-.ai-chip--fail { border-color: var(--c-serious); }
+/* failed AI steps: a small count badge, not a red frame round the whole chip */
+.ai-chip__fail { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: var(--radius-pill); background: var(--c-serious-bg); color: var(--c-serious); font-size: var(--fs-1); font-weight: var(--fw-semibold); }
 .feeds-chip__cap { color: var(--c-text-2); }
 .feeds-chip__part { display: inline-flex; align-items: center; gap: 4px; }
 .feeds-chip__sep { color: var(--c-text-3); }

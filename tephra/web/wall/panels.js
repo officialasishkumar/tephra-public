@@ -163,21 +163,22 @@ export function renderChrome(D, store, ui) {
   }
   sel.value = cur || "all";
 
-  // The merged AI chip (R3.1): the model state in words, failures in red with their shape.
+  // The merged AI chip (R3.1): two words and, when steps failed, a small count badge. The
+  // model ids are in its tooltip and label and in Details › AI helpers, so the top bar stays quiet.
   const stub = s.llm?.backend === "stub";
   const fails = failedSteps(store);
   const chip = $("ai-chip");
-  const label = stub ? `AI: off${narrow() ? "" : " · code only"}` : `AI: on · ${s.llm?.label || "model"}`;
+  const label = stub ? "AI off" : "AI on";
   setText($("model-chip"), label);
   const failBox = chip.querySelector(".ai-chip__fail");
   failBox.hidden = !fails;
-  if (fails && failBox.dataset.n !== String(fails)) { failBox.dataset.n = String(fails); failBox.replaceChildren(st("st-serious", "var(--c-serious)"), ` · ${fails} failed`); }
-  chip.classList.toggle("ai-chip--fail", fails > 0);
+  if (fails && failBox.dataset.n !== String(fails)) { failBox.dataset.n = String(fails); setText(failBox, `${fails} failed`); }
   chip.querySelector("use")?.setAttribute("href", `${chip.querySelector("use").getAttribute("href").split("#")[0]}#${stub ? "i-code" : "i-model"}`);
+  const failWords = fails ? ` ${fails} AI ${fails === 1 ? "step" : "steps"} failed recently; nothing was put in their place.` : "";
   chip.title = stub
-    ? "No AI model is connected. Code does every step; code templates write the text."
-    : `AI model: ${s.llm?.label || ""}. Steps that call a model are marked AI-written. Times, ids and hashes are always written by code.`;
-  chip.setAttribute("aria-label", `${label}${fails ? `, ${fails} failed` : ""}. Opens Details, AI helpers.`);
+    ? `AI off: no model is connected. Code does every step; code templates write the text.${failWords}`
+    : `AI on: ${s.llm?.label || "model"}. It can widen TEPHRA's estimate, never shrink the official area. Steps that call a model are marked AI-written; times, ids and hashes are always written by code.${failWords}`;
+  chip.setAttribute("aria-label", `${stub ? "AI off, code only" : `AI on, ${s.llm?.label || "model"}`}${fails ? `, ${fails} failed` : ""}. Opens Details, AI helpers.`);
 
   // Data chip: "Data: 6 working · 5 off", worst first.
   const by = {};
