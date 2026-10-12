@@ -45,6 +45,7 @@ from tephra.models import (
     FrameProduct,
     RunMode,
     SseEvent,
+    TickReport,
     TraceStage,
 )
 from tephra.pipeline import Runtime
@@ -56,6 +57,28 @@ from tephra.util import timeutil
 from tephra.util.events import EventBus
 from tephra.util.hashing import sha256_bytes
 from tephra.util.timeutil import FixedClock, use_clock
+
+
+async def tick_and_work(runtime: Runtime, *, reason: str) -> TickReport:
+    """A tick, then the AI work it made due (the AI worker runs that off the tick), with
+    what the work did added to the tick's report."""
+    report = await run_tick(runtime, reason=reason)
+    work = await runtime.worker.drain()
+    for name in COUNTED:
+        setattr(report, name, getattr(report, name) + getattr(work, name))
+    report.notes += work.notes
+    return report
+
+
+COUNTED = (
+    "assessments_run",
+    "satellite_reads",
+    "recovery_plans",
+    "duty_runs",
+    "drafts_created",
+    "drafts_superseded",
+)
+
 
 FIXTURES = Path(__file__).parent / "fixtures"
 DATA_DIR = PROJECT_ROOT / "data"
@@ -351,7 +374,7 @@ async def runtime(
 
 
 async def test_one_tick_from_feeds_to_a_draft(runtime: Runtime) -> None:
-    report = await run_tick(runtime, reason="manual")
+    report = await tick_and_work(runtime, reason="manual")
 
     assert not report.skipped
     assert report.feed_errors == {}
@@ -439,7 +462,7 @@ async def test_a_flight_the_planner_cannot_plan_goes_to_the_desk_without_a_draft
         )
 
     monkeypatch.setattr(pipeline_module, "plan_flight", failing_plan_flight)
-    report = await run_tick(runtime, reason="manual")
+    report = await tick_and_work(runtime, reason="manual")
     assert report.exposed_flights == 1
     assert report.drafts_created == 0
     assert await list_advisories(runtime.store) == []
@@ -451,11 +474,11 @@ async def test_a_flight_the_planner_cannot_plan_goes_to_the_desk_without_a_draft
 
 
 async def test_a_second_tick_does_not_draft_again(runtime: Runtime, clock: FixedClock) -> None:
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
     first = await list_advisories(runtime.store)
 
     clock.advance(timedelta(seconds=60))
-    report = await run_tick(runtime, reason="manual")
+    report = await tick_and_work(runtime, reason="manual")
 
     assert report.exposed_flights == 1
     assert report.drafts_created == 0
@@ -468,14 +491,14 @@ async def test_a_second_tick_does_not_draft_again(runtime: Runtime, clock: Fixed
 async def test_a_restarted_runtime_does_not_draft_again(
     runtime: Runtime, settings: Settings, source: FixtureSource, clock: FixedClock
 ) -> None:
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
     await runtime.aclose()
 
     clock.advance(timedelta(seconds=60))
     restarted = make_runtime(settings, source)
     await restarted.restore()
     try:
-        report = await run_tick(restarted, reason="manual")
+        report = await tick_and_work(restarted, reason="manual")
         advisories = await list_advisories(restarted.store)
     finally:
         await restarted.aclose()
@@ -488,7 +511,7 @@ async def test_a_restart_reads_planned_marks_left_in_the_older_layout(runtime: R
     await runtime.store.put(Collection.RUNTIME, "state", older)
 
     await runtime.restore()
-    report = await run_tick(runtime, reason="manual")
+    report = await tick_and_work(runtime, reason="manual")
 
     assert report.drafts_created == 1  # planned afresh: the open drafts would have said so
 
@@ -503,14 +526,14 @@ async def test_a_monitor_given_far_out_is_planned_again_as_the_entry_nears(
     runtime: Runtime, source: FixtureSource, clock: FixedClock
 ) -> None:
     source.aircraft = gia417_at(118.1)  # 40 min out
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
     [far] = await list_advisories(runtime.store)
     source.aircraft = gia417_at(114.6)  # 11 min out, same cone
     clock.advance(timedelta(minutes=1))
-    nearer = await run_tick(runtime, reason="manual")
+    nearer = await tick_and_work(runtime, reason="manual")
     source.aircraft = gia417_at(115.6)  # back out to 19 min: less urgent, not planned again
     clock.advance(timedelta(minutes=1))
-    later = await run_tick(runtime, reason="manual")
+    later = await tick_and_work(runtime, reason="manual")
 
     assert (far.action, far.minutes_to_entry) == (ActionKind.MONITOR, 40)
     advisories = {advisory.id: advisory for advisory in await list_advisories(runtime.store)}
@@ -528,11 +551,11 @@ async def test_a_monitor_given_far_out_is_planned_again_as_the_entry_nears(
 async def test_entering_the_cone_replaces_a_draft_even_with_the_same_advice(
     runtime: Runtime, source: FixtureSource, clock: FixedClock
 ) -> None:
-    await run_tick(runtime, reason="manual")  # 3 min out: DIVERT WARR
+    await tick_and_work(runtime, reason="manual")  # 3 min out: DIVERT WARR
     [outside] = await list_advisories(runtime.store)
     source.aircraft = gia417_at(113.3)  # inside the cone now: DIVERT WARR again
     clock.advance(timedelta(minutes=1))
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
 
     advisories = {advisory.id: advisory for advisory in await list_advisories(runtime.store)}
     assert advisories[outside.id].status is AdvisoryStatus.SUPERSEDED
@@ -546,13 +569,13 @@ async def test_an_unchanged_situation_keeps_its_assessment_past_the_horizon(
 ) -> None:
     runtime = make_runtime(make_settings(tmp_path, default_horizon_h=1.0), source)
     try:
-        await run_tick(runtime, reason="manual")
+        await tick_and_work(runtime, reason="manual")
         first = runtime.assessments[SEMERU]
         clock.advance(timedelta(minutes=70))  # past the one-hour horizon
-        await run_tick(runtime, reason="manual")
+        await tick_and_work(runtime, reason="manual")
         kept = runtime.assessments[SEMERU]
         clock.advance(timedelta(hours=2))  # 3 h 10 min after the first ask
-        await run_tick(runtime, reason="manual")
+        await tick_and_work(runtime, reason="manual")
         asked = runtime.assessments[SEMERU]
     finally:
         await runtime.aclose()
@@ -563,7 +586,7 @@ async def test_an_unchanged_situation_keeps_its_assessment_past_the_horizon(
 
 
 async def test_true_colour_frames_are_shown_but_never_sent_to_the_model(runtime: Runtime) -> None:
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
     semeru = runtime.situations[SEMERU]
     jma = semeru.frames[0]
     blob = await runtime.store.get_blob(jma.image_key)
@@ -593,7 +616,7 @@ async def test_with_live_vonas_a_non_observation_is_never_a_conflict(
 ) -> None:
     runtime = make_runtime(make_settings(tmp_path, vona_live=True), FixtureSource())
     try:
-        await run_tick(runtime, reason="manual")
+        await tick_and_work(runtime, reason="manual")
     finally:
         await runtime.aclose()
     semeru = runtime.situations[SEMERU]
@@ -610,7 +633,7 @@ async def test_with_live_vonas_a_non_observation_is_never_a_conflict(
 async def test_vona_reads_disabled_with_its_reason_when_live_polling_is_off(
     runtime: Runtime, source: FixtureSource
 ) -> None:
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
 
     feeds = {state.feed: state for state in (await runtime.system_state()).feeds}
     assert feeds[FeedId.VONA].status is FeedStatus.DISABLED
@@ -631,7 +654,7 @@ async def test_a_restart_keeps_vona_disabled_after_a_run_that_polled_it(
     tmp_path: Path, source: FixtureSource, clock: FixedClock
 ) -> None:
     polled = make_runtime(make_settings(tmp_path, vona_live=True), source)
-    await run_tick(polled, reason="manual")
+    await tick_and_work(polled, reason="manual")
     await polled.aclose()
     assert polled.live.health[FeedId.VONA].status is FeedStatus.OK
 
@@ -661,13 +684,13 @@ async def test_a_tick_that_finds_another_running_is_skipped_as_busy(
     assert second.skipped
     assert any("busy" in note for note in second.notes)
     assert not done.skipped
-    assert done.drafts_created == 1
+    assert (await runtime.worker.drain()).drafts_created == 1
 
 
 async def test_a_tick_waits_for_an_adsb_pass_instead_of_being_lost(
     runtime: Runtime, source: FixtureSource, clock: FixedClock
 ) -> None:
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
     clock.advance(timedelta(seconds=60))
     gate = source.gates[ADSB_PREFIX] = Gate()
     adsb_pass = asyncio.create_task(run_adsb_pass(runtime))
@@ -689,7 +712,7 @@ async def test_a_failing_feed_does_not_abort_the_tick(
     source.failing.add("https://ds.data.jma.go.jp/svd/vaac/data/vaac_list.html")
     source.garbage.add(SIGMET_FEED_URL)
 
-    report = await run_tick(runtime, reason="manual")
+    report = await tick_and_work(runtime, reason="manual")
 
     assert set(report.feed_errors) == {FeedId.SIGMET.value, FeedId.VAAC_TOKYO.value}
     for feed in (FeedId.SIGMET, FeedId.VAAC_TOKYO):
@@ -707,7 +730,7 @@ async def test_one_volcanos_unreadable_winds_do_not_cost_the_others_theirs(
 ) -> None:
     source.garbage.add("https://api.open-meteo.com/v1/forecast?latitude=-6.10&longitude=105.42")
 
-    report = await run_tick(runtime, reason="manual")
+    report = await tick_and_work(runtime, reason="manual")
 
     assert sorted(runtime.live.winds) == [SEMERU, DUKONO, IBU]
     assert runtime.live.covered[FeedId.WINDS] == {SEMERU, DUKONO, IBU}
@@ -723,7 +746,7 @@ async def test_a_volcano_served_from_the_last_good_copy_is_named(
 ) -> None:
     source.stale.add(SEMERU_WINDS)  # throttled; the cache answers for Semeru alone
 
-    report = await run_tick(runtime, reason="manual")
+    report = await tick_and_work(runtime, reason="manual")
 
     health = runtime.live.health[FeedId.WINDS]
     assert health.status is FeedStatus.STALE
@@ -736,7 +759,7 @@ async def test_a_host_that_times_out_is_skipped_for_the_rest_of_the_poll(
 ) -> None:
     source.unreachable.add(SEMERU_WINDS)  # Open-Meteo stops answering after Anak Krakatau
 
-    report = await run_tick(runtime, reason="manual")
+    report = await tick_and_work(runtime, reason="manual")
 
     assert winds_asked(source) == [KRAKATAU_WINDS, SEMERU_WINDS]
     assert sorted(runtime.live.winds) == [KRAKATAU]
@@ -777,7 +800,7 @@ async def test_a_host_that_answered_from_cache_after_a_timeout_is_skipped_too(
     source.stale.add(KRAKATAU_WINDS)
     source.stale_error = "ReadTimeout: timed out"
 
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
 
     assert winds_asked(source) == [KRAKATAU_WINDS]
     health = runtime.live.health[FeedId.WINDS]
@@ -796,12 +819,13 @@ async def test_a_hung_host_costs_the_tick_one_bounded_wait(
     runtime = make_runtime(make_settings(tmp_path, tick_interval_s=10), source)
     try:
         report = await asyncio.wait_for(run_tick(runtime, reason="manual"), 10)
+        work = await runtime.worker.drain()
     finally:
         await runtime.aclose()
 
     assert report.feed_errors[FeedId.WINDS.value] == "no answer within 2 s"
     assert runtime.live.health[FeedId.WINDS].status is FeedStatus.ERROR
-    assert report.drafts_created == 1  # every other step of the tick ran
+    assert work.drafts_created == 1  # every other step of the tick ran, and its AI work after
 
 
 @dataclass
@@ -834,12 +858,12 @@ async def test_extra_adsb_passes_are_timed_from_the_start_of_the_tick(
     tmp_path: Path, source: FixtureSource, clock: FixedClock
 ) -> None:
     runtime = make_runtime(make_settings(tmp_path, tick_interval_s=11, cadence_adsb_s=1), source)
-    await run_tick(runtime, reason="manual")  # makes volcanoes active; schedules no pass
+    await tick_and_work(runtime, reason="manual")  # makes volcanoes active; schedules no pass
     gate = source.gates[SIGMET_FEED_URL] = Gate()
     asyncio.get_running_loop().call_later(0.6, gate.release.set)
     clock.advance(timedelta(seconds=60))
     try:
-        await run_tick(runtime, reason="local")  # takes 0.6 s; one pass due 1 s after it began
+        await tick_and_work(runtime, reason="local")  # takes 0.6 s; one pass due 1 s after it began
         polled = len(source.requested)
         await asyncio.sleep(0.6)
         passes = [url for url in source.requested[polled:] if url.startswith(ADSB_PREFIX)]
@@ -851,7 +875,7 @@ async def test_extra_adsb_passes_are_timed_from_the_start_of_the_tick(
 async def test_adsb_from_the_last_good_cache_does_not_count_as_fresh_positions(
     runtime: Runtime, source: FixtureSource, clock: FixedClock
 ) -> None:
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
     [draft] = await list_advisories(runtime.store)
 
     # adsb.lol throttles; the cache serves a recent copy, from before the flight was seen.
@@ -860,7 +884,7 @@ async def test_adsb_from_the_last_good_cache_does_not_count_as_fresh_positions(
     notes: list[str] = []
     for _ in range(2):
         clock.advance(timedelta(seconds=60))
-        report = await run_tick(runtime, reason="manual")
+        report = await tick_and_work(runtime, reason="manual")
         notes += report.notes
 
     assert runtime.live.health[FeedId.ADSB].status is FeedStatus.STALE
@@ -874,11 +898,11 @@ async def test_a_flight_seen_only_in_stale_copies_gets_no_draft(
     runtime: Runtime, source: FixtureSource, clock: FixedClock
 ) -> None:
     source.aircraft = []
-    await run_tick(runtime, reason="manual")  # live answers, and nothing in the sky
+    await tick_and_work(runtime, reason="manual")  # live answers, and nothing in the sky
     source.stale.add(ADSB_PREFIX)  # then every point answers from the last-good cache
     source.aircraft = list(AIRCRAFT)
     clock.advance(timedelta(seconds=30))
-    report = await run_tick(runtime, reason="manual")
+    report = await tick_and_work(runtime, reason="manual")
 
     assert await list_advisories(runtime.store) == []
     assert runtime.exposed == {}
@@ -888,13 +912,13 @@ async def test_a_flight_seen_only_in_stale_copies_gets_no_draft(
 async def test_stale_copies_of_every_point_retire_no_draft(
     runtime: Runtime, source: FixtureSource, clock: FixedClock
 ) -> None:
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
     [draft] = await list_advisories(runtime.store)
     source.stale.add(ADSB_PREFIX)
     source.aircraft = []  # the copies no longer show the flight
     for _ in range(2):  # two runs inside ADS-B's stale age, as a retirement needs
         clock.advance(timedelta(seconds=30))
-        await run_tick(runtime, reason="manual")
+        await tick_and_work(runtime, reason="manual")
 
     [kept] = await list_advisories(runtime.store)
     assert (kept.id, kept.status) == (draft.id, AdvisoryStatus.DRAFT)
@@ -904,10 +928,10 @@ async def test_stale_copies_of_every_point_retire_no_draft(
 async def test_stale_positions_keep_no_exposure_to_a_cone_that_is_gone(
     runtime: Runtime, source: FixtureSource, clock: FixedClock
 ) -> None:
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
     source.stale.add(ADSB_PREFIX)
     clock.advance(timedelta(hours=6))  # Semeru's SIGMET and VAA have run out
-    report = await run_tick(runtime, reason="manual")
+    report = await tick_and_work(runtime, reason="manual")
 
     assert SEMERU not in report.active_volcano_ids
     assert runtime.exposed == {}
@@ -916,12 +940,12 @@ async def test_stale_positions_keep_no_exposure_to_a_cone_that_is_gone(
 async def test_one_failed_adsb_point_keeps_the_others_fresh_and_its_own_aircraft(
     runtime: Runtime, source: FixtureSource, clock: FixedClock
 ) -> None:
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
     before = {point_key(snapshot.query): snapshot for snapshot in runtime.live.adsb}
     failed = next(key for key in before if key[0] > 0)  # the Halmahera circle
     source.failing.add(f"{ADSB_PREFIX}{failed[0]:.3f}/{failed[1]:.3f}/")
     clock.advance(timedelta(seconds=60))
-    report = await run_tick(runtime, reason="manual")
+    report = await tick_and_work(runtime, reason="manual")
 
     after = {point_key(snapshot.query): snapshot for snapshot in runtime.live.adsb}
     assert set(after) == set(before)
@@ -939,7 +963,7 @@ async def test_one_failed_adsb_point_keeps_the_others_fresh_and_its_own_aircraft
 async def test_a_situation_is_stored_again_only_when_it_changes(
     runtime: Runtime, clock: FixedClock
 ) -> None:
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
     silence = runtime.situations[KRAKATAU].discrepancies[0]
     written: list[str] = []
     put = runtime.store.put
@@ -951,7 +975,7 @@ async def test_a_situation_is_stored_again_only_when_it_changes(
     runtime.store.put = counting_put  # type: ignore[method-assign]
     for _ in range(3):
         clock.advance(timedelta(seconds=60))
-        await run_tick(runtime, reason="manual")
+        await tick_and_work(runtime, reason="manual")
 
     # Only the SILENCE minutes moved; a silent volcano would cost 1,440 writes a day.
     later = runtime.situations[KRAKATAU].discrepancies[0]
@@ -965,7 +989,7 @@ async def test_a_lasting_partial_failure_is_traced_once(
 ) -> None:
     source.failing.add("https://api.open-meteo.com/v1/forecast?latitude=-6.10&longitude=105.42")
     for _ in range(3):
-        await run_tick(runtime, reason="manual")
+        await tick_and_work(runtime, reason="manual")
         clock.advance(timedelta(minutes=61))
 
     warnings = [
@@ -1012,7 +1036,7 @@ async def test_forced_polls_of_a_lasting_gap_back_off(
     source.failing.add(KRAKATAU_WINDS)  # the one volcano whose winds never come
     polled: list[int] = []
     for minute in range(17):
-        report = await run_tick(runtime, reason="manual")
+        report = await tick_and_work(runtime, reason="manual")
         if FeedId.WINDS in report.feeds_polled:
             polled.append(minute)
         clock.advance(timedelta(minutes=1))
@@ -1024,16 +1048,16 @@ async def test_forced_polls_of_a_lasting_gap_back_off(
 async def test_positions_held_through_an_outage_expire_like_a_cached_copy(
     runtime: Runtime, source: FixtureSource, clock: FixedClock
 ) -> None:
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
     [draft] = await list_advisories(runtime.store)
     source.failing.add(ADSB_PREFIX)  # adsb.lol unreachable, nothing cached
 
     clock.advance(timedelta(seconds=60))
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
     assert f"{GIA417}:{SEMERU}" in runtime.exposed  # a minute-old position still stands
 
     clock.advance(timedelta(seconds=MAX_CACHED_COPY_AGE_S))
-    report = await run_tick(runtime, reason="manual")
+    report = await tick_and_work(runtime, reason="manual")
     assert runtime.live.adsb == []
     assert runtime.exposed == {}
     assert any("ADS-B is stale" in note for note in report.notes)
@@ -1046,7 +1070,7 @@ async def test_positions_expire_when_a_hung_adsb_poll_is_cut_short(
 ) -> None:
     runtime = make_runtime(make_settings(tmp_path, tick_interval_s=10), source)
     try:
-        await run_tick(runtime, reason="manual")
+        await tick_and_work(runtime, reason="manual")
         monkeypatch.setattr(registry, "POLL_BUDGET_SHARE", 0.05)  # 0.5 s of a 10 s tick
         source.gates[ADSB_PREFIX] = Gate()  # adsb.lol accepts and never answers
         clock.advance(timedelta(seconds=MAX_CACHED_COPY_AGE_S + 1))

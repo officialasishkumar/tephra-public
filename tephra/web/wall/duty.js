@@ -150,7 +150,9 @@ export function dutyDetail(run, loaded) {
       ["Model", model ? dkChip(model, { mono: true }) : "AI off"],
       ["Turns", String(run.turns), { mono: true }],
       ["Jobs given", `${run.worklist.length}${mandatory ? ` (${mandatory} must do)` : ""}`],
-      ["Run by", run.trigger === "adsb" ? "new aircraft" : "scheduler tick"],
+      ["Run by", run.trigger === "adsb" ? "AI worker, after new aircraft" : "AI worker, after a scheduler tick"],
+      // a replay loop reuses this model's own run for the same question; the label says so
+      ["Answer", run.recorded_answer || null],
     ]),
   ];
   if (run.outcome === "MODEL_FAILED") {

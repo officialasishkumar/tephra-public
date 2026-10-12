@@ -316,10 +316,15 @@ flowchart TB
   the tick, so each audit chain keeps a single writer. Each airline would get its own policy
   file under `data/policy/` and its own desk, over the same public-feed picture. None of this
   is built.
-- **Model calls are gated and budgeted.** No model step runs every tick without a gate (section
-  3, free-tier row). Daily caps are `TEPHRA_MODEL_DAILY_BUDGET` (18) for the main model and
-  `TEPHRA_MODEL_LITE_DAILY_BUDGET` (450) for Flash-Lite; past them a step reports
-  `AI UNAVAILABLE` and nothing is substituted.
+- **Model calls are gated and budgeted, off the tick.** No model step runs every tick without a
+  gate (section 3, free-tier row), and no tick makes a model call: an AI worker runs the
+  scheduled work, urgent work first (a recovery run goes on beside it, so urgent work never
+  waits behind one). Each model has a daily budget, its free limit less a 10% margin (18 for
+  the main model, 450 for Flash-Lite, 9 for speech), counted per model and Google quota day in
+  the store, every attempt before it is sent; if the store cannot be read, no call goes. Routine
+  work is paced through the day and waits, visibly, for its next slot; once started it finishes
+  within the daily cap. A REPLAY loop reuses the first pass's answers to exactly the same
+  questions. Past a budget a step reports `AI UNAVAILABLE` and nothing is substituted.
 - **Cost per advisory is not stated.** Once token totals are recorded on each plume
   assessment and planned action (a separate change), a replay can measure the tokens behind
   one advisory. Until that is measured, no cost figure is given.

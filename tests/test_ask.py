@@ -35,7 +35,9 @@ from tephra.agents.ask import (
     store_ask,
     validate_reply,
 )
+from tephra.agents.budget import BudgetView, budget_view
 from tephra.agents.llm import LlmCall, LlmPart, StubBackend, Tier
+from tephra.agents.quota import QuotaLedger
 from tephra.api import routes_ask
 from tephra.api.server import create_app
 from tephra.config import PROJECT_ROOT, Settings
@@ -188,14 +190,14 @@ class GeminiStandIn:
     def model_id(self, tier: str) -> str:
         return SCRIPTED_MODEL
 
-    async def pace(self, tier: str) -> None:
+    async def pace(self, tier: str, tokens: int = 0) -> None:
         return None
 
-    def reserve(self, tier: str) -> bool:
+    async def reserve(self, tier: str) -> str | None:
         self.reserved.append(tier)
-        return self._budget_left
+        return None if self._budget_left else "budget_exhausted"
 
-    def exhaust(self, tier: str) -> None:
+    async def exhaust(self, tier: str) -> None:
         self.exhausted.append(tier)
         self._budget_left = False
 
@@ -404,6 +406,12 @@ class FakeRuntime:
 
     def trace(self, stage: Any, actor: Any, message: str, **_: Any) -> None:
         self.traces.append(message)
+
+    async def budget_view(self) -> BudgetView:
+        return await budget_view(self.settings, self.llm, QuotaLedger(self.settings, self.store))
+
+    async def publish_budget(self) -> None:
+        self.bus.publish(SseEvent.BUDGET, await self.budget_view())
 
     async def aclose(self) -> None:
         await self.store.aclose()
@@ -1261,7 +1269,6 @@ async def test_speak_wraps_the_pcm_in_a_wav_header() -> None:
         "Satu penerbangan.",
         "id",
         llm=llm,
-        model="tts-model",
         client_factory=lambda: client,
         timeout_s=5.0,
     )
@@ -1273,15 +1280,15 @@ async def test_speak_wraps_the_pcm_in_a_wav_header() -> None:
         )
         assert reader.getnframes() == 2400
     (sent,) = client.calls
-    assert sent["model"] == "tts-model"
+    assert sent["model"] == SCRIPTED_MODEL
     assert sent["contents"] == "Satu penerbangan."
     assert list(sent["config"].response_modalities) == ["AUDIO"]
     assert sent["config"].speech_config.language_code == "id-ID"
-    assert llm.reserved == ["lite"]
+    assert llm.reserved == ["tts"], "speech is counted on the speech model's own budget"
 
 
 async def test_speak_failures_are_ai_unavailable() -> None:
-    kwargs: dict[str, Any] = {"model": "m", "timeout_s": 5.0}
+    kwargs: dict[str, Any] = {"timeout_s": 5.0}
     broke = genai_errors.ServerError(503, {"error": {"status": "UNAVAILABLE"}})
     with pytest.raises(AiUnavailable, match="api_error 503"):
         await voice.speak(
@@ -1329,7 +1336,7 @@ async def test_speak_failures_are_ai_unavailable() -> None:
         await voice.speak(
             "x", "en", llm=llm, client_factory=lambda: FakeTtsClient(error=quota), **kwargs
         )
-    assert llm.exhausted == ["lite"]
+    assert llm.exhausted == ["tts"], "a spent speech quota closes the speech model only"
 
 
 def test_speech_cache_keeps_the_most_recent_answers() -> None:
@@ -1430,29 +1437,46 @@ def test_budget_is_public_and_reads_the_days_counts(
     client, runtime = api
     body = client.get("/api/budget").json()
     assert body["backend"] == "stub"
+    settings = runtime.settings
     assert {tier["tier"]: tier["limit"] for tier in body["tiers"]} == {
-        "main": runtime.settings.model_daily_budget,
-        "lite": runtime.settings.model_lite_daily_budget,
+        "main": settings.daily_budget(settings.model),
+        "lite": settings.daily_budget(settings.model_lite),
+        "tts": settings.daily_budget(settings.model_tts),
     }
     assert all(tier["used"] == 0 for tier in body["tiers"])
+    assert body["waiting"] == []
 
 
-async def test_budget_view_counts_gemini_calls_from_the_budget_file(tmp_path: Path) -> None:
-    from tephra.agents.llm import BUDGET_FILE, DailyBudget
-
-    settings = Settings(_env_file=None, cache_dir=tmp_path / "cache")
-    budget = DailyBudget(path=settings.cache_dir / "llm" / BUDGET_FILE)
-    budget.take("lite", 10)
-    budget.take("lite", 10)
-    budget.take("main", 10)
-    view = await routes_ask.budget_view(settings, GeminiStandIn())
-    tiers = {tier.tier: tier for tier in view.tiers}
-    assert (tiers["lite"].used, tiers["lite"].remaining) == (
-        2,
-        settings.model_lite_daily_budget - 2,
+async def test_budget_view_counts_gemini_calls_per_model_from_the_store(tmp_path: Path) -> None:
+    settings = Settings(
+        _env_file=None,
+        sqlite_path=tmp_path / "tephra.sqlite3",
+        cache_dir=tmp_path / "cache",
+        model_lite="gemini-3.5-flash-lite",
     )
-    assert (tiers["main"].used, tiers["main"].model_id) == (1, SCRIPTED_MODEL)
+    store = open_store(settings)
+    counted = QuotaLedger(settings, store)
+    assert await counted.reserve("gemini-3.5-flash-lite", "interactive") is None
+    assert await counted.reserve("gemini-3.5-flash-lite", "urgent") is None
+    assert await counted.reserve("gemini-3.8-flash", "urgent") is None
+    llm = GeminiStandIn()
+    llm.model_id = lambda tier: {  # type: ignore[method-assign]
+        "main": "gemini-3.8-flash",
+        "lite": "gemini-3.5-flash-lite",
+        "tts": "gemini-3.8-flash-lite-tts",
+    }[tier]
+    view = await budget_view(settings, llm, QuotaLedger(settings, store))
+    tiers = {tier.tier: tier for tier in view.tiers}
+    assert (tiers["lite"].used, tiers["lite"].remaining) == (2, 450 - 2)
+    assert (tiers["main"].used, tiers["main"].model_id) == (1, "gemini-3.8-flash")
+    lite = next(model for model in view.models if model.model_id == "gemini-3.5-flash-lite")
+    assert {lane.lane: lane.used for lane in lite.lanes} == {
+        "urgent": 1,
+        "interactive": 1,
+        "routine": 0,
+    }
     assert view.backend == "gemini"
+    await store.aclose()
 
 
 def test_voice_route_transcribes_then_answers(
@@ -1529,7 +1553,7 @@ def test_speak_route_speaks_a_stored_answer_once(api: tuple[TestClient, FakeRunt
     assert first.content[:4] == b"RIFF"
     assert second.content == first.content
     assert len(tts.calls) == 1
-    assert tts.calls[0]["model"] == Settings(_env_file=None).model_tts
+    assert tts.calls[0]["model"] == runtime.llm.model_id("tts"), "the backend's speech model"
     assert "NO MODEL" in tts.calls[0]["contents"]
 
 

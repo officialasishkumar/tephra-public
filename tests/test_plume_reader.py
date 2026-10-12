@@ -2,10 +2,8 @@
 fallback, and the stub and official-only paths. Uses the real 23 Sep Semeru SIGMET 11 and
 VONA 2026SMR1806 built in test_discrepancies (research/13)."""
 
-import json
-import logging
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,8 +22,6 @@ from test_discrepancies import (
 )
 
 from tephra.agents.llm import (
-    BudgetExhausted,
-    DailyBudget,
     GeminiBackend,
     LlmCall,
     LlmPart,
@@ -216,13 +212,13 @@ class ScriptedLlm:
     def model_id(self, tier: str) -> str:
         return "gemini-test"
 
-    async def pace(self, tier: str) -> None:
+    async def pace(self, tier: str, tokens: int = 0) -> None:
         return None
 
-    def reserve(self, tier: str) -> bool:
-        return True
+    async def reserve(self, tier: str) -> str | None:
+        return None
 
-    def exhaust(self, tier: str) -> None:
+    async def exhaust(self, tier: str) -> None:
         raise AssertionError("the Plume Reader never closes a tier itself")
 
     async def structured[T: BaseModel](
@@ -457,7 +453,7 @@ async def test_no_answer_with_no_official_polygon_makes_no_request_and_draws_not
     settings = Settings(
         _env_file=None, llm="gemini", GEMINI_API_KEY="test-key", model_daily_budget=0
     )
-    llm = GeminiBackend(settings, client=client, cache_dir=tmp_path, budget=DailyBudget())
+    llm = GeminiBackend(settings, client=client, cache_dir=tmp_path)
     with use_clock(FixedClock(AT)):
         assessment = await read_plume(no_official_floor, llm, settings=SETTINGS)
     assert client.models.calls == 0
@@ -580,74 +576,8 @@ def gemini(client: ScriptedClient, tmp_path: Path) -> GeminiBackend:
         GEMINI_SETTINGS,
         client=client,
         cache_dir=tmp_path,
-        budget=DailyBudget(),
         retry_delays_s=(0.0, 0.0),
     )
-
-
-def test_the_daily_budget_follows_googles_quota_day() -> None:
-    """research/10: free-tier requests per day reset at midnight Pacific time. Counting UTC
-    days opened a second budget at 0000Z, five hours before Google's day ended (1700 PDT)."""
-    clock = FixedClock(datetime(2026, 10, 10, 23, 50, tzinfo=UTC))  # 1650 PDT on 10 Oct
-    budget = DailyBudget(now=clock.now)
-    budget.take("main", 2)
-    budget.take("main", 2)
-    clock.set(datetime(2026, 10, 11, 0, 10, tzinfo=UTC))  # 1710 PDT, still Google's 10 Oct
-    with pytest.raises(BudgetExhausted):
-        budget.take("main", 2)
-    clock.set(datetime(2026, 10, 11, 7, 1, tzinfo=UTC))  # 0001 PDT on 11 Oct
-    budget.take("main", 2)
-    assert budget.used("main") == 1
-
-
-def test_the_daily_budget_survives_a_restart(tmp_path: Path) -> None:
-    """A restart used to hand the day's quota out again; the counts now outlive the process
-    until Google's quota day ends."""
-    clock = FixedClock(datetime(2026, 10, 10, 23, 50, tzinfo=UTC))  # 1650 PDT on 10 Oct
-    path = tmp_path / "llm" / "daily_budget.json"
-    before = DailyBudget(now=clock.now, path=path)
-    before.take("main", 2)
-    before.take("main", 2)
-    before.exhaust("lite")
-
-    after = DailyBudget(now=clock.now, path=path)
-    assert after.used("main") == 2
-    with pytest.raises(BudgetExhausted):
-        after.take("main", 2)
-    with pytest.raises(BudgetExhausted):
-        after.take("lite", 100)
-
-    clock.set(datetime(2026, 10, 11, 7, 1, tzinfo=UTC))  # 0001 PDT on 11 Oct
-    next_day = DailyBudget(now=clock.now, path=path)
-    assert next_day.used("main") == 0
-    next_day.take("lite", 100)
-
-
-def test_the_daily_budget_counts_in_memory_when_its_file_cannot_be_written(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    blocked = tmp_path / "llm"
-    blocked.write_text("a file where the directory should be", encoding="utf-8")
-    budget = DailyBudget(path=blocked / "daily_budget.json")
-    with caplog.at_level(logging.WARNING, logger="tephra.agents.llm"):
-        budget.take("main", 1)
-    with pytest.raises(BudgetExhausted):
-        budget.take("main", 1)
-    assert "could not save the llm daily budget" in caplog.text
-
-
-async def test_gemini_keeps_its_daily_budget_under_the_cache_dir(tmp_path: Path) -> None:
-    settings = Settings(_env_file=None, llm="gemini", GEMINI_API_KEY="test-key", cache_dir=tmp_path)
-    llm = GeminiBackend(settings, client=ScriptedClient(['{"value": 7}']))
-    await llm.structured(
-        tier="main",
-        system="s",
-        parts=[LlmPart.of_text("question")],
-        schema=_Answer,
-        stub=lambda: _Answer(value=0),
-    )
-    saved = json.loads((tmp_path / "llm" / "daily_budget.json").read_text(encoding="utf-8"))
-    assert saved["used"] == {"main": 1}
 
 
 @pytest.mark.parametrize(
@@ -660,8 +590,14 @@ async def test_gemini_3_models_run_at_their_default_temperature(
     """research/10 C9: Google strongly recommends temperature 1.0 for every Gemini 3 model,
     since lower values may loop. A caller that names no temperature gets the model's own."""
     client = ScriptedClient(['{"value": 7}'])
-    settings = Settings(_env_file=None, llm="gemini", GEMINI_API_KEY="test-key", model=model)
-    llm = GeminiBackend(settings, client=client, cache_dir=tmp_path, budget=DailyBudget())
+    settings = Settings(
+        _env_file=None,
+        llm="gemini",
+        GEMINI_API_KEY="test-key",
+        model=model,
+        model_limits={model: {"rpm": 5, "rpd": 20}},
+    )
+    llm = GeminiBackend(settings, client=client, cache_dir=tmp_path)
     await llm.structured(
         tier="main",
         system="s",
@@ -728,7 +664,7 @@ async def test_a_spent_daily_quota_falls_back_without_more_requests(tmp_path: Pa
     assert value is None
     assert call.error == "budget_exhausted"
     assert client.models.calls == 1
-    assert llm.reserve("lite"), "the lite tier has its own quota"
+    assert await llm.reserve("lite") is None, "the lite model has its own quota"
 
 
 async def test_a_per_minute_429_is_still_retried(tmp_path: Path) -> None:
@@ -744,6 +680,37 @@ async def test_a_per_minute_429_is_still_retried(tmp_path: Path) -> None:
     assert value == _Answer(value=7)
     assert call.error is None
     assert client.models.calls == 2
+
+
+async def test_every_attempt_a_retry_too_is_counted_before_it_is_sent(tmp_path: Path) -> None:
+    """Google may count a failed request against the day, so the retry is reserved like the
+    first attempt; with one call left the retry is refused and nothing more is sent."""
+    per_minute = {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "details": []}}
+    client = ScriptedClient([genai_errors.ClientError(429, per_minute), '{"value": 7}'])
+    llm = gemini(client, tmp_path)
+    await llm.structured(
+        tier="main",
+        system="s",
+        parts=[LlmPart.of_text("question")],
+        schema=_Answer,
+        stub=lambda: _Answer(value=0),
+    )
+    day = await llm.quota.load(GEMINI_SETTINGS.model)
+    assert day.total == 2
+
+    settings = GEMINI_SETTINGS.model_copy(update={"model_daily_budget": 1})
+    client = ScriptedClient([genai_errors.ClientError(429, per_minute), '{"value": 7}'])
+    capped = GeminiBackend(settings, client=client, cache_dir=tmp_path, retry_delays_s=(0.0, 0.0))
+    value, call = await capped.structured(
+        tier="main",
+        system="t",
+        parts=[LlmPart.of_text("another question")],
+        schema=_Answer,
+        stub=lambda: _Answer(value=0),
+    )
+    assert value is None
+    assert call.error == "budget_exhausted"
+    assert client.models.calls == 1
 
 
 @pytest.mark.parametrize(

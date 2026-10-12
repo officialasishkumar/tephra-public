@@ -28,6 +28,7 @@ from test_pipeline import (
     Gate,
     make_runtime,
     make_settings,
+    tick_and_work,
 )
 
 from tephra.api import server
@@ -96,9 +97,9 @@ async def record_case(
     with use_clock(clock):
         runtime = make_runtime(make_settings(workdir, vona_live=True), recorder)
         try:
-            await run_tick(runtime, reason="record")
+            await tick_and_work(runtime, reason="record")
             clock.advance(timedelta(seconds=60))
-            await run_tick(runtime, reason="record")
+            await tick_and_work(runtime, reason="record")
         finally:
             await runtime.aclose()
     case = recorder.manifest(case_id=CASE_ID, label=LABEL, region="java_bali")
@@ -192,6 +193,7 @@ async def test_a_manifest_moved_to_another_directory_is_not_offered(
 async def test_replay_source_serves_the_recording_as_of_the_replay_clock(
     data_dir: Path, tmp_path: Path
 ) -> None:
+
     case = await record_case(data_dir, tmp_path / "record")
     source = ReplaySource(case_path(data_dir, CASE_ID), case)
     adsb_url = next(record.url for record in case.records if record.feed is FeedId.ADSB)
@@ -265,6 +267,7 @@ async def test_a_replay_run_is_labelled_everywhere(data_dir: Path, tmp_path: Pat
     runtime.bus = EventBus()
     try:
         report = await runtime.tick(reason="manual")
+        await runtime.worker.drain()
         state = await runtime.system_state()
         advisories = await list_advisories(runtime.store)
     finally:
@@ -302,9 +305,9 @@ async def test_when_the_replay_clock_loops_the_replay_starts_over(
     with use_clock(clock):
         runtime = replay_runtime(case, replay_settings(data_dir, tmp_path / "replay"))
         try:
-            await run_tick(runtime, reason="manual")
+            await tick_and_work(runtime, reason="manual")
             clock.set(AT)  # the recording ran out and the clock wrapped to its start
-            report = await run_tick(runtime, reason="manual")
+            report = await tick_and_work(runtime, reason="manual")
         finally:
             await runtime.aclose()
 
@@ -325,7 +328,7 @@ async def test_a_replay_admits_no_notice_issued_after_its_clock(
     with use_clock(FixedClock(at)):
         runtime = replay_runtime(case, replay_settings(data_dir, tmp_path / "replay"))
         try:
-            await run_tick(runtime, reason="manual")
+            await tick_and_work(runtime, reason="manual")
         finally:
             await runtime.aclose()
 
@@ -386,8 +389,8 @@ async def test_a_tick_that_switches_to_replay_reports_on_one_clock(
     with use_clock(FixedClock(AT + timedelta(days=3))):
         runtime = make_runtime(settings, quiet)
         try:
-            await run_tick(runtime, reason="manual")
-            report = await run_tick(runtime, reason="manual")
+            await tick_and_work(runtime, reason="manual")
+            report = await tick_and_work(runtime, reason="manual")
         finally:
             await runtime.aclose()
 
@@ -463,7 +466,7 @@ async def test_a_replay_leaves_the_live_desks_drafts_alone(data_dir: Path, tmp_p
     with use_clock(clock):
         live = make_runtime(make_settings(tmp_path / "desk", data_dir=data_dir), FixtureSource())
         try:
-            await run_tick(live, reason="manual")
+            await tick_and_work(live, reason="manual")
             [draft] = await list_advisories(live.store)
         finally:
             await live.aclose()
@@ -471,7 +474,7 @@ async def test_a_replay_leaves_the_live_desks_drafts_alone(data_dir: Path, tmp_p
         try:
             for _ in range(2):  # two exposure runs without the flight, as a retirement needs
                 clock.advance(timedelta(seconds=30))
-                await run_tick(replay, reason="manual")
+                await tick_and_work(replay, reason="manual")
             kept = await list_advisories(replay.store)
         finally:
             await replay.aclose()
@@ -554,7 +557,7 @@ async def test_adsb_pass_leaves_a_feed_the_case_never_recorded_alone(
     runtime = replay_runtime(no_aircraft, replay_settings(data_dir, tmp_path / "replay"))
     try:
         with use_clock(FixedClock(AT)):
-            await run_tick(runtime, reason="manual")
+            await tick_and_work(runtime, reason="manual")
             assert runtime.live.active
             await run_adsb_pass(runtime)
         adsb = runtime.live.health[FeedId.ADSB]

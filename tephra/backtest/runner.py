@@ -101,11 +101,12 @@ class _CappedGemini(GeminiBackend):
         self._max_calls = max_calls
         self.calls = 0
 
-    def reserve(self, tier: Tier) -> bool:
-        if self.calls >= self._max_calls or not super().reserve(tier):
-            return False
+    async def reserve(self, tier: Tier) -> str | None:
+        """The cap is this offline run's whole budget: no daily pacing applies to it."""
+        if self.calls >= self._max_calls:
+            return f"the backtest's cap of {self._max_calls} calls is reached"
         self.calls += 1
-        return True
+        return None
 
 
 @dataclass(frozen=True)
@@ -278,10 +279,12 @@ async def run_case(
     latest_input: datetime | None = None
     with _workdir() as work, timeutil.use_clock(timeutil.FixedClock(case.recorded_from)) as clock:
         runtime = _runtime(case, settings, llm, work)
+        runtime.worker.paced = False  # every tick's AI work runs before it is scored
         try:
             for at in times:
                 clock.set(at)  # type: ignore[attr-defined]
                 await run_tick(runtime, reason="backtest")
+                await runtime.worker.drain()
                 for vid, cone in runtime.cones.items():
                     situation = runtime.situations.get(vid)
                     if situation is None:

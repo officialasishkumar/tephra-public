@@ -649,8 +649,7 @@ async def plan_flight(
     settings: Settings,
     trace: TraceSink | None = None,
 ) -> PlannedAction:
-    system = PROMPT_PATH.read_text(encoding="utf-8")
-    phash = prompt_hash(system, [_context_part(ctx)])
+    phash = planner_prompt_hash(ctx)
     if llm.name == "stub":
         decision = rule_based_decision(ctx)
         _emit(trace, ctx, "stub", f"NO MODEL: {_decision_line(decision)}")
@@ -706,6 +705,50 @@ async def plan_flight(
     )
 
 
+def planner_prompt_hash(ctx: PlannerContext) -> str:
+    """The hash of the planner's question for ``ctx``: its instructions and the flight's
+    context. A REPLAY loop reuses a recorded plan only for exactly this question."""
+    return prompt_hash(PROMPT_PATH.read_text(encoding="utf-8"), [_context_part(ctx)])
+
+
+def plan_from_record(
+    ctx: PlannerContext,
+    recorded: PlannedAction,
+    *,
+    label: str,
+    trace: TraceSink | None = None,
+) -> PlannedAction | None:
+    """A REPLAY loop's plan from the first pass's answer to the same question (the same
+    planner instructions and flight context, :func:`planner_prompt_hash`): the same model's
+    decision, checked again against the flight now. None when it was an answer to another
+    question or no longer passes the checks (the caller then asks the model)."""
+    if recorded.decision is None or recorded.prompt_hash != planner_prompt_hash(ctx):
+        return None
+    decision = normalise_decision(recorded.decision)
+    problems = validate_decision(decision, ctx)
+    if problems:
+        _emit(
+            trace,
+            ctx,
+            "code",
+            "Recorded plan from the replay's first pass no longer fits; asking the model",
+            level="warn",
+            detail={"problems": problems},
+        )
+        return None
+    _emit(trace, ctx, "adk", f"PLAN {_decision_line(decision)} ({label})")
+    planned = _planned(
+        ctx,
+        decision,
+        backend=recorded.llm_backend,
+        model_id=recorded.model_id,
+        prompt_hash=recorded.prompt_hash,
+        outcome=recorded.outcome,
+        tool_calls=recorded.tool_calls,
+    )
+    return planned.model_copy(update={"recorded_answer": label})
+
+
 @dataclass
 class _AgentRun:
     decision: PlannerDecision | None = None
@@ -737,9 +780,11 @@ class _TurnMeter:
             self._started = time.monotonic()
         return stop
 
-    def on_model_error(self, callback_context: Any, llm_request: Any, error: Exception) -> Any:
+    async def on_model_error(
+        self, callback_context: Any, llm_request: Any, error: Exception
+    ) -> Any:
         self._log("error", None, None)
-        answer = self._guard.on_model_error(callback_context, llm_request, error)
+        answer = await self._guard.on_model_error(callback_context, llm_request, error)
         self._error_answered = answer is not None
         return answer
 

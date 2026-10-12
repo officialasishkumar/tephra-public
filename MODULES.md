@@ -26,9 +26,9 @@ modules (sections 5.11 to 5.17) were built against.
 | feeds-geo | `tephra/feeds/adsb.py`, `tephra/feeds/winds.py`, `tephra/feeds/satellite.py`, `tephra/feeds/volcanoes.py`, `tephra/feeds/airports.py`, `data/volcanoes.json`, `data/airports.json`, `tests/test_feeds_geo.py`, `tests/test_live_feeds_geo.py` |
 | science | `tephra/science/__init__.py`, `tephra/science/hsd_segments.py`, `tephra/science/btd.py`, `tests/test_science.py` |
 | geo | `tephra/geo/__init__.py`, `tephra/geo/units.py`, `tephra/geo/cone.py`, `tephra/geo/exposure.py`, `tephra/geo/fuel.py`, `tests/test_geo.py`, `tests/test_geo_props.py` |
-| reconcile-plume | `tephra/reconcile/__init__.py`, `tephra/reconcile/discrepancies.py`, `tephra/agents/__init__.py`, `tephra/agents/llm.py`, `tephra/agents/schemas.py`, `tephra/agents/budget.py`, `tephra/agents/plume_reader.py`, `tephra/agents/prompts/plume_reader.md`, `tests/test_discrepancies.py`, `tests/test_plume_reader.py` |
+| reconcile-plume | `tephra/reconcile/__init__.py`, `tephra/reconcile/discrepancies.py`, `tephra/agents/__init__.py`, `tephra/agents/llm.py`, `tephra/agents/schemas.py`, `tephra/agents/budget.py`, `tephra/agents/quota.py`, `tephra/agents/plume_reader.py`, `tephra/agents/prompts/plume_reader.md`, `tests/test_discrepancies.py`, `tests/test_plume_reader.py`, `tests/test_quota.py` |
 | planner-drafter | `tephra/agents/exposure_planner.py`, `tephra/agents/dispatch_drafter.py`, `tephra/agents/validators.py`, `tephra/agents/adk_app.py`, `tephra/agents/prompts/planner.md`, `tephra/agents/prompts/drafter.md`, `tests/test_drafter.py`, `tests/test_planner.py` |
-| core | `tephra/pipeline.py`, `tephra/scheduler.py`, `tephra/feeds/registry.py`, `tephra/recovery/network.py`, `tephra/store/__init__.py`, `tephra/store/sqlite_store.py`, `tephra/store/firestore_store.py`, `tephra/desk/__init__.py`, `tephra/desk/approvals.py`, `tephra/desk/audit.py`, `tephra/replay/__init__.py`, `tephra/replay/cases.py`, `tests/test_approvals.py`, `tests/test_pipeline.py`, `tests/test_replay.py`, `tests/test_store.py` |
+| core | `tephra/pipeline.py`, `tephra/scheduler.py`, `tephra/ai_worker.py`, `tephra/replay/answers.py`, `tests/test_ai_worker.py`, `tests/test_replay_answers.py`, `tephra/feeds/registry.py`, `tephra/recovery/network.py`, `tephra/store/__init__.py`, `tephra/store/sqlite_store.py`, `tephra/store/firestore_store.py`, `tephra/desk/__init__.py`, `tephra/desk/approvals.py`, `tephra/desk/audit.py`, `tephra/replay/__init__.py`, `tephra/replay/cases.py`, `tests/test_approvals.py`, `tests/test_pipeline.py`, `tests/test_replay.py`, `tests/test_store.py` |
 | api | `tephra/main.py`, `tephra/api/__init__.py`, `tephra/api/server.py`, `tephra/api/auth.py`, `tephra/api/sse.py`, `tests/test_api.py`, `tests/test_integration.py` |
 | duty | `tephra/agents/duty_officer.py`, `tephra/agents/adk_runtime.py`, `tephra/agents/prompts/duty_officer.md`, `tephra/duty.py`, `tephra/api/routes_duty.py`, `tests/test_duty_officer.py` |
 | reroute | `tephra/geo/reroute.py`, `tephra/geo/fuel.py` (`reroute_line`), `tephra/feeds/routes.py`, `scripts/build_routes.py`, `data/routes_apac.json`, `tests/test_reroute.py`, `tests/test_routes.py`, `tests/test_reroute_agents.py` |
@@ -57,10 +57,10 @@ Import only from a lower layer (or from your own files in the same layer).
 | L0 | `tephra.util.*`, `tephra.models`, `tephra.config`, `tephra.policy` (config and policy import models; models never import either) |
 | L1 | `tephra.feeds.base`, `tephra.store.base`, `tephra.geo.*` (`geo.reroute` included) |
 | L2 | `tephra.feeds.{sigmet,vona,vaac,taf,adsb,winds,satellite,volcanoes,airports,routes,jma_volcano}`, `tephra.science.*` |
-| L3 | `tephra.reconcile.*`, `tephra.agents.{llm,schemas,budget}` |
+| L3 | `tephra.reconcile.*`, `tephra.agents.{quota,llm,schemas,budget}` (`quota` imports `tephra.store.base` only) |
 | L4 | `tephra.agents.{adk_runtime,plume_reader,validators,exposure_planner,dispatch_drafter,adk_app,satellite_reader,notice_reader,ask,voice,duty_officer}`, `tephra.recovery.{models,schedule,closures,solver,tools,agent,network}` |
 | L5 | `tephra.store.{sqlite_store,firestore_store}` and `tephra.store` (the factory), `tephra.desk.*`, `tephra.replay.*`, `tephra.recovery.decisions`, `tephra.comms.*`, `tephra.regdocs.*` |
-| L6 | `tephra.feeds.registry`, `tephra.duty`, `tephra.pipeline`, `tephra.scheduler` (`tephra.duty` reaches the runtime only through its methods and names `Runtime` for type checking only) |
+| L6 | `tephra.feeds.registry`, `tephra.duty`, `tephra.ai_worker`, `tephra.pipeline`, `tephra.scheduler` (`tephra.duty` reaches the runtime only through its methods and names `Runtime` for type checking only) |
 | L7 | `tephra.api.*`, `tephra.main`, `tephra.backtest.*` (the runner builds a `Runtime`) |
 
 The feature route modules (`tephra.api.routes_*`) import `DeskSession`, `RuntimeDep` and `_json`
@@ -230,7 +230,12 @@ Enum additions of the extensions: `FeedId.JMA_VOLCANO` (`jma_volcano`); `ActionK
 Officer: official products only until it runs, never reused as current). Duty Officer models:
 `DutyItemKind` (ASSESS, PLAN, RECOVER, SRA), `DutyItem`, `DutyPriority`, `DutyBrief`,
 `DutyDispatch`, `DutyDeferral`, `DutyRun`; `AiFailure.stage` adds `duty_officer`;
-`TickReport.duty_runs`; `WallSnapshot.duty` (the newest run).
+`TickReport.duty_runs` (the AI worker's report; a tick runs none); `WallSnapshot.duty` (the newest run).
+`recorded_answer: str | None` on `PlumeAssessment`, `PlannedAction`, `Advisory`, `DutyRun` (and
+`SatelliteReading`): set when a REPLAY loop reused the same model's first-pass answer to the
+same question, "AI answer recorded on this replay's first pass at HHMMZ real time" (section
+5.7); on an `Advisory` it says which part was reused ("Plan and draft: ...", "Plan: ...; the
+draft was written by the model now", "Draft: ...; the plan was made by the model now").
 `PlannerContext.route` and `.reroutes` carry the published route and the code's lateral options;
 `PlannerDecision.reroute_id` names the chosen option; `Advisory.reroute` embeds it.
 Crew reports (section 5.19): `AuditAction` `CREW_REPORT_ENTERED`, `CREW_REPORT_WITHDRAWN`,
@@ -333,7 +338,23 @@ default 200, at least 1) caps open `GET /api/events` streams; each holds a Cloud
 slot, so it must stay below the service's `--concurrency`.
 `build_sha` (`TEPHRA_BUILD_SHA`, default unset) is the commit the image was built from: the
 Dockerfile sets it from the `BUILD_SHA` build arg (`unknown` when none is given), and
-`GET /api/state` shows it. Leave it unset locally.
+`GET /api/state` shows it (and a new build starts a new first pass of replay answers, 5.7).
+Leave it unset locally.
+
+Model budgets (section 5.5's `agents.quota`). `ModelLimit` (`rpm`, `rpd`, `tpm: int | None`)
+and `DEFAULT_MODEL_LIMITS` hold Google's free-tier rows per model id (3.8 Flash 5/20, 3.5 and
+3.1 Flash-Lite 15/500, 3.8 Flash-Lite TTS 3/10, Gemma 4 31B and 26B 30/14,400 with 16,000 tpm);
+`model_limits` (`TEPHRA_MODEL_LIMITS`, JSON) adds rows or replaces them. `ai_budget_margin`
+(`TEPHRA_AI_BUDGET_MARGIN`, 0.1, 0 to <1) is the share of each free limit left unused:
+`daily_budget(model_id)` is `floor(rpd x (1 - margin))` (18 and 450 by default), or the
+`model_daily_budget` / `model_lite_daily_budget` override (`TEPHRA_MODEL_DAILY_BUDGET`,
+`TEPHRA_MODEL_LITE_DAILY_BUDGET`, default unset) for the model TEPHRA_MODEL or TEPHRA_MODEL_LITE
+names, or 0 for a model with no row (it is never called; `unlimited_models()` lists them and
+`create_runtime` logs them). `paced_rpm(model_id)` is `rpm x (1 - margin)` (at least 1) and
+`paced_tpm(model_id)` the same for tpm. Budgets count calls per Google quota day, midnight to
+midnight Pacific. `ai_urgent_share` (0.3), `ai_interactive_share` (0.2; their sum below 1),
+`ai_routine_burst` (0.05) and `ai_reserve_release` (0.75) split each budget into lanes (5.5).
+The former `TEPHRA_MODEL_RPM` and `TEPHRA_MODEL_LITE_RPM` are gone: pacing follows the table.
 
 ### 4.6 `tephra.feeds.base`
 
@@ -361,8 +382,12 @@ key order.
 
 `Collection` (names and document ids in section 7), `Where(field, op, value)`, `WhereOp`,
 `BLOB_KEY_PATTERN`, `escape_doc_id`/`unescape_doc_id`, and the `Store` protocol:
-`put`, `get`, `delete`, `list_docs`, `query`, `compare_and_set_advisory`, `append_audit`,
+`put`, `get`, `delete`, `list_docs`, `query`, `update`, `compare_and_set_advisory`, `append_audit`,
 `get_feed_state`, `put_feed_state`, `list_feed_states`, `put_blob`, `get_blob`, `aclose`.
+`update(collection, doc_id, change)` atomically replaces a document with `change(stored)` (None
+when missing) and returns what it wrote: a SQLite `BEGIN IMMEDIATE` transaction, a Firestore
+transaction (which may call `change` again on contention, so it has no side effects). An
+exception from `change` writes nothing and propagates. The AI budget counts with it.
 (The method is `list_docs`, not `list`, so implementations can still annotate with `list[...]`.)
 `Collection` has no `adsb`, `wall` or `exposures` member: nothing read them back, so aircraft,
 exposures and the Wall are no longer stored and rebuild on the first tick after a restart.
@@ -939,7 +964,7 @@ list is sorted by severity (WARNING, CAUTION, INFO), then kind.
 
 `tephra/agents/llm.py`
 ```python
-Tier = Literal["main", "lite"]
+Tier = Literal["main", "lite", "tts"]   # TEPHRA_MODEL, TEPHRA_MODEL_LITE, TEPHRA_MODEL_TTS
 class LlmPart(TephraModel):        # kind: Literal["text","image","audio"]; text: str|None; data: bytes|None; mime_type: str|None; label: str|None
     @classmethod
     def of_text(cls, text: str) -> Self
@@ -952,17 +977,18 @@ class LlmBackend(Protocol):
     @property
     def name(self) -> LlmBackendName: ...
     def model_id(self, tier: Tier) -> str: ...
-    def reserve(self, tier: Tier) -> bool: ...   # take one call from today's budget
-    def exhaust(self, tier: Tier) -> None: ...   # Google reported the tier's daily quota spent: refuse it until the quota day ends
+    async def reserve(self, tier: Tier) -> str | None: ...   # count one HTTP attempt on the tier's model, in the current lane; None = send, else why not
+    async def exhaust(self, tier: Tier) -> None: ...         # Google reported the model's daily quota spent: close that model (only) until the quota day ends
+    async def pace(self, tier: Tier, tokens: int = 0) -> None: ...   # wait for the model's per-minute slot (requests, and input tokens where Google sets tpm)
     async def structured[T: BaseModel](self, *, tier: Tier, system: str,
                                        parts: Sequence[LlmPart], schema: type[T],
                                        stub: Callable[[], T], temperature: float | None = None
                                        ) -> tuple[T | None, LlmCall]: ...
-class GeminiBackend: ...           # google-genai Client(api_key=..., vertexai=False).aio.models.generate_content, JSON mime + response_json_schema
-class StubBackend: ...             # returns stub(), model_id "stub", never touches the network; exhaust does nothing
-class BudgetExhausted(RuntimeError): ...
-class DailyBudget: ...             # calls per tier per Google quota day
-def get_llm(settings: Settings) -> LlmBackend
+class GeminiBackend: ...           # google-genai Client(api_key=..., vertexai=False).aio.models.generate_content, JSON mime + response_json_schema; .quota: QuotaLedger
+class StubBackend: ...             # returns stub(), model_id "stub", never touches the network; reserve grants, exhaust does nothing
+class RatePacer: ...               # rpm sends (and, with tpm, input tokens) in any 60 s, per model
+def get_llm(settings: Settings, *, quota: QuotaLedger | None = None) -> LlmBackend   # without a ledger the Gemini backend counts in memory
+def estimate_tokens(texts: Iterable[str]) -> int                 # characters / 3.5, for tokens-a-minute pacing
 def prompt_hash(system: str, parts: Sequence[LlmPart]) -> str   # images and recordings contribute their sha256
 def temperature_for(model_id: str) -> float                      # 1.0 for gemini-3* model ids, else 0.2
 def daily_quota_spent(exc: BaseException) -> bool                # a 429 whose QuotaFailure names a per-day quota
@@ -978,19 +1004,82 @@ JSON or schema failure it returns `(None, call)` with `call.error` set. Tier `ma
 `temperature_for(model_id)`: 1.0 for Gemini 3 model ids (`gemini-3*`; research/10 C9, lower
 values may loop) and 0.2 otherwise. Validated answers are cached on disk under
 `<cache_dir>/llm`, keyed by model, prompt hash, schema and temperature; a cache hit spends no
-budget. Per-tier daily budgets (`model_daily_budget`, `model_lite_daily_budget`) are counted
-per Google quota day (midnight to midnight Pacific, on the wall clock even in REPLAY) and
-enforced before calling; over budget -> `(None, call)` with `error="budget_exhausted"`. The
-counts are persisted to `<cache_dir>/llm/daily_budget.json` as `{quota_day, used, spent}`:
-written atomically on every change and read back on start when the file holds the same
-quota day. There is one budget per file per process. An unreadable file is logged and
-ignored; if the file cannot be written, counting stays in memory and one warning is logged.
-Processes sharing a cache dir do not merge their counts. 5xx answers, per-minute 429s and
-transport errors are retried twice (after 2 s and 8 s); a 429 whose QuotaFailure names a
-per-day quota is not retried and closes the tier (`exhaust`) until the quota day ends.
-`structured` calls `reserve` itself; the ADK planner calls `llm.reserve("lite")` from a
-`before_model_callback` on every model turn and `llm.exhaust("lite")` on a per-day 429
-(section 5.6). The stub's `reserve` always returns True and its `exhaust` does nothing.
+budget. Every HTTP attempt, each retry included, is reserved from its model's daily budget
+(`tephra.agents.quota`, below) before it is sent, in the lane of the work (`current_lane()`,
+and `current_admitted()` inside a routine job the AI worker admitted);
+a refusal -> `(None, call)` with `error="budget_exhausted"` and nothing sent. 5xx answers,
+per-minute 429s and transport errors are retried twice (after 2 s and 8 s); a 429 whose
+QuotaFailure names a per-day quota is not retried and closes that model (`exhaust`), not the
+other tiers' models, until the quota day ends. `structured` paces and then reserves each
+attempt itself (the slot first, so an attempt cancelled while it waits is not counted); every ADK agent reserves and paces each model turn through `ModelGuard` (section 5.18)
+and closes its model on a per-day 429. ADK's Gemini model and the google-genai client retry
+nothing on their own (TEPHRA sets no `retry_options`), so one turn is one HTTP attempt. Speech
+(`voice.speak`) reserves from the `tts` tier's model and closes only that model on a per-day
+429. The stub's `reserve` always grants and its `exhaust` does nothing.
+
+`tephra/agents/quota.py` (L3): the daily budgets.
+```python
+Lane = Literal["urgent", "interactive", "routine"]
+def current_lane() -> Lane                     # the lane of calls made here: "interactive" unless the AI worker set one
+def current_admitted() -> bool                 # inside a routine job the AI worker admitted (pacing no longer applies)
+def use_lane(lane: Lane, *, admitted: bool = False) -> ContextManager   # the AI worker wraps each job in its lane
+def quota_day(at: datetime) -> date            # Google's day, midnight to midnight Pacific (wall clock, even in REPLAY)
+def day_bounds(day: date) -> tuple[datetime, datetime]
+class ModelDay(TephraModel):                   # ai_budget/<quota day>/<model id>: quota_day, model_id, used: {lane: n}, closed, closed_reason, updated_at
+class Shares:                                  # budget, urgent, interactive, routine, burst, release_after; Shares.of(settings, model_id)
+class Admission(NamedTuple):                   # ok, reason, next_slot (routine work: when it fits again)
+def judge(day, shares, lane, fraction, calls=1, *, admitted=False) -> Admission   # admitted: the daily cap only
+def next_routine_slot(day, shares, now, calls=1) -> datetime
+class QuotaLedger:
+    def __init__(self, settings: Settings, store: Store | None, *, now=SystemClock().now)
+    async def reserve(self, model_id: str, lane: Lane, *, admitted: bool = False) -> str | None   # counted in one store transaction, checked again there
+    async def close(self, model_id: str, reason: str) -> None          # a per-day 429
+    async def load(self, model_id: str, *, fresh: bool = False) -> ModelDay
+    async def load_all(self, model_ids, *, fresh: bool = False) -> list[ModelDay]
+    def admission(self, model_id: str, lane: Lane, calls: int = 1) -> Admission   # from the copy in memory (the AI worker); a closed model's slot is the next quota day
+    def unreadable(self, model_id: str) -> str | None   # why the count cannot be read or written now (the store), or None
+```
+Rules: counts are kept per model id (two tiers on one model share one count) and quota day in
+the store collection `ai_budget`, so a new instance, a crash or a redeploy carries on from the
+day's count. Each model's budget (`Settings.daily_budget`) is its free limit less
+`TEPHRA_AI_BUDGET_MARGIN`, or the `TEPHRA_MODEL_DAILY_BUDGET` / `TEPHRA_MODEL_LITE_DAILY_BUDGET`
+override; a model with no `TEPHRA_MODEL_LIMITS` row has budget 0 and is never called. The
+budget splits into lanes: urgent (`TEPHRA_AI_URGENT_SHARE`, 30%; only on models urgent work
+uses, TEPHRA_MODEL and TEPHRA_MODEL_LITE) is never paced and only the budget caps it;
+interactive (`TEPHRA_AI_INTERACTIVE_SHARE`, 20%, on TEPHRA_MODEL_LITE; all of TEPHRA_MODEL_TTS's
+budget, since speech has neither urgent nor routine work) may take routine's share but never
+the unused urgent reserve; routine (the rest, on TEPHRA_MODEL and TEPHRA_MODEL_LITE) is admitted
+only while its use stays within its share x the part of the quota day gone by, plus a burst
+(`TEPHRA_AI_ROUTINE_BURST` of the budget, at least one call). After `TEPHRA_AI_RESERVE_RELEASE`
+(0.75) of the day the unused urgent and interactive reserves flow to routine, all of them by
+midnight Pacific. Pacing decides when a routine job starts: the calls of a job the AI worker
+admitted (`use_lane("routine", admitted=True)`) are counted as routine but checked only against
+the daily cap, so a run that needs more calls than its estimate finishes instead of failing
+part-way. A refusal names its reason in plain words; a routine refusal carries the next slot.
+If the store cannot be read or written, every call to that model is refused ("the AI budget
+store could not be reached ...": the caller reports AI UNAVAILABLE, the AI worker keeps routine
+work waiting with that reason) and the store is tried again on the next call; a new instance
+never starts the day at zero on a failed read. With no store at all (`QuotaLedger(settings,
+None)`: an offline backtest, a test) the count is kept in memory by design. `budget.py`
+(`budget_view`) shows the counts; nothing outside `quota.py` counts calls.
+
+`tephra/agents/budget.py` (L3): what the Wall and the Desk show.
+```python
+class AiWork(TephraModel):       # ai_work/<id>: id, kind ("duty_item" | "recover"), label, item: DutyItem | None,
+                                 # airports, model_id, lane, urgency, status ("QUEUED" | "WAITING" | "RUNNING"),
+                                 # since (wall clock), next_slot_at, reason ("waiting for AI budget, next slot 1432Z"), replay
+class BudgetLane(TephraModel):   # lane, words, used, share
+class BudgetModel(TephraModel):  # model_id, jobs (plain words, first letter capitalised), used, limit, free_limit,
+                                 # remaining, closed, lanes (only those with a share or a use),
+                                 # routine_allowed_now, next_routine_slot (None on a model with no routine share),
+                                 # pacing (plain words: how the routine share is spread through the day, the
+                                 # next slot, "Count unknown: ..." when the store cannot be read)
+class BudgetTier(TephraModel):   # tier, model_id, used, limit, remaining (its model's count)
+class BudgetView(TephraModel):   # backend, as_of, quota_day, resets_at, models, tiers, waiting: list[AiWork], note
+async def budget_view(settings: Settings, llm: LlmBackend, quota: QuotaLedger,
+                      work: Sequence[AiWork] = ()) -> BudgetView   # the stub reads zero used
+def slot_words(next_slot_at: datetime | None) -> str            # "waiting for AI budget, next slot HHMMZ"
+```
 `genai.Client(api_key=..., vertexai=False)` only; never Vertex AI, never ADC. Image parts are
 sent with a preceding text part `IMAGE {label}`, at high media resolution; an audio part is sent
 as inline bytes with its mime type and no announcement (and sets no media resolution). Each request
@@ -1162,6 +1251,11 @@ def planner_limits(policy: OperatorPolicy) -> dict[str, int]      # the PlannerC
 def rule_based_decision(ctx: PlannerContext) -> PlannerDecision
 async def plan_flight(ctx: PlannerContext, llm: LlmBackend, *, settings: Settings,
                       trace: TraceSink | None = None) -> PlannedAction
+def planner_prompt_hash(ctx: PlannerContext) -> str   # the planner's question: instructions and ctx
+def plan_from_record(ctx: PlannerContext, recorded: PlannedAction, *, label: str,
+                     trace: TraceSink | None = None) -> PlannedAction | None
+                     # a REPLAY loop: the first pass's decision to the same question
+                     # (recorded.prompt_hash == planner_prompt_hash(ctx)), if validate_decision passes now
 ```
 `build_planner_context`: alternates are the 5 nearest from `airports.nearest(flight.lat,
 flight.lon, max_nm=policy.alternates.search_radius_nm)`; `divert = fuel.divert_line(...,
@@ -1200,9 +1294,9 @@ alternatives_considered=None)`, which validates the `PlannerDecision`, records i
 model's arguments answers an error to the model instead of ending the run. Tool calls become
 `ToolCallRecord`s (kept when the run fails) and are streamed to `trace` as
 `TraceStage.PLANNER`, actor `adk`. The `before_model_callback` takes every model turn from
-the lite budget (`llm.reserve("lite")`) and stops the run after `MAX_MODEL_TURNS`; the
-`on_model_error_callback` turns a 429 whose QuotaFailure names a per-day quota into
-`llm.exhaust("lite")` and ends the run with no repair turn (ADK 2.11 surfaces that 429 as
+the lite model's budget (`await llm.reserve("lite")`) and stops the run after `MAX_MODEL_TURNS`; the
+`on_model_error_callback` (async) turns a 429 whose QuotaFailure names a per-day quota into
+`await llm.exhaust("lite")` and ends the run with no repair turn (ADK 2.11 surfaces that 429 as
 `_ResourceExhaustedError`, a `ClientError` that keeps `.code` and `.details`). Invalid or
 missing decision -> one repair turn with the problems -> outcome `MODEL_FAILED`: `decision` is
 None, the problems are kept as `validation_errors` (`DAILY_QUOTA_SPENT` after a spent quota
@@ -1239,9 +1333,18 @@ async def draft_advisory(*, situation: Situation, assessment: PlumeAssessment, c
                          settings: Settings, policy: OperatorPolicy,
                          trace: TraceSink | None = None,
                          feed_health: Mapping[FeedId, FeedHealth] | None = None,
-                         replay_case: ReplayCase | None = None) -> Advisory | AiFailure
+                         replay_case: ReplayCase | None = None,
+                         recorded: RecordedDraft | None = None) -> Advisory | AiFailure
                          # stamps policy_id, policy_version, policy_hash and replay_case_id
+class RecordedDraft(NamedTuple):   # draft: DraftText, model_id, prompt_hash (of the call that wrote it),
+                                   # question_hash, label (REPLAY loops, section 5.7)
+def drafter_prompt_hash(ctx: PlannerContext, plan: PlannedAction) -> str   # the drafter's first question: instructions and facts
 ```
+``recorded`` (REPLAY only) is the first pass's draft for the same question: when its
+``question_hash`` is this call's ``drafter_prompt_hash`` and ``validate_draft`` passes for this
+context it is used without a model call, the advisory keeps its model id and drafter prompt hash
+and ``recorded_answer`` says which part was reused (section 4.1); otherwise the model is asked
+as usual. A plan reused the same way is named in that label too.
 `render_header` (code only) prints, upper case: `HEADER_TITLE`; `{proxy_flight} (ADS-B
 {callsign or NO CALLSIGN} {hex})`; for a REPLAY draft `REPLAY - RECONSTRUCTED FROM ARCHIVES
 {case_id} ({recorded_from as DD MON YYYY}) - NOT LIVE` when `replay_case.reconstructed`,
@@ -1503,7 +1606,10 @@ class Runtime:
     settings: Settings; store: Store; bus: EventBus; source: Source; llm: LlmBackend
     catalogue: VolcanoCatalogue; airports: AirportCatalogue; routes: RouteTable; policy: OperatorPolicy
     mode: RunMode; replay_case: ReplayCase | None; auto_replay: bool
+    ledger: QuotaLedger | None = None                             # create_runtime shares one with the Gemini backend; made when None
     policy_summary: PolicySummary; live: LiveData; lock: asyncio.Lock; tick_running: bool   # set by the runtime
+    worker: AiWorker                                              # tephra.ai_worker: the model work, off the tick
+    epoch: int                                                    # +1 at every picture reset (mode switch, replay loop)
     store_health: StoreHealth                                     # SystemState.store
     unsaved: set[tuple[Collection, str]]                          # feed records whose write failed
     situations; assessments; cones; exposed                      # the picture, by volcano id or flight id
@@ -1518,6 +1624,8 @@ class Runtime:
     @property
     def urgency_limits_min(self) -> tuple[int, int]              # (policy divert_within_min, hold_within_min)
     @property
+    def quota(self) -> QuotaLedger                               # the day's model-call counts (agents.quota)
+    @property
     def recorded_feeds(self) -> frozenset[FeedId] | None          # feeds the playing case holds; None when LIVE
     async def tick(self, *, reason: str = "scheduler") -> TickReport
     async def system_state(self) -> SystemState
@@ -1525,6 +1633,12 @@ class Runtime:
     async def switch_mode(self, mode: RunMode, *, auto: bool = False,
                           case: ReplayCase | None = None) -> None
     async def publish_budget(self) -> None                       # SSE `budget` (budget_view)
+    async def budget_view(self) -> BudgetView                    # counts per model, pacing, the AI worker's queue
+    def start_worker(self) -> None                               # create_runtime: the AI worker's loop (aclose stops it)
+    async def recorded_answer(self, kind: AnswerKind, subject: str, input_key: str,
+                              tier: Tier = "lite") -> RecordedAnswer | None   # REPLAY with a model only
+    async def keep_answer(self, kind: AnswerKind, subject: str, input_key: str,
+                          model_id: str, payload: dict[str, Any]) -> None
     def known_routes(self) -> dict[str, FlightRoute]             # hex -> RouteTable.lookup of each airline target (every publish)
     def route_layer(self, known: Mapping[str, FlightRoute]) -> dict[str, Any]   # WallSnapshot.routes: exposed flights only
     async def add_verified_notice(self, vona: Vona) -> None      # a verified pasted notice joins live.vonas and the store
@@ -1540,18 +1654,19 @@ class Runtime:
     async def run_recovery(self, at: datetime, report: TickReport) -> None   # queues RECOVER work when the closed airports change
     async def update_exposures(self, at: datetime, report: TickReport) -> None
     async def settle_drafts(self, at: datetime, report: TickReport) -> None  # draft retirement
-    async def run_exposures(self, at: datetime, report: TickReport) -> None  # an ADS-B pass: the two above around a Duty Officer dispatch
-    async def run_duty(self, at: datetime, report: TickReport, *,
-                       trigger: Literal["tick", "adsb"]) -> None  # dispatch_duty, skipped when the drafts cannot be read
+    async def run_exposures(self, at: datetime, report: TickReport) -> None  # an ADS-B pass: the two above, then worker.wake("adsb")
     async def open_drafts(self) -> list[Advisory]                # current mode; raises DeskUnreachable on a store error
     def store_ok(self) -> None; def store_failed(self, exc: Exception, *, calls: Literal["reads", "writes"] = "writes") -> None
     async def restore_replay_choice(self) -> None                # create_runtime: resume the replay playing before a restart
-    # what the Duty Officer's tools reach (tephra.duty._RuntimeExecutor):
-    async def assess_volcano(self, volcano_id: str, at: datetime, report: TickReport) -> dict[str, Any]
+    # what the Duty Officer's tools reach (tephra.duty._RuntimeExecutor); each takes `lock` only
+    # to read and to commit, never while a model works, and commits nothing after a reset (epoch):
+    async def assess_volcano(self, volcano_id: str, at: datetime, report: TickReport, *,
+                             epoch: int | None = None) -> dict[str, Any]
     async def plan_flight_now(self, flight_id: str, drafts: Sequence[Advisory], at: datetime,
-                              report: TickReport) -> dict[str, Any]
+                              report: TickReport, *, epoch: int | None = None) -> dict[str, Any]
     def plan_due(self, flight: ExposedFlight, drafts: Sequence[Advisory], at: datetime) -> int | None
-    def start_recovery(self, report: TickReport) -> dict[str, Any]
+    def start_recovery(self, report: TickReport) -> dict[str, Any]   # queues a recovery job in the AI worker
+    async def recover_queued(self, airports: Sequence[str]) -> None   # the AI worker's recovery job
     async def claim_writer(self) -> None                         # every tick but the startup one: write runtime/writer, end a retirement
     async def check_writer(self) -> bool                         # True when retired (reads runtime/writer)
     def end_streams(self) -> None                                # publish END_STREAMS: every open stream ends once
@@ -1561,8 +1676,24 @@ async def create_runtime(settings: Settings) -> Runtime     # loads the policy, 
 ```
 The scheduler also calls the runtime's step methods (`maybe_switch_mode`,
 `follow_replay_clock`, `refresh_active`, `analyse`, `update_exposures`, `run_recovery`,
-`run_duty`, `settle_drafts`, `publish`,
-`checkpoint`, ...); they are internal to core.
+`settle_drafts`, `publish`, `checkpoint`, ...) and ends every tick with `worker.wake("tick")`;
+they are internal to core.
+
+`tephra/ai_worker.py` (L6)
+```python
+MAX_ROUTINE_ITEMS = 3; RECOVERY_WORK_ID = "recover"
+class AiWorker:
+    paced: bool                                    # False only in the offline backtest
+    def queue(self) -> list[AiWork]                # queued, running and WAITING work, most urgent first
+    def wake(self, trigger: Literal["tick", "adsb"] = "tick") -> None
+    def enqueue_recovery(self, airports: Iterable[str]) -> None
+    def recovery_queued(self) -> bool
+    def clear(self) -> None                        # a picture reset drops the queued work
+    async def restore(self) -> None                # LIVE: the queue the last instance left (ai_work)
+    async def run(self) -> None                    # the loop: on a wake, at the next slot, at least every 60 s
+    async def work_once(self, report: TickReport) -> bool   # one pass; True when a job ran
+    async def drain(self) -> TickReport            # passes until nothing more runs (tests, backtest)
+```
 
 Core rules:
 - One tick at a time. A tick that finds another tick running returns
@@ -1602,14 +1733,55 @@ Core rules:
   `build_situation` (with the feed health) -> the plume gate (a read that matters is queued, the
   area held) -> `build_cone` -> `find_exposed` over every cone -> crew reports (`update_crew`:
   expiry audits, the crew picture and its flags; section 5.19) -> the recovery check (queues
-  RECOVER work) -> `tephra.duty.dispatch_duty` (the Duty Officer orders and delegates plume
-  reads, planning and drafting with reroutes, recovery and the SRA; section 5.18) -> draft
-  retirement -> publish (Wall sections, then `budget`) -> checkpoint. An extra ADS-B pass runs
-  exposure -> crew reports -> `dispatch_duty(trigger="adsb")` -> draft retirement. One volcano's failure keeps its previous picture and does not stop the others.
-  Exposure, crew reports, the recovery check, the Duty Officer's dispatch and draft retirement each run
+  RECOVER work) -> draft retirement -> publish (Wall sections, then `budget`) -> checkpoint ->
+  `worker.wake("tick")`. A tick makes no model call. An extra ADS-B pass runs exposure -> crew
+  reports -> draft retirement -> `worker.wake("adsb")`. One volcano's failure keeps its previous
+  picture and does not stop the others.
+  Exposure, crew reports, the recovery check and draft retirement each run
   guarded: one that raises becomes a note (`<step> failed this tick (<error type>)`) and an
   error trace line, and publish and checkpoint still run. The extra ADS-B passes are scheduled
   even when a tick raises.
+- AI worker (`tephra.ai_worker`). One background task per process (`create_runtime` starts it)
+  runs the scheduled model work off the tick, most urgent first. A pass takes `lock` to read the
+  open drafts and `tephra.duty.duty_worklist`, keeps the items not offered for `duty.rerun_min`,
+  and starts one job: an urgent Duty Officer run over every mandatory item (lane `urgent`, never
+  paced); else the more urgent of a routine Duty Officer run (lane `routine`: the most urgent
+  routine items whose estimated calls fit every model's routine pacing now, at most
+  `MAX_ROUTINE_ITEMS`, a plan only with or after its volcano's plume read, strictly in urgency
+  order) and a queued recovery job (lane `routine`, urgency 3). Duty Officer runs go one at a
+  time. A recovery job runs beside the worker (`Runtime.spawn`), so urgent runs still start
+  while it runs; no routine Duty Officer run starts until it ends. A routine job, once started,
+  runs with `use_lane("routine", admitted=True)`: its calls meet only the daily cap, so it is
+  never cut off part-way by pacing. Routine work that does not fit is WAITING with the time of
+  its next slot (`QuotaLedger.admission`), or with the reason when there is none (the budget
+  store cannot be read); it is not offered to the Duty Officer (waiting costs no call), not
+  dropped and never given to another model. Ask, voice, notices, messages, documents and a
+  Desk-started recovery call the models directly, beside the worker; each call is counted all
+  the same. A recovery job records the closed airports it planned for (the set of the moment,
+  not the queued one), so a change while it waited does not queue a second run. Every item a run was given is marked offered,
+  whatever came of it, so no pass repeats it. The queue (`AiWork`, section 5.5's `budget.py`) is
+  kept in `ai_work` (written when it changes, never by a retired instance) and restored after a
+  restart (LIVE; running work becomes QUEUED; a recovery job runs again on the picture of the
+  moment). The worker does nothing before the runtime's first tick, nor on a retired instance.
+  Model calls run outside `lock`: `assess_volcano` reads outside it and commits under it (a
+  reading whose inputs changed meanwhile is used only where `_holds_while_pending` allows, else
+  the read is queued again); `plan_flight_now` plans and drafts outside it and commits under it
+  only while the flight is in the same cone of the same picture (`epoch`), else the result is
+  traced and dropped and the flight is due again. The worker publishes the Wall after each
+  delegation and `budget` after each job.
+- Replay answers (`tephra.replay.answers`). In REPLAY with a model, a plume read, a plan, a draft
+  and a Duty Officer run that passed the code's checks are kept in `replay_answers`, keyed by
+  case, build (`TEPHRA_BUILD_SHA`), job (`assess`/volcano, `plan` and `draft`/flight and urgency,
+  `duty`), question and model id. The question is the situation's `input_hash` for a plume read
+  and the prompt hash of what the model was given for the others (`planner_prompt_hash`,
+  `drafter_prompt_hash`, the Duty Officer's instructions, digest and work list), so a loop whose
+  flight has moved on or whose digest changed (the budget lines too) asks the model again.
+  A later loop of the recording gets that answer instead of asking again, labelled
+  `recorded_answer = "AI answer recorded on this replay's first pass at HHMMZ real time"` on
+  the `PlumeAssessment` (and its `SatelliteReading`, shown on the Wall's satellite card),
+  `PlannedAction`, `Advisory` and `DutyRun`; a plan, draft or brief is checked again against the
+  input of the moment and the model is asked when it no longer passes. LIVE never reads them,
+  and an answer is never used for another question.
 - Store errors. The open drafts are read with documents that no longer validate skipped and
   logged. When they cannot be read (`DeskUnreachable`), the Duty Officer's dispatch and draft
   retirement are skipped for the tick (an unread list is never taken as empty, which would
@@ -1631,12 +1803,12 @@ Core rules:
   work item for the Duty Officer) and, until it is dispatched, the cone is built on the last
   reading when it is within its horizon and its mode fits the official products now
   (`_holds_while_pending`), else on a `PENDING` assessment (official products only, never
-  reused as current). The Duty Officer's `assess_volcanoes` then runs `read_plume(...,
-  call_model=True)`, rebuilds the cone and that volcano's exposure. Otherwise a PLUME trace line is written (`"<volcano>: no CAUTION or WARNING
+  reused as current). The Duty Officer's `assess_volcanoes` (in the AI worker) then runs
+  `read_plume(..., call_model=True)`, rebuilds the cone and that volcano's exposure. Otherwise a PLUME trace line is written (`"<volcano>: no CAUTION or WARNING
   discrepancy, no HYPOTHESIS case and no airline aircraft seen within <adsb_radius_nm> NM;
   cone from official products only"`) and `read_plume` runs with `call_model=False`
   (OFFICIAL_ONLY). This keeps TEPHRA near the ~20 calls/day free tier of 3.8 Flash; the
-  per-tier daily budget in `agents/llm` is the hard stop.
+  model's daily budget in `agents/quota` is the hard stop.
 - Satellite Reader gate. Within a dispatched plume read, just before `read_plume` is called with `call_model=True` for a volcano,
   `Runtime._with_satellite` reads the newest Dust RGB and B13 frames (from the store's blobs) with
   `read_satellite` unless `is_current(held reading, frames)` says the last reading was made from
@@ -1661,13 +1833,14 @@ Core rules:
   the cones and the official layers) and compares the set of closed ICAOs with the last one
   (kept in the bookkeeping as `closed_airports`). A change to a non-empty set is queued as
   `Runtime.recovery_due` (a RECOVER work item); when the Duty Officer dispatches it,
-  `start_recovery` records the set and starts one `recommend_recovery` run in the background
-  (`spawn`, under the recovery lock that the Desk's run button shares; a Desk run in progress
-  covers the change), and `submit_plan` stores the draft and publishes SSE `recovery`. A change
+  `start_recovery` queues a recovery job in the AI worker, which runs one `recommend_recovery`
+  on the closures of the moment (`recover_queued`, under the recovery lock that the Desk's run
+  button shares; a Desk run in progress or a queued job covers the change), and `submit_plan`
+  stores the draft and publishes SSE `recovery`. A change
   to the empty set is recorded and makes no plan. A deferred recovery stays queued and is
   offered again after `duty.rerun_min`. `TEPHRA_RECOVERY_AUTO=false` turns it off. The schedule is read once a day.
-- Budget. `publish` and the satellite and recovery steps publish SSE `budget`
-  (`agents.budget.budget_view`, read from the budget file the Gemini backend keeps); `GET
+- Budget. `publish`, the AI worker and the satellite and recovery steps publish SSE `budget`
+  (`Runtime.budget_view`: the ledger's counts per model and the worker's queue); `GET
   /api/budget` serves the same.
 - Plume Reader images: the stored frame PNGs and the BTD PNG. Frames with product
   `TRUE_COLOR` (NICT, fetched only with `TEPHRA_NICT_FRAMES=true`) are never sent to the
@@ -2058,10 +2231,12 @@ level, ICAO code, callsign, time and id in `answer` and `claims` to appear in a 
 rejects "is safe" phrasing, allows one repair turn, then `AskFailure`. No dispatcher name is in a
 tool result. The stub answers with a labelled count of exposed flights.
 `tephra/agents/voice.py`: `transcribe(llm, audio, mime_type) -> Transcript` (one lite call with
-an audio part), `speak(text, language, *, llm, model, client_factory, timeout_s) -> bytes`
-(Gemini TTS, 24 kHz 16-bit PCM wrapped in a WAV header), `make_tts_client(settings)`,
-`SpeechCache`, `MAX_AUDIO_BYTES = 1 MiB`. Both raise `AiUnavailable`; the stub has neither a
-transcript nor audio. `tephra/agents/budget.py`: `budget_view(settings, llm) -> BudgetView`.
+an audio part), `speak(text, language, *, llm, client_factory, timeout_s) -> bytes`
+(Gemini TTS on the backend's `tts` tier, 24 kHz 16-bit PCM wrapped in a WAV header),
+`make_tts_client(settings)`, `SpeechCache`, `MAX_AUDIO_BYTES = 1 MiB`. Both raise
+`AiUnavailable`; the stub has neither a transcript nor audio. `speak` reserves and paces the
+speech model's own budget (speech has its own free-tier pool) and a per-day 429 closes only the
+speech model, never the lite model. `GET /api/budget` is `Runtime.budget_view()` (section 5.5).
 
 ### 5.13 notices (JMA XML, Notice Reader, Satellite Reader)
 
@@ -2245,8 +2420,9 @@ of three cases); `GET /api/backtest` serves it.
 
 ```python
 # tephra/agents/adk_runtime.py: what every ADK agent shares
-class ModelGuard:            # before_model_callback: takes each turn from the lite budget, caps turns;
-    def __init__(self, llm: LlmBackend, *, max_turns: int) -> None   # on_model_error closes the tier on a per-day 429
+class ModelGuard:            # before_model_callback: reserves and paces each turn on the tier's model, caps turns;
+    def __init__(self, llm: LlmBackend, *, max_turns: int, tier: Tier = "lite") -> None   # async on_model_error closes that model on a per-day 429
+def request_tokens(llm_request) -> int             # estimated input tokens of a turn (tokens-a-minute pacing)
 def stop_response(reason: str) -> LlmResponse      # an answer with no function call, which ends the run
 def tool_record(name, args, result) -> ToolCallRecord ; def summarise(result, limit=240) -> str
 DAILY_QUOTA_SPENT, BUDGET_EXHAUSTED
@@ -2260,13 +2436,18 @@ class DutyExecutor(Protocol):        # what the tools act on; tephra.duty implem
 @dataclass class DutyToolkit         # the work list as the run goes: pending, done, replaced, deferred
 async def run_duty_officer(worklist, executor, llm, *, digest: str, settings: Settings,
                            trigger: Literal["tick", "adsb"], replay: bool,
-                           trace: TraceSink | None = None) -> DutyRun
+                           trace: TraceSink | None = None,
+                           recall: Callable[[str], Awaitable[RecordedDuty | None]] | None = None) -> DutyRun
+                           # recall(prompt hash): a replay's first-pass run given the same question
+class RecordedDuty(NamedTuple):      # run: DutyRun (a replay's first pass given the same question), label
 def build_duty_agent(model, toolkit, *, before_model_callback=None, on_model_error_callback=None) -> LlmAgent
 def validate_brief(brief: DutyBrief, toolkit: DutyToolkit) -> list[str]
 
 # tephra/duty.py
-async def dispatch_duty(runtime, at, report, *, trigger) -> DutyRun | None
+class DeskUnreachable(Exception)     # the open drafts could not be read
+async def dispatch_duty(runtime, worklist, drafts, at, report, *, trigger, epoch, waiting=0) -> DutyRun
 def duty_worklist(runtime, at, drafts_by_flight) -> list[DutyItem]
+async def drafts_by_flight(runtime) -> dict[str, list[Advisory]]
 ```
 
 The work list (code, `duty_worklist`, most urgent first):
@@ -2278,9 +2459,15 @@ The work list (code, `duty_worklist`, most urgent first):
 | RECOVER | `Runtime.recovery_due` (closed airports changed) | never | `stable_id("DI", RECOVER, *airports)` |
 | SRA | a region (by `Region.bbox`) carries exposed flights and has had no SRA dispatched today | never | `stable_id("DI", SRA, region, date)` |
 
-`dispatch_duty` runs the Duty Officer only when an item has not been offered for
-`duty.rerun_min` (5 min), with a digest per active volcano (area label, discrepancies by
-severity, exposed and inside counts), the work count and the day's budget per tier.
+The AI worker (section 5.7) calls `dispatch_duty` with the items it admitted (those not offered
+for `duty.rerun_min`, 5 min, that their lane allows now), inside `use_lane("urgent")` for a run
+of mandatory items or `use_lane("routine", admitted=True)`, with a digest per active volcano
+(area label, discrepancies by severity, exposed and inside counts), the work count, the number
+of routine items waiting for budget and the day's budget per model. A replay's first-pass run
+given the same question (the same prompt hash: instructions, digest and work list) is replayed
+instead (`RecordedDuty`): its delegations and deferrals in
+its order, then its brief through `validate_brief`; a brief that no longer passes is finished by
+the model. A run that ends after a picture reset (`epoch`) changes nothing.
 
 The agent (`AGENT_NAME = "tephra_duty_officer"`, lite tier, at most 12 model turns,
 `duty_run_timeout_s` per run) has six tools:
@@ -2289,7 +2476,7 @@ The agent (`AGENT_NAME = "tephra_duty_officer"`, lite tier, at most 12 model tur
 |---|---|---|
 | `assess_volcanoes(volcano_ids)` | `Runtime.assess_volcano`: Satellite Reader, Plume Reader, `build_cone`, the volcano's exposure | only volcanoes with an ASSESS item; returns the PLAN items the new cone made due (an older item for the same flight is replaced, not left undone) |
 | `plan_flights(flight_ids)` | `Runtime.plan_flight_now`: reroutes, Exposure Planner, Dispatch Drafter, the Desk | only flights with a PLAN item; refused while the flight's volcano has an ASSESS item; results are the draft or the AI failure |
-| `run_recovery()` | `Runtime.start_recovery`: the recovery agent in the background | only with a RECOVER item |
+| `run_recovery()` | `Runtime.start_recovery`: a recovery job queued in the AI worker | only with a RECOVER item |
 | `draft_sra(region)` | `regdocs.sra.draft_sra` | only with an SRA item; marked done for the day even when it fails |
 | `defer(item_ids, reason)` | nothing | mandatory items and items with no reason are refused |
 | `submit_brief(summary, priority_item_ids, priority_reasons, watch)` | the brief | `validate_brief`: summary 500 chars, reasons 160, at most 4 watch lines of 160; known item ids, each once; no clock times; every number and RFA flight must appear in the digest, the work list or a tool result |
@@ -2302,7 +2489,7 @@ delegations stand. Then `_hold_the_line`: each undone mandatory PLAN item become
 DID NOT DISPATCH THIS FLIGHT`) on the Desk; an undone mandatory ASSESS item writes an error trace
 line and an `AI_FAILED` audit entry (the area stays at the official products). The run is stored
 in `duty`, kept as `Runtime.duty` (restored on restart), published as SSE `duty`, and counted in
-`TickReport.duty_runs`. Trace lines use stage `DUTY`. With `TEPHRA_LLM=stub` the run dispatches
+the AI worker's `TickReport.duty_runs`. Trace lines use stage `DUTY`. With `TEPHRA_LLM=stub` the run dispatches
 everything, plume reads first, most urgent first, and briefs `NO MODEL: ...` (outcome `STUB`).
 
 ### 5.19 crew (crew reports of ash)
@@ -2421,10 +2608,10 @@ Rules:
 
 | Step | Backend | Model | When it runs |
 |---|---|---|---|
-| Duty Officer | ADK `LlmAgent` + delegation tools | `TEPHRA_MODEL_LITE` | when the work list holds an item not offered for `duty.rerun_min` (5 min); every model turn counts (at most 12 a run, one repair turn); its delegations spend their own specialists' calls |
-| Plume Reader | google-genai, structured output | `TEPHRA_MODEL` (gemini-3.8-flash) | only when a volcano's texts or BTD indicator change (or an unchanged input's assessment is older than `max(horizon_h, 3 h)`) and the quota gate (5.7) says the call matters; at most one repair; budget `TEPHRA_MODEL_DAILY_BUDGET` (18) |
+| Duty Officer | ADK `LlmAgent` + delegation tools | `TEPHRA_MODEL_LITE` | in the AI worker, off the tick, when the work list holds an item not offered for `duty.rerun_min` (5 min) that its lane admits (urgent: always; routine: when it fits the pacing); every model turn counts (at most 12 a run, one repair turn); its delegations spend their own specialists' calls |
+| Plume Reader | google-genai, structured output | `TEPHRA_MODEL` (gemini-3.8-flash) | only when a volcano's texts or BTD indicator change (or an unchanged input's assessment is older than `max(horizon_h, 3 h)`) and the quota gate (5.7) says the call matters; at most one repair; budget 20 less the margin (18) |
 | Satellite Reader | google-genai, structured output, images | `TEPHRA_MODEL_LITE` | only within a plume read the Duty Officer dispatched for that volcano and the newest frame is not the one the last reading used; at most one repair |
-| Exposure Planner | ADK `LlmAgent` + FunctionTools | `TEPHRA_MODEL_LITE` (gemini-3.5-flash-lite) | once per exposed flight per cone and urgency bucket; every model turn counts (at most 10 per plan); budget `TEPHRA_MODEL_LITE_DAILY_BUDGET` (450), shared by every lite step |
+| Exposure Planner | ADK `LlmAgent` + FunctionTools | `TEPHRA_MODEL_LITE` (gemini-3.5-flash-lite) | once per exposed flight per cone and urgency bucket; every model turn counts (at most 10 per plan); budget 500 less the margin (450), shared by every step on that model |
 | Dispatch Drafter | google-genai, structured output | `TEPHRA_MODEL_LITE` | once per new plan, plus at most one repair |
 | Recovery agent | ADK `LlmAgent` + FunctionTools around CP-SAT | `TEPHRA_MODEL_LITE` | once when the set of closed RFA airports changes (`TEPHRA_RECOVERY_AUTO`), or when a dispatcher presses run; one at a time |
 | Messages | google-genai, structured output | `TEPHRA_MODEL_LITE` | on demand: one call per group of messages sharing kind, status, jurisdiction and languages, plus at most one repair each |
@@ -2433,24 +2620,31 @@ Rules:
 | Notice Reader | google-genai, structured output | `TEPHRA_MODEL_LITE` | on demand, once per distinct pasted text (a repeat is answered from the store), plus at most one repair |
 | Ask TEPHRA | ADK `LlmAgent` + read-only tools | `TEPHRA_MODEL_LITE` | on demand: up to about four calls a question (6 tool calls, one repair turn) |
 | Voice in | google-genai, structured output, audio part | `TEPHRA_MODEL_LITE` | on demand: one call per recording of at most 1 MiB |
-| Voice out | google-genai text-to-speech | `TEPHRA_MODEL_TTS` (gemini-3.8-flash-lite-tts) | on demand: one call per answer, cached for the process |
+| Voice out | google-genai text-to-speech | `TEPHRA_MODEL_TTS` (gemini-3.8-flash-lite-tts) | on demand: one call per answer, cached for the process; its own budget (10 less the margin, 9) |
 | Backtest report | google-genai, structured output | `TEPHRA_MODEL_LITE` | by hand (`scripts/backtest.py --report`), one call, at most one repair |
 
-Every request is also paced per model to the free tier's per-minute limit
-(`TEPHRA_MODEL_RPM`, 5; `TEPHRA_MODEL_LITE_RPM`, 14, under Google's 15): `GeminiBackend.pace`
-waits on a `RatePacer` (no more than that many sends in any 60 s) before each attempt, and the
-ADK `ModelGuard` awaits it before each agent turn, so a Duty Officer run that plans several
-flights waits for its slots instead of earning 429s. A per-minute 429 that still comes back is
-retried after the `retryDelay` Google names (capped at 60 s); a per-day 429 closes the tier.
+Every request is also paced per model to the free tier's per-minute limits less the margin
+(`Settings.paced_rpm`: 4 for 3.8 Flash, 13 for Flash-Lite; tokens a minute too where Google sets
+one): `GeminiBackend.pace` waits on the model's `RatePacer` before each attempt, and the ADK
+`ModelGuard` awaits it before each agent turn, so a Duty Officer run that plans several flights
+waits for its slots instead of earning 429s. A per-minute 429 that still comes back is retried
+after the `retryDelay` Google names (capped at 60 s); a per-day 429 closes that model only.
 
-Gemini 3 models run at temperature 1.0 (`temperature_for`). Budgets are counted per Google
-quota day (midnight to midnight Pacific) and kept on disk across restarts (section 5.5).
-Free-tier limits are reported, not published (research/06): about 20 requests/day for 3.8
-Flash and 500 for 3.5 Flash-Lite. Over budget, or after a per-day 429, **every step stops and
-says `AI UNAVAILABLE`**; nothing falls back to code. The Plume Reader's failure leaves the cone on
+Gemini 3 models run at temperature 1.0 (`temperature_for`). Budgets are counted per model id
+and Google quota day (midnight to midnight Pacific) in the store (`ai_budget`), every HTTP
+attempt before it is sent, retries included, so instance replacement and redeploys do not reset
+them (section 5.5). Each budget is split into urgent (30%, never paced), interactive (20%, the
+Desk) and routine work (paced through the day); routine work the pacing does not admit waits in
+the AI worker's queue with its next slot, shown on the Wall and the Desk, and is never moved to
+another model. Once a routine job starts, pacing no longer applies to it: it finishes within
+the daily cap. In REPLAY, a loop of the recording reuses the first pass's answers to exactly
+the same questions (section 5.7) instead of asking again. Free-tier limits are reported, not published
+(research/06): about 20 requests/day for 3.8 Flash and 500 for 3.5 Flash-Lite. Over budget, or
+after a per-day 429, **every step stops and says `AI UNAVAILABLE`**; nothing falls back to code. The Plume Reader's failure leaves the cone on
 the official products alone (binding), the planner's and drafter's failures put the flight on the
 Desk for a dispatcher (`AiFailure`), and every other step answers HTTP 503 `ai_unavailable`.
-`GET /api/budget` and the SSE `budget` event show the day's counts. With `TEPHRA_LLM=stub` no
+`GET /api/budget` and the SSE `budget` event show the day's counts per model, the pacing state
+and the work waiting. With `TEPHRA_LLM=stub` no
 call is made and every step but voice has a deterministic answer labelled NO MODEL.
 
 Usage is logged as structured `json_fields` (`event="gemini_call"`, section 5.5): every
@@ -2472,7 +2666,7 @@ metrics.
 | `cones` | volcano_id | latest `HazardCone` | core (on change) |
 | `plans` | plan id | `PlannedAction` | core |
 | `ai_failures` | failure id | `AiFailure` (a flight with no plan or draft; handled by hand) | core (`desk.failures`) |
-| `duty` | run id | `DutyRun` | duty (`tephra.duty.dispatch_duty`) |
+| `duty` | run id | `DutyRun` | duty (`tephra.duty.dispatch_duty`, run by the AI worker) |
 | `crew_reports` | `CR-<12 hex>` | `CrewReport` (both modes; withdrawn and expired ones kept) | crew (`tephra.desk.crew_reports`, through `Runtime.enter_crew_report`, `withdraw_crew_report`, `update_crew`) |
 | `reroutes` | `RerouteOption` id | `RerouteOption` (every option of a planned flight) | core |
 | `sat_readings` | reading id (`SAT-...`) | `SatelliteReading` | core |
@@ -2488,6 +2682,9 @@ metrics.
 | `feed_state` | FeedId value | `FeedHealth` | core (throttled; when status, error or record count changes, not for `age_s`, `last_attempt_at` or `last_success_at` alone, so a restored `last_success_at` may be older than the true one) |
 | `runtime` | `writer` | `{revision, instance, at}`: the instance that ticked last (the writer fence, section 5.7) | core (every tick) |
 | `runtime` | `state` | core bookkeeping: `mode`, `auto_replay`, `case_id` (read at startup to resume a replay), `quiet_ticks`, `planned` (`{flight_id: [cone_id, urgency]}`), `closed_airports`, `assessment_ids` (read back after a LIVE restart), `saved_at` | core (first at every checkpoint, and at every mode switch) |
+| `ai_budget` | `<quota day>/<model id>` | `ModelDay`: that model's calls per lane on that Google quota day, and whether Google closed it | `agents.quota` (one transaction per HTTP attempt, before it is sent) |
+| `ai_work` | work id (a Duty item id, or `recover`) | `AiWork`: AI work queued, running or WAITING for budget with its next slot | core (`tephra.ai_worker`, on change; restored after a LIVE restart) |
+| `replay_answers` | 32 hex (hash of case, build, job, subject, input, model) | `RecordedAnswer`: a model's answer on a replay's first pass, reused by later loops for the same input | core (`tephra.replay.answers`, REPLAY only; the first one kept) |
 | blobs | `frames/*.png`, `btd/*.png` | PNG bytes | core |
 
 Documents are strict JSON (`tephra.store.encode_doc`): NaN and infinities are stored as null.
@@ -2559,7 +2756,7 @@ The headers above are unchanged by compression.
 | `GET /api/routes/{origin_icao}/{dest_icao}` | FeatureCollection (`RouteFeatureProps`, `routes.route_features`): the great circle between two airports and a Point at each end, for the route of a flight picked on the Wall that is not in `WallSnapshot.routes` (the line's id is the pair in alphabetical order, whichever order is asked). Which airports a flight flies between comes only from `AircraftFeatureProps`; this answer depends only on the two positions, so it is sent with `Cache-Control: public, max-age=86400`. 404 `not_found` for a code that is not 4 capitals or digits, the same airport twice, or an airport with no known position |
 | `GET /api/blobs/{key}` | PNG bytes; `key` must match `BLOB_KEY_PATTERN` (else 404); `Cache-Control: public, max-age=86400, immutable` |
 | `GET /api/duty?limit=10` | `DutyRunList` `{runs: [DutyRun]}`, current mode, newest first (`limit` 1 to 20) |
-| `GET /api/budget` | `BudgetView` `{backend, as_of, tiers: [{tier, model_id, used, limit, remaining}], note}` |
+| `GET /api/budget` | `BudgetView` `{backend, as_of, quota_day, resets_at, models: [{model_id, jobs, used, limit, free_limit, remaining, closed, lanes: [{lane, words, used, share}], routine_allowed_now, next_routine_slot, pacing}], tiers: [{tier, model_id, used, limit, remaining}], waiting: [AiWork], note}` |
 | `GET /api/notices?limit=` | `{notices: [NoticeReading]}`, current mode, newest first; includes the JMA volcano reports of the live picture (`JMA-` VONA records) as `source_kind "jma_xml"`, language `ja`, verified, no model |
 | `GET /api/recovery?limit=` | `{plans: [RecoveryPlan]}`, current mode, newest first |
 | `GET /api/docs?kind=&limit=` and `GET /api/docs/{DOC-id}` | `{docs: [DocSummary]}`; `SraDraft`, `VarDraft` or `CrewMessageDraft` |

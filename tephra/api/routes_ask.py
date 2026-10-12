@@ -17,17 +17,17 @@ from pydantic import Field
 
 from tephra.agents import ask, voice
 from tephra.agents.ask import AiUnavailable, AskAnswer, AskFailure
-from tephra.agents.budget import BudgetView, budget_view
+from tephra.agents.budget import BudgetView
 from tephra.agents.voice import MAX_AUDIO_BYTES, SpeechCache, Transcript
 from tephra.api import ApiError
 from tephra.api.auth import require_csrf
 from tephra.api.server import DeskSession, RuntimeDep, _actor, _json
 from tephra.config import Settings
-from tephra.models import ErrorBody, SseEvent, TephraModel, TraceEvent
+from tephra.models import ErrorBody, TephraModel, TraceEvent
 from tephra.pipeline import Runtime
 from tephra.store.base import Collection
 
-__all__ = ["BudgetView", "budget_view", "router"]
+__all__ = ["BudgetView", "router"]
 
 router = APIRouter()
 
@@ -91,7 +91,7 @@ async def _answer(
 
 
 async def _publish_budget(runtime: Runtime) -> None:
-    runtime.bus.publish(SseEvent.BUDGET, await budget_view(runtime.settings, runtime.llm))
+    await runtime.publish_budget()
 
 
 @router.post("/desk/ask", response_model=AskAnswer, dependencies=[Depends(require_csrf)])
@@ -143,7 +143,6 @@ async def desk_ask_speak(
                 answer.answer,
                 answer.language,
                 llm=runtime.llm,
-                model=runtime.settings.model_tts,
                 client_factory=lambda: _tts_client(request, runtime.settings),
                 timeout_s=runtime.settings.llm_timeout_s,
             )
@@ -157,7 +156,7 @@ async def desk_ask_speak(
 
 @router.get("/budget", response_model=BudgetView)
 async def get_budget(runtime: RuntimeDep) -> Response:
-    return _json(await budget_view(runtime.settings, runtime.llm))
+    return _json(await runtime.budget_view())
 
 
 def _speech_cache(request: Request) -> SpeechCache:

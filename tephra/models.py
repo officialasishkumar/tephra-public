@@ -1019,6 +1019,12 @@ class PlumeAssessment(TephraModel):
     output_tokens: int | None = Field(
         default=None, description="Sum over the model calls that reported usage; None if none did"
     )
+    recorded_answer: str | None = Field(
+        default=None,
+        description="Set when a REPLAY loop reused the same model's answer to the same question "
+        "from the replay's first pass: 'AI answer recorded on this replay's first pass at HHMMZ "
+        "real time'",
+    )
 
 
 # --- cone -------------------------------------------------------------------------------
@@ -1505,6 +1511,12 @@ class PlannedAction(TephraModel):
     output_tokens: int | None = Field(
         default=None, description="Sum over the model calls that reported usage; None if none did"
     )
+    recorded_answer: str | None = Field(
+        default=None,
+        description="Set when a REPLAY loop reused the same model's answer to the same question "
+        "from the replay's first pass: 'AI answer recorded on this replay's first pass at HHMMZ "
+        "real time'",
+    )
 
 
 # --- drafting, desk, outbound -----------------------------------------------------------
@@ -1584,6 +1596,12 @@ class Advisory(TephraModel):
     model_id: str
     prompt_hashes: dict[str, str] = Field(description="Keys: plume_reader, planner, drafter")
     validation_notes: list[str] = Field(default_factory=list)
+    recorded_answer: str | None = Field(
+        default=None,
+        description="Set when a REPLAY loop reused the same model's plan or draft for the same "
+        "question from the replay's first pass; says which ('Plan and draft: AI answer recorded "
+        "on this replay's first pass at HHMMZ real time', 'Plan: ...', 'Draft: ...')",
+    )
     dedupe_key: str = Field(description="stable_id('DD', hex, volcano_id, action, target)")
 
     @computed_field  # type: ignore[prop-decorator]
@@ -1670,6 +1688,12 @@ class DutyRun(TephraModel):
     validation_errors: list[str] = Field(default_factory=list)
     undispatched: list[str] = Field(
         default_factory=list, description="Mandatory item ids left undone; each went to the Desk"
+    )
+    recorded_answer: str | None = Field(
+        default=None,
+        description="Set when a REPLAY loop reused the same model's answer to the same question "
+        "from the replay's first pass: 'AI answer recorded on this replay's first pass at HHMMZ "
+        "real time'",
     )
 
     def dispatched_ids(self) -> set[str]:

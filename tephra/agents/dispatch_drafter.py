@@ -11,11 +11,11 @@ import json
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, NamedTuple
 from uuid import uuid4
 
 from tephra.agents.exposure_planner import band_text, flight_summary, present_fl
-from tephra.agents.llm import LlmBackend, LlmCall, LlmPart
+from tephra.agents.llm import LlmBackend, LlmCall, LlmPart, prompt_hash
 from tephra.agents.validators import (
     ACTION_WORDS,
     COST_NOTE_MAX_CHARS,
@@ -277,6 +277,29 @@ def _template_cost_note(plan: PlannedAction) -> str:
 # --- drafting ---------------------------------------------------------------------------
 
 
+class RecordedDraft(NamedTuple):
+    """The first pass's draft for the same question, on a REPLAY loop."""
+
+    draft: DraftText
+    model_id: str
+    prompt_hash: str
+    """The hash of the call that wrote it (a repair call's, when it was repaired)"""
+    question_hash: str
+    """:func:`drafter_prompt_hash` of the question it answered"""
+    label: str
+
+
+def drafter_prompt_hash(ctx: PlannerContext, plan: PlannedAction) -> str:
+    """The hash of the drafter's first question for this flight and plan: its instructions
+    and the facts it may use. A REPLAY loop reuses a recorded draft only for exactly this
+    question."""
+    return prompt_hash(PROMPT_PATH.read_text(encoding="utf-8"), _draft_parts(ctx, plan))
+
+
+def _draft_parts(ctx: PlannerContext, plan: PlannedAction) -> list[LlmPart]:
+    return [_text_part(json.dumps(_facts(ctx, plan), indent=1), "facts")]
+
+
 async def draft_advisory(
     *,
     situation: Situation,
@@ -290,20 +313,41 @@ async def draft_advisory(
     trace: TraceSink | None = None,
     feed_health: Mapping[FeedId, FeedHealth] | None = None,
     replay_case: ReplayCase | None = None,
+    recorded: RecordedDraft | None = None,
 ) -> Advisory | AiFailure:
     """``policy`` is stamped on the advisory (id, version and short content hash) so every
     decision on it records the operator policy it was drafted under. ``feed_health`` adds an
     OFFICIAL PICTURE INCOMPLETE line for a degraded SIGMET or VAAC feed; ``replay_case``
-    names the case on a REPLAY draft."""
+    names the case on a REPLAY draft. ``recorded`` (REPLAY only) is the first pass's draft
+    for the same question (:func:`drafter_prompt_hash`): used, labelled, when it passes the
+    checks now; otherwise the model is asked as usual."""
     if plan.decision is None:
         raise ValueError(f"plan {plan.id} has no decision to draft")
     if replay_case is not None and not _replay(situation):
         raise ValueError(f"replay case {replay_case.case_id} given for a LIVE situation")
     system = PROMPT_PATH.read_text(encoding="utf-8")
-    parts = [_text_part(json.dumps(_facts(ctx, plan), indent=1), "facts")]
-    draft, call = await _ask(llm, system, parts, ctx, plan)
-    drafter_prompt_hash = call.prompt_hash
-    problems = _problems(draft, call, ctx, plan)
+    parts = _draft_parts(ctx, plan)
+    reused = (
+        recorded
+        if recorded is not None
+        and recorded.question_hash == prompt_hash(system, parts)
+        and not _recorded_problems(recorded, ctx, plan, trace)
+        else None
+    )
+    if reused is not None:
+        draft: DraftText | None = reused.draft
+        call = LlmCall(
+            backend="gemini",
+            model_id=reused.model_id,
+            prompt_hash=reused.prompt_hash,
+            raw_text=reused.draft.model_dump_json(),
+            cached=True,
+        )
+        problems: list[str] = []
+    else:
+        draft, call = await _ask(llm, system, parts, ctx, plan)
+        problems = _problems(draft, call, ctx, plan)
+    drafter_hash = call.prompt_hash
     # The model answered (even unreadably): one repair. No answer at all (budget, API
     # error) is a failure straight away.
     answered = draft is not None or bool(call.raw_text)
@@ -320,7 +364,7 @@ async def draft_advisory(
         draft, call = await _ask(llm, system, [*parts, repair], ctx, plan)
         problems = _problems(draft, call, ctx, plan)
 
-    backend: LlmBackendName = llm.name
+    backend: LlmBackendName = "gemini" if reused is not None else llm.name
     model_id = call.model_id
     if draft is None or problems:
         reason = _failure_reason(draft, call, problems)
@@ -340,7 +384,8 @@ async def draft_advisory(
             replay=_replay(situation),
             plan_id=plan.id,
         )
-    _emit(trace, ctx, _actor(backend), _draft_line(plan, backend))
+    line = _draft_line(plan, backend)
+    _emit(trace, ctx, _actor(backend), f"{line} ({reused.label})" if reused else line)
 
     created = timeutil.now()
     sources = select_sources(situation, ctx.flight)
@@ -377,9 +422,39 @@ async def draft_advisory(
         prompt_hashes={
             "plume_reader": assessment.prompt_hash,
             "planner": plan.prompt_hash,
-            "drafter": drafter_prompt_hash,
+            "drafter": drafter_hash,
         },
+        recorded_answer=_recorded_words(
+            plan.recorded_answer, reused.label if reused is not None else None
+        ),
     )
+
+
+def _recorded_words(plan_label: str | None, draft_label: str | None) -> str | None:
+    """Which part of the advisory a REPLAY loop reused from its first pass, if any."""
+    if plan_label is not None and draft_label is not None:
+        return f"Plan and draft: {draft_label}"
+    if plan_label is not None:
+        return f"Plan: {plan_label}; the draft was written by the model now"
+    if draft_label is not None:
+        return f"Draft: {draft_label}; the plan was made by the model now"
+    return None
+
+
+def _recorded_problems(
+    recorded: RecordedDraft, ctx: PlannerContext, plan: PlannedAction, trace: TraceSink | None
+) -> list[str]:
+    problems = validate_draft(recorded.draft, ctx=ctx, plan=plan)
+    if problems:
+        _emit(
+            trace,
+            ctx,
+            "code",
+            "Recorded draft from the replay's first pass no longer fits; asking the model",
+            level="warn",
+            detail={"problems": problems},
+        )
+    return problems
 
 
 async def _ask(
@@ -464,6 +539,7 @@ def _advisory(
     backend: LlmBackendName,
     model_id: str,
     prompt_hashes: dict[str, str],
+    recorded_answer: str | None,
 ) -> Advisory:
     flight = ctx.flight
     decision = plan.decision
@@ -509,6 +585,7 @@ def _advisory(
         llm_backend=backend,
         model_id=model_id,
         prompt_hashes=prompt_hashes,
+        recorded_answer=recorded_answer,
         validation_notes=[],
         dedupe_key=stable_id(
             "DD",

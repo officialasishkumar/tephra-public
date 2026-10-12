@@ -30,11 +30,22 @@ from typing import Any, Final, Literal, NamedTuple
 from pydantic import BaseModel, ValidationError
 from pydantic.main import IncEx
 
-from tephra.agents.budget import budget_view
-from tephra.agents.dispatch_drafter import ai_failure, draft_advisory
-from tephra.agents.exposure_planner import build_planner_context, plan_flight
-from tephra.agents.llm import LlmBackend, LlmPart, get_llm
+from tephra.agents.budget import BudgetView, budget_view
+from tephra.agents.dispatch_drafter import (
+    RecordedDraft,
+    ai_failure,
+    draft_advisory,
+    drafter_prompt_hash,
+)
+from tephra.agents.exposure_planner import (
+    build_planner_context,
+    plan_flight,
+    plan_from_record,
+    planner_prompt_hash,
+)
+from tephra.agents.llm import LlmBackend, LlmPart, Tier, get_llm
 from tephra.agents.plume_reader import read_plume
+from tephra.agents.quota import QuotaLedger
 from tephra.agents.satellite_reader import (
     SatelliteReading,
     is_current,
@@ -42,6 +53,7 @@ from tephra.agents.satellite_reader import (
     read_satellite,
     select_frames,
 )
+from tephra.ai_worker import AiWorker
 from tephra.config import (
     AIRLINE_CODE,
     AIRLINE_NAME,
@@ -54,7 +66,7 @@ from tephra.desk import audit, crew_reports
 from tephra.desk.approvals import SYSTEM_ACTOR, submit_draft, supersede
 from tephra.desk.crew_reports import CheckedEntry, CrewEntry, FixHistory, FixLookup
 from tephra.desk.failures import record_failure
-from tephra.duty import dispatch_duty
+from tephra.duty import DeskUnreachable
 from tephra.feeds.adsb import merge_aircraft
 from tephra.feeds.airports import AirportCatalogue, load_airports
 from tephra.feeds.base import FetchError, HttpSource, Source
@@ -92,6 +104,7 @@ from tephra.models import (
     CrewReport,
     CrewReportKind,
     CrewReportView,
+    DraftText,
     DutyRun,
     ExposedFlight,
     ExposureFeatureProps,
@@ -107,6 +120,8 @@ from tephra.models import (
     MissingReason,
     OperatorPolicy,
     Overlays,
+    PlannedAction,
+    PlannerContext,
     PlumeAssessment,
     PlumeMode,
     PolicySummary,
@@ -157,6 +172,7 @@ from tephra.recovery.models import Closure, Schedule
 from tephra.recovery.network import network_closures, run_lock
 from tephra.recovery.schedule import ScheduleError, load_schedule
 from tephra.regdocs.registry import withdraw_crew_messages
+from tephra.replay.answers import AnswerKind, RecordedAnswer, ReplayAnswers
 from tephra.replay.cases import (
     ReplaySource,
     case_path,
@@ -214,10 +230,6 @@ restored ``last_success_at`` can be older than the true one; that only makes it 
 TraceLevel = Literal["info", "warn", "error"]
 
 
-class DeskUnreachable(Exception):
-    """The open drafts could not be read: planning and draft retirement wait a tick."""
-
-
 class RecoveryDue(NamedTuple):
     schedule: Schedule
     closures: list[Closure]
@@ -245,6 +257,8 @@ class Runtime:
     mode: RunMode
     replay_case: ReplayCase | None
     auto_replay: bool
+    ledger: QuotaLedger | None = None
+    """The day's model-call counts; ``create_runtime`` shares one with the Gemini backend"""
     policy_summary: PolicySummary = field(init=False)
     live: LiveData = field(init=False, default_factory=LiveData)
     lock: asyncio.Lock = field(init=False, default_factory=asyncio.Lock, repr=False)
@@ -262,6 +276,11 @@ class Runtime:
     """Wall-clock time the last tick of this process finished; not restored on a restart"""
     duty: DutyRun | None = field(init=False, default=None)
     """The newest Duty Officer run, for the Wall and the Desk"""
+    worker: AiWorker = field(init=False)
+    """Runs the model work off the tick (``tephra.ai_worker``)"""
+    epoch: int = field(init=False, default=0)
+    """Counts picture resets (mode switches, replay loops): AI work that started before one is
+    not committed after it"""
     _planned: dict[str, tuple[str, int]] = field(init=False, default_factory=dict)
     """flight id -> (cone id, the most urgent bucket it was planned in for that cone)"""
     _plan_failures: dict[str, _PlanFailure] = field(init=False, default_factory=dict)
@@ -315,6 +334,9 @@ class Runtime:
     loop. Crew reports entered in an earlier run end with it and are not shown again."""
 
     def __post_init__(self) -> None:
+        if self.ledger is None:
+            self.ledger = QuotaLedger(self.settings, self.store)
+        self.worker = AiWorker(self)
         self.policy_summary = PolicySummary.of(self.policy)
         self.fixes = FixHistory(timedelta(minutes=self.settings.crew_fix_history_min))
         self._replay_run_wall = timeutil.SystemClock().now()
@@ -330,6 +352,11 @@ class Runtime:
         minutes out does not stand at 15 minutes)."""
         rules = self.policy.planner
         return rules.divert_within_min.value, rules.hold_within_min.value
+
+    @property
+    def quota(self) -> QuotaLedger:
+        assert self.ledger is not None  # set in __post_init__
+        return self.ledger
 
     @property
     def recorded_feeds(self) -> frozenset[FeedId] | None:
@@ -563,26 +590,20 @@ class Runtime:
         }
 
     async def run_exposures(self, at: datetime, report: TickReport) -> None:
-        """Exposure, the Duty Officer's dispatch and draft retirement: the ADS-B pass between
-        ticks runs this; a tick runs the steps around network recovery."""
+        """Exposure and draft retirement, then a wake for the AI worker: the ADS-B pass
+        between ticks runs this; a tick runs the steps around network recovery."""
         await self.update_exposures(at, report)
         try:
             await self.update_crew(at, report)
-        except Exception:  # a flag layer: its failure must not hold up the Duty Officer
+        except Exception:  # a flag layer: its failure must not hold up the AI work
             logger.exception("crew report update failed in an ADS-B pass")
             self.trace(TraceStage.SYSTEM, "system", "crew reports failed this pass", level="error")
-        await self.run_duty(at, report, trigger="adsb")
         await self.settle_drafts(at, report)
+        self.worker.wake("adsb")
 
-    async def run_duty(
-        self, at: datetime, report: TickReport, *, trigger: Literal["tick", "adsb"]
-    ) -> None:
-        """The Duty Officer's dispatch, skipped when the open drafts cannot be read: taking
-        an unread list as empty would draft flights that already have a draft."""
-        try:
-            await dispatch_duty(self, at, report, trigger=trigger)
-        except DeskUnreachable:
-            self.desk_unreachable(report)
+    def start_worker(self) -> None:
+        """Start the AI worker's loop (``create_runtime`` does; ``aclose`` stops it)."""
+        self.spawn(self.worker.run())
 
     def desk_unreachable(self, report: TickReport) -> None:
         """Note and trace, once a tick, that drafts were neither planned nor retired."""
@@ -651,13 +672,13 @@ class Runtime:
             self._closed_airports = closed
             self.trace(TraceStage.RECOVERY, "code", "No RFA airport is closed by the hazard now")
             return
-        if run_lock(self).locked():
+        if run_lock(self).locked() or self.worker.recovery_queued():
             return
         self.recovery_due = RecoveryDue(schedule, list(closures), closed)
 
     def start_recovery(self, report: TickReport) -> dict[str, Any]:
-        """The Duty Officer's ``run_recovery``: the agent runs in the background, since three
-        CP-SAT solves and a model run must not hold the tick."""
+        """The Duty Officer's ``run_recovery``: the run is queued as an AI worker job of its
+        own, since three CP-SAT solves and a model run must not hold the Duty Officer."""
         due = self.recovery_due
         if due is None:
             return {"error": "NO NETWORK RECOVERY IS DUE"}
@@ -667,16 +688,39 @@ class Runtime:
         self.trace(
             TraceStage.RECOVERY,
             "code",
-            f"Closed airports changed: {airports}; recovery agent started",
+            f"Closed airports changed: {airports}; recovery agent queued",
             level="warn",
             detail={"airports": sorted(due.airports)},
         )
         report.recovery_plans += 1
-        self.spawn(self._recover(due.schedule, due.closures))
+        self.worker.enqueue_recovery(due.airports)
         return {
-            "summary": f"Recovery agent started for {airports}",
+            "summary": f"Recovery agent queued for {airports}",
             "airports": sorted(due.airports),
         }
+
+    async def recover_queued(self, airports: Sequence[str]) -> None:
+        """The AI worker's recovery job: closures as they stand now (a job queued before a
+        restart runs on today's picture), then the agent."""
+        at = timeutil.now()
+        async with self.lock:
+            schedule = await self._rfa_schedule(at)
+            if schedule is None:
+                return
+            closures = network_closures(
+                self, schedule, at=at, tafs=self.live.tafs, metars=self.live.metars
+            )
+            # The set this run covers is the one it plans for now, not the one it was queued
+            # for: a change while it waited must not queue a second run over the same airports.
+            self._closed_airports = frozenset(closure.icao for closure in closures)
+        if not closures:
+            self.trace(
+                TraceStage.RECOVERY,
+                "code",
+                f"{', '.join(airports)} no longer closed by the hazard: no recovery run",
+            )
+            return
+        await self._recover(schedule, closures)
 
     async def _recover(self, schedule: Schedule, closures: Sequence[Closure]) -> None:
         try:
@@ -1047,8 +1091,38 @@ class Runtime:
         self._published[key] = digest
 
     async def publish_budget(self) -> None:
-        """The day's model-call counts, after the tick's model calls (the Wall's AI tray)."""
-        self.bus.publish(SseEvent.BUDGET, await budget_view(self.settings, self.llm))
+        """The day's model-call counts and the AI work waiting (the Wall's AI tray, the Desk's
+        budget chip)."""
+        self.bus.publish(SseEvent.BUDGET, await self.budget_view())
+
+    async def budget_view(self) -> BudgetView:
+        return await budget_view(self.settings, self.llm, self.quota, self.worker.queue())
+
+    # --- replay answers (a loop reuses the first pass's answers) ---------------------------
+
+    def _answers(self) -> ReplayAnswers | None:
+        if self.mode is not RunMode.REPLAY or self.replay_case is None or self.llm.name == "stub":
+            return None
+        return ReplayAnswers(
+            self.store, case_id=self.replay_case.case_id, build=self.settings.build_sha
+        )
+
+    async def recorded_answer(
+        self, kind: AnswerKind, subject: str, input_key: str, tier: Tier = "lite"
+    ) -> RecordedAnswer | None:
+        """The replay's first-pass answer to exactly this job and input, from the model the
+        tier runs now; None when LIVE, offline, or not recorded."""
+        answers = self._answers()
+        if answers is None:
+            return None
+        return await answers.find(kind, subject, input_key, self.llm.model_id(tier))
+
+    async def keep_answer(
+        self, kind: AnswerKind, subject: str, input_key: str, model_id: str, payload: dict[str, Any]
+    ) -> None:
+        answers = self._answers()
+        if answers is not None:
+            await answers.keep(kind, subject, input_key, model_id, payload)
 
     async def publish_live(self) -> None:
         """The between-ticks update after an extra ADS-B poll: aircraft, exposures, state."""
@@ -1257,6 +1331,7 @@ class Runtime:
         await self._restore_bookkeeping()
         await self._restore_readings()
         await self._restore_duty()
+        await self.worker.restore()
 
     async def _restore_duty(self) -> None:
         """The newest live Duty Officer run, so the Wall shows its brief after a restart."""
@@ -1337,18 +1412,46 @@ class Runtime:
         await self._set_cone(situation, assessment)
 
     async def assess_volcano(
-        self, volcano_id: str, at: datetime, report: TickReport
+        self, volcano_id: str, at: datetime, report: TickReport, *, epoch: int | None = None
     ) -> dict[str, Any]:
         """The Duty Officer's ``assess_volcanoes`` for one volcano: the Satellite Reader and the
-        Plume Reader read it, code rebuilds the cone and that volcano's exposure."""
-        situation = self.situations.get(volcano_id)
-        if situation is None or volcano_id not in self.assess_due:
-            return {"volcano_id": volcano_id, "error": "NO PLUME READ IS DUE"}
-        del self.assess_due[volcano_id]
-        assessment = await self._read(situation, report, call_model=True)
-        cone = await self._set_cone(situation, assessment)
-        if self.positions_fresh:
-            self._replace_exposures(self._expose([cone], at), volcano_id=volcano_id)
+        Plume Reader read it, code rebuilds the cone and that volcano's exposure.
+
+        The read runs outside ``lock`` (ticks go on meanwhile); its result is committed under
+        it. A read whose inputs changed meanwhile is kept only where it still fits the official
+        products now, as a held reading would be; a read that ends after the picture was
+        reset (``epoch``) changes nothing."""
+        epoch = self.epoch if epoch is None else epoch
+        async with self.lock:
+            situation = self.situations.get(volcano_id)
+            if self.epoch != epoch or situation is None or volcano_id not in self.assess_due:
+                return {"volcano_id": volcano_id, "error": "NO PLUME READ IS DUE"}
+            del self.assess_due[volcano_id]
+        assessment = await self._read_or_reuse(situation, report)
+        async with self.lock:
+            current = self.situations.get(volcano_id)
+            if self.epoch != epoch or current is None:
+                return {"volcano_id": volcano_id, "error": "THE PICTURE CHANGED DURING THE READ"}
+            if current.input_hash != situation.input_hash:
+                if not _holds_while_pending(assessment, current, timeutil.now()):
+                    self.trace(
+                        TraceStage.PLUME,
+                        "code",
+                        f"{current.volcano.name}: the sources changed while the plume was read; "
+                        "the reading is not used and the read is queued again",
+                        level="warn",
+                        volcano_id=volcano_id,
+                    )
+                    self.assess_due[volcano_id] = current.input_hash
+                    return {
+                        "volcano_id": volcano_id,
+                        "error": "THE SOURCES CHANGED DURING THE READ; IT IS QUEUED AGAIN",
+                    }
+                situation = current
+            self.assessments[volcano_id] = assessment
+            cone = await self._set_cone(situation, assessment)
+            if self.positions_fresh:
+                self._replace_exposures(self._expose([cone], at), volcano_id=volcano_id)
         exposed = sum(flight.volcano_id == volcano_id for flight in self.exposed.values())
         band = _band_text(cone.base_ft, cone.top_ft)
         failed = assessment.outcome == "MODEL_FAILED"
@@ -1402,11 +1505,60 @@ class Runtime:
                 "official products only",
                 volcano_id=volcano.id,
             )
-            return await self._read(situation, report, call_model=False)
-        self.assess_due[volcano.id] = situation.input_hash
-        if previous is not None and _holds_while_pending(previous, situation, at):
-            return previous
-        return await self._read(situation, report, call_model=False, pending=True)
+            assessment = await self._read(situation, report, call_model=False)
+        else:
+            self.assess_due[volcano.id] = situation.input_hash
+            if previous is not None and _holds_while_pending(previous, situation, at):
+                return previous
+            assessment = await self._read(situation, report, call_model=False, pending=True)
+        self.assessments[volcano.id] = assessment
+        return assessment
+
+    async def _read_or_reuse(self, situation: Situation, report: TickReport) -> PlumeAssessment:
+        """A model read, or on a REPLAY loop the first pass's reading of the same input by the
+        same model (its satellite reading with it)."""
+        volcano = situation.volcano
+        recorded = await self.recorded_answer(
+            "assess", volcano.id, situation.input_hash, tier="main"
+        )
+        if recorded is not None:
+            first = PlumeAssessment.model_validate(recorded.payload["assessment"])
+            assessment = first.model_copy(
+                update={"created_at": timeutil.now(), "recorded_answer": recorded.label}
+            )
+            reading = recorded.payload.get("satellite")
+            if reading is not None:
+                held = SatelliteReading.model_validate(reading).model_copy(
+                    update={"recorded_answer": recorded.label}
+                )
+                self.satellite[volcano.id] = held
+                self.bus.publish(SseEvent.SATELLITE, held)
+            self.trace(
+                TraceStage.PLUME,
+                "gemini",
+                f"{volcano.name}: plume read {assessment.outcome} ({recorded.label})",
+                volcano_id=volcano.id,
+                detail={"assessment_id": assessment.id, "model_id": assessment.model_id},
+            )
+            report.assessments_run += 1
+            await self.store.put(
+                Collection.ASSESSMENTS, assessment.id, assessment.model_dump(mode="json")
+            )
+            return assessment
+        assessment = await self._read(situation, report, call_model=True)
+        if assessment.outcome in ("ACCEPTED", "REPAIRED") and assessment.llm_backend == "gemini":
+            held = self.satellite.get(volcano.id)
+            await self.keep_answer(
+                "assess",
+                volcano.id,
+                situation.input_hash,
+                assessment.model_id,
+                {
+                    "assessment": assessment.model_dump(mode="json"),
+                    "satellite": held.model_dump(mode="json") if held is not None else None,
+                },
+            )
+        return assessment
 
     async def _read(
         self,
@@ -1431,7 +1583,6 @@ class Runtime:
         )
         if not pending:
             report.assessments_run += 1
-        self.assessments[volcano.id] = assessment
         await self.store.put(
             Collection.ASSESSMENTS, assessment.id, assessment.model_dump(mode="json")
         )
@@ -1549,27 +1700,39 @@ class Runtime:
         return urgency
 
     async def plan_flight_now(
-        self, flight_id: str, drafts: Sequence[Advisory], at: datetime, report: TickReport
+        self,
+        flight_id: str,
+        drafts: Sequence[Advisory],
+        at: datetime,
+        report: TickReport,
+        *,
+        epoch: int | None = None,
     ) -> dict[str, Any]:
         """The Duty Officer's ``plan_flights`` for one flight: plan and draft it now.
 
-        The flight is marked planned only once planning has finished, so an error part-way (a
-        store fault, say) never leaves it marked with no draft: it is due again on the
+        The models run outside ``lock``; the result is committed under it, and only while the
+        flight is still in the same area of the same picture (``epoch``). The flight is marked
+        planned only once a result is committed, so an error part-way (a store fault, say) or a
+        changed area never leaves it marked with no draft: it is due again on the
         ``PLAN_RETRY_MIN`` schedule, or at once for a new cone or a more urgent entry."""
-        flight = self.exposed.get(flight_id)
-        if flight is None:
-            return {"flight_id": flight_id, "error": "THE FLIGHT IS NO LONGER EXPOSED"}
-        urgency = self.plan_due(flight, drafts, at)
-        if urgency is None:
-            return {"flight_id": flight_id, "error": "NO PLAN IS DUE FOR THIS FLIGHT"}
-        cone = self.cones[flight.volcano_id]
+        epoch = self.epoch if epoch is None else epoch
+        async with self.lock:
+            flight = self.exposed.get(flight_id)
+            if self.epoch != epoch or flight is None:
+                return {"flight_id": flight_id, "error": "THE FLIGHT IS NO LONGER EXPOSED"}
+            urgency = self.plan_due(flight, drafts, at)
+            if urgency is None:
+                return {"flight_id": flight_id, "error": "NO PLAN IS DUE FOR THIS FLIGHT"}
+            cone = self.cones[flight.volcano_id]
         limits = self.urgency_limits_min
         outdated = [
             d for d in drafts if _urgency(d.inside_now, d.minutes_to_entry, limits) > urgency
         ]
         view = {"flight_id": flight.id, "proxy_flight": flight.proxy_flight}
         try:
-            outcome = await self._plan_and_draft(flight, cone, urgency, at, report, outdated)
+            outcome, committed = await self._plan_and_draft(
+                flight, cone, urgency, at, report, outdated, epoch
+            )
         except Exception as exc:
             logger.exception("planning %s failed", flight.id)
             failed = self._plan_failures.get(flight.id)
@@ -1591,6 +1754,8 @@ class Runtime:
                 flight_id=flight.id,
             )
             return {**view, "error": f"PLANNING FAILED ({failure}); DUE AGAIN IN {delay} MIN"}
+        if not committed:
+            return {**view, **outcome}
         self._plan_failures.pop(flight.id, None)
         self._planned[flight.id] = (cone.id, urgency)
         return {**view, **outcome}
@@ -1619,8 +1784,10 @@ class Runtime:
         at: datetime,
         report: TickReport,
         outdated: Sequence[Advisory],
-    ) -> dict[str, Any]:
-        """Plan and draft one flight; returns what came of it, for the Duty Officer."""
+        epoch: int,
+    ) -> tuple[dict[str, Any], bool]:
+        """Plan and draft one flight; returns what came of it, for the Duty Officer, and
+        whether it was committed (False: the picture moved on while the models worked)."""
         situation = self.situations[flight.volcano_id]
         assessment = self.assessments[flight.volcano_id]
         ctx = build_planner_context(
@@ -1634,10 +1801,127 @@ class Runtime:
             routes=self.routes,
             situation=situation,
         )
-        await self._store_reroutes(flight, ctx.reroutes)
-        plan = await plan_flight(ctx, self.llm, settings=self.settings, trace=self.sink)
-        await self.store.put(Collection.PLANS, plan.id, plan.model_dump(mode="json"))
-        if plan.decision is None:
+        subject = f"{flight.id}/{urgency}"
+        plan = await self._plan_or_reuse(ctx, subject)
+        advisory: Advisory | AiFailure | None = None
+        recorded_draft: RecordedDraft | None = None
+        if plan.decision is not None:
+            recorded_draft = await self._recorded_draft(ctx, plan, subject)
+            advisory = await draft_advisory(
+                situation=situation,
+                assessment=assessment,
+                cone=cone,
+                ctx=ctx,
+                plan=plan,
+                llm=self.llm,
+                settings=self.settings,
+                policy=self.policy,
+                trace=self.sink,
+                feed_health=self.live.health,
+                replay_case=self.replay_case if self.mode is RunMode.REPLAY else None,
+                recorded=recorded_draft,
+            )
+        async with self.lock:
+            stale = self._planned_too_late(flight, cone, epoch)
+            if stale is not None:
+                self.trace(
+                    TraceStage.PLANNER,
+                    "code",
+                    f"{flight.proxy_flight}: {stale}",
+                    level="warn",
+                    volcano_id=flight.volcano_id,
+                    flight_id=flight.id,
+                )
+                return {"error": stale.upper()}, False
+            await self._store_reroutes(flight, ctx.reroutes)
+            await self.store.put(Collection.PLANS, plan.id, plan.model_dump(mode="json"))
+            await self._keep_plan_answers(ctx, plan, advisory, recorded_draft, subject)
+            return await self._commit_draft(
+                ctx, flight, plan, advisory, urgency, report, outdated
+            ), True
+
+    def _planned_too_late(self, flight: ExposedFlight, cone: HazardCone, epoch: int) -> str | None:
+        """Why a plan made outside the lock no longer applies, or None."""
+        if self.epoch != epoch:
+            return "the picture was reset while the flight was planned; no draft"
+        current = self.exposed.get(flight.id)
+        if current is None:
+            return "left every area while it was planned; no draft"
+        held = self.cones.get(flight.volcano_id)
+        if held is None or held.id != cone.id or current.cone_id != cone.id:
+            return "the area changed while the flight was planned; it is planned again for it"
+        return None
+
+    async def _plan_or_reuse(self, ctx: PlannerContext, subject: str) -> PlannedAction:
+        """On a REPLAY loop, the first pass's plan for exactly this question (the planner's
+        prompt hash: its instructions and the flight's context now), else the model."""
+        recorded = await self.recorded_answer("plan", subject, planner_prompt_hash(ctx))
+        if recorded is not None:
+            first = PlannedAction.model_validate(recorded.payload)
+            reused = plan_from_record(ctx, first, label=recorded.label, trace=self.sink)
+            if reused is not None:
+                return reused
+        return await plan_flight(ctx, self.llm, settings=self.settings, trace=self.sink)
+
+    async def _recorded_draft(
+        self, ctx: PlannerContext, plan: PlannedAction, subject: str
+    ) -> RecordedDraft | None:
+        """The first pass's draft for exactly this question (the drafter's prompt hash: its
+        instructions and the facts of this flight and plan), if recorded."""
+        question = drafter_prompt_hash(ctx, plan)
+        recorded = await self.recorded_answer("draft", subject, question)
+        if recorded is None:
+            return None
+        payload = recorded.payload
+        return RecordedDraft(
+            draft=DraftText.model_validate(payload["draft"]),
+            model_id=str(payload["model_id"]),
+            prompt_hash=str(payload["prompt_hash"]),
+            question_hash=question,
+            label=recorded.label,
+        )
+
+    async def _keep_plan_answers(
+        self,
+        ctx: PlannerContext,
+        plan: PlannedAction,
+        advisory: Advisory | AiFailure | None,
+        recorded_draft: RecordedDraft | None,
+        subject: str,
+    ) -> None:
+        """On a REPLAY's first pass, record the planner's and the drafter's answers that passed
+        the checks, for the loops that follow, each keyed by the question it answered."""
+        fresh_plan = plan.recorded_answer is None and plan.outcome in ("ACCEPTED", "REPAIRED")
+        if fresh_plan and plan.llm_backend == "gemini":
+            await self.keep_answer(
+                "plan", subject, plan.prompt_hash, plan.model_id, plan.model_dump(mode="json")
+            )
+        drafted = isinstance(advisory, Advisory) and advisory.llm_backend == "gemini"
+        if recorded_draft is None and isinstance(advisory, Advisory) and drafted:
+            draft = DraftText(body=advisory.body, cost_note=advisory.cost_note)
+            await self.keep_answer(
+                "draft",
+                subject,
+                drafter_prompt_hash(ctx, plan),
+                advisory.model_id,
+                {
+                    "draft": draft.model_dump(mode="json"),
+                    "model_id": advisory.model_id,
+                    "prompt_hash": advisory.prompt_hashes.get("drafter", ""),
+                },
+            )
+
+    async def _commit_draft(
+        self,
+        ctx: PlannerContext,
+        flight: ExposedFlight,
+        plan: PlannedAction,
+        advisory: Advisory | AiFailure | None,
+        urgency: int,
+        report: TickReport,
+        outdated: Sequence[Advisory],
+    ) -> dict[str, Any]:
+        if plan.decision is None or advisory is None:
             reason = "; ".join(plan.validation_errors[:3]) or "NO PLAN"
             failure = ai_failure(
                 ctx,
@@ -1648,19 +1932,6 @@ class Runtime:
             )
             await self._record_failure(failure)
             return _failed(failure)
-        advisory = await draft_advisory(
-            situation=situation,
-            assessment=assessment,
-            cone=cone,
-            ctx=ctx,
-            plan=plan,
-            llm=self.llm,
-            settings=self.settings,
-            policy=self.policy,
-            trace=self.sink,
-            feed_health=self.live.health,
-            replay_case=self.replay_case if self.mode is RunMode.REPLAY else None,
-        )
         if isinstance(advisory, AiFailure):
             await self._record_failure(advisory)
             return _failed(advisory)
@@ -1964,6 +2235,10 @@ class Runtime:
 
     def _reset_picture(self) -> None:
         """Nothing recorded and nothing live may mix: a mode switch starts a fresh picture."""
+        self.epoch += 1
+        self.worker.clear()
+        self.assess_due.clear()
+        self.duty_offered.clear()
         self.live = LiveData(
             health=initial_health(
                 self.settings, replay=self.mode is RunMode.REPLAY, recorded=self.recorded_feeds
@@ -2155,12 +2430,20 @@ async def create_runtime(settings: Settings) -> Runtime:
         window = _start_clock(settings, replay_case)
     else:
         source = HttpSource.from_settings(settings)
+    store = open_store(settings)
+    ledger = QuotaLedger(settings, store)
+    if settings.llm == "gemini" and settings.unlimited_models():
+        logger.warning(
+            "no free-tier limits for %s: those models are never called (AI UNAVAILABLE) "
+            "until TEPHRA_MODEL_LIMITS has a row for each",
+            ", ".join(settings.unlimited_models()),
+        )
     runtime = Runtime(
         settings=settings,
-        store=open_store(settings),
+        store=store,
         bus=get_bus(),
         source=source,
-        llm=get_llm(settings),
+        llm=get_llm(settings, quota=ledger),
         catalogue=catalogue,
         airports=airports,
         routes=routes,
@@ -2168,11 +2451,13 @@ async def create_runtime(settings: Settings) -> Runtime:
         mode=settings.mode,
         replay_case=replay_case,
         auto_replay=False,
+        ledger=ledger,
     )
     runtime.replay_window = window
     await runtime.restore_crew_reports()
     await runtime.restore_replay_choice()
     await runtime.restore()
+    runtime.start_worker()
     return runtime
 
 

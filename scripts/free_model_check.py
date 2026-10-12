@@ -538,12 +538,14 @@ async def build_world(tmp: Path) -> World:
         captured.append((list(worklist), kwargs["digest"]))
         return await original(worklist, RecordingExecutor(executor, delegations), llm, **kwargs)
 
-    # The tick calls the Duty Officer through tephra.duty; capture what it is handed.
+    # The AI worker calls the Duty Officer through tephra.duty; capture what it is handed.
     duty_module.run_duty_officer = capture
     try:
         runtime = await create_runtime(settings)
         with timeutil.use_clock(timeutil.FixedClock(CASE_AT)):
             await runtime.tick(reason="free-model-check")
+            # the tick only queues AI work; the AI worker runs it, the Duty Officer included
+            await runtime.worker.drain()
     finally:
         duty_module.run_duty_officer = original
     if not captured:
@@ -697,13 +699,14 @@ class ProbeBackend:
     def model_id(self, tier: str) -> str:
         return self._model
 
-    def reserve(self, tier: str) -> bool:
-        return True
+    async def reserve(self, tier: str) -> str | None:
+        """The probe counts each request against the run's hard cap itself."""
+        return None
 
-    def exhaust(self, tier: str) -> None:
+    async def exhaust(self, tier: str) -> None:
         """The probe closes a model on a per-day 429 itself."""
 
-    async def pace(self, tier: str) -> None:
+    async def pace(self, tier: str, tokens: int = 0) -> None:
         """The probe paces each request itself."""
 
     async def structured[T: BaseModel](

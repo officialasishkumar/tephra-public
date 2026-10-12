@@ -3,15 +3,15 @@
 Gemini is reached only with a Google AI Studio key through ``genai.Client(api_key=...)``;
 never Vertex AI, never Application Default Credentials. Every call:
 
-* is checked against a per-tier daily budget first (the free tier allows about 20 calls a
-  day to the main model; research/06), counted on Google's quota day, which ends at
-  midnight Pacific time, and kept in ``cache_dir/llm`` so a restart does not reset it,
 * is answered from a disk cache when the same model already saw the same prompt and images,
+* has every HTTP attempt, retries included, reserved before it is sent from its model's daily
+  budget (``tephra.agents.quota``: per model id and Google quota day, kept in the store, split
+  into urgent, interactive and routine shares),
 * runs a Gemini 3 model at its default temperature of 1.0 unless the caller names one,
-* is paced to the tier's requests-a-minute limit (the free tier counts 15 a minute per model
-  for Flash-Lite), so a burst of agents waits for its slots instead of earning 429s,
+* is paced to its model's requests-a-minute limit (and tokens-a-minute, where Google sets one),
+  so a burst of agents waits for its slots instead of earning 429s,
 * retries 5xx and per-minute 429s, after the delay Google names when it names one; a 429 for
-  a per-day quota closes the tier until the quota day ends, and
+  a per-day quota closes that model (only) until the quota day ends, and
 * never raises for model trouble: callers get ``(None, call)`` with ``call.error`` set and
   report AI UNAVAILABLE.
 
@@ -27,15 +27,13 @@ import re
 import time
 from collections import deque
 from collections.abc import Callable, Iterable, Sequence
-from datetime import date, datetime, timedelta, timezone, tzinfo
-from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, Self
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt
+from pydantic import BaseModel, ConfigDict
 
+from tephra.agents.quota import QuotaLedger, current_admitted, current_lane
 from tephra.agents.schemas import gemini_schema, parse_json_model
 from tephra.config import Settings
 from tephra.models import LlmBackendName, TephraModel
@@ -46,8 +44,7 @@ if TYPE_CHECKING:
     from google.genai import types as genai_types
 
 __all__ = [
-    "BudgetExhausted",
-    "DailyBudget",
+    "BUDGET_EXHAUSTED",
     "GeminiBackend",
     "LlmBackend",
     "LlmCall",
@@ -56,6 +53,7 @@ __all__ = [
     "StubBackend",
     "Tier",
     "daily_quota_spent",
+    "estimate_tokens",
     "gemini_call_fields",
     "get_llm",
     "prompt_hash",
@@ -66,13 +64,15 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-Tier = Literal["main", "lite"]
+Tier = Literal["main", "lite", "tts"]
+"""Which configured model a step runs on: TEPHRA_MODEL, TEPHRA_MODEL_LITE, TEPHRA_MODEL_TTS."""
 
 RETRY_DELAYS_S: Final[tuple[float, ...]] = (2.0, 8.0)
 """Back-off before the second and third attempt of one call (429 and 5xx only)."""
 RETRYABLE_STATUS: Final = frozenset({429, 500, 502, 503, 504})
 BUDGET_EXHAUSTED: Final = "budget_exhausted"
-BUDGET_FILE: Final = "daily_budget.json"
+CHARS_PER_TOKEN: Final = 3.5
+"""A rough input-token estimate for tokens-a-minute pacing, where no count is known yet."""
 GEMINI_3_TEMPERATURE: Final = 1.0
 """research/10 C9: Google strongly recommends keeping every Gemini 3 model at its default
 temperature of 1.0; lower values may make it loop."""
@@ -134,14 +134,19 @@ class LlmBackend(Protocol):
 
     def model_id(self, tier: Tier) -> str: ...
 
-    def reserve(self, tier: Tier) -> bool: ...
-
-    def exhaust(self, tier: Tier) -> None:
-        """Google reported the tier's daily quota spent: refuse it until the quota day ends."""
+    async def reserve(self, tier: Tier) -> str | None:
+        """Count one HTTP attempt against the tier's model, in the current lane, before it is
+        sent. None when it may go; else why not, in plain words."""
         ...
 
-    async def pace(self, tier: Tier) -> None:
-        """Wait until one more request to the tier's model fits its per-minute limit."""
+    async def exhaust(self, tier: Tier) -> None:
+        """Google reported the model's daily quota spent: refuse that model (and only it)
+        until the quota day ends."""
+        ...
+
+    async def pace(self, tier: Tier, tokens: int = 0) -> None:
+        """Wait until one more request (of about ``tokens`` input tokens) to the tier's model
+        fits its per-minute limits."""
         ...
 
     async def structured[T: BaseModel](
@@ -159,11 +164,13 @@ class LlmBackend(Protocol):
 
 
 class RatePacer:
-    """No more than ``rpm`` sends in any 60 seconds, as Google counts the free tier per model.
+    """No more than ``rpm`` sends, and (with ``tpm``) about that many input tokens, in any 60
+    seconds, as Google counts the free tier per model.
 
     A send waits for its slot rather than earning a 429: agents that plan several flights in
-    a row would otherwise burst past the limit. One pacer per tier per process (Cloud Run runs
-    one instance), created with the backend, so it lives on the loop that uses it."""
+    a row would otherwise burst past the limit. One pacer per model per process (Cloud Run runs
+    one instance), created on first use, so it lives on the loop that uses it. A single request
+    larger than ``tpm`` waits for an empty window and is then sent."""
 
     WINDOW_S: Final = 60.0
 
@@ -171,136 +178,39 @@ class RatePacer:
         self,
         rpm: int,
         *,
+        tpm: int | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Any] = asyncio.sleep,
     ) -> None:
         self._rpm = rpm
+        self._tpm = tpm
         self._clock = clock
         self._sleep = sleep
-        self._sent: deque[float] = deque()
+        self._sent: deque[tuple[float, int]] = deque()
         self._lock = asyncio.Lock()
 
-    async def wait(self) -> None:
+    async def wait(self, tokens: int = 0) -> None:
         async with self._lock:
             while True:
                 now = self._clock()
-                while self._sent and now - self._sent[0] >= self.WINDOW_S:
+                while self._sent and now - self._sent[0][0] >= self.WINDOW_S:
                     self._sent.popleft()
-                if len(self._sent) < self._rpm:
-                    self._sent.append(now)
+                if self._fits(tokens):
+                    self._sent.append((now, tokens))
                     return
-                await self._sleep(self.WINDOW_S - (now - self._sent[0]))
+                await self._sleep(self.WINDOW_S - (now - self._sent[0][0]))
+
+    def _fits(self, tokens: int) -> bool:
+        if len(self._sent) >= self._rpm:
+            return False
+        if self._tpm is None or not self._sent:
+            return True
+        return sum(sent for _, sent in self._sent) + tokens <= self._tpm
 
 
-class BudgetExhausted(RuntimeError):
-    """Today's call budget for a tier is used up; the caller falls back to code."""
-
-
-def _quota_zone() -> tzinfo:
-    try:
-        return ZoneInfo("America/Los_Angeles")
-    except ZoneInfoNotFoundError:
-        # No tz database: Pacific standard time all year (the day starts an hour late in summer).
-        return timezone(timedelta(hours=-8))
-
-
-_QUOTA_ZONE: Final = _quota_zone()
-"""Free-tier requests per day reset at midnight Pacific time (research/10, rate-limits page)."""
-
-
-class _SavedBudget(TephraModel):
-    """One quota day of ``DailyBudget`` counts, as kept on disk."""
-
-    quota_day: date
-    used: dict[Tier, NonNegativeInt] = Field(default_factory=dict)
-    spent: list[Tier] = Field(default_factory=list)
-
-
-class DailyBudget:
-    """Calls per tier per quota day.
-
-    The day is Google's (midnight to midnight Pacific time) on the wall clock, even in
-    REPLAY: the quota being protected resets on real days, not recorded ones. A 429 that
-    names a per-day quota closes the tier until the next quota day. With a ``path`` the
-    day's counts are written there on every change and read back at start, so a restart does
-    not hand the day's quota out again; if the file cannot be written, counting goes on in
-    memory.
-    """
-
-    def __init__(
-        self, now: Callable[[], datetime] | None = None, *, path: Path | None = None
-    ) -> None:
-        self._now = now or timeutil.SystemClock().now
-        self._path = path
-        self._day = self._today()
-        self._used: dict[Tier, int] = {}
-        self._spent: set[Tier] = set()
-        self._save_failed = False
-        self._load()
-
-    def take(self, tier: Tier, limit: int) -> None:
-        self._roll()
-        used = self._used.get(tier, 0)
-        if tier in self._spent:
-            raise BudgetExhausted(f"{tier} tier: Google reported today's quota spent")
-        if used >= limit:
-            raise BudgetExhausted(f"{tier} tier used {used} of {limit} calls today")
-        self._used[tier] = used + 1
-        self._save()
-
-    def exhaust(self, tier: Tier) -> None:
-        self._roll()
-        self._spent.add(tier)
-        self._save()
-
-    def used(self, tier: Tier) -> int:
-        self._roll()
-        return self._used.get(tier, 0)
-
-    def _today(self) -> date:
-        return self._now().astimezone(_QUOTA_ZONE).date()
-
-    def _roll(self) -> None:
-        today = self._today()
-        if today != self._day:
-            self._day, self._used, self._spent = today, {}, set()
-
-    def _load(self) -> None:
-        if self._path is None:
-            return
-        try:
-            saved = _SavedBudget.model_validate_json(self._path.read_bytes())
-        except FileNotFoundError:
-            return
-        except (OSError, ValueError) as exc:
-            logger.warning("ignoring unreadable llm daily budget %s: %s", self._path, exc)
-            return
-        if saved.quota_day == self._day:
-            self._used, self._spent = dict(saved.used), set(saved.spent)
-
-    def _save(self) -> None:
-        if self._path is None:
-            return
-        saved = _SavedBudget(quota_day=self._day, used=self._used, spent=sorted(self._spent))
-        tmp = self._path.with_suffix(f".{os.getpid()}.tmp")
-        try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            tmp.write_text(saved.model_dump_json(), encoding="utf-8")
-            tmp.replace(self._path)
-        except OSError as exc:
-            if not self._save_failed:
-                logger.warning(
-                    "could not save the llm daily budget to %s (%s); counting in memory",
-                    self._path,
-                    exc,
-                )
-            self._save_failed = True
-
-
-@cache
-def _process_budget(path: Path) -> DailyBudget:
-    """One budget per file, shared by every backend in the process."""
-    return DailyBudget(path=path)
+def estimate_tokens(texts: Iterable[str]) -> int:
+    """Input tokens of a request, estimated from its text (images and audio are not counted)."""
+    return round(sum(len(text) for text in texts) / CHARS_PER_TOKEN)
 
 
 def prompt_hash(system: str, parts: Sequence[LlmPart]) -> str:
@@ -321,9 +231,11 @@ def prompt_hash(system: str, parts: Sequence[LlmPart]) -> str:
     return sha256_json({"system": system, "parts": pieces})
 
 
-def get_llm(settings: Settings) -> LlmBackend:
+def get_llm(settings: Settings, *, quota: QuotaLedger | None = None) -> LlmBackend:
+    """``quota`` is the store-backed ledger the runtime shares; without one the Gemini backend
+    counts in memory (scripts and tests)."""
     if settings.llm == "gemini":
-        return GeminiBackend(settings)
+        return GeminiBackend(settings, quota=quota)
     return StubBackend()
 
 
@@ -337,13 +249,13 @@ class StubBackend:
     def model_id(self, tier: Tier) -> str:
         return "stub"
 
-    def reserve(self, tier: Tier) -> bool:
-        return True
+    async def reserve(self, tier: Tier) -> str | None:
+        return None
 
-    def exhaust(self, tier: Tier) -> None:
+    async def exhaust(self, tier: Tier) -> None:
         """The stub spends no quota, so there is nothing to close."""
 
-    async def pace(self, tier: Tier) -> None:
+    async def pace(self, tier: Tier, tokens: int = 0) -> None:
         """The stub sends nothing, so nothing waits."""
 
     async def structured[T: BaseModel](
@@ -375,7 +287,7 @@ class GeminiBackend:
         *,
         client: Any | None = None,
         cache_dir: Path | None = None,
-        budget: DailyBudget | None = None,
+        quota: QuotaLedger | None = None,
         retry_delays_s: Sequence[float] = RETRY_DELAYS_S,
     ) -> None:
         api_key = settings.gemini_api_key
@@ -386,33 +298,39 @@ class GeminiBackend:
         self._client_obj = client
         llm_dir = cache_dir if cache_dir is not None else settings.cache_dir / "llm"
         self._cache = _DiskCache(llm_dir)
-        self._budget = budget if budget is not None else _process_budget(llm_dir / BUDGET_FILE)
+        self.quota = quota if quota is not None else QuotaLedger(settings, None)
         self._retry_delays_s = tuple(retry_delays_s)
-        self._pacers: dict[Tier, RatePacer] = {
-            "main": RatePacer(settings.model_rpm),
-            "lite": RatePacer(settings.model_lite_rpm),
-        }
+        self._pacers: dict[str, RatePacer] = {}
 
     @property
     def name(self) -> LlmBackendName:
         return "gemini"
 
-    async def pace(self, tier: Tier) -> None:
-        await self._pacers[tier].wait()
+    async def pace(self, tier: Tier, tokens: int = 0) -> None:
+        model = self.model_id(tier)
+        pacer = self._pacers.get(model)
+        if pacer is None:
+            settings = self._settings
+            pacer = RatePacer(settings.paced_rpm(model), tpm=settings.paced_tpm(model))
+            self._pacers[model] = pacer
+        await pacer.wait(tokens)
 
     def model_id(self, tier: Tier) -> str:
-        return self._settings.model if tier == "main" else self._settings.model_lite
+        settings = self._settings
+        return {"main": settings.model, "lite": settings.model_lite, "tts": settings.model_tts}[
+            tier
+        ]
 
-    def reserve(self, tier: Tier) -> bool:
-        try:
-            self._budget.take(tier, self._limit(tier))
-        except BudgetExhausted as exc:
-            logger.warning("gemini budget: %s", exc)
-            return False
-        return True
+    async def reserve(self, tier: Tier) -> str | None:
+        model = self.model_id(tier)
+        refused = await self.quota.reserve(model, current_lane(), admitted=current_admitted())
+        if refused is not None:
+            logger.warning("gemini budget: %s", refused)
+        return refused
 
-    def exhaust(self, tier: Tier) -> None:
-        self._budget.exhaust(tier)
+    async def exhaust(self, tier: Tier) -> None:
+        model = self.model_id(tier)
+        await self.quota.close(model, "Google answered 429 for a per-day quota")
 
     async def structured[T: BaseModel](
         self,
@@ -449,17 +367,18 @@ class GeminiBackend:
                 self._log(tier, call, "cache_hit")
                 return value, call
 
-        if not self.reserve(tier):
-            call = call.model_copy(update={"error": BUDGET_EXHAUSTED})
-            self._log(tier, call, "budget_exhausted")
-            return None, call
-
         started = time.monotonic()
         try:
             response = await self._generate(tier, model, system, parts, schema, temperature)
-        except Exception as exc:  # any SDK, transport or timeout failure falls back to code
+        except _Refused:
+            call = call.model_copy(
+                update={"latency_ms": _elapsed_ms(started), "error": BUDGET_EXHAUSTED}
+            )
+            self._log(tier, call, "budget_exhausted")
+            return None, call
+        except Exception as exc:  # any SDK, transport or timeout failure: AI UNAVAILABLE
             if daily_quota_spent(exc):
-                self.exhaust(tier)
+                await self.exhaust(tier)
             call = call.model_copy(
                 update={"latency_ms": _elapsed_ms(started), "error": _describe(exc)}
             )
@@ -492,11 +411,6 @@ class GeminiBackend:
 
     # --- internals ----------------------------------------------------------------------
 
-    def _limit(self, tier: Tier) -> int:
-        if tier == "main":
-            return self._settings.model_daily_budget
-        return self._settings.model_lite_daily_budget
-
     def _client(self) -> Any:
         if self._client_obj is None:
             from google import genai
@@ -523,8 +437,9 @@ class GeminiBackend:
 
         contents = _contents(parts)
         config = _config(system, parts, schema, temperature)
+        tokens = estimate_tokens([system, *(part.text or "" for part in parts)])
         for attempt, delay in enumerate(self._retry_delays_s, start=1):
-            await self.pace(tier)
+            await self._attempt_slot(tier, tokens)
             try:
                 return await self._request(model, contents, config)
             except (errors.APIError, httpx.TransportError) as exc:
@@ -538,8 +453,18 @@ class GeminiBackend:
                     wait_s,
                 )
                 await asyncio.sleep(wait_s)
-        await self.pace(tier)
+        await self._attempt_slot(tier, tokens)
         return await self._request(model, contents, config)
+
+    async def _attempt_slot(self, tier: Tier, tokens: int) -> None:
+        """Every HTTP attempt, a retry too, is counted before it is sent (Google may count a
+        failed request against the day; the brief of 13 Oct 2026, section 1). The attempt
+        waits for its per-minute slot first and is counted only then, so a call cancelled
+        while it waits (a timeout) is not counted."""
+        await self.pace(tier, tokens)
+        refused = await self.reserve(tier)
+        if refused is not None:
+            raise _Refused(refused)
 
     async def _request(
         self,
@@ -577,6 +502,10 @@ class GeminiBackend:
                 )
             },
         )
+
+
+class _Refused(Exception):
+    """The model's budget refused an attempt (the reason is logged by ``reserve``)."""
 
 
 class _DiskCache:

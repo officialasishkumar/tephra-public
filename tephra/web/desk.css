@@ -3105,6 +3105,59 @@ body[data-review="1"] .tabbar {
   box-shadow: 0 0 0 2px var(--c-surface-1);
 }
 
+/* --- AI budget sheet: one row per model, its count, a bar, its lanes and pacing ----------- */
+
+.btiers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.btier__h {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-1);
+}
+
+.btier__k {
+  font-weight: 600;
+}
+
+.btier__n {
+  flex: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.bbar {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--c-line-1);
+  overflow: hidden;
+}
+
+.bbar__fill {
+  display: block;
+  width: var(--w, 0%);
+  height: 100%;
+  border-radius: 3px;
+  background: var(--c-ok);
+}
+
+.bbar--low .bbar__fill {
+  background: var(--c-caution);
+}
+
+.bbar--out .bbar__fill {
+  background: var(--c-serious);
+}
+
 /* --- header: AI budget chip, quieter connection dot ------------------------------------ */
 
 .budget {

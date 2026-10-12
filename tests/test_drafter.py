@@ -27,7 +27,7 @@ from tephra.agents.exposure_planner import (
     planner_limits,
     rule_based_decision,
 )
-from tephra.agents.llm import DailyBudget, GeminiBackend, LlmCall, LlmPart, prompt_hash
+from tephra.agents.llm import GeminiBackend, LlmCall, LlmPart, prompt_hash
 from tephra.agents.validators import (
     VOCABULARY,
     allowed_actions,
@@ -197,13 +197,13 @@ class FakeLlm:
     def model_id(self, tier: str) -> str:
         return "stub" if self.name == "stub" else "gemini-test-lite"
 
-    async def pace(self, tier: str) -> None:
+    async def pace(self, tier: str, tokens: int = 0) -> None:
         return None
 
-    def reserve(self, tier: str) -> bool:
-        return True
+    async def reserve(self, tier: str) -> str | None:
+        return None
 
-    def exhaust(self, tier: str) -> None:
+    async def exhaust(self, tier: str) -> None:
         raise AssertionError("the drafter never closes a tier itself")
 
     async def structured[T: BaseModel](
@@ -967,7 +967,7 @@ async def test_the_drafter_runs_gemini_3_at_temperature_one(tmp_path: Path) -> N
     ctx, plan = change_level_case()
     client = ScriptedClient([stub_draft(ctx, plan).model_dump_json()])
     settings = Settings(_env_file=None, llm="gemini", GEMINI_API_KEY="test-key")
-    llm = GeminiBackend(settings, client=client, cache_dir=tmp_path, budget=DailyBudget())
+    llm = GeminiBackend(settings, client=client, cache_dir=tmp_path)
     situation = make_situation()
     with use_clock(FixedClock(AT)):
         advisory = await draft_advisory(

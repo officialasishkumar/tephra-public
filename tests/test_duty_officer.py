@@ -13,17 +13,16 @@ from typing import Any
 
 import pytest
 from test_drafter import make_assessment, make_situation
-from test_pipeline import GIA417, SEMERU, FixtureSource, make_runtime, make_settings
+from test_pipeline import GIA417, SEMERU, FixtureSource, make_runtime, make_settings, tick_and_work
 from test_planner import _CALLS, _SCRIPT, GeminiStandIn, Turn, call, text
 
+from tephra import ai_worker as ai_worker_module
 from tephra import duty as duty_module
-from tephra import pipeline as pipeline_module
 from tephra.agents.duty_officer import DutyToolkit, run_duty_officer, validate_brief
 from tephra.agents.llm import StubBackend
 from tephra.config import Settings
 from tephra.desk.approvals import list_advisories
 from tephra.desk.failures import list_failures
-from tephra.duty import dispatch_duty
 from tephra.models import (
     DutyBrief,
     DutyItem,
@@ -36,7 +35,6 @@ from tephra.models import (
     polygon_from_latlon,
 )
 from tephra.pipeline import Runtime, _holds_while_pending
-from tephra.scheduler import run_tick
 from tephra.util.timeutil import FixedClock, use_clock
 
 AT = datetime(2026, 10, 9, 19, 40, tzinfo=UTC)
@@ -67,6 +65,7 @@ def item(
     volcano_id: str | None = None,
     version: str = "1",
 ) -> DutyItem:
+
     return DutyItem(
         id=f"DI-{kind.value}-{subject}-{version}",
         kind=kind,
@@ -374,20 +373,22 @@ async def test_a_flight_the_duty_officer_leaves_undone_goes_to_the_desk(
         )
 
     monkeypatch.setattr(duty_module, "run_duty_officer", idle_officer)
-    report = await run_tick(runtime, reason="manual")
-    assert report.duty_runs == 1
+    report = await tick_and_work(runtime, reason="manual")
+    assert report.duty_runs >= 1
     assert report.drafts_created == 0
     assert await list_advisories(runtime.store) == []
     plan_items = [i for i in offered[0] if i.kind is DutyItemKind.PLAN]
     assert [i.subject for i in plan_items] == [f"{GIA417}:{SEMERU}"]
+    assert all(i.mandatory for i in offered[0]), "the urgent run comes first, on its own"
     failures = await list_failures(runtime.store)
     assert [(f.stage, f.flight_id) for f in failures] == [("duty_officer", f"{GIA417}:{SEMERU}")]
     assert failures[0].reason == "DUTY OFFICER AI UNAVAILABLE: budget_exhausted"
 
-    assert await dispatch_duty(runtime, clock.now(), report, trigger="tick") is None
+    runs = len(offered)
+    assert (await runtime.worker.drain()).duty_runs == 0, "nothing new: no model call"
     clock.advance(timedelta(minutes=runtime.policy.duty.rerun_min.value))
-    assert await dispatch_duty(runtime, clock.now(), report, trigger="tick") is not None
-    assert len(offered) == 2
+    assert (await runtime.worker.drain()).duty_runs >= 1
+    assert len(offered) > runs
 
 
 def reading(mode: PlumeMode, *, outcome: str = "ACCEPTED") -> Any:
@@ -421,8 +422,8 @@ async def test_a_volcano_with_a_mandatory_flight_has_a_mandatory_plume_read(
     async def no_dispatch(*args: Any, **kwargs: Any) -> None:
         return None
 
-    monkeypatch.setattr(pipeline_module, "dispatch_duty", no_dispatch)
-    report = await run_tick(runtime, reason="manual")
+    monkeypatch.setattr(ai_worker_module, "dispatch_duty", no_dispatch)
+    report = await tick_and_work(runtime, reason="manual")
     assert report.exposed_flights == 1
     semeru = runtime.situations[SEMERU]
     runtime.assess_due[SEMERU] = semeru.input_hash

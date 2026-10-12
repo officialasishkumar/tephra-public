@@ -267,13 +267,14 @@ async def test_a_case_the_model_arm_cannot_run_is_refused(tmp_path: Path) -> Non
         await run_case(CASE, settings=settings(tmp_path), arm="G")
 
 
-def test_arm_g_stops_at_its_call_cap(tmp_path: Path) -> None:
+async def test_arm_g_stops_at_its_call_cap(tmp_path: Path) -> None:
     gemini = Settings(_env_file=None, llm="gemini", GEMINI_API_KEY="test-key", cache_dir=tmp_path)
     llm = _CappedGemini(gemini, max_calls=2)
 
-    assert [llm.reserve("main") for _ in range(4)] == [True, True, False, False]
+    granted = [await llm.reserve("main") is None for _ in range(4)]
+    assert granted == [True, True, False, False]
     assert llm.calls == 2
-    assert _CappedGemini(gemini, max_calls=0).reserve("main") is False
+    assert await _CappedGemini(gemini, max_calls=0).reserve("main") is not None
 
 
 # --- the report --------------------------------------------------------------------------
@@ -298,13 +299,13 @@ class ScriptedReportLlm:
     def model_id(self, tier: Tier) -> str:
         return "scripted-lite"
 
-    async def pace(self, tier: str) -> None:
+    async def pace(self, tier: str, tokens: int = 0) -> None:
         return None
 
-    def reserve(self, tier: Tier) -> bool:
-        return True
+    async def reserve(self, tier: Tier) -> str | None:
+        return None
 
-    def exhaust(self, tier: Tier) -> None:
+    async def exhaust(self, tier: Tier) -> None:
         raise AssertionError("not used")
 
     async def structured[T: BaseModel](

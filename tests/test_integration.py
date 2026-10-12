@@ -5,7 +5,6 @@ The feature modules have their own tests; these check that the pipeline calls th
 only when, it should. Everything runs on the stub LLM and a fixed clock, with no network.
 """
 
-import asyncio
 from collections.abc import AsyncIterator, Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -19,12 +18,12 @@ from test_pipeline import (
     FixtureSource,
     make_runtime,
     make_settings,
+    tick_and_work,
 )
 
 from tephra.agents.notice_reader import read_notice
 from tephra.agents.plume_reader import build_parts
 from tephra.agents.satellite_reader import SatelliteReading
-from tephra.duty import dispatch_duty
 from tephra.feeds import registry
 from tephra.feeds.base import FetchError, FetchResult, build_url
 from tephra.feeds.jma_volcano import JMA_EQVOL_URL
@@ -43,7 +42,6 @@ from tephra.models import (
 )
 from tephra.pipeline import Runtime
 from tephra.recovery.network import run_lock
-from tephra.scheduler import run_tick
 from tephra.store.base import Collection
 from tephra.util.hashing import sha256_bytes
 from tephra.util.timeutil import FixedClock, use_clock
@@ -63,7 +61,7 @@ def clock() -> Iterator[FixedClock]:
 @pytest.fixture
 async def semeru(tmp_path: Path, clock: FixedClock) -> AsyncIterator[Runtime]:
     runtime = make_runtime(make_settings(tmp_path), FixtureSource())
-    await run_tick(runtime, reason="manual")
+    await tick_and_work(runtime, reason="manual")
     yield runtime
     await runtime.aclose()
 
@@ -140,6 +138,7 @@ async def test_the_planner_gets_the_routes_and_the_situation(semeru: Runtime) ->
 async def test_the_satellite_reader_runs_once_per_new_scan_before_the_plume_reader(
     semeru: Runtime,
 ) -> None:
+
     reading = semeru.satellite[SEMERU]
     assert reading.status == "read"
     assert reading.label == "NO MODEL"  # the stub backend
@@ -279,7 +278,7 @@ async def test_jma_and_magma_pollers_do_not_drop_each_others_records(tmp_path: P
     with use_clock(FixedClock(AT)):
         runtime = make_runtime(make_settings(tmp_path, vona_live=True), FixtureSource())
         try:
-            await run_tick(runtime, reason="manual")
+            await tick_and_work(runtime, reason="manual")
             feeds = {vona.provenance.feed for vona in runtime.live.vonas.values()}
             assert FeedId.VONA in feeds
             assert runtime.live.health[FeedId.JMA_VOLCANO].status is FeedStatus.OK
@@ -345,11 +344,13 @@ async def test_the_recovery_agent_runs_once_when_the_closed_airports_change(
         await runtime.run_recovery(AT, report)
         assert runtime.recovery_due is not None
         assert report.recovery_plans == 0  # queued, not run: the Duty Officer dispatches it
-        duty = await dispatch_duty(runtime, AT, report, trigger="tick")
+        runtime.last_tick = report  # the AI worker works once the picture has been built
+        work = await runtime.worker.drain()
+        duty = runtime.duty
         assert duty is not None
         assert [d.tool for d in duty.dispatches] == ["run_recovery"]
-        assert report.recovery_plans == 1
-        await asyncio.gather(*runtime._tasks)
+        assert work.recovery_plans == 1
+        assert not runtime.worker.recovery_queued(), "the AI worker ran the queued recovery"
         plans = await runtime.store.list_docs(Collection.RECOVERY)
         assert len(plans) == 1
         assert plans[0]["status"] == "DRAFT"
@@ -371,6 +372,37 @@ async def test_the_recovery_agent_runs_once_when_the_closed_airports_change(
         assert runtime._closed_airports == frozenset()
         stages = [e.data["stage"] for e in runtime.bus.recent(SseEvent.TRACE, limit=200)]
         assert TraceStage.RECOVERY.value in stages
+    finally:
+        await runtime.aclose()
+
+
+async def test_a_queued_recovery_counts_the_closures_it_ran_on(
+    tmp_path: Path, clock: FixedClock
+) -> None:
+    """Review of 28e8b20, item 6: a recovery queued for one set of airports ran on the set of
+    the moment but recorded the queued set, so the next tick queued a second run over the same
+    airports. It now records the set it planned for."""
+    runtime = make_runtime(make_settings(tmp_path, recovery_auto=True), FixtureSource())
+    try:
+        jakarta = runtime.airports.get("WIII")
+        surabaya = runtime.airports.get("WARR")
+        assert jakarta is not None
+        assert surabaya is not None
+        report = TickReport(started_at=AT, finished_at=AT, mode=RunMode.LIVE, reason="t")
+        await runtime.run_recovery(AT, report)
+        runtime.cones["262000"] = cone_over(jakarta.lat, jakarta.lon)
+        await runtime.run_recovery(AT, report)
+        queued = runtime.start_recovery(report)["airports"]
+        assert "WARR" not in queued
+
+        runtime.cones["263300"] = cone_over(surabaya.lat, surabaya.lon)  # while it waits
+        await runtime.recover_queued(queued)
+        closed = runtime._closed_airports or frozenset()
+        assert {"WIII", "WARR"} <= closed
+        assert len(await runtime.store.list_docs(Collection.RECOVERY)) == 1
+
+        await runtime.run_recovery(AT, report)
+        assert runtime.recovery_due is None, "the run covered the new set: no second run"
     finally:
         await runtime.aclose()
 
@@ -428,9 +460,15 @@ async def test_every_tick_publishes_the_budget(semeru: Runtime) -> None:
     event = semeru.bus.last(SseEvent.BUDGET)
     assert event is not None
     tiers = {tier["tier"]: tier for tier in event.data["tiers"]}
-    assert set(tiers) == {"main", "lite"}
+    assert set(tiers) == {"main", "lite", "tts"}
     assert tiers["main"]["used"] == 0  # the stub spends no quota
-    assert tiers["main"]["limit"] == semeru.settings.model_daily_budget
+    assert tiers["main"]["limit"] == semeru.settings.daily_budget(semeru.settings.model)
+    models = {model["model_id"]: model for model in event.data["models"]}
+    assert set(models) == {
+        semeru.settings.model,
+        semeru.settings.model_lite,
+        semeru.settings.model_tts,
+    }
     assert event.data["backend"] == "stub"
 
 

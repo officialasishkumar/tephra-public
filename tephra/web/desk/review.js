@@ -309,6 +309,7 @@ function writerNote(adv) {
   const stub = isStub(adv);
   let words = stub ? 'Written by a code template (AI off).' : `Drafted by AI (${adv.model_id || 'model'}).`;
   if (adv.edited_body != null) words = stub ? 'Edited by a dispatcher from a code-template text (AI off).' : 'Edited by a dispatcher from AI-drafted text.';
+  if (adv.recorded_answer) words += ` ${adv.recorded_answer}.`;
   if (sheet && sheet.view === 'review') words += ' Check the sources first.';
   return el('p', { class: 'writer-note' }, icon(stub ? 'i-code' : 'i-model', 'st'), el('span', { text: words }));
 }

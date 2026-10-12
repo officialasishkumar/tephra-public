@@ -26,10 +26,10 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Final, Literal, NamedTuple, Protocol
 from uuid import uuid4
 
 from tephra.agents.adk_runtime import ModelGuard, summarise
@@ -59,6 +59,7 @@ __all__ = [
     "PROMPT_PATH",
     "DutyExecutor",
     "DutyToolkit",
+    "RecordedDuty",
     "build_duty_agent",
     "run_duty_officer",
     "validate_brief",
@@ -356,6 +357,16 @@ class _Run:
     outcome: Outcome = "ACCEPTED"
     problems: list[str] = field(default_factory=list)
     turns: int = 0
+    recorded_answer: str | None = None
+
+
+class RecordedDuty(NamedTuple):
+    """A REPLAY loop's first-pass run given the same question (the same instructions, picture
+    digest and work list, so the same prompt hash): its delegations, deferrals and brief, made
+    again in the same order (each specialist checks its own work again)."""
+
+    run: DutyRun
+    label: str
 
 
 async def run_duty_officer(
@@ -368,9 +379,12 @@ async def run_duty_officer(
     trigger: Literal["tick", "adsb"],
     replay: bool,
     trace: TraceSink | None = None,
+    recall: Callable[[str], Awaitable[RecordedDuty | None]] | None = None,
 ) -> DutyRun:
     """One Duty Officer run over ``worklist``. It never raises for model trouble: a run with no
-    valid brief is ``MODEL_FAILED``, and the caller sends undone mandatory items to the Desk."""
+    valid brief is ``MODEL_FAILED``, and the caller sends undone mandatory items to the Desk.
+    ``recall`` (REPLAY only) finds the first pass's run for this run's prompt hash; that run is
+    made again, and when its brief no longer passes the checks the model finishes the run."""
     started_at = timeutil.now()
     toolkit = DutyToolkit.of(worklist, executor, trace)
     toolkit.evidence.append(digest)
@@ -378,16 +392,24 @@ async def run_duty_officer(
     task = _task_text(digest, toolkit)
     p_hash = prompt_hash(system, [LlmPart.of_text(task)])
     run = _Run()
+    model_id = llm.model_id("lite")
     if llm.name == "stub":
         await _stub_dispatch(toolkit)
         run.outcome = "STUB"
     else:
-        _emit(trace, "adk", f"Duty Officer: {len(worklist)} item(s) to dispatch ({trigger})")
-        try:
-            await _run_agent(toolkit, llm, run, task, settings)
-        except Exception as exc:  # ADK or API failure: no substitute dispatcher
-            logger.warning("duty officer run failed: %s", type(exc).__name__)
-            run.problems = [*run.problems, f"DUTY OFFICER ERROR: {type(exc).__name__}"]
+        recorded = await recall(p_hash) if recall is not None else None
+        if recorded is not None and await _replay_recorded(toolkit, recorded, trace):
+            run.outcome = recorded.run.outcome
+            run.recorded_answer = recorded.label
+            model_id, p_hash = recorded.run.model_id, recorded.run.prompt_hash
+        else:
+            _emit(trace, "adk", f"Duty Officer: {len(worklist)} item(s) to dispatch ({trigger})")
+            task = _task_text(digest, toolkit)
+            try:
+                await _run_agent(toolkit, llm, run, task, settings)
+            except Exception as exc:  # ADK or API failure: no substitute dispatcher
+                logger.warning("duty officer run failed: %s", type(exc).__name__)
+                run.problems = [*run.problems, f"DUTY OFFICER ERROR: {type(exc).__name__}"]
         if toolkit.brief is None:
             run.outcome = "MODEL_FAILED"
     undone = toolkit.undispatched_mandatory()
@@ -403,14 +425,54 @@ async def run_duty_officer(
         brief=toolkit.brief,
         outcome=run.outcome,
         llm_backend=llm.name,
-        model_id=llm.model_id("lite"),
+        model_id=model_id,
         prompt_hash=p_hash,
         turns=run.turns,
         validation_errors=[*run.problems, *toolkit.brief_problems],
         undispatched=[item.id for item in undone],
+        recorded_answer=run.recorded_answer,
     )
     _emit_result(trace, duty)
     return duty
+
+
+async def _replay_recorded(
+    toolkit: DutyToolkit, recorded: RecordedDuty, trace: TraceSink | None
+) -> bool:
+    """Make the recorded run's delegations and deferrals again, in its order, and submit its
+    brief. True when the brief passed the checks and no mandatory item is left."""
+    first = recorded.run
+    _emit(trace, "adk", f"Duty Officer: the same work as on the first pass ({recorded.label})")
+    for dispatch in first.dispatches:
+        subjects = [toolkit.items[i].subject for i in dispatch.item_ids if i in toolkit.items]
+        if dispatch.tool == "assess_volcanoes":
+            await toolkit.assess_volcanoes(subjects)
+        elif dispatch.tool == "plan_flights":
+            await toolkit.plan_flights(subjects)
+        elif dispatch.tool == "run_recovery":
+            await toolkit.run_recovery()
+        elif dispatch.tool == "draft_sra":
+            for region in subjects:
+                await toolkit.draft_sra(region)
+    for deferral in first.deferred:
+        toolkit.defer([deferral.item_id], deferral.reason)
+    brief = first.brief
+    if brief is not None:
+        toolkit.submit_brief(
+            brief.summary,
+            [priority.item_id for priority in brief.priorities],
+            [priority.why for priority in brief.priorities],
+            brief.watch,
+        )
+    if toolkit.brief is not None and not toolkit.undispatched_mandatory():
+        return True
+    _emit(
+        trace,
+        "code",
+        "The first pass's brief no longer fits this work; the Duty Officer model finishes the run",
+        level="warn",
+    )
+    return False
 
 
 async def _stub_dispatch(toolkit: DutyToolkit) -> None:

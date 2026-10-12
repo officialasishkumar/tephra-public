@@ -129,7 +129,7 @@ function tagsNode(adv, now) {
 
 const writerWords = (adv) => (isStub(adv)
   ? 'Written by a code template (AI off). Check the sources first.'
-  : `Drafted by AI (${adv.model_id || 'model'}). Check the sources first.`);
+  : `Drafted by AI (${adv.model_id || 'model'}).${adv.recorded_answer ? ` ${adv.recorded_answer}.` : ''} Check the sources first.`);
 
 const identText = (adv) => {
   const bits = [adv.callsign ? `proxy for ${adv.callsign}` : 'proxy, no callsign'];

@@ -13,7 +13,7 @@ copies of its short top-level scalar fields, which are what queries filter and s
 import asyncio
 import inspect
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from enum import Enum
 from typing import Any, Final, NamedTuple
@@ -137,6 +137,25 @@ class FirestoreStore(Store):
         if order_by is not None and not plan.server_order:
             docs.sort(key=lambda doc: _sort_key(doc.get(order_by), descending), reverse=descending)
         return docs[: max(0, limit)]
+
+    async def update(
+        self,
+        collection: str,
+        doc_id: str,
+        change: Callable[[dict[str, Any] | None], dict[str, Any]],
+    ) -> dict[str, Any]:
+        ref = self._ref(collection, doc_id)
+
+        @self._firestore.async_transactional
+        async def apply(transaction: Any) -> dict[str, Any]:
+            snapshot = await ref.get(transaction=transaction)
+            text = encode_doc(change(_decode(snapshot)))
+            doc = decode_doc(text)
+            transaction.set(ref, {**index_fields(doc), DOC_FIELD: text})
+            return doc
+
+        result: dict[str, Any] = await apply(self._db.transaction())
+        return result
 
     async def compare_and_set_advisory(
         self, advisory_id: str, expected_version: int, doc: Mapping[str, Any]

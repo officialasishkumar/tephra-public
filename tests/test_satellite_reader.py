@@ -131,13 +131,13 @@ class ScriptedLlm:
     def model_id(self, tier: str) -> str:
         return "gemini-test-lite"
 
-    async def pace(self, tier: str) -> None:
+    async def pace(self, tier: str, tokens: int = 0) -> None:
         return None
 
-    def reserve(self, tier: str) -> bool:
-        return True
+    async def reserve(self, tier: str) -> str | None:
+        return None
 
-    def exhaust(self, tier: str) -> None:
+    async def exhaust(self, tier: str) -> None:
         raise AssertionError("the Satellite Reader never closes a tier itself")
 
     async def structured[T: BaseModel](

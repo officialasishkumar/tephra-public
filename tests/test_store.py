@@ -149,6 +149,30 @@ async def test_concurrent_compare_and_set_has_one_winner(store: SqliteStore) -> 
     assert stored["by"] == results.index(True)
 
 
+async def test_update_applies_each_change_atomically(store: SqliteStore) -> None:
+    """Twenty concurrent increments of one count: none is lost (the AI budget relies on it)."""
+
+    def bump(stored: dict[str, Any] | None) -> dict[str, Any]:
+        return {"n": (stored or {"n": 0})["n"] + 1}
+
+    await asyncio.gather(*(store.update("counts", "2026-10-13/m", bump) for _ in range(20)))
+    assert await store.get("counts", "2026-10-13/m") == {"n": 20}
+    assert await store.update("counts", "2026-10-13/m", bump) == {"n": 21}
+
+
+async def test_an_update_whose_change_raises_writes_nothing(store: SqliteStore) -> None:
+    await store.put("counts", "c", {"n": 1})
+
+    def refuse(_: dict[str, Any] | None) -> dict[str, Any]:
+        raise LookupError("over budget")
+
+    with pytest.raises(LookupError):
+        await store.update("counts", "c", refuse)
+    assert await store.get("counts", "c") == {"n": 1}
+    await store.put("counts", "after", {"n": 2})  # no transaction was left open
+    assert await store.get("counts", "after") == {"n": 2}
+
+
 async def test_append_audit_never_overwrites(store: SqliteStore) -> None:
     first = AuditEntry(id="e1", at=AT, actor="system", action=AuditAction.DRAFT_CREATED, note="a")
     second = first.model_copy(update={"note": "b"})

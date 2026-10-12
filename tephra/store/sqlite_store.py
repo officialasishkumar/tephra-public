@@ -104,6 +104,35 @@ class SqliteStore(Store):
         rows = await self._run(lambda conn: conn.execute(sql, params).fetchall())
         return [decode_doc(row[0]) for row in rows]
 
+    async def update(
+        self,
+        collection: str,
+        doc_id: str,
+        change: Callable[[dict[str, Any] | None], dict[str, Any]],
+    ) -> dict[str, Any]:
+        key = _doc_id(doc_id)
+
+        def apply(conn: sqlite3.Connection) -> dict[str, Any]:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = conn.execute(
+                    "SELECT doc FROM docs WHERE collection = ? AND id = ?",
+                    (str(collection), key),
+                ).fetchone()
+                text = encode_doc(change(None if row is None else decode_doc(row[0])))
+                conn.execute(
+                    "INSERT OR REPLACE INTO docs (collection, id, doc) VALUES (?, ?, ?)",
+                    (str(collection), key, text),
+                )
+                conn.execute("COMMIT")
+            except BaseException:
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
+                raise
+            return decode_doc(text)
+
+        return await self._run(apply)
+
     async def compare_and_set_advisory(
         self, advisory_id: str, expected_version: int, doc: Mapping[str, Any]
     ) -> bool:

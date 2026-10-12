@@ -1,14 +1,15 @@
 """Voice for Ask TEPHRA: Gemini hears the dispatcher and Gemini speaks the answer.
 
-``transcribe`` is one lite structured call with the recording attached. ``speak`` is one call
-to the Gemini text-to-speech model, which answers 24 kHz 16-bit mono PCM; it is wrapped in a
-WAV header here. Both count against the lite tier's daily budget. When a call fails there is
+``transcribe`` is one lite structured call with the recording attached, counted against the
+lite model's budget. ``speak`` is one call to the Gemini text-to-speech model (the ``tts`` tier),
+which answers 24 kHz 16-bit mono PCM; it is wrapped in a WAV header here. Speech has its own
+free-tier pool, so it is counted against the speech model's own budget, and a per-day 429 there
+closes the speech model only, never the lite model. When a call fails there is
 no substitute (no browser speech, no canned audio): the caller gets ``AiUnavailable`` and the
 text answer stands on its own.
 
 The ``llm`` argument of both functions is the same ``LlmBackend`` the rest of the agents use,
-so a scripted backend tests them without a key. Library code takes the model id as an
-argument; the route wiring reads it from the settings.
+so a scripted backend tests them without a key; the speech model is the backend's ``tts`` tier.
 """
 
 import asyncio
@@ -22,7 +23,7 @@ from typing import Any, Final
 from pydantic import Field
 
 from tephra.agents.ask import MAX_ANSWER_CHARS, MAX_QUESTION_CHARS, AiUnavailable, Language
-from tephra.agents.llm import LlmBackend, LlmPart, daily_quota_spent
+from tephra.agents.llm import CHARS_PER_TOKEN, LlmBackend, LlmPart, daily_quota_spent
 from tephra.config import Settings
 from tephra.models import LlmBackendName, TephraModel
 
@@ -128,19 +129,21 @@ async def speak(
     language: Language,
     *,
     llm: LlmBackend,
-    model: str,
     client_factory: Callable[[], Any],
     timeout_s: float,
 ) -> bytes:
-    """Speak ``text`` with the Gemini TTS ``model``; as a WAV file. Raises ``AiUnavailable``."""
+    """Speak ``text`` with the backend's speech model; as a WAV file. Raises ``AiUnavailable``."""
     from google.genai import types
 
     if not text.strip() or len(text) > MAX_ANSWER_CHARS:
         raise AiUnavailable(f"TEXT TO SPEAK MUST BE 1 TO {MAX_ANSWER_CHARS} CHARACTERS")
     if llm.name == "stub":
         raise AiUnavailable("NO MODEL: SPEECH NEEDS GEMINI (TEPHRA_LLM=stub)")
-    if not llm.reserve("lite"):
-        raise AiUnavailable("budget_exhausted")
+    refused = await llm.reserve("tts")
+    if refused is not None:
+        raise AiUnavailable(f"budget_exhausted: {refused}")
+    await llm.pace("tts", round(len(text) / CHARS_PER_TOKEN))
+    model = llm.model_id("tts")
     client = client_factory()
     config = types.GenerateContentConfig(
         response_modalities=["AUDIO"],
@@ -158,7 +161,7 @@ async def speak(
         )
     except Exception as exc:  # any SDK, transport or timeout failure: no voice reply
         if daily_quota_spent(exc):
-            llm.exhaust("lite")
+            await llm.exhaust("tts")
         raise AiUnavailable(_describe(exc)) from exc
     data, mime = _audio_of(response)
     return pcm_to_wav(data, rate_hz=_rate_of(mime))

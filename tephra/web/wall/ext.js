@@ -153,6 +153,7 @@ function satRow(D, reading, sit, store) {
         ["Ash marked on the picture", n ? `${n} box${n === 1 ? "" : "es"}` : "none"],
         ["Read by", readBy(reading) === "code stub (AI off)" ? "code stub (AI off)" : dkChip(readBy(reading), { mono: true })],
         ["Scan", scan.replace(/^scan /, ""), { mono: true }],
+        ["Answer", reading.recorded_answer || null],
       ]),
       el("details", { class: "dk-about", dataset: { k: `sat-pic-${vid}` } },
         el("summary", { dataset: { focus: `sat-pic-${vid}` } }, icon("i-chevron-right", "icon dk-about__chev"), el("span", { text: "Show the picture" })),
@@ -495,33 +496,66 @@ const STATE_UI = {
   idle: ["never", "Quiet"], running: ["running", "Working on it"], done: ["ok", "Done"], failed: ["serious", "Failed"],
 };
 
-// Free-tier calls per model, with a meter each (`x-tier`), in Budget details.
+const LANE_WORDS = { urgent: "Urgent", interactive: "Desk", routine: "Routine" };
+const TIER_WORDS = { main: "Main", lite: "Lite", tts: "Speech" };
+
+// What one queued job is doing, in the code's own words (the reason carries the next slot).
+const workWords = (w) => (w.status === "RUNNING" ? "running now" : w.status === "QUEUED" ? "queued for the AI worker" : w.reason || "waiting for AI budget");
+const waitingWork = () => (Array.isArray(ext.budget?.waiting) ? ext.budget.waiting : []);
+
+// AI work the worker holds: running, queued, or waiting for its model's next paced slot.
+function waitingBlock() {
+  const work = waitingWork();
+  if (!work.length) return null;
+  return el("div", { class: "dk-sub" },
+    el("p", { class: "dk-sub__title", text: "AI work queued or waiting" }),
+    dkFacts(work.map((w) => [w.lane === "urgent" ? "Urgent" : "Routine", `${w.label}: ${workWords(w)}`])),
+    el("p", { class: "dk-sub__note", text: "Waiting work is kept and runs on the same model when its slot comes; nothing is dropped or handed to another model." }));
+}
+
+// Free-tier calls per model, with a meter each (`x-tier`), the share each kind of work has and
+// the pacing in words, in Budget details.
 function budgetBlock() {
   if (!ext.loaded.budget) return loadingBox();
   if (ext.errors.budget || !ext.budget) return dkNote("caution", `Budget unavailable: ${ext.errors.budget || "no answer"}`, { role: "status" });
   const b = ext.budget;
   const stub = b.backend === "stub";
+  const models = Array.isArray(b.models) ? b.models : [];
+  const resets = ms(b.resets_at);
   return el("div", { class: "x-budget" },
     stub ? el("p", { class: "dk-sub__note", text: "Offline stub: no model is called, so no quota is spent." }) : null,
-    ...b.tiers.map((t) => {
-      const left = t.limit ? t.remaining / t.limit : 0;
+    ...models.map((m) => {
+      const left = m.limit ? m.remaining / m.limit : 0;
+      const lanes = (m.lanes || []).map((l) => `${LANE_WORDS[l.lane] || l.lane} ${l.used} of ${l.share}`).join(" · ");
       return el("div", { class: "x-tier" },
-        el("div", { class: "x-tier__top" }, el("span", { class: "x-tier__name" }, el("strong", { text: t.tier === "main" ? "Main model" : "Lite model" }), dkChip(t.model_id, { mono: true })),
-          el("span", { class: "mono", text: `${t.remaining} left of ${t.limit}` })),
-        dkMeter({ value: t.remaining, max: t.limit, tone: meterTone(left, stub), label: `${t.tier === "main" ? "Main" : "Lite"} model: ${t.remaining} of ${t.limit} calls left` }));
+        el("div", { class: "x-tier__top" }, el("span", { class: "x-tier__name" }, el("strong", { text: m.jobs }), dkChip(m.model_id, { mono: true })),
+          el("span", { class: "mono", text: `${m.remaining} left of ${m.limit}` })),
+        dkMeter({ value: m.remaining, max: m.limit, tone: m.closed ? "serious" : meterTone(left, stub), label: `${m.jobs}: ${m.remaining} of ${m.limit} calls left` }),
+        lanes ? el("p", { class: "dk-sub__note mono", text: lanes }) : null,
+        stub ? null : el("p", { class: "dk-sub__note", text: m.pacing }));
     }),
-    b.note ? el("p", { class: "dk-sub__note", text: b.note }) : null);
+    waitingBlock(),
+    el("p", { class: "dk-sub__note", text: `${b.note || ""}${Number.isFinite(resets) ? ` Counts start again at ${hhmmz(resets)}.` : ""}`.trim() }));
 }
 
 const liteTier = () => ext.budget?.tiers?.find((t) => t.tier === "lite") || ext.budget?.tiers?.[0] || null;
 const usedOf = (t) => (Number.isFinite(t.used) ? t.used : Math.max(0, t.limit - t.remaining));
 
+// AI work waiting for its model's next paced slot, and the first such slot in words.
+function waitingTail() {
+  const waiting = waitingWork().filter((w) => w.status === "WAITING");
+  if (!waiting.length) return "";
+  const next = waiting.map((w) => w.reason).find((r) => r && r.includes("next slot"));
+  return `${waiting.length} job${waiting.length === 1 ? "" : "s"} ${next || "waiting for AI budget"}`;
+}
+
 // The same tier and words as the Desk's budget chip (review 1, item 4): the lite model, which
-// makes most calls. Both tiers are listed in full under "Budget details".
+// makes most calls, and the work waiting for budget. Every model is listed under "Budget details".
 export function budgetWords() {
   const lite = liteTier();
   if (!lite) return null;
-  return `AI calls today: ${usedOf(lite)} of ${lite.limit}`;
+  const tail = waitingTail();
+  return `AI calls today: ${usedOf(lite)} of ${lite.limit}${tail ? ` · ${tail}` : ""}`;
 }
 
 // `refused`: the time the budget first refused a call (a Duty Officer run that could not start),
@@ -538,7 +572,7 @@ function budgetTile(stub, refused = NaN) {
     label: "AI calls today", value: used.toLocaleString("en"), of: ` of ${lite.limit.toLocaleString("en")}`, wide: true,
     tone: Number.isFinite(refused) ? "caution" : null,
     meter: { value: used, max: lite.limit, tone: Number.isFinite(refused) ? "caution" : meterTone(left, stub), label: `AI calls today: ${used} of ${lite.limit} used` },
-    sub: stub ? "Offline stub: no quota is spent" : [Number.isFinite(refused) ? `Calls refused since ${hhmmz(refused)}: closed for today` : null, main ? `Main model ${usedOf(main)} of ${main.limit}` : null, "resets at midnight Pacific"].filter(Boolean).join(" · "),
+    sub: stub ? "Offline stub: no quota is spent" : [Number.isFinite(refused) ? `Calls refused since ${hhmmz(refused)}: closed for today` : null, waitingTail() || null, main ? `Main model ${usedOf(main)} of ${main.limit}` : null, "resets at midnight Pacific"].filter(Boolean).join(" · "),
   };
 }
 
@@ -607,7 +641,7 @@ function aiPanel(D, store) {
   const stub = D.state.llm?.backend === "stub";
   const n = (store.trace || []).length;
   const tiers = ext.budget?.tiers || [];
-  const ids = tiers.length ? tiers.map((t) => [t.tier === "main" ? "Main" : "Lite", t.model_id]) : String(D.state.llm?.label || "").split(" + ").filter(Boolean).map((id, i) => [i ? "Lite" : "Main", id]);
+  const ids = tiers.length ? tiers.map((t) => [TIER_WORDS[t.tier] || t.tier, t.model_id]) : String(D.state.llm?.label || "").split(" + ").filter(Boolean).map((id, i) => [i ? "Lite" : "Main", id]);
   const jobsN = run ? (run.dispatches || []).length : null;
   const runT = run ? ms(run.finished_at) : NaN;
 

@@ -135,6 +135,10 @@ class SatelliteReading(TephraModel):
     model_id: str | None = None
     prompt_hash: str | None = None
     label: str | None = Field(default=None, description="NO MODEL for the stub backend")
+    recorded_answer: str | None = Field(
+        default=None,
+        description="Set when a REPLAY loop reused this reading from the replay's first pass",
+    )
 
 
 # --- the call ---------------------------------------------------------------------------

@@ -185,7 +185,7 @@ function buildCard(run) {
   }
   const mandatory = run.worklist.filter((i) => i.mandatory).length;
   // The run's machine facts (model, turns, offered, trigger) sit under Technical detail (item 14).
-  const meta = `${stub ? 'AI off (NO MODEL, offline stub)' : run.model_id} · ${plural(run.turns, 'turn')} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · ${run.trigger === 'adsb' ? 'new aircraft' : 'tick'} ${hhmmz(run.finished_at)}${run.replay ? ' · recorded' : ''}`;
+  const meta = `${stub ? 'AI off (NO MODEL, offline stub)' : run.model_id} · ${plural(run.turns, 'turn')} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · AI worker after ${run.trigger === 'adsb' ? 'new aircraft' : 'a tick'}, done ${hhmmz(run.finished_at)}${run.replay ? ' · recorded' : ''}${run.recorded_answer ? ` · ${run.recorded_answer}` : ''}`;
   more.append(el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }),
     el('p', { class: 'mono tech__line dcard__meta', text: meta }),
     b && stub && b.summary ? el('p', { class: 'mono tech__line', text: b.summary }) : null));

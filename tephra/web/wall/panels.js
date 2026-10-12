@@ -680,7 +680,8 @@ export function areaSection(D, sit, ui) {
       cone.mode !== "OFFICIAL" ? { label: "Confidence", value: `${Math.round((cone.confidence ?? 0) * 100)}%`, sub: "in the widening" } : null,
     ], "Estimate in numbers"),
     outcome === "MODEL_FAILED" ? dkNote("serious", `AI unavailable: ${a?.estimate?.uncertainty_notes || "no usable model output"}. TEPHRA shows the official area only; nothing was put in its place.`, { role: "status" }) : null,
-    dkFacts([["Read by", el("span", {}, readBy)]]),
+    // A replay loop reuses the same model's reading of the same input; the label says so.
+    dkFacts([["Read by", el("span", {}, readBy)], ["Answer", a?.recorded_answer || null]]),
     read,
     dkTech(`Mode ${cone.mode} · label ${cone.label} · ${cone.cone_id || ""}`),
     el("div", { class: "dk-abouts" }, dkAbout("About the estimate", "area", "TEPHRA's estimate is an estimate, not a forecast. It is drawn as the amber dashed line, never smaller than the official area, which stays binding.")));

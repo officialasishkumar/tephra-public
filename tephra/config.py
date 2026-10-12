@@ -5,6 +5,7 @@ Only composition roots (``tephra.api.server``, ``tephra.pipeline.create_runtime`
 so tests can pass ``Settings(_env_file=None, ...)`` explicitly.
 """
 
+import math
 import os
 import secrets
 from datetime import datetime, timedelta
@@ -12,10 +13,25 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, Self
 
-from pydantic import AliasChoices, Field, SecretStr, model_validator
+from pydantic import (
+    AliasChoices,
+    Field,
+    PositiveInt,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from tephra.models import AdsbQueryPoint, BBox, FeedId, Region, RunMode, UtcDatetime
+from tephra.models import (
+    AdsbQueryPoint,
+    BBox,
+    FeedId,
+    Region,
+    RunMode,
+    TephraModel,
+    UtcDatetime,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 """Repository root when running from a checkout (the Docker image keeps that layout)."""
@@ -53,6 +69,33 @@ MOVED_TO_POLICY: dict[str, str] = {
 }
 """Former settings now in ``data/policy/policy_a.json``. Settings ignores unknown keys, so
 without a check a deployment that still sets one would silently run on the policy value."""
+
+# --- free-tier model limits -------------------------------------------------------------
+
+
+class ModelLimit(TephraModel):
+    """Google's free-tier limits for one model id, as the AI Studio rate-limit page shows them
+    (the numbers are not published elsewhere; research/06, research/10)."""
+
+    rpm: PositiveInt = Field(description="Requests a minute")
+    rpd: int = Field(ge=0, description="Requests per Google quota day (midnight Pacific)")
+    tpm: PositiveInt | None = Field(
+        default=None, description="Input tokens a minute, where Google sets one (Gemma 4)"
+    )
+
+
+DEFAULT_MODEL_LIMITS: dict[str, ModelLimit] = {
+    "gemini-3.8-flash": ModelLimit(rpm=5, rpd=20),
+    "gemini-3.5-flash-lite": ModelLimit(rpm=15, rpd=500),
+    "gemini-3.1-flash-lite": ModelLimit(rpm=15, rpd=500),
+    # Speech has its own pool of about 10 a day; its per-minute limit is not reported, so it
+    # is paced as the smallest one seen.
+    "gemini-3.8-flash-lite-tts": ModelLimit(rpm=3, rpd=10),
+    "gemma-4-31b-it": ModelLimit(rpm=30, rpd=14_400, tpm=16_000),
+    "gemma-4-26b-a4b-it": ModelLimit(rpm=30, rpd=14_400, tpm=16_000),
+}
+"""Free-tier rows as reported on 13 Oct 2026 (the TEPHRA free-models brief, sections 1-3)."""
+
 
 # --- region presets ---------------------------------------------------------------------
 
@@ -122,19 +165,75 @@ class Settings(BaseSettings):
         default="gemini-3.8-flash-lite-tts",
         description="Ask TEPHRA's spoken answers (text-to-speech)",
     )
-    model_daily_budget: int = Field(
-        default=18, ge=0, description="Max calls/UTC day to TEPHRA_MODEL (free tier ~20 RPD)"
+    model_limits: dict[str, ModelLimit] = Field(
+        default_factory=lambda: dict(DEFAULT_MODEL_LIMITS),
+        description=(
+            "Google's free-tier limits per model id (JSON, e.g. "
+            '{"gemini-3.5-flash-lite": {"rpm": 15, "rpd": 500}}); rows given here are added to '
+            "or replace the defaults. Budgets and pacing are counted per model id"
+        ),
     )
-    model_lite_daily_budget: int = Field(
-        default=450, ge=0, description="Max calls/UTC day to TEPHRA_MODEL_LITE (~500 RPD)"
+    ai_budget_margin: float = Field(
+        default=0.1,
+        ge=0,
+        lt=1,
+        description=(
+            "Fraction of each free limit TEPHRA leaves unused: the app budget is rpd x (1 - "
+            "margin) calls per Google quota day (midnight to midnight Pacific), and requests a "
+            "minute are paced at rpm x (1 - margin)"
+        ),
     )
-    model_rpm: int = Field(
-        default=5, gt=0, description="Requests a minute sent to TEPHRA_MODEL (free-tier pacing)"
+    model_daily_budget: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "When set, the calls per Google quota day (midnight to midnight Pacific) TEPHRA "
+            "allows TEPHRA_MODEL instead of its free limit less the margin"
+        ),
     )
-    model_lite_rpm: int = Field(
-        default=14,
+    model_lite_daily_budget: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "When set, the calls per Google quota day (midnight to midnight Pacific) TEPHRA "
+            "allows TEPHRA_MODEL_LITE instead of its free limit less the margin"
+        ),
+    )
+    ai_urgent_share: float = Field(
+        default=0.3,
         gt=0,
-        description="Requests a minute sent to TEPHRA_MODEL_LITE; the free tier allows 15",
+        lt=1,
+        description=(
+            "Share of each model's daily budget held for urgent work (a flight inside or about "
+            "to enter the area, a plume read it waits on); urgent work is never paced"
+        ),
+    )
+    ai_interactive_share: float = Field(
+        default=0.2,
+        gt=0,
+        lt=1,
+        description=(
+            "Share held for work a person waits on: Ask, voice, notices, messages, handover, "
+            "documents and Desk-started recovery"
+        ),
+    )
+    ai_routine_burst: float = Field(
+        default=0.05,
+        ge=0,
+        lt=1,
+        description=(
+            "Routine work (the rest of the budget) is admitted in proportion to the part of the "
+            "quota day gone by, plus this share of the budget at once (at least one call)"
+        ),
+    )
+    ai_reserve_release: float = Field(
+        default=0.75,
+        gt=0,
+        le=1,
+        description=(
+            "Part of the quota day after which the unused urgent and interactive shares flow "
+            "to routine work, all of them by midnight Pacific"
+        ),
     )
     gemini_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("GEMINI_API_KEY")
@@ -303,10 +402,20 @@ class Settings(BaseSettings):
             )
         return data
 
+    @field_validator("model_limits", mode="after")
+    @classmethod
+    def _with_default_limits(cls, value: dict[str, ModelLimit]) -> dict[str, ModelLimit]:
+        return {**DEFAULT_MODEL_LIMITS, **value}
+
     @model_validator(mode="after")
     def _consistent(self) -> Self:
         if self.llm == "gemini" and self.gemini_api_key is None:
             raise ValueError("TEPHRA_LLM=gemini needs GEMINI_API_KEY (Google AI Studio key)")
+        if self.ai_urgent_share + self.ai_interactive_share >= 1:
+            raise ValueError(
+                "TEPHRA_AI_URGENT_SHARE + TEPHRA_AI_INTERACTIVE_SHARE must leave a share for "
+                "routine work (their sum must be below 1)"
+            )
         for name in ("session_secret", "task_token"):
             secret = getattr(self, name)
             if secret is not None and len(secret.get_secret_value().strip()) < MIN_SECRET_CHARS:
@@ -335,6 +444,45 @@ class Settings(BaseSettings):
             raise ValueError("TEPHRA_REPLAY_START must carry a UTC offset (e.g. ...Z)")
         if self.replay_end <= self.replay_start:
             raise ValueError("TEPHRA_REPLAY_END must be after TEPHRA_REPLAY_START")
+
+    def unlimited_models(self) -> list[str]:
+        """Configured models with no free-tier limits row: TEPHRA never calls them (their
+        budget is 0, so every step on them says AI UNAVAILABLE) until a row is added."""
+        configured = {self.model, self.model_lite, self.model_tts}
+        return sorted(configured - self.model_limits.keys())
+
+    def daily_budget(self, model_id: str) -> int:
+        """Calls a Google quota day TEPHRA allows ``model_id``: the override set for
+        TEPHRA_MODEL or TEPHRA_MODEL_LITE, else its free limit less the margin, else 0 (a
+        model with no limits row is never called)."""
+        overrides = [
+            budget
+            for model, budget in (
+                (self.model, self.model_daily_budget),
+                (self.model_lite, self.model_lite_daily_budget),
+            )
+            if model == model_id and budget is not None
+        ]
+        if overrides:
+            return min(overrides)
+        limit = self.model_limits.get(model_id)
+        return 0 if limit is None else self._under_margin(limit.rpd)
+
+    def paced_rpm(self, model_id: str) -> int:
+        """Requests a minute sent to ``model_id``: its free limit less the margin, at least 1."""
+        limit = self.model_limits.get(model_id)
+        return 1 if limit is None else max(1, self._under_margin(limit.rpm))
+
+    def paced_tpm(self, model_id: str) -> int | None:
+        """Input tokens a minute sent to ``model_id``, for a model Google limits by tokens."""
+        limit = self.model_limits.get(model_id)
+        if limit is None or limit.tpm is None:
+            return None
+        return max(1, self._under_margin(limit.tpm))
+
+    def _under_margin(self, value: int) -> int:
+        # round() first: 15 x 0.9 is 13.5 but 20 x 0.9 must not come out as 17.999...
+        return math.floor(round(value * (1 - self.ai_budget_margin), 6))
 
     @property
     def region_preset(self) -> Region:

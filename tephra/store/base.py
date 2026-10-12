@@ -4,7 +4,7 @@ Documents are JSON-safe dicts, normally ``model.model_dump(mode="json")``. Times
 fixed-width ISO strings, so ordering by a timestamp field is ordering in time.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from enum import StrEnum
 from typing import Any, Literal, NamedTuple, Protocol, runtime_checkable
 
@@ -55,6 +55,9 @@ class Collection(StrEnum):
     AUDIT = "audit"  # entry id -> AuditEntry (append-only)
     FEED_STATE = "feed_state"  # FeedId value -> FeedHealth
     RUNTIME = "runtime"  # "state" -> core's bookkeeping: mode, replay choice, LIVE marks
+    AI_BUDGET = "ai_budget"  # "<quota day>/<model id>" -> that model's calls on that day
+    AI_WORK = "ai_work"  # work id -> AI work waiting for, or running in, the AI worker
+    REPLAY_ANSWERS = "replay_answers"  # answer key -> a model's answer on a replay's first pass
 
 
 WhereOp = Literal["==", "!=", "<", "<=", ">", ">=", "in"]
@@ -106,6 +109,20 @@ class Store(Protocol):
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """All filters are ANDed. Implementations may filter or sort in memory."""
+        ...
+
+    async def update(
+        self,
+        collection: str,
+        doc_id: str,
+        change: Callable[[dict[str, Any] | None], dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Atomically replace a document with ``change(stored)`` and return what was written.
+
+        ``stored`` is None when the document does not exist. ``change`` may run more than once
+        (a Firestore transaction retries on contention), so it must not have side effects; an
+        exception it raises aborts the update, writes nothing and propagates.
+        """
         ...
 
     async def compare_and_set_advisory(

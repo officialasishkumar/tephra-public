@@ -949,13 +949,13 @@ class GeminiStandIn:
     def model_id(self, tier: str) -> str:
         return "gemini-test-lite"
 
-    async def pace(self, tier: str) -> None:
+    async def pace(self, tier: str, tokens: int = 0) -> None:
         return None
 
-    def reserve(self, tier: str) -> bool:
-        return self._budget_left
+    async def reserve(self, tier: str) -> str | None:
+        return None if self._budget_left else "budget_exhausted"
 
-    def exhaust(self, tier: str) -> None:
+    async def exhaust(self, tier: str) -> None:
         self._budget_left = False
 
     async def structured(self, **_: Any) -> Any:

@@ -1,10 +1,12 @@
-"""The Duty Officer's side of a tick: the work list code finds due, the specialists its tools
+"""The Duty Officer's side of the desk: the work list code finds due, the specialists its tools
 reach, and the safety line code holds when the run ends (``agents/duty_officer.py``).
 
-Work is offered once and again only after ``duty.rerun_min``, so an unchanged list costs no
-model call each tick. A mandatory item the run leaves undone goes to the Desk: a flight as an
-``AiFailure`` (stage ``duty_officer``) for a dispatcher to handle by hand, a plume read as an
-audited AI failure (the area stays at the official products).
+The AI worker (``tephra.ai_worker``) runs the Duty Officer off the tick, over the part of the
+work list each model's budget admits now. Work is offered once and again only after
+``duty.rerun_min``, so an unchanged list costs no model call. A mandatory item the run leaves
+undone goes to the Desk: a flight as an ``AiFailure`` (stage ``duty_officer``) for a dispatcher
+to handle by hand, a plume read as an audited AI failure (the area stays at the official
+products).
 """
 
 import logging
@@ -12,8 +14,8 @@ from collections import Counter
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from tephra.agents.budget import BudgetView, budget_view
-from tephra.agents.duty_officer import run_duty_officer
+from tephra.agents.budget import BudgetView
+from tephra.agents.duty_officer import RecordedDuty, run_duty_officer
 from tephra.desk import audit
 from tephra.desk.approvals import SYSTEM_ACTOR
 from tephra.desk.failures import record_failure
@@ -40,7 +42,13 @@ from tephra.util.hashing import stable_id
 if TYPE_CHECKING:
     from tephra.pipeline import Runtime
 
-__all__ = ["DUTY_RUN_LIMIT", "dispatch_duty", "duty_worklist"]
+__all__ = [
+    "DUTY_RUN_LIMIT",
+    "DeskUnreachable",
+    "dispatch_duty",
+    "drafts_by_flight",
+    "duty_worklist",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -51,32 +59,53 @@ _URGENCY_RECOVER: Final = 3
 _URGENCY_SRA: Final = 4
 
 
+class DeskUnreachable(Exception):
+    """The open drafts could not be read: planning and draft retirement wait a tick."""
+
+
 async def dispatch_duty(
-    runtime: "Runtime", at: datetime, report: TickReport, *, trigger: Literal["tick", "adsb"]
-) -> DutyRun | None:
-    """Run the Duty Officer when there is work it has not been offered (or not for
-    ``duty.rerun_min``); None when there was nothing new."""
-    drafts = await _drafts_by_flight(runtime)
-    worklist = duty_worklist(runtime, at, drafts)
-    rerun = timedelta(minutes=runtime.policy.duty.rerun_min.value)
-    fresh = [
-        item
-        for item in worklist
-        if (offered := runtime.duty_offered.get(item.id)) is None or at - offered >= rerun
-    ]
-    if not fresh:
-        return None
-    executor = _RuntimeExecutor(runtime, at, report, drafts)
+    runtime: "Runtime",
+    worklist: list[DutyItem],
+    drafts: dict[str, list[Advisory]],
+    at: datetime,
+    report: TickReport,
+    *,
+    trigger: Literal["tick", "adsb"],
+    epoch: int,
+    waiting: int = 0,
+) -> DutyRun:
+    """One Duty Officer run over ``worklist`` (the items the AI worker admitted); ``waiting``
+    routine items wait for budget and are named in the digest only as a count. A run that ends
+    after the picture was reset (a mode switch or a replay loop) changes nothing."""
+    executor = _RuntimeExecutor(runtime, at, report, drafts, epoch)
+    budget = await runtime.budget_view()
+
+    async def recall(question: str) -> RecordedDuty | None:
+        recorded = await runtime.recorded_answer("duty", "duty", question)
+        if recorded is None:
+            return None
+        return RecordedDuty(DutyRun.model_validate(recorded.payload), recorded.label)
+
     duty = await run_duty_officer(
         worklist,
         executor,
         runtime.llm,
-        digest=_digest(runtime, worklist, await budget_view(runtime.settings, runtime.llm)),
+        digest=_digest(runtime, worklist, budget, waiting),
         settings=runtime.settings,
         trigger=trigger,
         replay=runtime.mode is RunMode.REPLAY,
         trace=runtime.sink,
+        recall=recall,
     )
+    if runtime.epoch != epoch:
+        runtime.trace(
+            TraceStage.DUTY,
+            "code",
+            "Duty Officer run ended after the picture was reset; nothing it found is kept",
+            level="warn",
+        )
+        return duty
+    rerun = timedelta(minutes=runtime.policy.duty.rerun_min.value)
     for item in duty.worklist:
         runtime.duty_offered[item.id] = at
     runtime.duty_offered = {
@@ -87,8 +116,19 @@ async def dispatch_duty(
     await runtime.store.put(Collection.DUTY, duty.id, duty.model_dump(mode="json"))
     runtime.bus.publish(SseEvent.DUTY, duty)
     report.duty_runs += 1
+    if duty.outcome in ("ACCEPTED", "REPAIRED") and duty.recorded_answer is None:
+        await runtime.keep_answer(
+            "duty", "duty", duty.prompt_hash, duty.model_id, duty.model_dump(mode="json")
+        )
     await runtime.publish_budget()
     return duty
+
+
+async def drafts_by_flight(runtime: "Runtime") -> dict[str, list[Advisory]]:
+    drafts: dict[str, list[Advisory]] = {}
+    for draft in await runtime.open_drafts():
+        drafts.setdefault(draft.flight_id, []).append(draft)
+    return drafts
 
 
 def duty_worklist(
@@ -222,7 +262,9 @@ def _sra_items(runtime: "Runtime", at: datetime) -> list[DutyItem]:
     return items
 
 
-def _digest(runtime: "Runtime", worklist: list[DutyItem], budget: BudgetView) -> str:
+def _digest(
+    runtime: "Runtime", worklist: list[DutyItem], budget: BudgetView, waiting: int = 0
+) -> str:
     """The picture in a few code-written lines: the Duty Officer's only view besides tools."""
     lines: list[str] = []
     for volcano_id, situation in sorted(runtime.situations.items()):
@@ -238,9 +280,11 @@ def _digest(runtime: "Runtime", worklist: list[DutyItem], budget: BudgetView) ->
         )
     mandatory = sum(item.mandatory for item in worklist)
     lines.append(f"- Work due: {len(worklist)} item(s), {mandatory} mandatory")
+    if waiting:
+        lines.append(f"- Routine work waiting for AI budget, not offered now: {waiting} item(s)")
     lines.extend(
-        f"- AI budget today, {tier.tier} tier ({tier.model_id}): {tier.used} of {tier.limit} used"
-        for tier in budget.tiers
+        f"- AI budget today, {model.model_id} ({model.jobs}): {model.used} of {model.limit} used"
+        for model in budget.models
     )
     return "\n".join(lines) if lines else "- No active volcano"
 
@@ -257,26 +301,32 @@ class _RuntimeExecutor:
         at: datetime,
         report: TickReport,
         drafts: dict[str, list[Advisory]],
+        epoch: int,
     ) -> None:
         self._runtime = runtime
         self._at = at
         self._report = report
         self._drafts = drafts
+        self._epoch = epoch
 
     async def assess(self, volcano_id: str) -> tuple[dict[str, Any], list[DutyItem]]:
         runtime = self._runtime
-        result = await runtime.assess_volcano(volcano_id, self._at, self._report)
+        result = await runtime.assess_volcano(volcano_id, self._at, self._report, epoch=self._epoch)
         new = [
             item
             for item in _plan_items(runtime, self._at, self._drafts)
             if item.volcano_id == volcano_id
         ]
+        await runtime.publish()
         return result, new
 
     async def plan(self, flight_id: str) -> dict[str, Any]:
         drafts = self._drafts.get(flight_id, [])
-        result = await self._runtime.plan_flight_now(flight_id, drafts, self._at, self._report)
+        result = await self._runtime.plan_flight_now(
+            flight_id, drafts, self._at, self._report, epoch=self._epoch
+        )
         self._drafts[flight_id] = await _open_drafts_for(self._runtime, flight_id)
+        await self._runtime.publish()
         return result
 
     async def recover(self) -> dict[str, Any]:
@@ -353,13 +403,6 @@ def _failure(runtime: "Runtime", flight: ExposedFlight, reason: str, duty: DutyR
         minutes_to_entry=flight.minutes_to_entry,
         inside_now=flight.inside_now,
     )
-
-
-async def _drafts_by_flight(runtime: "Runtime") -> dict[str, list[Advisory]]:
-    drafts: dict[str, list[Advisory]] = {}
-    for draft in await runtime.open_drafts():
-        drafts.setdefault(draft.flight_id, []).append(draft)
-    return drafts
 
 
 async def _open_drafts_for(runtime: "Runtime", flight_id: str) -> list[Advisory]:

@@ -23,7 +23,7 @@ from test_plume_reader import DAILY_QUOTA_429
 # Importing adk_app runs get_settings() now, before any test patches the environment.
 from tephra.agents.adk_app import build_planner_agent
 from tephra.agents.exposure_planner import PROMPT_PATH, plan_flight, planner_limits
-from tephra.agents.llm import DailyBudget, GeminiBackend, LlmBackend
+from tephra.agents.llm import GeminiBackend, LlmBackend
 from tephra.agents.validators import allowed_actions
 from tephra.config import PROJECT_ROOT, Settings
 from tephra.geo.fuel import category_for_type, divert_line, hold_line
@@ -92,13 +92,13 @@ class GeminiStandIn:
     def model_id(self, tier: str) -> str:
         return "gemini-test-lite"
 
-    async def pace(self, tier: str) -> None:
+    async def pace(self, tier: str, tokens: int = 0) -> None:
         return None
 
-    def reserve(self, tier: str) -> bool:
-        return self._budget_left
+    async def reserve(self, tier: str) -> str | None:
+        return None if self._budget_left else "budget_exhausted"
 
-    def exhaust(self, tier: str) -> None:
+    async def exhaust(self, tier: str) -> None:
         self._budget_left = False
 
     async def structured(self, **_: Any) -> Any:
@@ -296,22 +296,28 @@ async def test_exhausted_budget_stops_before_any_model_call(script: list[Turn]) 
     assert "AI UNAVAILABLE" in trace[-1].message
 
 
-async def test_a_spent_daily_quota_closes_the_lite_tier(script: list[Turn], tmp_path: Path) -> None:
+async def test_a_spent_daily_quota_closes_that_model_only(
+    script: list[Turn], tmp_path: Path
+) -> None:
     """A 429 naming a per-day quota reaches the planner as ADK's wrapped ClientError. Nothing
     clears it before Google's quota day ends, so the run stops without a repair turn, no plan
     is made, and the lite tier stays closed for the Drafter and later flights."""
     script += [_ResourceExhaustedError(genai_errors.ClientError(429, DAILY_QUOTA_429))]
     settings = Settings(
-        _env_file=None, llm="gemini", GEMINI_API_KEY="test-key", model_lite=SCRIPTED_MODEL
+        _env_file=None,
+        llm="gemini",
+        GEMINI_API_KEY="test-key",
+        model_lite=SCRIPTED_MODEL,
+        model_limits={SCRIPTED_MODEL: {"rpm": 60, "rpd": 500}},
     )
-    llm = GeminiBackend(settings, cache_dir=tmp_path, budget=DailyBudget())
+    llm = GeminiBackend(settings, cache_dir=tmp_path)
     planned, trace = await plan(llm)
     assert len(_CALLS) == 1
     assert planned.outcome == "MODEL_FAILED"
     assert any("DAILY QUOTA" in problem for problem in planned.validation_errors)
     assert "AI UNAVAILABLE" in trace[-1].message
-    assert not llm.reserve("lite")
-    assert llm.reserve("main")
+    assert await llm.reserve("lite") is not None
+    assert await llm.reserve("main") is None, "only the model Google closed is closed"
 
 
 @pytest.mark.parametrize(
