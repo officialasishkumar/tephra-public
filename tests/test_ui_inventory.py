@@ -279,7 +279,9 @@ def test_doc_css_has_no_text_under_12_px() -> None:
 def test_desk_tab_labels_are_the_new_words() -> None:
     """R10.2: only the labels changed; the keys stayed."""
     tabs = (WEB / "desk" / "tabs.js").read_text(encoding="utf-8")
-    assert "queue: 'Decide'" in tabs and "network: 'Airports'" in tabs and "docs: 'Paperwork'" in tabs
+    assert "queue: 'Decide'" in tabs
+    assert "network: 'Airports'" in tabs
+    assert "docs: 'Paperwork'" in tabs
 
 
 def test_desk_has_no_bulk_approval_and_keeps_hold_and_confirm() -> None:
