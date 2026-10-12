@@ -295,7 +295,13 @@ export function replanning(store) {
   return { airports, at };
 }
 
-const solverWords = (sc) => (sc.solver_status === "OPTIMAL" ? "best plan found" : sc.solver_status === "UNKNOWN" ? "solver gave no answer" : String(sc.status || "").toLowerCase());
+const SOLVER_WORD = { OPTIMAL: "best plan found", FEASIBLE: "workable plan found", UNKNOWN: "solver gave no answer", INFEASIBLE: "no plan fits", NO_PLAN: "no plan found" };
+const solverWords = (sc) => SOLVER_WORD[sc.solver_status] || SOLVER_WORD[sc.status] || String(sc.status || "").toLowerCase().replace(/_/g, " ");
+// "CLOSURE AS FORECAST" -> "Closure as forecast" (the Desk's wording).
+const scenarioName = (label) => {
+  const t = String(label || "").toLowerCase();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+};
 const LEDE = "Airports the ash closes, and the day's flights of RFA (a fictional airline, synthetic schedule) re-planned around them. An optimiser (code) builds the scenarios; a model only picks one and explains it. A dispatcher approves on the Desk.";
 
 function recoveryPanel(D, store) {
@@ -320,7 +326,7 @@ function recoveryPanel(D, store) {
     id: "rec-head",
     pills: [dkPill(tone, word), dkRecorded(!!plan.replay)],
     title, sub: fail ? null : what,
-    chips: [dkChip(`as of ${clock(plan.created_at)}`), chosenBy, dkChip(`version ${plan.version}`)],
+    chips: [dkChip(clock(plan.created_at), { label: "As of" }), chosenBy, dkChip(String(plan.version), { label: "Plan version" })],
   });
   const kids = [head, busy];
   if (fail) {
@@ -337,17 +343,15 @@ function recoveryPanel(D, store) {
   })), { first: 4, key: "rec-airports" })));
   if (plan.disruption) {
     const d = plan.disruption;
-    kids.push(dkGroup("Before re-planning", null, dkTiles([
-      { label: "Flights blocked", value: d.blocked_flights.length.toLocaleString("en"), tone: d.blocked_flights.length ? "caution" : null },
-      { label: "Passengers blocked", value: d.blocked_pax.toLocaleString("en") },
-      { label: "Can still change", value: String(d.free_flights) },
-      { label: "Can't change (already departed)", value: String(d.frozen_flights) },
+    kids.push(dkGroup("Before re-planning", "what the closures block", dkTiles([
+      { label: "Flights blocked", value: d.blocked_flights.length.toLocaleString("en"), tone: d.blocked_flights.length ? "caution" : null, sub: `${d.blocked_pax.toLocaleString("en")} passengers on them` },
+      { label: "Flights the plan can change", value: String(d.free_flights), sub: `${d.frozen_flights.toLocaleString("en")} more already departed` },
     ], "Disruption in numbers"), d.airborne_at_risk?.length ? dkNote("caution", `In the air and at risk: ${d.airborne_at_risk.join(", ")}`) : null));
   }
   const chosen = plan.chosen;
   if (chosen) {
     const tt = chosen.totals;
-    kids.push(dkGroup("Chosen scenario", `${chosen.label} · ${solverWords(chosen)} (${Math.round(chosen.solve_ms / 1000)} s)`,
+    kids.push(dkGroup(`Chosen scenario: ${scenarioName(chosen.label)}`, `${solverWords(chosen)} in ${Math.round(chosen.solve_ms / 1000)} s`,
       tt ? dkTiles([
         { label: "Cancelled", value: String(tt.cancelled_flights), tone: tt.cancelled_flights ? "serious" : null },
         { label: "Delayed", value: String(tt.delayed_flights), tone: tt.delayed_flights ? "caution" : null },
@@ -359,9 +363,9 @@ function recoveryPanel(D, store) {
   } else if (plan.status !== "AI_UNAVAILABLE") kids.push(dkEmpty("No scenario chosen.", null));
   if (plan.scenarios.length > 1) {
     const rows = plan.scenarios.map((sc) => el("tr", { class: sc.id === plan.chosen_scenario_id ? "is-chosen" : null },
-      el("th", { scope: "row" }, sc.id === plan.chosen_scenario_id ? [icon("i-check", "icon"), " "] : null, sc.label, sc.id === plan.chosen_scenario_id ? el("span", { class: "sr-only", text: " (chosen)" }) : null),
+      el("th", { scope: "row" }, sc.id === plan.chosen_scenario_id ? [icon("i-check", "icon"), " "] : null, scenarioName(sc.label), sc.id === plan.chosen_scenario_id ? el("span", { class: "sr-only", text: " (chosen)" }) : null),
       el("td", { class: "num", text: sc.totals ? String(sc.totals.cancelled_flights) : "–" }),
-      el("td", { class: "num", text: sc.totals ? String(sc.totals.delayed_flights) : "–" }), el("td", { class: "num", text: sc.totals ? usd(sc.totals.total_usd) : sc.solver_status === "UNKNOWN" ? "no plan (solver did not finish)" : sc.status })));
+      el("td", { class: "num", text: sc.totals ? String(sc.totals.delayed_flights) : "–" }), el("td", { class: "num", text: sc.totals ? usd(sc.totals.total_usd) : sc.solver_status === "UNKNOWN" ? "no plan (solver did not finish)" : solverWords(sc) })));
     kids.push(dkAbout(`Compare the scenarios (${plan.scenarios.length})`, "rec-scen", el("div", { class: "x-tablewrap" }, el("table", { class: "x-table" }, el("caption", { class: "sr-only", text: "Recovery scenarios" }),
       el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Scenario" }), el("th", { scope: "col", class: "num", text: "Cancel" }), el("th", { scope: "col", class: "num", text: "Delay" }), el("th", { scope: "col", class: "num", text: "Cost" }))),
       el("tbody", {}, ...rows)))));
@@ -377,7 +381,8 @@ function recoveryPanel(D, store) {
 
 // ------------------------------------------------------------------ Proof
 
-const ARM = { D: "Baseline: code only, no model call", G: "With the Gemini Plume Reader" };
+const ARM = { D: "Baseline: code only, no model call", G: "With the AI Plume Reader (Gemini)" };
+const ARM_SHORT = { D: "baseline", G: "with AI" };
 
 function armStats(arm, s, lead) {
   const gain = s.coverage_gain_mean;
@@ -411,15 +416,15 @@ function proofPanel() {
   const ticks = proofTicks() || 0;
   const head = dkHeader({
     id: "proof-head",
-    pills: [arms.includes("G") ? dkPill("ok", "Gemini arm scored") : dkPill("caution", "Baseline only"), dkRecorded(true, "recorded replays")],
+    pills: [arms.includes("G") ? dkPill("ok", "AI version scored") : dkPill("caution", "Baseline only"), dkRecorded(true, "recorded replays")],
     title: "How TEPHRA's area compares with the official areas issued later, scored by code on recorded replays.",
   });
   const kids = [head,
     dkNote("caution", [el("p", {}, el("strong", { text: "Later official areas are not ash truth." })), "TEPHRA is scored against the official areas issued after each moment. Those are partly built from the same reports and satellite data, so this measures agreement, not what the ash did."], { role: "note" }),
     dkTiles([
-      { label: "Safety floor", value: String(b.floor_violations), of: " violations", tone: b.floor_violations === 0 ? "ok" : "serious", sub: "the estimate never left out an official area" },
-      { label: "Future data used", value: String(b.input_leaks), tone: b.input_leaks === 0 ? "ok" : "serious", sub: "inputs stamped after the moment; must be zero" },
-      { label: "Moments scored", value: ticks.toLocaleString("en"), sub: plural(b.cases.length, "case") },
+      { label: "Official area missed", value: String(b.floor_violations), of: " times", tone: b.floor_violations === 0 ? "ok" : "serious", sub: b.floor_violations === 0 ? "always kept it all" : "left part of one out" },
+      { label: "Later data used", value: String(b.input_leaks), of: " times", tone: b.input_leaks === 0 ? "ok" : "serious", sub: b.input_leaks === 0 ? "a fair test" : "not a fair test" },
+      { label: "Moments scored", value: ticks.toLocaleString("en"), sub: `in ${plural(b.cases.length, "case")}` },
     ], "Checks"),
   ];
   for (const a of arms) {
@@ -427,9 +432,9 @@ function proofPanel() {
       meterRow("Area TEPHRA covers of later official areas", b.overall[a].coverage_mean, "tephra"),
       meterRow("Area the official area alone covers", b.overall[a].coverage_official_mean, "official"))));
   }
-  if (!arms.includes("G")) kids.push(dkNote("info", "The Gemini arm has not been run on these cases, so no improvement is claimed."));
+  if (!arms.includes("G")) kids.push(dkNote("info", "The AI version (the Gemini Plume Reader) has not been scored on these cases yet, so no improvement is claimed."));
   const rows = b.cases.map((c) => el("tr", {},
-    el("th", { scope: "row" }, el("span", { class: "x-case__name", text: c.label.split(":")[0] }), el("span", { class: "x-case__meta mono", text: `${c.case_id} · arm ${c.arm}` })),
+    el("th", { scope: "row" }, el("span", { class: "x-case__name", text: c.label.split(":")[0] }), el("span", { class: "x-case__meta mono", text: `${c.case_id} · ${ARM_SHORT[c.arm] || `arm ${c.arm}`}` })),
     el("td", { class: "num", text: pct(c.summary.coverage_mean) }), el("td", { class: "num", text: pct(c.summary.coverage_official_mean) }),
     el("td", { class: "num", text: pct(c.summary.overwarn_mean, 0) }), el("td", { class: "num", text: c.summary.ticks_scored.toLocaleString("en") })));
   kids.push(el("div", { class: "dk-abouts" },
@@ -519,7 +524,9 @@ export function budgetWords() {
   return `AI calls today: ${usedOf(lite)} of ${lite.limit}`;
 }
 
-function budgetTile(stub) {
+// `refused`: the time the budget first refused a call (a Duty Officer run that could not start),
+// so "1 of 450" never reads as calls to spare while the tier is closed for the day.
+function budgetTile(stub, refused = NaN) {
   const lite = liteTier();
   if (!lite) {
     return { label: "AI calls today", value: ext.loaded.budget ? "unknown" : "loading…", sub: ext.errors.budget ? `budget unavailable: ${ext.errors.budget}` : null, wide: true, tone: ext.errors.budget ? "caution" : null };
@@ -529,8 +536,9 @@ function budgetTile(stub) {
   const left = lite.limit ? lite.remaining / lite.limit : 0;
   return {
     label: "AI calls today", value: used.toLocaleString("en"), of: ` of ${lite.limit.toLocaleString("en")}`, wide: true,
-    meter: { value: used, max: lite.limit, tone: meterTone(left, stub), label: `AI calls today: ${used} of ${lite.limit} used` },
-    sub: stub ? "Offline stub: no quota is spent" : [main ? `Main model ${usedOf(main)} of ${main.limit}` : null, "resets at midnight Pacific"].filter(Boolean).join(" · "),
+    tone: Number.isFinite(refused) ? "caution" : null,
+    meter: { value: used, max: lite.limit, tone: Number.isFinite(refused) ? "caution" : meterTone(left, stub), label: `AI calls today: ${used} of ${lite.limit} used` },
+    sub: stub ? "Offline stub: no quota is spent" : [Number.isFinite(refused) ? `Calls refused since ${hhmmz(refused)}: closed for today` : null, main ? `Main model ${usedOf(main)} of ${main.limit}` : null, "resets at midnight Pacific"].filter(Boolean).join(" · "),
   };
 }
 
@@ -555,7 +563,7 @@ function failureGroups(errors) {
     const occ = g.items.slice().sort((a, b) => b.t - a.t);
     const n_ = g.items.length;
     return dkRow({
-      key: `fail-${g.cause.key}`, dot: "serious", edge: "serious", title: g.cause.title(n), sub: g.cause.sub, foot: dkWhen(n_, timeRange(g.first, g.last)),
+      key: `fail-${g.cause.key}`, dot: "serious", edge: "serious", title: g.cause.title(n), sub: typeof g.cause.sub === "function" ? g.cause.sub(n) : g.cause.sub, foot: dkWhen(n_, timeRange(g.first, g.last)),
       body: [
         dkList(occ.map((x) => el("div", { class: "dk-occ" }, el("span", { class: "dk-occ__t mono", text: hhmmz(x.t) }), el("span", { class: "dk-occ__x", text: x.each }))), { first: 3, key: `fail-occ-${g.cause.key}` }),
         g.cause.link ? dkLink(`${g.cause.link[0]} ›`, { act: "details-sec", sec: g.cause.link[1], focus: `fail-go-${g.cause.key}` }) : null,
@@ -580,12 +588,11 @@ function helperRow(a, store, n, stub) {
     body = [dkFacts([["Status", a.state === "done" ? "Done: scored by code, no model" : "Not run yet"], ["Cases scored", a.state === "done" ? String(a.count) : null], ["Generated", Number.isFinite(last) ? dayTime(last) : null, { mono: true }]]),
       dkLink("Track record ›", { act: "details-sec", sec: "proof", focus: "helper-proof" })];
   } else {
-    const status = a.state === "idle" ? `Quiet: not seen in the newest ${n} steps` : a.state === "failed" ? "Failed: its newest step failed" : a.state === "running" ? "Working on it" : "Done: its newest step worked";
+    const status = a.state === "idle" ? `Quiet: not seen in the newest ${n} steps` : a.state === "failed" ? "Its newest step failed" : a.state === "running" ? "Working on it" : "Its newest step worked";
+    const seen = a.count ? ` · ${plural(a.count, "step")}${a.fails ? `, ${a.fails} failed` : ""} in the newest ${n}` : "";
     body = [dkFacts([
-      ["Status", status],
-      ["Steps seen", a.count ? `${plural(a.count, "step")}${a.fails ? `, ${a.fails} failed` : ""} in the newest ${n}` : null],
+      ["Status", `${status}${seen}`],
       ["Last step", a.detail ? plainLine(a.detail) : null],
-      ["Given a job by", a.delegated ? dkChip("Duty Officer") : null],
       ["Model", stub ? "AI off: code follows the helper's script" : null],
     ]), a.detail ? dkTech(`${a.stage} · ${a.detail}`) : null];
   }
@@ -611,7 +618,7 @@ function aiPanel(D, store) {
     chips: stub ? [dkChip("No model (offline stub)")] : ids.map(([k, id]) => dkChip(id, { label: k, mono: true })),
   });
   const tiles = dkTiles([
-    budgetTile(stub),
+    budgetTile(stub, Math.min(...errors.filter((t) => /^duty-(budget|quota)$/.test(failureCause(t).key)).map((t) => ms(t.at)))),
     { label: "Steps that failed", value: String(failed), tone: failed ? "serious" : "ok", sub: `in the newest ${n} steps`, go: failed ? { act: "dk-jump", target: "ai-fails", focus: "ai-tile-fails" } : null },
     { label: "Jobs handed out", value: jobsN == null ? "none yet" : String(jobsN), tone: jobsN == null ? "never" : null, sub: run ? `latest Duty Officer run${Number.isFinite(runT) ? `, ${hhmmz(runT)}` : ""}` : "no Duty Officer run yet" },
   ], "AI in numbers");

@@ -370,6 +370,7 @@ function renderNow() {
     renderTools();
     renderCtx();
     renderDetails(D, store, ui, conn, { reroutes: () => store.snapshot?.reroutes?.features || [] });
+    updateFold();
     if (dialogKind === "about") { /* static; nothing to refresh */ }
   });
   if (phone() && ui.details.open) syncSheetTop();
@@ -614,6 +615,7 @@ function placeDetails() {
 function openDetails(sec = null, { vid = null, opener = null, from = null } = {}) {
   if (ui.present) return;
   const was = ui.details.open;
+  if (sec && sec !== ui.details.sec) foldKey();
   ui.details = { open: true, sec, vid, from: from || ui.details.from, opener: was ? ui.details.opener : (opener || document.activeElement) };
   if (sec && sectionOf(sec)?.xtab) ui.rail = sectionOf(sec).xtab;
   placeDetails();
@@ -621,6 +623,20 @@ function openDetails(sec = null, { vid = null, opener = null, from = null } = {}
   renderNow();
   requestAnimationFrame(() => { $("details-body").scrollTop = 0; $("details-title").focus({ preventScroll: true }); });
   if (!was && wide()) setTimeout(() => map?.map.resize(), 400);
+}
+
+// "Collapse all" in the drawer head shows once two or more disclosures are open in a section.
+const openDisclosures = () => [...$("details-body").querySelectorAll(".dsec:not([hidden]) details[open]")];
+function updateFold() {
+  const n = ui.details.open && ui.details.sec ? openDisclosures().length : 0;
+  $("details-fold").hidden = n < 2;
+}
+
+// A section opens with the pinned map key folded, so the key never takes the section's room.
+function foldKey() {
+  if (!ui.keyOpen) return;
+  ui.keyOpen = false;
+  try { sessionStorage.setItem("tephra.wall.key", "closed"); } catch { /* storage blocked */ }
 }
 
 function detailsIndex() {
@@ -790,6 +806,9 @@ function startMap() {
 
 // ------------------------------------------------------------------ events
 
+// toggle does not bubble; a capture listener on the drawer body still hears every disclosure.
+$("details-body").addEventListener("toggle", updateFold, true);
+
 document.addEventListener("click", (e) => {
   const skip = e.target.closest('a.skip-link[href="#map"]');
   if (skip) { e.preventDefault(); $("map-canvas")?.focus(); return; }
@@ -820,6 +839,11 @@ document.addEventListener("click", (e) => {
   else if (act === "details-sec") openDetails(t.dataset.sec, { opener: ui.details.opener, from: t.dataset.sec });
   else if (act === "details-index") detailsIndex();
   else if (act === "details-close") closeDetails();
+  else if (act === "details-fold") {
+    for (const d of openDisclosures()) d.open = false;
+    $("details-fold").hidden = true;
+    $("details-title").focus({ preventScroll: true });
+  }
   else if (act === "key-toggle") {
     ui.keyOpen = !ui.keyOpen;
     try { sessionStorage.setItem("tephra.wall.key", ui.keyOpen ? "open" : "closed"); } catch { /* storage blocked */ }

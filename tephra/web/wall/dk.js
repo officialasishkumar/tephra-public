@@ -66,9 +66,12 @@ export function dkMeter({ value, max, tone = null, label }) {
 export const meterTone = (left, stub = false) => (stub ? "off" : left < 0.15 ? "serious" : left < 0.4 ? "caution" : "ok");
 
 // Number tiles. A tile with `go` is a button (data-act and friends), the rest are plain.
+// The grid takes its columns from the count (wall.css), so a fourth tile never sits alone.
 export function dkTiles(tiles, label) {
-  return el("ul", { class: "dk-tiles", "aria-label": label },
-    ...tiles.filter(Boolean).map((t) => {
+  const list = tiles.filter(Boolean);
+  const n = list.filter((t) => !t.wide).length;
+  return el("ul", { class: `dk-tiles dk-tiles--n${Math.min(n, 6)}`, "aria-label": label },
+    ...list.map((t) => {
       const inner = [
         el("span", { class: "dk-tile__label", text: t.label }),
         el("span", { class: "dk-tile__value" }, t.tone && t.tone !== "plain" ? dkDot(t.tone, "st") : null, el("span", { text: t.value }), t.of ? el("span", { class: "dk-tile__of", text: t.of }) : null),
@@ -120,9 +123,15 @@ export function dkLinkRow({ dot = null, title, sub = null, meta = null, dataset,
       el("span", { class: "dk-row__go", "aria-hidden": "true", text: "›" })));
 }
 
-// Rows in one rounded container; past `first` the rest sit behind "Show all N".
+// Rows in one rounded container; past `first` the rest sit behind "Show all N". The rows that
+// open are one accordion (<details name>): opening one closes the one open before, so a list
+// never unfolds into a wall of detail.
 export function dkList(rows, { first = 5, key, noun = null, label = null, more = null } = {}) {
   const all = rows.filter(Boolean);
+  for (const r of all) {
+    const d = r instanceof HTMLDetailsElement ? r : r.firstElementChild;
+    if (key && d instanceof HTMLDetailsElement && d.classList.contains("dk-row")) d.setAttribute("name", `dk-${key}`);
+  }
   const box = el("div", { class: "dk-list", role: label ? "group" : null, "aria-label": label });
   if (!all.length) return box;
   box.append(...all.slice(0, first));

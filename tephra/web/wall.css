@@ -553,7 +553,8 @@ body.history-open .maplibregl-ctrl-bottom-right, body.history-open .map-pills { 
   display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "title switch close";
   align-items: center; gap: 2px var(--sp-2); padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--c-line-1); flex: none;
 }
-.drawer__head:has(.drawer__back:not([hidden])) { grid-template-areas: "back switch close" "title title title"; padding-bottom: var(--sp-3); }
+.drawer__head:has(.drawer__back:not([hidden])) { grid-template-areas: "back switch close" "title fold fold"; padding-bottom: var(--sp-3); }
+.drawer__fold { grid-area: fold; justify-self: end; align-self: center; margin: 0; padding: 0 var(--sp-2); min-height: 32px; font-size: var(--fs-1); white-space: nowrap; }
 .drawer__back { grid-area: back; justify-self: start; margin: 0; font-weight: var(--fw-semibold); white-space: nowrap; }
 .drawer__title { grid-area: title; min-width: 0; font-size: var(--fs-5); font-weight: var(--fw-semibold); line-height: 1.2; }
 .drawer__switch { grid-area: switch; }
@@ -634,7 +635,7 @@ details.more > :not(summary) { margin: var(--sp-2) var(--sp-3) 0; }
    that open one tap in, and Technical detail last. Type: headline 18 px, tile value 20 px, row
    title 16 px, body 14 px, meta 12 px. Space on the 4 px grid: 20 px between blocks, 8 px inside. */
 
-.dk { display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; }
+.dk { display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; container: dk / inline-size; }
 .dk-head { display: flex; flex-direction: column; gap: var(--sp-2); }
 .dk-head__pills { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
 .dk-head__pills .tag { margin-left: 0; }
@@ -663,9 +664,17 @@ details.more > :not(summary) { margin: var(--sp-2) var(--sp-3) 0; }
 .dk-chip--ai { border-style: dashed; border-color: var(--c-tephra); color: var(--c-tephra-text); }
 
 /* tiles */
-.dk-tiles { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
-.dk-tiles > li { flex: 1 1 132px; min-width: 0; display: flex; }
-.dk-tiles > .dk-tiles__wide { flex-basis: 100%; }
+/* Columns follow the count: 2 and 4 tiles sit two by two, 3, 5 and 6 three across; in a narrow
+   drawer (under 380 px) three across becomes two, and a last odd tile spans the row. */
+.dk-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); }
+.dk-tiles--n0, .dk-tiles--n1 { grid-template-columns: minmax(0, 1fr); }
+.dk-tiles--n3, .dk-tiles--n5, .dk-tiles--n6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dk-tiles > li { min-width: 0; display: flex; }
+.dk-tiles > .dk-tiles__wide { grid-column: 1 / -1; }
+@container dk (max-width: 379px) {
+  .dk-tiles--n3, .dk-tiles--n5, .dk-tiles--n6 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dk-tiles--n3 > li:last-child, .dk-tiles--n5 > li:last-child { grid-column: 1 / -1; }
+}
 .dk-tile { display: flex; flex-direction: column; gap: 4px; width: 100%; height: 100%; padding: var(--sp-3) var(--sp-4); background: var(--c-surface-2); border: 1px solid var(--c-line-1); border-radius: var(--radius-lg); min-width: 0; text-align: left; color: var(--c-text-1); font: inherit; }
 .dk-tile__label { font-size: var(--fs-1); font-weight: var(--fw-medium); color: var(--c-text-2); }
 .dk-tile__value { display: flex; align-items: center; gap: 6px; font-size: var(--fs-5); font-weight: var(--fw-semibold); line-height: 1.15; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
@@ -733,6 +742,7 @@ button.dk-row--link .dk-row__head { transition: background-color var(--dur-2) va
 button.dk-row--link:hover .dk-row__head { background: var(--c-surface-3); }
 button.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px; box-shadow: none; }
 button.dk-row--link.is-picked .dk-row__head { background: var(--c-surface-3); box-shadow: inset 3px 0 0 var(--c-text-1); }
+button.dk-row--link .dk-row__meta { align-self: center; padding-top: 0; }
 .dk-row__go { align-self: center; color: var(--c-text-2); font-size: var(--fs-4); line-height: 1; }
 .dk-badge { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; margin-left: 8px; border-radius: var(--radius-pill); background: var(--c-surface-3); font-size: var(--fs-1); font-weight: var(--fw-semibold); color: var(--c-text-1); vertical-align: 2px; white-space: nowrap; }
 .dk-row--serious .dk-badge, .dk-badge--serious { color: var(--c-serious); background: var(--c-serious-bg); }

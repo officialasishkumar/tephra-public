@@ -264,7 +264,7 @@ export function mapPills(D, ui, extra) {
 
 // ------------------------------------------------------------------ advisory status line (3.2)
 
-// "Keep watching (MONITOR)": the plain action first, the ICAO word in brackets (R12.10).
+// "Keep watching": the plain action. The ICAO word is on the Desk and under Technical detail.
 export function actionText(a) {
   const raw = actionWords(a);
   const t = actionPlain(raw) || raw;
@@ -293,7 +293,7 @@ const FLIGHTS_FIRST = 5;
 
 // One flight as a row that opens This flight: the proxy flight, what it stands in for and its
 // level, the entry, and the advisory's state in a word.
-const ADV_WORD = { DRAFT: ["Waiting for a dispatcher", "i-clock"], APPROVED: ["Approved", "i-approved"], EDITED: ["Approved with edits", "i-approved"], REJECTED: ["Rejected", "i-rejected"], SUPERSEDED: ["Replaced by a newer draft", "i-superseded"] };
+const ADV_WORD = { DRAFT: ["Advisory waiting", "i-clock"], APPROVED: ["Advisory approved", "i-approved"], EDITED: ["Approved with edits", "i-approved"], REJECTED: ["Advisory rejected", "i-rejected"], SUPERSEDED: ["Advisory replaced", "i-superseded"] };
 function flightRow(D, f, ui, allStale = false) {
   const p = f.properties;
   const plane = icon("i-aircraft", "icon dk-plane");
@@ -307,10 +307,10 @@ function flightRow(D, f, ui, allStale = false) {
   return dkLinkRow({
     dot: plane,
     title: [p.proxy_flight, " ", el("span", { class: `dk-entry${p.inside ? " dk-entry--inside" : ""}` }, p.inside ? st("st-inside", "var(--c-tephra)") : null, entry)],
-    sub: [`stands in for ${p.callsign || String(p.hex || "").toUpperCase()} · ${lvl}`, oldShown ? [" · ", el("span", { class: "dk-warn", text: oldShown })] : null, p.crew_report ? [" · ", el("span", { class: "dk-crewword" }, icon("i-pin", "icon"), "crew report on this route")] : null],
-    meta: adv ? el("span", { class: `dk-adv dk-adv--${adv.status.toLowerCase()}` }, icon(advIcon), el("span", { text: advWord })) : el("span", { class: "dk-adv", text: "no advisory yet" }),
+    sub: [`${lvl} · real aircraft ${p.callsign || String(p.hex || "").toUpperCase()}`, oldShown ? [" · ", el("span", { class: "dk-warn", text: oldShown })] : null, p.crew_report ? [" · ", el("span", { class: "dk-crewword" }, icon("i-pin", "icon"), "crew report on this route")] : null],
+    meta: adv ? el("span", { class: `dk-adv dk-adv--${adv.status.toLowerCase()}` }, icon(advIcon), el("span", { text: advWord })) : el("span", { class: "dk-adv", text: "No advisory yet" }),
     dataset: { flight: f.id ?? p.hex, focus: `flight-${p.hex}` },
-    label: `${p.proxy_flight}, proxy for ${p.callsign || p.hex}, ${p.inside ? "inside TEPHRA's area now" : `enters in ${p.minutes_to_entry} minutes, estimated`}, ${lvl}${old ? `, ${old}` : ""}${p.crew_report ? ", crew report of ash on this route" : ""}${adv ? `, advisory ${advWord.toLowerCase()}` : ""}. Show this flight.`,
+    label: `${p.proxy_flight}, proxy for ${p.callsign || p.hex}, ${p.inside ? "inside TEPHRA's area now" : `enters in ${p.minutes_to_entry} minutes, estimated`}, ${lvl}${old ? `, ${old}` : ""}${p.crew_report ? ", crew report of ash on this route" : ""}${adv ? `, ${advWord.toLowerCase()}` : ""}. Show this flight.`,
     cls: ui?.selFlight?.hex === p.hex ? "is-picked" : null,
   });
 }
@@ -377,7 +377,7 @@ function crewList(D, ui) {
       const when = flag.reporter ? "reported ash" : flag.inside_now ? "inside now" : `in ${flag.minutes_to_entry} min`;
       return dkLinkRow({
         dot: icon("i-aircraft", "icon dk-plane dk-plane--crew"), title: [p.proxy_flight, " ", el("span", { class: "dk-entry", text: when })],
-        sub: [`stands in for ${p.callsign || String(p.hex || "").toUpperCase()} · ${lvl} · `, el("span", { class: "dk-crewword" }, icon("i-pin", "icon"), flag.line)],
+        sub: [`${lvl} · real aircraft ${p.callsign || String(p.hex || "").toUpperCase()} · `, el("span", { class: "dk-crewword" }, icon("i-pin", "icon"), flag.line)],
         dataset: { flight: f.id ?? p.hex, focus: `flight-${p.hex}` }, cls: ui?.selFlight?.hex === p.hex ? "is-picked" : null,
         label: `${p.proxy_flight}, proxy for ${p.callsign || p.hex}, ${flag.line}, ${when}, ${lvl}. Show this flight.`,
       });
@@ -405,17 +405,24 @@ function traceRun(run, ui, stub) {
   const who = actorWords(t0.actor, stub);
   const row = runRow(run, {
     key: `trace-${run.key}`, tone, dot: tone ? null : icon(ic, "icon dk-actor"),
-    sub: `${t0.stage === "DESK" || t0.stage === "POLL" ? "" : `${STAGE_WORD[t0.stage] || t0.stage.toLowerCase()} · `}${who}`,
+    sub: stepWho(t0.stage, who),
     lineOf: (t) => plainLine(t.message),
     rawOf: (t) => `${hhmmssz(t._t)} · ${t.stage} · ${(ACTOR[t.actor] || [null, String(t.actor || "")])[1]} · ${t.message}`,
   });
   if (run.items.some((t) => ui.freshTrace?.has(t.id))) row.classList.add("is-new");
   return row;
 }
+// Which step it was and who did it: "Flight check · done by code", "Planner · AI off".
 const STAGE_WORD = {
   DUTY: "Duty Officer", PLUME: "Plume Reader", SATELLITE: "Satellite reader", PLANNER: "Planner", DRAFTER: "Drafter", RECOVERY: "Recovery planner",
-  EXPOSURE: "flights", CONE: "TEPHRA's estimate", DISCREPANCY: "disagreements", DOCS: "paperwork", MESSAGES: "messages", NOTICE: "notices", ASK: "Ask",
+  EXPOSURE: "Flight check", CONE: "TEPHRA's estimate", DISCREPANCY: "Disagreement check", DOCS: "Paperwork", MESSAGES: "Messages", NOTICE: "Notices", ASK: "Ask",
+  DESK: "Desk", POLL: "Data feeds",
 };
+function stepWho(stage, who) {
+  const name = STAGE_WORD[stage] || (stage ? stage.charAt(0) + stage.slice(1).toLowerCase() : "");
+  const by = /^by /.test(who) ? `done ${who}` : who;
+  return [name, by].filter(Boolean).join(" · ");
+}
 
 export function renderTrace(D, store, ui, conn, target = $("trace")) {
   const lines = traceLines(store, D, ui);
@@ -429,7 +436,7 @@ export function renderTrace(D, store, ui, conn, target = $("trace")) {
     ...opts.map(([v, text]) => el("button", { type: "button", "aria-pressed": (ui[key] || opts[0][0]) === v ? "true" : "false", dataset: { act, [act === "trace-scope" ? "scope" : "filter"]: v, focus: `${act}-${v}` }, text })));
   const head = dkHeader({
     id: "trace-head",
-    pills: [conn.lostAt ? dkPill("caution", `Paused at ${hhmmz(conn.lostAt)}`) : dkPill("ok", "Live"), dkRecorded(D.mode === "REPLAY")],
+    pills: [conn.lostAt ? dkPill("caution", `Paused at ${hhmmz(conn.lostAt)}`) : dkPill("info", "Updating", "New steps appear here as they happen"), dkRecorded(D.mode === "REPLAY")],
     title: `${plural(lines.length, "step")}, newest first. Repeats are grouped.`,
   });
   const tiles = dkTiles([
@@ -827,7 +834,7 @@ export function timelineEvents(D, store) {
     const k = `${t.stage}|${t.at.slice(0, 16)}`;
     if (seen.has(k)) continue;
     if (t.stage === "DISCREPANCY") { seen.add(k); out.push({ lane: "tephra", t: ms(t.at), icon: "st-caution", cls: "tl__mark--caution", title: `Disagreement found ${hhmmz(ms(t.at))}`, kind: "dis", words: `TEPHRA found a disagreement ${hhmmz(ms(t.at))}` }); }
-    if (t.stage === "EXPOSURE" && t.flight_id) { seen.add(k); out.push({ lane: "tephra", t: ms(t.at), icon: "i-aircraft", cls: "tl__mark--tephra", title: `Flight heading in ${hhmmz(ms(t.at))}`, kind: "flight", words: `A flight heading in was found ${hhmmz(ms(t.at))}` }); }
+    if (t.stage === "EXPOSURE" && t.flight_id) { seen.add(k); out.push({ lane: "tephra", t: ms(t.at), icon: "i-aircraft", cls: "tl__mark--tephra", title: `Flight heading in ${hhmmz(ms(t.at))}`, kind: "flight", words: `TEPHRA found a flight heading in ${hhmmz(ms(t.at))}` }); }
   }
   for (const a of store.advisories) {
     if (a.volcano_id !== sit.volcano_id || !a.decided_at) continue;
@@ -998,6 +1005,7 @@ export const timelineTarget = (dir, current) => timelineTargetIn($("timeline"), 
 // Details › Timeline history (R8.3): the same events in words, newest first, with the lag. Events
 // that say the same thing are one row with their times.
 const LANE_WORD = { all: "All", official: "Official", observer: "Observatory", tephra: "TEPHRA" };
+const LANE_SUB = { official: "Official reports", observer: "The observatory", tephra: "TEPHRA's own checks" };
 export function historySection(D, store, ui) {
   const box = $("history");
   if (!D?.sit) { box.replaceChildren(dkEmpty("No volcano is selected", null)); return; }
@@ -1017,7 +1025,7 @@ export function historySection(D, store, ui) {
   const seg = el("div", { class: "seg", role: "group", "aria-label": "Which lane" },
     ...Object.entries(LANE_WORD).map(([k, t]) => el("button", { type: "button", "aria-pressed": lane === k ? "true" : "false", dataset: { act: "history-lane", lane: k, focus: `hist-lane-${k}` }, text: k === "all" ? `${t} ${allEvents.length}` : `${t} ${counts[k] || 0}` })));
   const list = runs.length
-    ? dkList(runs.map((r) => runRow(r, { key: `hist-${r.key}`, dot: el("span", { class: `dk-lane dk-lane--${r.items[0].lane}`, "aria-hidden": "true" }), sub: LANE_WORD[r.items[0].lane], lineOf: (e) => e.words })), { first: 8, key: "hist-all", more: `Show all ${runs.length} (${plural(events.length, "event")})` })
+    ? dkList(runs.map((r) => runRow(r, { key: `hist-${r.key}`, dot: el("span", { class: `dk-lane dk-lane--${r.items[0].lane}`, "aria-hidden": "true" }), sub: LANE_SUB[r.items[0].lane] || LANE_WORD[r.items[0].lane], lineOf: (e) => e.words })), { first: 8, key: "hist-all", more: `Show all ${runs.length} (${plural(events.length, "event")})` })
     : dkEmpty("No events in the last 9 hours.", null);
   box.replaceChildren(dkSection("hist-head", head,
     el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "history", focus: "hist-open" }, text: ui.historyOpen ? "Hide History on the time bar" : "Show History on the time bar" })),
@@ -1073,20 +1081,25 @@ export function feedsSection(D, store, target = $("feeds")) {
   const by = {};
   for (const f of store.feeds) by[f.status] = (by[f.status] || 0) + 1;
   const replay = D?.mode === "REPLAY" && D.state.replay;
-  const pill = by.ERROR ? dkPill("serious", `${by.ERROR} ${by.ERROR === 1 ? "error" : "errors"}`) : by.STALE ? dkPill("stale", `${by.STALE} stale`) : dkPill("ok", "All working");
+  // The pill and the numbers count feeds, as the top bar's Data chip does; the database has its
+  // own row and only adds to the pill when it fails.
+  const offN = (by.DISABLED || 0) + (by.NEVER || 0);
+  const errN = (by.ERROR || 0) + (db && !db.ok ? 1 : 0);
+  const pill = errN ? dkPill("serious", `${errN} ${errN === 1 ? "error" : "errors"}`) : by.STALE ? dkPill("stale", `${by.STALE} stale`)
+    : offN ? dkPill("off", [by.DISABLED ? `${by.DISABLED} off` : null, by.NEVER ? `${by.NEVER} not read` : null].filter(Boolean).join(" · ")) : dkPill("ok", "All working");
   const dbBad = db && !db.ok;
   target.replaceChildren(dkSection("feeds-head",
-    dkHeader({ id: "feeds-head", pills: [pill, dkRecorded(!!replay)], title: `${by.ERROR ? `${by.ERROR} failing · ` : ""}${by.STALE ? `${by.STALE} stale · ` : ""}${by.OK || 0} working · ${(by.DISABLED || 0) + (by.NEVER || 0)} off or not read` }),
+    dkHeader({ id: "feeds-head", pills: [pill, dkRecorded(!!replay)], title: `${by.ERROR ? `${by.ERROR} failing · ` : ""}${by.STALE ? `${by.STALE} stale · ` : ""}${by.OK || 0} working${offN ? ` · ${offN} off or not read` : ""}`, sub: db ? (db.ok ? "The database is working too." : "The database is failing.") : null }),
     dkTiles([
-      { label: "Working", value: String((by.OK || 0) + (db?.ok ? 1 : 0)), tone: "ok", sub: db ? "feeds and the database" : null },
+      { label: "Working", value: String(by.OK || 0), tone: by.OK ? "ok" : null, sub: "feeds" },
       by.STALE ? { label: "Stale", value: String(by.STALE), tone: "stale" } : null,
-      by.ERROR || dbBad ? { label: "Errors", value: String((by.ERROR || 0) + (dbBad ? 1 : 0)), tone: "serious" } : null,
-      { label: "Off or not read", value: String((by.DISABLED || 0) + (by.NEVER || 0)), tone: "plain" },
+      errN ? { label: "Errors", value: String(errN), tone: "serious", sub: dbBad ? (by.ERROR ? "feeds and the database" : "the database") : "feeds" } : null,
+      { label: "Off or not read", value: String(offN), tone: "plain", sub: offN ? (replay ? "not in this recording or switched off" : "switched off or not polled yet") : null },
     ], "Feeds in numbers"),
     replay ? dkNote("replay", `REPLAY: every feed below plays a recording (${replay.label}). Nothing is live.`, { iconId: "i-replay" })
       : dkNote("info", "When a feed fails, TEPHRA shows the last good data with its time, and says so. It never shows substitute data."),
     look.length || dbBad ? dkGroup("Needs a look", null, dkList([dbBad ? dbRow : null, ...look.map(rowOf)], { first: 6, key: "feeds-look" })) : null,
-    dkGroup("Working", null, dkList([db?.ok ? dbRow : null, ...working.map(rowOf)], { first: 8, key: "feeds-ok" })),
+    dkGroup("Working", null, dkList([...working.map(rowOf), db?.ok ? dbRow : null], { first: 8, key: "feeds-ok" })),
     off.length ? dkGroup(`Off or not read · ${off.length}`, null, dkList(off.map(rowOf), { first: 0, key: "feeds-off", more: `Show ${off.length} feeds that are off` })) : null));
 }
 

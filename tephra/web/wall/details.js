@@ -312,6 +312,7 @@ function flightDetail(D, ui) {
       el("p", { class: "dk-card__big", text: actionText(adv) }),
       el("p", {}, advisoryLine(adv, false)),
       adv.decision_reason ? el("p", { class: "dk-sub__note" }, "Reason given: ", el("q", { text: adv.decision_reason })) : null,
+      techDetail(`action ${actionWords(adv)} · status ${adv.status}${adv.version != null ? ` · version ${adv.version}` : ""}`),
       el("div", { class: "dk-actions" }, el("a", { class: "btn btn--small", href: `/desk#review/${encodeURIComponent(adv.id)}`, target: "_blank", rel: "noopener", text: adv.status === "DRAFT" ? "Open on the Desk ›" : "See it on the Desk ›" }))));
   } else if (p.exposed) kids.push(dkEmpty("No advisory is drafted for this flight yet.", null));
   const rr = (store_reroutes(D) || []).find((r) => r.properties.flight_id === `${p.hex}:${p.volcano_id}` || r.properties.proxy_flight === p.proxy_flight);

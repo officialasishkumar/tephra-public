@@ -20,16 +20,17 @@ const HELPER = {
   run_recovery: "the Recovery helper", draft_sra: "the SRA drafter",
 };
 const jobs = (n) => `${n} job${Number(n) === 1 ? "" : "s"}`;
-// An action word in plain words with the ICAO word kept in brackets (R12.10).
+// An action word in plain words. The ICAO word (MONITOR, HOLD...) stays under Technical detail
+// and on the Desk; the Details main view shows the plain words only.
 export function actionPlain(text) {
   const t = String(text || "").trim();
   let m;
-  if (/^MONITOR$/.test(t)) return "keep watching (MONITOR)";
-  if (/^CONTINUE$/.test(t)) return "continue (CONTINUE)";
-  if ((m = /^HOLD(?: (FL\d{3}))?$/.exec(t))) return m[1] ? `hold at ${m[1]} (HOLD)` : "hold (HOLD)";
-  if ((m = /^DIVERT(?: ([A-Z]{4}))?$/.exec(t))) return m[1] ? `divert to ${m[1]} (DIVERT)` : "divert (DIVERT)";
-  if ((m = /^CHANGE[ _]LEVEL(?: (.+))?$/.exec(t))) return m[1] ? `change level to ${m[1]} (CHANGE LEVEL)` : "change level (CHANGE LEVEL)";
-  if (/^REROUTE\b/.test(t)) return "reroute around the ash (REROUTE)";
+  if (/^MONITOR$/.test(t)) return "keep watching";
+  if (/^CONTINUE$/.test(t)) return "continue as planned";
+  if ((m = /^HOLD(?: (FL\d{3}))?$/.exec(t))) return m[1] ? `hold at ${m[1]}` : "hold";
+  if ((m = /^DIVERT(?: ([A-Z]{4}))?$/.exec(t))) return m[1] ? `divert to ${m[1]}` : "divert";
+  if ((m = /^CHANGE[ _]LEVEL(?: (.+))?$/.exec(t))) return m[1] ? `change level to ${m[1]}` : "change level";
+  if (/^REROUTE\b/.test(t)) return "reroute around the ash";
   return null;
 }
 const DIFF_WORDS = {
@@ -47,7 +48,7 @@ const PLAIN = [
     (m) => `Planned by code (AI off): this plan cancels ${num(m[1])} flight${m[1] === "1" ? "" : "s"} and delays ${num(m[2])}. It affects ${num(m[3])} passengers and costs about ${usdWords(m[4])}.`],
   [/^NO MODEL: official products only\.?$/, () => "AI off: built from the official reports only"],
   [/^DRAFT (.+?) \(NO MODEL\)$/, (m) => `Advisory text written by a code template (AI off): ${actionPlain(m[1].replace(/ AROUND HAZARD$/, "")) || m[1].toLowerCase()}`],
-  [/^(RFA\d+): DRAFT (\w+(?: LEVEL)?) waiting for a dispatcher$/, (m) => `${m[1]}: advisory drafted (${m[2]}), waiting for a dispatcher`],
+  [/^(RFA\d+): DRAFT (\w+(?: LEVEL)?) waiting for a dispatcher$/, (m) => `${m[1]}: advisory drafted to ${actionPlain(m[2]) || m[2].toLowerCase()}, waiting for a dispatcher`],
   [/^(RFA\d+): draft superseded \(entry now in (\d+) min\)$/, (m) => `${m[1]}: draft replaced by a newer one (entry now in ${m[2]} min)`],
   [/^(.+): cone OFFICIAL (\d+)% \(NO MODEL\), (\S+), (\d+) official layer\(s\)$/, (m) => `${m[1]}: TEPHRA's estimate is the official area (AI off), ${m[3]}, from ${m[4]} official layer${m[4] === "1" ? "" : "s"}`],
   [/^RECOVERY DRAFT STUB: CLOSURE AS FORECAST\b.*$/i, () => "Airport plan drafted by code (AI off): closure as forecast"],
@@ -82,12 +83,18 @@ const PLAIN = [
   [/^Duty Officer: (\d+) item\(s\) to dispatch\b.*$/, (m) => `Duty Officer has ${jobs(m[1])} to hand out`],
   [/^Duty Officer deferred (\d+) item\(s\):/, (m) => `Duty Officer left ${m[1]} optional ${Number(m[1]) === 1 ? "job" : "jobs"} for the next run`],
   [/^Duty Officer brief: (\d+) delegation\(s\), (\d+) deferred$/, (m) => `Duty Officer handed out ${jobs(m[1])} and left ${m[2]} for the next run`],
+  [/^Duty Officer AI UNAVAILABLE \(budget_exhausted\); (\d+) delegation\(s\) made, (\d+) mandatory item\(s\) to the Desk$/,
+    (m) => `Duty Officer could not run: today's AI calls are closed. ${m[1] !== "0" ? `It handed out ${jobs(m[1])}; ` : ""}${jobs(m[2])} that must be done went to the Desk`],
+  [/^Duty Officer AI UNAVAILABLE \(GEMINI DAILY QUOTA SPENT.*?\); (\d+) delegation\(s\) made, (\d+) mandatory item\(s\) to the Desk$/,
+    (m) => `Duty Officer could not run: Gemini's daily quota is spent. ${m[1] !== "0" ? `It handed out ${jobs(m[1])}; ` : ""}${jobs(m[2])} that must be done went to the Desk`],
+  [/^Plume read: (.+?) \((.+)\): not dispatched; the area stays at the official products$/,
+    (m) => `Plume read for ${m[1]} was not handed out (${m[2]}). TEPHRA's area stays at the official reports`],
   [/^Duty Officer left (\d+) mandatory item\(s\) undone: to the Desk$/, (m) => `Duty Officer passed ${m[1]} must-do ${Number(m[1]) === 1 ? "job" : "jobs"} to the Desk`],
   [/^(RFA\d+) \([^)]*\) is inside the (.+) cone at (FL\d{3})$/, (m) => `${m[1]} is inside TEPHRA's area at ${m[2]}, ${m[3]}`],
   [/^(RFA\d+) \([^)]*\) enters the (.+) cone in (\d+) min at (FL\d{3}) if track and level are held$/, (m) => `${m[1]} enters TEPHRA's area at ${m[2]} in ${m[3]} min, at ${m[4]}, if track and level are held`],
   [/^(RFA\d+): draft superseded \(no longer exposed if track and level are held\)$/, (m) => `${m[1]}: draft withdrawn, no longer heading into the area if track and level are held`],
   [/^(.+): (OFFICIAL|WIDENED|HYPOTHESIS) (\d+)% (\S+); (\d+) flight\(s\) exposed$/, (m) => `${m[1]}: TEPHRA's estimate is ${m[2] === "OFFICIAL" ? "the official area" : m[2] === "WIDENED" ? "wider than the official area" : "a hypothesis"}, ${m[4]}, confidence ${m[3]}%; ${m[5]} flight${m[5] === "1" ? "" : "s"} inside or heading in`],
-  [/^(RFA\d+): DRAFT (\w+(?: LEVEL)?) for a dispatcher$/, (m) => `${m[1]}: advisory drafted (${actionPlain(m[2]) || m[2].toLowerCase()}) for a dispatcher`],
+  [/^(RFA\d+): DRAFT (\w+(?: LEVEL)?) for a dispatcher$/, (m) => `${m[1]}: advisory drafted to ${actionPlain(m[2]) || m[2].toLowerCase()}, for a dispatcher`],
   [/^(RFA\d+): same advice as an open draft$/, (m) => `${m[1]}: same advice as an open draft, so no new one`],
   [/^disruption: \{/, () => "Recovery planner was given the closed airports and the day's flights"],
   [/^run_scenario: \{.*"label":"([^"]+)".*?"status":"([A-Z_]+)"/, (m) => `Recovery planner tried a scenario: ${m[1].toLowerCase()} (${m[2].toLowerCase().replace(/_/g, " ")})`],
@@ -119,6 +126,15 @@ const HELPER_OF_STAGE = {
   ASK: "Ask", NOTICE: "Notice reader", RECOVERY: "Recovery planner", MESSAGES: "Messages", DOCS: "Paperwork drafter",
 };
 const CAUSES = [
+  { stage: "DUTY", re: /^Duty Officer AI UNAVAILABLE \(budget_exhausted\); \d+ delegation\(s\) made, (\d+) mandatory/, key: "duty-budget",
+    title: () => "Duty Officer could not run: today's AI calls are closed", sub: (n) => `${n} must-do jobs went to the Desk each time, for a dispatcher to do by hand. Nothing was substituted.`,
+    each: (m) => `${m[1]} jobs to the Desk`, link: null },
+  { stage: "DUTY", re: /^Duty Officer AI UNAVAILABLE \(GEMINI DAILY QUOTA SPENT[^;]*; \d+ delegation\(s\) made, (\d+) mandatory/, key: "duty-quota",
+    title: () => "Duty Officer could not run: Gemini's daily quota is spent", sub: (n) => `${n} must-do jobs went to the Desk, for a dispatcher to do by hand. Nothing was substituted.`,
+    each: (m) => `${m[1]} jobs to the Desk`, link: null },
+  { stage: "DUTY", re: /^Plume read: (.+?) \((.+)\): not dispatched/, key: "duty-plume",
+    title: () => "Plume read was not handed out", sub: "TEPHRA's area stays at the official reports. Nothing was widened or substituted.",
+    each: (m) => `${m[1]}: ${m[2]}`, link: ["TEPHRA's estimate", "estimate"] },
   { stage: "DUTY", re: /^Duty Officer left (\d+) mandatory item\(s\) undone: to the Desk$/, key: "duty-undone",
     title: (n) => `Duty Officer passed ${n} must-do jobs to the Desk`, sub: "A dispatcher does them by hand. Nothing was substituted.",
     each: (m) => `${m[1]} jobs`, link: null },
