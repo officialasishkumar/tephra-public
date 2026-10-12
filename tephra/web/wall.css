@@ -341,6 +341,7 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 .sw--exposed { color: var(--c-tephra); width: 22px; height: 22px; margin: 1px; }
 .sw--reroute { color: var(--c-reroute); }
 .sw--sat { color: var(--c-sat); }
+.sw--route { color: var(--c-route); }
 
 .trust { display: flex; gap: var(--sp-2); align-items: flex-start; font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.4; }
 .trust .icon { color: var(--c-text-2); margin-top: 2px; }
@@ -932,6 +933,8 @@ details.more > :not(summary) { margin: var(--sp-2) var(--sp-3) 0; }
 :root {
   --c-reroute: #2dd4bf;
   --c-reroute-text: #7ef0e0;
+  /* A flight's usual route: a muted, cool neutral, drawn thin and faint beneath everything else. */
+  --c-route: #a9b8c8;
   --c-sat: #f2f6fa;
   --c-sat-text: #ffffff;
 }

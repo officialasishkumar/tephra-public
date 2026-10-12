@@ -305,6 +305,7 @@ class SseEvent(StrEnum):
     AIRCRAFT = "aircraft"
     OVERLAYS = "overlays"
     REROUTES = "reroutes"
+    ROUTES = "routes"
     TRACE = "trace"
     ADVISORY = "advisory"
     AI_FAILURE = "ai_failure"
@@ -2128,7 +2129,31 @@ class AircraftFeatureProps(TephraModel):
     crew_report: bool = Field(
         default=False, description="Its projected track crosses an active crew report area"
     )
+    origin_icao: str | None = Field(
+        default=None,
+        description="Usual route of the callsign (VRS standing data), airline targets only, "
+        "when the aircraft flies along that leg; not the filed flight plan",
+    )
+    dest_icao: str | None = None
     label: str = Field(description="e.g. 'RFA4821 FL350' or 'RFA4821 FL350 +14 MIN'")
+
+
+class RouteFeatureProps(TephraModel):
+    """A flight's usual route on the Wall (``tephra.feeds.routes``, VRS standing data, CC0):
+    the great circle between its airports as a ``line``, and an ``airport`` Point at each end.
+
+    It is the callsign's usual route, never the filed flight plan, and is drawn only when
+    ``RouteTable.lookup`` finds the leg the aircraft is flying: no route is ever guessed.
+    """
+
+    feature: Literal["line", "airport"]
+    origin_icao: str | None = Field(default=None, description="Line only")
+    dest_icao: str | None = Field(default=None, description="Line only")
+    icao: str | None = Field(default=None, description="Airport only: the code shown")
+    hexes: list[str] = Field(
+        default_factory=list, description="Line only: the flights it is drawn for"
+    )
+    source: Literal["vrs-standing-data"] = "vrs-standing-data"
 
 
 class ExposureFeatureProps(TephraModel):
@@ -2244,6 +2269,10 @@ class WallSnapshot(TephraModel):
     reroutes: dict[str, Any] = Field(
         default_factory=lambda: feature_collection([]),
         description="FeatureCollection, RerouteFeatureProps",
+    )
+    routes: dict[str, Any] = Field(
+        default_factory=lambda: feature_collection([]),
+        description="FeatureCollection, RouteFeatureProps: exposed flights' usual routes",
     )
     situations: list[SituationCard]
     overlays: Overlays

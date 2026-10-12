@@ -147,6 +147,7 @@ Data semantics (map and panels, one meaning each):
 | `--c-observer` | `#38bdf8` sky | Observatory: VONA, ground observer, drift arrow | `--c-observer-text` `#7dd3fc` |
 | `--c-aircraft` | `#aab4be` | Other airline aircraft (context) | — |
 | `--c-aircraft-stale` | `#7a8796` | Aircraft position older than 60 s | — |
+| `--c-route` | `#a9b8c8` | A flight's usual route, origin to destination (thin, faint, beneath everything) | none |
 | `--c-crew` | `#e8dcc6` warm ivory | Crew report caution area (operator policy A, not an official product): its long-dashed outline, pin and label, an RFA plane only a crew report flags, the Desk's crew box | `--c-crew-text` `#f2e9d8`; `--c-crew-soft` for the Desk and Wall flag boxes |
 | `--c-code-green/yellow/orange/red/unknown` | `#2ec4a0` `#fff176` `#f2711c` `#e8273b` `#8a96a3` | Aviation colour code, only inside the eruption symbol with its letter, and next to the word | Print the word in `--c-text-1`, never in the code colour |
 
@@ -488,6 +489,8 @@ Layer order, bottom to top (all after the basemap unless noted):
 | 10 | `tephra-hatch` | fill | cones, `part == sector` | `fill-pattern` hatch image (section 5.2), opacity 1 (dimmed 0.4) |
 | 10a | `crew-fill` | fill | `crew`, `feature == area` (5.7) | `--c-crew` 0.06; beneath every official layer |
 | 10b | `crew-line` | line | `crew`, `feature == area` | `--c-crew` 1.4 px at z4, 2.2 px at z8, dash [4,3], opacity 0.95; beneath the official fills, so an official area is never covered |
+| 10c | `route-line` | line | `routes`, `feature == line` (`WallSnapshot.routes`, plus `/api/routes/{origin}/{dest}` for the picked flight) | a flight's usual route, origin to destination (VRS standing data, not the filed flight plan): `--c-route` (a muted cool neutral), 1.2 px at z4 and 1.5 px at z8, opacity 0.28; the picked flight's 1.4 / 1.8 px, opacity 0.5; great circle, round caps, no arrows, no animation; beneath the official areas, TEPHRA's line and the dashed path. Only the RFA flights in or heading in and the picked flight; Map layers "Flight routes" (on by default) |
+| 10d | `route-end` | circle | `routes`, `feature == airport` | r 2.2 at z4, 3.2 at z8, fill `--map-halo`, stroke `--c-route` 1.4; its code (`route-end-label`, "WIII", Noto Sans Regular 12, `--c-text-3`, the picked flight's `--c-text-2`) collides and is placed after every other label |
 | 11 | `official-fill-now` | fill | official, step `now`, shown, `fill == true` (5.1) | `--c-official` 0.14 (dimmed 0.07) |
 | 12-14 | `official-fill-f6/f12/f18` | fill | steps | 0.05 / 0.035 / 0.025 |
 | 15 | `official-line-now` | line | step `now` | 2.6 px at z8 (1.6 at z4), solid, join round |
@@ -827,7 +830,8 @@ when it changes because an area was chosen and its first volcano arrived later).
 `#legend` is a fixed list in the story column (R5.5), never a floating panel, listing what is drawn
 now: "Official ash area · binding", "TEPHRA's estimate · never smaller than official", "Crew report
 caution area · operator policy, not a VAA or SIGMET" (while one is drawn), "RFA flight in
-or heading in", "Official forecast area (+6 h)", "Other aircraft (not RFA)", "Suggested reroute",
+or heading in", "Official forecast area (+6 h)", "Other aircraft (not RFA)", "Route (origin to destination)"
+(while a route line is drawn), "Suggested reroute",
 "Observatory's reported drift", "Where TEPHRA widened the area", "Box marked on the satellite picture ·
 supporting only", then the link "Full map key and alert colours ›" (Help). At 1600 px and up it runs
 in two columns. From 601 to 1599 px, while Details is open, the same node is moved to the bottom of
@@ -1027,7 +1031,8 @@ widened), "Technical detail" (mode, label, cone id), and "How the model read it"
   "recorded" in REPLAY, and "Technical detail" (last good time, records, feed key, the raw error);
   the database row last.
 - Map layers (`#layers-pop`): the status ("satellite off"), "On the map" (official locked on;
-  TEPHRA's estimate; crew report caution areas locked on; aircraft; other aircraft labels; flight paths; suggested reroutes (off by
+  TEPHRA's estimate; crew report caution areas locked on; aircraft; other aircraft labels; flight paths; flight routes (on; the usual routes of the RFA flights
+  heading in and of the picked flight); suggested reroutes (off by
   default: only the picked flight's reroute is drawn); satellite boxes; disagreement arrows; FIR and
   VAAC lines (off by default); navaids; terrain), "Height filter ›", then "Satellite pictures, 3D and
   compare" (Off, Infrared, Visible, Air mass, "Next picture" `data-tool="sat"` with `#sat-state`, SO2,

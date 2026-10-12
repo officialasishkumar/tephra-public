@@ -49,6 +49,7 @@ from tephra.api.auth import (
 from tephra.api.sse import EventStreamResponse, StreamSlots, event_stream, parse_last_event_id
 from tephra.config import MAX_BODY_BYTES, MAX_NOTICE_BODY_BYTES, Settings, get_settings
 from tephra.desk import approvals, audit, failures
+from tephra.feeds.routes import route_features
 from tephra.models import (
     ActionKind,
     Advisory,
@@ -427,6 +428,29 @@ async def get_blob(key: str, runtime: RuntimeDep) -> Response:
         content=data,
         media_type="image/png",
         headers={"Cache-Control": "public, max-age=86400, immutable"},
+    )
+
+
+_ICAO: Final = re.compile(r"[A-Z0-9]{4}")
+
+
+@read_api.get("/routes/{origin_icao}/{dest_icao}")
+async def get_route_line(origin_icao: str, dest_icao: str, runtime: RuntimeDep) -> Response:
+    """The great circle between two airports, for the route of the flight picked on the Wall.
+
+    Which airports a flight flies between comes from ``AircraftFeatureProps`` (code, VRS
+    standing data); this answer depends only on the two positions, so the browser caches it.
+    """
+    if _ICAO.fullmatch(origin_icao) is None or _ICAO.fullmatch(dest_icao) is None:
+        raise ApiError(404, "not_found", "No such airport")
+    table, airports = runtime.routes, runtime.airports
+    if table.position(origin_icao, airports) is None or table.position(dest_icao, airports) is None:
+        raise ApiError(404, "not_found", "Airport position not known")
+    body = route_features({(origin_icao, dest_icao): ()}, table, airports)
+    return Response(
+        content=json.dumps(body, separators=(",", ":")),
+        media_type="application/json",
+        headers={"Cache-Control": "public, max-age=86400"},
     )
 
 

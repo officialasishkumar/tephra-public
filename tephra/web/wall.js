@@ -19,12 +19,14 @@ const STREAM_TIMEOUT_MS = 45e3;
 const HIDDEN_PAUSE_MS = 5 * 60e3;
 const TRACE_KEEP = 200;
 const SAT_CYCLE = ["off", "ir", "vis", "airmass"];
-const DEFAULT_LAYERS = { tephra: true, rose: true, aircraft: true, paths: true, acLabels: true, context: false, navaids: false, terrain: false, reroutes: false, satboxes: true };
+const DEFAULT_LAYERS = { tephra: true, rose: true, aircraft: true, paths: true, routes: true, acLabels: true, context: false, navaids: false, terrain: false, reroutes: false, satboxes: true };
 const DETAILS_KEY = "tephra.wall.details";
 
 // ------------------------------------------------------------------ state
 
-const store = { state: null, snapshot: null, advisories: [], trace: [], feeds: [] };
+// routeLines: "WIII-WSSS" -> the route line fetched for a picked flight that is not in or heading
+// into an area (null while it loads or when the server has no line for it).
+const store = { state: null, snapshot: null, advisories: [], trace: [], feeds: [], routeLines: new Map() };
 // Human decisions composed on the Wall from advisory events: the backend's trace has no
 // DESK step yet, and the trace must show the human deciding (7.9).
 const localTrace = [];
@@ -184,7 +186,7 @@ function openStream() {
     if (s.last_tick && s.last_tick !== conn.lastTick) { conn.lastTick = s.last_tick; reloadExtSoon(); }
   });
   on("heartbeat", (h) => { if (h.now) setClock(h.now); });
-  for (const name of ["volcanoes", "official", "cones", "exposures", "aircraft", "reroutes"]) on(name, (fc) => { if (store.snapshot) store.snapshot[name] = fc; });
+  for (const name of ["volcanoes", "official", "cones", "exposures", "aircraft", "reroutes", "routes"]) on(name, (fc) => { if (store.snapshot) store.snapshot[name] = fc; });
   for (const name of ["notice", "recovery", "budget"]) on(name, (d) => ingest(name, d));
   on("satellite", (r) => {
     if (!store.snapshot) return;
@@ -298,6 +300,19 @@ document.addEventListener("visibilitychange", () => {
 // ------------------------------------------------------------------ rendering
 
 let pending = 0;
+// The picked flight's usual route, when the server's route layer does not already draw it. The
+// line depends only on the two airports, so it is fetched once per pair (and cached by HTTP).
+function fetchRouteLine(d) {
+  const key = d.selRoute;
+  if (!key || store.routeLines.has(key) || d.routes.some((f) => f.id === key)) return;
+  store.routeLines.set(key, null);
+  const [origin, dest] = key.split("-");
+  fetch(`/api/routes/${encodeURIComponent(origin)}/${encodeURIComponent(dest)}`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((fc) => { if (fc?.features) { store.routeLines.set(key, fc); scheduleRender(); } })
+    .catch(() => {});
+}
+
 function scheduleRender() {
   if (pending) return;
   pending = setTimeout(() => { pending = 0; renderNow(); }, 40);
@@ -335,6 +350,7 @@ function renderNow() {
     return;
   }
   D = derive(store, ui, now());
+  fetchRouteLine(D);
   let reframe = false;
   if (D.selected !== lastSel) {
     reframe = lastSel !== null || !map?.framedOnce;

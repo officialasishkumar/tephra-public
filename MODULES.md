@@ -225,7 +225,7 @@ Enum additions of the extensions: `FeedId.JMA_VOLCANO` (`jma_volcano`); `ActionK
 `AuditAction` `AI_FAILED`, `AI_FAILURE_HANDLED`, `ASKED`, `NOTICE_READ`, `RECOVERY_PROPOSED`,
 `RECOVERY_DECIDED`, `MESSAGE_DRAFTED`, `MESSAGE_DECIDED`, `DOC_DRAFTED`, `DOC_SIGNED`,
 `HANDOVER_ACKED`; `TraceStage` `SATELLITE`, `NOTICE`, `ASK`, `RECOVERY`, `MESSAGES`, `DOCS`;
-`SseEvent` `reroutes`, `ai_failure`, `satellite`, `notice`, `recovery`, `message`, `doc`, `budget`,
+`SseEvent` `reroutes`, `routes` (the usual routes of the flights heading in), `ai_failure`, `satellite`, `notice`, `recovery`, `message`, `doc`, `budget`,
 `duty`; `TraceStage.DUTY`; `PlumeAssessment.outcome` `PENDING` (a plume read queued for the Duty
 Officer: official products only until it runs, never reused as current). Duty Officer models:
 `DutyItemKind` (ASSESS, PLAN, RECOVER, SRA), `DutyItem`, `DutyPriority`, `DutyBrief`,
@@ -1525,6 +1525,8 @@ class Runtime:
     async def switch_mode(self, mode: RunMode, *, auto: bool = False,
                           case: ReplayCase | None = None) -> None
     async def publish_budget(self) -> None                       # SSE `budget` (budget_view)
+    def known_routes(self) -> dict[str, FlightRoute]             # hex -> RouteTable.lookup of each airline target (every publish)
+    def route_layer(self, known: Mapping[str, FlightRoute]) -> dict[str, Any]   # WallSnapshot.routes: exposed flights only
     async def add_verified_notice(self, vona: Vona) -> None      # a verified pasted notice joins live.vonas and the store
     # crew reports (section 5.19): a flag layer beside the cones
     async def restore_crew_reports(self) -> None                 # create_runtime: every stored report, both modes
@@ -1980,6 +1982,9 @@ class RouteTable:
     def lookup(self, aircraft, airports: AirportCatalogue, policy: OperatorPolicy) -> FlightRoute | None
     def position(self, icao: str, airports: AirportCatalogue) -> tuple[float, float] | None
     def chain(self, callsign: str | None) -> tuple[str, ...] | None
+def great_circle(lat1, lon1, lat2, lon2) -> list[Position]   # (lon, lat), one point about every 40 NM
+def route_features(legs: Mapping[tuple[str, str], Iterable[str]], table: RouteTable,
+                   airports: AirportCatalogue) -> dict[str, Any]   # FeatureCollection, RouteFeatureProps
 ```
 Both reroute kinds are returned for every exposed flight, each with a `RerouteStatus`: `OK`,
 `NOT_EXPOSED` (level outside the hazard band), `START_INSIDE`, `DEST_INSIDE`, `NO_DEST` (no
@@ -2010,6 +2015,12 @@ and lies in `data/airports.json` or within 1,500 NM of a TEPHRA region; `airport
 `[lat, lon]` of the 613 chain airports the catalogue lacks. About 1.5 MB. `lookup` picks the leg
 whose great circle passes within `reroute.route_max_cross_track_nm` of the aircraft, between
 its ends, with the track within 90 degrees of the bearing to the destination.
+
+Route lines on the Wall: `great_circle` densifies the great circle (at most 256 points) and
+unwraps each longitude against the one before, so a leg across the antimeridian runs on past 180
+and MapLibre draws it continuously. `route_features` writes one `line` per (origin, destination)
+leg, id `<origin>-<dest>`, with the hexes it is drawn for, and one `airport` Point per end, id
+`<icao>@<lon>`; a leg whose airport has no known position is left out (no guessed place).
 
 ### 5.12 ask
 
@@ -2534,6 +2545,7 @@ The headers above are unchanged by compression.
 | `GET /api/feeds` | `FeedList` = `{feeds: [FeedHealth]}` (ages as of now) |
 | `GET /api/policy` | `PolicyResponse` = `{policy: OperatorPolicy, policy_hash}`: the active operator policy and its `content_hash()` |
 | `GET /api/replays` | `ReplayCaseList` = `{cases: [ReplayCaseSummary]}`: each recorded case without its records (`case_id`, `label`, `recorded_from`, `recorded_to`, `region`, `volcano_ids`, `notes`, `record_count`, `banner`). Built once per app in the lifespan (`ReplayCatalogue` on `app.state.replays`: summaries, serialised bytes, strong `ETag` = quoted sha256 of the bytes); a manifest that cannot be read fails startup. Served with `Cache-Control: no-cache` and the `ETag`; a matching `If-None-Match` answers 304 with no body |
+| `GET /api/routes/{origin_icao}/{dest_icao}` | FeatureCollection (`RouteFeatureProps`, `routes.route_features`): the great circle between two airports and a Point at each end, for the route of a flight picked on the Wall that is not in `WallSnapshot.routes`. Which airports a flight flies between comes only from `AircraftFeatureProps`; this answer depends only on the two positions, so it is sent with `Cache-Control: public, max-age=86400`. 404 `not_found` for a code that is not 4 capitals or digits, or an airport with no known position |
 | `GET /api/blobs/{key}` | PNG bytes; `key` must match `BLOB_KEY_PATTERN` (else 404); `Cache-Control: public, max-age=86400, immutable` |
 | `GET /api/duty?limit=10` | `DutyRunList` `{runs: [DutyRun]}`, current mode, newest first (`limit` 1 to 20) |
 | `GET /api/budget` | `BudgetView` `{backend, as_of, tiers: [{tier, model_id, used, limit, remaining}], note}` |
@@ -2562,6 +2574,11 @@ Wall's timeline then shows `Replay loops 1028Z-1058Z` and its progress through t
 and a `Point` per turn point (`feature: "waypoint"`), with `RerouteFeatureProps` (`flight_id`,
 `proxy_flight`, `volcano_id`, `kind`, `status`, `route_string`, `extra_nm`, `extra_min`, `side`,
 `label`, `waypoint_labels`).
+`routes`: the usual route (`RouteTable.lookup`, VRS standing data, never the filed flight plan)
+of each RFA flight in or heading into an area, computed by code at every publish:
+`RouteFeatureProps` (`feature` `line` | `airport`, `origin_icao`, `dest_icao`, `icao`, `hexes`,
+`source`), from `routes.route_features`. One line per leg (flights on the same leg share it), one
+Point per airport. A flight whose leg is not found has no line: no route is guessed.
 `satellite`: the newest `SatelliteReading` of each active volcano that has one.
 `crew`: `CrewPicture` `{label, reports: [CrewReportView], flags: [CrewFlag], features}`
 (section 5.19). `features` is a FeatureCollection with `CrewFeatureProps` (`report_id`,
@@ -2572,7 +2589,8 @@ report (ids `<report id>#area`, `#pin`) and a `path` LineString per flagged flig
 `duty`: the newest `DutyRun` (or null).
 `aircraft`: `Point` per merged aircraft with `AircraftFeatureProps` (`exposed`,
 `minutes_to_entry` and `volcano_id` from the earliest exposure; `crew_report` when a crew report
-area flags it).
+area flags it; `origin_icao` and `dest_icao`, the usual route from `RouteTable.lookup` for an
+airline callsign flying along a leg of it, else null).
 `situations`: `SituationCard` per active volcano (cards exactly `[SIGMET, VONA, VAA]`).
 `overlays`: `BtdOverlay` per active volcano with a BTD result (`image_url =
 blob_url(image_key)`, `corners = bbox.corners_lonlat()`), `FrameThumb` per stored frame.
@@ -2594,6 +2612,7 @@ Wall resyncs from `/api/wall` and the Desk reloads its list when the stream reop
 | `exposures` | FeatureCollection | replace layer |
 | `aircraft` | FeatureCollection | replace layer |
 | `reroutes` | FeatureCollection | replace layer |
+| `routes` | FeatureCollection (`WallSnapshot.routes`) | replace layer |
 | `overlays` | `Overlays` | replace overlays |
 | `situation` | `SituationCard` | upsert card by `volcano_id` |
 | `trace` | `TraceEvent` | append (keep last 200) |
@@ -2610,7 +2629,7 @@ Wall resyncs from `/api/wall` and the Desk reloads its list when the stream reop
 | `heartbeat` | `{"now": iso, "mode": "LIVE"}` (no `id`) | update clock |
 
 Core publishes `state`, `volcanoes`, `situation`, `official`, `cones`, `exposures`,
-`reroutes`, `aircraft`, `overlays`, `crew`, `trace`, `advisory`, `ai_failure`, `satellite`, `recovery`
+`reroutes`, `routes`, `aircraft`, `overlays`, `crew`, `trace`, `advisory`, `ai_failure`, `satellite`, `recovery`
 and `budget` (the Wall layers only when they changed, section 5.7); the feature routes publish
 `notice`, `message`, `doc` and `budget` (after a model call) too. The SSE endpoint sends
 `heartbeat`. NaN and infinities in a payload are sent as null. There is no `feeds` event:

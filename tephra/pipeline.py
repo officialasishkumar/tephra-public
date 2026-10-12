@@ -67,7 +67,7 @@ from tephra.feeds.registry import (
     initial_health,
     save_unsaved,
 )
-from tephra.feeds.routes import RouteTable, load_routes
+from tephra.feeds.routes import RouteTable, load_routes, route_features
 from tephra.feeds.sigmet import fetch_sigmets
 from tephra.feeds.volcanoes import VolcanoCatalogue, load_volcanoes
 from tephra.feeds.winds import fetch_winds
@@ -98,6 +98,7 @@ from tephra.models import (
     FeedHealth,
     FeedId,
     FeedStatus,
+    FlightRoute,
     FrameProduct,
     FrameThumb,
     GeoLineString,
@@ -384,6 +385,7 @@ class Runtime:
         situations = [self.situations[vid] for vid in sorted(self.situations)]
         colors = _color_codes(self.catalogue, self.live.vonas.values(), self.live.vaas.values())
         cones = [self.cones[vid] for vid in sorted(self.cones)]
+        routes = self.known_routes()
         return WallSnapshot(
             generated_at=at,
             volcanoes=_volcano_features(self.catalogue, colors, set(self.live.active)),
@@ -392,8 +394,9 @@ class Runtime:
             ),
             cones=feature_collection(part for cone in cones for part in cone.to_features()),
             exposures=_exposure_features(self.exposed.values()),
-            aircraft=_aircraft_features(self.aircraft(), self.exposed.values(), self.crew),
+            aircraft=_aircraft_features(self.aircraft(), self.exposed.values(), self.crew, routes),
             reroutes=_reroute_features(self.reroutes, self.exposed),
+            routes=self.route_layer(routes),
             duty=self.duty,
             crew=self.crew,
             situations=[self._situation_card(situation, at, colors) for situation in situations],
@@ -980,7 +983,9 @@ class Runtime:
         self._publish_changed(SseEvent.CREW, self.crew)
         self.bus.publish(
             SseEvent.AIRCRAFT,
-            _aircraft_features(self.aircraft(), self.exposed.values(), self.crew),
+            _aircraft_features(
+                self.aircraft(), self.exposed.values(), self.crew, self.known_routes()
+            ),
         )
         view = self.crew_view(report_id)
         if view is not None:
@@ -1016,6 +1021,7 @@ class Runtime:
         self._publish_changed(SseEvent.CONES, snapshot.cones)
         bus.publish(SseEvent.EXPOSURES, snapshot.exposures)
         self._publish_changed(SseEvent.REROUTES, snapshot.reroutes)
+        self._publish_changed(SseEvent.ROUTES, snapshot.routes)
         bus.publish(SseEvent.AIRCRAFT, snapshot.aircraft)
         self._publish_changed(SseEvent.OVERLAYS, snapshot.overlays)
         self._publish_changed(SseEvent.CREW, snapshot.crew)
@@ -1046,11 +1052,13 @@ class Runtime:
 
     async def publish_live(self) -> None:
         """The between-ticks update after an extra ADS-B poll: aircraft, exposures, state."""
+        routes = self.known_routes()
         self.bus.publish(
             SseEvent.AIRCRAFT,
-            _aircraft_features(self.aircraft(), self.exposed.values(), self.crew),
+            _aircraft_features(self.aircraft(), self.exposed.values(), self.crew, routes),
         )
         self.bus.publish(SseEvent.EXPOSURES, _exposure_features(self.exposed.values()))
+        self._publish_changed(SseEvent.ROUTES, self.route_layer(routes))
         self._publish_changed(SseEvent.CREW, self.crew)
         self.bus.publish(SseEvent.STATE, await self.system_state())
 
@@ -1078,6 +1086,26 @@ class Runtime:
 
     def aircraft(self) -> list[Aircraft]:
         return merge_aircraft(self.live.adsb)
+
+    def known_routes(self) -> dict[str, FlightRoute]:
+        """hex -> the usual route of each airline target, when it flies along a leg of it."""
+        known: dict[str, FlightRoute] = {}
+        for target in self.aircraft():
+            if not target.airline:
+                continue
+            route = self.routes.lookup(target, self.airports, self.policy)
+            if route is not None:
+                known[target.hex] = route
+        return known
+
+    def route_layer(self, known: Mapping[str, FlightRoute]) -> dict[str, Any]:
+        """The Wall's route lines: only for the RFA flights in or heading into an area."""
+        legs: dict[tuple[str, str], set[str]] = {}
+        for flight in self.exposed.values():
+            route = known.get(flight.hex)
+            if route is not None:
+                legs.setdefault((route.origin_icao, route.dest_icao), set()).add(flight.hex)
+        return route_features(legs, self.routes, self.airports)
 
     def spawn(self, coroutine: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
         task = asyncio.create_task(coroutine)
@@ -2327,7 +2355,10 @@ def _volcano_features(
 
 
 def _aircraft_features(
-    aircraft: Sequence[Aircraft], exposed: Iterable[ExposedFlight], crew: CrewPicture
+    aircraft: Sequence[Aircraft],
+    exposed: Iterable[ExposedFlight],
+    crew: CrewPicture,
+    routes: Mapping[str, FlightRoute],
 ) -> dict[str, Any]:
     earliest: dict[str, ExposedFlight] = {}
     for flight in exposed:
@@ -2338,6 +2369,7 @@ def _aircraft_features(
     features = []
     for target in aircraft:
         hit = earliest.get(target.hex)
+        route = routes.get(target.hex)
         props = AircraftFeatureProps(
             hex=target.hex,
             callsign=target.callsign,
@@ -2352,6 +2384,8 @@ def _aircraft_features(
             minutes_to_entry=hit.minutes_to_entry if hit is not None else None,
             volcano_id=hit.volcano_id if hit is not None else None,
             crew_report=target.hex in flagged,
+            origin_icao=route.origin_icao if route is not None else None,
+            dest_icao=route.dest_icao if route is not None else None,
             label=_aircraft_label(target, hit),
         )
         features.append(feature(point(target.lat, target.lon), props, feature_id=target.hex))

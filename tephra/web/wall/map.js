@@ -56,7 +56,7 @@ export function readTokens() {
     tephra: tok("--c-tephra"), tephraText: tok("--c-tephra-text"),
     observer: tok("--c-observer"), observerText: tok("--c-observer-text"),
     crew: tok("--c-crew"), crewText: tok("--c-crew-text"),
-    aircraft: tok("--c-aircraft"), stale: tok("--c-aircraft-stale"),
+    aircraft: tok("--c-aircraft"), stale: tok("--c-aircraft-stale"), route: tok("--c-route"),
     land: tok("--map-land"), water: tok("--map-water"), halo: tok("--map-halo"), label: tok("--map-label"),
     fir: tok("--map-fir"), firActive: tok("--map-fir-active"), vaac: tok("--map-vaac"), navaid: tok("--map-navaid"),
     labelMinor: tok("--map-label-minor"), labelFir: tok("--map-label-fir"), labelVaac: tok("--map-label-vaac"),
@@ -114,7 +114,7 @@ const labelEm = () => (window.innerWidth <= 600 ? 16 : 40);
 
 // The hazard and traffic layers. `withTephra` false builds the compare map's "official only" side.
 function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
-  for (const id of ["official", "cones", "exposures", "aircraft", "volcanoes", "official-labels", "area-labels", "rose", "ac3d", "crew", "crew-labels"]) map.addSource(id, { type: "geojson", data: empty() });
+  for (const id of ["official", "cones", "exposures", "aircraft", "volcanoes", "official-labels", "area-labels", "rose", "ac3d", "crew", "crew-labels", "routes"]) map.addSource(id, { type: "geojson", data: empty() });
   // Exposed flights again, clustered for their labels only (R6.3): every plane is still drawn by
   // aircraft-icon; more than five labels within 60 px merge into one "8 RFA flights" bubble.
   if (withTephra) map.addSource("exposed-pts", { type: "geojson", data: empty(), cluster: true, clusterRadius: 60, clusterMinPoints: 6, clusterMaxZoom: 11 });
@@ -131,6 +131,18 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
     const area = ["==", ["get", "feature"], "area"];
     map.addLayer({ id: "crew-fill", type: "fill", source: "crew", filter: area, paint: { "fill-color": C.crew, "fill-opacity": 0.06 } });
     map.addLayer({ id: "crew-line", type: "line", source: "crew", filter: area, layout: { "line-join": "round" }, paint: { "line-color": C.crew, "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.4, 8, 2.2], "line-dasharray": [4, 3], "line-opacity": 0.95 } });
+  }
+  // A flight's usual route (VRS standing data), origin to destination: a thin, faint, neutral
+  // great circle beneath the official areas, TEPHRA's estimate and the dashed path into the area,
+  // so the eye reads the trip first and then where the ash cuts it. Only RFA flights in or heading
+  // in, and the picked flight (stronger), are on the source; no arrows, no animation.
+  if (withTephra) {
+    const rVis = ui.layers.routes ? "visible" : "none";
+    const line = ["==", ["get", "feature"], "line"];
+    const port = ["==", ["get", "feature"], "airport"];
+    const sel = (on, off) => ["case", ["==", ["get", "sel"], true], on, off];
+    map.addLayer({ id: "route-line", type: "line", source: "routes", filter: line, layout: { visibility: rVis, "line-join": "round", "line-cap": "round", "line-sort-key": sel(1, 0) }, paint: { "line-color": C.route, "line-width": ["interpolate", ["linear"], ["zoom"], 4, sel(1.4, 1.2), 8, sel(1.8, 1.5)], "line-opacity": sel(0.5, 0.28) } });
+    map.addLayer({ id: "route-end", type: "circle", source: "routes", filter: port, layout: { visibility: rVis }, paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 2.2, 8, 3.2], "circle-color": C.halo, "circle-stroke-color": C.route, "circle-stroke-width": 1.4, "circle-stroke-opacity": sel(0.85, 0.5), "circle-opacity": sel(1, 0.7) } });
   }
   for (const [step, s] of Object.entries(STEP_STYLE)) {
     const filter = ["all", ["==", ["get", "step"], step], ["==", ["get", "show"], true]];
@@ -194,6 +206,12 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
   // A crew report's label is placed last, so it gives way to the volcano names, the flight labels
   // and count, and the area labels: symbols in higher layers are placed first.
   if (withTephra) map.moveLayer("crew-label", "volcano-inactive");
+  // The airport codes at a route's ends: small and calm, and placed after every other label, so
+  // they give way to the area labels, the flight labels and the volcano names.
+  if (withTephra && !noText) {
+    map.addLayer({ id: "route-end-label", type: "symbol", source: "routes", filter: ["==", ["get", "feature"], "airport"], layout: { visibility: ui.layers.routes ? "visible" : "none", "text-field": ["get", "icao"], "text-font": FONT_REG, "text-size": 12, "text-letter-spacing": 0.04, "text-variable-anchor": ["top", "bottom", "left", "right"], "text-radial-offset": 0.7, "text-optional": true, "text-allow-overlap": false, "text-padding": 3, "symbol-sort-key": ["case", ["==", ["get", "sel"], true], 0, 1] }, paint: { "text-color": ["case", ["==", ["get", "sel"], true], C.text2, C.text3], "text-halo-color": C.halo, "text-halo-width": 1.5 } });
+    map.moveLayer("route-end-label", "crew-label");
+  }
   // The crew report pin (5.7): an icon, so it shows with the simplified basemap too. It sits on
   // top of every area and is never hidden by collision; planes, the flight count and the labels
   // draw over it.
@@ -334,6 +352,7 @@ export class WallMap {
     this.send("cones", fc(D.cones));
     this.send("exposures", D.exposures);
     this.send("aircraft", fc(D.aircraft));
+    if (map.getSource("routes")) this.send("routes", fc(D.routes));
     if (map.getSource("crew")) this.send("crew", D.crew.map);
     // A cluster that holds only some of the flights says "here" (review 2, item 14): "20 RFA
     // flights here" beside the story's 22, the other two drawn as single planes. "20 of 22" read
@@ -897,6 +916,7 @@ export class WallMap {
     this.setVisible(["navaid", "navaid-label"], L.navaids);
     this.setVisible(["tephra-fill", "tephra-hatch", "tephra-line", "tephra-label"], L.tephra);
     this.setVisible(["exposure-path", "exposure-entry", "exposure-entry-label", "crew-path"], L.paths);
+    this.setVisible(["route-line", "route-end", "route-end-label"], L.routes);
     this.setVisible(["aircraft-icon", "aircraft-inside", "aircraft-picked", "aircraft-label-exposed", "aircraft-label-crew", "exposed-cluster"], L.aircraft);
     this.setVisible(["aircraft-label"], L.aircraft && L.acLabels);
     setExtVisible(this.map, true, L.satboxes);

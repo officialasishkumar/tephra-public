@@ -201,6 +201,25 @@ export function derive(store, ui, now) {
   // until cleared; when it is missing, `selHiddenByLevel` says whether the level filter hid it.
   const selFlight = selHex ? aircraft.find((f) => f.properties.hex === selHex) || null : null;
 
+  // Usual routes (origin to destination, VRS standing data): the server draws them for the RFA
+  // flights in or heading in; the picked flight's comes from /api/routes when it is not one of
+  // them (wall.js fetches it into store.routeLines). Never for other aircraft, never guessed.
+  const sp = selFlight?.properties;
+  const selRoute = sp?.origin_icao && sp?.dest_icao ? `${sp.origin_icao}-${sp.dest_icao}` : null;
+  const routeFeatures = [...(snap.routes?.features || [])];
+  if (selRoute && !routeFeatures.some((f) => f.id === selRoute)) routeFeatures.push(...(store.routeLines?.get(selRoute)?.features || []));
+  const seenPorts = new Set();
+  const routes = [];
+  for (const f of routeFeatures) {
+    const p = f.properties;
+    if (p.feature === "airport") {
+      if (seenPorts.has(f.id)) continue;
+      seenPorts.add(f.id);
+    }
+    const sel = p.feature === "line" ? f.id === selRoute : !!sp && (p.icao === sp.origin_icao || p.icao === sp.dest_icao);
+    routes.push({ ...f, properties: { ...p, sel } });
+  }
+
   // Forecast steps chosen on the timeline that have no official polygon for the selected
   // volcano in the current products (8.3). Only a note: no other step is drawn in their place.
   let stepsMissing = [];
@@ -271,6 +290,7 @@ export function derive(store, ui, now) {
     rerouteKeys: new Set((snap.reroutes?.features || []).map((f) => f.properties.flight_id)),
     hasSatBoxes: (snap.satellite || []).some((r) => r.boxes?.length),
     aircraft, exposed, crewFlights, exposures: snap.exposures || { type: "FeatureCollection", features: [] },
+    routes, selRoute, hasRouteLine: routes.some((f) => f.properties.feature === "line"),
     volcanoes, rose, moveByVolcano, firsWithSigmet, advByFlight, regionCounts,
     levelAll: lvAll, hiddenOfficial, hiddenFlights, selFlight, selHiddenByLevel, stepsMissing,
     overlays: snap.overlays || { btd: [], frames: [] },

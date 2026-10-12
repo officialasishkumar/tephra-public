@@ -9,10 +9,10 @@ CC0); the catalogue wins where both know an airport.
 
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from itertools import pairwise
 from pathlib import Path
-from typing import Final, Protocol
+from typing import Any, Final, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
@@ -23,12 +23,26 @@ from tephra.geo.units import (
     distance_nm,
     initial_bearing_deg,
     km_to_nm,
+    normalize_lon,
+    unwrap_lon,
 )
-from tephra.models import FlightRoute, OperatorPolicy
+from tephra.models import (
+    FlightRoute,
+    GeoLineString,
+    OperatorPolicy,
+    Position,
+    RouteFeatureProps,
+    feature,
+    feature_collection,
+    point,
+)
 
-__all__ = ["ROUTES_FILE", "RouteTable", "load_routes"]
+__all__ = ["ROUTES_FILE", "RouteTable", "great_circle", "load_routes", "route_features"]
 
 ROUTES_FILE: Final = "routes_apac.json"
+_LINE_STEP_NM: Final = 40.0
+"""Spacing of the points of a drawn route: the line bends with the great circle at any zoom"""
+_LINE_MAX_POINTS: Final = 256
 _EARTH_RADIUS_NM: Final = km_to_nm(EARTH_RADIUS_KM)
 _LEADING_ZEROS: Final = re.compile(r"^([A-Z]{3})0+(?=\d)")
 """VRS keeps callsigns without leading zeros in the flight number (GIA0101 is GIA101)."""
@@ -143,6 +157,71 @@ def _cross_track_nm(
     )
     sine = math.sin(from_origin / _EARTH_RADIUS_NM) * math.sin(angle)
     return abs(math.asin(max(-1.0, min(1.0, sine)))) * _EARTH_RADIUS_NM
+
+
+def great_circle(lat1: float, lon1: float, lat2: float, lon2: float) -> list[Position]:
+    """``(lon, lat)`` points along the great circle, one every ``_LINE_STEP_NM`` or so.
+
+    The first longitude is in [-180, 180) and each next one is unwrapped against the one
+    before, so a line across the antimeridian runs on (179, 181, ...) instead of jumping back
+    across the map; MapLibre draws such a line continuously into the next world copy.
+    """
+    a, b = _unit(lat1, lon1), _unit(lat2, lon2)
+    angle = math.acos(max(-1.0, min(1.0, sum(x * y for x, y in zip(a, b, strict=True)))))
+    steps = min(
+        _LINE_MAX_POINTS - 1, max(1, math.ceil(distance_nm(lat1, lon1, lat2, lon2) / _LINE_STEP_NM))
+    )
+    points: list[Position] = []
+    previous = normalize_lon(lon1)
+    for index in range(steps + 1):
+        fraction = index / steps
+        if angle < 1e-9:
+            lat, lon = lat1, lon1
+        else:
+            wa = math.sin((1 - fraction) * angle) / math.sin(angle)
+            wb = math.sin(fraction * angle) / math.sin(angle)
+            x, y, z = (wa * p + wb * q for p, q in zip(a, b, strict=True))
+            lat = math.degrees(math.atan2(z, math.hypot(x, y)))
+            lon = math.degrees(math.atan2(y, x))
+        previous = unwrap_lon(normalize_lon(lon), previous) if index else previous
+        points.append((round(previous, 4), round(lat, 4)))
+    return points
+
+
+def _unit(lat: float, lon: float) -> tuple[float, float, float]:
+    phi, lmb = math.radians(lat), math.radians(lon)
+    return math.cos(phi) * math.cos(lmb), math.cos(phi) * math.sin(lmb), math.sin(phi)
+
+
+def route_features(
+    legs: Mapping[tuple[str, str], Iterable[str]], table: RouteTable, airports: AirportCatalogue
+) -> dict[str, Any]:
+    """One ``line`` per (origin, destination) leg, drawn for the given flight hexes, and one
+    ``airport`` Point per end. A leg whose airport has no known position is left out: a line
+    is never drawn to a guessed place."""
+    features: list[dict[str, Any]] = []
+    ends: dict[tuple[str, float], Position] = {}
+    for (origin_icao, dest_icao), hexes in sorted(legs.items()):
+        origin = table.position(origin_icao, airports)
+        dest = table.position(dest_icao, airports)
+        if origin is None or dest is None:
+            continue
+        line = great_circle(*origin, *dest)
+        props = RouteFeatureProps(
+            feature="line",
+            origin_icao=origin_icao,
+            dest_icao=dest_icao,
+            hexes=sorted(set(hexes)),
+        )
+        features.append(
+            feature(GeoLineString(coordinates=line), props, feature_id=f"{origin_icao}-{dest_icao}")
+        )
+        for icao, (lon, lat) in ((origin_icao, line[0]), (dest_icao, line[-1])):
+            ends.setdefault((icao, lon), (lon, lat))
+    for (icao, _), (lon, lat) in sorted(ends.items()):
+        props = RouteFeatureProps(feature="airport", icao=icao)
+        features.append(feature(point(lat, lon), props, feature_id=f"{icao}@{lon:g}"))
+    return feature_collection(features)
 
 
 def load_routes(data_dir: Path) -> RouteTable:
