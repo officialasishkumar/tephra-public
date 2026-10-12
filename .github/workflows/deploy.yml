@@ -96,6 +96,8 @@ jobs:
       - uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2.2.1
         with:
           project_id: ${{ env.TEPHRA_PROJECT }}
+          # GitHub's Ubuntu runners ship the Google Cloud CLI; reusing it saves about 25 s.
+          skip_install: true
 
       - name: Build, test the candidate, move traffic, test the live URL
         id: deploy

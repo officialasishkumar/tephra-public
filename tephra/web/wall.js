@@ -371,6 +371,11 @@ function renderNow() {
   document.body.classList.toggle("is-stale", !!conn.lostAt);
   document.body.classList.toggle("is-3d", ui.d3);
   document.body.classList.toggle("history-open", ui.historyOpen);
+  // The map's credit and controls sit above an open History panel, whatever its height.
+  if (ui.historyOpen) requestAnimationFrame(() => {
+    const h = document.querySelector(".tl__history")?.offsetHeight;
+    if (h) document.body.style.setProperty("--history-h", `${h}px`);
+  });
   document.body.classList.toggle("present", ui.present);
   $("stale-chip").hidden = !conn.lostAt;
   if (map) {

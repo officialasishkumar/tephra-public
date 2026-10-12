@@ -1,20 +1,34 @@
 # Builds the TEPHRA image with the SCIENCE and BUILD_SHA build args and pushes it to Artifact
 # Registry. deploy/cloudrun.sh passes the substitutions.
+#
+# The previous build is pulled first and used as a layer cache (_CACHE_IMAGE, one tag per
+# SCIENCE setting), so a commit that changes only code reuses the dependency layers instead of
+# reinstalling them. A missing cache (the first build) only makes the build slower.
 steps:
+  - name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args: ["-c", "docker pull ${_CACHE_IMAGE} || echo 'no build cache yet: full build'"]
   - name: gcr.io/cloud-builders/docker
     args:
       - build
+      - --cache-from
+      - ${_CACHE_IMAGE}
+      - --build-arg
+      - BUILDKIT_INLINE_CACHE=1
       - --build-arg
       - SCIENCE=${_SCIENCE}
       - --build-arg
       - BUILD_SHA=${_BUILD_SHA}
       - -t
       - ${_IMAGE}
+      - -t
+      - ${_CACHE_IMAGE}
       - .
-images: ["${_IMAGE}"]
+images: ["${_IMAGE}", "${_CACHE_IMAGE}"]
 substitutions:
   _SCIENCE: "0"
   _BUILD_SHA: "unknown"
   _IMAGE: ""
+  _CACHE_IMAGE: ""
 options:
   dynamicSubstitutions: true

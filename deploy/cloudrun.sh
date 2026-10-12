@@ -223,7 +223,7 @@ IMAGE="$IMAGE_BASE:$SHA-$(date -u +%Y%m%d-%H%M%S)"
 
 # .gcloudignore limits the upload to what the Dockerfile copies.
 build_args=(. --config deploy/cloudbuild.yaml
-  --substitutions "_IMAGE=$IMAGE,_SCIENCE=$science_arg,_BUILD_SHA=$SHA")
+  --substitutions "_IMAGE=$IMAGE,_SCIENCE=$science_arg,_BUILD_SHA=$SHA,_CACHE_IMAGE=$IMAGE_BASE:buildcache-science$science_arg")
 if [ "$CI_MODE" = false ]; then
   gcloud builds submit "${build_args[@]}"
 else

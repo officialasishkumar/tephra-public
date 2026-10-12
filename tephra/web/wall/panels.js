@@ -844,7 +844,7 @@ export function renderTimeline(D, store, ui, conn) {
 
   // 1. mode and window
   const meta = el("div", { class: "tl__meta", title: "Times ending in Z are UTC" });
-  let pill, recSpan = null;
+  let pill, recChips = [];
   if (replay) {
     const a = ms(s.replay.recorded_from), b = ms(s.replay.recorded_to);
     const loop = !!s.replay.window_from;
@@ -860,7 +860,10 @@ export function renderTimeline(D, store, ui, conn) {
       // side (review 2, item 12).
       el("span", { class: "tl__window", text: `${hhmmz(D.now)} · ${pctText} played`, title: `${loop ? "The replay loops over" : "Recording"} ${dayMonth(pa)} ${hhmmz(pa)} to ${dayMonth(pb)} ${hhmmz(pb)}` }),
       el("span", { class: "tl__progress", role: "progressbar", title: `${loop ? "The replay loops over" : "Recording"} ${dayMonth(pa)} ${hhmmz(pa)} to ${dayMonth(pb)} ${hhmmz(pb)}`, "aria-label": loop ? "Replay loop progress" : "Replay progress", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(p * 100)), "aria-valuetext": `${pctText} of the recording, ${hhmmz(pa)} to ${hhmmz(pb)}` }, bar));
-    recSpan = `${loop ? "Replay loops over" : "Recording"} ${pb - pa > 20 * 3600e3 ? `${dayMonth(pa)} ${hhmmz(pa)} – ${dayMonth(pb)} ${hhmmz(pb)}` : `${hhmmz(pa)}–${hhmmz(pb)}`}, ${pctText} played`;
+    recChips = [
+      `${loop ? "Replay loops" : "Recording"} ${pb - pa > 20 * 3600e3 ? `${dayMonth(pa)} ${hhmmz(pa)} – ${dayMonth(pb)} ${hhmmz(pb)}` : `${hhmmz(pa)}–${hhmmz(pb)}`}`,
+      `${pctText} played`,
+    ];
     pill = `⟲ ${hhmmz(D.now)} · ${ui.steps === "now" ? "Now" : { f6: "+6 h", f12: "+12 h", f18: "+18 h", all: "All steps" }[ui.steps]} ▾`;
   } else {
     meta.append(el("span", { class: "tl__mode tl__mode--live" }, icon("i-live"), "Live"), el("span", { class: "tl__window", text: "9 h back, 3 h ahead" }));
@@ -929,11 +932,17 @@ export function renderTimeline(D, store, ui, conn) {
           g.style.left = pct(a);
           g.style.width = `${((b - a) / (t1 - t0)) * 100}%`;
           L.official.append(g);
-          lagEl = el("span", { class: "tl__lag", text: `lag ${durMin(lag.magnitude)} between the observatory and the official reports` });
+          const minutes = Math.round(Math.abs(lag.magnitude));
+          const lagText = minutes % 60 === 0 ? `${minutes / 60} h` : durMin(minutes);
+          lagEl = el("p", { class: "tl__lag", text: `The official reports trail the observatory by ${lagText}.` });
         }
       }
     }
-    history.append(el("div", { class: "tl__histhead" }, el("strong", { text: "When each source last reported" }), el("span", { class: "tl__span", text: `9 h back, 3 h ahead${recSpan ? ` · ${recSpan}` : ""}` }), lagEl), lanes);
+    history.append(
+      el("div", { class: "tl__histhead" },
+        el("strong", { text: "When each source last reported" }),
+        el("span", { class: "tl__chips" }, ...["9 h back to 3 h ahead", ...recChips].map((t) => el("span", { class: "tl__chip", text: t })))),
+      lagEl, lanes);
   } else {
     for (const e of events) track.append(mark(e));
   }

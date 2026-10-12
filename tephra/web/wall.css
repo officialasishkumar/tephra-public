@@ -488,7 +488,6 @@ body:not(.is-3d) .maplibregl-ctrl-compass { display: none !important; }
 .tl__mode { display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-semibold); color: var(--c-replay-text); }
 .tl__mode--live { color: var(--c-ok); }
 .tl__window { color: var(--c-text-2); font-family: var(--font-mono); font-size: var(--fs-1); }
-.tl__span { color: var(--c-text-2); font-size: var(--fs-1); font-family: var(--font-mono); }
 .tl__stale { color: var(--c-caution); }
 .tl__progress { display: block; width: 56px; height: 6px; border-radius: 3px; background: var(--c-line-2); overflow: hidden; }
 .tl__progress span { display: block; height: 100%; background: var(--c-replay); }
@@ -523,10 +522,12 @@ body:not(.is-3d) .maplibregl-ctrl-compass { display: none !important; }
 
 /* History: the only thing that ever grows over the map, on an explicit action (R7.2). The map's
    pills and controls move up above it, so nothing is covered. */
-body.history-open .maplibregl-ctrl-bottom-right, body.history-open .map-pills { bottom: 150px; }
+body.history-open .maplibregl-ctrl-bottom-right, body.history-open .map-pills { bottom: calc(var(--history-h, 160px) + 16px); }
 .tl__history { position: absolute; left: 8px; right: 8px; bottom: calc(100% + 8px); padding: var(--sp-2) var(--sp-3) var(--sp-3); z-index: 4; }
-.tl__histhead { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-2); font-size: var(--fs-2); }
-.tl__lag { color: var(--c-info); font-size: var(--fs-2); }
+.tl__histhead { display: flex; align-items: center; gap: var(--sp-2) var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-1); font-size: var(--fs-2); }
+.tl__chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.tl__chip { padding: 2px 10px; border: 1px solid var(--c-line-2); border-radius: var(--radius-pill); background: var(--c-surface-2); color: var(--c-text-2); font-size: var(--fs-1); white-space: nowrap; }
+.tl__lag { margin: 0 0 var(--sp-2); color: var(--c-info); font-size: var(--fs-2); }
 .tl__lanes { position: relative; display: flex; flex-direction: column; gap: 4px; padding-left: 104px; }
 .tl__lane { position: relative; height: 26px; border-bottom: 1px dotted var(--c-line-2); }
 .tl__lanelabel { position: absolute; right: calc(100% + 10px); top: 50%; transform: translateY(-50%); font-size: var(--fs-1); font-weight: var(--fw-semibold); white-space: nowrap; }
