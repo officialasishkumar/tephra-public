@@ -282,7 +282,7 @@ function flightDetail(D, ui) {
   row("Speed and track", move);
   row("Position age", age(p.ageS));
   // The callsign's usual route from VRS standing data (code, never guessed): not the filed plan.
-  row("Route", p.origin_icao && p.dest_icao ? `${p.origin_icao} → ${p.dest_icao} (usual route for this callsign, VRS standing data; not the filed flight plan)` : "Route not known");
+  row("Route", p.origin_icao && p.dest_icao ? `${p.origin_icao} → ${p.dest_icao} (usual route for this callsign, VRS standing data; not the filed flight plan)` : "Not known");
   kids.push(dl);
   const flag = D.crew.flagByHex.get(p.hex);
   if (flag) kids.push(crewFlagBlock(D, flag));

@@ -112,7 +112,7 @@ export function helpContent(enabled) {
       keyRow(sw("i-aircraft", "sw--exposed"), "RFA flight in or heading in", "RFA is a fictional airline"),
       keyRow(sw("i-aircraft", "sw--crew"), "RFA flight on a crew report's route", "when TEPHRA's area does not reach it"),
       keyRow(sw("i-aircraft", "sw--aircraft"), "Other aircraft (not RFA)", null),
-      keyRow(sw("lg-route", "sw--route"), "Route (origin to destination)", "the callsign's usual route (VRS standing data), not the filed flight plan"),
+      keyRow(sw("lg-route", "sw--route"), "Route (origin to destination)", "the callsign's usual route (VRS standing data), not the filed flight plan; the small tags at its ends are the airport codes"),
       keyRow(sw("lg-reroute", "sw--reroute"), "Suggested reroute", null),
       keyRow(sw("lg-arrow-official", "sw--official"), "Official movement", null),
       keyRow(sw("lg-arrow-observer", "sw--observer"), "Observatory's reported drift", null),

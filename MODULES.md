@@ -2018,9 +2018,12 @@ its ends, with the track within 90 degrees of the bearing to the destination.
 
 Route lines on the Wall: `great_circle` densifies the great circle (at most 256 points) and
 unwraps each longitude against the one before, so a leg across the antimeridian runs on past 180
-and MapLibre draws it continuously. `route_features` writes one `line` per (origin, destination)
-leg, id `<origin>-<dest>`, with the hexes it is drawn for, and one `airport` Point per end, id
-`<icao>@<lon>`; a leg whose airport has no known position is left out (no guessed place).
+and MapLibre draws it continuously. `route_features` writes one `line` per pair of airports, id
+`<a>-<b>` with the two codes in alphabetical order and `ends` `[a, b]`: both directions of a pair
+share it (it has no arrows, and two faint lines stacked read as the picked one). It carries the
+hexes of the flights it is drawn for (both directions), plus one `airport` Point per end, id
+`<icao>@<lon>`. A leg from an airport to itself is dropped, and a pair whose airport has no known
+position is left out (no guessed place).
 
 ### 5.12 ask
 
@@ -2545,7 +2548,7 @@ The headers above are unchanged by compression.
 | `GET /api/feeds` | `FeedList` = `{feeds: [FeedHealth]}` (ages as of now) |
 | `GET /api/policy` | `PolicyResponse` = `{policy: OperatorPolicy, policy_hash}`: the active operator policy and its `content_hash()` |
 | `GET /api/replays` | `ReplayCaseList` = `{cases: [ReplayCaseSummary]}`: each recorded case without its records (`case_id`, `label`, `recorded_from`, `recorded_to`, `region`, `volcano_ids`, `notes`, `record_count`, `banner`). Built once per app in the lifespan (`ReplayCatalogue` on `app.state.replays`: summaries, serialised bytes, strong `ETag` = quoted sha256 of the bytes); a manifest that cannot be read fails startup. Served with `Cache-Control: no-cache` and the `ETag`; a matching `If-None-Match` answers 304 with no body |
-| `GET /api/routes/{origin_icao}/{dest_icao}` | FeatureCollection (`RouteFeatureProps`, `routes.route_features`): the great circle between two airports and a Point at each end, for the route of a flight picked on the Wall that is not in `WallSnapshot.routes`. Which airports a flight flies between comes only from `AircraftFeatureProps`; this answer depends only on the two positions, so it is sent with `Cache-Control: public, max-age=86400`. 404 `not_found` for a code that is not 4 capitals or digits, or an airport with no known position |
+| `GET /api/routes/{origin_icao}/{dest_icao}` | FeatureCollection (`RouteFeatureProps`, `routes.route_features`): the great circle between two airports and a Point at each end, for the route of a flight picked on the Wall that is not in `WallSnapshot.routes` (the line's id is the pair in alphabetical order, whichever order is asked). Which airports a flight flies between comes only from `AircraftFeatureProps`; this answer depends only on the two positions, so it is sent with `Cache-Control: public, max-age=86400`. 404 `not_found` for a code that is not 4 capitals or digits, the same airport twice, or an airport with no known position |
 | `GET /api/blobs/{key}` | PNG bytes; `key` must match `BLOB_KEY_PATTERN` (else 404); `Cache-Control: public, max-age=86400, immutable` |
 | `GET /api/duty?limit=10` | `DutyRunList` `{runs: [DutyRun]}`, current mode, newest first (`limit` 1 to 20) |
 | `GET /api/budget` | `BudgetView` `{backend, as_of, tiers: [{tier, model_id, used, limit, remaining}], note}` |
@@ -2576,9 +2579,11 @@ and a `Point` per turn point (`feature: "waypoint"`), with `RerouteFeatureProps`
 `label`, `waypoint_labels`).
 `routes`: the usual route (`RouteTable.lookup`, VRS standing data, never the filed flight plan)
 of each RFA flight in or heading into an area, computed by code at every publish:
-`RouteFeatureProps` (`feature` `line` | `airport`, `origin_icao`, `dest_icao`, `icao`, `hexes`,
-`source`), from `routes.route_features`. One line per leg (flights on the same leg share it), one
-Point per airport. A flight whose leg is not found has no line: no route is guessed.
+`RouteFeatureProps` (`feature` `line` | `airport`, `ends` (line: the two codes, alphabetical),
+`icao` (airport), `hexes`, `source`), from `routes.route_features`. One line per pair of airports
+(flights on the same pair share it, in either direction; id `<a>-<b>`), one Point per airport. A
+flight's direction is in `AircraftFeatureProps.origin_icao` and `dest_icao`. A flight whose leg is
+not found has no line: no route is guessed.
 `satellite`: the newest `SatelliteReading` of each active volcano that has one.
 `crew`: `CrewPicture` `{label, reports: [CrewReportView], flags: [CrewFlag], features}`
 (section 5.19). `features` is a FeatureCollection with `CrewFeatureProps` (`report_id`,

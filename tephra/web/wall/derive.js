@@ -203,11 +203,15 @@ export function derive(store, ui, now) {
 
   // Usual routes (origin to destination, VRS standing data): the server draws them for the RFA
   // flights in or heading in; the picked flight's comes from /api/routes when it is not one of
-  // them (wall.js fetches it into store.routeLines). Never for other aircraft, never guessed.
+  // them (wall.js fetches it into store.routeLines). Never for other aircraft, never guessed. A
+  // line is keyed by its two airports in alphabetical order: both directions share it. While the
+  // picked flight's line is drawn, the other lines step back (`dim`).
   const sp = selFlight?.properties;
-  const selRoute = sp?.origin_icao && sp?.dest_icao ? `${sp.origin_icao}-${sp.dest_icao}` : null;
+  const selEnds = sp?.origin_icao && sp?.dest_icao && sp.origin_icao !== sp.dest_icao ? [sp.origin_icao, sp.dest_icao].sort() : null;
+  const selRoute = selEnds ? selEnds.join("-") : null;
   const routeFeatures = [...(snap.routes?.features || [])];
   if (selRoute && !routeFeatures.some((f) => f.id === selRoute)) routeFeatures.push(...(store.routeLines?.get(selRoute)?.features || []));
+  const pickedLine = !!selRoute && routeFeatures.some((f) => f.id === selRoute);
   const seenPorts = new Set();
   const routes = [];
   for (const f of routeFeatures) {
@@ -216,8 +220,8 @@ export function derive(store, ui, now) {
       if (seenPorts.has(f.id)) continue;
       seenPorts.add(f.id);
     }
-    const sel = p.feature === "line" ? f.id === selRoute : !!sp && (p.icao === sp.origin_icao || p.icao === sp.dest_icao);
-    routes.push({ ...f, properties: { ...p, sel } });
+    const sel = p.feature === "line" ? f.id === selRoute : pickedLine && selEnds.includes(p.icao);
+    routes.push({ ...f, properties: { ...p, sel, dim: pickedLine && p.feature === "line" && !sel } });
   }
 
   // Forecast steps chosen on the timeline that have no official polygon for the selected

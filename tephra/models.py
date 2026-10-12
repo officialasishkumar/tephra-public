@@ -2147,8 +2147,10 @@ class RouteFeatureProps(TephraModel):
     """
 
     feature: Literal["line", "airport"]
-    origin_icao: str | None = Field(default=None, description="Line only")
-    dest_icao: str | None = Field(default=None, description="Line only")
+    ends: list[str] = Field(
+        default_factory=list,
+        description="Line only: its two airport codes, alphabetical; both directions share it",
+    )
     icao: str | None = Field(default=None, description="Airport only: the code shown")
     hexes: list[str] = Field(
         default_factory=list, description="Line only: the flights it is drawn for"

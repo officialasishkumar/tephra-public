@@ -118,6 +118,7 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
   // Exposed flights again, clustered for their labels only (R6.3): every plane is still drawn by
   // aircraft-icon; more than five labels within 60 px merge into one "8 RFA flights" bubble.
   if (withTephra) map.addSource("exposed-pts", { type: "geojson", data: empty(), cluster: true, clusterRadius: 60, clusterMinPoints: 6, clusterMaxZoom: 11 });
+  if (withTephra) addRouteLayers(map, C, ui, noText);
   const fade = (base) => ["*", base, ["coalesce", ["get", "fade"], 1]];
   const tVis = ui.layers.tephra ? "visible" : "none";
   if (withTephra) {
@@ -131,18 +132,6 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
     const area = ["==", ["get", "feature"], "area"];
     map.addLayer({ id: "crew-fill", type: "fill", source: "crew", filter: area, paint: { "fill-color": C.crew, "fill-opacity": 0.06 } });
     map.addLayer({ id: "crew-line", type: "line", source: "crew", filter: area, layout: { "line-join": "round" }, paint: { "line-color": C.crew, "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.4, 8, 2.2], "line-dasharray": [4, 3], "line-opacity": 0.95 } });
-  }
-  // A flight's usual route (VRS standing data), origin to destination: a thin, faint, neutral
-  // great circle beneath the official areas, TEPHRA's estimate and the dashed path into the area,
-  // so the eye reads the trip first and then where the ash cuts it. Only RFA flights in or heading
-  // in, and the picked flight (stronger), are on the source; no arrows, no animation.
-  if (withTephra) {
-    const rVis = ui.layers.routes ? "visible" : "none";
-    const line = ["==", ["get", "feature"], "line"];
-    const port = ["==", ["get", "feature"], "airport"];
-    const sel = (on, off) => ["case", ["==", ["get", "sel"], true], on, off];
-    map.addLayer({ id: "route-line", type: "line", source: "routes", filter: line, layout: { visibility: rVis, "line-join": "round", "line-cap": "round", "line-sort-key": sel(1, 0) }, paint: { "line-color": C.route, "line-width": ["interpolate", ["linear"], ["zoom"], 4, sel(1.4, 1.2), 8, sel(1.8, 1.5)], "line-opacity": sel(0.5, 0.28) } });
-    map.addLayer({ id: "route-end", type: "circle", source: "routes", filter: port, layout: { visibility: rVis }, paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 2.2, 8, 3.2], "circle-color": C.halo, "circle-stroke-color": C.route, "circle-stroke-width": 1.4, "circle-stroke-opacity": sel(0.85, 0.5), "circle-opacity": sel(1, 0.7) } });
   }
   for (const [step, s] of Object.entries(STEP_STYLE)) {
     const filter = ["all", ["==", ["get", "step"], step], ["==", ["get", "show"], true]];
@@ -177,6 +166,9 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
     map.addLayer({ id: "aircraft-inside", type: "circle", source: "aircraft", minzoom: 6, filter: ["==", ["get", "inside"], true], layout: { visibility: acVis }, paint: { "circle-radius": 18, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": C.tephra, "circle-stroke-width": 2 } });
     // The aircraft picked by the viewer (7.8): a white ring outside the inside-now ring.
     map.addLayer({ id: "aircraft-picked", type: "circle", source: "aircraft", filter: ["==", ["get", "picked"], true], layout: { visibility: acVis }, paint: { "circle-radius": 23, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": C.text1, "circle-stroke-width": 2.5 } });
+    // The picked flight's two airport codes (route-end-label-sel): drawn over the planes, so the
+    // hub's code is never cut by the plane icons (moved up below).
+    if (!noText) map.addLayer({ id: "route-end-label-sel", type: "symbol", source: "routes", filter: ["all", ["==", ["get", "feature"], "airport"], ["==", ["get", "sel"], true]], layout: { visibility: ui.layers.routes ? "visible" : "none", ...routeTag(true) }, paint: { "text-color": C.text1 } });
     // One line per entering flight, right of the plane, from zoom 6 (R6.3). Labels collide;
     // a cluster of six or more becomes an amber bubble with its count.
     if (!noText) {
@@ -203,20 +195,90 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
   // The flight count is placed before the forecast-step and other-volcano labels (review 1,
   // item 10): when they collide those labels give way, never the count.
   if (withTephra && !noText) map.moveLayer("exposed-cluster", "tephra-label");
+  // The picked flight's airport codes are placed right after the flight count, so the count never
+  // gives way to them; the flight labels, the forecast-step labels and the other volcanoes' names
+  // do. The eruption symbols do not collide (icon-ignore-placement): an invisible copy placed
+  // just before the codes keeps a code (and those labels) off them.
+  if (withTephra && !noText) {
+    map.moveLayer("route-end-label-sel", "exposed-cluster");
+    map.addLayer({ id: "route-avoid-volcano-sel", type: "symbol", source: "volcanoes", filter: ["==", ["get", "active"], true], layout: { visibility: ui.layers.routes ? "visible" : "none", "icon-image": "route-avoid", "icon-allow-overlap": true, "icon-ignore-placement": false, "icon-size": 1.8 } }, "exposed-cluster");
+  }
   // A crew report's label is placed last, so it gives way to the volcano names, the flight labels
   // and count, and the area labels: symbols in higher layers are placed first.
   if (withTephra) map.moveLayer("crew-label", "volcano-inactive");
-  // The airport codes at a route's ends: small and calm, and placed after every other label, so
-  // they give way to the area labels, the flight labels and the volcano names.
-  if (withTephra && !noText) {
-    map.addLayer({ id: "route-end-label", type: "symbol", source: "routes", filter: ["==", ["get", "feature"], "airport"], layout: { visibility: ui.layers.routes ? "visible" : "none", "text-field": ["get", "icao"], "text-font": FONT_REG, "text-size": 12, "text-letter-spacing": 0.04, "text-variable-anchor": ["top", "bottom", "left", "right"], "text-radial-offset": 0.7, "text-optional": true, "text-allow-overlap": false, "text-padding": 3, "symbol-sort-key": ["case", ["==", ["get", "sel"], true], 0, 1] }, paint: { "text-color": ["case", ["==", ["get", "sel"], true], C.text2, C.text3], "text-halo-color": C.halo, "text-halo-width": 1.5 } });
-    map.moveLayer("route-end-label", "crew-label");
-  }
   // The crew report pin (5.7): an icon, so it shows with the simplified basemap too. It sits on
   // top of every area and is never hidden by collision; planes, the flight count and the labels
   // draw over it.
   if (withTephra) map.addLayer({ id: "crew-pin", type: "symbol", source: "crew", filter: ["==", ["get", "feature"], "pin"], layout: { "icon-image": "crew-pin", "icon-anchor": "bottom", "icon-size": 0.9, "icon-allow-overlap": true, "icon-ignore-placement": true } }, "aircraft-icon");
   if (withTephra) addRoseLayers(map, C, ui, noText);
+}
+
+// A flight's usual route (VRS standing data), origin to destination: a thin, faint, neutral great
+// circle, a small filled dot at each airport and its code in a small tag (so it never reads as a
+// basemap town name). All of it sits above the basemap's roads and borders but beneath its place
+// names and every TEPHRA layer, so the eye reads the trip first and then where the ash cuts it.
+// Only the RFA flights in or heading in and the picked flight are on the source; the picked one
+// is stronger and the others step back. No arrows, no animation.
+//
+// The codes of the routes not picked are placed after every TEPHRA label, after the place names
+// and after the route-avoid-* layers: invisible copies of the planes and their rings, the eruption
+// symbols, the entry markers and the area outlines, which do not collide by themselves
+// (icon-ignore-placement, lines). Without them a code was drawn under the plane cluster or across
+// a pink outline. Only the airport codes and the basemap's road and sea names (beneath them)
+// give way to these copies. The picked flight's codes are placed with the TEPHRA labels (below).
+function routeTag(picked) {
+  return {
+    "icon-image": picked ? "box-route-sel" : "box-route", "icon-text-fit": "both", "icon-text-fit-padding": [2, 5, 2, 5],
+    "text-field": ["get", "icao"], "text-font": picked ? FONT_BOLD : FONT_REG, "text-size": picked ? 12 : 11, "text-letter-spacing": 0.06,
+    // The picked flight's code goes above or below its airport first (at a hub the flight count
+    // sits beside the planes and the volcano may sit west), then to either side, then further
+    // above or below, clear of a flight count over the airport. Like every label but the selected
+    // official one it collides (G3); with ten places to try it is very rarely left out.
+    ...(picked
+      ? { "text-variable-anchor-offset": ["top", [0, 0.75], "bottom", [0, -0.75], "right", [-0.75, 0], "left", [0.75, 0], "top-right", [-0.5, 0.5], "top-left", [0.5, 0.5], "bottom-right", [-0.5, -0.5], "bottom-left", [0.5, -0.5], "top", [0, 3.2], "bottom", [0, -3.2]] }
+      : { "text-variable-anchor": ["left", "right", "top", "bottom"], "text-radial-offset": 0.75 }),
+    "text-allow-overlap": false, "icon-allow-overlap": false, "text-padding": 3,
+  };
+}
+
+// The basemap's labels: the symbol layers above its last road, boundary or fill layer (the
+// place names). The FIR and VAAC context layers are TEPHRA's, added before the hazard layers.
+function basemapLabels(map) {
+  const layers = map.getStyle().layers;
+  const end = layers.findIndex((l) => l.id === "fir-line");
+  const base = end < 0 ? layers : layers.slice(0, end);
+  let last = -1;
+  base.forEach((l, i) => { if (l.type !== "symbol") last = i; });
+  return base[last + 1]?.id || (end < 0 ? undefined : "fir-line");
+}
+
+function addRouteLayers(map, C, ui, noText) {
+  const under = basemapLabels(map);
+  const add = (layer) => map.addLayer(layer, under);
+  const vis = (on) => (on ? "visible" : "none");
+  const L = ui.layers;
+  const sel = (on, off) => ["case", ["==", ["get", "sel"], true], on, off];
+  const dim = (on, off) => ["case", ["==", ["get", "dim"], true], on, off];
+  const port = ["==", ["get", "feature"], "airport"];
+  add({ id: "route-line", type: "line", source: "routes", filter: ["==", ["get", "feature"], "line"], layout: { visibility: vis(L.routes), "line-join": "round", "line-cap": "round", "line-sort-key": sel(1, 0) }, paint: { "line-color": C.route, "line-width": ["interpolate", ["linear"], ["zoom"], 3, sel(1.8, 1.2), 8, sel(2.2, 1.5)], "line-opacity": ["interpolate", ["linear"], ["zoom"], 3, sel(0.8, dim(0.16, 0.36)), 5, sel(0.75, dim(0.13, 0.26))] } });
+  add({ id: "route-end", type: "circle", source: "routes", filter: port, layout: { visibility: vis(L.routes) }, paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, sel(3, 2.2), 8, sel(4, 3)], "circle-color": C.route, "circle-opacity": sel(1, 0.6), "circle-stroke-color": C.halo, "circle-stroke-width": 1.2 } });
+  if (noText) return;
+  add({ id: "route-end-label", type: "symbol", source: "routes", filter: ["all", port, ["!=", ["get", "sel"], true]], layout: { visibility: vis(L.routes), ...routeTag(false) }, paint: { "text-color": C.text3 } });
+  const avoid = { "icon-image": "route-avoid", "icon-allow-overlap": true, "icon-ignore-placement": false };
+  const along = { ...avoid, "symbol-placement": "line", "symbol-spacing": 12, "icon-size": 0.8 };
+  const shown = ["==", ["get", "show"], true];
+  add({ id: "route-avoid-official", type: "symbol", source: "official", filter: shown, layout: { visibility: vis(L.routes), ...along } });
+  add({ id: "route-avoid-cone", type: "symbol", source: "cones", filter: ["==", ["get", "part"], "cone"], layout: { visibility: vis(L.routes && L.tephra), ...along } });
+  add({ id: "route-avoid-crew", type: "symbol", source: "crew", filter: ["==", ["get", "feature"], "area"], layout: { visibility: vis(L.routes), ...along } });
+  add({ id: "route-avoid-path", type: "symbol", source: "exposures", filter: ["==", ["get", "kind"], "path"], layout: { visibility: vis(L.routes && L.paths), ...along } });
+  add({ id: "route-avoid-entry", type: "symbol", source: "exposures", filter: ["==", ["get", "kind"], "entry"], layout: { visibility: vis(L.routes && L.paths), ...avoid, "icon-size": 1 } });
+  add({ id: "route-avoid-volcano", type: "symbol", source: "volcanoes", filter: ["==", ["get", "active"], true], layout: { visibility: vis(L.routes), ...avoid, "icon-size": 2.2 } });
+  // a plane, its inside-now ring (from zoom 6) or its picked ring
+  const RFA_AC = ["any", ["==", ["get", "exposed"], true], ["==", ["get", "crew_only"], true]];
+  const picked = ["==", ["get", "picked"], true];
+  const far = ["case", picked, 3, RFA_AC, 1.6, 0.9];
+  const near = ["case", picked, 3, ["==", ["get", "inside"], true], 2.5, RFA_AC, 1.6, 1.2];
+  add({ id: "route-avoid-ac", type: "symbol", source: "aircraft", layout: { visibility: vis(L.routes && L.aircraft), ...avoid, "icon-size": ["step", ["zoom"], far, 6, near] } });
 }
 
 function addRoseLayers(map, C, ui, noText) {
@@ -916,7 +978,10 @@ export class WallMap {
     this.setVisible(["navaid", "navaid-label"], L.navaids);
     this.setVisible(["tephra-fill", "tephra-hatch", "tephra-line", "tephra-label"], L.tephra);
     this.setVisible(["exposure-path", "exposure-entry", "exposure-entry-label", "crew-path"], L.paths);
-    this.setVisible(["route-line", "route-end", "route-end-label"], L.routes);
+    this.setVisible(["route-line", "route-end", "route-end-label", "route-end-label-sel", "route-avoid-official", "route-avoid-crew", "route-avoid-volcano", "route-avoid-volcano-sel"], L.routes);
+    this.setVisible(["route-avoid-cone"], L.routes && L.tephra);
+    this.setVisible(["route-avoid-path", "route-avoid-entry"], L.routes && L.paths);
+    this.setVisible(["route-avoid-ac"], L.routes && L.aircraft);
     this.setVisible(["aircraft-icon", "aircraft-inside", "aircraft-picked", "aircraft-label-exposed", "aircraft-label-crew", "exposed-cluster"], L.aircraft);
     this.setVisible(["aircraft-label"], L.aircraft && L.acLabels);
     setExtVisible(this.map, true, L.satboxes);

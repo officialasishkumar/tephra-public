@@ -133,6 +133,13 @@ function labelBox(border, size = 36, r = 6, bw = 3) {
   return [ctx.getImageData(0, 0, size, size), { pixelRatio: 2, stretchX: [[a, b]], stretchY: [[a, b]], content: [a, a, b, b] }];
 }
 
+// An airport code's tag on a route's end: a thin border in the route colour, so the code reads
+// as an airport and not as a basemap town name.
+function routeBox(hex, alpha) {
+  const n = parseInt(hex.replace("#", ""), 16);
+  return labelBox(`rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`, 24, 5, 2);
+}
+
 function hatch(color, size = 24) {
   const ctx = canvas(size, size);
   ctx.strokeStyle = color;
@@ -186,6 +193,8 @@ export function addImages(map, C) {
       boxTephra: labelBox(C.tephra),
       boxAngle: labelBox(C.text1),
       boxObserver: labelBox(C.observer),
+      boxRoute: routeBox(C.route, 0.5),
+      boxRouteSel: routeBox(C.route, 1),
       hatch: hatch(C.tephra),
       pin: crewPin(C.crew),
     };
@@ -199,6 +208,10 @@ export function addImages(map, C) {
   add("box-tephra", ...cache.boxTephra);
   add("box-angle", ...cache.boxAngle);
   add("box-observer", ...cache.boxObserver);
+  add("box-route", ...cache.boxRoute);
+  add("box-route-sel", ...cache.boxRouteSel);
+  // invisible: the route-avoid-* layers only reserve room that an airport code must not take
+  add("route-avoid", { width: 16, height: 16, data: new Uint8Array(16 * 16 * 4) });
   add("hatch-tephra", cache.hatch, { pixelRatio: 2 });
   add("crew-pin", cache.pin, { pixelRatio: 2 });
 }

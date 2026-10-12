@@ -196,27 +196,29 @@ def _unit(lat: float, lon: float) -> tuple[float, float, float]:
 def route_features(
     legs: Mapping[tuple[str, str], Iterable[str]], table: RouteTable, airports: AirportCatalogue
 ) -> dict[str, Any]:
-    """One ``line`` per (origin, destination) leg, drawn for the given flight hexes, and one
-    ``airport`` Point per end. A leg whose airport has no known position is left out: a line
-    is never drawn to a guessed place."""
+    """One ``line`` per pair of airports, drawn for the given flight hexes, and one ``airport``
+    Point per end. Both directions of a pair share one line (it has no arrows), so a WIII-WAAA
+    flight and a WAAA-WIII flight never stack two faint lines into one that looks picked. A pair
+    whose airport has no known position is left out: a line is never drawn to a guessed place."""
+    pairs: dict[tuple[str, str], set[str]] = {}
+    for (origin_icao, dest_icao), hexes in legs.items():
+        if origin_icao == dest_icao:
+            continue
+        pair = (min(origin_icao, dest_icao), max(origin_icao, dest_icao))
+        pairs.setdefault(pair, set()).update(hexes)
     features: list[dict[str, Any]] = []
     ends: dict[tuple[str, float], Position] = {}
-    for (origin_icao, dest_icao), hexes in sorted(legs.items()):
-        origin = table.position(origin_icao, airports)
-        dest = table.position(dest_icao, airports)
-        if origin is None or dest is None:
+    for (first, second), hexes in sorted(pairs.items()):
+        start = table.position(first, airports)
+        end = table.position(second, airports)
+        if start is None or end is None:
             continue
-        line = great_circle(*origin, *dest)
-        props = RouteFeatureProps(
-            feature="line",
-            origin_icao=origin_icao,
-            dest_icao=dest_icao,
-            hexes=sorted(set(hexes)),
-        )
+        line = great_circle(*start, *end)
+        props = RouteFeatureProps(feature="line", ends=[first, second], hexes=sorted(hexes))
         features.append(
-            feature(GeoLineString(coordinates=line), props, feature_id=f"{origin_icao}-{dest_icao}")
+            feature(GeoLineString(coordinates=line), props, feature_id=f"{first}-{second}")
         )
-        for icao, (lon, lat) in ((origin_icao, line[0]), (dest_icao, line[-1])):
+        for icao, (lon, lat) in ((first, line[0]), (second, line[-1])):
             ends.setdefault((icao, lon), (lon, lat))
     for (icao, _), (lon, lat) in sorted(ends.items()):
         props = RouteFeatureProps(feature="airport", icao=icao)

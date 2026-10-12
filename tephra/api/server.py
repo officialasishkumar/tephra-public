@@ -441,8 +441,12 @@ async def get_route_line(origin_icao: str, dest_icao: str, runtime: RuntimeDep) 
     Which airports a flight flies between comes from ``AircraftFeatureProps`` (code, VRS
     standing data); this answer depends only on the two positions, so the browser caches it.
     """
-    if _ICAO.fullmatch(origin_icao) is None or _ICAO.fullmatch(dest_icao) is None:
-        raise ApiError(404, "not_found", "No such airport")
+    if (
+        _ICAO.fullmatch(origin_icao) is None
+        or _ICAO.fullmatch(dest_icao) is None
+        or origin_icao == dest_icao
+    ):
+        raise ApiError(404, "not_found", "No such route")
     table, airports = runtime.routes, runtime.airports
     if table.position(origin_icao, airports) is None or table.position(dest_icao, airports) is None:
         raise ApiError(404, "not_found", "Airport position not known")
