@@ -194,7 +194,7 @@
   border: 1px solid var(--dv-ink-3);
   border-radius: 50%;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0;
   color: var(--dv-ink);
 }
@@ -218,7 +218,7 @@
 }
 
 .fsrc {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
   color: var(--dv-ink-3);
   overflow-wrap: anywhere;
@@ -244,7 +244,7 @@
 }
 
 .blank__note {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;

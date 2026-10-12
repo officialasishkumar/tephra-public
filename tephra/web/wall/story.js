@@ -17,8 +17,10 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const ft = (n) => `${Number(n).toLocaleString("en")}`;
 const setText = (node, text) => { if (node && node.textContent !== text) node.textContent = text; };
 
-// Rows of the "All volcanoes" list shown before "+ n more", by width (R5.7).
-const listRows = () => (window.innerWidth <= 600 ? Infinity : window.innerWidth >= 1600 ? 3 : window.innerWidth >= 1360 ? 2 : 1);
+// Rows of the "All volcanoes" list shown before "+ n more", by width (R5.7); the fit pass below
+// may lower it to 0 when the column is short.
+let fitCap = Infinity;
+const listRows = () => Math.min(fitCap, window.innerWidth <= 600 ? Infinity : window.innerWidth >= 1600 ? 3 : window.innerWidth >= 1360 ? 2 : 1);
 
 // ------------------------------------------------------------------ facts shared with Details
 
@@ -47,8 +49,11 @@ export function advisoryFacts(D, store, vid) {
   const rejected = mine.filter((a) => a.status === "REJECTED").length;
   const allDrafts = store.advisories.filter((a) => a.status === "DRAFT").length;
   const partial = store.advisories.length >= 50 && D.state.draft_count != null && allDrafts < D.state.draft_count;
-  // most urgent first: inside now, then the soonest entry
-  const urgent = drafts.slice().sort((a, b) => (b.inside_now ? 1 : 0) - (a.inside_now ? 1 : 0) || (a.minutes_to_entry ?? 999) - (b.minutes_to_entry ?? 999))[0] || null;
+  // Most urgent first, in the Desk's order (desk/format.js byUrgency): inside now, then the
+  // soonest entry on the clock (drafted time + minutes to entry), then the oldest draft. The Desk
+  // opens this draft as its Next decision (review 2, item 6).
+  const entryAt = (a) => ms(a.created_at) + (a.inside_now ? 0 : Math.max(0, a.minutes_to_entry || 0) * 60000);
+  const urgent = drafts.slice().sort((a, b) => Number(!!b.inside_now) - Number(!!a.inside_now) || entryAt(a) - entryAt(b) || ms(a.created_at) - ms(b.created_at))[0] || null;
   return { drafts: drafts.length, approved, rejected, decided: approved + rejected, partial, urgent, unknown: D.state.draft_count === null };
 }
 
@@ -140,7 +145,9 @@ function eyebrow(D, sit, region, store) {
   iconBox.replaceChildren(eruptIcon(sit.color_code));
   const regName = region ? (D.state.regions || []).find((r) => r.key === region)?.name : null;
   const alert = CODE_WORD[sit.color_code] ? `alert ${CODE_WORD[sit.color_code]}` : "alert colour not given";
-  setText($("eyebrow-rest"), [regName, alert].filter(Boolean).map((t) => ` · ${t}`).join(""));
+  // a no-break space before each "·" keeps the dot at the end of a line, never at the start of
+  // the next one (review 2, item 13)
+  setText($("eyebrow-rest"), [regName, alert].filter(Boolean).map((t) => `\u00a0· ${t}`).join(""));
   setText($("eyebrow-asof"), `as of ${hhmmz(ms(sit.as_of))}`);
   $("eyebrow-asof").title = "Times ending in Z are UTC";
 }
@@ -177,11 +184,13 @@ function storyLines(D, store, ui, sit) {
   const closed = closuresFor(D, sit.volcano_id, plan);
   const re = replanning(store);
   if (re) {
-    // The trace does not say which volcano closed them, so the line names no volcano.
-    lines.push({ text: `RFA airports closed by ash: ${re.airports.join(", ")}. Re-planning the day's flights…`, title: `Re-plan started at ${hhmmz(re.at)}` });
+    // The trace does not say which volcano closed them, so the line says its scope: every
+    // volcano (review 2, item 2, spec G8).
+    lines.push({ text: `Ash closes ${plural(re.airports.length, "RFA airport", "RFA airports")} (all volcanoes): ${re.airports.join(", ")}. Re-planning the day's flights…`, title: `Re-plan started at ${hhmmz(re.at)}` });
   } else if (closed.length) {
     const icaos = [...new Set(closed.map((c) => c.icao))];
-    lines.push({ text: `Ash closes ${plural(icaos.length, "RFA airport", "RFA airports")}: ${icaos.join(", ")}.`, title: `Airport plan as of ${hhmmz(ms(plan.created_at))}` });
+    const all = new Set(plan.closures.map((c) => c.icao)).size;
+    lines.push({ text: `Ash from ${sit.volcano_name} closes ${plural(icaos.length, "RFA airport", "RFA airports")}: ${icaos.join(", ")}${all > icaos.length ? ` (${all} across all volcanoes)` : ""}.`, title: `Airport plan as of ${hhmmz(ms(plan.created_at))}` });
   }
   const n = sit.exposed_count || 0;
   if (n > 0) {
@@ -308,7 +317,7 @@ export function keyRows(D, ui) {
   if ((ui.layers.reroutes && D.hasReroutes) || pickedReroute) rows.push([sw("lg-reroute", "sw--reroute"), "Suggested reroute", null]);
   if (D.rose && ui.layers.rose) rows.push([sw("lg-arrow-observer", "sw--observer"), "Observatory's reported drift", null]);
   if (D.cones.some((f) => f.properties.part === "sector")) rows.push([sw("lg-area-hatch", "sw--tephra"), "Where TEPHRA widened the area", null]);
-  if (ui.layers.satboxes && D.hasSatBoxes) rows.push([sw("lg-satbox", "sw--sat"), "AI-marked satellite box", "supporting only"]);
+  if (ui.layers.satboxes && D.hasSatBoxes) rows.push([sw("lg-satbox", "sw--sat"), "Box marked on the satellite picture", "supporting only"]);
   return rows;
 }
 
@@ -346,11 +355,16 @@ function renderAll(D, ui) {
   const kx = $("kpi-exposed");
   const s = D?.state;
   const active = D?.activeCount ?? 0;
-  setText($("kpi-active"), D && active ? String(active) : "–");
+  // One sentence, comma-separated, each count with its own words, so a wrapped line never starts
+  // with a stray separator or a bare dash (review 2, item 13).
+  const label = (id, text) => setText($(id).nextElementSibling, text);
+  setText($("kpi-active"), !D ? "–" : active ? String(active) : "no");
+  label("kpi-active", active === 1 ? "volcano with ash" : D && !active ? "volcano with ash reported" : "volcanoes with ash");
   // RFA is a fictional airline. At 0 the count shows a dash, never "0", "none" or "clear": the
   // feed only sees aircraft that broadcast on ADS-B (G17).
   const exposed = s?.exposed_count ?? 0;
-  setText(kx, exposed > 0 ? String(exposed) : "–");
+  setText(kx, exposed > 0 ? String(exposed) : D ? "no" : "–");
+  label("kpi-exposed", exposed > 0 ? `RFA flight${exposed === 1 ? "" : "s"} in or heading in` : D ? "RFA flight seen heading in" : "RFA flights in or heading in");
   kx.closest(".kpi").classList.toggle("kpi--hot", exposed > 0);
   kx.closest(".kpi").title = exposed > 0
     ? `${exposed} RFA (fictional) flight${exposed === 1 ? "" : "s"} in or heading into TEPHRA's estimated area, all volcanoes.`
@@ -358,6 +372,7 @@ function renderAll(D, ui) {
   kx.setAttribute("aria-label", exposed > 0 ? String(exposed) : "0 seen; an empty map is not an empty sky");
   // null: the server could not read the drafts; an older count is not shown as current.
   setText($("kpi-drafts"), !D ? "–" : s.draft_count === null ? "unknown (database error)" : String(s.draft_count ?? 0));
+  label("kpi-drafts", D && s.draft_count === 1 ? "advisory waiting" : "advisories waiting");
   const ul = $("volcano-tabs");
   if (!D) { ul.replaceChildren(); return; }
   const others = D.sits.filter((x) => x.volcano_id !== D.selected);
@@ -396,7 +411,52 @@ export function renderStory(D, store, ui, { conn, extra, announce, notes = [] })
   renderTrust(D);
   renderNotes(notes);
   renderAll(D, ui);
+  fitStory(D, ui);
 }
+
+// ------------------------------------------------------------------ fit (R4.1, review 2, item 4)
+
+// The story column must not scroll at desktop widths: content was cut off half-visible under the
+// pinned Details button. Each fit level tightens the column a step (spacing, then line size, the
+// key in two columns, the button beside the flights link, the other-volcanoes rows folded into
+// "+ n more", the Details sub-line) until it fits. Nothing is removed: folded rows stay one tap
+// away, and the column still scrolls as a last resort. Phones scroll the page and skip this.
+const FIT_MAX = 8;
+let fitKey = "";
+function fitStory(D, ui) {
+  const box = $("story");
+  if (!box) return;
+  if (window.innerWidth <= 600 || !D) {
+    if (box.dataset.fit) { delete box.dataset.fit; fitCap = Infinity; }
+    fitKey = "";
+    return;
+  }
+  const key = `${window.innerWidth}x${window.innerHeight}|${ui.vlistOpen ? 1 : 0}|${box.querySelector("#verdict")?.textContent}|${$("legend").textContent}|${$("story-notes").textContent}|${$("fail-line").hidden ? "" : $("fail-line").textContent}|${$("allv").textContent}`;
+  if (key === fitKey) return;
+  fitKey = key;
+  const over = () => box.scrollHeight - box.clientHeight > 1;
+  let level = 0;
+  box.dataset.fit = "0";
+  if (fitCap !== Infinity) { fitCap = Infinity; renderAll(D, ui); }
+  while (over() && level < FIT_MAX) {
+    level += 1;
+    box.dataset.fit = String(level);
+    // level 6 folds the other-volcanoes rows into "+ n more"
+    if (level === 6 && !ui.vlistOpen) { fitCap = 0; renderAll(D, ui); }
+  }
+  // Folding every row may free more room than needed: give rows back while they still fit.
+  if (fitCap === 0 && !over()) {
+    for (let c = 1; c <= 3; c += 1) {
+      fitCap = c;
+      renderAll(D, ui);
+      if (over()) { fitCap = c - 1; renderAll(D, ui); break; }
+    }
+  }
+  box.classList.toggle("story--scrolls", over());
+}
+export function refitStory(D, ui) { fitKey = ""; fitStory(D, ui); }
+// web fonts change line heights: measure again on the next render once they are in
+document.fonts?.ready?.then(() => { fitKey = ""; });
 
 // The coverage note for the selected volcano, when no aircraft at all is seen near it.
 export function coverageNote(D, store) {

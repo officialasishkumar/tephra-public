@@ -105,6 +105,10 @@ function addContext(map, C, ui, noText) {
   if (!noText) map.addLayer({ id: "navaid-label", type: "symbol", source: "navaids", minzoom: 8, layout: { visibility: navVis, "text-field": ["get", "ident"], "text-font": FONT_REG, "text-size": 12, "text-offset": [0, 0.9], "text-anchor": "top", "text-optional": true }, paint: { "text-color": C.navaid, "text-halo-color": C.halo, "text-halo-width": 1.5 } });
 }
 
+// Label boxes wrap at this many ems: narrower on a phone, so a long label wraps onto two lines
+// instead of running off the canvas (review 2, item 10).
+const labelEm = () => (window.innerWidth <= 600 ? 16 : 40);
+
 // The hazard and traffic layers. `withTephra` false builds the compare map's "official only" side.
 function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
   for (const id of ["official", "cones", "exposures", "aircraft", "volcanoes", "official-labels", "area-labels", "rose", "ac3d"]) map.addSource(id, { type: "geojson", data: empty() });
@@ -161,8 +165,8 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
   if (!noText) {
     map.addLayer({ id: "official-step-label", type: "symbol", source: "official-labels", filter: ["==", ["get", "kind"], "step"], layout: { "text-field": ["get", "text"], "text-font": FONT_BOLD, "text-size": 13, "text-anchor": ["coalesce", ["get", "anchor"], "center"], "text-offset": ["coalesce", ["get", "offset"], ["literal", [0, 0]]], "text-max-width": 9, "text-allow-overlap": false, "symbol-sort-key": 8 }, paint: { "text-color": C.officialText, "text-halo-color": C.halo, "text-halo-width": 2 } });
     map.addLayer({ id: "official-label", type: "symbol", source: "official-labels", filter: ["==", ["get", "kind"], "name"], layout: { "text-field": ["get", "line1"], "text-font": FONT_BOLD, "text-size": 12, "text-anchor": "bottom", "text-offset": [0, -0.4], "text-allow-overlap": false, "symbol-sort-key": 10 }, paint: { "text-color": C.officialText, "text-halo-color": C.halo, "text-halo-width": 2 } });
-    if (withTephra) map.addLayer({ id: "tephra-label", type: "symbol", source: "area-labels", layout: { visibility: tVis, "icon-image": "box-tephra", "icon-text-fit": "both", "icon-text-fit-padding": [5, 9, 5, 9], "text-field": ["get", "line1"], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-max-width": 40, "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "icon-allow-overlap": false, "text-allow-overlap": false, "symbol-sort-key": 5 }, paint: { "text-color": C.tephraText } });
-    map.addLayer({ id: "official-label-selected", type: "symbol", source: "official-labels", filter: ["==", ["get", "kind"], "box"], layout: { "icon-image": "box-official", "icon-text-fit": "both", "icon-text-fit-padding": [5, 9, 5, 9], "text-field": ["case", ["==", ["get", "line2"], ""], ["format", ["get", "line1"], { "text-color": C.officialText }], ["format", ["get", "line1"], { "text-color": C.officialText }, "\n", {}, ["get", "line2"], { "text-color": C.text1, "font-scale": 0.9 }]], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-max-width": 40, "text-justify": "left", "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "icon-allow-overlap": true, "text-allow-overlap": true, "symbol-sort-key": 0 } });
+    if (withTephra) map.addLayer({ id: "tephra-label", type: "symbol", source: "area-labels", layout: { visibility: tVis, "icon-image": "box-tephra", "icon-text-fit": "both", "icon-text-fit-padding": [5, 9, 5, 9], "text-field": ["get", "line1"], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-max-width": labelEm(), "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "icon-allow-overlap": false, "text-allow-overlap": false, "symbol-sort-key": 5 }, paint: { "text-color": C.tephraText } });
+    map.addLayer({ id: "official-label-selected", type: "symbol", source: "official-labels", filter: ["==", ["get", "kind"], "box"], layout: { "icon-image": "box-official", "icon-text-fit": "both", "icon-text-fit-padding": [5, 9, 5, 9], "text-field": ["case", ["==", ["get", "line2"], ""], ["format", ["get", "line1"], { "text-color": C.officialText }], ["format", ["get", "line1"], { "text-color": C.officialText }, "\n", {}, ["get", "line2"], { "text-color": C.text1, "font-scale": 0.9 }]], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-max-width": labelEm(), "text-justify": "left", "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"], "icon-allow-overlap": true, "text-allow-overlap": true, "symbol-sort-key": 0 } });
   }
   // The flight count is placed before the forecast-step and other-volcano labels (review 1,
   // item 10): when they collide those labels give way, never the count.
@@ -225,7 +229,9 @@ export class WallMap {
     });
     this.map.on("error", (e) => this.onError(e));
     this.map.on("style.load", () => this.onStyle());
-    this.map.on("zoomend", () => { if (this.D) { this.updateRose(); this.updateLabels(); } });
+    this.map.on("zoomend", () => { if (this.D) this.updateRose(); });
+    // labels are re-fitted to the canvas after every move, not only after a zoom (review 2, 10)
+    this.map.on("moveend", () => { if (this.D && this.loaded) { this.updateLabels(); this.updateVolcanoes(); } });
     this.map.on("click", (e) => this.onClick(e));
     this.styleTimer = setTimeout(() => { if (!this.loaded) this.fallbackStyle(); }, 8000);
     const pulseNode = el("div", { class: "pulse", "aria-hidden": "true" });
@@ -301,12 +307,13 @@ export class WallMap {
     this.send("cones", fc(D.cones));
     this.send("exposures", D.exposures);
     this.send("aircraft", fc(D.aircraft));
-    // A cluster names itself as part of the total when some flights sit outside it (review 1,
-    // item 3), so "21 of 23 RFA flights" never contradicts the story's 23.
+    // A cluster that holds only some of the flights says "here" (review 2, item 14): "20 RFA
+    // flights here" beside the story's 22, the other two drawn as single planes. "20 of 22" read
+    // as a second, different count.
     const total = D.exposed.length;
     if (map.getLayer("exposed-cluster") && this.clusterTotal !== total) {
       this.clusterTotal = total;
-      map.setLayoutProperty("exposed-cluster", "text-field", ["case", [">=", ["get", "point_count"], total], ["concat", ["to-string", ["get", "point_count"]], " RFA flights"], ["concat", ["to-string", ["get", "point_count"]], ` of ${total} RFA flights`]]);
+      map.setLayoutProperty("exposed-cluster", "text-field", ["case", [">=", ["get", "point_count"], total], ["concat", ["to-string", ["get", "point_count"]], " RFA flights"], ["concat", ["to-string", ["get", "point_count"]], " RFA flights here"]]);
     }
     if (map.getSource("exposed-pts")) this.send("exposed-pts", fc(D.exposed.map((f) => ({ type: "Feature", geometry: f.geometry, properties: { hex: f.properties.hex, volcano_id: f.properties.volcano_id, elabel: f.properties.elabel, inside: f.properties.inside, minutes_to_entry: f.properties.minutes_to_entry, is_sel_vid: f.properties.volcano_id === D.selected } }))));
     map.setFilter("fir-active", ["in", ["get", "icao"], ["literal", D.firsWithSigmet]]);
@@ -389,9 +396,17 @@ export class WallMap {
     // A non-selected volcano with an official area is named by that area's label (R6.3), so its
     // vent name is left out rather than drawn twice.
     const named = new Set(D.official.filter((f) => f.properties.show && f.properties.step === "now" && f.properties.valid && !f.properties.sel).map((f) => f.properties.volcano_id));
+    // An active volcano's name near a side edge opens inwards, so "Semeru" is never cut to "Se…"
+    // (review 2, item 10).
+    const W = this.container.getBoundingClientRect().width;
+    const sideOf = (f) => {
+      if (!f.properties.active || !W) return undefined;
+      const x = this.map.project(f.geometry.coordinates).x;
+      return x > W - 110 ? "right" : x < 110 ? "left" : undefined;
+    };
     const feats = D.volcanoes.map((f) => (f.properties.sel
       ? { ...f, properties: { ...f.properties, anchor: selAnchor, offset: selOffset, named_by_area: false } }
-      : { ...f, properties: { ...f.properties, named_by_area: named.has(f.properties.id) && window.innerWidth > 600 } }));
+      : { ...f, properties: { ...f.properties, anchor: sideOf(f), named_by_area: named.has(f.properties.id) && window.innerWidth > 600 } }));
     this.send("volcanoes", fc(feats));
   }
 
@@ -544,9 +559,84 @@ export class WallMap {
     const map = this.map;
     if (!map.getSource("official-labels")) return;
     const { boxes, areas } = this.labelPoints();
-    this.send("official-labels", fc(boxes));
-    this.send("area-labels", fc(areas));
-    this.lastLabels = { boxes, areas };
+    // In compare mode this map shows only the part right of the divider.
+    const bounds = this.compare ? { left: this.sliderX() + 12 } : {};
+    const fb = this.fitLabels(boxes, map, bounds), fa = this.fitLabels(areas, map, bounds);
+    this.send("official-labels", fc(fb));
+    this.send("area-labels", fc(fa));
+    this.lastLabels = { boxes: fb, areas: fa, raw: boxes };
+    this.fitCluster();
+    if (this.compareMap) this.updateCompare();
+  }
+
+  sliderX() {
+    const w = this.container.getBoundingClientRect().width;
+    const x = Number(this.compare?.currentPosition);
+    return Number.isFinite(x) ? x : w / 2;
+  }
+
+  // Estimated pixel box of a label feature on `map`, from its character counts, wrap width,
+  // anchor and offset (the symbol layers' own settings).
+  labelRect(f, map = this.map) {
+    const P = f.properties;
+    const px = P.size || 13;
+    const maxW = labelEm() * px;
+    const widths = [];
+    const add = (t, scale = 1) => {
+      if (!t) return;
+      const full = String(t).length * 0.6 * px * scale;
+      const n = Math.max(1, Math.ceil(full / maxW));
+      for (let i = 0; i < n; i++) widths.push(Math.min(full, maxW));
+    };
+    add(P.line1 ?? P.text);
+    add(P.line2, 0.9);
+    const w = Math.max(0, ...widths) + 18;
+    const h = widths.length * 1.2 * px + 10;
+    const p = map.project(f.geometry.coordinates);
+    const a = P.anchor || "center";
+    const [ox, oy] = P.offset || [0, 0];
+    const x0 = (a.includes("left") ? p.x : a.includes("right") ? p.x - w : p.x - w / 2) + ox * px;
+    const y0 = (a.includes("top") ? p.y : a.includes("bottom") ? p.y - h : p.y - h / 2) + oy * px;
+    return { p, x0, y0, w, h };
+  }
+
+  // Nudge each label whose point is on screen fully inside [left, right] of its map, and inside
+  // the top and bottom edges (review 2, items 10 and 16): a label never runs off the canvas or
+  // under the compare divider. A label whose area is off screen stays where it is.
+  fitLabels(feats, map = this.map, { left = 8, right = null } = {}) {
+    const box = map.getContainer().getBoundingClientRect();
+    const W = box.width, H = box.height, m = 8;
+    const R = right ?? W - m;
+    if (!W || !H) return feats;
+    return feats.map((f) => {
+      const r = this.labelRect(f, map);
+      // a label whose point is off this map's visible part (or on the other side of the compare
+      // divider) is not pulled in
+      if (r.p.x < left - 40 || r.p.x > R + 40 || r.p.y < -40 || r.p.y > H + 40) return f;
+      let dx = 0, dy = 0;
+      if (r.w <= R - left) { if (r.x0 < left) dx = left - r.x0; else if (r.x0 + r.w > R) dx = R - (r.x0 + r.w); }
+      if (r.h <= H - 2 * m) { if (r.y0 < m) dy = m - r.y0; else if (r.y0 + r.h > H - m) dy = H - m - (r.y0 + r.h); }
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return f;
+      const ll = map.unproject([r.p.x + dx, r.p.y + dy]);
+      return { ...f, geometry: { type: "Point", coordinates: [ll.lng, ll.lat] } };
+    });
+  }
+
+  // The flight-count bubble opens towards the middle of the map near the right edge: there its
+  // label sits left of the planes, so "23 RFA flights" is never cut by the right edge (review 2, 10).
+  fitCluster() {
+    const map = this.map, D = this.D;
+    if (!map.getLayer("exposed-cluster") || !D) return;
+    const pts = D.exposed.filter((f) => f.properties.volcano_id === D.selected).map((f) => map.project(f.geometry.coordinates));
+    if (!pts.length) return;
+    const x = pts.reduce((a, q) => a + q.x, 0) / pts.length;
+    const W = map.getContainer().getBoundingClientRect().width;
+    // flip only when the bubble (about 170 px with its offset) would run past the right edge
+    const order = x > W - 180 ? ["right", "left", "bottom-right", "top-right"] : ["left", "right", "bottom-left", "top-left"];
+    const key = order[0];
+    if (this.clusterSide === key) return;
+    this.clusterSide = key;
+    map.setLayoutProperty("exposed-cluster", "text-variable-anchor", order);
   }
 
   // ---------------------------------------------------------------- camera (7.4)
@@ -585,8 +675,11 @@ export class WallMap {
       let cam = null;
       try { cam = this.map.cameraForBounds(b, { padding, bearing: 0 }); } catch { /* not laid out yet */ }
       if (!cam) return;
+      // At the centre a tilted map keeps the flat scale, and the far half shrinks; zooming in a
+      // little keeps the ash areas as large as in the flat view (review 2, item 11). Zooming out,
+      // as before, showed half of Asia and tiny areas.
       this.map.once("moveend", () => { this.updateRose(); this.updateLabels(); });
-      this.map.easeTo({ center: cam.center, zoom: Math.min(cam.zoom, maxZoom) - 0.3, pitch: 60, bearing: -20, duration: still ? 0 : 2200 });
+      this.map.easeTo({ center: cam.center, zoom: Math.min(cam.zoom + 0.35, maxZoom), pitch: 55, bearing: -20, duration: still ? 0 : 2200 });
       return;
     }
     const opts = { padding, maxZoom, duration: still ? 0 : 1600, pitch: 0, bearing: 0 };
@@ -967,6 +1060,8 @@ export class WallMap {
       this.updateCompare();
     });
     this.compare = new window.maplibregl.Compare(a, this.map, wrap, { mousemove: false, orientation: "vertical" });
+    this.compare.on?.("slideend", () => this.updateLabels());
+    a.once("idle", () => this.updateLabels());
     return true;
   }
 
@@ -978,7 +1073,8 @@ export class WallMap {
     this.send("official", fc(D.official), a, sent);
     this.send("aircraft", fc(D.aircraft), a, sent);
     this.send("volcanoes", fc(D.volcanoes), a, sent);
-    this.send("official-labels", fc(this.lastLabels?.boxes || []), a, sent);
+    // the left side shows the part of the map left of the divider: its labels stay there
+    this.send("official-labels", fc(this.fitLabels(this.lastLabels?.raw || [], a, { right: this.sliderX() - 12 })), a, sent);
     a.setFilter("fir-active", ["in", ["get", "icao"], ["literal", D.firsWithSigmet]]);
   }
 
@@ -986,6 +1082,7 @@ export class WallMap {
     if (!this.compare) return;
     const w = this.container.getBoundingClientRect().width;
     this.compare.setSlider(Math.round((w * pct) / 100));
+    this.updateLabels();
   }
 }
 

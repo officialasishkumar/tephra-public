@@ -292,7 +292,8 @@ body.details-open .stage { grid-template-columns: var(--story-w) minmax(0, 1fr) 
 .eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: var(--fs-eyebrow, var(--fs-1)); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-text-2); }
 .eyebrow__icon .icon { width: 18px; height: 18px; vertical-align: -4px; }
 .eyebrow__icon:empty { display: none; }
-.eyebrow__name { font-size: inherit; font-weight: var(--fw-bold); color: var(--c-text-1); letter-spacing: inherit; }
+.eyebrow__main { flex: 1 1 auto; min-width: 0; }
+.eyebrow__name { display: inline; font-size: inherit; font-weight: var(--fw-bold); color: var(--c-text-1); letter-spacing: inherit; }
 .eyebrow__asof { margin-left: auto; font-family: var(--font-mono); letter-spacing: 0; text-transform: none; color: var(--c-text-3); }
 body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 8px; border: 2px solid var(--c-line-input); border-top-color: var(--c-text-1); border-radius: 50%; vertical-align: -1px; }
 @media (prefers-reduced-motion: no-preference) { body.is-connecting .eyebrow__name::before { animation: spin 0.9s linear infinite; } }
@@ -350,11 +351,11 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 
 .allv { display: flex; flex-direction: column; gap: var(--sp-2); }
 .allv__title { font-size: var(--fs-1); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-text-3); }
-.kpis { display: flex; flex-wrap: wrap; gap: 2px var(--sp-3); font-size: var(--fs-2); color: var(--c-text-2); }
-.kpi dd span { color: var(--c-text-1); font-weight: var(--fw-semibold); }
-.kpi + .kpi::before { content: "·"; margin-right: var(--sp-3); color: var(--c-text-3); }
+.kpis { display: flex; flex-wrap: wrap; gap: 2px 0.4em; font-size: var(--fs-2); color: var(--c-text-2); }
+.kpi dd span:not(.kpi__l) { color: var(--c-text-1); font-weight: var(--fw-semibold); }
+.kpi:not(:last-child) dd::after { content: ","; color: var(--c-text-2); }
 .kpi { display: flex; }
-.kpi--hot dd span { color: var(--c-tephra-text); }
+.kpi--hot dd span:not(.kpi__l) { color: var(--c-tephra-text); }
 .vlist { display: flex; flex-direction: column; }
 .vrow {
   display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: var(--sp-2);
@@ -385,10 +386,16 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 .mapcol { grid-area: map; display: grid; grid-template-rows: minmax(0, 1fr) var(--time-h); min-width: 0; min-height: 0; position: relative; container-type: inline-size; container-name: mapcol; }
 /* a narrow map column (1280, or Details open at 1440): the time bar keeps every control, shorter */
 @container mapcol (max-width: 1080px) {
-  .tl__label, .tl__stepword { display: none; }
-  .tl__step { padding: 0; width: 44px; }
+  /* 1440: "‹ Previous" and "Next ›" keep their words (R4.2, R7.1); the "Forecast:" label goes */
+  .tl__label { display: none; }
+  .tl__step { padding: 0 8px; }
   .tl__meta .tl__window { font-size: var(--fs-1); }
   .timebar { gap: var(--sp-2); }
+}
+@container mapcol (max-width: 960px) {
+  /* 1280 and Details open: icon buttons with aria-labels and tooltips (R4.3) */
+  .tl__stepword { display: none; }
+  .tl__step { padding: 0; width: 44px; }
 }
 @container mapcol (max-width: 900px) {
   .tl__progress { display: none; }
@@ -480,6 +487,7 @@ body:not(.is-3d) .maplibregl-ctrl-compass { display: none !important; }
 .tl__mode { display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-semibold); color: var(--c-replay-text); }
 .tl__mode--live { color: var(--c-ok); }
 .tl__window { color: var(--c-text-2); font-family: var(--font-mono); font-size: var(--fs-1); }
+.tl__span { color: var(--c-text-2); font-size: var(--fs-1); font-family: var(--font-mono); }
 .tl__stale { color: var(--c-caution); }
 .tl__progress { display: block; width: 56px; height: 6px; border-radius: 3px; background: var(--c-line-2); overflow: hidden; }
 .tl__progress span { display: block; height: 100%; background: var(--c-replay); }
@@ -566,14 +574,17 @@ body.history-open .maplibregl-ctrl-bottom-right, body.history-open .map-pills { 
 .dindex__head { margin: var(--sp-4) 0 var(--sp-1); font-size: var(--fs-1); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-text-3); }
 .dindex > :first-child .dindex__head { margin-top: 0; }
 .dindex__row {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto 14px; align-items: center; gap: var(--sp-3);
+  /* the status wraps in its own column; the title keeps at least 7.5em (review 2: long scoped
+     counts overlapped the title on a phone) */
+  display: grid; grid-template-columns: minmax(7.5em, 1fr) minmax(0, max-content) 14px; align-items: center; gap: var(--sp-3);
   width: 100%; min-height: 48px; padding: 6px var(--sp-2); margin: 0 calc(-1 * var(--sp-2));
   background: transparent; border: 0; border-bottom: 1px solid var(--c-line-1); border-radius: var(--radius-sm);
   color: var(--c-text-1); text-align: left; font-size: var(--fs-2);
 }
 .dindex__row:hover { background: var(--c-surface-3); }
 .dindex__label { font-weight: var(--fw-medium); }
-.dindex__status { display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; color: var(--c-text-2); text-align: right; }
+.dindex__status { display: flex; align-items: center; gap: 6px; justify-content: flex-end; min-width: 0; color: var(--c-text-2); text-align: right; }
+.dindex__status > span { min-width: 0; overflow-wrap: anywhere; }
 .dindex__row--serious .dindex__status { color: var(--c-serious); font-weight: var(--fw-semibold); }
 .dindex__row--caution .dindex__status { color: var(--c-caution); }
 .dindex__row--tephra .dindex__status { color: var(--c-tephra-text); }
@@ -1278,7 +1289,8 @@ details.more > :not(summary) { margin: var(--sp-2) var(--sp-3) 0; }
   .mapcol { order: 2; display: block; }
   .story > .key { order: 3; padding-top: var(--sp-3); }
   .story > .key .key__rows { flex-direction: row; flex-wrap: wrap; gap: 0 var(--sp-3); }
-  .story > .trust { order: 4; }
+  /* the failure line sits on the page background above the story card: leave room under it */
+  .story > .fail-line + .verdict { padding-top: var(--sp-3); margin-top: var(--sp-3); }
   .story > .story-notes { order: 5; }
   .story > .allv { order: 6; }
   .story > .details-btn { order: 7; width: calc(100% - 2 * var(--gutter)); margin: var(--sp-3) var(--gutter); }
@@ -1314,7 +1326,9 @@ details.more > :not(summary) { margin: var(--sp-2) var(--sp-3) 0; }
   /* the sheet starts below the sticky header, which stays visible above it (R8.1) */
   .sheet { position: fixed; inset: var(--sheet-top, 0px) 0 0 0; width: 100%; max-width: 100%; height: auto; max-height: none; margin: 0; padding: 0; border: 0; border-top: 2px solid var(--c-line-2); background: var(--c-surface-1); color: var(--c-text-1); }
   .sheet .story-strip { display: none; }
-  .sheet::backdrop { background: var(--c-scrim); }
+  /* the sheet fills everything under the band, header and disclaimer; those stay undimmed, so the
+     safety line reads at full contrast (review 2, item 15) */
+  .sheet::backdrop { background: transparent; }
   .sheet .drawer { height: 100%; }
   .sheet .drawer__switch select { max-width: min(220px, 56vw); width: auto; }
   .cmp-cards .cmp__cell { font-size: var(--fs-2); }
@@ -1364,4 +1378,58 @@ body.present .details-btn { border-style: dashed; }
   .story { padding-bottom: 0; }
   .story > .details-btn { margin-bottom: var(--sp-3); }
   .details-btn[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--c-text-1), 0 -18px 16px -4px var(--c-surface-1); }
+}
+
+/* ---------------------------------------------------------------- story fit (R4.1, review 2, item 4)
+   wall/story.js raises data-fit one step at a time until the column stops scrolling. Each step
+   tightens, never removes: the key keeps "binding" and "never smaller", folded rows stay one tap
+   away under "+ n more". Desktop only; phones scroll the page. */
+@media (min-width: 601px) {
+  .trust { font-size: var(--fs-1); line-height: 1.35; margin-top: calc(-1 * var(--sp-1)); }
+  .story[data-fit] .story__lines { font-size: var(--story-fit-size, var(--story-size)); }
+  .story[data-fit="1"], .story[data-fit="2"], .story[data-fit="3"], .story[data-fit="4"], .story[data-fit="5"], .story[data-fit="6"], .story[data-fit="7"] {
+    gap: 10px; padding-top: var(--sp-3);
+  }
+  .story[data-fit]:not([data-fit="0"]) > * + * { padding-top: 10px; }
+  .story[data-fit]:not([data-fit="0"]) .verdict { gap: var(--sp-2); }
+  .story[data-fit]:not([data-fit="0"]) .story__lines { gap: 4px; }
+  .story[data-fit="2"], .story[data-fit="3"] { --story-fit-size: calc(var(--story-size) - 2px); }
+  .story[data-fit="4"], .story[data-fit="5"] { --story-fit-size: calc(var(--story-size) - 4px); }
+  .story[data-fit="6"], .story[data-fit="7"] { --story-fit-size: calc(var(--story-size) - 5px); }
+  /* 3+: the key in two columns, rows shorter; the sub-words stay */
+  .story[data-fit="3"] .key__rows, .story[data-fit="4"] .key__rows, .story[data-fit="5"] .key__rows, .story[data-fit="6"] .key__rows, .story[data-fit="7"] .key__rows {
+    display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--sp-3); row-gap: 0;
+  }
+  .story[data-fit="3"] .key__rows li, .story[data-fit="4"] .key__rows li, .story[data-fit="5"] .key__rows li, .story[data-fit="6"] .key__rows li, .story[data-fit="7"] .key__rows li {
+    min-height: 24px; font-size: var(--fs-1); grid-template-columns: 20px 1fr; gap: 6px; line-height: 1.25;
+  }
+  .story[data-fit="3"] .key .sw, .story[data-fit="4"] .key .sw, .story[data-fit="5"] .key .sw, .story[data-fit="6"] .key .sw, .story[data-fit="7"] .key .sw { width: 18px; height: 18px; }
+  .story[data-fit="3"] .key__more, .story[data-fit="4"] .key__more, .story[data-fit="5"] .key__more, .story[data-fit="6"] .key__more, .story[data-fit="7"] .key__more { font-size: var(--fs-1); min-height: 24px; }
+  /* 5+: the flights link beside the button */
+  .story[data-fit="5"] .story__actions, .story[data-fit="6"] .story__actions, .story[data-fit="7"] .story__actions { flex-direction: row; align-items: center; gap: var(--sp-3); }
+  .story[data-fit="5"] .story__actions .cta, .story[data-fit="6"] .story__actions .cta, .story[data-fit="7"] .story__actions .cta,
+  .story[data-fit="5"] .story__actions .cta--quiet, .story[data-fit="6"] .story__actions .cta--quiet, .story[data-fit="7"] .story__actions .cta--quiet { flex: 1 1 auto; min-height: 44px; }
+  .story[data-fit="5"] .story__show, .story[data-fit="6"] .story__show, .story[data-fit="7"] .story__show { align-self: center; flex: none; }
+  /* 7: the Details button on one line */
+  .story[data-fit="7"] .details-btn { min-height: 44px; grid-template-rows: auto; }
+  .story[data-fit="7"] .details-btn__sub { display: none; }
+  .story[data-fit="7"] .details-btn .icon { grid-row: 1; }
+  .story[data-fit="7"] .allv { gap: 2px; }
+  /* 8: the tightest rhythm (1280x720 with a long story) */
+  .story[data-fit="8"] { gap: 6px; padding-top: var(--sp-2); --story-fit-size: calc(var(--story-size) - 6px); }
+  .story[data-fit="8"] > * + * { padding-top: 6px !important; }
+  .story[data-fit="8"] .key__rows { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--sp-3); row-gap: 0; }
+  .story[data-fit="8"] .key__rows li { min-height: 20px; font-size: var(--fs-1); grid-template-columns: 20px 1fr; gap: 6px; line-height: 1.2; }
+  .story[data-fit="8"] .key .sw { width: 18px; height: 18px; }
+  .story[data-fit="8"] .key__more, .story[data-fit="8"] .vlist__more { font-size: var(--fs-1); min-height: 24px; }
+  .story[data-fit="8"] .story__actions { flex-direction: row; align-items: center; gap: var(--sp-3); }
+  .story[data-fit="8"] .story__actions .cta, .story[data-fit="8"] .story__actions .cta--quiet { flex: 1 1 auto; min-height: 44px; }
+  .story[data-fit="8"] .story__show { align-self: center; flex: none; }
+  .story[data-fit="8"] .details-btn { min-height: 44px; grid-template-rows: auto; }
+  .story[data-fit="8"] .details-btn__sub { display: none; }
+  .story[data-fit="8"] .details-btn .icon { grid-row: 1; }
+  .story[data-fit="8"] .allv, .story[data-fit="8"] .verdict { gap: 2px; }
+  .story[data-fit="8"] .trust { margin-top: 0; }
+  /* last resort: the column scrolls, and says so with a fade above the pinned button */
+  .story:not(.story--scrolls) > .details-btn:not([aria-expanded="true"]) { box-shadow: none; }
 }

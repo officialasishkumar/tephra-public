@@ -259,7 +259,7 @@ export function recoverySummary(plan) {
   const tops = plan.closures.filter((c) => c.top_ft != null);
   const band = tops.length ? ` ${LEVEL(Math.min(...tops.map((c) => c.base_ft ?? 0)))}/${LEVEL(Math.max(...tops.map((c) => c.top_ft)))}` : "";
   const r = plan.closures.find((c) => c.radius_nm != null)?.radius_nm;
-  const head = `${icaos.join(", ")} closed by ash${band}${r != null ? ` within ${Math.round(r)} NM` : ""}`;
+  const head = `${icaos.join(", ")} closed by ash (all volcanoes)${band}${r != null ? ` within ${Math.round(r)} NM` : ""}`;
   const t = plan.chosen?.totals;
   const what = t ? `cancel ${t.cancelled_flights}${t.delayed_flights ? `, delay ${t.delayed_flights}` : ""}, ${usd(t.total_usd)}` : "no scenario chosen";
   const status = plan.status === "DRAFT" ? "Plan waiting on the Desk" : plan.status === "APPROVED" ? "Plan approved" : plan.status === "REJECTED" ? "Plan rejected" : "Plan";
@@ -305,7 +305,7 @@ function recoveryKids(D) {
   else if (plan.status === "AI_UNAVAILABLE") kids.push(unavailable(plan.unavailable_reason));
   const card = el("article", { class: "x-card x-card--plan" });
   card.append(el("header", { class: "x-card__head" }, pill(kind, text), el("span", { class: "x-card__time mono", text: clock(plan.created_at) })));
-  card.append(el("h4", { class: "x-h", text: `Closed airports · ${plan.closures.length}` }),
+  card.append(el("h4", { class: "x-h", text: `Closed airports, all volcanoes · ${plan.closures.length}` }),
     el("ul", { class: "x-closures" }, ...plan.closures.map((c) => el("li", { class: "x-closure" }, el("strong", { class: "mono", text: c.icao }),
       el("span", { class: "mono", text: `${clock(c.start)} – ${c.open_ended ? "open" : clock(c.end)}` }),
       // One line written by code; the full reason and every source id stay behind the disclosure.
@@ -398,7 +398,7 @@ function proofPanel() {
       el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Case" }), el("th", { scope: "col", class: "num", text: "TEPHRA" }), el("th", { scope: "col", class: "num", text: "Official" }), el("th", { scope: "col", class: "num", text: "Over-warn" }), el("th", { scope: "col", class: "num", text: "Moments" }))),
       el("tbody", {}, ...rows)))),
     section("Caveats", el("ul", { class: "x-problems x-problems--plain" }, ...(b.caveats || []).map((c) => el("li", { text: c })))),
-    el("p", { class: "x-sub mono", text: `Scored by code, no model writes a number · generated ${clock(b.generated_at)}Z · every case is a recorded replay` })));
+    el("p", { class: "x-sub mono", text: `Scored by code, no model writes a number · generated ${clock(b.generated_at)} · every case is a recorded replay` })));
   return kids;
 }
 

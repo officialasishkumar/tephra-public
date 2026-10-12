@@ -9,7 +9,7 @@ import {
 } from "./util.js";
 import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
-import { plainLine, techDetail, actorWords } from "./x-parts.js";
+import { plainLine, techDetail, actorWords, actionPlain } from "./x-parts.js";
 
 // ------------------------------------------------------------------ vocabulary (section 11)
 
@@ -77,7 +77,12 @@ const ACTOR = {
   human: ["i-user", "HUMAN"], system: ["i-system", "SYSTEM"],
 };
 // Plain words for values in the sources grid (R12.4). The mono codes stay as they are.
-const PLAIN_VALUE = { EST: "estimated", "NOT GIVEN": "not given", "NOT STATED": "not stated", "NOT OBSERVED": "not observed", OBSERVED: "observed", OBS: "observed" };
+const PLAIN_VALUE = {
+  EST: "estimated", "NOT GIVEN": "not given", "NOT STATED": "not stated", "NOT OBSERVED": "not observed", OBSERVED: "observed", OBS: "observed",
+  // a SIGMET's "FCST": the area is forecast, not seen (review 2, item 8)
+  FCST: "forecast, not seen",
+  RED: "Red", ORANGE: "Orange", YELLOW: "Yellow", GREEN: "Green", UNASSIGNED: "not assigned",
+};
 const plainValue = (v) => {
   if (typeof v !== "string") return v;
   if (PLAIN_VALUE[v]) return PLAIN_VALUE[v];
@@ -261,15 +266,22 @@ export function mapPills(D, ui, extra) {
 
 // ------------------------------------------------------------------ advisory status line (3.2)
 
+// "Keep watching (MONITOR)": the plain action first, the ICAO word in brackets (R12.10).
+export function actionText(a) {
+  const raw = actionWords(a);
+  const t = actionPlain(raw) || raw;
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 export function advisoryLine(a, recorded) {
   if (!a) return null;
-  const act = actionWords(a);
+  const act = actionText(a);
   const who = deciderName(a);
   const at = a.decided_at ? hhmmz(ms(a.decided_at)) : "";
   const M = {
-    DRAFT: ["i-clock", "draft", `${act} drafted · awaiting dispatcher`],
-    APPROVED: ["i-approved", "ok", `${act} approved by ${who}${at ? ` · ${at}` : ""}`],
-    EDITED: ["i-approved", "ok", `${act} approved with edits by ${who}${at ? ` · ${at}` : ""}`],
+    DRAFT: ["i-clock", "draft", `Drafted: ${act} · waiting for a dispatcher`],
+    APPROVED: ["i-approved", "ok", `Approved: ${act} · by ${who}${at ? ` · ${at}` : ""}`],
+    EDITED: ["i-approved", "ok", `Approved with edits: ${act} · by ${who}${at ? ` · ${at}` : ""}`],
     REJECTED: ["i-rejected", "serious", `Rejected by ${who}${at ? ` · ${at}` : ""}`],
     SUPERSEDED: ["i-superseded", "off", "Replaced by a newer draft"],
   };
@@ -425,8 +437,11 @@ export function sourcesSection(D, sit) {
     let v = value(card, row);
     let title = null;
     if (Array.isArray(v)) [v, title] = v;
+    // An empty cell says why in words, the same words in every column (R12.4, review 2, item 8).
+    const empty = v === "—";
+    if (empty) v = row === "code" && card.kind === "SIGMET" ? "not in a SIGMET" : row === "valid" && card.kind === "VONA" ? "no end time stated" : "not given";
     const flag = flagged.get(`${card.source_id}|${row}`);
-    const cls = ["cmp__cell", v === "—" ? "cmp__cell--empty" : "", flag ? "cmp__cell--flag" : card.kind === "VONA" && row === "move" ? "cmp__cell--observer" : ""].filter(Boolean).join(" ");
+    const cls = ["cmp__cell", empty || v === "not given" ? "cmp__cell--empty" : "", flag ? "cmp__cell--flag" : card.kind === "VONA" && row === "move" ? "cmp__cell--observer" : ""].filter(Boolean).join(" ");
     return el("div", { class: cls, role, title: title || null }, flag ? st("st-caution", "var(--c-caution)") : null, el("span", { text: v }), flag ? el("span", { class: "sr-only", text: " (flagged: disagrees)" }) : null);
   };
   const footOf = (card, role) => el("div", { class: "cmp__foot", role },
@@ -436,10 +451,15 @@ export function sourcesSection(D, sit) {
   // column is ever cut off (R2.8). The side-by-side view of the raw texts is the C dialog.
   const body = sourceCards(parts);
   const ids = order.filter((c) => !c.missing).map((c) => `${c.title}: ${c.source_id} · #${c.sha256_short || ""}`);
-  const named = order.filter((c) => !c.missing && c.kind !== "VONA").length;
+  // Kinds, not a count (review 2, item 3): one card per kind, the newest of each. The Desk lists
+  // every product a draft used, and "Why … " lists reasons; neither is this number.
+  const has = (k) => order.some((c) => !c.missing && c.kind === k);
+  const official = ["SIGMET", "VAA"].filter(has);
+  const lead = official.length ? `The newest ${official.join(" and ")} (official, binding)` : "No official report";
+  const summary = `${lead}${has("VONA") ? " and the observatory's VONA (supporting)" : ""} ${official.length || has("VONA") ? "name" : "names"} ${sit.volcano_name}. One card per kind below, the newest of each.`;
   return el("section", { class: "sec", "aria-labelledby": "h-sources" },
-    el("p", { class: "dsum", id: "h-sources", text: `${named} official report${named === 1 ? "" : "s"} name ${sit.volcano_name}. Official reports are binding.` }),
-    el("details", { class: "more", dataset: { k: "src-why" } }, el("summary", { text: `Why ${sit.volcano_name} is on the Wall (${sit.active_reasons.length})` }),
+    el("p", { class: "dsum", id: "h-sources", text: summary }),
+    el("details", { class: "more", dataset: { k: "src-why" } }, el("summary", { text: `Why TEPHRA shows ${sit.volcano_name}: ${sit.active_reasons.length} reason${sit.active_reasons.length === 1 ? "" : "s"}` }),
       el("ul", { class: "reasons" }, ...sit.active_reasons.map((r) => el("li", { text: r })))),
     el("p", { class: "dnote", text: "A pink edge marks an official report, a blue edge the observatory. A yellow cell disagrees with another source." }),
     body,
@@ -658,7 +678,7 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
     }[a.status] || ["i-clock", a.status];
     list.append(el("li", { class: `decisions__item decisions__item--${tone}${fresh ? " is-stamped" : ""}`, dataset: { adv: a.id } },
       el("span", { class: `decisions__status adv--${tone}` }, icon(status[0]), el("span", { text: status[1] }), a.status === "EDITED" ? icon("i-pencil") : null),
-      el("span", { class: "decisions__what" }, el("b", { text: a.proxy_flight }), ` · ${actionWords(a)}`, el("span", { class: "decisions__vol", text: ` · ${a.volcano_name}` })),
+      el("span", { class: "decisions__what" }, el("b", { text: a.proxy_flight }), ` · ${actionText(a)}`, el("span", { class: "decisions__vol", text: ` · ${a.volcano_name}` })),
       right,
       a.status === "REJECTED" && a.reject_reason ? el("q", { class: "decisions__reason", text: a.reject_reason }) : null));
   }
@@ -797,7 +817,7 @@ export function renderTimeline(D, store, ui, conn) {
 
   // 1. mode and window
   const meta = el("div", { class: "tl__meta", title: "Times ending in Z are UTC" });
-  let pill;
+  let pill, recSpan = null;
   if (replay) {
     const a = ms(s.replay.recorded_from), b = ms(s.replay.recorded_to);
     const loop = !!s.replay.window_from;
@@ -808,8 +828,12 @@ export function renderTimeline(D, store, ui, conn) {
     const pctText = `${Math.round(p * 100)}%`;
     meta.append(
       el("span", { class: "tl__mode" }, icon("i-replay"), "Replay"),
-      el("span", { class: "tl__window", text: `${hhmmz(D.now)} · ${pctText} of ${pb - pa > 20 * 3600e3 ? `${dayMonth(pa)} ${hhmmz(pa)} – ${dayMonth(pb)} ${hhmmz(pb)}` : `${hhmmz(pa)}–${hhmmz(pb)}`}`, title: `${loop ? "The replay loops over" : "Recording"} ${dayMonth(pa)} ${hhmmz(pa)} to ${dayMonth(pb)} ${hhmmz(pb)}` }),
-      el("span", { class: "tl__progress", role: "progressbar", "aria-label": loop ? "Replay loop progress" : "Replay progress", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(p * 100)), "aria-valuetext": `${pctText} of the recording` }, bar));
+      // The clock, then how far the recording has played. The recording's own span sits in the
+      // tooltip and in History, not beside the 12 h axis, so two time scales never sit side by
+      // side (review 2, item 12).
+      el("span", { class: "tl__window", text: `${hhmmz(D.now)} · ${pctText} played`, title: `${loop ? "The replay loops over" : "Recording"} ${dayMonth(pa)} ${hhmmz(pa)} to ${dayMonth(pb)} ${hhmmz(pb)}` }),
+      el("span", { class: "tl__progress", role: "progressbar", title: `${loop ? "The replay loops over" : "Recording"} ${dayMonth(pa)} ${hhmmz(pa)} to ${dayMonth(pb)} ${hhmmz(pb)}`, "aria-label": loop ? "Replay loop progress" : "Replay progress", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(p * 100)), "aria-valuetext": `${pctText} of the recording, ${hhmmz(pa)} to ${hhmmz(pb)}` }, bar));
+    recSpan = `${loop ? "Replay loops over" : "Recording"} ${pb - pa > 20 * 3600e3 ? `${dayMonth(pa)} ${hhmmz(pa)} – ${dayMonth(pb)} ${hhmmz(pb)}` : `${hhmmz(pa)}–${hhmmz(pb)}`}, ${pctText} played`;
     pill = `⟲ ${hhmmz(D.now)} · ${ui.steps === "now" ? "Now" : { f6: "+6 h", f12: "+12 h", f18: "+18 h", all: "All steps" }[ui.steps]} ▾`;
   } else {
     meta.append(el("span", { class: "tl__mode tl__mode--live" }, icon("i-live"), "Live"), el("span", { class: "tl__window", text: "9 h back, 3 h ahead" }));
@@ -882,7 +906,7 @@ export function renderTimeline(D, store, ui, conn) {
         }
       }
     }
-    history.append(el("div", { class: "tl__histhead" }, el("strong", { text: "When each source last reported" }), lagEl), lanes);
+    history.append(el("div", { class: "tl__histhead" }, el("strong", { text: "When each source last reported" }), el("span", { class: "tl__span", text: `9 h back, 3 h ahead${recSpan ? ` · ${recSpan}` : ""}` }), lagEl), lanes);
   } else {
     for (const e of events) track.append(mark(e));
   }

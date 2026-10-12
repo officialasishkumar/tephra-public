@@ -84,26 +84,26 @@
       <section id="verdict" class="verdict" aria-label="What is happening">
         <div class="eyebrow">
           <span id="eyebrow-icon" class="eyebrow__icon"></span>
-          <h1 id="volcano-name" class="eyebrow__name" tabindex="-1">Connecting to TEPHRA…</h1>
-          <span id="eyebrow-rest" class="eyebrow__rest"></span>
+          <div class="eyebrow__main"><h1 id="volcano-name" class="eyebrow__name" tabindex="-1">Connecting to TEPHRA…</h1><span id="eyebrow-rest" class="eyebrow__rest"></span></div>
           <span id="eyebrow-asof" class="eyebrow__asof"></span>
         </div>
         <div id="headline" class="story__lines"></div>
+        <!-- who built the summary sits right under it, so it is always on screen (R0.2.5) -->
+        <p id="trust" class="trust"></p>
         <div id="story-actions" class="story__actions"></div>
       </section>
       <div id="legend" class="key" aria-label="Map key"></div>
-      <p id="trust" class="trust"></p>
       <div id="story-notes" class="story-notes"></div>
       <section id="allv" class="allv" aria-labelledby="allv-title">
         <h2 id="allv-title" class="allv__title">All volcanoes</h2>
         <dl class="kpis">
-          <div class="kpi"><dt class="sr-only">With ash</dt><dd><span id="kpi-active">–</span> with ash</dd></div>
-          <div class="kpi kpi--tephra"><dt class="sr-only">RFA (fictional) flights in or heading in</dt><dd><span id="kpi-exposed">–</span> RFA flights in or heading in</dd></div>
-          <div class="kpi"><dt class="sr-only">Advisories waiting</dt><dd><span id="kpi-drafts">–</span> advisories waiting</dd></div>
+          <div class="kpi"><dt class="sr-only">With ash</dt><dd><span id="kpi-active">–</span> <span class="kpi__l">volcanoes with ash</span></dd></div>
+          <div class="kpi kpi--tephra"><dt class="sr-only">RFA (fictional) flights in or heading in</dt><dd><span id="kpi-exposed">–</span> <span class="kpi__l">RFA flights in or heading in</span></dd></div>
+          <div class="kpi"><dt class="sr-only">Advisories waiting</dt><dd><span id="kpi-drafts">–</span> <span class="kpi__l">advisories waiting</span></dd></div>
         </dl>
         <ul id="volcano-tabs" class="vlist" aria-label="Other volcanoes"></ul>
       </section>
-      <button id="details-btn" class="details-btn" type="button" aria-expanded="false" aria-controls="details">
+      <button id="details-btn" class="details-btn" type="button" aria-expanded="false" aria-controls="details" title="Sources, timeline, how TEPHRA decided, AI, data feeds">
         <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-list"></use></svg>
         <span class="details-btn__main">Details</span>
         <span class="details-btn__sub">Sources, timeline, how TEPHRA decided, AI, data feeds</span>

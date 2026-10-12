@@ -7,7 +7,7 @@
 // through el() (textContent).
 
 import { el, icon, ms, hhmmz, dayMon } from "./util.js";
-import { st, aiMark, pill, section } from "./x-parts.js";
+import { st, aiMark, pill, section, plainLine } from "./x-parts.js";
 
 // What each Duty Officer tool reaches. Tool names are fixed by the backend toolkit.
 export const SPECIALISTS = {
@@ -85,16 +85,19 @@ function brief(run) {
   const model = dutyModel(run);
   const kids = [
     el("div", { class: "duty__briefhead" }, el("h4", { class: "caps x-h", text: "Brief" }), aiMark(model, model ? null : "NO MODEL")),
-    el("p", { class: "duty__summary duty__ai", text: b.summary }),
+    el("p", { class: "duty__summary duty__ai", text: plainLine(b.summary) }),
   ];
   if (b.priorities.length) {
+    // The stub gives every item the same reason: say it once under the heading, not per row.
+    const sameStub = b.priorities.every((p) => /^NO MODEL: urgency order\.?$/.test(p.why || ""));
     const row = (p) => {
       const item = run.worklist.find((i) => i.id === p.item_id);
       return el("li", {},
         el("span", { class: "duty__label" }, item?.mandatory ? el("span", { class: "duty__must", title: "Code requires this work this run", text: "Must do" }) : null, itemLabel(run, p.item_id)),
-        el("span", { class: "duty__why duty__ai", text: p.why }));
+        sameStub ? null : el("span", { class: "duty__why duty__ai", text: plainLine(p.why) }));
     };
     kids.push(el("h4", { class: "caps x-h", text: "Priorities" }),
+      sameStub ? el("p", { class: "x-sub", text: "In urgency order: code ordered them (AI off)." }) : null,
       el("ol", { class: "duty__prio" }, ...b.priorities.slice(0, PRIO_SHOWN).map(row)));
     const rest = b.priorities.slice(PRIO_SHOWN);
     if (rest.length) {
@@ -104,7 +107,7 @@ function brief(run) {
   }
   if (b.watch.length) {
     kids.push(el("h4", { class: "caps x-h", text: "Watch" }),
-      el("ul", { class: "duty__watch" }, ...b.watch.map((w) => el("li", { class: "duty__ai", text: w }))));
+      el("ul", { class: "duty__watch" }, ...b.watch.map((w) => el("li", { class: "duty__ai", text: plainLine(w) }))));
   }
   return el("div", { class: "duty__brief" }, ...kids);
 }
@@ -157,7 +160,7 @@ function deferred(run) {
     el("p", { class: "x-sub", text: "Optional work it left for the next run. The reasons are the model's." }),
     el("ul", { class: "duty__defer" }, ...run.deferred.map((d) => el("li", {},
       el("span", { class: "duty__label", text: itemLabel(run, d.item_id) }),
-      el("span", { class: "duty__why duty__ai", text: d.reason })))),
+      el("span", { class: "duty__why duty__ai", text: plainLine(d.reason) })))),
     aiMark(model, model ? null : "NO MODEL"));
 }
 

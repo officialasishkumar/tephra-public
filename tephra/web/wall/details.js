@@ -9,11 +9,11 @@ import { $, el, icon, ms, hhmmz, age, fl, compassWord } from "./util.js";
 import { SEV_RANK, NON_OBS, actionWords, deciderName, officialLabelText, plainMove, levelIsAll, tephraLabelText, untilText } from "./derive.js";
 import {
   sourcesSection, disagreeSection, areaSection, decisionsSection, renderFlights, renderTrace, traceLines, renderLevels,
-  historySection, feedsSection, lagOf, timelineEvents, advisoryLine, estimateOutcome, dayMonth, FEED_STATUS,
+  historySection, feedsSection, lagOf, timelineEvents, advisoryLine, actionText, estimateOutcome, dayMonth, FEED_STATUS,
 } from "./panels.js";
 import { ext, renderXPanel, failureCount, recoverySummary, proofTicks, budgetWords, rerouteBlock, replanning } from "./ext.js";
 import { renderLayers, layersStatus } from "./controls.js";
-import { currentPlan, advisoryFacts } from "./story.js";
+import { currentPlan, advisoryFacts, closuresFor } from "./story.js";
 import { planProblem, techDetail } from "./x-parts.js";
 
 // Section key, index group, title, host element id, the old rail panel id it stands for (R8.2).
@@ -43,6 +43,14 @@ export const sectionOf = (key) => SECTIONS.find((s) => s.key === key) || null;
 export const PANELS = [{ id: "brief", sec: "sources" }, ...SECTIONS.filter((s) => s.xtab && s.xtab !== "brief").map((s) => ({ id: s.xtab, sec: s.key }))];
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+// "newest SIGMET, VAA and VONA": the section shows one card per kind (the newest of each), so the
+// row names the kinds, not a count that would read against the Desk's per-draft source list or the
+// "reasons" list (review 2, item 3).
+export function reportCount(cards) {
+  const kinds = ["SIGMET", "VAA", "VONA"].filter((k) => cards.some((c) => c.kind === k));
+  if (!kinds.length) return "none";
+  return `newest ${kinds.length > 1 ? `${kinds.slice(0, -1).join(", ")} and ${kinds[kinds.length - 1]}` : kinds[0]}`;
+}
 const st = (id, color) => icon(id, "st", color);
 
 // ------------------------------------------------------------------ the index (R8.2)
@@ -53,9 +61,11 @@ export function indexStatus(key, D, store, ui) {
   switch (key) {
     case "sources": {
       if (!sit) return { text: "no volcano selected" };
+      // the same split as the section's summary: official reports (SIGMET, VAA) and the
+      // observatory's notice (VONA) are counted apart (review 2, item 3)
       const cards = sit.cards.filter((c) => !c.missing);
       const newest = Math.max(...cards.map((c) => ms(c.issued_at)).filter(Number.isFinite));
-      return { text: cards.length ? `${plural(cards.length, "report", "reports")} · newest ${age((D.now - newest) / 1000)} ago` : "none in force" };
+      return { text: cards.length ? `${reportCount(cards)} · ${age((D.now - newest) / 1000)} ago` : "none in force" };
     }
     case "disagree": {
       if (!sit) return { text: "–" };
@@ -92,18 +102,21 @@ export function indexStatus(key, D, store, ui) {
       const advs = store.advisories.filter((a) => a.status !== "SUPERSEDED");
       const w = advs.filter((a) => a.status === "DRAFT").length;
       const ok = advs.filter((a) => a.status === "APPROVED" || a.status === "EDITED").length;
-      return { text: `${D?.state.draft_count ?? w} waiting · ${ok} approved` };
+      return { text: `${D?.state.draft_count ?? w} waiting, all volcanoes · ${ok} approved` };
     }
     case "recovery": {
       if (!ext.loaded.recovery) return { text: "loading…" };
       if (ext.errors.recovery) return { text: "could not load", tone: "serious" };
       const plan = currentPlan();
       const re = replanning(store);
-      if (re) return { text: `re-planning for ${re.airports.join(", ")}…`, tone: "caution" };
+      if (re) return { text: `${plural(re.airports.length, "airport", "airports")} (all volcanoes) · re-planning…`, tone: "caution" };
       if (!plan) return { text: "no airport closed" };
       if (plan.status === "AI_UNAVAILABLE") return { text: planProblem(plan) ? "no plan found" : "AI unavailable", tone: "serious" };
+      // the same scope words as the story and the Desk: this volcano's, then every volcano's (G8)
       const n = new Set(plan.closures.map((c) => c.icao)).size;
-      return { text: `${plural(n, "airport", "airports")} · plan ${plan.status === "DRAFT" ? "waiting" : plan.status.toLowerCase()}` };
+      const mine = sit ? new Set(closuresFor(D, sit.volcano_id, plan).map((c) => c.icao)).size : 0;
+      const scope = sit && mine !== n ? `${mine} from ${sit.volcano_name}, ${n} across all volcanoes` : `${plural(n, "airport", "airports")} (all volcanoes)`;
+      return { text: `${scope} · plan ${plan.status === "DRAFT" ? "waiting" : plan.status.toLowerCase()}` };
     }
     case "history": {
       const lag = lagOf(sit);
@@ -173,17 +186,30 @@ function areaDetail(D, store, vid) {
   if (t) {
     const rawMove = (D.moveByVolcano[vid] || "").trim();
     const moves = /^NOT (STATED|GIVEN)$/i.test(rawMove) ? rawMove.toLowerCase() : plainMove(rawMove);
-    const steps = D.official.filter((f) => f.properties.volcano_id === vid && f.properties.step !== "now").map((f) => `${f.properties.layer.replace("FCST+", "+").replace("H", " h")} from ${hhmmz(ms(f.properties.valid_from))}`);
+    // One entry per forecast step, at its own valid time: two reports with the same +6 h step are
+    // one step on the map (review 2, item 7).
+    const stepAt = new Map();
+    for (const f of D.official.filter((x) => x.properties.volcano_id === vid && x.properties.step !== "now")) {
+      const k = f.properties.layer.replace("FCST+", "+").replace("H", " h");
+      const t = ms(f.properties.valid_from);
+      if (!stepAt.has(k) || t < stepAt.get(k)) stepAt.set(k, t);
+    }
+    const steps = [...stepAt].sort((a, b) => a[1] - b[1]).map(([k, t]) => `${k} (${hhmmz(t)})`);
     const dl = el("dl", { class: "area__facts" });
     const row = (k, v, mono) => { if (v) dl.append(el("dt", { text: k }), el("dd", { class: mono ? "mono" : null, text: v })); };
-    row("Official reports", t.products.join(" + "), true);
-    row("Issued by", [...new Set(D.official.filter((f) => f.properties.volcano_id === vid && f.properties.valid).map((f) => f.properties.kind === "SIGMET" ? `${f.properties.source_id.split(":")[1]} (SIGMET office)` : `VAAC ${f.properties.source_id.split(":")[1]}`))].join(", "));
+    // Which reports, in words; their ids are under Technical ids.
+    // One VAA can draw several layers (observed, estimated): it is counted once, by its number.
+    const sigs = t.products.filter((x) => /^SIGMET\b/.test(x)).length;
+    const vaas = new Set(t.products.filter((x) => /^VAA\b/.test(x)).map((x) => x.split(" ").slice(0, 3).join(" "))).size;
+    row("Drawn from", [sigs ? `${sigs} ${sigs === 1 ? "SIGMET (airspace warning)" : "SIGMETs (airspace warnings), the newest per office"}` : null, vaas ? `${vaas} ${vaas === 1 ? "VAA (ash advisory)" : "VAAs (ash advisories)"}` : null].filter(Boolean).join(" + ") || `${t.products.length} official reports`);
+    row("Issued by", [...new Set(D.official.filter((f) => f.properties.volcano_id === vid && f.properties.valid).map((f) => issuerWords(f.properties)))].join(" · "));
     row("Heights", `${fl(t.base)}–${fl(t.top)}`, true);
     row("Movement", moves || "not given");
     row("Valid until", `${hhmmz(t.validTo)} (${untilText(t.validTo - D.now)})`, true);
     row("Forecast steps", steps.length ? steps.join(" · ") : "none in the current reports");
     kids.push(el("section", { class: "sec" }, el("h3", { class: "sec__title sec__title--official", text: "Official ash area · binding" }), dl,
-      el("div", { class: "btn-row" }, ...["SIGMET", "VAA"].filter((k) => sit.cards.some((c) => c.kind === k && !c.missing)).map((k) => el("button", { type: "button", class: "btn btn--small", dataset: { act: "raw", kind: k } }, icon("i-raw-text"), `Raw text: ${k}`)))));
+      el("div", { class: "btn-row" }, ...["SIGMET", "VAA"].filter((k) => sit.cards.some((c) => c.kind === k && !c.missing)).map((k) => el("button", { type: "button", class: "btn btn--small", dataset: { act: "raw", kind: k } }, icon("i-raw-text"), `Raw text: ${k}`))),
+      el("details", { class: "more", dataset: { k: "area-ids" } }, el("summary", { text: "Technical ids" }), el("ul", { class: "tech__list mono" }, ...t.products.map((x) => el("li", { text: x }))))));
   } else {
     kids.push(el("p", { class: "dnote", text: "No official area is valid for this volcano right now." }));
   }
@@ -199,6 +225,20 @@ function areaDetail(D, store, vid) {
   }
   kids.push(el("p", {}, el("button", { type: "button", class: "link-btn", dataset: { act: "details-sec", sec: "sources", focus: "area-sources" }, text: "What the official reports say ›" })));
   host.replaceChildren(...kids);
+}
+
+// The office behind a report, in words with its code kept: "Jakarta airspace (WIIF)". A code
+// not in this list keeps its code and says what kind of office it is; no name is guessed.
+const FIR_NAME = {
+  WIIF: "Jakarta", WAAF: "Makassar", YMMM: "Melbourne", YBBB: "Brisbane", RJJJ: "Fukuoka", RPHI: "Manila",
+  WMFC: "Kuala Lumpur", WSJC: "Singapore", WBFC: "Kota Kinabalu", AYPM: "Port Moresby", NZZO: "Auckland",
+  PAZA: "Anchorage", UHHH: "Khabarovsk", UHPP: "Petropavlovsk", RCAA: "Taipei", VTBB: "Bangkok", RKRR: "Incheon",
+};
+function issuerWords(p) {
+  const code = String(p.source_id || "").split(":")[1] || "";
+  if (p.kind === "SIGMET") return FIR_NAME[code] ? `${FIR_NAME[code]} airspace office (${code}), SIGMET` : `airspace office ${code}, SIGMET`;
+  const vaac = code ? code.charAt(0) + code.slice(1).toLowerCase() : "";
+  return `${vaac} ash advisory centre (VAAC), VAA`;
 }
 
 function flightDetail(D, ui) {
@@ -226,14 +266,14 @@ function flightDetail(D, ui) {
   } else {
     row("Entry (estimated)", "Not projected to enter TEPHRA's area");
   }
-  row("Level", p.alt_baro_ft != null ? `${fl(p.alt_baro_ft)} (${p.alt_baro_ft} ft)${p.nav_altitude_mcp_ft != null ? ` · selected ${fl(p.nav_altitude_mcp_ft)}` : ""}` : "level unknown");
+  row("Level", p.alt_baro_ft != null ? `${fl(p.alt_baro_ft)} (${Number(p.alt_baro_ft).toLocaleString("en")} ft)${p.nav_altitude_mcp_ft != null ? ` · selected ${fl(p.nav_altitude_mcp_ft)}` : ""}` : "level unknown");
   const move = [p.gs_kt != null ? `${Math.round(p.gs_kt)} kt` : null, p.track_deg != null ? `${Math.round(p.track_deg)}° ${compassWord(p.track_deg)}` : null].filter(Boolean).join(" · ");
   row("Speed and track", move);
   row("Position age", age(p.ageS));
   kids.push(dl);
   const adv = p.exposed ? D.advByFlight.get(`${p.hex}:${p.volcano_id}`) : null;
   if (adv) {
-    kids.push(el("p", { class: "fdetail__adv" }, el("span", { class: "fdetail__k", text: "Drafted action: " }), el("strong", { text: actionWords(adv) })),
+    kids.push(el("p", { class: "fdetail__adv" }, el("span", { class: "fdetail__k", text: "Drafted action: " }), el("strong", { text: actionText(adv) })),
       el("p", { class: "fdetail__adv" }, advisoryLine(adv, D.mode === "REPLAY")),
       el("p", {}, el("a", { class: "btn btn--small", href: `/desk#review/${encodeURIComponent(adv.id)}`, target: "_blank", rel: "noopener", text: adv.status === "DRAFT" ? "Open on the Desk ›" : "See it on the Desk ›" })));
   } else if (p.exposed) kids.push(el("p", { class: "dnote", text: "No advisory is drafted for this flight yet." }));
