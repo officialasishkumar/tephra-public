@@ -117,7 +117,8 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
   for (const id of ["official", "cones", "exposures", "aircraft", "volcanoes", "official-labels", "area-labels", "rose", "ac3d", "crew", "crew-labels", "routes"]) map.addSource(id, { type: "geojson", data: empty() });
   // Exposed flights again, clustered for their labels only (R6.3): every plane is still drawn by
   // aircraft-icon; more than five labels within 60 px merge into one "8 RFA flights" bubble.
-  if (withTephra) map.addSource("exposed-pts", { type: "geojson", data: empty(), cluster: true, clusterRadius: 60, clusterMinPoints: 6, clusterMaxZoom: 11 });
+  // Zoomed in past 8 (a picked flight, or a close look) the bubble gives way to each label.
+  if (withTephra) map.addSource("exposed-pts", { type: "geojson", data: empty(), cluster: true, clusterRadius: 60, clusterMinPoints: 6, clusterMaxZoom: 8 });
   if (withTephra) addRouteLayers(map, C, ui, noText);
   const fade = (base) => ["*", base, ["coalesce", ["get", "fade"], 1]];
   const tVis = ui.layers.tephra ? "visible" : "none";
