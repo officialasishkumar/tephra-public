@@ -223,6 +223,19 @@ export function derive(store, ui, now) {
     const sel = p.feature === "line" ? f.id === selRoute : pickedLine && selEnds.includes(p.icao);
     routes.push({ ...f, properties: { ...p, sel, dim: pickedLine && p.feature === "line" && !sel } });
   }
+  // The picked flight's own line runs through its current position: departure airport to the
+  // plane ("since departure", fainter) and the plane to its destination ("ahead"). The shared
+  // airport-pair line stays beneath, dimmed, for the other flights on that pair. Both legs are
+  // great circles, not the flown track or the filed plan.
+  if (pickedLine && selFlight) {
+    const at = (icao) => routes.find((f) => f.properties.feature === "airport" && f.properties.icao === icao)?.geometry.coordinates;
+    const from = at(sp.origin_icao), to = at(sp.dest_icao), here = selFlight.geometry.coordinates;
+    if (from && to) {
+      for (const r of routes) if (r.id === selRoute) r.properties = { ...r.properties, sel: false, dim: true };
+      routes.push({ type: "Feature", id: `${selRoute}#flown`, geometry: { type: "LineString", coordinates: greatCircle(from, here) }, properties: { feature: "line", sel: true, leg: "flown" } });
+      routes.push({ type: "Feature", id: `${selRoute}#ahead`, geometry: { type: "LineString", coordinates: greatCircle(here, to) }, properties: { feature: "line", sel: true, leg: "ahead" } });
+    }
+  }
 
   // Forecast steps chosen on the timeline that have no official polygon for the selected
   // volcano in the current products (8.3). Only a note: no other step is drawn in their place.
@@ -401,4 +414,28 @@ export function tephraLabelText(cone, stub) {
   if (cone.mode === "HYPOTHESIS") return "TEPHRA's estimate · hypothesis";
   if (cone.mode === "WIDENED") return "TEPHRA's estimate · wider than official";
   return stub ? "TEPHRA's estimate · same as official (AI off)" : "TEPHRA's estimate · same as official";
+}
+
+// [lon, lat] points along the great circle from a to b, about one every 40 NM (as the server's
+// route lines), longitudes unwrapped so a line never jumps across the map.
+function greatCircle(a, b) {
+  const rad = Math.PI / 180;
+  const unit = ([lon, lat]) => [Math.cos(lat * rad) * Math.cos(lon * rad), Math.cos(lat * rad) * Math.sin(lon * rad), Math.sin(lat * rad)];
+  const u = unit(a), v = unit(b);
+  const angle = Math.acos(Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1] + u[2] * v[2])));
+  const steps = Math.min(255, Math.max(1, Math.ceil((angle * 3440.065) / 40)));
+  const out = [];
+  let prev = null;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const k1 = angle ? Math.sin((1 - t) * angle) / Math.sin(angle) : 1 - t, k2 = angle ? Math.sin(t * angle) / Math.sin(angle) : t;
+    const x = k1 * u[0] + k2 * v[0], y = k1 * u[1] + k2 * v[1], z = k1 * u[2] + k2 * v[2];
+    let lon = Math.atan2(y, x) / rad;
+    const lat = Math.atan2(z, Math.hypot(x, y)) / rad;
+    if (prev != null) while (lon - prev > 180) lon -= 360;
+    if (prev != null) while (prev - lon > 180) lon += 360;
+    prev = lon;
+    out.push([lon, lat]);
+  }
+  return out;
 }

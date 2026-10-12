@@ -271,8 +271,10 @@ function addRouteLayers(map, C, ui, noText) {
   const L = ui.layers;
   const sel = (on, off) => ["case", ["==", ["get", "sel"], true], on, off];
   const dim = (on, off) => ["case", ["==", ["get", "dim"], true], on, off];
+  // the picked flight's leg from its departure airport to the plane, fainter than the leg ahead
+  const flown = (on, off) => ["case", ["==", ["get", "leg"], "flown"], on, off];
   const port = ["==", ["get", "feature"], "airport"];
-  add({ id: "route-line", type: "line", source: "routes", filter: ["==", ["get", "feature"], "line"], layout: { visibility: vis(L.routes), "line-join": "round", "line-cap": "round", "line-sort-key": sel(1, 0) }, paint: { "line-color": C.route, "line-width": ["interpolate", ["linear"], ["zoom"], 3, sel(1.8, 1.2), 8, sel(2.2, 1.5)], "line-opacity": ["interpolate", ["linear"], ["zoom"], 3, sel(0.8, dim(0.16, 0.36)), 5, sel(0.75, dim(0.13, 0.26))] } });
+  add({ id: "route-line", type: "line", source: "routes", filter: ["==", ["get", "feature"], "line"], layout: { visibility: vis(L.routes), "line-join": "round", "line-cap": "round", "line-sort-key": sel(1, 0) }, paint: { "line-color": C.route, "line-width": ["interpolate", ["linear"], ["zoom"], 3, sel(1.8, 1.2), 8, sel(2.2, 1.5)], "line-opacity": ["interpolate", ["linear"], ["zoom"], 3, flown(0.4, sel(0.8, dim(0.16, 0.36))), 5, flown(0.4, sel(0.75, dim(0.13, 0.26)))] } });
   add({ id: "route-end", type: "circle", source: "routes", filter: port, layout: { visibility: vis(L.routes) }, paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, sel(3, 2.2), 8, sel(4, 3)], "circle-color": C.route, "circle-opacity": sel(1, 0.6), "circle-stroke-color": C.halo, "circle-stroke-width": 1.2 } });
   if (noText) return;
   add({ id: "route-end-label", type: "symbol", source: "routes", filter: ["all", port, ["!=", ["get", "sel"], true]], layout: { visibility: vis(L.routes), ...routeTag(false) }, paint: { "text-color": C.text3 } });
