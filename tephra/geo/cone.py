@@ -375,20 +375,19 @@ def points_in_cone(cone: HazardCone, points: Sequence[tuple[float, float]]) -> l
     return [bool(hit) for hit in shapely.covers(shape, candidates)]
 
 
-def track_entries(
-    cone: HazardCone, tracks: Sequence[Sequence[tuple[float, float]]]
+def geometry_entries(
+    geometry: AreaGeometry, tracks: Sequence[Sequence[tuple[float, float]]]
 ) -> list[tuple[int, tuple[float, float]] | None]:
-    """Where each track of ``(lat, lon)`` points, one step apart, first reaches the cone.
+    """Where each track of ``(lat, lon)`` points, one step apart, first reaches the area (a
+    cone, or a crew report area).
 
     Each result is ``(step, (lat, lon))``, or None if the track never reaches it. Step 0 is
     the first point, when it is inside. Any later step is judged on the segment that ends at
-    it, so a track crossing a corner or a narrow part of the cone between two points is still
+    it, so a track crossing a corner or a narrow part of the area between two points is still
     caught; the position is that step's point if it is inside, else where the segment comes in.
     """
-    if cone.geometry is None:
-        return [None] * len(tracks)
-    ref_lon = _reference_lon(cone.geometry)
-    shape = geometry_to_shape(cone.geometry, ref_lon=ref_lon)
+    ref_lon = _reference_lon(geometry)
+    shape = geometry_to_shape(geometry, ref_lon=ref_lon)
     shapely.prepare(shape)
     return [_track_entry(shape, track, ref_lon) for track in tracks]
 

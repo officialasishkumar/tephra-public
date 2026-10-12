@@ -229,6 +229,13 @@ class Settings(BaseSettings):
     )
     default_horizon_h: float = Field(default=6.0, gt=0, le=MAX_HORIZON_H)
     adsb_radius_nm: int = Field(default=250, gt=0, le=250)
+    crew_fix_history_min: int = Field(
+        default=30,
+        gt=0,
+        le=360,
+        description="How long airline ADS-B positions are kept in memory, so a crew report "
+        "entered after the observation can still be placed at the flight's fix",
+    )
 
     # Feed cadences (seconds).
     cadence_sigmet_s: int = 60

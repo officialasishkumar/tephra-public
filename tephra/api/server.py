@@ -50,6 +50,7 @@ from tephra.api.sse import EventStreamResponse, StreamSlots, event_stream, parse
 from tephra.config import MAX_BODY_BYTES, MAX_NOTICE_BODY_BYTES, Settings, get_settings
 from tephra.desk import approvals, audit, failures
 from tephra.models import (
+    ActionKind,
     Advisory,
     AdvisoryList,
     AdvisoryStatus,
@@ -130,6 +131,8 @@ SCHEDULER_STOP_TIMEOUT_S: Final = 10.0
 GZIP_MIN_BYTES: Final = 1024
 """Responses smaller than this go out uncompressed; gzip would not pay for itself."""
 
+REASON_ACTIONS: Final = frozenset({ActionKind.CONTINUE, ActionKind.MONITOR})
+"""Advice that keeps a flight on a route a crew report flags: approving it needs a reason."""
 _ADVISORY_ID = re.compile(r"adv_[0-9a-f]{12}")
 _PRINT_DOC_ID = re.compile(r"(?:DOC-|ho_)[0-9a-f]{12}")
 _FAILURE_ID = re.compile(r"AIF-[0-9a-f]{1,64}")
@@ -515,12 +518,15 @@ async def approve_advisory(
     advisory_id: str, body: DecisionRequest, session: DeskSession, runtime: RuntimeDep
 ) -> Response:
     _check_advisory_id(advisory_id)
+    reason, note = await _crew_reason(runtime, advisory_id, body.reason)
     advisory = await approvals.approve(
         runtime.store,
         runtime.bus,
         advisory_id,
         expected_version=body.version,
         actor=_actor(session),
+        reason=reason,
+        note=note,
     )
     return _json(advisory)
 
@@ -534,6 +540,7 @@ async def edit_advisory(
     advisory_id: str, body: EditRequest, session: DeskSession, runtime: RuntimeDep
 ) -> Response:
     _check_advisory_id(advisory_id)
+    reason, note = await _crew_reason(runtime, advisory_id, body.reason)
     advisory = await approvals.edit_and_approve(
         runtime.store,
         runtime.bus,
@@ -541,8 +548,36 @@ async def edit_advisory(
         expected_version=body.version,
         body=body.body,
         actor=_actor(session),
+        reason=reason,
+        note=note,
     )
     return _json(advisory)
+
+
+async def _crew_reason(
+    runtime: Runtime, advisory_id: str, given: str | None
+) -> tuple[str | None, str | None]:
+    """``(reason, audit note)``. Approving a CONTINUE or MONITOR for a flight whose projected
+    track crosses an active crew report area needs a written reason; every tracked flight is
+    airborne (ADS-B ground targets are dropped). Other approvals keep a reason if one is
+    given. A missing advisory is left to the decision itself (404)."""
+    reason = " ".join((given or "").split()) or None
+    advisory = await approvals.get_advisory(runtime.store, advisory_id)
+    if advisory is None or advisory.action not in REASON_ACTIONS:
+        return reason, None
+    if advisory.replay != (runtime.mode is RunMode.REPLAY):
+        return reason, None
+    flag = runtime.crew_flag(advisory.hex)
+    if flag is None:
+        return reason, None
+    if reason is None or len(reason) < approvals.MIN_REJECT_REASON_CHARS:
+        raise ApiError(
+            422,
+            "reason_required",
+            f"{flag.line}: approving {advisory.action.value} needs a written reason",
+            problems=[f"reason: at least {approvals.MIN_REJECT_REASON_CHARS} characters"],
+        )
+    return reason, f"{flag.line} ({', '.join(flag.report_ids)}): reason given"
 
 
 @desk_api.post(
@@ -921,6 +956,7 @@ def _include_feature_routers(app: FastAPI) -> None:
         routes_ask,
         routes_backtest,
         routes_comms,
+        routes_crew,
         routes_duty,
         routes_notices,
         routes_recovery,
@@ -935,6 +971,7 @@ def _include_feature_routers(app: FastAPI) -> None:
         routes_regdocs,
         routes_backtest,
         routes_duty,
+        routes_crew,
     ):
         app.include_router(module.router, prefix="/api")
 

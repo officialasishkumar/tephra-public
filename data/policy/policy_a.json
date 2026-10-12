@@ -1,6 +1,6 @@
 {
   "policy_id": "RFA-POLICY-A",
-  "version": "2026.10.8",
+  "version": "2026.10.9",
   "preset": "A",
   "title": "Ring of Fire Air operator policy A (default)",
   "label": "ILLUSTRATIVE, not an airline SRA",
@@ -248,6 +248,50 @@
       "source": "TEPHRA illustrative choice: work the Duty Officer has been offered and left (deferred, or undone when its run failed) is offered again after this long, so an unchanged work list costs no model call each tick."
     }
   },
+  "crew_reports": {
+    "radius_nm": {
+      "value": 60,
+      "unit": "NM",
+      "source": "TEPHRA illustrative choice, not an ICAO or State value: no authority gives a radius for an area drawn from a crew report. A crew report of ash seen, or of an encounter cue, draws a circle of this radius around the reported position. 60 NM is borrowed from the ICAO EUR/NAT Volcanic Ash Contingency Plan (EUR Doc 019 / NAT Doc 006 Part II, Edition 2.0.0, para 3.1.8 b) i)), whose precautionary danger area is centred on a volcano, not on a report. A sulphur smell alone, with no ash seen, is a routine report and draws no area (FAA JO 7110.65 2-6-2).",
+      "citation_ids": [
+        "eurnat-vacp-3.1.8bi",
+        "faa-jo-7110.65-2-6-2"
+      ]
+    },
+    "downwind_stretch_min": {
+      "value": 30,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: when the wind at the reported level is above crew_reports.stretch_wind_kt, the circle is stretched downwind by this many minutes of that wind, as the EUR/NAT plan extends its danger area \"by maximum half an hour of wind influence\" (EUR Doc 019 / NAT Doc 006 Part II, Edition 2.0.0, para 3.1.8 b) i)). The stretch is fixed when the report is entered; it does not grow with the report's age.",
+      "citation_ids": [
+        "eurnat-vacp-3.1.8bi"
+      ]
+    },
+    "stretch_wind_kt": {
+      "value": 30,
+      "unit": "kt",
+      "source": "TEPHRA illustrative choice: the circle is stretched downwind only when the wind at the reported level exceeds this speed, the threshold of the EUR/NAT plan's danger area (EUR Doc 019 / NAT Doc 006 Part II, Edition 2.0.0, para 3.1.8 b) i)). With no wind held for the report, the circle is not stretched and says so.",
+      "citation_ids": [
+        "eurnat-vacp-3.1.8bi"
+      ]
+    },
+    "level_margin_ft": {
+      "value": 2000,
+      "unit": "ft",
+      "source": "TEPHRA illustrative choice: added above and below the reported level or band; a report with no level is refused, never given an invented band. Borrowed by analogy from the 2,000 ft that UK CAA CAP 1236 uses above the top (2.24) and below the base (2.29) of an official ash area; no authority gives a margin for a crew report. The flight test adds exposure.vertical_margin_ft on top, as it does for official areas. Reported levels can be wrong (USGS PP 1769 ch. 20), so this value is narrow.",
+      "citation_ids": [
+        "cap1236-2.24",
+        "cap1236-2.29"
+      ]
+    },
+    "valid_min": {
+      "value": 360,
+      "unit": "min",
+      "source": "TEPHRA illustrative choice: a crew report caution area lasts this long from the observation time, the longest validity of a volcanic ash SIGMET (NWSI 10-811 6.3.1.1). A new report draws a new area and nothing extends an old one. No authority gives an expiry for a crew-derived area; an official product, an advisory that says no ash is expected or not identifiable, or a no-ash report never shortens or removes it.",
+      "citation_ids": [
+        "nwsi-10-811-6.3.1.1"
+      ]
+    }
+  },
   "source_order": [
     {
       "rule_id": "S1_OFFICIAL_AREAS",
@@ -316,6 +360,24 @@
       "ref": "UK CAA CAP 1236 2.29 (UK practice, for comparison)",
       "text": "For operators with an appropriate SRA the maximum usable level beneath a forecast Volcanic Ash Moderate or High Contamination Area will be 2,000 ft below the promulgated base.",
       "url": "https://www.caa.co.uk/publication/download/14978"
+    },
+    {
+      "id": "eurnat-vacp-3.1.8bi",
+      "ref": "ICAO EUR Doc 019 / NAT Doc 006 Part II, Volcanic Ash Contingency Plan, Edition 2.0.0 (July 2016), para 3.1.8 b) i)",
+      "text": "if no such local procedures have been established, the danger area should be defined as a circle with a radius of 110 km (60 NM). The circle should be centred on the estimated or known location of the volcanic activity; in case of wind speeds exceeding 30 kts the danger area should be extended downwind by maximum half an hour of wind influence",
+      "url": "https://skybrary.aero/sites/default/files/bookshelf/357.pdf"
+    },
+    {
+      "id": "faa-jo-7110.65-2-6-2",
+      "ref": "FAA JO 7110.65 para 2-6-2, PIREP Solicitation and Dissemination (US practice, for comparison)",
+      "text": "if a pilot only reported the smell of H2S or SO2 in the cabin and confirmed no volcanic ash clouds were present, classify the report as a ROUTINE PIREP.",
+      "url": "https://www.faa.gov/air_traffic/publications/atpubs/atc_html/chap2_section_6.html"
+    },
+    {
+      "id": "nwsi-10-811-6.3.1.1",
+      "ref": "NOAA NWS Instruction 10-811 (2 Sept 2025) 6.3.1.1 (US practice, for comparison)",
+      "text": "SIGMETs for volcanic ash cloud will be valid for up to six (6) hours",
+      "url": "https://www.weather.gov/media/directives/010_pdfs/pd01008011curr.pdf"
     }
   ]
 }

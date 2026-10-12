@@ -7,15 +7,25 @@ This is a straight-line projection, not a flight-plan prediction: it says what h
 import math
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Final
+from typing import Final, NamedTuple
 
-from tephra.geo.cone import track_entries
+from tephra.geo.cone import AreaGeometry, geometry_entries
 from tephra.geo.fuel import category_for_type, hold_line
 from tephra.geo.units import destination_point, kt_to_km_per_min, unwrap_lon
 from tephra.models import Aircraft, ExposedFlight, HazardCone, Position
 
 MIN_MOVING_GS_KT: Final = 50.0
 """Slower targets (taxiing, hovering, bad data) are checked where they are, not projected."""
+
+
+class Crossing(NamedTuple):
+    """Where one airline target's projected track first meets an area within its band."""
+
+    target: Aircraft
+    band: tuple[int, int]
+    step: int
+    entry: tuple[float, float]
+    path: list[Position]
 
 
 def extrapolate(
@@ -37,10 +47,33 @@ def find_exposed(
     """``vertical_margin_ft`` and ``hold_minutes`` come from the operator policy."""
     if cone.geometry is None:
         return []
-    lookahead = max(0, min(int(cone.horizon_h * 60), lookahead_min))
-    hazard_low = cone.base_ft - vertical_margin_ft
-    hazard_high = cone.top_ft + vertical_margin_ft
+    crossings = find_crossings(
+        cone.geometry,
+        cone.base_ft,
+        cone.top_ft,
+        aircraft,
+        at,
+        lookahead_min=max(0, min(int(cone.horizon_h * 60), lookahead_min)),
+        vertical_margin_ft=vertical_margin_ft,
+    )
+    exposed = [_exposed_flight(crossing, cone, hold_minutes) for crossing in crossings]
+    return sorted(exposed, key=lambda flight: (flight.minutes_to_entry, flight.hex))
 
+
+def find_crossings(
+    geometry: AreaGeometry,
+    base_ft: int,
+    top_ft: int,
+    aircraft: Sequence[Aircraft],
+    at: datetime,
+    *,
+    lookahead_min: int,
+    vertical_margin_ft: int,
+) -> list[Crossing]:
+    """Airline targets whose track, held for ``lookahead_min`` minutes from ``at``, meets
+    ``geometry`` while their level band is within the area's band widened by the margin."""
+    hazard_low = base_ft - vertical_margin_ft
+    hazard_high = top_ft + vertical_margin_ft
     candidates: list[tuple[Aircraft, tuple[int, int], list[tuple[float, float]]]] = []
     for target in aircraft:
         if not target.airline or target.alt_baro_ft is None:
@@ -52,18 +85,16 @@ def find_exposed(
         # where the target is at `at` makes minutes_to_entry count from `at`; a report older
         # than the lookahead says nothing about where the target is now.
         age_min = (at - target.observed_at).total_seconds() / 60.0
-        if age_min > lookahead:
+        if age_min > lookahead_min:
             continue
         start = max(age_min, 0.0)
-        candidates.append((target, band, _project(target, start_min=start, minutes=lookahead)))
-
-    entries = track_entries(cone, [points for _, _, points in candidates])
-    exposed = [
-        _exposed_flight(target, cone, band, points, entry, hold_minutes)
+        candidates.append((target, band, _project(target, start_min=start, minutes=lookahead_min)))
+    entries = geometry_entries(geometry, [points for _, _, points in candidates])
+    return [
+        Crossing(target, band, entry[0], entry[1], _entry_path(target, points, entry))
         for (target, band, points), entry in zip(candidates, entries, strict=True)
         if entry is not None
     ]
-    return sorted(exposed, key=lambda flight: (flight.minutes_to_entry, flight.hex))
 
 
 def _project(
@@ -93,14 +124,9 @@ def _finite(value: float | None) -> float | None:
     return value if value is not None and math.isfinite(value) else None
 
 
-def _exposed_flight(
-    target: Aircraft,
-    cone: HazardCone,
-    band: tuple[int, int],
-    points: list[tuple[float, float]],
-    entry: tuple[int, tuple[float, float]],
-    hold_minutes: int,
-) -> ExposedFlight:
+def _entry_path(
+    target: Aircraft, points: list[tuple[float, float]], entry: tuple[int, tuple[float, float]]
+) -> list[Position]:
     step, (entry_lat, entry_lon) = entry
     path: list[Position] = [(target.lon, target.lat)]
     for lat, lon in [*points[:step], (entry_lat, entry_lon)]:
@@ -109,6 +135,12 @@ def _exposed_flight(
             path.append(position)
     if len(path) == 1:
         path.append(path[0])  # a GeoJSON LineString needs two positions
+    return path
+
+
+def _exposed_flight(crossing: Crossing, cone: HazardCone, hold_minutes: int) -> ExposedFlight:
+    target = crossing.target
+    entry_lat, entry_lon = crossing.entry
     category = category_for_type(target.type_icao)
     return ExposedFlight(
         id=f"{target.hex}:{cone.volcano_id}",
@@ -127,12 +159,12 @@ def _exposed_flight(
         source_id=target.source_id,
         volcano_id=cone.volcano_id,
         cone_id=cone.id,
-        inside_now=step == 0,
-        minutes_to_entry=step,
+        inside_now=crossing.step == 0,
+        minutes_to_entry=crossing.step,
         entry_lat=entry_lat,
         entry_lon=entry_lon,
-        aircraft_band_ft=band,
+        aircraft_band_ft=crossing.band,
         hazard_band_ft=(cone.base_ft, cone.top_ft),
-        path=path,
+        path=crossing.path,
         hold=hold_line(category, minutes=hold_minutes),
     )

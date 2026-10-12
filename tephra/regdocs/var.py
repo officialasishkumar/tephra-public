@@ -2,8 +2,10 @@
 
 No model is involved: a VAR records what a crew saw, and a model must not invent that. Items 1
 to 5 come from the ADS-B position of a proxy flight and from the official products; items 6 to
-16 stay blank for the pilot or dispatcher. The form's layout is ICAO's (PANS-ATM, Doc 4444,
-Appendix 1, Model VAR); the labels here are TEPHRA's own wording.
+16 stay blank for the pilot or dispatcher. A VAR started from a crew report a dispatcher entered
+(``draft_crew_var``) carries that report in items 1 to 5, 8, 14 and 15 instead. The form's
+layout is ICAO's (PANS-ATM, Doc 4444, Appendix 1, Model VAR); the labels here are TEPHRA's own
+wording.
 """
 
 from typing import Final, Literal
@@ -12,6 +14,16 @@ from tephra.config import AIRLINE_NAME
 from tephra.desk.approvals import SYSTEM_ACTOR
 from tephra.geo.units import distance_nm, ft_to_fl, initial_bearing_deg
 from tephra.models import (
+    CREW_AREA_LABEL,
+    CREW_CUE_TEXT,
+    CREW_OUTSIDE_LINE,
+    NO_CATALOGUED_VOLCANO,
+    CrewArea,
+    CrewCue,
+    CrewPositionBasis,
+    CrewReport,
+    CrewReportKind,
+    CrewReportView,
     ExposedFlight,
     HazardCone,
     OfficialLayer,
@@ -35,7 +47,7 @@ from tephra.regdocs.runtime import DocsRuntime
 from tephra.util import timeutil
 from tephra.util.hashing import sha256_json, stable_id
 
-__all__ = ["FlightNotExposed", "draft_var", "format_position"]
+__all__ = ["FlightNotExposed", "NotAnAshReport", "draft_crew_var", "draft_var", "format_position"]
 
 FORM_REFERENCE: Final = "ICAO Model VAR (PANS-ATM, Doc 4444, Appendix 1)"
 NOT_AN_OBSERVATION: Final = (
@@ -372,4 +384,274 @@ def _followups(country: str) -> list[str]:
             "Document the encounter through the safety reporting system, as SE-DJPU 15/2026 is"
             " reported to require (per press reports of the circular; verify against the PDF)."
         )
+    return steps
+
+
+# --- a VAR pre-filled from a crew report ---------------------------------------------------
+
+
+class NotAnAshReport(Exception):
+    """Only a crew report of ash (an area that was drawn, not withdrawn) becomes a VAR."""
+
+
+async def draft_crew_var(
+    runtime: DocsRuntime,
+    view: CrewReportView,
+    *,
+    vaac: VaacCentre | None,
+    actor: str = SYSTEM_ACTOR,
+) -> VarDraft:
+    """The message to the weather office and the VAAC, started from a crew report: the VAR
+    layout with the crew's own report in items 1 to 5, 8, 14 and 15 and the discrepancy with
+    the official products in the context. A human signs it; TEPHRA sends nothing."""
+    report = view.report
+    area = report.area
+    if report.kind is not CrewReportKind.ASH or area is None or report.withdrawn_at is not None:
+        raise NotAnAshReport(report.id)
+    state = await runtime.system_state()
+    created = timeutil.now()
+    facts: dict[str, object] = {
+        "crew_report_id": report.id,
+        "state": view.state,
+        "covered_by": view.covered_by,
+        "outside_official": view.outside_official,
+    }
+    input_hash = sha256_json(facts)
+    entered = (
+        f"From the crew report entered by {report.entered_by.removeprefix('desk:')} at"
+        f" {timeutil.hhmmz(report.created_at)}; the crew confirms or corrects it."
+    )
+    doc = VarDraft(
+        id=stable_id("DOC", "VAR", report.id, timeutil.to_iso(created), input_hash),
+        header=VAR_HEADER,
+        labels=[
+            "CREW REPORT ENTERED BY A DISPATCHER - NOT FROM A FEED",
+            f"FLIGHT OF A FICTIONAL AIRLINE ({report.flight}) - NOT A REAL FLIGHT",
+            *document_labels(state, backend=None),
+        ],
+        created_at=created,
+        updated_at=created,
+        replay=report.replay,
+        signatures=[
+            SignatureLine(role=SignRole.PILOT_IN_COMMAND, label="Pilot-in-command"),
+            SignatureLine(role=SignRole.DISPATCHER, label="Dispatcher"),
+        ],
+        input_hash=input_hash,
+        flight_id=report.hex or report.callsign or report.id,
+        proxy_flight=report.flight,
+        volcano_id=report.volcano_id,
+        volcano_name=report.volcano_name or NO_CATALOGUED_VOLCANO,
+        crew_report_id=report.id,
+        header_fields=_crew_header_fields(report, vaac),
+        items=_crew_items(report, entered),
+        airep_special=_crew_airep(report),
+        ars_line=_crew_ars(report),
+        non_encounter=DocField.code(
+            "non_encounter",
+            "Ash NOT met in an area where it was forecast",
+            "Not this report: the crew reported ash or an encounter cue.",
+        ),
+        context=_crew_context(view, area),
+        followups=_crew_followups(view, vaac),
+    )
+    await record_new_doc(runtime.store, runtime.bus, doc, actor=actor)
+    runtime.trace(
+        TraceStage.DOCS,
+        "code",
+        f"VAR DRAFT FROM THE CREW REPORT OF {report.flight} ({timeutil.hhmmz(report.observed_at)})"
+        ": FOR THE WEATHER OFFICE AND THE VAAC, NOT TRANSMITTED",
+        volcano_id=report.volcano_id,
+        detail={"doc_id": doc.id, "report_id": report.id},
+    )
+    return doc
+
+
+def _crew_level(report: CrewReport) -> str:
+    if report.level_from_fl == report.level_to_fl:
+        return f"FL{report.level_from_fl:03d}"
+    return f"FL{report.level_from_fl:03d} TO FL{report.level_to_fl:03d}"
+
+
+def _crew_header_fields(report: CrewReport, vaac: VaacCentre | None) -> list[DocField]:
+    centre = f"the VAAC ({vaac.value})" if vaac is not None else "the VAAC responsible for the area"
+    return [
+        DocField.code("operator", "Operator", f"{AIRLINE_NAME} (fictional)"),
+        DocField.code("ac_ident", "Aircraft identification", report.flight),
+        DocField.to_complete("pic", "Pilot-in-command"),
+        DocField.to_complete("dep", "Departed from (airport, date, time UTC)"),
+        DocField.to_complete("arr", "Arrived at (airport, date, time UTC)"),
+        DocField.code(
+            "addressee",
+            "Addressee (suggestion)",
+            f"The meteorological watch office (MWO) for the FIR, and {centre}.",
+            note="Verify against the current Doc 4444 and the AIP before use.",
+        ),
+    ]
+
+
+def _crew_items(report: CrewReport, entered: str) -> list[VarItem]:
+    given = set(report.cues)
+    basis = (
+        f"ADS-B fix of the reporting flight at {timeutil.hhmmz(report.position_observed_at)}."
+        if report.position_basis is CrewPositionBasis.ADSB_FIX and report.position_observed_at
+        else "Typed by the dispatcher."
+    )
+    cues = ", ".join(CREW_CUE_TEXT[cue] for cue in report.cues)
+    encounter = sorted(
+        CREW_CUE_TEXT[cue] for cue in given & {CrewCue.HAZE, CrewCue.ST_ELMOS_FIRE, CrewCue.ENGINE}
+    )
+    supplementary = (
+        f"Sulphur smell: {'yes' if CrewCue.SULPHUR_SMELL in given else 'not reported'};"
+        f" ash seen: {'yes' if CrewCue.ASH_SEEN in given else 'not reported'};"
+        f" encounter cues: {', '.join(encounter) or 'none reported'}."
+    )
+    other = [
+        text
+        for cue, text in (
+            (CrewCue.ST_ELMOS_FIRE, "St Elmo's fire"),
+            (CrewCue.SULPHUR_SMELL, "fumes or smell"),
+            (CrewCue.HAZE, "haze or dust in the cabin"),
+        )
+        if cue in given
+    ]
+    in_flight = [
+        _item(1, "in_flight", DocField.code("item_1", "Aircraft identification", report.flight)),
+        _item(
+            2,
+            "in_flight",
+            DocField.code(
+                "item_2", "Position", format_position(report.lat, report.lon), note=basis
+            ),
+        ),
+        _item(
+            3,
+            "in_flight",
+            DocField.code("item_3", "Time (UTC)", timeutil.hhmmz(report.observed_at), note=entered),
+        ),
+        _item(
+            4,
+            "in_flight",
+            DocField.code("item_4", "Flight level or altitude", _crew_level(report), note=entered),
+        ),
+        _item(
+            5,
+            "in_flight",
+            DocField.code(
+                "item_5",
+                "Volcanic activity observed at (position or bearing, estimated ash level,"
+                " distance)",
+                f"{cues} at {format_position(report.lat, report.lon)}, {_crew_level(report)}"
+                f" ({report.volcano_name or NO_CATALOGUED_VOLCANO}).",
+                note=entered,
+            ),
+        ),
+        _item(6, "in_flight", DocField.to_complete("item_6", "Air temperature"), hint="degrees C"),
+        _item(
+            7, "in_flight", DocField.to_complete("item_7", "Spot wind"), hint="direction / speed"
+        ),
+        _item(
+            8,
+            "in_flight",
+            DocField.code("item_8", "Supplementary information", supplementary, note=entered),
+            hint="SO2 detected Y/N; ash encountered Y/N; extent, movement, rate of growth",
+        ),
+    ]
+    post_flight: list[VarItem] = []
+    for number, label, hint in _POST_FLIGHT:
+        field = DocField.to_complete(f"item_{number}", label)
+        if number == 14 and CrewCue.ENGINE in given:
+            field = DocField.code(f"item_{number}", label, "engines", note=entered)
+        elif number == 15 and other:
+            field = DocField.code(f"item_{number}", label, " / ".join(other), note=entered)
+        elif number == 16 and report.remarks:
+            field = DocField.code(
+                f"item_{number}", label, report.remarks, note="The dispatcher's remarks."
+            )
+        post_flight.append(_item(number, "post_flight", field, hint=hint))
+    return [*in_flight, *post_flight]
+
+
+def _crew_airep(report: CrewReport) -> DocField:
+    value = (
+        f"AIREP SPECIAL {report.flight} {format_position(report.lat, report.lon)}"
+        f" {timeutil.hhmmz(report.observed_at).removesuffix('Z')} {_crew_level(report)}"
+        " VOLCANIC ASH CLOUD"
+    )
+    return DocField.code(
+        "airep_special",
+        "Voice report (AIREP SPECIAL)",
+        value,
+        note="As the crew would have voiced it, rebuilt from the report; for reference.",
+    )
+
+
+def _crew_ars(report: CrewReport) -> DocField:
+    label = "ATS to MWO line (ARS), for reference"
+    if report.level_from_fl != report.level_to_fl:
+        return DocField.to_complete(
+            "ars_line", label, note="The crew reported a band; the ATS unit writes the level."
+        )
+    value = (
+        f"ARS {report.flight} {format_position(report.lat, report.lon)}"
+        f" {timeutil.hhmmz(report.observed_at).removesuffix('Z')} F{report.level_from_fl:03d}"
+        " VA CLD="
+    )
+    return DocField.code(
+        "ars_line",
+        label,
+        value,
+        note="The ATS unit writes this line, not the crew. Shown so the dispatcher can read the"
+        " same report back.",
+    )
+
+
+def _crew_context(view: CrewReportView, area: CrewArea) -> list[DocField]:
+    report = view.report
+    fields = [
+        DocField.code(
+            "crew_area",
+            CREW_AREA_LABEL,
+            f"{area.radius_nm} NM around the report; {band_text(area.base_ft, area.top_ft)};"
+            f" {area.stretch_note[:1].lower()}{area.stretch_note[1:]};"
+            f" valid {timeutil.hhmmz(area.valid_from)} to"
+            f" {timeutil.hhmmz(area.valid_to)}.",
+            source_ids=[report.id] + ([area.wind_source_id] if area.wind_source_id else []),
+        ),
+        DocField.code("state", "State when drafted", view.state_label),
+    ]
+    if view.covered_by:
+        relation = f"Covered by official area: {', '.join(view.covered_by)}"
+    elif view.outside_official:
+        relation = f"{CREW_OUTSIDE_LINE}: no valid official area meets it, laterally and vertically"
+    else:
+        relation = "Partly inside an official area"
+    fields.append(
+        DocField.code(
+            "official", "Against the official areas", relation, source_ids=view.covered_by
+        )
+    )
+    return fields
+
+
+def _crew_followups(view: CrewReportView, vaac: VaacCentre | None) -> list[str]:
+    centre = f"the VAAC ({vaac.value})" if vaac is not None else "the VAAC responsible for the area"
+    steps = ["Check the report with the crew before anything leaves the operator."]
+    if view.outside_official:
+        steps.append(
+            "Pass the difference between the official products and this crew report to the MWO"
+            f" for the FIR and to {centre} through the operator's own channel; TEPHRA sends"
+            " nothing. EUR Doc 019 3.2.9 e) asks that reported differences between published"
+            " information and pilot reports are forwarded as soon as possible."
+        )
+    else:
+        steps.append(
+            f"Pass the report to the MWO for the FIR and to {centre} through the operator's own"
+            " channel if the crew has not; TEPHRA sends nothing."
+        )
+    if CrewCue.ENGINE in view.report.cues or CrewCue.ST_ELMOS_FIRE in view.report.cues:
+        steps += [
+            "Make the aircraft maintenance log (AML) entry.",
+            "Keep the aircraft out of service until it has been inspected per the manufacturer's"
+            " guidance.",
+        ]
     return steps

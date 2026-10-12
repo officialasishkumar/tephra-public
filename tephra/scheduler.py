@@ -8,8 +8,8 @@ minute; with ``TEPHRA_LOCAL_SCHEDULER=1`` :func:`run_local_scheduler` ticks in p
 Between ticks, extra ADS-B passes keep aircraft at their 30 s cadence, timed from the start
 of the tick; a tick that arrives while a pass holds the runtime's lock waits for it.
 
-A step after the analysis that raises (exposure, recovery, the Duty Officer, draft
-retirement) becomes a note and a trace line; the Wall is still published and checkpointed.
+A step after the analysis that raises (exposure, crew reports, recovery, the Duty Officer,
+draft retirement) becomes a note and a trace line; the Wall is still published and checkpointed.
 
 Every tick names its instance in ``runtime/writer``. During a rollout the old revision's
 instance stays up while its streams are open; :func:`run_writer_watchdog` and every ADS-B
@@ -116,6 +116,7 @@ async def _tick_steps(runtime: "Runtime", reason: str) -> TickReport:
     at = timeutil.now()
     await runtime.analyse(at, report)
     await _step(runtime, report, "exposure", runtime.update_exposures(at, report))
+    await _step(runtime, report, "crew reports", runtime.update_crew(at, report))
     await _step(runtime, report, "network recovery", runtime.run_recovery(at, report))
     await _step(runtime, report, "Duty Officer", runtime.run_duty(at, report, trigger="tick"))
     await _step(runtime, report, "draft retirement", runtime.settle_drafts(at, report))

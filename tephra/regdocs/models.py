@@ -172,14 +172,20 @@ class VarItem(DocField):
 
 
 class VarDraft(_DocBase):
-    """The ICAO Model VAR layout with items 1 to 5 from ADS-B and the hazard. The aircraft is
-    an ADS-B proxy flight of the fictional airline, never a real operator's flight."""
+    """The ICAO Model VAR layout, with items 1 to 5 from ADS-B and the hazard, or items 1 to 5,
+    8, 14 and 15 from a crew report a dispatcher entered. The aircraft is an ADS-B proxy flight
+    of the fictional airline, never a real operator's flight."""
 
     kind: Literal["VAR"] = "VAR"
-    flight_id: str
+    flight_id: str = Field(description="'<hex>:<volcano_id>', or a crew report's hex or callsign")
     proxy_flight: str
-    volcano_id: str
+    volcano_id: str | None = Field(
+        default=None, description="None for a crew report with no catalogued volcano near it"
+    )
     volcano_name: str
+    crew_report_id: str | None = Field(
+        default=None, description="The crew report it was pre-filled from (CR-...), if any"
+    )
     header_fields: list[DocField]
     items: list[VarItem]
     airep_special: DocField

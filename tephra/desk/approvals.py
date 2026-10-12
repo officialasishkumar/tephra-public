@@ -34,6 +34,7 @@ __all__ = [
     "VersionConflict",
     "approve",
     "edit_and_approve",
+    "get_advisory",
     "list_advisories",
     "reject",
     "submit_draft",
@@ -155,8 +156,17 @@ def _as_urgent(decided: Advisory, new: Advisory) -> bool:
 
 
 async def approve(
-    store: Store, bus: EventBus, advisory_id: str, *, expected_version: int, actor: str
+    store: Store,
+    bus: EventBus,
+    advisory_id: str,
+    *,
+    expected_version: int,
+    actor: str,
+    reason: str | None = None,
+    note: str | None = None,
 ) -> Advisory:
+    """``reason`` is the dispatcher's written reason when a rule asks for one (the caller
+    checks the rule); ``note`` goes to the audit entry."""
     return await _decide(
         store,
         bus,
@@ -164,7 +174,8 @@ async def approve(
         expected_version=expected_version,
         actor=actor,
         status=AdvisoryStatus.APPROVED,
-        changes={},
+        changes={"decision_reason": reason},
+        note=note,
     )
 
 
@@ -176,6 +187,8 @@ async def edit_and_approve(
     expected_version: int,
     body: str,
     actor: str,
+    reason: str | None = None,
+    note: str | None = None,
 ) -> Advisory:
     edited = body.strip().upper()
     problems: list[str] = []
@@ -195,7 +208,8 @@ async def edit_and_approve(
         expected_version=expected_version,
         actor=actor,
         status=AdvisoryStatus.EDITED,
-        changes={"edited_body": edited},
+        changes={"edited_body": edited, "decision_reason": reason},
+        note=note,
     )
 
 
@@ -231,6 +245,7 @@ async def _decide(
     actor: str,
     status: AdvisoryStatus,
     changes: Mapping[str, Any],
+    note: str | None = None,
 ) -> Advisory:
     current = await _load(store, advisory_id)
     if current is None:
@@ -250,7 +265,9 @@ async def _decide(
         if latest is None:
             raise AdvisoryNotFound(advisory_id)
         raise VersionConflict(latest)
-    await _audit_transition(store, current, decided, actor=actor, action=AuditAction(status.value))
+    await _audit_transition(
+        store, current, decided, actor=actor, action=AuditAction(status.value), note=note
+    )
     if decided.status in _QUEUED_STATUSES:
         await _queue_outbound(store, decided, actor=actor)
     bus.publish(SseEvent.ADVISORY, decided)
@@ -340,6 +357,10 @@ async def list_advisories(
     return [Advisory.model_validate(doc) for doc in docs]
 
 
+async def get_advisory(store: Store, advisory_id: str) -> Advisory | None:
+    return await _load(store, advisory_id)
+
+
 async def _load(store: Store, advisory_id: str) -> Advisory | None:
     doc = await store.get(Collection.ADVISORIES, advisory_id)
     return None if doc is None else Advisory.model_validate(doc)
@@ -394,6 +415,7 @@ def _audit_view(advisory: Advisory) -> dict[str, Any]:
         "body": advisory.body,
         "edited_body": advisory.edited_body,
         "reject_reason": advisory.reject_reason,
+        "decision_reason": advisory.decision_reason,
         "policy_id": advisory.policy_id,
         "policy_version": advisory.policy_version,
         "policy_hash": advisory.policy_hash,

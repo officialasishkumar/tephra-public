@@ -257,6 +257,9 @@ class AuditAction(StrEnum):
     LOGIN_OK = "LOGIN_OK"
     LOGIN_FAILED = "LOGIN_FAILED"
     MODE_SWITCH = "MODE_SWITCH"
+    CREW_REPORT_ENTERED = "CREW_REPORT_ENTERED"
+    CREW_REPORT_WITHDRAWN = "CREW_REPORT_WITHDRAWN"
+    CREW_REPORT_EXPIRED = "CREW_REPORT_EXPIRED"
 
 
 class FeedStatus(StrEnum):
@@ -310,6 +313,7 @@ class SseEvent(StrEnum):
     MESSAGE = "message"
     DOC = "doc"
     DUTY = "duty"
+    CREW = "crew"
     BUDGET = "budget"
     HEARTBEAT = "heartbeat"
     END_STREAMS = "end_streams"
@@ -1199,6 +1203,17 @@ class DraftPolicy(PolicyModel):
     position_lost_retire_min: PolicyValue
 
 
+class CrewReportPolicy(PolicyModel):
+    """The caution area drawn from a crew (pilot) report of ash: an operator choice, not an
+    official area (EUR Doc 019 / NAT Doc 006 3.1.8 b) i) is the anchor for the shape)."""
+
+    radius_nm: PolicyValue
+    downwind_stretch_min: PolicyValue
+    stretch_wind_kt: PolicyValue
+    level_margin_ft: PolicyValue
+    valid_min: PolicyValue
+
+
 class SourceRule(PolicyModel):
     """One step of the source-trust order; the first is the most trusted."""
 
@@ -1231,6 +1246,10 @@ POSITIVE_POLICY_VALUES: Final = frozenset(
         "fuel.hold_min",
         "drafts.unexposed_retire_min",
         "drafts.position_lost_retire_min",
+        "crew_reports.radius_nm",
+        "crew_reports.downwind_stretch_min",
+        "crew_reports.level_margin_ft",
+        "crew_reports.valid_min",
     }
 )
 """Values that must be above zero; every other value only needs to be zero or more."""
@@ -1258,6 +1277,7 @@ class OperatorPolicy(PolicyModel):
     fuel: FuelPolicy
     drafts: DraftPolicy
     duty: DutyPolicy
+    crew_reports: CrewReportPolicy
     source_order: list[SourceRule] = Field(min_length=1)
     citations: list[PolicyCitation] = Field(min_length=1)
 
@@ -1299,6 +1319,7 @@ class OperatorPolicy(PolicyModel):
             "fuel": self.fuel,
             "drafts": self.drafts,
             "duty": self.duty,
+            "crew_reports": self.crew_reports,
         }
         return {
             f"{key}.{name}": getattr(block, name)
@@ -1547,6 +1568,11 @@ class Advisory(TephraModel):
     cost_note: str
     edited_body: str | None = None
     reject_reason: str | None = None
+    decision_reason: str | None = Field(
+        default=None,
+        description="The dispatcher's written reason, when a rule asks for one (a CONTINUE or"
+        " MONITOR approved for a flight crossing a crew report caution area)",
+    )
     decided_by: str | None = None
     decided_at: UtcDatetime | None = None
     superseded_by: str | None = None
@@ -1841,6 +1867,202 @@ class ReplayCase(TephraModel):
         return (self.notes or "").startswith("Reconstructed from archives")
 
 
+# --- crew (pilot) reports of ash --------------------------------------------------------
+
+CREW_AREA_LABEL: Final = "Crew report caution area (operator policy A; not a VAA or SIGMET)"
+CREW_FLAG_LINE: Final = "Crew report of ash on this route"
+CREW_OUTSIDE_LINE: Final = "Crew report outside the official area"
+NO_CATALOGUED_VOLCANO: Final = "no catalogued volcano"
+
+
+class CrewCue(StrEnum):
+    """What the crew reported. Ash seen or any encounter cue draws a caution area; a sulphur
+    smell alone is a routine report (FAA JO 7110.65 2-6-2); no ash seen never removes one."""
+
+    ASH_SEEN = "ASH_SEEN"
+    SULPHUR_SMELL = "SULPHUR_SMELL"
+    HAZE = "HAZE"
+    ST_ELMOS_FIRE = "ST_ELMOS_FIRE"
+    ENGINE = "ENGINE"
+    NO_ASH_SEEN = "NO_ASH_SEEN"
+
+
+CREW_CUE_TEXT: Final[dict[CrewCue, str]] = {
+    CrewCue.ASH_SEEN: "ash seen",
+    CrewCue.SULPHUR_SMELL: "sulphur smell",
+    CrewCue.HAZE: "haze or dust in the cabin",
+    CrewCue.ST_ELMOS_FIRE: "St Elmo's fire",
+    CrewCue.ENGINE: "engine signs",
+    CrewCue.NO_ASH_SEEN: "no ash seen",
+}
+
+CREW_AREA_CUES: Final = frozenset(
+    {CrewCue.ASH_SEEN, CrewCue.HAZE, CrewCue.ST_ELMOS_FIRE, CrewCue.ENGINE}
+)
+"""Ash seen and the encounter cues: any of them draws a caution area."""
+
+
+class CrewReportKind(StrEnum):
+    ASH = "ASH"
+    """Ash seen or an encounter cue: a caution area is drawn"""
+    ROUTINE = "ROUTINE"
+    """A sulphur smell with no ash seen: recorded as a routine report, no area"""
+    NO_ASH = "NO_ASH"
+    """No ash seen: recorded; it never removes or shortens anything"""
+
+
+class CrewPositionBasis(StrEnum):
+    ADSB_FIX = "ADSB_FIX"
+    """The reporting flight's ADS-B fix within the ADS-B stale age of the observation time"""
+    TYPED = "TYPED"
+    """Typed by the dispatcher (no such fix was held)"""
+
+
+class CrewArea(TephraModel):
+    """The caution area code drew from a crew report: a circle around the reported position,
+    stretched downwind when the wind at the reported level is strong, within the reported
+    level band. Every number comes from the operator policy and the report."""
+
+    polygon: GeoPolygon = Field(description="Circumscribed: it contains the true circle")
+    radius_nm: int
+    base_ft: int
+    top_ft: int
+    valid_from: UtcDatetime = Field(description="The observation time")
+    valid_to: UtcDatetime
+    stretched: bool
+    stretch_nm: float | None = None
+    stretch_toward_deg: float | None = None
+    wind_kt: float | None = None
+    wind_from_deg: float | None = None
+    wind_fl: int | None = None
+    wind_source_id: str | None = None
+    stretch_note: str = Field(description="Code-written: why and how far it was stretched, or not")
+
+    def is_valid(self, at: datetime) -> bool:
+        return self.valid_from <= at <= self.valid_to
+
+
+class CrewReport(TephraModel):
+    """A crew report a dispatcher entered on the Desk (store ``crew_reports``). Code draws
+    the area; nothing is ingested from a feed and no model is involved."""
+
+    id: str = Field(description="'CR-' + 12 hex chars")
+    created_at: UtcDatetime = Field(description="When it was entered, on the active clock")
+    entered_wall_at: UtcDatetime
+    entered_by: str = Field(description="'desk:<name>'")
+    replay: bool
+    replay_case_id: str | None = None
+    hex: str | None = Field(default=None, description="ICAO address, when the flight is tracked")
+    callsign: str | None = None
+    proxy_flight: str | None = Field(default=None, description="None for an untracked callsign")
+    cues: list[CrewCue] = Field(min_length=1)
+    kind: CrewReportKind
+    observed_at: UtcDatetime
+    level_from_fl: int = Field(ge=0, le=600)
+    level_to_fl: int = Field(ge=0, le=600)
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    position_basis: CrewPositionBasis
+    position_source_id: str | None = Field(
+        default=None, description="ADS-B snapshot of the fix (ADSB_FIX only)"
+    )
+    position_observed_at: UtcDatetime | None = Field(
+        default=None, description="Time of the ADS-B fix (ADSB_FIX only)"
+    )
+    volcano_id: str | None = Field(
+        default=None, description="Nearest catalogued volcano within the active radius, else None"
+    )
+    volcano_name: str | None = None
+    volcano_distance_km: float | None = None
+    area: CrewArea | None = Field(default=None, description="None for ROUTINE and NO_ASH")
+    remarks: str | None = Field(default=None, description="Dispatcher's words, shown as text")
+    policy_id: str
+    policy_version: str
+    policy_hash: str
+    withdrawn_at: UtcDatetime | None = None
+    withdrawn_by: str | None = None
+    withdraw_reason: str | None = None
+    expiry_recorded_at: UtcDatetime | None = Field(
+        default=None, description="When code wrote the CREW_REPORT_EXPIRED audit entry"
+    )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def flight(self) -> str:
+        """How the Wall and the Desk name the reporting flight."""
+        return self.proxy_flight or self.callsign or (self.hex or "").upper()
+
+
+CrewReportState = Literal["ACTIVE", "COVERED", "EXPIRED", "WITHDRAWN", "NO_AREA"]
+
+
+class CrewReportView(TephraModel):
+    """A crew report as the Wall and Desk show it now. Code writes every text."""
+
+    report: CrewReport
+    state: CrewReportState
+    state_label: str = Field(description="e.g. 'Active', 'Covered by official area'")
+    age_min: int = Field(ge=0)
+    age_text: str = Field(description="e.g. 'reported 47 min ago'")
+    place_text: str = Field(description="e.g. 'near Semeru (42 km)' or 'no catalogued volcano'")
+    covered_by: list[str] = Field(
+        default_factory=list, description="Official layer ids that together cover it (COVERED)"
+    )
+    outside_official: bool = Field(
+        default=False, description="Active and meets no official area, laterally and vertically"
+    )
+    discrepancy: str | None = Field(default=None, description="CREW_OUTSIDE_LINE when outside")
+    flagged: list[str] = Field(
+        default_factory=list, description="ICAO addresses of the flights it flags"
+    )
+    summary: str = Field(description="Code-written popup body")
+
+
+class CrewFlag(TephraModel):
+    """A tracked flight whose projected track crosses an active crew report area. A flag
+    only: nothing is re-planned or drafted because of it."""
+
+    hex: str
+    callsign: str | None = None
+    proxy_flight: str
+    alt_baro_ft: int | None = None
+    report_ids: list[str]
+    volcano_ids: list[str] = Field(default_factory=list, description="The reports' volcanoes")
+    inside_now: bool
+    minutes_to_entry: int = Field(ge=0)
+    entry_lat: float
+    entry_lon: float
+    path: list[Position]
+    line: str = CREW_FLAG_LINE
+
+
+class CrewFeatureProps(TephraModel):
+    report_id: str
+    feature: Literal["area", "pin", "path"]
+    state: CrewReportState
+    label: str
+    flight: str = Field(description="The reporting flight (area, pin) or the flagged one (path)")
+    volcano_id: str | None = None
+    age_text: str
+    base_ft: int | None = None
+    top_ft: int | None = None
+    valid_to: UtcDatetime | None = None
+    replay: bool = False
+
+
+class CrewPicture(TephraModel):
+    """``WallSnapshot.crew`` and the ``crew`` SSE event: reports of the current mode (and
+    replay case) observed by now and entered within the listing window."""
+
+    label: str = CREW_AREA_LABEL
+    reports: list[CrewReportView] = Field(default_factory=list)
+    flags: list[CrewFlag] = Field(default_factory=list)
+    features: dict[str, Any] = Field(
+        default_factory=lambda: feature_collection([]),
+        description="FeatureCollection, CrewFeatureProps: areas, report pins, flagged paths",
+    )
+
+
 # --- the Wall: map features, cards, snapshot --------------------------------------------
 
 
@@ -1891,6 +2113,9 @@ class AircraftFeatureProps(TephraModel):
     exposed: bool
     minutes_to_entry: int | None = None
     volcano_id: str | None = None
+    crew_report: bool = Field(
+        default=False, description="Its projected track crosses an active crew report area"
+    )
     label: str = Field(description="e.g. 'RFA4821 FL350' or 'RFA4821 FL350 +14 MIN'")
 
 
@@ -2015,6 +2240,10 @@ class WallSnapshot(TephraModel):
         default_factory=list,
         description="Latest SatelliteReading per active volcano (agents.satellite_reader)",
     )
+    crew: CrewPicture = Field(
+        default_factory=lambda: CrewPicture(),
+        description="Crew report caution areas, their states and the flights they flag",
+    )
 
 
 class LlmInfo(TephraModel):
@@ -2103,6 +2332,12 @@ class SessionInfo(TephraModel):
 
 class DecisionRequest(TephraModel):
     version: int = Field(ge=1, description="The version the dispatcher saw")
+    reason: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Required (3 or more characters) to approve a CONTINUE or MONITOR for a"
+        " flight crossing an active crew report caution area",
+    )
 
 
 class EditRequest(DecisionRequest):

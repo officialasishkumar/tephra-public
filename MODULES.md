@@ -40,6 +40,7 @@ modules (sections 5.11 to 5.17) were built against.
 | backtest | `tephra/backtest/{__init__,models,metrics,runner,report}.py`, `tephra/agents/prompts/backtest.md`, `tephra/api/routes_backtest.py`, `scripts/backtest.py`, `docs/backtest/`, `tests/test_backtest.py` |
 | web-wall | `tephra/web/index.html`, `tephra/web/wall.js`, `tephra/web/wall.css` |
 | web-desk | `tephra/web/desk.html`, `tephra/web/desk.js`, `tephra/web/desk.css` |
+| crew | `tephra/geo/crew_area.py`, `tephra/desk/crew_reports.py`, `tephra/api/routes_crew.py` (crew reports of ash: section 5.19) |
 | ops-evals | `Dockerfile`, `.dockerignore`, `.gcloudignore`, `.env.example`, `deploy/_common.sh`, `deploy/cloudbuild.yaml`, `deploy/cloudrun.sh`, `deploy/ar-cleanup.json`, `scripts/live_smoke.sh`, `deploy/scheduler.sh`, `deploy/secrets.sh`, `deploy/firestore.rules`, `deploy/README.md`, `.github/workflows/ci.yml`, `scripts/record_replay.py`, `scripts/count_traffic.py`, `scripts/plume_eval.py`, `scripts/make_plume_cases.py`, `evals/plume/README.md`, `data/replay/README.md`, `tests/test_scripts.py`, `tests/test_record_replay.py`, `tests/fixtures/ops_evals/` |
 
 Each module may also create test fixtures under `tests/fixtures/<module_key>/` (e.g.
@@ -232,6 +233,15 @@ Officer: official products only until it runs, never reused as current). Duty Of
 `TickReport.duty_runs`; `WallSnapshot.duty` (the newest run).
 `PlannerContext.route` and `.reroutes` carry the published route and the code's lateral options;
 `PlannerDecision.reroute_id` names the chosen option; `Advisory.reroute` embeds it.
+Crew reports (section 5.19): `AuditAction` `CREW_REPORT_ENTERED`, `CREW_REPORT_WITHDRAWN`,
+`CREW_REPORT_EXPIRED`; `SseEvent.CREW` (`crew`); `CrewCue` (+ `CREW_CUE_TEXT`,
+`CREW_AREA_CUES`), `CrewReportKind`, `CrewPositionBasis`, `CrewArea` (`is_valid`), `CrewReport`
+(`flight`), `CrewReportState`, `CrewReportView`, `CrewFlag`, `CrewFeatureProps`, `CrewPicture`,
+the labels `CREW_AREA_LABEL`, `CREW_FLAG_LINE`, `CREW_OUTSIDE_LINE`, `NO_CATALOGUED_VOLCANO`;
+`WallSnapshot.crew`; `AircraftFeatureProps.crew_report`; `Advisory.decision_reason` (the
+dispatcher's written reason when a rule asks for one, None otherwise); `DecisionRequest.reason`
+(optional, at most 500 characters; `EditRequest` inherits it); `CrewReportPolicy` and
+`OperatorPolicy.crew_reports`.
 `Situation.supporting` holds texts other model steps wrote (the Satellite Reader's), each under
 its own source id; they are included in `source_ids()` so the Plume Reader may cite them, and
 left out of `input_hash`, so a new picture alone never triggers a Plume Reader call.
@@ -264,6 +274,8 @@ policy a draft was made under (None on drafts from before each field).
 and `queued_wall_at`, the wall-clock time it was queued (`queued_at` follows the REPLAY
 clock); `queued_wall_at` is None only on records written before the field, and on approved
 crew and passenger messages until `comms.messages` sets it.
+`approve` and `edit_and_approve` store `reason` as `decision_reason` (the caller checks
+whether a rule asks for one: section 8.5).
 `Advisory.urgency_bucket` records the urgency bucket the draft was made in (core's
 `_urgency`: 0 inside the cone, then one more per time limit the entry lies beyond; None on
 older drafts). `PlannerContext` carries the planner block's values as plain ints
@@ -307,6 +319,8 @@ the case's recording, and neither clamps it. `nict_frames`
 terms; research/05 did not clear them). `model_tts` (`TEPHRA_MODEL_TTS`, default `gemini-3.8-flash-lite-tts`) is the speech model of Ask
 TEPHRA's spoken answers; `model_lite` carries every other new model step (section 6).
 `cadence_jma_volcano_s` (`TEPHRA_CADENCE_JMA_VOLCANO_S`, 300) is the JMA feed's cadence.
+`crew_fix_history_min` (`TEPHRA_CREW_FIX_HISTORY_MIN`, 30, 1 to 360) is how long airline ADS-B
+positions are kept in memory to place a crew report at its flight's fix (section 5.19).
 `recovery_auto` (`TEPHRA_RECOVERY_AUTO`, default true) lets the pipeline start one recovery
 agent session when the set of closed RFA airports changes; the Desk's run button works either
 way. `max_upload_bytes` (`TEPHRA_MAX_UPLOAD_BYTES`, default 1,310,720, at least `MAX_BODY_BYTES`)
@@ -359,7 +373,7 @@ def load_policy(data_dir: Path) -> OperatorPolicy
 ```
 The operator policy holds every margin, buffer, minimum and threshold the code applies on
 the operator's behalf, each with its unit, a `source` saying why it has that value, and
-optional `citation_ids`. Header: `policy_id` (`RFA-POLICY-A`), `version` (`2026.10.8`),
+optional `citation_ids`. Header: `policy_id` (`RFA-POLICY-A`), `version` (`2026.10.9`),
 `preset` (`A`), `title`, `label` (`ILLUSTRATIVE, not an airline SRA`), `sra_ref` (null for A),
 `risk_owner` (`Flight Operations`), `summary_text` (the Policy A text) and
 `summary_citation_ids`. The Policy A text follows the Doc 9974 App 5 5.4(d)(2) default for
@@ -377,7 +391,9 @@ mode), `reroute` (`buffer_nm`, `simplify_nm`, `max_waypoints_count`,
 `airport_closure_radius_nm`, `pax_notice_min_delay_min`), `fuel` (`hold_min`, `divert_extra_min`),
 `drafts` (`unexposed_retire_min`, `position_lost_retire_min`: how long an open draft waits
 after its flight leaves the cone, section 5.7), `duty` (`rerun_min`: when deferred Duty
-Officer work is offered again, section 5.18).
+Officer work is offered again, section 5.18), `crew_reports` (`radius_nm` 60, `downwind_stretch_min`
+30, `stretch_wind_kt` 30, `level_margin_ft` 2000, `valid_min` 360: the crew report caution
+area, section 5.19).
 Then `source_order`
 (the source-trust order, most trusted first) and `citations` (quoted word for word). Each
 `SourceRule` has `rule_id`, `text`, `enforced_by` (required: the code that applies the rule
@@ -385,8 +401,11 @@ today, named by file and function) and `citation_ids`. The order is the operator
 illustrative choice: Doc 9974 2.4(d) asks the operator to resolve conflicts among its sources,
 so each rule cites that paragraph. No code acts on the list (the Wall policy dialog and the
 SRA draft only show it); `enforced_by` names where each rule is coded. Citations: `9974-app5-5.4d2`, `9974-app5-5.4d1`, `9974-2.10`,
-`9974-2.4d`, and the UK comparison rows `cap1236-2.24`, `cap1236-2.28` and `cap1236-2.29`
-cited by `vertical_margin_ft`. Every value's `source` either says it is a TEPHRA illustrative
+`9974-2.4d`, the UK comparison rows `cap1236-2.24`, `cap1236-2.28` and `cap1236-2.29`
+cited by `vertical_margin_ft` (2.24 and 2.29 also by `crew_reports.level_margin_ft`),
+`eurnat-vacp-3.1.8bi` (EUR Doc 019 / NAT Doc 006 Part II Ed. 2.0.0 3.1.8 b) i), cited by the
+crew radius and stretch), `faa-jo-7110.65-2-6-2` (a sulphur smell alone is a routine report)
+and `nwsi-10-811-6.3.1.1` (VA SIGMET validity, cited by `crew_reports.valid_min`). Every value's `source` either says it is a TEPHRA illustrative
 choice or placeholder, or names its outside basis.
 
 Rules: only the composition root (`create_runtime`) loads the file; library code takes the
@@ -724,8 +743,8 @@ def covers_official(cone: HazardCone, layers: Sequence[OfficialLayer]) -> bool
 def polygon_iou(a: GeoPolygon | GeoMultiPolygon, b: GeoPolygon | GeoMultiPolygon) -> float
 def contains_point(cone: HazardCone, lat: float, lon: float) -> bool
 def points_in_cone(cone: HazardCone, points: Sequence[tuple[float, float]]) -> list[bool]
-def track_entries(cone: HazardCone, tracks: Sequence[Sequence[tuple[float, float]]]
-                  ) -> list[tuple[int, tuple[float, float]] | None]   # (step, (lat, lon)) per track
+def geometry_entries(geometry: GeoPolygon | GeoMultiPolygon, tracks: Sequence[Sequence[tuple[float, float]]]
+                     ) -> list[tuple[int, tuple[float, float]] | None]   # (step, (lat, lon)) per track
 def geometry_to_shape(geometry: GeoPolygon | GeoMultiPolygon, *, ref_lon: float) -> BaseGeometry
 def shape_to_geometry(shape: BaseGeometry) -> GeoPolygon | GeoMultiPolygon | None
 ```
@@ -775,6 +794,11 @@ def extrapolate(aircraft: Aircraft, minutes: int, *, step_min: int = 1) -> list[
 def find_exposed(cone: HazardCone, aircraft: Sequence[Aircraft], at: datetime, *,
                  lookahead_min: int, vertical_margin_ft: int, hold_minutes: int) -> list[ExposedFlight]
     # vertical_margin_ft and hold_minutes from the policy (exposure, fuel.hold_min)
+class Crossing(NamedTuple): target: Aircraft; band: tuple[int, int]; step: int; entry: tuple[float, float]; path: list[Position]
+def find_crossings(geometry: GeoPolygon | GeoMultiPolygon, base_ft: int, top_ft: int,
+                   aircraft: Sequence[Aircraft], at: datetime, *, lookahead_min: int,
+                   vertical_margin_ft: int) -> list[Crossing]
+    # the test find_exposed runs on a cone, for any area and band (a crew report area too)
 ```
 Rules: only `aircraft.airline` targets with `alt_baro_ft` are considered; never use
 `alt_geom_ft`. The lookahead is `min(cone.horizon_h * 60, lookahead_min)`. A target whose
@@ -784,7 +808,7 @@ age, so `minutes_to_entry` counts from `at`. Positions step along `track_deg` at
 targets whose `gs_kt` or `track_deg` is missing or not finite, or below 50 kt, are checked
 at their reported position only. Vertical: the aircraft band is `[min, max]` of `alt_baro_ft`
 and `nav_altitude_mcp_ft` (if present); exposed only if it overlaps `[cone.base_ft -
-vertical_margin_ft, cone.top_ft + vertical_margin_ft]`. Horizontal (`cone.track_entries`):
+vertical_margin_ft, cone.top_ft + vertical_margin_ft]`. Horizontal (`cone.geometry_entries`):
 each one-minute step is tested on the segment from the previous point, so a track that
 crosses a corner or a narrow part of the cone between two points is still caught.
 `minutes_to_entry` is the minute at the end of the first segment that meets the cone (0 only
@@ -1319,14 +1343,17 @@ class AdvisoryNotFound(Exception): ...
 class EditRejected(Exception): problems: list[str]
 async def submit_draft(store: Store, bus: EventBus, advisory: Advisory, *,
                        replacing: Sequence[str] = ()) -> Advisory | None
-async def approve(store: Store, bus: EventBus, advisory_id: str, *, expected_version: int, actor: str) -> Advisory
+async def approve(store: Store, bus: EventBus, advisory_id: str, *, expected_version: int, actor: str,
+                  reason: str | None = None, note: str | None = None) -> Advisory
 async def edit_and_approve(store: Store, bus: EventBus, advisory_id: str, *, expected_version: int,
-                           body: str, actor: str) -> Advisory
+                           body: str, actor: str, reason: str | None = None,
+                           note: str | None = None) -> Advisory
 async def reject(store: Store, bus: EventBus, advisory_id: str, *, expected_version: int,
                  reason: str, actor: str) -> Advisory
 async def supersede(store: Store, bus: EventBus, advisory_id: str, *, reason: str,
                     superseded_by: str | None = None) -> Advisory | None
 async def list_advisories(store: Store, *, status: AdvisoryStatus | None = None, limit: int = 50) -> list[Advisory]
+async def get_advisory(store: Store, advisory_id: str) -> Advisory | None
 ```
 Transition rules: only DRAFT moves. approve -> APPROVED; edit -> EDITED (body stripped,
 upper-cased, 1..`ADVISORY_BODY_MAX_CHARS` chars, no engine handling or escape technique
@@ -1335,7 +1362,8 @@ upper-cased, 1..`ADVISORY_BODY_MAX_CHARS` chars, no engine handling or escape te
 `superseded_by` set, the reason kept as the audit note). Each transition increments
 `version` through `compare_and_set_advisory`, sets `decided_by`/`decided_at` (dispatcher
 transitions), writes an `AuditEntry` (before/after = status, version, body, edited_body,
-reject_reason, policy_id, policy_version, policy_hash; `input_hashes` = advisory `input_hash` + every source sha256; `model_id`;
+reject_reason, decision_reason, policy_id, policy_version, policy_hash; `note` = the caller's
+note for approve and edit; `input_hashes` = advisory `input_hash` + every source sha256; `model_id`;
 `prompt_hash` = drafter hash) and publishes `SseEvent.ADVISORY`. APPROVED and EDITED also
 write an `OutboundMessage` (text = `advisory.final_text`; `replay`, `replay_case_id` and the
 policy id, version and hash copied from the advisory; `queued_wall_at =
@@ -1478,6 +1506,7 @@ class Runtime:
     situations; assessments; cones; exposed                      # the picture, by volcano id or flight id
     reroutes: dict[str, list[RerouteOption]]                      # flight id -> options computed at planning
     satellite: dict[str, SatelliteReading]                        # volcano id -> newest Satellite Reader reading
+    crew_reports: dict[str, CrewReport]; crew: CrewPicture; fixes: FixHistory   # section 5.19
     instance_id: str                                              # uuid4 hex, made once per Runtime
     retired: bool                                                 # another instance ticked after this one
     adsb_passes: asyncio.Task[None] | None                        # the pending extra ADS-B passes
@@ -1494,6 +1523,15 @@ class Runtime:
                           case: ReplayCase | None = None) -> None
     async def publish_budget(self) -> None                       # SSE `budget` (budget_view)
     async def add_verified_notice(self, vona: Vona) -> None      # a verified pasted notice joins live.vonas and the store
+    # crew reports (section 5.19): a flag layer beside the cones
+    async def restore_crew_reports(self) -> None                 # create_runtime: every stored report, both modes
+    def crew_picture(self, at: datetime) -> CrewPicture         # pure: build_picture over the current mode
+    async def update_crew(self, at: datetime, report: TickReport) -> None   # expiry audits, picture, traces
+    def crew_flag(self, hex_id: str) -> CrewFlag | None
+    def crew_view(self, report_id: str) -> CrewReportView | None
+    def crew_fix(self, hex_id: str | None, callsign: str | None, at: datetime) -> FixLookup
+    async def enter_crew_report(self, entry: CrewEntry, *, actor: str) -> CrewReportView   # raises CrewReportRefused
+    async def withdraw_crew_report(self, report_id: str, *, reason: str, actor: str) -> CrewReportView
     async def run_recovery(self, at: datetime, report: TickReport) -> None   # queues RECOVER work when the closed airports change
     async def update_exposures(self, at: datetime, report: TickReport) -> None
     async def settle_drafts(self, at: datetime, report: TickReport) -> None  # draft retirement
@@ -1547,7 +1585,7 @@ Core rules:
   tick ends the open streams once per quiet spell, so a tab left on an instance without ticks
   reconnects (a paused Scheduler costs each tab one reconnect). Advisory ids stay random.
 - Publish only what changed. `publish` always sends `state`, `exposures`, `aircraft` and
-  `budget`. `volcanoes`, `official`, `cones`, `reroutes`, `overlays` and each `situation` card
+  `budget`. `volcanoes`, `official`, `cones`, `reroutes`, `overlays`, `crew` and each `situation` card
   (per `volcano_id`) are sent only when their `sha256_json` digest differs from the last one
   sent (`Runtime._published`); a card whose volcano leaves the active list loses its digest,
   so it is sent again if the volcano comes back. Every mode switch (a replay loop included)
@@ -1557,12 +1595,13 @@ Core rules:
   VAACs) -> `find_active` -> due context feeds (ADS-B, TAF, METAR, winds, frames; HSD and
   the BTD only with `settings.science`) -> per active volcano: `select_records` ->
   `build_situation` (with the feed health) -> the plume gate (a read that matters is queued, the
-  area held) -> `build_cone` -> `find_exposed` over every cone -> the recovery check (queues
+  area held) -> `build_cone` -> `find_exposed` over every cone -> crew reports (`update_crew`:
+  expiry audits, the crew picture and its flags; section 5.19) -> the recovery check (queues
   RECOVER work) -> `tephra.duty.dispatch_duty` (the Duty Officer orders and delegates plume
   reads, planning and drafting with reroutes, recovery and the SRA; section 5.18) -> draft
   retirement -> publish (Wall sections, then `budget`) -> checkpoint. An extra ADS-B pass runs
-  exposure -> `dispatch_duty(trigger="adsb")` -> draft retirement. One volcano's failure keeps its previous picture and does not stop the others.
-  Exposure, the recovery check, the Duty Officer's dispatch and draft retirement each run
+  exposure -> crew reports -> `dispatch_duty(trigger="adsb")` -> draft retirement. One volcano's failure keeps its previous picture and does not stop the others.
+  Exposure, crew reports, the recovery check, the Duty Officer's dispatch and draft retirement each run
   guarded: one that raises becomes a note (`<step> failed this tick (<error type>)`) and an
   error trace line, and publish and checkpoint still run. The extra ADS-B passes are scheduled
   even when a tick raises.
@@ -1664,6 +1703,9 @@ Core rules:
   written when they change. A situation's clock-only fields (`as_of`, each discrepancy's
   `magnitude` and `summary`) and a cone's `created_at` do not count as a change. Target under
   10,000 Firestore writes a day (free tier is 20,000).
+- Crew reports are durable (`crew_reports`, written on entry, withdrawal and expiry) and are
+  restored in both modes by `restore_crew_reports` before anything else; the fix history is
+  memory only and starts empty after a restart or a mode switch (section 5.19).
 - Restart. A LIVE runtime restores from the store the feed health (except feeds the settings
   switch off and states saved during a replay), the SIGMETs still valid, the VONAs within
   `vona_window_h`, the VAAs of the last 30 h, and the bookkeeping (planned marks, the latest
@@ -1752,8 +1794,9 @@ to a minute for Cloud Scheduler (an overlapping scheduler tick skips itself; the
 does not claim `runtime/writer`, since it may run before traffic reaches the revision). On
 shutdown it cancels the watchdog, stops the loop or that tick (waiting up to 10 s) and closes
 the runtime. Until the runtime exists, routes that need
-it answer 503 `starting`. `create_app` mounts the six feature routers (`routes_ask`,
-`routes_notices`, `routes_recovery`, `routes_comms`, `routes_regdocs`, `routes_backtest`) under
+it answer 503 `starting`. `create_app` mounts the feature routers (`routes_ask`,
+`routes_notices`, `routes_recovery`, `routes_comms`, `routes_regdocs`, `routes_backtest`,
+`routes_duty`, `routes_crew`) under
 `/api` through `_include_feature_routers`, which imports them at call time. A pure ASGI
 middleware adds the security headers (section 8.1, with `microphone=(self)` on `/desk` alone) to
 every response, caps request bodies whether or not they carry `Content-Length` (413
@@ -2107,6 +2150,8 @@ first. `HandoverBrief` is stored in `docs` with `doc_type = "handover"` (ids `ho
 ```python
 async def draft_sra(runtime: DocsRuntime, region: str, *, actor: str = "system") -> SraDraft   # sra.py; raises UnknownRegion, NoActiveVolcano, AiUnavailable
 async def draft_var(runtime: DocsRuntime, flight_id: str, *, actor: str = "system") -> VarDraft  # var.py; raises FlightNotExposed; no model call
+async def draft_crew_var(runtime: DocsRuntime, view: CrewReportView, *, vaac: VaacCentre | None,
+                         actor: str = "system") -> VarDraft      # var.py; raises NotAnAshReport; no model call
 async def sign_doc(store, bus, doc_id: str, *, role, name, actor) -> doc                         # registry.py
 async def get_doc / list_docs(store, ...); record_new_doc(store, bus, doc, *, actor, ...)
 ```
@@ -2120,7 +2165,15 @@ is `DRAFT - NOT AN APPROVED SRA - FOR HUMAN SIGN-OFF`; ICAO Doc 9974 is cited as
 2012 by title; the Indonesian circular SE-DJPU 15/2026 is "per press reports; verify against the
 PDF". The VAR fills items 1 to 5 from the ADS-B proxy flight (item 5 labelled "NOT a crew
 observation") and leaves items 6 to 16 "PILOT/DISPATCHER TO COMPLETE", with an AIREP SPECIAL
-template. Signatures are per role (`DISPATCHER`, `SAFETY_MANAGER`, `ACCOUNTABLE_EXECUTIVE`,
+template. A VAR started from a crew report (`draft_crew_var`, the Desk's message to the weather
+office and the VAAC) fills items 1 to 5 and 8 from the report, 14 (engines) and 15 (St Elmo's
+fire, fumes or smell, haze) from its cues and 16 from the dispatcher's remarks, each noted "from
+the crew report entered by <name> at <HHMM>Z; the crew confirms or corrects it"; its context
+gives the caution area and how it stands against the official areas (outside, partly inside,
+covered), and its follow-ups ask a human to pass the difference to the MWO and the VAAC through
+the operator's own channel. `VarDraft.volcano_id` is None for an unattributed report, `volcano_name`
+then `no catalogued volcano`, and `crew_report_id` names the report. Only an `ASH` report that is
+not withdrawn qualifies. Signatures are per role (`DISPATCHER`, `SAFETY_MANAGER`, `ACCOUNTABLE_EXECUTIVE`,
 `PILOT_IN_COMMAND`); a document is `SIGNED` when every line is filled and its header never changes.
 Nothing is queued to `outbound`.
 
@@ -2210,6 +2263,100 @@ in `duty`, kept as `Runtime.duty` (restored on restart), published as SSE `duty`
 `TickReport.duty_runs`. Trace lines use stage `DUTY`. With `TEPHRA_LLM=stub` the run dispatches
 everything, plume reads first, most urgent first, and briefs `NO MODEL: ...` (outcome `STUB`).
 
+### 5.19 crew (crew reports of ash)
+
+A dispatcher enters a crew (pilot) report of ash on the Desk. Code draws a "crew report
+caution area" from it; no model is involved and nothing is ingested from a feed. The area is a
+**flag only**: it lives in `Runtime.crew`, beside the situations and cones and never inside
+them, so it never shrinks or replaces an official area, never changes a cone, a plan or the
+Plume Reader's input, and never makes the code think an official area is in force
+(`Situation.official_valid_now` does not see it). No planning, no drafts, no model calls.
+
+`tephra/geo/crew_area.py` (pure)
+```python
+CIRCLE_STEPS: Final = 64; CIRCLE_SLACK: Final = 1.001; WIND_PROFILE_SLACK: Final = timedelta(minutes=60)
+class StretchWind(NamedTuple): level: WindLevel; source_id: str; valid_at: datetime
+class AreaRelation(NamedTuple): relation: Literal["COVERED", "OVERLAPS", "OUTSIDE"]; covered_by: list[str]
+def circle_ring(lat: float, lon: float, radius_km: float) -> list[tuple[float, float]]   # (lon, lat), circumscribed
+def area_polygon(lat: float, lon: float, radius_nm: float, *, stretch_nm: float = 0.0,
+                 toward_deg: float = 0.0) -> GeoPolygon      # circle, or hull of it and the circle moved downwind
+def pick_wind(profiles: Sequence[WindProfile], observed_at: datetime, base_ft: int, top_ft: int
+              ) -> StretchWind | None
+def stretch_note(wind: StretchWind | None, *, threshold_kt: int, stretch_nm: float, no_wind_reason: str) -> str
+def relation_to_official(polygon: GeoPolygon, base_ft: int, top_ft: int,
+                         layers: Sequence[OfficialLayer], at: datetime) -> AreaRelation
+```
+`tephra/desk/crew_reports.py`
+```python
+LIST_WINDOW: Final = timedelta(hours=24); LOAD_LIMIT: Final = 500
+class CrewReportRefused(Exception): problems: list[str]
+class CrewReportNotFound(Exception); class AlreadyWithdrawn(Exception)
+class CrewEntry(TephraModel)        # POST body: hex | callsign (exactly one), cues, level_from_fl, level_to_fl?, observed_at, lat?, lon?, remarks?
+class WithdrawRequest(TephraModel)  # {reason (3-500 chars)}
+class CrewFix(NamedTuple)           # hex, callsign, lat, lon, alt_baro_ft, observed_at, source_id
+class FixLookup(TephraModel)        # {found, hex, proxy_flight, callsign, lat, lon, alt_baro_ft, observed_at, source_id, note}
+class FixHistory:                   # airline ADS-B positions per hex, kept TEPHRA_CREW_FIX_HISTORY_MIN
+    def add(aircraft, at); def clear(); def fixes(hex) -> Sequence[CrewFix]; def hexes(); def callsigns(hex)
+def report_kind(cues: Sequence[CrewCue]) -> CrewReportKind
+def resolve_flight(hex_id: str | None, typed: str | None, aircraft, history: FixHistory) -> tuple[str | None, str | None]
+def find_fix(hex_id: str | None, observed_at: datetime, aircraft, history, *, within: timedelta) -> CrewFix | None
+def build_report(entry: CrewEntry, *, actor, at, replay_case_id, flight, fix, fix_within, catalogue,
+                 active_radius_km, winds, policy: CrewReportPolicy, summary: PolicySummary) -> CrewReport
+async def record_entry(store, report) -> None                       # put + CREW_REPORT_ENTERED
+async def withdraw(store, report, *, reason, actor) -> CrewReport   # put + CREW_REPORT_WITHDRAWN (note = reason)
+async def expire(store, report, at) -> CrewReport                   # put + CREW_REPORT_EXPIRED (system), once
+async def load_reports(store) -> list[CrewReport]
+def build_picture(reports, *, at, replay_case_id, replay, aircraft, layers, lookahead_min,
+                  vertical_margin_ft) -> CrewPicture
+def report_view(report, layers, at) -> CrewReportView               # a report the picture does not list
+```
+Rules:
+- **Kind.** `ASH_SEEN`, `HAZE`, `ST_ELMOS_FIRE` or `ENGINE` (`CREW_AREA_CUES`) make an `ASH`
+  report, which draws an area. `SULPHUR_SMELL` with none of them is `ROUTINE` (FAA JO 7110.65
+  2-6-2): recorded, no area. `NO_ASH_SEEN` alone is `NO_ASH`: recorded, and it never removes
+  or shortens anything. `ASH_SEEN` with `NO_ASH_SEEN` is refused.
+- **Refused, never guessed** (422 `validation_failed`, every problem listed): no level (no band
+  is invented); the upper level below the lower; `observed_at` in the future or more than
+  `crew_reports.valid_min` ago; a `hex` that is not a tracked airline flight; a callsign that is
+  not airline-style, or that more than one tracked flight flies; half a position; no position
+  when no fix is held; a typed position when a fix is held.
+- **Position.** The reporting flight's ADS-B fix nearest `observed_at` within the ADS-B stale
+  age (`settings.stale_after_s(FeedId.ADSB)`, 90 s), from the live aircraft and `FixHistory`
+  (`position_basis ADSB_FIX`, `position_source_id` the snapshot). Otherwise the position the
+  dispatcher typed (`TYPED`, shown "typed by dispatcher"). A fix older than the history
+  (`TEPHRA_CREW_FIX_HISTORY_MIN`, 30) is not held, so a late entry types the position.
+- **Volcano.** The nearest catalogued volcano within `settings.active_radius_km` (300 km);
+  none gives an unattributed report (`volcano_id` None, labelled `no catalogued volcano`),
+  never the nearest volcano further away. A report never makes a volcano active.
+- **Area** (`ASH` only): `area_polygon` of `crew_reports.radius_nm` (60 NM) around the
+  position, circumscribed; band `[max(0, from_fl x 100 - level_margin_ft), to_fl x 100 +
+  level_margin_ft]`; valid `observed_at` to `observed_at + valid_min` (360). Stretch: the wind
+  from the attributed volcano's held winds (`live.winds`, fetched only for active volcanoes),
+  the hourly profile within 60 min of `observed_at`, the strongest pressure level inside the
+  band (else the level nearest its middle); when its speed is above `stretch_wind_kt` (30) the
+  area is the hull of the circle and the circle moved `speed x downwind_stretch_min / 60` NM
+  downwind (30 min), fixed at entry. No wind held: not stretched, and `stretch_note` says why.
+  A new report draws a new area; nothing extends an old one.
+- **States** (`build_picture`, each update): `WITHDRAWN`; `NO_AREA` (ROUTINE, NO_ASH);
+  `EXPIRED` after `valid_to`; `COVERED` when the official layers valid now whose band spans the
+  area's together contain it ("Covered by official area", display only: the area and its flags
+  stay); otherwise `ACTIVE`, with `outside_official` and `discrepancy` "Crew report outside the
+  official area" when no valid official layer meets it both laterally and vertically. No
+  official product, NO VA EXP, NOT IDENTIFIABLE or no-ash report ends or shortens an area.
+- **Flags.** For each ACTIVE or COVERED area, `find_crossings` over the airline aircraft with
+  the area's band plus `exposure.vertical_margin_ft`, looking ahead `min(exposure_lookahead_min,
+  minutes to valid_to)`. One `CrewFlag` per flight (the earliest entry; every report id), line
+  "Crew report of ash on this route". `AircraftFeatureProps.crew_report` marks it on the map.
+- **Picture.** Reports of the current mode (and, in REPLAY, the playing case) observed by now and
+  within `LIST_WINDOW`, newest first, with code-written `age_text` ("reported 47 min ago"),
+  `place_text`, `state_label` and `summary`. Features: `area` (Polygon) and `pin` (Point at the
+  report position) for ACTIVE and COVERED areas, and a `path` LineString per flag.
+- **Expiry.** `Runtime.update_crew` writes `CREW_REPORT_EXPIRED` once per lapsed area of the
+  current mode (`expiry_recorded_at`); a failed write is retried at the next update.
+- **REPLAY.** Reports entered in REPLAY carry `replay` and `replay_case_id`, are shown only while
+  that case plays, and never mix with LIVE ones. After the replay clock loops, a report observed
+  later in the recording reappears when the clock reaches it.
+
 ## 6. Quota and model use
 
 | Step | Backend | Model | When it runs |
@@ -2266,6 +2413,7 @@ metrics.
 | `plans` | plan id | `PlannedAction` | core |
 | `ai_failures` | failure id | `AiFailure` (a flight with no plan or draft; handled by hand) | core (`desk.failures`) |
 | `duty` | run id | `DutyRun` | duty (`tephra.duty.dispatch_duty`) |
+| `crew_reports` | `CR-<12 hex>` | `CrewReport` (both modes; withdrawn and expired ones kept) | crew (`tephra.desk.crew_reports`, through `Runtime.enter_crew_report`, `withdraw_crew_report`, `update_crew`) |
 | `reroutes` | `RerouteOption` id | `RerouteOption` (every option of a planned flight) | core |
 | `sat_readings` | reading id (`SAT-...`) | `SatelliteReading` | core |
 | `notices` | `NOTICE-<sha12>` | `NoticeReading` | `routes_notices` |
@@ -2297,7 +2445,8 @@ All JSON bodies are the named models dumped with `model_dump(mode="json")` (date
 Errors are `ErrorBody` with these `error` codes:
 `bad_request` (400), `bad_pin` (401), `unauthenticated` (401), `forbidden` (403),
 `not_found` (404), `method_not_allowed` (405), `version_conflict` (409, `current` set),
-`invalid_transition` (409), `too_large` (413; a body over `MAX_BODY_BYTES`, 16 KiB, except
+`invalid_transition` (409), `reason_required` (422, `problems` set: approving a CONTINUE or
+MONITOR for a flight a crew report flags without a written reason), `too_large` (413; a body over `MAX_BODY_BYTES`, 16 KiB, except
 `POST /api/desk/notices` at 32 KiB and `POST /api/desk/ask/voice` at `max_upload_bytes`), `validation_failed` (422, `problems` set),
 `too_many_attempts` (429, `Retry-After`), `internal` (500), `desk_disabled` (503),
 `starting` (503; the runtime is not ready), `too_many_streams` (503, `Retry-After: 5`),
@@ -2376,9 +2525,16 @@ and a `Point` per turn point (`feature: "waypoint"`), with `RerouteFeatureProps`
 `proxy_flight`, `volcano_id`, `kind`, `status`, `route_string`, `extra_nm`, `extra_min`, `side`,
 `label`, `waypoint_labels`).
 `satellite`: the newest `SatelliteReading` of each active volcano that has one.
+`crew`: `CrewPicture` `{label, reports: [CrewReportView], flags: [CrewFlag], features}`
+(section 5.19). `features` is a FeatureCollection with `CrewFeatureProps` (`report_id`,
+`feature` `area` | `pin` | `path`, `state`, `label`, `flight`, `volcano_id`, `age_text`, `base_ft`,
+`top_ft`, `valid_to`, `replay`): an `area` Polygon and a `pin` Point per ACTIVE or COVERED
+report (ids `<report id>#area`, `#pin`) and a `path` LineString per flagged flight
+(`<hex>#crew-path`). The crew area is drawn beneath the official areas and never replaces one.
 `duty`: the newest `DutyRun` (or null).
 `aircraft`: `Point` per merged aircraft with `AircraftFeatureProps` (`exposed`,
-`minutes_to_entry` and `volcano_id` from the earliest exposure).
+`minutes_to_entry` and `volcano_id` from the earliest exposure; `crew_report` when a crew report
+area flags it).
 `situations`: `SituationCard` per active volcano (cards exactly `[SIGMET, VONA, VAA]`).
 `overlays`: `BtdOverlay` per active volcano with a BTD result (`image_url =
 blob_url(image_key)`, `corners = bbox.corners_lonlat()`), `FrameThumb` per stored frame.
@@ -2412,10 +2568,11 @@ Wall resyncs from `/api/wall` and the Desk reloads its list when the stream reop
 | `doc` | `DocSummary` (`kind` SRA, VAR or HANDOVER; status DRAFT, SIGNED or ACKNOWLEDGED) | upsert by `id`; a HANDOVER summary tells the Desk to refetch `/api/desk/handovers` |
 | `budget` | `BudgetView` | replace the AI budget chip |
 | `duty` | `DutyRun` | replace the Duty Officer panel and the Desk's brief card |
+| `crew` | `CrewPicture` | replace the crew report areas, their list and the flags (Wall and Desk) |
 | `heartbeat` | `{"now": iso, "mode": "LIVE"}` (no `id`) | update clock |
 
 Core publishes `state`, `volcanoes`, `situation`, `official`, `cones`, `exposures`,
-`reroutes`, `aircraft`, `overlays`, `trace`, `advisory`, `ai_failure`, `satellite`, `recovery`
+`reroutes`, `aircraft`, `overlays`, `crew`, `trace`, `advisory`, `ai_failure`, `satellite`, `recovery`
 and `budget` (the Wall layers only when they changed, section 5.7); the feature routes publish
 `notice`, `message`, `doc` and `budget` (after a model call) too. The SSE endpoint sends
 `heartbeat`. NaN and infinities in a payload are sent as null. There is no `feeds` event:
@@ -2437,8 +2594,8 @@ never pauses. The Desk keeps its stream open while hidden: its tab title counts 
 | `POST /api/desk/logout` | none | 204, cookie cleared (the CSRF guard applies, also when the desk is disabled) |
 | `GET /api/desk/me` | none | `SessionInfo`, 401 or 503 `desk_disabled` |
 | `GET /api/desk/advisories?status=DRAFT&limit=50` | none | `AdvisoryList` (default status DRAFT, newest first) |
-| `POST /api/desk/advisories/{id}/approve` | `DecisionRequest` `{version}` | `Advisory` (APPROVED); 409 `version_conflict`/`invalid_transition`; 404 |
-| `POST /api/desk/advisories/{id}/edit` | `EditRequest` `{version, body}` | `Advisory` (EDITED); 422 `validation_failed` (empty, or over 400 characters once stripped and upper-cased) |
+| `POST /api/desk/advisories/{id}/approve` | `DecisionRequest` `{version, reason?}` | `Advisory` (APPROVED); 409 `version_conflict`/`invalid_transition`; 404; 422 `reason_required` |
+| `POST /api/desk/advisories/{id}/edit` | `EditRequest` `{version, body, reason?}` | `Advisory` (EDITED); 422 `validation_failed` (empty, or over 400 characters once stripped and upper-cased); 422 `reason_required` |
 | `POST /api/desk/advisories/{id}/reject` | `RejectRequest` `{version, reason (3-500 chars)}` | `Advisory` (REJECTED); 422 when the reason is too short |
 | `GET /api/desk/ai-failures?open_only=true&limit=50` | none | `AiFailureList`: flights the AI could not plan or draft for, in the current mode |
 | `POST /api/desk/ai-failures/{id}/handled` | `HandledRequest` `{note}` | `AiFailure` with `handled_by`, `handled_at`; marking twice keeps the first; 404 |
@@ -2451,7 +2608,12 @@ or `Origin`, and any POST with neither a JSON body nor `X-Tephra-Desk: 1`. `desk
 when `TEPHRA_DESK_PIN` is unset or blank (also when the session secret is blank, which
 config prevents). It comes after the CSRF guard (403) and before body or query validation
 (422); the exception is malformed JSON, which FastAPI rejects with 422 before any dependency
-runs. An advisory id that does not match `adv_[0-9a-f]{12}` answers 404. The actor recorded
+runs. An advisory id that does not match `adv_[0-9a-f]{12}` answers 404. Approve and edit of a
+CONTINUE or MONITOR draft of the current mode whose flight (`hex`) a crew report area flags now
+(`Runtime.crew_flag`; every tracked flight is airborne) need `reason`, at least 3 characters once
+whitespace is collapsed, else 422 `reason_required` ("Crew report of ash on this route: approving
+MONITOR needs a written reason"); the reason is kept as `Advisory.decision_reason` and the audit
+note names the reports. Any other approval keeps a reason it is given. The actor recorded
 is `desk:<SessionInfo.name>`.
 
 ### 8.6 Task endpoint
@@ -2486,3 +2648,8 @@ failure is HTTP 503 `{"error": "ai_unavailable", "message": "AI UNAVAILABLE: <re
 | `POST /api/desk/docs/sra` | `{region}` | `SraDraft`; 404 unknown region; 409 `no_active_volcano`; 503 |
 | `POST /api/desk/docs/var` | `{flight_id}` | `VarDraft`; 404 flight not exposed |
 | `POST /api/desk/docs/{DOC-id}/sign` | `{name, role}` | the document; 409 `invalid_transition` (role already signed); 422 |
+| `GET /api/desk/crew-reports` | none | `CrewPicture` (the current mode; the same as `WallSnapshot.crew`) |
+| `GET /api/desk/crew-reports/fix?observed_at=&hex=` or `&callsign=` | none | `FixLookup`: the ADS-B fix within 90 s that an entry would use (`found`), or why none; 422 |
+| `POST /api/desk/crew-reports` | `CrewEntry` `{hex \| callsign, cues: [ASH_SEEN, SULPHUR_SMELL, HAZE, ST_ELMOS_FIRE, ENGINE, NO_ASH_SEEN], level_from_fl, level_to_fl?, observed_at, lat?, lon?, remarks? (300)}` | `CrewReportView`; 422 `validation_failed` with every problem (section 5.19); writes `CREW_REPORT_ENTERED`, publishes `crew` and `aircraft` |
+| `POST /api/desk/crew-reports/{CR-id}/withdraw` | `{reason (3-500 chars)}` | `CrewReportView` (WITHDRAWN); 404; 409 `invalid_transition` when already withdrawn; writes `CREW_REPORT_WITHDRAWN` |
+| `POST /api/desk/crew-reports/{CR-id}/var` | none (send `X-Tephra-Desk: 1`) | `VarDraft` from the report (the message to the weather office and the VAAC; nothing is sent); 404; 409 `invalid_transition` (not an ASH report, withdrawn, or not in the current picture) |

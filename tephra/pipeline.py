@@ -49,8 +49,9 @@ from tephra.config import (
     Settings,
     apply_process_env,
 )
-from tephra.desk import audit
+from tephra.desk import audit, crew_reports
 from tephra.desk.approvals import SYSTEM_ACTOR, submit_draft, supersede
+from tephra.desk.crew_reports import CrewEntry, FixHistory, FixLookup
 from tephra.desk.failures import record_failure
 from tephra.duty import dispatch_duty
 from tephra.feeds.adsb import merge_aircraft
@@ -73,6 +74,7 @@ from tephra.geo.exposure import find_exposed
 from tephra.geo.reroute import coordinate_text
 from tephra.geo.units import deg_to_compass, distance_nm, ft_to_fl
 from tephra.models import (
+    CREW_CUE_TEXT,
     Advisory,
     AdvisoryStatus,
     AiFailure,
@@ -83,6 +85,10 @@ from tephra.models import (
     AviationColor,
     BtdOverlay,
     BtdResult,
+    CrewFlag,
+    CrewPicture,
+    CrewReport,
+    CrewReportView,
     DutyRun,
     ExposedFlight,
     ExposureFeatureProps,
@@ -158,7 +164,7 @@ from tephra.store import open_store
 from tephra.store.base import Collection, Store, Where
 from tephra.util import timeutil
 from tephra.util.events import EventBus, get_bus
-from tephra.util.hashing import sha256_json
+from tephra.util.hashing import proxy_flight_number, sha256_json
 
 __all__ = ["Runtime", "create_runtime"]
 
@@ -290,9 +296,18 @@ class Runtime:
     store_health: StoreHealth = field(init=False, default_factory=StoreHealth)
     unsaved: set[tuple[Collection, str]] = field(init=False, default_factory=set)
     """Records held in memory whose store write failed; retried at the next checkpoint."""
+    crew_reports: dict[str, CrewReport] = field(init=False, default_factory=dict)
+    """Every crew report entered (both modes; the picture filters by mode and replay case)"""
+    crew: CrewPicture = field(init=False, default_factory=CrewPicture)
+    """Crew report caution areas and the flights they flag, as of the last update"""
+    fixes: FixHistory = field(init=False)
+    """Recent airline ADS-B positions, to place a crew report entered after its observation"""
+    _crew_traced: set[str] = field(init=False, default_factory=set)
+    """'<report id>' (outside the official area) and '<report id>/<hex>' (flag) lines traced"""
 
     def __post_init__(self) -> None:
         self.policy_summary = PolicySummary.of(self.policy)
+        self.fixes = FixHistory(timedelta(minutes=self.settings.crew_fix_history_min))
         self.live.health = initial_health(
             self.settings, replay=self.mode is RunMode.REPLAY, recorded=self.recorded_feeds
         )
@@ -368,9 +383,10 @@ class Runtime:
             ),
             cones=feature_collection(part for cone in cones for part in cone.to_features()),
             exposures=_exposure_features(self.exposed.values()),
-            aircraft=_aircraft_features(self.aircraft(), self.exposed.values()),
+            aircraft=_aircraft_features(self.aircraft(), self.exposed.values(), self.crew),
             reroutes=_reroute_features(self.reroutes, self.exposed),
             duty=self.duty,
+            crew=self.crew,
             situations=[self._situation_card(situation, at, colors) for situation in situations],
             overlays=Overlays(
                 btd=[
@@ -495,6 +511,7 @@ class Runtime:
 
     async def update_exposures(self, at: datetime, report: TickReport) -> None:
         """Which flights enter which cone. Planning them is the Duty Officer's work list."""
+        self.fixes.add(self.aircraft(), at)
         if self._positions_stale():
             # Nothing to draft from, and a flight missing from an old copy is no reason to
             # retire a dispatcher's pending draft: the picture waits for live positions.
@@ -537,6 +554,11 @@ class Runtime:
         """Exposure, the Duty Officer's dispatch and draft retirement: the ADS-B pass between
         ticks runs this; a tick runs the steps around network recovery."""
         await self.update_exposures(at, report)
+        try:
+            await self.update_crew(at, report)
+        except Exception:  # a flag layer: its failure must not hold up the Duty Officer
+            logger.exception("crew report update failed in an ADS-B pass")
+            self.trace(TraceStage.SYSTEM, "system", "crew reports failed this pass", level="error")
         await self.run_duty(at, report, trigger="adsb")
         await self.settle_drafts(at, report)
 
@@ -689,6 +711,219 @@ class Runtime:
         self.live.vonas[key] = vona
         await self.store.put(Collection.VONAS, key, vona.model_dump(mode="json"))
 
+    # --- crew (pilot) reports: a flag layer beside the cones, never inside them ----------
+
+    async def restore_crew_reports(self) -> None:
+        """Every stored crew report, both modes: the picture shows those of the mode and
+        replay case playing. A report that no longer validates is skipped and logged."""
+        docs = await self.store.query(
+            Collection.CREW_REPORTS,
+            [],
+            order_by="created_at",
+            descending=True,
+            limit=crew_reports.LOAD_LIMIT,
+        )
+        for doc in docs:
+            try:
+                report = CrewReport.model_validate(doc)
+            except ValidationError:
+                logger.warning("ignoring an unreadable stored crew report")
+                continue
+            self.crew_reports[report.id] = report
+        self.crew = self.crew_picture(timeutil.now())
+
+    def crew_picture(self, at: datetime) -> CrewPicture:
+        layers = [layer for item in self.situations.values() for layer in item.official_layers]
+        return crew_reports.build_picture(
+            self.crew_reports.values(),
+            at=at,
+            replay=self.mode is RunMode.REPLAY,
+            replay_case_id=self._replay_case_id(),
+            aircraft=self.aircraft(),
+            layers=layers,
+            lookahead_min=self.settings.exposure_lookahead_min,
+            vertical_margin_ft=self.policy.exposure.vertical_margin_ft.value,
+        )
+
+    async def update_crew(self, at: datetime, report: TickReport) -> None:
+        """Record the expiry of lapsed areas once, rebuild the picture, and trace each new
+        flag and each area outside the official ones once. A flag only: nothing is planned,
+        drafted or asked of a model here."""
+        replay_case_id = self._replay_case_id()
+        for item in list(self.crew_reports.values()):
+            area = item.area
+            if (
+                area is None
+                or item.withdrawn_at is not None
+                or item.expiry_recorded_at is not None
+                or item.replay != (self.mode is RunMode.REPLAY)
+                or item.replay_case_id != replay_case_id
+                or at <= area.valid_to
+            ):
+                continue
+            try:
+                self.crew_reports[item.id] = await crew_reports.expire(self.store, item, at)
+            except Exception as exc:  # retried next update: the area is expired either way
+                logger.warning("recording the expiry of crew report %s failed: %s", item.id, exc)
+                self.store_failed(exc)
+                continue
+            self.trace(
+                TraceStage.SYSTEM,
+                "code",
+                f"Crew report area of {item.flight} ({timeutil.hhmmz(item.observed_at)}) expired"
+                f" at {timeutil.hhmmz(area.valid_to)}",
+                volcano_id=item.volcano_id,
+                detail={"report_id": item.id},
+            )
+        self.crew = self.crew_picture(at)
+        self._trace_crew()
+        if self.crew.flags:
+            report.notes.append(f"{len(self.crew.flags)} flight(s) flagged by crew reports")
+
+    def _trace_crew(self) -> None:
+        for view in self.crew.reports:
+            item = view.report
+            if view.discrepancy is not None and item.id not in self._crew_traced:
+                self._crew_traced.add(item.id)
+                self.trace(
+                    TraceStage.DISCREPANCY,
+                    "code",
+                    f"{view.discrepancy}: {item.flight} at {timeutil.hhmmz(item.observed_at)},"
+                    f" {view.place_text}",
+                    level="warn",
+                    volcano_id=item.volcano_id,
+                    detail={"report_id": item.id},
+                )
+        for flag in self.crew.flags:
+            for report_id in flag.report_ids:
+                key = f"{report_id}/{flag.hex}"
+                if key in self._crew_traced:
+                    continue
+                self._crew_traced.add(key)
+                when = (
+                    "inside the area now"
+                    if flag.inside_now
+                    else f"enters it in {flag.minutes_to_entry} min if track and level are held"
+                )
+                self.trace(
+                    TraceStage.EXPOSURE,
+                    "code",
+                    f"{flag.proxy_flight} ({flag.callsign or flag.hex.upper()}): {flag.line};"
+                    f" {when}",
+                    level="warn",
+                    detail={"report_id": report_id, "hex": flag.hex},
+                )
+
+    def crew_flag(self, hex_id: str) -> CrewFlag | None:
+        return next((flag for flag in self.crew.flags if flag.hex == hex_id), None)
+
+    def crew_fix(self, entry_hex: str | None, callsign: str | None, at: datetime) -> FixLookup:
+        """The fix a crew report entered now would be placed at, or why there is none."""
+        hex_id, flight_callsign = crew_reports.resolve_flight(
+            entry_hex, callsign, self.aircraft(), self.fixes
+        )
+        within = timedelta(seconds=self.settings.stale_after_s(FeedId.ADSB))
+        fix = crew_reports.find_fix(hex_id, at, self.aircraft(), self.fixes, within=within)
+        name = (proxy_flight_number(hex_id) if hex_id else flight_callsign) or "the flight"
+        if fix is None:
+            return FixLookup(
+                found=False,
+                hex=hex_id,
+                proxy_flight=proxy_flight_number(hex_id) if hex_id else None,
+                callsign=flight_callsign,
+                note=f"No ADS-B fix of {name} within {round(within.total_seconds())} s of"
+                f" {timeutil.hhmmz(at)}: type the position the crew reported",
+            )
+        return FixLookup(
+            found=True,
+            hex=fix.hex,
+            proxy_flight=proxy_flight_number(fix.hex),
+            callsign=fix.callsign,
+            lat=fix.lat,
+            lon=fix.lon,
+            alt_baro_ft=fix.alt_baro_ft,
+            observed_at=fix.observed_at,
+            source_id=fix.source_id,
+            note=f"ADS-B fix of {name} at {timeutil.hhmmz(fix.observed_at)}",
+        )
+
+    async def enter_crew_report(self, entry: CrewEntry, *, actor: str) -> CrewReportView:
+        """Store a crew report a dispatcher entered and show it at once. Raises
+        :class:`crew_reports.CrewReportRefused` with every problem; nothing is stored then."""
+        at = timeutil.now()
+        flight = crew_reports.resolve_flight(entry.hex, entry.callsign, self.aircraft(), self.fixes)
+        within = timedelta(seconds=self.settings.stale_after_s(FeedId.ADSB))
+        fix = crew_reports.find_fix(
+            flight[0], entry.observed_at, self.aircraft(), self.fixes, within=within
+        )
+        item = crew_reports.build_report(
+            entry,
+            actor=actor,
+            at=at,
+            replay_case_id=self._replay_case_id(),
+            flight=flight,
+            fix=fix,
+            fix_within=within,
+            catalogue=self.catalogue,
+            active_radius_km=self.settings.active_radius_km,
+            winds=self.live.winds,
+            policy=self.policy.crew_reports,
+            summary=self.policy_summary,
+        )
+        await crew_reports.record_entry(self.store, item)
+        self.crew_reports[item.id] = item
+        self.trace(
+            TraceStage.DESK,
+            "human",
+            f"Crew report entered: {item.flight} at {timeutil.hhmmz(item.observed_at)},"
+            f" {', '.join(CREW_CUE_TEXT[cue] for cue in item.cues)}",
+            volcano_id=item.volcano_id,
+            detail={"report_id": item.id, "kind": item.kind.value},
+        )
+        return await self._show_crew(item.id, at)
+
+    async def withdraw_crew_report(
+        self, report_id: str, *, reason: str, actor: str
+    ) -> CrewReportView:
+        item = self.crew_reports.get(report_id)
+        if item is None:
+            raise crew_reports.CrewReportNotFound(report_id)
+        withdrawn = await crew_reports.withdraw(self.store, item, reason=reason, actor=actor)
+        self.crew_reports[report_id] = withdrawn
+        self.trace(
+            TraceStage.DESK,
+            "human",
+            f"Crew report of {item.flight} ({timeutil.hhmmz(item.observed_at)}) withdrawn",
+            volcano_id=item.volcano_id,
+            detail={"report_id": report_id},
+        )
+        return await self._show_crew(report_id, timeutil.now())
+
+    def crew_view(self, report_id: str) -> CrewReportView | None:
+        return next((v for v in self.crew.reports if v.report.id == report_id), None)
+
+    async def _show_crew(self, report_id: str, at: datetime) -> CrewReportView:
+        """Rebuild and publish the crew picture now, not at the next tick, and return the
+        report's view (one the picture does not list, from another mode or older than its
+        window, gets a view of its own with no flags)."""
+        self.crew = self.crew_picture(at)
+        self._trace_crew()
+        self._publish_changed(SseEvent.CREW, self.crew)
+        self.bus.publish(
+            SseEvent.AIRCRAFT,
+            _aircraft_features(self.aircraft(), self.exposed.values(), self.crew),
+        )
+        view = self.crew_view(report_id)
+        if view is not None:
+            return view
+        layers = [layer for item in self.situations.values() for layer in item.official_layers]
+        return crew_reports.report_view(self.crew_reports[report_id], layers, at)
+
+    def _replay_case_id(self) -> str | None:
+        if self.mode is RunMode.REPLAY and self.replay_case is not None:
+            return self.replay_case.case_id
+        return None
+
     def _keep_current_reroutes(self) -> None:
         """Reroutes only for flights still exposed to the cone they were computed for."""
         self.reroutes = {
@@ -714,6 +949,7 @@ class Runtime:
         self._publish_changed(SseEvent.REROUTES, snapshot.reroutes)
         bus.publish(SseEvent.AIRCRAFT, snapshot.aircraft)
         self._publish_changed(SseEvent.OVERLAYS, snapshot.overlays)
+        self._publish_changed(SseEvent.CREW, snapshot.crew)
         prefix = f"{SseEvent.SITUATION.value}/"
         shown = {f"{prefix}{card.volcano_id}" for card in snapshot.situations}
         for card in snapshot.situations:
@@ -742,9 +978,11 @@ class Runtime:
     async def publish_live(self) -> None:
         """The between-ticks update after an extra ADS-B poll: aircraft, exposures, state."""
         self.bus.publish(
-            SseEvent.AIRCRAFT, _aircraft_features(self.aircraft(), self.exposed.values())
+            SseEvent.AIRCRAFT,
+            _aircraft_features(self.aircraft(), self.exposed.values(), self.crew),
         )
         self.bus.publish(SseEvent.EXPOSURES, _exposure_features(self.exposed.values()))
+        self._publish_changed(SseEvent.CREW, self.crew)
         self.bus.publish(SseEvent.STATE, await self.system_state())
 
     async def checkpoint(self, *, force: bool = False) -> None:
@@ -1649,6 +1887,9 @@ class Runtime:
         self._published.clear()
         self._quiet_ticks = 0
         self._replay_at = None
+        self.fixes.clear()
+        self._crew_traced.clear()
+        self.crew = self.crew_picture(timeutil.now())
 
     async def _live_activity(self) -> bool:
         source = self.source if self.mode is RunMode.LIVE else self._live_source
@@ -1831,6 +2072,7 @@ async def create_runtime(settings: Settings) -> Runtime:
         auto_replay=False,
     )
     runtime.replay_window = window
+    await runtime.restore_crew_reports()
     await runtime.restore_replay_choice()
     await runtime.restore()
     return runtime
@@ -2015,13 +2257,14 @@ def _volcano_features(
 
 
 def _aircraft_features(
-    aircraft: Sequence[Aircraft], exposed: Iterable[ExposedFlight]
+    aircraft: Sequence[Aircraft], exposed: Iterable[ExposedFlight], crew: CrewPicture
 ) -> dict[str, Any]:
     earliest: dict[str, ExposedFlight] = {}
     for flight in exposed:
         held = earliest.get(flight.hex)
         if held is None or flight.minutes_to_entry < held.minutes_to_entry:
             earliest[flight.hex] = flight
+    flagged = {flag.hex for flag in crew.flags}
     features = []
     for target in aircraft:
         hit = earliest.get(target.hex)
@@ -2038,6 +2281,7 @@ def _aircraft_features(
             exposed=hit is not None,
             minutes_to_entry=hit.minutes_to_entry if hit is not None else None,
             volcano_id=hit.volcano_id if hit is not None else None,
+            crew_report=target.hex in flagged,
             label=_aircraft_label(target, hit),
         )
         features.append(feature(point(target.lat, target.lon), props, feature_id=target.hex))
