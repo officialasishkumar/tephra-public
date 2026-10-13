@@ -408,12 +408,15 @@ export function untilText(deltaMs) {
   return `${Math.floor(m / 60)} h ${m % 60} min`;
 }
 
-// TEPHRA's label for the selected volcano (R6.3): what the estimate is, in plain words.
-export function tephraLabelText(cone, stub) {
+// TEPHRA's label for the selected volcano (R6.3): what the estimate is, in plain words. "Same as
+// official" says why when no model checked it, from the volcano's own assessment outcome: a read
+// still waiting, an AI that was unavailable, or AI off (docs/UI-AI-QUIET.md M24).
+const AI_TAG = { PENDING: " · AI waiting", MODEL_FAILED: " · AI unavailable", STUB: " · AI off" };
+export function tephraLabelText(cone, outcome, stub = false) {
   if (!cone) return null;
   if (cone.mode === "HYPOTHESIS") return "TEPHRA's estimate · hypothesis";
   if (cone.mode === "WIDENED") return "TEPHRA's estimate · wider than official";
-  return stub ? "TEPHRA's estimate · same as official (AI off)" : "TEPHRA's estimate · same as official";
+  return `TEPHRA's estimate · same as official${AI_TAG[outcome || (stub ? "STUB" : "")] || ""}`;
 }
 
 // [lon, lat] points along the great circle from a to b, about one every 40 NM (as the server's

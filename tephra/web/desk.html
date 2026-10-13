@@ -21,10 +21,11 @@
   <header id="dhead" class="dhead">
     <div class="dhead__row">
       <p class="brand"><span class="brand__mark">TEPHRA</span> <span class="brand__sub">Desk</span></p>
-      <span id="model-chip" class="model-chip model-chip--stub" title="NO MODEL: code templates write the text">
-        <span>AI: off · code only</span>
-      </span>
-      <button id="budget-chip" type="button" class="budget" data-level="ok" hidden aria-haspopup="dialog"></button>
+      <!-- One AI chip (docs/UI-AI-QUIET.md K78): the AI's state; the models, budget and causes are
+           in its "AI today" sheet. #model-chip is its label. -->
+      <button id="budget-chip" type="button" class="budget" data-tone="on" aria-haspopup="dialog" aria-label="AI today, connecting">
+        <span id="model-chip" class="model-chip">AI ·</span>
+      </button>
       <span id="conn" class="conn" data-conn="idle"><span>Connecting…</span></span>
       <div class="account">
         <button id="account-btn" type="button" class="avatar" aria-haspopup="true" aria-expanded="false"
@@ -103,8 +104,6 @@
             </div>
           </div>
         </div>
-        <!-- Problems are never folded: they sit above the Next decision (UI-REDESIGN R10.4). -->
-        <section id="fail-section" class="qsec qsec--fail" hidden></section>
         <section class="next" aria-labelledby="drafts-title">
           <h2 id="drafts-title" class="next__eyebrow">Next decision</h2>
           <p class="next__count"><span id="q-count"></span></p>
@@ -113,6 +112,9 @@
           <div id="q-state" class="qstate"></div>
           <div id="q-next" class="next__slot"></div>
         </section>
+        <!-- Flights to plan by hand: never folded, one compact group after the Next decision
+             (docs/UI-AI-QUIET.md K77; was "Problems to acknowledge" above it, UI-REDESIGN R10.4). -->
+        <section id="fail-section" class="qsec qsec--fail" hidden></section>
         <h2 id="more-title" class="more__title" hidden></h2>
         <ul id="cards" class="cards" aria-labelledby="more-title"></ul>
         <button id="cards-all" type="button" class="linkbtn cards__all" hidden><span>Show all</span></button>

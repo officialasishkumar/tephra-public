@@ -1,32 +1,50 @@
-// Small shared pieces: the AI-written mark, the "AI unavailable" card, the bottom sheet.
-// Every AI-written element carries its model id; code-written values stay plain. A failed AI
-// step shows its reason and never a substitute (docs/EXTENSIONS.md rule 0).
+// Small shared pieces: the AI mark, the AI state, the "AI unavailable" card, the bottom sheet.
+// AI health has one home on the Desk, the header AI chip and its "AI today" sheet; elsewhere a
+// step that did not run says what to do, in caution tone, and never shows a substitute
+// (docs/UI-AI-QUIET.md, docs/EXTENSIONS.md rule 0).
 
 import { byId, el, icon } from './dom.js';
+import { aiStateOf } from '../wall/x-parts.js';
 
-// "AI-written · gemini-3.5-flash-lite", or the stub's honest "AI off · code" (NO MODEL in the title).
-export function aiChip(modelId, backend, { verb = 'AI-written', sm = false } = {}) {
-  const stub = backend === 'stub' || modelId === 'stub' || !modelId;
-  const cls = `chip ${stub ? 'chip--stub' : 'chip--ai'}${sm ? ' chip--sm' : ''}`;
+// The one mark set (UI-AI-QUIET Q5): the visible verb only ("AI-written", "AI-read",
+// "AI-chosen"), the model id in the title and the label; "Code (AI off)" when no model wrote it.
+// Only for content a model produced and the code's checks passed.
+export function aiMark(verb, modelId, { backend = null } = {}) {
+  const stub = backend === 'stub' || !modelId || modelId === 'stub' || modelId === 'none';
   if (stub) {
-    return el('span', { class: cls, title: 'NO MODEL: code templates wrote this text, not a model' },
-      icon('i-code', 'st'), el('span', { text: 'AI off · code' }));
+    return el('span', { class: 'ai-mark ai-mark--none', title: 'NO MODEL: code templates wrote this text, not a model', 'aria-label': 'Code (AI off)' },
+      icon('i-code', 'st'), el('span', { 'aria-hidden': 'true', text: 'Code (AI off)' }));
   }
-  return el('span', { class: cls, title: `${verb} by ${modelId}. Checked by code before it is shown.` },
-    icon('i-sparkle', 'st'), el('span', { text: `${verb} · ` }), el('span', { class: 'mono', text: String(modelId) }));
+  return el('span', { class: 'ai-mark', title: `${verb} by ${modelId}. Checked by code before it is shown.`, 'aria-label': `${verb} by ${modelId}` },
+    icon('i-model', 'st'), el('span', { 'aria-hidden': 'true', text: verb }));
+}
+
+// The Desk's one AI state (UI-AI-QUIET 1.2), with the Wall's rules: the live budget, the open AI
+// failures (one cause however many flights), the newest Duty Officer run and airport plan.
+export function aiState({ budget = null, failures = [], llm = null, duty = null, plan = null } = {}) {
+  const errors = failures.map((f) => ({ stage: f.stage, reason: f.reason, at: Date.parse(f.created_at || ''), raw: `${f.reason}${f.model_id ? ` · would have used ${f.model_id}` : ''}` }));
+  const stub = (llm && llm.backend === 'stub') || (budget && budget.backend === 'stub');
+  return aiStateOf({ stub, budget, errors, duty, plan });
 }
 
 export const codeChip = (text = 'Code-written') =>
   el('span', { class: 'chip chip--code chip--sm', title: 'Computed by TEPHRA code from the feeds: no model wrote this' },
     icon('i-code', 'st'), el('span', { text }));
 
-// The no-fallback card: the reason, and what the dispatcher does instead.
-export function unavailableCard(reason, { instead = 'Nothing was substituted. Do this step by hand.', onRetry = null, title = 'AI unavailable' } = {}) {
-  const card = el('div', { class: 'panel panel--serious unavail', role: 'alert' },
-    el('p', { class: 'panel__title' }, icon('st-serious', 'st'), el('span', { text: `${title}: ${reason}` })),
-    instead ? el('p', { class: 'unavail__instead', text: instead }) : null);
+// The no-fallback card: what did not run and what the dispatcher does instead. An AI step is a
+// caution (role=status) with its raw reason under Technical detail; a connection or session
+// failure (`serious`) keeps the red, role=alert and its reason in the title (UI-AI-QUIET Q4).
+export function unavailableCard(reason, { instead = 'AI unavailable: nothing was put in its place. Do this step by hand.', onRetry = null, retryLabel = 'Try again', retryDisabled = false, title = 'AI unavailable', serious = false } = {}) {
+  const card = serious
+    ? el('div', { class: 'panel panel--serious unavail', role: 'alert' },
+      el('p', { class: 'panel__title' }, icon('st-serious', 'st'), el('span', { text: `${title}: ${reason}` })),
+      instead ? el('p', { class: 'unavail__instead', text: instead }) : null)
+    : el('div', { class: 'panel panel--caution unavail', role: 'status' },
+      el('p', { class: 'panel__title' }, icon('st-caution', 'st'), el('span', { text: title })),
+      instead ? el('p', { class: 'unavail__instead', text: instead }) : null,
+      reason ? el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: String(reason) })) : null);
   if (onRetry) {
-    card.append(el('button', { type: 'button', class: 'btn btn--outline', onclick: onRetry }, icon('i-refresh'), el('span', { text: 'Try again' })));
+    card.append(el('button', { type: 'button', class: 'btn btn--outline', onclick: onRetry, disabled: retryDisabled }, icon('i-refresh'), el('span', { text: retryLabel })));
   }
   return card;
 }

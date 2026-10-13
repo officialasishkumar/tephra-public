@@ -9,7 +9,7 @@ import {
 } from "./util.js";
 import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
-import { plainLine, techDetail, actorWords, actionPlain } from "./x-parts.js";
+import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, handPlanOf, causeTitle } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkTech, dkSection, dkLink,
   dkRecorded, dkWhen, dkDot, collapseRuns, runRow, timeRange, plural, dayTime, times,
@@ -71,6 +71,8 @@ const OUTCOME = {
   OFFICIAL_ONLY: "No model call needed: official products only",
   PENDING: "Plume read queued for the Duty Officer: official products only until it runs",
 };
+// The model-checked outcomes: only these were read by a model (H1, H2).
+const MODEL_READ = new Set(["ACCEPTED", "REPAIRED"]);
 const ACTOR = {
   code: ["i-code", "CODE"], gemini: ["i-model", "GEMINI"], adk: ["i-agent", "ADK"], stub: ["st-never", "NO MODEL"],
   human: ["i-user", "HUMAN"], system: ["i-system", "SYSTEM"],
@@ -163,22 +165,20 @@ export function renderChrome(D, store, ui) {
   }
   sel.value = cur || "all";
 
-  // The merged AI chip (R3.1): two words and, when steps failed, a small count badge. The
-  // model ids are in its tooltip and label and in Details › AI helpers, so the top bar stays quiet.
-  const stub = s.llm?.backend === "stub";
-  const fails = failedSteps(store);
+  // The AI chip (R3.1, docs/UI-AI-QUIET.md W1-W3): the AI's one state in words, never a count of
+  // failed steps and never red. It is the AI's home in the top bar: the model ids, budgets and
+  // causes are one tap in, in Details › AI helpers.
+  const ai = aiStateNow(D, store);
+  const w = aiWords(ai, { narrow: window.innerWidth <= 420 });
   const chip = $("ai-chip");
-  const label = stub ? "AI off" : "AI on";
-  setText($("model-chip"), label);
-  const failBox = chip.querySelector(".ai-chip__fail");
-  failBox.hidden = !fails;
-  if (fails && failBox.dataset.n !== String(fails)) { failBox.dataset.n = String(fails); setText(failBox, `${fails} failed`); }
-  chip.querySelector("use")?.setAttribute("href", `${chip.querySelector("use").getAttribute("href").split("#")[0]}#${stub ? "i-code" : "i-model"}`);
-  const failWords = fails ? ` ${fails} AI ${fails === 1 ? "step" : "steps"} failed recently; nothing was put in their place.` : "";
-  chip.title = stub
-    ? `AI off: no model is connected. Code does every step; code templates write the text.${failWords}`
-    : `AI on: ${s.llm?.label || "model"}. It can widen TEPHRA's estimate, never shrink the official area. Steps that call a model are marked AI-written; times, ids and hashes are always written by code.${failWords}`;
-  chip.setAttribute("aria-label", `${stub ? "AI off, code only" : `AI on, ${s.llm?.label || "model"}`}${fails ? `, ${fails} failed` : ""}. Opens Details, AI helpers.`);
+  setText($("model-chip"), w.label);
+  const suffix = chip.querySelector(".ai-chip__fail");
+  suffix.hidden = !w.suffix;
+  setText(suffix, w.suffix ? `· ${w.suffix}` : "");
+  chip.dataset.tone = w.tone;
+  chip.querySelector("use")?.setAttribute("href", `${chip.querySelector("use").getAttribute("href").split("#")[0]}#${ai.kind === "off" ? "i-code" : "i-model"}`);
+  chip.title = w.title;
+  chip.setAttribute("aria-label", w.aria);
 
   // Data chip: "Data: 6 working · 5 off", worst first.
   const by = {};
@@ -219,8 +219,9 @@ export function renderChrome(D, store, ui) {
   $("attribution").title = attrib;
 }
 
-let failedSteps = () => 0;
-export function setFailureCounter(fn) { failedSteps = fn; }
+// The Wall's AI state (ext.js aiState), set by wall.js so this file does not import ext.js.
+let aiStateNow = () => ({ kind: "on", until: null, causes: [], trouble: [], waiting: [] });
+export function setAiState(fn) { aiStateNow = fn; }
 
 export function renderClock(D, conn) {
   if (!D) return;
@@ -296,7 +297,7 @@ const FLIGHTS_FIRST = 5;
 // level, the entry, and the advisory's state in a word. The rows are grouped "Inside now" and
 // "Heading in", so a row inside says nothing more about its entry; one heading in gives its time.
 const ADV_WORD = { DRAFT: ["Advisory waiting", "i-clock"], APPROVED: ["Advisory approved", "i-approved"], EDITED: ["Approved with edits", "i-approved"], REJECTED: ["Advisory rejected", "i-rejected"], SUPERSEDED: ["Advisory replaced", "i-superseded"] };
-function flightRow(D, f, ui, allStale = false) {
+function flightRow(D, f, ui, allStale = false, hand = null) {
   const p = f.properties;
   const plane = icon("i-aircraft", "icon dk-plane");
   plane.style.transform = `rotate(${p.track_deg || 0}deg)`;
@@ -306,13 +307,16 @@ function flightRow(D, f, ui, allStale = false) {
   const adv = D.advByFlight.get(`${p.hex}:${p.volcano_id}`);
   const oldShown = allStale ? null : old;
   const [advWord, advIcon] = adv ? ADV_WORD[adv.status] || ADV_WORD.DRAFT : [null, null];
+  // no advisory because the AI did not run: the job, at the row (D53)
+  const handRow = hand?.flights.find((x) => x.key === `${p.hex}:${p.volcano_id}`) || null;
+  const handMeta = handRow ? el("span", { class: "dk-adv dk-adv--hand" }, st("st-caution", "var(--c-caution)"), el("span", { text: `No advisory: ${hand.block.word} · plan by hand` }), handRow.must ? dkChip("Must do", { kind: "must", title: "Code requires this work this run" }) : null) : null;
   return dkLinkRow({
     dot: plane,
     title: entry ? [p.proxy_flight, " ", el("span", { class: "dk-entry" }, entry)] : p.proxy_flight,
     sub: [`${lvl} · real aircraft ${p.callsign || String(p.hex || "").toUpperCase()}`, oldShown ? [" · ", el("span", { class: "dk-warn", text: oldShown })] : null, p.crew_report ? [" · ", el("span", { class: "dk-crewword" }, icon("i-pin", "icon"), "crew report on this route")] : null],
-    meta: adv ? el("span", { class: `dk-adv dk-adv--${adv.status.toLowerCase()}` }, icon(advIcon), el("span", { text: advWord })) : el("span", { class: "dk-adv", text: "No advisory yet" }),
+    meta: handMeta || (adv ? el("span", { class: `dk-adv dk-adv--${adv.status.toLowerCase()}` }, icon(advIcon), el("span", { text: advWord })) : el("span", { class: "dk-adv", text: "No advisory yet" })),
     dataset: { flight: f.id ?? p.hex, focus: `flight-${p.hex}` },
-    label: `${p.proxy_flight}, proxy for ${p.callsign || p.hex}, ${p.inside ? "inside TEPHRA's area now" : `enters in ${p.minutes_to_entry} minutes, estimated`}, ${lvl}${old ? `, ${old}` : ""}${p.crew_report ? ", crew report of ash on this route" : ""}${adv ? `, ${advWord.toLowerCase()}` : ""}. Show this flight.`,
+    label: `${p.proxy_flight}, proxy for ${p.callsign || p.hex}, ${p.inside ? "inside TEPHRA's area now" : `enters in ${p.minutes_to_entry} minutes, estimated`}, ${lvl}${old ? `, ${old}` : ""}${p.crew_report ? ", crew report of ash on this route" : ""}${handRow ? `, no advisory: ${hand.block.word}, plan by hand${handRow.must ? ", must do" : ""}` : adv ? `, ${advWord.toLowerCase()}` : ""}. Show this flight.`,
     cls: ui?.selFlight?.hex === p.hex ? "is-picked" : null,
   });
 }
@@ -361,7 +365,8 @@ export function renderFlights(D, store, ui, target = $("flights")) {
     const name = D.sits.find((x) => x.volcano_id === vid)?.volcano_name || vid;
     return el("button", { type: "button", class: "btn btn--small", dataset: { act: "select", vid, focus: `others-${vid}` }, text: `+${n} heading in at ${name}` });
   }))) : null;
-  const group = (title, aside, rows, key) => (rows.length ? dkGroup(title, aside, dkList(rows.map((f) => flightRow(D, f, ui, allStale)), { first: FLIGHTS_FIRST, key, label: title })) : null);
+  const hand = handPlanOf(D, store, aiStateNow(D, store));
+  const group = (title, aside, rows, key) => (rows.length ? dkGroup(title, aside, dkList(rows.map((f) => flightRow(D, f, ui, allStale, hand)), { first: FLIGHTS_FIRST, key, label: title })) : null);
   const list = flights.length
     ? [group("Inside now", null, flights.filter((f) => f.properties.inside), "flights-inside"), group("Heading in", "soonest first", flights.filter((f) => !f.properties.inside), "flights-heading")]
     : dkEmpty("No flight heading in", "TEPHRA projects each RFA flight's last position along its track and level.");
@@ -404,14 +409,20 @@ const LEVEL_TONE = { error: "serious", warn: "caution" };
 // Steps that say the same thing collapse into one row (docs/UI-DETAILS-PANELS.md 2.7): the
 // sentence with its varying numbers as a range, how many times and when; every step one tap in,
 // the raw lines under one Technical detail.
-function traceRun(run, ui, stub) {
+function traceRun(run, ui, stub, ai) {
   const t0 = run.items[0];
-  const tone = LEVEL_TONE[t0.level] || null;
+  // an AI step that did not run is a caution, one row per cause (D62); red stays for the picture
+  const cause = t0._cause ? ai.causes.find((c) => c.key === t0._cause) : null;
+  const tone = cause ? "caution" : LEVEL_TONE[t0.level] || null;
   const [ic] = ACTOR[t0.actor] || ["i-system"];
-  const who = actorWords(t0.actor, stub);
+  const who = actorWords(t0.actor, stub, t0.message);
+  const nums = cause ? run.items.map((t) => /(\d+) mandatory item/.exec(t.message)?.[1]).filter(Boolean).map(Number) : [];
+  const range = nums.length ? (Math.min(...nums) === Math.max(...nums) ? String(nums[0]) : `${Math.min(...nums)}–${Math.max(...nums)}`) : null;
   const row = runRow(run, {
     key: `trace-${run.key}`, tone, dot: tone ? null : icon(ic, "icon dk-actor"),
-    sub: stepWho(t0.stage, who),
+    sub: cause && cause.helperKey === "duty" && range ? `${range} must-do ${range === "1" ? "job" : "jobs"} per run went to the Desk` : stepWho(t0.stage, who),
+    titleOf: cause ? () => `${causeTitle(cause)}.` : null,
+    extra: cause?.link ? dkLink(cause.link[0], { act: "details-sec", sec: cause.link[1], focus: `trace-go-${cause.key}` }) : null,
     lineOf: (t) => plainLine(t.message),
     rawOf: (t) => `${hhmmssz(t._t)} · ${t.stage} · ${(ACTOR[t.actor] || [null, String(t.actor || "")])[1]} · ${t.message}`,
   });
@@ -434,10 +445,16 @@ export function renderTrace(D, store, ui, conn, target = $("trace")) {
   const lines = traceLines(store, D, ui);
   if (!D) { target.replaceChildren(el("div", { class: "skeleton" })); return; }
   const stub = D?.state.llm?.backend === "stub";
+  const ai = aiStateNow(D, store);
+  // AI steps that did not run, keyed by cause (helper + reason class, never by their words)
+  const causeOf = new Map(ai.causes.flatMap((c) => c.items.filter((x) => x.src?.id).map((x) => [x.src.id, c.key])));
   const problems = lines.filter((t) => t.level === "error" || t.level === "warn");
-  const errors = lines.filter((t) => t.level === "error").length;
+  const aiErr = lines.filter((t) => causeOf.has(t.id));
+  const errors = lines.filter((t) => t.level === "error" && !causeOf.has(t.id)).length;
+  const causesHere = new Set(aiErr.map((t) => causeOf.get(t.id)));
   const shown = ui.traceFilter === "problems" ? problems : lines;
-  const runs = collapseRuns(shown.map((t) => ({ ...t, _t: ms(t.at) })), { textOf: (t) => plainLine(t.message), timeOf: (t) => t._t, groupOf: (t) => `${t.stage}|${t.level}|${t.actor}` });
+  const runs = collapseRuns(shown.map((t) => ({ ...t, _t: ms(t.at), _cause: causeOf.get(t.id) || null })), {
+    textOf: (t) => (t._cause ? `cause ${t._cause}` : plainLine(t.message)), timeOf: (t) => t._t, groupOf: (t) => `${t.stage}|${t.level}|${t._cause ? "" : t.actor}` });
   const seg = (label, act, key, opts) => el("div", { class: "seg", role: "group", "aria-label": label },
     ...opts.map(([v, text]) => el("button", { type: "button", "aria-pressed": (ui[key] || opts[0][0]) === v ? "true" : "false", dataset: { act, [act === "trace-scope" ? "scope" : "filter"]: v, focus: `${act}-${v}` }, text })));
   const head = dkHeader({
@@ -447,13 +464,14 @@ export function renderTrace(D, store, ui, conn, target = $("trace")) {
   });
   const tiles = dkTiles([
     { label: "Steps", value: lines.length.toLocaleString("en"), sub: ui.traceScope === "all" ? "every volcano" : "this volcano and general" },
-    { label: "Problems", value: String(problems.length), tone: errors ? "serious" : problems.length ? "caution" : "ok", sub: `${errors} failed · ${problems.length - errors} warnings` },
+    { label: "Problems", value: String(problems.length), tone: errors ? "serious" : problems.length ? "caution" : "ok",
+      sub: [errors ? `${errors} failed` : null, plural(problems.length - errors - aiErr.length, "warning"), aiErr.length ? `AI did not run: ${plural(causesHere.size, "cause")} (${plural(aiErr.length, "step")})` : null].filter(Boolean).join(" · ") },
   ], "Steps in numbers");
   const controls = el("div", { class: "dk-actions" },
     seg("Which steps", "trace-scope", "traceScope", [["volcano", "This volcano"], ["all", "Everything"]]),
     seg("Which kind", "trace-filter", "traceFilter", [["all", "All"], ["problems", "Problems only"]]));
   const list = runs.length
-    ? dkList(runs.map((r) => traceRun(r, ui, stub)), { first: TRACE_RUNS_FIRST, key: "trace-all", more: `Show all ${runs.length} (${plural(shown.length, "step")})` })
+    ? dkList(runs.map((r) => traceRun(r, ui, stub, ai)), { first: TRACE_RUNS_FIRST, key: "trace-all", more: `Show all ${runs.length} (${plural(shown.length, "step")})` })
     : dkEmpty(ui.traceFilter === "problems" ? "No problems in these steps" : "No steps yet", null);
   if (runs.length) { list.setAttribute("role", "log"); list.setAttribute("aria-live", "off"); list.setAttribute("aria-label", "How TEPHRA decided, newest first"); }
   target.classList.toggle("is-stale", !!conn.lostAt);
@@ -628,7 +646,12 @@ function disRow(D, sit, d, ui) {
     const sector = D.sectorOf(sit.volcano_id);
     let tail = "";
     if (cone?.mode === "WIDENED" && sector && D.rose) tail = pointInGeom(dest(D.rose.vent, D.rose.obsDeg, 15), sector.geometry) || pointInGeom(dest(D.rose.vent, D.rose.obsDeg, 15), D.coneOf(sit.volcano_id).geometry) ? " TEPHRA's area covers it." : "";
-    else if (cone?.mode === "OFFICIAL") tail = D.state.llm?.backend === "stub" ? " TEPHRA has not widened the area (AI off)." : " TEPHRA has not widened the area.";
+    else if (cone?.mode === "OFFICIAL") {
+      const outcome = sit.assessment?.outcome;
+      tail = D.state.llm?.backend === "stub" || outcome === "STUB" ? " TEPHRA has not widened the area (AI off)."
+        : outcome === "PENDING" ? " TEPHRA has not widened the area yet (AI waiting)."
+          : outcome === "MODEL_FAILED" ? " TEPHRA has not widened the area (AI unavailable)." : " TEPHRA has not widened the area.";
+    }
     explain = `A point 15 km along the observatory's drift is outside the official polygon.${tail}`;
   }
   const row = dkRow({
@@ -644,11 +667,21 @@ function disRow(D, sit, d, ui) {
 const capFirst = (t) => (t ? t[0].toUpperCase() + t.slice(1) : t);
 
 // TEPHRA's estimate (R8.3 `estimate`): the outcome sentence, the rule, who read it, valid until.
+// "The model found nothing to add" only when a model read it (H1): a queued read is waiting, and
+// an official-only volcano needed no read.
 export function estimateOutcome(D, sit, cone) {
   const outcome = sit.assessment?.outcome;
   const stub = outcome === "STUB" || (!outcome && D.state.llm?.backend === "stub");
-  if (cone.mode === "OFFICIAL") return stub ? "Same as the official area (AI off, nothing added)." : outcome === "MODEL_FAILED" ? "Same as the official area: AI unavailable, nothing assessed beyond the official reports." : "Same as the official area: the model found nothing to add.";
-  return MODE_LINE[cone.mode] || "";
+  if (cone.mode !== "OFFICIAL") return MODE_LINE[cone.mode] || "";
+  if (stub) return "Same as the official area (AI off, nothing added).";
+  if (outcome === "MODEL_FAILED") return "Same as the official area: AI unavailable, nothing assessed beyond the official reports.";
+  if (outcome === "PENDING") {
+    const slot = aiStateNow(D, null).until;
+    return `Same as the official area: the AI plume read is waiting${slot ? ` (next slot ${slot})` : ""}.`;
+  }
+  if (outcome === "OFFICIAL_ONLY") return "Same as the official area: no AI read was needed.";
+  if (MODEL_READ.has(outcome)) return "Same as the official area: the model found nothing to add.";
+  return MODE_LINE.OFFICIAL;
 }
 
 const MODE_PILL = { OFFICIAL: ["info", "Same as official"], WIDENED: ["tephra", "Wider than official"], HYPOTHESIS: ["caution", "Hypothesis"] };
@@ -660,18 +693,25 @@ export function areaSection(D, sit, ui) {
   const outcome = a?.outcome;
   const stub = outcome === "STUB" || (!outcome && D.state.llm?.backend === "stub");
   const [tone, word] = MODE_PILL[cone.mode] || ["info", cone.mode];
-  const readBy = stub ? "Code (AI off): official reports only" : outcome === "PENDING" ? OUTCOME.PENDING : [a && a.llm_backend !== "stub" && a.model_id ? dkChip(a.model_id, { mono: true }) : D.state.llm?.label || "model", " ", OUTCOME[outcome] || ""];
+  // the model's name only where a model read it (Q5); a queued read says it waits (D44)
+  const slot = outcome === "PENDING" ? aiStateNow(D, null).until : null;
+  const modelRead = MODEL_READ.has(outcome) && a?.model_id && a.model_id !== "none" && a.model_id !== "stub";
+  const readBy = stub ? "Code (AI off): official reports only"
+    : outcome === "PENDING" ? `AI waiting · ${OUTCOME.PENDING}${slot ? ` (next slot ${slot})` : ""}.`
+      : modelRead ? [aiMark(a.model_id, null, "AI-read"), " ", OUTCOME[outcome]] : OUTCOME[outcome] || "not given";
   const est = a?.estimate;
-  const model = a && a.llm_backend && a.llm_backend !== "stub" && outcome !== "STUB";
   let read = null;
-  if (model && est) {
+  // "How the model read it" only for a reading a model gave and the checks passed (H2); the same
+  // text written by code sits under "How TEPHRA built it", marked as code. Nothing is hidden.
+  const why = est && (est.rationale || est.uncertainty_notes || (est.disagreements_explained || []).length);
+  if (why && outcome !== "MODEL_FAILED") {
     const readings = (est.disagreements_explained || []).map((r) => {
       const lean = r.which_source_we_lean_on ? cardName(sit, r.which_source_we_lean_on) : null;
       return el("div", { class: "dk-prio" }, el("span", { class: "dk-prio__main" }, el("span", { class: "dk-prio__label", text: r.reading || "" }),
         lean || r.why ? el("span", { class: "dk-prio__why" }, lean ? dkChip(`Leans on ${lean}`) : null, r.why ? ` ${r.why}` : null) : null));
     });
     read = el("details", { class: "dk-about area__read", open: ui.readOpen ? true : null, dataset: { k: "area-read" } },
-      el("summary", { dataset: { focus: "area-read" } }, icon("i-chevron-right", "icon dk-about__chev"), el("span", { text: "How the model read it" }), el("span", { class: "dk-chip dk-chip--ai", text: "AI-written" })),
+      el("summary", { dataset: { focus: "area-read" } }, icon("i-chevron-right", "icon dk-about__chev"), el("span", { text: modelRead ? "How the model read it" : "How TEPHRA built it" }), modelRead ? aiMark(a.model_id, null, "AI-written") : el("span", { class: "dk-chip dk-chip--code", text: "Code-written" })),
       el("div", { class: "dk-about__body" },
         readings.length ? dkList(readings, { first: 5, key: "area-readings" }) : null,
         est.rationale ? el("div", { class: "dk-sub" }, el("p", { class: "dk-sub__title", text: "Rationale" }), el("p", { class: "dk-quote", text: est.rationale })) : null,
@@ -685,7 +725,7 @@ export function areaSection(D, sit, ui) {
       { label: "Valid until", value: hhmmz(ms(cone.valid_to)), sub: untilWords(ms(cone.valid_to) - D.now) },
       cone.mode !== "OFFICIAL" ? { label: "Confidence", value: `${Math.round((cone.confidence ?? 0) * 100)}%`, sub: "in the widening" } : null,
     ], "Estimate in numbers"),
-    outcome === "MODEL_FAILED" ? dkNote("serious", `AI unavailable: ${a?.estimate?.uncertainty_notes || "no usable model output"}. TEPHRA shows the official area only; nothing was put in its place.`, { role: "status" }) : null,
+    outcome === "MODEL_FAILED" ? dkNote("caution", `AI unavailable: ${a?.estimate?.uncertainty_notes || "no usable model output"}. TEPHRA shows the official area only; nothing was put in its place.`, { role: "status" }) : null,
     // A replay loop reuses the same model's reading of the same input; the label says so.
     dkFacts([["Read by", el("span", {}, readBy)], ["Answer", a?.recorded_answer || null]]),
     read,
@@ -720,10 +760,15 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
         el("span"), el("span", { class: "dk-row__go", "aria-hidden": "true", text: "›" })));
     return r;
   };
+  // flights with no draft because the AI did not run: the dispatcher's work, here (D56)
+  const hand = handPlanOf(D, store, aiStateNow(D, store));
+  const waitingN = serverWaiting ?? draft.length;
+  const handN = hand.flights.length;
   const head = dkHeader({
     id: "h-dec",
-    pills: [serverWaiting === null ? dkPill("serious", "Count unknown") : (serverWaiting ?? draft.length) ? dkPill("caution", "Waiting for a dispatcher") : dkPill("ok", "Nothing waiting"), dkRecorded(replay)],
+    pills: [serverWaiting === null ? dkPill("serious", "Count unknown") : waitingN ? dkPill("caution", "Waiting for a dispatcher") : handN ? dkPill("caution", "Nothing to approve") : dkPill("ok", "Nothing waiting"), dkRecorded(replay)],
     title: all.length ? "Every advisory is a draft until a dispatcher decides on the Desk." : "No advisories yet. A draft appears when a flight's projected track enters TEPHRA's area.",
+    sub: handN && !waitingN ? el("span", {}, `No drafts: ${hand.block.word}. `, el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: `${handN} ${handN === 1 ? "flight" : "flights"} to plan by hand on the Desk ›` })) : null,
   });
   const tiles = all.length ? dkTiles([
     { label: "Waiting", value: serverWaiting === null ? "unknown" : String(serverWaiting ?? draft.length), tone: serverWaiting === null ? "serious" : "caution", sub: serverWaiting === null ? "database error" : "all volcanoes" },
@@ -733,6 +778,15 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
   const caption = all.length ? el("p", { class: "dk-foot", text: `The waiting count covers every advisory on the server; the lists below show the ${capped ? "newest 50 loaded" : `${all.length} loaded`}.` }) : null;
   const note = dkNote("info", "Approve on the Desk · nothing is sent anywhere. Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system.", { iconId: "i-outbound" });
   const groups = [];
+  if (handN) {
+    // the Duty Officer's "Passed to the Desk" list, copied here where the dispatcher acts (D69)
+    groups.push(dkGroup(`To plan by hand · ${handN}`, hand.must ? `${hand.must} must do first` : "on the Desk", el("div", { id: "dec-hand", tabindex: "-1", class: "dk-anchor" }, dkList(hand.flights.map((x) => el("a", { class: "dk-row dk-row--link", href: "/desk", target: "_blank", rel: "noopener" },
+      el("span", { class: "dk-row__head" },
+        el("span", { class: "dk-row__dot" }, st("st-caution", "var(--c-caution)")),
+        el("span", { class: "dk-row__main" }, el("span", { class: "dk-row__title" }, el("b", { text: x.p.proxy_flight }), ` · ${x.p.inside ? "inside now" : `in ${x.p.minutes_to_entry} min (est.)`}`, x.must ? [" ", dkChip("Must do", { kind: "must", title: "Code requires this work this run" })] : null),
+          el("span", { class: "dk-row__sub", text: `${D.sits.find((v) => v.volcano_id === x.p.volcano_id)?.volcano_name || x.p.volcano_id} · no advisory: ${hand.block.word}` })),
+        el("span"), el("span", { class: "dk-row__go", "aria-hidden": "true", text: "›" })))), { first: 5, key: "dec-hand" }))));
+  }
   if (draft.length) groups.push(dkGroup(`Waiting for a dispatcher · ${draft.length}`, "open on the Desk", dkList(draft.map(row), { first: 5, key: "dec-draft" })));
   if (ok.length) groups.push(dkGroup(`Approved · ${ok.length}`, null, dkList(ok.map(row), { first: 3, key: "dec-ok" })));
   if (rej.length) groups.push(dkGroup(`Rejected · ${rej.length}`, null, dkList(rej.map(row), { first: 3, key: "dec-rej" })));

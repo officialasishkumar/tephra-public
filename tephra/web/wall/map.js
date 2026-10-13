@@ -686,7 +686,7 @@ export class WallMap {
         const dx = (at[0] - c[0]) * Math.cos((c[1] * Math.PI) / 180), dy = at[1] - c[1];
         const side = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? ["left", [0.6, 0]] : ["right", [-0.6, 0]]) : dy < 0 ? ["bottom", [0, -0.6]] : ["top", [0, 0.6]];
         const stub = D.state?.llm?.backend === "stub";
-        areas.push({ type: "Feature", geometry: { type: "Point", coordinates: at }, properties: { size: S.box, line1: tephraLabelText(p, stub), anchor: side[0], offset: side[1] } });
+        areas.push({ type: "Feature", geometry: { type: "Point", coordinates: at }, properties: { size: S.box, line1: tephraLabelText(p, D.sit.assessment?.outcome, stub), anchor: side[0], offset: side[1] } });
       }
     }
     return { boxes, areas, selBox };

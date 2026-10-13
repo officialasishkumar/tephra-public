@@ -3155,7 +3155,7 @@ body[data-review="1"] .tabbar {
 }
 
 .bbar--out .bbar__fill {
-  background: var(--c-serious);
+  background: var(--c-caution);
 }
 
 /* --- header: AI budget chip, quieter connection dot ------------------------------------ */
@@ -3189,15 +3189,6 @@ body[data-review="1"] .tabbar {
   color: var(--c-text-2);
 }
 
-.budget[data-level="low"] {
-  border-color: var(--c-caution);
-  color: var(--c-caution);
-}
-
-.budget[data-level="out"] {
-  border-color: var(--c-serious);
-  color: var(--c-serious);
-}
 
 .budget__w {
   font-family: var(--font-sans);
@@ -3463,83 +3454,14 @@ body[data-review="1"] .tabbar {
 
 /* --- queue: AI failures, messages, plan card, notices ------------------------------------------- */
 
-.fcards,
 .mcards {
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
 }
 
-.fcard {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  padding: var(--sp-4);
-  border: 1px solid var(--c-serious);
-  border-radius: var(--radius-lg);
-  background: var(--c-serious-bg);
-}
-
-.fcard__row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 2px var(--sp-3);
-}
-
-.fcard__flight {
-  font-size: var(--fs-6);
-  font-weight: var(--fw-semibold);
-  line-height: var(--lh-tight);
-}
-
-.fcard__ident {
-  font-size: var(--fs-2);
-  color: var(--c-text-2);
-}
-
-.fcard__entry {
-  margin-left: auto;
-  font-size: var(--fs-2);
-  font-weight: var(--fw-semibold);
-  color: var(--c-text-1);
-}
-
-.fcard__entry.is-inside {
-  color: var(--c-serious);
-}
-
-.fcard__what {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--sp-2);
-  font-size: var(--fs-2);
-  line-height: var(--lh-body);
-  overflow-wrap: anywhere;
-}
-
-.fcard__what .st {
-  margin-top: 4px;
-  color: var(--c-serious);
-}
-
-.fcard__meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--fs-1);
-  color: var(--c-text-2);
-}
-
-.fcard__note {
-  font-size: var(--fs-2);
-  color: var(--c-text-2);
-}
-
 .fcard__btn {
-  align-self: stretch;
-  margin-top: var(--sp-1);
+  flex: none;
 }
 
 .mcard__btn {
@@ -5307,7 +5229,7 @@ a.btn {
 /* ---- Duty Officer brief card (desk/duty.js) ---- */
 .qsec--duty { margin: var(--sp-3) 0 var(--sp-2); }
 .dcard { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border: 1px solid var(--c-line-2); border-left: 4px solid var(--c-tephra); border-radius: var(--radius-lg); background: var(--c-surface-2); cursor: pointer; min-width: 0; }
-.dcard--serious { border-color: var(--c-serious); background: var(--c-serious-bg); }
+.dcard--serious { border-color: var(--c-caution); background: var(--c-caution-bg); }
 .dcard--off { border-left-color: var(--c-line-input); }
 .dcard__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); min-height: var(--tap-min); width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .dcard__icon { width: 22px; height: 22px; color: var(--c-tephra-text); flex: none; }
@@ -5333,8 +5255,8 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
 .dcard__fail { display: flex; align-items: flex-start; gap: var(--sp-2); font-size: var(--fs-2); line-height: var(--lh-body); color: var(--c-text-1); overflow-wrap: anywhere; }
 .dcard__fail .st { margin-top: 3px; color: var(--c-serious); flex: none; }
 .dcard__note { font-size: var(--fs-2); color: var(--c-text-2); }
-.dcard__undone { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-serious); border-radius: var(--radius-md); background: var(--c-serious-bg); }
-.dcard__undonet { display: flex; align-items: flex-start; gap: var(--sp-2); font-size: var(--fs-2); font-weight: var(--fw-semibold); color: var(--c-serious); }
+.dcard__undone { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-caution); border-radius: var(--radius-md); background: var(--c-caution-bg); }
+.dcard__undonet { display: flex; align-items: flex-start; gap: var(--sp-2); font-size: var(--fs-2); font-weight: var(--fw-semibold); color: var(--c-caution); }
 .dcard__undonet .st { margin-top: 3px; flex: none; }
 .dcard__undone ul { margin-top: var(--sp-1); padding-left: var(--sp-6); list-style: disc; font-size: var(--fs-2); color: var(--c-text-1); overflow-wrap: anywhere; }
 .dcard__more { display: flex; flex-direction: column; gap: var(--sp-2); padding-top: var(--sp-2); border-top: 1px solid var(--c-line-1); cursor: default; }
@@ -5348,7 +5270,7 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
 .dcard__dmain { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .dcard__dtop { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; font-size: var(--fs-2); }
 .dcard__dstat { font-size: var(--fs-1); font-weight: var(--fw-semibold); color: var(--c-ok); }
-.dcard__dstat.is-bad, .dcard__dres.is-bad { color: var(--c-serious); }
+.dcard__dstat.is-bad, .dcard__dres.is-bad { color: var(--c-caution); }
 .dcard__dnums { font-family: var(--font-mono); font-size: var(--fs-1); color: var(--c-text-2); }
 .dcard__dres { font-size: var(--fs-1); line-height: var(--lh-snug); color: var(--c-text-2); overflow-wrap: anywhere; }
 .dcard__meta { font-family: var(--font-mono); font-size: var(--fs-1); color: var(--c-text-3); overflow-wrap: anywhere; }
@@ -5923,7 +5845,7 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
 }
 
 .qsec--duty .dcard__head.is-bad .dcard__icon {
-  color: var(--c-serious);
+  color: var(--c-caution);
 }
 
 .qsec--duty .dcard__icon {
@@ -7065,4 +6987,203 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
 .crewdrafts__list .reason-chip .icon {
   width: 16px;
   height: 16px;
+}
+
+/* =====================================================================================
+   AI, quietly (docs/UI-AI-QUIET.md): one AI chip, one mark set, flights to plan by hand in one
+   compact group. AI elements use caution or neutral tones, never the picture's red.
+   ===================================================================================== */
+
+.budget[data-tone="caution"] {
+  border-color: var(--c-caution);
+}
+
+.budget[data-tone="caution"] .model-chip::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--c-caution);
+}
+
+.budget .model-chip {
+  min-height: 0;
+  max-width: none;
+  padding: 0;
+  border: 0;
+  font-family: var(--font-sans);
+  font-weight: var(--fw-semibold);
+}
+
+.budget .budget__w {
+  font-weight: var(--fw-medium);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--c-text-2);
+}
+
+.ai-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  background: var(--c-surface-3);
+  color: var(--c-text-2);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.ai-mark .st {
+  width: 12px;
+  height: 12px;
+}
+
+.ai-mark--none {
+  background: none;
+  border: 1px dashed var(--c-line-input);
+}
+
+.panel--caution {
+  border-color: var(--c-caution);
+  background: var(--c-caution-bg);
+  color: var(--c-text-1);
+}
+
+.panel--caution .panel__title .st {
+  color: var(--c-caution);
+}
+
+.ailead {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--sp-3);
+  border-left: 3px solid var(--c-caution);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface-2);
+  font-size: var(--fs-2);
+  line-height: var(--lh-body);
+}
+
+.hgroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--c-line-2);
+  border-left: 3px solid var(--c-caution);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface-1);
+}
+
+.hgroup + .hgroup {
+  margin-top: var(--sp-3);
+}
+
+.hgroup__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.hgroup__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-3);
+  font-weight: var(--fw-semibold);
+}
+
+.hgroup__title .st {
+  color: var(--c-caution);
+}
+
+.hgroup__why {
+  font-size: var(--fs-2);
+  white-space: nowrap;
+}
+
+.hgroup__sub,
+.hgroup__fact {
+  font-size: var(--fs-2);
+  line-height: var(--lh-body);
+  color: var(--c-text-2);
+}
+
+.hrows {
+  display: flex;
+  flex-direction: column;
+}
+
+.hrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px var(--sp-2);
+  padding: 6px 0;
+  border-top: 1px solid var(--c-line-1);
+  font-size: var(--fs-2);
+  line-height: 1.35;
+}
+
+.hrow > .hrow__line:first-child {
+  grid-column: 1 / -1;
+}
+
+.hrow__line {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.hrow .fcard__btn {
+  min-height: 32px;
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-1);
+}
+
+.hrow__flight {
+  font-weight: var(--fw-semibold);
+}
+
+.hrow__ident,
+.hrow__meta {
+  color: var(--c-text-2);
+}
+
+.hrow__entry {
+  font-weight: var(--fw-semibold);
+}
+
+.hrow__entry.is-inside {
+  color: var(--c-serious);
+}
+
+.hrow .dcard__must {
+  margin-right: 0;
+}
+
+.hmore > summary {
+  min-height: 36px;
+  padding: 6px 0;
+  font-size: var(--fs-2);
+  font-weight: var(--fw-semibold);
+  color: var(--c-text-1);
+  cursor: pointer;
+}
+
+.btn--sm {
+  min-height: 36px;
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-2);
+}
+
+.panel--empty .panel__title .st.is-info {
+  color: var(--c-info);
 }

@@ -66,7 +66,7 @@ export function satFeatures(readings, frames, selectedVid) {
     if (b) out.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [boxRing([0, 0, 1000, 1000], b)] }, properties: { part: "frame", sel } });
     r.boxes.forEach((box, i) => {
       const geometry = box.polygon || (b ? { type: "Polygon", coordinates: [boxRing(box.box_2d, b)] } : null);
-      if (geometry) out.push({ type: "Feature", geometry, properties: { part: "box", sel, label: `AI box ${i + 1}: possible ash` } });
+      if (geometry) out.push({ type: "Feature", geometry, properties: { part: "box", sel, label: `Box ${i + 1}: possible ash` } });
     });
   }
   return out;

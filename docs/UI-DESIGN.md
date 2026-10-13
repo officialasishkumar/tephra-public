@@ -789,10 +789,10 @@ R17.2). Left to right:
    ash" in All volcanoes, so the picker and the story never disagree. Before the server's first
    tick an area with nothing yet reads "· reading…", never "· none".
 4. Spacer.
-5. AI chip `#ai-chip` (button) with `#model-chip` as its text: "AI: off · code only" (stub; "AI:
-   off" at 1280 and on a phone) or "AI: on · {state.llm.label}", plus a red "· 2 failed" with the
-   serious shape when AI steps failed. Title: "No AI model is connected. Code does every step;
-   code templates write the text." It opens Details › AI helpers.
+5. AI chip `#ai-chip` (button) with `#model-chip` as its text: the AI's one state, "AI on", "AI
+   paused · 0700Z", "AI on · 1 problem" or "AI off" ("AI paused", "AI · 1 problem" at 420 px and
+   less), never red and never a count of failed steps or a model id (docs/UI-AI-QUIET.md). It
+   opens Details › AI helpers, the AI's home.
 6. Data chip `#feeds-chip`: "Data: 6 working · 5 off", worst first ("Data: 1 error · 5 working ·
    5 off", serious shape and border; "2 stale" in caution); "ok" for "working" below 1360 px. It
    opens Details › Data feeds.
@@ -865,12 +865,9 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
   (`#lost-banner`, `role="alert"`), the Wall data not loading ("Could not load the Wall data: …
   Trying again in n s."), the map library not loading, a failing SIGMET, VAA, VONA or aircraft feed
   ("Aircraft data is failing. Showing the last good positions, from 10:20Z." — the time only from
-  `last_success_at`), the database failing, an airport plan with no plan ("Airport plan: the
-  recovery planner timed out, so a dispatcher must plan by hand." or "…the solver did not finish in
-  time…", R2.6), a satellite reading or the Duty Officer that could not run ("Duty Officer could not
-  run: today's AI calls are used up until 0700Z.", the time from the budget's `resets_at`, shown
-  only while the budget still marks that model closed and never for a recorded run), and the
-  count of failed AI steps. A new failure is announced once (`role="alert"` on
+  `last_success_at`) and the database failing. AI steps that did not run are not here
+  (docs/UI-AI-QUIET.md Q3, Q4): the advisory line, the closure sub-line and Details say what is
+  missing where it applies, in caution tone. A new failure is announced once (`role="alert"` on
   its first render only).
 - Eyebrow, two rows in sentence case: the eruption symbol, `#volcano-name` (the page's h1, bold)
   and "as of 1030Z" right-aligned on the same row; under it, muted, the area, the alert colour as a

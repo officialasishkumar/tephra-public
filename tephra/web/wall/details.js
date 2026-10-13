@@ -11,7 +11,7 @@ import {
   sourcesSection, disagreeSection, areaSection, decisionsSection, renderFlights, renderTrace, traceLines, renderLevels,
   historySection, feedsSection, lagOf, timelineEvents, advisoryLine, actionText, estimateOutcome, dayMonth, FEED_STATUS,
 } from "./panels.js";
-import { ext, renderXPanel, failureCount, recoverySummary, proofTicks, budgetWords, rerouteBlock, replanning } from "./ext.js";
+import { ext, renderXPanel, recoverySummary, proofTicks, rerouteBlock, replanning, aiState, handPlan } from "./ext.js";
 import { renderLayers, layersStatus } from "./controls.js";
 import { currentPlan, advisoryFacts, closuresFor } from "./story.js";
 import { planFailure, techDetail } from "./x-parts.js";
@@ -79,13 +79,14 @@ export function indexStatus(key, D, store, ui) {
     case "estimate": {
       const cone = sit ? D.coneOf(sit.volcano_id)?.properties : null;
       if (!cone) return { text: "none yet" };
-      return { text: tephraLabelText(cone, D.state.llm?.backend === "stub").replace("TEPHRA's estimate · ", "") };
+      return { text: tephraLabelText(cone, sit.assessment?.outcome, D.state.llm?.backend === "stub").replace("TEPHRA's estimate · ", "") };
     }
     case "sat": {
       const r = store.snapshot?.satellite || [];
       const bad = r.filter((x) => x.status === "ai_unavailable").length;
       const mine = r.find((x) => x.volcano_id === D?.selected && x.status === "read");
-      if (bad) return { text: `${plural(r.length, "reading", "readings")} · ${bad} AI unavailable`, tone: "serious" };
+      // supporting only: a picture not read is information, never in "Needs a look" (D42)
+      if (bad) return { text: `${plural(r.length, "reading", "readings")} · ${bad} not read`, tone: "info", noAttn: true };
       if (!r.length) return { text: "no reading yet" };
       return { text: `${plural(r.length, "reading", "readings")}${mine ? ` · ash visible? ${({ yes: "yes", no: "not seen" })[mine.ash_visible] || "can't tell"}` : ""}` };
     }
@@ -114,6 +115,8 @@ export function indexStatus(key, D, store, ui) {
       const advs = store.advisories.filter((a) => a.status !== "SUPERSEDED");
       const w = advs.filter((a) => a.status === "DRAFT").length;
       const ok = advs.filter((a) => a.status === "APPROVED" || a.status === "EDITED").length;
+      const hand = D ? handPlan(D, store).flights.length : 0;
+      if (hand && !(D.state.draft_count ?? w)) return { text: `0 waiting · ${hand} to plan by hand`, tone: "caution" };
       return { text: `${D?.state.draft_count ?? w} waiting, all volcanoes · ${ok} approved` };
     }
     case "recovery": {
@@ -123,7 +126,7 @@ export function indexStatus(key, D, store, ui) {
       const re = replanning(store);
       if (re) return { text: `${plural(re.airports.length, "airport", "airports")} (all volcanoes) · re-planning…`, tone: "caution" };
       if (!plan) return { text: "no airport closed" };
-      if (plan.status === "AI_UNAVAILABLE") return { text: planFailure(plan).short, tone: "serious" };
+      if (plan.status === "AI_UNAVAILABLE") return { text: planFailure(plan).short, tone: "caution" };
       // the same scope words as the story and the Desk: this volcano's, then every volcano's (G8)
       const n = new Set(plan.closures.map((c) => c.icao)).size;
       const mine = sit ? new Set(closuresFor(D, sit.volcano_id, plan).map((c) => c.icao)).size : 0;
@@ -139,9 +142,15 @@ export function indexStatus(key, D, store, ui) {
     case "trace":
       return { text: plural(traceLines(store, D, { traceScope: "all" }).length, "step", "steps") };
     case "ai": {
-      const f = failureCount(store);
-      const stub = D?.state.llm?.backend === "stub";
-      return { text: `${stub ? "AI off" : "AI on"}${f ? ` · ${f} failed` : ""}`, tone: f ? "serious" : null };
+      // the one state, never red, and never in "Needs a look": the AI's state is not a
+      // dispatcher's action; the hand work it leaves is (Decisions, Airport closures) (D39, D40)
+      if (!D) return { text: "–" };
+      const ai = aiState(D, store);
+      const n = ai.trouble.length;
+      if (ai.kind === "off") return { text: "Off · code only" };
+      if (ai.kind === "paused") return { text: ai.until ? `Paused until ${ai.until}` : "Paused", tone: "caution", noAttn: true };
+      if (ai.kind === "trouble") return { text: `On · ${n} problem${n === 1 ? "" : "s"}`, tone: "caution", noAttn: true };
+      return { text: "On" };
     }
     case "proof": {
       if (!ext.loaded.backtest) return { text: "loading…" };
@@ -162,7 +171,7 @@ export function indexStatus(key, D, store, ui) {
   }
 }
 
-const INDEX_DOT = { serious: ["st-serious", "var(--c-serious)"], caution: ["st-caution", "var(--c-caution)"], tephra: ["st-inside", "var(--c-tephra)"] };
+const INDEX_DOT = { serious: ["st-serious", "var(--c-serious)"], caution: ["st-caution", "var(--c-caution)"], tephra: ["st-inside", "var(--c-tephra)"], info: ["st-info", "var(--c-info)"] };
 
 // One index row: a shape for its tone, the title over its live status, a chevron.
 function indexRow(s, stt, { focus = `drow-${s.key}`, id = `xtab-${s.xtab || s.key}` } = {}) {
@@ -184,7 +193,7 @@ function renderIndex(D, store, ui) {
     if (!g) { g = { name: s.group, rows: [] }; groups.push(g); }
     const stt = indexStatus(s.key, D, store, ui);
     g.rows.push([s, stt]);
-    if (stt.tone === "serious" || stt.tone === "caution") attention.push([s, stt]);
+    if ((stt.tone === "serious" || stt.tone === "caution") && !stt.noAttn) attention.push([s, stt]);
   }
   const kids = [];
   // "Needs a look": at most three rows whose status is serious or caution, serious first. The
@@ -276,7 +285,7 @@ function issuerWords(p) {
   return `${vaac} ash advisory centre (VAAC), VAA`;
 }
 
-function flightDetail(D, ui) {
+function flightDetail(D, ui, store) {
   const host = $("flights");
   const pick = ui.selFlight;
   if (!pick) { host.replaceChildren(dkSection("fl-head", dkHeader({ id: "fl-head", title: "This flight" }), dkEmpty("No flight is picked.", "Choose one on the map or in Flights heading in."))); return; }
@@ -314,7 +323,17 @@ function flightDetail(D, ui) {
       adv.decision_reason ? el("p", { class: "dk-sub__note" }, "Reason given: ", el("q", { text: adv.decision_reason })) : null,
       techDetail(`action ${actionWords(adv)} · status ${adv.status}${adv.version != null ? ` · version ${adv.version}` : ""}`),
       el("div", { class: "dk-actions" }, el("a", { class: "btn btn--small", href: `/desk#review/${encodeURIComponent(adv.id)}`, target: "_blank", rel: "noopener", text: adv.status === "DRAFT" ? "Open on the Desk ›" : "See it on the Desk ›" }))));
-  } else if (p.exposed) kids.push(dkEmpty("No advisory is drafted for this flight yet.", null));
+  } else if (p.exposed) {
+    // no advisory because the AI did not run: the job, here, once (D54)
+    const hand = handPlan(D, store);
+    const mine = hand.flights.find((x) => x.key === `${p.hex}:${p.volcano_id}`);
+    if (mine) {
+      const b = hand.block;
+      kids.push(dkNote("caution", [el("p", {}, `No advisory for this flight: ${b.word}${b.until ? ` until ${b.until}` : b.why ? ` (${b.why})` : ""}. `,
+        el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Plan it by hand on the Desk ›" }),
+        mine.must ? [" ", dkChip("Must do", { kind: "must", title: "Code requires this work this run" })] : null)], { role: "status" }));
+    } else kids.push(dkEmpty("No advisory is drafted for this flight yet.", null));
+  }
   const rr = (store_reroutes(D) || []).find((r) => r.properties.flight_id === `${p.hex}:${p.volcano_id}` || r.properties.proxy_flight === p.proxy_flight);
   if (rr) kids.push(rerouteBlock(rr.properties, D));
   kids.push(el("div", { class: "dk-abouts" }, dkAbout("How the entry is estimated", "flight", p.exposed ? "Code projection from the last position, if track, speed and level are held." : "Code projects the last position along its track, speed and level; this flight does not reach TEPHRA's area."),
@@ -447,7 +466,7 @@ function renderSection(key, D, store, ui, conn) {
     case "sat": case "notices": case "recovery": case "proof": case "ai": renderXPanel(key, D, store); return;
     case "flights": renderFlights(D, store, ui); return;
     case "crew": crewSection(D, ui); return;
-    case "flight": flightDetail(D, ui); return;
+    case "flight": flightDetail(D, ui, store); return;
     case "decisions": decisionsSection(D, store, ui); return;
     case "history": historySection(D, store, ui); return;
     case "levels": renderLevels(D, ui); return;

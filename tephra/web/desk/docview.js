@@ -17,11 +17,15 @@ export const roleName = (r) => ROLE[r] || String(r);
 const blank = (note) => el('span', { class: 'blank' }, el('span', { class: 'blank__box', 'aria-hidden': 'true' }),
   note === '' ? null : el('span', { class: 'blank__note', text: note || 'TO COMPLETE' }), el('span', { class: 'sr-only', text: ' (blank)' }));
 
+// "AI-written" per box (docs/UI-AI-QUIET.md K99): the model id in the mark's title and once in
+// the document header's Technical detail; "NO MODEL" when code templates wrote it.
 function modelMark(modelId, backend) {
   const stub = backend === 'stub' || modelId === 'stub' || !modelId;
-  return el('span', { class: `dmark ${stub ? 'dmark--stub' : 'dmark--ai'}`, title: stub ? 'NO MODEL: written by code templates, not a model' : `Written by ${modelId}, checked by code` },
-    icon(stub ? 'i-code' : 'i-sparkle', 'st'), el('span', { text: stub ? 'NO MODEL' : `AI-written · ${modelId}` }));
+  return el('span', { class: `dmark ${stub ? 'dmark--stub' : 'dmark--ai'}`, title: stub ? 'NO MODEL: written by code templates, not a model' : `Written by ${modelId}, checked by code`, 'aria-label': stub ? 'NO MODEL' : `AI-written by ${modelId}` },
+    icon(stub ? 'i-code' : 'i-model', 'st'), el('span', { 'aria-hidden': 'true', text: stub ? 'NO MODEL' : 'AI-written' }));
 }
+const modelTech = (modelId, backend) => (backend === 'stub' || modelId === 'stub' || !modelId ? null
+  : el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: `AI-written parts by ${modelId}` })));
 
 function fieldRow(f, doc) {
   const value = f.value && String(f.value).trim()
@@ -78,7 +82,8 @@ function docHead(doc) {
       el('span', { class: `dchip ${status[0]}`.trim(), text: status[1] }),
       ...(doc.labels || []).filter((l) => !/^NO MODEL$/i.test(l)).map((l) => el('span', { class: `dchip ${/REPLAY/i.test(l) ? 'dchip--replay' : ''}`.trim(), text: l })),
       doc.kind === 'SRA' ? modelMark(doc.model_id, doc.llm_backend) : null),
-    el('p', { class: 'dhd__meta mono', text: `${doc.id} · v${doc.version} · drafted ${dayMonthHhmm(doc.created_at)}${doc.kind === 'SRA' ? ` · policy ${doc.policy_id} v${doc.policy_version}` : ''}` }));
+    el('p', { class: 'dhd__meta mono', text: `${doc.id} · v${doc.version} · drafted ${dayMonthHhmm(doc.created_at)}${doc.kind === 'SRA' ? ` · policy ${doc.policy_id} v${doc.policy_version}` : ''}` }),
+    modelTech(doc.model_id, doc.llm_backend));
 }
 
 function renderSra(doc, opts) {
@@ -165,6 +170,7 @@ export function renderHandover(b, { onAck = null, ackBusy = false } = {}) {
       b.replay ? el('span', { class: 'dchip dchip--replay', text: 'REPLAY' }) : null,
       modelMark(b.model_id, b.llm_backend)),
     el('p', { class: 'dhd__meta mono', text: `${b.id} · shift ${dayMonthHhmm(b.shift_from)} to ${dayMonthHhmm(b.shift_to)} · ${b.outgoing} → ${b.incoming}` }),
+    modelTech(b.model_id, b.llm_backend),
     el('p', { class: 'fnote', text: 'Severity, traffic, decisions and every number are gathered by code. The model wrote only the situation and the contingencies.' })));
 
   root.append(hsec('S', 'Situation', el('p', { class: 'hsit', text: b.situation.text }), srcIds(b.situation.source_ids), modelMark(b.model_id, b.llm_backend)));

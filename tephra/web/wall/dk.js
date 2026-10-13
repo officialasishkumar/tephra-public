@@ -209,7 +209,8 @@ export function seconds(msv) {
 
 const NUM = /\d+(?:[.,]\d+)*/g;
 const FLIGHT = /\bRFA\d{3,4}\b/g;
-const shapeOfText = (t) => String(t).replace(FLIGHT, "RFA#").replace(/\b[0-9a-f]{10,}\b/g, "#id").replace(NUM, "#");
+// "1 job" and "18 jobs" are one shape: the noun after a number counts as singular (D62).
+const shapeOfText = (t) => String(t).replace(FLIGHT, "RFA#").replace(/\b[0-9a-f]{10,}\b/g, "#id").replace(NUM, "#").replace(/# (\w+?)s\b/g, "# $1");
 
 // Lines that say the same thing become one run: a run keeps every item, the count and the time
 // range. Runs come newest first. `textOf` gives the plain line, `groupOf` anything that must
@@ -259,6 +260,8 @@ function mergeTexts(texts, newest) {
     return `${col[vals.indexOf(lo)]}–${prefix}${col[vals.indexOf(hi)]}`;
   });
   if (!clean) out = base;
+  // a range counts more than one: "1–18 job" reads "1–18 jobs"
+  else out = out.replace(/(\d–(?:FL)?\d+) (job|flight|item|step|time|record|report|delegation)\b(?!s)/g, "$1 $2s");
   let j = 0;
   out = out.replace(/RFA#( is| enters| was)?/g, (m, verb) => {
     const col = [...new Set(flights.map((f) => f[j]).filter(Boolean))];

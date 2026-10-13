@@ -7,7 +7,7 @@ import { PATHS, api, isUnavailable, problems, unavailableReason } from './api.js
 import { announce, byId, el, icon } from './dom.js';
 import { dayMonthHhmm } from './format.js';
 import { app } from './state.js';
-import { aiChip, codeChip, openBSheet, unavailableCard } from './ui.js';
+import { aiMark, codeChip, openBSheet, unavailableCard } from './ui.js';
 
 const MAX_CHARS = 6000;
 const MIN_CHARS = 20;
@@ -41,7 +41,7 @@ export function onNoticeEvent(n) {
 
 export const statusBadge = (n) => {
   if (n.status === 'verified') return el('span', { class: 'vbadge vbadge--ok' }, icon('i-check', 'st'), el('span', { text: 'Verified' }));
-  if (n.status === 'ai_unavailable') return el('span', { class: 'vbadge vbadge--bad' }, icon('st-serious', 'st'), el('span', { text: 'AI unavailable' }));
+  if (n.status === 'ai_unavailable') return el('span', { class: 'vbadge vbadge--no' }, icon('st-caution', 'st'), el('span', { text: 'Not read (AI unavailable)' }));
   return el('span', { class: 'vbadge vbadge--no' }, icon('st-caution', 'st'), el('span', { text: 'Not verified' }));
 };
 
@@ -100,11 +100,11 @@ export function readingView(n) {
   const head = el('div', { class: 'nhead' }, statusBadge(n),
     el('span', { class: 'chip chip--sm', title: 'Language detected by the model', text: LANGS[n.language] || 'Language not recognised' }),
     n.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null,
-    aiChip(n.model_id, n.llm_backend, { verb: 'AI-read', sm: true }));
+    n.status === 'ai_unavailable' ? null : aiMark('AI-read', n.llm_backend === 'stub' ? null : n.model_id));
   out.push(head);
 
   if (n.status === 'ai_unavailable') {
-    out.push(unavailableCard(n.reason ? n.reason.replace(/^AI UNAVAILABLE:?\s*/i, '') : 'no reason given', { instead: 'The notice was not read and TEPHRA did not use it. Read it yourself.' }));
+    out.push(unavailableCard(n.reason || 'no reason given', { title: 'Not read (AI unavailable)', instead: 'Read it yourself. Nothing from it entered the picture.' }));
   } else if (n.status === 'verified') {
     out.push(el('div', { class: 'banner banner--approved', role: 'note' }, icon('i-check', 'st'),
       el('p', { text: `Every field below is a verbatim quote from the notice, checked by code. It joined the live picture as an observatory notice${n.vona ? ` for ${n.vona.volcano_name}` : ''} (${n.id}).` })));
@@ -208,7 +208,7 @@ export function openPaste() {
       return;
     }
     if (isUnavailable(res)) {
-      result.replaceChildren(unavailableCard(unavailableReason(res), { instead: 'The notice was not read and TEPHRA did not use it. Read it yourself.' }));
+      result.replaceChildren(unavailableCard(unavailableReason(res), { title: 'Not read (AI unavailable)', instead: 'Read it yourself. Nothing from it entered the picture.' }));
       return;
     }
     const list = problems(res);

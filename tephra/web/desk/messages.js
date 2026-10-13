@@ -7,7 +7,7 @@ import { announce, byId, el, icon } from './dom.js';
 import { hhmmz } from './format.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
-import { aiChip, openBSheet, sectionHead, unavailableCard } from './ui.js';
+import { aiMark, openBSheet, sectionHead, unavailableCard } from './ui.js';
 
 export const KIND = {
   CREW_BRIEFING: ['Crew briefing', 'i-aircraft'],
@@ -53,7 +53,7 @@ function card(m) {
         el('span', { class: 'mcard__langs', text: langs })),
       m.route ? el('span', { class: 'mcard__meta', text: `${m.route}${m.tail ? ` · ${m.tail}` : ''}` }) : null,
       el('span', { class: 'mcard__body', 'aria-hidden': 'true', lang: LANG_ATTR[first.language] || null, text: m.final_bodies[first.language] || first.body }),
-      el('span', { class: 'tags' }, aiChip(m.model_id, m.llm_backend, { sm: true }),
+      el('span', { class: 'tags' }, aiMark('AI-written', m.llm_backend === 'stub' ? null : m.model_id),
         m.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null,
         el('span', { class: 'chip chip--sm' }, icon('i-clock', 'st'), el('span', { text: `drafted ${hhmmz(m.created_at)}` })))));
 }
@@ -157,7 +157,7 @@ export function openMessage(id) {
   function draw() {
     const head = [
       el('p', { class: 'mmeta' },
-        aiChip(current.model_id, current.llm_backend),
+        aiMark('AI-written', current.llm_backend === 'stub' ? null : current.model_id),
         current.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null,
         el('span', { class: 'chip chip--sm', text: `v${current.version}` })),
       el('p', { class: 'note mnote', text: `${current.route ? `${current.route}. ` : ''}Written from the ${current.source_kind === 'advisory' ? 'approved advisory' : 'approved airport plan'}. The model wrote the words; code filled every time, number and flight in them.` }),

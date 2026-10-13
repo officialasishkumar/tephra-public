@@ -1,13 +1,187 @@
-// Small building blocks shared by the Wall's Details sections (ext.js, duty.js, panels.js). Every string goes in
-// through el() (textContent); AI-written text carries an "AI-written" mark with the model id.
+// Small building blocks shared by the Wall's Details sections (ext.js, duty.js, panels.js), and the
+// one derived AI state both the Wall and the Desk word their AI lines from (docs/UI-AI-QUIET.md).
+// Every string goes in through el() (textContent); AI-written text carries a short mark whose
+// model id sits in its title and label, never in the visible text.
 
-import { el, icon } from "./util.js";
+import { el, icon, hhmmz } from "./util.js";
 
-// Marks AI-written text with the model id; with no model it says code wrote it (AI off).
-export function aiMark(modelId, label) {
-  const no = label === "NO MODEL" || !modelId || modelId === "stub";
-  return el("span", { class: `ai-mark${no ? " ai-mark--none" : ""}`, title: no ? "No model wrote this: a code template (the offline stub, NO MODEL)" : "Written by a model. Code checked every number, time and id." },
-    icon(no ? "i-code" : "i-model"), el("span", { text: no ? "Written by code (AI off)" : `AI-written · ${modelId}` }));
+// The mark set (docs/UI-AI-QUIET.md Q5): "AI-written", "AI-read", "AI-chosen", and "Code (AI off)"
+// when no model wrote it. Only for content a model actually produced (a model id, and an outcome
+// that passed the checks); the model id goes in the title and the label.
+export function aiMark(modelId, label, verb = "AI-written") {
+  const no = label === "NO MODEL" || !modelId || modelId === "stub" || modelId === "none";
+  const title = no ? "No model wrote this: code did (the offline stub, NO MODEL)" : `${verb} by ${modelId}. Code checked every number, time and id.`;
+  return el("span", { class: `ai-mark${no ? " ai-mark--none" : ""}`, title, "aria-label": no ? "Code (AI off)" : `${verb} by ${modelId}` },
+    icon(no ? "i-code" : "i-model"), el("span", { text: no ? "Code (AI off)" : verb, "aria-hidden": "true" }));
+}
+
+// ------------------------------------------------------------------ the AI state (UI-AI-QUIET 1.2)
+// AI is in one state: on, paused (today's quota used up), trouble (n causes) or off (stub).
+// Failures count by cause (helper + reason class), never by step or tick. Pure: the Wall passes
+// its trace, newest Duty Officer run, newest airport plan and the live budget; the Desk its
+// failures, Duty Officer run and budget.
+
+export const HELPER_NAME = {
+  duty: "Duty Officer", plume: "Plume Reader", sat: "Satellite reader", planner: "Planner", drafter: "Drafter", ask: "Ask",
+  notice: "Notice reader", recovery: "Recovery planner", messages: "Messages", docs: "Paperwork drafter",
+};
+const HELPER_KEY = {
+  DUTY: "duty", duty_officer: "duty", PLUME: "plume", SATELLITE: "sat", PLANNER: "planner", planner: "planner", DRAFTER: "drafter", drafter: "drafter",
+  ASK: "ask", NOTICE: "notice", RECOVERY: "recovery", recovery: "recovery", MESSAGES: "messages", DOCS: "docs",
+};
+// What each helper's failure means for the dispatcher, said once at the AI home.
+const CONSEQUENCE = {
+  duty: "Its must-do jobs went to the Desk to plan by hand", recovery: "Plan the network by hand", planner: "Plan those flights by hand on the Desk",
+  drafter: "Plan those flights by hand on the Desk", plume: "TEPHRA's area stays at the official reports", sat: "The satellite picture is supporting only",
+  notice: "Read the notice yourself", ask: "Ask again later, or read the Wall", messages: "Write the message by hand", docs: "Complete the document by hand",
+};
+// Where the dispatcher acts on it: [link words, Details section].
+const CAUSE_LINK = {
+  duty: ["See the jobs to plan by hand ›", "decisions"], recovery: ["Airport closures ›", "recovery"], planner: ["See the jobs to plan by hand ›", "decisions"],
+  drafter: ["See the jobs to plan by hand ›", "decisions"], plume: ["TEPHRA's estimate ›", "estimate"], sat: ["Satellite picture ›", "sat"], notice: ["Notices ›", "notices"],
+};
+
+// The reason class of a failure (budget, timeout, checks, error, other), from the recorded reason.
+export function reasonClass(reason) {
+  const r = String(reason || "");
+  if (/budget_exhausted|DAILY QUOTA|RESOURCE_EXHAUSTED|\b429\b|quota/i.test(r)) return "budget";
+  if (/Timeout|timed out/i.test(r)) return "timeout";
+  if (/FAILED CHECKS|validation|did not pass/i.test(r)) return "checks";
+  if (/ERROR\b|Error\b|exception/i.test(r)) return "error";
+  return "other";
+}
+// "{why}" in "AI unavailable ({why})" (UI-AI-QUIET 1.1).
+export const WHY = {
+  timeout: "timed out", checks: "the answer failed the code's checks", error: "the AI stopped with an error", other: "the AI could not answer",
+  budget: "daily quota", undone: "left undone",
+};
+
+// The helper a failure belongs to: a Duty Officer line about a plume read is the Plume Reader's.
+function helperOf(stage, reason) {
+  if ((stage === "DUTY" || stage === "duty_officer") && /^Plume read: /.test(String(reason || ""))) return "plume";
+  return HELPER_KEY[stage] || String(stage || "").toLowerCase();
+}
+
+const liteModel = (budget) => {
+  const tier = (budget?.tiers || []).find((t) => t.tier === "lite");
+  const models = Array.isArray(budget?.models) ? budget.models : [];
+  return (tier && models.find((m) => m.model_id === tier.model_id)) || models.find((m) => /every other/i.test(m.jobs || "")) || null;
+};
+
+// errors: [{ stage, reason, at (ms), raw }]. plan: the newest airport plan. duty: the newest run.
+export function aiStateOf({ stub = false, budget = null, errors = [], duty = null, plan = null }) {
+  const lite = liteModel(budget);
+  const closed = !stub && lite?.closed === true;
+  const resets = Date.parse(budget?.resets_at || "");
+  // a statement about now, on the real clock, from the current budget only: shown in REPLAY too
+  const until = closed && Number.isFinite(resets) ? hhmmz(resets) : null;
+  const groups = new Map();
+  const add = (helperKey, reason, at, raw, src) => {
+    const special = /^Duty Officer left \d+ mandatory item/.test(String(reason || ""));
+    const cls = special ? "undone" : reasonClass(reason);
+    const key = `${helperKey}|${cls}`;
+    let g = groups.get(key);
+    if (!g) { g = { key, helperKey, helper: HELPER_NAME[helperKey] || helperKey, reasonClass: cls, items: [], raw: [] }; groups.set(key, g); }
+    g.items.push({ at, reason, src });
+    g.raw.push(raw || reason);
+    return g;
+  };
+  for (const e of errors) add(helperOf(e.stage, e.reason), e.reason, e.at, e.raw, e.src);
+  // the newest airport plan's own failure: older than the trace window, still a cause (D67)
+  if (plan && plan.status === "AI_UNAVAILABLE" && !planProblem(plan)) {
+    const reason = planReasons(plan).join("; ") || "no reason given";
+    const key = `recovery|${reasonClass(reason)}`;
+    if (!groups.has(key)) add("recovery", reason, Date.parse(plan.created_at), reason, { plan });
+  }
+  const dutyReason = duty?.outcome === "MODEL_FAILED" ? (duty.validation_errors || [])[0] || "no reason recorded" : null;
+  if (dutyReason && !groups.has(`duty|${reasonClass(dutyReason)}`)) add("duty", dutyReason, Date.parse(duty.finished_at), dutyReason, { duty });
+  const causes = [...groups.values()].map((g) => {
+    const ts = g.items.map((x) => x.at).filter(Number.isFinite);
+    return { ...g, steps: g.items.length, first: ts.length ? Math.min(...ts) : NaN, last: ts.length ? Math.max(...ts) : NaN,
+      consequence: CONSEQUENCE[g.helperKey] || "Do this step by hand", link: CAUSE_LINK[g.helperKey] || null };
+  }).sort((a, b) => (b.last || 0) - (a.last || 0));
+  const paused = !stub && (closed || (dutyReason != null && reasonClass(dutyReason) === "budget"));
+  // in "paused", a budget cause is the state itself and is not counted again as trouble
+  const trouble = causes.filter((c) => c.reasonClass !== "budget" && c.reasonClass !== "undone");
+  const waiting = (Array.isArray(budget?.waiting) ? budget.waiting : []).filter((w) => w.status === "WAITING").map((w) => {
+    const t = Date.parse(w.next_slot_at || "");
+    return { job: w.label, kind: w.item?.kind || w.kind, slot: Number.isFinite(t) ? hhmmz(t) : null, volcano: w.item?.volcano_id || null };
+  });
+  const kind = stub ? "off" : paused ? "paused" : trouble.length ? "trouble" : "on";
+  return { kind, until, causes, trouble, waiting, paused };
+}
+
+const problems = (n) => `${n} problem${n === 1 ? "" : "s"}`;
+
+// The one state in words, for a chip (`label` and its `suffix`), its tooltip and its label.
+// `home` names the AI home ("AI helpers" on the Wall, "AI today" on the Desk); `opens` what the
+// chip opens. `narrow` (420 px and less) drops the time and the "on".
+export function aiWords(s, { home = "AI helpers", opens = "Details, AI helpers", narrow = false } = {}) {
+  const never = "AI can widen TEPHRA's estimate, never shrink the official area.";
+  if (s.kind === "off") return { label: "AI off", suffix: null, tone: "off", aria: `AI off, code only. Opens ${opens}.`, title: "AI off: no model is connected. Code does every step; code templates write the text." };
+  if (s.kind === "paused") {
+    const u = s.until ? ` until ${s.until}` : "";
+    return { label: "AI paused", suffix: !narrow && s.until ? s.until : null, tone: "caution",
+      aria: `AI paused${u}: today's free AI quota is used up. Opens ${opens}.`,
+      title: `AI paused${u}: today's free AI quota is used up.${s.until ? " Queued work runs then." : ""} ${never} Open ${home} for models and today's calls.` };
+  }
+  if (s.kind === "trouble") {
+    const n = s.trouble.length;
+    return { label: narrow ? "AI" : "AI on", suffix: problems(n), tone: "caution",
+      aria: `AI on, ${problems(n)}: ${s.trouble.map((c) => `${c.helper} did not run`).join(", ")}. Opens ${opens}.`,
+      title: `AI on, ${problems(n)}: ${s.trouble.map((c) => `${c.helper} did not run (${WHY[c.reasonClass]}); nothing was put in its place`).join("; ")}. ${never} Open ${home} for the details.` };
+  }
+  return { label: "AI on", suffix: null, tone: "on", aria: `AI on. Opens ${opens}.`, title: `AI on. It can widen TEPHRA's estimate, never shrink the official area. AI-written parts are marked.` };
+}
+
+// The calm lead at the AI home (UI-AI-QUIET 5.1): one paragraph, a sentence per cause.
+export function aiLead(s) {
+  const at = (t) => (Number.isFinite(t) ? ` at ${hhmmz(t)}` : "");
+  const causeLine = (c) => `${c.helper} did not run (${WHY[c.reasonClass]})${at(c.last)}; nothing was put in its place. ${c.consequence}.`;
+  if (s.kind === "off") return [{ strong: "AI off.", text: "No model is connected. Code does every step; code templates write the text." }];
+  if (s.kind === "on") return [{ strong: "AI on.", text: "It can widen TEPHRA's estimate, never shrink the official area. AI-written parts are marked." }];
+  if (s.kind === "trouble") return [{ strong: `AI on, ${problems(s.trouble.length)}.`, text: s.trouble.map(causeLine).join(" ") }];
+  const n = s.waiting.length;
+  const jobs = n ? `Queued work (${n} job${n === 1 ? "" : "s"}) ${s.until ? "runs then" : "waits"}, on the same model; nothing is dropped or handed to another model. ` : "";
+  const out = [{ strong: s.until ? `AI paused until ${s.until}.` : "AI paused.",
+    text: `${s.until ? "Google reported today's free AI quota used up." : "Today's free AI quota was used up."} ${jobs}Until then, code still checks every flight against the official area, and nothing is made up in place of an AI step. Flights that need a plan are on the Desk to plan by hand.` }];
+  if (s.trouble.length) out.push({ strong: "Also:", text: s.trouble.map(causeLine).join(" ") });
+  return out;
+}
+
+// One cause in §1.1 words, for the cause lists (What went wrong, the trace).
+export function causeTitle(c) {
+  if (c.reasonClass === "undone") return `${c.helper} passed must-do jobs to the Desk`;
+  if (c.reasonClass === "budget") return `${c.helper} did not run: AI paused (daily quota)`;
+  return `${c.helper} did not run: AI unavailable (${WHY[c.reasonClass]})`;
+}
+
+// Why a flight has no AI draft, when that is the AI's doing: { word, marker, until/why/slot }, or
+// null when the AI is on and fine (or off: the stub drafts too).
+export function draftBlock(s) {
+  if (!s || s.kind === "off") return null;
+  if (s.kind === "paused") return { word: "AI paused", until: s.until };
+  const c = s.trouble.find((x) => x.helperKey === "duty" || x.helperKey === "planner" || x.helperKey === "drafter");
+  if (c) return { word: "AI unavailable", why: WHY[c.reasonClass] };
+  const w = s.waiting.find((x) => x.kind === "PLAN");
+  if (w) return { word: "AI waiting", slot: w.slot };
+  return null;
+}
+
+// Flights to plan by hand (docs/UI-AI-QUIET.md D56): every RFA flight in or heading in, all
+// volcanoes, with no current advisory while the AI cannot draft (paused or unavailable; a queued
+// draft is waiting, not missing). The Duty Officer's must-do flights first, then inside now, then
+// the soonest entry. `block` says why (draftBlock); no flights when the AI can draft.
+export function handPlanOf(D, store, ai) {
+  const block = draftBlock(ai);
+  if (!D || !block || block.word === "AI waiting") return { block, flights: [], must: 0 };
+  const run = store?.snapshot?.duty;
+  const must = new Set((run?.undispatched || []).map((id) => (run.worklist || []).find((i) => i.id === id)).filter((i) => i && i.kind === "PLAN").map((i) => i.subject));
+  const flights = D.exposed.map((f) => ({ f, p: f.properties, key: `${f.properties.hex}:${f.properties.volcano_id}` }))
+    .filter((x) => { const a = D.advByFlight.get(x.key); return !a || a.status === "SUPERSEDED"; })
+    .map((x) => ({ ...x, must: must.has(x.key) }))
+    .sort((a, b) => Number(b.must) - Number(a.must) || Number(!!b.p.inside) - Number(!!a.p.inside) || (a.p.minutes_to_entry ?? 0) - (b.p.minutes_to_entry ?? 0));
+  return { block, flights, must: flights.filter((x) => x.must).length };
 }
 
 // ------------------------------------------------------------------ plain words (UI-REDESIGN R12.7)
@@ -84,9 +258,9 @@ const PLAIN = [
   [/^Duty Officer deferred (\d+) item\(s\):/, (m) => `Duty Officer left ${m[1]} optional ${Number(m[1]) === 1 ? "job" : "jobs"} for the next run`],
   [/^Duty Officer brief: (\d+) delegation\(s\), (\d+) deferred$/, (m) => `Duty Officer handed out ${jobs(m[1])} and left ${m[2]} for the next run`],
   [/^Duty Officer AI UNAVAILABLE \(budget_exhausted\); (\d+) delegation\(s\) made, (\d+) mandatory item\(s\) to the Desk$/,
-    (m) => `Duty Officer could not run: today's AI calls are closed. ${m[1] !== "0" ? `It handed out ${jobs(m[1])}; ` : ""}${jobs(m[2])} that must be done went to the Desk`],
+    (m) => `Duty Officer did not run: AI paused (daily quota). ${m[1] !== "0" ? `It handed out ${jobs(m[1])}; ` : ""}${jobs(m[2])} that must be done went to the Desk`],
   [/^Duty Officer AI UNAVAILABLE \(GEMINI DAILY QUOTA SPENT.*?\); (\d+) delegation\(s\) made, (\d+) mandatory item\(s\) to the Desk$/,
-    (m) => `Duty Officer could not run: Gemini's daily quota is spent. ${m[1] !== "0" ? `It handed out ${jobs(m[1])}; ` : ""}${jobs(m[2])} that must be done went to the Desk`],
+    (m) => `Duty Officer did not run: AI paused (daily quota). ${m[1] !== "0" ? `It handed out ${jobs(m[1])}; ` : ""}${jobs(m[2])} that must be done went to the Desk`],
   [/^Plume read: (.+?) \((.+)\): not dispatched; the area stays at the official products$/,
     (m) => `Plume read for ${m[1]} was not handed out (${m[2]}). TEPHRA's area stays at the official reports`],
   [/^Duty Officer left (\d+) mandatory item\(s\) undone: to the Desk$/, (m) => `Duty Officer passed ${m[1]} must-do ${Number(m[1]) === 1 ? "job" : "jobs"} to the Desk`],
@@ -99,8 +273,8 @@ const PLAIN = [
   [/^disruption: \{/, () => "Recovery planner was given the closed airports and the day's flights"],
   [/^run_scenario: \{.*"label":"([^"]+)".*?"status":"([A-Z_]+)"/, (m) => `Recovery planner tried a scenario: ${m[1].toLowerCase()} (${m[2].toLowerCase().replace(/_/g, " ")})`],
   [/^(.+): (LAG|ENVELOPE|HEIGHT_MISMATCH|DIRECTION_MISMATCH|SILENCE|CONFLICT) - /, (m) => `${m[1]}: ${DIFF_WORDS[m[2]]}`],
-  [/^AI UNAVAILABLE: RECOVERY AGENT ERROR: TimeoutError\b/, () => "Recovery planner timed out. No plan was made; a dispatcher must plan the network."],
-  [/^AI UNAVAILABLE: RECOVERY AGENT ERROR: (\w+)/, (m) => `Recovery planner stopped with an error (${m[1]}). No plan was made; a dispatcher must plan the network.`],
+  [/^AI UNAVAILABLE: RECOVERY AGENT ERROR: TimeoutError\b/, () => "Recovery planner did not run: AI unavailable (timed out). No plan was made; a dispatcher must plan the network."],
+  [/^AI UNAVAILABLE: RECOVERY AGENT ERROR: (\w+)/, (m) => `Recovery planner did not run: AI unavailable (the AI stopped with an error, ${m[1]}). No plan was made; a dispatcher must plan the network.`],
   // Any other code-template line: say who wrote it in words, keep the rest as written.
   [/^NO MODEL: (.+)$/, (m) => `Written by code (AI off): ${/[a-z]/.test(m[1]) ? m[1] : m[1].charAt(0) + m[1].slice(1).toLowerCase()}`],
   [/^AI UNAVAILABLE: NO FEASIBLE PLAN FOR THE PUBLISHED CLOSURE \((\w+)\).*$/, (m) => (m[1] === "UNKNOWN" ? "Airport plan: no plan found (the solver did not finish in time). A dispatcher must plan the network by hand." : `Airport plan: no plan found (solver: ${m[1]}). A dispatcher must plan the network by hand.`)],
@@ -116,58 +290,46 @@ export function plainLine(text) {
   return raw;
 }
 
-// ------------------------------------------------------------------ failures grouped by cause
-// A failed AI step's cause in plain words (docs/UI-DETAILS-PANELS.md 3.3): a fixed table, like
-// PLAIN. `title` names what failed, `sub` what it means for the dispatcher, `each` one
-// occurrence in a few words. A line the table does not know keeps the helper's name and its own
-// plain line; nothing is paraphrased beyond the table. The raw line stays under Technical detail.
-const HELPER_OF_STAGE = {
-  DUTY: "Duty Officer", PLUME: "Plume Reader", SATELLITE: "Satellite reader", PLANNER: "Planner", DRAFTER: "Drafter",
-  ASK: "Ask", NOTICE: "Notice reader", RECOVERY: "Recovery planner", MESSAGES: "Messages", DOCS: "Paperwork drafter",
-};
+// ------------------------------------------------------------------ one failure in a few words
+// One occurrence of a failed AI step in a few words, for the occurrence lines under a cause
+// (docs/UI-DETAILS-PANELS.md 3.3): a fixed table, like PLAIN. `num` is the number of jobs it left,
+// for "1–18 must-do jobs per run". A line the table does not know keeps its own plain line; the
+// raw line stays under Technical detail.
 const CAUSES = [
-  { stage: "DUTY", re: /^Duty Officer AI UNAVAILABLE \(budget_exhausted\); \d+ delegation\(s\) made, (\d+) mandatory/, key: "duty-budget",
-    title: () => "Duty Officer could not run: today's AI calls are closed", sub: (n) => `${n} must-do jobs went to the Desk each time, for a dispatcher to do by hand. Nothing was substituted.`,
-    each: (m) => `${m[1]} jobs to the Desk`, link: null },
-  { stage: "DUTY", re: /^Duty Officer AI UNAVAILABLE \(GEMINI DAILY QUOTA SPENT[^;]*; \d+ delegation\(s\) made, (\d+) mandatory/, key: "duty-quota",
-    title: () => "Duty Officer could not run: Gemini's daily quota is spent", sub: (n) => `${n} must-do jobs went to the Desk, for a dispatcher to do by hand. Nothing was substituted.`,
-    each: (m) => `${m[1]} jobs to the Desk`, link: null },
-  { stage: "DUTY", re: /^Plume read: (.+?) \((.+)\): not dispatched/, key: "duty-plume",
-    title: () => "Plume read was not handed out", sub: "TEPHRA's area stays at the official reports. Nothing was widened or substituted.",
-    each: (m) => `${m[1]}: ${m[2]}`, link: ["TEPHRA's estimate", "estimate"] },
-  { stage: "DUTY", re: /^Duty Officer left (\d+) mandatory item\(s\) undone: to the Desk$/, key: "duty-undone",
-    title: (n) => `Duty Officer passed ${n} must-do jobs to the Desk`, sub: "A dispatcher does them by hand. Nothing was substituted.",
-    each: (m) => `${m[1]} jobs`, link: null },
-  { stage: "RECOVERY", re: /RECOVERY AGENT ERROR: TimeoutError/, key: "recovery-timeout",
-    title: () => "Recovery planner timed out", sub: "No plan was made. A dispatcher must plan the network.", each: () => "timed out", link: ["Airport closures", "recovery"] },
-  { stage: "RECOVERY", re: /RECOVERY AGENT ERROR: (\w+)/, key: "recovery-error",
-    title: () => "Recovery planner stopped with an error", sub: "No plan was made. A dispatcher must plan the network.", each: (m) => m[1], link: ["Airport closures", "recovery"] },
-  { stage: "RECOVERY", re: /NO FEASIBLE PLAN[^(]*\(UNKNOWN\)/, key: "recovery-unknown",
-    title: () => "Recovery found no plan: the solver did not finish in time", sub: "A dispatcher must plan the network by hand.", each: () => "no plan", link: ["Airport closures", "recovery"] },
-  { stage: "RECOVERY", re: /NO FEASIBLE PLAN[^(]*\((\w+)\)/, key: "recovery-noplan",
-    title: () => "Recovery found no plan", sub: "A dispatcher must plan the network by hand.", each: (m) => `solver: ${m[1].toLowerCase()}`, link: ["Airport closures", "recovery"] },
-  { stage: "DRAFTER", re: /DRAFT FAILED CHECKS/, key: "drafter-checks",
-    title: () => "Drafter's advisory failed the code's checks", sub: "No advisory was drafted for that flight. A dispatcher must write it.", each: () => "failed the checks", link: ["Decisions", "decisions"] },
+  { stage: "DUTY", re: /^Duty Officer AI UNAVAILABLE \((?:budget_exhausted|GEMINI DAILY QUOTA SPENT[^;]*)\); \d+ delegation\(s\) made, (\d+) mandatory/, each: (m) => `${jobs(m[1])} to the Desk` },
+  { stage: "DUTY", re: /^Plume read: (.+?) \((.+)\): not dispatched/, each: (m) => `${m[1]}: ${m[2]}` },
+  { stage: "DUTY", re: /^Duty Officer left (\d+) mandatory item\(s\) undone: to the Desk$/, each: (m) => `${jobs(m[1])} to the Desk` },
+  { stage: "RECOVERY", re: /RECOVERY AGENT ERROR: TimeoutError/, each: () => "timed out" },
+  { stage: "RECOVERY", re: /RECOVERY AGENT ERROR: (\w+)/, each: (m) => m[1] },
+  { stage: "RECOVERY", re: /NO FEASIBLE PLAN[^(]*\(UNKNOWN\)/, each: () => "no plan" },
+  { stage: "RECOVERY", re: /NO FEASIBLE PLAN[^(]*\((\w+)\)/, each: (m) => `solver: ${m[1].toLowerCase()}` },
+  { stage: "DRAFTER", re: /DRAFT FAILED CHECKS/, each: () => "failed the checks" },
 ];
 
-export function failureCause(t) {
+export function failureEach(t) {
   const msg = String(t.message || "");
   for (const c of CAUSES) {
     if (c.stage !== t.stage) continue;
     const m = c.re.exec(msg);
-    if (m) return { key: c.key, title: c.title, sub: c.sub, each: c.each(m), num: m[1] && /^\d+$/.test(m[1]) ? Number(m[1]) : null, link: c.link };
+    if (m) return { each: c.each(m), num: m[1] && /^\d+$/.test(m[1]) ? Number(m[1]) : null };
   }
-  const who = HELPER_OF_STAGE[t.stage] || t.stage;
-  if (/AI UNAVAILABLE/i.test(msg)) return { key: `${t.stage}-unavailable`, title: () => `${who} could not answer`, sub: "Nothing was put in its place.", each: plainLine(msg) === msg ? "could not answer" : plainLine(msg), num: null, link: null };
   const plain = plainLine(msg);
-  return { key: `${t.stage}-other-${plain}`, title: () => `${who} reported a failure`, sub: plain !== msg ? plain : null, each: plain, num: null, link: null };
+  return { each: plain === msg && /AI UNAVAILABLE/i.test(msg) ? "could not answer" : plain, num: null };
 }
 
 // Who did a step, in words (stage chips: CODE / ADK / NO MODEL).
 export const ACTOR_WORDS = { code: "by code", gemini: "by an AI helper", adk: "by an AI helper", stub: "AI off", human: "by a person", system: "by the system" };
+// Agent-framework ("adk") steps code writes before any model is called: the Duty Officer's work
+// list. They say "by code (agent worklist)"; "by an AI helper" is kept for steps a model took
+// (docs/UI-AI-QUIET.md D63).
+const ADK_CODE = [/^Duty Officer: \d+ item\(s\) to dispatch\b/, /^Duty Officer: the same work as on the first pass\b/];
 // With AI off (the stub backend) the agent framework still runs, but no model speaks: an "adk"
 // or "gemini" step is then code following the helper's script, so it says "AI off" (review 1, 6).
-export const actorWords = (actor, stub) => (stub && (actor === "adk" || actor === "gemini") ? "AI off" : ACTOR_WORDS[actor] || String(actor || ""));
+export const actorWords = (actor, stub, message = "") => {
+  if (stub && (actor === "adk" || actor === "gemini")) return "AI off";
+  if (actor === "adk" && ADK_CODE.some((re) => re.test(String(message)))) return "by code (agent worklist)";
+  return ACTOR_WORDS[actor] || String(actor || "");
+};
 
 // "$62,525" (R2.8)
 const USD = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -175,7 +337,16 @@ export const usd = (n) => (n == null || !Number.isFinite(Number(n)) ? "n/a" : US
 
 // A plan's recorded reasons, each once: the planner often writes the same text as the plan's reason
 // and as its only validation error.
-const planReasons = (plan) => [...new Set([plan.unavailable_reason, ...(plan.validation_errors || [])].filter(Boolean))];
+// The comparison drops the "AI UNAVAILABLE: " prefix the plan's reason carries and its error does not.
+const planReasons = (plan) => {
+  const seen = new Set();
+  return [plan.unavailable_reason, ...(plan.validation_errors || [])].filter(Boolean).filter((r) => {
+    const k = String(r).replace(/^AI UNAVAILABLE:?\s*/i, "");
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+};
 
 // A recovery plan that found no plan: the solver's status in plain words, never "AI unavailable"
 // (R2.6). Returns null when the plan's failure is not a solver result.
@@ -196,8 +367,9 @@ export function planProblem(plan) {
 
 // A plan with no plan, in plain words for Details › Airport closures: the solver's result when
 // there is one (planProblem), else what stopped the recovery planner. Never "chosen by" a model
-// when nothing was chosen. `raw` is the reason as recorded, for Technical detail; `clause` is the
-// cause as a short clause for the Wall's failure line ("Airport plan: {clause}, so …").
+// when nothing was chosen. `raw` is the reason as recorded, for Technical detail; `place` the
+// story's closure sub-line ("No airport plan (AI unavailable): plan the network by hand"); `ai`
+// whether the AI (not the solver) is why there is no plan.
 export function planFailure(plan) {
   if (!plan || plan.status !== "AI_UNAVAILABLE") return null;
   const p = planProblem(plan);
@@ -206,28 +378,15 @@ export function planFailure(plan) {
     const solver = p.status.toLowerCase().replace(/_/g, " ");
     return {
       title: p.status === "UNKNOWN" ? "Recovery found no plan: the solver did not finish in time" : p.status === "INFEASIBLE" ? "Recovery found no plan: no plan fits the closures" : `Recovery found no plan (solver: ${solver})`,
-      sub: "A dispatcher must plan the network by hand.", short: "no plan found", raw,
-      clause: p.status === "UNKNOWN" ? "the solver did not finish in time" : p.status === "INFEASIBLE" ? "no plan fits the closures" : `no plan was found (solver: ${solver})`,
+      sub: "A dispatcher must plan the network by hand.", short: "no plan: plan the network by hand", raw, ai: false,
+      place: `No airport plan (${p.status === "UNKNOWN" ? "the solver did not finish in time" : p.status === "INFEASIBLE" ? "no plan fits the closures" : `solver: ${solver}`}): plan the network by hand`,
     };
   }
   const m = /RECOVERY AGENT ERROR: (\w+)/.exec(raw);
-  if (m && m[1] === "TimeoutError") return { title: "Recovery planner timed out", sub: "No plan was made. A dispatcher must plan the network by hand.", short: "no plan: the planner timed out", raw, clause: "the recovery planner timed out" };
-  if (m) return { title: "Recovery planner stopped with an error", sub: "No plan was made. A dispatcher must plan the network by hand.", short: "no plan: the planner stopped with an error", raw, clause: "the recovery planner stopped with an error" };
-  return { title: "No plan: AI unavailable", sub: "Nothing was put in its place. A dispatcher must plan the network by hand.", short: "no plan: AI unavailable", raw, clause: "the AI was unavailable and no plan was made" };
-}
-
-// Why an AI helper could not run, as a clause in plain words for the Wall's failure line ("Duty
-// Officer could not run: {clause}."). A fixed table like CAUSES; a reason it does not know reads
-// "the AI could not answer", and the raw reason stays in the item's title and in Details.
-// `until` is when today's calls open again (the budget's resets_at, already "0700Z").
-export function aiStopClause(reason, until = null) {
-  const r = String(reason || "");
-  const tail = until ? ` until ${until}` : "";
-  if (/budget_exhausted/i.test(r)) return `today's AI calls are used up${tail}`;
-  if (/DAILY QUOTA SPENT|RESOURCE_EXHAUSTED|\b429\b/i.test(r)) return `Gemini's daily quota is spent${tail}`;
-  if (/Timeout/i.test(r)) return "the AI timed out";
-  if (/FAILED CHECKS|validation/i.test(r)) return "the AI's answer failed the code's checks";
-  return "the AI could not answer";
+  const base = { short: "no plan: plan the network by hand", raw, ai: true, why: WHY[reasonClass(raw)], place: "No airport plan (AI unavailable): plan the network by hand" };
+  if (m && m[1] === "TimeoutError") return { ...base, title: "Recovery planner timed out", sub: "No plan was made. A dispatcher must plan the network by hand." };
+  if (m) return { ...base, title: "Recovery planner stopped with an error", sub: "No plan was made. A dispatcher must plan the network by hand." };
+  return { ...base, title: "No plan: AI unavailable", sub: "Nothing was put in its place. A dispatcher must plan the network by hand." };
 }
 
 // "Technical detail" disclosure holding raw machine text (R12.7).

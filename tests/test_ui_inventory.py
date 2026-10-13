@@ -232,6 +232,11 @@ def test_honesty_strings_are_kept(text: str) -> None:
     assert text in ALL, text
 
 
+def test_wall_trust_line_says_never_smaller() -> None:
+    """docs/UI-AI-QUIET.md W17, 2.2: the trust line keeps the floor in every AI state."""
+    assert "never smaller than the official area" in WALL
+
+
 def test_only_the_selected_official_label_may_overlap() -> None:
     """R6.3, G3: every other map label collides, so labels never stack again."""
     for path in (WEB / "wall" / "map.js", WEB / "wall" / "ext-map.js"):

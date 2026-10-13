@@ -7,10 +7,10 @@ import { $, el, ms, prefs, reducedMotion, inlineSprite, icon } from "./wall/util
 import { derive, actionWords, deciderName, LEVEL_MAX, levelFromFrac, regionOfVent, sortSituations } from "./wall/derive.js";
 import { WallMap, readTokens, SAT } from "./wall/map.js";
 import {
-  renderChrome, renderClock, mapPills, renderTimeline, sourcesDialog, policyDialog, timelineTarget, setFailureCounter,
+  renderChrome, renderClock, mapPills, renderTimeline, sourcesDialog, policyDialog, timelineTarget, setAiState,
 } from "./wall/panels.js";
 import { helpContent, aboutContent } from "./wall/controls.js";
-import { ext, loadExt, ingest, noteTrace, satScale, failureCount } from "./wall/ext.js";
+import { ext, loadExt, ingest, noteTrace, satScale, aiState } from "./wall/ext.js";
 import { renderStory, coverageNote } from "./wall/story.js";
 import { renderDetails, sectionOf, PANELS } from "./wall/details.js";
 
@@ -77,7 +77,7 @@ let map = null;
 let dialogKind = null;
 let dialogOpener = null;
 let lastSel = null;
-setFailureCounter(failureCount);
+setAiState(aiState);
 
 const now = () => (Number.isFinite(clock.base) ? clock.base + (performance.now() - clock.at) : NaN);
 function setClock(iso) {

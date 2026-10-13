@@ -5,7 +5,7 @@
 
 import { PATHS, api, errorCode, isUnavailable, problems, unavailableReason } from './api.js';
 import { announce, byId, el, icon } from './dom.js';
-import { actionShort, activeNow, dayMonthHhmm } from './format.js';
+import { actionShort, activeNow, dayMonthHhmm, hhmmz } from './format.js';
 import { renderDoc, renderHandover, roleName } from './docview.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
@@ -215,6 +215,10 @@ export function renderDocs() {
     sraRegion = select.value;
   });
   const sraKids = [el('p', { id: 'sra-note', class: 'fine', text: "One draft per region, filled from TEPHRA's evidence. Blanks stay blank." })];
+  // an SRA the budget holds for later, at the place it would land (docs/UI-AI-QUIET.md K98)
+  const queued = app.budget && Array.isArray(app.budget.waiting) ? app.budget.waiting.find((w) => w.status === 'WAITING' && w.item && w.item.kind === 'SRA') : null;
+  const queuedWords = queued ? `Waiting for AI: next slot ${queued.next_slot_at ? hhmmz(queued.next_slot_at) : 'not set'}.` : '';
+  if (queued) sraKids.push(el('p', { class: 'note', role: 'status' }, icon('st-caution', 'st'), el('span', { text: ` ${queuedWords} Complete it by hand if it cannot wait.` })));
   if (draftError && draftError.kind === 'SRA') sraKids.push(draftErrorNode());
   sraKids.push(regions.length
     ? el('div', { class: 'sraform' }, el('label', { class: 'flabel', for: 'sra-region', text: 'Region' }), select,
@@ -223,7 +227,7 @@ export function renderDocs() {
         if (r) draftSra(r);
       }))
     : el('p', { class: 'note', text: 'No regions are configured on this server.' }));
-  parts.push(starter('sra', 'Safety risk assessment (SRA)', activeKeys.size ? `${activeKeys.size} region${activeKeys.size === 1 ? '' : 's'} with an active volcano` : 'one draft per region', sraKids, { open: (draftError && draftError.kind === 'SRA') || drafting.startsWith('sra:') }));
+  parts.push(starter('sra', 'Safety risk assessment (SRA)', [activeKeys.size ? `${activeKeys.size} region${activeKeys.size === 1 ? '' : 's'} with an active volcano` : 'one draft per region', queuedWords].filter(Boolean).join(' · '), sraKids, { open: (draftError && draftError.kind === 'SRA') || drafting.startsWith('sra:') }));
 
   // VAR: one row per exposed flight.
   const flights = flightsForVar();

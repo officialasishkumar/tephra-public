@@ -23,12 +23,12 @@ import { closeSheet, onSheetClick, openSheet, sheetBusy, sheetOpenFor, sheetRece
 import { app, draftList } from './desk/state.js';
 import { toast } from './desk/toast.js';
 import { initAsk, focusAsk, setFlightContext } from './desk/ask.js';
-import { loadBudget, openBudget, setBudget } from './desk/budget.js';
+import { drawAiChip, loadBudget, openBudget, setBudget } from './desk/budget.js';
 import { clearHandover, loadDocs, loadHandover, onDocEvent, onDocsClick, renderDocs, docsToSign } from './desk/docs.js';
 import { loadDuty, onDutyEvent } from './desk/duty.js';
 import { loadFailures, onFailureEvent, openFailures, openHandled } from './desk/failures.js';
 import { draftMessages, loadMessages, onMessageEvent, openMessage, requestMessageDrafts } from './desk/messages.js';
-import { draftPlans, loadPlans, noteTrace, onNetworkClick, onRecoveryEvent, renderNetwork, chosenOf } from './desk/network.js';
+import { draftPlans, latestPlan, loadPlans, noteTrace, onNetworkClick, onRecoveryEvent, renderNetwork, chosenOf } from './desk/network.js';
 import { loadNotices, onNoticeEvent, openNotice, openPaste } from './desk/notice.js';
 import { goTab, initTabs, setBadges } from './desk/tabs.js';
 import { closeBSheet } from './desk/ui.js';
@@ -74,19 +74,8 @@ function applyState(state) {
   byId('replay-auto').hidden = !(replay && state.replay && state.replay.auto);
   if (typeof state.disclaimer === 'string' && state.disclaimer) byId('disclaimer').textContent = state.disclaimer;
 
-  // R10.1: "AI: off · code only" or "AI: on · {label}"; the exact label stays in the title.
-  const llm = state.llm || {};
-  const stub = llm.backend === 'stub';
-  const chip = byId('model-chip');
-  chip.classList.toggle('model-chip--stub', stub);
-  const label = String(llm.label || 'NO MODEL');
-  chip.replaceChildren(icon(stub ? 'i-code' : 'i-model'),
-    el('span', { class: 'model-chip__k', text: stub ? 'AI: off' : 'AI: on' }),
-    el('span', { class: 'model-chip__more', text: stub ? '· code only' : `· ${label}` }));
-  chip.setAttribute('aria-label', stub ? 'AI: off, code only (NO MODEL)' : `AI: on, ${label}`);
-  chip.title = stub
-    ? `${label}: official products only. Text that a model would write comes from code templates; no model wrote anything here.`
-    : `${label}. Steps that call a model are marked AI-drafted. Times, ids and hashes are always written by code.`;
+  // R10.1, docs/UI-AI-QUIET.md K78: one AI chip with the AI's state; the model ids are in its sheet.
+  drawAiChip();
   applyActiveRegions(null);
   setTitle();
   measure();
@@ -823,6 +812,8 @@ function updateBadges() {
   // Messages and problems change the Next decision's breakdown line too.
   if (app.me && app.listLoaded) renderQueue();
   setTitle();
+  // failures and plans change the AI's state (one cause however many flights)
+  drawAiChip();
 }
 
 // Decide links to an airport plan that waits for a decision; the plan itself is on Airports
@@ -839,9 +830,12 @@ function afterPlans() {
     const bits = [`${n} airport${n === 1 ? '' : 's'} closed (all volcanoes)`];
     if (t) bits.push(`cancel ${t.cancelled_flights}`);
     else bits.push('no plan found');
+    // the link names the plan it opens: an older draft is not the newest plan (K94)
+    const latest = latestPlan();
+    const head = latest && latest.id !== p.id ? `Earlier plan ${hhmmz(p.created_at)} waiting for your decision: ` : 'Airport plan waiting: ';
     host.replaceChildren(el('button', { type: 'button', class: 'qlink__btn', 'data-goto': 'network' },
       icon('i-network', 'icon qlink__ic'),
-      el('span', { class: 'qlink__t' }, el('strong', { id: 'plan-title', text: 'Airport plan waiting: ' }), el('span', { text: bits.join(', ') })),
+      el('span', { class: 'qlink__t' }, el('strong', { id: 'plan-title', text: head }), el('span', { text: bits.join(', ') })),
       icon('i-chevron-right', 'icon qlink__go')));
   } else host.replaceChildren();
   updateBadges();
@@ -932,6 +926,8 @@ function wire() {
     loadExtras();
   });
   byId('budget-chip').addEventListener('click', openBudget);
+  // the chip drops its time below 420 px (UI-AI-QUIET 5.2)
+  window.addEventListener('resize', drawAiChip);
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || !sheetOpenFor() || app.tab !== 'queue') return;
     if (event.target.closest('dialog, #account-menu')) return;

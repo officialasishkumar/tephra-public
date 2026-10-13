@@ -210,7 +210,11 @@ q { quotes: "“" "”"; }
 .ai-chip .icon { width: 16px; height: 16px; color: var(--c-text-2); }
 .model-chip { font-weight: var(--fw-medium); }
 /* failed AI steps: a small count badge, not a red frame round the whole chip */
-.ai-chip__fail { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: var(--radius-pill); background: var(--c-serious-bg); color: var(--c-serious); font-size: var(--fs-1); font-weight: var(--fw-semibold); }
+/* the AI's one state (docs/UI-AI-QUIET.md W1): a suffix in the chip's own text colour, a caution
+   dot when paused or in trouble; never red, never a count badge */
+.ai-chip__fail { display: inline-flex; align-items: center; color: var(--c-text-2); font-weight: var(--fw-medium); white-space: nowrap; }
+.ai-chip { min-width: 72px; }
+.ai-chip[data-tone="caution"] .model-chip::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--c-caution); vertical-align: 1px; }
 .feeds-chip__cap { color: var(--c-text-2); }
 .feeds-chip__part { display: inline-flex; align-items: center; gap: 4px; }
 .feeds-chip__sep { color: var(--c-text-3); }
@@ -326,6 +330,11 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 .story__num { color: var(--c-tephra-text); }
 .story__wait, .story__dis, .story__closed { color: var(--c-text-1); }
 .story__wait { font-weight: var(--fw-medium); }
+/* an AI consequence at the place: the existing line, with a caution dot and a "Why ›" (Q3) */
+.story__wait--ai .st { width: 12px; height: 12px; vertical-align: -1px; }
+.story__why { min-height: 0; padding: 0; margin-left: 4px; font-size: var(--fs-2); font-weight: var(--fw-regular); white-space: nowrap; }
+.story__sublink { display: inline; min-height: 0; padding: 0; font: inherit; color: var(--c-text-2); text-align: left; }
+.story__sublink .st { width: 12px; height: 12px; margin-right: 4px; vertical-align: -1px; }
 .story__sub { display: block; margin-top: 2px; font-size: var(--fs-2); line-height: 1.4; font-weight: var(--fw-regular); letter-spacing: 0; color: var(--c-text-3); }
 .story__note, .story__connecting { color: var(--c-text-2); }
 .story__hyp { display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-2) var(--sp-3); background: var(--c-hypothesis-bg); border: 1px solid var(--c-tephra); border-radius: var(--radius-md); color: var(--c-tephra-text); font-size: var(--fs-3); font-weight: var(--fw-semibold); letter-spacing: 0; line-height: 1.35; }
@@ -1225,9 +1234,18 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 
 .x-loading { display: flex; flex-direction: column; gap: 4px; }
 
-.ai-mark { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; height: 22px; padding: 0 8px; border: 1.5px dashed var(--c-tephra); border-radius: var(--radius-sm); color: var(--c-tephra-text); font-family: var(--font-mono); font-size: var(--fs-1); font-weight: var(--fw-medium); white-space: nowrap; }
+/* one AI mark set (UI-AI-QUIET Q5, 5.5): AI-written, AI-read, AI-chosen, Code (AI off); the model
+   id is in the title */
+.ai-mark { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; height: 22px; padding: 0 8px; border-radius: var(--radius-sm); background: var(--c-surface-3); color: var(--c-text-2); font-size: var(--fs-1); font-weight: var(--fw-semibold); white-space: nowrap; vertical-align: middle; }
 .ai-mark .icon { width: 13px; height: 13px; }
-.ai-mark--none { border-color: var(--c-line-input); color: var(--c-text-2); }
+.ai-mark--none { background: transparent; border: 1px solid var(--c-line-input); }
+.dk-chip--code { color: var(--c-text-2); }
+/* the AI home's calm lead (5.1) */
+.dk-lead { display: flex; flex-direction: column; gap: 6px; padding: var(--sp-2) var(--sp-3); border-left: 3px solid var(--c-caution); border-radius: var(--radius-sm); background: var(--c-surface-2); font-size: var(--fs-2); line-height: 1.45; color: var(--c-text-1); }
+.dk-lead strong { font-weight: var(--fw-semibold); }
+.dk-line--caution { box-shadow: inset 3px 0 0 var(--c-caution); }
+.dk-adv--hand { max-width: 170px; color: var(--c-text-1); flex-wrap: wrap; justify-content: flex-end; }
+.dk-adv--hand .st { width: 12px; height: 12px; flex: none; }
 .x-quote { margin: 0; padding: var(--sp-2) var(--sp-3); border-left: 3px solid var(--c-tephra); background: var(--c-surface-1); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--fs-2); line-height: 1.45; color: var(--c-text-1); }
 
 /* satellite frame and the boxes drawn on it */
@@ -1417,7 +1435,9 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .feeds-chip { grid-area: data; justify-self: end; }
   .ai-chip, .feeds-chip { padding: 0 var(--sp-2); }
   .feeds-chip__part--ok, .feeds-chip__part--disabled, .feeds-chip__part--never, .feeds-chip__sep { display: none; }
-  .feeds-chip:not(.feeds-chip--error) .feeds-chip__part--ok { display: inline-flex; }
+  /* the AI chip's one short state left room for "5 off" again (docs/UI-AI-QUIET.md W6) */
+  .feeds-chip:not(.feeds-chip--error) .feeds-chip__part--ok, .feeds-chip:not(.feeds-chip--error) .feeds-chip__part--disabled { display: inline-flex; }
+  .feeds-chip:not(.feeds-chip--error) .feeds-chip__part--ok + .feeds-chip__sep:has(+ .feeds-chip__part--disabled) { display: inline; }
   .stale-chip { grid-column: 1 / -1; }
   .cmdbar__spacer { display: none; }
   .cmdbar__honesty { grid-area: honesty; display: block; font-size: var(--fs-1); border-top: 1px solid var(--c-line-1); padding-top: 4px; }

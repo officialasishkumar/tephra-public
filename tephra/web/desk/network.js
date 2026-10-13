@@ -10,15 +10,25 @@ import { announce, byId, el, icon } from './dom.js';
 import { activeNow, dayMonthHhmm, deskName, hhmmz, secs } from './format.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
-import { aiChip, fmtUsd, openBSheet, unavailableCard } from './ui.js';
+import { aiMark, fmtUsd, openBSheet, unavailableCard } from './ui.js';
+import { WHY, reasonClass } from '../wall/x-parts.js';
 
 const STATUS = {
   DRAFT: ['i-clock', 'Waiting for your decision', 'neutral'],
   APPROVED: ['i-approved', 'Approved', 'ok'],
   REJECTED: ['i-rejected', 'Rejected', 'serious'],
   SUPERSEDED: ['i-superseded', 'Replaced by a newer plan', 'off'],
-  AI_UNAVAILABLE: ['st-serious', 'AI unavailable', 'serious'],
+  AI_UNAVAILABLE: ['st-caution', 'AI unavailable', 'caution'],
 };
+
+// Why a plan has no recommendation, in the §1.1 words (docs/UI-AI-QUIET.md K95): "AI unavailable:
+// timed out". The raw reason stays under Technical detail.
+const noRecWords = (p) => `No recommendation (AI unavailable: ${WHY[reasonClass([p.unavailable_reason, ...(p.validation_errors || [])].join(' '))] || WHY.other}).`;
+// The re-plan the budget holds for later: "A new plan waits for AI: next slot 0700Z."
+function queuedReplan() {
+  const w = app.budget && Array.isArray(app.budget.waiting) ? app.budget.waiting.find((x) => x.status === 'WAITING' && x.item && x.item.kind === 'RECOVER') : null;
+  return w ? `A new plan waits for AI: next slot ${w.next_slot_at ? hhmmz(w.next_slot_at) : 'not set'}.` : '';
+}
 
 // A plan that found no plan (R2.6): the solver's status in plain words, never "AI unavailable".
 // The raw string stays under Technical detail. Null when the failure is not a solver result.
@@ -215,14 +225,17 @@ function whyContent(p) {
   if (p.status === 'AI_UNAVAILABLE' || (!p.rationale && p.outcome === 'MODEL_FAILED')) {
     const problem = planProblem(p);
     if (problem) return [el('p', { text: problem.words }), techNode(problem.raw)];
-    return [unavailableCard((p.unavailable_reason || 'no reason given').replace(/^AI UNAVAILABLE:?\s*/i, ''), { instead: "The solver's plans stand, but no recommendation was made. Choose by hand." })];
+    // the card above already says it: the words once more here, quietly, the reason one tap in (K96)
+    const solved = (p.scenarios || []).length > 0;
+    return [el('p', { role: 'status', text: `${noRecWords(p)} ${solved ? "The solver's plans stand, but no recommendation was made. Choose by hand." : 'No plan was solved: plan the network by hand.'}` }),
+      techNode(p.unavailable_reason || (p.validation_errors || []).join('; ') || 'no reason given')];
   }
   const m = STUB_WHY.exec(p.rationale || '');
   const text = m
     ? `AI off: code picked the plan for the closure as published. It cancels ${Number(m[1]).toLocaleString('en-US')} flights and delays ${Number(m[2]).toLocaleString('en-US')}, affects ${Number(m[3]).toLocaleString('en-US')} passengers and costs ${fmtUsd(Number(m[4]))}.`
     : p.rationale || '';
   const card = el('div', { class: 'why' },
-    el('p', { class: 'why__meta' }, aiChip(p.model_id, p.llm_backend, { sm: true }),
+    el('p', { class: 'why__meta' }, aiMark('AI-written', p.llm_backend === 'stub' ? null : p.model_id),
       p.outcome === 'REPAIRED' ? el('span', { class: 'chip chip--sm', text: 'repaired once' }) : null,
       el('span', { class: 'chip chip--sm', text: 'numbers checked by code' })),
     el('p', { class: 'why__text', text }));
@@ -367,14 +380,19 @@ export function renderNetwork() {
     card.append(
       el('p', { class: 'plan__line', text: `Plan: cancel ${t.cancelled_flights} flight${t.cancelled_flights === 1 ? '' : 's'}, delay ${t.delayed_flights}${t.swapped_flights ? `, swap ${t.swapped_flights}` : ''} · ${t.pax_affected.toLocaleString('en-US')} passengers` }),
       el('p', { class: 'plan__cost' }, el('span', { class: 'plan__costk', text: 'Estimated cost ' }), el('span', { class: 'plan__costv', text: fmtUsd(t.total_usd) })));
+  } else if (p.status === 'AI_UNAVAILABLE') {
+    // no plan because the AI did not run: the job, and the queued re-plan, at the place (K95)
+    const solved = (p.scenarios || []).length > 0;
+    card.append(el('p', { class: 'plan__line', text: [noRecWords(p), solved ? 'Compare the plans below and decide by hand.' : 'No plan was solved: plan the network by hand.', queuedReplan()].filter(Boolean).join(' ') }));
   } else {
-    card.append(el('p', { class: 'plan__line', text: 'No recommendation was made. Compare the plans below and decide by hand.' }));
+    card.append(el('p', { class: 'plan__line', text: (p.scenarios || []).length ? 'No recommendation was made. Compare the plans below and decide by hand.' : 'No recommendation was made. No plan was solved: plan the network by hand.' }));
   }
   card.append(
     el('p', { class: 'plan__tags' },
       el('span', { class: 'chip chip--fict', title: 'Ring of Fire Air and its schedule are made up' }, icon('i-info', 'st'), el('span', { text: 'Fictional airline RFA · synthetic schedule' })),
       p.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'Recorded' })) : null),
-    el('p', { class: 'plan__foot', text: `Planned ${hhmmz(p.created_at)} by code · version ${p.version} · explained by: ${p.llm_backend === 'stub' || p.model_id === 'stub' ? 'AI off' : p.model_id || 'AI'}` }));
+    // "explained by" only when a model explained something (K95, H7)
+    el('p', { class: 'plan__foot', text: `Planned ${hhmmz(p.created_at)} by code · version ${p.version}${p.rationale && p.llm_backend !== 'stub' && p.model_id && p.model_id !== 'stub' ? ` · explained by: ${p.model_id}` : ''}` }));
   const dec = decisionRow(p, Boolean(t) && !problem);
   if (dec) card.append(dec);
   parts.push(card);
@@ -387,8 +405,12 @@ export function renderNetwork() {
     disclosure('flights', `Flight by flight (${flightCount(p)})`, flightsContent(p)),
     disclosure('numbers', 'Numbers', numbersTable(p)));
   if (app.plans.length > 1) {
+    // a plan still waiting for a decision first, with a caution mark, so it is not buried (K97)
+    const earlier = app.plans.slice(1).sort((a, b) => Number(b.status === 'DRAFT') - Number(a.status === 'DRAFT'));
     parts.push(disclosure('earlier', `Earlier plans (${app.plans.length - 1})`,
-      [el('ul', { class: 'plist' }, app.plans.slice(1).map((x) => el('li', { text: `${hhmmz(x.created_at)} · ${planProblem(x) ? 'No plan found' : (STATUS[x.status] || [0, x.status])[1]}${chosenOf(x) && chosenOf(x).totals ? ` · ${fmtUsd(chosenOf(x).totals.total_usd)}` : ''}` })))]));
+      [el('ul', { class: 'plist' }, earlier.map((x) => el('li', {},
+        x.status === 'DRAFT' ? [icon('st-caution', 'st'), ' '] : null,
+        `${hhmmz(x.created_at)} · ${planProblem(x) ? 'No plan found' : (STATUS[x.status] || [0, x.status])[1]}${chosenOf(x) && chosenOf(x).totals ? ` · ${fmtUsd(chosenOf(x).totals.total_usd)}` : ''}`)))]));
   }
   parts.push(el('p', { class: 'fine plan__fine', text: "Decision support only. Approving a plan queues it on TEPHRA's own outbound queue; nothing is sent to an airline system." }));
   panel.replaceChildren(...parts);

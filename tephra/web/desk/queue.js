@@ -22,6 +22,7 @@ import {
   sourcesSummary,
 } from './format.js';
 import { openFailures } from './failures.js';
+import { aiMark } from './ui.js';
 import { crewFlag, crewKey } from './crew.js';
 import { draftMessages } from './messages.js';
 import { app, draftList, setAsideCount } from './state.js';
@@ -65,13 +66,6 @@ export function modeChip(adv, { long = false, bare = false } = {}) {
     bare ? null : el('span', { class: 'caps chip__k', text: 'Area' }),
     el('span', { text: words }),
   );
-}
-
-export function modelChip(adv, { card = false } = {}) {
-  return isStub(adv)
-    ? el('span', { class: 'chip chip--stub', title: 'NO MODEL: written from a code template, not by a model' },
-      icon('i-code', 'st'), el('span', { text: card ? 'NO MODEL' : 'Template · NO MODEL' }))
-    : el('span', { class: 'chip chip--ai' }, icon('i-model', 'st'), el('span', { text: 'AI-drafted' }));
 }
 
 export function replayChip() {
@@ -127,9 +121,9 @@ function tagsNode(adv, now) {
     el('span', { class: 'chip chip--caution' }, icon(shape, 'st'), el('span', { text: word }))));
 }
 
-const writerWords = (adv) => (isStub(adv)
-  ? 'Written by a code template (AI off). Check the sources first.'
-  : `Drafted by AI (${adv.model_id || 'model'}).${adv.recorded_answer ? ` ${adv.recorded_answer}.` : ''} Check the sources first.`);
+// Who wrote the text, as a mark (the model id in its title) and the instruction (K86).
+const writerLine = (adv) => [aiMark('AI-written', isStub(adv) ? null : adv.model_id),
+  el('span', { text: ` ${adv.recorded_answer && !isStub(adv) ? `${adv.recorded_answer}. ` : ''}Check the sources first.` })];
 
 const identText = (adv) => {
   const bits = [adv.callsign ? `proxy for ${adv.callsign}` : 'proxy, no callsign'];
@@ -157,7 +151,7 @@ function buildNext(adv, items) {
     el('p', { class: 'next__action' }, icon(ACTION_ICON[adv.action] || 'i-arrow-right'), el('span', { text: actionPlain(adv) })),
     el('p', { class: 'next__meta', 'data-slot': 'meta', text: metaText(adv, now) }),
     el('p', { class: 'next__body', text: adv.edited_body ?? adv.body }),
-    el('p', { class: 'next__writer' }, icon(isStub(adv) ? 'i-code' : 'i-model', 'st'), el('span', { text: writerWords(adv) })),
+    el('p', { class: 'next__writer' }, ...writerLine(adv)),
     el('p', { class: 'next__src', 'data-slot': 'src' }, icon('i-file', 'st'), el('span', { text: sourcesSummary(adv, now) })),
     el('span', { 'data-slot': 'tags' }, tagsNode(adv, now)),
     el('button', { type: 'button', class: 'btn btn--cta next__go', 'data-open': adv.id, 'aria-describedby': 'next-flight' },
@@ -238,13 +232,13 @@ export function showMostUrgent() {
 
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
-// "23 advisories · 3 messages · 2 problems to acknowledge" (R2.7): what the Decide badge counts.
+// "23 advisories · 3 messages · 2 flights to plan by hand" (R2.7, K85): what the Decide badge counts.
 export function breakdownText() {
   const parts = [plural(draftList().length, 'advisory', 'advisories')];
   const m = draftMessages().length;
   const f = openFailures().length;
   if (m) parts.push(plural(m, 'message'));
-  if (f) parts.push(`${plural(f, 'problem')} to acknowledge`);
+  if (f) parts.push(`${plural(f, 'flight')} to plan by hand`);
   return parts.join(' · ');
 }
 
@@ -299,10 +293,12 @@ export function renderQueue() {
     );
   } else if (n === 0) {
     const last = app.lastLoadedAt === null ? '' : ` Last update ${new Date(app.lastLoadedAt).toISOString().slice(11, 19)}Z.`;
+    // no green "all clear" while flights wait to be planned by hand (H9)
+    const hand = openFailures().length;
     stateBox.replaceChildren(
       el('div', { class: 'panel panel--empty' },
-        el('p', { class: 'panel__title' }, icon('i-check', 'st'), el('span', { text: 'No drafts waiting.' })),
-        el('p', { text: `A draft appears here when a flight's projected track enters TEPHRA's estimated ash area.${last}` })),
+        el('p', { class: 'panel__title' }, icon(hand ? 'st-info' : 'i-check', hand ? 'st is-info' : 'st'), el('span', { text: hand ? 'No drafts to approve.' : 'No drafts waiting.' })),
+        el('p', { text: hand ? `${plural(hand, 'flight')} to plan by hand are below.${last}` : `A draft appears here when a flight's projected track enters TEPHRA's estimated ash area.${last}` })),
     );
   } else {
     stateBox.replaceChildren();

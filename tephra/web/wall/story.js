@@ -5,9 +5,8 @@
 
 import { $, el, icon, hhmmz, ms, fl, kmBetween, reducedMotion } from "./util.js";
 import { SEV_RANK, regionOfVent } from "./derive.js";
-import { ext, failureCount, replanning } from "./ext.js";
-import { planFailure, aiStopClause } from "./x-parts.js";
-import { dkChip } from "./dk.js";
+import { ext, replanning, aiState, handPlan } from "./ext.js";
+import { planFailure, draftBlock } from "./x-parts.js";
 import { FEED_NAME } from "./panels.js";
 
 const CODE_WORD = { RED: "Red", ORANGE: "Orange", YELLOW: "Yellow", GREEN: "Green" };
@@ -72,10 +71,12 @@ const adsbWord = (status) => ({ ERROR: "failing", STALE: "stale", DISABLED: "off
 
 // ------------------------------------------------------------------ failures (R5.6)
 
-// Every problem the story must show without a tap, worst first, in plain words (R5.6). `who` is
-// the part that failed, set in bold; `raw` is the machine text the plain words came from, kept in
-// the item's title and, one tap in, under Technical detail in Details. `where` names the Details
-// section that holds it.
+// Every problem that threatens the picture, worst first, in plain words (R5.6): the connection,
+// the page, the map, the feeds and the database. AI steps are not here: what their absence
+// changes is said at the place it applies, and their health in the AI chip (docs/UI-AI-QUIET.md
+// Q3, Q4). `who` is the part that failed, set in bold; `raw` is the machine text the plain words
+// came from, kept in the item's title and, one tap in, under Technical detail in Details.
+// `where` names the Details section that holds it.
 export function storyFailures(D, store, conn, extra) {
   const out = [];
   if (conn.lostAt) out.push({ key: "stream", text: `Lost the live connection at ${hhmmz(conn.lostAt)}. Reconnecting…`, where: "feeds", lost: true });
@@ -91,31 +92,7 @@ export function storyFailures(D, store, conn, extra) {
     out.push({ key: `feed-${id}`, who: name, text: `${name} is failing. Showing the last good ${what}${Number.isFinite(good) ? `, from ${hhmmz(good)}` : ""}.`, raw: f.last_error || null, where: "feeds" });
   }
   if (D.state.store && D.state.store.ok === false) out.push({ key: "db", who: "The database", text: "The database is failing: some counts may be unknown.", where: "feeds" });
-  const plan = currentPlan();
-  const pf = planFailure(plan);
-  if (pf) out.push({ key: `plan-${plan.id}`, who: "Airport plan", text: `Airport plan: ${pf.clause}, so a dispatcher must plan by hand.`, raw: pf.raw, where: "recovery" });
-  for (const r of store.snapshot?.satellite || []) {
-    if (r.status !== "ai_unavailable") continue;
-    out.push({ key: `sat-${r.volcano_id}`, who: "Satellite reader", text: `Satellite reader could not run: ${aiStopClause(r.reason, reopensAt(D, r.model_id, false))}.`, raw: r.reason || "no reason given", where: "sat" });
-  }
-  const duty = store.snapshot?.duty;
-  if (duty?.outcome === "MODEL_FAILED") {
-    const reason = duty.validation_errors?.[0] || "no reason recorded";
-    out.push({ key: `duty-${duty.id}`, who: "Duty Officer", text: `Duty Officer could not run: ${aiStopClause(reason, reopensAt(D, duty.model_id, duty.replay))}.`, raw: [...new Set(duty.validation_errors || [reason])].join("; "), where: "ai" });
-  }
-  const fails = failureCount(store);
-  if (fails) out.push({ key: `trace-fails-${fails}`, text: `${plural(fails, "AI step", "AI steps")} failed.`, where: "ai", quiet: true });
   return out;
-}
-
-// When a model's calls open again ("0700Z"), for "used up until 0700Z": only while the budget still
-// marks that model closed, and never for a recorded run, whose failure is on the replay's clock
-// while the reset is on the real one. Otherwise null, and the clause has no time.
-function reopensAt(D, modelId, recorded) {
-  if (recorded || D.mode === "REPLAY" || !modelId) return null;
-  const m = (ext.budget?.models || []).find((x) => x.model_id === modelId);
-  const at = ms(ext.budget?.resets_at);
-  return m?.closed === true && Number.isFinite(at) ? hhmmz(at) : null;
 }
 
 const seenFailures = new Set();
@@ -148,7 +125,7 @@ function renderFailures(list) {
         ? el("span", { class: "fail-line__text", title }, el("strong", { class: "fail-line__who", text: f.who }), f.text.slice(f.who.length))
         : el("span", { class: "fail-line__text", title, text: f.text });
       const last = i === shown.length - 1 && moreBtn;
-      return el("li", { class: "fail-line__item", role: fresh && !f.quiet ? "alert" : null },
+      return el("li", { class: "fail-line__item", role: fresh ? "alert" : null },
         st("st-serious", "var(--c-serious)"), el("span", { class: "fail-line__body" }, words, last ? [" ", moreBtn] : null),
         f.action ? el("button", { type: "button", class: "link-btn", dataset: { act: f.action, focus: `fail-${f.key}` }, text: f.actionText }) : null);
     }));
@@ -198,6 +175,7 @@ function storyLines(D, store, ui, sit) {
   const facts = [];
   const cone = D.coneOf(sit.volcano_id)?.properties;
   const stub = D.state.llm?.backend === "stub";
+  const ai = aiState(D, store);
   if (cone?.mode === "HYPOTHESIS") {
     lines.push({ text: "HYPOTHESIS: no valid official product. Only MONITOR or HOLD may be advised.", cls: "story__hyp", banner: true });
   }
@@ -205,7 +183,7 @@ function storyLines(D, store, ui, sit) {
   if (n > 0) {
     lines.push({ text: `${n} ${n === 1 ? "flight" : "flights"} of RFA, our fictional airline, ${n === 1 ? "is" : "are"} in or heading into TEPHRA's estimated ash area.`, cls: "story__flights", lead: true, count: n });
     const a = advisoryFacts(D, store, sit.volcano_id);
-    let t, goneNote = null;
+    let t, goneNote = null, waitLine = null;
     if (a.unknown) t = "Advisory count unknown (database error).";
     // One advisory per flight; a draft can outlive the flight's exposure, so the count is of
     // advisories, never "n of their" (review 1, item 3).
@@ -217,8 +195,18 @@ function storyLines(D, store, ui, sit) {
       if (gone > 0 && !a.partial) goneNote = `${gone} of them ${gone === 1 ? "is for a flight" : "are for flights"} no longer seen heading in.`;
     }
     else if (a.decided > 0) t = `All ${a.decided} advisories are decided: ${a.approved} approved, ${a.rejected} rejected.`;
-    else t = "Their advisories are not drafted yet.";
-    lines.push({ text: t, cls: "story__wait", sub: goneNote ? [goneNote] : null });
+    else {
+      // the advisories' AI part is missing: said here, once, with what to do (W14)
+      const block = draftBlock(ai);
+      const shown = D.exposed.filter((f) => f.properties.volcano_id === sit.volcano_id).length;
+      const nf = `${shown} ${shown === 1 ? "flight" : "flights"}`;
+      if (block?.word === "AI paused") t = `No advisory drafts: AI paused${block.until ? ` until ${block.until}` : ""}. Plan the ${nf} by hand on the Desk.`;
+      else if (block?.word === "AI unavailable") t = `No advisory drafts: AI unavailable (${block.why}). Plan the ${nf} by hand on the Desk.`;
+      else if (block?.word === "AI waiting") t = `Advisories not drafted yet: waiting for AI, next slot ${block.slot || "not set"}.`;
+      else t = "Their advisories are not drafted yet.";
+      if (block) waitLine = { text: t, cls: "story__wait story__wait--ai", mark: "caution", why: true };
+    }
+    lines.push(waitLine || { text: t, cls: "story__wait", sub: goneNote ? [goneNote] : null });
   } else {
     const adsb = store.feeds.find((f) => f.feed === "adsb");
     const ok = adsb?.status === "OK";
@@ -245,14 +233,22 @@ function storyLines(D, store, ui, sit) {
   } else if (closed.length) {
     const icaos = [...new Set(closed.map((c) => c.icao))];
     const all = new Set(plan.closures.map((c) => c.icao)).size;
+    // no plan: the job, at the place, with the cause one tap in (W15)
+    const pf = planFailure(plan);
+    const planPart = pf ? { text: `${pf.place} ›`, act: "recovery", title: `Recorded reason: ${pf.raw}`, tone: "caution" } : `airport plan as of ${hhmmz(ms(plan.created_at))}`;
     facts.push({ cls: "story__closed", text: `Ash from ${sit.volcano_name} closes ${plural(icaos.length, "RFA airport", "RFA airports")}: ${icaos.join(", ")}.`,
-      sub: [all > icaos.length ? `${all} across all volcanoes` : null, `airport plan as of ${hhmmz(ms(plan.created_at))}`].filter(Boolean) });
+      sub: [all > icaos.length ? `${all} across all volcanoes` : null, planPart].filter(Boolean) });
   }
   const dir = sit.discrepancies.find((d) => d.kind === "DIRECTION_MISMATCH" && d.aspect === "direction" && (SEV_RANK[d.severity] || 0) >= 2);
   if (dir) {
     let tail = null;
     if (cone?.mode === "WIDENED") tail = "TEPHRA's estimate covers both.";
-    else if (cone?.mode === "OFFICIAL") tail = stub ? "TEPHRA's estimate has not been widened (AI off)." : "TEPHRA's estimate has not been widened.";
+    else if (cone?.mode === "OFFICIAL") {
+      const outcome = sit.assessment?.outcome;
+      tail = stub || outcome === "STUB" ? "TEPHRA's estimate has not been widened (AI off)."
+        : outcome === "PENDING" ? "TEPHRA's estimate has not been widened yet (AI waiting)."
+          : outcome === "MODEL_FAILED" ? "TEPHRA's estimate has not been widened (AI unavailable)." : "TEPHRA's estimate has not been widened.";
+    }
     facts.push({ text: `The sources disagree on where the ash is heading, ${Math.round(dir.magnitude)}° apart.`, cls: "story__dis", sub: tail ? [tail] : null });
   }
   const silence = sit.discrepancies.find((d) => d.kind === "SILENCE");
@@ -296,12 +292,15 @@ function lineNode(l) {
   if (num && l.text.startsWith(num)) host.append(el("span", { class: "story__num", text: num }), l.text.slice(num.length));
   else host.append(l.text);
   if (l.act) p.append(host);
+  // the cause of an AI consequence is one tap in, at the AI home
+  if (l.why) p.append(" ", el("button", { type: "button", class: "link-btn story__why", dataset: { act: "details-open", sec: "ai", focus: "story-why" }, "aria-label": "Why: open AI helpers", text: "Why ›" }));
   // the quieter sub-line: scope, the plan's time, what follows; parts joined by a dot that screen
   // readers hear as a pause (a hidden "; ")
   if (l.sub?.length) {
     p.append(el("span", { class: "story__sub" }, ...l.sub.flatMap((t, i) => [
       i ? [el("span", { class: "story__dot", "aria-hidden": "true", text: " · " }), el("span", { class: "sr-only", text: "; " })] : [],
-      el("span", { text: t })])));
+      typeof t === "string" ? el("span", { text: t })
+        : el("button", { type: "button", class: `link-btn story__sublink${t.tone ? ` story__sublink--${t.tone}` : ""}`, title: t.title || null, dataset: { act: "details-open", sec: t.act, focus: `story-sub-${t.act}` } }, t.tone ? st(`st-${t.tone}`, `var(--c-${t.tone})`) : null, t.text)])));
   }
   return p;
 }
@@ -322,7 +321,7 @@ function renderLines(D, store, ui, sit, announce) {
   } else lines = [{ text: "No official ash report is in force in the watched regions right now.", lead: true }];
   if (D && !sit) lines.push(...crewLines(D, null));
   // Replace the lines only when their words change, so screen readers are not re-read every render.
-  const key = lines.map((l) => `${l.cls || ""}:${l.text}:${(l.sub || []).join("·")}`).join("|");
+  const key = lines.map((l) => `${l.cls || ""}:${l.text}:${(l.sub || []).map((x) => (typeof x === "string" ? x : x.text)).join("·")}`).join("|");
   if (box.dataset.key !== key) {
     const prev = box.dataset.count || "";
     box.dataset.key = key;
@@ -357,6 +356,8 @@ function renderActions(D, store, ui, sit) {
     const a = advisoryFacts(D, store, sit.volcano_id);
     waiting = a.drafts;
     if (a.urgent) { ctaHref = `/desk#review/${encodeURIComponent(a.urgent.id)}`; ctaText = "Decide on the Desk →"; primary = true; }
+    // no drafts because the AI did not run: the Desk holds the hand-plan work (W18)
+    else if (handPlan(D, store).flights.length) { ctaText = "Decide on the Desk →"; primary = true; }
   } else if (D && D.regionEmpty) {
     const others = (D.state.regions || []).filter((r) => D.regionCounts[r.key] > 0);
     if (others.length) {
@@ -375,7 +376,7 @@ function renderActions(D, store, ui, sit) {
   const sticky = $("cta-sticky");
   if (sticky) {
     sticky.href = ctaHref;
-    setText(sticky, primary ? `Decide on the Desk (${waiting}) →` : "Open the Desk");
+    setText(sticky, primary ? (waiting ? `Decide on the Desk (${waiting}) →` : "Decide on the Desk →") : "Open the Desk");
     sticky.classList.toggle("cta-sticky--quiet", !primary);
   }
 }
@@ -399,7 +400,7 @@ export function keyRows(D, ui) {
   if ((ui.layers.reroutes && D.hasReroutes) || pickedReroute) rows.push([sw("lg-reroute", "sw--reroute"), "Suggested reroute", null]);
   if (D.rose && ui.layers.rose) rows.push([sw("lg-arrow-observer", "sw--observer"), "Observatory's reported drift", null]);
   if (D.cones.some((f) => f.properties.part === "sector")) rows.push([sw("lg-area-hatch", "sw--tephra"), "Where TEPHRA widened the area", null]);
-  if (ui.layers.satboxes && D.hasSatBoxes) rows.push([sw("lg-satbox", "sw--sat"), "Box marked on the satellite picture", "supporting only"]);
+  if (ui.layers.satboxes && D.hasSatBoxes) rows.push([sw("lg-satbox", "sw--sat"), "Box marked on the satellite picture", "AI-read · supporting only"]);
   return rows;
 }
 
@@ -424,21 +425,15 @@ function renderKey(D, ui) {
 
 // ------------------------------------------------------------------ trust, notes, all volcanoes
 
-// The trust line (R5.7): a plain sentence first; the model ids after it as small mono chips,
-// never inside the prose.
+// The trust line (R5.7, docs/UI-AI-QUIET.md W17): one sentence that holds in every AI state. The
+// AI's own state is the chip's; the model ids are in Details › AI helpers.
+const TRUST = "TEPHRA's estimate is never smaller than the official area, which stays binding.";
 function renderTrust(D) {
   const box = $("trust");
   if (!D) { box.replaceChildren(); box.dataset.key = ""; return; }
-  const stub = D.state.llm?.backend === "stub";
-  const text = stub ? "AI is off. Code built this summary from the official reports." : "AI is on. It can widen TEPHRA's estimate, never shrink the official area.";
-  const models = stub ? [] : String(D.state.llm?.label || D.state.llm?.model_id || "").split(/\s*\+\s*/).filter(Boolean);
-  const key = [text, ...models].join("|");
-  if (box.dataset.key === key) return;
-  box.dataset.key = key;
-  box.replaceChildren(icon(stub ? "i-code" : "i-model", "icon trust__icon"),
-    el("span", { class: "trust__body" }, el("span", { class: "trust__text", text }),
-      models.length ? el("span", { class: "trust__models" }, el("span", { class: "sr-only", text: models.length === 1 ? "Model: " : "Models: " }),
-        ...models.map((m) => dkChip(m, { mono: true, title: "Model id" }))) : null));
+  if (box.dataset.key === TRUST) return;
+  box.dataset.key = TRUST;
+  box.replaceChildren(icon("i-code", "icon trust__icon"), el("span", { class: "trust__body" }, el("span", { class: "trust__text", text: TRUST })));
 }
 
 function renderNotes(notes) {
@@ -449,7 +444,9 @@ function renderNotes(notes) {
   box.replaceChildren(...notes.map((n) => el("p", { class: "story-note" }, st("st-info", "var(--c-info)"), el("span", { text: n.text }))));
 }
 
-function renderAll(D, ui) {
+// the store of the newest render, for the fit pass, which re-renders this line on its own
+let curStore = null;
+function renderAll(D, ui, store = curStore) {
   const kx = $("kpi-exposed");
   const s = D?.state;
   const active = D?.activeCount ?? 0;
@@ -470,7 +467,9 @@ function renderAll(D, ui) {
   kx.setAttribute("aria-label", exposed > 0 ? String(exposed) : "0 seen; an empty map is not an empty sky");
   // null: the server could not read the drafts; an older count is not shown as current.
   setText($("kpi-drafts"), !D ? "–" : s.draft_count === null ? "unknown (database error)" : String(s.draft_count ?? 0));
-  label("kpi-drafts", D && s.draft_count === 1 ? "advisory waiting" : "advisories waiting");
+  // 0 because the AI did not run, said in the count's own words (W20)
+  const block = D && !s.draft_count ? draftBlock(aiState(D, store)) : null;
+  label("kpi-drafts", `${D && s.draft_count === 1 ? "advisory waiting" : "advisories waiting"}${block && block.word !== "AI waiting" ? ` (${block.word})` : ""}`);
   const ul = $("volcano-tabs");
   if (!D) { ul.replaceChildren(); return; }
   const others = D.sits.filter((x) => x.volcano_id !== D.selected);
@@ -502,6 +501,7 @@ function renderAll(D, ui) {
 
 export function renderStory(D, store, ui, { conn, extra, announce, notes = [] }) {
   const sit = D?.sit || null;
+  curStore = store;
   renderFailures(storyFailures(D, store, conn, extra));
   const h1 = $("volcano-name");
   if (!D) setText(h1, extra.error ? "TEPHRA" : "Connecting to TEPHRA…");
@@ -519,7 +519,7 @@ export function renderStory(D, store, ui, { conn, extra, announce, notes = [] })
   renderKey(D, ui);
   renderTrust(D);
   renderNotes(notes);
-  renderAll(D, ui);
+  renderAll(D, ui, store);
   fitStory(D, ui);
 }
 

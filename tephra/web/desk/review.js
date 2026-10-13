@@ -43,7 +43,7 @@ import { EARLY_RELEASE_HINT, holdButton } from './hold.js';
 import { anyStaleSource, coneFor, decidedLine, modeChip, needsCarefulRead, replayChip, statusBadge, statusView } from './queue.js';
 import { app } from './state.js';
 import { routeMap } from './route.js';
-import { codeChip } from './ui.js';
+import { aiMark, codeChip } from './ui.js';
 import { CREW_REASON_MIN, crewBox, crewKey, crewReasonNeeded } from './crew.js';
 
 const GHOST_TAP_MS = 450;
@@ -304,14 +304,15 @@ function sourceStrip(adv) {
   return el('ul', { class: 'srcchips', 'data-slot': 'srcstrip', 'aria-label': 'Sources for this draft' }, sourceChips(adv));
 }
 
-// One readable line on who wrote the text, right under it (the Drafted by row has the detail).
+// One readable line on who wrote the text, right under it: the mark (the model id in its title;
+// the Drafted by row has it in words) and the instruction (docs/UI-AI-QUIET.md K86, K88).
 function writerNote(adv) {
   const stub = isStub(adv);
-  let words = stub ? 'Written by a code template (AI off).' : `Drafted by AI (${adv.model_id || 'model'}).`;
-  if (adv.edited_body != null) words = stub ? 'Edited by a dispatcher from a code-template text (AI off).' : 'Edited by a dispatcher from AI-drafted text.';
-  if (adv.recorded_answer) words += ` ${adv.recorded_answer}.`;
-  if (sheet && sheet.view === 'review') words += ' Check the sources first.';
-  return el('p', { class: 'writer-note' }, icon(stub ? 'i-code' : 'i-model', 'st'), el('span', { text: words }));
+  const words = [];
+  if (adv.edited_body != null) words.push(stub ? 'Edited by a dispatcher from a code-template text (AI off).' : 'Edited by a dispatcher from AI-drafted text.');
+  if (adv.recorded_answer) words.push(`${adv.recorded_answer}.`);
+  if (sheet && sheet.view === 'review') words.push('Check the sources first.');
+  return el('p', { class: 'writer-note' }, aiMark('AI-written', stub ? null : adv.model_id), words.length ? el('span', { text: ` ${words.join(' ')}` }) : null);
 }
 
 function sourcesValue(adv) {
@@ -380,7 +381,7 @@ function rerouteValue(adv, cone) {
 function draftedByValue(adv) {
   const who = isStub(adv)
     ? el('span', { class: 'v-strong' }, 'Written by a code template (AI off)')
-    : el('span', { class: 'v-strong' }, `${adv.model_id} · AI-drafted`);
+    : el('span', { class: 'v-strong' }, `${adv.model_id} · AI-written`);
   const out = [who];
   out.push(fine(isStub(adv)
     ? 'AI off: built from the official reports only. A code template wrote the text; code writes every time, id and hash.'

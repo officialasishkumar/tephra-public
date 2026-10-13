@@ -6,7 +6,9 @@
 import { PATHS, api, isUnavailable, problems, unavailableReason } from './api.js';
 import { announce, byId, el, icon, reducedMotion } from './dom.js';
 import { app } from './state.js';
-import { aiChip, openBSheet, unavailableCard } from './ui.js';
+import { aiMark, openBSheet, unavailableCard } from './ui.js';
+import { deskAi } from './budget.js';
+import { reasonClass } from '../wall/x-parts.js';
 
 const MAX_Q = 500;
 const MAX_REC_S = 30;
@@ -17,7 +19,7 @@ const SUGGESTED = [
   'Where do the official products disagree?',
   'What if the ash extends 50 km further?',
   'Which feeds are stale right now?',
-  'Which flights did the AI fail to plan?',
+  'Which flights must be planned by hand?',
 ];
 
 // R10.5: each evidence chip says in words what it rests on; the raw tool id is under "How I
@@ -28,7 +30,7 @@ const TOOL_WORDS = {
   flight: 'this flight',
   plan: "the flight's plan",
   feeds: 'data feeds',
-  ai_failures: 'AI problems',
+  ai_failures: 'Hand-plan list',
   duty_brief: 'Duty Officer brief',
 };
 const toolWords = (tool) => TOOL_WORDS[tool] || String(tool);
@@ -62,7 +64,9 @@ export function initAsk() {
   const mic = el('button', { type: 'button', id: 'ask-mic', class: 'abtn abtn--mic', 'aria-label': 'Talk: tap to start recording, tap again to send' }, icon('i-mic'));
   const send = el('button', { type: 'submit', id: 'ask-send', class: 'abtn abtn--send', 'aria-label': 'Send question' }, icon('i-send'));
   const ctx = el('p', { id: 'ask-ctx', class: 'actx', hidden: true });
-  const form = el('form', { class: 'acomposer', novalidate: true }, ctx, el('div', { class: 'acomposer__row' }, input, mic, send),
+  // while the quota is closed Ask says so before a question, not after (docs/UI-AI-QUIET.md K102)
+  const paused = el('p', { id: 'ask-paused', class: 'note', role: 'status', hidden: true });
+  const form = el('form', { class: 'acomposer', novalidate: true }, paused, ctx, el('div', { class: 'acomposer__row' }, input, mic, send),
     el('p', { id: 'ask-status', class: 'fine acomposer__note', 'aria-live': 'polite', text: 'Read-only: Ask never changes an advisory, a plan or a message.' }));
   composer = { form, input, mic, send, ctx };
   // R10.5: the composer is the primary thing; the suggestions sit under it; answers follow,
@@ -96,6 +100,16 @@ export function initAsk() {
   }
   log.addEventListener('click', onLogClick);
   drawEmpty();
+  drawPaused();
+  document.addEventListener('tephra:ai', drawPaused);
+}
+
+function drawPaused() {
+  const note = byId('ask-paused');
+  if (!note) return;
+  const ai = deskAi();
+  note.hidden = ai.kind !== 'paused';
+  note.textContent = ai.kind === 'paused' ? `Ask is paused${ai.until ? ` until ${ai.until}` : ''} (today's free AI quota). The Wall shows every flight and count.` : '';
 }
 
 function autosize(input) {
@@ -224,10 +238,18 @@ function finish(wait, res, question) {
     return;
   }
   let card;
-  if (isUnavailable(res)) card = unavailableCard(unavailableReason(res), { instead: 'No answer was made up. Ask again, or read the Wall.', onRetry: () => { composer.input.value = question; submit(); } });
-  else if (res.status === 401) card = unavailableCard('Your session has ended. Sign in again.', { title: 'Not asked', instead: '' });
-  else if (res.status === 0) card = unavailableCard("Can't reach the server.", { title: 'Not asked', instead: 'Check your connection and ask again.', onRetry: () => { composer.input.value = question; submit(); } });
-  else card = unavailableCard((res.data && res.data.detail) || `HTTP ${res.status}`, { title: 'Not answered', instead: '' });
+  const retry = () => { composer.input.value = question; submit(); };
+  if (isUnavailable(res)) {
+    // the quota: "Try again" waits for the reset; any other cause can be asked again now
+    const ai = deskAi();
+    const quota = reasonClass(unavailableReason(res)) === 'budget';
+    const until = quota && ai.until ? ` until ${ai.until}` : '';
+    card = unavailableCard(unavailableReason(res), quota
+      ? { title: `No answer: AI paused${until}`, instead: 'Nothing was made up.', onRetry: retry, retryLabel: ai.until ? `Try again after ${ai.until}` : 'Try again', retryDisabled: Boolean(ai.until) }
+      : { title: 'No answer: AI unavailable', instead: 'Nothing was made up. Ask again, or read the Wall.', onRetry: retry });
+  } else if (res.status === 401) card = unavailableCard('Your session has ended. Sign in again.', { title: 'Not asked', instead: '', serious: true });
+  else if (res.status === 0) card = unavailableCard("Can't reach the server.", { title: 'Not asked', instead: 'Check your connection and ask again.', onRetry: retry, serious: true });
+  else card = unavailableCard((res.data && res.data.detail) || `HTTP ${res.status}`, { title: 'Not answered', instead: '', serious: true });
   const failNode = el('div', { class: 'amsg amsg--ai' }, card);
   wait.replaceWith(failNode);
   announce('The question was not answered.');
@@ -302,7 +324,7 @@ export function answerCard(a) {
   card.append(el('div', { class: 'acard__foot' },
     el('button', { type: 'button', class: 'spk', 'data-speak': a.id, 'aria-label': 'Play the answer aloud' }, icon('i-volume'), el('span', { text: 'Listen' })),
     el('span', { class: 'acard__meta' },
-      aiChip(a.model_id, a.llm_backend, { sm: true }),
+      aiMark('AI-written', a.llm_backend === 'stub' ? null : a.model_id),
       el('span', { class: 'chip chip--sm', title: 'Language of the question and the answer', text: LANG_NAME[a.language] || a.language }),
       a.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null),
     el('span', { class: 'spk__msg fine', role: 'status' })));
