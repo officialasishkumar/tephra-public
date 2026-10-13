@@ -1507,6 +1507,8 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 .flow-link { min-height: 32px; padding: 0; border: 0; background: none; color: var(--c-text-2); font: inherit; font-size: var(--fs-1); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--c-text-3) 50%, transparent); text-underline-offset: 3px; white-space: nowrap; cursor: pointer; }
 .flow-you > .flow-link { display: block; margin: 6px 0 0 36px; }
 .flow-link:hover { color: var(--c-text-1); }
+.flow-head__sub .flow-why { min-height: 24px; font-size: inherit; white-space: nowrap; }
+.flow-why[hidden] { display: none; }
 
 /* the dock: log, legend, player */
 .flow-dock { position: absolute; z-index: 9; left: 24px; bottom: 24px; right: calc(404px + 48px); display: flex; flex-direction: column; gap: 12px; pointer-events: none; }

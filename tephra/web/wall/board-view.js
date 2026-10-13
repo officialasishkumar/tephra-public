@@ -115,7 +115,11 @@ export function mountFlow(dialog) {
 
   const markUse = icon("ta-waiting", "flow-head__mark");
   const status = el("span", { id: "board-status", class: "flow-head__status", text: "· connecting" });
-  const lede = el("p", { id: "board-lede", class: "flow-head__sub", text: "Connecting to TEPHRA…" });
+  // the lede, then "Why ›" while the assistant is paused or has trouble: the cause is said once, at
+  // Details › TEPHRA Assistant, one tap from here (docs/UI-AI-QUIET.md 8.6)
+  const ledeText = el("span", { text: "Connecting to TEPHRA…" });
+  const whyBtn = el("button", { type: "button", class: "flow-link flow-why", hidden: true, "aria-label": "Why: open Details › TEPHRA Assistant", dataset: { act: "board-details", sec: "ai", focus: "board-why" }, text: "Why ›" });
+  const lede = el("p", { id: "board-lede", class: "flow-head__sub" }, ledeText, " ", whyBtn);
   const btnReal = el("button", { type: "button", class: "flow-seg__btn", "aria-pressed": "true", dataset: { flowmode: "real" }, text: "Real now" });
   const btnEx = el("button", { type: "button", class: "flow-seg__btn", "aria-pressed": "false", dataset: { flowmode: "example" }, text: "Example: working normally" });
   const exFlag = el("p", { class: "flow-exflag", hidden: true, text: "Example · illustrative, not recorded. The assistant steps it shows did not happen." });
@@ -1099,7 +1103,9 @@ export function mountFlow(dialog) {
     if (dialog.dataset.mode !== M.mode) dialog.dataset.mode = M.mode;
     setText(status, `· ${ex ? "working (example)" : M.status}`);
     setAttr(status, "title", M.ai.title || null);
-    setText(lede, ex ? "An example of a normal run on the same recorded inputs: the Coordinator hands each job to a skill, and every draft waits for you." : M.sub);
+    setText(ledeText, ex ? "An example of a normal run on the same recorded inputs: the Coordinator hands each job to a skill, and every draft waits for you." : M.sub);
+    const why = !ex && (M.ai.kind === "paused" || M.ai.kind === "trouble");
+    if (whyBtn.hidden === why) whyBtn.hidden = !why;
     setText(gateName, ex ? "AI model · open" : M.gate.name);
     setText(gateMeta, ex ? "Example: open, jobs go straight through" : M.gate.meta);
     // what waits and where the cause is; why the assistant is paused is said at its home (8.6)
@@ -1137,7 +1143,8 @@ export function mountFlow(dialog) {
     const S = flowAt(events, simT);
     setText(cFeeds, S.feeds); setText(wFeeds, S.feeds === 1 ? " feed read · " : " feed reads · ");
     setText(cFlights, S.flights); setText(wFlights, S.flights === 1 ? " flight alert" : " flight alerts");
-    setText(coordRight, S.coordAt ? `last run ${hms(S.coordAt)}` : "");
+    // a run the model refused called no model: it is "not run", never "last run" (Q4)
+    setText(coordRight, S.coordAt ? `${S.coordRefused ? "not run" : "last run"} ${hms(S.coordAt)}` : "");
   }
 
   // the hero: M of the newest refused run at the playhead (tokens still on their way do not count
@@ -1304,6 +1311,10 @@ export function mountFlow(dialog) {
         if (card.steps.length) kids.push(el("h3", { text: "Newest steps" }), el("ol", { class: "flow-sheet__steps" }, ...card.steps.map((x) => el("li", {}, el("span", { class: "flow-sheet__tm", text: x.atText || (Number.isFinite(x.at) ? hms(x.at) : "") }), el("span", { text: `${x.text}${x.count > 1 ? ` (${x.count}×)` : ""} · ${x.source}` })))));
       } else if (s?.last) kids.push(el("p", { text: `${s.last.text} · ${hms(s.last.at)}` }));
       if (s?.jobs.length) kids.push(el("h3", { text: "Waiting in line" }), el("ul", {}, ...s.jobs.map((j) => el("li", { text: j }))));
+      // a skill that did not run, gave no result or waits while the assistant is paused: why is
+      // one tap away, at Details › TEPHRA Assistant (8.6)
+      const stalled = card && (card.state === "notrun" || card.state === "failed" || card.state === "waiting");
+      if (stalled || (M.ai.kind === "paused" && s?.jobs.length)) kids.push(el("button", { type: "button", class: "flow-link", dataset: { act: "board-details", sec: "ai", focus: `board-why-${skillId}` }, text: "Why: Details › TEPHRA Assistant ›" }));
       kids.push(el("button", { type: "button", class: "flow-link", dataset: { act: "board-details", sec: "trace", focus: `board-trace-${skillId}` }, text: "Every step in How TEPHRA decided ›" }));
       sheetBody.replaceChildren(...kids);
     } else {

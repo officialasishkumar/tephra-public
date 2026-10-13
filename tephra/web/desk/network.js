@@ -12,6 +12,7 @@ import { app } from './state.js';
 import { toast } from './toast.js';
 import { aiMark, fmtUsd, fromReplayChip, openBSheet, unavailableCard } from './ui.js';
 import { machineText, plainWhy, reasonClass } from '../wall/x-parts.js';
+import { openBudget } from './budget.js';
 
 const STATUS = {
   DRAFT: ['i-clock', 'Waiting for your decision', 'neutral'],
@@ -22,12 +23,13 @@ const STATUS = {
 };
 
 // Why a plan has no recommendation, in the §1.1 words (docs/UI-AI-QUIET.md K95, Naming): "Recovery
-// planner gave no result (timed out)", or "did not run (assistant paused)" for a quota refusal,
-// whose cause is said in the assistant sheet only (8.6). The raw reason stays under Technical detail.
+// planner gave no result (timed out)", or "did not run" for a quota refusal, whose cause is said in
+// the assistant sheet only, behind "Why ›" (8.6). The raw reason stays under Technical detail.
 function noRecWords(p) {
   const cls = reasonClass([p.unavailable_reason, ...(p.validation_errors || [])].join(' '));
-  return `Recovery planner ${cls === 'budget' ? 'did not run' : 'gave no result'} (${plainWhy(cls)}).`;
+  return cls === 'budget' ? 'Recovery planner did not run.' : `Recovery planner gave no result (${plainWhy(cls)}).`;
 }
+const whyBtn = () => el('button', { type: 'button', class: 'linkbtn', 'aria-label': 'Why: open the TEPHRA Assistant sheet', onclick: openBudget }, el('span', { text: 'Why ›' }));
 // The re-plan the queue holds for later: that it waits, not when (the slot is in the assistant sheet).
 function queuedReplan() {
   const w = app.budget && Array.isArray(app.budget.waiting) ? app.budget.waiting.find((x) => x.status === 'WAITING' && x.item && x.item.kind === 'RECOVER') : null;
@@ -390,7 +392,8 @@ export function renderNetwork() {
   } else if (p.status === 'AI_UNAVAILABLE') {
     // no plan because the assistant did not run: the job, and the queued re-plan, at the place (K95)
     const solved = (p.scenarios || []).length > 0;
-    card.append(el('p', { class: 'plan__line', text: [noRecWords(p), solved ? 'Compare the plans below and decide by hand.' : 'No plan was solved: plan the network by hand.', queuedReplan()].filter(Boolean).join(' ') }));
+    // "Why ›" on its own line: a 44 px target inside a sentence would open a gap in it
+    card.append(el('p', { class: 'plan__line', text: [noRecWords(p), solved ? 'Compare the plans below and decide by hand.' : 'No plan was solved: plan the network by hand.', queuedReplan()].filter(Boolean).join(' ') }), whyBtn());
   } else {
     card.append(el('p', { class: 'plan__line', text: (p.scenarios || []).length ? 'No recommendation was made. Compare the plans below and decide by hand.' : 'No recommendation was made. No plan was solved: plan the network by hand.' }));
   }

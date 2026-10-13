@@ -130,7 +130,8 @@ function undone(run) {
 function oneLine(run, failed, stub) {
   const code = stub ? 'Code only · ' : '';
   // the cause is said once, in the Plan by hand group's head; this line says where the work went
-  if (failed) return 'No brief this run · its must-do flights are in Plan by hand';
+  // a refused run called no model: "Not run", as the Wall says it; a model that gave nothing: "No brief"
+  if (failed) return `${refused(run) ? 'Not run' : 'No brief this run'} · its must-do flights are in Plan by hand`;
   if (run.undispatched.length) return `${code}${plural(run.undispatched.length, 'must-do item')} not handed out`;
   const prios = run.brief ? run.brief.priorities : [];
   if (prios.length) {
@@ -143,7 +144,8 @@ function oneLine(run, failed, stub) {
 
 function buildCard(run) {
   const [shape, word0, tone] = OUTCOME[run.outcome] || ['i-info', run.outcome, 'off'];
-  const word = refused(run) ? 'Not run (TEPHRA Assistant waiting)' : word0;
+  // the assistant's one state word, as the header chip says it (docs/UI-AI-QUIET.md 8.6)
+  const word = refused(run) ? 'Not run (TEPHRA Assistant paused)' : word0;
   const dispatched = delegations(run);
   const calls = run.dispatches.length;
   const failed = run.outcome === 'MODEL_FAILED';

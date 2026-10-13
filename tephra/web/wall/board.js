@@ -10,7 +10,7 @@
 // (docs/UI-AI-QUIET.md 8.6 "Say the cause once").
 
 import { ms } from "./util.js";
-import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiSymbol, causeShort, reasonClass, recordedWords, WHY, PAUSED, ASSISTANT } from "./x-parts.js";
+import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiSymbol, causeShort, reasonClass, recordedWords, WHY, ASSISTANT } from "./x-parts.js";
 import { collapseRuns, plural } from "./dk.js";
 
 // Every skill of TEPHRA Assistant on the Wall, in board order. `tool` is the Coordinator's tool that reaches it,
@@ -169,7 +169,8 @@ function resultSteps(h, ctx) {
     for (const r of ctx.satellite || []) {
       const name = ctx.volcanoName(r.volcano_id);
       const ash = { yes: "ash seen", no: "no ash seen", uncertain: "can't tell" }[r.ash_visible] || "can't tell";
-      const text = r.status === "ai_unavailable" ? `${name}: not read (Satellite reader gave no result). Nothing was put in its place`
+      // a quota refusal called no model: "did not run", never "gave no result" (Q4)
+      const text = r.status === "ai_unavailable" ? `${name}: not read (Satellite reader ${reasonClass(r.reason) === "budget" ? "did not run" : "gave no result"}). Nothing was put in its place`
         : r.status === "no_frames" ? `${name}: no picture to read` : `${name}: ${ash}`;
       out.push({ tone: r.status === "ai_unavailable" ? "failed" : r.status === "no_frames" ? "caution" : "ok", text, count: 1, at: ms(r.created_at || r.observed_at), source: SOURCE.reading, recorded: r.recorded_answer || null });
     }
@@ -408,7 +409,9 @@ export function stepEvents(t) {
     if ((m = DUTY_REFUSED.exec(msg))) {
       const cls = reasonClass(m[1]);
       return [{ ...base, type: "refused", cls, reason: m[1], d: Number(m[2]), n: Number(m[3]),
-        text: cls === "budget" ? `Coordinator did not run (${PAUSED})` : `Coordinator gave no result (${WHY[cls] || WHY.other})` }];
+        // a refusal on record says what happened, not "paused": it may have been one skill's
+        // share, and the state now is the headline's (8.6)
+        text: cls === "budget" ? "Coordinator did not run" : `Coordinator gave no result (${WHY[cls] || WHY.other})` }];
     }
     if ((m = DUTY_HANDOFF.exec(msg))) {
       const skill = TOOL_SKILL[m[1]] || null;
@@ -499,13 +502,13 @@ export function flowEvents({ trace = [], feeds = [], feedReads = [], now = NaN }
 // before `t`, so scrubbing is exact (spec 6). `hero` is M of the newest refused (or must-do left
 // undone) run at or before t; null before the first such run.
 export function flowAt(events, t, { example = false } = {}) {
-  const S = { feeds: 0, flights: 0, coordAt: null, must: null, mustAt: null, runs: 0, drafts: 0, exRun: null, lit: {}, failed: {} };
+  const S = { feeds: 0, flights: 0, coordAt: null, coordRefused: false, must: null, mustAt: null, runs: 0, drafts: 0, exRun: null, lit: {}, failed: {} };
   for (const e of events) {
     if (e.at > t) break;
     if (e.type === "feed" || e.type === "adsb") S.feeds += 1;
     else if (e.type === "flight") S.flights += 1;
-    else if (e.type === "duty") { S.coordAt = e.at; if (example) { S.exRun = e.at; S.drafts = e.n; } }
-    else if ((e.type === "refused" || e.type === "undone") && !example) { S.must = e.n; S.mustAt = e.at; S.runs += e.type === "refused" ? 1 : 0; }
+    else if (e.type === "duty") { S.coordAt = e.at; S.coordRefused = false; if (example) { S.exRun = e.at; S.drafts = e.n; } }
+    else if ((e.type === "refused" || e.type === "undone") && !example) { S.must = e.n; S.mustAt = e.at; S.runs += e.type === "refused" ? 1 : 0; S.coordRefused = e.type === "refused"; }
     else if (e.type === "skill" || e.type === "handoff") { S.lit[e.skill] = e.at; delete S.failed[e.skill]; }
     else if (e.type === "skill-failed") S.failed[e.skill] = e.at;
   }
@@ -568,7 +571,7 @@ function rowWords(r, example) {
     if (example) return r.duty ? { tone: "job", text: `Coordinator hands ${plural2(r.duty.n, "job")} to the skills (example)`, raw } : { text: "" };
     if (!r.out) return { tone: "job", text: got, raw };
     const o = r.out.e;
-    const head = o.type === "undone" ? `${got} · it left must-do work` : o.cls === "budget" ? `${got} · assistant paused` : `${got} · ${o.text.replace(/^Coordinator /, "")}`;
+    const head = o.type === "undone" ? `${got} · it left must-do work` : o.cls === "budget" ? `${got} · did not run` : `${got} · ${o.text.replace(/^Coordinator /, "")}`;
     return { tone: "must", text: head, toYou: `${o.n} must-do to you`, repeat: r.out.k > 1 ? `${r.out.k}× since ${hmsOf(r.out.since)}` : null, raw };
   }
   if (r.kind.startsWith("handoff:")) return { tone: "job", text: `Coordinator handed ${r.items.length === 1 ? "a job" : `${r.items.length} jobs`} to ${SKILL_NAME[e.skill] || e.skill}`, raw };
@@ -636,15 +639,18 @@ export function flowModel(input) {
   });
   // the assistant's state in the board's words (spec 5); the chip's words for trouble and off. A
   // pause is said as "paused", what still holds and what waits; why it is paused and until when
-  // are said once, at Details › TEPHRA Assistant (docs/UI-AI-QUIET.md 8.6), behind the gate's tooltip
-  // and the board's "Details › TEPHRA Assistant ›" link
+  // are said once, at Details › TEPHRA Assistant (docs/UI-AI-QUIET.md 8.6), one tap away behind the
+  // "Why ›" after the board's lede, the gate's tooltip and the "Details › TEPHRA Assistant ›" link
   const words = aiWords(ai, { home: `Details › ${ASSISTANT}`, opens: "nothing" });
   const jobs = plural2(waiting.length, "job");
   const inLine = budgetError ? "Jobs in line: unknown, the work queue did not load" : waiting.length ? `${jobs} in line` : "Nothing waits in line";
   let status, sub, gate;
   if (ai.kind === "paused") {
     status = "paused";
-    sub = "Code still reads every feed and checks every flight; jobs wait in line and must-do flights come straight to you.";
+    // with no work queue loaded, nothing is said about jobs in line (the gate says it is unknown)
+    sub = budgetError
+      ? "Code still reads every feed and checks every flight, and must-do flights come straight to you."
+      : "Code still reads every feed and checks every flight; jobs wait in line and must-do flights come straight to you.";
     gate = { open: false, kind: "closed", name: "Paused", meta: inLine, title: `Why: Details › ${ASSISTANT}` };
   } else if (ai.kind === "off") {
     status = "off (code only)";
@@ -653,7 +659,7 @@ export function flowModel(input) {
     gate = { open: true, kind: "nomodel", name: "No model · code templates", meta: "Skills run as code, no model is called", title: "NO MODEL: the offline stub" };
   } else if (ai.kind === "trouble") {
     status = words.suffix;
-    sub = `${ai.trouble.map(causeShort).join(". ")}. Nothing was put in its place: code still checks every flight, and that work comes to you.`;
+    sub = `${ai.trouble.map((c) => causeShort(c)).join(". ")}. Nothing was put in ${ai.trouble.length === 1 ? "its" : "their"} place: code still checks every flight, and that work comes to you.`;
     gate = { open: false, kind: "trouble", name: "AI model · gave no result", meta: inLine, title: "" };
   } else {
     status = "working";

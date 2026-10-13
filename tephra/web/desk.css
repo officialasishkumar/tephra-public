@@ -6563,6 +6563,11 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   min-width: 0;
 }
 
+.fcause__why {
+  align-self: flex-start;
+  margin-top: 0;
+}
+
 .fpane__actions {
   display: flex;
   flex-wrap: wrap;

@@ -7,6 +7,7 @@ import { PATHS, api, errorCode, isUnavailable, problems, unavailableReason } fro
 import { announce, byId, el, icon } from './dom.js';
 import { actionShort, activeNow, dayMonthHhmm } from './format.js';
 import { renderDoc, renderHandover, roleName } from './docview.js';
+import { openBudget } from './budget.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
 import { openBSheet, unavailableCard } from './ui.js';
@@ -245,7 +246,11 @@ export function renderDocs() {
   // that it waits, not when: the slot is said in the assistant sheet (docs/UI-AI-QUIET.md 8.6)
   const queuedWords = queued ? 'Waiting in line for TEPHRA Assistant' : '';
   // the summary line says it waits; the note says only what to do (review clutter 11)
-  if (queued) sraKids.push(el('p', { class: 'note', role: 'status' }, icon('st-caution', 'st'), el('span', { text: 'Complete it by hand if it cannot wait.' })));
+  // why it waits is one tap away, in the assistant sheet (8.6)
+  if (queued) {
+    sraKids.push(el('p', { class: 'note', role: 'status' }, icon('st-caution', 'st'), el('span', { text: 'Complete it by hand if it cannot wait.' })),
+      el('button', { type: 'button', class: 'linkbtn', 'aria-label': 'Why: open the TEPHRA Assistant sheet', onclick: openBudget }, el('span', { text: 'Why ›' })));
+  }
   if (draftError && draftError.kind === 'SRA') sraKids.push(draftErrorNode());
   sraKids.push(regions.length
     ? el('div', { class: 'sraform' }, el('label', { class: 'flabel', for: 'sra-region', text: 'Region' }), select,

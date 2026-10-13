@@ -110,7 +110,9 @@ function drawPaused() {
   const note = byId('ask-paused');
   if (!note) return;
   const ai = deskAi();
-  note.hidden = ai.kind !== 'paused';
+  // the newest answer already says it is paused, with its own "Why ›": said once (review clutter 5)
+  const said = Boolean(log && log.lastElementChild && log.lastElementChild.querySelector('[data-paused]'));
+  note.hidden = ai.kind !== 'paused' || said;
   if (ai.kind !== 'paused') {
     note.replaceChildren();
     return;
@@ -223,6 +225,7 @@ async function submit() {
   const wait = thinking("Reading TEPHRA's tools…");
   byId('ask-sugg').hidden = true;
   log.append(el('div', { class: 'aturn' }, youBubble(text), wait));
+  drawPaused();
   composer.input.value = '';
   autosize(composer.input);
   scrollEnd();
@@ -254,20 +257,31 @@ function finish(wait, res, question) {
     return;
   }
   let card;
+  let paused = false;
   const retry = () => { composer.input.value = question; submit(); };
   if (isUnavailable(res)) {
-    // a quota refusal: the state and "Why ›" only, no retry until the assistant is back (the
-    // cause and the time are in the assistant sheet, 8.6); any other cause can be asked again now
+    // a quota refusal: what happened and "Why ›", never the cause (it is in the assistant sheet,
+    // 8.6). "Paused" only while the whole assistant is; then there is no retry until it is back, and
+    // the question goes back into the box so it is not typed again. Any other cause can be asked
+    // again now.
     const quota = reasonClass(unavailableReason(res)) === 'budget';
-    card = unavailableCard(unavailableReason(res), quota
-      ? { title: 'TEPHRA Assistant is paused.', instead: 'Nothing was made up. The Wall shows every flight and count.', onWhy: openBudget }
-      : { title: 'No answer: Ask gave no result', instead: 'Nothing was made up. Ask again, or read the Wall.', onRetry: retry });
+    paused = quota && deskAi().kind === 'paused';
+    card = unavailableCard(unavailableReason(res), paused
+      ? { title: 'TEPHRA Assistant is paused.', instead: 'Nothing was made up. Your question is back in the box: send it again when the assistant is on. The Wall shows every flight and count.', onWhy: openBudget }
+      : quota
+        ? { title: 'No answer: Ask did not run', instead: 'Nothing was made up. Ask again, or read the Wall.', onRetry: retry, onWhy: openBudget }
+        : { title: 'No answer: Ask gave no result', instead: 'Nothing was made up. Ask again, or read the Wall.', onRetry: retry });
+    if (paused && !composer.input.value.trim()) {
+      composer.input.value = question;
+      autosize(composer.input);
+    }
   } else if (res.status === 401) card = unavailableCard('Your session has ended. Sign in again.', { title: 'Not asked', instead: '', serious: true });
   else if (res.status === 0) card = unavailableCard("Can't reach the server.", { title: 'Not asked', instead: 'Check your connection and ask again.', onRetry: retry, serious: true });
   else card = unavailableCard((res.data && res.data.detail) || `HTTP ${res.status}`, { title: 'Not answered', instead: '', serious: true });
-  const failNode = el('div', { class: 'amsg amsg--ai' }, card);
+  const failNode = el('div', { class: 'amsg amsg--ai', 'data-paused': paused ? '1' : null }, card);
   wait.replaceWith(failNode);
   announce('The question was not answered.');
+  drawPaused();
   scrollEnd(failNode);
 }
 

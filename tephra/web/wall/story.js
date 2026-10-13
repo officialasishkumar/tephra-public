@@ -6,7 +6,7 @@
 import { $, el, icon, hhmmz, ms, fl, kmBetween, reducedMotion } from "./util.js";
 import { SEV_RANK, regionOfVent } from "./derive.js";
 import { ext, replanning, aiState, handPlan } from "./ext.js";
-import { planFailure, draftBlock, machineText, ASSISTANT } from "./x-parts.js";
+import { planFailure, draftBlock, blockPhrase, machineText, ASSISTANT } from "./x-parts.js";
 import { FEED_NAME } from "./panels.js";
 
 const CODE_WORD = { RED: "Red", ORANGE: "Orange", YELLOW: "Yellow", GREEN: "Green" };
@@ -262,12 +262,13 @@ function storyModel(D, store, sit) {
     const todo = [noDrafts || undone ? (handHere === 1 ? "the flight" : `the ${nf}`) : null, pf ? "the network" : null].filter(Boolean);
     if (todo.length) parts.push(`Plan ${todo.join(" and ")} by hand on the Desk.`);
     const aiCause = draftsGap || undone || pf?.ai;
-    // paused: the state word only; why and until when are one tap away, behind "Why ›" (8.6)
+    // paused: the state word only; a skill that did not run or gave no result: what happened, with
+    // no quota words. Why and until when are one tap away, behind "Why ›" (8.6)
     const title = draftsGap && block.paused ? `${ASSISTANT} · paused`
-      : draftsGap && block.unavailable ? `${block.word} (${block.why})`
+      : draftsGap && block.unavailable ? blockPhrase(block)
         : draftsGap && block.queued ? `Waiting in line for ${ASSISTANT}`
           : undone ? "Must-do flights left for the Desk"
-            : pf?.ai ? `Recovery planner gave no result (${pf.why})` : "No airport plan";
+            : pf?.ai ? pf.word : "No airport plan";
     m.notice = { title, body: parts.join(" "), why: aiCause ? { act: "ai", text: "Why ›", label: `Why: open ${ASSISTANT}` } : { act: "recovery", text: "Airport closures ›", label: "Open Airport closures" },
       raw: pf ? pf.raw : null, text: `${title}. ${parts.join(" ")}` };
   }

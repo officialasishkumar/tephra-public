@@ -605,9 +605,9 @@ honesty list of section 2 are unchanged.
 
 | Before (sections 1.1, 5) | Now |
 |---|---|
-| Chip `AI on` / `AI paused · 0700Z` / `AI on · 1 problem` / `AI off` | (8.6: the paused chip is now `TEPHRA Assistant · paused`, no time.) `TEPHRA Assistant · on` / `TEPHRA Assistant · waiting until 0700Z` (REPLAY: `waiting for another 2 h 45 min`, 8.3) / `TEPHRA Assistant · Recovery planner gave no result`, `· Coordinator gave no result`, `· Flight planner did not run` (a quota refusal), `· 2 skills gave no result` / `TEPHRA Assistant · off (code only)`. Counted by skill, never by cause (8.5). At 420 px and less: `Assistant · on`, `Assistant · waiting`, `Assistant · 1 problem`, `Assistant · off` (the label and tooltip keep the full name). |
-| `AI paused` / `AI paused · 0700Z` (markers) | `Assistant waiting` / "TEPHRA Assistant is waiting until 0700Z (today's free AI quota is used up)" |
-| `AI waiting` (a job queued) | "Waiting for the next slot (0700Z)", "A new plan waits for TEPHRA Assistant: next slot 0700Z" |
+| Chip `AI on` / `AI paused · 0700Z` / `AI on · 1 problem` / `AI off` | `TEPHRA Assistant · on` / `TEPHRA Assistant · paused` (no reason and no time, 8.6; it read `· waiting until 0700Z` before) / `TEPHRA Assistant · Recovery planner gave no result`, `· Coordinator gave no result`, `· Flight planner did not run` (a quota refusal while the assistant is on), `· 2 skills gave no result` / `TEPHRA Assistant · off (code only)`. Counted by skill, never by cause (8.5). At 420 px and less: `Assistant · on`, `Assistant · paused`, `Assistant · 1 problem`, `Assistant · off` (the label and tooltip keep the full name). |
+| `AI paused` / `AI paused · 0700Z` (markers) | `Assistant paused`, with no cause or time at the place: "No advisory drafts for these 23 flights. Plan them by hand. Why ›" (8.6, 8.7) |
+| `AI waiting` (a job queued) | "Waiting in line", "A new plan waits in line for TEPHRA Assistant. Why ›" (8.6; the slot is said at the assistant's home only) |
 | `AI unavailable ({why})` | "{Skill} gave no result ({why}): nothing was put in its place." "{Skill} did not run" stays reserved for a step no model was called for (8.1 item 5); a run that answered and left work says so ("left must-do jobs for the Desk"). |
 | `AI-written` / `AI-read` / `AI-chosen` | "Drafted by TEPHRA Assistant" / "Read by Plume reader" (Satellite reader, Notice reader) / "Chosen by TEPHRA Assistant"; also "Ordered by Coordinator", "Explained by Recovery planner", "Answered by TEPHRA Assistant". Still only on content a model produced (Q5); the model id stays in the title and label. |
 | `Code (AI off)` | "Code only (assistant off)"; "(AI off)" in sentences reads "(code only)". |
@@ -620,10 +620,12 @@ the first-use and About lines ("TEPHRA Assistant is an AI assistant. It reads fe
 text. Code does every number and safety rule. You approve everything." as the first-use line at
 the top of the Wall's story and under the Desk's Decide summary, in the Wall's About and Help, the
 board's "How to read this board", the Desk's assistant sheet, and Details › TEPHRA Assistant ›
-How this works); the stub chip's tooltip; the quota phrase "today's free AI quota"; the glossary; Technical detail, the
+How this works); the stub chip's tooltip; the quota phrase "today's free AI quota" (at the assistant's home only, 8.6); the glossary; Technical detail, the
 audit and the raw rule-9 strings; the privacy page. Model ids stay only in tooltips, the
 assistant's home (Details › TEPHRA Assistant, the Desk's sheet, the board's cards), Technical
-detail and the record (Why this advisory › Drafted by, the audit).
+detail and the record (Why this advisory › Drafted by, the audit). Since 8.6 the board is not a
+home: its skill sheets keep only "Model: {id}" (no calls), and the cause, calls and slots are said
+at Details › TEPHRA Assistant and the Desk's sheet.
 
 **The mark.** The Strata mark (a vent dot with flight-level bands stepping downwind; chosen
 direction C) is five symbols in `tephra/web/icons.svg`, `currentColor` only: `ta-64` (the Desk
@@ -678,10 +680,13 @@ Two reviews of the naming build (coverage and honesty) found these, fixed here:
   id in the record).
 - **Kept as is:** the stub "off" chip keeps `ta-unavailable` (Desk spec 6.6 ties it to "off or
   not running"); the narrow Wall chip keeps "Assistant · waiting" without the time (with it the
-  chip takes a row of its own under the area menu at 390 px); the Desk card head "Ordered by
+  chip takes a row of its own under the area menu at 390 px; since 8.6 every chip says
+  "paused" with no time); the Desk card head "Ordered by
   Coordinator" marks the order the model chose and the brief's body "Drafted by TEPHRA Assistant"
   marks its text (spec 9.4); the board's cards keep their model chips (the board is the
-  assistant's home, as Details › TEPHRA Assistant is).
+  assistant's home, as Details › TEPHRA Assistant is). Amended by 8.6: the board is no longer a
+  home; its sheets keep the model id only, and the one home is Details › TEPHRA Assistant (the
+  Desk's sheet on the Desk).
 
 ### 8.6 Say the cause once (2026-10-13, branch `quiet-quota`)
 
@@ -702,10 +707,13 @@ pause carries no reason and no time there. The reason, in full, is said in **one
 TEPHRA Assistant on the Wall and its phone equivalent, the Desk's assistant sheet:
 
 > **TEPHRA Assistant is paused until 0700Z.** Why: Google's free daily AI quota for
-> gemini-3.5-flash-lite is used up. The next slot is 0700Z (real time). Queued work (4 jobs) runs
-> then, on the same model. …
+> gemini-3.5-flash-lite is used up. Queued work (4 jobs) runs then, on the same model. …
 
-(in REPLAY "paused for another 2 h 45 min" and "The next slot is in 2 h 45 min (real time)", 8.3).
+(in REPLAY "paused for another 2 h 45 min", 8.3; the time is said once, 8.7). A reset already
+behind the real clock while the model still reads as closed is said as overdue, never as a
+countdown stuck at "1 min" or a stale "until": "TEPHRA Assistant is paused. Why: … is used up. Its
+reset was due 3 h 10 min ago (real time), and the model still reads as closed, so when it opens is
+not known." (live: "was due at 0700Z").
 The home also keeps the budgets, the per-model calls and Google's closing, the lanes and pacing,
 the queue with its slots, and the Coordinator run's "Not run: today's free AI quota is used up".
 Tooltips and Technical detail may point to the home ("TEPHRA Assistant is paused: see why in
@@ -717,17 +725,17 @@ Details › TEPHRA Assistant.") but never carry the quota sentence; raw rule-9 l
 | Place | Now |
 |---|---|
 | Wall story notice | title `TEPHRA Assistant · paused`; body unchanged ("No advisory drafts and no airport plan. Plan the 23 flights and the network by hand on the Desk. Why ›") |
-| Details › Decisions | "No advisory drafts yet for the 23 flights. Plan by hand on the Desk › Why ›" |
-| Details › Flights / one flight | "No advisory drafts yet for these 23 flights. Plan them by hand. Open the Desk › Why ›" / "No advisory draft yet for this flight. Plan it by hand on the Desk › Why ›" |
-| Details › Airport closures | "A new plan waits in line for TEPHRA Assistant. Why ›" |
-| Details › Satellite picture | "Not read: TEPHRA Assistant is paused. Nothing was put in its place." |
+| Details › Decisions | "No advisory drafts for the 23 flights. Plan by hand on the Desk › Why ›" |
+| Details › Flights / one flight | "No advisory drafts for these 23 flights. Plan them by hand. Open the Desk › Why ›" / "No advisory draft for this flight. Plan it by hand on the Desk › Why ›" |
+| Details › Airport closures | "A new plan waits in line for TEPHRA Assistant. Why ›" (or, with nothing queued, the failed plan's row and "Why ›") |
+| Details › Satellite picture | "2 pictures were not read. Nothing was put in their place, and the official area stands. Why ›"; each row "Not read: TEPHRA Assistant is paused" (or "Satellite reader did not run" while the assistant is on) |
 | Details index row | `Paused` |
-| Flow board | headline `TEPHRA Assistant · paused`; lede "Code still reads every feed and checks every flight; jobs wait in line and must-do flights come straight to you."; gate `Paused` with "4 jobs in line" (tooltip "Why: Details › TEPHRA Assistant"); Coordinator "Paused: must-do jobs come to you"; legend "waiting in line"; skill sheets "Model: {id}" (no calls), "Waiting in line" (no slot time) |
-| Desk Plan by hand | "No advisory drafts yet. Plan these 23 flights by hand. Nothing was substituted." (the card's "Why ›" opens the sheet); a flight's sheet "No advisory draft yet for this flight. Nothing was put in its place. Why ›" |
-| Desk Airports / Paperwork | "A new plan waits in line for TEPHRA Assistant." / "Waiting in line for TEPHRA Assistant" |
-| Desk Ask | before a question: "TEPHRA Assistant is paused, so Ask cannot answer yet. The Wall shows every flight and count. Why ›"; an answer refused: "TEPHRA Assistant is paused. Why ›" (no timed retry) |
+| Flow board | headline `TEPHRA Assistant · paused`; lede "Code still reads every feed and checks every flight; jobs wait in line and must-do flights come straight to you. Why ›"; gate `Paused` with "4 jobs in line" (tooltip "Why: Details › TEPHRA Assistant"); Coordinator "Paused: must-do jobs come to you"; legend "waiting in line"; skill sheets "Model: {id}" (no calls), "Waiting in line" (no slot time) |
+| Desk Plan by hand | "No advisory drafts for these 23 flights. Plan them by hand. Nothing was substituted." (the card's "Why ›" opens the sheet; the list, which replaces Decide on a phone, has its own "Why ›"); a flight's sheet "No advisory draft for this flight. Nothing was put in its place. Why ›" |
+| Desk Airports / Paperwork | "Recovery planner did not run. … A new plan waits in line for TEPHRA Assistant. Why ›" / "Waiting in line for TEPHRA Assistant", "Complete it by hand if it cannot wait. Why ›" |
+| Desk Ask | before a question: "TEPHRA Assistant is paused, so Ask cannot answer yet. The Wall shows every flight and count. Why ›"; an answer refused while paused: "TEPHRA Assistant is paused. Why ›" (no timed retry; the question goes back into the box, and the note above the box hides while this answer is the newest); refused while the assistant is on: "No answer: Ask did not run. Why ›" with "Try again" |
 | Desk idle pane (1100 px and up) | "TEPHRA Assistant is paused. Code still checks every flight, and must-do flights come to you to plan by hand." |
-| Plain-words lines (How TEPHRA decided, the board's log and playback, What went wrong's occurrences) | "Coordinator did not run: assistant paused. N jobs that must be done went to the Desk", "Plume read for X was not handed out (assistant paused)", "Recovery planner did not run (assistant paused)" |
+| Plain-words lines (How TEPHRA decided, the board's log and playback, What went wrong's occurrences) | "Coordinator did not run. N jobs that must be done went to the Desk", "Plume read for X was not handed out. TEPHRA's area stays at the official reports", board log "Coordinator got 3 jobs on the scheduled check · did not run" (8.7: never "assistant paused", a line on record may be one skill's refusal while the assistant was on) |
 
 **Honesty kept (rule 9).** Every place that lacks an assistant output still says so where the
 dispatcher acts, and what to do; nothing implies the assistant worked; the cause is one tap away
@@ -740,10 +748,72 @@ carries no time left.
 **Code.** `wall/x-parts.js`: `aiWords` paused → `paused`; `aiLead(s, { home })` (the reason only
 when `home`, with `model` and `slotAt` from `aiStateOf`); `causeTitle(c, { home })`; `PAUSED`,
 `plainWhy`, `whyLink`; `causeShort`, `draftBlock`, `blockPhrase` and the plain-words patterns say
-"assistant paused". `untilShort` and `after` are gone (no main view says a time).
+"assistant paused" (amended by 8.7: "did not run"; "paused" only while the whole assistant is).
+`untilShort` and `after` are gone (no main view says a time).
 **Tests.** `tests/test_ui_ai_quiet.py` scans the main-view sources for quota words
 (`test_main_views_never_say_why_the_assistant_is_paused`) and pins each place's consequence and
 its "Why ›"; `tests/test_wall_board.py` runs the shared words and the board model (a paused chip,
 lead, draft block and plain lines carry no quota words; the home's lead names the cause, the model
 and the next slot).
 
+
+### 8.7 Say the cause once: review fixes (2026-10-13, branch `quiet-quota`)
+
+Two reviews of 8.6 (clutter and honesty) found these, fixed here:
+
+- **"Paused" is the whole assistant's state, never a cause.** A quota refusal for one skill's
+  model or share (the Plume reader's own model, a lane) leaves the assistant on, with a problem.
+  8.6 still said "(assistant paused)" for it, so the chip read "on" and the place "paused". Now
+  "paused" is said only when `aiStateOf().kind` is `paused`; otherwise the place says what happened
+  with no cause: "Flight planner did not run", "Plume reader cannot run now" (its model is out and
+  it has not been asked yet; the chip says the same), "Recovery planner did not run", "Satellite
+  reader did not run", "No answer: Ask did not run". `plainWhy` gives no words for a quota
+  refusal. The plain-words lines and the board's log never say "paused": a line on record may be
+  one skill's refusal, so they say "did not run". `causeShort(c, { home })` and `aiLead` name the
+  cause ("today's free AI quota is used up") only at the assistant's home.
+- **Quota words through a value.** The story notice's title read `Recovery planner gave no
+  result (${pf.why})`, and `pf.why` is the full quota cause for a refused plan. `planFailure` now
+  gives `word` ("Recovery planner did not run", or "gave no result (timed out)"), and its `title`,
+  `sub` and `place` say "did not run" for a quota refusal; `why` stays for the home only.
+- **The cause one tap from every place.** The board's lede ends with "Why ›" while the assistant
+  is paused or has trouble (before, the cause was chip → board → the link at the foot of "You
+  decide": two taps, and a tooltip on a phone). A skill sheet that did not run, gave no result or
+  waits while paused has "Why: Details › TEPHRA Assistant ›". The Desk's Plan by hand list (which
+  replaces Decide on a phone) has its own "Why ›"; so do the Desk's Airports line, the Paperwork
+  SRA note, the Wall's Satellite picture (one note above the rows) and Airport closures when no
+  re-plan is queued. A skill that did not run or gave no result gets "Why ›" at Decisions, Flights
+  and one flight too, not only a pause.
+- **An overdue reset is said, at the home.** 8.6 removed the board's "reset was due … ago"
+  without moving it; the home then said a countdown stuck at "1 min" (REPLAY) or a stale "until
+  0700Z" (live). `realWhen` now returns `past` with `due` for a time already behind the real
+  clock, `aiStateOf` gives `overdue`, and the home's lead says "Its reset was due 3 h 10 min ago
+  (real time), and the model still reads as closed, so when it opens is not known."
+- **The time once at the home.** The lead says it in its first words only ("paused until
+  0700Z"); the Wall's pill is "Paused", the calls tile "Closed for today", the skills' rows
+  "TEPHRA Assistant paused", the Coordinator's note has no time, and the Desk sheet's queue is
+  "Waiting in line · 4" with each job "waits in line" (its own slot only when it is not the
+  reset). The model rows say "Closed for today by Google (449 of 450 unused)" and the foot drops
+  "Counts start again …" while the lead says when it opens. "Nothing was put in its place" for one
+  cause, "their place" for more.
+- **Words that read wrong at the place.** "No advisory drafts yet" sat under an advisory marked
+  "Drafted by TEPHRA Assistant" and a "3 drafts" count, and "yet" promised drafts for every
+  flight: it is "No advisory drafts for these 23 flights. Plan them by hand." (the Wall: "No
+  advisory drafts for the 23 flights", "No advisory draft for this flight"). The board's lede says
+  nothing about jobs in line while the work queue did not load. The Desk Coordinator card says
+  "Not run (TEPHRA Assistant paused)" and its one line "Not run · its must-do flights are in Plan
+  by hand" for a refused run (the
+  Wall's word; "No brief" stays for a model that gave nothing). The board's Coordinator says "not
+  run 11:28:56" for a refused run, never "last run". A Satellite reading refused on quota is
+  "did not run" on the board, never "gave no result". A flight row's label no longer reads "no
+  advisory: , plan by hand" when there is no phrase.
+- **Ask says it once and keeps the question.** While the newest answer is "TEPHRA Assistant is
+  paused. Why ›" the note above the box hides; the question goes back into the box.
+- **The guard covers the shared files.** `test_main_views_never_say_why_the_assistant_is_paused`
+  now scans `wall/ext.js` and `wall/x-parts.js` with the home's own builders left out (`aiLead`;
+  `agentStatus`, `workWords`, `budgetBlock`, `waitingTail`, `budgetTile`; the `WHY.budget` and
+  `pacingWords` constants). `tests/test_wall_board.py` runs the shared words on a quota refusal:
+  a skill out of calls while the assistant is on is never "paused" and carries no quota words,
+  `planFailure` on a quota refusal says "did not run", and the home says an overdue reset.
+- **Kept.** The board log's "From the record" tooltips keep the raw record line (for example
+  `Duty Officer AI UNAVAILABLE (budget_exhausted); …`): it is the record, like Technical detail,
+  and rule 9 keeps raw reasons reachable.

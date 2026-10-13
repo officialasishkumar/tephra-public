@@ -1293,10 +1293,13 @@ The stage:
 - **Head.** The Strata mark by state, "TEPHRA Assistant · working / paused / off (code
   only) / Recovery planner gave no result" (`#board-status`), one sentence of what still holds
   (`#board-lede`; paused: "Code still reads every feed and checks every flight; jobs wait in line
-  and must-do flights come straight to you.", with no quota, reset or slot words, UI-AI-QUIET 8.6),
-  "Real now · Example: working normally", "?" (How this moves) and the close button.
+  and must-do flights come straight to you.", with no quota, reset or slot words, UI-AI-QUIET 8.6;
+  while the work queue did not load it says nothing about jobs in line), then "Why ›" while the
+  assistant is paused or has trouble (it opens Details › TEPHRA Assistant, the one place that says
+  the cause, UI-AI-QUIET 8.7), "Real now · Example: working normally", "?" (How this moves) and the close button.
 - **Inside TEPHRA** (one glass panel, the pipeline as a drawn spine): Code checks (no AI) with feed
-  reads and flight alerts at the playhead; the Coordinator with its last run and a button that opens
+  reads and flight alerts at the playhead; the Coordinator with its last run ("not run 11:28:56" for
+  a run the model refused, UI-AI-QUIET 8.7) and a button that opens
   its details; the model gate ("AI model · open", "Paused" with "4 jobs in line" and the tooltip
   "Why: Details › TEPHRA Assistant", "AI model · gave no result", or "No model · code templates")
   with the queue's waiting jobs parked in front as hollow rings (the gap above the gate grows so
@@ -1948,7 +1951,9 @@ pause with no reason or time), caution for paused and trouble, never red. The sh
 one place that says why the assistant is paused and until when (UI-AI-QUIET 8.6). Its sheet, "AI today": the calm lead (UI-AI-QUIET
 5.1), "What went wrong" by cause (each with its count, its times and what the dispatcher does
 instead, the raw lines under Technical detail), "AI work waiting" (each job with "waits for AI
-budget, next slot 0700Z real time"), "Calls today, per model" (what the model does, "1 of 450
+budget, next slot 0700Z real time"; since UI-AI-QUIET 8.7 "Waiting in line · 4", each job "waits
+in line", or "waits for its slot (0700Z)" only when its slot is not the reset the lead already
+says), "Calls today, per model" (what the model does, "1 of 450
 calls" or "Closed", a bar, its state with a shape, the model id in small mono), "How the calls are
 shared" (a disclosure: each lane's calls and the pacing sentence), "See the AI at work on the
 Wall" (opens `/#ai-at-work` in a new tab), the count note and "As of …", in real time.

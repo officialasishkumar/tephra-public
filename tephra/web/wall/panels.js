@@ -332,7 +332,7 @@ function flightRow(D, f, ui, allStale = false, hand = null) {
     sub: [`${lvl} · real aircraft ${p.callsign || String(p.hex || "").toUpperCase()}`, oldShown ? [" · ", el("span", { class: "dk-warn", text: oldShown })] : null, p.crew_report ? [" · ", el("span", { class: "dk-crewword" }, icon("i-pin", "icon"), "crew report on this route")] : null],
     meta: handMeta || (adv ? el("span", { class: `dk-adv dk-adv--${adv.status.toLowerCase()}` }, icon(advIcon), el("span", { text: advWord })) : el("span", { class: "dk-adv", text: "No advisory yet" })),
     dataset: { flight: f.id ?? p.hex, focus: `flight-${p.hex}` },
-    label: `${p.proxy_flight}, proxy for ${p.callsign || p.hex}, ${p.inside ? "inside TEPHRA's area now" : `enters in ${p.minutes_to_entry} minutes, estimated`}, ${lvl}${old ? `, ${old}` : ""}${p.crew_report ? ", crew report of ash on this route" : ""}${handRow ? `, no advisory: ${blockPhrase(hand.block)}, plan by hand${handRow.must ? ", must do" : ""}` : adv ? `, ${advWord.toLowerCase()}` : ""}. Show this flight.`,
+    label: `${p.proxy_flight}, proxy for ${p.callsign || p.hex}, ${p.inside ? "inside TEPHRA's area now" : `enters in ${p.minutes_to_entry} minutes, estimated`}, ${lvl}${old ? `, ${old}` : ""}${p.crew_report ? ", crew report of ash on this route" : ""}${handRow ? `, no advisory${blockPhrase(hand.block) ? `: ${blockPhrase(hand.block)}` : ""}, plan by hand${handRow.must ? ", must do" : ""}` : adv ? `, ${advWord.toLowerCase()}` : ""}. Show this flight.`,
     cls: ui?.selFlight?.hex === p.hex ? "is-picked" : null,
   });
 }
@@ -384,10 +384,11 @@ export function renderFlights(D, store, ui, target = $("flights")) {
   const hand = handPlanOf(D, store, aiStateNow(D, store));
   const handHere = hand.flights.filter((x) => flights.some((f) => `${f.properties.hex}:${f.properties.volcano_id}` === x.key)).length;
   // why those rows have no advisory and what to do, said once for the list
-  // paused: what is missing and what to do, the cause behind "Why ›" (docs/UI-AI-QUIET.md 8.6)
+  // paused: what is missing and what to do; a skill that did not run or gave no result: what
+  // happened too. The cause is behind "Why ›" (docs/UI-AI-QUIET.md 8.6)
   const whose = handHere === flights.length ? (handHere === 1 ? "this flight" : `these ${handHere} flights`) : `${handHere} of these flights`;
-  const handNote = handHere ? dkNote("caution", [el("p", {}, hand.block.paused ? `No advisory drafts yet for ${whose}. ` : `No advisory for ${whose}: ${hand.block.undone ? "the Coordinator left them for the Desk" : blockPhrase(hand.block)}. `, `Plan ${handHere === 1 ? "it" : "them"} by hand. `,
-    el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Open the Desk ›" }), hand.block.paused ? [" ", whyLink("flights-why")] : null)], { role: "status" }) : null;
+  const handNote = handHere ? dkNote("caution", [el("p", {}, hand.block.paused ? `No advisory drafts for ${whose}. ` : `No advisory for ${whose}: ${hand.block.undone ? "the Coordinator left them for the Desk" : blockPhrase(hand.block)}. `, `Plan ${handHere === 1 ? "it" : "them"} by hand. `,
+    el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Open the Desk ›" }), hand.block.paused || hand.block.unavailable ? [" ", whyLink("flights-why")] : null)], { role: "status" }) : null;
   const group = (title, aside, rows, key) => (rows.length ? dkGroup(title, aside, dkList(rows.map((f) => flightRow(D, f, ui, allStale, hand)), { first: FLIGHTS_FIRST, key, label: title })) : null);
   const list = flights.length
     ? [handNote, group("Inside now", null, flights.filter((f) => f.properties.inside), "flights-inside"), group("Heading in", "soonest first", flights.filter((f) => !f.properties.inside), "flights-heading")]
@@ -787,8 +788,8 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
     id: "h-dec",
     pills: [serverWaiting === null ? dkPill("serious", "Count unknown") : waitingN ? dkPill("caution", "Waiting for a dispatcher") : handN ? dkPill("caution", "Nothing to approve") : dkPill("ok", "Nothing waiting")],
     title: all.length ? "Every advisory is a draft until a dispatcher decides on the Desk." : "No advisories yet. A draft appears when a flight's projected track enters TEPHRA's area.",
-    sub: handN && !waitingN ? el("span", {}, hand.block.paused ? `No advisory drafts yet for the ${handN === 1 ? "flight" : `${handN} flights`}. ` : `No drafts: ${hand.block.undone ? "the Coordinator left its must-do flights for the Desk" : blockPhrase(hand.block)}. `,
-      el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Plan by hand on the Desk ›" }), hand.block.paused ? [" ", whyLink("dec-why")] : null) : null,
+    sub: handN && !waitingN ? el("span", {}, hand.block.paused ? `No advisory drafts for the ${handN === 1 ? "flight" : `${handN} flights`}. ` : `No drafts: ${hand.block.undone ? "the Coordinator left its must-do flights for the Desk" : blockPhrase(hand.block)}. `,
+      el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Plan by hand on the Desk ›" }), hand.block.paused || hand.block.unavailable ? [" ", whyLink("dec-why")] : null) : null,
   });
   const tiles = all.length ? dkTiles([
     { label: "Waiting", value: serverWaiting === null ? "unknown" : String(serverWaiting ?? draft.length), tone: serverWaiting === null ? "serious" : "caution", sub: serverWaiting === null ? "database error" : "all volcanoes" },

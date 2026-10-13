@@ -231,11 +231,15 @@ def test_the_strata_mark_is_in_the_sprite() -> None:
 
 
 # Say the cause once (docs/UI-AI-QUIET.md 8.6): the free quota, budgets, per-model counts, lanes,
-# pacing and reset or slot times are said at the assistant's home only (Details, TEPHRA Assistant:
-# wall/ext.js, wall/duty.js; the Desk's assistant sheet: desk/budget.js) and in the shared words
-# (wall/x-parts.js, which tests/test_wall_board.py checks by running it). Every other page source
-# says "paused" and what to do; the raw reasons are matched by regex literals and comments only.
+# pacing and reset or slot times are said at the assistant's home only (Details, TEPHRA Assistant;
+# the Desk's assistant sheet: desk/budget.js, wall/duty.js). Every other page source says
+# "paused" and what to do; the raw reasons are matched by regex literals and comments only.
+# wall/ext.js and wall/x-parts.js hold main-view places too (Satellite picture, Airport closures,
+# the plain words, the story's and board's words), so they are scanned with the home's own
+# builders left out (HOME_ONLY); tests/test_wall_board.py runs the shared words on a quota refusal.
 MAIN_VIEW_SOURCES = (
+    "wall/ext.js",
+    "wall/x-parts.js",
     "wall/story.js",
     "wall/panels.js",
     "wall/details.js",
@@ -263,11 +267,25 @@ QUOTA_TEXT = re.compile(
     re.I,
 )
 STRING = re.compile(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|`(?:\\.|[^`\\])*`")
+# The builders that draw the assistant's home (Details, TEPHRA Assistant), where the cause is said.
+HOME_ONLY = {
+    "wall/x-parts.js": ("aiLead",),
+    "wall/ext.js": ("agentStatus", "workWords", "budgetBlock", "waitingTail", "budgetTile"),
+}
+# One-line constants of the home's words: the cause in full (WHY.budget) and the queue's pacing.
+HOME_CONSTS = ("export const pacingWords = ", '  budget: "today\'s free AI quota is used up"')
+
+
+def _main_view(rel: str) -> str:
+    source = _read(rel)
+    for name in HOME_ONLY.get(rel, ()):
+        source = source.replace(_function(source, name), "")
+    return "\n".join(line for line in source.splitlines() if not line.startswith(HOME_CONSTS))
 
 
 def test_main_views_never_say_why_the_assistant_is_paused() -> None:
     for rel in MAIN_VIEW_SOURCES:
-        source = _read(rel)
+        source = _main_view(rel)
         for line in source.splitlines():
             if COMMENT.match(line):
                 continue
@@ -282,15 +300,21 @@ def test_the_cause_of_a_pause_is_one_tap_from_every_place_that_lacks_an_output()
     """Rule 9 at the place, with the cause one tap away (8.6): each place that has no assistant
     output while it is paused still says so and what to do, and links to the assistant's home."""
     panels = _read("wall/panels.js")
-    assert "No advisory drafts yet for ${whose}. " in panels
-    assert 'whyLink("flights-why")' in panels
-    assert 'whyLink("dec-why")' in panels
+    assert "No advisory drafts for ${whose}. " in panels
+    # paused, or a skill that did not run or gave no result: "Why" either way
+    assert 'hand.block.paused || hand.block.unavailable ? [" ", whyLink("flights-why")]' in panels
+    assert 'hand.block.paused || hand.block.unavailable ? [" ", whyLink("dec-why")]' in panels
     details = _read("wall/details.js")
-    assert '"No advisory draft yet for this flight. "' in details
-    assert 'whyLink("fdetail-why")' in details
+    assert '"No advisory draft for this flight. "' in details
+    assert 'b.paused || b.unavailable ? [" ", whyLink("fdetail-why")]' in details
     ext = _read("wall/ext.js")
     assert 'A new plan waits in line for ${ASSISTANT}. `, whyLink("rec-why")' in ext
-    assert "`${ASSISTANT} is paused`" in ext
+    # the Satellite picture: "paused" only while the assistant is, and the cause one tap away
+    sat = _function(ext, "satRow")
+    assert 'kind === "paused" ? `${ASSISTANT} is paused` : "Satellite reader did not run"' in sat
+    assert "Nothing was put in its place." in sat
+    assert 'not read. Nothing was put in ${bad === 1 ? "its" : "their"} place' in ext
+    assert 'whyLink("sat-why")' in ext
     xparts = _read("wall/x-parts.js")
     why = xparts[xparts.index("export const whyLink = ") :]
     assert 'dataset: { act: "details-sec", sec: "ai", focus }' in why[: why.index("\n")]
@@ -298,13 +322,22 @@ def test_the_cause_of_a_pause_is_one_tap_from_every_place_that_lacks_an_output()
     assert "`${ASSISTANT} · paused`" in story
     assert 'why: aiCause ? { act: "ai", text: "Why \u203a"' in story
     failures = _read("desk/failures.js")
-    hand = "No advisory drafts yet. Plan ${n === 1 ? 'this flight' : `these ${n} flights`} by hand."
+    hand = "No advisory drafts for ${n === 1 ? 'this flight' : `these ${n} flights`}. Plan"
     assert hand in failures
     assert "'data-why': '1'" in failures
+    # the list replaces Decide on a phone: it has its own "Why" link (review clutter 1)
+    pane = _function(failures, "paneBody")
+    assert "'Decide each flight by hand, then mark it handled.'" in pane
+    assert "onclick: openBudget" in pane
     ask = _read("desk/ask.js")
     assert "title: 'TEPHRA Assistant is paused.'" in ask
     assert "onWhy: openBudget" in ask
     assert "TEPHRA Assistant is paused, so Ask cannot answer yet." in ask
+    # "paused" only while the assistant is; the question goes back into the box
+    assert "paused = quota && deskAi().kind === 'paused';" in ask
+    assert "composer.input.value = question;" in _function(ask, "finish")
+    for rel in ("desk/network.js", "desk/docs.js"):
+        assert "'Why: open the TEPHRA Assistant sheet', onclick: openBudget" in _read(rel), rel
     # the homes keep the reason, the models' calls and the queue's slots
     assert "Closed for today by Google" in _read("desk/budget.js")
     assert "Google closed the free quota after" in ext

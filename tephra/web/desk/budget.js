@@ -1,5 +1,5 @@
 // The Desk's one assistant chip in the header (docs/UI-AI-QUIET.md K78, K79, Naming): TEPHRA
-// Assistant's state in words ("TEPHRA Assistant · waiting until 0700Z"), never red, from the same
+// Assistant's state in words ("TEPHRA Assistant · paused"), never red, from the same
 // aiStateOf() as the Wall's chip and its "TEPHRA Assistant at work" board. It opens the assistant
 // sheet: the calm lead, what went wrong by cause, the work waiting for its slot, the calls per
 // model and the way to the board on the Wall. GET /api/budget at start, then the `budget` SSE
@@ -80,13 +80,13 @@ export function drawAiChip() {
 
 // A model Google closed for today shows as closed, with a full bar, so its unused calls never read
 // as calls to spare (D71, the Wall's "Closed for today by Google").
-function modelRow(m, until) {
+function modelRow(m) {
   const out = isOut(m);
   const pct = m.closed ? 100 : m.limit ? Math.min(100, Math.round((m.used / m.limit) * 100)) : 100;
   const bar = el('span', { class: `bbar bbar--${out ? 'out' : m.remaining / m.limit < 0.1 ? 'low' : 'ok'}`, 'aria-hidden': 'true' }, el('span', { class: 'bbar__fill' }));
   bar.firstElementChild.style.setProperty('--w', `${Math.max(pct, m.used ? 2 : 0)}%`);
   const status = m.closed
-    ? `Closed for today by Google${until ? ` ${until}` : ''} (${m.remaining.toLocaleString('en')} of ${m.limit.toLocaleString('en')} unused)`
+    ? `Closed for today by Google (${m.remaining.toLocaleString('en')} of ${m.limit.toLocaleString('en')} unused)`
     : out ? 'Used up for today' : `${m.remaining.toLocaleString('en')} left today`;
   return el('li', { class: 'aimodel' },
     el('p', { class: 'aimodel__h' },
@@ -97,11 +97,14 @@ function modelRow(m, until) {
     el('p', { class: 'aimodel__id mono', text: m.model_id }));
 }
 
-function workRow(w) {
-  const slot = slotWords(w.next_slot_at);
+// A job's own slot only when it is not the reset the lead already says (or already past): the time
+// is said once (review clutter 7).
+function workRow(w, reset) {
+  const at = parseTime(w.next_slot_at) ?? NaN;
+  const slot = Math.abs(at - reset) < 60000 ? null : slotWords(w.next_slot_at);
   const when = w.status === 'RUNNING' ? 'running now'
     : w.status === 'QUEUED' ? 'queued for the assistant'
-      : slot ? `waits for the next slot (${slot})` : 'waits for the next slot';
+      : slot ? `waits for its slot (${slot})` : 'waits in line';
   return el('li', { class: 'aiwork' }, icon(w.status === 'RUNNING' ? 'i-play' : 'i-clock', 'st'),
     el('span', {}, el('span', { class: 'aiwork__label', text: w.label }), el('span', { class: 'aiwork__when', text: when })));
 }
@@ -125,6 +128,11 @@ export function openBudget() {
   const ai = deskAi();
   const stub = ai.kind === 'off';
   const work = b && Array.isArray(b.waiting) ? b.waiting : [];
+  const reset = parseTime(b && b.resets_at) ?? NaN;
+  // the lead says when a paused assistant opens again; the foot does not say it a second time
+  const resetSaid = ai.kind === 'paused' && Boolean(ai.until);
+  const counts = b && b.resets_at && !resetSaid && slotWords(b.resets_at)
+    ? ` Counts start again ${slotWords(b.resets_at) === hhmmz(b.resets_at) ? `at ${hhmmz(b.resets_at)}` : slotWords(b.resets_at)}.` : '';
   const mark = el('p', { class: `aisheet__mark aisheet__mark--${ai.kind}` }, icon('ta-64', 'aisheet__logo'));
   const lead = el('div', { class: `aisheet__lead aisheet__lead--${ai.kind}`, role: 'status' },
     ...aiLead(ai).map((p, i) => el('p', { class: i === 0 ? 'aisheet__head' : null }, el('strong', { text: p.strong }), ` ${p.text}`)));
@@ -138,14 +146,14 @@ export function openBudget() {
     : null;
   const queue = work.length
     ? el('section', { class: 'aisheet__sec', 'aria-labelledby': 'ai-work-title' },
-      el('h3', { id: 'ai-work-title', class: 'aisheet__h', text: `Waiting for the next slot · ${work.length}` }),
-      el('ul', { class: 'aiworks' }, work.map(workRow)),
+      el('h3', { id: 'ai-work-title', class: 'aisheet__h', text: `Waiting in line · ${work.length}` }),
+      el('ul', { class: 'aiworks' }, work.map((w) => workRow(w, reset))),
       el('p', { class: 'note', text: 'Waiting work keeps its place and runs on the same model when its slot comes. Nothing is dropped or handed to another model.' }))
     : null;
   const calls = b && !stub
     ? el('section', { class: 'aisheet__sec', 'aria-labelledby': 'ai-calls-title' },
       el('h3', { id: 'ai-calls-title', class: 'aisheet__h', text: 'Calls today, per model' }),
-      el('ul', { class: 'aimodels' }, models(b).map((m) => modelRow(m, ai.until))),
+      el('ul', { class: 'aimodels' }, models(b).map((m) => modelRow(m))),
       lanes(b))
     : null;
   const board = el('a', { class: 'btn btn--outline btn--block aisheet__board', href: BOARD_URL, target: '_blank', rel: 'noopener' },
@@ -153,7 +161,7 @@ export function openBudget() {
   const foot = stub
     ? el('p', { class: 'note', text: 'With no model, no calls are made or counted.' })
     : b
-      ? el('p', { class: 'note', text: `${b.note}${b.resets_at ? ` Counts start again ${slotWords(b.resets_at) === hhmmz(b.resets_at) ? `at ${hhmmz(b.resets_at)}` : slotWords(b.resets_at)}.` : ''} As of ${dayMonthHhmm(b.as_of)}.` })
+      ? el('p', { class: 'note', text: `${b.note}${counts} As of ${dayMonthHhmm(b.as_of)}.` })
       : el('p', { class: 'note', text: "Today's assistant calls have not loaded yet." });
   openBSheet({
     title: ASSISTANT,

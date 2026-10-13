@@ -18,7 +18,7 @@ import { openBSheet } from './ui.js';
 import { toast } from './toast.js';
 import { openBudget } from './budget.js';
 import { renderDuty } from './duty.js';
-import { WHY, PAUSED, machineText, reasonClass } from '../wall/x-parts.js';
+import { WHY, machineText, reasonClass } from '../wall/x-parts.js';
 
 const NOTE_MAX = 500;
 const HANDLED_CHIPS = ['Contacted the flight by phone', 'Re-planned by hand', 'Flight already outside the area', 'Duplicate'];
@@ -52,7 +52,7 @@ const causeOf = (f) => `${HELPER[f.stage] || f.stage}|${reasonClass(f.reason)}`;
 // "the assistant gave no result (timed out)" or, for a Coordinator that ran and did not hand the
 // flight out, that (review H8). A quota refusal has no cause words here: the place says what is
 // missing and what to do, and "Why ›" opens the assistant sheet, the one place that says why the
-// assistant is paused (docs/UI-AI-QUIET.md 8.6). Null for a quota refusal.
+// step did not run (docs/UI-AI-QUIET.md 8.6). Null for a quota refusal.
 function causeWords(cls) {
   if (cls === 'undone') return 'the Coordinator ran and left it for the Desk';
   if (cls === 'budget') return null;
@@ -60,8 +60,9 @@ function causeWords(cls) {
 }
 const causeSentence = (cls, n) => (causeWords(cls) || '').replace(/left it for/, n === 1 ? 'left it for' : 'left them for');
 
-// A few words per cause, for a row when the list mixes causes.
-const SHORT = { budget: PAUSED, undone: 'left for the Desk', timeout: 'timed out', checks: 'failed the checks', error: 'stopped with an error', other: 'no answer' };
+// A few words per cause, for a row when the list mixes causes. A quota refusal says what happened,
+// never "paused": the refusal may have been one skill's share while the assistant is on (8.6).
+const SHORT = { budget: 'did not run', undone: 'left for the Desk', timeout: 'timed out', checks: 'failed the checks', error: 'stopped with an error', other: 'no answer' };
 
 function causes(list) {
   const by = new Map();
@@ -148,10 +149,10 @@ function causeBlock(list) {
     const word = causeSentence(cs[0].cls, n);
     return [el('p', { class: 'hcard__why', text: word
       ? `No plan for ${n === 1 ? 'this flight' : 'these flights'}: ${word}. Nothing was substituted.`
-      : `No advisory drafts yet. Plan ${n === 1 ? 'this flight' : `these ${n} flights`} by hand. Nothing was substituted.` })];
+      : `No advisory drafts for ${n === 1 ? 'this flight' : `these ${n} flights`}. Plan ${n === 1 ? 'it' : 'them'} by hand. Nothing was substituted.` })];
   }
   return [el('p', { class: 'hcard__why', text: 'No plan for these flights. Nothing was substituted.' }),
-    el('ul', { class: 'hcard__causes' }, cs.map((c) => el('li', { text: `${plural(c.n, 'flight')}: ${causeSentence(c.cls, c.n) || PAUSED}` })))];
+    el('ul', { class: 'hcard__causes' }, cs.map((c) => el('li', { text: `${plural(c.n, 'flight')}: ${causeSentence(c.cls, c.n) || 'the assistant did not run'}` })))];
 }
 
 function summaryCard(list, shown, must) {
@@ -198,7 +199,9 @@ function paneBody(list, must) {
     el('div', { class: 'fcause', role: 'note' },
       icon('st-caution', 'st fcause__icon'),
       el('div', { class: 'fcause__body' }, ...causeBlock(list),
+        // on a phone this list replaces Decide and its card: the cause is one tap from here too (8.6)
         el('p', { text: 'Decide each flight by hand, then mark it handled.' }),
+        el('button', { type: 'button', class: 'linkbtn fcause__why', 'aria-label': 'Why: open the TEPHRA Assistant sheet', onclick: openBudget }, el('span', { text: 'Why ›' })),
         el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), ...raws.map((r) => el('p', { class: 'mono tech__line', text: r }))))),
     el('div', { class: 'fpane__actions' },
       list.length > 1 ? el('button', { type: 'button', class: 'btn btn--outline', 'data-failbulk': '1', disabled: app.offline }, icon('i-hand'), el('span', { text: 'Mark several handled…' })) : null,
@@ -275,7 +278,7 @@ export function openHandled(id) {
     el('dt', { text: 'Aircraft' }), el('dd', { text: [ident(f) || 'no callsign', `hex ${String(f.hex || '').toUpperCase()}`].join(' · ') }),
     el('dt', { text: 'Volcano' }), el('dd', { text: f.volcano_name }),
     el('dt', { text: 'Since' }), el('dd', { text: hhmmz(f.created_at) }),
-    el('dt', { text: 'What happened' }), el('dd', {}, el('span', { text: causeWords(reasonClass(f.reason)) ? `No plan for this flight: ${causeWords(reasonClass(f.reason))}. Nothing was put in its place.` : 'No advisory draft yet for this flight. Nothing was put in its place. ' }),
+    el('dt', { text: 'What happened' }), el('dd', {}, el('span', { text: causeWords(reasonClass(f.reason)) ? `No plan for this flight: ${causeWords(reasonClass(f.reason))}. Nothing was put in its place.` : 'No advisory draft for this flight. Nothing was put in its place. ' }),
       causeWords(reasonClass(f.reason)) ? null : el('button', { type: 'button', class: 'linkbtn', 'aria-label': 'Why: open the TEPHRA Assistant sheet', onclick: openBudget }, el('span', { text: 'Why ›' })),
       must ? [' ', el('span', { class: 'dcard__must', text: 'Must do' })] : null));
   const tech = el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }),

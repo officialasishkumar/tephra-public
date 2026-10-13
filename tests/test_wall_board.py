@@ -415,7 +415,7 @@ def test_you_decide_takes_the_walls_count_of_flights_to_plan_by_hand(tmp_path: P
 XPARTS_RUNNER = """
 import {
   aiStateOf, aiWords, aiLead, draftBlock, blockPhrase, plainLine, recordedWords, jobsWords,
-  pacingWords, aiSymbol, replayWords, stripLabel,
+  pacingWords, aiSymbol, replayWords, stripLabel, planFailure, failureEach, causeTitle,
 } from "./wall/x-parts.js";
 const at = Date.parse("2026-10-13T06:00:00Z");
 const e = (stage, reason) => ({ stage, reason, at, raw: reason });
@@ -434,6 +434,32 @@ const closedBudget = {
   waiting: [],
 };
 const paused = aiStateOf({ budget: closedBudget, now: at });
+// the budget still reads closed 3 h 10 min after its 0700Z reset (live and in REPLAY)
+const late = Date.parse("2026-10-13T10:10:00Z");
+const overdueLive = aiStateOf({ budget: closedBudget, now: late });
+const overdueReplay = aiStateOf({ budget: closedBudget, now: late, replay: true });
+// the Plume reader's own model is closed, the lite model is open: trouble, not a pause
+const main = { model_id: "gemini-3.5-flash", used: 20, limit: 20, remaining: 0 };
+const lite = { model_id: "gemini-3.5-flash-lite", used: 1, limit: 450, remaining: 449 };
+const plumeRead = "Plume read: Anak Krakatau (budget_exhausted): not dispatched; "
+  + "the area stays at the official products";
+const plumeOut = aiStateOf({
+  budget: {
+    resets_at: "2026-10-13T07:00:00.000Z",
+    models: [
+      { ...main, jobs: "Plume reader", closed: true },
+      { ...lite, jobs: "Every other AI step", closed: false },
+    ],
+    tiers: [{ tier: "main", ...main }, { tier: "lite", ...lite }],
+    waiting: [],
+  },
+  errors: [e("PLUME", plumeRead)],
+  now: at,
+});
+const quotaPlan = {
+  status: "AI_UNAVAILABLE", unavailable_reason: "AI UNAVAILABLE: budget_exhausted",
+  validation_errors: [], scenarios: [], created_at: "2026-10-13T05:00:00Z",
+};
 const refused = "Duty Officer AI UNAVAILABLE (budget_exhausted); 0 delegation(s) made, "
   + "2 mandatory item(s) to the Desk";
 process.stdout.write(JSON.stringify({
@@ -441,6 +467,19 @@ process.stdout.write(JSON.stringify({
   twoSkills: chip([...plume2, recovery]),
   lane: aiWords(lane),
   laneBlock: blockPhrase(draftBlock(lane)),
+  laneMain: aiLead(lane, { home: false }),
+  laneHome: aiLead(lane),
+  laneTitle: causeTitle(lane.causes[0]),
+  laneHomeTitle: causeTitle(lane.causes[0], { home: true }),
+  overdueLive: aiLead(overdueLive),
+  overdueReplay: aiLead(overdueReplay),
+  overdueKinds: [overdueLive.kind, overdueLive.until, overdueReplay.until],
+  plumeOut: {
+    kind: plumeOut.kind, chip: aiWords(plumeOut),
+    main: aiLead(plumeOut, { home: false }), home: aiLead(plumeOut),
+  },
+  quotaPlan: planFailure(quotaPlan),
+  refusedEach: failureEach({ stage: "DUTY", message: plumeRead }),
   paused: aiWords(paused),
   pausedNarrow: aiWords(paused, { narrow: true }),
   pausedBlock: draftBlock(paused),
@@ -493,8 +532,9 @@ def test_the_chip_counts_skills_and_uses_its_tooltips_verb(tmp_path: Path) -> No
     assert out["coordinator"]["suffix"] == "Coordinator gave no result"
     assert out["lane"]["suffix"] == "Flight planner did not run"
     # a lane's quota refusal is "did not run" in the flight's words too, as in causeShort; its
-    # cause is said at the assistant's home only (8.6)
-    assert out["laneBlock"] == "Flight planner did not run (assistant paused)"
+    # cause is said at the assistant's home only, and it is never "paused": the assistant is on
+    # (8.6)
+    assert out["laneBlock"] == "Flight planner did not run"
     assert out["symbols"] == ["ta-working", "ta-waiting", "ta-unavailable", "ta-unavailable"]
 
 
@@ -521,12 +561,16 @@ def test_a_pause_says_its_cause_once_at_the_assistants_home(tmp_path: Path) -> N
     # the place still knows the draft is missing: the block is there, its phrase says no cause
     assert out["pausedBlock"] == {"word": "Assistant paused", "paused": True}
     assert out["pausedPhrase"] == ""
+    # a line on record says what happened, never "paused" (the refusal may have been one
+    # skill's share while the assistant was on) and never the quota
     assert out["refusedLine"] == (
-        "Coordinator did not run: assistant paused. 2 jobs that must be done went to the Desk"
+        "Coordinator did not run. 2 jobs that must be done went to the Desk"
     )
-    assert out["plumeRefused"].startswith(
-        "Plume read for Anak Krakatau was not handed out (assistant paused)"
+    assert out["plumeRefused"] == (
+        "Plume read for Anak Krakatau was not handed out. "
+        "TEPHRA's area stays at the official reports"
     )
+    assert out["refusedEach"]["each"] == "Anak Krakatau: not handed out"
     main = " ".join(f"{p['strong']} {p['text']}" for p in out["mainLead"])
     assert main.startswith("TEPHRA Assistant is paused.")
     assert not QUOTA_WORDS.search(main), main
@@ -534,8 +578,73 @@ def test_a_pause_says_its_cause_once_at_the_assistants_home(tmp_path: Path) -> N
     home = " ".join(f"{p['strong']} {p['text']}" for p in out["homeLead"])
     assert home.startswith("TEPHRA Assistant is paused until 0700Z.")
     assert "Why: Google's free daily AI quota for gemini-3.5-flash-lite is used up." in home
-    assert "The next slot is 0700Z (real time)." in home
+    # the time is said once (review clutter 7)
+    assert home.count("0700Z") == 1, home
     assert "nothing is made up in place of an assistant step" in home
+
+
+def _lead(paras: list[dict[str, str]]) -> str:
+    return " ".join(f"{p['strong']} {p['text']}" for p in paras)
+
+
+def test_a_reset_already_past_is_said_as_overdue_at_the_home(tmp_path: Path) -> None:
+    """The budget still reads closed after its reset: the home never says a stale "until 0700Z"
+    or a countdown stuck at "1 min"; it says the reset was due and that when it opens is not
+    known (the fact the board said before 8.6, now at the one place that says the cause)."""
+    out = _xparts(tmp_path)
+    assert out["overdueKinds"] == ["paused", None, None]
+    live = _lead(out["overdueLive"])
+    assert live.startswith("TEPHRA Assistant is paused. Why: Google's free daily AI quota")
+    assert "Its reset was due at 0700Z (real time)" in live
+    assert "until" not in live.split("Until then")[0]
+    replay = _lead(out["overdueReplay"])
+    assert "Its reset was due 3 h 10 min ago (real time)" in replay
+    assert "1 min" not in replay
+    assert "when it opens is not known" in replay
+
+
+def test_a_skill_out_of_calls_while_the_assistant_is_on_is_never_paused(tmp_path: Path) -> None:
+    """Honesty review 1: "paused" is the whole assistant's state. A skill refused for its own
+    model or share while the assistant is on is trouble: the main views say what happened ("did
+    not run", "cannot run now") with no quota words and never "paused"; the home names the cause."""
+    out = _xparts(tmp_path)
+    p = out["plumeOut"]
+    assert p["kind"] == "trouble"
+    assert p["chip"]["suffix"] == "Plume reader did not run"
+    main = _lead(p["main"])
+    for text in (p["chip"]["suffix"], p["chip"]["title"], p["chip"]["aria"], main):
+        assert "paused" not in text, text
+        # a step's own time ("at 0600Z") is not a slot or reset time
+        assert not QUOTA_WORDS.search(text.replace(" at 0600Z", "")), text
+    assert main.startswith("TEPHRA Assistant is on, 1 problem. Plume reader did not run")
+    assert "Nothing was put in its place." in main
+    home = _lead(p["home"])
+    assert "Plume reader did not run (today's free AI quota is used up)" in home
+    lane_main = _lead(out["laneMain"])
+    assert "Flight planner did not run" in lane_main
+    assert "paused" not in lane_main
+    assert not QUOTA_WORDS.search(lane_main.replace(" at 0600Z", "")), lane_main
+    assert "today's free AI quota is used up" in _lead(out["laneHome"])
+    assert out["laneTitle"] == "Flight planner did not run"
+    assert out["laneHomeTitle"] == "Flight planner did not run: today's free AI quota is used up"
+
+
+def test_a_plan_refused_on_quota_says_did_not_run_with_no_quota_words(tmp_path: Path) -> None:
+    """Honesty review 2: the story's notice title and the board take `word`, `title` and `place`
+    from planFailure. A quota refusal called no model: "did not run", no quota words; the cause
+    in full (`why`) is for the assistant's home only."""
+    pf = _xparts(tmp_path)["quotaPlan"]
+    assert pf["ai"] is True
+    assert pf["word"] == "Recovery planner did not run"
+    assert pf["title"] == "No plan: Recovery planner did not run"
+    assert pf["place"] == "No airport plan (Recovery planner did not run): plan the network by hand"
+    for key in ("word", "title", "sub", "place", "short"):
+        assert not QUOTA_WORDS.search(pf[key]), (key, pf[key])
+        assert "gave no result" not in pf[key], (key, pf[key])
+    assert pf["why"] == "today's free AI quota is used up"
+    story = (WALL / "story.js").read_text(encoding="utf-8")
+    assert "pf?.ai ? pf.word" in story
+    assert "pf.why" not in story
 
 
 def test_the_off_chip_still_discloses_ai(tmp_path: Path) -> None:
@@ -696,7 +805,7 @@ def test_flow_log_folds_a_run_with_its_outcome_and_counts_repeats(tmp_path: Path
     rows = _flow(tmp_path, _refused_day())["rows"]
     assert [r["kind"] for r in rows] == ["duty", "duty", "duty"]
     last = rows[-1]
-    assert last["text"] == "Coordinator got 3 jobs on the scheduled check · assistant paused"
+    assert last["text"] == "Coordinator got 3 jobs on the scheduled check · did not run"
     assert last["toYou"] == "2 must-do to you"
     # one time form on the board, the replay clock's
     assert last["repeat"] == "3\u00d7 since 11:28:26"
@@ -884,6 +993,9 @@ def test_flow_a_reset_already_past_is_not_said_as_one_minute(tmp_path: Path) -> 
     assert "1 min" not in m["sub"]
     assert "1 min" not in m["gate"]["meta"]
     assert m["gate"]["meta"] == "3 jobs in line"
+    # the overdue reset is said at the assistant's home, one tap away (the gate's "Why:" and the
+    # lede's "Why"): test_a_reset_already_past_is_said_as_overdue_at_the_home
+    assert m["gate"]["title"] == "Why: Details \u203a TEPHRA Assistant"
 
 
 def test_flow_a_budget_that_did_not_load_says_nothing_about_the_queue(tmp_path: Path) -> None:
@@ -894,6 +1006,9 @@ def test_flow_a_budget_that_did_not_load_says_nothing_about_the_queue(tmp_path: 
     assert m["gate"]["open"] is False
     assert m["gate"]["meta"] == "Jobs in line: unknown, the work queue did not load"
     assert "next slot" not in m["gate"]["meta"]
+    # with no queue loaded the lede says nothing about jobs in line (honesty review 8)
+    assert "jobs wait in line" not in m["sub"]
+    assert m["sub"].startswith("Code still reads every feed and checks every flight")
     assert [s["inLine"] for s in m["skills"]] == [0] * 6
 
 

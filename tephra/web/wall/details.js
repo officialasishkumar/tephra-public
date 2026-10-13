@@ -330,10 +330,11 @@ function flightDetail(D, ui, store) {
     const mine = hand.flights.find((x) => x.key === `${p.hex}:${p.volcano_id}`);
     if (mine) {
       const b = hand.block;
-      // paused: what is missing and what to do; the cause is behind "Why ›" (docs/UI-AI-QUIET.md 8.6)
-      kids.push(dkNote("caution", [el("p", {}, b.paused ? "No advisory draft yet for this flight. " : `No advisory for this flight: ${blockPhrase(b)}. `,
+      // paused: what is missing and what to do; the cause is behind "Why ›" (docs/UI-AI-QUIET.md 8.6),
+      // as it is for a skill that did not run or gave no result
+      kids.push(dkNote("caution", [el("p", {}, b.paused ? "No advisory draft for this flight. " : `No advisory for this flight: ${blockPhrase(b)}. `,
         el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Plan it by hand on the Desk ›" }),
-        b.paused ? [" ", whyLink("fdetail-why")] : null,
+        b.paused || b.unavailable ? [" ", whyLink("fdetail-why")] : null,
         mine.must ? [" ", dkChip("Must do", { kind: "must", title: "Code requires this work this run" })] : null)], { role: "status" }));
     } else kids.push(dkEmpty("No advisory is drafted for this flight yet.", null));
   }
