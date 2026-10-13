@@ -92,6 +92,13 @@ export function storyFailures(D, store, conn, extra) {
     out.push({ key: `feed-${id}`, who: name, text: `${name} is failing. Showing the last good ${what}${Number.isFinite(good) ? `, from ${hhmmz(good)}` : ""}.`, raw: f.last_error || null, where: "feeds" });
   }
   if (D.state.store && D.state.store.ok === false) out.push({ key: "db", who: "The database", text: "The database is failing: some counts may be unknown.", where: "feeds" });
+  // airport re-planning that code could not run (no schedule, an exception): data, not AI
+  const rec = (store.trace || []).filter((t) => t.stage === "RECOVERY");
+  const lastRec = rec[rec.length - 1];
+  if (lastRec && lastRec.level === "error" && lastRec.actor === "system") {
+    const text = /^No RFA schedule: /.test(lastRec.message) ? "Airport re-planning cannot run: the RFA schedule could not be read." : "Airport re-planning stopped with an error.";
+    out.push({ key: "recovery-data", who: "Airport re-planning", text, raw: lastRec.message, where: "recovery" });
+  }
   return out;
 }
 
@@ -176,6 +183,12 @@ function storyLines(D, store, ui, sit) {
   const cone = D.coneOf(sit.volcano_id)?.properties;
   const stub = D.state.llm?.backend === "stub";
   const ai = aiState(D, store);
+  const hand = handPlan(D, store, ai);
+  const handHere = hand.flights.filter((x) => x.p.volcano_id === sit.volcano_id).length;
+  // the Duty Officer left must-do flights for the Desk: said once, whatever the drafts line says
+  const undoneLine = hand.block?.undone && handHere
+    ? { text: `The Duty Officer left ${handHere} must-do ${handHere === 1 ? "flight" : "flights"} for the Desk: plan ${handHere === 1 ? "it" : "them"} by hand.`, cls: "story__wait story__wait--ai story__hand", mark: "caution", why: true }
+    : null;
   if (cone?.mode === "HYPOTHESIS") {
     lines.push({ text: "HYPOTHESIS: no valid official product. Only MONITOR or HOLD may be advised.", cls: "story__hyp", banner: true });
   }
@@ -197,16 +210,17 @@ function storyLines(D, store, ui, sit) {
     else if (a.decided > 0) t = `All ${a.decided} advisories are decided: ${a.approved} approved, ${a.rejected} rejected.`;
     else {
       // the advisories' AI part is missing: said here, once, with what to do (W14)
-      const block = draftBlock(ai);
-      const shown = D.exposed.filter((f) => f.properties.volcano_id === sit.volcano_id).length;
-      const nf = `${shown} ${shown === 1 ? "flight" : "flights"}`;
-      if (block?.word === "AI paused") t = `No advisory drafts: AI paused${block.until ? ` until ${block.until}` : ""}. Plan the ${nf} by hand on the Desk.`;
-      else if (block?.word === "AI unavailable") t = `No advisory drafts: AI unavailable (${block.why}). Plan the ${nf} by hand on the Desk.`;
+      const block = hand.block || draftBlock(ai);
+      const nf = `${handHere} ${handHere === 1 ? "flight" : "flights"}`;
+      if (block?.undone) t = "Their advisories are not drafted yet.";
+      else if (block?.word === "AI paused" && handHere) t = `No advisory drafts: AI paused${block.until ? ` until ${block.until}` : ""}. Plan the ${nf} by hand.`;
+      else if (block?.word === "AI unavailable" && handHere) t = `No advisory drafts: AI unavailable (${block.why}). Plan the ${nf} by hand.`;
       else if (block?.word === "AI waiting") t = `Advisories not drafted yet: waiting for AI, next slot ${block.slot || "not set"}.`;
       else t = "Their advisories are not drafted yet.";
-      if (block) waitLine = { text: t, cls: "story__wait story__wait--ai", mark: "caution", why: true };
+      if (block && !block.undone && (handHere || block.word === "AI waiting")) waitLine = { text: t, cls: "story__wait story__wait--ai", mark: "caution", why: true };
     }
     lines.push(waitLine || { text: t, cls: "story__wait", sub: goneNote ? [goneNote] : null });
+    if (undoneLine) lines.push(undoneLine);
   } else {
     const adsb = store.feeds.find((f) => f.feed === "adsb");
     const ok = adsb?.status === "OK";
@@ -238,6 +252,13 @@ function storyLines(D, store, ui, sit) {
     const planPart = pf ? { text: `${pf.place} ›`, act: "recovery", title: `Recorded reason: ${pf.raw}`, tone: "caution" } : `airport plan as of ${hhmmz(ms(plan.created_at))}`;
     facts.push({ cls: "story__closed", text: `Ash from ${sit.volcano_name} closes ${plural(icaos.length, "RFA airport", "RFA airports")}: ${icaos.join(", ")}.`,
       sub: [all > icaos.length ? `${all} across all volcanoes` : null, planPart].filter(Boolean) });
+  } else if (plan?.closures.length && planFailure(plan)) {
+    // the airport plan covers the whole network: with no closure of this volcano's own, its
+    // failure is still the dispatcher's job here (review H6)
+    const pf = planFailure(plan);
+    const icaos = [...new Set(plan.closures.map((c) => c.icao))];
+    facts.push({ cls: "story__closed", text: `Ash closes ${plural(icaos.length, "RFA airport", "RFA airports")} (all volcanoes): ${icaos.join(", ")}.`,
+      sub: [{ text: `${pf.place} ›`, act: "recovery", title: `Recorded reason: ${pf.raw}`, tone: "caution" }] });
   }
   const dir = sit.discrepancies.find((d) => d.kind === "DIRECTION_MISMATCH" && d.aspect === "direction" && (SEV_RANK[d.severity] || 0) >= 2);
   if (dir) {
@@ -297,10 +318,11 @@ function lineNode(l) {
   // the quieter sub-line: scope, the plan's time, what follows; parts joined by a dot that screen
   // readers hear as a pause (a hidden "; ")
   if (l.sub?.length) {
+    // a link after other words starts its own line, so a wrapped line never ends on a bare dot
     p.append(el("span", { class: "story__sub" }, ...l.sub.flatMap((t, i) => [
-      i ? [el("span", { class: "story__dot", "aria-hidden": "true", text: " · " }), el("span", { class: "sr-only", text: "; " })] : [],
+      i && typeof t === "string" ? [el("span", { class: "story__dot", "aria-hidden": "true", text: " · " }), el("span", { class: "sr-only", text: "; " })] : i ? el("span", { class: "sr-only", text: "; " }) : [],
       typeof t === "string" ? el("span", { text: t })
-        : el("button", { type: "button", class: `link-btn story__sublink${t.tone ? ` story__sublink--${t.tone}` : ""}`, title: t.title || null, dataset: { act: "details-open", sec: t.act, focus: `story-sub-${t.act}` } }, t.tone ? st(`st-${t.tone}`, `var(--c-${t.tone})`) : null, t.text)])));
+        : el("button", { type: "button", class: `link-btn story__sublink${i ? " story__sublink--own" : ""}${t.tone ? ` story__sublink--${t.tone}` : ""}`, title: t.title || null, dataset: { act: "details-open", sec: t.act, focus: `story-sub-${t.act}` } }, t.tone ? st(`st-${t.tone}`, `var(--c-${t.tone})`) : null, t.text)])));
   }
   return p;
 }
@@ -357,7 +379,7 @@ function renderActions(D, store, ui, sit) {
     waiting = a.drafts;
     if (a.urgent) { ctaHref = `/desk#review/${encodeURIComponent(a.urgent.id)}`; ctaText = "Decide on the Desk →"; primary = true; }
     // no drafts because the AI did not run: the Desk holds the hand-plan work (W18)
-    else if (handPlan(D, store).flights.length) { ctaText = "Decide on the Desk →"; primary = true; }
+    else if (handPlan(D, store).flights.some((x) => x.p.volcano_id === sit.volcano_id)) { ctaText = "Decide on the Desk →"; primary = true; }
   } else if (D && D.regionEmpty) {
     const others = (D.state.regions || []).filter((r) => D.regionCounts[r.key] > 0);
     if (others.length) {

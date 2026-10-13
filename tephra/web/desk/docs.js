@@ -217,8 +217,11 @@ export function renderDocs() {
   const sraKids = [el('p', { id: 'sra-note', class: 'fine', text: "One draft per region, filled from TEPHRA's evidence. Blanks stay blank." })];
   // an SRA the budget holds for later, at the place it would land (docs/UI-AI-QUIET.md K98)
   const queued = app.budget && Array.isArray(app.budget.waiting) ? app.budget.waiting.find((w) => w.status === 'WAITING' && w.item && w.item.kind === 'SRA') : null;
-  const queuedWords = queued ? `Waiting for AI: next slot ${queued.next_slot_at ? hhmmz(queued.next_slot_at) : 'not set'}.` : '';
-  if (queued) sraKids.push(el('p', { class: 'note', role: 'status' }, icon('st-caution', 'st'), el('span', { text: ` ${queuedWords} Complete it by hand if it cannot wait.` })));
+  // the slot is on the real clock; in REPLAY it says so (review H4)
+  const real = app.state && app.state.mode === 'REPLAY' ? ' real time' : '';
+  const queuedWords = queued ? `Waiting for AI: next slot ${queued.next_slot_at ? `${hhmmz(queued.next_slot_at)}${real}` : 'not set'}` : '';
+  // the summary line says it waits; the note says only what to do (review clutter 11)
+  if (queued) sraKids.push(el('p', { class: 'note', role: 'status' }, icon('st-caution', 'st'), el('span', { text: 'Complete it by hand if it cannot wait.' })));
   if (draftError && draftError.kind === 'SRA') sraKids.push(draftErrorNode());
   sraKids.push(regions.length
     ? el('div', { class: 'sraform' }, el('label', { class: 'flabel', for: 'sra-region', text: 'Region' }), select,

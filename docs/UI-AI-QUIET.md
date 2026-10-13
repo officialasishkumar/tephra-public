@@ -484,3 +484,61 @@ Where the build differs from sections 3 to 6, item by item:
 11. Added on the way: the Desk's empty Next decision reads "No drafts to approve. 28 flights to
     plan by hand are below." instead of a green "No drafts waiting." (H9 on the Desk); repeated
     trace lines "1 job" and "18 jobs" collapse into one run.
+
+### 8.1 Review fixes (2026-10-13, after 8536a92)
+
+Two reviews (clutter, honesty) of the first build. Shots: `<scratch>/quiet-shots/fix/`
+(script `fix/wall.mjs` for the Wall variants live, lane, undone, trouble, open, feederr, recdata;
+`fix/desk.mjs` for the Desk scenarios live, lane, undone, drafts).
+
+Honesty:
+
+1. A budget refusal is part of "paused" only when it is a lite-model refusal during the pause
+   (`absorbed`). A lane's share running out, or the Plume Reader's own model running out (from the
+   trace on the Wall, and from the budget on both pages), is a problem in every state, so the chip,
+   the story, Flights and Decisions say so and the flights are planned by hand.
+2. A Duty Officer that ran and left must-do work ("DUTY OFFICER DID NOT DISPATCH THIS FLIGHT", "left
+   N mandatory item(s) undone", or the newest run's `undispatched`) is the reason class `undone`:
+   "Duty Officer left must-do jobs for the Desk", never "AI unavailable". Only its must-do flights
+   are on the Wall's hand-plan list, and the story says "The Duty Officer left 3 must-do flights for
+   the Desk: plan them by hand."
+3. The Wall's hand-plan list is "flights with no advisory" (among the newest 50 when the list is
+   full). It no longer claims the Desk's count: the story says "Plan the 28 flights by hand" and the
+   links say "Plan by hand on the Desk"; the Desk's list, with its handled marks, is the record.
+4. The reset time is on the real clock. In REPLAY it reads "0700Z real time" everywhere (chip, story,
+   Flights, This flight, AI home, Desk, Ask, queued slots), amending §1.1.
+5. "Did not run" only where no model was called (a budget refusal). A model that was called and gave
+   nothing usable is "AI unavailable ({why})"; the Duty Officer's run that failed the checks is "No
+   brief", its Model fact reads "Called; no brief passed the checks" and it carries no AI-written mark.
+6. The airport plan covers the network: on a volcano with no closure of its own, the story still says
+   "Ash closes 3 RFA airports (all volcanoes)" with "No airport plan (AI unavailable): plan the network
+   by hand ›". The main button is "Decide on the Desk →" only when this volcano has hand-plan flights.
+7. Recovery steps code could not run (no RFA schedule, an exception; actor `system`) are not AI
+   causes: they are a red story line ("Airport re-planning cannot run: the RFA schedule could not be
+   read.").
+
+Clutter:
+
+8. Helper rows: the badge says what happened ("Not run", "No brief", "No plan", "Waiting"); the
+   sub-line says why without repeating it; "Quiet" only for quiet helpers.
+9. Flights rows say "No advisory" (and "Must do"); the list's one caution note says why and what to
+   do. Decisions rows carry no AI word; the group head and its aside say it once.
+10. The Desk Decide page says the pause once (the Plan by hand group head); the Duty Officer line
+    reads "no brief this run · its must-do flights are in Plan by hand".
+11. The Desk "AI today" sheet shows a closed model as "Closed until 0700Z", with a full bar and
+    "closed for today by Google (449 of 450 unused)".
+12. The trace's Problems tile counts AI failures by cause, and says "AI: 1 of 2 causes (28 steps)"
+    when the AI home also counts a cause from outside the trace (the airport plan).
+13. The top-bar AI chip is not drawn before the first data (W5 amended: it keeps its place and
+    appears once at its real width). The phone bar keeps at least 7.5 rem for the area picker and
+    wraps the chips to a second row when they do not fit; the chip drops its model icon there.
+14. The SRA starter says "Waiting for AI: next slot …" once (summary); its note says only what to do.
+    The Desk Airports card's status says "No plan" or "No recommendation" and the line says "AI
+    unavailable (timed out)" once; its footer says "Tried 1031Z" when nothing was solved. The estimate
+    gives the next slot once. The calls tile drops "Main model 0 of 18" (the models list has it).
+15. Desk hand-plan rows are about 56 px with a mouse (28 px button, 4 px padding); touch keeps 32 px.
+
+Still not met: the Wall at 1440x900 still folds "+ 4 more" (the advisory and closure clauses are two
+lines each), and the Wall shows five AI mentions because W21 keeps "AI" in the Details button's
+sub-line as navigation. No axe scan was run (axe-core is not installed here); CSP was checked only
+through the console (no violation messages).

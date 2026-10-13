@@ -26,13 +26,15 @@ export const OUTCOME = {
   REPAIRED: ["caution", "Passed after one repair", "The brief passed after one repair."],
   STUB: ["off", "AI off", "The offline stub ran the work in urgency order. No model wrote the brief."],
   BUDGET: ["caution", "Not run", "Today's free AI quota is used up: no model was called."],
-  MODEL_FAILED: ["caution", "Not run", "The model gave no brief that passed the code's checks."],
+  MODEL_FAILED: ["caution", "No brief", "The model was called and gave no brief that passed the code's checks."],
 };
 
 // MODEL_FAILED with a budget reason is a run that never reached a model.
 const refused = (run) => run.outcome === "MODEL_FAILED" && (run.validation_errors || []).some((e) => reasonClass(e) === "budget");
 export const outcomeOf = (run) => (refused(run) ? "BUDGET" : run.outcome);
-export const dutyModel = (run) => (run.outcome === "STUB" || run.llm_backend === "stub" || refused(run) ? null : run.model_id);
+// The model that wrote the brief: none for the stub, a refused run, or a run whose answer failed
+// the checks (no AI-written mark on a brief that did not pass; H8).
+export const dutyModel = (run) => (run.outcome === "STUB" || run.llm_backend === "stub" || run.outcome === "MODEL_FAILED" ? null : run.model_id);
 
 // Tools the run called, in the order it first called them.
 export function dispatchedTools(run) {
@@ -136,7 +138,7 @@ function deferred(run) {
   if (!run.deferred.length) return null;
   const model = dutyModel(run);
   return el("div", { class: "dk-sub" },
-    el("div", { class: "dk-sub__titlerow" }, el("p", { class: "dk-sub__title", text: `Left for the next run · ${run.deferred.length}` }), aiMark(model, model ? null : "NO MODEL")),
+    el("div", { class: "dk-sub__titlerow" }, el("p", { class: "dk-sub__title", text: `Left for the next run · ${run.deferred.length}` }), run.outcome === "MODEL_FAILED" ? null : aiMark(model, model ? null : "NO MODEL")),
     el("p", { class: "dk-sub__note", text: "Optional work it left for later. The reasons are the model's." }),
     dkList(run.deferred.map((d) => el("div", { class: "dk-prio" }, el("span", { class: "dk-prio__main" },
       el("span", { class: "dk-prio__label", text: itemLabel(run, d.item_id) }), el("span", { class: "dk-prio__why", text: plainLine(d.reason) })))), { first: 3, key: "duty-defer" }));
@@ -157,7 +159,7 @@ export function dutyDetail(run, loaded, until = null) {
     el("div", { class: "dk-inline" }, dkPill(tone, word, why), dkRecorded(run.replay), el("span", { class: "dk-inline__meta mono", text: Number.isFinite(t) ? `finished ${dayTime(t)}` : "" })),
     dkFacts([
       // no model fact for a run the quota refused: no call was made (D68)
-      ["Model", outcome === "BUDGET" ? null : model ? aiMark(model, null, "AI-written") : "AI off"],
+      ["Model", outcome === "BUDGET" ? null : outcome === "MODEL_FAILED" ? "Called; no brief passed the checks" : model ? aiMark(model, null, "AI-written") : "AI off"],
       ["Turns", String(run.turns), { mono: true }],
       ["Jobs given", `${run.worklist.length}${mandatory ? ` (${mandatory} must do)` : ""}`],
       ["Run by", run.trigger === "adsb" ? "AI worker, after new aircraft" : "AI worker, after a scheduler tick"],
@@ -169,8 +171,8 @@ export function dutyDetail(run, loaded, until = null) {
     kids.push(dkNote("caution", [`Not run: today's free AI quota is used up${until ? ` (until ${until})` : ""}.`, "No brief was made; nothing was made up in its place. Must-do jobs went to the Desk."], { role: "status" }),
       dkTech(`${run.validation_errors.join("; ")} · would have used ${run.model_id}`));
   } else if (run.outcome === "MODEL_FAILED") {
-    kids.push(dkNote("caution", ["The model gave no brief that passed the code's checks.", "No brief was made up in its place. The work below was not coordinated."], { role: "status" }),
-      dkTech(run.validation_errors[0] || "no reason recorded"));
+    kids.push(dkNote("caution", ["The model was called and gave no brief that passed the code's checks.", "No brief was made up in its place. The work below was not coordinated."], { role: "status" }),
+      dkTech(`${run.validation_errors[0] || "no reason recorded"} · ${run.model_id}`));
   }
   kids.push(undispatched(run), handedTo(run));
   if (run.outcome !== "MODEL_FAILED") kids.push(brief(run));

@@ -9,7 +9,7 @@ import {
 } from "./util.js";
 import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
-import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, handPlanOf, causeTitle } from "./x-parts.js";
+import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, handPlanOf, causeTitle, blockPhrase } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkTech, dkSection, dkLink,
   dkRecorded, dkWhen, dkDot, collapseRuns, runRow, timeRange, plural, dayTime, times,
@@ -179,6 +179,8 @@ export function renderChrome(D, store, ui) {
   chip.querySelector("use")?.setAttribute("href", `${chip.querySelector("use").getAttribute("href").split("#")[0]}#${ai.kind === "off" ? "i-code" : "i-model"}`);
   chip.title = w.title;
   chip.setAttribute("aria-label", w.aria);
+  // shown first with its state, so the bar never jumps from "AI ·" to its real width (W5)
+  chip.classList.remove("is-pending");
 
   // Data chip: "Data: 6 working · 5 off", worst first.
   const by = {};
@@ -307,16 +309,17 @@ function flightRow(D, f, ui, allStale = false, hand = null) {
   const adv = D.advByFlight.get(`${p.hex}:${p.volcano_id}`);
   const oldShown = allStale ? null : old;
   const [advWord, advIcon] = adv ? ADV_WORD[adv.status] || ADV_WORD.DRAFT : [null, null];
-  // no advisory because the AI did not run: the job, at the row (D53)
+  // no advisory because the AI did not run: the row says the fact, the list's note says why and
+  // what to do, once (D53, review clutter 5)
   const handRow = hand?.flights.find((x) => x.key === `${p.hex}:${p.volcano_id}`) || null;
-  const handMeta = handRow ? el("span", { class: "dk-adv dk-adv--hand" }, st("st-caution", "var(--c-caution)"), el("span", { text: `No advisory: ${hand.block.word} · plan by hand` }), handRow.must ? dkChip("Must do", { kind: "must", title: "Code requires this work this run" }) : null) : null;
+  const handMeta = handRow ? el("span", { class: "dk-adv dk-adv--hand" }, el("span", { text: "No advisory" }), handRow.must ? dkChip("Must do", { kind: "must", title: "Code requires this work this run" }) : null) : null;
   return dkLinkRow({
     dot: plane,
     title: entry ? [p.proxy_flight, " ", el("span", { class: "dk-entry" }, entry)] : p.proxy_flight,
     sub: [`${lvl} · real aircraft ${p.callsign || String(p.hex || "").toUpperCase()}`, oldShown ? [" · ", el("span", { class: "dk-warn", text: oldShown })] : null, p.crew_report ? [" · ", el("span", { class: "dk-crewword" }, icon("i-pin", "icon"), "crew report on this route")] : null],
     meta: handMeta || (adv ? el("span", { class: `dk-adv dk-adv--${adv.status.toLowerCase()}` }, icon(advIcon), el("span", { text: advWord })) : el("span", { class: "dk-adv", text: "No advisory yet" })),
     dataset: { flight: f.id ?? p.hex, focus: `flight-${p.hex}` },
-    label: `${p.proxy_flight}, proxy for ${p.callsign || p.hex}, ${p.inside ? "inside TEPHRA's area now" : `enters in ${p.minutes_to_entry} minutes, estimated`}, ${lvl}${old ? `, ${old}` : ""}${p.crew_report ? ", crew report of ash on this route" : ""}${handRow ? `, no advisory: ${hand.block.word}, plan by hand${handRow.must ? ", must do" : ""}` : adv ? `, ${advWord.toLowerCase()}` : ""}. Show this flight.`,
+    label: `${p.proxy_flight}, proxy for ${p.callsign || p.hex}, ${p.inside ? "inside TEPHRA's area now" : `enters in ${p.minutes_to_entry} minutes, estimated`}, ${lvl}${old ? `, ${old}` : ""}${p.crew_report ? ", crew report of ash on this route" : ""}${handRow ? `, no advisory: ${blockPhrase(hand.block)}, plan by hand${handRow.must ? ", must do" : ""}` : adv ? `, ${advWord.toLowerCase()}` : ""}. Show this flight.`,
     cls: ui?.selFlight?.hex === p.hex ? "is-picked" : null,
   });
 }
@@ -366,9 +369,13 @@ export function renderFlights(D, store, ui, target = $("flights")) {
     return el("button", { type: "button", class: "btn btn--small", dataset: { act: "select", vid, focus: `others-${vid}` }, text: `+${n} heading in at ${name}` });
   }))) : null;
   const hand = handPlanOf(D, store, aiStateNow(D, store));
+  const handHere = hand.flights.filter((x) => flights.some((f) => `${f.properties.hex}:${f.properties.volcano_id}` === x.key)).length;
+  // why those rows have no advisory and what to do, said once for the list
+  const handNote = handHere ? dkNote("caution", [el("p", {}, `No advisory for ${handHere === flights.length ? (handHere === 1 ? "this flight" : `these ${handHere} flights`) : `${handHere} of these flights`}: ${hand.block.undone ? "the Duty Officer left them for the Desk" : blockPhrase(hand.block)}. Plan ${handHere === 1 ? "it" : "them"} by hand. `,
+    el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Open the Desk ›" }))], { role: "status" }) : null;
   const group = (title, aside, rows, key) => (rows.length ? dkGroup(title, aside, dkList(rows.map((f) => flightRow(D, f, ui, allStale, hand)), { first: FLIGHTS_FIRST, key, label: title })) : null);
   const list = flights.length
-    ? [group("Inside now", null, flights.filter((f) => f.properties.inside), "flights-inside"), group("Heading in", "soonest first", flights.filter((f) => !f.properties.inside), "flights-heading")]
+    ? [handNote, group("Inside now", null, flights.filter((f) => f.properties.inside), "flights-inside"), group("Heading in", "soonest first", flights.filter((f) => !f.properties.inside), "flights-heading")]
     : dkEmpty("No flight heading in", "TEPHRA projects each RFA flight's last position along its track and level.");
   target.replaceChildren(dkSection("flights-head", head, tiles, ...[list].flat(), crew?.node, note, othersBox));
 }
@@ -464,8 +471,8 @@ export function renderTrace(D, store, ui, conn, target = $("trace")) {
   });
   const tiles = dkTiles([
     { label: "Steps", value: lines.length.toLocaleString("en"), sub: ui.traceScope === "all" ? "every volcano" : "this volcano and general" },
-    { label: "Problems", value: String(problems.length), tone: errors ? "serious" : problems.length ? "caution" : "ok",
-      sub: [errors ? `${errors} failed` : null, plural(problems.length - errors - aiErr.length, "warning"), aiErr.length ? `AI did not run: ${plural(causesHere.size, "cause")} (${plural(aiErr.length, "step")})` : null].filter(Boolean).join(" · ") },
+    { label: "Problems", value: String(problems.length - aiErr.length + causesHere.size), tone: errors ? "serious" : problems.length ? "caution" : "ok",
+      sub: [errors ? `${errors} failed` : null, plural(problems.length - errors - aiErr.length, "warning"), aiErr.length ? `AI: ${causesHere.size === ai.causes.length ? plural(causesHere.size, "cause") : `${causesHere.size} of ${plural(ai.causes.length, "cause")}`} (${plural(aiErr.length, "step")})` : null].filter(Boolean).join(" · ") },
   ], "Steps in numbers");
   const controls = el("div", { class: "dk-actions" },
     seg("Which steps", "trace-scope", "traceScope", [["volcano", "This volcano"], ["all", "Everything"]]),
@@ -694,10 +701,9 @@ export function areaSection(D, sit, ui) {
   const stub = outcome === "STUB" || (!outcome && D.state.llm?.backend === "stub");
   const [tone, word] = MODE_PILL[cone.mode] || ["info", cone.mode];
   // the model's name only where a model read it (Q5); a queued read says it waits (D44)
-  const slot = outcome === "PENDING" ? aiStateNow(D, null).until : null;
   const modelRead = MODEL_READ.has(outcome) && a?.model_id && a.model_id !== "none" && a.model_id !== "stub";
   const readBy = stub ? "Code (AI off): official reports only"
-    : outcome === "PENDING" ? `AI waiting · ${OUTCOME.PENDING}${slot ? ` (next slot ${slot})` : ""}.`
+    : outcome === "PENDING" ? `AI waiting · ${OUTCOME.PENDING}.`
       : modelRead ? [aiMark(a.model_id, null, "AI-read"), " ", OUTCOME[outcome]] : OUTCOME[outcome] || "not given";
   const est = a?.estimate;
   let read = null;
@@ -768,7 +774,7 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
     id: "h-dec",
     pills: [serverWaiting === null ? dkPill("serious", "Count unknown") : waitingN ? dkPill("caution", "Waiting for a dispatcher") : handN ? dkPill("caution", "Nothing to approve") : dkPill("ok", "Nothing waiting"), dkRecorded(replay)],
     title: all.length ? "Every advisory is a draft until a dispatcher decides on the Desk." : "No advisories yet. A draft appears when a flight's projected track enters TEPHRA's area.",
-    sub: handN && !waitingN ? el("span", {}, `No drafts: ${hand.block.word}. `, el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: `${handN} ${handN === 1 ? "flight" : "flights"} to plan by hand on the Desk ›` })) : null,
+    sub: handN && !waitingN ? el("span", {}, `No drafts: ${hand.block.undone ? "the Duty Officer left its must-do flights for the Desk" : blockPhrase(hand.block)}. `, el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Plan by hand on the Desk ›" })) : null,
   });
   const tiles = all.length ? dkTiles([
     { label: "Waiting", value: serverWaiting === null ? "unknown" : String(serverWaiting ?? draft.length), tone: serverWaiting === null ? "serious" : "caution", sub: serverWaiting === null ? "database error" : "all volcanoes" },
@@ -780,11 +786,14 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
   const groups = [];
   if (handN) {
     // the Duty Officer's "Passed to the Desk" list, copied here where the dispatcher acts (D69)
-    groups.push(dkGroup(`To plan by hand · ${handN}`, hand.must ? `${hand.must} must do first` : "on the Desk", el("div", { id: "dec-hand", tabindex: "-1", class: "dk-anchor" }, dkList(hand.flights.map((x) => el("a", { class: "dk-row dk-row--link", href: "/desk", target: "_blank", rel: "noopener" },
+    // the rows say no AI word: the head above says why, once (review clutter 5). The Wall sees the
+    // newest 50 advisories and not the Desk's handled marks; the Desk's list is the record (H3).
+    const scope = [hand.must ? `${hand.must} must do first` : null, hand.partial ? "no advisory among the newest 50" : "no advisory", "mark each handled on the Desk"].filter(Boolean).join(" · ");
+    groups.push(dkGroup(`To plan by hand · ${handN}`, scope, el("div", { id: "dec-hand", tabindex: "-1", class: "dk-anchor" }, dkList(hand.flights.map((x) => el("a", { class: "dk-row dk-row--link", href: "/desk", target: "_blank", rel: "noopener" },
       el("span", { class: "dk-row__head" },
         el("span", { class: "dk-row__dot" }, st("st-caution", "var(--c-caution)")),
         el("span", { class: "dk-row__main" }, el("span", { class: "dk-row__title" }, el("b", { text: x.p.proxy_flight }), ` · ${x.p.inside ? "inside now" : `in ${x.p.minutes_to_entry} min (est.)`}`, x.must ? [" ", dkChip("Must do", { kind: "must", title: "Code requires this work this run" })] : null),
-          el("span", { class: "dk-row__sub", text: `${D.sits.find((v) => v.volcano_id === x.p.volcano_id)?.volcano_name || x.p.volcano_id} · no advisory: ${hand.block.word}` })),
+          el("span", { class: "dk-row__sub", text: D.sits.find((v) => v.volcano_id === x.p.volcano_id)?.volcano_name || x.p.volcano_id })),
         el("span"), el("span", { class: "dk-row__go", "aria-hidden": "true", text: "›" })))), { first: 5, key: "dec-hand" }))));
   }
   if (draft.length) groups.push(dkGroup(`Waiting for a dispatcher · ${draft.length}`, "open on the Desk", dkList(draft.map(row), { first: 5, key: "dec-draft" })));

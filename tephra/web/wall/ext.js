@@ -131,7 +131,7 @@ function satRow(D, reading, sit, store) {
   const scan = reading.observed_at ? `scan ${clock(reading.observed_at)}` : "";
   const rec = D.mode === "REPLAY" || reading.replay ? dkRecorded(true) : null;
   if (reading.status === "ai_unavailable") {
-    return dkRow({ key: `sat-${vid}`, dot: "caution", edge: "caution", title: name, sub: `Not read: ${reasonClass(reading.reason) === "budget" ? "AI paused (daily quota)" : `AI unavailable (${WHY[reasonClass(reading.reason)]})`}. Nothing was put in its place.`, meta: scan,
+    return dkRow({ key: `sat-${vid}`, dot: "caution", edge: "caution", title: name, sub: `Not read: ${reasonClass(reading.reason) === "budget" ? WHY.budget : `AI unavailable (${WHY[reasonClass(reading.reason)] || WHY.other})`}. Nothing was put in its place.`, meta: scan,
       body: [dkTech(String(reading.reason || "no reason given"), reading.model_id ? `would have used ${reading.model_id}` : null)], open: vid === D.selected });
   }
   if (reading.status === "no_frames") {
@@ -335,7 +335,7 @@ function recoveryPanel(D, store) {
   const kids = [head, busy];
   if (fail) {
     kids.push(dkList([dkRow({ key: "rec-fail", dot: "caution", edge: "caution", title: fail.title, sub: fail.sub, open: false, body: [dkTech(fail.raw)] })], { key: "rec-fail" }));
-    if (queued) kids.push(dkNote("info", `A new plan waits for AI: next slot ${Number.isFinite(queuedAt) ? hhmmz(queuedAt) : "not set"}.`, { role: "status" }));
+    if (queued) kids.push(dkNote("info", `A new plan waits for AI: next slot ${Number.isFinite(queuedAt) ? `${hhmmz(queuedAt)}${D.mode === "REPLAY" ? " real time" : ""}` : "not set"}.`, { role: "status" }));
   }
   // closed airports: a row each; the full reason and its sources are one tap further in
   kids.push(dkGroup(`Closed airports, all volcanoes · ${plan.closures.length}`, null, dkList(plan.closures.map((c) => dkRow({
@@ -479,10 +479,12 @@ const STATE_ORDER = { failed: 0, waiting: 1, running: 2, done: 3, idle: 4 };
 // map all word their AI lines from it. AI steps that failed in the trace the Wall holds, the
 // newest Duty Officer run, the newest airport plan and the live budget.
 export function aiState(D, store) {
-  const errors = (store?.trace || []).filter((t) => t.level === "error" && AI_STAGES.has(t.stage))
+  // a recovery step code ran and lost (no schedule, an exception) is a data failure, not an AI
+  // one: it keeps the red story line (storyFailures) and its own words
+  const errors = (store?.trace || []).filter((t) => t.level === "error" && AI_STAGES.has(t.stage) && !(t.stage === "RECOVERY" && t.actor === "system"))
     .map((t) => ({ stage: t.stage, reason: t.message, at: ms(t.at), raw: `${hhmmssz(ms(t.at))} · ${t.stage} · ${t.message}`, src: t }));
   const plans = ext.recovery.slice().sort((a, b) => ms(b.created_at) - ms(a.created_at));
-  return aiStateOf({ stub: D?.state?.llm?.backend === "stub", budget: ext.budget, errors, duty: store?.snapshot?.duty || null, plan: plans.find((p) => p.status !== "SUPERSEDED") || null });
+  return aiStateOf({ stub: D?.state?.llm?.backend === "stub", budget: ext.budget, errors, duty: store?.snapshot?.duty || null, plan: plans.find((p) => p.status !== "SUPERSEDED") || null, replay: D?.mode === "REPLAY" });
 }
 
 // Flights to plan by hand (docs/UI-AI-QUIET.md D56), with the Wall's AI state.
@@ -508,14 +510,19 @@ export function agentStatus(D, store, ai) {
     const mine = trace.filter((t) => t.stage === a.stage && (!a.skip || !a.skip.test(t.message)) && (!a.only || a.only.test(t.message)));
     const last = mine[mine.length - 1];
     const fails = mine.filter((t) => t.level === "error").length;
-    let state = "idle", words = null;
+    let state = "idle", words = null, badge = null, at = last?.at || null;
     if (last) state = last.level === "error" ? "failed" : nowT - (ext.arrivals.get(last.id) ?? -1e9) < RUNNING_MS ? "running" : "done";
-    if (a.id === "duty" && run?.outcome === "MODEL_FAILED") { state = "failed"; words = reasonClass((run.validation_errors || [])[0]) === "budget" ? `Not run: AI paused${ai.until ? ` until ${ai.until}` : ""}` : "Not run: AI unavailable"; }
-    else if (a.id === "plume" && pending) { state = "waiting"; words = `Waiting: plume read queued ${ai.until ? `until ${ai.until}` : "for the Duty Officer"}`; }
-    else if (a.id === "recovery" && pf?.ai) { state = "failed"; words = `Not run: ${pf.why} at ${hhmmz(ms(plan.created_at))}`; }
-    else if (a.id === "sra" && sra) { state = "waiting"; words = `Waiting for AI: next slot ${sra.slot || "not set"}`; }
-    else if (state === "failed") words = "Not run: AI unavailable";
-    return { ...a, i, state, words, count: mine.length, fails, last: last?.at || null, detail: last?.message || null, delegated: delegated.has(DELEGATED_VIA[a.id]) };
+    // the badge says what happened ("Not run" only where no model was called); `words` says why,
+    // without repeating the badge (review H6)
+    const paused = (cls) => (cls === "budget" ? (ai.paused ? `AI paused${ai.until ? ` until ${ai.until}` : ""}` : WHY.budget) : `AI unavailable (${WHY[cls] || WHY.other})`);
+    if (a.id === "duty" && run?.outcome === "MODEL_FAILED") {
+      const cls = reasonClass((run.validation_errors || [])[0]);
+      state = "failed"; badge = cls === "budget" ? "Not run" : "No brief"; words = paused(cls); at = at || run.finished_at;
+    } else if (a.id === "plume" && pending) { state = "waiting"; words = `plume read queued ${ai.until ? `until ${ai.until}` : "for the Duty Officer"}`; }
+    else if (a.id === "recovery" && pf?.ai) { state = "failed"; badge = "No plan"; words = `AI unavailable (${pf.why})`; at = plan.created_at; }
+    else if (a.id === "sra" && sra) { state = "waiting"; words = `next slot ${sra.slot || "not set"}`; }
+    else if (state === "failed") { const cls = reasonClass(last.message); badge = cls === "budget" ? "Not run" : cls === "undone" ? "Left for the Desk" : "No result"; words = cls === "undone" ? "must-do jobs passed to the Desk" : paused(cls); }
+    return { ...a, i, state, words, badge, count: mine.length, fails, last: at, detail: last?.message || null, delegated: delegated.has(DELEGATED_VIA[a.id]) };
   });
 }
 
@@ -596,13 +603,13 @@ function budgetTile(stub, ai) {
     return {
       label: "AI calls today", value: ai.until ? `Closed until ${ai.until}` : "Closed for today", wide: true, tone: "caution",
       meter: { value: used, max: lite.limit, tone: "caution", label: `AI calls today: ${used} of ${lite.limit} used, closed for today by Google` },
-      sub: [`Google closed the free quota after ${used.toLocaleString("en")} of ${lite.limit.toLocaleString("en")} calls`, waiting, main ? `Main model ${usedOf(main)} of ${main.limit}` : null].filter(Boolean).join(" · "),
+      sub: [`Google closed the free quota after ${used.toLocaleString("en")} of ${lite.limit.toLocaleString("en")} calls`, waiting].filter(Boolean).join(" · "),
     };
   }
   return {
     label: "AI calls today", value: used.toLocaleString("en"), of: ` of ${lite.limit.toLocaleString("en")}`, wide: true,
     meter: { value: used, max: lite.limit, tone: budgetTone(left, stub, false), label: `AI calls today: ${used} of ${lite.limit} used` },
-    sub: stub ? "Offline stub: no quota is spent" : [waitingTail() || null, main ? `Main model ${usedOf(main)} of ${main.limit}` : null, "resets at midnight Pacific"].filter(Boolean).join(" · "),
+    sub: stub ? "Offline stub: no quota is spent" : [waitingTail() || null, main ? `Plume Reader ${usedOf(main)} of ${main.limit}` : null, "resets at midnight Pacific"].filter(Boolean).join(" · "),
   };
 }
 
@@ -611,7 +618,7 @@ function causeSub(c, range) {
   if (c.helperKey === "duty" && c.reasonClass !== "undone") return `${range ? `${range} must-do ${range === "1" ? "job" : "jobs"} per run` : "Its must-do jobs"} went to the Desk, for a dispatcher to plan by hand. Nothing was substituted.`;
   if (c.reasonClass === "undone") return "A dispatcher does them by hand. Nothing was substituted.";
   if (c.helperKey === "recovery") return "No plan was made. A dispatcher must plan the network by hand.";
-  if (c.helperKey === "plume") return "TEPHRA's area stays at the official reports. Nothing was widened or substituted.";
+  if (c.helperKey === "plume") return c.steps ? "TEPHRA's area stays at the official reports. Nothing was widened or substituted." : "Until its calls reset, TEPHRA's area stays at the official reports. Nothing is widened or substituted.";
   return `Nothing was put in its place. ${c.consequence}.`;
 }
 
@@ -629,8 +636,8 @@ function causeRows(causes) {
       key: `fail-${c.key}`, dot: "caution", edge: "caution", title: causeTitle(c), sub: causeSub(c, range), foot: dkWhen(c.steps, when),
       body: [
         c.link ? dkLink(c.link[0], { act: "details-sec", sec: c.link[1], focus: `fail-go-${c.key}` }) : null,
-        dkList(occ.map((x) => el("div", { class: "dk-occ" }, el("span", { class: "dk-occ__t mono", text: Number.isFinite(x.t) ? hhmmz(x.t) : "" }), el("span", { class: "dk-occ__x", text: x.each }))),
-          { first: c.steps > 1 ? 0 : 1, key: `fail-occ-${c.key}`, more: `Show the ${c.steps} runs` }),
+        occ.length ? dkList(occ.map((x) => el("div", { class: "dk-occ" }, el("span", { class: "dk-occ__t mono", text: Number.isFinite(x.t) ? hhmmz(x.t) : "" }), el("span", { class: "dk-occ__x", text: x.each }))),
+          { first: c.steps > 1 ? 0 : 1, key: `fail-occ-${c.key}`, more: `Show the ${c.steps} runs` }) : null,
         dkTech(...c.raw),
       ],
     });
@@ -643,8 +650,10 @@ function helperRow(a, store, n, stub, until) {
   const run = store.snapshot?.duty;
   let lastT = last;
   if (a.id === "duty" && run && !Number.isFinite(lastT)) lastT = ms(run.finished_at);
-  const meta = Number.isFinite(lastT) ? el("span", { class: "mono", text: hhmmz(lastT) }) : el("span", { text: "Quiet" });
+  // "Quiet" only for a helper that is quiet; a row with a badge and no time shows no time
+  const meta = Number.isFinite(lastT) ? el("span", { class: "mono", text: hhmmz(lastT) }) : a.state === "idle" ? el("span", { text: "Quiet" }) : null;
   const sub = [a.what, a.words, a.delegated ? "given a job by the Duty Officer" : null].filter(Boolean).join(" · ");
+  const badge = a.state === "failed" || a.state === "waiting" ? a.badge || word : null;
   let body;
   if (a.id === "duty") {
     body = [...dutyDetail(run, !!store.snapshot, until), a.detail ? dkTech(`newest step: ${a.detail}`) : null];
@@ -652,7 +661,7 @@ function helperRow(a, store, n, stub, until) {
     body = [dkFacts([["Status", a.state === "done" ? "Done: scored by code, no model" : "Not run yet"], ["Cases scored", a.state === "done" ? String(a.count) : null], ["Generated", Number.isFinite(last) ? dayTime(last) : null, { mono: true }]]),
       dkLink("Track record ›", { act: "details-sec", sec: "proof", focus: "helper-proof" })];
   } else {
-    const status = a.words || (a.state === "idle" ? `Quiet: not seen in the newest ${n} steps` : a.state === "running" ? "Working on it" : "Its newest step worked");
+    const status = a.words ? `${badge}: ${a.words}` : a.state === "idle" ? `Quiet: not seen in the newest ${n} steps` : a.state === "running" ? "Working on it" : a.state === "failed" ? badge : "Its newest step worked";
     const seen = a.count ? ` · ${plural(a.count, "step")}${a.fails ? `, ${a.fails} did not run` : ""} in the newest ${n}` : "";
     body = [dkFacts([
       ["Status", `${status}${seen}`],
@@ -660,7 +669,7 @@ function helperRow(a, store, n, stub, until) {
       ["Model", stub ? "AI off: code follows the helper's script" : null],
     ]), a.detail ? dkTech(`${a.stage} · ${a.detail}`) : null];
   }
-  return dkRow({ key: `helper-${a.id}`, dot: tone, title: a.name, sub, meta, body, badge: a.state === "failed" || a.state === "waiting" ? word : null });
+  return dkRow({ key: `helper-${a.id}`, dot: tone, title: a.name, sub, meta, body, badge });
 }
 
 // The state pill at the AI home (D64): one state, never red.

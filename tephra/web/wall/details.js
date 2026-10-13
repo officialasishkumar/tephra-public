@@ -14,7 +14,7 @@ import {
 import { ext, renderXPanel, recoverySummary, proofTicks, rerouteBlock, replanning, aiState, handPlan } from "./ext.js";
 import { renderLayers, layersStatus } from "./controls.js";
 import { currentPlan, advisoryFacts, closuresFor } from "./story.js";
-import { planFailure, techDetail } from "./x-parts.js";
+import { planFailure, techDetail, blockPhrase } from "./x-parts.js";
 import { dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkSection, dkRecorded, dkDot } from "./dk.js";
 
 // Section key, index group, title, host element id, the old rail panel id it stands for (R8.2).
@@ -329,7 +329,7 @@ function flightDetail(D, ui, store) {
     const mine = hand.flights.find((x) => x.key === `${p.hex}:${p.volcano_id}`);
     if (mine) {
       const b = hand.block;
-      kids.push(dkNote("caution", [el("p", {}, `No advisory for this flight: ${b.word}${b.until ? ` until ${b.until}` : b.why ? ` (${b.why})` : ""}. `,
+      kids.push(dkNote("caution", [el("p", {}, `No advisory for this flight: ${blockPhrase(b)}. `,
         el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Plan it by hand on the Desk ›" }),
         mine.must ? [" ", dkChip("Must do", { kind: "must", title: "Code requires this work this run" })] : null)], { role: "status" }));
     } else kids.push(dkEmpty("No advisory is drafted for this flight yet.", null));

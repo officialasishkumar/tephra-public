@@ -7110,8 +7110,7 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   white-space: nowrap;
 }
 
-.hgroup__sub,
-.hgroup__fact {
+.hgroup__sub {
   font-size: var(--fs-2);
   line-height: var(--lh-body);
   color: var(--c-text-2);
@@ -7146,6 +7145,12 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   min-height: 32px;
   padding: 0 var(--sp-2);
   font-size: var(--fs-1);
+}
+/* with a mouse the row is about 56 px (K77): a 28 px button (above the 24 px target minimum) and
+   tighter padding; touch keeps the 32 px button */
+@media (pointer: fine) {
+  .hrow { padding: 4px 0; }
+  .hrow .fcard__btn { min-height: 28px; }
 }
 
 .hrow__flight {

@@ -214,6 +214,9 @@ q { quotes: "“" "”"; }
    dot when paused or in trouble; never red, never a count badge */
 .ai-chip__fail { display: inline-flex; align-items: center; color: var(--c-text-2); font-weight: var(--fw-medium); white-space: nowrap; }
 .ai-chip { min-width: 72px; }
+/* before the first data the chip keeps its place in the bar but is not drawn: it appears once,
+   at its real width, so nothing in the bar jumps (W5) */
+.ai-chip.is-pending { visibility: hidden; }
 .ai-chip[data-tone="caution"] .model-chip::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--c-caution); vertical-align: 1px; }
 .feeds-chip__cap { color: var(--c-text-2); }
 .feeds-chip__part { display: inline-flex; align-items: center; gap: 4px; }
@@ -334,6 +337,7 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 .story__wait--ai .st { width: 12px; height: 12px; vertical-align: -1px; }
 .story__why { min-height: 0; padding: 0; margin-left: 4px; font-size: var(--fs-2); font-weight: var(--fw-regular); white-space: nowrap; }
 .story__sublink { display: inline; min-height: 0; padding: 0; font: inherit; color: var(--c-text-2); text-align: left; }
+.story__sublink--own { display: block; }
 .story__sublink .st { width: 12px; height: 12px; margin-right: 4px; vertical-align: -1px; }
 .story__sub { display: block; margin-top: 2px; font-size: var(--fs-2); line-height: 1.4; font-weight: var(--fw-regular); letter-spacing: 0; color: var(--c-text-3); }
 .story__note, .story__connecting { color: var(--c-text-2); }
@@ -1244,8 +1248,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 .dk-lead { display: flex; flex-direction: column; gap: 6px; padding: var(--sp-2) var(--sp-3); border-left: 3px solid var(--c-caution); border-radius: var(--radius-sm); background: var(--c-surface-2); font-size: var(--fs-2); line-height: 1.45; color: var(--c-text-1); }
 .dk-lead strong { font-weight: var(--fw-semibold); }
 .dk-line--caution { box-shadow: inset 3px 0 0 var(--c-caution); }
-.dk-adv--hand { max-width: 170px; color: var(--c-text-1); flex-wrap: wrap; justify-content: flex-end; }
-.dk-adv--hand .st { width: 12px; height: 12px; flex: none; }
+.dk-adv--hand { color: var(--c-text-1); white-space: nowrap; }
 .x-quote { margin: 0; padding: var(--sp-2) var(--sp-3); border-left: 3px solid var(--c-tephra); background: var(--c-surface-1); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--fs-2); line-height: 1.45; color: var(--c-text-1); }
 
 /* satellite frame and the boxes drawn on it */
@@ -1413,9 +1416,14 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
     gap: 4px 8px; padding: 6px 12px 4px;
   }
   /* the area, AI and data chips, moved here by wall.js: under the header, not sticky (item 13) */
-  .phone-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 8px 12px; background: var(--c-surface-1); border-bottom: 1px solid var(--c-line-1); }
-  .phone-bar > * { grid-area: auto !important; justify-self: stretch; }
-  .phone-bar .ai-chip, .phone-bar .feeds-chip { height: 36px; justify-self: end; }
+  /* the area picker keeps room for its name ("Java / Bali · 2"); when the chips need more than
+     the rest of the row, they wrap to a second row instead of squeezing the picker */
+  .phone-bar { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; padding: 8px 12px; background: var(--c-surface-1); border-bottom: 1px solid var(--c-line-1); }
+  .phone-bar > * { grid-area: auto !important; }
+  .phone-bar > .areapick { flex: 1 1 7.5rem; min-width: 7.5rem; }
+  .phone-bar .ai-chip, .phone-bar .feeds-chip { height: 36px; flex: none; }
+  /* the caution dot carries the state's tone here; the model icon is dropped for room */
+  .phone-bar .ai-chip .icon { display: none; }
   /* the REPLAY band: one line ("REPLAY: recorded 05 Sep 2026 · not live") */
   .replay-banner { flex-wrap: nowrap !important; white-space: nowrap !important; min-height: 28px !important; font-size: 13px; }
   .replay-banner__text { display: none; }

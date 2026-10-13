@@ -37,8 +37,7 @@ function announceBatch() {
   batch = window.setTimeout(() => {
     const n = openFailures().length;
     if (n > heard) {
-      const ai = deskAi();
-      const word = ai.kind === 'paused' ? 'AI paused' : 'AI unavailable';
+      const word = causeWords(reasonClass(openFailures()[0].reason), deskAi());
       announce(heard === 0 ? `${n} ${n === 1 ? 'flight' : 'flights'} to plan by hand: ${word}.` : `${n - heard} more ${n - heard === 1 ? 'flight' : 'flights'} to plan by hand.`);
     }
     heard = n;
@@ -64,9 +63,11 @@ function mustDo() {
 
 const HELPER = { duty_officer: 'duty', planner: 'planner', drafter: 'drafter' };
 const causeOf = (f) => `${HELPER[f.stage] || f.stage}|${reasonClass(f.reason)}`;
-// "AI paused until 0700Z" or "AI unavailable (timed out)", from the cause and the live budget.
+// "AI paused until 0700Z", "AI unavailable (timed out)" or, for a Duty Officer that ran and did
+// not hand the flight out, that (review H8), from the cause and the live budget.
 function causeWords(cls, ai) {
-  if (cls === 'budget') return ai.kind === 'paused' && ai.until ? `AI paused until ${ai.until}` : 'AI paused';
+  if (cls === 'undone') return 'the Duty Officer ran and left it for the Desk';
+  if (cls === 'budget') return ai.kind === 'paused' ? `AI paused${ai.until ? ` until ${ai.until}` : ''}` : WHY.budget;
   return `AI unavailable (${WHY[cls] || WHY.other})`;
 }
 
@@ -87,16 +88,13 @@ function group(key, list, ai, must, many) {
   const cls = key.split('|')[1];
   const n = list.length;
   const id = `fail-title-${key.replace(/[^a-z]/gi, '-')}`;
-  const duty = app.duty && app.duty.outcome === 'MODEL_FAILED' && key.startsWith('duty|')
-    ? el('p', { class: 'hgroup__fact', text: `No Duty Officer brief this run (${cls === 'budget' ? 'AI paused' : 'AI unavailable'}).` }) : null;
   const raws = [...new Set(list.map((f) => `${f.reason}${f.model_id && f.model_id !== 'stub' ? ` · would have used ${f.model_id}` : ''}`))];
   const items = list.map((f) => row(f, must.has(f.flight_id)));
   return el('div', { class: 'hgroup', role: 'group', 'aria-labelledby': id },
     el('div', { class: 'hgroup__head' },
       el('h2', { class: 'hgroup__title', id }, icon('st-caution', 'st'), el('span', { text: `Plan by hand · ${n} ${n === 1 ? 'flight' : 'flights'}` })),
       el('button', { type: 'button', class: 'linkbtn hgroup__why', 'data-why': '1', 'aria-label': 'Why: open AI today' }, el('span', { text: 'Why ›' }))),
-    el('p', { class: 'hgroup__sub', text: `No AI plan for ${n === 1 ? 'this flight' : 'these flights'}: ${causeWords(cls, ai)}. Nothing was substituted. Decide each flight, then mark it handled.` }),
-    duty,
+    el('p', { class: 'hgroup__sub', text: `No AI plan for ${n === 1 ? 'this flight' : 'these flights'}: ${causeWords(cls, ai).replace(/left it for/, n === 1 ? 'left it for' : 'left them for')}. Nothing was substituted. Decide each flight, then mark it handled.` }),
     el('ul', { class: 'hrows', 'aria-labelledby': id }, items.slice(0, ROWS_FIRST)),
     n > ROWS_FIRST ? el('details', { class: 'hmore', open: many ? true : null }, el('summary', { text: `Show all ${n} flights` }), el('ul', { class: 'hrows' }, items.slice(ROWS_FIRST))) : null,
     el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), ...raws.map((r) => el('p', { class: 'mono tech__line', text: r }))));
@@ -154,7 +152,7 @@ export function openHandled(id) {
   const sheet = openBSheet({
     title: `Handle ${f.proxy_flight} by hand`,
     body: el('div', { class: 'stack' },
-      el('p', { class: 'panel__note', text: `No AI plan for this flight (${reasonClass(f.reason) === 'budget' ? 'AI paused: daily quota' : `AI unavailable: ${WHY[reasonClass(f.reason)]}`}).` }),
+      el('p', { class: 'panel__note', text: `No AI plan for this flight: ${causeWords(reasonClass(f.reason), deskAi())}.` }),
       el('p', { class: 'note', text: `Entry ${f.inside_now ? 'was inside the area when found' : `in ${f.minutes_to_entry} min when found`}. Record what you did. The note goes in the audit log under your name.` }),
       el('label', { class: 'flabel', for: 'handled-note', text: 'What did you do? (optional)' }), chips, area, count, msg,
       el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: `${f.reason}${f.model_id && f.model_id !== 'stub' ? ` · would have used ${f.model_id}` : ''}` }))),

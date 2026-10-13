@@ -99,3 +99,42 @@ def test_one_ai_state_on_both_pages() -> None:
     assert "export function aiState(" in _read("desk/ui.js")
     # causes are keyed by helper and reason class, never by the rendered sentence
     assert "const key = `${helperKey}|${cls}`;" in xparts
+
+
+def test_budget_refusals_outside_the_pause_stay_a_problem() -> None:
+    """Review H1: only a lite-model budget refusal during the pause is part of the pause; a
+    lane's share or the Plume Reader's own model running out is a problem in every state."""
+    body = _function(_read("wall/x-parts.js"), "aiStateOf")
+    assert 'absorbed: paused && g.reasonClass === "budget" && !g.main' in body
+    assert "const trouble = causes.filter((c) => !c.absorbed);" in body
+    assert "mainModel(budget)" in body
+
+
+def test_duty_officer_that_ran_is_never_called_unavailable() -> None:
+    """Review H2: a run that answered and left must-do work is "undone", on both pages."""
+    xparts = _read("wall/x-parts.js")
+    assert "DUTY OFFICER DID NOT DISPATCH" in _function(xparts, "reasonClass")
+    assert "block.undone" in _function(xparts, "handPlanOf")
+    assert "cls === 'undone'" in _function(_read("desk/failures.js"), "causeWords")
+
+
+def test_reset_time_names_its_clock_in_replay() -> None:
+    """Review H4: the reset is on the real clock; in REPLAY it says so."""
+    assert "real time" in _function(_read("wall/x-parts.js"), "aiStateOf")
+    assert 'replay: D?.mode === "REPLAY"' in _read("wall/ext.js")
+    assert "app.state.mode === 'REPLAY'" in _read("desk/budget.js")
+
+
+def test_failed_checks_run_is_not_not_run_and_has_no_ai_mark() -> None:
+    """Review H5: a Duty Officer run that called the model is "No brief", never "Not run", and
+    its failed brief carries no AI-written mark."""
+    duty = _read("wall/duty.js")
+    assert 'MODEL_FAILED: ["caution", "No brief"' in duty
+    assert 'run.outcome === "MODEL_FAILED" ? null : run.model_id' in duty
+
+
+def test_recovery_data_failures_stay_red() -> None:
+    """Review H7: a recovery step code could not run (no schedule) is a data failure."""
+    ai_state = _function(_read("wall/ext.js"), "aiState")
+    assert '!(t.stage === "RECOVERY" && t.actor === "system")' in ai_state
+    assert 'key: "recovery-data"' in _function(_read("wall/story.js"), "storyFailures")

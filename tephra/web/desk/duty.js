@@ -21,7 +21,7 @@ const OUTCOME = {
   ACCEPTED: ['i-check', 'Accepted', 'ok'],
   REPAIRED: ['st-caution', 'Repaired', 'caution'],
   STUB: ['i-code', 'AI off · code', 'off'],
-  MODEL_FAILED: ['st-caution', 'Not run (AI unavailable)', 'caution'],
+  MODEL_FAILED: ['st-caution', 'No brief (AI unavailable)', 'caution'],
 };
 // A run the quota refused never reached a model (docs/UI-AI-QUIET.md K93, H4).
 const refused = (run) => run.outcome === 'MODEL_FAILED' && (run.validation_errors || []).some((e) => reasonClass(e) === 'budget');
@@ -129,7 +129,8 @@ function undone(run) {
 // run that did not run points at Plan by hand, which holds its flights (K91).
 function oneLine(run, failed, stub) {
   const who = stub ? 'Duty Officer (AI off)' : 'Duty Officer';
-  if (failed) return [who, `not run (${refused(run) ? 'AI paused' : 'AI unavailable'}): its must-do flights are in Plan by hand`];
+  // the cause is said once, in the Plan by hand group's head; this line says where the work went
+  if (failed) return [who, 'no brief this run · its must-do flights are in Plan by hand'];
   if (run.undispatched.length) return [who, `${plural(run.undispatched.length, 'must-do item')} not handed out`];
   const prios = run.brief ? run.brief.priorities : [];
   if (prios.length) {
@@ -168,7 +169,7 @@ function buildCard(run) {
   if (left) card.append(left);
 
   const more = el('div', { id: 'duty-more', class: 'dcard__more', hidden: !expanded });
-  append(more, [el('p', { class: 'dcard__state' }, stateChip(tone, shape, word, failed ? (refused(run) ? "Today's free AI quota is used up: no model was called" : 'The model gave no brief that passed the code checks') : 'Outcome of the last Duty Officer run'),
+  append(more, [el('p', { class: 'dcard__state' }, stateChip(tone, shape, word, failed ? (refused(run) ? "Today's free AI quota is used up: no model was called" : 'The model was called and gave no brief that passed the code checks') : 'Outcome of the last Duty Officer run'),
     failed ? null : el('span', { class: 'dcard__count', text: plural(calls, 'delegation') }))]);
   if (failed) {
     append(more, [el('p', { class: 'dcard__note', text: 'No brief was made up in its place.' })]);
@@ -199,7 +200,8 @@ function buildCard(run) {
   }
   const mandatory = run.worklist.filter((i) => i.mandatory).length;
   // The run's machine facts (model, turns, offered, trigger) sit under Technical detail (item 14).
-  const meta = `${stub ? 'AI off (NO MODEL, offline stub)' : refused(run) ? `no call made · would have used ${run.model_id}` : run.model_id} · ${plural(run.turns, 'turn')} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · AI worker after ${run.trigger === 'adsb' ? 'new aircraft' : 'a tick'}, done ${hhmmz(run.finished_at)}${run.replay ? ' · recorded' : ''}${run.recorded_answer ? ` · ${run.recorded_answer}` : ''}`;
+  // a refused run made no call, so it has no turns to count
+  const meta = `${stub ? 'AI off (NO MODEL, offline stub)' : refused(run) ? `no call made · would have used ${run.model_id}` : run.model_id}${refused(run) ? '' : ` · ${plural(run.turns, 'turn')}`} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · AI worker after ${run.trigger === 'adsb' ? 'new aircraft' : 'a tick'}, done ${hhmmz(run.finished_at)}${run.replay ? ' · recorded' : ''}${run.recorded_answer ? ` · ${run.recorded_answer}` : ''}`;
   more.append(el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }),
     el('p', { class: 'mono tech__line dcard__meta', text: meta }),
     b && stub && b.summary ? el('p', { class: 'mono tech__line', text: b.summary }) : null,

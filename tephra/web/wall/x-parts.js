@@ -44,6 +44,8 @@ const CAUSE_LINK = {
 // The reason class of a failure (budget, timeout, checks, error, other), from the recorded reason.
 export function reasonClass(reason) {
   const r = String(reason || "");
+  // the Duty Officer ran and handed must-do work to the Desk: the model answered, nothing failed
+  if (/^Duty Officer left \d+ mandatory item|DUTY OFFICER DID NOT DISPATCH/i.test(r)) return "undone";
   if (/budget_exhausted|DAILY QUOTA|RESOURCE_EXHAUSTED|\b429\b|quota/i.test(r)) return "budget";
   if (/Timeout|timed out/i.test(r)) return "timeout";
   if (/FAILED CHECKS|validation|did not pass/i.test(r)) return "checks";
@@ -53,7 +55,7 @@ export function reasonClass(reason) {
 // "{why}" in "AI unavailable ({why})" (UI-AI-QUIET 1.1).
 export const WHY = {
   timeout: "timed out", checks: "the answer failed the code's checks", error: "the AI stopped with an error", other: "the AI could not answer",
-  budget: "daily quota", undone: "left undone",
+  budget: "out of today's AI calls", undone: "left for the Desk",
 };
 
 // The helper a failure belongs to: a Duty Officer line about a plume read is the Plume Reader's.
@@ -62,6 +64,11 @@ function helperOf(stage, reason) {
   return HELPER_KEY[stage] || String(stage || "").toLowerCase();
 }
 
+// The Plume Reader's own model (the "main" tier), when it is not the lite one.
+const mainModel = (budget) => {
+  const tier = (budget?.tiers || []).find((t) => t.tier === "main");
+  return tier && tier.model_id !== liteModel(budget)?.model_id ? (budget.models || []).find((m) => m.model_id === tier.model_id) || null : null;
+};
 const liteModel = (budget) => {
   const tier = (budget?.tiers || []).find((t) => t.tier === "lite");
   const models = Array.isArray(budget?.models) ? budget.models : [];
@@ -69,49 +76,77 @@ const liteModel = (budget) => {
 };
 
 // errors: [{ stage, reason, at (ms), raw }]. plan: the newest airport plan. duty: the newest run.
-export function aiStateOf({ stub = false, budget = null, errors = [], duty = null, plan = null }) {
+// `replay`: the page plays a recording. The reset time is on the real clock, so in REPLAY it says
+// so and never reads as a time on the replay clock.
+export function aiStateOf({ stub = false, budget = null, errors = [], duty = null, plan = null, replay = false }) {
   const lite = liteModel(budget);
   const closed = !stub && lite?.closed === true;
   const resets = Date.parse(budget?.resets_at || "");
-  // a statement about now, on the real clock, from the current budget only: shown in REPLAY too
-  const until = closed && Number.isFinite(resets) ? hhmmz(resets) : null;
+  const real = (t) => (t && replay ? `${t} real time` : t);
+  // a statement about now, from the current budget only
+  const until = closed && Number.isFinite(resets) ? real(hhmmz(resets)) : null;
   const groups = new Map();
-  const add = (helperKey, reason, at, raw, src) => {
-    const special = /^Duty Officer left \d+ mandatory item/.test(String(reason || ""));
-    const cls = special ? "undone" : reasonClass(reason);
+  const add = (helperKey, reason, at, raw, src, stage) => {
+    const cls = reasonClass(reason);
     const key = `${helperKey}|${cls}`;
     let g = groups.get(key);
-    if (!g) { g = { key, helperKey, helper: HELPER_NAME[helperKey] || helperKey, reasonClass: cls, items: [], raw: [] }; groups.set(key, g); }
+    if (!g) { g = { key, helperKey, helper: HELPER_NAME[helperKey] || helperKey, reasonClass: cls, items: [], raw: [], main: false }; groups.set(key, g); }
+    // the Plume Reader's own calls run on the main model, not on the lite model a pause is about
+    if (stage === "PLUME") g.main = true;
     g.items.push({ at, reason, src });
     g.raw.push(raw || reason);
     return g;
   };
-  for (const e of errors) add(helperOf(e.stage, e.reason), e.reason, e.at, e.raw, e.src);
+  for (const e of errors) add(helperOf(e.stage, e.reason), e.reason, e.at, e.raw, e.src, e.stage);
   // the newest airport plan's own failure: older than the trace window, still a cause (D67)
   if (plan && plan.status === "AI_UNAVAILABLE" && !planProblem(plan)) {
     const reason = planReasons(plan).join("; ") || "no reason given";
     const key = `recovery|${reasonClass(reason)}`;
     if (!groups.has(key)) add("recovery", reason, Date.parse(plan.created_at), reason, { plan });
   }
+  // the Plume Reader's own model out of calls today: the same cause on the Wall (which also sees
+  // its refusals in the trace) and the Desk (which sees only the budget)
+  const main = stub ? null : mainModel(budget);
+  if (main && (main.closed === true || (main.limit > 0 && main.remaining <= 0)) && !groups.has("plume|budget")) {
+    groups.set("plume|budget", { key: "plume|budget", helperKey: "plume", helper: HELPER_NAME.plume, reasonClass: "budget", items: [], raw: [`${main.model_id}: ${main.used} of ${main.limit} calls used today`], main: true });
+  }
   const dutyReason = duty?.outcome === "MODEL_FAILED" ? (duty.validation_errors || [])[0] || "no reason recorded" : null;
   if (dutyReason && !groups.has(`duty|${reasonClass(dutyReason)}`)) add("duty", dutyReason, Date.parse(duty.finished_at), dutyReason, { duty });
+  // a run that answered and left must-do work for the Desk, when its trace line is not held
+  const left = !stub && duty && duty.outcome !== "MODEL_FAILED" && duty.outcome !== "STUB" ? (duty.undispatched || []).length : 0;
+  if (left && !groups.has("duty|undone")) {
+    const r = `Duty Officer left ${left} mandatory item(s) undone: to the Desk`;
+    add("duty", r, Date.parse(duty.finished_at), r, { duty });
+  }
+  const paused = !stub && (closed || (dutyReason != null && reasonClass(dutyReason) === "budget"));
+  // In "paused", a lite-model budget cause is the state itself and is not counted again as
+  // trouble. Any other step that ran out of calls (the Plume Reader's own model, a lane's share)
+  // is a problem of its own, in every state.
   const causes = [...groups.values()].map((g) => {
     const ts = g.items.map((x) => x.at).filter(Number.isFinite);
     return { ...g, steps: g.items.length, first: ts.length ? Math.min(...ts) : NaN, last: ts.length ? Math.max(...ts) : NaN,
-      consequence: CONSEQUENCE[g.helperKey] || "Do this step by hand", link: CAUSE_LINK[g.helperKey] || null };
+      absorbed: paused && g.reasonClass === "budget" && !g.main,
+      consequence: g.reasonClass === "undone" ? "Plan them by hand" : CONSEQUENCE[g.helperKey] || "Do this step by hand", link: CAUSE_LINK[g.helperKey] || null };
   }).sort((a, b) => (b.last || 0) - (a.last || 0));
-  const paused = !stub && (closed || (dutyReason != null && reasonClass(dutyReason) === "budget"));
-  // in "paused", a budget cause is the state itself and is not counted again as trouble
-  const trouble = causes.filter((c) => c.reasonClass !== "budget" && c.reasonClass !== "undone");
+  const trouble = causes.filter((c) => !c.absorbed);
   const waiting = (Array.isArray(budget?.waiting) ? budget.waiting : []).filter((w) => w.status === "WAITING").map((w) => {
     const t = Date.parse(w.next_slot_at || "");
-    return { job: w.label, kind: w.item?.kind || w.kind, slot: Number.isFinite(t) ? hhmmz(t) : null, volcano: w.item?.volcano_id || null };
+    return { job: w.label, kind: w.item?.kind || w.kind, slot: Number.isFinite(t) ? real(hhmmz(t)) : null, volcano: w.item?.volcano_id || null };
   });
   const kind = stub ? "off" : paused ? "paused" : trouble.length ? "trouble" : "on";
   return { kind, until, causes, trouble, waiting, paused };
 }
 
 const problems = (n) => `${n} problem${n === 1 ? "" : "s"}`;
+
+// One cause in a few words, for the chip's tooltip and the AI home's lead. "Did not run" only
+// where no model was called (a budget refusal); a model that was called and gave nothing usable
+// is "AI unavailable"; a run that answered and left work for the Desk says that (H8).
+export function causeShort(c) {
+  if (c.reasonClass === "undone") return `${c.helper} left must-do jobs for the Desk`;
+  if (c.reasonClass === "budget") return c.steps ? `${c.helper} did not run (${c.absorbed ? "AI paused" : WHY.budget})` : `${c.helper}: ${WHY.budget}`;
+  return `${c.helper}: AI unavailable (${WHY[c.reasonClass] || WHY.other})`;
+}
 
 // The one state in words, for a chip (`label` and its `suffix`), its tooltip and its label.
 // `home` names the AI home ("AI helpers" on the Wall, "AI today" on the Desk); `opens` what the
@@ -127,9 +162,10 @@ export function aiWords(s, { home = "AI helpers", opens = "Details, AI helpers",
   }
   if (s.kind === "trouble") {
     const n = s.trouble.length;
+    const list = s.trouble.map(causeShort).join("; ");
     return { label: narrow ? "AI" : "AI on", suffix: problems(n), tone: "caution",
-      aria: `AI on, ${problems(n)}: ${s.trouble.map((c) => `${c.helper} did not run`).join(", ")}. Opens ${opens}.`,
-      title: `AI on, ${problems(n)}: ${s.trouble.map((c) => `${c.helper} did not run (${WHY[c.reasonClass]}); nothing was put in its place`).join("; ")}. ${never} Open ${home} for the details.` };
+      aria: `AI on, ${problems(n)}: ${list}. Opens ${opens}.`,
+      title: `AI on, ${problems(n)}: ${list}. Nothing was put in their place. ${never} Open ${home} for the details.` };
   }
   return { label: "AI on", suffix: null, tone: "on", aria: `AI on. Opens ${opens}.`, title: `AI on. It can widen TEPHRA's estimate, never shrink the official area. AI-written parts are marked.` };
 }
@@ -137,51 +173,66 @@ export function aiWords(s, { home = "AI helpers", opens = "Details, AI helpers",
 // The calm lead at the AI home (UI-AI-QUIET 5.1): one paragraph, a sentence per cause.
 export function aiLead(s) {
   const at = (t) => (Number.isFinite(t) ? ` at ${hhmmz(t)}` : "");
-  const causeLine = (c) => `${c.helper} did not run (${WHY[c.reasonClass]})${at(c.last)}; nothing was put in its place. ${c.consequence}.`;
+  const causeLine = (c) => `${causeShort(c)}${at(c.last)}. ${c.consequence}.`;
+  const lines = (list) => `${list.map(causeLine).join(" ")} Nothing was put in their place.`;
   if (s.kind === "off") return [{ strong: "AI off.", text: "No model is connected. Code does every step; code templates write the text." }];
   if (s.kind === "on") return [{ strong: "AI on.", text: "It can widen TEPHRA's estimate, never shrink the official area. AI-written parts are marked." }];
-  if (s.kind === "trouble") return [{ strong: `AI on, ${problems(s.trouble.length)}.`, text: s.trouble.map(causeLine).join(" ") }];
+  if (s.kind === "trouble") return [{ strong: `AI on, ${problems(s.trouble.length)}.`, text: lines(s.trouble) }];
   const n = s.waiting.length;
   const jobs = n ? `Queued work (${n} job${n === 1 ? "" : "s"}) ${s.until ? "runs then" : "waits"}, on the same model; nothing is dropped or handed to another model. ` : "";
   const out = [{ strong: s.until ? `AI paused until ${s.until}.` : "AI paused.",
     text: `${s.until ? "Google reported today's free AI quota used up." : "Today's free AI quota was used up."} ${jobs}Until then, code still checks every flight against the official area, and nothing is made up in place of an AI step. Flights that need a plan are on the Desk to plan by hand.` }];
-  if (s.trouble.length) out.push({ strong: "Also:", text: s.trouble.map(causeLine).join(" ") });
+  if (s.trouble.length) out.push({ strong: "Also:", text: lines(s.trouble) });
   return out;
 }
 
 // One cause in §1.1 words, for the cause lists (What went wrong, the trace).
 export function causeTitle(c) {
   if (c.reasonClass === "undone") return `${c.helper} passed must-do jobs to the Desk`;
-  if (c.reasonClass === "budget") return `${c.helper} did not run: AI paused (daily quota)`;
-  return `${c.helper} did not run: AI unavailable (${WHY[c.reasonClass]})`;
+  if (c.reasonClass === "budget") return c.absorbed ? `${c.helper} did not run: AI paused (daily quota)` : c.steps ? `${c.helper} did not run: ${WHY.budget}` : `${c.helper}: ${WHY.budget}`;
+  return `${c.helper}: AI unavailable (${WHY[c.reasonClass] || WHY.other})`;
 }
 
 // Why a flight has no AI draft, when that is the AI's doing: { word, marker, until/why/slot }, or
-// null when the AI is on and fine (or off: the stub drafts too).
+// null when the AI is on and fine (or off: the stub drafts too). `undone`: the Duty Officer ran
+// and left its must-do flights for the Desk; only those flights are missing a draft.
 export function draftBlock(s) {
   if (!s || s.kind === "off") return null;
   if (s.kind === "paused") return { word: "AI paused", until: s.until };
-  const c = s.trouble.find((x) => x.helperKey === "duty" || x.helperKey === "planner" || x.helperKey === "drafter");
-  if (c) return { word: "AI unavailable", why: WHY[c.reasonClass] };
+  const mine = s.trouble.filter((x) => x.helperKey === "duty" || x.helperKey === "planner" || x.helperKey === "drafter");
+  const c = mine.find((x) => x.reasonClass !== "undone");
+  if (c) return { word: "AI unavailable", why: WHY[c.reasonClass] || WHY.other };
+  if (mine.length) return { word: "left for the Desk", undone: true, why: "the Duty Officer did not hand them out" };
   const w = s.waiting.find((x) => x.kind === "PLAN");
   if (w) return { word: "AI waiting", slot: w.slot };
   return null;
 }
 
-// Flights to plan by hand (docs/UI-AI-QUIET.md D56): every RFA flight in or heading in, all
-// volcanoes, with no current advisory while the AI cannot draft (paused or unavailable; a queued
-// draft is waiting, not missing). The Duty Officer's must-do flights first, then inside now, then
-// the soonest entry. `block` says why (draftBlock); no flights when the AI can draft.
+// A draftBlock in words, for one flight: "AI paused until 0700Z", "AI unavailable (timed out)",
+// "the Duty Officer left it for the Desk".
+export function blockPhrase(b) {
+  if (!b) return "";
+  if (b.undone) return "the Duty Officer left it for the Desk";
+  return `${b.word}${b.until ? ` until ${b.until}` : b.why ? ` (${b.why})` : b.slot ? `, next slot ${b.slot}` : ""}`;
+}
+
+// Flights with no advisory while the AI cannot draft (docs/UI-AI-QUIET.md D56): every RFA flight
+// in or heading in, all volcanoes, with no current advisory among the ones the Wall holds, while
+// the AI is paused or unavailable (a queued draft is waiting, not missing); when the Duty Officer
+// left work for the Desk, only its must-do flights. The must-do flights first, then inside now,
+// then the soonest entry. `block` says why (draftBlock). `partial`: the Wall holds the newest 50
+// advisories, so an older one is not seen here; the Desk's Plan by hand list is the record.
 export function handPlanOf(D, store, ai) {
   const block = draftBlock(ai);
-  if (!D || !block || block.word === "AI waiting") return { block, flights: [], must: 0 };
+  if (!D || !block || block.word === "AI waiting") return { block, flights: [], must: 0, partial: false };
   const run = store?.snapshot?.duty;
   const must = new Set((run?.undispatched || []).map((id) => (run.worklist || []).find((i) => i.id === id)).filter((i) => i && i.kind === "PLAN").map((i) => i.subject));
   const flights = D.exposed.map((f) => ({ f, p: f.properties, key: `${f.properties.hex}:${f.properties.volcano_id}` }))
     .filter((x) => { const a = D.advByFlight.get(x.key); return !a || a.status === "SUPERSEDED"; })
     .map((x) => ({ ...x, must: must.has(x.key) }))
+    .filter((x) => !block.undone || x.must)
     .sort((a, b) => Number(b.must) - Number(a.must) || Number(!!b.p.inside) - Number(!!a.p.inside) || (a.p.minutes_to_entry ?? 0) - (b.p.minutes_to_entry ?? 0));
-  return { block, flights, must: flights.filter((x) => x.must).length };
+  return { block, flights, must: flights.filter((x) => x.must).length, partial: (store?.advisories?.length || 0) >= 50 };
 }
 
 // ------------------------------------------------------------------ plain words (UI-REDESIGN R12.7)
@@ -314,7 +365,7 @@ export function failureEach(t) {
     if (m) return { each: c.each(m), num: m[1] && /^\d+$/.test(m[1]) ? Number(m[1]) : null };
   }
   const plain = plainLine(msg);
-  return { each: plain === msg && /AI UNAVAILABLE/i.test(msg) ? "could not answer" : plain, num: null };
+  return { each: plain === msg && /AI UNAVAILABLE/i.test(msg) ? WHY[reasonClass(msg)] || WHY.other : plain, num: null };
 }
 
 // Who did a step, in words (stage chips: CODE / ADK / NO MODEL).

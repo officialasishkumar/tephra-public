@@ -21,10 +21,10 @@ export function aiMark(verb, modelId, { backend = null } = {}) {
 
 // The Desk's one AI state (UI-AI-QUIET 1.2), with the Wall's rules: the live budget, the open AI
 // failures (one cause however many flights), the newest Duty Officer run and airport plan.
-export function aiState({ budget = null, failures = [], llm = null, duty = null, plan = null } = {}) {
+export function aiState({ budget = null, failures = [], llm = null, duty = null, plan = null, replay = false } = {}) {
   const errors = failures.map((f) => ({ stage: f.stage, reason: f.reason, at: Date.parse(f.created_at || ''), raw: `${f.reason}${f.model_id ? ` · would have used ${f.model_id}` : ''}` }));
   const stub = (llm && llm.backend === 'stub') || (budget && budget.backend === 'stub');
-  return aiStateOf({ stub, budget, errors, duty, plan });
+  return aiStateOf({ stub, budget, errors, duty, plan, replay });
 }
 
 export const codeChip = (text = 'Code-written') =>

@@ -17,7 +17,7 @@ const LANE_WORDS = { urgent: 'Urgent', interactive: 'Desk', routine: 'Routine' }
 export function deskAi() {
   const failures = [...app.failures.values()].filter((f) => !f.handled_at);
   const plan = app.plans.find((p) => p.status !== 'SUPERSEDED') || null;
-  return aiState({ budget: app.budget, failures, llm: app.state && app.state.llm, duty: app.duty, plan });
+  return aiState({ budget: app.budget, failures, llm: app.state && app.state.llm, duty: app.duty, plan, replay: Boolean(app.state && app.state.mode === 'REPLAY') });
 }
 
 function valid(b) {
@@ -59,15 +59,17 @@ export function drawAiChip() {
   document.dispatchEvent(new CustomEvent('tephra:ai'));
 }
 
-function modelRow(m, stub) {
-  const pct = m.limit ? Math.min(100, Math.round((m.used / m.limit) * 100)) : 100;
+// A model Google closed for today shows as closed, with a full bar, so its unused calls never read
+// as calls to spare (D71, the Wall's "Closed for today by Google").
+function modelRow(m, stub, until) {
+  const pct = m.closed ? 100 : m.limit ? Math.min(100, Math.round((m.used / m.limit) * 100)) : 100;
   const bar = el('span', { class: `bbar bbar--${level(m)}`, 'aria-hidden': 'true' }, el('span', { class: 'bbar__fill' }));
   bar.firstElementChild.style.setProperty('--w', `${Math.max(pct, m.used ? 2 : 0)}%`);
   const lanes = (m.lanes || []).filter((l) => l.share > 0 || l.used > 0).map((l) => `${LANE_WORDS[l.lane] || l.lane} ${l.used} of ${l.share}`).join(' · ');
   return el('li', { class: 'btier' },
-    el('p', { class: 'btier__h' }, el('span', { class: 'btier__k', text: m.jobs || m.tier }), el('span', { class: 'btier__n', text: `${m.used} / ${m.limit}` })),
+    el('p', { class: 'btier__h' }, el('span', { class: 'btier__k', text: m.jobs || m.tier }), el('span', { class: 'btier__n', text: m.closed ? (until ? `Closed until ${until}` : 'Closed for today') : `${m.used} / ${m.limit}` })),
     bar,
-    el('p', { class: 'fine' }, el('span', { class: 'mono', text: stub ? 'NO MODEL (offline stub)' : m.model_id }), ` · ${m.remaining} left`),
+    el('p', { class: 'fine' }, el('span', { class: 'mono', text: stub ? 'NO MODEL (offline stub)' : m.model_id }), m.closed ? ` · closed for today by Google (${m.remaining} of ${m.limit} unused)` : ` · ${m.remaining} left`),
     lanes ? el('p', { class: 'fine mono', text: lanes }) : null,
     !stub && m.pacing ? el('p', { class: 'fine', text: m.pacing }) : null);
 }
@@ -87,7 +89,7 @@ export function openBudget() {
   const causes = ai.causes.length
     ? [el('h3', { class: 'fine', text: `What went wrong · ${ai.causes.length} cause${ai.causes.length === 1 ? '' : 's'}` }),
       el('ul', { class: 'btiers' }, ...ai.causes.map((c) => el('li', { class: 'fine' },
-        el('strong', { text: causeTitle(c) }), ` · ${c.steps} ${c.steps === 1 ? 'time' : 'times'}${Number.isFinite(c.first) ? ` · ${hhmmz(c.first)}${c.last !== c.first ? `–${hhmmz(c.last)}` : ''}` : ''}`))),
+        el('strong', { text: causeTitle(c) }), `${c.steps ? ` · ${c.steps} ${c.steps === 1 ? 'time' : 'times'}` : ''}${Number.isFinite(c.first) ? ` · ${hhmmz(c.first)}${c.last !== c.first ? `–${hhmmz(c.last)}` : ''}` : ''}`))),
       el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), ...[...new Set(ai.causes.flatMap((c) => c.raw))].map((r) => el('p', { class: 'mono tech__line', text: r })))]
     : [];
   const resets = b && b.resets_at ? ` Counts start again at ${hhmmz(b.resets_at)}.` : '';
@@ -96,7 +98,7 @@ export function openBudget() {
     body: el('div', { class: 'stack' },
       el('div', { class: 'ailead', role: 'status' }, ...aiLead(ai).map((p) => el('p', {}, el('strong', { text: p.strong }), ` ${p.text}`))),
       ...causes,
-      b ? el('ul', { class: 'btiers' }, models(b).map((m) => modelRow(m, stub))) : el('p', { class: 'note', text: 'The budget has not loaded yet.' }),
+      b ? el('ul', { class: 'btiers' }, models(b).map((m) => modelRow(m, stub, ai.until))) : el('p', { class: 'note', text: 'The budget has not loaded yet.' }),
       ...queue,
       b ? el('p', { class: 'note', text: `${b.note}${resets} As of ${dayMonthHhmm(b.as_of)}.` }) : null,
       el('p', { class: 'note', text: 'When a step runs out, it says AI unavailable and nothing is substituted.' })),
