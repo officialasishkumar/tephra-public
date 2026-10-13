@@ -165,10 +165,11 @@ Data semantics (map and panels, one meaning each):
 | `--c-crew` | `#e8dcc6` warm ivory | Crew report caution area (operator policy A, not an official product): its long-dashed outline, pin and label, an RFA plane only a crew report flags, the Desk's crew box | `--c-crew-text` `#f2e9d8`; `--c-crew-soft` for the Desk and Wall flag boxes |
 | `--c-code-green/yellow/orange/red/unknown` | `#2ec4a0` `#fff176` `#f2711c` `#e8273b` `#8a96a3` | Aviation colour code, only inside the eruption symbol with its letter, and next to the word | Print the word in `--c-text-1`, never in the code colour |
 
-Map-only (`--map-*`): land `#0c0c0c` (OpenFreeMap's own), water `#0b1a2a` (override), label
+Map-only (`--map-*`): land `#0b121a` under a `--map-dot` `#9db4cc` dot matrix at 30 %, water
+`#04070b`, coast, 2° grid and country border in `#9db4cc` at 28 %, 5 % and 22 %, label
 halo `#05070a`, volcano label `#d5dee7`, FIR line `#56697e`, FIR with a valid SIGMET
 `#8aa2bb`, VAAC boundary `#7d8fa3`, navaid `#8fa0b2`. Label colours (contrast on land
-`#0c0c0c`): `--map-label-minor` `#7d8a97` (basemap place names, inactive volcano names, 5.6:1),
+`#0b121a`): `--map-label-minor` `#7d8a97` (basemap place names, inactive volcano names, 5.2:1),
 `--map-label-fir` `#7f92a6` (FIR names, 6.1:1), `--map-label-vaac` `#8a9bb0` (VAAC names,
 6.9:1); other aircraft labels use `--c-text-3` (7.6:1). `map.js` reads all of them with
 `readTokens()`, so no map label colour is a literal any more.
@@ -405,7 +406,7 @@ were fixed). Sticky (about 110 px, 13% of the screen): the frame strip in two sh
 alone), then the header in one row: brand, mode pill (live only), clock, "Desk →". Under it, not sticky,
 `#phone-bar`: the native area picker ("Java / Bali · 2"), the AI chip and the Data chip (wall.js
 moves these three nodes there on a phone and back at wider widths). Then: the failure line, the story card (20 px lines, full-width "Decide on
-the Desk →"), the map (42vh, min 300; Fit and Layers 40 px with words; the time pill "⟲ 1030Z · Now
+the Desk →"), the map (42vh, min 300; Fit and Layers as 40 px icons in a row; the time pill "⟲ 1030Z · Now
 ▾" bottom-left opens the full time bar as a bottom sheet), the map key as one folded bar, All
 volcanoes with every row, "☰ Details" (a full-screen sheet below the header, with "‹ Details" and
 Close), then the footer. A sticky bottom call to action "Decide on the Desk (23) →" (or "Open the
@@ -487,10 +488,19 @@ waits for and where the other work is. Ask, Airports and Paperwork are one centr
 
 ## 5. Map symbology
 
-Basemap: OpenFreeMap `dark`, tuned after `load` (each call guarded with `map.getLayer`):
-`water` fill `--map-water`; `landuse_park` fill-opacity 0.35; `place_city`, `place_city_large`,
-`place_town` text colour `--map-label-minor` (`#7d8a97`); add the style's `ne2_shaded` raster as `ne2-relief` under
-`water` (saturation -1, contrast 0.15, brightness-max 0.45, opacity 0.5, maxzoom 8); add
+Basemap: the night basemap (`wall/basemap.js`, 13 Oct 2026), shared by the Wall, the flow board
+and the Desk map: OpenFreeMap `dark`, tuned after `load` (each call guarded with `map.getLayer`).
+Land is a dot matrix: the style's `background` drawn with `land-dots` (an opaque 5 px tile, a soft
+`--map-dot` dot at 30 % over `--map-land` `#0b121a`), the sea `--map-water` `#04070b` over it, a
+`coast` line (`--map-coast`) and a faint 2° `graticule` (`--map-grid`) under it. Roads, rail,
+buildings, residential and wood land use, waterways and water names are hidden (none helps read
+ash); parks and land cover at 0.12; country names in spaced capitals and city names in
+`--map-label-minor` (5.2:1 on `--map-land`); suburbs and villages hidden; the board and the Desk keep
+country names only. Map controls (`mapui.css`): one column of 40 px glass icon buttons, each naming
+itself beside it on hover and focus: zoom, Fit, Satellite (infrared on or off), Compare, 3D and
+Layers on the Wall (a phone keeps Fit and Layers); a pressed or open button is solid. The style's
+`ne2_shaded` raster is added as `ne2-relief` under `water` with the terrain switch (saturation -1,
+contrast 0.15, brightness-max 0.45, opacity 0.5, maxzoom 8); add
 Mapterhorn `raster-dem` (`https://tiles.mapterhorn.com/{z}/{x}/{y}.webp`, terrarium, tileSize
 512, maxzoom 12, attribution "© Mapterhorn") and a `hillshade` layer before `waterway` (minzoom
 5, exaggeration 0.45, shadow `#000000`, highlight `#2a3442`, accent `#05070a`). Handle
@@ -904,8 +914,8 @@ close together · click to zoom in", "Official forecast area (+6 h)", "Other air
 on the satellite picture · AI-read · supporting only", then "Full map key and alert colours ›"
 (Help). Each row is the swatch on the label's line with its note under it. The card folds to its
 bar, "Map key" with the first three swatches and a chevron (`aria-expanded`, `aria-controls`); it
-starts open from 1360 px and folded on smaller maps and on a phone, and a choice is kept for the
-session. A fit
+starts folded at every width (13 Oct 2026: the map first, the key one click away), and a choice is
+kept for the session. A fit
 keeps the framed area clear of the open card (`safeInsets`, at most 40% of the map's width).
 Compare mode moves it below the "A · official reports only" label. On a phone the same node sits
 under the map as one 44 px bar. Help's full key is one column, two from 520 px. Swatches keep their
@@ -1015,11 +1025,13 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
 
 ### 7.7 Map controls and status pills
 
-Bottom-right, stacked by MapLibre: `#tools` (a custom control) with "Fit" (`data-tool="frame"`, F)
-and "Layers" (`data-tool="layers"`, L, opens Details › Map layers), zoom +/- at 1600 px and up (the
-compass only in 3D), and the attribution (`AttributionControl`, `compact: false`, 12 px:
-"OpenFreeMap © OpenMapTiles Data from OpenStreetMap"). Icon-only below 1360 px; 40 px icon and word
-on a phone. Bottom-left, `.map-pills`, only while true and one line each: `#ctx-label` (one
+Bottom-right, stacked by MapLibre: `#tools` (a custom control, one column of 40 px icon buttons,
+`mapui.css`, each naming itself on hover and focus) with Fit (`data-tool="frame"`, F), Satellite
+(`data-tool="sat-toggle"`, infrared on or off, I cycles the pictures), Compare (`data-tool="compare"`,
+S), 3D (`data-tool="3d"`, D) and Layers (`data-tool="layers"`, L, opens Details › Map layers); the
+three switches are pressed while on. Zoom +/- at every desktop width (the compass only in 3D), and
+the attribution (`AttributionControl`, `compact: false`, 12 px: "OpenFreeMap © OpenMapTiles Data
+from OpenStreetMap"). A phone keeps Fit and Layers in a row; pinch zooms. Bottom-left, `.map-pills`, only while true and one line each: `#ctx-label` (one
 `.ctx-pill` per satellite, SO2 or BTD layer, never folded: "CONTEXT ONLY" and the caption wrap
 together, the ✕ that turns the layer off sits beside them, and the GIBS scale, where one is
 published, is inside the same pill; at most 520 px wide), and `#map-notes`: "Height filter FL180–FL350 hides 1 official
@@ -1278,18 +1290,25 @@ hands out jobs and every step is recorded. The board makes that readable in abou
 lets a viewer feel the work move, and every moving thing is one real record.
 
 The stage:
-- **Map.** A dark map of the region the Wall shows (`state.regions`), drawn once per resize or
-  snapshot on a canvas: land from `data/land_apac.geojson` (Natural Earth, public domain; simplified
-  at load, Douglas–Peucker 0.025°) as a dot matrix, the official SIGMET and VAA areas as one pink
-  area (filled once and outlined along its outer edge, however many overlap), TEPHRA's area where it
-  is wider (amber, dashed), the aircraft feed's query circles, airports, the active volcanoes in their
-  real colour code (the board's only red) and every aircraft. No map tiles. Every label sits on a
-  plate, stays on the map, and gives way to the labels placed before it (a name with no free place is
-  left out).
+- **Map.** A live map of the region the Wall shows (`state.regions`): MapLibre on the night basemap
+  (section 5, `wall/basemap.js`; land as a dot matrix, a thin coastline, country names only), framed
+  on the region in the part the head, the panel and the dock leave free. Drag to move, scroll or
+  pinch to zoom; the control column beside the panel (zoom, "Back to the whole area", Layers: ash
+  areas, aircraft, airports, where feeds come from, aircraft feed coverage) is the Wall's (section
+  5, `mapui.css`). The official cone is filled and edged in pink (it holds every valid product),
+  each SIGMET and VAA inside it a faint line; TEPHRA's area where it is wider is amber, dashed; the
+  aircraft feed's query circles, airports, the active volcanoes in their real colour code (the
+  board's only red) and every aircraft. Selecting a plane, a volcano, an ash area or a feed opens one
+  small card where it was selected (flight and real aircraft, level and speed, origin to
+  destination, inside or minutes to entry; a volcano's colour code; a product's name and band; a
+  feed's state and records), which follows the map. Effects read map positions every frame, so a
+  particle in flight follows a pan. Every label sits on a plate, stays on the map, gives way to the
+  labels placed before it (a name with no free place is left out) and is placed again as the map
+  moves.
 - **Beacons.** Each feed has a beacon where it comes from: VA SIGMET on the SIGMETs in force, VONA at
   MAGMA Bandung, Darwin and Tokyo VAAC and JMA pinned to the map's edge with an arrow and their
   distance, Himawari, the winds grid; METAR comes from the airports and ADS-B from the aircraft. A
-  feed that is off says so ("not in this recording").
+  feed that is off is its name alone, dimmed; why is in its card.
 - **Head.** The Strata mark by state, "TEPHRA Assistant · working / paused / off (code
   only) / Recovery planner gave no result" (`#board-status`), one sentence of what still holds
   (`#board-lede`; paused: "Code still reads every feed and checks every flight; jobs wait in line
@@ -2121,6 +2140,31 @@ never grows offline (94 px at 390 in every state, the frame strip included).
 tab bar (sticky; the old static rule is gone); the newest answer scrolls into view above it and is
 announced once, in full ("Answer: …", plus "Answered by TEPHRA Assistant." when a model answered);
 the suggestions show only before the first question.
+
+### 10.18 The night desk, 13 Oct 2026: one look with the board, and the map of the flight
+
+The Desk takes the flow board's look, so the Wall, the board and the Desk read as one product:
+- **Page.** The board's night: a faint dot matrix (`#9db4cc` at 9 %, 12 px) fading down the page,
+  under a glass header.
+- **Cards.** Every card (the review, the lead card, the airport plan, Paperwork's "Ready for you",
+  panels, the sign-in) is the board's glass panel: a soft surface gradient, a 7 % hairline, an
+  18 px radius and a deep shadow. Empty states stay dashed.
+- **Tabs.** From 1100 px one pill under the header (the board's "Real now / Example" control); the
+  chosen tab is filled. A phone keeps the bottom bar.
+- **The map of the flight** (`desk/map.js`, 1280 px and up): Decide | the map | the review. The
+  night basemap with the ash (the official area filled, TEPHRA's wider area dashed), the active
+  volcanoes, every aircraft (a flight with an open draft bright, others dim), every path into the
+  ash (faint), and for the flight under review its amber ring, its card (flight, level, inside or
+  minutes to entry), its path and the reroute its draft proposes (`--c-reroute`; never a reroute
+  the draft does not propose), framed together with its volcano. Selecting
+  a bright plane opens its review. A draft whose aircraft the newest picture no longer holds says
+  so on the map ("RFA1738: no current position in the newest picture"); nothing is guessed. Zoom
+  and "Every flight in or heading in" are the shared control column; a key pill names the four
+  marks. The aircraft and cones follow the stream; the paths are read again every minute.
+  MapLibre loads only when the map shows (a phone never downloads it). Read-only: it changes no
+  draft.
+- **Less to read.** The sign-in says what the Desk is in two short sentences; the RFA line is in the
+  frame strip and About.
 
 ## 11. Copy deck
 

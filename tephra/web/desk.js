@@ -19,6 +19,7 @@ import { SESSION_ENDED, hideLogin, initLogin, setPending, showLogin } from './de
 import { breakdownText, flashNew, openClosed, renderQueue, showAllDrafts, showAllWatching, showMostUrgent, updateTimes, waitingCount, walkOrder } from './desk/queue.js';
 import { closeSheet, onSheetClick, openSheet, receiptWords, refreshFacts, setReceipt, sheetBusy, sheetOpenFor, sheetStepBack, showStamp, syncSheet, updateSheetTimes } from './desk/review.js';
 import { app, draftList } from './desk/state.js';
+import { initDeskMap, patchDeskSnapshot, setDeskSnapshot } from './desk/map.js';
 import { toast } from './desk/toast.js';
 import { initAsk, focusAsk, setFlightContext } from './desk/ask.js';
 import { drawAiChip, fitHead, loadBudget, openBudget, setBudget } from './desk/budget.js';
@@ -105,6 +106,7 @@ async function loadState() {
 async function loadCones() {
   const res = await api(PATHS.wall);
   if (res.ok && res.data && res.data.snapshot) {
+    setDeskSnapshot(res.data.snapshot);
     applyActiveRegions(res.data.snapshot.volcanoes);
     applyCones(res.data.snapshot.cones);
     applyExposed(res.data.snapshot.aircraft);
@@ -119,6 +121,7 @@ async function loadCones() {
 function applyExposed(fc) {
   if (!fc || !Array.isArray(fc.features)) return;
   setAircraft(fc);
+  patchDeskSnapshot('aircraft', fc);
   const ids = new Set();
   for (const f of fc.features) {
     const p = f && f.properties;
@@ -152,6 +155,7 @@ function applyActiveRegions(fc) {
 
 function applyCones(fc) {
   if (!fc || !Array.isArray(fc.features)) return;
+  patchDeskSnapshot('cones', fc);
   for (const f of fc.features) {
     const p = f && f.properties;
     if (p && p.part === 'cone' && typeof p.cone_id === 'string') {
@@ -703,6 +707,7 @@ function enterDesk(session, { focus = true } = {}) {
   hideLogin();
   byId('boot').hidden = true;
   byId('desk-view').hidden = false;
+  initDeskMap((id) => selectDraft(id));
   setAccount(session);
   fitHead();
   app.listLoaded = false;

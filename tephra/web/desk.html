@@ -11,6 +11,7 @@
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/static/fonts/ibm-plex-sans-var-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/mapui.css">
   <link rel="stylesheet" href="/static/desk.css">
   <link rel="stylesheet" href="/static/doc.css">
   <script type="module" src="/static/desk.js"></script>
@@ -59,9 +60,9 @@
       <div class="login__card">
         <h1 id="login-title" class="login__title">Dispatcher sign-in</h1>
         <!-- what the Desk is, for anyone who arrives here first (a visitor from the live link) -->
-        <p class="login__what">The Desk is where a person decides. Every advisory, message, airport plan and document TEPHRA drafts waits here for a dispatcher to approve, edit or reject. Nothing is sent to an aircraft or any real system.</p>
+        <p class="login__what">Every draft TEPHRA writes waits here for a person to approve, edit or reject. Nothing reaches a real aircraft or system.</p>
         <p id="login-pending" class="login__pending" hidden></p>
-        <p class="login__hint">Your name is recorded on every decision and shown in the public audit. The PIN is never stored on this phone. <a href="/privacy">Privacy notice</a></p>
+        <p class="login__hint">Your name goes on each decision in the public audit. The PIN is never stored. <a href="/privacy">Privacy</a></p>
 
         <div id="login-disabled" class="panel panel--serious" role="alert" hidden>
           <p class="panel__title">
@@ -90,7 +91,6 @@
           <p id="login-error" class="msg msg--serious form-msg" role="alert" hidden></p>
           <button id="login-submit" type="submit" class="btn btn--neutral btn--block"><span>Sign in</span></button>
         </form>
-        <p class="login__fine">Ring of Fire Air (RFA) is a fictional airline. RFA flight numbers are proxies for real aircraft.</p>
         <p class="login__fine"><a href="/">See the Wall, the public picture, with no sign-in</a></p>
       </div>
     </section>
@@ -176,6 +176,9 @@
         <p class="qfoot">Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system.</p>
       </section>
 
+      <!-- 1280 px and up: the flight under review on the night map, between Decide and the review
+           (desk/map.js). Read-only; selecting a plane with a draft opens its review. -->
+      <section id="desk-map" class="dmap" aria-label="Map: the ash and the flights in or heading in"></section>
       <section id="sheet" class="sheet" aria-labelledby="s-title" hidden></section>
       <!-- The flights to plan by hand (desk/failures.js): the right pane at 1100 px and up, a
            full-screen view on a phone. -->

@@ -33,6 +33,7 @@ import { KIND, draftMessages } from './messages.js';
 import { docsToSign } from './docs.js';
 import { draftPlans, latestPlan } from './network.js';
 import { app, draftList, setAsideCount } from './state.js';
+import { drawDeskMap } from './map.js';
 
 const OLD_DRAFT_MIN = 10;
 const SOON_MIN = 10;
@@ -390,6 +391,7 @@ function renderOther(flightless) {
 }
 
 export function renderQueue() {
+  drawDeskMap();
   const list = byId('cards');
   const stateBox = byId('q-state');
   const slot = byId('q-next');

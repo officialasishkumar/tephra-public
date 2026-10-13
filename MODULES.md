@@ -38,7 +38,7 @@ modules (sections 5.11 to 5.17) were built against.
 | comms | `tephra/comms/{__init__,models,messages,handover}.py`, `tephra/agents/prompts/{messages,handover}.md`, `tephra/api/routes_comms.py`, `tests/test_comms.py` |
 | regdocs | `tephra/regdocs/{__init__,models,common,runtime,evidence,narrative,sra,var,registry}.py`, `tephra/agents/prompts/sra.md`, `tephra/api/routes_regdocs.py`, `tests/test_regdocs.py` |
 | backtest | `tephra/backtest/{__init__,models,metrics,runner,report}.py`, `tephra/agents/prompts/backtest.md`, `tephra/api/routes_backtest.py`, `scripts/backtest.py`, `docs/backtest/`, `tests/test_backtest.py` |
-| web-wall | `tephra/web/index.html`, `tephra/web/wall.js`, `tephra/web/wall.css` |
+| web-wall | `tephra/web/index.html`, `tephra/web/wall.js`, `tephra/web/wall.css`, `tephra/web/mapui.css` (map controls, shared) |
 | web-desk | `tephra/web/desk.html`, `tephra/web/desk.js`, `tephra/web/desk.css` |
 | crew | `tephra/geo/crew_area.py`, `tephra/desk/crew_reports.py`, `tephra/api/routes_crew.py` (crew reports of ash: section 5.19) |
 | ops-evals | `Dockerfile`, `.dockerignore`, `.gcloudignore`, `.env.example`, `deploy/_common.sh`, `deploy/cloudbuild.yaml`, `deploy/cloudrun.sh`, `deploy/ar-cleanup.json`, `scripts/live_smoke.sh`, `deploy/scheduler.sh`, `deploy/secrets.sh`, `deploy/firestore.rules`, `deploy/README.md`, `deploy/github_deploy_setup.sh`, `deploy/deploy_paths.py`, `deploy/report_interrupted.sh`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`, `scripts/record_replay.py`, `scripts/count_traffic.py`, `scripts/plume_eval.py`, `scripts/make_plume_cases.py`, `scripts/free_model_check.py`, `evals/plume/README.md`, `evals/free_models/`, `data/replay/README.md`, `tests/test_scripts.py`, `tests/test_record_replay.py`, `tests/fixtures/ops_evals/` |
@@ -2120,6 +2120,12 @@ re-decide. Refresh on `advisory` SSE events. Works at 375 px width, tap targets 
 Flights to handle by hand (`desk/failures.js`) come from `GET /api/desk/ai-failures` and the
 `ai_failure` event (a record with `handled_at` or `closed_at` leaves the list); the header's AI
 status (`desk/budget.js`) from `/api/state` and `/api/budget` (docs/UI-DESIGN.md 10.16).
+From 1280 px the map of the flight under review (`desk/map.js`, docs/UI-DESIGN.md 10.18) draws the
+`GET /api/wall` snapshot the Desk already reads (cones, exposures, aircraft, volcanoes) and the
+reroute the draft under review proposes (`Advisory.reroute.path`),
+follows the `cones` and `aircraft` events and reads the snapshot again every minute; it is
+read-only. The night basemap (`wall/basemap.js`) and the map controls (`mapui.css`) are shared by
+the Wall, the flow board and the Desk.
 
 Crew reports of ash (section 5.19; the screens are docs/UI-DESIGN.md 5.7, 7.20 and 10.15): the
 Wall draws `WallSnapshot.crew` (replaced whole by the `crew` event) beneath the official areas,
