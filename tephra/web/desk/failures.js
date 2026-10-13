@@ -214,7 +214,10 @@ export function renderFailures() {
   if (!list.length) heard = 0;
   const ai = deskAi();
   const must = mustDo();
+  // a redraw keeps focus on the card's own controls
+  const had = host.contains(document.activeElement) ? (document.activeElement.dataset.failpane ? '[data-failpane]' : document.activeElement.dataset.why ? '[data-why]' : null) : null;
   host.replaceChildren(...(list.length ? [summaryCard(list, shown, ai, must)] : []));
+  if (had) host.querySelector(had)?.focus({ preventScroll: true });
   if (!host.dataset.wired) {
     host.dataset.wired = '1';
     host.addEventListener('click', (event) => {
@@ -335,12 +338,14 @@ export function openBulk() {
     label();
   });
   for (const b of boxes) b.addEventListener('change', label);
+  const must = mustDo();
   const rows = list.map((f, i) => el('li', { class: 'bulk__row' },
     boxes[i],
     el('label', { for: boxes[i].id, class: 'bulk__label' },
       el('span', { class: 'bulk__flight', text: f.proxy_flight }),
       el('span', { class: `bulk__entry${f.inside_now ? ' is-inside' : ''}`, text: entryShort(f) }),
-      el('span', { class: 'bulk__meta', text: f.volcano_name })),
+      el('span', { class: 'bulk__meta', text: f.volcano_name }),
+      must.has(f.flight_id) ? el('span', { class: 'dcard__must', text: 'Must do' }) : null),
     el('span', { class: 'bulk__state', 'data-state': '' })));
   const sheet = openBSheet({
     title: 'Mark flights handled',

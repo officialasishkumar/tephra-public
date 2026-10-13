@@ -298,7 +298,7 @@ export function renderQueue() {
     stateBox.replaceChildren(
       el('div', { class: 'panel panel--empty' },
         el('p', { class: 'panel__title' }, icon(hand ? 'st-info' : 'i-check', hand ? 'st is-info' : 'st'), el('span', { text: hand ? 'No drafts to approve.' : 'No drafts waiting.' })),
-        el('p', { text: hand ? `${plural(hand, 'flight')} to plan by hand are below.${last}` : `A draft appears here when a flight's projected track enters TEPHRA's estimated ash area.${last}` })),
+        el('p', { text: hand ? `${plural(hand, 'flight')} wait in Plan by hand.${last}` : `A draft appears here when a flight's projected track enters TEPHRA's estimated ash area.${last}` })),
     );
   } else {
     stateBox.replaceChildren();

@@ -49,8 +49,9 @@ function modelFoot(c) {
   const m = c.model;
   return el("span", { class: `bcard__model${m.tone ? ` bcard__model--${m.tone}` : ""}` },
     m.id ? dkChip(m.id, { mono: true, title: "The model this helper calls" }) : null, el("span", { text: m.text }),
-    m.closed ? el("span", { class: "bcard__closed", title: m.closed.by === "Google" ? "Google answered that today's free-tier calls for this model are spent." : "TEPHRA's daily budget for this model is used up." },
-      icon("i-clock", "st"), el("span", { text: `${m.closed.by === "Google" ? "closed by Google" : "used up"}${m.closed.until ? ` ${m.closed.until}` : " for today"}` })) : null);
+    // the reset time is said once, in the board's head; each card says only that the day is closed
+    m.closed ? el("span", { class: "bcard__closed", title: `${m.closed.by === "Google" ? "Google answered that today's free-tier calls for this model are spent" : "TEPHRA's daily budget for this model is used up"}${m.closed.until ? `, ${m.closed.until}` : ""}.` },
+      icon("i-clock", "st"), el("span", { text: m.closed.by === "Google" ? "closed by Google today" : "used up today" })) : null);
 }
 
 function steps(c) {
@@ -90,7 +91,7 @@ function card(c, ui, edgeState) {
   el("span", { class: "bcard__top" },
     el("span", { class: "bcard__icon" }, icon(ICON[c.id] || "i-agent")),
     el("span", { class: "bcard__names" }, el("span", { class: "bcard__name", text: c.name }), el("span", { class: "bcard__does", text: c.does })),
-    statePill(c.state, c.state === "waiting" && c.waiting?.until ? `Waiting ${c.waiting.until}` : c.word, c.state === "waiting" && c.waiting?.slot ? `Waiting for AI budget, ${c.waiting.slot}` : null)),
+    statePill(c.state, c.state === "waiting" ? "Waiting for AI" : c.word, c.state === "waiting" && c.waiting?.slot ? `Waiting for AI budget, ${c.waiting.slot}` : null)),
   lastLine(c),
   el("span", { class: "bcard__foot" }, modelFoot(c),
     handed ? el("span", { class: `bcard__handed${c.handoff.failed ? " bcard__handed--failed" : ""}`, text: handed }) : null,
@@ -181,8 +182,14 @@ function header(m, conn) {
       conn.lostAt ? el("span", { class: "dk-pill dk-pill--caution" }, dkDot("stale", "st"), el("span", { text: `Not updating since ${hhmmz(conn.lostAt)}` })) : null,
       m.replay ? el("span", { class: "board__clocknote", text: "Times are on the replay clock. AI quota waits are time left on the real clock." }) : null),
     el("ul", { class: "board__counts", "aria-label": `${total} helpers by state` }, ...counts),));
-  // the calm lead, the same words as Details › AI helpers and the Desk's AI today sheet
-  parts.push(el("div", { class: "board__lead" }, ...m.ai.lead.map((p) => el("p", {}, el("strong", { text: p.strong }), ` ${p.text}`)),
+  // the calm lead, the same words as Details › AI helpers and the Desk's AI today sheet: its first
+  // sentence on screen, the rest one tap in (a board that reads in five seconds, research/16)
+  const [first, ...rest] = m.ai.lead;
+  const cut = first.text.indexOf(". ");
+  const head = cut < 0 ? first.text : first.text.slice(0, cut + 1);
+  const more = [cut < 0 ? "" : first.text.slice(cut + 2), ...rest.map((p) => `${p.strong} ${p.text}`)].filter(Boolean);
+  parts.push(el("div", { class: "board__lead" }, el("p", {}, el("strong", { text: first.strong }), ` ${head}`),
+    more.length ? dkAbout("What this means", "board-lead", ...more) : null,
     el("button", { type: "button", class: "link-btn", dataset: { act: "board-details", sec: "ai", focus: "board-ai-home" }, text: "Models, today's calls and causes in Details › AI helpers ›" })));
   parts.push(el("p", { class: "sr-only", role: "status", text: `${total} helpers: ${COUNT_ORDER.filter((k) => m.counts[k]).map((k) => `${m.counts[k]} ${COUNT_WORD[k]}`).join(", ")}.` }));
   return parts;
@@ -229,8 +236,11 @@ export function renderBoard(m, ui, conn) {
   }
   status.replaceChildren(...replayBand(m));
   body.classList.toggle("is-stale", !!conn.lostAt);
+  // a rebuild (the time left changes each minute) keeps the disclosures the reader opened
+  const opened = new Set([...body.querySelectorAll("details[open][data-k]")].map((d) => d.dataset.k));
   const f = flow(m, ui);
   body.replaceChildren(...header(m, conn), f, foot(m));
+  for (const d of body.querySelectorAll("details[data-k]")) if (opened.has(d.dataset.k)) d.open = true;
   body.scrollTop = top;
   drawEdges(f, m.edges);
   return true;

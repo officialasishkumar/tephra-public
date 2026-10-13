@@ -854,8 +854,17 @@ a {
   outline: none;
 }
 
+.login__what {
+  margin-top: var(--sp-3);
+  padding-left: var(--sp-3);
+  border-left: 2px solid var(--c-line-input);
+  font-size: var(--fs-3);
+  line-height: var(--lh-body);
+  color: var(--c-text-1);
+}
+
 .login__hint {
-  margin-top: var(--sp-2);
+  margin-top: var(--sp-3);
   font-size: var(--fs-2);
   line-height: var(--lh-body);
   color: var(--c-text-2);
@@ -7068,9 +7077,10 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   display: flex;
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
-  border: 1px solid var(--c-caution);
+  border: 1px solid var(--c-line-2);
+  border-left: 3px solid var(--c-caution);
   border-radius: var(--radius-lg);
-  background: var(--c-caution-bg);
+  background: var(--c-surface-2);
   font-size: var(--fs-2);
   line-height: var(--lh-body);
 }

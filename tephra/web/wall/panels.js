@@ -977,7 +977,11 @@ export function renderTimeline(D, store, ui, conn) {
   nowEl.style.left = pct(D.now);
   track.append(nowEl);
   const axis = el("div", { class: "tl__axis", "aria-hidden": "true" });
-  const every = window.innerWidth < 1600 ? 3 : 2;
+  // an hour label every 1, 2, 3, 6 or 12 hours, the fewest that keep about 48 px between labels
+  // on the track as it was last laid out (Details open narrows it)
+  const trackW = $("timeline").querySelector(".tl__track")?.clientWidth || (window.innerWidth < 1600 ? 300 : 500);
+  const perHour = trackW / Math.max(1, (t1 - t0) / 3600e3);
+  const every = [1, 2, 3, 6, 12].find((n) => n * perHour >= 48) || 24;
   for (let h = Math.ceil(t0 / 3600e3) * 3600e3; h <= t1; h += 3600e3) {
     const hr = new Date(h).getUTCHours();
     if (hr % every || Math.abs(h - D.now) < 0.6 * 3600e3) continue;

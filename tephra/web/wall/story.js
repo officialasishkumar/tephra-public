@@ -343,7 +343,8 @@ function factNode(f) {
 }
 
 function noticeNode(nt) {
-  return el("div", { class: "notice", role: "status" },
+  // not a live region: in REPLAY its time left changes each minute; #announce speaks the change
+  return el("div", { class: "notice" },
     icon("st-caution", "st notice__icon"),
     el("div", { class: "notice__body" },
       el("p", { class: "notice__title", text: nt.title }),
@@ -367,7 +368,8 @@ function renderLines(D, store, ui, sit, announce) {
   else if (sit) {
     const m = storyModel(D, store, sit);
     key = `${modelKey(m)}|${ui.trustOpen ? 1 : 0}`;
-    text = [m.hero.text, m.facts.find((f) => f.key === "advisories")?.text, m.notice?.text].filter(Boolean).join(" ");
+    // the notice's body, not its title: the time left in REPLAY must not make it speak each minute
+    text = [m.hero.text, m.facts.find((f) => f.key === "advisories")?.text, m.notice?.body].filter(Boolean).join(" ");
     count = String(m.hero.count ?? "");
     if (box.dataset.key !== key) {
       kids = [
