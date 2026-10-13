@@ -1,17 +1,21 @@
 // "TEPHRA Assistant at work" (docs/UI-DESIGN.md 7.21): the flow board, a full overlay (the modal
 // <dialog id="board">) opened from the assistant chip, the story, Details › TEPHRA Assistant, A or
-// /#ai-at-work. A dark map of the region with the snapshot's real ash areas, volcanoes, airports and
-// aircraft, a beacon where each feed comes from, and one glass panel, "Inside TEPHRA": Code checks,
+// /#ai-at-work. A live map of the region (MapLibre on the night basemap: drag, zoom, click a plane,
+// a volcano, an ash area or a feed for what it is) with the snapshot's real ash areas, volcanoes,
+// airports and aircraft, a beacon where each feed comes from, and one glass panel, "Inside TEPHRA": Code checks,
 // the Coordinator, the model gate with its waiting jobs, the six skills and "You decide". Work moves
 // only for real records (flowModel in board.js): a trace step that arrives on the stream animates at
 // once (push), and the player plays back the latest steps the Wall holds, scrubbable. Every string
 // goes in through el() (textContent); dynamic colours and positions are set through the CSSOM.
-// Three canvases: the map, redrawn only on resize or a new snapshot; the rails (the panel's spine, the
-// gate and its waiting jobs), redrawn on a resize, a scroll or a change of state; and the effects,
-// cleared and drawn per frame while something moves. The loop stops when nothing does.
+// Two canvases over the map: the rails (the panel's spine, the gate and its waiting jobs), redrawn on
+// a resize, a scroll or a change of state; and the effects, cleared and drawn per frame while
+// something moves. Effects read map positions every frame, so they follow the map as it pans. The
+// loop stops when nothing moves.
 
 import { $, el, icon, fl } from "./util.js";
 import { flowAt, foldRows, readEvent, stepEvents, hmsOf as hms, STAGGER_MS, TOOL_SKILLS } from "./board.js";
+import { STYLE_URL, nightBasemap, nightColours, symbolColours } from "./basemap.js";
+import { addImages } from "./images.js";
 
 const ARROWS = ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"];
 // Where each feed comes from: the office or source that issues it (lon, lat). The SIGMET beacon sits
@@ -53,43 +57,23 @@ function kmBetween(a, b) {
   return 12742 * Math.asin(Math.sqrt(h));
 }
 
-// Douglas–Peucker on a ring of [lon, lat] (the land file is detailed; the board needs its shape).
-function simplify(pts, tol) {
-  if (pts.length < 3) return pts;
-  const a = pts[0], b = pts[pts.length - 1];
-  const dx = b[0] - a[0], dy = b[1] - a[1], n = Math.hypot(dx, dy);
-  let imax = 0, dmax = 0;
-  for (let i = 1; i < pts.length - 1; i++) {
-    const p = pts[i];
-    // a closed ring starts and ends on one point: measure from it
-    const d = n > 1e-9 ? Math.abs(dy * p[0] - dx * p[1] + b[0] * a[1] - b[1] * a[0]) / n : Math.hypot(p[0] - a[0], p[1] - a[1]);
-    if (d > dmax) { imax = i; dmax = d; }
-  }
-  if (dmax <= tol) return [a, b];
-  return [...simplify(pts.slice(0, imax + 1), tol).slice(0, -1), ...simplify(pts.slice(imax), tol)];
+// a circle of radius nm around [lon, lat] as a ring (the aircraft feed's query circles)
+function circleRing(lon, lat, nm) {
+  const r = nm / 60, k = Math.cos((lat * Math.PI) / 180) || 1;
+  return Array.from({ length: 49 }, (_, i) => { const t = (i / 48) * 2 * Math.PI; return [lon + (r * Math.cos(t)) / k, lat + r * Math.sin(t)]; });
 }
-
-let landRings = null;
-let landLoading = null;
-function loadLand() {
-  if (landRings || landLoading) return landLoading;
-  landLoading = fetch("/static/data/land_apac.geojson").then((r) => (r.ok ? r.json() : null)).then((g) => {
-    const out = [];
-    for (const f of g?.features || []) {
-      const geom = f.geometry;
-      const polys = geom?.type === "MultiPolygon" ? geom.coordinates : geom?.type === "Polygon" ? [geom.coordinates] : [];
-      for (const poly of polys) {
-        const ring = poly[0];
-        if (!ring || ring.length < 4) continue;
-        const s = simplify(ring, 0.025);
-        if (s.length >= 4) out.push(s);
-      }
-    }
-    landRings = out;
-    return out;
-  }).catch(() => { landRings = []; return landRings; });
-  return landLoading;
-}
+const fc = (features) => ({ type: "FeatureCollection", features });
+const poly = (rings, properties = {}) => ({ type: "Feature", properties, geometry: { type: "Polygon", coordinates: rings } });
+const pt = (at, properties = {}) => ({ type: "Feature", properties, geometry: { type: "Point", coordinates: at } });
+const CODE_WORD = { RED: "Red", ORANGE: "Orange", YELLOW: "Yellow", GREEN: "Green", UNKNOWN: "Unknown" };
+// the board's map layers a viewer can switch off (the Layers menu)
+const MAP_LAYERS = [
+  ["ash", "Ash areas", ["b-official-fill", "b-official-line", "b-tephra"]],
+  ["aircraft", "Aircraft", ["b-aircraft"]],
+  ["airports", "Airports", ["b-airports"]],
+  ["feeds", "Where feeds come from", []],
+  ["coverage", "Aircraft feed coverage", ["b-adsb"]],
+];
 
 // ------------------------------------------------------------------ the board
 
@@ -109,9 +93,19 @@ export function mountFlow(dialog) {
   const colOf = (tone) => C[tone] || C.text3;
 
   // ---------------------------------------------------------------- DOM, built once
-  const mapC = el("canvas", { class: "flow-map__c", "aria-hidden": "true" });
+  const glDiv = el("div", { class: "flow-map__gl" });
   const labels = el("div", { class: "flow-labels", "aria-hidden": "true" });
-  const mapWrap = el("div", { class: "flow-map", "aria-hidden": "true" }, mapC, labels);
+  const pick = el("div", { class: "flow-pick", role: "status", hidden: true });
+  // the map's own controls, over its free part: zoom, back to the whole area, and the layers
+  // the Wall map's control look (.tool): an icon that names itself on hover and focus
+  const ctlBtn = (label, ic, act) => el("button", { type: "button", class: "tool", dataset: { flowmap: act } }, icon(ic), el("span", { class: "tool__tip", text: label }));
+  const layerMenu = el("div", { class: "flow-layers", id: "flow-layers", role: "group", "aria-label": "Map layers", hidden: true },
+    ...MAP_LAYERS.map(([id, label]) => el("label", { class: "flow-layers__row" }, el("input", { type: "checkbox", checked: true, dataset: { flowlayer: id } }), el("span", { text: label }))));
+  const layersBtn = el("button", { type: "button", class: "tool", "aria-expanded": "false", "aria-controls": "flow-layers", dataset: { flowmap: "layers" } }, icon("i-layers"), el("span", { class: "tool__tip", text: "Map layers" }));
+  const ctl = el("div", { class: "flow-ctl", role: "toolbar", "aria-label": "Map view", "aria-orientation": "vertical" },
+    el("div", { class: "tool-grp" }, ctlBtn("Zoom in", "i-plus", "in"), ctlBtn("Zoom out", "i-minus", "out")),
+    ctlBtn("Back to the whole area", "i-frame", "fit"), layersBtn, layerMenu);
+  const mapWrap = el("div", { class: "flow-map", role: "region", "aria-label": "Map of the area: drag to move, scroll or pinch to zoom, select a plane, volcano, ash area or feed" }, glDiv, labels, pick, ctl);
 
   const markUse = icon("ta-waiting", "flow-head__mark");
   const status = el("span", { id: "board-status", class: "flow-head__status", text: "· connecting" });
@@ -245,13 +239,12 @@ export function mountFlow(dialog) {
 
   // ---------------------------------------------------------------- geometry
   const DPR = Math.min(2, window.devicePixelRatio || 1);
-  const mctx = mapC.getContext("2d");
   const fx = fxC.getContext("2d");
   const rctx = railC.getContext("2d");
   const tctx = trackC.getContext("2d");
   let VW = 0, VH = 0, phone = false;
-  let proj = null; // lon,lat -> map canvas px
-  let mapOff = [0, 0]; // map canvas origin in fx coordinates
+  let proj = null; // lon,lat -> map px (the live map's projection)
+  let mapOff = [0, 0]; // the map's origin in fx coordinates
   let A = {}; // anchors in fx coordinates
   let BE = {}; // beacon positions in map px: { id: { x, y, on, kind } }
   let mapKey = "";
@@ -262,8 +255,7 @@ export function mountFlow(dialog) {
     const d = dialogRect();
     VW = d.width; VH = d.height; phone = VW <= 760;
     fxC.width = railC.width = Math.round(VW * DPR); fxC.height = railC.height = Math.round(VH * DPR);
-    const r = mapWrap.getBoundingClientRect();
-    mapC.width = Math.round(r.width * DPR); mapC.height = Math.round(r.height * DPR);
+    if (gl) { gl.resize(); if (!userMoved) fitArea(false); }
     mapKey = ""; labelKey = "";
     drawMap();
     fitGate();
@@ -292,7 +284,8 @@ export function mountFlow(dialog) {
   function freeView(r) {
     if (phone) return { x: 8, y: 8, w: r.width - 16, h: r.height - 16 };
     const p = panel.getBoundingClientRect(), dk = dock.getBoundingClientRect(), h = head.getBoundingClientRect();
-    return { x: 24, y: h.bottom - r.top + 10, w: Math.max(200, p.left - r.left - 48), h: Math.max(160, dk.top - h.bottom - 20) };
+    // the map's control column (40 px and its gap) stands beside the panel
+    return { x: 24, y: h.bottom - r.top + 10, w: Math.max(200, p.left - r.left - 48 - 52), h: Math.max(160, dk.top - h.bottom - 20) };
   }
 
   function measure() {
@@ -324,139 +317,152 @@ export function mountFlow(dialog) {
     return [ref.x, ref.y];
   }
 
-  // ---------------------------------------------------------------- the map (static layer)
-  function ringPath(c, ring) {
-    ring.forEach((p, i) => { const [x, y] = proj(p[0], p[1]); if (i) c.lineTo(x, y); else c.moveTo(x, y); });
-    c.closePath();
-  }
-
-  // The map in two parts: the base (land, areas, vignette; its dot matrix is the costly part) is
-  // drawn once per size, region and area set into its own canvas; airports, volcanoes and aircraft
-  // are drawn over a copy of it whenever the snapshot moves them.
-  const baseC = document.createElement("canvas");
-  const bctx = baseC.getContext("2d");
-  let baseKey = "";
-  function drawMap() {
-    if (!M || !M.geo.bbox) return;
-    const r = mapWrap.getBoundingClientRect();
-    const where = M.geo.aircraft.reduce((a, x) => a + (x.at ? x.at[0] * 7 + x.at[1] : 0), 0).toFixed(3);
-    const bKey = [r.width, r.height, phone, landRings ? landRings.length : 0, M.geo.cones.map((c) => `${c.mode}${c.top}${c.rings[0]?.length}`).join(","), M.geo.official.length, M.geo.bbox.west, M.geo.bbox.north].join("|");
-    const key = [bKey, M.geo.aircraft.length, where, M.geo.volcanoes.map((v) => v.code).join(""), (M.feeds || []).map((f) => f.status).join(""), M.replay].join("|");
-    if (key === mapKey) return;
-    mapKey = key;
-    const W = r.width, H = r.height;
-    if (bKey !== baseKey) {
-      baseKey = bKey;
-      baseC.width = mapC.width; baseC.height = mapC.height;
-      drawBase(r, W, H);
+  // ---------------------------------------------------------------- the map (live)
+  // MapLibre on the night basemap, made the first time the board opens. The areas, airports,
+  // volcanoes and aircraft are map layers; the beacons and names are DOM labels placed over it,
+  // re-placed as the map moves (a beacon whose source is off the map waits at its edge with an arrow).
+  let gl = null, glReady = false, userMoved = false, moveRaf = 0;
+  const hidden = new Set(); // map layers switched off in Layers
+  function ensureMap() {
+    if (gl || !window.maplibregl) return;
+    gl = new window.maplibregl.Map({
+      container: glDiv, style: STYLE_URL, center: [110, -6], zoom: 4.6, minZoom: 2, maxZoom: 10,
+      attributionControl: false, dragRotate: false, pitchWithRotate: false, touchPitch: false, fadeDuration: 0,
+      renderWorldCopies: false, cooperativeGestures: phone,
+    });
+    gl.touchZoomRotate.disableRotation();
+    gl.addControl(new window.maplibregl.AttributionControl({ compact: true }), "bottom-right");
+    // the credit starts folded to its (i): open, it ran over the beacons
+    gl.once("load", () => glDiv.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show"));
+    gl.on("styleimagemissing", (e) => { if (!gl.hasImage(e.id)) gl.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) }); });
+    gl.on("style.load", () => {
+      nightBasemap(gl, nightColours(), { places: false });
+      addImages(gl, symbolColours());
+      addLayers();
+      glReady = true;
+      mapKey = ""; labelKey = "";
+      if (M) { fitArea(false); drawMap(); }
+    });
+    // a pan or zoom by hand keeps its view through resizes until Fit
+    gl.on("movestart", (e) => { if (e.originalEvent) { userMoved = true; hidePick(); } });
+    gl.on("move", onMove);
+    gl.on("click", onMapClick);
+    for (const id of ["b-aircraft", "b-volcanoes", "b-official-fill"]) {
+      gl.on("mouseenter", id, () => { gl.getCanvas().style.cursor = "pointer"; });
+      gl.on("mouseleave", id, () => { gl.getCanvas().style.cursor = ""; });
     }
-    const c = mctx;
-    c.setTransform(1, 0, 0, 1, 0, 0);
-    c.clearRect(0, 0, mapC.width, mapC.height);
-    c.drawImage(baseC, 0, 0);
-    c.setTransform(DPR, 0, 0, DPR, 0, 0);
-    drawMovers(c);
+  }
+  function addLayers() {
+    for (const id of ["b-official", "b-tephra", "b-adsb", "b-airports", "b-volcanoes", "b-aircraft"]) gl.addSource(id, { type: "geojson", data: fc([]) });
+    const vis = (key) => ({ visibility: hidden.has(key) ? "none" : "visible" });
+    gl.addLayer({ id: "b-adsb", type: "line", source: "b-adsb", layout: vis("coverage"), paint: { "line-color": C.aircraft, "line-opacity": 0.16, "line-dasharray": [1, 3] } });
+    // the official area: the official cone holds every valid product, so it alone is filled and
+    // edged; each product inside it is a faint line (select one for what it is)
+    const isCone = ["==", ["get", "cone"], true];
+    gl.addLayer({ id: "b-official-fill", type: "fill", source: "b-official", layout: vis("ash"), paint: { "fill-color": C.official, "fill-opacity": ["case", isCone, 0.08, 0] } });
+    gl.addLayer({ id: "b-official-line", type: "line", source: "b-official", layout: { ...vis("ash"), "line-join": "round" }, paint: { "line-color": C.official, "line-opacity": ["case", isCone, 0.6, 0.14], "line-width": ["case", isCone, 1.8, 1] } });
+    // TEPHRA's area where it is wider than the official one
+    gl.addLayer({ id: "b-tephra", type: "line", source: "b-tephra", layout: { ...vis("ash"), "line-join": "round" }, paint: { "line-color": C.tephra, "line-opacity": 0.75, "line-width": 1.4, "line-dasharray": [4, 3] } });
+    gl.addLayer({ id: "b-airports", type: "circle", source: "b-airports", layout: vis("airports"), paint: { "circle-radius": 2.4, "circle-color": C.text2, "circle-opacity": 0.6 } });
+    gl.addLayer({ id: "b-volcanoes", type: "symbol", source: "b-volcanoes", layout: { "icon-image": ["concat", "volcano-", ["get", "code"]], "icon-size": 0.62, "icon-allow-overlap": true, "icon-ignore-placement": true } });
+    gl.addLayer({ id: "b-aircraft", type: "symbol", source: "b-aircraft", layout: { ...vis("aircraft"), "icon-image": "ac-sdf", "icon-size": ["case", ["get", "exposed"], 0.5, 0.36], "icon-rotate": ["get", "trk"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true, "symbol-sort-key": ["case", ["get", "exposed"], 1, 0] }, paint: { "icon-color": ["case", ["get", "exposed"], C.job, C.aircraft], "icon-opacity": ["case", ["get", "exposed"], 0.95, 0.55] } });
+  }
+  // the region framed in the part of the map that the head, the panel and the dock leave free
+  function fitArea(animate) {
+    if (!gl || !M?.geo.bbox) return;
+    const r = mapWrap.getBoundingClientRect();
+    if (r.width < 40 || r.height < 40) return;
+    const V = freeView(r), b = M.geo.bbox;
+    const pad = { left: V.x, top: V.y, right: Math.max(0, r.width - V.x - V.w), bottom: Math.max(0, r.height - V.y - V.h) };
+    gl.fitBounds([[b.west - 0.2, b.south - 0.2], [b.east + 0.2, b.north + 0.2]], { padding: pad, duration: animate && !RM() ? 700 : 0 });
+  }
+  function onMove() {
+    if (moveRaf) return;
+    moveRaf = requestAnimationFrame(() => {
+      moveRaf = 0;
+      if (!M || !proj) return;
+      const r = mapWrap.getBoundingClientRect();
+      placeLabels(proj.V, r.width, r.height);
+      placePick();
+      if (moving()) kick();
+    });
+  }
+  function drawMap() {
+    if (!M || !M.geo.bbox || !glReady) return;
+    const r = mapWrap.getBoundingClientRect();
+    proj = (lon, lat) => { const p = gl.project([lon, lat]); return [p.x, p.y]; };
+    proj.V = freeView(r);
+    proj.centre = [(M.geo.bbox.west + M.geo.bbox.east) / 2, (M.geo.bbox.north + M.geo.bbox.south) / 2];
+    const where = M.geo.aircraft.reduce((a, x) => a + (x.at ? x.at[0] * 7 + x.at[1] : 0), 0).toFixed(3);
+    const key = [M.geo.cones.map((c) => `${c.mode}${c.top}${c.rings[0]?.length}`).join(","), M.geo.official.length, M.geo.bbox.west, M.geo.bbox.north, M.geo.aircraft.length, where, M.geo.volcanoes.map((v) => v.code).join(""), Object.keys(M.geo.airports).length].join("|");
+    if (key !== mapKey) {
+      mapKey = key;
+      const src = (id, f) => gl.getSource(id)?.setData(fc(f));
+      const cones = M.geo.cones.filter((cn) => cn.mode === "OFFICIAL").map((cn) => ({ cone: true, label: "Official ash area", top: cn.top, base: cn.base, rings: cn.rings }));
+      src("b-official", [...M.geo.official, ...cones].flatMap((o) => o.rings.map((ring) => poly([ring], { cone: Boolean(o.cone), label: o.label || o.kind || "", top: o.top ?? null, base: o.base ?? null }))));
+      src("b-tephra", M.geo.cones.filter((cn) => cn.mode !== "OFFICIAL").flatMap((cn) => cn.rings.map((ring) => poly([ring], { top: cn.top ?? null, base: cn.base ?? null }))));
+      src("b-adsb", M.geo.adsbPoints.map((a) => poly([circleRing(a.lon, a.lat, a.radius_nm)])));
+      src("b-airports", Object.entries(M.geo.airports).map(([code, at]) => pt(at, { code })));
+      src("b-volcanoes", M.geo.volcanoes.filter((v) => v.at).map((v) => pt(v.at, { id: v.id, name: v.name, code: v.code in CODE_WORD ? v.code : "UNKNOWN" })));
+      src("b-aircraft", M.geo.aircraft.filter((a) => a.at).map((a) => pt(a.at, { hex: a.hex, trk: a.trk ?? 0, exposed: a.exposed })));
+    }
     // the labels are DOM: rebuilt only when what they say or where they sit can change
-    const lKey = [bKey, M.geo.volcanoes.map((v) => v.id).join(","), (M.feeds || []).map((f) => `${f.status}${f.records}`).join(""), M.geo.official.filter((o) => o.kind === "SIGMET").length].join("|");
-    if (lKey !== labelKey) { labelKey = lKey; placeLabels(proj.V, W, H); }
+    const lKey = [r.width, r.height, phone, M.geo.volcanoes.map((v) => v.id).join(","), (M.feeds || []).map((f) => `${f.status}${f.records}`).join(""), M.geo.official.filter((o) => o.kind === "SIGMET").length, [...hidden].join()].join("|");
+    if (lKey !== labelKey) { labelKey = lKey; placeLabels(proj.V, r.width, r.height); }
+    placePick();
   }
   let labelKey = "";
 
-  function drawBase(r, W, H) {
-    const b = M.geo.bbox;
-    const V = freeView(r);
-    const pad = 0.2;
-    const focus = { w: b.west - pad, e: b.east + pad, n: b.north + pad, s: b.south - pad };
-    const k = Math.min(V.w / (focus.e - focus.w), V.h / (focus.n - focus.s));
-    const cx = V.x + V.w / 2, cy = V.y + V.h / 2, lc = (focus.w + focus.e) / 2, pc = (focus.n + focus.s) / 2;
-    proj = (lon, lat) => [cx + (lon - lc) * k, cy - (lat - pc) * k];
-    proj.k = k; proj.V = V; proj.centre = [lc, pc];
-    const c = bctx;
-    c.setTransform(DPR, 0, 0, DPR, 0, 0);
-    c.clearRect(0, 0, W, H);
-    const [kx, ky] = proj(lc, pc);
-    const g = c.createRadialGradient(kx, ky, 20, kx, ky, Math.max(W, H) * 0.75);
-    g.addColorStop(0, C.s2); g.addColorStop(0.55, C.s1); g.addColorStop(1, C.bg);
-    c.fillStyle = g; c.fillRect(0, 0, W, H);
-    // graticule, 2°
-    c.strokeStyle = rgba(C.info, 0.045); c.lineWidth = 1;
-    for (let lon = Math.floor(lc - 60); lon <= lc + 60; lon += 2) { const [x] = proj(lon, 0); if (x < -2 || x > W + 2) continue; c.beginPath(); c.moveTo(Math.round(x) + 0.5, 0); c.lineTo(Math.round(x) + 0.5, H); c.stroke(); }
-    for (let lat = Math.floor(pc - 40); lat <= pc + 40; lat += 2) { const [, y] = proj(lc, lat); if (y < -2 || y > H + 2) continue; c.beginPath(); c.moveTo(0, Math.round(y) + 0.5); c.lineTo(W, Math.round(y) + 0.5); c.stroke(); }
-    // land: a quiet fill and a dot matrix sampled from it
-    if (landRings) {
-      const vis = landRings.filter((ring) => ring.some((p) => { const [x, y] = proj(p[0], p[1]); return x > -200 && x < W + 200 && y > -200 && y < H + 200; }));
-      const off = document.createElement("canvas");
-      off.width = Math.max(1, Math.ceil(W)); off.height = Math.max(1, Math.ceil(H));
-      const o = off.getContext("2d", { willReadFrequently: true });
-      o.fillStyle = "#fff";
-      for (const ring of vis) { o.beginPath(); ringPath(o, ring); o.fill(); }
-      c.fillStyle = C.s1;
-      for (const ring of vis) { c.beginPath(); ringPath(c, ring); c.fill(); }
-      const img = o.getImageData(0, 0, off.width, off.height).data;
-      const step = phone ? 4 : 5;
-      for (let y = step / 2; y < off.height; y += step) for (let x = step / 2; x < off.width; x += step) {
-        if (img[((y | 0) * off.width + (x | 0)) * 4 + 3] > 128) {
-          const dd = Math.hypot(x - kx, y - ky) / Math.max(W, H);
-          c.fillStyle = rgba(C.info, Math.max(0.16, 0.5 - dd * 0.6).toFixed(3));
-          c.fillRect(x - 0.8, y - 0.8, 1.6, 1.6);
-        }
-      }
-      c.strokeStyle = rgba(C.info, 0.26); c.lineWidth = 0.9;
-      for (const ring of vis) { c.beginPath(); ringPath(c, ring); c.stroke(); }
-    }
-    // where the aircraft feed looks (the region's adsb.lol query circles)
-    c.setLineDash([2, 5]); c.strokeStyle = rgba(C.aircraft, 0.12); c.lineWidth = 1;
-    for (const a of M.geo.adsbPoints) { const [x, y] = proj(a.lon, a.lat); c.beginPath(); c.arc(x, y, (a.radius_nm / 60) * k, 0, 7); c.stroke(); }
-    c.setLineDash([]);
-    // the official areas (every SIGMET and VAA polygon, and the official cone that holds them) as one
-    // area: filled once and outlined along its outer edge, however many products overlap
-    const official = [...M.geo.official.flatMap((o) => o.rings), ...M.geo.cones.filter((cn) => cn.mode === "OFFICIAL").flatMap((cn) => cn.rings)];
-    if (official.length) {
-      const layer = () => { const x = document.createElement("canvas"); x.width = baseC.width; x.height = baseC.height; const xc = x.getContext("2d"); xc.setTransform(DPR, 0, 0, DPR, 0, 0); return [x, xc]; };
-      const [fillC, fc] = layer();
-      fc.fillStyle = C.official;
-      for (const ring of official) { fc.beginPath(); ringPath(fc, ring); fc.fill(); }
-      const [edgeC, ec] = layer();
-      ec.strokeStyle = C.official; ec.lineWidth = 2.4; ec.lineJoin = "round";
-      for (const ring of official) { ec.beginPath(); ringPath(ec, ring); ec.stroke(); }
-      ec.globalCompositeOperation = "destination-out";
-      for (const ring of official) { ec.beginPath(); ringPath(ec, ring); ec.fill(); }
-      c.save(); c.setTransform(1, 0, 0, 1, 0, 0);
-      c.globalAlpha = 0.07; c.drawImage(fillC, 0, 0);
-      c.globalAlpha = 0.55; c.drawImage(edgeC, 0, 0);
-      c.restore();
-    }
-    // TEPHRA's area where it is wider than the official one
-    for (const cn of M.geo.cones) for (const ring of cn.rings) {
-      if (cn.mode === "OFFICIAL") continue;
-      c.beginPath(); ringPath(c, ring);
-      c.setLineDash([6, 4]); c.strokeStyle = C.tephra; c.globalAlpha = 0.7; c.lineWidth = 1.4; c.stroke(); c.globalAlpha = 1; c.setLineDash([]);
-    }
-    // vignette
-    const vg = c.createRadialGradient(W * 0.42, H * 0.5, Math.min(W, H) * 0.35, W * 0.42, H * 0.5, Math.max(W, H) * 0.8);
-    vg.addColorStop(0, rgba(C.bg, 0)); vg.addColorStop(1, rgba(C.bg, 0.7));
-    c.fillStyle = vg; c.fillRect(0, 0, W, H);
+  // ---------------------------------------------------------------- what you select on the map
+  // One small card, anchored where you selected and following the map, written with textContent.
+  let picked = null; // { at, title, lines }
+  function showPick(at, title, lines) {
+    picked = { at, title, lines };
+    pick.replaceChildren(el("button", { type: "button", class: "flow-pick__x", "aria-label": "Close", dataset: { flowmap: "unpick" } }, icon("i-x")),
+      el("b", { class: "flow-pick__title", text: title }), ...lines.filter(Boolean).map((t) => el("span", { class: "flow-pick__line", text: t })));
+    pick.hidden = false;
+    placePick();
   }
-
-  function drawMovers(c) {
-    c.fillStyle = rgba(C.text2, 0.55);
-    for (const p of Object.values(M.geo.airports)) { const [x, y] = proj(p[0], p[1]); c.fillRect(x - 2, y - 2, 4, 4); }
-    for (const v of M.geo.volcanoes) {
-      if (!v.at) continue;
-      const [x, y] = proj(v.at[0], v.at[1]);
-      // a volcano's real aviation colour code is the board's only red
-      c.beginPath(); c.moveTo(x, y - 7); c.lineTo(x + 6.5, y + 5); c.lineTo(x - 6.5, y + 5); c.closePath();
-      c.fillStyle = { RED: tok("--c-code-red", "#e8273b"), ORANGE: tok("--c-code-orange", "#f2711c"), YELLOW: tok("--c-code-yellow", "#fff176"), GREEN: tok("--c-code-green", "#2ec4a0") }[v.code] || tok("--c-code-unknown", "#8a96a3");
-      c.fill(); c.strokeStyle = C.bg; c.lineWidth = 1.5; c.stroke();
+  function hidePick() { picked = null; pick.hidden = true; }
+  function placePick() {
+    if (!picked || !proj) return;
+    const r = mapWrap.getBoundingClientRect();
+    const [x, y] = proj(picked.at[0], picked.at[1]);
+    if (x < 0 || y < 0 || x > r.width || y > r.height) { pick.hidden = true; return; }
+    pick.hidden = false;
+    const w = pick.offsetWidth, h = pick.offsetHeight;
+    pick.style.left = `${clamp(x - w / 2, 8, r.width - w - 8)}px`;
+    pick.style.top = `${y - h - 14 < 8 ? y + 14 : y - h - 14}px`;
+  }
+  function onMapClick(e) {
+    if (!M) return;
+    const hit = gl.queryRenderedFeatures(e.point, { layers: ["b-aircraft", "b-volcanoes", "b-official-fill"].filter((id) => gl.getLayer(id) && gl.getLayoutProperty(id, "visibility") !== "none") });
+    // a plane or volcano first, then the product under the pointer, then the whole official area
+    const f = hit.find((x) => x.layer.id !== "b-official-fill") || hit.find((x) => !x.properties.cone) || hit[0];
+    if (!f) { hidePick(); return; }
+    const at = [e.lngLat.lng, e.lngLat.lat];
+    if (f.layer.id === "b-aircraft") {
+      const a = M.geo.aircraft.find((x) => x.hex === f.properties.hex);
+      if (!a) return;
+      const where = a.exposed ? (a.mins > 0 ? `Enters TEPHRA's area in ${a.mins} min` : "Inside TEPHRA's area") : "Outside the ash";
+      showPick(a.at, a.flight ? `${a.flight} · RFA (fictional)` : a.cs || a.hex,
+        [a.flight && a.cs ? `Real aircraft ${a.cs}` : null, [a.alt != null ? fl(a.alt) : null, a.gs != null ? `${Math.round(a.gs)} kt` : null].filter(Boolean).join(" · ") || null,
+          a.from && a.to ? `${a.from} → ${a.to}` : null, where]);
+    } else if (f.layer.id === "b-volcanoes") {
+      const v = M.geo.volcanoes.find((x) => String(x.id) === String(f.properties.id));
+      if (v) showPick(v.at, v.name, [`Aviation colour code: ${CODE_WORD[v.code] || "Unknown"}`]);
+    } else {
+      const p = f.properties;
+      const band = p.top != null ? `${Number(p.base) > 0 ? fl(Number(p.base)) : "Surface"} to ${fl(Number(p.top))}` : null;
+      showPick(at, p.label || "Official ash area", [band, "Official products are binding: TEPHRA may only widen them"]);
     }
-    for (const a of M.geo.aircraft) {
-      if (!a.at) continue;
-      const [x, y] = proj(a.at[0], a.at[1]);
-      c.save(); c.translate(x, y); c.rotate(((a.trk ?? 0) * Math.PI) / 180);
-      c.fillStyle = a.exposed ? rgba(C.job, 0.92) : rgba(C.aircraft, 0.55);
-      c.beginPath(); c.moveTo(0, -5.5); c.lineTo(3.6, 4); c.lineTo(0, 2.2); c.lineTo(-3.6, 4); c.closePath(); c.fill();
-      c.restore();
-    }
+  }
+  function onBeaconClick(id) {
+    const f = (M.feeds || []).find((x) => x.feed === id), b = BE[id];
+    if (!f || !b || !gl) return;
+    const ll = gl.unproject([b.x, b.y]);
+    const on = f.status === "OK" || f.status === "STALE";
+    showPick([ll.lng, ll.lat], FEED_TITLE[id], [on ? `${f.status === "STALE" ? "Late" : "Working"} · ${plural(f.records ?? 0, "record")}` : null, !on ? (f.error || "Off") : null]);
   }
 
   function placeLabels(V, W, H) {
@@ -492,11 +498,12 @@ export function mountFlow(dialog) {
       while (Object.values(BE).some((o) => Math.abs(o.x - x) < 90 && Math.abs(o.y - y) < 26)) y += 34;
       BE[id] = { x, y, on, kind: (id === "vona" || id === "jma_volcano") ? "observer" : id === "winds" || id === "frames" ? "weather" : "official" };
       const km = edge && at ? Math.round(kmBetween(at, centre) / 100) * 100 : null;
-      const recorded = /not in this replay case/i.test(f.error || "");
-      const sub = !on ? (recorded ? "not in this recording" : "off") : edge && km ? `${s.sub} · ${km.toLocaleString("en")} km`
+      // an off feed is its name alone, dimmed; why it is off is one click away
+      const sub = !on ? null : edge && km ? `${s.sub} · ${km.toLocaleString("en")} km`
         : id === "sigmet" ? (at ? `${plural(sig.length, "area")} in force` : "none in force here") : s.sub;
-      const labEl = el("span", { class: `flow-beacon__lab flow-beacon__lab--${lab}` }, el("b", { text: `${arrow ? `${arrow} ` : ""}${s.name}` }), phone ? null : el("span", { text: sub }));
-      const b = el("div", { class: `flow-beacon flow-beacon--${BE[id].kind}${on ? "" : " is-off"}`, title: on ? `${FEED_TITLE[id]}: ${f.records ?? 0} records` : `${FEED_TITLE[id]}: ${f.error || "off"}` },
+      if (hidden.has("feeds")) continue;
+      const labEl = el("span", { class: `flow-beacon__lab flow-beacon__lab--${lab}` }, el("b", { text: `${arrow ? `${arrow} ` : ""}${s.name}` }), phone || !sub ? null : el("span", { text: sub }));
+      const b = el("div", { class: `flow-beacon flow-beacon--${BE[id].kind}${on ? "" : " is-off"}`, title: on ? `${FEED_TITLE[id]}: ${f.records ?? 0} records` : `${FEED_TITLE[id]}: ${f.error || "off"}`, dataset: { flowbeacon: id } },
         el("i", { class: `flow-beacon__pin${edge ? " is-edge" : ""}` }), labEl);
       b.style.left = `${x}px`; b.style.top = `${y}px`;
       kids.push(b);
@@ -514,7 +521,7 @@ export function mountFlow(dialog) {
     }
     let ash = null;
     const official = M.geo.cones.filter((c) => c.mode === "OFFICIAL" && c.rings[0]).sort((a, b) => (b.top || 0) - (a.top || 0))[0];
-    if (official && !phone) {
+    if (official && !phone && !hidden.has("ash")) {
       const pts = official.rings[0].map((p) => proj(p[0], p[1])).filter(([x, y]) => insideView(x, y));
       if (pts.length) {
         const low = pts.reduce((a, p) => (p[1] > a[1] ? p : a));
@@ -1350,8 +1357,18 @@ export function mountFlow(dialog) {
 
   // ---------------------------------------------------------------- input
   dialog.addEventListener("click", (e) => {
+    const bc = e.target.closest("[data-flowbeacon]");
+    if (bc) { onBeaconClick(bc.dataset.flowbeacon); return; }
     const t = e.target.closest("button");
     if (!t || !dialog.contains(t)) return;
+    if (t.dataset.flowmap) {
+      const a = t.dataset.flowmap;
+      if (a === "in" || a === "out") { userMoved = true; gl?.easeTo({ zoom: gl.getZoom() + (a === "in" ? 1 : -1), duration: RM() ? 0 : 300 }); }
+      else if (a === "fit") { userMoved = false; hidePick(); fitArea(true); }
+      else if (a === "unpick") hidePick();
+      else if (a === "layers") { const open = layerMenu.hidden; layerMenu.hidden = !open; layersBtn.setAttribute("aria-expanded", String(open)); }
+      return;
+    }
     if (t.dataset.flowmode) {
       if (mode === t.dataset.flowmode) return;
       mode = t.dataset.flowmode;
@@ -1365,6 +1382,16 @@ export function mountFlow(dialog) {
     else if (t.dataset.flowsheet) openSheet(t.dataset.flowsheet, t);
     else if (t.dataset.flowskill) openSheet("skill", t, t.dataset.flowskill);
   });
+  layerMenu.addEventListener("change", (e) => {
+    const id = e.target.dataset.flowlayer;
+    if (!id) return;
+    if (e.target.checked) hidden.delete(id); else hidden.add(id);
+    const ids = MAP_LAYERS.find((l) => l[0] === id)?.[2] || [];
+    if (glReady) for (const lid of ids) if (gl.getLayer(lid)) gl.setLayoutProperty(lid, "visibility", e.target.checked ? "visible" : "none");
+    hidePick();
+    drawMap();
+  });
+  dialog.addEventListener("keydown", (e) => { if (e.key === "Escape" && !layerMenu.hidden) { e.preventDefault(); layerMenu.hidden = true; layersBtn.setAttribute("aria-expanded", "false"); layersBtn.focus(); } });
   play.addEventListener("click", () => {
     if (following) startPlayback(T0);
     else if (!playing && simT >= T1) startPlayback(T0);
@@ -1485,8 +1512,7 @@ export function mountFlow(dialog) {
     },
     open() {
       isOpen = true;
-      loadLand().then(() => { mapKey = ""; if (isOpen) { drawMap(); drawStill(); } });
-      requestAnimationFrame(() => { layout(); if (M) seek(following ? T1 : simT); kick(); });
+      requestAnimationFrame(() => { layout(); ensureMap(); if (M) seek(following ? T1 : simT); kick(); });
     },
     close() {
       isOpen = false;
@@ -1494,6 +1520,7 @@ export function mountFlow(dialog) {
       raf = 0;
       if (sheet.open) sheet.close();
       // next time it opens on real data, at the live edge or (REPLAY) from the start of the window
+      hidePick(); userMoved = false; layerMenu.hidden = true; layersBtn.setAttribute("aria-expanded", "false");
       M = null; fired.clear(); following = true; playing = false; mode = "real"; legendFor = ""; logMode = "";
     },
   };

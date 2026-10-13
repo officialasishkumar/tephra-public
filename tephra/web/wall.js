@@ -60,7 +60,8 @@ const ui = {
   historyOpen: false,
   // the map key starts open on the map from 1360 px, folded to its bar on smaller maps and under a
   // phone's map; a choice made with its button is kept for the session
-  keyOpen: (() => { try { const k = sessionStorage.getItem("tephra.wall.key"); return k ? k === "open" : window.innerWidth >= 1360; } catch { return window.innerWidth >= 1360; } })(),
+  // the key starts folded (one "Map key" button on the map) and stays as the viewer leaves it
+  keyOpen: (() => { try { return sessionStorage.getItem("tephra.wall.key") === "open"; } catch { return false; } })(),
   trustOpen: false, // the hero's note on what TEPHRA's ash area is
   traceFilter: "all",
   historyLane: "all",
@@ -458,6 +459,8 @@ function renderPills() {
 function renderTools() {
   const lb = document.querySelector('#tools [data-tool="layers"]');
   if (lb) lb.setAttribute("aria-expanded", ui.details.open && ui.details.sec === "layers" ? "true" : "false");
+  const pressed = { "sat-toggle": ui.sat !== "off", compare: ui.compare, "3d": ui.d3 };
+  for (const [tool, on] of Object.entries(pressed)) document.querySelector(`#tools [data-tool="${tool}"]`)?.setAttribute("aria-pressed", on ? "true" : "false");
   $("compare-labels").hidden = !ui.compare;
   document.body.classList.toggle("is-compare", ui.compare);
 }
@@ -919,6 +922,7 @@ document.addEventListener("click", (e) => {
   else if (tool === "3d") toggle3d();
   else if (tool === "compare") toggleCompare();
   else if (tool === "sat") setSat(SAT_CYCLE[(SAT_CYCLE.indexOf(ui.sat) + 1) % SAT_CYCLE.length]);
+  else if (tool === "sat-toggle") setSat(ui.sat === "off" ? "ir" : "off");
   else if (tool === "layers") toggleSection("layers", t);
   else if (tool === "levels") openDetails("levels", { opener: t });
   else if (t.id === "area-btn") { if ($("regions").hidden) openAreaMenu(); else closeAreaMenu(); }

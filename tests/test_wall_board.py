@@ -946,9 +946,10 @@ def test_flow_example_never_touches_the_wall_store() -> None:
     imports nothing that holds the Wall's data and calls no endpoint."""
     view = (WALL / "board-view.js").read_text(encoding="utf-8")
     imports = re.findall(r'^import .* from "([^"]+)";$', view, flags=re.M)
-    assert imports == ["./util.js", "./board.js"]
+    # the live map's basemap and symbol images hold no data
+    assert imports == ["./util.js", "./board.js", "./basemap.js", "./images.js"]
     assert not re.search(r"\bstore\b", view)
-    assert not re.search(r"\bfetch\(", view.replace('fetch("/static/data/land_apac.geojson")', ""))
+    assert not re.search(r"\bfetch\(", view)
     assert "POST" not in view
     assert "Example · illustrative, not recorded." in view
     assert "EXAMPLE ONLY (illustrative)" in view

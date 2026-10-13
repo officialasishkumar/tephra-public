@@ -1,0 +1,30 @@
+/* Map controls shared by every TEPHRA map (the Wall, the flow board, the Desk): one slim column
+   of 40 px icon buttons on glass, each naming itself beside it on hover and focus (.tool__tip is
+   also its accessible name). Pressed or open, a button turns solid. Link after tokens.css. */
+
+.tool {
+  position: relative; display: grid; place-items: center; width: 40px; height: 40px; padding: 0;
+  background: var(--c-surface-glass); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  border: 0; border-radius: 10px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-text-1) 8%, transparent), var(--shadow-2);
+  color: var(--c-text-2);
+}
+.tool:hover { color: var(--c-text-1); background: var(--c-surface-3); }
+.tool[aria-expanded="true"], .tool[aria-pressed="true"] { color: var(--c-text-ink); background: var(--c-text-1); }
+.tool .icon { width: 18px; height: 18px; }
+/* the name, beside the button: shown on hover and focus, read by screen readers always */
+.tool__tip {
+  position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+  padding: 4px 10px; border-radius: 8px; background: var(--c-surface-3); color: var(--c-text-1);
+  box-shadow: var(--shadow-2); font-size: var(--fs-1); font-weight: var(--fw-medium); white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: opacity var(--dur-2) var(--ease-standard);
+}
+.tool:hover .tool__tip, .tool:focus-visible .tool__tip { opacity: 1; }
+.tool:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+.tool-grp { display: flex; flex-direction: column; border-radius: 10px; background: var(--c-surface-glass); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-text-1) 8%, transparent), var(--shadow-2); }
+.tool-grp .tool { background: transparent; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.tool-grp .tool + .tool { border-top: 1px solid color-mix(in srgb, var(--c-text-1) 8%, transparent); border-radius: 0 0 10px 10px; }
+.tool-grp .tool:first-child { border-radius: 10px 10px 0 0; }
+@media (forced-colors: active) {
+  .tool, .tool-grp { border: 1px solid CanvasText; }
+  .tool__tip { border: 1px solid CanvasText; }
+}

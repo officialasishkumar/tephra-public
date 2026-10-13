@@ -606,7 +606,8 @@ function geoOf(region, snapshot, activeIds) {
     cones: feats("cones").filter((f) => f.properties?.part === "cone").map((f) => ({ volcano: f.properties.volcano_id, mode: f.properties.mode || "OFFICIAL", top: f.properties.top_ft, base: f.properties.base_ft, rings: rings(f.geometry) })),
     official: feats("official").map((f) => ({ kind: f.properties?.kind, label: f.properties?.label || "", top: f.properties?.top_ft, base: f.properties?.base_ft, rings: rings(f.geometry) })),
     volcanoes: feats("volcanoes").filter((f) => active.has(f.id ?? f.properties?.id) || f.properties?.active).map((f) => ({ id: f.id ?? f.properties?.id, name: f.properties?.name, code: f.properties?.color_code, at: f.geometry?.coordinates })),
-    aircraft: feats("aircraft").map((f) => ({ hex: f.properties.hex, flight: f.properties.proxy_flight, cs: f.properties.callsign, at: f.geometry?.coordinates, trk: f.properties.track_deg, exposed: !!f.properties.exposed })),
+    aircraft: feats("aircraft").map((f) => ({ hex: f.properties.hex, flight: f.properties.proxy_flight, cs: f.properties.callsign, at: f.geometry?.coordinates, trk: f.properties.track_deg, exposed: !!f.properties.exposed,
+      alt: f.properties.alt_baro_ft ?? null, gs: f.properties.gs_kt ?? null, mins: f.properties.minutes_to_entry ?? 0, from: f.properties.origin_icao || null, to: f.properties.dest_icao || null })),
     airports,
   };
 }

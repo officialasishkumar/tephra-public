@@ -262,7 +262,6 @@ q { quotes: "“" "”"; }
   font-size: var(--fs-1); z-index: var(--z-sticky); white-space: nowrap;
 }
 .honesty__airline { color: var(--c-text-2); }
-.honesty__short { display: none; }
 .honesty__links { display: flex; align-items: center; gap: var(--sp-3); margin-left: auto; }
 .honesty__about { display: inline-flex; align-items: center; flex: none; padding: 0; background: transparent; border: 0; color: var(--c-text-2); text-decoration: underline; text-underline-offset: 3px; min-height: min(28px, calc(var(--foot-h) - 1px)); font-size: var(--fs-1); border-radius: var(--radius-sm); }
 /* (the links fit inside the footer's row less its 1 px top border: at 1280 a 28 px link in the 28 px
@@ -456,7 +455,8 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
   background: var(--c-surface-glass); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--c-line-2); border-radius: var(--radius-lg); box-shadow: var(--shadow-2);
 }
-.map-pane > .key:not(.is-open) { width: auto; }
+/* folded, it is one "Map key" button; inline-size containment would size it to nothing */
+.map-pane > .key:not(.is-open) { width: max-content; container-type: normal; }
 .map-pane > .key .key__toggle { border-radius: var(--radius-lg); }
 .map-pane > .key .key__rows { padding: 2px var(--sp-3) var(--sp-3); }
 .map-pane > .key .key__label { font-size: var(--fs-2); }
@@ -502,16 +502,15 @@ body.is-compare .map-pane > .key { top: 56px; }
 .vlist__more { margin: 0; }
 
 .details-btn {
-  display: grid; grid-template-columns: 22px auto; grid-template-rows: auto auto; column-gap: var(--sp-2); align-items: center;
-  width: 100%; min-height: 56px; padding: var(--sp-2) var(--sp-3);
+  display: grid; grid-template-columns: 22px auto; column-gap: var(--sp-2); align-items: center;
+  width: 100%; min-height: 48px; padding: var(--sp-2) var(--sp-3);
   background: var(--c-surface-2); border: 1px solid var(--c-line-input); border-radius: var(--radius-md);
   color: var(--c-text-1); text-align: left; margin-top: auto;
 }
 .story > .details-btn { border-top: 1px solid var(--c-line-input); padding-top: var(--sp-2); }
 .details-btn:hover { background: var(--c-surface-3); }
-.details-btn .icon { grid-row: 1 / 3; width: 20px; height: 20px; }
+.details-btn .icon { width: 20px; height: 20px; }
 .details-btn__main { font-weight: var(--fw-semibold); font-size: var(--fs-3); }
-.details-btn__sub { grid-column: 2; font-size: var(--fs-1); color: var(--c-text-2); }
 .details-btn[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--c-text-1); }
 
 /* ---------------------------------------------------------------- map column (R6) */
@@ -562,24 +561,15 @@ body.is-stale .map-scrim { opacity: 1; }
 .ctx-label__line strong { color: var(--c-caution); letter-spacing: var(--tracking-caps); font-size: var(--fs-1); }
 .ctx-label__off { width: 32px; height: 32px; }
 
-/* the Fit and Layers controls, zoom (1600 px and up) and the attribution, stacked by MapLibre */
+/* the map's controls: one slim column, the same as the flow board's (zoom, then Fit, Satellite,
+   Compare, 3D and Layers), each naming itself on hover and focus; the credit at the foot */
 .maplibregl-ctrl-bottom-right { z-index: var(--z-map-overlay); display: flex; flex-direction: column; align-items: flex-end; }
 .maplibregl-ctrl-bottom-right .maplibregl-ctrl { margin: 0 12px 8px 0; }
 .maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib { margin: 0; }
-.map-ctrls { display: flex; gap: 6px; float: none !important; }
-.tool {
-  display: inline-flex; align-items: center; gap: 6px;
-  min-height: 44px; padding: 0 var(--sp-3);
-  background: var(--c-surface-glass); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--c-line-2); border-radius: var(--radius-md); box-shadow: var(--shadow-2);
-  color: var(--c-text-1); font-size: var(--fs-2); font-weight: var(--fw-semibold);
-}
-.tool:hover { background: var(--c-surface-3); }
-.tool[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--c-text-1); }
-.tool .icon { width: 18px; height: 18px; }
-.maplibregl-ctrl-group { background: var(--c-surface-glass); border: 1px solid var(--c-line-2); border-radius: var(--radius-md) !important; box-shadow: var(--shadow-2) !important; }
+.map-ctrls { display: flex; flex-direction: column; gap: 8px; float: none !important; }
+.maplibregl-ctrl-group { background: var(--c-surface-glass); border: 0; border-radius: 10px !important; box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-text-1) 8%, transparent), var(--shadow-2) !important; }
 .maplibregl-ctrl-group button { width: 40px; height: 40px; }
-.maplibregl-ctrl-group button + button { border-top-color: var(--c-line-2); }
+.maplibregl-ctrl-group button + button { border-top-color: color-mix(in srgb, var(--c-text-1) 8%, transparent); }
 .maplibregl-ctrl button .maplibregl-ctrl-icon { filter: invert(0.88); }
 body:not(.is-3d) .maplibregl-ctrl-compass { display: none !important; }
 .maplibregl-ctrl-group button:focus-visible { box-shadow: 0 0 0 2px var(--c-focus); }
@@ -1270,10 +1260,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
    Reroutes, Satellite check, Notices, Recovery board, Proof, AI tray (docs/EXTENSIONS.md). */
 
 :root {
-  --c-reroute: #2dd4bf;
-  --c-reroute-text: #7ef0e0;
-  /* A flight's usual route: a muted, cool neutral, drawn thin and faint beneath everything else. */
-  --c-route: #a9b8c8;
+  /* --c-reroute, --c-reroute-text and --c-route are in tokens.css (the Desk map draws them too) */
   --c-sat: #f2f6fa;
   --c-sat-text: #ffffff;
 }
@@ -1358,8 +1345,8 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 .ctx-scale__tick--end { transform: translateX(-100%); }
 
 /* ---------------------------------------------------------------- TEPHRA Assistant at work (UI-DESIGN 7.21)
-   The flow board: a full overlay. A dark map of the region (a canvas, redrawn only on a resize or a
-   new snapshot) with a beacon where each feed comes from; one glass panel, "Inside TEPHRA", with the
+   The flow board: a full overlay. A live map of the region (MapLibre on the night basemap: drag,
+   zoom, select) with a beacon where each feed comes from; one glass panel, "Inside TEPHRA", with the
    pipeline as a drawn spine; a dock with the log, the legend and the player. The spine and the gate
    are drawn on a rails canvas and moving work on an effects canvas, both over the whole board
    (wall/board-view.js); every state is also a shape and a word. Under 761 px the parts stack and
@@ -1380,10 +1367,32 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 /* the map */
 /* the map makes no stacking context: its labels sit above the effects canvas, so a particle or a
    still line passes under a label's plate and never through its words */
-.flow-map { position: absolute; inset: 0; overflow: hidden; }
-.flow-map__c { position: absolute; inset: 0; width: 100%; height: 100%; }
+.flow-map { position: absolute; inset: 0; overflow: hidden; background: var(--map-water); }
+.flow-map__gl { position: absolute; inset: 0; }
+.flow-map__gl .maplibregl-canvas:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
+/* the board's vignette: the map fades into the frame at its edges */
+.flow-map::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 75% 70% at 40% 50%, transparent 55%, color-mix(in srgb, var(--c-bg) 72%, transparent) 100%); }
 .flow-labels { position: absolute; inset: 0; z-index: 21; pointer-events: none; }
-.flow-beacon { position: absolute; transform: translate(-50%, -50%); pointer-events: auto; z-index: 2; }
+.flow-beacon { position: absolute; transform: translate(-50%, -50%); pointer-events: auto; z-index: 2; cursor: pointer; }
+.flow-beacon:hover .flow-beacon__lab { background: color-mix(in srgb, var(--c-surface-2) 92%, transparent); }
+
+/* the map's controls: over the free part of the map, beside the panel */
+.flow-ctl { position: absolute; z-index: 22; top: 50%; right: calc(404px + 40px); display: flex; flex-direction: column; gap: 8px; transform: translateY(-50%); }
+.flow-ctl .tool { cursor: pointer; }
+.flow-layers { position: absolute; bottom: 0; right: 48px; min-width: 236px; padding: 8px; border-radius: 12px; background: var(--c-surface-glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: var(--shadow-2); }
+.flow-layers__row { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 8px; border-radius: 8px; font-size: var(--fs-2); color: var(--c-text-1); cursor: pointer; }
+.flow-layers__row:hover { background: color-mix(in srgb, var(--c-text-1) 6%, transparent); }
+.flow-layers__row input { width: 16px; height: 16px; accent-color: var(--c-text-1); }
+.flow-map .maplibregl-ctrl-bottom-right { top: calc(50% + 96px); bottom: auto; right: calc(404px + 36px); }
+.flow-map .maplibregl-ctrl-attrib { background: var(--c-surface-glass); color: var(--c-text-3); }
+.flow-map .maplibregl-ctrl-attrib a { color: var(--c-text-2); }
+.flow-map .maplibregl-ctrl-attrib-button { filter: invert(0.85); }
+/* what you selected on the map: one small card, anchored where you selected */
+.flow-pick { position: absolute; z-index: 23; display: flex; flex-direction: column; gap: 2px; max-width: 280px; padding: 10px 34px 10px 12px; border-radius: 12px; background: var(--c-surface-glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: var(--shadow-2); font-size: var(--fs-2); line-height: 1.4; color: var(--c-text-2); }
+.flow-pick__title { color: var(--c-text-1); font-weight: var(--fw-semibold); }
+.flow-pick__x { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 50%; background: transparent; color: var(--c-text-3); cursor: pointer; }
+.flow-pick__x:hover { color: var(--c-text-1); }
+.flow-pick__x .icon { width: 14px; height: 14px; }
 .flow-beacon__pin { display: block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; color: var(--c-text-2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-bg) 80%, transparent); }
 .flow-beacon__pin.is-edge { width: 5px; height: 5px; }
 .flow-beacon--official .flow-beacon__pin { color: var(--c-official); }
@@ -1612,6 +1621,8 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 @media (min-width: 761px) and (max-width: 1180px) {
   .flow-panel { width: 360px; }
   .flow-dock { right: calc(360px + 48px); }
+  .flow-ctl { right: calc(360px + 40px); }
+  .flow-map .maplibregl-ctrl-bottom-right { right: calc(360px + 36px); }
   .flow-head__sub { max-width: 52ch; }
   .flow-chip__text { display: none; }
   .flow-player.is-skipping .flow-skip__long { display: none; }
@@ -1633,7 +1644,9 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .flow-seg__btn { flex: 1; padding: 6px 8px; font-size: var(--fs-1); }
   .flow-close { position: absolute; top: 12px; right: 12px; }
   .flow-stale { position: relative; order: 2; left: auto; top: auto; margin: 10px 16px 0; }
-  .flow-map { position: relative; order: 3; inset: auto; flex: none; height: 280px; margin-top: 10px; }
+  .flow-map { position: relative; order: 3; inset: auto; flex: none; height: 320px; margin-top: 10px; }
+  .flow-ctl { top: 8px; right: 8px; transform: none; }
+  .flow-map .maplibregl-ctrl-bottom-right { top: 8px; bottom: auto; right: auto; left: 0; }
   .flow-maplabel--ash { display: none; }
   .flow-panel { position: relative; order: 4; inset: auto; width: auto; margin: -14px 12px 0; padding: 14px 14px 16px 12px; border-radius: 16px; overflow: visible; }
   .flow-row { min-height: 32px; }
@@ -1765,11 +1778,6 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 @media (max-width: 1199px) {
   .brand__sub { display: none; }
 }
-@media (max-width: 1599px) {
-  /* zoom buttons only at 1600 px and up (R6.6); the map still zooms by wheel, pinch and keys */
-  .maplibregl-ctrl-zoom-in, .maplibregl-ctrl-zoom-out { display: none !important; }
-  body:not(.is-3d) .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group:not(.map-ctrls) { display: none; }
-}
 
 /* ---------------------------------------------------------------- R4.2: 1360-1599 (1440x900) */
 
@@ -1797,7 +1805,6 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .brand__mark { font-size: var(--fs-4); letter-spacing: 0.14em; }
   .clock__time { font-size: var(--fs-5); }
   .clock__sub { min-width: 0; }
-  .honesty__long { display: none; }
   .honesty__short { display: inline; }
   .honesty__links { gap: var(--sp-2); }
   .timebar { gap: var(--sp-2); padding: 0 var(--sp-2); }
@@ -1805,8 +1812,6 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .tl__steps .seg button { padding: 0 8px; }
   .tl__history { left: 4px; right: 4px; }
   .map-pills { max-width: calc(100% - 200px); }
-  .tool span { display: none; }
-  .tool { padding: 0 10px; }
 }
 
 /* ---------------------------------------------------------------- R4.4: phone (390x844) */
@@ -1875,8 +1880,12 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .map-pills { max-width: calc(100% - 24px); bottom: 84px; }
   .map-pill { font-size: var(--fs-1); }
   .time-pill { display: inline-flex; align-items: center; position: absolute; left: 12px; bottom: 36px; z-index: var(--z-map-overlay); min-height: 40px; padding: 0 var(--sp-3); background: var(--c-surface-glass); border: 1px solid var(--c-line-2); border-radius: var(--radius-pill); color: var(--c-text-1); font-size: var(--fs-2); font-weight: var(--fw-semibold); }
-  .tool { min-height: 40px; }
-  .tool span { display: inline; }
+  /* a short map: Fit and Layers in a row; Satellite, Compare and 3D are in Layers; pinch zooms */
+  .map-ctrls { flex-direction: row; }
+  .tool[data-tool="sat-toggle"], .tool[data-tool="compare"], .tool[data-tool="3d"] { display: none; }
+  .tool__tip { display: none; }
+  .maplibregl-ctrl-zoom-in, .maplibregl-ctrl-zoom-out { display: none !important; }
+  body:not(.is-3d) .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group:not(.map-ctrls) { display: none; }
   .maplibregl-ctrl-bottom-right .maplibregl-ctrl { margin-right: 8px; }
   /* the time bar is a bottom sheet opened from the pill (R7.4) */
   .timebar { display: none; }
@@ -1976,7 +1985,6 @@ body.present .details-btn { border-style: dashed; }
   .story[data-fit="4"] .notice, .story[data-fit="5"] .notice, .story[data-fit="6"] .notice, .story[data-fit="7"] .notice, .story[data-fit="8"] .notice { padding: var(--sp-2) var(--sp-3); }
   /* 7+: the Details button on one line */
   .story[data-fit="7"] .details-btn, .story[data-fit="8"] .details-btn { min-height: 44px; grid-template-rows: auto; }
-  .story[data-fit="7"] .details-btn__sub, .story[data-fit="8"] .details-btn__sub { display: none; }
   .story[data-fit="7"] .details-btn .icon, .story[data-fit="8"] .details-btn .icon { grid-row: 1; }
   .story[data-fit="7"] .allv { gap: 2px; }
   /* 8: the tightest rhythm (1280x720 with a long story) */

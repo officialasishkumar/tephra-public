@@ -4,13 +4,13 @@
 
 import { addExtLayers, updateExtLayers, setExtVisible } from "./ext-map.js";
 import { addImages, flightGroupImage } from "./images.js";
+import { STYLE_URL, nightBasemap, nightColours } from "./basemap.js";
 import { officialLabelText, tephraLabelText, LEVEL_MAX } from "./derive.js";
 import { GASES_SCOPE_SHORT } from "./glossary.js";
 import {
   $, el, band, bboxOf, compassWord, dest, fc, hhmmz, kmBetween, ms, reducedMotion, ringCentre, ringsOf, dayMon,
 } from "./util.js";
 
-const STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
 const FONT_BOLD = ["Noto Sans Bold"];
 const FONT_REG = ["Noto Sans Regular"];
 const CODE_SIZE = { RED: 1.0, ORANGE: 0.92, YELLOW: 0.84, GREEN: 0.76, UNKNOWN: 0.76 };
@@ -63,6 +63,7 @@ export function readTokens() {
     crew: tok("--c-crew"), crewText: tok("--c-crew-text"),
     aircraft: tok("--c-aircraft"), stale: tok("--c-aircraft-stale"), route: tok("--c-route"),
     tephraBack: tok("--map-flight-back"), land: tok("--map-land"), water: tok("--map-water"), halo: tok("--map-halo"), label: tok("--map-label"),
+    night: nightColours(),
     fir: tok("--map-fir"), firActive: tok("--map-fir-active"), vaac: tok("--map-vaac"), navaid: tok("--map-navaid"),
     labelMinor: tok("--map-label-minor"), labelFir: tok("--map-label-fir"), labelVaac: tok("--map-label-vaac"),
     text1: tok("--c-text-1"), text2: tok("--c-text-2"), text3: tok("--c-text-3"),
@@ -80,22 +81,14 @@ const before = (map, id) => (map.getLayer(id) ? id : undefined);
 // ------------------------------------------------------------------ layer builders
 
 function tuneBasemap(map, C, ui) {
-  if (map.getLayer("water")) map.setPaintProperty("water", "fill-color", C.water);
-  if (map.getLayer("landuse_park")) map.setPaintProperty("landuse_park", "fill-opacity", 0.35);
-  for (const id of ["place_city", "place_city_large", "place_town"]) if (map.getLayer(id)) map.setPaintProperty(id, "text-color", C.labelMinor);
-  // Place names once, in Latin script: the basemap's second line in the local script doubled
-  // every country and city name on the map.
-  for (const layer of map.getStyle().layers) {
-    if (layer.type !== "symbol" || !JSON.stringify(layer.layout?.["text-field"] ?? "").includes("name:nonlatin")) continue;
-    map.setLayoutProperty(layer.id, "text-field", ["coalesce", ["get", "name:latin"], ["get", "name:en"], ["get", "name"]]);
-  }
+  nightBasemap(map, C.night);
   // State and province names only from zoom 5: zoomed out they covered whole countries.
   for (const layer of map.getStyle().layers) {
     if (layer.type === "symbol" && /state|province/i.test(layer.id)) map.setLayerZoomRange(layer.id, Math.max(layer.minzoom ?? 0, 5), layer.maxzoom ?? 24);
   }
   const vis = ui.layers.terrain ? "visible" : "none";
   if (map.getSource("ne2_shaded") && !map.getLayer("ne2-relief")) {
-    map.addLayer({ id: "ne2-relief", type: "raster", source: "ne2_shaded", maxzoom: 8, paint: { "raster-saturation": -1, "raster-contrast": 0.15, "raster-brightness-max": 0.45, "raster-opacity": 0.5 } }, before(map, "water"));
+    map.addLayer({ id: "ne2-relief", type: "raster", source: "ne2_shaded", maxzoom: 8, layout: { visibility: vis }, paint: { "raster-saturation": -1, "raster-contrast": 0.15, "raster-brightness-max": 0.45, "raster-opacity": 0.5 } }, before(map, "water"));
   }
   if (!map.getSource("dem")) {
     map.addSource("dem", { type: "raster-dem", tiles: ["https://tiles.mapterhorn.com/{z}/{x}/{y}.webp"], encoding: "terrarium", tileSize: 512, maxzoom: 12, attribution: "© Mapterhorn" });
@@ -403,8 +396,8 @@ export class WallMap {
       sources: { land: { type: "geojson", data: "/static/data/land_apac.geojson" } },
       layers: [
         { id: "background", type: "background", paint: { "background-color": this.C.water } },
-        { id: "land", type: "fill", source: "land", paint: { "fill-color": "#15181c" } },
-        { id: "coast", type: "line", source: "land", paint: { "line-color": "#2a3442", "line-width": 1 } },
+        { id: "land", type: "fill", source: "land", paint: { "fill-color": this.C.land } },
+        { id: "coast", type: "line", source: "land", paint: { "line-color": this.C.night.coast, "line-width": 1 } },
       ],
     });
     this.onNote?.("basemap", "Basemap offline: simplified coastline (Natural Earth)");
@@ -988,7 +981,7 @@ export class WallMap {
 
   applyLayers() {
     const L = this.ui.layers;
-    this.setVisible(["hillshade"], L.terrain);
+    this.setVisible(["hillshade", "ne2-relief"], L.terrain);
     this.setVisible(["fir-line", "fir-active", "fir-label", "vaac-line", "vaac-label"], L.context);
     this.setVisible(["navaid", "navaid-label"], L.navaids);
     this.setVisible(["tephra-fill", "tephra-hatch", "tephra-line", "tephra-label"], L.tephra);

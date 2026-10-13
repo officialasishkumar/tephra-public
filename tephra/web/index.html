@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="https://unpkg.com/@maplibre/maplibre-gl-compare@0.5.0/dist/maplibre-gl-compare.css">
   <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/mapui.css">
   <link rel="stylesheet" href="/static/wall.css">
   <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script type="module" src="/static/wall.js"></script>
@@ -117,7 +118,6 @@
       <button id="details-btn" class="details-btn" type="button" aria-expanded="false" aria-controls="details" title="Sources, timeline, how TEPHRA decided, TEPHRA Assistant, data feeds">
         <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-list"></use></svg>
         <span class="details-btn__main">Details</span>
-        <span class="details-btn__sub">Sources, timeline, how TEPHRA decided, TEPHRA Assistant, data feeds</span>
       </button>
     </section>
 
@@ -141,12 +141,23 @@
           <div id="map-notes" class="map-notes"></div>
         </div>
 
-        <div id="tools" class="map-ctrls maplibregl-ctrl" role="toolbar" aria-label="Map view">
-          <button class="tool" type="button" data-tool="frame" aria-keyshortcuts="F" title="Fit the selected volcano (F)">
-            <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-frame"></use></svg><span>Fit</span>
+        <!-- the map's controls, one slim column like the flow board's: each says its name on hover
+             and focus (.tool__tip is also its accessible name) -->
+        <div id="tools" class="map-ctrls maplibregl-ctrl" role="toolbar" aria-label="Map view" aria-orientation="vertical">
+          <button class="tool" type="button" data-tool="frame" aria-keyshortcuts="F">
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-frame"></use></svg><span class="tool__tip">Fit the volcano (F)</span>
           </button>
-          <button class="tool" type="button" data-tool="layers" aria-expanded="false" aria-controls="details" aria-keyshortcuts="L" title="Map layers, 3D and compare (L)">
-            <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-layers"></use></svg><span>Layers</span>
+          <button class="tool" type="button" data-tool="sat-toggle" aria-pressed="false" aria-keyshortcuts="I">
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-satellite"></use></svg><span class="tool__tip">Satellite picture, context only (I)</span>
+          </button>
+          <button class="tool" type="button" data-tool="compare" aria-pressed="false" aria-keyshortcuts="S">
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-swipe"></use></svg><span class="tool__tip">Compare: official only vs with TEPHRA (S)</span>
+          </button>
+          <button class="tool" type="button" data-tool="3d" aria-pressed="false" aria-keyshortcuts="D">
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-3d"></use></svg><span class="tool__tip">3D view of the ash heights (D)</span>
+          </button>
+          <button class="tool" type="button" data-tool="layers" aria-expanded="false" aria-controls="details" aria-keyshortcuts="L">
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-layers"></use></svg><span class="tool__tip">Map layers (L)</span>
           </button>
         </div>
 
@@ -191,7 +202,7 @@
   </main>
 
   <footer class="honesty">
-    <span class="honesty__airline"><span class="honesty__long">RFA (Ring of Fire Air) is a fictional airline. Its flight numbers are proxies for real aircraft.</span><span class="honesty__short">RFA is a fictional airline.</span></span>
+    <span class="honesty__airline" title="Ring of Fire Air (RFA) is a fictional airline. Its flight numbers are proxies for real aircraft (About)."><span class="honesty__short">RFA is a fictional airline.</span></span>
     <span class="honesty__links">
       <button id="attribution" class="honesty__about" type="button" aria-haspopup="dialog">Map and data credits</button>
       <button id="policy-btn" class="honesty__about honesty__policy" type="button" aria-haspopup="dialog" hidden>Policy A (illustrative)</button>

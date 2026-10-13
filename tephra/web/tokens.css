@@ -110,8 +110,15 @@
   --c-code-unknown: #8a96a3;
 
   /* --- map-only values (basemap overrides and context lines) --- */
-  --map-land: #0c0c0c;
-  --map-water: #0b1a2a;
+  --c-reroute: #2dd4bf; /* a computed reroute, on the Wall and the Desk maps */
+  --c-reroute-text: #7ef0e0;
+  --c-route: #a9b8c8; /* a flight's usual route: muted, drawn thin and faint beneath everything */
+  --map-land: #0b121a; /* land under the dot matrix */
+  --map-water: #04070b;
+  --map-dot: #9db4cc; /* the land's dots, drawn at 30 % over --map-land */
+  --map-coast: rgb(157 180 204 / 0.28);
+  --map-grid: rgb(157 180 204 / 0.05);
+  --map-border: rgb(157 180 204 / 0.22);
   --map-halo: #05070a;
   --map-label: #d5dee7;
   --map-fir: #56697e;
