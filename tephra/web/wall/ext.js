@@ -8,7 +8,7 @@
 
 import { $, el, icon, ms, hhmmz } from "./util.js";
 import { frameFor } from "./ext-map.js";
-import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, causeTitle, handPlanOf, reasonClass, realWhen, machineText, WHY } from "./x-parts.js";
+import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, causeTitle, handPlanOf, reasonClass, realWhen, machineText, machineSentences, WHY } from "./x-parts.js";
 import { dutyDetail, dispatchedTools } from "./duty.js";
 import { HELPERS } from "./board.js";
 import {
@@ -456,7 +456,7 @@ function proofPanel() {
     dkAbout(`Per case (${b.cases.length})`, "proof-cases", el("div", { class: "x-tablewrap" }, el("table", { class: "x-table x-table--cases" }, el("caption", { class: "sr-only", text: "Backtest results per case" }),
       el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Case" }), el("th", { scope: "col", class: "num", text: "TEPHRA" }), el("th", { scope: "col", class: "num", text: "Official" }), el("th", { scope: "col", class: "num", text: "Over-warn" }), el("th", { scope: "col", class: "num", text: "Moments" }))),
       el("tbody", {}, ...rows)))),
-    dkAbout(`Caveats (${(b.caveats || []).length})`, "proof-caveats", el("ul", { class: "dk-bullets" }, ...(b.caveats || []).map((c) => el("li", { text: c }))))),
+    dkAbout(`Caveats (${(b.caveats || []).length})`, "proof-caveats", el("ul", { class: "dk-bullets" }, ...(b.caveats || []).map((c) => el("li", { text: machineSentences(c) }))))),
   el("p", { class: "dk-foot mono", text: `Scored by code · generated ${clock(b.generated_at)} · every case is a recorded replay` }));
   return [dkSection("proof-head", kids)];
 }

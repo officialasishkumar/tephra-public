@@ -478,6 +478,8 @@ export function planFailure(plan) {
 // semicolon. The words are unchanged. Official products, advisory text and model-written prose
 // are records and are shown exactly as written.
 export const machineText = (t, sep = " · ") => String(t ?? "").replace(/\s*;\s+/g, sep);
+// Code-written prose (a backtest caveat): each clause after a semicolon becomes its own sentence.
+export const machineSentences = (t) => String(t ?? "").replace(/\s*;\s+(\S)/g, (_, c) => `. ${c.toUpperCase()}`);
 
 // "Technical detail" disclosure holding raw machine text (R12.7).
 export function techDetail(...lines) {
