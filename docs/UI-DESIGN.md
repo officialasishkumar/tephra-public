@@ -1426,8 +1426,12 @@ and one link: a plane: RFA flight and real callsign, level and ground speed, ori
 inside or minutes to entry (caution and serious words), its advisory's state, "Flight details ›";
 a volcano: its alert colour, the official band now, the RFA flights in or heading in, "This ash
 area ›"; an airport: codes and name, "Closed until 1910Z" and why or "Open: no closure in the
-airport plan", the longest runway, "Airport plan ›". Selecting a plane still picks it (ring, route,
-path). The card follows the map; Escape, its ✕ or a click on empty map closes it. Areas, reroutes
+airport plan", the longest runway, "Airport plan ›". A volcano's or an airport's card shows a photo when
+one with a free licence exists (`wall/photo.js`): Wikidata's image of the volcano (Smithsonian
+volcano number) or the airport (ICAO code), shown only when Wikimedia Commons reports public domain,
+CC0, CC BY or CC BY-SA, with "Photo: <author> · <licence>" under it linked to its Commons page;
+none found, no photo and nothing in its place. Planes get no photo. Selecting a plane still picks
+it (ring, route, path). The card follows the map; Escape, its ✕ or a click on empty map closes it. Areas, reroutes
 and crew reports still open their Details sections.
 
 The side panel (story and Details) hides with a tab on the map's left edge for the whole map, and
@@ -2191,6 +2195,11 @@ The Desk takes the flow board's look, so the Wall, the board and the Desk read a
   18 px radius and a deep shadow. Empty states stay dashed.
 - **Tabs.** Decide · Airports · Paperwork. From 1100 px one pill under the header (the board's
   "Real now / Example" control); the chosen tab is filled. A phone keeps the bottom bar.
+- **Ask's own colour.** Ask is indigo (`--c-ask` `#8b9bff` to `--c-ask-2` `#5ec8ff`), a hue
+  nothing else on TEPHRA uses: the header button's gradient ring, the drawer's glow, top edge and
+  border, its suggestions and its send button. Text on it passes AA (tokens.css).
+- **Explainers live on the guide.** "How this works" folds left Details (13 Oct 2026): their words
+  are the guide's "How each part works" (`wall/explain.js`); Details keeps the data folds.
 - **Ask from anywhere.** Ask is not a tab: the header's Ask button opens a drawer at the right edge
   over whatever is open (a full-width sheet on a phone), the question box focused; Escape, its ✕
   or the button again closes it. "Ask about this flight" opens it with the review still open.

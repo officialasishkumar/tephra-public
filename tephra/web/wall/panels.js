@@ -11,7 +11,7 @@ import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, 
 import { plainMove } from "./derive.js";
 import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, aiSymbol, recordedWords, replayWords, stripLabel, describeReplay, handPlanOf, causeTitle, blockPhrase, whyLink, machineText, MARK, ASSISTANT } from "./x-parts.js";
 import {
-  dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkTech, dkSection, dkLink,
+  dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkEmpty, dkTech, dkSection, dkLink,
   dkWhen, dkDot, dkFromReplay, collapseRuns, runRow, timeRange, plural, dayTime, times,
 } from "./dk.js";
 
@@ -229,8 +229,8 @@ export function renderChrome(D, store, ui) {
   if (ui.sat !== "off") extra.push("Imagery: NASA GIBS");
   if (ui.so2) extra.push(`${ui.sat === "off" ? "Imagery: NASA GIBS · " : ""}Contains modified Copernicus Sentinel data ${new Date(D.now).getUTCFullYear()}`);
   const attrib = [ATTRIBUTION, ...extra].join(" · ");
-  // The full credit string: in the drawer footer and About › Credits; OSM stays on the map (R6.6).
-  setText($("drawer-attrib"), attrib);
+  // The full credit string: on the footer link's tooltip and the guide's Credits; OSM stays on the
+  // map (R6.6).
   $("attribution").title = attrib;
 }
 
@@ -382,7 +382,7 @@ export function renderFlights(D, store, ui, target = $("flights")) {
     { label: "Heading in", value: String(heading), sub: heading ? `first in ${nextIn} min (est.)` : null },
     crew ? { label: "On a crew report's route", value: String(crew.n), tone: "plain" } : null,
   ], "Flights in numbers") : null;
-  const note = dkNote("info", `RFA (Ring of Fire Air) is a fictional airline. Each flight number stands in for a real aircraft. ${coverageWords(D, store)}`);
+  const note = dkNote("info", coverageWords(D, store));
   const othersBox = others.size ? dkGroup("Other volcanoes", null, el("div", { class: "dk-actions" }, ...[...others].map(([vid, n]) => {
     const name = D.sits.find((x) => x.volcano_id === vid)?.volcano_name || vid;
     return el("button", { type: "button", class: "btn btn--small", dataset: { act: "select", vid, focus: `others-${vid}` }, text: `+${n} heading in at ${name}` });
@@ -504,8 +504,7 @@ export function renderTrace(D, store, ui, conn, target = $("trace")) {
     : dkEmpty(ui.traceFilter === "problems" ? "No problems in these steps" : "No steps yet", null);
   if (runs.length) { list.setAttribute("role", "log"); list.setAttribute("aria-live", "off"); list.setAttribute("aria-label", "How TEPHRA decided, newest first"); }
   target.classList.toggle("is-stale", !!conn.lostAt);
-  target.replaceChildren(dkSection("trace-head", head, tiles, controls, list,
-    el("div", { class: "dk-abouts" }, dkAbout("How to read this", "trace", "Each step in plain words. Steps that say the same thing are one row with how many times and when. Open a row for each step. Lines TEPHRA has no plain wording for are shown as written, and the raw line is always under Technical detail."))));
+  target.replaceChildren(dkSection("trace-head", head, tiles, controls, list));
 }
 
 // ------------------------------------------------------------------ Details › the ash (R8.3)
@@ -619,8 +618,7 @@ export function sourcesSection(D, sit) {
     el("p", { class: "dk-legend" }, el("span", { class: "dk-swatch dk-swatch--official" }), "official report ", el("span", { class: "dk-swatch dk-swatch--observer" }), "observatory ", st("st-caution", "var(--c-caution)"), " disagrees with another source"),
     dkList(order.map(sourceRow), { first: 3, key: "src" }),
     el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "raw", kind: "", focus: "src-side" } }, icon("i-raw-text"), "Raw texts side by side (C)")),
-    dkGroup("Why this volcano is shown", null, dkList([dkRow({ key: "src-why", dot: "info", title: `Why TEPHRA shows ${sit.volcano_name}`, sub: plural(sit.active_reasons.length, "reason"), body: el("ul", { class: "dk-bullets" }, ...sit.active_reasons.map((r) => el("li", { text: r }))) })], { key: "src-why" })),
-    el("div", { class: "dk-abouts" }, dkAbout("How to read this", "src", "One row per kind of report, the newest of each. A pink edge marks an official report (SIGMET, VAA): it is binding. A blue edge marks the observatory (VONA): it supports. A value that disagrees with another source carries the caution shape.")));
+    dkGroup("Why this volcano is shown", null, dkList([dkRow({ key: "src-why", dot: "info", title: `Why TEPHRA shows ${sit.volcano_name}`, sub: plural(sit.active_reasons.length, "reason"), body: el("ul", { class: "dk-bullets" }, ...sit.active_reasons.map((r) => el("li", { text: r }))) })], { key: "src-why" })));
 }
 
 // Long verbatim fields stay out of the facts: quoted lines in the row body, by source kind.
@@ -756,8 +754,7 @@ export function areaSection(D, sit, ui) {
     // A replay loop reuses the same model's reading of the same input; the label says so.
     dkFacts([["Reading", el("span", {}, readBy)], ["Answer", recordedWords(a?.recorded_answer) || null]]),
     read,
-    dkTech(`Mode ${cone.mode} · label ${cone.label} · ${cone.cone_id || ""}`),
-    el("div", { class: "dk-abouts" }, dkAbout("About the estimate", "area", "TEPHRA's estimate is an estimate, not a forecast. It is drawn as the amber dashed line, never smaller than the official area, which stays binding.")));
+    dkTech(`Mode ${cone.mode} · label ${cone.label} · ${cone.cone_id || ""}`));
 }
 const untilWords = (dt) => (Number.isFinite(dt) ? (dt > 0 ? `in ${age(dt / 1000)}` : `${age(-dt / 1000)} ago`) : null);
 
@@ -1126,8 +1123,7 @@ export function historySection(D, store, ui) {
   box.replaceChildren(dkSection("hist-head", head,
     el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "history", focus: "hist-open" }, text: ui.historyOpen ? "Hide History on the time bar" : "Show History on the time bar" })),
     D.stepsMissing?.length ? dkNote("info", "The chosen forecast step has no official area in the current products. No other step is drawn in its place.") : null,
-    seg, list,
-    el("div", { class: "dk-abouts" }, dkAbout("About lag", "hist", "Official reports are reissued every few hours, so they trail the observatory: a lag is usual. The time bar's History shows these events on three lanes."))));
+    seg, list));
 }
 
 // ------------------------------------------------------------------ Details › Data feeds (R8.3, R12.8)

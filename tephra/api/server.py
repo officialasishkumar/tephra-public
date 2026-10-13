@@ -99,11 +99,14 @@ CONTENT_SECURITY_POLICY: Final = "; ".join(
         "script-src 'self' https://unpkg.com/maplibre-gl@4.7.1/"
         " https://unpkg.com/@maplibre/maplibre-gl-compare@0.5.0/",
         "style-src 'self' https://unpkg.com",
-        # Map tiles: OpenFreeMap basemap, NASA GIBS satellite context, Mapterhorn terrain.
+        # Map tiles: OpenFreeMap basemap, NASA GIBS satellite context, Mapterhorn terrain; the map
+        # card's freely licensed photos: Wikidata finds them, Commons checks the licence and serves.
         "img-src 'self' data: blob: https://tiles.openfreemap.org"
-        " https://gibs.earthdata.nasa.gov https://tiles.mapterhorn.com",
+        " https://gibs.earthdata.nasa.gov https://tiles.mapterhorn.com"
+        " https://upload.wikimedia.org https://thumb.wikimedia.org",
         "connect-src 'self' https://tiles.openfreemap.org"
-        " https://gibs.earthdata.nasa.gov https://tiles.mapterhorn.com",
+        " https://gibs.earthdata.nasa.gov https://tiles.mapterhorn.com"
+        " https://query.wikidata.org https://commons.wikimedia.org",
         # Ask TEPHRA's spoken answers are WAV files played from a blob: URL.
         "media-src 'self' blob:",
         "worker-src 'self' blob:",
@@ -736,9 +739,10 @@ async def switch_mode(
     before = _mode_facts(runtime)
     if body.mode is RunMode.REPLAY:
         case = await _replay_case_for(body.case_id, runtime, settings, catalogue)
-        await runtime.switch_mode(body.mode, case=case)  # the case is set under its lock
+        # the case is set under its lock; a tick in progress is stopped, not waited for
+        await runtime.switch_mode(body.mode, case=case, preempt=True)
     else:
-        await runtime.switch_mode(body.mode)
+        await runtime.switch_mode(body.mode, preempt=True)
     await audit.record(
         runtime.store,
         actor=_actor(session),

@@ -273,6 +273,8 @@ class Runtime:
     live: LiveData = field(init=False, default_factory=LiveData)
     lock: asyncio.Lock = field(init=False, default_factory=asyncio.Lock, repr=False)
     tick_running: bool = field(init=False, default=False)
+    tick_task: "asyncio.Task[TickReport] | None" = field(init=False, default=None, repr=False)
+    """The running tick's steps, which a person's mode switch at the Desk stops (switch_mode)"""
     situations: dict[str, Situation] = field(init=False, default_factory=dict)
     assessments: dict[str, PlumeAssessment] = field(init=False, default_factory=dict)
     cones: dict[str, HazardCone] = field(init=False, default_factory=dict)
@@ -460,10 +462,21 @@ class Runtime:
         )
 
     async def switch_mode(
-        self, mode: RunMode, *, auto: bool = False, case: ReplayCase | None = None
+        self,
+        mode: RunMode,
+        *,
+        auto: bool = False,
+        case: ReplayCase | None = None,
+        preempt: bool = False,
     ) -> None:
         """``case`` is taken under the lock, with the switch: while a tick runs, or after a
-        switch that failed, the REPLAY banner never names a case that is not playing."""
+        switch that failed, the REPLAY banner never names a case that is not playing.
+
+        ``preempt`` (a person's switch at the Desk) stops a tick in progress instead of waiting
+        for it: a LIVE tick waits on public feeds for minutes, and the switch resets the picture
+        and the epoch, so nothing the stopped tick began is kept."""
+        if preempt and self.tick_task is not None and not self.tick_task.done():
+            self.tick_task.cancel()
         async with self.lock:
             await self._switch(mode, auto=auto, case=case)
 

@@ -1,15 +1,15 @@
-// The tab bar (UI-REDESIGN R10.2, Desk redesign D5 and 11): Decide · Airports · Paperwork · Ask,
-// a real tablist (role=tab, aria-selected, aria-controls; the panels are tabpanels). The data-tab
-// keys (queue, ask, network, docs) and the sessionStorage key are unchanged; the three work tabs
-// sit together and the read-only Ask goes last. Only Decide has a badge: Decide is the inbox and
+// The tab bar (UI-REDESIGN R10.2, Desk redesign D5 and 11, UI-DESIGN 10.18): Decide · Airports ·
+// Paperwork, a real tablist (role=tab, aria-selected, aria-controls; the panels are tabpanels). The
+// data-tab keys (queue, network, docs) and the sessionStorage key are unchanged. Ask is not a tab:
+// it is a drawer the header's Ask button opens over any tab (desk.js openAsk). Only Decide has a badge: Decide is the inbox and
 // its one count (waitingCount in desk.js) is the h1, the badge and the page title alike.
 
 import { byId, el, icon } from './dom.js';
 import { app } from './state.js';
 
-export const TABS = ['queue', 'network', 'docs', 'ask'];
-const LABEL = { queue: 'Decide', ask: 'Ask', network: 'Airports', docs: 'Paperwork' };
-const ICON = { queue: 'i-inbox', ask: 'i-chat', network: 'i-network', docs: 'i-file' };
+export const TABS = ['queue', 'network', 'docs'];
+const LABEL = { queue: 'Decide', network: 'Airports', docs: 'Paperwork' };
+const ICON = { queue: 'i-inbox', network: 'i-network', docs: 'i-file' };
 const PANEL = (name) => (name === 'queue' ? 'desk-view' : `panel-${name}`);
 const KEY = 'tephra.desk.tab';
 

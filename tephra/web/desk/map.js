@@ -158,8 +158,9 @@ function placeCard(sel) {
     for (const f of [...feats('exposures').filter((x) => x.properties && x.properties.flight_id === sel.flight_id), ...rerouteOf(sel)]) if (f.geometry && f.geometry.type === 'LineString') pts.push(...f.geometry.coordinates);
     const lons = pts.map((q) => q[0]), lats = pts.map((q) => q[1]);
     const w = map.getContainer().clientWidth;
-    const pad = { top: 70, bottom: 70, left: Math.round(w * 0.1), right: Math.round(Math.min(220, w * 0.4)) };
-    map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: pad, maxZoom: 6.5, duration: reducedMotion() ? 0 : 700 });
+    // framed wide: the region around the flight reads at once, not only the plane
+    const pad = { top: 90, bottom: 90, left: Math.round(w * 0.15), right: Math.round(Math.min(240, w * 0.4)) };
+    map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: pad, maxZoom: 5.4, duration: reducedMotion() ? 0 : 900 });
   }
 }
 // Back to the whole picture: every ash area and every flight in or heading in.
@@ -169,7 +170,7 @@ function fitAll() {
   for (const f of feats('aircraft')) if (f.properties && f.properties.exposed && f.geometry) pts.push(f.geometry.coordinates);
   if (!pts.length) return;
   const lons = pts.map((p) => p[0]), lats = pts.map((p) => p[1]);
-  map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: 48, duration: reducedMotion() ? 0 : 600, maxZoom: 7 });
+  map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: 64, duration: reducedMotion() ? 0 : 600, maxZoom: 5.2 });
 }
 
 function build(node) {

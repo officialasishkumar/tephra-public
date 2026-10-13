@@ -88,6 +88,12 @@ body.guide {
   font-weight: var(--fw-semibold);
 }
 
+.guide__how p {
+  margin: 0 0 var(--sp-3);
+  line-height: var(--lh-body);
+  color: var(--c-text-2);
+}
+
 .guide [id] {
   scroll-margin-top: 72px;
 }

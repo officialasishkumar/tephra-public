@@ -12,6 +12,7 @@ import {
 import { ext, loadExt, ingest, noteTrace, satScale, aiState, handPlan } from "./wall/ext.js";
 import { renderStory, coverageNote, currentPlan, officialBand } from "./wall/story.js";
 import { planeCard, volcanoCard, airportCard } from "./wall/pick.js";
+import { photoFor, photoFigure } from "./wall/photo.js";
 import { renderDetails, sectionOf, PANELS } from "./wall/details.js";
 import { boardModel, flowModel } from "./wall/board.js";
 import { mountFlow } from "./wall/board-view.js";
@@ -856,10 +857,14 @@ function onFeature(hit, lngLat) {
   } else if (id.startsWith("volcano")) {
     if (D.sits.some((s) => s.volcano_id === p.id)) select(p.id);
     const sit = D.sits.find((s) => s.volcano_id === p.id);
-    map.showCard(hit.geometry?.type === "Point" ? hit.geometry.coordinates : [lngLat.lng, lngLat.lat], volcanoCard(p, officialBand(D, p.id), sit?.exposed_count || 0));
+    const node = volcanoCard(p, officialBand(D, p.id), sit?.exposed_count || 0);
+    map.showCard(hit.geometry?.type === "Point" ? hit.geometry.coordinates : [lngLat.lng, lngLat.lat], node);
+    withPhoto(node, "volcano", p.id, p.name);
   } else if (id.startsWith("airport")) {
     const closure = (currentPlan()?.closures || []).find((c) => c.icao === p.icao) || null;
-    map.showCard(hit.geometry.coordinates, airportCard(p, closure));
+    const node = airportCard(p, closure);
+    map.showCard(hit.geometry.coordinates, node);
+    withPhoto(node, "airport", p.icao, p.name || p.icao);
   } else if (id === "reroute-line" || id === "reroute-wp") {
     const f = D.aircraft.find((a) => `${a.properties.hex}:${a.properties.volcano_id}` === p.flight_id || a.properties.proxy_flight === p.proxy_flight);
     if (f) { pickFlight(f); openDetails("flight", { opener: canvas }); }
@@ -870,6 +875,11 @@ function onFeature(hit, lngLat) {
   } else if (id.startsWith("closure")) {
     openDetails("recovery", { opener: canvas });
   }
+}
+
+// A volcano's or an airport's photo joins its card when one with a free licence is found (photo.js).
+function withPhoto(node, kind, code, name) {
+  photoFor(kind, code).then((ph) => { if (ph && node.isConnected) node.prepend(photoFigure(ph, name)); });
 }
 
 // The picked aircraft stays marked on the map and in the flights list until cleared (7.8).

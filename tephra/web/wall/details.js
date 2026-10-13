@@ -15,7 +15,7 @@ import { ext, renderXPanel, recoverySummary, proofTicks, rerouteBlock, replannin
 import { renderLayers, layersStatus } from "./controls.js";
 import { currentPlan, advisoryFacts, closuresFor } from "./story.js";
 import { planFailure, techDetail, blockPhrase, whyLink } from "./x-parts.js";
-import { dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkSection, dkDot, dkFromReplay } from "./dk.js";
+import { dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkList, dkFacts, dkNote, dkEmpty, dkSection, dkDot, dkFromReplay } from "./dk.js";
 
 // Section key, index group, title, host element id, the old rail panel id it stands for (R8.2).
 export const SECTIONS = [
@@ -302,8 +302,7 @@ function flightDetail(D, ui, store) {
   const p = f.properties;
   const entryPill = p.exposed ? (p.inside ? dkPill("inside", "Inside TEPHRA's area now") : dkPill("tephra", `Enters in ${p.minutes_to_entry} min (estimated)`)) : dkPill("ok", "Not projected to enter TEPHRA's area");
   const kids = [
-    dkHeader({ id: "fl-head", pills: [entryPill], title: f.properties.proxy_flight, extra: clear }),
-    dkNote("info", `RFA is a fictional airline. This flight stands in for ${p.callsign || "an aircraft with no callsign"}.`),
+    dkHeader({ id: "fl-head", pills: [entryPill], title: f.properties.proxy_flight, sub: `Real aircraft ${p.callsign || "with no callsign"}`, extra: clear }),
     dkTiles([
       { label: "Level", value: p.alt_baro_ft != null ? fl(p.alt_baro_ft) : "unknown", sub: p.alt_baro_ft != null ? `${Number(p.alt_baro_ft).toLocaleString("en")} ft${p.nav_altitude_mcp_ft != null ? ` · selected ${fl(p.nav_altitude_mcp_ft)}` : ""}` : null },
       { label: "Speed", value: p.gs_kt != null ? `${Math.round(p.gs_kt)} kt` : "unknown" },
@@ -340,9 +339,7 @@ function flightDetail(D, ui, store) {
   }
   const rr = (store_reroutes(D) || []).find((r) => r.properties.flight_id === `${p.hex}:${p.volcano_id}` || r.properties.proxy_flight === p.proxy_flight);
   if (rr) kids.push(rerouteBlock(rr.properties, D));
-  kids.push(el("div", { class: "dk-abouts" }, dkAbout("How the entry is estimated", "flight", p.exposed ? "Code projection from the last position, if track, speed and level are held." : "Code projects the last position along its track, speed and level. This flight does not reach TEPHRA's area."),
-    dkAbout("Where the route comes from", "flight-route", "The usual route for this callsign, from VRS standing data. It is not the filed flight plan, and TEPHRA never guesses one.")),
-    techDetail(`ADS-B ${p.callsign || "(no callsign)"} · hex ${String(p.hex || "").toUpperCase()}${p.type_icao ? ` · type ${p.type_icao}` : ""}`));
+  kids.push(techDetail(`ADS-B ${p.callsign || "(no callsign)"} · hex ${String(p.hex || "").toUpperCase()}${p.type_icao ? ` · type ${p.type_icao}` : ""}`));
   host.replaceChildren(dkSection("fl-head", kids));
 }
 let store_reroutes = () => [];
@@ -414,16 +411,12 @@ function crewRow(D, v, picked) {
 function crewSection(D, ui) {
   const C = D.crew;
   const host = $("crew");
-  const label = C.label || "Crew report caution area (operator policy A, not a VAA or SIGMET)";
-  const about = el("div", { class: "dk-abouts" }, dkAbout("How crew reports work", "crew",
-    `${label}.`, "A dispatcher enters a crew (pilot) report on the Desk, and code draws a caution area around the reported position over the reported levels. It flags flights whose projected track crosses it.",
-    "It never shrinks or replaces an official area, re-plans nothing and calls no model. A sulphur smell or haze alone is a routine report with no area. A no-ash report never removes one."));
   const report = el("div", { class: "dk-actions" }, el("a", { class: "btn btn--small", href: "/desk#crew-report", target: "_blank", rel: "noopener", text: "Report ash from a crew on the Desk ›" }));
   const chip = dkChip("Operator policy A · not a VAA or SIGMET", { kind: "crew" });
   const title = "A dispatcher enters a crew report on the Desk. Code draws a caution area and flags flights that cross it.";
   if (!C.reports.length) {
     host.replaceChildren(dkSection("crew-head", dkHeader({ id: "crew-head", pills: [dkPill("ok", "None in the last 24 h")], title, chips: [chip] }),
-      dkEmpty("No crew report of ash in the last 24 hours.", null), report, about));
+      dkEmpty("No crew report of ash in the last 24 hours.", null), report));
     return;
   }
   const act = C.reports.filter((v) => v.state === "ACTIVE" || v.state === "COVERED").length;
@@ -437,7 +430,7 @@ function crewSection(D, ui) {
       out ? { label: "Outside official area", value: String(out), tone: "caution" } : null,
     ], "Crew reports in numbers"),
     dkList(C.reports.map((v) => crewRow(D, v, ui.details.vid === v.report.id)), { first: 4, key: "crew" }),
-    report, about));
+    report));
 }
 
 // ------------------------------------------------------------------ rendering

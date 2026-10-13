@@ -175,6 +175,7 @@ These are the services TEPHRA calls at runtime or uses to build replays, and the
 | IEM NOAAPort and ASOS archives (replay building only) | Past SIGMETs, FV relays, METARs | "in the public domain and may be used freely by anyone for any lawful purpose"; attribution "would be appreciated" | In replay manifests and the About text: "Archive: Iowa Environmental Mesonet, Iowa State University; bulletins from BMKG, BoM and other offices" |
 | adsb.lol `globe_history` (replay building only) | Past ADS-B | ODbL 1.0 | "Aircraft: adsb.lol (ODbL 1.0)" on the replayed map |
 | BoM anonymous FTP | Private evaluation only | No supply to others; no commercial use | Never in the public repo, demo, video or deck, unless BoM agrees (Registered User) |
+| Wikidata and Wikimedia Commons (browser, at runtime) | A photo on a volcano's or an airport's map card | Wikidata CC0; each Commons file under its own licence. TEPHRA shows a photo only when Commons reports public domain, CC0, CC BY or CC BY-SA, and never stores it | "Photo: <author> · <licence>" under the photo, linked to its Commons page |
 | Static files: OurAirports, Natural Earth, the GVP catalogue | Airports, navaids, land, volcanoes | Public domain; GVP citation | "Navaids: OurAirports"; "Made with Natural Earth" (offline fallback); the GVP citation in the README and About text |
 
 For the video and deck, `docs/PITCH.md` lists the credits to show: the NASA Earth Observatory image credit line, GIBS, Copernicus, Open-Meteo, adsb.lol and OpenFreeMap. It also bans BoM graphics and MAGMA screenshots.

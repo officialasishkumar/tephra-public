@@ -54,6 +54,7 @@ WRITER_WATCH_S: Final = 60
 QUIET_TICKS: Final = 3
 """Ticks missed (Cloud Scheduler mode) before open streams are ended once."""
 BUSY_NOTE: Final = "busy: another tick is still running"
+STOPPED_NOTE: Final = "stopped: a mode switch at the Desk ended this tick"
 FEED_LABELS: Final[dict[FeedId, str]] = {
     FeedId.SIGMET: "VA SIGMET",
     FeedId.VONA: "MAGMA VONA",
@@ -86,7 +87,25 @@ async def run_tick(runtime: "Runtime", *, reason: str) -> TickReport:
         # An extra ADS-B pass or a mode switch holds the lock for seconds; skipping here
         # would lose the whole tick (Cloud Scheduler does not retry a skipped one).
         async with runtime.lock:
-            report = await _tick_steps(runtime, reason)
+            runtime.tick_task = asyncio.ensure_future(_tick_steps(runtime, reason))
+            try:
+                report = await runtime.tick_task
+            except asyncio.CancelledError:
+                # stopped by a person's mode switch (Runtime.switch_mode); a cancel of this
+                # tick itself still propagates
+                if not runtime.tick_task.cancelled() or asyncio.current_task().cancelling():
+                    raise
+                at = timeutil.now()
+                report = TickReport(
+                    started_at=at,
+                    finished_at=at,
+                    mode=runtime.mode,
+                    reason=reason,
+                    skipped=True,
+                    notes=[STOPPED_NOTE],
+                )
+            finally:
+                runtime.tick_task = None
     finally:
         runtime.tick_running = False
         _schedule_adsb_passes(runtime, reason, requested)

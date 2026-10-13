@@ -10,6 +10,7 @@ credit appears. Feed terms in full: `research/05-feeds-verified.md` and
 | What | Version, where from | Licence | Credit or notice |
 |---|---|---|---|
 | MapLibre GL JS | `maplibre-gl@4.7.1` (`dist/maplibre-gl.js`, `dist/maplibre-gl.css`) from unpkg.com, pinned; the UMD build that exposes `window.maplibregl` | BSD-3-Clause | "MapLibre" in the map attribution control (MapLibre adds it). |
+| Map card photos (`wall/photo.js`) | Read at runtime, never stored: Wikidata's image (P18) of a volcano (Smithsonian volcano number, P1886) or an airport (ICAO code, P239), served by Wikimedia Commons (`upload.wikimedia.org`, `thumb.wikimedia.org`) | Shown only when Commons' `LicenseShortName` is public domain, CC0, CC BY or CC BY-SA | Under the photo: "Photo: <author> · <licence>", linking to the file's Commons page, as each licence asks. |
 | maplibre-gl-compare | `@maplibre/maplibre-gl-compare@0.5.0` (`dist/maplibre-gl-compare.js`, `.css`) from unpkg.com, pinned; loaded only by the Wall, used for swipe compare | ISC | None required on screen; keep the licence notice with any copy. |
 
 The CSP (`CONTENT_SECURITY_POLICY` in `tephra/api/server.py`) allows scripts only from these two

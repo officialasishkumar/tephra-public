@@ -192,9 +192,7 @@ function satPanel(D, store) {
   const body = list.length
     ? [missing, dkList(list.map((r) => satRow(D, r, D.sits.find((s) => s.volcano_id === r.volcano_id), store)), { first: 4, key: "sat" })]
     : dkEmpty("No satellite reading yet", "A reading appears when a new picture arrives for an active volcano.");
-  return [dkSection("sat-head", head, body, el("div", { class: "dk-abouts" }, dkAbout("How the satellite check works", "sat",
-    stub ? "The latest Himawari picture for each active volcano, read by a code stub while TEPHRA Assistant is off. It is supporting evidence only and never changes the hazard area, the flight levels or an action."
-      : "TEPHRA Assistant's Satellite reader (a model) looks at the latest Himawari picture for each active volcano and says whether it sees ash. It never changes the hazard area, the flight levels or an action. Colour alone cannot separate ash from dust, and a picture gives no height.")))];
+  return [dkSection("sat-head", head, body)];
 }
 
 const capFirst = (t) => (t ? t[0].toUpperCase() + t.slice(1) : t);
@@ -252,8 +250,7 @@ function noticesPanel(D) {
     title: all.length ? `${all.length} notice${all.length === 1 ? "" : "s"} · newest ${clock(newest.created_at)}` : "No notices yet",
     sub: "A notice only enters the picture once every claim is found word for word in it.",
   });
-  const about = el("div", { class: "dk-abouts" }, dkAbout("How notices are checked", "notices", "Notices pasted on the Desk, and JMA volcano reports. A pasted notice is read by a model, then every claim is checked against its own words. Only a verified notice can enter the picture. JMA reports are read by code from JMA's XML."));
-  if (!all.length) return [dkSection("notices-head", head, dkEmpty("Nothing to show", "Paste a notice on the Desk (EN, ID, JA or FIL) and it shows up here.", el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Open the Desk ›" })), about)];
+  if (!all.length) return [dkSection("notices-head", head, dkEmpty("Nothing to show", "Paste a notice on the Desk (EN, ID, JA or FIL) and it shows up here.", el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Open the Desk ›" })))];
   const tiles = dkTiles([
     { label: "Notices", value: String(all.length) },
     { label: "Verified", value: String(verified), tone: verified ? "ok" : null },
@@ -267,7 +264,7 @@ function noticesPanel(D) {
     el("div", { class: "dk-about__body dk-about__body--flush" },
       pasted.length ? dkGroup(`Pasted notices · ${pasted.length}`, null, dkList(pasted.map(row), { first: 5, key: "notices-pasted" })) : null,
       jma.length ? dkGroup(`JMA reports · ${jma.length}`, null, dkList(jma.map(row), { first: 5, key: "notices-jma" })) : null)) : null;
-  return [dkSection("notices-head", head, tiles, dkGroup("Newest", null, dkList(newestRows, { key: "notices-new" })), more, about)];
+  return [dkSection("notices-head", head, tiles, dkGroup("Newest", null, dkList(newestRows, { key: "notices-new" })), more)];
 }
 
 // ------------------------------------------------------------------ Recovery board
@@ -316,18 +313,16 @@ const scenarioName = (label) => {
   const t = String(label || "").toLowerCase();
   return t.charAt(0).toUpperCase() + t.slice(1);
 };
-const LEDE = "Airports the ash closes, and the day's flights of RFA (a fictional airline, synthetic schedule) re-planned around them. An optimiser (code) builds the scenarios, and a model only picks one and explains it. A dispatcher approves on the Desk.";
 
 function recoveryPanel(D, store) {
   const re = replanning(store);
   const busy = re ? dkNote("info", el("p", {}, el("span", { class: "spinner", "aria-hidden": "true" }), ` Re-planning for ${re.airports.join(", ")}…`), { role: "status", cls: "x-busy" }) : null;
   if (!ext.loaded.recovery) return [loadingBox()];
   if (ext.errors.recovery) return [dkNote("caution", `Airport plan unavailable: ${ext.errors.recovery}`, { role: "status" })];
-  const about = el("div", { class: "dk-abouts" }, dkAbout("How this plan is made", "recovery", LEDE));
   const plans = ext.recovery.slice().sort((a, b) => ms(b.created_at) - ms(a.created_at));
   const plan = plans.find((p) => p.status !== "SUPERSEDED") || plans[0];
   if (!plan) {
-    return [dkSection("rec-head", dkHeader({ id: "rec-head", pills: [re ? dkPill("info", "Re-planning") : dkPill("ok", "No airport closed")], title: re ? "Closed airports changed: a new plan is on its way." : "No RFA airport is closed by the ash right now." }), busy, about)];
+    return [dkSection("rec-head", dkHeader({ id: "rec-head", pills: [re ? dkPill("info", "Re-planning") : dkPill("ok", "No airport closed")], title: re ? "Closed airports changed: a new plan is on its way." : "No RFA airport is closed by the ash right now." }), busy)];
   }
   const [tone, word] = PLAN_STATUS[plan.status] || ["info", plan.status];
   const fail = planFailure(plan);
@@ -396,7 +391,6 @@ function recoveryPanel(D, store) {
   if (plan.risks?.length) kids.push(dkAbout(`Risks (${plan.risks.length})`, "rec-risks", el("ul", { class: "dk-bullets" }, ...plan.risks.map((r) => el("li", { text: r })))));
   const decided = plan.decided_at ? `${plan.status === "REJECTED" ? "Rejected" : "Approved"} by ${(plan.decided_by || "a dispatcher").replace(/^desk:/, "")} at ${hhmmz(ms(plan.decided_at))}` : null;
   kids.push(dkNote(plan.status === "APPROVED" ? "info" : "info", decided || (plan.status === "DRAFT" ? "Waiting for a dispatcher. Nothing is sent anywhere." : fail ? "No plan to decide on. Nothing is sent anywhere." : "No decision."), { iconId: plan.status === "APPROVED" ? "i-approved" : "i-dispatcher" }));
-  kids.push(about);
   if (plans.length > 1) kids.push(el("p", { class: "dk-foot", text: `${plans.length - 1} earlier plan${plans.length === 2 ? "" : "s"} not shown.` }));
   return [dkSection("rec-head", kids)];
 }
@@ -743,10 +737,7 @@ function aiPanel(D, store) {
     dkList(order.map((a) => helperRow(a, store, n, stub, null, D.mode === "REPLAY")), { first, key: "ai-helpers", more: order.slice(first).every((a) => a.state === "idle") ? `Show quiet skills (${quiet})` : `Show all ${order.length} skills` })));
 
   kids.push(el("div", { class: "dk-abouts" },
-    dkAbout("Models and today's calls", "ai-budget", budgetBlock(D.mode === "REPLAY", ai)),
-    dkAbout("How this works", "ai-how",
-      "TEPHRA Assistant is TEPHRA's AI assistant. It reads feeds and drafts text. Code does every number and safety rule, and a person approves everything. One skill, the Coordinator, orders the day's assistant work and hands it to the other skills through tools. Code builds the work list and holds the safety line. The Coordinator decides the order and writes the brief.",
-      `Every assistant step on the Wall is listed in How TEPHRA decided. Status here comes from the newest ${n} steps the Wall holds, the newest Coordinator run, the newest airport plan and the budget's queue. When a step does not run it says why, and nothing is made up in its place.`)));
+    dkAbout("Models and today's calls", "ai-budget", budgetBlock(D.mode === "REPLAY", ai))));
   return [dkSection("ai-head", kids)];
 }
 

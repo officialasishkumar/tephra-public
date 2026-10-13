@@ -156,12 +156,15 @@ function confirmSwitch(option, body) {
   const error = el('p', { class: 'msg msg--serious', hidden: true });
   const go = el('button', { type: 'button', class: 'btn btn--neutral' }, el('span', { text: live ? 'Switch to live feeds' : 'Switch to replay' }));
   const cancel = el('button', { type: 'button', class: 'btn btn--outline', text: 'Cancel', onclick: () => byId('display-dialog').close() });
+  const goWords = go.firstChild.textContent;
   go.addEventListener('click', async () => {
     go.disabled = true;
     cancel.disabled = true;
+    go.firstChild.textContent = 'Switching…';
     const res = await api(PATHS.mode, { method: 'POST', body: live ? { mode: 'LIVE' } : { mode: 'REPLAY', case_id: option.id } });
     go.disabled = false;
     cancel.disabled = false;
+    go.firstChild.textContent = goWords;
     if (res.ok) {
       app.hub.applyState(res.data);
       byId('display-dialog').close();

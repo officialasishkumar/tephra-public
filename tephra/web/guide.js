@@ -5,6 +5,7 @@
 import { el } from "./wall/util.js";
 import { helpContent, aboutContent } from "./wall/controls.js";
 import { policyDialog } from "./wall/policy.js";
+import { EXPLAIN } from "./wall/explain.js";
 
 async function getJson(path) {
   try {
@@ -23,6 +24,8 @@ async function build() {
   if (state?.disclaimer) document.querySelector(".guide__honesty strong").textContent = state.disclaimer;
   document.getElementById("guide").replaceChildren(
     section("read", "Read the map", helpContent(false, { page: true })),
+    section("how", "How each part works", el("div", { class: "guide__how" },
+      ...EXPLAIN.flatMap(([id, title, paras]) => [el("h3", { id: `how-${id}`, class: "help__h", text: title }), ...paras.map((p) => el("p", { text: p }))]))),
     section("about", "About TEPHRA", aboutContent(state, undefined, { page: true })),
     section("policy", "Operator policy", policyDialog(policy)));
   // a link to a section (/guide#help-key) lands on it once the page is built

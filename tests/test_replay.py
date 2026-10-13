@@ -60,7 +60,7 @@ from tephra.replay.cases import (
     start_replay_clock,
     stop_replay_clock,
 )
-from tephra.scheduler import run_adsb_pass, run_tick
+from tephra.scheduler import STOPPED_NOTE, run_adsb_pass, run_tick
 from tephra.util import timeutil
 from tephra.util.events import EventBus
 from tephra.util.hashing import sha256_bytes
@@ -458,6 +458,35 @@ async def test_the_desk_names_a_replay_case_only_once_it_plays(
     assert while_ticking is None
     assert response.status_code == 200
     assert (runtime.mode, runtime.replay_case) == (RunMode.REPLAY, case)
+
+
+async def test_a_desk_switch_stops_a_tick_waiting_on_a_feed(data_dir: Path, tmp_path: Path) -> None:
+    """A LIVE tick can wait minutes on public feeds; a person's switch at the Desk does not wait
+    for it: the tick stops and the switch is made at once."""
+    case = await record_case(data_dir, tmp_path / "record")
+    settings = make_settings(tmp_path / "live", data_dir=data_dir)
+    source = FixtureSource()
+    gate = source.gates[SIGMET_FEED_URL] = Gate()
+    runtime = make_runtime(settings, source)
+    request = server.ModeRequest(mode=RunMode.REPLAY, case_id=CASE_ID)
+    session = SessionInfo(name="Ana K", expires_at=AT + timedelta(days=365))
+    try:
+        tick = asyncio.create_task(run_tick(runtime, reason="manual"))
+        await asyncio.wait_for(gate.arrived.wait(), 5)
+        response = await asyncio.wait_for(
+            server.switch_mode(request, session, runtime, settings), 5
+        )
+        report = await asyncio.wait_for(tick, 5)
+    finally:
+        gate.release.set()
+        await runtime.aclose()
+
+    assert response.status_code == 200
+    assert (runtime.mode, runtime.replay_case) == (RunMode.REPLAY, case)
+    assert report.skipped
+    assert report.notes == [STOPPED_NOTE]
+    assert runtime.tick_task is None
+    assert not runtime.tick_running
 
 
 async def test_a_replay_leaves_the_live_desks_drafts_alone(data_dir: Path, tmp_path: Path) -> None:

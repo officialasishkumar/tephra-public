@@ -143,6 +143,13 @@
   --c-off: #7a8796;
 
   /* --- modes --- */
+  /* Ask TEPHRA's own colour (UI-DESIGN 10.18): indigo, used for Ask and nothing else.
+     --c-ask-text on --c-ask-bg 11:1; --c-ask-ink on --c-ask 7.5:1. */
+  --c-ask: #8b9bff;
+  --c-ask-2: #5ec8ff;
+  --c-ask-text: #c7cfff;
+  --c-ask-bg: #121735;
+  --c-ask-ink: #070a1c;
   --c-replay: #b794ff;
   --c-replay-text: #cdb6ff;
   --c-replay-bg: #1c1233;

@@ -153,7 +153,9 @@ class FakeRuntime:
             overlays=Overlays(),
         )
 
-    async def switch_mode(self, mode: RunMode, *, auto: bool = False) -> None:
+    async def switch_mode(
+        self, mode: RunMode, *, auto: bool = False, case: Any = None, preempt: bool = False
+    ) -> None:
         self.mode = mode
 
     async def aclose(self) -> None:

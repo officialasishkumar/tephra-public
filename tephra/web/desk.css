@@ -8358,3 +8358,89 @@ body {
     padding: 0 10px;
   }
 }
+
+/* --- sign-in on a computer: the card sits just under the header and fits one screen ----------- */
+@media (min-width: 600px) {
+  .login__card {
+    margin-top: var(--sp-4);
+  }
+
+  /* signed out there is no tab pill to leave room for */
+  .dmain:has(> #login-view:not([hidden])) {
+    padding-top: var(--sp-4);
+  }
+}
+
+/* --- Ask's own colour: indigo, for Ask and nothing else (UI-DESIGN 10.18) ---------------------- */
+.askbtn {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--c-ask-bg), var(--c-ask-bg)) padding-box,
+    linear-gradient(120deg, var(--c-ask), var(--c-ask-2)) border-box;
+  box-shadow: 0 0 18px -6px color-mix(in srgb, var(--c-ask) 70%, transparent);
+  color: var(--c-ask-text);
+}
+
+.askbtn .icon {
+  color: var(--c-ask);
+}
+
+.askbtn:hover,
+.askbtn[aria-expanded="true"] {
+  background:
+    linear-gradient(120deg, var(--c-ask), var(--c-ask-2)) padding-box,
+    linear-gradient(120deg, var(--c-ask), var(--c-ask-2)) border-box;
+  color: var(--c-ask-ink);
+}
+
+.askbtn:hover .icon,
+.askbtn[aria-expanded="true"] .icon {
+  color: var(--c-ask-ink);
+}
+
+.askdrawer {
+  border-left: 1px solid color-mix(in srgb, var(--c-ask) 35%, transparent);
+  background:
+    radial-gradient(120% 60% at 100% 0%, color-mix(in srgb, var(--c-ask) 22%, transparent), transparent 60%),
+    radial-gradient(90% 50% at 0% 0%, color-mix(in srgb, var(--c-ask-2) 12%, transparent), transparent 55%),
+    linear-gradient(180deg, var(--c-ask-bg), color-mix(in srgb, var(--c-surface-1) 96%, transparent) 70%);
+  box-shadow: -24px 0 60px -20px color-mix(in srgb, var(--c-ask) 35%, transparent), var(--shadow-3);
+}
+
+.askdrawer::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: linear-gradient(90deg, var(--c-ask), var(--c-ask-2));
+}
+
+.askdrawer #panel-ask .phead__title {
+  color: var(--c-ask-text);
+}
+
+.askdrawer .asugg__btn {
+  border-color: color-mix(in srgb, var(--c-ask) 45%, transparent);
+  background: color-mix(in srgb, var(--c-ask) 10%, transparent);
+  color: var(--c-text-1);
+}
+
+.askdrawer .asugg__btn:hover {
+  border-color: var(--c-ask);
+  background: color-mix(in srgb, var(--c-ask) 22%, transparent);
+}
+
+.askdrawer .abtn--send:not(.is-stop) {
+  background: linear-gradient(120deg, var(--c-ask), var(--c-ask-2));
+  color: var(--c-ask-ink);
+}
+
+.askdrawer .askin:focus,
+.askdrawer .askin:focus-visible {
+  border-color: var(--c-ask);
+  outline-color: var(--c-ask);
+}
+
+.askdrawer #panel-ask .acomposer {
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--c-surface-1) 96%, transparent) 18px);
+}
