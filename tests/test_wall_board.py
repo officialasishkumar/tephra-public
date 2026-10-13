@@ -287,7 +287,9 @@ def test_a_closed_ai_day_reads_as_waiting_and_not_run(tmp_path: Path) -> None:
         assert card["waiting"]["slot"] == "next slot in 6 h 30 min", helper
         # a closed day's limit is left out: no call can go, whatever is left of it
         assert card["model"]["text"] == "1 call today, shared", helper
-        assert card["model"]["closed"] == {"until": "for another 6 h 30 min", "by": "Google"}, helper
+        assert card["model"]["closed"] == {"until": "for another 6 h 30 min", "by": "Google"}, (
+            helper
+        )
         assert card["steps"][0]["source"] == "AI work queue", helper
     recovery = _card(model, "recovery")
     # a model was called and timed out: "failed" (No result), drawn in caution
@@ -395,3 +397,15 @@ def test_the_ai_status_uses_the_chips_words(tmp_path: Path) -> None:
     assert "Queued work (3 jobs) runs then" in paused["lead"][0]["text"]
     off = _board(tmp_path / "off", _stub_run())["ai"]
     assert (off["kind"], off["words"]["label"]) == ("off", "AI off")
+
+
+def test_the_gate_says_how_many_flights_wait_to_be_planned_by_hand(tmp_path: Path) -> None:
+    """With the Wall's count of flights the AI made no plan for, the gate says it once, the
+    Duty Officer's must-do flights inside it, instead of only the must-do ones."""
+    data = _closed_day()
+    data["handPlan"] = {"n": 14, "must": 1}
+    texts = [line["text"] for line in _board(tmp_path, data)["gate"]["others"]]
+    assert (
+        texts[-1] == "14 flights to plan by hand, 1 of them must do: the AI made no plan for them"
+    )
+    assert not any("passed to a dispatcher" in text for text in texts)

@@ -11,7 +11,7 @@ import {
 } from "./wall/panels.js";
 import { policyDialog } from "./wall/policy.js";
 import { helpContent, aboutContent } from "./wall/controls.js";
-import { ext, loadExt, ingest, noteTrace, satScale, aiState } from "./wall/ext.js";
+import { ext, loadExt, ingest, noteTrace, satScale, aiState, handPlan } from "./wall/ext.js";
 import { renderStory, coverageNote } from "./wall/story.js";
 import { renderDetails, sectionOf, PANELS } from "./wall/details.js";
 import { boardModel } from "./wall/board.js";
@@ -698,6 +698,8 @@ function boardInput() {
     trace: store.trace, recovery: ext.recovery, docs: ext.docs, docsLoaded: ext.loaded.docs, satellite: store.snapshot?.satellite || [],
     advisories: store.advisories, feeds: store.feeds, feedNames: FEED_NAME, situations: store.snapshot?.situations || [],
     arrivedAgo: (id) => since(ext.arrivals.get(id)), liveAgo: (tool) => since(ext.handoffs.get(tool)),
+    // the flights the AI left to a dispatcher, all volcanoes (the story's Plan by hand)
+    handPlan: D ? (({ flights, must }) => ({ n: flights.length, must }))(handPlan(D, store)) : null,
   };
 }
 

@@ -1320,10 +1320,11 @@ border brightens. The lines are decoration; each card says the same in words.
 
 The Desk node: the big number is `state.draft_count` ("23 advisories wait for a dispatcher";
 "Advisory count unknown (database error)" when null), then, when true: "1 airport plan waits for
-approval", "No airport plan was made: a dispatcher plans the network by hand", "4 safety risk
-assessment drafts wait for sign-off" (this mode's SRA drafts in `/api/docs`, kept live by the `doc`
-event), "1 must-do flight passed to a dispatcher by the latest Duty Officer run, to handle by
-hand"; the filled "Open the Desk →" (`/desk`, new tab); "Nothing leaves TEPHRA until a dispatcher
+approval", "No airport plan was made: a dispatcher plans the network by hand", "1 safety risk
+assessment draft waits for sign-off" (this mode's unsigned SRA drafts in `/api/docs`, one per region,
+kept live by the `doc` event), "14 flights to plan by hand, 1 of them must do: the AI made no plan for them" (the story's
+Plan by hand count, all volcanoes; without it, "1 must-do flight passed to a dispatcher by the latest
+Duty Officer run, to plan by hand"); the filled "Open the Desk →" (`/desk`, new tab); "Nothing leaves TEPHRA until a dispatcher
 approves it, and then only to its own outbound queue."; and "On call at the Desk, when a dispatcher
 asks": Notice reader, Ask, Messages, Handover, each with its state.
 

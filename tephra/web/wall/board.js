@@ -336,8 +336,11 @@ function gateNode(ctx) {
   if (plan?.status === "DRAFT") others.push({ tone: "caution", text: "1 airport plan waits for approval" });
   else if (plan?.status === "AI_UNAVAILABLE") others.push({ tone: "caution", text: "No airport plan was made: a dispatcher plans the network by hand" });
   if (sra.length) others.push({ tone: "caution", text: `${plural(sra.length, "safety risk assessment draft")} ${sra.length === 1 ? "waits" : "wait"} for sign-off` });
+  // the flights the AI made no plan for, said once with the must-do ones in it; without that
+  // count (the board alone), the Duty Officer's must-do flights
   const undone = (ctx.duty?.undispatched || []).length;
-  if (undone) others.push({ tone: "caution", text: `${plural(undone, "must-do flight")} passed to a dispatcher by the latest Duty Officer run, to plan by hand` });
+  if (ctx.handPlan?.n) others.push({ tone: "caution", text: `${plural(ctx.handPlan.n, "flight")} to plan by hand${ctx.handPlan.must ? `, ${ctx.handPlan.must} of them must do` : ""}: the AI made no plan for them` });
+  else if (undone) others.push({ tone: "caution", text: `${plural(undone, "must-do flight")} passed to a dispatcher by the latest Duty Officer run, to plan by hand` });
   return { drafts: ctx.drafts, others, docsLoaded: ctx.docsLoaded, planWaits: plan?.status === "DRAFT", sraWaits: sra.length };
 }
 
@@ -372,7 +375,7 @@ export function boardModel(input) {
     replay, stub, until: ai.until, trace: input.trace || [], duty: input.duty || null,
     budget: input.budget || null, budgetError: input.budgetError || null, work: Array.isArray(input.budget?.waiting) ? input.budget.waiting : [],
     recovery: input.recovery || [], docs: input.docs || [], docsLoaded: !!input.docsLoaded, satellite: input.satellite || [],
-    advisories: input.advisories || [], drafts: s.draft_count, situations: input.situations || [],
+    advisories: input.advisories || [], drafts: s.draft_count, handPlan: input.handPlan || null, situations: input.situations || [],
     volcanoName: (id) => (input.situations || []).find((x) => x.volcano_id === id)?.volcano_name || id,
     arrivedAgo: input.arrivedAgo || (() => Infinity), liveAgo: input.liveAgo || (() => Infinity),
   };
