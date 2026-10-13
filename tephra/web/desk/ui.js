@@ -53,13 +53,16 @@ export const codeChip = (text = 'Code-written') =>
 // The no-fallback card: what did not run and what the dispatcher does instead. An assistant step is a
 // caution (role=status) with its raw reason under Technical detail; a connection or session
 // failure (`serious`) keeps the red, role=alert and its reason in the title (UI-AI-QUIET Q4).
-export function unavailableCard(reason, { instead = 'Nothing was put in its place. Do this step by hand.', onRetry = null, retryLabel = 'Try again', retryDisabled = false, title = 'No result from TEPHRA Assistant', serious = false } = {}) {
+// `onWhy` adds "Why ›" for a paused assistant, whose cause is said in the assistant sheet only
+// (docs/UI-AI-QUIET.md 8.6).
+export function unavailableCard(reason, { instead = 'Nothing was put in its place. Do this step by hand.', onRetry = null, retryLabel = 'Try again', retryDisabled = false, title = 'No result from TEPHRA Assistant', serious = false, onWhy = null } = {}) {
   const card = serious
     ? el('div', { class: 'panel panel--serious unavail', role: 'alert' },
       el('p', { class: 'panel__title' }, icon('st-serious', 'st'), el('span', { text: `${title}: ${machineText(reason)}` })),
       instead ? el('p', { class: 'unavail__instead', text: instead }) : null)
     : el('div', { class: 'panel panel--caution unavail', role: 'status' },
-      el('p', { class: 'panel__title' }, icon('st-caution', 'st'), el('span', { text: title })),
+      el('p', { class: 'panel__title' }, icon('st-caution', 'st'), el('span', { text: title }),
+        onWhy ? [' ', el('button', { type: 'button', class: 'linkbtn', 'aria-label': 'Why: open the TEPHRA Assistant sheet', onclick: onWhy }, el('span', { text: 'Why ›' }))] : null),
       instead ? el('p', { class: 'unavail__instead', text: instead }) : null,
       reason ? el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: machineText(reason) })) : null);
   if (onRetry) {

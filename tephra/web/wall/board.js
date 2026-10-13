@@ -1,14 +1,16 @@
 // "TEPHRA Assistant at work" (docs/UI-DESIGN.md 7.21): the model behind the flow board that shows the
 // Coordinator (the code's Duty Officer) handing work to the assistant's other skills and a
 // dispatcher deciding at the end. Pure functions over data the Wall already holds: the newest
-// Coordinator run (snapshot.duty), the AI budget and its work queue (/api/budget), the trace, the
+// Coordinator run (snapshot.duty), the assistant's work queue (/api/budget), the trace, the
 // airport plans, the paperwork list, the advisories and the satellite readings. Nothing here is
 // scripted: a skill with no data says so. No DOM, so the board's logic is tested on its own
 // (tests/test_wall_board.py). flowModel() drives the board; boardModel() gives the Coordinator's and
-// each skill's details sheet.
+// each skill's details sheet. The board says "paused" and what waits, never why: the free quota,
+// budgets, per-model counts and slot times are said once, at Details › TEPHRA Assistant
+// (docs/UI-AI-QUIET.md 8.6 "Say the cause once").
 
 import { ms } from "./util.js";
-import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiSymbol, causeShort, reasonClass, realWhen, recordedWords, WHY, ASSISTANT } from "./x-parts.js";
+import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiSymbol, causeShort, reasonClass, recordedWords, WHY, PAUSED, ASSISTANT } from "./x-parts.js";
 import { collapseRuns, plural } from "./dk.js";
 
 // Every skill of TEPHRA Assistant on the Wall, in board order. `tool` is the Coordinator's tool that reaches it,
@@ -41,7 +43,7 @@ export const STEPS_SHOWN = 5;
 // (docs/UI-AI-QUIET.md Q4): "No result" when a model was called and gave nothing usable, "Not run"
 // when no model was called.
 export const STATE_WORD = {
-  working: "Working", waiting: "Waiting for the next slot", queued: "Queued", failed: "No result",
+  working: "Working", waiting: "Waiting in line", queued: "Queued", failed: "No result",
   notrun: "Not run", done: "Done", quiet: "Quiet",
 };
 
@@ -80,24 +82,19 @@ function traceSteps(h, lines) {
 
 const workOf = (h, work) => (work || []).filter((w) => (w.kind === "recover" && h.kinds?.includes("RECOVER")) || (w.item && h.kinds?.includes(w.item.kind)));
 
-// "next slot 0700Z", or in REPLAY "next slot in 2 h 45 min": budget times are on the real clock
-// (realWhen, the assistant state's rule).
-let clock = { now: Date.now(), replay: false };
-const slotText = (at) => { const w = realWhen(at, clock.now, clock.replay); return w ? `next slot ${w.at}` : null; };
-
+// The jobs a skill has in the queue, now. A waiting job says that it waits, not when: its slot is
+// said at the assistant's home (8.6).
 function queueSteps(items) {
   const out = [];
   for (const status of ["RUNNING", "WAITING", "QUEUED"]) {
     const list = items.filter((w) => w.status === status);
     if (!list.length) continue;
-    const slot = Math.min(...list.map((w) => ms(w.next_slot_at)).filter(Number.isFinite));
     const first = list[0].label;
     const more = list.length > 1 ? ` and ${plural(list.length - 1, "more job")}` : "";
-    const what = status === "RUNNING" ? "Running now" : status === "WAITING" ? "Waiting for the next slot" : "Queued for the assistant";
+    const what = status === "RUNNING" ? "Running now" : status === "WAITING" ? "Waiting in line" : "Queued for the assistant";
     out.push({
       tone: status === "WAITING" ? "waiting" : status === "RUNNING" ? "working" : "queued",
-      text: `${what}: ${first}${more}`, count: 1, at: status === "WAITING" ? slot : NaN,
-      atText: status === "WAITING" ? slotText(slot) : null, source: SOURCE.queue, now: true,
+      text: `${what}: ${first}${more}`, count: 1, at: NaN, atText: status === "WAITING" ? "in line" : null, source: SOURCE.queue, now: true,
     });
   }
   return out;
@@ -191,24 +188,15 @@ function resultSteps(h, ctx) {
   return out;
 }
 
-// One model's day, as a card's footer says it.
+// The model a card's skill calls, as its sheet's footer says it: the id only. Its calls today and
+// whether Google has closed it are said at Details › TEPHRA Assistant (8.6).
 export function modelLine(tier, ctx) {
   if (ctx.stub) return { id: null, text: "No model (offline stub): no calls", tone: "off" };
   const b = ctx.budget;
-  if (!b) return { id: null, text: ctx.budgetError ? "Calls today: unknown, the assistant's budget did not load" : "Calls today: loading", tone: ctx.budgetError ? "caution" : "off" };
+  if (!b) return { id: null, text: ctx.budgetError ? "Model: unknown, the assistant's status did not load" : "Model: loading", tone: ctx.budgetError ? "caution" : "off" };
   const t = (b.tiers || []).find((x) => x.tier === tier);
-  if (!t) return { id: null, text: "Calls today: unknown", tone: "caution" };
-  const m = (b.models || []).find((x) => x.model_id === t.model_id);
-  const shared = (b.tiers || []).filter((x) => x.model_id === t.model_id).length > 1 || (m && /every other/i.test(m.jobs || ""));
-  const reset = realWhen(ms(b.resets_at), clock.now, clock.replay);
-  const out = Boolean(m?.closed) || t.remaining <= 0;
-  // A closed day's limit means nothing to the reader ("1 of 450" while no call can go), so the
-  // count stands alone and the closing says why and until when.
-  const count = out ? plural(t.used, "call") : `${t.used.toLocaleString("en")} of ${t.limit.toLocaleString("en")} calls`;
-  return {
-    id: t.model_id, text: `${count} today${shared ? ", shared" : ""}`,
-    closed: out ? { until: reset?.until || null, by: m?.closed ? "Google" : "budget" } : null, tone: null,
-  };
+  if (!t) return { id: null, text: "Model: unknown", tone: "caution" };
+  return { id: t.model_id, text: `Model: ${t.model_id}`, tone: null };
 }
 
 function recordedOf(steps) {
@@ -244,11 +232,10 @@ function helperCard(h, ctx) {
   const waiting = work.filter((w) => w.status === "WAITING");
   const queued = work.filter((w) => w.status === "QUEUED");
   const state = stateOf({ working, waiting: waiting.length, queued: queued.length, last });
-  const slot = Math.min(...waiting.map((w) => ms(w.next_slot_at)).filter(Number.isFinite));
   return {
     id: h.id, role: h.role, name: h.name, does: h.does, to: h.to || null, state, word: (state === "failed" || state === "notrun") && last.word ? last.word : STATE_WORD[state],
     last: last || { tone: "quiet", text: `Nothing in the newest ${plural(ctx.trace.length, "step")}. ${h.when}.`, at: NaN, source: SOURCE.trace },
-    waiting: waiting.length ? { n: waiting.length, slot: slotText(slot), until: realWhen(slot, clock.now, clock.replay)?.until || null } : null,
+    waiting: waiting.length ? { n: waiting.length } : null,
     queued: queued.length,
     handoff: handoff(ctx.duty, h.tool),
     model: modelLine(h.tier, ctx),
@@ -260,8 +247,9 @@ function helperCard(h, ctx) {
 
 // The Coordinator's latest run in one sentence (code-written from the run's fields), in the words
 // of Details › TEPHRA Assistant (wall/duty.js OUTCOME): a quota refusal called no model and is "Not
-// run"; a run whose brief failed the checks called one and is "No brief".
-export function dutyLine(run, ctx) {
+// run" (the assistant paused; why is said at that home, 8.6); a run whose brief failed the checks
+// called one and is "No brief".
+export function dutyLine(run) {
   const n = (run.dispatches || []).length;
   const handed = new Set((run.dispatches || []).flatMap((d) => d.item_ids)).size;
   const undone = (run.undispatched || []).length;
@@ -270,7 +258,7 @@ export function dutyLine(run, ctx) {
   const first = n ? ` It handed out ${plural(handed, "job")} first.` : "";
   if (run.outcome === "MODEL_FAILED") {
     const cls = reasonClass((run.validation_errors || [])[0]);
-    if (cls === "budget") return { tone: "caution", word: "Not run", text: `Not run: today's free AI quota is used up${ctx.until ? ` (TEPHRA Assistant waiting ${ctx.until})` : ""}. No brief was made.${first}${tail ? ` ${tail}` : ""}` };
+    if (cls === "budget") return { tone: "caution", word: "Not run", text: `Not run: ${ASSISTANT} is paused. No brief was made.${first}${tail ? ` ${tail}` : ""}` };
     return { tone: "failed", word: "No brief", text: `No brief: the Coordinator gave no result (${WHY[cls] || WHY.other}). Nothing was made up in its place.${first}${tail ? ` ${tail}` : ""}` };
   }
   if (run.outcome === "STUB") return { tone: "ok", text: `Handed out ${plural(handed, "job")} in urgency order (code only).${tail ? ` ${tail}` : ""}` };
@@ -297,7 +285,7 @@ function dutyCard(ctx) {
       run: null, waiting: waiting.length ? { n: waiting.length } : null, model, recorded: null, steps: traceSteps(h, lines).slice(0, STEPS_SHOWN), more: 0, brief: null,
     };
   }
-  const line = dutyLine(run, ctx);
+  const line = dutyLine(run);
   const at = ms(run.finished_at);
   const mandatory = run.worklist.filter((i) => i.mandatory).length;
   const label = (id) => run.worklist.find((i) => i.id === id)?.label || id;
@@ -329,11 +317,8 @@ export function boardModel(input) {
   if (!s) return { ready: false };
   const replay = s.mode === "REPLAY";
   const stub = s.llm?.backend === "stub" || input.budget?.backend === "stub";
-  // the Wall's one assistant state (docs/UI-AI-QUIET.md 1.2), from the same inputs as its chip
-  clock = { now: input.realNow ?? Date.now(), replay };
-  const ai = aiStateOf({ stub, budget: input.budget || null, errors: aiErrorsOf(input.trace), duty: input.duty || null, plan: newestPlan(input.recovery), replay, now: clock.now });
   const ctx = {
-    replay, stub, until: ai.until, trace: input.trace || [], duty: input.duty || null,
+    replay, stub, trace: input.trace || [], duty: input.duty || null,
     budget: input.budget || null, budgetError: input.budgetError || null, work: Array.isArray(input.budget?.waiting) ? input.budget.waiting : [],
     recovery: input.recovery || [], docs: input.docs || [], satellite: input.satellite || [],
     advisories: input.advisories || [], situations: input.situations || [],
@@ -423,7 +408,7 @@ export function stepEvents(t) {
     if ((m = DUTY_REFUSED.exec(msg))) {
       const cls = reasonClass(m[1]);
       return [{ ...base, type: "refused", cls, reason: m[1], d: Number(m[2]), n: Number(m[3]),
-        text: cls === "budget" ? "Coordinator can't run (today's free AI quota is used up)" : `Coordinator gave no result (${WHY[cls] || WHY.other})` }];
+        text: cls === "budget" ? `Coordinator did not run (${PAUSED})` : `Coordinator gave no result (${WHY[cls] || WHY.other})` }];
     }
     if ((m = DUTY_HANDOFF.exec(msg))) {
       const skill = TOOL_SKILL[m[1]] || null;
@@ -598,14 +583,6 @@ function rowWords(r, example) {
 
 // The board's one time form, the replay clock's: "11:28:26"
 export const hmsOf = (t) => (Number.isFinite(t) ? new Date(t).toISOString().slice(11, 19) : "--:--:--");
-const hhmmzOf = (t) => { const d = new Date(t); return `${String(d.getUTCHours()).padStart(2, "0")}${String(d.getUTCMinutes()).padStart(2, "0")}Z`; };
-
-// "2 h 45 min", "14 min"
-function lasting(msLeft) {
-  const m = Math.max(1, Math.round(msLeft / 60000));
-  return m < 60 ? `${m} min` : m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} h`;
-}
-
 // What the map draws: the region and the snapshot's real ash areas, volcanoes, airports and
 // aircraft, reduced to plain numbers (no DOM).
 function geoOf(region, snapshot, activeIds) {
@@ -645,12 +622,6 @@ export function flowModel(input) {
   const ai = aiStateOf({ stub, budget, errors: aiErrorsOf(input.trace), duty: input.duty || null, plan: newestPlan(input.recovery), replay, now: realNow });
   const { events, t0, t1 } = flowEvents({ trace: input.trace || [], feeds: input.feeds || [], feedReads: input.feedReads || [], now: ms(s.now) });
   const waiting = (Array.isArray(budget?.waiting) ? budget.waiting : []).filter((w) => w.status === "WAITING");
-  const reset = Date.parse(budget?.resets_at || "");
-  const slot = Math.min(...waiting.map((w) => Date.parse(w.next_slot_at || "")).filter(Number.isFinite), Number.isFinite(reset) ? reset : Infinity);
-  // a slot or reset already behind the real clock is not "in 1 min": the budget has not caught up
-  const due = Number.isFinite(slot) && slot <= realNow;
-  const slotWhen = Number.isFinite(slot) && !due ? realWhen(slot, realNow, replay) : null;
-  const dueWords = due ? (replay ? `was due ${lasting(realNow - slot)} ago` : `was due at ${hhmmzOf(slot)}`) : "";
   const kindOf = (w) => w.item?.kind || (w.kind === "recover" ? "RECOVER" : null);
   // a waiting job sits in front of the first skill that does its kind (a PLAN job is the Flight
   // planner's before the Drafter's; an ASSESS job the Plume reader's)
@@ -663,21 +634,18 @@ export function flowModel(input) {
     return { id: h.id, name: h.name, does: h.does, to: h.to || null, inLine: jobs.length, jobs: jobs.map((w) => w.label),
       last: newest ? { text: plainLine(newest.message), at: ms(newest.at), failed: newest.level === "error" } : null };
   });
-  // the assistant's state in the board's words (spec 5); the chip's words for trouble and off
+  // the assistant's state in the board's words (spec 5); the chip's words for trouble and off. A
+  // pause is said as "paused", what still holds and what waits; why it is paused and until when
+  // are said once, at Details › TEPHRA Assistant (docs/UI-AI-QUIET.md 8.6), behind the gate's tooltip
+  // and the board's "Details › TEPHRA Assistant ›" link
   const words = aiWords(ai, { home: `Details › ${ASSISTANT}`, opens: "nothing" });
-  const left = Number.isFinite(slot) ? slot - realNow : NaN;
   const jobs = plural2(waiting.length, "job");
-  const inLine = budgetError ? "Jobs in line: unknown, the AI budget did not load" : waiting.length ? `${jobs} in line` : "Nothing waits in line";
+  const inLine = budgetError ? "Jobs in line: unknown, the work queue did not load" : waiting.length ? `${jobs} in line` : "Nothing waits in line";
   let status, sub, gate;
   if (ai.kind === "paused") {
-    status = Number.isFinite(left) && left > 0 ? `paused for ${lasting(left)}` : "paused";
-    const until = due ? "" : replay ? (slotWhen ? ` ${slotWhen.until}` : "") : Number.isFinite(slot) ? ` until ${hhmmzOf(slot)}` : "";
-    const cause = due ? `Google's free AI quota is spent: its reset ${dueWords}, and the AI budget still says it is closed.` : `Google's free AI quota is spent${until}.`;
-    sub = budgetError
-      ? "The Coordinator's newest run found Google's free AI quota spent. The AI budget did not load, so how long it stays closed is unknown. Code still reads every feed and checks every flight, and must-do flights come straight to you."
-      : `${cause} Code still reads every feed and checks every flight; ${jobs} keep their place in line, and must-do flights come straight to you.`;
-    gate = { open: false, kind: "closed", name: "AI model · quota spent",
-      meta: budgetError ? inLine : `${jobs} in line${slotWhen ? ` · next slot ${slotWhen.at}` : due ? ` · reset ${dueWords}` : ""}`, title: "Real clock: Google's free quota resets once a day." };
+    status = "paused";
+    sub = "Code still reads every feed and checks every flight; jobs wait in line and must-do flights come straight to you.";
+    gate = { open: false, kind: "closed", name: "Paused", meta: inLine, title: `Why: Details › ${ASSISTANT}` };
   } else if (ai.kind === "off") {
     status = "off (code only)";
     sub = "No model is connected. Code reads every feed, checks every flight and orders the work, and code templates write the drafts. Every draft still waits for you.";
@@ -690,10 +658,10 @@ export function flowModel(input) {
   } else {
     status = "working";
     sub = "The Coordinator hands each job to a skill, and every draft waits for you. Code checks every number before you see it.";
-    gate = { open: true, kind: "open", name: "AI model · open", meta: budgetError ? inLine : waiting.length ? `${jobs} in line` : "Quota left today", title: "" };
+    gate = { open: true, kind: "open", name: "AI model · open", meta: inLine, title: "" };
   }
   const run = input.duty || null;
-  const coord = { meta: ai.kind === "paused" ? "Waits for the quota to reset" : ai.kind === "off" ? "Code orders the jobs (no model)" : "Orders the jobs and hands them to skills",
+  const coord = { meta: ai.kind === "paused" ? "Paused: must-do jobs come to you" : ai.kind === "off" ? "Code orders the jobs (no model)" : "Orders the jobs and hands them to skills",
     refused: run?.outcome === "MODEL_FAILED", lastAt: run ? ms(run.finished_at) : NaN };
   // You decide: the Wall's own counts, this mode's work only
   const plan = newestPlan(input.recovery);

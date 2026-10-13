@@ -9,7 +9,7 @@ import {
 } from "./util.js";
 import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
-import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, aiSymbol, recordedWords, replayWords, stripLabel, describeReplay, handPlanOf, causeTitle, blockPhrase, machineText, MARK, ASSISTANT } from "./x-parts.js";
+import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, aiSymbol, recordedWords, replayWords, stripLabel, describeReplay, handPlanOf, causeTitle, blockPhrase, whyLink, machineText, MARK, ASSISTANT } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkTech, dkSection, dkLink,
   dkWhen, dkDot, dkFromReplay, collapseRuns, runRow, timeRange, plural, dayTime, times,
@@ -180,9 +180,9 @@ export function renderChrome(D, store, ui) {
   // The AI chip (R3.1, docs/UI-AI-QUIET.md W1-W3, Naming): TEPHRA Assistant's one state in words,
   // never a count of failed steps and never red. It opens TEPHRA Assistant at work (UI-DESIGN
   // 7.21), which leads with the same words and links to Details › TEPHRA Assistant for the model
-  // ids, budgets and causes.
+  // ids, budgets and causes: the one place that says why it is paused (docs/UI-AI-QUIET.md 8.6).
   const ai = aiStateNow(D, store);
-  const w = aiWords(ai, { home: `${ASSISTANT} at work`, opens: `${ASSISTANT} at work`, narrow: window.innerWidth <= 420 });
+  const w = aiWords(ai, { home: `Details › ${ASSISTANT}`, opens: `${ASSISTANT} at work`, narrow: window.innerWidth <= 420 });
   const chip = $("ai-chip");
   setText($("model-chip"), w.label);
   const suffix = chip.querySelector(".ai-chip__fail");
@@ -384,8 +384,10 @@ export function renderFlights(D, store, ui, target = $("flights")) {
   const hand = handPlanOf(D, store, aiStateNow(D, store));
   const handHere = hand.flights.filter((x) => flights.some((f) => `${f.properties.hex}:${f.properties.volcano_id}` === x.key)).length;
   // why those rows have no advisory and what to do, said once for the list
-  const handNote = handHere ? dkNote("caution", [el("p", {}, `No advisory for ${handHere === flights.length ? (handHere === 1 ? "this flight" : `these ${handHere} flights`) : `${handHere} of these flights`}: ${hand.block.undone ? "the Coordinator left them for the Desk" : blockPhrase(hand.block)}. Plan ${handHere === 1 ? "it" : "them"} by hand. `,
-    el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Open the Desk ›" }))], { role: "status" }) : null;
+  // paused: what is missing and what to do, the cause behind "Why ›" (docs/UI-AI-QUIET.md 8.6)
+  const whose = handHere === flights.length ? (handHere === 1 ? "this flight" : `these ${handHere} flights`) : `${handHere} of these flights`;
+  const handNote = handHere ? dkNote("caution", [el("p", {}, hand.block.paused ? `No advisory drafts yet for ${whose}. ` : `No advisory for ${whose}: ${hand.block.undone ? "the Coordinator left them for the Desk" : blockPhrase(hand.block)}. `, `Plan ${handHere === 1 ? "it" : "them"} by hand. `,
+    el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Open the Desk ›" }), hand.block.paused ? [" ", whyLink("flights-why")] : null)], { role: "status" }) : null;
   const group = (title, aside, rows, key) => (rows.length ? dkGroup(title, aside, dkList(rows.map((f) => flightRow(D, f, ui, allStale, hand)), { first: FLIGHTS_FIRST, key, label: title })) : null);
   const list = flights.length
     ? [handNote, group("Inside now", null, flights.filter((f) => f.properties.inside), "flights-inside"), group("Heading in", "soonest first", flights.filter((f) => !f.properties.inside), "flights-heading")]
@@ -695,10 +697,8 @@ export function estimateOutcome(D, sit, cone) {
   if (cone.mode !== "OFFICIAL") return MODE_LINE[cone.mode] || "";
   if (stub) return "Same as the official area (code only, nothing added).";
   if (outcome === "MODEL_FAILED") return "Same as the official area: the Plume reader gave no result, nothing assessed beyond the official reports.";
-  if (outcome === "PENDING") {
-    const slot = aiStateNow(D, null).until;
-    return `Same as the official area: the Plume reader's read is waiting${slot ? ` (next slot ${slot})` : ""}.`;
-  }
+  // a queued read waits in line; when it runs is said at the assistant's home (8.6)
+  if (outcome === "PENDING") return "Same as the official area: the Plume reader's read waits in line.";
   if (outcome === "OFFICIAL_ONLY") return "Same as the official area: no Plume reader read was needed.";
   if (MODEL_READ.has(outcome)) return "Same as the official area: the Plume reader found nothing to add.";
   return MODE_LINE.OFFICIAL;
@@ -787,7 +787,8 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
     id: "h-dec",
     pills: [serverWaiting === null ? dkPill("serious", "Count unknown") : waitingN ? dkPill("caution", "Waiting for a dispatcher") : handN ? dkPill("caution", "Nothing to approve") : dkPill("ok", "Nothing waiting")],
     title: all.length ? "Every advisory is a draft until a dispatcher decides on the Desk." : "No advisories yet. A draft appears when a flight's projected track enters TEPHRA's area.",
-    sub: handN && !waitingN ? el("span", {}, `No drafts: ${hand.block.undone ? "the Coordinator left its must-do flights for the Desk" : blockPhrase(hand.block)}. `, el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Plan by hand on the Desk ›" })) : null,
+    sub: handN && !waitingN ? el("span", {}, hand.block.paused ? `No advisory drafts yet for the ${handN === 1 ? "flight" : `${handN} flights`}. ` : `No drafts: ${hand.block.undone ? "the Coordinator left its must-do flights for the Desk" : blockPhrase(hand.block)}. `,
+      el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Plan by hand on the Desk ›" }), hand.block.paused ? [" ", whyLink("dec-why")] : null) : null,
   });
   const tiles = all.length ? dkTiles([
     { label: "Waiting", value: serverWaiting === null ? "unknown" : String(serverWaiting ?? draft.length), tone: serverWaiting === null ? "serious" : "caution", sub: serverWaiting === null ? "database error" : "all volcanoes" },

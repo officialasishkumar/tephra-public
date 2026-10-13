@@ -815,7 +815,7 @@ export function mountFlow(dialog) {
     c.setLineDash([]);
     const g = A.gate;
     if (!ex && !M.gate.open) {
-      // the jobs waiting for the quota, parked in front of the gate (budget.waiting, now)
+      // the jobs waiting in line, parked in front of the gate (budget.waiting, now)
       M.queue.slice(0, 6).forEach((w, i) => {
         const y = g.y - 11 - i * 11;
         c.fillStyle = C.s1; c.beginPath(); c.arc(g.x, y, 4.6, 0, 7); c.fill();
@@ -1101,8 +1101,9 @@ export function mountFlow(dialog) {
     setAttr(status, "title", M.ai.title || null);
     setText(lede, ex ? "An example of a normal run on the same recorded inputs: the Coordinator hands each job to a skill, and every draft waits for you." : M.sub);
     setText(gateName, ex ? "AI model · open" : M.gate.name);
-    setText(gateMeta, ex ? "Example: quota left, jobs go straight through" : M.gate.meta);
-    setAttr(gateRow, "title", ex || !M.queue.length ? null : `Waiting for the next slot:\n${M.queue.map((w) => `• ${w.label}`).join("\n")}${M.gate.title ? `\n${M.gate.title}` : ""}`);
+    setText(gateMeta, ex ? "Example: open, jobs go straight through" : M.gate.meta);
+    // what waits and where the cause is; why the assistant is paused is said at its home (8.6)
+    setAttr(gateRow, "title", ex || (!M.queue.length && !M.gate.title) ? null : [M.queue.length ? `Waiting in line:\n${M.queue.map((w) => `• ${w.label}`).join("\n")}` : null, M.gate.title || null].filter(Boolean).join("\n"));
     setText(coordMeta, ex ? "Orders the jobs and hands them to skills" : M.coord.meta);
     setAttr(coordBtn, "aria-label", `Coordinator: ${ex ? "orders the jobs and hands them to skills (example)" : M.coord.meta}. Details`);
     for (const s of M.skills) {
@@ -1118,7 +1119,7 @@ export function mountFlow(dialog) {
       }
       r.li.classList.toggle("is-idle", !inLine && !failed && !ex && !s.last);
       r.dot.classList.toggle("is-wait", Boolean(inLine));
-      setAttr(r.btn, "aria-label", `${s.name}: ${inLine ? `${s.inLine} ${s.inLine === 1 ? "job waits" : "jobs wait"} for the next slot` : failed ? "its newest step gave no result" : s.last ? `newest step ${hms(s.last.at)}` : "nothing in the newest steps"}. Details`);
+      setAttr(r.btn, "aria-label", `${s.name}: ${inLine ? `${s.inLine} ${s.inLine === 1 ? "job waits" : "jobs wait"} in line` : failed ? "its newest step gave no result" : s.last ? `newest step ${hms(s.last.at)}` : "nothing in the newest steps"}. Details`);
       setAttr(r.btn, "title", [s.does, s.last ? `${s.last.text} · ${hms(s.last.at)}` : null, inLine ? `In line: ${s.jobs.join("; ")}` : null].filter(Boolean).join("\n"));
     }
     if (legendFor !== mode) {
@@ -1126,7 +1127,7 @@ export function mountFlow(dialog) {
       const sw = (tone, word, hollow = false) => el("span", {}, (() => { const i = el("i", { class: hollow ? "is-hollow" : null }); if (hollow) i.style.color = colOf(tone); else i.style.background = colOf(tone); return i; })(), word);
       legend.replaceChildren(...(ex
         ? [sw("official", "official reports"), sw("observer", "observatory"), sw("aircraft", "aircraft"), sw("weather", "weather"), sw("job", "jobs (example)"), sw("tephra", "TEPHRA's estimate (example)")]
-        : [sw("official", "official reports"), sw("observer", "observatory"), sw("aircraft", "aircraft"), sw("weather", "weather"), sw("job", "jobs"), sw("info", "waiting for the AI", true), sw("must", "must-do, to you")]));
+        : [sw("official", "official reports"), sw("observer", "observatory"), sw("aircraft", "aircraft"), sw("weather", "weather"), sw("job", "jobs"), sw("info", "waiting in line", true), sw("must", "must-do, to you")]));
     }
     renderDecide(false);
     renderPlayer();
@@ -1279,8 +1280,8 @@ export function mountFlow(dialog) {
     ["aircraft", "A swarm from every aircraft into Code checks", "Aircraft positions read: the aircraft feed's last read, or a Coordinator run started by new positions."],
     ["aircraft", "A ring and a label on one flight", "An EXPOSURE step: code found the flight inside, or on its way into, an ash area."],
     ["job", "White tokens from Code checks to the Coordinator", "A Coordinator run: N items to dispatch. One token per item."],
-    ["must", "Tokens stop at the closed gate, turn yellow and drop to You decide", "The Coordinator could not run (the free AI quota, or no result) and code passed M must-do items to the Desk. The number becomes M when they land."],
-    ["info", "Hollow rings parked at the gate", "The jobs in the AI budget's waiting list (real clock). They do not move until a slot opens."],
+    ["must", "Tokens stop at the closed gate, turn yellow and drop to You decide", "The Coordinator did not run (TEPHRA Assistant paused, or no result) and code passed M must-do items to the Desk. The number becomes M when they land."],
+    ["info", "Hollow rings parked at the gate", "The jobs waiting in line for TEPHRA Assistant. They do not move while it is paused."],
     ["job", "A token through the gate to a skill, then on to You decide", "A hand-out from the Coordinator to that skill, then its draft reaching the Desk."],
     ["muted", "A faint afterglow on a route", "The path a real read or step just took, fading over about 3 s. Nothing glows that did not happen."],
     ["muted", "Quiet stretch, skipping ahead", "No step in the record and nothing in flight: the clock runs faster to the next real step, and says so."],
@@ -1299,17 +1300,17 @@ export function mountFlow(dialog) {
         kids.push(el("p", { class: "flow-sheet__state", text: card.word }),
           el("p", { text: `Newest: ${card.last.text}${Number.isFinite(card.last.at) ? ` · ${hms(card.last.at)}` : ""}` }));
         if (card.brief) kids.push(el("p", { text: `Brief: ${card.brief.text}` }));
-        if (card.model) kids.push(el("p", { class: "flow-sheet__fine", text: `${card.model.id ? `${card.model.id} · ` : ""}${card.model.text}` }));
+        if (card.model) kids.push(el("p", { class: "flow-sheet__fine", text: card.model.text }));
         if (card.steps.length) kids.push(el("h3", { text: "Newest steps" }), el("ol", { class: "flow-sheet__steps" }, ...card.steps.map((x) => el("li", {}, el("span", { class: "flow-sheet__tm", text: x.atText || (Number.isFinite(x.at) ? hms(x.at) : "") }), el("span", { text: `${x.text}${x.count > 1 ? ` (${x.count}×)` : ""} · ${x.source}` })))));
       } else if (s?.last) kids.push(el("p", { text: `${s.last.text} · ${hms(s.last.at)}` }));
-      if (s?.jobs.length) kids.push(el("h3", { text: "Waiting for the next slot" }), el("ul", {}, ...s.jobs.map((j) => el("li", { text: j }))));
+      if (s?.jobs.length) kids.push(el("h3", { text: "Waiting in line" }), el("ul", {}, ...s.jobs.map((j) => el("li", { text: j }))));
       kids.push(el("button", { type: "button", class: "flow-link", dataset: { act: "board-details", sec: "trace", focus: `board-trace-${skillId}` }, text: "Every step in How TEPHRA decided ›" }));
       sheetBody.replaceChildren(...kids);
     } else {
       sheetH.textContent = "How this moves";
       const tb = el("tbody", {}, ...MAPROWS.map(([tone, a, b]) => { const i = el("i"); i.style.background = colOf(tone); return el("tr", {}, el("td", {}, i, a), el("td", { text: b })); }));
       sheetBody.replaceChildren(
-        el("p", { text: `Everything that moves stands for one real record: a step in TEPHRA's trace, a feed's last read, or the queue in the AI budget. If nothing happened, nothing moves. The playback runs the ${M?.spanMin ? `last ${M.spanMin} minutes` : "latest"} of real steps the Wall holds${M?.replay ? ", on the replay clock" : ""}.` }),
+        el("p", { text: `Everything that moves stands for one real record: a step in TEPHRA's trace, a feed's last read, or the assistant's work queue. If nothing happened, nothing moves. The playback runs the ${M?.spanMin ? `last ${M.spanMin} minutes` : "latest"} of real steps the Wall holds${M?.replay ? ", on the replay clock" : ""}.` }),
         el("table", {}, el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "What moves" }), el("th", { scope: "col", text: "The real record behind it" }))), tb),
         el("h3", { id: "flow-steps-h", tabindex: "-1", text: "Every step, in plain words" }),
         el("p", { text: "The same steps the board animates, as text. The steps up to the playhead are bright." }),

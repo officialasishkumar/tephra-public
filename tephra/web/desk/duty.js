@@ -169,7 +169,7 @@ function buildCard(run) {
   if (left) card.append(left);
 
   const more = el('div', { id: 'duty-more', class: 'dcard__more', hidden: !expanded });
-  append(more, [el('p', { class: 'dcard__state' }, stateChip(tone, shape, word, failed ? (refused(run) ? "Today's free AI quota is used up: no model was called" : 'The model was called and gave no brief that passed the code checks') : 'Outcome of the last Coordinator run'),
+  append(more, [el('p', { class: 'dcard__state' }, stateChip(tone, shape, word, failed ? (refused(run) ? 'TEPHRA Assistant is paused: no model was called' : 'The model was called and gave no brief that passed the code checks') : 'Outcome of the last Coordinator run'),
     failed ? null : el('span', { class: 'dcard__count', text: plural(calls, 'delegation') }))]);
   if (failed) {
     append(more, [el('p', { class: 'dcard__note', text: 'No brief was made up in its place.' })]);

@@ -6,7 +6,6 @@
 import { PATHS, api, errorCode, isUnavailable, problems, unavailableReason } from './api.js';
 import { announce, byId, el, icon } from './dom.js';
 import { actionShort, activeNow, dayMonthHhmm } from './format.js';
-import { slotWords } from './budget.js';
 import { renderDoc, renderHandover, roleName } from './docview.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
@@ -243,8 +242,8 @@ export function renderDocs() {
   const sraKids = [el('p', { id: 'sra-note', class: 'fine', text: "One draft per region, filled from TEPHRA's evidence. Blanks stay blank." })];
   // an SRA the budget holds for later, at the place it would land (docs/UI-AI-QUIET.md K98)
   const queued = app.budget && Array.isArray(app.budget.waiting) ? app.budget.waiting.find((w) => w.status === 'WAITING' && w.item && w.item.kind === 'SRA') : null;
-  // the slot is on the real clock: in REPLAY it is the time left (review H4)
-  const queuedWords = queued ? `Waiting for TEPHRA Assistant: next slot ${slotWords(queued.next_slot_at) || 'not set'}` : '';
+  // that it waits, not when: the slot is said in the assistant sheet (docs/UI-AI-QUIET.md 8.6)
+  const queuedWords = queued ? 'Waiting in line for TEPHRA Assistant' : '';
   // the summary line says it waits; the note says only what to do (review clutter 11)
   if (queued) sraKids.push(el('p', { class: 'note', role: 'status' }, icon('st-caution', 'st'), el('span', { text: 'Complete it by hand if it cannot wait.' })));
   if (draftError && draftError.kind === 'SRA') sraKids.push(draftErrorNode());

@@ -14,7 +14,7 @@ import {
 import { ext, renderXPanel, recoverySummary, proofTicks, rerouteBlock, replanning, aiState, handPlan } from "./ext.js";
 import { renderLayers, layersStatus } from "./controls.js";
 import { currentPlan, advisoryFacts, closuresFor } from "./story.js";
-import { planFailure, techDetail, blockPhrase } from "./x-parts.js";
+import { planFailure, techDetail, blockPhrase, whyLink } from "./x-parts.js";
 import { dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkSection, dkDot, dkFromReplay } from "./dk.js";
 
 // Section key, index group, title, host element id, the old rail panel id it stands for (R8.2).
@@ -148,7 +148,8 @@ export function indexStatus(key, D, store, ui) {
       const ai = aiState(D, store);
       const n = ai.trouble.length;
       if (ai.kind === "off") return { text: "Off · code only" };
-      if (ai.kind === "paused") return { text: ai.until ? `Waiting ${ai.until}` : "Waiting", tone: "caution", noAttn: true };
+      // the state word only; why and until when are in the section it opens (8.6)
+      if (ai.kind === "paused") return { text: "Paused", tone: "caution", noAttn: true };
       if (ai.kind === "trouble") return { text: `On · ${n} problem${n === 1 ? "" : "s"}`, tone: "caution", noAttn: true };
       return { text: "On" };
     }
@@ -329,8 +330,10 @@ function flightDetail(D, ui, store) {
     const mine = hand.flights.find((x) => x.key === `${p.hex}:${p.volcano_id}`);
     if (mine) {
       const b = hand.block;
-      kids.push(dkNote("caution", [el("p", {}, `No advisory for this flight: ${blockPhrase(b)}. `,
+      // paused: what is missing and what to do; the cause is behind "Why ›" (docs/UI-AI-QUIET.md 8.6)
+      kids.push(dkNote("caution", [el("p", {}, b.paused ? "No advisory draft yet for this flight. " : `No advisory for this flight: ${blockPhrase(b)}. `,
         el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Plan it by hand on the Desk ›" }),
+        b.paused ? [" ", whyLink("fdetail-why")] : null,
         mine.must ? [" ", dkChip("Must do", { kind: "must", title: "Code requires this work this run" })] : null)], { role: "status" }));
     } else kids.push(dkEmpty("No advisory is drafted for this flight yet.", null));
   }

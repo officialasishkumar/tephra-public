@@ -842,10 +842,12 @@ R17.2). Left to right:
 4. Spacer.
 5. Assistant chip `#ai-chip` (button) with `#model-chip` as its text and the Strata state mark:
    TEPHRA Assistant's one state from `aiStateOf()` (`wall/x-parts.js`, shared with the Desk and
-   the board), "TEPHRA Assistant · on", "TEPHRA Assistant · waiting until 0700Z", "TEPHRA
+   the board), "TEPHRA Assistant · on", "TEPHRA Assistant · paused", "TEPHRA
    Assistant · Recovery planner gave no result" or "TEPHRA Assistant · off (code only)" ("Assistant ·
-   waiting", "Assistant · 1 problem" at 420 px and less), never red and never a count of failed
-   steps or a model id (docs/UI-AI-QUIET.md 8.4). It opens TEPHRA Assistant at work (7.21), as A
+   paused", "Assistant · 1 problem" at 420 px and less), never red and never a count of failed
+   steps or a model id (docs/UI-AI-QUIET.md 8.4). A pause carries no reason and no time, in the
+   chip or its tooltip ("TEPHRA Assistant is paused: see why in Details › TEPHRA Assistant."); the
+   cause is said once, at Details › TEPHRA Assistant (docs/UI-AI-QUIET.md 8.6). It opens TEPHRA Assistant at work (7.21), as A
    does, which leads with the same words and links to Details › TEPHRA Assistant, the record of
    models, calls and causes.
 6. Data chip `#feeds-chip`: "Data: 6 working · 5 off", worst first ("Data: 1 error · 5 working ·
@@ -951,9 +953,9 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
     gone" when some drafts' flights are not counted in the hero, "5 · decided · 4 approved, 1
     rejected", "0 · drafted", "? · unknown (database error)" in the serious tone; Decisions);
   - one notice, caution (`role="status"`, never red), when the AI's absence or a missing airport
-    plan changes the dispatcher's work, said once for both: title "AI paused until 0700Z" (in
-    REPLAY "AI paused for another 2 h 45 min"), "AI unavailable (timed out)", "Waiting for AI, next
-    slot 0700Z", "Must-do flights left for the Desk" or "No airport plan"; then "No advisory drafts
+    plan changes the dispatcher's work, said once for both: title "TEPHRA Assistant · paused" (no
+    reason and no time: docs/UI-AI-QUIET.md 8.6), "Drafter gave no result (timed out)", "Waiting in
+    line for TEPHRA Assistant", "Must-do flights left for the Desk" or "No airport plan"; then "No advisory drafts
     and no airport plan. Plan the 14 flights and the network by hand on the Desk." and one link,
     "Why ›" (Details › AI helpers) or, for a solver-only failure, "Airport closures ›";
   - the lines about the sources, one row each that opens Where the sources disagree: "The sources
@@ -1288,16 +1290,20 @@ The stage:
   MAGMA Bandung, Darwin and Tokyo VAAC and JMA pinned to the map's edge with an arrow and their
   distance, Himawari, the winds grid; METAR comes from the airports and ADS-B from the aircraft. A
   feed that is off says so ("not in this recording").
-- **Head.** The Strata mark by state, "TEPHRA Assistant · working / paused for 2 h 45 min / off (code
-  only) / Recovery planner gave no result" (`#board-status`), one sentence of cause (`#board-lede`),
+- **Head.** The Strata mark by state, "TEPHRA Assistant · working / paused / off (code
+  only) / Recovery planner gave no result" (`#board-status`), one sentence of what still holds
+  (`#board-lede`; paused: "Code still reads every feed and checks every flight; jobs wait in line
+  and must-do flights come straight to you.", with no quota, reset or slot words, UI-AI-QUIET 8.6),
   "Real now · Example: working normally", "?" (How this moves) and the close button.
 - **Inside TEPHRA** (one glass panel, the pipeline as a drawn spine): Code checks (no AI) with feed
   reads and flight alerts at the playhead; the Coordinator with its last run and a button that opens
-  its details; the model gate ("AI model · open", "AI model · quota spent" with "4 jobs in line · next
-  slot 0700Z", "AI model · gave no result", or "No model · code templates") with the budget's waiting
-  jobs parked in front as hollow rings (the gap above the gate grows so they never reach the
-  Coordinator's words; a reset already behind the real clock is said as "reset was due …", never
-  "in 1 min"; a budget that did not load shows no queue); the six skills
+  its details; the model gate ("AI model · open", "Paused" with "4 jobs in line" and the tooltip
+  "Why: Details › TEPHRA Assistant", "AI model · gave no result", or "No model · code templates")
+  with the queue's waiting jobs parked in front as hollow rings (the gap above the gate grows so
+  they never reach the Coordinator's words; no slot or reset time on the board, UI-AI-QUIET 8.6;
+  a queue that did not load shows none: "Jobs in line: unknown, the work queue did not load"); the
+  skill sheets name their model ("Model: gemini-3.5-flash-lite"), the calls are counted in Details
+  › TEPHRA Assistant only; the six skills
   (Plume reader, Satellite reader, Flight planner, Drafter, Recovery planner, Paperwork drafter),
   each with "N in line", its newest step's time or "idle", and a button that opens its details (the
   `boardModel` card: state, newest result, model and calls, newest steps); "When you ask" for the
@@ -1465,8 +1471,9 @@ decision sends the `version` the dispatcher saw.
 
 Row 1 (48): "TEPHRA" (700, letter-spaced) + "Desk" (text-3, hidden at 430 px and under); the AI
 chip `#budget-chip` with `#model-chip` as its label (10.16, docs/UI-AI-QUIET.md K78, 8.4): "TEPHRA
-Assistant · on", "TEPHRA Assistant · waiting until 0700Z", "TEPHRA Assistant · Drafter gave no result" or
-"TEPHRA Assistant · off (code only)" ("Assistant · waiting" at 420 px and less; the name drops
+Assistant · on", "TEPHRA Assistant · paused", "TEPHRA Assistant · Drafter gave no result" or
+"TEPHRA Assistant · off (code only)" ("Assistant · paused" at 420 px and less, no reason and no
+time, docs/UI-AI-QUIET.md 8.6; the name drops
 when the row would scroll sideways, docs/UI-AI-QUIET.md 8.5), never red, which
 opens the TEPHRA Assistant sheet; the connection `#conn`, always a word with its shape: `st-ok` "Connected" (not
 "Live", which under the REPLAY bar would read as live data), `st-stale` "Reconnecting…",
@@ -1935,8 +1942,10 @@ dispatcher, the confirm button counts what is ticked, and each flight is its own
 its own audit entry.
 
 The AI chip (`#budget-chip` with `#model-chip` as its label, `desk/budget.js`): the one state of
-docs/UI-AI-QUIET.md 5.2 ("AI on", "AI paused · 0700Z real time", "AI on · 1 problem", "AI off"),
-caution for paused and trouble, never red. Its sheet, "AI today": the calm lead (UI-AI-QUIET
+docs/UI-AI-QUIET.md 5.2 ("AI on", "AI paused · 0700Z real time", "AI on · 1 problem", "AI off";
+since 8.4 and 8.6 "TEPHRA Assistant · on / paused / Drafter gave no result / off (code only)", a
+pause with no reason or time), caution for paused and trouble, never red. The sheet is the Desk's
+one place that says why the assistant is paused and until when (UI-AI-QUIET 8.6). Its sheet, "AI today": the calm lead (UI-AI-QUIET
 5.1), "What went wrong" by cause (each with its count, its times and what the dispatcher does
 instead, the raw lines under Technical detail), "AI work waiting" (each job with "waits for AI
 budget, next slot 0700Z real time"), "Calls today, per model" (what the model does, "1 of 450

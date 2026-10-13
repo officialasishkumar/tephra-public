@@ -11,8 +11,7 @@ import { activeNow, dayMonthHhmm, deskName, hhmmz, secs } from './format.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
 import { aiMark, fmtUsd, fromReplayChip, openBSheet, unavailableCard } from './ui.js';
-import { WHY, machineText, reasonClass } from '../wall/x-parts.js';
-import { slotWords } from './budget.js';
+import { machineText, plainWhy, reasonClass } from '../wall/x-parts.js';
 
 const STATUS = {
   DRAFT: ['i-clock', 'Waiting for your decision', 'neutral'],
@@ -23,12 +22,16 @@ const STATUS = {
 };
 
 // Why a plan has no recommendation, in the §1.1 words (docs/UI-AI-QUIET.md K95, Naming): "Recovery
-// planner gave no result (timed out)". The raw reason stays under Technical detail.
-const noRecWords = (p) => `Recovery planner gave no result (${WHY[reasonClass([p.unavailable_reason, ...(p.validation_errors || [])].join(' '))] || WHY.other}).`;
-// The re-plan the budget holds for later: "A new plan waits for TEPHRA Assistant: next slot 0700Z."
+// planner gave no result (timed out)", or "did not run (assistant paused)" for a quota refusal,
+// whose cause is said in the assistant sheet only (8.6). The raw reason stays under Technical detail.
+function noRecWords(p) {
+  const cls = reasonClass([p.unavailable_reason, ...(p.validation_errors || [])].join(' '));
+  return `Recovery planner ${cls === 'budget' ? 'did not run' : 'gave no result'} (${plainWhy(cls)}).`;
+}
+// The re-plan the queue holds for later: that it waits, not when (the slot is in the assistant sheet).
 function queuedReplan() {
   const w = app.budget && Array.isArray(app.budget.waiting) ? app.budget.waiting.find((x) => x.status === 'WAITING' && x.item && x.item.kind === 'RECOVER') : null;
-  return w ? `A new plan waits for TEPHRA Assistant: next slot ${slotWords(w.next_slot_at) || 'not set'}.` : '';
+  return w ? 'A new plan waits in line for TEPHRA Assistant.' : '';
 }
 
 // A plan that found no plan (R2.6): the solver's status in plain words, never the assistant's failure.

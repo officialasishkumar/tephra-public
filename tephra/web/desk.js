@@ -21,7 +21,7 @@ import { closeSheet, onSheetClick, openSheet, receiptWords, refreshFacts, setRec
 import { app, draftList } from './desk/state.js';
 import { toast } from './desk/toast.js';
 import { initAsk, focusAsk, setFlightContext } from './desk/ask.js';
-import { deskAi, drawAiChip, fitHead, loadBudget, openBudget, setBudget } from './desk/budget.js';
+import { drawAiChip, fitHead, loadBudget, openBudget, setBudget } from './desk/budget.js';
 import { clearHandover, loadDocs, loadHandover, onDocEvent, onDocsClick, renderDocs } from './desk/docs.js';
 import { loadDuty, onDutyEvent } from './desk/duty.js';
 import { loadFailures, onFailureEvent, openBulk, openFailures, openHandled, renderFailures } from './desk/failures.js';
@@ -727,11 +727,6 @@ function enterDesk(session, { focus = true } = {}) {
   tickTimer = window.setInterval(() => {
     updateTimes();
     updateSheetTimes();
-    // in REPLAY a paused AI says the time left, which moves with the real clock
-    if (app.state && app.state.mode === 'REPLAY' && deskAi().kind === 'paused') {
-      drawAiChip();
-      renderFailures();
-    }
   }, TICK_MS);
   window.clearTimeout(sessionTimer);
   const warnIn = (parseTime(session.expires_at) ?? 0) - SESSION_WARN_MS - serverNow();

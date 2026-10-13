@@ -192,11 +192,14 @@ def test_one_assistant_name_and_no_old_ai_words() -> None:
 
 def test_the_disclosure_still_says_ai() -> None:
     """Naming: "AI" stays where disclosure needs it: the chip tooltip, the About lines and the
-    free AI quota; and the chip still says it never shrinks the official area."""
-    words = _function(_read("wall/x-parts.js"), "aiWords")
+    free AI quota at the assistant's home; and the chip still says it never shrinks the official
+    area. The quota is said in the home's lead only, never in the chip (8.6)."""
+    xparts = _read("wall/x-parts.js")
+    words = _function(xparts, "aiWords")
     assert "TEPHRA Assistant is TEPHRA's AI assistant (Gemini)." in words
     assert "never shrink the official area" in words
-    assert "today's free AI quota is used up" in words
+    assert "quota" not in words
+    assert "Google's free daily AI quota" in _function(xparts, "aiLead")
     about = "TEPHRA Assistant is an AI assistant. It reads feeds and drafts text."
     assert about in _function(_read("wall/controls.js"), "aboutContent")
     assert about in _read("wall/controls.js")
@@ -225,3 +228,84 @@ def test_the_strata_mark_is_in_the_sprite() -> None:
     marks = icons[icons.index('<symbol id="ta-64"') :]
     assert "style=" not in marks
     assert "#" not in marks.replace("</svg>", "")
+
+
+# Say the cause once (docs/UI-AI-QUIET.md 8.6): the free quota, budgets, per-model counts, lanes,
+# pacing and reset or slot times are said at the assistant's home only (Details, TEPHRA Assistant:
+# wall/ext.js, wall/duty.js; the Desk's assistant sheet: desk/budget.js) and in the shared words
+# (wall/x-parts.js, which tests/test_wall_board.py checks by running it). Every other page source
+# says "paused" and what to do; the raw reasons are matched by regex literals and comments only.
+MAIN_VIEW_SOURCES = (
+    "wall/story.js",
+    "wall/panels.js",
+    "wall/details.js",
+    "wall/board.js",
+    "wall/board-view.js",
+    "wall/derive.js",
+    "wall/map.js",
+    "wall/ext-map.js",
+    "wall/controls.js",
+    "desk/failures.js",
+    "desk/ask.js",
+    "desk/network.js",
+    "desk/docs.js",
+    "desk/idle.js",
+    "desk/review.js",
+    "desk/queue.js",
+    "desk/duty.js",
+    "desk/ui.js",
+    "index.html",
+    "desk.html",
+)
+QUOTA_TEXT = re.compile(
+    r"quota|used up|closed by google|free ai|next slot|\bspent\b|calls today|calls left"
+    r"|share of calls|\bpacing\b|resets? (?:at|once)|reset was due|AI budget",
+    re.I,
+)
+STRING = re.compile(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|`(?:\\.|[^`\\])*`")
+
+
+def test_main_views_never_say_why_the_assistant_is_paused() -> None:
+    for rel in MAIN_VIEW_SOURCES:
+        source = _read(rel)
+        for line in source.splitlines():
+            if COMMENT.match(line):
+                continue
+            code = REGEX_LITERAL.sub("", line) if rel.endswith(".js") else line
+            html = [re.sub(r"<!--.*?-->", "", code)]
+            texts = STRING.findall(code) if rel.endswith(".js") else html
+            for text in texts:
+                assert not QUOTA_TEXT.search(text), (rel, line.strip()[:140])
+
+
+def test_the_cause_of_a_pause_is_one_tap_from_every_place_that_lacks_an_output() -> None:
+    """Rule 9 at the place, with the cause one tap away (8.6): each place that has no assistant
+    output while it is paused still says so and what to do, and links to the assistant's home."""
+    panels = _read("wall/panels.js")
+    assert "No advisory drafts yet for ${whose}. " in panels
+    assert 'whyLink("flights-why")' in panels
+    assert 'whyLink("dec-why")' in panels
+    details = _read("wall/details.js")
+    assert '"No advisory draft yet for this flight. "' in details
+    assert 'whyLink("fdetail-why")' in details
+    ext = _read("wall/ext.js")
+    assert 'A new plan waits in line for ${ASSISTANT}. `, whyLink("rec-why")' in ext
+    assert "`${ASSISTANT} is paused`" in ext
+    xparts = _read("wall/x-parts.js")
+    why = xparts[xparts.index("export const whyLink = ") :]
+    assert 'dataset: { act: "details-sec", sec: "ai", focus }' in why[: why.index("\n")]
+    story = _read("wall/story.js")
+    assert "`${ASSISTANT} · paused`" in story
+    assert 'why: aiCause ? { act: "ai", text: "Why \u203a"' in story
+    failures = _read("desk/failures.js")
+    hand = "No advisory drafts yet. Plan ${n === 1 ? 'this flight' : `these ${n} flights`} by hand."
+    assert hand in failures
+    assert "'data-why': '1'" in failures
+    ask = _read("desk/ask.js")
+    assert "title: 'TEPHRA Assistant is paused.'" in ask
+    assert "onWhy: openBudget" in ask
+    assert "TEPHRA Assistant is paused, so Ask cannot answer yet." in ask
+    # the homes keep the reason, the models' calls and the queue's slots
+    assert "Closed for today by Google" in _read("desk/budget.js")
+    assert "Google closed the free quota after" in ext
+    assert "Today's free AI quota is used up: no model was called." in _read("wall/duty.js")

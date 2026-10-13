@@ -9,7 +9,7 @@
 
 import { $, el, icon, ms, hhmmz } from "./util.js";
 import { frameFor } from "./ext-map.js";
-import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, causeTitle, handPlanOf, reasonClass, realWhen, machineText, machineSentences, recordedWords, jobsWords, pacingWords, WHY, MARK, ASSISTANT } from "./x-parts.js";
+import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, causeTitle, handPlanOf, reasonClass, realWhen, machineText, machineSentences, recordedWords, jobsWords, pacingWords, whyLink, WHY, MARK, ASSISTANT } from "./x-parts.js";
 import { dutyDetail, dispatchedTools } from "./duty.js";
 import { HELPERS } from "./board.js";
 import {
@@ -137,7 +137,8 @@ function satRow(D, reading, sit, store) {
   const scan = reading.observed_at ? `scan ${clock(reading.observed_at)}` : "";
   const rec = dkFromReplay(reading.replay, D.mode === "REPLAY");
   if (reading.status === "ai_unavailable") {
-    return dkRow({ key: `sat-${vid}`, dot: "caution", edge: "caution", title: name, sub: `Not read: ${reasonClass(reading.reason) === "budget" ? WHY.budget : `Satellite reader gave no result (${WHY[reasonClass(reading.reason)] || WHY.other})`}. Nothing was put in its place.`, meta: scan,
+    // a quota refusal says the state only; its cause is at the assistant's home (UI-AI-QUIET 8.6)
+    return dkRow({ key: `sat-${vid}`, dot: "caution", edge: "caution", title: name, sub: `Not read: ${reasonClass(reading.reason) === "budget" ? `${ASSISTANT} is paused` : `Satellite reader gave no result (${WHY[reasonClass(reading.reason)] || WHY.other})`}. Nothing was put in its place.`, meta: scan,
       body: [dkTech(String(reading.reason || "no reason given"), reading.model_id ? `would have used ${reading.model_id}` : null)], open: vid === D.selected });
   }
   if (reading.status === "no_frames") {
@@ -334,7 +335,6 @@ function recoveryPanel(D, store) {
   const chosenBy = plan.outcome === "STUB" ? dkChip("Planned by code (code only)") : plan.chosen ? aiMark(plan.model_id, null, MARK.chosen) : null;
   // the re-plan the budget holds for later, at the place it changes (D58)
   const queued = fail ? waitingWork().find((w) => w.status === "WAITING" && w.item?.kind === "RECOVER") : null;
-  const queuedAt = queued ? ms(queued.next_slot_at) : NaN;
   const head = dkHeader({
     id: "rec-head",
     pills: [dkPill(tone, word), dkFromReplay(plan.replay, D.mode === "REPLAY")],
@@ -344,7 +344,8 @@ function recoveryPanel(D, store) {
   const kids = [head, busy];
   if (fail) {
     kids.push(dkList([dkRow({ key: "rec-fail", dot: "caution", edge: "caution", title: fail.title, sub: fail.sub, open: false, body: [dkTech(fail.raw)] })], { key: "rec-fail" }));
-    if (queued) kids.push(dkNote("info", `A new plan waits for ${ASSISTANT}: next slot ${realWhen(queuedAt, Date.now(), D.mode === "REPLAY")?.at || "not set"}.`, { role: "status" }));
+    // that it waits, not when: the slot is said at the assistant's home (UI-AI-QUIET 8.6)
+    if (queued) kids.push(dkNote("info", [el("p", {}, `A new plan waits in line for ${ASSISTANT}. `, whyLink("rec-why"))], { role: "status" }));
   }
   // closed airports: a row each; the full reason and its sources are one tap further in
   kids.push(dkGroup(`Closed airports, all volcanoes · ${plan.closures.length}`, null, dkList(plan.closures.map((c) => dkRow({
@@ -509,7 +510,7 @@ export function agentStatus(D, store, ai) {
     if (last) state = last.level === "error" ? "failed" : nowT - (ext.arrivals.get(last.id) ?? -1e9) < RUNNING_MS ? "running" : "done";
     // the badge says what happened ("Not run" only where no model was called); `words` says why,
     // without repeating the badge (review H6)
-    const paused = (cls) => (cls === "budget" ? (ai.paused ? `${ASSISTANT} waiting${ai.until ? ` ${ai.until}` : ""}` : WHY.budget) : `gave no result (${WHY[cls] || WHY.other})`);
+    const paused = (cls) => (cls === "budget" ? (ai.paused ? `${ASSISTANT} paused${ai.until ? ` ${ai.until}` : ""}` : WHY.budget) : `gave no result (${WHY[cls] || WHY.other})`);
     if (a.id === "duty" && run?.outcome === "MODEL_FAILED") {
       const cls = reasonClass((run.validation_errors || [])[0]);
       state = "failed"; badge = cls === "budget" ? "Not run" : "No brief"; words = paused(cls); at = at || run.finished_at;
@@ -636,7 +637,7 @@ function causeRows(causes) {
     const range = lo == null ? null : lo === hi ? String(lo) : `${lo}–${hi}`;
     const when = Number.isFinite(c.first) ? timeRange(c.first, c.last) : null;
     return dkRow({
-      key: `fail-${c.key}`, dot: "caution", edge: "caution", title: causeTitle(c), sub: causeSub(c, range), foot: dkWhen(c.steps, when),
+      key: `fail-${c.key}`, dot: "caution", edge: "caution", title: causeTitle(c, { home: true }), sub: causeSub(c, range), foot: dkWhen(c.steps, when),
       body: [
         c.link ? dkLink(c.link[0], { act: "details-sec", sec: c.link[1], focus: `fail-go-${c.key}` }) : null,
         occ.length ? dkList(occ.map((x) => el("div", { class: "dk-occ" }, el("span", { class: "dk-occ__t mono", text: Number.isFinite(x.t) ? hhmmz(x.t) : "" }), el("span", { class: "dk-occ__x", text: x.each }))),
@@ -678,7 +679,7 @@ function helperRow(a, store, n, stub, until, replay) {
 // The state pill at the assistant home (D64): one state, never red.
 export function aiPill(ai) {
   if (ai.kind === "off") return dkPill("off", "Off · code only");
-  if (ai.kind === "paused") return dkPill("caution", ai.until ? `Waiting ${ai.until}` : "Waiting");
+  if (ai.kind === "paused") return dkPill("caution", ai.until ? `Paused ${ai.until}` : "Paused");
   if (ai.kind === "trouble") return dkPill("caution", `On · ${plural(ai.trouble.length, "problem")}`);
   return dkPill("ok", "On");
 }

@@ -82,7 +82,10 @@ export const pacingWords = (text) => String(text || "").replace(/waiting for AI 
 export const jobsWords = (text) => (text ? String(text).replace(/\b(e|E)very other AI step\b/g, (_, e) => `${e}very other skill`) : text);
 
 // ------------------------------------------------------------------ the AI state (UI-AI-QUIET 1.2)
-// AI is in one state: on, paused (today's quota used up), trouble (n causes) or off (stub).
+// AI is in one state: on, paused (its model closed for the day, or work waiting for a slot),
+// trouble (n causes) or off (stub). The cause of a pause (the free quota, the next slot, budgets)
+// is said once, at the assistant's home (docs/UI-AI-QUIET.md 8.6 "Say the cause once"); main views
+// say "paused" and what to do.
 // Failures count by cause (helper + reason class), never by step or tick. Pure: the Wall passes
 // its trace, newest Coordinator (duty officer) run, newest airport plan and the live budget; the
 // Desk its failures, Coordinator run and budget.
@@ -119,11 +122,15 @@ export function reasonClass(reason) {
   if (/ERROR\b|Error\b|exception/i.test(r)) return "error";
   return "other";
 }
-// "{why}" in "{Skill} gave no result ({why})" (UI-AI-QUIET 1.1, Naming).
+// "{why}" in "{Skill} gave no result ({why})" (UI-AI-QUIET 1.1, Naming). `budget` is the cause in
+// full, for the assistant's home only (8.6); main views and plain-words lines say PAUSED.
 export const WHY = {
   timeout: "timed out", checks: "the answer failed the code's checks", error: "it stopped with an error", other: "it could not answer",
   budget: "today's free AI quota is used up", undone: "left for the Desk",
 };
+// A quota refusal in a main view or a plain-words line: the state word, never its cause (8.6).
+export const PAUSED = "assistant paused";
+export const plainWhy = (cls) => (cls === "budget" ? PAUSED : WHY[cls] || WHY.other);
 
 // The helper a failure belongs to: a Coordinator line about a plume read is the Plume reader's.
 function helperOf(stage, reason) {
@@ -163,21 +170,22 @@ function span(msLeft) {
   return m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} h`;
 }
 
-// A time on the real clock, in words that fit after "until", "next slot" or "after" (the field
-// names say which). Live it is the clock time ("until 0700Z"). In REPLAY the page shows the
-// recording's clock, so a real time would read as a time on that clock: it is said as the time
-// left ("for another 2 h 45 min", "next slot in 2 h 45 min"), which reads the same on either clock.
+// A time on the real clock, in words that fit after "paused" (`until`) or "next slot" (`at`).
+// Live it is the clock time ("until 0700Z"). In REPLAY the page shows the recording's clock, so
+// a real time would read as a time on that clock: it is said as the time left ("for another 2 h
+// 45 min", "next slot in 2 h 45 min"), which reads the same on either clock.
 export function realWhen(t, now, replay) {
   if (!Number.isFinite(t)) return null;
-  if (!replay) return { until: `until ${hhmmz(t)}`, short: hhmmz(t), at: hhmmz(t), after: `after ${hhmmz(t)}` };
+  if (!replay) return { until: `until ${hhmmz(t)}`, at: hhmmz(t) };
   const left = span(t - now);
-  return { until: `for another ${left}`, short: `${left} left`, at: `in ${left}`, after: `in ${left}` };
+  return { until: `for another ${left}`, at: `in ${left}` };
 }
 
 // errors: [{ stage, reason, at (ms), raw }]. plan: the newest airport plan. duty: the newest run.
 // `replay`: the page plays a recording. `now`: the real clock (ms), for the time left in REPLAY.
-// `until` is the reset in words after "waiting" ("until 0700Z", "for another 2 h 45 min"),
-// `untilShort` the chip's form and `after` the form after "Try again".
+// `until` is the reset in words after "paused" ("until 0700Z", "for another 2 h 45 min") and
+// `slotAt` the form after "next slot". They word the cause at the assistant's home only
+// (docs/UI-AI-QUIET.md 8.6).
 export function aiStateOf({ stub = false, budget = null, errors = [], duty = null, plan = null, replay = false, now = Date.now() }) {
   const lite = liteModel(budget);
   const closed = !stub && lite?.closed === true;
@@ -233,17 +241,19 @@ export function aiStateOf({ stub = false, budget = null, errors = [], duty = nul
     return { job: w.label, kind: w.item?.kind || w.kind, slot: slot?.at || null, volcano: w.item?.volcano_id || null };
   });
   const kind = stub ? "off" : paused ? "paused" : trouble.length ? "trouble" : "on";
-  return { kind, until, untilShort: reset?.short || null, after: reset?.after || null, causes, trouble, waiting, paused };
+  // `model` and `slotAt` word the cause at the assistant's home only (aiLead)
+  return { kind, until, slotAt: reset?.at || null, model: lite?.model_id || null, causes, trouble, waiting, paused };
 }
 
 const problems = (n) => `${n} problem${n === 1 ? "" : "s"}`;
 
-// One cause in a few words, for the chip's tooltip and the assistant home's lead. "Did not run"
-// only where no model was called (a budget refusal); a model that was called and gave nothing
-// usable "gave no result"; a run that answered and left work for the Desk says that (H8).
+// One cause in a few words, for the chip's tooltip, the board and the assistant home's lead. "Did
+// not run" only where no model was called (a budget refusal), said as "assistant paused" (8.6); a
+// model that was called and gave nothing usable "gave no result"; a run that answered and left work
+// for the Desk says that (H8).
 export function causeShort(c) {
   if (c.reasonClass === "undone") return `${c.helper} left must-do jobs for the Desk`;
-  if (c.reasonClass === "budget") return c.steps ? `${c.helper} did not run (${c.absorbed ? "assistant waiting" : WHY.budget})` : `${c.helper}: ${WHY.budget}`;
+  if (c.reasonClass === "budget") return c.steps ? `${c.helper} did not run (${PAUSED})` : `${c.helper} is paused`;
   return `${c.helper} gave no result (${WHY[c.reasonClass] || WHY.other})`;
 }
 
@@ -282,12 +292,11 @@ export function aiWords(s, { home = `${ASSISTANT} at work`, opens = `${ASSISTANT
   const label = narrow ? "Assistant" : ASSISTANT;
   if (s.kind === "off") return { label, suffix: narrow ? "off" : "off (code only)", tone: "off", aria: `${ASSISTANT} off: no model is connected, code only. Opens ${opens}.`, title: `${ASSISTANT} off: no model is connected (NO MODEL). Code does every step, and code templates write the text. TEPHRA Assistant is TEPHRA's AI assistant (Gemini) when a model is connected. ${never}` };
   if (s.kind === "paused") {
-    const u = s.until ? ` ${s.until}` : "";
-    // narrow: no time. With it the chip takes a row of its own under the area menu at 390 px
-    // (measured); the time is in its tooltip and label, and in the story's lead
-    return { label, suffix: narrow || !s.until ? "waiting" : `waiting ${s.until}`, tone: "caution",
-      aria: `${ASSISTANT} waiting${u}: today's free AI quota is used up. Opens ${opens}.`,
-      title: `${ASSISTANT} is waiting${u}: today's free AI quota is used up.${s.until ? " Queued work runs then." : ""} ${is} ${never} Open ${home} for models and today's calls.` };
+    // one neutral word, no reason and no time (8.6): the cause and the time are said once, at the
+    // assistant's home, one tap from the chip
+    return { label, suffix: "paused", tone: "caution",
+      aria: `${ASSISTANT} paused. Opens ${opens}.`,
+      title: `${ASSISTANT} is paused: see why in ${home}. ${is} ${never}` };
   }
   if (s.kind === "trouble") {
     const n = s.trouble.length;
@@ -299,53 +308,67 @@ export function aiWords(s, { home = `${ASSISTANT} at work`, opens = `${ASSISTANT
   return { label, suffix: "on", tone: "on", aria: `${ASSISTANT} on. Opens ${opens}.`, title: `${is} ${never} What it wrote is marked "Drafted by ${ASSISTANT}".` };
 }
 
-// The calm lead at the assistant home (UI-AI-QUIET 5.1): one paragraph, a sentence per cause.
-export function aiLead(s) {
+// The calm lead at the assistant home (UI-AI-QUIET 5.1): one paragraph, a sentence per cause. Only
+// the home (`home`, the default: Details › TEPHRA Assistant, the Desk's assistant sheet) says why
+// the assistant is paused and until when (8.6); a main view (`home: false`, the Desk's idle pane)
+// says the state and what still holds.
+export function aiLead(s, { home = true } = {}) {
   const at = (t) => (Number.isFinite(t) ? ` at ${hhmmz(t)}` : "");
   const causeLine = (c) => `${causeShort(c)}${at(c.last)}. ${c.consequence}.`;
   const lines = (list) => `${list.map(causeLine).join(" ")} Nothing was put in their place.`;
   if (s.kind === "off") return [{ strong: `${ASSISTANT} is off.`, text: "No model is connected. Code does every step, and code templates write the text." }];
   if (s.kind === "on") return [{ strong: `${ASSISTANT} is on.`, text: `It can widen TEPHRA's estimate, never shrink the official area. What it wrote is marked.` }];
   if (s.kind === "trouble") return [{ strong: `${ASSISTANT} is on, ${problems(s.trouble.length)}.`, text: lines(s.trouble) }];
+  if (!home) return [{ strong: `${ASSISTANT} is paused.`, text: "Code still checks every flight, and must-do flights come to you to plan by hand." }];
   const n = s.waiting.length;
   const jobs = n ? `Queued work (${n} job${n === 1 ? "" : "s"}) ${s.until ? "runs then" : "waits"}, on the same model. Nothing is dropped or handed to another model. ` : "";
-  const out = [{ strong: s.until ? `${ASSISTANT} is waiting ${s.until}.` : `${ASSISTANT} is waiting.`,
-    text: `${s.until ? "Google reported today's free AI quota used up." : "Today's free AI quota was used up."} ${jobs}Until then, code still checks every flight against the official area, and nothing is made up in place of an assistant step. Flights that need a plan are on the Desk to plan by hand.` }];
+  const quota = `Google's free daily AI quota${s.model ? ` for ${s.model}` : ""}`;
+  const why = s.until ? `Why: ${quota} is used up. The next slot is ${s.slotAt} (real time).` : `Why: ${quota} was used up.`;
+  const out = [{ strong: s.until ? `${ASSISTANT} is paused ${s.until}.` : `${ASSISTANT} is paused.`,
+    text: `${why} ${jobs}Until then, code still checks every flight against the official area, and nothing is made up in place of an assistant step. Flights that need a plan are on the Desk to plan by hand.` }];
   if (s.trouble.length) out.push({ strong: "Also:", text: lines(s.trouble) });
   return out;
 }
 
-// One cause in §1.1 words, for the cause lists (What went wrong, the trace).
-export function causeTitle(c) {
+// One cause in §1.1 words, for the cause lists (What went wrong, the trace). A quota refusal names
+// its cause only at the assistant's home (`home`); elsewhere it is "assistant paused" (8.6).
+export function causeTitle(c, { home = false } = {}) {
   if (c.reasonClass === "undone") return `${c.helper} passed must-do jobs to the Desk`;
-  if (c.reasonClass === "budget") return c.absorbed ? `${c.helper} did not run: ${ASSISTANT} waiting (daily quota)` : c.steps ? `${c.helper} did not run: ${WHY.budget}` : `${c.helper}: ${WHY.budget}`;
+  if (c.reasonClass === "budget") {
+    if (!home || c.absorbed) return c.steps ? `${c.helper} did not run: ${PAUSED}` : `${c.helper} is paused`;
+    return c.steps ? `${c.helper} did not run: ${WHY.budget}` : `${c.helper}: ${WHY.budget}`;
+  }
   return `${c.helper} gave no result (${WHY[c.reasonClass] || WHY.other})`;
 }
 
-// Why a flight has no assistant draft, when that is the assistant's doing: { word, until/why/slot },
-// or null when the assistant is on and fine (or off: the stub drafts too). `undone`: the
-// Coordinator ran and left its must-do flights for the Desk; only those flights are missing a
-// draft. `queued`: the draft waits for the next slot (waiting, not missing).
+// Why a flight has no assistant draft, when that is the assistant's doing: { word, why }, or null
+// when the assistant is on and fine (or off: the stub drafts too). `paused`: no cause is said at
+// the place, only that the draft is missing and what to do (8.6). `undone`: the Coordinator ran and
+// left its must-do flights for the Desk; only those flights are missing a draft. `queued`: the
+// draft waits in line (waiting, not missing).
 export function draftBlock(s) {
   if (!s || s.kind === "off") return null;
-  if (s.kind === "paused") return { word: "Assistant waiting", until: s.until, paused: true };
+  if (s.kind === "paused") return { word: "Assistant paused", paused: true };
   const mine = s.trouble.filter((x) => x.helperKey === "duty" || x.helperKey === "planner" || x.helperKey === "drafter");
   const c = mine.find((x) => x.reasonClass !== "undone");
   // "did not run" only where no model was called (a budget refusal), as causeShort says it
-  if (c) return { word: `${c.helper} ${c.reasonClass === "budget" ? "did not run" : "gave no result"}`, why: WHY[c.reasonClass] || WHY.other, unavailable: true };
+  if (c) return { word: `${c.helper} ${c.reasonClass === "budget" ? "did not run" : "gave no result"}`, why: plainWhy(c.reasonClass), unavailable: true };
   if (mine.length) return { word: "left for the Desk", undone: true, why: "the Coordinator did not hand them out" };
-  const w = s.waiting.find((x) => x.kind === "PLAN");
-  if (w) return { word: "Waiting for the next slot", slot: w.slot, queued: true };
+  if (s.waiting.some((x) => x.kind === "PLAN")) return { word: "Waiting in line", queued: true };
   return null;
 }
 
-// A draftBlock in words, for one flight: "Assistant waiting until 0700Z" ("Assistant waiting for
-// another 2 h 45 min" in REPLAY), "Drafter gave no result (timed out)", "the Coordinator left it
-// for the Desk".
+// "Why ›" at a place that lacks an assistant output while the assistant is paused: the cause is
+// one tap away, in Details › TEPHRA Assistant (docs/UI-AI-QUIET.md 8.6).
+export const whyLink = (focus) => el("button", { type: "button", class: "link-btn dk-link", dataset: { act: "details-sec", sec: "ai", focus }, "aria-label": `Why: open ${ASSISTANT}`, text: "Why ›" });
+
+// A draftBlock in words, for one flight: "Drafter gave no result (timed out)", "Flight planner did
+// not run (assistant paused)", "the Coordinator left it for the Desk". A paused assistant has no
+// phrase: the place says only what is missing and what to do (8.6).
 export function blockPhrase(b) {
-  if (!b) return "";
+  if (!b || b.paused) return "";
   if (b.undone) return "the Coordinator left it for the Desk";
-  return `${b.word}${b.until ? ` ${b.until}` : b.why ? ` (${b.why})` : b.slot ? ` (${b.slot})` : ""}`;
+  return `${b.word}${b.why ? ` (${b.why})` : ""}`;
 }
 
 // Flights with no advisory while the assistant cannot draft (docs/UI-AI-QUIET.md D56): every RFA
@@ -441,14 +464,16 @@ const PLAIN = [
   [/^Duty Officer: (\d+) item\(s\) to dispatch\b.*$/, (m) => `Coordinator has ${jobs(m[1])} to hand out`],
   [/^Duty Officer deferred (\d+) item\(s\):/, (m) => `Coordinator left ${m[1]} optional ${Number(m[1]) === 1 ? "job" : "jobs"} for the next run`],
   [/^Duty Officer brief: (\d+) delegation\(s\), (\d+) deferred$/, (m) => `Coordinator handed out ${jobs(m[1])} and left ${m[2]} for the next run`],
+  // a quota refusal in plain words is "assistant paused": the quota is said at the assistant's
+  // home, and the raw line stays under Technical detail (8.6)
   [/^Duty Officer AI UNAVAILABLE \(budget_exhausted\); (\d+) delegation\(s\) made, (\d+) mandatory item\(s\) to the Desk$/,
-    (m) => `Coordinator did not run: ${ASSISTANT} waiting (daily quota). ${m[1] !== "0" ? `It handed out ${jobs(m[1])}; ` : ""}${jobs(m[2])} that must be done went to the Desk`],
+    (m) => `Coordinator did not run: ${PAUSED}. ${m[1] !== "0" ? `It handed out ${jobs(m[1])}; ` : ""}${jobs(m[2])} that must be done went to the Desk`],
   [/^Duty Officer AI UNAVAILABLE \(GEMINI DAILY QUOTA SPENT.*?\); (\d+) delegation\(s\) made, (\d+) mandatory item\(s\) to the Desk$/,
-    (m) => `Coordinator did not run: ${ASSISTANT} waiting (daily quota). ${m[1] !== "0" ? `It handed out ${jobs(m[1])}; ` : ""}${jobs(m[2])} that must be done went to the Desk`],
+    (m) => `Coordinator did not run: ${PAUSED}. ${m[1] !== "0" ? `It handed out ${jobs(m[1])}; ` : ""}${jobs(m[2])} that must be done went to the Desk`],
   [/^Duty Officer AI UNAVAILABLE \((.+)\); (\d+) delegation\(s\) made, (\d+) mandatory item\(s\) to the Desk$/,
-    (m) => `Coordinator gave no result (${WHY[reasonClass(m[1])] || WHY.other}). ${m[2] !== "0" ? `It handed out ${jobs(m[2])}; ` : ""}${jobs(m[3])} that must be done went to the Desk`],
+    (m) => `Coordinator ${reasonClass(m[1]) === "budget" ? "did not run" : "gave no result"} (${plainWhy(reasonClass(m[1]))}). ${m[2] !== "0" ? `It handed out ${jobs(m[2])}; ` : ""}${jobs(m[3])} that must be done went to the Desk`],
   [/^Plume read: (.+?) \((.+)\): not dispatched; the area stays at the official products$/,
-    (m) => `Plume read for ${m[1]} was not handed out (${m[2]}). TEPHRA's area stays at the official reports`],
+    (m) => `Plume read for ${m[1]} was not handed out (${reasonClass(m[2]) === "budget" ? PAUSED : m[2]}). TEPHRA's area stays at the official reports`],
   [/^Duty Officer left (\d+) mandatory item\(s\) undone: to the Desk$/, (m) => `Coordinator passed ${m[1]} must-do ${Number(m[1]) === 1 ? "job" : "jobs"} to the Desk`],
   [/^(RFA\d+) \([^)]*\) is inside the (.+) cone at (FL\d{3})$/, (m) => `${m[1]} is inside TEPHRA's area at ${m[2]}, ${m[3]}`],
   [/^(RFA\d+) \([^)]*\) enters the (.+) cone in (\d+) min at (FL\d{3}) if track and level are held$/, (m) => `${m[1]} enters TEPHRA's area at ${m[2]} in ${m[3]} min, at ${m[4]}, if track and level are held`],
@@ -488,7 +513,7 @@ export function plainLine(text) {
 // raw line stays under Technical detail.
 const CAUSES = [
   { stage: "DUTY", re: /^Duty Officer AI UNAVAILABLE \((?:budget_exhausted|GEMINI DAILY QUOTA SPENT[^;]*)\); \d+ delegation\(s\) made, (\d+) mandatory/, each: (m) => `${jobs(m[1])} to the Desk` },
-  { stage: "DUTY", re: /^Plume read: (.+?) \((.+)\): not dispatched/, each: (m) => `${m[1]}: ${m[2]}` },
+  { stage: "DUTY", re: /^Plume read: (.+?) \((.+)\): not dispatched/, each: (m) => `${m[1]}: ${reasonClass(m[2]) === "budget" ? PAUSED : m[2]}` },
   { stage: "DUTY", re: /^Duty Officer left (\d+) mandatory item\(s\) undone: to the Desk$/, each: (m) => `${jobs(m[1])} to the Desk` },
   { stage: "RECOVERY", re: /RECOVERY AGENT ERROR: TimeoutError/, each: () => "timed out" },
   { stage: "RECOVERY", re: /RECOVERY AGENT ERROR: (\w+)/, each: (m) => m[1] },
@@ -505,7 +530,7 @@ export function failureEach(t) {
     if (m) return { each: c.each(m), num: m[1] && /^\d+$/.test(m[1]) ? Number(m[1]) : null };
   }
   const plain = plainLine(msg);
-  return { each: plain === msg && /AI UNAVAILABLE/i.test(msg) ? WHY[reasonClass(msg)] || WHY.other : plain, num: null };
+  return { each: plain === msg && /AI UNAVAILABLE/i.test(msg) ? plainWhy(reasonClass(msg)) : plain, num: null };
 }
 
 // Who did a step, in words (stage chips: CODE / ADK / NO MODEL).

@@ -259,13 +259,11 @@ def test_board_waits_for_the_first_state(tmp_path: Path) -> None:
 def test_a_closed_ai_day_reads_as_waiting_and_not_run(tmp_path: Path) -> None:
     model = _board(tmp_path, _closed_day())
     duty = _card(model, "duty")
-    # a quota refusal called no model: "Not run", in caution, never a failure in red
+    # a quota refusal called no model: "Not run", in caution, never a failure in red; the board
+    # says the assistant is paused and what happened to the work, never why (UI-AI-QUIET 8.6)
     assert (duty["state"], duty["word"]) == ("notrun", "Not run")
-    # the reset time is on the real clock, so in REPLAY it says so
     assert duty["last"]["text"] == (
-        "Not run: today's free AI quota is used up (TEPHRA Assistant waiting for another "
-        "6 h 30 min). No brief was made. "
-        "Passed 1 must-do job to the Desk."
+        "Not run: TEPHRA Assistant is paused. No brief was made. Passed 1 must-do job to the Desk."
     )
     assert duty["last"]["tone"] == "caution"
     assert duty["run"] == {
@@ -279,19 +277,23 @@ def test_a_closed_ai_day_reads_as_waiting_and_not_run(tmp_path: Path) -> None:
     }
     plume = _card(model, "plume")
     assert plume["state"] == "notrun"
-    assert plume["model"]["id"] == "gemini-3.8-flash"
-    assert plume["model"]["text"] == "0 of 18 calls today"
+    # the card names its model; calls today and Google's closing are said at the assistant's home
+    # (Details, TEPHRA Assistant) only (8.6)
+    assert plume["model"] == {
+        "id": "gemini-3.8-flash",
+        "text": "Model: gemini-3.8-flash",
+        "tone": None,
+    }
     for helper in ("planner", "drafter", "recovery", "sra"):
         card = _card(model, helper)
         assert card["state"] == "waiting", helper
-        # REPLAY: a real-clock time is said as the time left (the AI state's rule)
-        assert card["waiting"]["slot"] == "next slot in 6 h 30 min", helper
-        # a closed day's limit is left out: no call can go, whatever is left of it
-        assert card["model"]["text"] == "1 call today, shared", helper
-        assert card["model"]["closed"] == {"until": "for another 6 h 30 min", "by": "Google"}, (
-            helper
-        )
+        assert card["word"] == "Waiting in line", helper
+        # that it waits, not when: no slot time on the board
+        assert card["waiting"] == {"n": 1}, helper
+        assert card["model"]["text"] == "Model: gemini-3.5-flash-lite", helper
+        assert "closed" not in card["model"], helper
         assert card["steps"][0]["source"] == "Assistant work queue", helper
+        assert card["steps"][0]["text"].startswith("Waiting in line: "), helper
     recovery = _card(model, "recovery")
     # a model was called and timed out: "failed" (No result), drawn in caution
     assert recovery["last"]["tone"] == "failed"
@@ -379,19 +381,21 @@ def test_no_run_yet_says_so(tmp_path: Path) -> None:
 
 def test_the_ai_status_uses_the_chips_words(tmp_path: Path) -> None:
     """One derived state (wall/x-parts.js aiStateOf) for the assistant chip, this board and the
-    Desk: a closed day is "TEPHRA Assistant · waiting" in caution, never a red count of failed
-    steps."""
+    Desk: a closed day is "TEPHRA Assistant · paused" in caution, never a red count of failed
+    steps, and never says why or until when (docs/UI-AI-QUIET.md 8.6)."""
     (tmp_path / "paused").mkdir()
     (tmp_path / "off").mkdir()
     paused = _flow(tmp_path / "paused", _closed_day())["m"]
     assert paused["ai"]["kind"] == "paused"
-    # in REPLAY the reset is said as the time left, which reads the same on either clock
     assert (paused["ai"]["label"], paused["ai"]["suffix"], paused["ai"]["tone"]) == (
         "TEPHRA Assistant",
-        "waiting for another 6 h 30 min",
+        "paused",
         "caution",
     )
-    assert "3 jobs keep their place in line" in paused["sub"]
+    # the tooltip points to the cause; the cause itself is not in it
+    assert "see why in Details \u203a TEPHRA Assistant" in paused["ai"]["title"]
+    assert "never shrink the official area" in paused["ai"]["title"]
+    assert "jobs wait in line" in paused["sub"]
     off = _flow(tmp_path / "off", _stub_run())["m"]["ai"]
     assert (off["kind"], off["label"], off["suffix"]) == (
         "off",
@@ -410,8 +414,8 @@ def test_you_decide_takes_the_walls_count_of_flights_to_plan_by_hand(tmp_path: P
 
 XPARTS_RUNNER = """
 import {
-  aiStateOf, aiWords, draftBlock, blockPhrase, plainLine, recordedWords, jobsWords, pacingWords,
-  aiSymbol, replayWords, stripLabel,
+  aiStateOf, aiWords, aiLead, draftBlock, blockPhrase, plainLine, recordedWords, jobsWords,
+  pacingWords, aiSymbol, replayWords, stripLabel,
 } from "./wall/x-parts.js";
 const at = Date.parse("2026-10-13T06:00:00Z");
 const e = (stage, reason) => ({ stage, reason, at, raw: reason });
@@ -423,11 +427,31 @@ const recovery = e("RECOVERY", "AI UNAVAILABLE: RECOVERY AGENT ERROR: TimeoutErr
 const dutyRaw = "Duty Officer AI UNAVAILABLE (TimeoutError); 0 delegation(s) made, "
   + "3 mandatory item(s) to the Desk";
 const lane = aiStateOf({ errors: [e("PLANNER", "429 RESOURCE_EXHAUSTED quota")], now: at });
+const closedBudget = {
+  resets_at: "2026-10-13T07:00:00.000Z",
+  models: [{ model_id: "gemini-3.5-flash-lite", jobs: "Every other AI step", closed: true }],
+  tiers: [{ tier: "lite", model_id: "gemini-3.5-flash-lite", used: 1, limit: 450, remaining: 449 }],
+  waiting: [],
+};
+const paused = aiStateOf({ budget: closedBudget, now: at });
+const refused = "Duty Officer AI UNAVAILABLE (budget_exhausted); 0 delegation(s) made, "
+  + "2 mandatory item(s) to the Desk";
 process.stdout.write(JSON.stringify({
   oneSkillTwoWays: chip(plume2),
   twoSkills: chip([...plume2, recovery]),
   lane: aiWords(lane),
   laneBlock: blockPhrase(draftBlock(lane)),
+  paused: aiWords(paused),
+  pausedNarrow: aiWords(paused, { narrow: true }),
+  pausedBlock: draftBlock(paused),
+  pausedPhrase: blockPhrase(draftBlock(paused)),
+  homeLead: aiLead(paused),
+  mainLead: aiLead(paused, { home: false }),
+  refusedLine: plainLine(refused),
+  plumeRefused: plainLine(
+    "Plume read: Anak Krakatau (budget_exhausted): not dispatched; "
+      + "the area stays at the official products",
+  ),
   off: aiWords(aiStateOf({ stub: true })),
   coordinator: chip([e("DUTY", dutyRaw)]),
   dutyLine: plainLine(dutyRaw),
@@ -468,9 +492,50 @@ def test_the_chip_counts_skills_and_uses_its_tooltips_verb(tmp_path: Path) -> No
     assert out["twoSkills"]["suffix"] == "2 skills gave no result"
     assert out["coordinator"]["suffix"] == "Coordinator gave no result"
     assert out["lane"]["suffix"] == "Flight planner did not run"
-    # a lane's quota refusal is "did not run" in the flight's words too, as in causeShort
-    assert out["laneBlock"] == "Flight planner did not run (today's free AI quota is used up)"
+    # a lane's quota refusal is "did not run" in the flight's words too, as in causeShort; its
+    # cause is said at the assistant's home only (8.6)
+    assert out["laneBlock"] == "Flight planner did not run (assistant paused)"
     assert out["symbols"] == ["ta-working", "ta-waiting", "ta-unavailable", "ta-unavailable"]
+
+
+QUOTA_WORDS = re.compile(
+    r"quota|used up|closed by google|free ai|next slot|budget|\breset|\bspent\b|calls today"
+    r"|\blanes?\b|pacing|\d{4}Z|for another \d",
+    re.I,
+)
+
+
+def test_a_pause_says_its_cause_once_at_the_assistants_home(tmp_path: Path) -> None:
+    """Say the cause once (docs/UI-AI-QUIET.md 8.6): the chip, a flight's missing draft and the
+    plain-words lines say "paused" with no quota, budget or time; the home's lead says why and
+    until when, so the cause stays one tap away (rule 9: the missing output is still said at the
+    place)."""
+    out = _xparts(tmp_path)
+    assert (out["paused"]["suffix"], out["paused"]["tone"]) == ("paused", "caution")
+    assert out["pausedNarrow"]["suffix"] == "paused"
+    assert out["paused"]["aria"] == "TEPHRA Assistant paused. Opens TEPHRA Assistant at work."
+    assert "see why in" in out["paused"]["title"]
+    for key in ("paused", "pausedNarrow"):
+        for field in ("suffix", "aria", "title"):
+            assert not QUOTA_WORDS.search(out[key][field]), (key, field, out[key][field])
+    # the place still knows the draft is missing: the block is there, its phrase says no cause
+    assert out["pausedBlock"] == {"word": "Assistant paused", "paused": True}
+    assert out["pausedPhrase"] == ""
+    assert out["refusedLine"] == (
+        "Coordinator did not run: assistant paused. 2 jobs that must be done went to the Desk"
+    )
+    assert out["plumeRefused"].startswith(
+        "Plume read for Anak Krakatau was not handed out (assistant paused)"
+    )
+    main = " ".join(f"{p['strong']} {p['text']}" for p in out["mainLead"])
+    assert main.startswith("TEPHRA Assistant is paused.")
+    assert not QUOTA_WORDS.search(main), main
+    # the home names the cause, the model and the next slot on the real clock
+    home = " ".join(f"{p['strong']} {p['text']}" for p in out["homeLead"])
+    assert home.startswith("TEPHRA Assistant is paused until 0700Z.")
+    assert "Why: Google's free daily AI quota for gemini-3.5-flash-lite is used up." in home
+    assert "The next slot is 0700Z (real time)." in home
+    assert "nothing is made up in place of an assistant step" in home
 
 
 def test_the_off_chip_still_discloses_ai(tmp_path: Path) -> None:
@@ -604,7 +669,7 @@ def test_flow_refused_runs_send_no_work_to_a_skill(tmp_path: Path) -> None:
     assert types == {"duty", "refused"}
     assert not any(e.get("skill") for e in out["m"]["events"])
     assert out["m"]["gate"]["open"] is False
-    assert out["m"]["gate"]["name"] == "AI model · quota spent"
+    assert out["m"]["gate"]["name"] == "Paused"
     # the view's refused branch routes its tokens down the code lane only, never to a skill
     view = (WALL / "board-view.js").read_text(encoding="utf-8")
     refused = view[view.index('e.type === "refused" || e.type === "undone") {') :]
@@ -748,10 +813,17 @@ def test_flow_words_follow_the_assistant_state(tmp_path: Path) -> None:
     (tmp_path / "off").mkdir()
     paused = _flow(tmp_path / "paused", _refused_day())["m"]
     assert paused["ai"]["kind"] == "paused"
-    assert paused["status"] == "paused for 6 h 30 min"
-    # REPLAY: the reset is on the real clock, so it is said as the time left
-    assert "spent for another 6 h 30 min" in paused["sub"]
-    assert paused["gate"]["meta"] == "3 jobs in line · next slot in 6 h 30 min"
+    # the state and what waits; why and until when are at the assistant's home (8.6)
+    assert paused["status"] == "paused"
+    assert paused["sub"] == (
+        "Code still reads every feed and checks every flight; jobs wait in line and must-do "
+        "flights come straight to you."
+    )
+    assert paused["gate"]["meta"] == "3 jobs in line"
+    assert paused["gate"]["title"] == "Why: Details \u203a TEPHRA Assistant"
+    assert paused["coord"]["meta"] == "Paused: must-do jobs come to you"
+    for words in (paused["status"], paused["sub"], paused["gate"]["name"], paused["gate"]["meta"]):
+        assert not QUOTA_WORDS.search(words), words
     assert [s["inLine"] for s in paused["skills"]] == [0, 0, 1, 0, 1, 1]
     off = _flow(tmp_path / "off", _stub_run())["m"]
     kinds = (off["ai"]["kind"], off["status"], off["gate"]["kind"])
@@ -803,16 +875,15 @@ def test_a_refusal_that_arrives_after_an_answered_run_is_never_working(tmp_path:
 
 
 def test_flow_a_reset_already_past_is_not_said_as_one_minute(tmp_path: Path) -> None:
-    """The budget still says closed after its reset time: the board says the reset was due, never
-    a countdown that stays at "1 min"."""
+    """The budget still says closed after its reset time: the board still says "paused" with what
+    waits, never a countdown that stays at "1 min" (and never a reset time, 8.6)."""
     data = _refused_day()
     data["realNow"] = 1791886200000  # 2026-10-13T10:10:00Z, 3 h 10 min after the 0700Z reset
     m = _flow(tmp_path, data)["m"]
     assert m["status"] == "paused"
     assert "1 min" not in m["sub"]
     assert "1 min" not in m["gate"]["meta"]
-    assert "its reset was due 3 h 10 min ago" in m["sub"]
-    assert m["gate"]["meta"] == "3 jobs in line · reset was due 3 h 10 min ago"
+    assert m["gate"]["meta"] == "3 jobs in line"
 
 
 def test_flow_a_budget_that_did_not_load_says_nothing_about_the_queue(tmp_path: Path) -> None:
@@ -821,7 +892,7 @@ def test_flow_a_budget_that_did_not_load_says_nothing_about_the_queue(tmp_path: 
     m = _flow(tmp_path, data)["m"]
     assert m["queue"] == []
     assert m["gate"]["open"] is False
-    assert m["gate"]["meta"] == "Jobs in line: unknown, the AI budget did not load"
+    assert m["gate"]["meta"] == "Jobs in line: unknown, the work queue did not load"
     assert "next slot" not in m["gate"]["meta"]
     assert [s["inLine"] for s in m["skills"]] == [0] * 6
 

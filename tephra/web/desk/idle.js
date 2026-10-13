@@ -1,7 +1,8 @@
 // The right pane at 1100 px and up while no advisory and no flight list is open in it
 // (docs/UI-DESIGN.md 10.16): instead of an empty box, what the Desk is waiting for and where the
 // other work is. Built from what the Desk already holds; nothing is invented. The assistant line is the
-// calm lead of the assistant sheet (wall/x-parts.js aiLead), so the words match the header chip.
+// calm lead of the assistant sheet (wall/x-parts.js aiLead) in its main-view form: the state and
+// what still holds, never why it is paused (that is in the sheet, docs/UI-AI-QUIET.md 8.6).
 
 import { byId, el, icon } from './dom.js';
 import { app, draftList } from './state.js';
@@ -42,7 +43,7 @@ export function renderIdle() {
   const drafts = draftList().length;
   const hand = openFailures().length;
   const ai = deskAi();
-  const lead = aiLead(ai)[0];
+  const lead = aiLead(ai, { home: false })[0];
   const title = loading ? 'Loading the drafts…' : drafts ? 'Choose an advisory to review' : hand ? `Plan by hand · ${plural(hand, 'flight')}` : 'Nothing waits for a decision';
   const sub = loading ? null : drafts ? `${plural(drafts, 'advisory', 'advisories')} ${drafts === 1 ? 'waits' : 'wait'} on the left in act-by order: the one to decide first is at the top.` : hand ? 'TEPHRA Assistant made no plan for them. They are listed under Decide.' : exposedLine();
   const other = elsewhere();

@@ -25,7 +25,7 @@ export function deskAi() {
 
 // A budget slot (real clock) in words after "next slot": "0700Z", or in REPLAY "in 2 h 45 min",
 // which reads the same on either clock (the AI state's rule, wall/x-parts.js realWhen).
-export const slotWords = (iso) => realWhen(parseTime(iso) ?? NaN, serverNow(), Boolean(app.state && app.state.mode === 'REPLAY'))?.at || null;
+const slotWords = (iso) => realWhen(parseTime(iso) ?? NaN, serverNow(), Boolean(app.state && app.state.mode === 'REPLAY'))?.at || null;
 
 function valid(b) {
   return b && typeof b === 'object' && Array.isArray(b.tiers) && b.tiers.every((t) => t && Number.isFinite(t.used) && Number.isFinite(t.limit));
@@ -132,7 +132,7 @@ export function openBudget() {
     ? el('section', { class: 'aisheet__sec', 'aria-labelledby': 'ai-causes-title' },
       el('h3', { id: 'ai-causes-title', class: 'aisheet__h', text: `What went wrong · ${plural(ai.causes.length, 'cause')}` }),
       el('ul', { class: 'aiworks' }, ...ai.causes.map((c) => el('li', { class: 'aiwork' }, icon('st-caution', 'st'),
-        el('span', {}, el('span', { class: 'aiwork__label', text: causeTitle(c) }),
+        el('span', {}, el('span', { class: 'aiwork__label', text: causeTitle(c, { home: true }) }),
           el('span', { class: 'aiwork__when', text: [c.steps ? `${c.steps} ${c.steps === 1 ? 'time' : 'times'}` : null, Number.isFinite(c.first) ? `${hhmmz(c.first)}${c.last !== c.first ? `–${hhmmz(c.last)}` : ''}` : null, c.consequence].filter(Boolean).join(' · ') }))))),
       el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), ...[...new Set(ai.causes.flatMap((c) => c.raw))].map((r) => el('p', { class: 'mono tech__line', text: machineText(r) }))))
     : null;

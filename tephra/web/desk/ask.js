@@ -7,7 +7,7 @@ import { PATHS, api, isUnavailable, problems, unavailableReason } from './api.js
 import { announce, byId, el, icon, reducedMotion } from './dom.js';
 import { app } from './state.js';
 import { aiMark, fromReplayChip, openBSheet, unavailableCard } from './ui.js';
-import { deskAi } from './budget.js';
+import { deskAi, openBudget } from './budget.js';
 import { reasonClass } from '../wall/x-parts.js';
 
 const MAX_Q = 500;
@@ -64,7 +64,8 @@ export function initAsk() {
   const mic = el('button', { type: 'button', id: 'ask-mic', class: 'abtn abtn--mic', 'aria-label': 'Talk: tap to start recording, tap again to send' }, icon('i-mic'));
   const send = el('button', { type: 'submit', id: 'ask-send', class: 'abtn abtn--send', 'aria-label': 'Send question' }, icon('i-send'));
   const ctx = el('p', { id: 'ask-ctx', class: 'actx', hidden: true });
-  // while the quota is closed Ask says so before a question, not after (docs/UI-AI-QUIET.md K102)
+  // while the assistant is paused Ask says so before a question, not after (docs/UI-AI-QUIET.md
+  // K102); why it is paused is said in the assistant sheet, behind "Why ›" (8.6)
   const paused = el('p', { id: 'ask-paused', class: 'note', role: 'status', hidden: true });
   const form = el('form', { class: 'acomposer', novalidate: true }, paused, ctx, el('div', { class: 'acomposer__row' }, input, mic, send),
     el('p', { id: 'ask-status', class: 'fine acomposer__note', 'aria-live': 'polite', text: 'Read-only: Ask never changes an advisory, a plan or a message.' }));
@@ -110,7 +111,13 @@ function drawPaused() {
   if (!note) return;
   const ai = deskAi();
   note.hidden = ai.kind !== 'paused';
-  note.textContent = ai.kind === 'paused' ? `TEPHRA Assistant is waiting${ai.until ? ` ${ai.until}` : ''} (today's free AI quota is used up), so Ask cannot answer yet. The Wall shows every flight and count.` : '';
+  if (ai.kind !== 'paused') {
+    note.replaceChildren();
+    return;
+  }
+  if (note.childNodes.length) return;
+  note.replaceChildren('TEPHRA Assistant is paused, so Ask cannot answer yet. The Wall shows every flight and count. ',
+    el('button', { type: 'button', class: 'linkbtn', 'aria-label': 'Why: open the TEPHRA Assistant sheet', onclick: openBudget }, el('span', { text: 'Why ›' })));
 }
 
 function autosize(input) {
@@ -249,12 +256,11 @@ function finish(wait, res, question) {
   let card;
   const retry = () => { composer.input.value = question; submit(); };
   if (isUnavailable(res)) {
-    // the quota: "Try again" waits for the reset; any other cause can be asked again now
-    const ai = deskAi();
+    // a quota refusal: the state and "Why ›" only, no retry until the assistant is back (the
+    // cause and the time are in the assistant sheet, 8.6); any other cause can be asked again now
     const quota = reasonClass(unavailableReason(res)) === 'budget';
-    const until = quota && ai.until ? ` ${ai.until}` : '';
     card = unavailableCard(unavailableReason(res), quota
-      ? { title: `No answer: TEPHRA Assistant waiting${until}`, instead: 'Nothing was made up.', onRetry: retry, retryLabel: ai.after ? `Try again ${ai.after}` : 'Try again', retryDisabled: Boolean(ai.after) }
+      ? { title: 'TEPHRA Assistant is paused.', instead: 'Nothing was made up. The Wall shows every flight and count.', onWhy: openBudget }
       : { title: 'No answer: Ask gave no result', instead: 'Nothing was made up. Ask again, or read the Wall.', onRetry: retry });
   } else if (res.status === 401) card = unavailableCard('Your session has ended. Sign in again.', { title: 'Not asked', instead: '', serious: true });
   else if (res.status === 0) card = unavailableCard("Can't reach the server.", { title: 'Not asked', instead: 'Check your connection and ask again.', onRetry: retry, serious: true });
