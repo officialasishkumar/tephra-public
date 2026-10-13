@@ -40,8 +40,9 @@ export function closuresFor(D, vid, plan = currentPlan()) {
   return plan.closures.filter((c) => (c.source_ids || []).some((s) => ids.has(s)));
 }
 
-// The selected volcano's advisories (R5.3 L5). The Wall loads the newest 50; when that page is
-// full and holds fewer drafts than the server counts, the count says "at least".
+// The selected volcano's advisories (R5.3 L5). The Wall loads every open draft of the mode
+// playing and its newest other advisories (50 in all, GET /api/wall); should it hold fewer drafts
+// than the server counts (a draft arrived between the two reads), the count says "at least".
 export function advisoryFacts(D, store, vid) {
   const mine = store.advisories.filter((a) => a.volcano_id === vid && a.status !== "SUPERSEDED");
   const drafts = mine.filter((a) => a.status === "DRAFT");

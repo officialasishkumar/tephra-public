@@ -554,6 +554,36 @@ def test_wall_bundles_state_snapshot_advisories_and_trace(
     assert body["trace"][-1]["message"] == "tick started"
 
 
+def test_wall_lists_every_draft_of_the_mode_playing_first(
+    client: TestClient, harness: Harness
+) -> None:
+    """In REPLAY `created_at` follows a looping clock: 60 newer advisories of an earlier run must
+    not push this run's draft out of the Wall's list, and the other mode's draft is not in it."""
+    harness.runtime.mode = RunMode.REPLAY
+    store = harness.runtime.store
+    base = make_advisory()
+    later = base.created_at + timedelta(hours=3)
+    mine = base.model_copy(update={"id": "adv_00000000aaaa", "replay": True})
+    client.portal.call(store.put, Collection.ADVISORIES, mine.id, mine.model_dump(mode="json"))
+    for n in range(60):
+        old = base.model_copy(
+            update={
+                "id": f"adv_{n:012x}",
+                "replay": True,
+                "status": AdvisoryStatus.SUPERSEDED,
+                "created_at": later + timedelta(minutes=n),
+            }
+        )
+        client.portal.call(store.put, Collection.ADVISORIES, old.id, old.model_dump(mode="json"))
+
+    listed = client.get("/api/wall").json()["advisories"]
+
+    assert listed[0]["id"] == mine.id, "this mode's open drafts come first"
+    assert ADVISORY_ID not in {a["id"] for a in listed}, "the LIVE draft is not this mode's"
+    assert len(listed) == 50
+    assert all(a["replay"] for a in listed)
+
+
 def test_advisories_filter_by_status(client: TestClient) -> None:
     drafts = client.get("/api/advisories", params={"status": "DRAFT"}).json()["advisories"]
     assert [advisory["id"] for advisory in drafts] == [ADVISORY_ID]

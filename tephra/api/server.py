@@ -80,7 +80,7 @@ from tephra.models import (
     UtcDatetime,
     WallResponse,
 )
-from tephra.pipeline import Runtime, create_runtime
+from tephra.pipeline import OPEN_DRAFT_LIMIT, Runtime, create_runtime
 from tephra.replay.cases import list_cases, load_case, replay_banner
 from tephra.scheduler import run_local_scheduler, run_writer_watchdog
 from tephra.store.base import BLOB_KEY_PATTERN, Collection
@@ -341,12 +341,34 @@ async def get_state(runtime: RuntimeDep) -> Response:
     return _json(await runtime.system_state())
 
 
+WALL_ADVISORIES: Final = 50
+
+
+async def _wall_advisories(runtime: Runtime) -> list[Advisory]:
+    """Every open draft of the mode playing (the Wall counts them per volcano), then that mode's
+    newest other advisories, 50 in all unless the drafts alone are more. In REPLAY `created_at`
+    follows a clock that loops, so the newest 50 of the whole store can be an earlier run's (or
+    the other mode's) and hide this run's drafts."""
+    replay = runtime.mode is RunMode.REPLAY
+    drafts = [
+        advisory
+        for advisory in await approvals.list_advisories(
+            runtime.store, status=AdvisoryStatus.DRAFT, limit=OPEN_DRAFT_LIMIT
+        )
+        if advisory.replay == replay
+    ]
+    room = max(0, WALL_ADVISORIES - len(drafts))
+    recent = await approvals.list_advisories(runtime.store, limit=WALL_ADVISORIES * 4)
+    others = [a for a in recent if a.replay == replay and a.status is not AdvisoryStatus.DRAFT]
+    return [*drafts, *others[:room]]
+
+
 @read_api.get("/wall", response_model=WallResponse)
 async def get_wall(runtime: RuntimeDep) -> Response:
     state, snapshot, advisories = await asyncio.gather(
         runtime.system_state(),
         runtime.wall_snapshot(),
-        approvals.list_advisories(runtime.store, limit=50),
+        _wall_advisories(runtime),
     )
     trace = [
         TraceEvent.model_validate(event.data)

@@ -2795,7 +2795,7 @@ The headers above are unchanged by compression.
 | Method, path | Response model |
 |---|---|
 | `GET /api/state` | `SystemState` (`store`: `StoreHealth`; `draft_count` null when the drafts could not be read); besides the picture's counts it carries `server_time` (wall clock), `last_tick_wall_at` (wall-clock end of this process's last tick, `null` until its first) and `build_sha` (`TEPHRA_BUILD_SHA`), which `scripts/live_smoke.sh` checks. `/healthz` stays exactly `{ok, mode}` |
-| `GET /api/wall` | `WallResponse` = `{state: SystemState, snapshot: WallSnapshot, advisories: [Advisory] (newest 50, all statuses), trace: [TraceEvent] (last 100, oldest first)}` |
+| `GET /api/wall` | `WallResponse` = `{state: SystemState, snapshot: WallSnapshot, advisories: [Advisory] (every open draft of the mode playing, newest first, then that mode's newest other advisories, 50 in all unless the drafts alone are more: in REPLAY `created_at` follows a clock that loops, so the store's newest 50 could hide this run's drafts), trace: [TraceEvent] (last 100, oldest first)}` |
 | `GET /api/advisories?status=DRAFT&limit=50` | `AdvisoryList` (newest first; every status when `status` is absent) |
 | `GET /api/audit?advisory_id=...&limit=100` | `AuditList` (newest first; `advisory_id` must match `adv_[0-9a-f]{12}`) |
 | `GET /api/outbound?limit=50` | `OutboundList` (newest first by `queued_wall_at`, so recorded and live rows never interleave by replay time; rows whose `queued_wall_at` is null come last; Firestore leaves out records written before the field, which lack the key) |
