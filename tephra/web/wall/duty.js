@@ -1,9 +1,9 @@
-// The Duty Officer's latest run (the coordinator agent, tephra/agents/duty_officer.py), shown
-// inside Details › AI helpers as the body of its helper row: how the run ended, what it handed
+// The Coordinator's latest run (the coordinator agent the code calls the Duty Officer,
+// tephra/agents/duty_officer.py), shown inside Details › TEPHRA Assistant as the body of its skill row: how the run ended, what it handed
 // to each specialist, what it passed to the Desk, its brief and what it left for later. Data is
 // the newest DutyRun (snapshot.duty, SSE "duty"). Rule 0 (no fallbacks): when the model failed
 // the row says so and shows the work it did not coordinate; it never invents a brief. Text the
-// model wrote (summary, reasons, watch items, deferral reasons) carries an AI-written mark with
+// model wrote (summary, reasons, watch items, deferral reasons) carries a "Drafted by" mark with
 // the model id; labels, counts, timings and result lines are written by code. Every string goes
 // in through el() (textContent).
 
@@ -11,7 +11,7 @@ import { el, ms } from "./util.js";
 import { aiMark, plainLine, reasonClass } from "./x-parts.js";
 import { dkPill, dkChip, dkFacts, dkRow, dkList, dkNote, dkEmpty, dkTech, dkRecorded, dkLink, collapseRuns, seconds, plural, dayTime } from "./dk.js";
 
-// What each Duty Officer tool reaches. Tool names are fixed by the backend toolkit.
+// What each Coordinator (duty officer) tool reaches. Tool names are fixed by the backend toolkit.
 export const SPECIALISTS = {
   assess_volcanoes: { name: "Satellite reader and Plume Reader", does: "reads the plume, rebuilds the area", unit: "volcano" },
   plan_flights: { name: "Planner and Drafter", does: "plans and drafts per flight", unit: "flight" },
@@ -24,7 +24,7 @@ export const SPECIALISTS = {
 export const OUTCOME = {
   ACCEPTED: ["ok", "Passed the checks", "The brief passed the code's checks."],
   REPAIRED: ["caution", "Passed after one repair", "The brief passed after one repair."],
-  STUB: ["off", "AI off", "The offline stub ran the work in urgency order. No model wrote the brief."],
+  STUB: ["off", "Code only", "The offline stub ran the work in urgency order. No model wrote the brief."],
   BUDGET: ["caution", "Not run", "Today's free AI quota is used up: no model was called."],
   MODEL_FAILED: ["caution", "No brief", "The model was called and gave no brief that passed the code's checks."],
 };
@@ -33,7 +33,7 @@ export const OUTCOME = {
 const refused = (run) => run.outcome === "MODEL_FAILED" && (run.validation_errors || []).some((e) => reasonClass(e) === "budget");
 export const outcomeOf = (run) => (refused(run) ? "BUDGET" : run.outcome);
 // The model that wrote the brief: none for the stub, a refused run, or a run whose answer failed
-// the checks (no AI-written mark on a brief that did not pass; H8).
+// the checks (no "Drafted by" mark on a brief that did not pass; H8).
 export const dutyModel = (run) => (run.outcome === "STUB" || run.llm_backend === "stub" || run.outcome === "MODEL_FAILED" ? null : run.model_id);
 
 // Tools the run called, in the order it first called them.
@@ -98,7 +98,7 @@ function handedTo(run) {
       ],
     });
   });
-  return el("div", { class: "dk-sub", role: "group", "aria-label": "Delegation diagram: the specialists the Duty Officer called this run" },
+  return el("div", { class: "dk-sub", role: "group", "aria-label": "Delegation diagram: the skills the Coordinator called this run" },
     el("p", { class: "dk-sub__title", text: "Handed to" }), dkList(rows, { first: 4, key: "duty-tools" }));
 }
 
@@ -128,7 +128,7 @@ function brief(run) {
     el("div", { class: "dk-sub__titlerow" }, el("p", { class: "dk-sub__title", text: "Brief" }), aiMark(model, model ? null : "NO MODEL")),
     el("p", { class: "dk-quote", text: plainLine(b.summary) }),
     b.priorities.length ? el("p", { class: "dk-sub__title", text: `Priorities · ${b.priorities.length}` }) : null,
-    sameStub && b.priorities.length ? el("p", { class: "dk-sub__note", text: "In urgency order: code ordered them (AI off)." }) : null,
+    sameStub && b.priorities.length ? el("p", { class: "dk-sub__note", text: "In urgency order: code ordered them (code only)." }) : null,
     b.priorities.length ? dkList(prio, { first: 5, key: "duty-prio" }) : null,
     b.watch.length ? el("p", { class: "dk-sub__title", text: "Watch" }) : null,
     b.watch.length ? el("ul", { class: "dk-bullets" }, ...b.watch.map((w) => el("li", { text: plainLine(w) }))) : null);
@@ -144,12 +144,12 @@ function deferred(run) {
       el("span", { class: "dk-prio__label", text: itemLabel(run, d.item_id) }), el("span", { class: "dk-prio__why", text: plainLine(d.reason) })))), { first: 3, key: "duty-defer" }));
 }
 
-// The body of the Duty Officer's helper row.
-// `until`: when the quota opens again, in words after "AI paused" ("until 0700Z"), from the live
+// The body of the Coordinator's skill row.
+// `until`: when the quota opens again, in words after "waiting" ("until 0700Z"), from the live
 // budget; null when not known.
 export function dutyDetail(run, loaded, until = null) {
   if (!run) {
-    return [dkEmpty(loaded ? "No Duty Officer run yet" : "Waiting for the first run", "It runs when code finds AI work due: a plume to read, a flight to plan, a network to re-plan.")];
+    return [dkEmpty(loaded ? "No Coordinator run yet" : "Waiting for the first run", "It runs when code finds assistant work due: a plume to read, a flight to plan, a network to re-plan.")];
   }
   const outcome = outcomeOf(run);
   const [tone, word, why] = OUTCOME[outcome] || ["info", run.outcome, ""];
@@ -160,16 +160,16 @@ export function dutyDetail(run, loaded, until = null) {
     el("div", { class: "dk-inline" }, dkPill(tone, word, why), dkRecorded(run.replay), el("span", { class: "dk-inline__meta mono", text: Number.isFinite(t) ? `finished ${dayTime(t)}` : "" })),
     dkFacts([
       // no model fact for a run the quota refused: no call was made (D68)
-      ["Model", outcome === "BUDGET" ? null : outcome === "MODEL_FAILED" ? "Called, no brief passed the checks" : model ? aiMark(model, null, "AI-written") : "AI off"],
+      ["Model", outcome === "BUDGET" ? null : outcome === "MODEL_FAILED" ? "Called, no brief passed the checks" : model ? aiMark(model) : "Code only (assistant off)"],
       ["Turns", String(run.turns), { mono: true }],
       ["Jobs given", `${run.worklist.length}${mandatory ? ` (${mandatory} must do)` : ""}`],
-      ["Run by", run.trigger === "adsb" ? "AI worker, after new aircraft" : "AI worker, after a scheduler tick"],
+      ["Run by", run.trigger === "adsb" ? "TEPHRA Assistant, after new aircraft" : "TEPHRA Assistant, after a scheduler tick"],
       // a replay loop reuses this model's own run for the same question; the label says so
       ["Answer", run.recorded_answer || null],
     ]),
   ];
   if (outcome === "BUDGET") {
-    kids.push(dkNote("caution", [`Not run: today's free AI quota is used up${until ? ` (AI paused ${until})` : ""}.`, "No brief was made, and nothing was made up in its place. Must-do jobs went to the Desk."], { role: "status" }),
+    kids.push(dkNote("caution", [`Not run: today's free AI quota is used up${until ? ` (TEPHRA Assistant waiting ${until})` : ""}.`, "No brief was made, and nothing was made up in its place. Must-do jobs went to the Desk."], { role: "status" }),
       dkTech(`${run.validation_errors.join(" · ")} · would have used ${run.model_id}`));
   } else if (run.outcome === "MODEL_FAILED") {
     kids.push(dkNote("caution", ["The model was called and gave no brief that passed the code's checks.", "No brief was made up in its place. The work below was not coordinated."], { role: "status" }),

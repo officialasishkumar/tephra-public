@@ -1,14 +1,15 @@
 // The Wall's AI-extension panels (docs/EXTENSIONS.md WP11): the Satellite check, Notices,
 // Recovery board, Proof panel and the AI activity tray, plus the reroute popup. They live in
-// the rail under their own tabs so the map stays the hero. Rule 0 (no fallbacks): when an AI
-// step failed the panel says "AI unavailable" with what to do, and shows nothing in its place.
-// AI health has one home, AI helpers; the other panels say only what the AI's absence changes,
-// in caution tone (docs/UI-AI-QUIET.md). Every feed or model string goes in through el()
-// (textContent); AI-written text carries a short mark with the model id in its title.
+// the rail under their own tabs so the map stays the hero. Rule 0 (no fallbacks): when an
+// assistant step failed the panel says so (the skill "gave no result") with what to do, and shows
+// nothing in its place. The assistant's health has one home, Details › TEPHRA Assistant; the
+// other panels say only what its absence changes, in caution tone (docs/UI-AI-QUIET.md, Naming).
+// Every feed or model string goes in through el() (textContent); model-written text carries a
+// short mark with the model id in its title.
 
 import { $, el, icon, ms, hhmmz } from "./util.js";
 import { frameFor } from "./ext-map.js";
-import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, causeTitle, handPlanOf, reasonClass, realWhen, machineText, machineSentences, WHY } from "./x-parts.js";
+import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, causeTitle, handPlanOf, reasonClass, realWhen, machineText, machineSentences, WHY, MARK, ASSISTANT } from "./x-parts.js";
 import { dutyDetail, dispatchedTools } from "./duty.js";
 import { HELPERS } from "./board.js";
 import {
@@ -23,7 +24,7 @@ export const ext = {
   loaded: { notices: false, recovery: false, budget: false, backtest: false, docs: false },
   errors: {},
   arrivals: new Map(), // trace id -> performance.now() when it arrived on the stream
-  handoffs: new Map(), // Duty Officer tool -> performance.now() of its newest hand-out on the stream
+  handoffs: new Map(), // Coordinator (duty officer) tool -> performance.now() of its newest hand-out on the stream
   lastSeenSat: new Map(),
 };
 
@@ -124,7 +125,7 @@ function colourKey() {
 
 // ------------------------------------------------------------------ Satellite picture (R8.3, R12.5)
 
-// Neutral words (G26): they never say an AI looked when AI is off.
+// Neutral words (G26): they never say a model looked when the assistant is off.
 const ASH_WORD = { yes: "yes", no: "not seen", uncertain: "can't tell" };
 const yesNo = (v) => ({ yes: "yes", no: "no", uncertain: "can't tell" }[v] || "not given");
 // Never green for "not seen": no ash seen is not evidence of no ash.
@@ -140,7 +141,7 @@ function satRow(D, reading, sit, store) {
   const scan = reading.observed_at ? `scan ${clock(reading.observed_at)}` : "";
   const rec = D.mode === "REPLAY" || reading.replay ? dkRecorded(true) : null;
   if (reading.status === "ai_unavailable") {
-    return dkRow({ key: `sat-${vid}`, dot: "caution", edge: "caution", title: name, sub: `Not read: ${reasonClass(reading.reason) === "budget" ? WHY.budget : `AI unavailable (${WHY[reasonClass(reading.reason)] || WHY.other})`}. Nothing was put in its place.`, meta: scan,
+    return dkRow({ key: `sat-${vid}`, dot: "caution", edge: "caution", title: name, sub: `Not read: ${reasonClass(reading.reason) === "budget" ? WHY.budget : `Satellite reader gave no result (${WHY[reasonClass(reading.reason)] || WHY.other})`}. Nothing was put in its place.`, meta: scan,
       body: [dkTech(String(reading.reason || "no reason given"), reading.model_id ? `would have used ${reading.model_id}` : null)], open: vid === D.selected });
   }
   if (reading.status === "no_frames") {
@@ -158,7 +159,7 @@ function satRow(D, reading, sit, store) {
         ["Gas (SO2, not ash)", capFirst(yesNo(reading.so2_visible))],
         ["Cloud in the way", capFirst(yesNo(reading.obscured_by_cloud))],
         ["Ash marked on the picture", n ? `${n} box${n === 1 ? "" : "es"}` : "none"],
-        ["Read by", aiMark(reading.model_id, reading.label, "AI-read")],
+        ["Reading", aiMark(reading.model_id, reading.label, MARK.read("Satellite reader"))],
         ["Scan", scan.replace(/^scan /, ""), { mono: true }],
         ["Answer", reading.recorded_answer || null],
       ]),
@@ -167,7 +168,7 @@ function satRow(D, reading, sit, store) {
         el("div", { class: "dk-about__body dk-about__body--flush" },
           frameView(reading, frame),
           el("p", { class: "dk-sub__note", text: n ? (placed ? "Boxes are placed on the map by code from the picture's bounds." : "These boxes sit on the picture only: it has no map position, so none is drawn on the map.") : "No box was drawn." }),
-          reading.limits ? el("blockquote", { class: "x-quote" }, el("p", { text: reading.limits }), aiMark(reading.model_id, reading.label, "AI-read")) : aiMark(reading.model_id, reading.label, "AI-read"),
+          reading.limits ? el("blockquote", { class: "x-quote" }, el("p", { text: reading.limits }), aiMark(reading.model_id, reading.label, MARK.read("Satellite reader"))) : aiMark(reading.model_id, reading.label, MARK.read("Satellite reader")),
           colourKey())),
       reading.note ? el("p", { class: "dk-sub__note", text: reading.note }) : null,
       readByCode(reading) ? null : dkTech(`read by ${reading.model_id}`),
@@ -183,15 +184,15 @@ function satPanel(D, store) {
   const head = dkHeader({
     id: "sat-head",
     pills: [dkPill("info", "Supporting evidence only"), bad ? dkPill("caution", `${bad} not read`) : null],
-    title: stub ? "The newest Himawari picture for each active volcano, read by a code stub while AI is off." : "Newest Himawari picture per active volcano · supporting only",
+    title: stub ? "The newest Himawari picture for each active volcano, read by a code stub while TEPHRA Assistant is off." : "Newest Himawari picture per active volcano · supporting only",
     sub: "Supporting evidence only. It never changes the official area, TEPHRA's estimate, the heights or an advisory.",
   });
   const body = list.length
     ? dkList(list.map((r) => satRow(D, r, D.sits.find((s) => s.volcano_id === r.volcano_id), store)), { first: 4, key: "sat" })
     : dkEmpty("No satellite reading yet", "A reading appears when a new picture arrives for an active volcano.");
   return [dkSection("sat-head", head, body, el("div", { class: "dk-abouts" }, dkAbout("How the satellite check works", "sat",
-    stub ? "The latest Himawari picture for each active volcano, read by a code stub while AI is off. It is supporting evidence only and never changes the hazard area, the flight levels or an action."
-      : "A model looks at the latest Himawari picture for each active volcano and says whether it sees ash. It never changes the hazard area, the flight levels or an action. Colour alone cannot separate ash from dust, and a picture gives no height.")))];
+    stub ? "The latest Himawari picture for each active volcano, read by a code stub while TEPHRA Assistant is off. It is supporting evidence only and never changes the hazard area, the flight levels or an action."
+      : "TEPHRA Assistant's Satellite reader (a model) looks at the latest Himawari picture for each active volcano and says whether it sees ash. It never changes the hazard area, the flight levels or an action. Colour alone cannot separate ash from dust, and a picture gives no height.")))];
 }
 
 const capFirst = (t) => (t ? t[0].toUpperCase() + t.slice(1) : t);
@@ -207,7 +208,7 @@ const isJma = (n) => n.source_kind === "jma_xml";
 function noticeState(n) {
   if (isJma(n)) return ["ok", "Verified", "Read by code from JMA's published XML. No model was used."];
   if (n.status === "verified") return ["ok", "Verified", "Every claim was found word for word in the notice and checked by code."];
-  if (n.status === "ai_unavailable") return ["caution", "Not read (AI unavailable)", "Read this notice yourself."];
+  if (n.status === "ai_unavailable") return ["caution", "Not read (Notice reader gave no result)", "Read this notice yourself."];
   return ["caution", "Not verified", n.reason || "A check failed, so nothing from this notice entered the picture."];
 }
 
@@ -224,11 +225,11 @@ function noticeRow(n) {
     meta: el("span", { class: "mono", text: clock(n.created_at) }),
     body: [
       el("p", { class: "dk-sub__note", text: `${LANG_NAME[LANG[n.language]] || "Another language"}. ${why}` }),
-      n.status === "ai_unavailable" ? dkNote("caution", "Not read (AI unavailable): read this notice yourself. Nothing from it entered the picture.", { role: "status" }) : null,
+      n.status === "ai_unavailable" ? dkNote("caution", "Not read (Notice reader gave no result): read this notice yourself. Nothing from it entered the picture.", { role: "status" }) : null,
       n.status === "unverified" ? dkNote("caution", (n.reason || "Could not be verified.").replace(/^NOT VERIFIED:\s*/i, "")) : null,
       fields.length ? dkFacts(fields) : null,
       n.problems?.length ? el("ul", { class: "x-problems" }, ...n.problems.map((p) => el("li", { text: p }))) : null,
-      !isJma(n) && n.status !== "ai_unavailable" ? aiMark(n.model_id, n.label, "AI-read") : null,
+      !isJma(n) && n.status !== "ai_unavailable" ? aiMark(n.model_id, n.label, MARK.read("Notice reader")) : null,
       isJma(n) ? dkTech(n.id) : n.status === "ai_unavailable" ? dkTech(String(n.reason || "no reason given")) : null,
     ],
   });
@@ -330,8 +331,9 @@ function recoveryPanel(D, store) {
   const t = plan.chosen?.totals;
   const title = `${plural(icaos.length, "airport")} closed by ash (all volcanoes): ${icaos.join(", ")}.`;
   const what = fail ? `${fail.title}. ${fail.sub}` : t ? `${plan.status === "DRAFT" ? "Plan waiting on the Desk" : plan.status === "APPROVED" ? "Plan approved" : plan.status === "REJECTED" ? "Plan rejected" : "Plan"}: cancel ${t.cancelled_flights}${t.delayed_flights ? `, delay ${t.delayed_flights}` : ""}, ${usd(t.total_usd)}.` : "No scenario chosen.";
-  // "AI-chosen" only when a model chose the plan; with no plan the "No plan" pill says it once
-  const chosenBy = plan.outcome === "STUB" ? dkChip("Planned by code (AI off)") : plan.chosen ? aiMark(plan.model_id, null, "AI-chosen") : null;
+  // "Chosen by TEPHRA Assistant" only when a model chose the plan; with no plan the "No plan" pill
+  // says it once
+  const chosenBy = plan.outcome === "STUB" ? dkChip("Planned by code (code only)") : plan.chosen ? aiMark(plan.model_id, null, MARK.chosen) : null;
   // the re-plan the budget holds for later, at the place it changes (D58)
   const queued = fail ? waitingWork().find((w) => w.status === "WAITING" && w.item?.kind === "RECOVER") : null;
   const queuedAt = queued ? ms(queued.next_slot_at) : NaN;
@@ -344,7 +346,7 @@ function recoveryPanel(D, store) {
   const kids = [head, busy];
   if (fail) {
     kids.push(dkList([dkRow({ key: "rec-fail", dot: "caution", edge: "caution", title: fail.title, sub: fail.sub, open: false, body: [dkTech(fail.raw)] })], { key: "rec-fail" }));
-    if (queued) kids.push(dkNote("info", `A new plan waits for AI: next slot ${realWhen(queuedAt, Date.now(), D.mode === "REPLAY")?.at || "not set"}.`, { role: "status" }));
+    if (queued) kids.push(dkNote("info", `A new plan waits for ${ASSISTANT}: next slot ${realWhen(queuedAt, Date.now(), D.mode === "REPLAY")?.at || "not set"}.`, { role: "status" }));
   }
   // closed airports: a row each; the full reason and its sources are one tap further in
   kids.push(dkGroup(`Closed airports, all volcanoes · ${plan.closures.length}`, null, dkList(plan.closures.map((c) => dkRow({
@@ -384,7 +386,7 @@ function recoveryPanel(D, store) {
       el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Scenario" }), el("th", { scope: "col", class: "num", text: "Cancel" }), el("th", { scope: "col", class: "num", text: "Delay" }), el("th", { scope: "col", class: "num", text: "Cost" }))),
       el("tbody", {}, ...rows)))));
   }
-  if (plan.rationale) kids.push(dkAbout("Why this plan", "rec-why", el("p", { class: "dk-quote", text: plainLine(plan.rationale) }), aiMark(plan.model_id, plan.outcome === "STUB" ? "NO MODEL" : null), techDetail(plan.rationale, plan.chosen && plan.outcome !== "STUB" ? `chosen by ${plan.model_id}` : null)));
+  if (plan.rationale) kids.push(dkAbout("Why this plan", "rec-why", el("p", { class: "dk-quote", text: plainLine(plan.rationale) }), aiMark(plan.model_id, plan.outcome === "STUB" ? "NO MODEL" : null, "Explained by Recovery planner"), techDetail(plan.rationale, plan.chosen && plan.outcome !== "STUB" ? `chosen by ${plan.model_id}` : null)));
   if (plan.risks?.length) kids.push(dkAbout(`Risks (${plan.risks.length})`, "rec-risks", el("ul", { class: "dk-bullets" }, ...plan.risks.map((r) => el("li", { text: r })))));
   const decided = plan.decided_at ? `${plan.status === "REJECTED" ? "Rejected" : "Approved"} by ${(plan.decided_by || "a dispatcher").replace(/^desk:/, "")} at ${hhmmz(ms(plan.decided_at))}` : null;
   kids.push(dkNote(plan.status === "APPROVED" ? "info" : "info", decided || (plan.status === "DRAFT" ? "Waiting for a dispatcher. Nothing is sent anywhere." : fail ? "No plan to decide on. Nothing is sent anywhere." : "No decision."), { iconId: plan.status === "APPROVED" ? "i-approved" : "i-dispatcher" }));
@@ -395,8 +397,8 @@ function recoveryPanel(D, store) {
 
 // ------------------------------------------------------------------ Proof
 
-const ARM = { D: "Baseline: code only", G: "With the AI Plume Reader (Gemini)" };
-const ARM_SHORT = { D: "baseline", G: "with AI" };
+const ARM = { D: "Baseline: code only", G: "With the Plume reader (Gemini)" };
+const ARM_SHORT = { D: "baseline", G: "with the Plume reader" };
 
 function armStats(arm, s, lead) {
   const gain = s.coverage_gain_mean;
@@ -430,7 +432,7 @@ function proofPanel() {
   const ticks = proofTicks() || 0;
   const head = dkHeader({
     id: "proof-head",
-    pills: [arms.includes("G") ? dkPill("ok", "AI version scored") : dkPill("caution", "Baseline only"), dkRecorded(true, "recorded replays")],
+    pills: [arms.includes("G") ? dkPill("ok", "Plume reader scored") : dkPill("caution", "Baseline only"), dkRecorded(true, "recorded replays")],
     title: "How TEPHRA's area compares with the official areas issued later, scored by code on recorded replays.",
   });
   const kids = [head,
@@ -461,23 +463,23 @@ function proofPanel() {
   return [dkSection("proof-head", kids)];
 }
 
-// ------------------------------------------------------------------ AI helpers (docs/UI-DETAILS-PANELS.md 3)
+// ------------------------------------------------------------------ TEPHRA Assistant (docs/UI-DETAILS-PANELS.md 3; the AI helpers)
 
-// The helpers are board.js's roster (one table for the names, shared with AI at work), plus the
+// The skills are board.js's roster (one table for the names, shared with TEPHRA Assistant at work), plus the
 // backtest, which is code and calls no model.
 export const AGENTS = [
   ...HELPERS.map(({ id, name, stage, does, skip, only }) => ({ id, name, stage, what: does, skip, only })),
   { id: "backtest", name: "Backtest", stage: null, what: "Scores TEPHRA against later official areas (code, no model)" },
 ];
-// The Duty Officer tool that reaches each specialist.
+// The Coordinator (duty officer) tool that reaches each specialist.
 const DELEGATED_VIA = { plume: "assess_volcanoes", sat: "assess_volcanoes", planner: "plan_flights", drafter: "plan_flights", recovery: "run_recovery", sra: "draft_sra" };
 const RUNNING_MS = 6000;
 
 const STATE_ORDER = { failed: 0, waiting: 1, running: 2, done: 3, idle: 4 };
 
 // The one AI state for the Wall (docs/UI-AI-QUIET.md 1.2): the chip, the story, Details and the
-// map all word their AI lines from it. AI steps that failed in the trace the Wall holds, the
-// newest Duty Officer run, the newest airport plan and the live budget.
+// map all word their assistant lines from it. Assistant steps that failed in the trace the Wall
+// holds, the newest Coordinator run, the newest airport plan and the live budget.
 export function aiState(D, store) {
   return aiStateOf({ stub: D?.state?.llm?.backend === "stub", budget: ext.budget, errors: aiErrorsOf(store?.trace), duty: store?.snapshot?.duty || null, plan: newestPlan(ext.recovery), replay: D?.mode === "REPLAY" });
 }
@@ -486,7 +488,7 @@ export function aiState(D, store) {
 export const handPlan = (D, store, ai = aiState(D, store)) => handPlanOf(D, store, ai);
 
 // Each helper's state from facts, not only from the newest trace steps (D70): a plume read the
-// Duty Officer holds, the newest airport plan, the budget's queue and the newest run.
+// Coordinator holds, the newest airport plan, the budget's queue and the newest run.
 export function agentStatus(D, store, ai) {
   const trace = store.trace || [];
   const nowT = performance.now();
@@ -509,19 +511,19 @@ export function agentStatus(D, store, ai) {
     if (last) state = last.level === "error" ? "failed" : nowT - (ext.arrivals.get(last.id) ?? -1e9) < RUNNING_MS ? "running" : "done";
     // the badge says what happened ("Not run" only where no model was called); `words` says why,
     // without repeating the badge (review H6)
-    const paused = (cls) => (cls === "budget" ? (ai.paused ? `AI paused${ai.until ? ` ${ai.until}` : ""}` : WHY.budget) : `AI unavailable (${WHY[cls] || WHY.other})`);
+    const paused = (cls) => (cls === "budget" ? (ai.paused ? `${ASSISTANT} waiting${ai.until ? ` ${ai.until}` : ""}` : WHY.budget) : `gave no result (${WHY[cls] || WHY.other})`);
     if (a.id === "duty" && run?.outcome === "MODEL_FAILED") {
       const cls = reasonClass((run.validation_errors || [])[0]);
       state = "failed"; badge = cls === "budget" ? "Not run" : "No brief"; words = paused(cls); at = at || run.finished_at;
-    } else if (a.id === "plume" && pending) { state = "waiting"; words = `plume read queued ${ai.until || "for the Duty Officer"}`; }
-    else if (a.id === "recovery" && pf?.ai) { state = "failed"; badge = "No plan"; words = `AI unavailable (${pf.why})`; at = plan.created_at; }
+    } else if (a.id === "plume" && pending) { state = "waiting"; words = `plume read queued ${ai.until || "for the Coordinator"}`; }
+    else if (a.id === "recovery" && pf?.ai) { state = "failed"; badge = "No plan"; words = `gave no result (${pf.why})`; at = plan.created_at; }
     else if (a.id === "sra" && sra) { state = "waiting"; words = `next slot ${sra.slot || "not set"}`; }
     else if (state === "failed") { const cls = reasonClass(last.message); badge = cls === "budget" ? "Not run" : cls === "undone" ? "Left for the Desk" : "No result"; words = cls === "undone" ? "must-do jobs passed to the Desk" : paused(cls); }
     return { ...a, i, state, words, badge, count: mine.length, fails, last: at, detail: last?.message || null, delegated: delegated.has(DELEGATED_VIA[a.id]) };
   });
 }
 
-// Never red: an AI step that did not run is a caution; the picture keeps the red (Q4).
+// Never red: an assistant step that did not run is a caution; the picture keeps the red (Q4).
 const STATE_UI = {
   idle: ["never", "Quiet"], running: ["running", "Working on it"], done: ["ok", "Done"], failed: ["caution", "Not run"], waiting: ["caution", "Waiting"],
 };
@@ -530,15 +532,15 @@ const LANE_WORDS = { urgent: "Urgent", interactive: "Desk", routine: "Routine" }
 const TIER_WORDS = { main: "Main", lite: "Lite", tts: "Speech" };
 
 // What one queued job is doing, in the code's own words (the reason carries the next slot).
-const workWords = (w) => (w.status === "RUNNING" ? "running now" : w.status === "QUEUED" ? "queued for the AI worker" : w.reason || "waiting for AI budget");
+const workWords = (w) => (w.status === "RUNNING" ? "running now" : w.status === "QUEUED" ? "queued for the assistant" : w.reason || "waiting for the next slot");
 const waitingWork = () => (Array.isArray(ext.budget?.waiting) ? ext.budget.waiting : []);
 
-// AI work the worker holds: running, queued, or waiting for its model's next paced slot.
+// Assistant work the worker holds: running, queued, or waiting for its model's next paced slot.
 function waitingBlock() {
   const work = waitingWork();
   if (!work.length) return null;
   return el("div", { class: "dk-sub" },
-    el("p", { class: "dk-sub__title", text: "AI work queued or waiting" }),
+    el("p", { class: "dk-sub__title", text: "Assistant work queued or waiting" }),
     dkFacts(work.map((w) => [w.lane === "urgent" ? "Urgent" : "Routine", `${w.label}: ${workWords(w)}`])),
     el("p", { class: "dk-sub__note", text: "Waiting work is kept and runs on the same model when its slot comes. Nothing is dropped or handed to another model." }));
 }
@@ -574,12 +576,12 @@ function budgetBlock() {
 const liteTier = () => ext.budget?.tiers?.find((t) => t.tier === "lite") || ext.budget?.tiers?.[0] || null;
 const usedOf = (t) => (Number.isFinite(t.used) ? t.used : Math.max(0, t.limit - t.remaining));
 
-// AI work waiting for its model's next paced slot, and the first such slot in words.
+// Assistant work waiting for its model's next paced slot, and the first such slot in words.
 function waitingTail() {
   const waiting = waitingWork().filter((w) => w.status === "WAITING");
   if (!waiting.length) return "";
   const next = waiting.map((w) => w.reason).find((r) => r && r.includes("next slot"));
-  return `${waiting.length} job${waiting.length === 1 ? "" : "s"} ${next || "waiting for AI budget"}`;
+  return `${waiting.length} job${waiting.length === 1 ? "" : "s"} ${next || "waiting for the next slot"}`;
 }
 
 // The lite model's calls today (D65). While Google has closed it, the tile says so first, so
@@ -587,7 +589,7 @@ function waitingTail() {
 function budgetTile(stub, ai) {
   const lite = liteTier();
   if (!lite) {
-    return { label: "AI calls today", value: ext.loaded.budget ? "unknown" : "loading…", sub: ext.errors.budget ? `budget unavailable: ${ext.errors.budget}` : null, wide: true, tone: ext.errors.budget ? "caution" : null };
+    return { label: "Assistant calls today", value: ext.loaded.budget ? "unknown" : "loading…", sub: ext.errors.budget ? `budget unavailable: ${ext.errors.budget}` : null, wide: true, tone: ext.errors.budget ? "caution" : null };
   }
   const main = ext.budget.tiers.find((t) => t.tier === "main" && t !== lite);
   const closed = (ext.budget.models || []).find((m) => m.model_id === lite.model_id)?.closed === true;
@@ -596,15 +598,15 @@ function budgetTile(stub, ai) {
   const waiting = ai.waiting.length ? `${ai.waiting.length} job${ai.waiting.length === 1 ? "" : "s"} waiting` : null;
   if (closed) {
     return {
-      label: "AI calls today", value: ai.until ? `Closed ${ai.until}` : "Closed for today", wide: true, tone: "caution",
-      meter: { value: used, max: lite.limit, tone: "caution", label: `AI calls today: ${used} of ${lite.limit} used, closed for today by Google` },
+      label: "Assistant calls today", value: ai.until ? `Closed ${ai.until}` : "Closed for today", wide: true, tone: "caution",
+      meter: { value: used, max: lite.limit, tone: "caution", label: `Assistant calls today: ${used} of ${lite.limit} used, closed for today by Google` },
       sub: [`Google closed the free quota after ${used.toLocaleString("en")} of ${lite.limit.toLocaleString("en")} calls`, waiting].filter(Boolean).join(" · "),
     };
   }
   return {
-    label: "AI calls today", value: used.toLocaleString("en"), of: ` of ${lite.limit.toLocaleString("en")}`, wide: true,
-    meter: { value: used, max: lite.limit, tone: budgetTone(left, stub, false), label: `AI calls today: ${used} of ${lite.limit} used` },
-    sub: stub ? "Offline stub: no quota is spent" : [waitingTail() || null, main ? `Plume Reader ${usedOf(main)} of ${main.limit}` : null, "resets at midnight Pacific"].filter(Boolean).join(" · "),
+    label: "Assistant calls today", value: used.toLocaleString("en"), of: ` of ${lite.limit.toLocaleString("en")}`, wide: true,
+    meter: { value: used, max: lite.limit, tone: budgetTone(left, stub, false), label: `Assistant calls today: ${used} of ${lite.limit} used` },
+    sub: stub ? "Offline stub: no quota is spent" : [waitingTail() || null, main ? `Plume reader ${usedOf(main)} of ${main.limit}` : null, "resets at midnight Pacific"].filter(Boolean).join(" · "),
   };
 }
 
@@ -617,7 +619,7 @@ function causeSub(c, range) {
   return `Nothing was put in its place. ${c.consequence}.`;
 }
 
-// AI steps that did not run, one row per cause (D67): the cause in the §1.1 words, how many runs
+// Assistant steps that did not run, one row per cause (D67): the cause in the §1.1 words, how many runs
 // and when, where to act; every run and its raw line one tap in behind "Show the N runs".
 function causeRows(causes) {
   return causes.map((c) => {
@@ -647,7 +649,7 @@ function helperRow(a, store, n, stub, until) {
   if (a.id === "duty" && run && !Number.isFinite(lastT)) lastT = ms(run.finished_at);
   // "Quiet" only for a helper that is quiet; a row with a badge and no time shows no time
   const meta = Number.isFinite(lastT) ? el("span", { class: "mono", text: hhmmz(lastT) }) : a.state === "idle" ? el("span", { text: "Quiet" }) : null;
-  const sub = [a.what, a.words, a.delegated ? "given a job by the Duty Officer" : null].filter(Boolean).join(" · ");
+  const sub = [a.what, a.words, a.delegated ? "given a job by the Coordinator" : null].filter(Boolean).join(" · ");
   const badge = a.state === "failed" || a.state === "waiting" ? a.badge || word : null;
   let body;
   if (a.id === "duty") {
@@ -661,18 +663,18 @@ function helperRow(a, store, n, stub, until) {
     body = [dkFacts([
       ["Status", `${status}${seen}`],
       ["Last step", a.detail ? plainLine(a.detail) : null],
-      ["Model", stub ? "AI off: code follows the helper's script" : null],
+      ["Model", stub ? "Code only (assistant off): code follows the skill's script" : null],
     ]), a.detail ? dkTech(`${a.stage} · ${a.detail}`) : null];
   }
   return dkRow({ key: `helper-${a.id}`, dot: tone, title: a.name, sub, meta, body, badge });
 }
 
-// The state pill at the AI home (D64): one state, never red.
+// The state pill at the assistant home (D64): one state, never red.
 export function aiPill(ai) {
-  if (ai.kind === "off") return dkPill("off", "AI off");
-  if (ai.kind === "paused") return dkPill("caution", ai.until ? `Paused ${ai.until}` : "Paused");
+  if (ai.kind === "off") return dkPill("off", "Off · code only");
+  if (ai.kind === "paused") return dkPill("caution", ai.until ? `Waiting ${ai.until}` : "Waiting");
   if (ai.kind === "trouble") return dkPill("caution", `On · ${plural(ai.trouble.length, "problem")}`);
-  return dkPill("ok", "AI on");
+  return dkPill("ok", "On");
 }
 
 function aiPanel(D, store) {
@@ -689,16 +691,16 @@ function aiPanel(D, store) {
   const head = dkHeader({
     id: "ai-head",
     pills: [aiPill(ai), dkRecorded(D.mode === "REPLAY")],
-    title: stub ? "Code does every step, and code templates write the text a model would." : "Helpers can widen TEPHRA's estimate but never shrink the official area.",
+    title: stub ? "Code does every step, and code templates write the text a model would." : "TEPHRA Assistant is TEPHRA's AI assistant (Gemini). Its skills can widen TEPHRA's estimate but never shrink the official area.",
     chips: stub ? [dkChip("No model (offline stub)")] : ids.map(([k, id]) => dkChip(id, { label: k, mono: true })),
-    extra: el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "board-open", focus: "ai-board" }, "aria-keyshortcuts": "A" }, icon("i-agent"), "See the AI at work")),
+    extra: el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "board-open", focus: "ai-board" }, "aria-keyshortcuts": "A" }, icon("ta-16"), `See ${ASSISTANT} at work`)),
   });
-  // the calm lead (5.1): what state the AI is in, what still holds, where the hand work is
+  // the calm lead (5.1): what state the assistant is in, what still holds, where the hand work is
   const lead = el("div", { class: "dk-lead", role: "status" }, ...aiLead(ai).map((p) => el("p", {}, el("strong", { text: p.strong }), ` ${p.text}`)));
   const tiles = dkTiles([
     budgetTile(stub, ai),
-    { label: "Jobs handed out", value: jobsN == null ? "none yet" : String(jobsN), tone: jobsN == null ? "never" : null, sub: run ? `latest Duty Officer run${Number.isFinite(runT) ? `, ${hhmmz(runT)}` : ""}` : "no Duty Officer run yet" },
-  ], "AI in numbers");
+    { label: "Jobs handed out", value: jobsN == null ? "none yet" : String(jobsN), tone: jobsN == null ? "never" : null, sub: run ? `latest Coordinator run${Number.isFinite(runT) ? `, ${hhmmz(runT)}` : ""}` : "no Coordinator run yet" },
+  ], "TEPHRA Assistant in numbers");
 
   const kids = [head, lead, tiles];
   if (ai.causes.length) {
@@ -712,14 +714,14 @@ function aiPanel(D, store) {
   const active = order.filter((a) => a.state !== "idle").length;
   const first = Math.min(6, active) || 3;
   const quiet = order.length - first;
-  kids.push(dkGroup("Helpers", `${active} of ${agents.length} active`,
-    dkList(order.map((a) => helperRow(a, store, n, stub, ai.until)), { first, key: "ai-helpers", more: order.slice(first).every((a) => a.state === "idle") ? `Show quiet helpers (${quiet})` : `Show all ${order.length} helpers` })));
+  kids.push(dkGroup("Skills", `${active} of ${agents.length} active`,
+    dkList(order.map((a) => helperRow(a, store, n, stub, ai.until)), { first, key: "ai-helpers", more: order.slice(first).every((a) => a.state === "idle") ? `Show quiet skills (${quiet})` : `Show all ${order.length} skills` })));
 
   kids.push(el("div", { class: "dk-abouts" },
     dkAbout("Models and today's calls", "ai-budget", budgetBlock()),
     dkAbout("How this works", "ai-how",
-      "One coordinator agent, the Duty Officer, orders the day's AI work and hands it to the specialists through tools. Code builds the work list and holds the safety line. The Duty Officer decides the order and writes the brief.",
-      `Every AI step on the Wall is listed in How TEPHRA decided. Status here comes from the newest ${n} steps the Wall holds, the newest Duty Officer run, the newest airport plan and the budget's queue. When a step does not run it says why, and nothing is made up in its place.`)));
+      "TEPHRA Assistant is TEPHRA's AI assistant. It reads feeds and drafts text. Code does every number and safety rule, and a person approves everything. One skill, the Coordinator, orders the day's assistant work and hands it to the other skills through tools. Code builds the work list and holds the safety line. The Coordinator decides the order and writes the brief.",
+      `Every assistant step on the Wall is listed in How TEPHRA decided. Status here comes from the newest ${n} steps the Wall holds, the newest Coordinator run, the newest airport plan and the budget's queue. When a step does not run it says why, and nothing is made up in its place.`)));
   return [dkSection("ai-head", kids)];
 }
 

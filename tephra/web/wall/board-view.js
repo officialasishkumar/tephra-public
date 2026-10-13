@@ -1,9 +1,9 @@
-// "AI at work" (docs/UI-DESIGN.md 7.21): the board as a full overlay, a native modal <dialog>
-// (#board) opened from the AI chip, the story's trust line, Details › AI helpers or the A key.
-// Feeds → Duty Officer → the six specialists → a dispatcher at the Desk, with the hand-out edges
+// "TEPHRA Assistant at work" (docs/UI-DESIGN.md 7.21): the board as a full overlay, a native modal
+// <dialog> (#board) opened from the assistant chip, the story, Details › TEPHRA Assistant or the A key.
+// Feeds → Coordinator → the six other skills → a dispatcher at the Desk, with the hand-out edges
 // drawn in SVG between the cards from their measured places. The model is board.js. Every string
-// goes in through el() (textContent); model-written text (the Duty Officer's brief) carries the
-// AI-written mark. The board is rebuilt only when what it shows changes, so live updates never
+// goes in through el() (textContent); model-written text (the Coordinator's brief) carries the
+// "Drafted by TEPHRA Assistant" mark. The board is rebuilt only when what it shows changes, so live updates never
 // flicker, restart an animation or move the reader's scroll; focus survives by data-focus.
 
 import { $, el, icon, hhmmz } from "./util.js";
@@ -12,10 +12,10 @@ import { aiMark } from "./x-parts.js";
 import { STATE_WORD } from "./board.js";
 
 const ICON = {
-  duty: "i-agent", plume: "i-eruption", sat: "i-satellite", planner: "i-route", drafter: "i-pen-line", recovery: "i-recovery",
+  duty: "ta-16", plume: "i-eruption", sat: "i-satellite", planner: "i-route", drafter: "i-pen-line", recovery: "i-recovery",
   sra: "i-file", notice: "i-clipboard", ask: "i-chat", messages: "i-send", handover: "i-dispatcher",
 };
-// Shape, colour and word for each state (UI-DESIGN 3.2: never colour alone). AI steps that gave
+// Shape, colour and word for each state (UI-DESIGN 3.2: never colour alone). Assistant steps that gave
 // nothing are caution, never red (docs/UI-AI-QUIET.md Q4): "No result" has the warning shape,
 // "Not run" the caution dot.
 const STATE_LOOK = {
@@ -24,7 +24,7 @@ const STATE_LOOK = {
 };
 const STEP_TONE = { ok: "ok", info: "info", caution: "caution", quiet: "never", waiting: "caution", queued: "off", working: "running" };
 const COUNT_ORDER = ["working", "waiting", "queued", "failed", "notrun", "done", "quiet"];
-const COUNT_WORD = { working: "working", waiting: "waiting for AI budget", queued: "queued", failed: "no result", notrun: "not run", done: "done", quiet: "quiet" };
+const COUNT_WORD = { working: "working", waiting: "waiting for the next slot", queued: "queued", failed: "no result", notrun: "not run", done: "done", quiet: "quiet" };
 
 function statePill(state, word = STATE_WORD[state], full = null) {
   const look = STATE_LOOK[state] || STATE_LOOK.quiet;
@@ -48,7 +48,7 @@ function lastLine(c) {
 function modelFoot(c) {
   const m = c.model;
   return el("span", { class: `bcard__model${m.tone ? ` bcard__model--${m.tone}` : ""}` },
-    m.id ? dkChip(m.id, { mono: true, title: "The model this helper calls" }) : null, el("span", { text: m.text }),
+    m.id ? dkChip(m.id, { mono: true, title: "The model this skill calls" }) : null, el("span", { text: m.text }),
     // the reset time is said once, in the board's head; each card says only that the day is closed
     m.closed ? el("span", { class: "bcard__closed", title: `${m.closed.by === "Google" ? "Google answered that today's free-tier calls for this model are spent" : "TEPHRA's daily budget for this model is used up"}${m.closed.until ? `, ${m.closed.until}` : ""}.` },
       icon("i-clock", "st"), el("span", { text: m.closed.by === "Google" ? "closed by Google today" : "used up today" })) : null);
@@ -91,12 +91,12 @@ function card(c, ui, edgeState) {
   el("span", { class: "bcard__top" },
     el("span", { class: "bcard__icon" }, icon(ICON[c.id] || "i-agent")),
     el("span", { class: "bcard__names" }, el("span", { class: "bcard__name", text: c.name }), el("span", { class: "bcard__does", text: c.does })),
-    statePill(c.state, c.state === "waiting" ? "Waiting for AI" : c.word, c.state === "waiting" && c.waiting?.slot ? `Waiting for AI budget, ${c.waiting.slot}` : null)),
+    statePill(c.state, c.state === "waiting" ? "Waiting" : c.word, c.state === "waiting" && c.waiting?.slot ? `Waiting for the next slot, ${c.waiting.slot}` : null)),
   lastLine(c),
   el("span", { class: "bcard__foot" }, modelFoot(c),
     handed ? el("span", { class: `bcard__handed${c.handoff.failed ? " bcard__handed--failed" : ""}`, text: handed }) : null,
     c.recorded ? el("span", { class: "tag tag--replay", title: c.recorded, text: "first-pass answer" }) : null,
-    el("span", { class: "sr-only", text: edgeState === "idle" ? " No job from the Duty Officer's latest run." : "" })),
+    el("span", { class: "sr-only", text: edgeState === "idle" ? " No job from the Coordinator's latest run." : "" })),
   icon("i-chevron-down", "icon bcard__chev"));
   return el("article", { class: `bcard bcard--${c.state}${edgeState === "live" ? " is-live" : ""}${open ? " is-open" : ""}`, dataset: { node: c.id } }, btn, cardSteps(c, open));
 }
@@ -111,7 +111,7 @@ function dutyCard(c, ui) {
   },
   el("span", { class: "bcard__top" },
     el("span", { class: "bcard__icon bcard__icon--lead" }, icon(ICON.duty)),
-    el("span", { class: "bcard__names" }, el("span", { class: "bcard__name", text: c.name }), el("span", { class: "bcard__does", text: "Coordinator", title: c.does })),
+    el("span", { class: "bcard__names" }, el("span", { class: "bcard__name", text: c.name }), el("span", { class: "bcard__does", text: c.does })),
     statePill(c.state)),
   r ? el("span", { class: "bstats", "aria-label": "Its latest run" },
     stat(r.given, r.given === 1 ? "job given" : "jobs given"),
@@ -119,7 +119,7 @@ function dutyCard(c, ui) {
     stat(r.handed, "handed out", r.handed ? null : "muted"),
     stat(r.undone, "to the Desk", r.undone ? "caution" : "muted"),
     r.later ? stat(r.later, "left for later") : null,
-    c.waiting ? stat(c.waiting.n, "wait for AI budget", "caution") : null) : null,
+    c.waiting ? stat(c.waiting.n, "wait for the next slot", "caution") : null) : null,
   lastLine(c),
   el("span", { class: "bcard__foot" }, modelFoot(c), c.recorded ? el("span", { class: "tag tag--replay", title: c.recorded, text: "first-pass answer" }) : null),
   icon("i-chevron-down", "icon bcard__chev"));
@@ -132,7 +132,7 @@ function feedsNode(f, replay) {
     el("p", { class: "bnode__kicker" }, icon(replay ? "i-replay" : "i-live"), el("span", { id: "bfeeds-title", text: replay ? "Public feeds, recorded" : "Public feeds" })),
     el("p", { class: "bnode__title", text: words || "No feed read yet" }),
     f.shown.length ? el("ul", { class: "bfeeds", "aria-label": "Feeds that are on" }, ...f.shown.map((x) => el("li", { class: "bfeeds__item" }, dkDot(x.tone, "st"), el("span", { text: x.name })))) : null,
-    el("p", { class: "bnode__note", text: "Code reads them every minute and finds the AI work that is due." }));
+    el("p", { class: "bnode__note", text: "Code reads them every minute and finds the assistant work that is due." }));
 }
 
 function gateNode(g, desk) {
@@ -162,11 +162,11 @@ function replayBand(m) {
     el("span", { class: "replay-banner__live", text: " · not live" }), el("span", { class: "replay-banner__case", text: ` · ${r.label}` }))];
 }
 
-// The AI's one state in the AI chip's words (wall/x-parts.js aiWords); the full sentence is its title.
+// TEPHRA Assistant's one state in the chip's words (wall/x-parts.js aiWords); the full sentence is its title.
 function aiPill(ai) {
   const w = ai.words;
   const tone = { off: "off", caution: "caution", on: "ok" }[w.tone] || "off";
-  const mark = ai.kind === "on" ? dkDot("ok", "st") : icon(ai.kind === "off" ? "i-code" : ai.kind === "paused" ? "i-pause" : "st-caution", "st");
+  const mark = icon(ai.kind === "on" ? "ta-working" : ai.kind === "paused" ? "ta-waiting" : "ta-unavailable", "st");
   return el("span", { class: `dk-pill dk-pill--${tone}`, title: w.title }, mark, el("span", { text: w.suffix ? `${w.label} · ${w.suffix}` : w.label }));
 }
 
@@ -180,9 +180,9 @@ function header(m, conn) {
     el("div", { class: "board__pills" },
       aiPill(m.ai),
       conn.lostAt ? el("span", { class: "dk-pill dk-pill--caution" }, dkDot("stale", "st"), el("span", { text: `Not updating since ${hhmmz(conn.lostAt)}` })) : null,
-      m.replay ? el("span", { class: "board__clocknote", text: "Times are on the replay clock. AI quota waits are time left on the real clock." }) : null),
-    el("ul", { class: "board__counts", "aria-label": `${total} helpers by state` }, ...counts),));
-  // the calm lead, the same words as Details › AI helpers and the Desk's AI today sheet: its first
+      m.replay ? el("span", { class: "board__clocknote", text: "Times are on the replay clock. Free AI quota waits are time left on the real clock." }) : null),
+    el("ul", { class: "board__counts", "aria-label": `${total} skills by state` }, ...counts),));
+  // the calm lead, the same words as Details › TEPHRA Assistant and the Desk's assistant sheet: its first
   // sentence on screen, the rest one tap in (a board that reads in five seconds, research/16)
   const [first, ...rest] = m.ai.lead;
   const cut = first.text.indexOf(". ");
@@ -190,8 +190,8 @@ function header(m, conn) {
   const more = [cut < 0 ? "" : first.text.slice(cut + 2), ...rest.map((p) => `${p.strong} ${p.text}`)].filter(Boolean);
   parts.push(el("div", { class: "board__lead" }, el("p", {}, el("strong", { text: first.strong }), ` ${head}`),
     more.length ? dkAbout("What this means", "board-lead", ...more) : null,
-    el("button", { type: "button", class: "link-btn", dataset: { act: "board-details", sec: "ai", focus: "board-ai-home" }, text: "Models, today's calls and causes in Details › AI helpers ›" })));
-  parts.push(el("p", { class: "sr-only", role: "status", text: `${total} helpers: ${COUNT_ORDER.filter((k) => m.counts[k]).map((k) => `${m.counts[k]} ${COUNT_WORD[k]}`).join(", ")}.` }));
+    el("button", { type: "button", class: "link-btn", dataset: { act: "board-details", sec: "ai", focus: "board-ai-home" }, text: "Models, today's calls and causes in Details › TEPHRA Assistant ›" })));
+  parts.push(el("p", { class: "sr-only", role: "status", text: `${total} skills: ${COUNT_ORDER.filter((k) => m.counts[k]).map((k) => `${m.counts[k]} ${COUNT_WORD[k]}`).join(", ")}.` }));
   return parts;
 }
 
@@ -201,7 +201,7 @@ function flow(m, ui) {
   return el("div", { class: "flow" },
     el("div", { class: "flow__lead" }, feedsNode(m.feeds, m.replay), dutyCard(m.duty, ui)),
     el("section", { class: "flow__team", "aria-labelledby": "bteam-title" },
-      el("div", { class: "flow__teamhead" }, el("h3", { id: "bteam-title", class: "flow__h", text: "Specialists" }), el("span", { class: "flow__aside", text: `handed work by the Duty Officer${latest}` })),
+      el("div", { class: "flow__teamhead" }, el("h3", { id: "bteam-title", class: "flow__h", text: "Skills" }), el("span", { class: "flow__aside", text: `handed work by the Coordinator${latest}` })),
       el("ul", { class: "flow__cards", dataset: { node: "team" } }, ...m.team.map((c) => el("li", {}, card(c, ui, edgeTo[c.id]))))),
     gateNode(m.gate, m.desk));
 }
@@ -209,10 +209,11 @@ function flow(m, ui) {
 function foot(m) {
   return el("div", { class: "board__foot" },
     dkAbout("How to read this board", "board",
-      "Lines run from the Duty Officer to each specialist. A solid line means its latest run handed that helper work, a dashed line means it did not. A line lights up for a few seconds as a hand-out happens.",
-      "Each card shows what the helper is doing now, its newest result and when, and the model it calls. Open a card for its newest steps, each with its time and where it came from.",
-      `Calls today are counted per model, the way Google's free tier counts them, not per helper: the lite model's count is shared by every helper on it. Waiting work keeps its place and runs on the same model when its slot comes.`,
-      `Nothing here is scripted. Every line comes from TEPHRA's own records: the Duty Officer's run, the AI work queue and the newest ${m.window} steps in How TEPHRA decided. A card with nothing to show says so.`),
+      "TEPHRA Assistant is TEPHRA's AI assistant. It reads feeds and drafts text. Code does every number and safety rule, and you approve everything. Its skills are named by their job.",
+      "Lines run from the Coordinator to each skill. A solid line means its latest run handed that skill work, a dashed line means it did not. A line lights up for a few seconds as a hand-out happens.",
+      "Each card shows what the skill is doing now, its newest result and when, and the model it calls. Open a card for its newest steps, each with its time and where it came from.",
+      `Calls today are counted per model, the way Google's free tier counts them, not per skill: the lite model's count is shared by every skill on it. Waiting work keeps its place and runs on the same model when its slot comes.`,
+      `Nothing here is scripted. Every line comes from TEPHRA's own records: the Coordinator's run, the assistant's work queue and the newest ${m.window} steps in How TEPHRA decided. A card with nothing to show says so.`),
     m.disclaimer ? el("p", { class: "board__disclaimer" }, icon("i-info"), el("strong", { text: m.disclaimer })) : null);
 }
 

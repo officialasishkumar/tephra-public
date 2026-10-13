@@ -208,20 +208,16 @@ q { quotes: "“" "”"; }
 .ai-chip:hover, .feeds-chip:hover { background: var(--c-surface-3); }
 .ai-chip .icon { width: 16px; height: 16px; color: var(--c-text-2); }
 .model-chip { font-weight: var(--fw-medium); }
-/* AI paused (Google closed the day of the model that plans and drafts): the pause shape, the word
-   and the caution colour, the same as the Desk's AI status (UI-DESIGN 10.16) */
-.ai-chip[data-tone="paused"], .ai-chip[data-tone="partial"] { border-color: var(--c-caution); background: var(--c-caution-bg); }
-.ai-chip[data-tone="paused"] .icon, .ai-chip[data-tone="partial"] .icon { color: var(--c-caution); }
+/* TEPHRA Assistant's one state (docs/UI-AI-QUIET.md W1, Naming): the Strata mark's shape says it
+   (ta-working, ta-waiting, ta-unavailable) with the words; a waiting or troubled assistant has a
+   caution edge, never red, never a count badge. The mark replaces the old caution dot. */
+.ai-chip[data-tone="caution"] { border-color: var(--c-caution); }
 .ai-chip[data-tone="off"] { border-style: dashed; }
-/* failed AI steps: a small count badge, not a red frame round the whole chip */
-/* the AI's one state (docs/UI-AI-QUIET.md W1): a suffix in the chip's own text colour, a caution
-   dot when paused or in trouble; never red, never a count badge */
 .ai-chip__fail { display: inline-flex; align-items: center; color: var(--c-text-2); font-weight: var(--fw-medium); white-space: nowrap; }
 .ai-chip { min-width: 72px; }
 /* before the first data the chip keeps its place in the bar but is not drawn: it appears once,
    at its real width, so nothing in the bar jumps (W5) */
 .ai-chip.is-pending { visibility: hidden; }
-.ai-chip[data-tone="caution"] .model-chip::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--c-caution); vertical-align: 1px; }
 .feeds-chip__cap { color: var(--c-text-2); }
 .feeds-chip__part { display: inline-flex; align-items: center; gap: 4px; }
 .feeds-chip__sep { color: var(--c-text-3); }
@@ -674,6 +670,7 @@ body.history-open .maplibregl-ctrl-bottom-right, body.history-open .map-pills { 
 .drawer__fold { grid-area: fold; justify-self: end; align-self: center; margin: 0; padding: 0 var(--sp-2); min-height: 32px; font-size: var(--fs-1); white-space: nowrap; }
 .drawer__back { grid-area: back; justify-self: start; margin: 0; font-weight: var(--fw-semibold); white-space: nowrap; }
 .drawer__title { grid-area: title; min-width: 0; font-size: var(--fs-5); font-weight: var(--fw-semibold); line-height: 1.2; }
+.drawer__mark { width: 0.9em; height: 0.9em; margin-right: var(--sp-2); vertical-align: -0.05em; color: var(--c-text-2); }
 .drawer__switch { grid-area: switch; }
 .drawer__close { grid-area: close; }
 .drawer__switch select { height: 36px; max-width: 160px; padding: 0 var(--sp-2); background: var(--c-surface-2); border: 1px solid var(--c-line-input); border-radius: var(--radius-md); color: var(--c-text-1); font-size: var(--fs-2); }
@@ -1268,13 +1265,13 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 
 .x-loading { display: flex; flex-direction: column; gap: 4px; }
 
-/* one AI mark set (UI-AI-QUIET Q5, 5.5): AI-written, AI-read, AI-chosen, Code (AI off); the model
+/* one assistant mark set (UI-AI-QUIET Q5, 5.5, Naming): the Strata mark plus "Drafted by TEPHRA Assistant", "Read by {skill}", "Chosen by TEPHRA Assistant", "Code only (assistant off)"; the model
    id is in the title */
 .ai-mark { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; height: 22px; padding: 0 8px; border-radius: var(--radius-sm); background: var(--c-surface-3); color: var(--c-text-2); font-size: var(--fs-1); font-weight: var(--fw-semibold); white-space: nowrap; vertical-align: middle; }
 .ai-mark .icon { width: 13px; height: 13px; }
 .ai-mark--none { background: transparent; border: 1px solid var(--c-line-input); }
 .dk-chip--code { color: var(--c-text-2); }
-/* the AI home's calm lead (5.1) */
+/* the assistant home's calm lead (5.1) */
 .dk-lead { display: flex; flex-direction: column; gap: 6px; padding: var(--sp-2) var(--sp-3); border-left: 3px solid var(--c-caution); border-radius: var(--radius-sm); background: var(--c-surface-2); font-size: var(--fs-2); line-height: 1.45; color: var(--c-text-1); }
 .dk-lead strong { font-weight: var(--fw-semibold); }
 .dk-line--caution { box-shadow: inset 3px 0 0 var(--c-caution); }
@@ -1329,7 +1326,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 .x-tier__id { color: var(--c-text-3); }
 .pop__route { font-size: var(--fs-1); color: var(--c-reroute-text); overflow-wrap: anywhere; margin-bottom: var(--sp-1); }
 
-/* ---- Duty Officer panel (wall/duty.js): brief, delegation diagram, undone work ---- */
+/* ---- Coordinator panel (wall/duty.js; the code's Duty Officer): brief, delegation diagram, undone work ---- */
 
 /* Delegation diagram: the Duty Officer node, a trunk line, an arrow into each specialist. */
 
@@ -1363,6 +1360,9 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 .board__titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .board__title { font-size: var(--fs-6); font-weight: var(--fw-semibold); line-height: var(--lh-tight); }
 .board__title:focus { outline: none; box-shadow: none; }
+/* the TEPHRA Assistant mark (Strata, ta-64) beside the board's title: currentColor, no status colour */
+.board__title { display: flex; align-items: center; gap: var(--sp-2); }
+.board__mark { width: 1em; height: 1em; flex: none; color: var(--c-text-2); }
 .board__lede { font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.45; text-wrap: pretty; }
 @media (max-width: 600px) { .board__lede { font-size: var(--fs-1); } }
 .board__status:empty { display: none; }
@@ -1692,8 +1692,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .phone-bar > * { grid-area: auto !important; }
   .phone-bar > .areapick { flex: 1 1 7.5rem; min-width: 7.5rem; }
   .phone-bar .ai-chip, .phone-bar .feeds-chip { height: 36px; flex: none; }
-  /* the caution dot carries the state's tone here; the model icon is dropped for room */
-  .phone-bar .ai-chip .icon { display: none; }
+  /* the chip keeps its Strata state mark here: the mark, not a dot, says the state (Naming) */
   /* the REPLAY band: one line ("REPLAY: recorded 05 Sep 2026 · not live") */
   .replay-banner { flex-wrap: nowrap !important; white-space: nowrap !important; min-height: 28px !important; font-size: 13px; }
   .replay-banner__text { display: none; }

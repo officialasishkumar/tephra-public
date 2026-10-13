@@ -1,5 +1,5 @@
 // Flights to plan by hand (docs/UI-AI-QUIET.md K77, K81-K84, docs/UI-DESIGN.md 10.16,
-// docs/EXTENSIONS.md rule 0): flights the AI could not plan, draft or hand out. There is no
+// docs/EXTENSIONS.md rule 0): flights TEPHRA Assistant could not plan, draft or hand out. There is no
 // substitute plan. Decide shows one "Plan by hand" card after the Next decision: the cause once,
 // in caution (never the picture's red), the counts and "Show the flights". The list opens in the
 // right pane at 1100 px and up and as its own view on a phone, inside the ash first, must-do first.
@@ -26,7 +26,7 @@ const HANDLED_CHIPS = ['Contacted the flight by phone', 'Re-planned by hand', 'F
 const isOpen = (f) => !f.handled_at && !f.closed_at;
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
-// The Duty Officer's must-do flights ("hex:volcano_id") in its newest run.
+// The Coordinator's must-do flights ("hex:volcano_id") in its newest run.
 function mustDo() {
   const run = app.duty;
   if (!run || !Array.isArray(run.undispatched)) return new Set();
@@ -49,17 +49,18 @@ export function openFailures() {
 
 const HELPER = { duty_officer: 'duty', planner: 'planner', drafter: 'drafter' };
 const causeOf = (f) => `${HELPER[f.stage] || f.stage}|${reasonClass(f.reason)}`;
-// "AI paused until 0700Z", "AI unavailable (timed out)" or, for a Duty Officer that ran and did
-// not hand the flight out, that (review H8), from the cause and the live budget.
+// "TEPHRA Assistant is waiting until 0700Z", "the assistant gave no result (timed out)" or, for a
+// Coordinator that ran and did not hand the flight out, that (review H8), from the cause and the
+// live budget.
 function causeWords(cls, ai) {
-  if (cls === 'undone') return 'the Duty Officer ran and left it for the Desk';
-  if (cls === 'budget') return ai.kind === 'paused' ? `AI paused${ai.until ? ` ${ai.until}` : ''}` : WHY.budget;
-  return `AI unavailable (${WHY[cls] || WHY.other})`;
+  if (cls === 'undone') return 'the Coordinator ran and left it for the Desk';
+  if (cls === 'budget') return ai.kind === 'paused' ? `TEPHRA Assistant is waiting${ai.until ? ` ${ai.until}` : ''}` : WHY.budget;
+  return `the assistant gave no result (${WHY[cls] || WHY.other})`;
 }
 const causeSentence = (cls, ai, n) => causeWords(cls, ai).replace(/left it for/, n === 1 ? 'left it for' : 'left them for');
 
 // A few words per cause, for a row when the list mixes causes.
-const SHORT = { budget: 'AI paused', undone: 'left for the Desk', timeout: 'AI timed out', checks: 'failed the checks', error: 'AI error', other: 'AI could not answer' };
+const SHORT = { budget: 'assistant waiting', undone: 'left for the Desk', timeout: 'timed out', checks: 'failed the checks', error: 'stopped with an error', other: 'no answer' };
 
 function causes(list) {
   const by = new Map();
@@ -141,8 +142,8 @@ function counts(list, must) {
 function causeBlock(list, ai) {
   const cs = causes(list);
   const n = list.length;
-  if (cs.length === 1) return [el('p', { class: 'hcard__why', text: `No AI plan for ${n === 1 ? 'this flight' : 'these flights'}: ${causeSentence(cs[0].cls, ai, n)}. Nothing was substituted.` })];
-  return [el('p', { class: 'hcard__why', text: 'No AI plan for these flights. Nothing was substituted.' }),
+  if (cs.length === 1) return [el('p', { class: 'hcard__why', text: `No plan for ${n === 1 ? 'this flight' : 'these flights'}: ${causeSentence(cs[0].cls, ai, n)}. Nothing was substituted.` })];
+  return [el('p', { class: 'hcard__why', text: 'No plan for these flights. Nothing was substituted.' }),
     el('ul', { class: 'hcard__causes' }, cs.map((c) => el('li', { text: `${plural(c.n, 'flight')}: ${causeSentence(c.cls, ai, c.n)}` })))];
 }
 
@@ -151,7 +152,7 @@ function summaryCard(list, shown, ai, must) {
   return el('div', { class: 'hcard' },
     el('div', { class: 'hcard__head' },
       el('h2', { id: 'fail-title', class: 'hcard__title' }, icon('st-caution', 'st'), el('span', { text: `Plan by hand · ${plural(n, 'flight')}` })),
-      el('button', { type: 'button', class: 'linkbtn hcard__whybtn', 'data-why': '1', 'aria-label': 'Why: open AI today' }, el('span', { text: 'Why ›' }))),
+      el('button', { type: 'button', class: 'linkbtn hcard__whybtn', 'data-why': '1', 'aria-label': 'Why: open the TEPHRA Assistant sheet' }, el('span', { text: 'Why ›' }))),
     ...causeBlock(list, ai),
     el('p', { class: 'hcard__counts', text: counts(list, must) }),
     el('button', { type: 'button', class: 'btn btn--outline hcard__go', 'data-failpane': 'open', 'aria-controls': 'fail-pane', 'aria-expanded': shown ? 'true' : 'false' },
@@ -205,7 +206,7 @@ export function renderFailures() {
   const host = byId('fail-section');
   const pane = byId('fail-pane');
   if (!host || !pane) return;
-  // the Duty Officer card drops the must-do flights this list holds (K92)
+  // the Coordinator card drops the must-do flights this list holds (K92)
   renderDuty();
   const list = openFailures();
   if (!list.length && app.pane === 'failures') app.hub.closeFailPane();
@@ -268,7 +269,7 @@ export function openHandled(id) {
     el('dt', { text: 'Aircraft' }), el('dd', { text: [ident(f) || 'no callsign', `hex ${String(f.hex || '').toUpperCase()}`].join(' · ') }),
     el('dt', { text: 'Volcano' }), el('dd', { text: f.volcano_name }),
     el('dt', { text: 'Since' }), el('dd', { text: hhmmz(f.created_at) }),
-    el('dt', { text: 'What happened' }), el('dd', {}, el('span', { text: `No AI plan for this flight: ${causeWords(reasonClass(f.reason), deskAi())}. Nothing was put in its place.` }),
+    el('dt', { text: 'What happened' }), el('dd', {}, el('span', { text: `No plan for this flight: ${causeWords(reasonClass(f.reason), deskAi())}. Nothing was put in its place.` }),
       must ? [' ', el('span', { class: 'dcard__must', text: 'Must do' })] : null));
   const tech = el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }),
     el('p', { class: 'mono tech__line', text: `${machineText(f.reason)}${f.model_id && f.model_id !== 'stub' ? ` · would have used ${f.model_id}` : ''}` }),

@@ -1,21 +1,22 @@
-// "AI at work" (docs/UI-DESIGN.md 7.21): the model behind the board that shows the Duty Officer
-// handing work to the specialist helpers and a dispatcher deciding at the end. Pure functions over
-// data the Wall already holds: the newest Duty Officer run (snapshot.duty), the AI budget and its
+// "TEPHRA Assistant at work" (docs/UI-DESIGN.md 7.21): the model behind the board that shows the
+// Coordinator (the code's Duty Officer) handing work to the assistant's other skills and a
+// dispatcher deciding at the end. Pure functions over data the Wall already holds: the newest
+// Coordinator run (snapshot.duty), the AI budget and its
 // work queue (/api/budget), the trace, the airport plans, the paperwork list, the advisories and
 // the satellite readings. Nothing here is scripted: a card with no data says so. No DOM, so the
 // board's logic is tested on its own (tests/test_wall_board.py).
 
 import { ms } from "./util.js";
-import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiLead, reasonClass, realWhen, WHY } from "./x-parts.js";
+import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiLead, reasonClass, realWhen, WHY, ASSISTANT } from "./x-parts.js";
 import { collapseRuns, plural } from "./dk.js";
 
-// Every AI helper on the Wall, in board order. `tool` is the Duty Officer tool that reaches it,
+// Every skill of TEPHRA Assistant on the Wall, in board order. `tool` is the Coordinator's tool that reaches it,
 // `kinds` the work-list kinds it does (MODULES.md 5.18), `tier` the model tier it calls,
 // `to` where its work goes ("desk": a draft a dispatcher decides on; "area": TEPHRA's estimate).
-// The Desk helpers run only when a dispatcher asks.
+// The Desk skills run only when a dispatcher asks.
 export const HELPERS = [
-  { id: "duty", role: "lead", name: "Duty Officer", does: "Orders the day's AI work and hands it out", stage: "DUTY", tier: "lite" },
-  { id: "plume", role: "team", name: "Plume Reader", does: "Proposes TEPHRA's cautious area", stage: "PLUME", tool: "assess_volcanoes", kinds: ["ASSESS"], tier: "main", to: "area", when: "It runs when a volcano's reports change and the call matters" },
+  { id: "duty", role: "lead", name: "Coordinator", does: "Orders the day's assistant work and hands it out", stage: "DUTY", tier: "lite" },
+  { id: "plume", role: "team", name: "Plume reader", does: "Proposes TEPHRA's cautious area", stage: "PLUME", tool: "assess_volcanoes", kinds: ["ASSESS"], tier: "main", to: "area", when: "It runs when a volcano's reports change and the call matters" },
   { id: "sat", role: "team", name: "Satellite reader", does: "Reads the satellite picture", stage: "SATELLITE", tool: "assess_volcanoes", kinds: ["ASSESS"], tier: "lite", to: "area", when: "It runs inside a plume read, when a new picture has come in" },
   { id: "planner", role: "team", name: "Flight planner", does: "Chooses an action for each flight", stage: "PLANNER", tool: "plan_flights", kinds: ["PLAN"], tier: "lite", when: "It runs for each RFA flight in or heading into an area" },
   { id: "drafter", role: "team", name: "Drafter", does: "Writes each flight's advisory", stage: "DRAFTER", tool: "plan_flights", kinds: ["PLAN"], tier: "lite", to: "desk", when: "It runs after the flight planner, for each flight" },
@@ -23,8 +24,8 @@ export const HELPERS = [
   { id: "sra", role: "team", name: "Paperwork drafter", does: "Drafts the safety risk assessment", stage: "DOCS", tool: "draft_sra", kinds: ["SRA"], tier: "lite", to: "desk", when: "It runs when a region newly carries exposed flights" },
   { id: "notice", role: "desk", name: "Notice reader", does: "Reads pasted notices", stage: "NOTICE", tier: "lite" },
   { id: "ask", role: "desk", name: "Ask", does: "Answers questions from the data", stage: "ASK", tier: "lite" },
-  { id: "messages", role: "desk", name: "Messages", does: "Drafts crew and passenger messages", stage: "MESSAGES", skip: /HANDOVER/i, tier: "lite" },
-  { id: "handover", role: "desk", name: "Handover", does: "Writes the shift handover", stage: "MESSAGES", only: /HANDOVER/i, tier: "lite" },
+  { id: "messages", role: "desk", name: "Message drafter", does: "Drafts crew and passenger messages", stage: "MESSAGES", skip: /HANDOVER/i, tier: "lite" },
+  { id: "handover", role: "desk", name: "Handover drafter", does: "Writes the shift handover", stage: "MESSAGES", only: /HANDOVER/i, tier: "lite" },
 ];
 
 // What one hand-out covers, per tool: "24 flights", "1 volcano".
@@ -36,24 +37,24 @@ export const LIVE_MS = 6000;
 export const STEPS_SHOWN = 5;
 
 // The card states, in the order one wins over another. Shape, colour and word for each are the
-// view's (board-view.js); every state has all three. An AI step that gave nothing is a caution,
+// view's (board-view.js); every state has all three. An assistant step that gave nothing is a caution,
 // never the picture's red (docs/UI-AI-QUIET.md Q4): "No result" when a model was called and gave
 // nothing usable, "Not run" when no model was called.
 export const STATES = ["working", "waiting", "queued", "failed", "notrun", "done", "quiet"];
 export const STATE_WORD = {
-  working: "Working", waiting: "Waiting for AI budget", queued: "Queued", failed: "No result",
+  working: "Working", waiting: "Waiting for the next slot", queued: "Queued", failed: "No result",
   notrun: "Not run", done: "Done", quiet: "Quiet",
 };
 
 const SOURCE = {
-  trace: "How TEPHRA decided", queue: "AI work queue", run: "Duty Officer run", plan: "Airport plan",
+  trace: "How TEPHRA decided", queue: "Assistant work queue", run: "Coordinator run", plan: "Airport plan",
   reading: "Satellite reading", doc: "Paperwork", advisory: "Advisories", estimate: "TEPHRA's estimate",
 };
 
 // A step's tone: "failed" (a model was called and gave nothing usable) and "caution" (no model
 // was called, or code found nothing) both draw in caution; the card state tells them apart.
 const LEVEL_TONE = { warn: "caution" };
-// A Duty Officer line that is about one helper's work: it is that helper's step too.
+// A Coordinator line that is about one skill's work: it is that helper's step too.
 const NOT_HANDED = /^Plume read: .+: not dispatched/;
 
 const matches = (h, t) => t.stage === h.stage && (!h.skip || !h.skip.test(t.message || "")) && (!h.only || h.only.test(t.message || ""));
@@ -62,7 +63,7 @@ function ownLines(h, trace) {
   return trace.filter((t) => matches(h, t) || (h.id === "plume" && t.stage === "DUTY" && NOT_HANDED.test(t.message || "")));
 }
 
-// The tone of one trace line, as a step: a plume read the Duty Officer did not hand out is "not run"
+// The tone of one trace line, as a step: a plume read the Coordinator did not hand out is "not run"
 // (caution), not a Plume Reader failure.
 function lineTone(h, t) {
   if (h.id === "plume" && t.stage === "DUTY") return "caution";
@@ -81,7 +82,7 @@ function traceSteps(h, lines) {
 const workOf = (h, work) => (work || []).filter((w) => (w.kind === "recover" && h.kinds?.includes("RECOVER")) || (w.item && h.kinds?.includes(w.item.kind)));
 
 // "next slot 0700Z", or in REPLAY "next slot in 2 h 45 min": budget times are on the real clock
-// (realWhen, the AI state's rule).
+// (realWhen, the assistant state's rule).
 let clock = { now: Date.now(), replay: false };
 const slotText = (at) => { const w = realWhen(at, clock.now, clock.replay); return w ? `next slot ${w.at}` : null; };
 
@@ -93,7 +94,7 @@ function queueSteps(items) {
     const slot = Math.min(...list.map((w) => ms(w.next_slot_at)).filter(Number.isFinite));
     const first = list[0].label;
     const more = list.length > 1 ? ` and ${plural(list.length - 1, "more job")}` : "";
-    const what = status === "RUNNING" ? "Running now" : status === "WAITING" ? "Waiting for AI budget" : "Queued for the AI worker";
+    const what = status === "RUNNING" ? "Running now" : status === "WAITING" ? "Waiting for the next slot" : "Queued for the assistant";
     out.push({
       tone: status === "WAITING" ? "waiting" : status === "RUNNING" ? "working" : "queued",
       text: `${what}: ${first}${more}`, count: 1, at: status === "WAITING" ? slot : NaN,
@@ -117,19 +118,19 @@ function handoffStep(h, run) {
   if (!ho) return null;
   const what = plural(ho.count, ho.unit);
   const failed = ho.failed ? `, ${ho.failed} of ${ho.calls} failed` : "";
-  return { tone: ho.failed ? "failed" : "ok", text: `Given ${what} by the Duty Officer in its latest run${failed}`, count: 1, at: ho.at, source: SOURCE.run };
+  return { tone: ho.failed ? "failed" : "ok", text: `Given ${what} by the Coordinator in its latest run${failed}`, count: 1, at: ho.at, source: SOURCE.run };
 }
 
-// The helpers' own results beside the trace: the newest airport plan, satellite reading,
+// The skills' own results beside the trace: the newest airport plan, satellite reading,
 // safety risk assessment draft and advisory.
-// The Plume Reader's outcome per volcano, as code recorded it on each assessment; volcanoes with the
+// The Plume reader's outcome per volcano, as code recorded it on each assessment; volcanoes with the
 // same outcome share one step ("Semeru, Ibu and 2 more: ...").
 const PLUME_OUTCOME = {
   ACCEPTED: ["ok", "its estimate passed the code's checks"],
   REPAIRED: ["ok", "its estimate passed the checks after one repair"],
-  STUB: ["ok", "estimate by code (AI off), the official area"],
+  STUB: ["ok", "estimate by code (code only), the official area"],
   MODEL_FAILED: ["failed", "no estimate passed the checks, so the area stays at the official reports"],
-  PENDING: ["caution", "plume read waits for the Duty Officer, the area stays at the official reports until it runs"],
+  PENDING: ["caution", "plume read waits for the Coordinator, the area stays at the official reports until it runs"],
   OFFICIAL_ONLY: ["info", "no read needed, the official reports alone set the area"],
 };
 
@@ -164,7 +165,7 @@ function resultSteps(h, ctx) {
       const t = plan.chosen?.totals;
       const text = fail ? `${fail.title}. ${fail.sub}`
         : `Airport plan ${plan.status === "DRAFT" ? "waiting on the Desk" : plan.status === "APPROVED" ? "approved" : plan.status === "REJECTED" ? "rejected" : "made"}${t ? `: cancel ${t.cancelled_flights}, delay ${t.delayed_flights}` : ""}`;
-      // the solver finding no plan is code's answer, not an AI failure: "No plan", in caution
+      // the solver finding no plan is code's answer, not an assistant failure: "No plan", in caution
       out.push({ tone: fail ? (fail.ai ? "failed" : "caution") : "ok", word: fail && !fail.ai ? "No plan" : null, text, count: 1, at: ms(plan.created_at), source: SOURCE.plan });
     }
   }
@@ -172,7 +173,7 @@ function resultSteps(h, ctx) {
     for (const r of ctx.satellite || []) {
       const name = ctx.volcanoName(r.volcano_id);
       const ash = { yes: "ash seen", no: "no ash seen", uncertain: "can't tell" }[r.ash_visible] || "can't tell";
-      const text = r.status === "ai_unavailable" ? `${name}: not read (AI unavailable). Nothing was put in its place`
+      const text = r.status === "ai_unavailable" ? `${name}: not read (Satellite reader gave no result). Nothing was put in its place`
         : r.status === "no_frames" ? `${name}: no picture to read` : `${name}: ${ash}`;
       out.push({ tone: r.status === "ai_unavailable" ? "failed" : r.status === "no_frames" ? "caution" : "ok", text, count: 1, at: ms(r.created_at || r.observed_at), source: SOURCE.reading, recorded: r.recorded_answer || null });
     }
@@ -195,7 +196,7 @@ function resultSteps(h, ctx) {
 export function modelLine(tier, ctx) {
   if (ctx.stub) return { id: null, text: "No model (offline stub): no calls", tone: "off" };
   const b = ctx.budget;
-  if (!b) return { id: null, text: ctx.budgetError ? "Calls today: unknown, the AI budget did not load" : "Calls today: loading", tone: ctx.budgetError ? "caution" : "off" };
+  if (!b) return { id: null, text: ctx.budgetError ? "Calls today: unknown, the assistant's budget did not load" : "Calls today: loading", tone: ctx.budgetError ? "caution" : "off" };
   const t = (b.tiers || []).find((x) => x.tier === tier);
   if (!t) return { id: null, text: "Calls today: unknown", tone: "caution" };
   const m = (b.models || []).find((x) => x.model_id === t.model_id);
@@ -252,8 +253,8 @@ function helperCard(h, ctx) {
   };
 }
 
-// The Duty Officer's latest run in one sentence (code-written from the run's fields), in the words
-// of Details › AI helpers (wall/duty.js OUTCOME): a quota refusal called no model and is "Not
+// The Coordinator's latest run in one sentence (code-written from the run's fields), in the words
+// of Details › TEPHRA Assistant (wall/duty.js OUTCOME): a quota refusal called no model and is "Not
 // run"; a run whose brief failed the checks called one and is "No brief".
 export function dutyLine(run, ctx) {
   const n = (run.dispatches || []).length;
@@ -264,10 +265,10 @@ export function dutyLine(run, ctx) {
   const first = n ? ` It handed out ${plural(handed, "job")} first.` : "";
   if (run.outcome === "MODEL_FAILED") {
     const cls = reasonClass((run.validation_errors || [])[0]);
-    if (cls === "budget") return { tone: "caution", word: "Not run", text: `Not run: today's free AI quota is used up${ctx.until ? ` (AI paused ${ctx.until})` : ""}. No brief was made.${first}${tail ? ` ${tail}` : ""}` };
-    return { tone: "failed", word: "No brief", text: `No brief: AI unavailable (${WHY[cls] || WHY.other}). Nothing was made up in its place.${first}${tail ? ` ${tail}` : ""}` };
+    if (cls === "budget") return { tone: "caution", word: "Not run", text: `Not run: today's free AI quota is used up${ctx.until ? ` (TEPHRA Assistant waiting ${ctx.until})` : ""}. No brief was made.${first}${tail ? ` ${tail}` : ""}` };
+    return { tone: "failed", word: "No brief", text: `No brief: the Coordinator gave no result (${WHY[cls] || WHY.other}). Nothing was made up in its place.${first}${tail ? ` ${tail}` : ""}` };
   }
-  if (run.outcome === "STUB") return { tone: "ok", text: `Handed out ${plural(handed, "job")} in urgency order (AI off).${tail ? ` ${tail}` : ""}` };
+  if (run.outcome === "STUB") return { tone: "ok", text: `Handed out ${plural(handed, "job")} in urgency order (code only).${tail ? ` ${tail}` : ""}` };
   const checks = run.outcome === "REPAIRED" ? "Its brief passed after one repair." : "Its brief passed the code's checks.";
   return { tone: "ok", text: `${handed ? `Handed out ${plural(handed, "job")}.` : "Handed out no job."} ${checks}${tail ? ` ${tail}` : ""}` };
 }
@@ -284,7 +285,7 @@ function dutyCard(ctx) {
   if (!run) {
     return {
       id: h.id, role: h.role, name: h.name, does: h.does, state: working ? "working" : "quiet", word: STATE_WORD[working ? "working" : "quiet"],
-      last: { tone: "quiet", text: "No run yet. It runs when code finds AI work due: a plume to read, a flight to plan, a network to re-plan.", at: NaN, source: SOURCE.run },
+      last: { tone: "quiet", text: "No run yet. It runs when code finds assistant work due: a plume to read, a flight to plan, a network to re-plan.", at: NaN, source: SOURCE.run },
       run: null, waiting: waiting.length ? { n: waiting.length } : null, model, recorded: null, steps: traceSteps(h, lines).slice(0, STEPS_SHOWN), more: 0, brief: null,
     };
   }
@@ -336,15 +337,15 @@ function gateNode(ctx) {
   if (plan?.status === "DRAFT") others.push({ tone: "caution", text: "1 airport plan waits for approval" });
   else if (plan?.status === "AI_UNAVAILABLE") others.push({ tone: "caution", text: "No airport plan was made: a dispatcher plans the network by hand" });
   if (sra.length) others.push({ tone: "caution", text: `${plural(sra.length, "safety risk assessment draft")} ${sra.length === 1 ? "waits" : "wait"} for sign-off` });
-  // the flights the AI made no plan for, said once with the must-do ones in it; without that
-  // count (the board alone), the Duty Officer's must-do flights
+  // the flights the assistant made no plan for, said once with the must-do ones in it; without that
+  // count (the board alone), the Coordinator's must-do flights
   const undone = (ctx.duty?.undispatched || []).length;
-  if (ctx.handPlan?.n) others.push({ tone: "caution", text: `${plural(ctx.handPlan.n, "flight")} to plan by hand${ctx.handPlan.must ? `, ${ctx.handPlan.must} of them must do` : ""}: the AI made no plan for them` });
-  else if (undone) others.push({ tone: "caution", text: `${plural(undone, "must-do flight")} passed to a dispatcher by the latest Duty Officer run, to plan by hand` });
+  if (ctx.handPlan?.n) others.push({ tone: "caution", text: `${plural(ctx.handPlan.n, "flight")} to plan by hand${ctx.handPlan.must ? `, ${ctx.handPlan.must} of them must do` : ""}: ${ASSISTANT} made no plan for them` });
+  else if (undone) others.push({ tone: "caution", text: `${plural(undone, "must-do flight")} passed to a dispatcher by the latest Coordinator run, to plan by hand` });
   return { drafts: ctx.drafts, others, docsLoaded: ctx.docsLoaded, planWaits: plan?.status === "DRAFT", sraWaits: sra.length };
 }
 
-// Hand-out edges from the Duty Officer to each specialist, and from the helpers whose work goes
+// Hand-out edges from the Coordinator to each skill, and from the skills whose work goes
 // to the Desk into the gate. live: a hand-out arrived in the last LIVE_MS; used: the latest run
 // handed it work (failed when a hand-out failed); idle: not in the latest run. Into the gate a
 // line is solid while that helper has work waiting there for a dispatcher.
@@ -368,7 +369,7 @@ export function boardModel(input) {
   if (!s) return { ready: false };
   const replay = s.mode === "REPLAY";
   const stub = s.llm?.backend === "stub" || input.budget?.backend === "stub";
-  // the Wall's one AI state (docs/UI-AI-QUIET.md 1.2), from the same inputs as its AI chip
+  // the Wall's one assistant state (docs/UI-AI-QUIET.md 1.2), from the same inputs as its chip
   clock = { now: input.realNow ?? Date.now(), replay };
   const ai = aiStateOf({ stub, budget: input.budget || null, errors: aiErrorsOf(input.trace), duty: input.duty || null, plan: newestPlan(input.recovery), replay, now: clock.now });
   const ctx = {
@@ -392,7 +393,7 @@ export function boardModel(input) {
   const counts = Object.fromEntries(STATES.map((k) => [k, cards.filter((c) => c.state === k).length]));
   return {
     ready: true, replay, stub, mode: s.mode, replayInfo: s.replay || null, disclaimer: s.disclaimer || "",
-    ai: { kind: ai.kind, words: aiWords(ai, { home: "Details › AI helpers", opens: "nothing" }), lead: aiLead(ai) },
+    ai: { kind: ai.kind, words: aiWords(ai, { home: `Details › ${ASSISTANT}`, opens: "nothing" }), lead: aiLead(ai) },
     budgetLoaded: !!input.budget || !!input.budgetError, budgetError: input.budgetError || null,
     window: ctx.trace.length,
     feeds: feedsNode(input.feeds, input.feedNames || {}),

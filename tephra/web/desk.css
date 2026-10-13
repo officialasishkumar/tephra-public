@@ -6824,22 +6824,13 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
 }
 
 /* =====================================================================================
-   AI, quietly (docs/UI-AI-QUIET.md): one AI chip, one mark set, flights to plan by hand in one
-   compact group. AI elements use caution or neutral tones, never the picture's red.
+   AI, quietly (docs/UI-AI-QUIET.md, and its Naming amendment): one TEPHRA Assistant chip, one mark
+   set (the Strata mark, currentColor), flights to plan by hand in one compact group. Assistant
+   elements use caution or neutral tones, never the picture's red.
    ===================================================================================== */
 
 .budget[data-tone="caution"] {
   border-color: var(--c-caution);
-}
-
-.budget[data-tone="caution"] .model-chip::before {
-  content: "";
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: 6px;
-  border-radius: 50%;
-  background: var(--c-caution);
 }
 
 .budget .model-chip {
@@ -7329,7 +7320,20 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   height: 14px;
 }
 
-/* --- the AI status sheet --------------------------------------------------------------------- */
+/* --- the assistant sheet (TEPHRA Assistant's home on the Desk) ------------------------------- */
+
+/* the Strata mark at the top of the sheet: currentColor on the sheet's own text colour, no status colour */
+.aisheet__mark {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  color: var(--c-text-2);
+}
+
+.aisheet__logo {
+  width: 48px;
+  height: 48px;
+}
 
 .aisheet__lead {
   display: flex;

@@ -72,7 +72,7 @@ const ui = {
   present: PRESENT,
   selFlight: null, // { hex, proxy } of the aircraft picked on the map or in the flights list
   tlCurrent: null, // title of the timeline event last chosen (R7)
-  board: { open: false, card: null, opener: null }, // AI at work: open, the card opened in it, who opened it
+  board: { open: false, card: null, opener: null }, // TEPHRA Assistant at work: open, the card opened in it, who opened it
 };
 const conn = { lostAt: null, source: null, watchdog: null, lastEventAt: 0, loaded: false, everLost: false, hiddenTimer: null, paused: false, lastTick: null };
 const extra = { error: null, basemap: null, mapError: null };
@@ -686,7 +686,7 @@ function closeAreaMenu(focusBtn = true) {
   if (focusBtn) $("area-btn").focus();
 }
 
-// ------------------------------------------------------------------ AI at work (UI-DESIGN 7.21)
+// ------------------------------------------------------------------ TEPHRA Assistant at work (UI-DESIGN 7.21)
 
 // What the board reads: the data the Wall already holds, and when each trace line and hand-out
 // reached this page (a step that just arrived is "working", a hand-out that just happened lights
@@ -698,7 +698,7 @@ function boardInput() {
     trace: store.trace, recovery: ext.recovery, docs: ext.docs, docsLoaded: ext.loaded.docs, satellite: store.snapshot?.satellite || [],
     advisories: store.advisories, feeds: store.feeds, feedNames: FEED_NAME, situations: store.snapshot?.situations || [],
     arrivedAgo: (id) => since(ext.arrivals.get(id)), liveAgo: (tool) => since(ext.handoffs.get(tool)),
-    // the flights the AI left to a dispatcher, all volcanoes (the story's Plan by hand)
+    // the flights the assistant left to a dispatcher, all volcanoes (the story's Plan by hand)
     handPlan: D ? (({ flights, must }) => ({ n: flights.length, must }))(handPlan(D, store)) : null,
   };
 }
@@ -1089,7 +1089,7 @@ function placeHonesty() {
   if (phoneMq.matches) { if (line.parentElement !== $("phone-honesty")) $("phone-honesty").append(line); }
   else if (line.parentElement !== document.querySelector(".honesty")) document.querySelector(".honesty").prepend(line);
   // On a phone the sticky header keeps the brand, mode, clock, Desk and the disclaimer; the area,
-  // AI and data chips sit in a bar under it that scrolls away (review 1, item 13).
+  // Assistant and data chips sit in a bar under it that scrolls away (review 1, item 13).
   const area = document.querySelector(".areapick"), ai = $("ai-chip"), feeds = $("feeds-chip"), bar = $("phone-bar");
   if (phoneMq.matches) { if (area.parentElement !== bar) bar.append(area, ai, feeds); }
   else if (area.parentElement === bar) {
@@ -1129,7 +1129,7 @@ try {
 } catch { /* storage blocked: Details starts closed */ }
 placeDetails();
 renderShell();
-// "See the AI at work" links from the Desk land here (/#ai-at-work); the hash is not kept, so a
+// "See TEPHRA Assistant at work" links from the Desk land here (/#ai-at-work); the hash is not kept, so a
 // reload shows the Wall.
 if (location.hash === "#ai-at-work") {
   history.replaceState(history.state, "", location.pathname + location.search);

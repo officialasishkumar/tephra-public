@@ -309,10 +309,10 @@ function sourceStrip(adv) {
 function writerNote(adv) {
   const stub = isStub(adv);
   const words = [];
-  if (adv.edited_body != null) words.push(stub ? 'Edited by a dispatcher from a code-template text (AI off).' : 'Edited by a dispatcher from AI-drafted text.');
+  if (adv.edited_body != null) words.push(stub ? 'Edited by a dispatcher from a code-template text (code only).' : 'Edited by a dispatcher from text drafted by TEPHRA Assistant.');
   if (adv.recorded_answer) words.push(`${adv.recorded_answer}.`);
   if (sheet && sheet.view === 'review') words.push('Check the sources first.');
-  return el('p', { class: 'writer-note' }, aiMark('AI-written', stub ? null : adv.model_id), words.length ? el('span', { text: ` ${words.join(' ')}` }) : null);
+  return el('p', { class: 'writer-note' }, aiMark(undefined, stub ? null : adv.model_id), words.length ? el('span', { text: ` ${words.join(' ')}` }) : null);
 }
 
 function sourcesValue(adv) {
@@ -380,11 +380,11 @@ function rerouteValue(adv, cone) {
 
 function draftedByValue(adv) {
   const who = isStub(adv)
-    ? el('span', { class: 'v-strong' }, 'Written by a code template (AI off)')
-    : el('span', { class: 'v-strong' }, `${adv.model_id} · AI-written`);
+    ? el('span', { class: 'v-strong' }, 'Written by a code template (code only)')
+    : el('span', { class: 'v-strong' }, `Drafted by TEPHRA Assistant · ${adv.model_id}`);
   const out = [who];
   out.push(fine(isStub(adv)
-    ? 'AI off: built from the official reports only. A code template wrote the text. Code writes every time, id and hash.'
+    ? 'Code only (assistant off): built from the official reports only. A code template wrote the text. Code writes every time, id and hash.'
     : 'Model-written body. Times, ids and hashes are written by code.'));
   const notes = (adv.validation_notes || []).filter((n) => typeof n === 'string');
   if (notes.length) {
@@ -414,7 +414,7 @@ const AUDIT_WORDS = {
   REJECTED: ['i-rejected', 'Rejected'],
   SUPERSEDED: ['i-superseded', 'Replaced by a newer draft'],
   OUTBOUND_QUEUED: ['i-outbound', "Queued on TEPHRA's outbound queue · not sent to any aircraft"],
-  AI_FAILED: ['st-caution', 'AI unavailable: no substitute was made'],
+  AI_FAILED: ['st-caution', 'TEPHRA Assistant gave no result: no substitute was made'],
   AI_FAILURE_HANDLED: ['st-ok', 'Handled by hand by a dispatcher'],
 };
 
@@ -436,7 +436,7 @@ async function loadHistory(id, list) {
       if (e.action === 'REJECTED' && e.after && typeof e.after.reject_reason === 'string') detail.push(`Reason: ${e.after.reject_reason}`);
       if (e.action === 'EDITED' && e.after && typeof e.after.edited_body === 'string') detail.push(`Edited text: ${e.after.edited_body}`);
       if (typeof e.note === 'string' && e.note) detail.push(e.note);
-      if (e.action === 'DRAFT_CREATED' && e.model_id) detail.push(e.model_id === 'stub' ? 'Written by a code template (AI off)' : `${e.model_id} · AI-drafted`);
+      if (e.action === 'DRAFT_CREATED' && e.model_id) detail.push(e.model_id === 'stub' ? 'Written by a code template (code only)' : `Drafted by TEPHRA Assistant · ${e.model_id}`);
       const hashes = Array.isArray(e.input_hashes) ? e.input_hashes.length : 0;
       return el('li', { class: `timeline__item timeline__item--${String(e.action).toLowerCase()}` },
         el('span', { class: 'timeline__time', text: hhmmz(e.at) }),

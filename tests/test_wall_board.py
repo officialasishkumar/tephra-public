@@ -262,8 +262,8 @@ def test_a_closed_ai_day_reads_as_waiting_and_not_run(tmp_path: Path) -> None:
     assert (duty["state"], duty["word"]) == ("notrun", "Not run")
     # the reset time is on the real clock, so in REPLAY it says so
     assert duty["last"]["text"] == (
-        "Not run: today's free AI quota is used up (AI paused for another 6 h 30 min). No brief "
-        "was made. "
+        "Not run: today's free AI quota is used up (TEPHRA Assistant waiting for another "
+        "6 h 30 min). No brief was made. "
         "Passed 1 must-do job to the Desk."
     )
     assert duty["last"]["tone"] == "caution"
@@ -290,7 +290,7 @@ def test_a_closed_ai_day_reads_as_waiting_and_not_run(tmp_path: Path) -> None:
         assert card["model"]["closed"] == {"until": "for another 6 h 30 min", "by": "Google"}, (
             helper
         )
-        assert card["steps"][0]["source"] == "AI work queue", helper
+        assert card["steps"][0]["source"] == "Assistant work queue", helper
     recovery = _card(model, "recovery")
     # a model was called and timed out: "failed" (No result), drawn in caution
     assert recovery["last"]["tone"] == "failed"
@@ -314,7 +314,7 @@ def test_the_gate_counts_only_this_modes_work_for_a_person(tmp_path: Path) -> No
     assert [line["text"] for line in gate["others"]] == [
         "No airport plan was made: a dispatcher plans the network by hand",
         "1 safety risk assessment draft waits for sign-off",
-        "1 must-do flight passed to a dispatcher by the latest Duty Officer run, to plan by hand",
+        "1 must-do flight passed to a dispatcher by the latest Coordinator run, to plan by hand",
     ]
     into_gate = {e["from"]: e["state"] for e in model["edges"] if e["to"] == "gate"}
     assert into_gate == {"drafter": "idle", "recovery": "idle", "sra": "used"}
@@ -331,12 +331,12 @@ def test_the_offline_stub_says_ai_off_and_shows_its_hand_outs(tmp_path: Path) ->
     assert model["stub"] is True
     duty = _card(model, "duty")
     assert duty["state"] == "done"
-    assert duty["last"]["text"] == "Handed out 2 jobs in urgency order (AI off)."
+    assert duty["last"]["text"] == "Handed out 2 jobs in urgency order (code only)."
     assert duty["model"] == {"id": None, "text": "No model (offline stub): no calls", "tone": "off"}
     planner = _card(model, "planner")
     assert planner["handoff"]["count"] == 2
     assert planner["handoff"]["unit"] == "flight"
-    assert planner["last"]["text"] == "Planner (AI off) chose: keep watching"
+    assert planner["last"]["text"] == "Flight planner (code only) chose: keep watching"
     drafter = _card(model, "drafter")
     # three identical lines collapse into one step with a count
     repeated = [s for s in drafter["steps"] if s["source"] == "How TEPHRA decided"]
@@ -380,8 +380,9 @@ def test_no_run_yet_says_so(tmp_path: Path) -> None:
 
 
 def test_the_ai_status_uses_the_chips_words(tmp_path: Path) -> None:
-    """One derived state (wall/x-parts.js aiStateOf) for the AI chip, this board and the Desk: a
-    closed day is "AI paused" in caution, never a red count of failed steps."""
+    """One derived state (wall/x-parts.js aiStateOf) for the assistant chip, this board and the
+    Desk: a closed day is "TEPHRA Assistant · waiting" in caution, never a red count of failed
+    steps."""
     (tmp_path / "paused").mkdir()
     (tmp_path / "off").mkdir()
     paused = _board(tmp_path / "paused", _closed_day())["ai"]
@@ -389,23 +390,28 @@ def test_the_ai_status_uses_the_chips_words(tmp_path: Path) -> None:
     words = paused["words"]
     # in REPLAY the reset is said as the time left, which reads the same on either clock
     assert (words["label"], words["suffix"], words["tone"]) == (
-        "AI paused",
-        "6 h 30 min left",
+        "TEPHRA Assistant",
+        "waiting for another 6 h 30 min",
         "caution",
     )
-    assert paused["lead"][0]["strong"] == "AI paused for another 6 h 30 min."
+    assert paused["lead"][0]["strong"] == "TEPHRA Assistant is waiting for another 6 h 30 min."
     assert "Queued work (3 jobs) runs then" in paused["lead"][0]["text"]
     off = _board(tmp_path / "off", _stub_run())["ai"]
-    assert (off["kind"], off["words"]["label"]) == ("off", "AI off")
+    assert (off["kind"], off["words"]["label"], off["words"]["suffix"]) == (
+        "off",
+        "TEPHRA Assistant",
+        "off (code only)",
+    )
 
 
 def test_the_gate_says_how_many_flights_wait_to_be_planned_by_hand(tmp_path: Path) -> None:
-    """With the Wall's count of flights the AI made no plan for, the gate says it once, the
-    Duty Officer's must-do flights inside it, instead of only the must-do ones."""
+    """With the Wall's count of flights the assistant made no plan for, the gate says it once, the
+    Coordinator's must-do flights inside it, instead of only the must-do ones."""
     data = _closed_day()
     data["handPlan"] = {"n": 14, "must": 1}
     texts = [line["text"] for line in _board(tmp_path, data)["gate"]["others"]]
     assert (
-        texts[-1] == "14 flights to plan by hand, 1 of them must do: the AI made no plan for them"
+        texts[-1]
+        == "14 flights to plan by hand, 1 of them must do: TEPHRA Assistant made no plan for them"
     )
     assert not any("passed to a dispatcher" in text for text in texts)

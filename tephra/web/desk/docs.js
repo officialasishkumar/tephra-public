@@ -129,7 +129,7 @@ function docRow(d, why = null) {
 }
 
 function handoverBody() {
-  const out = [el('p', { class: 'fine', text: 'WEST and I-PASS. Code gathers the facts, an AI writes the situation and the if/then lines, and the receiver reads it back.' })];
+  const out = [el('p', { class: 'fine', text: 'WEST and I-PASS. Code gathers the facts, TEPHRA Assistant drafts the situation and the if/then lines, and the receiver reads it back.' })];
   const incoming = el('input', { id: 'ho-in', class: 'field', type: 'text', maxlength: '64', minlength: '2', autocomplete: 'off', placeholder: 'Name of the incoming dispatcher', 'aria-describedby': 'ho-msg' });
   incoming.value = sessionStorageGet('ho-incoming');
   incoming.addEventListener('input', () => sessionStorageSet('ho-incoming', incoming.value));
@@ -244,7 +244,7 @@ export function renderDocs() {
   // an SRA the budget holds for later, at the place it would land (docs/UI-AI-QUIET.md K98)
   const queued = app.budget && Array.isArray(app.budget.waiting) ? app.budget.waiting.find((w) => w.status === 'WAITING' && w.item && w.item.kind === 'SRA') : null;
   // the slot is on the real clock: in REPLAY it is the time left (review H4)
-  const queuedWords = queued ? `Waiting for AI: next slot ${slotWords(queued.next_slot_at) || 'not set'}` : '';
+  const queuedWords = queued ? `Waiting for TEPHRA Assistant: next slot ${slotWords(queued.next_slot_at) || 'not set'}` : '';
   // the summary line says it waits; the note says only what to do (review clutter 11)
   if (queued) sraKids.push(el('p', { class: 'note', role: 'status' }, icon('st-caution', 'st'), el('span', { text: 'Complete it by hand if it cannot wait.' })));
   if (draftError && draftError.kind === 'SRA') sraKids.push(draftErrorNode());

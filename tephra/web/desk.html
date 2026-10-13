@@ -21,10 +21,10 @@
   <header id="dhead" class="dhead">
     <div class="dhead__row">
       <p class="brand"><span class="brand__mark">TEPHRA</span> <span class="brand__sub">Desk</span></p>
-      <!-- One AI chip (docs/UI-AI-QUIET.md K78): the AI's state; the models, budget and causes are
-           in its "AI today" sheet. #model-chip is its label. -->
-      <button id="budget-chip" type="button" class="budget" data-tone="on" aria-haspopup="dialog" aria-label="AI today, connecting">
-        <span id="model-chip" class="model-chip">AI ·</span>
+      <!-- One assistant chip (docs/UI-AI-QUIET.md K78, Naming): TEPHRA Assistant's state; the models,
+           budget and causes are in its assistant sheet. #model-chip is its label. -->
+      <button id="budget-chip" type="button" class="budget" data-tone="on" aria-haspopup="dialog" aria-label="TEPHRA Assistant, connecting">
+        <span id="model-chip" class="model-chip">TEPHRA Assistant</span>
       </button>
       <span id="conn" class="conn" data-conn="idle"><span>Connecting…</span></span>
       <div class="account">
@@ -129,7 +129,7 @@
           <section id="plan-section" class="qsec qlink" hidden></section>
           <section id="msg-section" class="qsec qlink" hidden></section>
           <section id="notice-section" class="qsec qlink" hidden></section>
-          <section id="duty-section" class="qsec qsec--duty qlink" aria-label="Duty Officer brief" hidden></section>
+          <section id="duty-section" class="qsec qsec--duty qlink" aria-label="Coordinator brief" hidden></section>
         </div>
         <section id="closed" class="closed" aria-labelledby="closed-title" hidden>
           <details class="closed__box">

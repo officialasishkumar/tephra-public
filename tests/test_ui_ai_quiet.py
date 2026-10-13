@@ -77,7 +77,7 @@ def test_estimate_outcome_has_explicit_pending_and_official_only() -> None:
 def test_how_the_model_read_it_is_gated_on_the_outcome() -> None:
     body = _function(_read("wall/panels.js"), "areaSection")
     assert "MODEL_READ.has(outcome)" in body
-    assert '"How the model read it"' in body
+    assert '"How the Plume reader read it"' in body
     assert '"How TEPHRA built it"' in body
 
 
@@ -145,3 +145,67 @@ def test_recovery_data_failures_stay_red() -> None:
     assert "aiErrorsOf(store?.trace)" in _function(_read("wall/ext.js"), "aiState")
     assert "aiErrorsOf(input.trace)" in _read("wall/board.js")
     assert 'key: "recovery-data"' in _function(_read("wall/story.js"), "storyFailures")
+
+
+# The retired words of the first build (docs/UI-AI-QUIET.md, Naming): the AI is shown as one
+# assistant, "TEPHRA Assistant", whose skills are named by job.
+OLD_WORDS = (
+    "AI-written",
+    "AI-read",
+    "AI-chosen",
+    "Code (AI off)",
+    "AI helpers",
+    "AI at work",
+    "AI paused",
+    "AI waiting",
+    "AI unavailable",
+    "AI today",
+    "AI off",
+    "AI on",
+)
+COMMENT = re.compile(r"^\s*(//|/\*|\*|<!--)")
+REGEX_LITERAL = re.compile(r"/(?:\\.|[^/\n])+/[gimsuy]*")
+# the reason code writes for a run that left must-do work, as the server words it (raw)
+RAW_REASON = "`Duty Officer left ${left} mandatory item(s) undone: to the Desk`"
+
+
+def _page_sources() -> dict[str, str]:
+    files = [*WEB.glob("*.html"), *WEB.glob("*.js"), *(WEB / "wall").glob("*.js")]
+    files += list((WEB / "desk").glob("*.js"))
+    return {p.name: p.read_text(encoding="utf-8") for p in files}
+
+
+def test_one_assistant_name_and_no_old_ai_words() -> None:
+    """Naming: the old "AI …" words are gone from every page string (comments may cite them),
+    and "Duty Officer" is left only in the patterns that read the code's raw lines."""
+    xparts = _read("wall/x-parts.js")
+    assert 'export const ASSISTANT = "TEPHRA Assistant";' in xparts
+    assert 'duty: "Coordinator"' in xparts
+    for name, source in _page_sources().items():
+        code = [line for line in source.splitlines() if not COMMENT.match(line)]
+        for word in OLD_WORDS:
+            assert not any(word in line for line in code), (name, word)
+        for line in code:
+            rest = REGEX_LITERAL.sub("", line.replace(RAW_REASON, "")).split("//")[0]
+            assert "Duty Officer" not in rest, (name, line)
+
+
+def test_the_disclosure_still_says_ai() -> None:
+    """Naming: "AI" stays where disclosure needs it: the chip tooltip, the About lines and the
+    free AI quota; and the chip still says it never shrinks the official area."""
+    words = _function(_read("wall/x-parts.js"), "aiWords")
+    assert "TEPHRA Assistant is TEPHRA's AI assistant (Gemini)." in words
+    assert "never shrink the official area" in words
+    assert "today's free AI quota is used up" in words
+    about = "TEPHRA Assistant is an AI assistant. It reads feeds and drafts text."
+    assert about in _read("wall/controls.js")
+    assert about in _read("desk/budget.js")
+
+
+def test_the_strata_mark_is_in_the_sprite() -> None:
+    icons = _read("icons.svg")
+    for symbol in ("ta-64", "ta-16", "ta-working", "ta-waiting", "ta-unavailable"):
+        assert f'<symbol id="{symbol}"' in icons, symbol
+    marks = icons[icons.index('<symbol id="ta-64"') :]
+    assert "style=" not in marks
+    assert "#" not in marks.replace("</svg>", "")

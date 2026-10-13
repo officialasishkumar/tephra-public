@@ -1,9 +1,9 @@
-// The Duty Officer brief on Decide: the coordinator agent that orders the AI work and hands it to
-// the specialists (tephra/agents/duty_officer.py). One line by default (UI-REDESIGN R10.4); tap to
+// The Coordinator brief on Decide: TEPHRA Assistant's coordinating skill (the code's Duty Officer,
+// tephra/agents/duty_officer.py), which orders the assistant's work and hands it to the other skills. One line by default (UI-REDESIGN R10.4); tap to
 // open the full brief in place (priorities with "Must do" tags, watch list, delegations,
 // deferred). Work left undone is a failure and stays visible while the brief is folded. Rule 0 (no fallbacks): when the model failed the card says so, lists
 // the work left undone and shows no brief. Model-written text (summary, reasons, watch,
-// deferral reasons) sits under an AI-written chip with the model id; labels, counts and result
+// deferral reasons) sits under a "Drafted by TEPHRA Assistant" mark with the model id; labels, counts and result
 // lines are written by code and stay plain. Text goes in through textContent only.
 
 import { PATHS, api } from './api.js';
@@ -20,14 +20,14 @@ const RESULTS_SHOWN = 2;
 const OUTCOME = {
   ACCEPTED: ['i-check', 'Accepted', 'ok'],
   REPAIRED: ['st-caution', 'Repaired', 'caution'],
-  STUB: ['i-code', 'AI off · code', 'off'],
-  MODEL_FAILED: ['st-caution', 'No brief (AI unavailable)', 'caution'],
+  STUB: ['i-code', 'Code only', 'off'],
+  MODEL_FAILED: ['st-caution', 'No brief (no result)', 'caution'],
 };
 // A run the quota refused never reached a model (docs/UI-AI-QUIET.md K93, H4).
 const refused = (run) => run.outcome === 'MODEL_FAILED' && (run.validation_errors || []).some((e) => reasonClass(e) === 'budget');
 const SPECIALIST = {
-  assess_volcanoes: ['Satellite + Plume Reader', 'volcano'],
-  plan_flights: ['Planner + Drafter', 'flight'],
+  assess_volcanoes: ['Satellite reader + Plume reader', 'volcano'],
+  plan_flights: ['Flight planner + Drafter', 'flight'],
   run_recovery: ['Recovery', 'network'],
   draft_sra: ['SRA drafter', 'region'],
 };
@@ -72,7 +72,7 @@ const stateChip = (tone, shape, word, title) =>
   el('span', { class: `chip chip--d-${tone}`, title }, icon(shape, 'st'), el('span', { text: word }));
 
 // The stub's reason is code text ("NO MODEL: urgency order"), the same for every item: it is said
-// once above the list ("In urgency order (AI off)"), not under each item (review 1, item 14).
+// once above the list ("In urgency order (code only)"), not under each item (review 1, item 14).
 const STUB_WHY = /^NO MODEL: urgency order$/;
 
 function priority(run, p, stub) {
@@ -125,10 +125,10 @@ function undone(run) {
     el('ul', {}, rest.map((id) => el('li', { text: labelOf(run, id) }))));
 }
 
-// The one line Decide shows (R10.4): "Duty Officer (AI off): 3 flights need a plan first ›". A
+// The one line Decide shows (R10.4): "Coordinator (code only): 3 flights need a plan first ›". A
 // run that did not run points at Plan by hand, which holds its flights (K91).
 function oneLine(run, failed, stub) {
-  const who = stub ? 'Duty Officer (AI off)' : 'Duty Officer';
+  const who = stub ? 'Coordinator (code only)' : 'Coordinator';
   // the cause is said once, in the Plan by hand group's head; this line says where the work went
   if (failed) return [who, 'no brief this run · its must-do flights are in Plan by hand'];
   if (run.undispatched.length) return [who, `${plural(run.undispatched.length, 'must-do item')} not handed out`];
@@ -143,7 +143,7 @@ function oneLine(run, failed, stub) {
 
 function buildCard(run) {
   const [shape, word0, tone] = OUTCOME[run.outcome] || ['i-info', run.outcome, 'off'];
-  const word = refused(run) ? 'Not run (AI paused)' : word0;
+  const word = refused(run) ? 'Not run (TEPHRA Assistant waiting)' : word0;
   const dispatched = delegations(run);
   const calls = run.dispatches.length;
   const failed = run.outcome === 'MODEL_FAILED';
@@ -159,9 +159,9 @@ function buildCard(run) {
     'aria-expanded': String(expanded),
     'aria-controls': 'duty-more',
   },
-    icon(bad ? 'st-caution' : 'i-agent', bad ? 'st dcard__icon' : 'icon dcard__icon'),
+    icon(bad ? 'st-caution' : 'ta-16', bad ? 'st dcard__icon' : 'icon dcard__icon'),
     el('span', { class: 'dcard__title', id: 'duty-title' }, el('strong', { text: `${who}: ` }), el('span', { text: what }),
-      !failed && !stub ? [' ', aiMark('AI-written', run.model_id)] : null),
+      !failed && !stub ? [' ', aiMark('Ordered by Coordinator', run.model_id)] : null),
     icon(expanded ? 'i-chevron-down' : 'i-chevron-right', 'icon dcard__chev'));
 
   const card = el('article', { class: `dcard dcard--${tone}${expanded ? ' is-open' : ''}`, 'aria-labelledby': 'duty-title' }, toggle);
@@ -169,18 +169,18 @@ function buildCard(run) {
   if (left) card.append(left);
 
   const more = el('div', { id: 'duty-more', class: 'dcard__more', hidden: !expanded });
-  append(more, [el('p', { class: 'dcard__state' }, stateChip(tone, shape, word, failed ? (refused(run) ? "Today's free AI quota is used up: no model was called" : 'The model was called and gave no brief that passed the code checks') : 'Outcome of the last Duty Officer run'),
+  append(more, [el('p', { class: 'dcard__state' }, stateChip(tone, shape, word, failed ? (refused(run) ? "Today's free AI quota is used up: no model was called" : 'The model was called and gave no brief that passed the code checks') : 'Outcome of the last Coordinator run'),
     failed ? null : el('span', { class: 'dcard__count', text: plural(calls, 'delegation') }))]);
   if (failed) {
     append(more, [el('p', { class: 'dcard__note', text: 'No brief was made up in its place.' })]);
   } else if (b) {
     const summary = stub && /^NO MODEL: \d+ delegation\(s\) made in urgency order\.$/.test(b.summary)
-      ? `AI off: code handed out ${plural(calls, 'job')} in urgency order.`
+      ? `Code only (assistant off): code handed out ${plural(calls, 'job')} in urgency order.`
       : b.summary;
     append(more, [
-      stub ? null : el('div', { class: 'dcard__ai' }, aiMark('AI-written', run.model_id)),
+      stub ? null : el('div', { class: 'dcard__ai' }, aiMark(undefined, run.model_id)),
       el('p', { class: `dcard__summary${stub ? '' : ' dcard__ai'}`, text: summary }),
-      b.priorities.length ? el('h3', { class: 'dcard__h', text: stub && b.priorities.every((p) => STUB_WHY.test(p.why)) ? 'Do first · in urgency order (AI off)' : 'Do first' }) : null,
+      b.priorities.length ? el('h3', { class: 'dcard__h', text: stub && b.priorities.every((p) => STUB_WHY.test(p.why)) ? 'Do first · in urgency order (code only)' : 'Do first' }) : null,
       b.priorities.length ? el('ol', { class: 'dcard__plist', 'aria-label': 'Priorities' }, b.priorities.map((p) => priority(run, p, stub))) : null,
       b.watch.length ? el('h3', { class: 'dcard__h', text: 'Watch' }) : null,
       b.watch.length ? el('ul', { class: 'dcard__wlist dcard__ai' }, b.watch.map((w) => el('li', { text: plainLine(w) }))) : null,
@@ -201,11 +201,11 @@ function buildCard(run) {
   const mandatory = run.worklist.filter((i) => i.mandatory).length;
   // The run's machine facts (model, turns, offered, trigger) sit under Technical detail (item 14).
   // a refused run made no call, so it has no turns to count
-  const meta = `${stub ? 'AI off (NO MODEL, offline stub)' : refused(run) ? `no call made · would have used ${run.model_id}` : run.model_id}${refused(run) ? '' : ` · ${plural(run.turns, 'turn')}`} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · AI worker after ${run.trigger === 'adsb' ? 'new aircraft' : 'a tick'}, done ${hhmmz(run.finished_at)}${run.replay ? ' · recorded' : ''}${run.recorded_answer ? ` · ${run.recorded_answer}` : ''}`;
+  const meta = `${stub ? 'Code only (NO MODEL, offline stub)' : refused(run) ? `no call made · would have used ${run.model_id}` : run.model_id}${refused(run) ? '' : ` · ${plural(run.turns, 'turn')}`} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · TEPHRA Assistant after ${run.trigger === 'adsb' ? 'new aircraft' : 'a tick'}, done ${hhmmz(run.finished_at)}${run.replay ? ' · recorded' : ''}${run.recorded_answer ? ` · ${run.recorded_answer}` : ''}`;
   more.append(el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }),
     el('p', { class: 'mono tech__line dcard__meta', text: meta }),
     b && stub && b.summary ? el('p', { class: 'mono tech__line', text: machineText(b.summary) }) : null,
-    failed ? el('p', { class: 'mono tech__line', text: `Duty Officer AI unavailable: ${machineText(run.validation_errors[0] || 'no reason recorded')}` }) : null));
+    failed ? el('p', { class: 'mono tech__line', text: `Coordinator (duty officer) AI UNAVAILABLE: ${machineText(run.validation_errors[0] || 'no reason recorded')}` }) : null));
   card.append(more);
 
   toggle.addEventListener('click', () => {

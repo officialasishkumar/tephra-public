@@ -61,7 +61,7 @@ export function modeChip(adv, { long = false, bare = false } = {}) {
   }[adv.plume_mode] || String(adv.plume_mode || '');
   return el(
     'span',
-    { class: `chip chip--mode chip--${String(adv.plume_mode || '').toLowerCase()}`, title: `TEPHRA cautious area for this draft (${adv.plume_mode}${conf ? ` ${conf}` : ''}${isStub(adv) ? ', set by code with AI off' : ''})` },
+    { class: `chip chip--mode chip--${String(adv.plume_mode || '').toLowerCase()}`, title: `TEPHRA cautious area for this draft (${adv.plume_mode}${conf ? ` ${conf}` : ''}${isStub(adv) ? ', set by code with TEPHRA Assistant off' : ''})` },
     icon(shape, 'st'),
     bare ? null : el('span', { class: 'caps chip__k', text: 'Area' }),
     el('span', { text: words }),
@@ -122,7 +122,7 @@ function tagsNode(adv, now) {
 }
 
 // Who wrote the text, as a mark (the model id in its title) and the instruction (K86).
-const writerLine = (adv) => [aiMark('AI-written', isStub(adv) ? null : adv.model_id),
+const writerLine = (adv) => [aiMark(undefined, isStub(adv) ? null : adv.model_id),
   el('span', { text: ` ${adv.recorded_answer && !isStub(adv) ? `${adv.recorded_answer}. ` : ''}Check the sources first.` })];
 
 const identText = (adv) => {
@@ -325,7 +325,7 @@ export function renderQueue() {
     if (!wanted.has(li.dataset.id) && !li.classList.contains('is-leaving')) leave(li);
   }
   // At most ROWS_FIRST rows until "Show all n" (review 1, item 8), so the one-line links under
-  // the list (airport plan, Duty Officer, messages) stay near the top. The selected row is never hidden.
+  // the list (airport plan, Coordinator, messages) stay near the top. The selected row is never hidden.
   const capped = !showAllRows && rest.length > ROWS_FIRST + 1;
   rest.forEach((adv, index) => {
     let li = list.querySelector(`li[data-id="${CSS.escape(adv.id)}"]`);

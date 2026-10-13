@@ -550,7 +550,7 @@ export function openCrewForm({ hex = null } = {}) {
   });
 
   const form = el('div', { class: 'stack crewform' },
-    el('p', { class: 'note', text: 'Enter what the crew reported. Ash seen or any encounter sign draws a caution area that flags the flights crossing it. Nothing is sent, nothing is re-planned and no AI is used. TEPHRA refuses a report rather than guess a missing level, time or position.' }),
+    el('p', { class: 'note', text: 'Enter what the crew reported. Ash seen or any encounter sign draws a caution area that flags the flights crossing it. Nothing is sent, nothing is re-planned and TEPHRA Assistant is not used. TEPHRA refuses a report rather than guess a missing level, time or position.' }),
     summary,
     el('div', { class: 'fgroup' }, el('label', { class: 'flabel', for: 'crew-flight', text: 'Flight' }), flightSel, callsign, msgNode('flight')),
     el('fieldset', { class: 'fgroup crewcues' }, el('legend', { class: 'flabel', text: 'What the crew reported' }),

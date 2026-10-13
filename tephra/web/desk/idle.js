@@ -1,7 +1,7 @@
 // The right pane at 1100 px and up while no advisory and no flight list is open in it
 // (docs/UI-DESIGN.md 10.16): instead of an empty box, what the Desk is waiting for and where the
-// other work is. Built from what the Desk already holds; nothing is invented. The AI line is the
-// calm lead of the AI today sheet (wall/x-parts.js aiLead), so the words match the header chip.
+// other work is. Built from what the Desk already holds; nothing is invented. The assistant line is the
+// calm lead of the assistant sheet (wall/x-parts.js aiLead), so the words match the header chip.
 
 import { byId, el, icon } from './dom.js';
 import { app, draftList } from './state.js';
@@ -17,7 +17,7 @@ function exposedLine() {
   const n = app.exposedIds ? app.exposedIds.size : null;
   if (n === null) return null;
   if (n === 0) return 'No RFA flight is in or heading into the ash.';
-  return `${plural(n, 'RFA flight')} ${n === 1 ? 'is' : 'are'} in or heading into the ash. A draft comes here once the AI has planned ${n === 1 ? 'it' : 'each one'}.`;
+  return `${plural(n, 'RFA flight')} ${n === 1 ? 'is' : 'are'} in or heading into the ash. A draft comes here once TEPHRA Assistant has planned ${n === 1 ? 'it' : 'each one'}.`;
 }
 
 function elsewhere() {
@@ -44,7 +44,7 @@ export function renderIdle() {
   const ai = deskAi();
   const lead = aiLead(ai)[0];
   const title = loading ? 'Loading the drafts…' : drafts ? 'Choose an advisory to review' : hand ? `Plan by hand · ${plural(hand, 'flight')}` : 'Nothing waits for a decision';
-  const sub = loading ? null : drafts ? `${plural(drafts, 'advisory', 'advisories')} ${drafts === 1 ? 'waits' : 'wait'} on the left, most urgent first.` : hand ? 'The AI made no plan for them. They are listed under Decide.' : exposedLine();
+  const sub = loading ? null : drafts ? `${plural(drafts, 'advisory', 'advisories')} ${drafts === 1 ? 'waits' : 'wait'} on the left, most urgent first.` : hand ? 'TEPHRA Assistant made no plan for them. They are listed under Decide.' : exposedLine();
   const other = elsewhere();
   host.replaceChildren(
     el('div', { class: 'idle__box' },
@@ -52,9 +52,9 @@ export function renderIdle() {
       el('h2', { id: 'idle-title', class: 'idle__title', text: title }),
       sub ? el('p', { class: 'idle__lead', text: sub }) : null,
       !loading && !drafts && hand ? el('button', { type: 'button', class: 'btn btn--outline', 'data-failpane': 'open' }, el('span', { text: 'Show the flights' }), icon('i-chevron-right')) : null,
-      el('p', { class: `idle__ai idle__ai--${ai.kind}` }, icon(ai.kind === 'off' ? 'i-code' : ai.kind === 'paused' ? 'i-pause' : ai.kind === 'trouble' ? 'st-caution' : 'i-model', 'st'),
+      el('p', { class: `idle__ai idle__ai--${ai.kind}` }, icon(ai.kind === 'on' ? 'ta-working' : ai.kind === 'paused' ? 'ta-waiting' : 'ta-unavailable', 'st'),
         el('span', {}, el('strong', { text: lead.strong }), ` ${lead.text}`)),
       other.length ? el('h3', { class: 'idle__h', text: 'Also waiting for you' }) : null,
       other.length ? el('ul', { class: 'idle__list' }, other) : null,
-      el('a', { class: 'linkbtn idle__board', href: '/#ai-at-work', target: '_blank', rel: 'noopener' }, icon('i-agent'), el('span', { text: 'See the AI at work on the Wall' }), icon('i-external-link'))));
+      el('a', { class: 'linkbtn idle__board', href: '/#ai-at-work', target: '_blank', rel: 'noopener' }, icon('ta-16'), el('span', { text: 'See TEPHRA Assistant at work on the Wall' }), icon('i-external-link'))));
 }

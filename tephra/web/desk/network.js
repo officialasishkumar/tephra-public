@@ -19,19 +19,19 @@ const STATUS = {
   APPROVED: ['i-approved', 'Approved', 'ok'],
   REJECTED: ['i-rejected', 'Rejected', 'serious'],
   SUPERSEDED: ['i-superseded', 'Replaced by a newer plan', 'off'],
-  AI_UNAVAILABLE: ['st-caution', 'AI unavailable', 'caution'],
+  AI_UNAVAILABLE: ['st-caution', 'No result', 'caution'],
 };
 
-// Why a plan has no recommendation, in the §1.1 words (docs/UI-AI-QUIET.md K95): "AI unavailable:
-// timed out". The raw reason stays under Technical detail.
-const noRecWords = (p) => `AI unavailable (${WHY[reasonClass([p.unavailable_reason, ...(p.validation_errors || [])].join(' '))] || WHY.other}).`;
-// The re-plan the budget holds for later: "A new plan waits for AI: next slot 0700Z."
+// Why a plan has no recommendation, in the §1.1 words (docs/UI-AI-QUIET.md K95, Naming): "Recovery
+// planner gave no result (timed out)". The raw reason stays under Technical detail.
+const noRecWords = (p) => `Recovery planner gave no result (${WHY[reasonClass([p.unavailable_reason, ...(p.validation_errors || [])].join(' '))] || WHY.other}).`;
+// The re-plan the budget holds for later: "A new plan waits for TEPHRA Assistant: next slot 0700Z."
 function queuedReplan() {
   const w = app.budget && Array.isArray(app.budget.waiting) ? app.budget.waiting.find((x) => x.status === 'WAITING' && x.item && x.item.kind === 'RECOVER') : null;
-  return w ? `A new plan waits for AI: next slot ${slotWords(w.next_slot_at) || 'not set'}.` : '';
+  return w ? `A new plan waits for TEPHRA Assistant: next slot ${slotWords(w.next_slot_at) || 'not set'}.` : '';
 }
 
-// A plan that found no plan (R2.6): the solver's status in plain words, never "AI unavailable".
+// A plan that found no plan (R2.6): the solver's status in plain words, never the assistant's failure.
 // The raw string stays under Technical detail. Null when the failure is not a solver result.
 export function planProblem(plan) {
   if (!plan) return null;
@@ -219,7 +219,7 @@ function scenariosList(p) {
 }
 
 // The stub's rationale is code text with a raw dollar figure: said in plain words (R12.7), raw
-// under Technical detail. A model's rationale is shown as written, under its AI chip.
+// under Technical detail. A model's rationale is shown as written, under its assistant mark.
 const STUB_WHY = /^NO MODEL: the plan for the published closure cancels (\d+) flights and delays (\d+), affects (\d+) passengers and costs (\d+) USD\.$/;
 
 function whyContent(p) {
@@ -233,10 +233,10 @@ function whyContent(p) {
   }
   const m = STUB_WHY.exec(p.rationale || '');
   const text = m
-    ? `AI off: code picked the plan for the closure as published. It cancels ${Number(m[1]).toLocaleString('en-US')} flights and delays ${Number(m[2]).toLocaleString('en-US')}, affects ${Number(m[3]).toLocaleString('en-US')} passengers and costs ${fmtUsd(Number(m[4]))}.`
+    ? `Code only (assistant off): code picked the plan for the closure as published. It cancels ${Number(m[1]).toLocaleString('en-US')} flights and delays ${Number(m[2]).toLocaleString('en-US')}, affects ${Number(m[3]).toLocaleString('en-US')} passengers and costs ${fmtUsd(Number(m[4]))}.`
     : p.rationale || '';
   const card = el('div', { class: 'why' },
-    el('p', { class: 'why__meta' }, aiMark('AI-written', p.llm_backend === 'stub' ? null : p.model_id),
+    el('p', { class: 'why__meta' }, aiMark('Explained by Recovery planner', p.llm_backend === 'stub' ? null : p.model_id),
       p.outcome === 'REPAIRED' ? el('span', { class: 'chip chip--sm', text: 'repaired once' }) : null,
       el('span', { class: 'chip chip--sm', text: 'numbers checked by code' })),
     el('p', { class: 'why__text', text }));
@@ -385,7 +385,7 @@ export function renderNetwork() {
       el('p', { class: 'plan__line', text: `Plan: cancel ${t.cancelled_flights} flight${t.cancelled_flights === 1 ? '' : 's'}, delay ${t.delayed_flights}${t.swapped_flights ? `, swap ${t.swapped_flights}` : ''} · ${t.pax_affected.toLocaleString('en-US')} passengers` }),
       el('p', { class: 'plan__cost' }, el('span', { class: 'plan__costk', text: 'Estimated cost ' }), el('span', { class: 'plan__costv', text: fmtUsd(t.total_usd) })));
   } else if (p.status === 'AI_UNAVAILABLE') {
-    // no plan because the AI did not run: the job, and the queued re-plan, at the place (K95)
+    // no plan because the assistant did not run: the job, and the queued re-plan, at the place (K95)
     const solved = (p.scenarios || []).length > 0;
     card.append(el('p', { class: 'plan__line', text: [noRecWords(p), solved ? 'Compare the plans below and decide by hand.' : 'No plan was solved: plan the network by hand.', queuedReplan()].filter(Boolean).join(' ') }));
   } else {
@@ -396,7 +396,7 @@ export function renderNetwork() {
       el('span', { class: 'chip chip--fict', title: 'Ring of Fire Air and its schedule are made up' }, icon('i-info', 'st'), el('span', { text: 'Fictional airline RFA · synthetic schedule' })),
       p.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'Recorded' })) : null),
     // "explained by" only when a model explained something (K95, H7)
-    el('p', { class: 'plan__foot', text: `${solvedAny || p.status !== 'AI_UNAVAILABLE' ? 'Planned' : 'Tried'} ${hhmmz(p.created_at)}${solvedAny ? ' by code' : ''} · version ${p.version}${p.rationale && p.llm_backend !== 'stub' && p.model_id && p.model_id !== 'stub' ? ` · explained by: ${p.model_id}` : ''}` }));
+    el('p', { class: 'plan__foot', text: `${solvedAny || p.status !== 'AI_UNAVAILABLE' ? 'Planned' : 'Tried'} ${hhmmz(p.created_at)}${solvedAny ? ' by code' : ''} · version ${p.version}${p.rationale && p.llm_backend !== 'stub' && p.model_id && p.model_id !== 'stub' ? ' · explained by the Recovery planner' : ''}` }));
   const dec = decisionRow(p, Boolean(t) && !problem);
   if (dec) card.append(dec);
   parts.push(card);

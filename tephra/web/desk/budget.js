@@ -1,20 +1,21 @@
-// The Desk's one AI chip in the header (docs/UI-AI-QUIET.md K78, K79): the AI's state in words
-// ("AI paused · 0700Z"), never red, from the same aiStateOf() as the Wall's AI chip and its AI
-// at work board. It opens the "AI today" sheet: the calm lead, what went wrong by cause, the work
-// waiting for budget, the calls per model and the way to AI at work on the Wall. GET /api/budget
-// at start, then the `budget` SSE event after every model job.
+// The Desk's one assistant chip in the header (docs/UI-AI-QUIET.md K78, K79, Naming): TEPHRA
+// Assistant's state in words ("TEPHRA Assistant · waiting until 0700Z"), never red, from the same
+// aiStateOf() as the Wall's chip and its "TEPHRA Assistant at work" board. It opens the assistant
+// sheet: the calm lead, what went wrong by cause, the work waiting for its slot, the calls per
+// model and the way to the board on the Wall. GET /api/budget at start, then the `budget` SSE
+// event after every model job.
 
 import { PATHS, api } from './api.js';
 import { byId, el, icon } from './dom.js';
 import { dayMonthHhmm, hhmmz, parseTime, serverNow } from './format.js';
 import { app } from './state.js';
 import { aiState, openBSheet } from './ui.js';
-import { aiLead, aiWords, causeTitle, machineText, realWhen } from '../wall/x-parts.js';
+import { aiLead, aiWords, causeTitle, machineText, realWhen, ASSISTANT } from '../wall/x-parts.js';
 
 const LANE_WORDS = { urgent: 'flights in or near the ash', interactive: 'the Desk (questions, notices, messages, documents)', routine: 'routine work, paced through the day' };
 const BOARD_URL = '/#ai-at-work';
 
-// The Desk's AI state now: the live budget, the open AI failures, the newest Duty Officer run
+// The Desk's AI state now: the live budget, the open assistant failures, the newest Coordinator run
 // and airport plan, and the backend.
 export function deskAi() {
   const failures = [...app.failures.values()].filter((f) => !f.handled_at && !f.closed_at);
@@ -52,16 +53,16 @@ export function drawAiChip() {
   if (!chip || !label || !app.state) return;
   const ai = deskAi();
   const narrow = window.innerWidth <= 420;
-  const w = aiWords(ai, { home: 'AI today', opens: 'AI today', narrow });
+  const w = aiWords(ai, { home: 'the assistant sheet', opens: 'the assistant sheet', narrow });
   chip.dataset.tone = w.tone;
   label.textContent = w.label;
-  const kids = [icon(ai.kind === 'off' ? 'i-code' : 'i-model'), label];
+  const kids = [icon(ai.kind === 'on' ? 'ta-working' : ai.kind === 'paused' ? 'ta-waiting' : 'ta-unavailable'), label];
   if (w.suffix) kids.push(el('span', { class: 'budget__w', text: `· ${w.suffix}` }));
   chip.replaceChildren(...kids);
   const jobs = ai.waiting.length ? ` ${plural(ai.waiting.length, 'job')} wait${ai.waiting.length === 1 ? 's' : ''}.` : '';
   chip.setAttribute('aria-label', w.aria.replace(/ Opens /, `${ai.kind === 'paused' ? jobs : ''} Opens `));
   chip.title = w.title;
-  // Ask's paused note and other places that word the AI state redraw on this
+  // Ask's paused note and other places that word the assistant state redraw on this
   document.dispatchEvent(new CustomEvent('tephra:ai'));
 }
 
@@ -87,8 +88,8 @@ function modelRow(m, until) {
 function workRow(w) {
   const slot = slotWords(w.next_slot_at);
   const when = w.status === 'RUNNING' ? 'running now'
-    : w.status === 'QUEUED' ? 'queued for the AI worker'
-      : slot ? `waits for AI budget, next slot ${slot}` : 'waits for AI budget';
+    : w.status === 'QUEUED' ? 'queued for the assistant'
+      : slot ? `waits for the next slot (${slot})` : 'waits for the next slot';
   return el('li', { class: 'aiwork' }, icon(w.status === 'RUNNING' ? 'i-play' : 'i-clock', 'st'),
     el('span', {}, el('span', { class: 'aiwork__label', text: w.label }), el('span', { class: 'aiwork__when', text: when })));
 }
@@ -104,14 +105,15 @@ function lanes(b) {
     pacing.length ? el('ul', { class: 'aisheet__lanes' }, pacing) : null);
 }
 
-// The "AI today" sheet, the Desk's AI home (K80): the calm lead first, then what went wrong by
-// cause, the work waiting for budget, the calls per model (their ids, lanes and pacing) and the
-// way to AI at work on the Wall.
+// The assistant sheet, the Desk's home for TEPHRA Assistant (K80, Naming): the mark and the calm
+// lead first, then what went wrong by cause, the work waiting for its slot, the calls per model
+// (their ids, lanes and pacing), the way to the board on the Wall and the About line.
 export function openBudget() {
   const b = app.budget;
   const ai = deskAi();
   const stub = ai.kind === 'off';
   const work = b && Array.isArray(b.waiting) ? b.waiting : [];
+  const mark = el('p', { class: `aisheet__mark aisheet__mark--${ai.kind}` }, icon('ta-64', 'aisheet__logo'));
   const lead = el('div', { class: `aisheet__lead aisheet__lead--${ai.kind}`, role: 'status' },
     ...aiLead(ai).map((p, i) => el('p', { class: i === 0 ? 'aisheet__head' : null }, el('strong', { text: p.strong }), ` ${p.text}`)));
   const causes = ai.causes.length
@@ -124,7 +126,7 @@ export function openBudget() {
     : null;
   const queue = work.length
     ? el('section', { class: 'aisheet__sec', 'aria-labelledby': 'ai-work-title' },
-      el('h3', { id: 'ai-work-title', class: 'aisheet__h', text: `AI work waiting · ${work.length}` }),
+      el('h3', { id: 'ai-work-title', class: 'aisheet__h', text: `Waiting for the next slot · ${work.length}` }),
       el('ul', { class: 'aiworks' }, work.map(workRow)),
       el('p', { class: 'note', text: 'Waiting work keeps its place and runs on the same model when its slot comes. Nothing is dropped or handed to another model.' }))
     : null;
@@ -135,15 +137,16 @@ export function openBudget() {
       lanes(b))
     : null;
   const board = el('a', { class: 'btn btn--outline btn--block aisheet__board', href: BOARD_URL, target: '_blank', rel: 'noopener' },
-    icon('i-agent'), el('span', { text: 'See the AI at work on the Wall' }), icon('i-external-link'));
+    icon('ta-16'), el('span', { text: `See ${ASSISTANT} at work on the Wall` }), icon('i-external-link'));
   const foot = stub
-    ? el('p', { class: 'note', text: 'With no model, no AI calls are made or counted.' })
+    ? el('p', { class: 'note', text: 'With no model, no calls are made or counted.' })
     : b
       ? el('p', { class: 'note', text: `${b.note}${b.resets_at ? ` Counts start again ${slotWords(b.resets_at) === hhmmz(b.resets_at) ? `at ${hhmmz(b.resets_at)}` : slotWords(b.resets_at)}.` : ''} As of ${dayMonthHhmm(b.as_of)}.` })
-      : el('p', { class: 'note', text: "Today's AI calls have not loaded yet." });
+      : el('p', { class: 'note', text: "Today's assistant calls have not loaded yet." });
   openBSheet({
-    title: 'AI today',
-    body: el('div', { class: 'stack aisheet' }, lead, causes, queue, calls, board, foot,
-      el('p', { class: 'note', text: 'When a step runs out, it says AI unavailable and nothing is substituted.' })),
+    title: ASSISTANT,
+    body: el('div', { class: 'stack aisheet' }, mark, lead, causes, queue, calls, board, foot,
+      el('p', { class: 'note', text: 'When a skill cannot run, it says so and nothing is put in its place.' }),
+      el('p', { class: 'note aisheet__about', text: 'About TEPHRA Assistant: TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything.' })),
   });
 }

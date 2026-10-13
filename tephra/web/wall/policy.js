@@ -19,7 +19,7 @@ const SECTIONS = [
   ["recovery", "Airport plan", "Re-planning the day's flights around airports the ash closes."],
   ["fuel", "Fuel", "What the fuel line costs."],
   ["drafts", "Drafts", "When an open advisory draft is retired."],
-  ["duty", "Duty Officer", "When left-over AI work is offered again."],
+  ["duty", "Coordinator", "When left-over assistant work is offered again."],
 ];
 
 // A name a person reads for each setting; an unknown setting shows its own words.

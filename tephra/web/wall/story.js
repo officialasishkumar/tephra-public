@@ -6,7 +6,7 @@
 import { $, el, icon, hhmmz, ms, fl, kmBetween, reducedMotion } from "./util.js";
 import { SEV_RANK, regionOfVent } from "./derive.js";
 import { ext, replanning, aiState, handPlan } from "./ext.js";
-import { planFailure, draftBlock, machineText } from "./x-parts.js";
+import { planFailure, draftBlock, machineText, ASSISTANT } from "./x-parts.js";
 import { FEED_NAME } from "./panels.js";
 
 const CODE_WORD = { RED: "Red", ORANGE: "Orange", YELLOW: "Yellow", GREEN: "Green" };
@@ -73,8 +73,8 @@ const adsbWord = (status) => ({ ERROR: "failing", STALE: "stale", DISABLED: "off
 // ------------------------------------------------------------------ failures (R5.6)
 
 // Every problem that threatens the picture, worst first, in plain words (R5.6): the connection,
-// the page, the map, the feeds and the database. AI steps are not here: what their absence
-// changes is said at the place it applies, and their health in the AI chip (docs/UI-AI-QUIET.md
+// the page, the map, the feeds and the database. Assistant steps are not here: what their absence
+// changes is said at the place it applies, and their health in the assistant chip (docs/UI-AI-QUIET.md
 // Q3, Q4). `who` is the part that failed, set in bold; `raw` is the machine text the plain words
 // came from, kept in the item's title and, one tap in, under Technical detail in Details.
 // `where` names the Details section that holds it.
@@ -176,7 +176,7 @@ function eyebrow(D, sit, region, store) {
 
 // The story of one volcano (docs/UI-DESIGN.md 7.6, redesigned 13 Oct 2026), as one model built by
 // code from fields: a hero (the flights, the one number a dispatcher asks first), up to three fact
-// tiles (the ash's height, the airports it closes, the advisories), one notice when the AI's
+// tiles (the ash's height, the airports it closes, the advisories), one notice when the assistant's
 // absence or a missing airport plan changes the dispatcher's work, and the lines about sources
 // that disagree and crew reports. Every fact a sentence used to carry is in a tile's words, its
 // title or one tap in, in Details. `text` fields are the words for the change key and the
@@ -246,15 +246,15 @@ function storyModel(D, store, sit) {
 
   // one notice: what the dispatcher must now do by hand, and why, said once (UI-AI-QUIET Q3)
   const block = hand.block || draftBlock(ai);
-  const draftsGap = n > 0 && !a.drafts && !a.decided && !a.unknown && block && ((handHere && !block.undone) || block.word === "AI waiting");
+  const draftsGap = n > 0 && !a.drafts && !a.decided && !a.unknown && block && ((handHere && !block.undone) || block.queued);
   const undone = hand.block?.undone && handHere;
   if (draftsGap || undone || pf) {
     const nf = plural(handHere, "flight", "flights");
     const parts = [];
-    const noDrafts = draftsGap && block.word !== "AI waiting";
-    if (undone) parts.push(`The Duty Officer left ${handHere} must-do ${handHere === 1 ? "flight" : "flights"} for the Desk.`);
+    const noDrafts = draftsGap && !block.queued;
+    if (undone) parts.push(`The Coordinator left ${handHere} must-do ${handHere === 1 ? "flight" : "flights"} for the Desk.`);
     else if (draftsGap && !noDrafts) parts.push("Advisories are not drafted yet.");
-    // the missing pieces in one sentence when the same AI stop explains both
+    // the missing pieces in one sentence when the same assistant stop explains both
     if (noDrafts && pf?.ai) parts.push("No advisory drafts and no airport plan.");
     else {
       if (noDrafts) parts.push("No advisory drafts.");
@@ -263,12 +263,12 @@ function storyModel(D, store, sit) {
     const todo = [noDrafts || undone ? (handHere === 1 ? "the flight" : `the ${nf}`) : null, pf ? "the network" : null].filter(Boolean);
     if (todo.length) parts.push(`Plan ${todo.join(" and ")} by hand on the Desk.`);
     const aiCause = draftsGap || undone || pf?.ai;
-    const title = draftsGap && block.word === "AI paused" ? `AI paused${block.until ? ` ${block.until}` : ""}`
-      : draftsGap && block.word === "AI unavailable" ? `AI unavailable (${block.why})`
-        : draftsGap && block.word === "AI waiting" ? `Waiting for AI${block.slot ? `, next slot ${block.slot}` : ""}`
+    const title = draftsGap && block.paused ? `${ASSISTANT} is waiting${block.until ? ` ${block.until}` : ""}`
+      : draftsGap && block.unavailable ? `${block.word} (${block.why})`
+        : draftsGap && block.queued ? `Waiting for the next slot${block.slot ? ` (${block.slot})` : ""}`
           : undone ? "Must-do flights left for the Desk"
-            : pf?.ai ? `AI unavailable (${pf.why})` : "No airport plan";
-    m.notice = { title, body: parts.join(" "), why: aiCause ? { act: "ai", text: "Why ›", label: "Why: open AI helpers" } : { act: "recovery", text: "Airport closures ›", label: "Open Airport closures" },
+            : pf?.ai ? `Recovery planner gave no result (${pf.why})` : "No airport plan";
+    m.notice = { title, body: parts.join(" "), why: aiCause ? { act: "ai", text: "Why ›", label: `Why: open ${ASSISTANT}` } : { act: "recovery", text: "Airport closures ›", label: "Open Airport closures" },
       raw: pf ? pf.raw : null, text: `${title}. ${parts.join(" ")}` };
   }
 
@@ -279,9 +279,9 @@ function storyModel(D, store, sit) {
     if (cone?.mode === "WIDENED") tail = "TEPHRA's estimate covers both.";
     else if (cone?.mode === "OFFICIAL") {
       const outcome = sit.assessment?.outcome;
-      tail = stub || outcome === "STUB" ? "TEPHRA's estimate has not been widened (AI off)."
-        : outcome === "PENDING" ? "TEPHRA's estimate has not been widened yet (AI waiting)."
-          : outcome === "MODEL_FAILED" ? "TEPHRA's estimate has not been widened (AI unavailable)." : "TEPHRA's estimate has not been widened.";
+      tail = stub || outcome === "STUB" ? "TEPHRA's estimate has not been widened (code only)."
+        : outcome === "PENDING" ? "TEPHRA's estimate has not been widened yet (Plume reader waiting)."
+          : outcome === "MODEL_FAILED" ? "TEPHRA's estimate has not been widened (Plume reader gave no result)." : "TEPHRA's estimate has not been widened.";
     }
     m.lines.push({ text: `The sources disagree on where the ash is heading, ${Math.round(dir.magnitude)}° apart.`, sub: tail, mark: "disagree", act: "disagree" });
   }
@@ -315,9 +315,9 @@ let lastAnnounce = { at: 0, key: "" };
 // carries the full sentence for a pointer.
 const openBtn = (act, cls, title, ...kids) => el("button", { type: "button", class: cls, title, dataset: { act: "details-open", sec: act, focus: `story-${cls.split(" ")[0]}-${act}` } }, ...kids);
 
-// The trust note (R5.7, docs/UI-AI-QUIET.md W17): one sentence that holds in every AI state, one
+// The trust note (R5.7, docs/UI-AI-QUIET.md W17): one sentence that holds in every assistant state, one
 // tap from "TEPHRA's ash area" in the hero; the map key's TEPHRA row says it on screen.
-const TRUST = "TEPHRA's estimate is never smaller than the official area, which stays binding. AI can widen it, never shrink it.";
+const TRUST = "TEPHRA's estimate is never smaller than the official area, which stays binding. TEPHRA Assistant can widen it, never shrink it.";
 const trustNode = (open) => el("p", { id: "trust", class: "trust", hidden: !open }, icon("i-info", "icon trust__icon"),
   el("span", { class: "trust__body" }, el("span", { class: "trust__text", text: TRUST }),
     el("button", { type: "button", class: "link-btn trust__more", dataset: { act: "details-open", sec: "estimate", focus: "trust-more" }, text: "How TEPHRA built it ›" })));
@@ -426,7 +426,7 @@ function renderActions(D, store, ui, sit) {
     const a = advisoryFacts(D, store, sit.volcano_id);
     waiting = a.drafts;
     if (a.urgent) { ctaHref = `/desk#review/${encodeURIComponent(a.urgent.id)}`; ctaText = "Decide on the Desk →"; primary = true; }
-    // no drafts because the AI did not run: the Desk holds the hand-plan work (W18)
+    // no drafts because the assistant did not run: the Desk holds the hand-plan work (W18)
     else if (handPlan(D, store).flights.some((x) => x.p.volcano_id === sit.volcano_id)) { ctaText = "Decide on the Desk →"; primary = true; }
   } else if (D && D.regionEmpty) {
     const others = (D.state.regions || []).filter((r) => D.regionCounts[r.key] > 0);
@@ -437,8 +437,8 @@ function renderActions(D, store, ui, sit) {
   }
   if (D) {
     kids.push(el("a", { id: "cta", class: primary ? "cta" : "btn cta--quiet", href: ctaHref, target: "_blank", rel: "noopener", dataset: { focus: "cta" } }, ctaText));
-    // the way into AI at work (UI-DESIGN 7.21) in words, beside the one main action
-    kids.push(el("button", { type: "button", class: "link-btn story__board", dataset: { act: "board-open", focus: "story-board" }, "aria-keyshortcuts": "A" }, icon("i-agent"), el("span", { text: "See the AI at work" })));
+    // the way into TEPHRA Assistant at work (UI-DESIGN 7.21) in words, beside the one main action
+    kids.push(el("button", { type: "button", class: "link-btn story__board", dataset: { act: "board-open", focus: "story-board" }, "aria-keyshortcuts": "A" }, icon("ta-16"), el("span", { text: `See ${ASSISTANT} at work` })));
   }
   const key = kids.map((k) => `${k.textContent}|${k.getAttribute?.("href") || ""}`).join("§");
   if (box.dataset.key !== key) { box.dataset.key = key; box.replaceChildren(...kids); }
@@ -473,7 +473,7 @@ export function keyRows(D, ui) {
   if ((ui.layers.reroutes && D.hasReroutes) || pickedReroute) rows.push([sw("lg-reroute", "sw--reroute"), "Suggested reroute", null]);
   if (D.rose && ui.layers.rose) rows.push([sw("lg-arrow-observer", "sw--observer"), "Observatory's reported drift", null]);
   if (D.cones.some((f) => f.properties.part === "sector")) rows.push([sw("lg-area-hatch", "sw--tephra"), "Where TEPHRA widened the area", null]);
-  if (ui.layers.satboxes && D.hasSatBoxes) rows.push([sw("lg-satbox", "sw--sat"), "Box marked on the satellite picture", "AI-read · supporting only"]);
+  if (ui.layers.satboxes && D.hasSatBoxes) rows.push([sw("lg-satbox", "sw--sat"), "Box marked on the satellite picture", "Read by Satellite reader · supporting only"]);
   return rows;
 }
 

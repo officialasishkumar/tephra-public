@@ -1,27 +1,28 @@
-// Small shared pieces: the AI mark, the AI state, the "AI unavailable" card, the bottom sheet.
-// AI health has one home on the Desk, the header AI chip and its "AI today" sheet; elsewhere a
-// step that did not run says what to do, in caution tone, and never shows a substitute
-// (docs/UI-AI-QUIET.md, docs/EXTENSIONS.md rule 0).
+// Small shared pieces: the assistant mark, the AI state, the "gave no result" card, the bottom
+// sheet. TEPHRA Assistant's health has one home on the Desk, the header chip and its assistant
+// sheet; elsewhere a step that did not run says what to do, in caution tone, and never shows a
+// substitute (docs/UI-AI-QUIET.md and its Naming amendment, docs/EXTENSIONS.md rule 0).
 
 import { byId, el, icon } from './dom.js';
 import { serverNow } from './format.js';
-import { aiStateOf, machineText } from '../wall/x-parts.js';
+import { aiStateOf, machineText, MARK } from '../wall/x-parts.js';
 
-// The one mark set (UI-AI-QUIET Q5): the visible verb only ("AI-written", "AI-read",
-// "AI-chosen"), the model id in the title and the label; "Code (AI off)" when no model wrote it.
-// Only for content a model produced and the code's checks passed.
-export function aiMark(verb, modelId, { backend = null } = {}) {
+// The one mark set (UI-AI-QUIET Q5, Naming): the Strata mark and the visible words only
+// ("Drafted by TEPHRA Assistant", "Read by Notice reader", "Answered by TEPHRA Assistant"), the
+// model id in the title and the label; "Code only (assistant off)" when no model wrote it. Only
+// for content a model produced and the code's checks passed.
+export function aiMark(verb = MARK.written, modelId = null, { backend = null } = {}) {
   const stub = backend === 'stub' || !modelId || modelId === 'stub' || modelId === 'none';
   if (stub) {
-    return el('span', { class: 'ai-mark ai-mark--none', title: 'NO MODEL: code templates wrote this text, not a model', 'aria-label': 'Code (AI off)' },
-      icon('i-code', 'st'), el('span', { 'aria-hidden': 'true', text: 'Code (AI off)' }));
+    return el('span', { class: 'ai-mark ai-mark--none', title: 'NO MODEL: code templates wrote this text, not a model', 'aria-label': MARK.none },
+      icon('i-code', 'st'), el('span', { 'aria-hidden': 'true', text: MARK.none }));
   }
-  return el('span', { class: 'ai-mark', title: `${verb} by ${modelId}. Checked by code before it is shown.`, 'aria-label': `${verb} by ${modelId}` },
-    icon('i-model', 'st'), el('span', { 'aria-hidden': 'true', text: verb }));
+  return el('span', { class: 'ai-mark', title: `${verb} (${modelId}). Checked by code before it is shown.`, 'aria-label': `${verb} (${modelId})` },
+    icon('ta-16', 'st'), el('span', { 'aria-hidden': 'true', text: verb }));
 }
 
-// The Desk's one AI state (UI-AI-QUIET 1.2), with the Wall's rules: the live budget, the open AI
-// failures (one cause however many flights), the newest Duty Officer run and airport plan.
+// The Desk's one AI state (UI-AI-QUIET 1.2), with the Wall's rules: the live budget, the open
+// assistant failures (one cause however many flights), the newest Coordinator run and airport plan.
 export function aiState({ budget = null, failures = [], llm = null, duty = null, plan = null, replay = false } = {}) {
   const errors = failures.map((f) => ({ stage: f.stage, reason: f.reason, at: Date.parse(f.created_at || ''), raw: `${f.reason}${f.model_id ? ` · would have used ${f.model_id}` : ''}` }));
   const stub = (llm && llm.backend === 'stub') || (budget && budget.backend === 'stub');
@@ -32,10 +33,10 @@ export const codeChip = (text = 'Code-written') =>
   el('span', { class: 'chip chip--code chip--sm', title: 'Computed by TEPHRA code from the feeds: no model wrote this' },
     icon('i-code', 'st'), el('span', { text }));
 
-// The no-fallback card: what did not run and what the dispatcher does instead. An AI step is a
+// The no-fallback card: what did not run and what the dispatcher does instead. An assistant step is a
 // caution (role=status) with its raw reason under Technical detail; a connection or session
 // failure (`serious`) keeps the red, role=alert and its reason in the title (UI-AI-QUIET Q4).
-export function unavailableCard(reason, { instead = 'AI unavailable: nothing was put in its place. Do this step by hand.', onRetry = null, retryLabel = 'Try again', retryDisabled = false, title = 'AI unavailable', serious = false } = {}) {
+export function unavailableCard(reason, { instead = 'Nothing was put in its place. Do this step by hand.', onRetry = null, retryLabel = 'Try again', retryDisabled = false, title = 'No result from TEPHRA Assistant', serious = false } = {}) {
   const card = serious
     ? el('div', { class: 'panel panel--serious unavail', role: 'alert' },
       el('p', { class: 'panel__title' }, icon('st-serious', 'st'), el('span', { text: `${title}: ${machineText(reason)}` })),

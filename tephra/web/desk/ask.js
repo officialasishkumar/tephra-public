@@ -31,7 +31,7 @@ const TOOL_WORDS = {
   plan: "the flight's plan",
   feeds: 'data feeds',
   ai_failures: 'Hand-plan list',
-  duty_brief: 'Duty Officer brief',
+  duty_brief: 'Coordinator brief',
 };
 const toolWords = (tool) => TOOL_WORDS[tool] || String(tool);
 
@@ -40,7 +40,7 @@ const toolWords = (tool) => TOOL_WORDS[tool] || String(tool);
 const STUB_PREFIX = 'NO MODEL: this is the offline stub, which does not read the question.';
 function stubWords(text, a) {
   if (a.llm_backend !== 'stub' || typeof text !== 'string') return text;
-  return text.replace(STUB_PREFIX, 'AI off: this answer is a code count, not a reading of your question.').replace(/\ba hazard cone\b/g, "TEPHRA's area");
+  return text.replace(STUB_PREFIX, 'Code only (assistant off): this answer is a code count, not a reading of your question.').replace(/\ba hazard cone\b/g, "TEPHRA's area");
 }
 
 const canRecord = () => Boolean(navigator.mediaDevices) && typeof MediaRecorder !== 'undefined';
@@ -109,7 +109,7 @@ function drawPaused() {
   if (!note) return;
   const ai = deskAi();
   note.hidden = ai.kind !== 'paused';
-  note.textContent = ai.kind === 'paused' ? `Ask is paused${ai.until ? ` ${ai.until}` : ''} (today's free AI quota). The Wall shows every flight and count.` : '';
+  note.textContent = ai.kind === 'paused' ? `TEPHRA Assistant is waiting${ai.until ? ` ${ai.until}` : ''} (today's free AI quota is used up), so Ask cannot answer yet. The Wall shows every flight and count.` : '';
 }
 
 function autosize(input) {
@@ -245,8 +245,8 @@ function finish(wait, res, question) {
     const quota = reasonClass(unavailableReason(res)) === 'budget';
     const until = quota && ai.until ? ` ${ai.until}` : '';
     card = unavailableCard(unavailableReason(res), quota
-      ? { title: `No answer: AI paused${until}`, instead: 'Nothing was made up.', onRetry: retry, retryLabel: ai.after ? `Try again ${ai.after}` : 'Try again', retryDisabled: Boolean(ai.after) }
-      : { title: 'No answer: AI unavailable', instead: 'Nothing was made up. Ask again, or read the Wall.', onRetry: retry });
+      ? { title: `No answer: TEPHRA Assistant waiting${until}`, instead: 'Nothing was made up.', onRetry: retry, retryLabel: ai.after ? `Try again ${ai.after}` : 'Try again', retryDisabled: Boolean(ai.after) }
+      : { title: 'No answer: Ask gave no result', instead: 'Nothing was made up. Ask again, or read the Wall.', onRetry: retry });
   } else if (res.status === 401) card = unavailableCard('Your session has ended. Sign in again.', { title: 'Not asked', instead: '', serious: true });
   else if (res.status === 0) card = unavailableCard("Can't reach the server.", { title: 'Not asked', instead: 'Check your connection and ask again.', onRetry: retry, serious: true });
   else card = unavailableCard((res.data && res.data.detail) || `HTTP ${res.status}`, { title: 'Not answered', instead: '', serious: true });
@@ -324,7 +324,7 @@ export function answerCard(a) {
   card.append(el('div', { class: 'acard__foot' },
     el('button', { type: 'button', class: 'spk', 'data-speak': a.id, 'aria-label': 'Play the answer aloud' }, icon('i-volume'), el('span', { text: 'Listen' })),
     el('span', { class: 'acard__meta' },
-      aiMark('AI-written', a.llm_backend === 'stub' ? null : a.model_id),
+      aiMark('Answered by TEPHRA Assistant', a.llm_backend === 'stub' ? null : a.model_id),
       el('span', { class: 'chip chip--sm', title: 'Language of the question and the answer', text: LANG_NAME[a.language] || a.language }),
       a.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null),
     el('span', { class: 'spk__msg fine', role: 'status' })));

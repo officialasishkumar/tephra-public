@@ -31,7 +31,7 @@ export const SECTIONS = [
   { key: "history", group: "Time and height", title: "Timeline history", host: "history" },
   { key: "levels", group: "Time and height", title: "Height filter", host: "levels" },
   { key: "trace", group: "Behind the scenes", title: "How TEPHRA decided", host: "trace" },
-  { key: "ai", group: "Behind the scenes", title: "AI helpers", host: "xpanel", xtab: "ai" },
+  { key: "ai", group: "Behind the scenes", title: "TEPHRA Assistant", host: "xpanel", xtab: "ai" },
   { key: "proof", group: "Behind the scenes", title: "Track record", host: "xpanel", xtab: "proof" },
   { key: "feeds", group: "Behind the scenes", title: "Data feeds", host: "feeds" },
   { key: "layers", group: "Behind the scenes", title: "Map layers, 3D and compare", host: "layers-pop" },
@@ -142,13 +142,13 @@ export function indexStatus(key, D, store, ui) {
     case "trace":
       return { text: plural(traceLines(store, D, { traceScope: "all" }).length, "step", "steps") };
     case "ai": {
-      // the one state, never red, and never in "Needs a look": the AI's state is not a
+      // the one state, never red, and never in "Needs a look": the assistant's state is not a
       // dispatcher's action; the hand work it leaves is (Decisions, Airport closures) (D39, D40)
       if (!D) return { text: "–" };
       const ai = aiState(D, store);
       const n = ai.trouble.length;
       if (ai.kind === "off") return { text: "Off · code only" };
-      if (ai.kind === "paused") return { text: ai.until ? `Paused ${ai.until}` : "Paused", tone: "caution", noAttn: true };
+      if (ai.kind === "paused") return { text: ai.until ? `Waiting ${ai.until}` : "Waiting", tone: "caution", noAttn: true };
       if (ai.kind === "trouble") return { text: `On · ${n} problem${n === 1 ? "" : "s"}`, tone: "caution", noAttn: true };
       return { text: "On" };
     }
@@ -324,7 +324,7 @@ function flightDetail(D, ui, store) {
       techDetail(`action ${actionWords(adv)} · status ${adv.status}${adv.version != null ? ` · version ${adv.version}` : ""}`),
       el("div", { class: "dk-actions" }, el("a", { class: "btn btn--small", href: `/desk#review/${encodeURIComponent(adv.id)}`, target: "_blank", rel: "noopener", text: adv.status === "DRAFT" ? "Open on the Desk ›" : "See it on the Desk ›" }))));
   } else if (p.exposed) {
-    // no advisory because the AI did not run: the job, here, once (D54)
+    // no advisory because the assistant did not run: the job, here, once (D54)
     const hand = handPlan(D, store);
     const mine = hand.flights.find((x) => x.key === `${p.hex}:${p.volcano_id}`);
     if (mine) {
@@ -520,7 +520,9 @@ export function renderDetails(D, store, ui, conn, extras = {}) {
   $("details-back").hidden = !sec;
   const title = $("details-title");
   const t = sec ? sec.title : "Details";
-  if (title.textContent !== t) title.textContent = t;
+  // TEPHRA Assistant's section carries its mark (Strata, ta-16) beside the name (Naming)
+  const tk = `${sec?.key || ""}|${t}`;
+  if (title.dataset.k !== tk) { title.dataset.k = tk; title.replaceChildren(...(sec?.key === "ai" ? [icon("ta-16", "icon drawer__mark"), t] : [t])); }
   renderSwitcher(D, ui);
   renderStrip(D, store);
   $("xtabs").hidden = !!sec;

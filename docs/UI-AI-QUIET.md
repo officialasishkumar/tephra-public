@@ -585,3 +585,55 @@ the source lines (docs/UI-DESIGN.md 7.6). Against this document:
    the sentence "AI paused for another 2 h 45 min", "next slot in 2 h 45 min", "Try again in 2 h
    45 min" (`realWhen` in `wall/x-parts.js`, used on both pages and on AI at work). Live, the
    clock time stays ("until 0700Z").
+
+### 8.4 Naming: one assistant, "TEPHRA Assistant" (2026-10-13)
+
+The user chose one name for the AI on both pages: **TEPHRA Assistant** (research:
+`builder-cup-ideas/notes/tephra-assistant-naming-research-2026-10-13.md` section 3, idea 4; Desk
+spec sections 6.6 and 9.1-9.5). Its specialists are **skills named by their job**: Coordinator
+(the coordinating agent the code calls the Duty Officer), Plume reader, Satellite reader, Flight
+planner, Drafter, Recovery planner, Paperwork drafter, Notice reader, Message drafter, Handover
+drafter and Ask. Only the words on screen change: ids, file names, API fields, CSS classes, Python
+names, trace text and raw reasons keep "Duty Officer" and "AI UNAVAILABLE" (rule 9), and those
+stay readable one tap in, under Technical detail and in the audit. One constant holds the name
+(`ASSISTANT` in `wall/x-parts.js`); `HELPER_NAME` and the board's `HELPERS` hold the skill names.
+
+This amends section 1.1, 5.2 and 5.5 (the words, the chip and the marks); the rules Q1-Q6 and the
+honesty list of section 2 are unchanged.
+
+| Before (sections 1.1, 5) | Now |
+|---|---|
+| Chip `AI on` / `AI paused · 0700Z` / `AI on · 1 problem` / `AI off` | `TEPHRA Assistant · on` / `TEPHRA Assistant · waiting until 0700Z` (REPLAY: `waiting for another 2 h 45 min`, 8.3) / `TEPHRA Assistant · Recovery planner not running`, `· not running` (the Coordinator), `· 2 skills not running` / `TEPHRA Assistant · off (code only)`. At 420 px and less: `Assistant · on`, `Assistant · waiting`, `Assistant · 1 problem`, `Assistant · off` (the label and tooltip keep the full name). |
+| `AI paused` / `AI paused · 0700Z` (markers) | `Assistant waiting` / "TEPHRA Assistant is waiting until 0700Z (today's free AI quota is used up)" |
+| `AI waiting` (a job queued) | "Waiting for the next slot (0700Z)", "A new plan waits for TEPHRA Assistant: next slot 0700Z" |
+| `AI unavailable ({why})` | "{Skill} gave no result ({why}): nothing was put in its place." "{Skill} did not run" stays reserved for a step no model was called for (8.1 item 5); a run that answered and left work says so ("left must-do jobs for the Desk"). |
+| `AI-written` / `AI-read` / `AI-chosen` | "Drafted by TEPHRA Assistant" / "Read by Plume reader" (Satellite reader, Notice reader) / "Chosen by TEPHRA Assistant"; also "Ordered by Coordinator", "Explained by Recovery planner", "Answered by TEPHRA Assistant". Still only on content a model produced (Q5); the model id stays in the title and label. |
+| `Code (AI off)` | "Code only (assistant off)"; "(AI off)" in sentences reads "(code only)". |
+| "AI helpers" (Details), "AI today" (Desk sheet), "AI at work" (board) | "TEPHRA Assistant" (its group "Skills"), "TEPHRA Assistant" (the sheet), "TEPHRA Assistant at work" |
+| Duty Officer (on screen) | Coordinator. A trace line no plain-words pattern knows gets only the name changed (`plainLine`); the raw line keeps it. |
+
+**Where "AI" is still written** (disclosure only): the chip's tooltip ("TEPHRA Assistant is
+TEPHRA's AI assistant (Gemini). It can widen TEPHRA's estimate, never shrink the official area.");
+the first-use and About lines ("TEPHRA Assistant is an AI assistant. It reads feeds and drafts
+text. Code does every number and safety rule. You approve everything." in the Wall's Help, the
+board's "How to read this board", the Desk's assistant sheet, and Details › TEPHRA Assistant ›
+How this works); the quota phrase "today's free AI quota"; the glossary; Technical detail, the
+audit and the raw rule-9 strings; the privacy page. Model ids stay only in tooltips, the
+assistant's home (Details › TEPHRA Assistant, the Desk's sheet, the board's cards), Technical
+detail and the record (Why this advisory › Drafted by, the audit).
+
+**The mark.** The Strata mark (a vent dot with flight-level bands stepping downwind; chosen
+direction C) is five symbols in `tephra/web/icons.svg`, `currentColor` only: `ta-64` (the board
+title, the Desk sheet), `ta-16` (attribution marks, the "See TEPHRA Assistant at work" links, the
+Details section title, the Coordinator's card), and `ta-working` / `ta-waiting` (hollow bands, the
+outline 1.5 px instead of 1.25 px so it holds at 14-16 px) / `ta-unavailable` (a slash cuts the
+top band) for the chip by state (on / waiting / trouble or off), on both pages and on the board's
+state pill. No animation: the Wall loads icons from the external sprite. The mark's shape now
+carries the state, so the chip's caution dot is gone: a waiting or troubled chip keeps a caution
+border and is never red; the phone bar keeps the mark.
+
+**Honesty kept.** Every string in `tests/test_ui_inventory.py` `HONESTY`, "never shrink the
+official area" in the chip tooltip and the assistant home, "never smaller" in the map key and the
+trust line, the REPLAY labels and the decision-support line are unchanged. `tests/test_ui_ai_quiet.py`
+pins the name, the disclosure lines, the five symbols, and that none of the old words is left in a
+page string.

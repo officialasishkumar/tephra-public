@@ -17,15 +17,15 @@ export const roleName = (r) => ROLE[r] || String(r);
 const blank = (note) => el('span', { class: 'blank' }, el('span', { class: 'blank__box', 'aria-hidden': 'true' }),
   note === '' ? null : el('span', { class: 'blank__note', text: note || 'TO COMPLETE' }), el('span', { class: 'sr-only', text: ' (blank)' }));
 
-// "AI-written" per box (docs/UI-AI-QUIET.md K99): the model id in the mark's title and once in
+// "Drafted by TEPHRA Assistant" per box (docs/UI-AI-QUIET.md K99, Naming): the model id in the mark's title and once in
 // the document header's Technical detail; "NO MODEL" when code templates wrote it.
 function modelMark(modelId, backend) {
   const stub = backend === 'stub' || modelId === 'stub' || !modelId;
-  return el('span', { class: `dmark ${stub ? 'dmark--stub' : 'dmark--ai'}`, title: stub ? 'NO MODEL: written by code templates, not a model' : `Written by ${modelId}, checked by code`, 'aria-label': stub ? 'NO MODEL' : `AI-written by ${modelId}` },
-    icon(stub ? 'i-code' : 'i-model', 'st'), el('span', { 'aria-hidden': 'true', text: stub ? 'NO MODEL' : 'AI-written' }));
+  return el('span', { class: `dmark ${stub ? 'dmark--stub' : 'dmark--ai'}`, title: stub ? 'NO MODEL: written by code templates, not a model' : `Drafted by TEPHRA Assistant (${modelId}), checked by code`, 'aria-label': stub ? 'NO MODEL' : `Drafted by TEPHRA Assistant (${modelId})` },
+    icon(stub ? 'i-code' : 'ta-16', 'st'), el('span', { 'aria-hidden': 'true', text: stub ? 'NO MODEL' : 'Drafted by TEPHRA Assistant' }));
 }
 const modelTech = (modelId, backend) => (backend === 'stub' || modelId === 'stub' || !modelId ? null
-  : el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: `AI-written parts by ${modelId}` })));
+  : el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: `Parts drafted by TEPHRA Assistant: ${modelId}` })));
 
 function fieldRow(f, doc) {
   const value = f.value && String(f.value).trim()

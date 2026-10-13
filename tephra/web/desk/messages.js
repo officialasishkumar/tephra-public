@@ -53,7 +53,7 @@ function card(m) {
         el('span', { class: 'mcard__langs', text: langs })),
       m.route ? el('span', { class: 'mcard__meta', text: `${m.route}${m.tail ? ` · ${m.tail}` : ''}` }) : null,
       el('span', { class: 'mcard__body', 'aria-hidden': 'true', lang: LANG_ATTR[first.language] || null, text: m.final_bodies[first.language] || first.body }),
-      el('span', { class: 'tags' }, aiMark('AI-written', m.llm_backend === 'stub' ? null : m.model_id),
+      el('span', { class: 'tags' }, aiMark(undefined, m.llm_backend === 'stub' ? null : m.model_id),
         m.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null,
         el('span', { class: 'chip chip--sm' }, icon('i-clock', 'st'), el('span', { text: `drafted ${hhmmz(m.created_at)}` })))));
 }
@@ -157,10 +157,10 @@ export function openMessage(id) {
   function draw() {
     const head = [
       el('p', { class: 'mmeta' },
-        aiMark('AI-written', current.llm_backend === 'stub' ? null : current.model_id),
+        aiMark(undefined, current.llm_backend === 'stub' ? null : current.model_id),
         current.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null,
         el('span', { class: 'chip chip--sm', text: `v${current.version}` })),
-      el('p', { class: 'note mnote', text: `${current.route ? `${current.route}. ` : ''}Written from the ${current.source_kind === 'advisory' ? 'approved advisory' : 'approved airport plan'}. The model wrote the words. Code filled in every time, number and flight.` }),
+      el('p', { class: 'note mnote', text: `${current.route ? `${current.route}. ` : ''}Written from the ${current.source_kind === 'advisory' ? 'approved advisory' : 'approved airport plan'}. ${current.llm_backend === 'stub' ? 'A code template wrote the words' : 'TEPHRA Assistant drafted the words'}. Code filled in every time, number and flight.` }),
     ];
     if (notice) head.push(el('div', { class: 'banner banner--caution', role: 'alert' }, icon('st-caution', 'st'), el('p', { text: notice })));
     const parts = [...head, tabs()];

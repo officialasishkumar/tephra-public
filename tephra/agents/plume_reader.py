@@ -65,9 +65,7 @@ PROMPT_PATH: Final[Path] = Path(__file__).resolve().parent / "prompts" / "plume_
 
 AI_UNAVAILABLE: Final = "AI UNAVAILABLE"
 OFFICIAL_ONLY_NOTE: Final = "No model call was needed; official products only."
-PENDING_NOTE: Final = (
-    "Plume read queued for the Duty Officer; official products only until it runs."
-)
+PENDING_NOTE: Final = "Plume read queued for the Coordinator; official products only until it runs."
 
 STUB_VONA_WINDOW_H: Final = 6.0
 STUB_HALF_WIDTH_DEG: Final = 30.0

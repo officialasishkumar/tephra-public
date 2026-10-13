@@ -411,8 +411,8 @@ export function untilText(deltaMs) {
 
 // TEPHRA's label for the selected volcano (R6.3): what the estimate is, in plain words. "Same as
 // official" says why when no model checked it, from the volcano's own assessment outcome: a read
-// still waiting, an AI that was unavailable, or AI off (docs/UI-AI-QUIET.md M24).
-const AI_TAG = { PENDING: " · AI waiting", MODEL_FAILED: " · AI unavailable", STUB: " · AI off" };
+// still waiting, a Plume reader that gave no result, or the assistant off (docs/UI-AI-QUIET.md M24).
+const AI_TAG = { PENDING: " · Plume reader waiting", MODEL_FAILED: " · Plume reader gave no result", STUB: " · code only" };
 export function tephraLabelText(cone, outcome, stub = false) {
   if (!cone) return null;
   if (cone.mode === "HYPOTHESIS") return "TEPHRA's estimate · hypothesis";

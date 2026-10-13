@@ -12,7 +12,12 @@ affected drafts and the reason box (10.15). The backend is MODULES.md 5.19. Vers
 specialist helpers and a dispatcher deciding at the end, redesigns the Operator policy dialog
 (7.18), and redesigns the Desk (10.16): one honesty band, Plan by hand as a summary and a list,
 and a right pane that is never an empty box. Every AI word on both pages comes from
-docs/UI-AI-QUIET.md (`aiStateOf()`), which wins where this document differs.
+docs/UI-AI-QUIET.md (`aiStateOf()`), which wins where this document differs. Version 3.3 (13 Oct
+2026, docs/UI-AI-QUIET.md 8.4 "Naming"): the AI is shown as one assistant, **TEPHRA Assistant**,
+with skills named by job (the Duty Officer is shown as the Coordinator) and the Strata mark; "AI
+helpers" is Details › TEPHRA Assistant, "AI at work" is TEPHRA Assistant at work, the Desk's "AI
+today" sheet is the TEPHRA Assistant sheet, and the old "AI …" chip words and marks below read as
+that section's table says.
 
 What this covers: the Wall (`/`, `index.html` + `wall.js` + `wall/*.js` + `wall.css`) and the Desk
 (`/desk`, `desk.html` + `desk.js` + `desk.css`). Shared assets that already exist and must be
@@ -796,12 +801,14 @@ R17.2). Left to right:
    ash" in All volcanoes, so the picker and the story never disagree. Before the server's first
    tick an area with nothing yet reads "· reading…", never "· none".
 4. Spacer.
-5. AI chip `#ai-chip` (button) with `#model-chip` as its text: the AI's one state from
-   `aiStateOf()` (`wall/x-parts.js`, shared with the Desk and AI at work), "AI on", "AI
-   paused · 0700Z", "AI on · 1 problem" or "AI off" ("AI paused", "AI · 1 problem" at 420 px and
-   less), never red and never a count of failed steps or a model id (docs/UI-AI-QUIET.md). It
-   opens AI at work (7.21), as A does, which leads with the same words and links to Details › AI
-   helpers, the record of models, calls and causes.
+5. Assistant chip `#ai-chip` (button) with `#model-chip` as its text and the Strata state mark:
+   TEPHRA Assistant's one state from `aiStateOf()` (`wall/x-parts.js`, shared with the Desk and
+   the board), "TEPHRA Assistant · on", "TEPHRA Assistant · waiting until 0700Z", "TEPHRA
+   Assistant · Recovery planner not running" or "TEPHRA Assistant · off (code only)" ("Assistant ·
+   waiting", "Assistant · 1 problem" at 420 px and less), never red and never a count of failed
+   steps or a model id (docs/UI-AI-QUIET.md 8.4). It opens TEPHRA Assistant at work (7.21), as A
+   does, which leads with the same words and links to Details › TEPHRA Assistant, the record of
+   models, calls and causes.
 6. Data chip `#feeds-chip`: "Data: 6 working · 5 off", worst first ("Data: 1 error · 5 working ·
    5 off", serious shape and border; "2 stale" in caution); "ok" for "working" below 1360 px. It
    opens Details › Data feeds.
@@ -1214,7 +1221,7 @@ wind and covered-by ids and the policy. The section ends with "Report ash from a
 Desk ›" (`/desk#crew-report`). The drawer's volcano picker is hidden here: the list is the same
 for every volcano. The Wall is read-only: entering, withdrawing and the message are on the Desk.
 
-### 7.21 AI at work
+### 7.21 TEPHRA Assistant at work (was "AI at work")
 
 A full overlay (`<dialog id="board">`, `wall/board.js` for the logic, `wall/board-view.js` for the
 page) that shows the AI as a team with a person in charge: public feeds, then the Duty Officer,
@@ -1260,8 +1267,8 @@ aligned, so opening a card never moves them. The board is `min(1840px, 100vw - 4
 shows without scrolling in the stub run; with the live site's longer lines the last card needs a
 short scroll at 1440. At 390 px nothing scrolls sideways.
 
-The head stays put: the title "AI at work", one sentence ("The Duty Officer hands the AI work to
-six specialist helpers. A dispatcher decides on everything they make."), the close button, and in
+The head stays put: the title "TEPHRA Assistant at work" with the `ta-64` mark, one sentence
+("Its Coordinator hands the work to six skills. A dispatcher decides on everything they make."), the close button, and in
 REPLAY the violet REPLAY band with the case label, so the label is on screen however far the board
 scrolls. The body then has the AI's one state in the AI chip's words ("AI on", "AI off", "AI
 paused · 0700Z real time", `aiWords`, docs/UI-AI-QUIET.md 5.2), its calm lead (5.1) and a link to
@@ -1437,9 +1444,10 @@ decision sends the `version` the dispatcher saw.
 ### 10.1 Header (always)
 
 Row 1 (48): "TEPHRA" (700, letter-spaced) + "Desk" (text-3, hidden at 430 px and under); the AI
-chip `#budget-chip` with `#model-chip` as its label (10.16, docs/UI-AI-QUIET.md K78): "AI on",
-"AI paused · 0700Z real time", "AI on · 1 problem" or "AI off", never red, which opens the "AI
-today" sheet; the connection `#conn`, always a word with its shape: `st-ok` "Connected" (not
+chip `#budget-chip` with `#model-chip` as its label (10.16, docs/UI-AI-QUIET.md K78, 8.4): "TEPHRA
+Assistant · on", "TEPHRA Assistant · waiting until 0700Z", "TEPHRA Assistant · not running" or
+"TEPHRA Assistant · off (code only)" ("Assistant · waiting" at 420 px and less), never red, which
+opens the TEPHRA Assistant sheet; the connection `#conn`, always a word with its shape: `st-ok` "Connected" (not
 "Live", which under the REPLAY bar would read as live data), `st-stale` "Reconnecting…",
 `st-serious` "Offline", `st-never` "Connecting…"; the account button (initials in a 32 px circle,
 menu: "Signed in as AK · session ends 1830Z", "Display: LIVE" with "Change display…" (10.10), and

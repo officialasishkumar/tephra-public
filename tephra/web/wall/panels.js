@@ -9,7 +9,7 @@ import {
 } from "./util.js";
 import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
-import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, handPlanOf, causeTitle, blockPhrase, machineText } from "./x-parts.js";
+import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, handPlanOf, causeTitle, blockPhrase, machineText, MARK, ASSISTANT } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkTech, dkSection, dkLink,
   dkRecorded, dkWhen, dkDot, collapseRuns, runRow, timeRange, plural, dayTime, times,
@@ -64,12 +64,12 @@ const MODE_LINE = {
   HYPOTHESIS: "No valid official product: a hypothesis. Only MONITOR or HOLD may be advised.",
 };
 const OUTCOME = {
-  STUB: "AI off: official reports only",
-  ACCEPTED: "Gemini reading accepted by the validators",
+  STUB: "Code only (assistant off): official reports only",
+  ACCEPTED: "Reading accepted by the code's checks",
   REPAIRED: "Accepted after one repair",
-  MODEL_FAILED: "AI unavailable: official products only, nothing assessed beyond them",
-  OFFICIAL_ONLY: "No model call needed: official products only",
-  PENDING: "Plume read queued for the Duty Officer: official products only until it runs",
+  MODEL_FAILED: "Plume reader gave no result: official products only, nothing assessed beyond them",
+  OFFICIAL_ONLY: "No read needed: official products only",
+  PENDING: "Plume read queued for the Coordinator: official products only until it runs",
 };
 // The model-checked outcomes: only these were read by a model (H1, H2).
 const MODEL_READ = new Set(["ACCEPTED", "REPAIRED"]);
@@ -165,21 +165,22 @@ export function renderChrome(D, store, ui) {
   }
   sel.value = cur || "all";
 
-  // The AI chip (R3.1, docs/UI-AI-QUIET.md W1-W3): the AI's one state in words, never a count of
-  // failed steps and never red. It opens AI at work (UI-DESIGN 7.21), which leads with the same
-  // words and links to Details › AI helpers for the model ids, budgets and causes.
+  // The AI chip (R3.1, docs/UI-AI-QUIET.md W1-W3, Naming): TEPHRA Assistant's one state in words,
+  // never a count of failed steps and never red. It opens TEPHRA Assistant at work (UI-DESIGN
+  // 7.21), which leads with the same words and links to Details › TEPHRA Assistant for the model
+  // ids, budgets and causes.
   const ai = aiStateNow(D, store);
-  const w = aiWords(ai, { home: "AI at work", opens: "AI at work", narrow: window.innerWidth <= 420 });
+  const w = aiWords(ai, { home: `${ASSISTANT} at work`, opens: `${ASSISTANT} at work`, narrow: window.innerWidth <= 420 });
   const chip = $("ai-chip");
   setText($("model-chip"), w.label);
   const suffix = chip.querySelector(".ai-chip__fail");
   suffix.hidden = !w.suffix;
   setText(suffix, w.suffix ? `· ${w.suffix}` : "");
   chip.dataset.tone = w.tone;
-  chip.querySelector("use")?.setAttribute("href", `${chip.querySelector("use").getAttribute("href").split("#")[0]}#${ai.kind === "off" ? "i-code" : "i-model"}`);
+  chip.querySelector("use")?.setAttribute("href", `${chip.querySelector("use").getAttribute("href").split("#")[0]}#${ai.kind === "on" ? "ta-working" : ai.kind === "paused" ? "ta-waiting" : "ta-unavailable"}`);
   chip.title = w.title;
   chip.setAttribute("aria-label", w.aria);
-  // shown first with its state, so the bar never jumps from "AI ·" to its real width (W5)
+  // shown first with its state, so the bar never jumps to its real width (W5)
   chip.classList.remove("is-pending");
 
   // Data chip: "Data: 6 working · 5 off", worst first.
@@ -309,7 +310,7 @@ function flightRow(D, f, ui, allStale = false, hand = null) {
   const adv = D.advByFlight.get(`${p.hex}:${p.volcano_id}`);
   const oldShown = allStale ? null : old;
   const [advWord, advIcon] = adv ? ADV_WORD[adv.status] || ADV_WORD.DRAFT : [null, null];
-  // no advisory because the AI did not run: the row says the fact, the list's note says why and
+  // no advisory because the assistant did not run: the row says the fact, the list's note says why and
   // what to do, once (D53, review clutter 5)
   const handRow = hand?.flights.find((x) => x.key === `${p.hex}:${p.volcano_id}`) || null;
   const handMeta = handRow ? el("span", { class: "dk-adv dk-adv--hand" }, el("span", { text: "No advisory" }), handRow.must ? dkChip("Must do", { kind: "must", title: "Code requires this work this run" }) : null) : null;
@@ -371,7 +372,7 @@ export function renderFlights(D, store, ui, target = $("flights")) {
   const hand = handPlanOf(D, store, aiStateNow(D, store));
   const handHere = hand.flights.filter((x) => flights.some((f) => `${f.properties.hex}:${f.properties.volcano_id}` === x.key)).length;
   // why those rows have no advisory and what to do, said once for the list
-  const handNote = handHere ? dkNote("caution", [el("p", {}, `No advisory for ${handHere === flights.length ? (handHere === 1 ? "this flight" : `these ${handHere} flights`) : `${handHere} of these flights`}: ${hand.block.undone ? "the Duty Officer left them for the Desk" : blockPhrase(hand.block)}. Plan ${handHere === 1 ? "it" : "them"} by hand. `,
+  const handNote = handHere ? dkNote("caution", [el("p", {}, `No advisory for ${handHere === flights.length ? (handHere === 1 ? "this flight" : `these ${handHere} flights`) : `${handHere} of these flights`}: ${hand.block.undone ? "the Coordinator left them for the Desk" : blockPhrase(hand.block)}. Plan ${handHere === 1 ? "it" : "them"} by hand. `,
     el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Open the Desk ›" }))], { role: "status" }) : null;
   const group = (title, aside, rows, key) => (rows.length ? dkGroup(title, aside, dkList(rows.map((f) => flightRow(D, f, ui, allStale, hand)), { first: FLIGHTS_FIRST, key, label: title })) : null);
   const list = flights.length
@@ -418,7 +419,7 @@ const LEVEL_TONE = { error: "serious", warn: "caution" };
 // the raw lines under one Technical detail.
 function traceRun(run, ui, stub, ai) {
   const t0 = run.items[0];
-  // an AI step that did not run is a caution, one row per cause (D62); red stays for the picture
+  // an assistant step that did not run is a caution, one row per cause (D62); red stays for the picture
   const cause = t0._cause ? ai.causes.find((c) => c.key === t0._cause) : null;
   const tone = cause ? "caution" : LEVEL_TONE[t0.level] || null;
   const [ic] = ACTOR[t0.actor] || ["i-system"];
@@ -436,9 +437,9 @@ function traceRun(run, ui, stub, ai) {
   if (run.items.some((t) => ui.freshTrace?.has(t.id))) row.classList.add("is-new");
   return row;
 }
-// Which step it was and who did it: "Flight check · done by code", "Planner · AI off".
+// Which step it was and who did it: "Flight check · done by code", "Flight planner · code only".
 const STAGE_WORD = {
-  DUTY: "Duty Officer", PLUME: "Plume Reader", SATELLITE: "Satellite reader", PLANNER: "Flight planner", DRAFTER: "Drafter", RECOVERY: "Recovery planner",
+  DUTY: "Coordinator", PLUME: "Plume reader", SATELLITE: "Satellite reader", PLANNER: "Flight planner", DRAFTER: "Drafter", RECOVERY: "Recovery planner",
   EXPOSURE: "Flight check", CONE: "TEPHRA's estimate", DISCREPANCY: "Disagreement check", DOCS: "Paperwork", MESSAGES: "Messages", NOTICE: "Notices", ASK: "Ask",
   DESK: "Desk", POLL: "Data feeds",
 };
@@ -453,7 +454,7 @@ export function renderTrace(D, store, ui, conn, target = $("trace")) {
   if (!D) { target.replaceChildren(el("div", { class: "skeleton" })); return; }
   const stub = D?.state.llm?.backend === "stub";
   const ai = aiStateNow(D, store);
-  // AI steps that did not run, keyed by cause (helper + reason class, never by their words)
+  // assistant steps that did not run, keyed by cause (helper + reason class, never by their words)
   const causeOf = new Map(ai.causes.flatMap((c) => c.items.filter((x) => x.src?.id).map((x) => [x.src.id, c.key])));
   const problems = lines.filter((t) => t.level === "error" || t.level === "warn");
   const aiErr = lines.filter((t) => causeOf.has(t.id));
@@ -472,7 +473,7 @@ export function renderTrace(D, store, ui, conn, target = $("trace")) {
   const tiles = dkTiles([
     { label: "Steps", value: lines.length.toLocaleString("en"), sub: ui.traceScope === "all" ? "every volcano" : "this volcano and general" },
     { label: "Problems", value: String(problems.length - aiErr.length + causesHere.size), tone: errors ? "serious" : problems.length ? "caution" : "ok",
-      sub: [errors ? `${errors} failed` : null, plural(problems.length - errors - aiErr.length, "warning"), aiErr.length ? `AI: ${causesHere.size === ai.causes.length ? plural(causesHere.size, "cause") : `${causesHere.size} of ${plural(ai.causes.length, "cause")}`} (${plural(aiErr.length, "step")})` : null].filter(Boolean).join(" · ") },
+      sub: [errors ? `${errors} failed` : null, plural(problems.length - errors - aiErr.length, "warning"), aiErr.length ? `Assistant: ${causesHere.size === ai.causes.length ? plural(causesHere.size, "cause") : `${causesHere.size} of ${plural(ai.causes.length, "cause")}`} (${plural(aiErr.length, "step")})` : null].filter(Boolean).join(" · ") },
   ], "Steps in numbers");
   const controls = el("div", { class: "dk-actions" },
     seg("Which steps", "trace-scope", "traceScope", [["volcano", "This volcano"], ["all", "Everything"]]),
@@ -655,9 +656,9 @@ function disRow(D, sit, d, ui) {
     if (cone?.mode === "WIDENED" && sector && D.rose) tail = pointInGeom(dest(D.rose.vent, D.rose.obsDeg, 15), sector.geometry) || pointInGeom(dest(D.rose.vent, D.rose.obsDeg, 15), D.coneOf(sit.volcano_id).geometry) ? " TEPHRA's area covers it." : "";
     else if (cone?.mode === "OFFICIAL") {
       const outcome = sit.assessment?.outcome;
-      tail = D.state.llm?.backend === "stub" || outcome === "STUB" ? " TEPHRA has not widened the area (AI off)."
-        : outcome === "PENDING" ? " TEPHRA has not widened the area yet (AI waiting)."
-          : outcome === "MODEL_FAILED" ? " TEPHRA has not widened the area (AI unavailable)." : " TEPHRA has not widened the area.";
+      tail = D.state.llm?.backend === "stub" || outcome === "STUB" ? " TEPHRA has not widened the area (code only)."
+        : outcome === "PENDING" ? " TEPHRA has not widened the area yet (Plume reader waiting)."
+          : outcome === "MODEL_FAILED" ? " TEPHRA has not widened the area (Plume reader gave no result)." : " TEPHRA has not widened the area.";
     }
     explain = `A point 15 km along the observatory's drift is outside the official polygon.${tail}`;
   }
@@ -674,20 +675,20 @@ function disRow(D, sit, d, ui) {
 const capFirst = (t) => (t ? t[0].toUpperCase() + t.slice(1) : t);
 
 // TEPHRA's estimate (R8.3 `estimate`): the outcome sentence, the rule, who read it, valid until.
-// "The model found nothing to add" only when a model read it (H1): a queued read is waiting, and
+// "The Plume reader found nothing to add" only when a model read it (H1): a queued read is waiting, and
 // an official-only volcano needed no read.
 export function estimateOutcome(D, sit, cone) {
   const outcome = sit.assessment?.outcome;
   const stub = outcome === "STUB" || (!outcome && D.state.llm?.backend === "stub");
   if (cone.mode !== "OFFICIAL") return MODE_LINE[cone.mode] || "";
-  if (stub) return "Same as the official area (AI off, nothing added).";
-  if (outcome === "MODEL_FAILED") return "Same as the official area: AI unavailable, nothing assessed beyond the official reports.";
+  if (stub) return "Same as the official area (code only, nothing added).";
+  if (outcome === "MODEL_FAILED") return "Same as the official area: the Plume reader gave no result, nothing assessed beyond the official reports.";
   if (outcome === "PENDING") {
     const slot = aiStateNow(D, null).until;
-    return `Same as the official area: the AI plume read is waiting${slot ? ` (next slot ${slot})` : ""}.`;
+    return `Same as the official area: the Plume reader's read is waiting${slot ? ` (next slot ${slot})` : ""}.`;
   }
-  if (outcome === "OFFICIAL_ONLY") return "Same as the official area: no AI read was needed.";
-  if (MODEL_READ.has(outcome)) return "Same as the official area: the model found nothing to add.";
+  if (outcome === "OFFICIAL_ONLY") return "Same as the official area: no Plume reader read was needed.";
+  if (MODEL_READ.has(outcome)) return "Same as the official area: the Plume reader found nothing to add.";
   return MODE_LINE.OFFICIAL;
 }
 
@@ -702,12 +703,12 @@ export function areaSection(D, sit, ui) {
   const [tone, word] = MODE_PILL[cone.mode] || ["info", cone.mode];
   // the model's name only where a model read it (Q5); a queued read says it waits (D44)
   const modelRead = MODEL_READ.has(outcome) && a?.model_id && a.model_id !== "none" && a.model_id !== "stub";
-  const readBy = stub ? "Code (AI off): official reports only"
-    : outcome === "PENDING" ? `AI waiting · ${OUTCOME.PENDING}.`
-      : modelRead ? [aiMark(a.model_id, null, "AI-read"), " ", OUTCOME[outcome]] : OUTCOME[outcome] || "not given";
+  const readBy = stub ? OUTCOME.STUB
+    : outcome === "PENDING" ? `Plume reader waiting · ${OUTCOME.PENDING}.`
+      : modelRead ? [aiMark(a.model_id, null, MARK.read("Plume reader")), " ", OUTCOME[outcome]] : OUTCOME[outcome] || "not given";
   const est = a?.estimate;
   let read = null;
-  // "How the model read it" only for a reading a model gave and the checks passed (H2); the same
+  // "How the Plume reader read it" only for a reading a model gave and the checks passed (H2); the same
   // text written by code sits under "How TEPHRA built it", marked as code. Nothing is hidden.
   const why = est && (est.rationale || est.uncertainty_notes || (est.disagreements_explained || []).length);
   if (why && outcome !== "MODEL_FAILED") {
@@ -717,7 +718,7 @@ export function areaSection(D, sit, ui) {
         lean || r.why ? el("span", { class: "dk-prio__why" }, lean ? dkChip(`Leans on ${lean}`) : null, r.why ? ` ${r.why}` : null) : null));
     });
     read = el("details", { class: "dk-about area__read", open: ui.readOpen ? true : null, dataset: { k: "area-read" } },
-      el("summary", { dataset: { focus: "area-read" } }, icon("i-chevron-right", "icon dk-about__chev"), el("span", { text: modelRead ? "How the model read it" : "How TEPHRA built it" }), modelRead ? aiMark(a.model_id, null, "AI-written") : el("span", { class: "dk-chip dk-chip--code", text: "Code-written" })),
+      el("summary", { dataset: { focus: "area-read" } }, icon("i-chevron-right", "icon dk-about__chev"), el("span", { text: modelRead ? "How the Plume reader read it" : "How TEPHRA built it" }), modelRead ? aiMark(a.model_id, null, MARK.read("Plume reader")) : el("span", { class: "dk-chip dk-chip--code", text: "Code-written" })),
       el("div", { class: "dk-about__body" },
         readings.length ? dkList(readings, { first: 5, key: "area-readings" }) : null,
         // code's own sentences say their clauses with the page's dot; a model's words stay as written
@@ -732,9 +733,9 @@ export function areaSection(D, sit, ui) {
       { label: "Valid until", value: hhmmz(ms(cone.valid_to)), sub: untilWords(ms(cone.valid_to) - D.now) },
       cone.mode !== "OFFICIAL" ? { label: "Confidence", value: `${Math.round((cone.confidence ?? 0) * 100)}%`, sub: "in the widening" } : null,
     ], "Estimate in numbers"),
-    outcome === "MODEL_FAILED" ? dkNote("caution", `AI unavailable: ${machineText(a?.estimate?.uncertainty_notes || "no usable model output")}. TEPHRA shows the official area only, and nothing was put in its place.`, { role: "status" }) : null,
+    outcome === "MODEL_FAILED" ? dkNote("caution", `Plume reader gave no result: ${machineText(a?.estimate?.uncertainty_notes || "no usable model output")}. TEPHRA shows the official area only, and nothing was put in its place.`, { role: "status" }) : null,
     // A replay loop reuses the same model's reading of the same input; the label says so.
-    dkFacts([["Read by", el("span", {}, readBy)], ["Answer", a?.recorded_answer || null]]),
+    dkFacts([["Reading", el("span", {}, readBy)], ["Answer", a?.recorded_answer || null]]),
     read,
     dkTech(`Mode ${cone.mode} · label ${cone.label} · ${cone.cone_id || ""}`),
     el("div", { class: "dk-abouts" }, dkAbout("About the estimate", "area", "TEPHRA's estimate is an estimate, not a forecast. It is drawn as the amber dashed line, never smaller than the official area, which stays binding.")));
@@ -767,7 +768,7 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
         el("span"), el("span", { class: "dk-row__go", "aria-hidden": "true", text: "›" })));
     return r;
   };
-  // flights with no draft because the AI did not run: the dispatcher's work, here (D56)
+  // flights with no draft because the assistant did not run: the dispatcher's work, here (D56)
   const hand = handPlanOf(D, store, aiStateNow(D, store));
   const waitingN = serverWaiting ?? draft.length;
   const handN = hand.flights.length;
@@ -775,7 +776,7 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
     id: "h-dec",
     pills: [serverWaiting === null ? dkPill("serious", "Count unknown") : waitingN ? dkPill("caution", "Waiting for a dispatcher") : handN ? dkPill("caution", "Nothing to approve") : dkPill("ok", "Nothing waiting"), dkRecorded(replay)],
     title: all.length ? "Every advisory is a draft until a dispatcher decides on the Desk." : "No advisories yet. A draft appears when a flight's projected track enters TEPHRA's area.",
-    sub: handN && !waitingN ? el("span", {}, `No drafts: ${hand.block.undone ? "the Duty Officer left its must-do flights for the Desk" : blockPhrase(hand.block)}. `, el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Plan by hand on the Desk ›" })) : null,
+    sub: handN && !waitingN ? el("span", {}, `No drafts: ${hand.block.undone ? "the Coordinator left its must-do flights for the Desk" : blockPhrase(hand.block)}. `, el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Plan by hand on the Desk ›" })) : null,
   });
   const tiles = all.length ? dkTiles([
     { label: "Waiting", value: serverWaiting === null ? "unknown" : String(serverWaiting ?? draft.length), tone: serverWaiting === null ? "serious" : "caution", sub: serverWaiting === null ? "database error" : "all volcanoes" },
@@ -786,8 +787,8 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
   const note = dkNote("info", "Approve on the Desk · nothing is sent anywhere. Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system.", { iconId: "i-outbound" });
   const groups = [];
   if (handN) {
-    // the Duty Officer's "Passed to the Desk" list, copied here where the dispatcher acts (D69)
-    // the rows say no AI word: the head above says why, once (review clutter 5). The Wall sees the
+    // the Coordinator's "Passed to the Desk" list, copied here where the dispatcher acts (D69)
+    // the rows say no assistant word: the head above says why, once (review clutter 5). The Wall sees the
     // newest 50 advisories and not the Desk's handled marks; the Desk's list is the record (H3).
     const scope = [hand.must ? `${hand.must} must do first` : null, hand.partial ? "no advisory among the newest 50" : "no advisory", "mark each handled on the Desk"].filter(Boolean).join(" · ");
     groups.push(dkGroup(`To plan by hand · ${handN}`, scope, el("div", { id: "dec-hand", tabindex: "-1", class: "dk-anchor" }, dkList(hand.flights.map((x) => el("a", { class: "dk-row dk-row--link", href: "/desk", target: "_blank", rel: "noopener" },

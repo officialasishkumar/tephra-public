@@ -41,7 +41,7 @@ export function onNoticeEvent(n) {
 
 export const statusBadge = (n) => {
   if (n.status === 'verified') return el('span', { class: 'vbadge vbadge--ok' }, icon('i-check', 'st'), el('span', { text: 'Verified' }));
-  if (n.status === 'ai_unavailable') return el('span', { class: 'vbadge vbadge--no' }, icon('st-caution', 'st'), el('span', { text: 'Not read (AI unavailable)' }));
+  if (n.status === 'ai_unavailable') return el('span', { class: 'vbadge vbadge--no' }, icon('st-caution', 'st'), el('span', { text: 'Not read (Notice reader gave no result)' }));
   return el('span', { class: 'vbadge vbadge--no' }, icon('st-caution', 'st'), el('span', { text: 'Not verified' }));
 };
 
@@ -100,11 +100,11 @@ export function readingView(n) {
   const head = el('div', { class: 'nhead' }, statusBadge(n),
     el('span', { class: 'chip chip--sm', title: 'Language detected by the model', text: LANGS[n.language] || 'Language not recognised' }),
     n.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null,
-    n.status === 'ai_unavailable' ? null : aiMark('AI-read', n.llm_backend === 'stub' ? null : n.model_id));
+    n.status === 'ai_unavailable' ? null : aiMark('Read by Notice reader', n.llm_backend === 'stub' ? null : n.model_id));
   out.push(head);
 
   if (n.status === 'ai_unavailable') {
-    out.push(unavailableCard(n.reason || 'no reason given', { title: 'Not read (AI unavailable)', instead: 'Read it yourself. Nothing from it entered the picture.' }));
+    out.push(unavailableCard(n.reason || 'no reason given', { title: 'Not read (Notice reader gave no result)', instead: 'Read it yourself. Nothing from it entered the picture.' }));
   } else if (n.status === 'verified') {
     out.push(el('div', { class: 'banner banner--approved', role: 'note' }, icon('i-check', 'st'),
       el('p', { text: `Every field below is a verbatim quote from the notice, checked by code. It joined the live picture as an observatory notice${n.vona ? ` for ${n.vona.volcano_name}` : ''} (${n.id}).` })));
@@ -178,7 +178,7 @@ export function openPaste() {
     title: 'Paste a notice',
     wide: true,
     body: el('div', { class: 'stack' },
-      el('p', { class: 'note', text: `${SAMPLE_HINT} An AI reads it, then code checks every field against the words it quoted. A notice that fails the check is not used.` }),
+      el('p', { class: 'note', text: `${SAMPLE_HINT} TEPHRA Assistant's Notice reader reads it, then code checks every field against the words it quoted. A notice that fails the check is not used.` }),
       el('label', { class: 'flabel', for: 'notice-text', text: 'Notice text' }), area, count, msg, result),
     footer: go,
   });
@@ -208,7 +208,7 @@ export function openPaste() {
       return;
     }
     if (isUnavailable(res)) {
-      result.replaceChildren(unavailableCard(unavailableReason(res), { title: 'Not read (AI unavailable)', instead: 'Read it yourself. Nothing from it entered the picture.' }));
+      result.replaceChildren(unavailableCard(unavailableReason(res), { title: 'Not read (Notice reader gave no result)', instead: 'Read it yourself. Nothing from it entered the picture.' }));
       return;
     }
     const list = problems(res);
