@@ -8,6 +8,7 @@ AI budget closed and one from the offline stub. Skipped when Node is not install
 """
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -296,34 +297,31 @@ def test_a_closed_ai_day_reads_as_waiting_and_not_run(tmp_path: Path) -> None:
     assert recovery["last"]["tone"] == "failed"
     assert recovery["last"]["text"].startswith("Recovery planner timed out.")
     assert _card(model, "sat")["state"] == "quiet"
-    assert model["counts"] == {
-        "working": 0,
-        "waiting": 4,
-        "queued": 0,
-        "failed": 0,
-        "notrun": 2,
-        "done": 0,
-        "quiet": 1,
-    }
-
-
-def test_the_gate_counts_only_this_modes_work_for_a_person(tmp_path: Path) -> None:
-    model = _board(tmp_path, _closed_day())
-    gate = model["gate"]
-    assert gate["drafts"] == 0
-    assert [line["text"] for line in gate["others"]] == [
-        "No airport plan was made: a dispatcher plans the network by hand",
-        "1 safety risk assessment draft waits for sign-off",
-        "1 must-do flight passed to a dispatcher by the latest Coordinator run, to plan by hand",
+    # no state is red: a closed day is waiting, not run or quiet, never failed or working
+    states = [card["state"] for card in [model["duty"], *model["team"]]]
+    assert sorted(states) == [
+        "notrun",
+        "notrun",
+        "quiet",
+        "waiting",
+        "waiting",
+        "waiting",
+        "waiting",
     ]
-    into_gate = {e["from"]: e["state"] for e in model["edges"] if e["to"] == "gate"}
-    assert into_gate == {"drafter": "idle", "recovery": "idle", "sra": "used"}
 
 
-def test_no_hand_out_in_the_latest_run_leaves_every_line_idle(tmp_path: Path) -> None:
+def test_you_decide_counts_only_this_modes_work_for_a_person(tmp_path: Path) -> None:
+    desk = _flow(tmp_path, _closed_day())["m"]["desk"]
+    assert desk["drafts"] == 0
+    # the live copy of the SRA is not this replay's work
+    assert desk["sra"] == {"n": 1, "names": ["Java / Bali"]}
+    assert desk["plan"] == "by hand"
+    assert desk["must"] == 1
+
+
+def test_no_hand_out_in_the_latest_run_leaves_every_skill_without_one(tmp_path: Path) -> None:
     model = _board(tmp_path, _closed_day())
-    from_duty = {e["to"]: e["state"] for e in model["edges"] if e["from"] == "duty"}
-    assert set(from_duty.values()) == {"idle"}
+    assert [card["handoff"] for card in model["team"]] == [None] * 6
 
 
 def test_the_offline_stub_says_ai_off_and_shows_its_hand_outs(tmp_path: Path) -> None:
@@ -341,30 +339,30 @@ def test_the_offline_stub_says_ai_off_and_shows_its_hand_outs(tmp_path: Path) ->
     # three identical lines collapse into one step with a count
     repeated = [s for s in drafter["steps"] if s["source"] == "How TEPHRA decided"]
     assert [s["count"] for s in repeated] == [3]
-    from_duty = {e["to"]: e["state"] for e in model["edges"] if e["from"] == "duty"}
-    assert from_duty["planner"] == from_duty["drafter"] == "used"
-    assert from_duty["recovery"] == from_duty["sra"] == "idle"
-    assert model["gate"]["drafts"] == 2
+    assert drafter["handoff"]["count"] == 2
+    assert _card(model, "recovery")["handoff"] is None
+    assert _card(model, "sra")["handoff"] is None
+    (tmp_path / "flow").mkdir()
+    assert _flow(tmp_path / "flow", _stub_run())["m"]["desk"]["drafts"] == 2
 
 
-def test_a_step_that_just_arrived_is_working_and_its_hand_out_lights_up(tmp_path: Path) -> None:
+def test_a_step_that_just_arrived_is_working(tmp_path: Path) -> None:
     data = _stub_run()
     data["arrivedMs"] = {"tDRAFTER2": 1500}
-    data["liveMs"] = {"plan_flights": 1500}
     model = _board(tmp_path, data)
     assert _card(model, "drafter")["state"] == "working"
-    from_duty = {e["to"]: e["state"] for e in model["edges"] if e["from"] == "duty"}
-    assert from_duty["planner"] == from_duty["drafter"] == "live"
+    assert _card(model, "recovery")["state"] != "working"
 
 
-def test_a_failed_hand_out_marks_its_line_failed(tmp_path: Path) -> None:
+def test_a_failed_hand_out_is_said_on_its_skill(tmp_path: Path) -> None:
     data = _stub_run()
     data["duty"]["dispatches"][1]["ok"] = False
     model = _board(tmp_path, data)
     planner = _card(model, "planner")
     assert planner["handoff"]["failed"] == 1
-    from_duty = {e["to"]: e["state"] for e in model["edges"] if e["from"] == "duty"}
-    assert from_duty["planner"] == "failed"
+    handed = next(s for s in planner["steps"] if s["source"] == "Coordinator run")
+    assert handed["tone"] == "failed"
+    assert handed["text"].endswith(", 1 of 2 failed")
 
 
 def test_no_run_yet_says_so(tmp_path: Path) -> None:
@@ -385,36 +383,29 @@ def test_the_ai_status_uses_the_chips_words(tmp_path: Path) -> None:
     steps."""
     (tmp_path / "paused").mkdir()
     (tmp_path / "off").mkdir()
-    paused = _board(tmp_path / "paused", _closed_day())["ai"]
-    assert paused["kind"] == "paused"
-    words = paused["words"]
+    paused = _flow(tmp_path / "paused", _closed_day())["m"]
+    assert paused["ai"]["kind"] == "paused"
     # in REPLAY the reset is said as the time left, which reads the same on either clock
-    assert (words["label"], words["suffix"], words["tone"]) == (
+    assert (paused["ai"]["label"], paused["ai"]["suffix"], paused["ai"]["tone"]) == (
         "TEPHRA Assistant",
         "waiting for another 6 h 30 min",
         "caution",
     )
-    assert paused["lead"][0]["strong"] == "TEPHRA Assistant is waiting for another 6 h 30 min."
-    assert "Queued work (3 jobs) runs then" in paused["lead"][0]["text"]
-    off = _board(tmp_path / "off", _stub_run())["ai"]
-    assert (off["kind"], off["words"]["label"], off["words"]["suffix"]) == (
+    assert "3 jobs keep their place in line" in paused["sub"]
+    off = _flow(tmp_path / "off", _stub_run())["m"]["ai"]
+    assert (off["kind"], off["label"], off["suffix"]) == (
         "off",
         "TEPHRA Assistant",
         "off (code only)",
     )
 
 
-def test_the_gate_says_how_many_flights_wait_to_be_planned_by_hand(tmp_path: Path) -> None:
-    """With the Wall's count of flights the assistant made no plan for, the gate says it once, the
-    Coordinator's must-do flights inside it, instead of only the must-do ones."""
+def test_you_decide_takes_the_walls_count_of_flights_to_plan_by_hand(tmp_path: Path) -> None:
+    """With the Wall's count of flights the assistant made no plan for (the story's Plan by hand),
+    You decide says that count, the must-do ones inside it."""
     data = _closed_day()
     data["handPlan"] = {"n": 14, "must": 1}
-    texts = [line["text"] for line in _board(tmp_path, data)["gate"]["others"]]
-    assert (
-        texts[-1]
-        == "14 flights to plan by hand, 1 of them must do: TEPHRA Assistant made no plan for them"
-    )
-    assert not any("passed to a dispatcher" in text for text in texts)
+    assert _flow(tmp_path, data)["m"]["desk"]["handPlan"] == {"n": 14, "must": 1}
 
 
 XPARTS_RUNNER = """
@@ -527,3 +518,373 @@ def test_the_frame_strip_is_named_for_what_it_holds(tmp_path: Path) -> None:
     """The strip's accessible name says "Replay" only while a replay plays; live, the strip holds
     the disclaimer alone and is named so."""
     assert _xparts(tmp_path)["stripLabels"] == ["Replay notice and disclaimer", "Disclaimer"]
+
+
+# ------------------------------------------------------------------ the flow board (UI-DESIGN 7.21)
+# flowModel, flowAt and foldRows are pure: each moving thing on the board is one real record.
+
+FLOW_RUNNER = """
+import { readFileSync } from "node:fs";
+import { flowModel, flowAt, foldRows, stepEvents } from "./wall/board.js";
+const input = JSON.parse(readFileSync(process.argv[2], "utf8"));
+const m = flowModel(input);
+const at = input.at ? Date.parse(input.at) : m.t1;
+const steps = (input.steps || []).map(stepEvents);
+process.stdout.write(JSON.stringify({ m, s: m.ready ? flowAt(m.events, at) : null,
+  rows: m.ready ? foldRows(m.events) : null, steps }));
+"""
+
+
+def _flow(tmp_path: Path, data: dict[str, Any]) -> dict[str, Any]:
+    (tmp_path / "wall").mkdir()
+    for name in MODULES:
+        shutil.copy(WALL / name, tmp_path / "wall" / name)
+    (tmp_path / "package.json").write_text('{"type": "module"}', encoding="utf-8")
+    (tmp_path / "run.mjs").write_text(FLOW_RUNNER, encoding="utf-8")
+    (tmp_path / "input.json").write_text(json.dumps(data), encoding="utf-8")
+    result = subprocess.run(
+        [str(NODE), "run.mjs", "input.json"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    return json.loads(result.stdout)
+
+
+REFUSED = (
+    "Duty Officer AI UNAVAILABLE (budget_exhausted); 0 delegation(s) made, "
+    "{n} mandatory item(s) to the Desk"
+)
+
+
+def _step(
+    i: int,
+    stage: str,
+    message: str,
+    at: str,
+    *,
+    actor: str = "code",
+    level: str = "info",
+    detail: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": f"s{i}",
+        "at": f"2026-09-05T{at}.000Z",
+        "stage": stage,
+        "actor": actor,
+        "level": level,
+        "message": message,
+        "detail": detail or {},
+    }
+
+
+def _refused_day() -> dict[str, Any]:
+    """Three Coordinator runs the quota refused, as on the live site on 13 Oct 2026."""
+    trace = []
+    for k, (at, n) in enumerate((("11:28:26", 1), ("11:29:26", 3), ("11:30:26", 2))):
+        trace.append(
+            _step(
+                10 * k, "DUTY", f"Duty Officer: {n + 1} item(s) to dispatch (tick)", at, actor="adk"
+            )
+        )
+        trace.append(_step(10 * k + 1, "DUTY", REFUSED.format(n=n), at, level="error"))
+    data = _closed_day()
+    data["state"]["now"] = "2026-09-05T11:31:00.000Z"
+    data["trace"] = trace
+    data["feeds"] = []
+    return data
+
+
+def test_flow_refused_runs_send_no_work_to_a_skill(tmp_path: Path) -> None:
+    """Honesty: with refused runs only, nothing reaches a skill; the jobs go to a person."""
+    out = _flow(tmp_path, _refused_day())
+    types = {e["type"] for e in out["m"]["events"]}
+    assert types == {"duty", "refused"}
+    assert not any(e.get("skill") for e in out["m"]["events"])
+    assert out["m"]["gate"]["open"] is False
+    assert out["m"]["gate"]["name"] == "AI model · quota spent"
+    # the view's refused branch routes its tokens down the code lane only, never to a skill
+    view = (WALL / "board-view.js").read_text(encoding="utf-8")
+    refused = view[view.index('e.type === "refused" || e.type === "undone") {') :]
+    refused = refused[: refused.index("} else if")]
+    assert "sk-" not in refused
+
+
+def test_flow_hero_is_the_newest_refused_run_at_the_playhead(tmp_path: Path) -> None:
+    data = _refused_day()
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    (tmp_path / "c").mkdir()
+    end = _flow(tmp_path / "a", data)["s"]
+    assert (end["must"], end["runs"]) == (2, 3)
+    data["at"] = "2026-09-05T11:29:30.000Z"
+    mid = _flow(tmp_path / "b", data)["s"]
+    assert (mid["must"], mid["runs"]) == (3, 2)
+    data["at"] = "2026-09-05T11:28:00.000Z"
+    before = _flow(tmp_path / "c", data)["s"]
+    assert before["must"] is None
+
+
+def test_flow_log_folds_a_run_with_its_outcome_and_counts_repeats(tmp_path: Path) -> None:
+    rows = _flow(tmp_path, _refused_day())["rows"]
+    assert [r["kind"] for r in rows] == ["duty", "duty", "duty"]
+    last = rows[-1]
+    assert last["text"] == "Coordinator got 3 jobs on the scheduled check · assistant paused"
+    assert last["toYou"] == "2 must-do to you"
+    # one time form on the board, the replay clock's
+    assert last["repeat"] == "3\u00d7 since 11:28:26"
+    assert last["tone"] == "must"
+
+
+def test_flow_feed_particles_come_only_from_real_reads(tmp_path: Path) -> None:
+    """A POLL step, or a feed's last_success_at that moved, and never both for one read; a feed
+    whose newest read is outside the window draws nothing."""
+    data = _refused_day()
+    data["trace"].append(
+        _step(
+            90,
+            "POLL",
+            "METAR: 13 new or changed record(s)",
+            "11:30:27",
+            detail={"feed": "metar", "records": 14},
+        )
+    )
+    data["feeds"] = [
+        {
+            "feed": "metar",
+            "status": "OK",
+            "last_success_at": "2026-09-05T11:30:27.900Z",
+            "record_count": 14,
+        },
+        {
+            "feed": "sigmet",
+            "status": "OK",
+            "last_success_at": "2026-09-05T11:29:00.000Z",
+            "record_count": 9,
+        },
+        {
+            "feed": "vona",
+            "status": "OK",
+            "last_success_at": "2026-09-05T09:00:00.000Z",
+            "record_count": 12,
+        },
+        {"feed": "vaac_tokyo", "status": "DISABLED", "last_success_at": None, "record_count": 0},
+    ]
+    data["feedReads"] = [{"feed": "sigmet", "at": "2026-09-05T11:28:40.000Z", "n": 9}]
+    feeds = [e for e in _flow(tmp_path, data)["m"]["events"] if e["type"] == "feed"]
+    assert sorted((e["feed"], e["src"]) for e in feeds) == [
+        ("metar", "poll"),
+        ("sigmet", "feeds"),
+        ("sigmet", "state"),
+    ]
+    sigmet = next(e for e in feeds if e["src"] == "feeds")
+    assert sigmet["kind"] == "official"
+    assert sigmet["text"] == "VA SIGMETs read: 9 current"
+
+
+def test_flow_steps_map_to_the_skills_they_name(tmp_path: Path) -> None:
+    data = _refused_day()
+    data["steps"] = [
+        _step(
+            1,
+            "DUTY",
+            "Duty Officer -> plan_flights: RFA1540: DRAFT MONITOR for a dispatcher",
+            "10:01:00",
+            actor="adk",
+        ),
+        _step(2, "DRAFTER", "DRAFT MONITOR (NO MODEL)", "10:01:00", actor="stub"),
+        _step(3, "DESK", "RFA1540: DRAFT MONITOR waiting for a dispatcher", "10:01:00"),
+        _step(
+            4,
+            "PLUME",
+            "NO MODEL: stub plume estimate OFFICIAL FL000-FL060, 100%",
+            "10:01:00",
+            actor="stub",
+        ),
+        _step(
+            5,
+            "RECOVERY",
+            "AI UNAVAILABLE: RECOVERY AGENT ERROR: TimeoutError",
+            "10:01:00",
+            actor="adk",
+            level="error",
+        ),
+        _step(
+            6,
+            "EXPOSURE",
+            "RFA1456 (BTK6253) enters the Anak Krakatau cone in 7 min at FL226 "
+            "if track and level are held",
+            "10:01:00",
+            level="warn",
+        ),
+        _step(
+            7,
+            "CONE",
+            "Ibu: cone OFFICIAL 100% (NO MODEL), SFC/FL070, 5 official layer(s)",
+            "10:01:00",
+        ),
+    ]
+    steps = _flow(tmp_path, data)["steps"]
+    kinds = [[(e["type"], e.get("skill")) for e in s] for s in steps]
+    assert kinds == [
+        [("handoff", "planner")],
+        [("skill", "drafter")],
+        [("desk", "drafter")],
+        [("skill", "plume")],
+        [("skill-failed", "recovery")],
+        [("flight", None)],
+        [("note", None)],
+    ]
+    # code's stub plume estimate is not a model's reading: no amber on the map for it
+    assert steps[3][0]["plume"] is False
+    assert steps[5][0]["mins"] == 7
+    assert steps[5][0]["inside"] is False
+
+
+def test_flow_words_follow_the_assistant_state(tmp_path: Path) -> None:
+    (tmp_path / "paused").mkdir()
+    (tmp_path / "off").mkdir()
+    paused = _flow(tmp_path / "paused", _refused_day())["m"]
+    assert paused["ai"]["kind"] == "paused"
+    assert paused["status"] == "paused for 6 h 30 min"
+    # REPLAY: the reset is on the real clock, so it is said as the time left
+    assert "spent for another 6 h 30 min" in paused["sub"]
+    assert paused["gate"]["meta"] == "3 jobs in line · next slot in 6 h 30 min"
+    assert [s["inLine"] for s in paused["skills"]] == [0, 0, 1, 0, 1, 1]
+    off = _flow(tmp_path / "off", _stub_run())["m"]
+    kinds = (off["ai"]["kind"], off["status"], off["gate"]["kind"])
+    assert kinds == ("off", "off (code only)", "nomodel")
+    # no model to close: the skills are code templates, so the gate is drawn as a bypass
+    assert off["gate"]["open"] is True
+
+
+def test_flow_example_never_touches_the_wall_store() -> None:
+    """Example mode is drawn and counted in the view only, and the board writes nothing: the view
+    imports nothing that holds the Wall's data and calls no endpoint."""
+    view = (WALL / "board-view.js").read_text(encoding="utf-8")
+    imports = re.findall(r'^import .* from "([^"]+)";$', view, flags=re.M)
+    assert imports == ["./util.js", "./board.js"]
+    assert not re.search(r"\bstore\b", view)
+    assert not re.search(r"\bfetch\(", view.replace('fetch("/static/data/land_apac.geojson")', ""))
+    assert "POST" not in view
+    assert "Example · illustrative, not recorded." in view
+    assert "EXAMPLE ONLY (illustrative)" in view
+
+
+def test_a_refused_coordinator_run_is_never_working(tmp_path: Path) -> None:
+    """The bug of the card board: a refusal line that just arrived made the Coordinator "Working"
+    for 6 s although no model was called."""
+    data = _closed_day()
+    data["trace"].append(_trace(3, "DUTY", REFUSED.format(n=1), level="error", at="10:48"))
+    data["arrivedMs"] = {"tDUTY3": 500, "tDUTY1": 600}
+    duty = _card(_board(tmp_path, data), "duty")
+    assert duty["state"] == "notrun"
+    assert duty["word"] == "Not run"
+
+
+def test_a_refusal_that_arrives_after_an_answered_run_is_never_working(tmp_path: Path) -> None:
+    """The race: the snapshot still holds the previous, answered run when the refusal line arrives
+    on the stream. No model call is in progress, so the Coordinator is not "Working"."""
+    data = _closed_day()
+    data["duty"].update(
+        outcome="ACCEPTED",
+        validation_errors=[],
+        brief={"summary": "Plan the exposed flights first.", "priorities": []},
+        dispatches=[],
+        undispatched=[],
+    )
+    data["trace"].append(_trace(3, "DUTY", REFUSED.format(n=1), level="error", at="10:49"))
+    data["arrivedMs"] = {"tDUTY3": 400}
+    duty = _card(_board(tmp_path, data), "duty")
+    assert duty["state"] != "working"
+    assert duty["word"] != "Working"
+
+
+def test_flow_a_reset_already_past_is_not_said_as_one_minute(tmp_path: Path) -> None:
+    """The budget still says closed after its reset time: the board says the reset was due, never
+    a countdown that stays at "1 min"."""
+    data = _refused_day()
+    data["realNow"] = 1791886200000  # 2026-10-13T10:10:00Z, 3 h 10 min after the 0700Z reset
+    m = _flow(tmp_path, data)["m"]
+    assert m["status"] == "paused"
+    assert "1 min" not in m["sub"]
+    assert "1 min" not in m["gate"]["meta"]
+    assert "its reset was due 3 h 10 min ago" in m["sub"]
+    assert m["gate"]["meta"] == "3 jobs in line · reset was due 3 h 10 min ago"
+
+
+def test_flow_a_budget_that_did_not_load_says_nothing_about_the_queue(tmp_path: Path) -> None:
+    data = _refused_day()
+    data["budgetError"] = "HTTP 502"
+    m = _flow(tmp_path, data)["m"]
+    assert m["queue"] == []
+    assert m["gate"]["open"] is False
+    assert m["gate"]["meta"] == "Jobs in line: unknown, the AI budget did not load"
+    assert "next slot" not in m["gate"]["meta"]
+    assert [s["inLine"] for s in m["skills"]] == [0] * 6
+
+
+def test_flow_trouble_closes_the_gate(tmp_path: Path) -> None:
+    """Spec 5: a model that gave no result is unavailable, and an unavailable model is a closed
+    gate, never an open one with "Quota left today"."""
+    data = _stub_run()
+    data["state"]["llm"] = {"backend": "gemini", "model_id": "g", "label": "g"}
+    data["budget"] = _budget(False, [])
+    data["trace"].append(
+        _step(
+            5,
+            "RECOVERY",
+            "AI UNAVAILABLE: RECOVERY AGENT ERROR: TimeoutError",
+            "10:40:00",
+            actor="adk",
+            level="error",
+        )
+    )
+    m = _flow(tmp_path, data)["m"]
+    assert m["ai"]["kind"] == "trouble"
+    assert m["gate"]["open"] is False
+    assert m["gate"]["meta"] == "Nothing waits in line"
+
+
+def test_flow_a_hand_out_goes_before_the_work_it_started(tmp_path: Path) -> None:
+    """The Coordinator writes "Duty Officer -> plan_flights" when the tool returns, after the
+    planner, drafter and desk lines it produced. The board shows the hand-out first, and the log
+    keeps the record's own time."""
+    data = _refused_day()
+    data["trace"] = [
+        _step(1, "DUTY", "Duty Officer: 1 item(s) to dispatch (tick)", "10:01:10", actor="stub"),
+        _step(2, "PLANNER", "NO MODEL: MONITOR", "10:01:11", actor="stub"),
+        _step(3, "DRAFTER", "DRAFT MONITOR (NO MODEL)", "10:01:11", actor="stub"),
+        _step(4, "DESK", "RFA1540: DRAFT MONITOR waiting for a dispatcher", "10:01:11"),
+        _step(
+            5,
+            "DUTY",
+            "Duty Officer -> plan_flights: RFA1540: DRAFT MONITOR for a dispatcher",
+            "10:01:12",
+            actor="stub",
+        ),
+    ]
+    data["state"]["now"] = "2026-09-05T10:02:00.000Z"
+    out = _flow(tmp_path, data)
+    order = [e["type"] for e in out["m"]["events"]]
+    assert order == ["duty", "handoff", "skill", "skill", "desk"]
+    handoff = next(e for e in out["m"]["events"] if e["type"] == "handoff")
+    assert handoff["rec"] == handoff["at"] + 1001
+    row = next(r for r in out["rows"] if r["kind"].startswith("handoff:"))
+    assert row["tm"] == handoff["rec"]
+
+
+def test_the_frame_strip_says_replay_while_the_board_covers_the_wall() -> None:
+    """The board covers the Wall, which is not redrawn while it is open; the frame strip above it
+    is, so a board opened from #ai-at-work in REPLAY still says REPLAY once (UI-DESIGN 7.1)."""
+    wall = (WALL.parent / "wall.js").read_text(encoding="utf-8")
+    board_branch = wall[wall.index("  if (ui.board.open) {\n    renderFrame(D.state);") :]
+    board_branch = board_branch[: board_branch.index("return;")]
+    assert "renderFlow();" in board_branch
+    panels = (WALL / "panels.js").read_text(encoding="utf-8")
+    frame = panels[panels.index("export function renderFrame(s)") :]
+    frame = frame[: frame.index("\n}\n")]
+    assert "banner.hidden = !replay;" in frame
+    assert "renderFrame(s);" in panels[panels.index("export function renderChrome") :]

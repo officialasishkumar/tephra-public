@@ -24,7 +24,6 @@ export const ext = {
   loaded: { notices: false, recovery: false, budget: false, backtest: false, docs: false },
   errors: {},
   arrivals: new Map(), // trace id -> performance.now() when it arrived on the stream
-  handoffs: new Map(), // Coordinator (duty officer) tool -> performance.now() of its newest hand-out on the stream
   lastSeenSat: new Map(),
 };
 
@@ -65,11 +64,8 @@ function upsert(list, item, front) {
   if (i >= 0) list[i] = item; else if (front) list.unshift(item); else list.push(item);
 }
 
-const HANDOFF = /^Duty Officer -> (\w+):/;
 export function noteTrace(t) {
   ext.arrivals.set(t.id, performance.now());
-  const m = t.stage === "DUTY" ? HANDOFF.exec(t.message || "") : null;
-  if (m) ext.handoffs.set(m[1], performance.now());
 }
 
 // ------------------------------------------------------------------ small parts

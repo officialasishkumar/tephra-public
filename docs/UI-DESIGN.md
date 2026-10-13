@@ -1261,132 +1261,113 @@ for every volcano. The Wall is read-only: entering, withdrawing and the message 
 
 ### 7.21 TEPHRA Assistant at work (was "AI at work")
 
-A full overlay (`<dialog id="board">`, `wall/board.js` for the logic, `wall/board-view.js` for the
-page) that shows the AI as a team with a person in charge: public feeds, then the Duty Officer,
-then the six specialists it hands work to (Plume Reader, Satellite reader, Flight planner, Drafter,
-Recovery planner, Paperwork drafter), then "A dispatcher decides" at the Desk. Opened by the AI
-chip, by "See the AI at work" under the story's main button, by the button at the top of Details ›
-AI helpers, by A, and by the link `/#ai-at-work` (the Desk's "See the AI at work on the Wall";
-the hash is removed once read). It covers the Wall, never adds a column, and leaves the story and
-the map as they are underneath.
+A full overlay (`<dialog id="board">`; `wall/board.js` for the logic, `wall/board-view.js` for the
+page) that shows the assistant's work as it flows: real feeds on a map, code's checks, the
+Coordinator, the model gate, the six skills and a person who decides. Opened by the assistant
+chip, by "See TEPHRA Assistant at work" under the story's main button, by the button in Details ›
+TEPHRA Assistant, by A, and by `/#ai-at-work` (the Desk's link; the hash is removed once read). It
+covers the Wall below the frame strip and leaves the story and the map as they are underneath. The
+approved prototype and its behaviour spec are kept outside the repo (the "assistant-flow-board"
+notes); this section is the spec in the repo.
 
-Why it exists. Globot, the Gemini 3 grand-prize winner, showed five agent cards with a status and
-a last action, a chain-of-thought panel and a final "Waiting for human approval" step, but its
-reasoning was scripted demo data (research/16, `demo/cot_data.py`, its README's "High-Fidelity
-Mock"). TEPHRA's helpers are real: the Duty Officer hands out jobs and every step is recorded. Until
-this view that was buried in Details › AI helpers. The board makes it readable in about five
-seconds, and it is live and labelled, not scripted.
+Why it exists. Globot, the Gemini 3 grand-prize winner, showed agent cards and a "Waiting for human
+approval" step over scripted demo data (research/16). TEPHRA's assistant is real: the Coordinator
+hands out jobs and every step is recorded. The board makes that readable in about five seconds and
+lets a viewer feel the work move, and every moving thing is one real record.
 
-What it draws on, and what was taken:
-- Sentry's AI Agents dashboards (docs.sentry.io/ai/monitoring/agents/dashboards): agent runs, LLM
-  calls by model and tool calls as separate counts, handoffs between agents as a first-class step,
-  and an abbreviated "AI spans" view with a link to the full trace. Taken: hand-outs drawn as
-  lines, calls counted by model, and a short card with "Every step in How TEPHRA decided ›" as the
-  full trace.
-- Dailybot's live agent dashboard (dailybot.com/academy/product/agents/dashboard): one card per
-  agent with a health word and colour, the time of its last report, summary counts at the top, a
-  card that opens to a timeline. Taken: the summary counts ("4 waiting for AI budget · 1 failed ·
-  1 not run"), the time on every line, the card that opens to its steps.
-- Langfuse's agent graphs (langfuse.com/docs/observability/features/agent-graphs): an aggregated
-  view where a repeated step is one node with a counter. Taken: repeated steps collapse into one
-  line with "14×" (`collapseRuns`).
-- LangGraph's thread states (idle, busy, interrupted, error). Taken as the state words, in plain
-  English: Quiet, Working, Waiting for AI budget or Not run, Failed, plus Done and Queued.
-- Aegis's lesson (research/16: "our first version showed too much reasoning text"): a card opens
-  to at most five short steps, each with its time and source, never a wall of reasoning.
-- Not taken: named personas, a debate panel or a 3D globe (research/16, "what TEPHRA must not look
-  like"). The helpers keep the names the code gives them.
+The stage:
+- **Map.** A dark map of the region the Wall shows (`state.regions`), drawn once per resize or
+  snapshot on a canvas: land from `data/land_apac.geojson` (Natural Earth, public domain; simplified
+  at load, Douglas–Peucker 0.025°) as a dot matrix, the official SIGMET and VAA areas as one pink
+  area (filled once and outlined along its outer edge, however many overlap), TEPHRA's area where it
+  is wider (amber, dashed), the aircraft feed's query circles, airports, the active volcanoes in their
+  real colour code (the board's only red) and every aircraft. No map tiles. Every label sits on a
+  plate, stays on the map, and gives way to the labels placed before it (a name with no free place is
+  left out).
+- **Beacons.** Each feed has a beacon where it comes from: VA SIGMET on the SIGMETs in force, VONA at
+  MAGMA Bandung, Darwin and Tokyo VAAC and JMA pinned to the map's edge with an arrow and their
+  distance, Himawari, the winds grid; METAR comes from the airports and ADS-B from the aircraft. A
+  feed that is off says so ("not in this recording").
+- **Head.** The Strata mark by state, "TEPHRA Assistant · working / paused for 2 h 45 min / off (code
+  only) / Recovery planner gave no result" (`#board-status`), one sentence of cause (`#board-lede`),
+  "Real now · Example: working normally", "?" (How this moves) and the close button.
+- **Inside TEPHRA** (one glass panel, the pipeline as a drawn spine): Code checks (no AI) with feed
+  reads and flight alerts at the playhead; the Coordinator with its last run and a button that opens
+  its details; the model gate ("AI model · open", "AI model · quota spent" with "4 jobs in line · next
+  slot 0700Z", "AI model · gave no result", or "No model · code templates") with the budget's waiting
+  jobs parked in front as hollow rings (the gap above the gate grows so they never reach the
+  Coordinator's words; a reset already behind the real clock is said as "reset was due …", never
+  "in 1 min"; a budget that did not load shows no queue); the six skills
+  (Plume reader, Satellite reader, Flight planner, Drafter, Recovery planner, Paperwork drafter),
+  each with "N in line", its newest step's time or "idle", and a button that opens its details (the
+  `boardModel` card: state, newest result, model and calls, newest steps); "When you ask" for the
+  Desk's skills; and **You decide**: the hero number (at the playhead), the run bars, "At the Desk
+  now" with the Desk's other work (flights to plan by hand, SRA to sign, the airport plan, advisories
+  to approve; no second must-do number while the hero says one), "Open the Desk →" and
+  "Details › TEPHRA Assistant ›".
+- **Dock.** A four-row log that folds what belongs together (flights flagged together, a run and its
+  outcome, hand-outs to one skill, drafts reaching the Desk; "23× since 11:28:26" for repeats; a run's
+  "N must-do to you" appears when its tokens land, as the hero changes), a one-line legend, "Every
+  step in plain words", and the player. Rows are keyed: only a new row slides in.
 
-Layout. The columns follow the board's own width (a container query): four from 1640 px (feeds,
-Duty Officer, specialists, Desk), three from 1100 px (the feeds sit above the Duty Officer), one
-below (the cards hang off a trunk line on the left and the Desk comes last). The ends are top
-aligned, so opening a card never moves them. The board is `min(1840px, 100vw - 48px)` by
-`100vh - 48px`; at 600 px and below it is the whole screen. At 1440x900 and 1920x1080 every card
-shows without scrolling in the stub run; with the live site's longer lines the last card needs a
-short scroll at 1440. At 390 px nothing scrolls sideways.
+Motion (`flowModel` in board.js, pure; tests in `tests/test_wall_board.py`). Only these move:
+| Record | Motion |
+|---|---|
+| a POLL step, or a feed's `last_success_at` that moved on the `state` stream (one event for one read) | 3–9 particles from the feed's beacon (or the airports, or the winds grid) to Code checks, ripples at the source |
+| aircraft positions read (the ADS-B read, or a run started by new positions) | a glint on every aircraft in view and one faint particle from among them to Code checks (the most frequent read gets the quietest motion) |
+| an EXPOSURE step | a ring and a mono label on that aircraft, one particle to Code checks |
+| "Duty Officer: N item(s) to dispatch" | N white tokens from Code checks to the Coordinator |
+| "Duty Officer AI UNAVAILABLE (…); D …, M mandatory item(s) to the Desk" | the run's tokens knock at the closed gate, turn caution and drop down the code lane to You decide; the hero becomes M when they land |
+| "Duty Officer left M mandatory item(s) undone" | M caution tokens down the code lane |
+| "Duty Officer -> tool: …" | a token through the gate to that skill, whose dot lights. The line is written when the tool returns, so the board moves it to just before that skill's first step since the run began (at most 5 s; the log keeps the record's time); live, a hand-out whose work already moved is a log row only. A gate that is closed now opens while a recorded model hand-out passes |
+| a skill's own step (PLUME, SATELLITE, PLANNER, DRAFTER, RECOVERY, DOCS) | its dot lights; DOCS and RECOVERY send a token to You decide; a real Plume reader reading sends an amber particle to the volcano; an error greys the dot (never red) |
+| "RFA…: DRAFT … waiting for a dispatcher" (DESK, code) | a token from the Drafter to You decide |
+| NOTICE, ASK, MESSAGES | the "When you ask" dot lights, a token to You decide |
+A message no pattern knows is a log line with no motion. Every route keeps a faint afterglow for
+about 3 s. Steps in the same second are staggered 160 ms.
 
-The head stays put: the title "TEPHRA Assistant at work" with the `ta-16` mark, one sentence
-("Its Coordinator hands the work to six skills. A dispatcher decides on everything they make."), and the close button. The board
-opens below the Wall's frame strip (7.1), which stays on screen and undimmed above it, so the board
-repeats neither REPLAY nor the disclaimer however far it scrolls. The body then has the AI's one state in the AI chip's words ("AI on", "AI off", "AI
-paused · 0700Z real time", `aiWords`, docs/UI-AI-QUIET.md 5.2), its calm lead (5.1) and a link to
-Details › AI helpers, "Not updating since 1048Z" while the stream is lost (the cards dim), and in REPLAY "Times are on the
-replay clock. AI budget times (waiting until, closed until) are real time."; on the right the
-summary counts of the seven cards by state; then the flow; then "How to read this board". The feeds
-node says "Public feeds" (the replay icon in REPLAY); a reused first-pass answer is a neutral
-"first-pass answer" tag with the recorded words in its title.
+The player. The playhead is the only source of state: seeking rebuilds the counters, log, hero and
+run bars from every event at or before it, with no motion; playing fires each later event as it is
+passed (8× or 30×; a quiet stretch runs up to 14× faster and says so in the player's own line). In
+REPLAY the board opens playing back the latest steps the Wall holds and the player carries the one
+small word "Replay" (the frame strip says REPLAY and names the recording); live, it opens at the
+newest step and a step that arrives on the
+stream animates at once (`flow.push` from the `trace` handler, `flow.pushRead` from `state`). The
+play button then plays back the window. Steps the stream did not deliver (a reload after a lost
+stream) are applied with no motion; while the stream is lost the board dims and says "Live updates
+paused, reconnecting."
 
-Each card, from data only:
-- the helper's name and what it does ("Flight planner · Chooses an action for each flight");
-- its state, as shape, colour and word: Working (a spinner, while its work is RUNNING in the AI
-  work queue or a step of its own arrived in the last 6 s), "Waiting until 0700Z" (a clock, caution;
-  its work is WAITING for budget, the full words "Waiting for AI budget, next slot 0700Z" in its
-  title and for screen readers), Queued (a clock, grey), No result (the warning shape, caution: a
-  model was called and gave nothing usable), Not run (a caution dot: no model was called, such as a
-  plume read the Duty Officer could not hand out or a quota refusal), or the helper's own word
-  ("No brief", "No plan"); never the picture's red (docs/UI-AI-QUIET.md Q4),
-  Done, Quiet (nothing in the newest steps the Wall holds; the line says when it runs);
-- its newest result in plain words with its time: its own trace steps (`plainLine`), and its
-  records: the Plume Reader's outcome per volcano from each situation's assessment (STUB,
-  ACCEPTED, REPAIRED, MODEL_FAILED, PENDING, OFFICIAL_ONLY; volcanoes with the same outcome share
-  a line), the newest airport plan, satellite reading, safety risk assessment draft and advisory;
-- the model it calls and the calls today ("gemini-3.5-flash-lite · 1 of 450 calls today, shared";
-  when Google closed the day "1 call today, shared · closed by Google until 0700Z", since the
-  limit means nothing while no call can go, and "used up until 0700Z" when TEPHRA's own budget
-  ran out). Google counts the free tier per model, so the
-  count is the model's and the word "shared" says so; the Plume Reader's model runs nothing else.
-  With the stub: "No model (offline stub): no calls";
-- "Given 24 flights" when the Duty Officer's latest run handed it work ("· 1 failed" when a
-  hand-out failed), and "first-pass answer" (the violet tag, the label in its title) when a REPLAY
-  loop reused the first pass's answer.
+Example mode is labelled "Example · illustrative, not recorded. The assistant steps it shows did not
+happen." Choosing it plays the window's recorded inputs from the start with the gate open; the hero
+counts the drafts of the newest example run as they land and names that run. Its counts live in the
+view and it writes nothing anywhere. Closing the board returns it to "Real now".
 
-The Duty Officer's card adds its latest run as numbers (jobs given, must do, handed out, to the
-Desk, left for later, waiting for AI budget) and one sentence: "Handed out 24 jobs in urgency order
-(AI off).", "Handed out 3 jobs. Its brief passed the code's checks.", "Not run: today's free AI
-quota is used up (until 0700Z real time). No brief was made. Passed 1 must-do job to the Desk." or
-"No brief: AI unavailable (the answer failed the code's checks). Nothing was made up in its
-place." (the words of Details › AI helpers, wall/duty.js OUTCOME). Opened, it shows the run's steps and its brief with the AI-written mark.
+States and colour: working (gate open, the AI lane bright), paused (closed gate, waiting rings, the
+code lane caution toward You decide, the time left counted on the real clock), trouble (the chip's
+words, gate closed), off (gate "No model · code templates" drawn as a dashed bypass: the skills run
+as code, no model is closed or called). Pink is official
+products, blue the observatory, grey-blue weather, grey aircraft, white jobs, caution yellow only
+must-do work going to a person, amber TEPHRA's estimate, violet only the player's "Replay". A
+refused Coordinator run is never "Working" (board.js `isWorkLine`).
 
-Opening a card (a button with `aria-expanded`, one card open at a time) shows at most five steps,
-newest first, the queue first: each with its shape, its words, its time and where it came from
-(How TEPHRA decided, AI work queue, Duty Officer run, TEPHRA's estimate, Airport plan, Satellite
-reading, Paperwork, Advisories), "14×" for a repeated step, then "Every step in How TEPHRA decided
-›" (and "The full run in Details ›" for the Duty Officer), which close the board and open that
-Details section.
+Reduced motion: nothing travels. Each step draws a still line from source to target for 1.8 s, the
+player steps one real step (or same-second group) every 2.2 s, ripples and afterglow are off, and
+the numbers still update. Accessibility: a native modal dialog, focus to the title on open and back
+to the opener on close; the map, the canvases and the nodes are `aria-hidden`; "Every step in plain
+words" and "?" open a dialog with the motion-to-record table and the full folded step list (the
+steps up to the playhead bright); one polite live region (`#board-live`) speaks at most one row
+every 10 s; the track is a `role="slider"` with "replay clock 11:40:38" as its value text, and ←/→
+step between real steps, Home/End jump to the ends. At 760 px and below the parts stack and scroll,
+the player is a solid bar across the bottom with a must-do chip that jumps to You decide (its label
+says "–" as words, never 0, before the first run).
 
-The lines (SVG, measured from the cards after each build and on every resize, with the old drawing
-removed first so a narrower window never keeps the wider drawing and scrolls sideways): from the
-feeds into
-the Duty Officer; from the Duty Officer to each specialist, solid when its latest run handed that
-helper work, caution (amber) when a hand-out failed, dashed when it did not; from the Drafter, the Recovery
-planner and the Paperwork drafter into the Desk, solid while that helper has work waiting there. A
-hand-out arriving on the stream ("Duty Officer -> plan_flights: ...") lights its line for 6 s:
-brighter, thicker, a dash that marches four times (no march under reduced motion), and the card's
-border brightens. The lines are decoration; each card says the same in words.
-
-The Desk node: the big number is `state.draft_count` ("23 advisories wait for a dispatcher";
-"Advisory count unknown (database error)" when null), then, when true: "1 airport plan waits for
-approval", "No airport plan was made: a dispatcher plans the network by hand", "1 safety risk
-assessment draft waits for sign-off" (this mode's unsigned SRA drafts in `/api/docs`, one per region,
-kept live by the `doc` event), "14 flights to plan by hand, 1 of them must do: the AI made no plan for them" (the story's
-Plan by hand count, all volcanoes; without it, "1 must-do flight passed to a dispatcher by the latest
-Duty Officer run, to plan by hand"); the filled "Open the Desk →" (`/desk`, new tab); "Nothing leaves TEPHRA until a dispatcher
-approves it, and then only to its own outbound queue."; and "On call at the Desk, when a dispatcher
-asks": Notice reader, Ask, Messages, Handover, each with its state.
-
-States: before the first `/api/wall` answer the board shows "Connecting to TEPHRA…" and three
-skeleton bars; a budget that did not load reads "Calls today: unknown, the AI budget did not
-load" on each card; no Duty Officer run yet reads "No run yet. It runs when code finds AI work due:
-…"; a quiet helper says what makes it run. Live updates come from the Wall's own stream and polls:
-the board is rebuilt only when what it shows changes, keeps its scroll, and keeps focus on the
-same control (`data-focus`), so a tick never moves the reader.
-
-Accessibility: a native modal dialog (the page behind is inert, Tab stays inside), focus moves to
-the title on open, Esc, the close button or a click on the dimmed page closes it and focus returns
-to the control that opened it; the cards are buttons with `aria-expanded` and `aria-controls`;
-the steps are a labelled region; every state has a shape, a colour and a word; the summary
-counts are also one polite status sentence; the lines are `aria-hidden` and each card carries the
-same fact in words; forced colours draw the lines in `CanvasText` (live in `Highlight`).
+Performance: three canvases (the map redrawn only on a resize or a new snapshot; the rails, the spine,
+gate and waiting rings, redrawn on a resize, a scroll or a change of state; the effects cleared and
+drawn per frame only while something moves, the loop stops when nothing does and while the tab is
+hidden), at most 160 particles, 90 afterglow routes and 40 tokens, no layout reads in the loop
+(anchors are measured on resize and scroll), no DOM work per frame, and an update writes only the
+words that changed. While the board is open the Wall under it is not drawn and its map's marching
+paths stop.
 
 ## 8. 3D, compare, the time bar and the height filter
 

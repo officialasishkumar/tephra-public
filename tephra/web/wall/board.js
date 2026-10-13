@@ -1,13 +1,14 @@
-// "TEPHRA Assistant at work" (docs/UI-DESIGN.md 7.21): the model behind the board that shows the
+// "TEPHRA Assistant at work" (docs/UI-DESIGN.md 7.21): the model behind the flow board that shows the
 // Coordinator (the code's Duty Officer) handing work to the assistant's other skills and a
 // dispatcher deciding at the end. Pure functions over data the Wall already holds: the newest
-// Coordinator run (snapshot.duty), the AI budget and its
-// work queue (/api/budget), the trace, the airport plans, the paperwork list, the advisories and
-// the satellite readings. Nothing here is scripted: a card with no data says so. No DOM, so the
-// board's logic is tested on its own (tests/test_wall_board.py).
+// Coordinator run (snapshot.duty), the AI budget and its work queue (/api/budget), the trace, the
+// airport plans, the paperwork list, the advisories and the satellite readings. Nothing here is
+// scripted: a skill with no data says so. No DOM, so the board's logic is tested on its own
+// (tests/test_wall_board.py). flowModel() drives the board; boardModel() gives the Coordinator's and
+// each skill's details sheet.
 
 import { ms } from "./util.js";
-import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiLead, reasonClass, realWhen, recordedWords, WHY, ASSISTANT } from "./x-parts.js";
+import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiSymbol, causeShort, reasonClass, realWhen, recordedWords, WHY, ASSISTANT } from "./x-parts.js";
 import { collapseRuns, plural } from "./dk.js";
 
 // Every skill of TEPHRA Assistant on the Wall, in board order. `tool` is the Coordinator's tool that reaches it,
@@ -31,16 +32,14 @@ export const HELPERS = [
 // What one hand-out covers, per tool: "24 flights", "1 volcano".
 export const TOOL_UNIT = { assess_volcanoes: "volcano", plan_flights: "flight", run_recovery: "network re-plan", draft_sra: "region" };
 
-// A step this recent counts as the helper working on it now; a hand-out this recent lights its edge.
+// A step this recent counts as the helper working on it now.
 export const LIVE_MS = 6000;
 // Steps shown when a card opens (Aegis's lesson in research/16: short bullets, not a wall of reasoning).
 export const STEPS_SHOWN = 5;
 
-// The card states, in the order one wins over another. Shape, colour and word for each are the
-// view's (board-view.js); every state has all three. An assistant step that gave nothing is a caution,
-// never the picture's red (docs/UI-AI-QUIET.md Q4): "No result" when a model was called and gave
-// nothing usable, "Not run" when no model was called.
-export const STATES = ["working", "waiting", "queued", "failed", "notrun", "done", "quiet"];
+// The card states' words. An assistant step that gave nothing is a caution, never the picture's red
+// (docs/UI-AI-QUIET.md Q4): "No result" when a model was called and gave nothing usable, "Not run"
+// when no model was called.
 export const STATE_WORD = {
   working: "Working", waiting: "Waiting for the next slot", queued: "Queued", failed: "No result",
   notrun: "Not run", done: "Done", quiet: "Quiet",
@@ -226,6 +225,12 @@ function stateOf({ working, waiting, queued, last }) {
   return "done";
 }
 
+// A step that just arrived shows its skill working only when it is work a skill did: never a
+// failure or a quota refusal (no model was called), and never the work list code writes before
+// any model is called ("Duty Officer: 3 item(s) to dispatch").
+const CODE_LINE = /^Duty Officer: (?:\d+ item\(s\) to dispatch|the same work as on the first pass)\b|AI UNAVAILABLE|left \d+ mandatory item\(s\) undone/;
+export const isWorkLine = (t) => Boolean(t) && t.level !== "error" && !CODE_LINE.test(String(t.message || ""));
+
 function helperCard(h, ctx) {
   const lines = ownLines(h, ctx.trace);
   const newest = lines[lines.length - 1];
@@ -234,7 +239,7 @@ function helperCard(h, ctx) {
   const past = [...traceSteps(h, lines), handoffStep(h, ctx.duty), ...resultSteps(h, ctx)].filter(Boolean).sort((a, b) => (b.at || 0) - (a.at || 0));
   // The card's line is the helper's own newest result; the hand-out has its own chip.
   const last = past.find((x) => x.source !== SOURCE.run) || past[0] || null;
-  const arrived = newest ? ctx.arrivedAgo(newest.id) : Infinity;
+  const arrived = isWorkLine(newest) ? ctx.arrivedAgo(newest.id) : Infinity;
   const working = work.some((w) => w.status === "RUNNING") || arrived < LIVE_MS;
   const waiting = work.filter((w) => w.status === "WAITING");
   const queued = work.filter((w) => w.status === "QUEUED");
@@ -279,7 +284,10 @@ function dutyCard(ctx) {
   const lines = ownLines(h, ctx.trace);
   const newest = lines[lines.length - 1];
   const items = (ctx.work || []).filter((w) => w.kind === "duty_item");
-  const working = items.some((w) => w.status === "RUNNING") || (newest ? ctx.arrivedAgo(newest.id) < LIVE_MS : false);
+  // a refused run (the quota or a model that gave nothing) is never "Working", however recent its
+  // lines: no model call is in progress for it
+  const refusedRun = run?.outcome === "MODEL_FAILED";
+  const working = items.some((w) => w.status === "RUNNING") || (!refusedRun && isWorkLine(newest) && ctx.arrivedAgo(newest.id) < LIVE_MS);
   const waiting = items.filter((w) => w.status === "WAITING");
   const model = ctx.stub || run?.llm_backend === "stub" ? { id: null, text: "No model (offline stub): no calls", tone: "off" } : modelLine("lite", ctx);
   if (!run) {
@@ -314,56 +322,8 @@ function dutyCard(ctx) {
   };
 }
 
-const FEED_ORDER = ["sigmet", "vaac_darwin", "vaac_tokyo", "vona", "jma_volcano", "adsb", "winds", "frames", "taf", "metar", "hsd"];
-
-function feedsNode(feeds, names) {
-  const sorted = (feeds || []).slice().sort((a, b) => FEED_ORDER.indexOf(a.feed) - FEED_ORDER.indexOf(b.feed));
-  const tone = { OK: "ok", STALE: "stale", ERROR: "serious", DISABLED: "off", NEVER: "never" };
-  const on = sorted.filter((f) => f.status === "OK" || f.status === "STALE" || f.status === "ERROR");
-  const off = sorted.length - on.length;
-  return {
-    working: sorted.filter((f) => f.status === "OK").length, stale: sorted.filter((f) => f.status === "STALE").length,
-    failing: sorted.filter((f) => f.status === "ERROR").length, off,
-    shown: on.map((f) => ({ id: f.feed, name: names[f.feed] || f.feed, tone: tone[f.status] || "never" })),
-  };
-}
-
-function gateNode(ctx) {
-  const plan = newestPlan(ctx.recovery);
-  // one per region: older unsigned copies of a region's SRA (drafted again by earlier replay
-  // runs) are the same work, not more of it
-  const sra = [...new Set((ctx.docs || []).filter((d) => d.kind === "SRA" && d.status === "DRAFT" && d.replay === ctx.replay).map((d) => d.region))];
-  const others = [];
-  if (plan?.status === "DRAFT") others.push({ tone: "caution", text: "1 airport plan waits for approval" });
-  else if (plan?.status === "AI_UNAVAILABLE") others.push({ tone: "caution", text: "No airport plan was made: a dispatcher plans the network by hand" });
-  if (sra.length) others.push({ tone: "caution", text: `${plural(sra.length, "safety risk assessment draft")} ${sra.length === 1 ? "waits" : "wait"} for sign-off` });
-  // the flights the assistant made no plan for, said once with the must-do ones in it; without that
-  // count (the board alone), the Coordinator's must-do flights
-  const undone = (ctx.duty?.undispatched || []).length;
-  if (ctx.handPlan?.n) others.push({ tone: "caution", text: `${plural(ctx.handPlan.n, "flight")} to plan by hand${ctx.handPlan.must ? `, ${ctx.handPlan.must} of them must do` : ""}: ${ASSISTANT} made no plan for them` });
-  else if (undone) others.push({ tone: "caution", text: `${plural(undone, "must-do flight")} passed to a dispatcher by the latest Coordinator run, to plan by hand` });
-  return { drafts: ctx.drafts, others, docsLoaded: ctx.docsLoaded, planWaits: plan?.status === "DRAFT", sraWaits: sra.length };
-}
-
-// Hand-out edges from the Coordinator to each skill, and from the skills whose work goes
-// to the Desk into the gate. live: a hand-out arrived in the last LIVE_MS; used: the latest run
-// handed it work (failed when a hand-out failed); idle: not in the latest run. Into the gate a
-// line is solid while that helper has work waiting there for a dispatcher.
-function edges(team, ctx, gate) {
-  const out = [{ from: "feeds", to: "duty", state: "used" }];
-  for (const c of team) {
-    const h = HELPERS.find((x) => x.id === c.id);
-    const live = ctx.liveAgo(h.tool) < LIVE_MS;
-    const ho = c.handoff;
-    out.push({ from: "duty", to: c.id, state: live ? "live" : ho ? (ho.failed ? "failed" : "used") : "idle" });
-  }
-  const waits = { drafter: (gate.drafts || 0) > 0, recovery: gate.planWaits, sra: gate.sraWaits > 0 };
-  for (const c of team) if (c.to === "desk") out.push({ from: c.id, to: "gate", state: waits[c.id] ? "used" : "idle" });
-  return out;
-}
-
-// The whole board. `input` holds what the Wall already loaded; `arrivedAgo(traceId)` and
-// `liveAgo(tool)` give milliseconds since a trace line or a hand-out reached this page.
+// The details behind the board: the Coordinator's card and each skill's. `input` holds what the Wall
+// already loaded; `arrivedAgo(traceId)` gives milliseconds since a trace line reached this page.
 export function boardModel(input) {
   const s = input.state;
   if (!s) return { ready: false };
@@ -375,28 +335,386 @@ export function boardModel(input) {
   const ctx = {
     replay, stub, until: ai.until, trace: input.trace || [], duty: input.duty || null,
     budget: input.budget || null, budgetError: input.budgetError || null, work: Array.isArray(input.budget?.waiting) ? input.budget.waiting : [],
-    recovery: input.recovery || [], docs: input.docs || [], docsLoaded: !!input.docsLoaded, satellite: input.satellite || [],
-    advisories: input.advisories || [], drafts: s.draft_count, handPlan: input.handPlan || null, situations: input.situations || [],
+    recovery: input.recovery || [], docs: input.docs || [], satellite: input.satellite || [],
+    advisories: input.advisories || [], situations: input.situations || [],
     volcanoName: (id) => (input.situations || []).find((x) => x.volcano_id === id)?.volcano_name || id,
-    arrivedAgo: input.arrivedAgo || (() => Infinity), liveAgo: input.liveAgo || (() => Infinity),
+    arrivedAgo: input.arrivedAgo || (() => Infinity),
   };
-  const duty = dutyCard(ctx);
-  const team = HELPERS.filter((h) => h.role === "team").map((h) => helperCard(h, ctx));
-  const desk = HELPERS.filter((h) => h.role === "desk").map((h) => {
-    const lines = ownLines(h, ctx.trace);
-    const newest = lines[lines.length - 1];
-    const state = newest ? (newest.level === "error" ? "failed" : ctx.arrivedAgo(newest.id) < LIVE_MS ? "working" : "done") : "quiet";
-    return { id: h.id, name: h.name, does: h.does, state, word: STATE_WORD[state], at: newest ? ms(newest.at) : NaN };
-  });
-  const cards = [duty, ...team];
-  const gate = gateNode(ctx);
-  const counts = Object.fromEntries(STATES.map((k) => [k, cards.filter((c) => c.state === k).length]));
+  return { ready: true, replay, stub, duty: dutyCard(ctx), team: HELPERS.filter((h) => h.role === "team").map((h) => helperCard(h, ctx)) };
+}
+
+// ------------------------------------------------------------------ the flow board (UI-DESIGN 7.21)
+// "TEPHRA Assistant at work" as a stage: real feeds on a map flow into code's checks, the
+// Coordinator, the model gate, the skills and a person who decides. flowModel() is pure: every
+// event it returns is one real record (a trace step, or a feed read whose last_success_at moved),
+// and the view animates nothing else. A message no pattern knows is a log line with no motion.
+
+// The skills each Coordinator tool reaches, the first one first (a plume read runs the Satellite
+// reader inside it; a flight's plan goes on to the Drafter), and which skill a trace stage belongs to.
+export const TOOL_SKILLS = { assess_volcanoes: ["plume", "sat"], plan_flights: ["planner", "drafter"], run_recovery: ["recovery"], draft_sra: ["sra"] };
+const TOOL_SKILL = Object.fromEntries(Object.entries(TOOL_SKILLS).map(([tool, ids]) => [tool, ids[0]]));
+const STAGE_SKILL = Object.fromEntries(HELPERS.filter((h) => h.role === "team").map((h) => [h.stage, h.id]));
+const ON_REQUEST = new Set(["NOTICE", "ASK", "MESSAGES"]);
+const MODEL_ACTORS = new Set(["gemini", "adk", "stub"]);
+// The kind of each feed, which sets its colour: official products, the observatory, weather,
+// aircraft, satellite pictures (the Wall's data colours).
+export const FEED_KIND = {
+  sigmet: "official", vaac_darwin: "official", vaac_tokyo: "official", vona: "observer", jma_volcano: "observer",
+  metar: "weather", taf: "weather", winds: "weather", adsb: "aircraft", frames: "satellite", hsd: "satellite",
+};
+const FEED_WORDS = {
+  sigmet: ["VA SIGMETs read", "current", "current"], vaac_darwin: ["Darwin VAAs read", "advisory", "advisories"], vaac_tokyo: ["Tokyo VAAs read", "advisory", "advisories"],
+  vona: ["VONAs from MAGMA read", "notice", "notices"], jma_volcano: ["JMA volcano notices read", "notice", "notices"],
+  metar: ["Airport weather (METAR) read", "report", "reports"], taf: ["Airport forecasts (TAF) read", "forecast", "forecasts"],
+  winds: ["Winds aloft read", "point", "points"], frames: ["Satellite pictures read", "picture", "pictures"], hsd: ["Himawari split window read", "scene", "scenes"],
+};
+// A read that moved last_success_at within this of a POLL step (or a run started by new aircraft)
+// is the same read: one event, never two.
+const SAME_READ_MS = 3000;
+// Same-second steps are told apart on screen, 160 ms each (spec 4).
+export const STAGGER_MS = 160;
+
+const POLL = /^(.+?): (\d+) new or changed record\(s\)$/;
+const DUTY_START = /^Duty Officer: (\d+) item\(s\) to dispatch \((\w+)\)/;
+const DUTY_REFUSED = /^Duty Officer AI UNAVAILABLE \((.+)\); (\d+) delegation\(s\) made, (\d+) mandatory item\(s\) to the Desk$/;
+const DUTY_HANDOFF = /^Duty Officer -> (\w+):/;
+const DUTY_BRIEF = /^Duty Officer brief: (\d+) delegation\(s\)/;
+const DUTY_UNDONE = /^Duty Officer left (\d+) mandatory item\(s\) undone: to the Desk$/;
+const EXPOSURE = /^(RFA\d+) \(([^)]*)\) (is inside|enters) the (.+?) cone(?: in (\d+) min)? at (FL\d{3})/;
+const DESK_DRAFT = /^(RFA\d+): DRAFT (\w+(?: LEVEL)?) (?:waiting for|for) a dispatcher$/;
+const PLUME_READ = /^Plume Reader (accepted|repaired): /;
+
+const plural2 = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+function feedRead(feed, n, at, id, src, raw) {
+  const kind = FEED_KIND[feed] || "weather";
+  if (feed === "adsb") return { id, at, type: "adsb", raw, src, text: "Aircraft positions read (adsb.lol)" };
+  const w = FEED_WORDS[feed];
+  const text = w ? `${w[0]}${Number.isFinite(n) ? `: ${plural2(n, w[1], w[2])}` : ""}` : `${feed} read`;
+  return { id, at, type: "feed", feed, kind, n: Number.isFinite(n) ? n : null, src, raw, text };
+}
+
+// A feed read the `state` stream reported (its last_success_at moved), as a board event; the same
+// id flowEvents gives it, so it is never shown twice.
+export const readEvent = (feed, n, at) => feedRead(feed, n, at, `read:${feed}:${at}`, "state", `feeds.${feed}.last_success_at ${new Date(at).toISOString()}`);
+
+// One trace step as zero or more board events (spec 3). Pure; `t` is a trace line.
+export function stepEvents(t) {
+  const at = ms(t.at);
+  if (!Number.isFinite(at)) return [];
+  const msg = String(t.message || "");
+  const id = t.id || `${t.stage}-${t.at}-${msg.slice(0, 24)}`;
+  const base = { id, at, raw: msg, stage: t.stage, actor: t.actor, level: t.level };
+  let m;
+  if (t.stage === "POLL" && (m = POLL.exec(msg))) {
+    const feed = t.detail?.feed || null;
+    if (!feed) return [{ ...base, type: "note", text: plainLine(msg) }];
+    const n = Number(m[2]);
+    return [{ ...feedRead(feed, n, at, id, "poll", msg), stage: t.stage }];
+  }
+  if (t.stage === "DUTY") {
+    if ((m = DUTY_START.exec(msg))) {
+      const n = Number(m[1]), trig = m[2];
+      const out = [];
+      if (trig === "adsb") out.push({ ...base, id: `${id}:adsb`, at: at - 1, type: "adsb", src: "duty", quiet: true, text: "Aircraft positions read (adsb.lol)" });
+      out.push({ ...base, type: "duty", n, trig, text: `Coordinator got ${plural2(n, "job")} ${trig === "adsb" ? "after new aircraft positions" : "on the scheduled check"}` });
+      return out;
+    }
+    if ((m = DUTY_REFUSED.exec(msg))) {
+      const cls = reasonClass(m[1]);
+      return [{ ...base, type: "refused", cls, reason: m[1], d: Number(m[2]), n: Number(m[3]),
+        text: cls === "budget" ? "Coordinator can't run (today's free AI quota is used up)" : `Coordinator gave no result (${WHY[cls] || WHY.other})` }];
+    }
+    if ((m = DUTY_HANDOFF.exec(msg))) {
+      const skill = TOOL_SKILL[m[1]] || null;
+      return [{ ...base, type: skill ? "handoff" : "note", tool: m[1], skill, text: plainLine(msg) }];
+    }
+    if ((m = DUTY_BRIEF.exec(msg))) return [{ ...base, type: "brief", d: Number(m[1]), text: plainLine(msg) }];
+    if ((m = DUTY_UNDONE.exec(msg))) return [{ ...base, type: "undone", n: Number(m[1]), text: plainLine(msg) }];
+    return [{ ...base, type: "note", text: plainLine(msg) }];
+  }
+  if (t.stage === "EXPOSURE" && (m = EXPOSURE.exec(msg))) {
+    const inside = m[3] === "is inside";
+    return [{ ...base, type: "flight", flight: m[1], cs: m[2], inside, mins: m[5] ? Number(m[5]) : 0, vol: m[4], fl: m[6],
+      text: inside ? `${m[1]} is inside the ${m[4]} ash area at ${m[6]}` : `${m[1]} reaches the ${m[4]} ash area in ${m[5]} min at ${m[6]}` }];
+  }
+  if (t.stage === "DESK" && t.actor === "human") return [{ ...base, type: "decided", text: msg }];
+  if (t.stage === "DESK" && (m = DESK_DRAFT.exec(msg))) return [{ ...base, type: "desk", skill: "drafter", flight: m[1], text: plainLine(msg) }];
+  const skill = STAGE_SKILL[t.stage];
+  if (skill && MODEL_ACTORS.has(t.actor)) {
+    if (t.level === "error") return [{ ...base, type: "skill-failed", skill, text: plainLine(msg) }];
+    const h = HELPERS.find((x) => x.id === skill);
+    // the Drafter's output reaches the Desk with the DESK step; the other desk skills' with their own
+    const toDesk = h.to === "desk" && skill !== "drafter";
+    // amber only for a real model reading of the plume, never for code's stub estimate
+    const plume = skill === "plume" && t.actor !== "stub" && PLUME_READ.test(msg);
+    return [{ ...base, type: "skill", skill, toDesk, plume, volcano: t.volcano_id || null, text: plainLine(msg) }];
+  }
+  if (ON_REQUEST.has(t.stage) && MODEL_ACTORS.has(t.actor)) return [{ ...base, type: t.level === "error" ? "note" : "onreq", text: plainLine(msg) }];
+  return [{ ...base, type: "note", text: plainLine(msg) }];
+}
+
+// Feed reads that are not trace steps: a feed's last_success_at that moved on the `state` stream
+// (`reads`, kept by the Wall), and each feed's newest read when it falls in the window. A POLL step
+// (or a run started by new aircraft) for the same feed within SAME_READ_MS is the same read.
+function feedEvents(feeds, reads, from, to, traceEvents) {
+  const seen = traceEvents.filter((e) => e.type === "feed" || e.type === "adsb");
+  const same = (feed, at) => seen.some((e) => (feed === "adsb" ? e.type === "adsb" : e.feed === feed) && Math.abs(e.at - at) < SAME_READ_MS);
+  const out = [];
+  const add = (feed, at, n, src) => {
+    if (!Number.isFinite(at) || at < from || at > to || same(feed, at)) return;
+    const e = feedRead(feed, n, at, `read:${feed}:${at}`, src, `feeds.${feed}.last_success_at ${new Date(at).toISOString()}`);
+    out.push(e);
+    seen.push(e);
+  };
+  for (const r of reads || []) add(r.feed, ms(r.at), r.n, "state");
+  for (const f of feeds || []) if (f.status === "OK" || f.status === "STALE") add(f.feed, ms(f.last_success_at), f.record_count, "feeds");
+  return out;
+}
+
+// The Coordinator writes its "Duty Officer -> <tool>: ..." line when the tool returns, after the
+// skill's own steps for that hand-out. On the board the hand-out goes first: it moves to just before
+// the first step of that skill since the run started (or since the previous hand-out to the same
+// tool), at most HANDOFF_BACK_MS earlier. `rec` keeps the record's own time, which the log shows.
+const HANDOFF_BACK_MS = 5000;
+function handoffsFirst(events) {
+  let runAt = -Infinity;
+  const lastTo = {};
+  for (const e of events) {
+    if (e.type === "duty") { runAt = e.at; continue; }
+    if (e.type !== "handoff") continue;
+    const skills = TOOL_SKILLS[e.tool] || [];
+    const from = Math.max(runAt, lastTo[e.tool] ?? -Infinity, e.at - HANDOFF_BACK_MS);
+    lastTo[e.tool] = e.at;
+    const first = events.find((x) => x !== e && x.at > from && x.at <= e.at && (x.type === "skill" || x.type === "skill-failed" || x.type === "desk") && skills.includes(x.skill));
+    if (first) { e.rec = e.at; e.at = first.at - 1; }
+  }
+  return events.sort((a, b) => a.at - b.at);
+}
+
+// Every board event in the window, oldest first, with same-second steps staggered for the eye.
+export function flowEvents({ trace = [], feeds = [], feedReads = [], now = NaN }) {
+  const fromTrace = trace.flatMap(stepEvents).sort((a, b) => a.at - b.at);
+  const first = fromTrace.length ? fromTrace[0].at : Number.isFinite(now) ? now - 600000 : NaN;
+  const t0 = Number.isFinite(first) ? first - 6000 : NaN;
+  const last = fromTrace.length ? fromTrace[fromTrace.length - 1].at : -Infinity;
+  const t1 = Math.max(Number.isFinite(now) ? now : -Infinity, last);
+  const events = handoffsFirst([...fromTrace, ...feedEvents(feeds, feedReads, t0, t1, fromTrace)].sort((a, b) => a.at - b.at));
+  let prev = -Infinity, k = 0;
+  for (const e of events) {
+    k = e.at - prev < 1000 && !e.quiet ? k + 1 : 0;
+    if (!e.quiet) prev = e.at;
+    e.lag = Math.min(k, 12) * STAGGER_MS; // screen time only
+  }
+  events.forEach((e, i) => { e.i = i; });
+  return { events, t0, t1: Number.isFinite(t1) ? t1 : t0 };
+}
+
+// The board's counters, hero and run bars at a playhead: a pure function of the events at or
+// before `t`, so scrubbing is exact (spec 6). `hero` is M of the newest refused (or must-do left
+// undone) run at or before t; null before the first such run.
+export function flowAt(events, t, { example = false } = {}) {
+  const S = { feeds: 0, flights: 0, coordAt: null, must: null, mustAt: null, runs: 0, drafts: 0, exRun: null, lit: {}, failed: {} };
+  for (const e of events) {
+    if (e.at > t) break;
+    if (e.type === "feed" || e.type === "adsb") S.feeds += 1;
+    else if (e.type === "flight") S.flights += 1;
+    else if (e.type === "duty") { S.coordAt = e.at; if (example) { S.exRun = e.at; S.drafts = e.n; } }
+    else if ((e.type === "refused" || e.type === "undone") && !example) { S.must = e.n; S.mustAt = e.at; S.runs += e.type === "refused" ? 1 : 0; }
+    else if (e.type === "skill" || e.type === "handoff") { S.lit[e.skill] = e.at; delete S.failed[e.skill]; }
+    else if (e.type === "skill-failed") S.failed[e.skill] = e.at;
+  }
+  return S;
+}
+
+// The log, folded so what belongs together is one row (spec 1): flights flagged together, a run's
+// "N jobs" and its outcome, hand-outs to one skill, drafts reaching the Desk. Repeated refusals
+// say how often ("23× since 11:28:26").
+export function foldRows(events, { example = false } = {}) {
+  const rows = [];
+  let refusals = 0, firstRefusal = null;
+  for (const e of events) {
+    if (e.quiet) continue;
+    const last = rows[rows.length - 1];
+    const near = (ms2) => last && e.at - last.at < ms2;
+    if (e.type === "flight") {
+      if (near(1500) && last.kind === "flight" && last.vol === e.vol) { last.items.push(e); continue; }
+      rows.push({ kind: "flight", key: `f:${e.id}`, at: e.at, vol: e.vol, items: [e] });
+      continue;
+    }
+    if (e.type === "refused" || e.type === "undone") {
+      refusals += 1;
+      firstRefusal = firstRefusal ?? e.at;
+      const row = near(2000) && last.kind === "duty" && !last.out ? last : null;
+      const out = { e, k: refusals, since: firstRefusal };
+      if (row) { row.out = out; row.items.push(e); } else rows.push({ kind: "duty", key: `r:${e.id}`, at: e.at, duty: null, out, items: [e] });
+      continue;
+    }
+    if (e.type === "duty") { rows.push({ kind: "duty", key: `d:${e.id}`, at: e.at, duty: e, out: null, items: [e] }); continue; }
+    if (e.type === "handoff" || e.type === "skill" || e.type === "desk") {
+      const k = `${e.type}:${e.skill}`;
+      if (near(2500) && last.kind === k) { last.items.push(e); continue; }
+      rows.push({ kind: k, key: `${k}:${e.id}`, at: e.at, items: [e] });
+      continue;
+    }
+    rows.push({ kind: e.type, key: `${e.type}:${e.id}`, at: e.at, items: [e] });
+  }
+  return rows.map((r) => ({ ...r, tm: r.items[0].rec ?? r.at, ...rowWords(r, example) })).filter((r) => r.text);
+}
+
+const flightNames = (a) => (a.length <= 2 ? a.map((e) => e.flight).join(" and ") : `${a[0].flight}, ${a[1].flight} +${a.length - 2}`);
+const SKILL_NAME = Object.fromEntries(HELPERS.map((h) => [h.id, h.name]));
+
+// A row's words and its colour key (official, observer, weather, aircraft, job, must, tephra,
+// muted). `toYou` marks the words that say work went to a person.
+function rowWords(r, example) {
+  const e = r.items[0];
+  const raw = r.items.map((x) => x.raw).join("\n");
+  if (r.kind === "flight") {
+    const a = r.items, ins = a.filter((x) => x.inside), near = a.filter((x) => !x.inside);
+    const text = a.length === 1 ? e.text
+      : !near.length ? `${flightNames(a)} are inside the ${r.vol} ash area`
+        : !ins.length ? `${flightNames(a)} will reach the ${r.vol} ash area`
+          : `${flightNames(a)}: ${ins.length} inside the ${r.vol} ash area, ${near.length} on the way`;
+    return { tone: "aircraft", text: `Code: ${text}`, raw };
+  }
+  if (r.kind === "duty") {
+    const got = r.duty ? r.duty.text : "Coordinator run";
+    if (example) return r.duty ? { tone: "job", text: `Coordinator hands ${plural2(r.duty.n, "job")} to the skills (example)`, raw } : { text: "" };
+    if (!r.out) return { tone: "job", text: got, raw };
+    const o = r.out.e;
+    const head = o.type === "undone" ? `${got} · it left must-do work` : o.cls === "budget" ? `${got} · assistant paused` : `${got} · ${o.text.replace(/^Coordinator /, "")}`;
+    return { tone: "must", text: head, toYou: `${o.n} must-do to you`, repeat: r.out.k > 1 ? `${r.out.k}× since ${hmsOf(r.out.since)}` : null, raw };
+  }
+  if (r.kind.startsWith("handoff:")) return { tone: "job", text: `Coordinator handed ${r.items.length === 1 ? "a job" : `${r.items.length} jobs`} to ${SKILL_NAME[e.skill] || e.skill}`, raw };
+  if (r.kind.startsWith("skill:")) return { tone: e.plume ? "tephra" : "job", text: r.items.length === 1 ? e.text : `${SKILL_NAME[e.skill] || e.skill}: ${r.items.length} steps · ${r.items[r.items.length - 1].text}`, raw };
+  if (r.kind.startsWith("desk:")) return { tone: "job", text: r.items.length === 1 ? `Advisory draft for ${e.flight} reached the Desk` : `${r.items.length} advisory drafts reached the Desk`, raw };
+  if (e.type === "feed") return { tone: e.kind, text: e.text, raw };
+  if (e.type === "adsb") return { tone: "aircraft", text: e.text, raw };
+  if (e.type === "skill-failed") return { tone: "muted", text: e.text, raw };
+  if (e.type === "brief" || e.type === "onreq" || e.type === "decided") return { tone: "job", text: e.text, raw };
+  return { tone: "muted", text: e.text, raw };
+}
+
+// The board's one time form, the replay clock's: "11:28:26"
+export const hmsOf = (t) => (Number.isFinite(t) ? new Date(t).toISOString().slice(11, 19) : "--:--:--");
+const hhmmzOf = (t) => { const d = new Date(t); return `${String(d.getUTCHours()).padStart(2, "0")}${String(d.getUTCMinutes()).padStart(2, "0")}Z`; };
+
+// "2 h 45 min", "14 min"
+function lasting(msLeft) {
+  const m = Math.max(1, Math.round(msLeft / 60000));
+  return m < 60 ? `${m} min` : m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} h`;
+}
+
+// What the map draws: the region and the snapshot's real ash areas, volcanoes, airports and
+// aircraft, reduced to plain numbers (no DOM).
+function geoOf(region, snapshot, activeIds) {
+  const rings = (g) => (g?.type === "Polygon" ? [g.coordinates[0]] : g?.type === "MultiPolygon" ? g.coordinates.map((p) => p[0]) : []);
+  const feats = (k) => snapshot?.[k]?.features || [];
+  const active = new Set(activeIds || []);
+  const airports = {};
+  for (const f of feats("routes")) {
+    const ends = f.properties?.ends || [];
+    const co = f.geometry?.coordinates || [];
+    if (ends.length === 2 && co.length > 1) {
+      airports[ends[0]] = airports[ends[0]] || co[0];
+      airports[ends[1]] = airports[ends[1]] || co[co.length - 1];
+    }
+  }
   return {
-    ready: true, replay, stub, mode: s.mode,
-    ai: { kind: ai.kind, words: aiWords(ai, { home: `Details › ${ASSISTANT}`, opens: "nothing" }), lead: aiLead(ai) },
-    budgetLoaded: !!input.budget || !!input.budgetError, budgetError: input.budgetError || null,
-    window: ctx.trace.length,
-    feeds: feedsNode(input.feeds, input.feedNames || {}),
-    duty, team, desk, gate, edges: edges(team, ctx, gate), counts,
+    bbox: region?.bbox || null, name: region?.name || "", adsbPoints: region?.adsb_points || [],
+    cones: feats("cones").filter((f) => f.properties?.part === "cone").map((f) => ({ volcano: f.properties.volcano_id, mode: f.properties.mode || "OFFICIAL", top: f.properties.top_ft, base: f.properties.base_ft, rings: rings(f.geometry) })),
+    official: feats("official").map((f) => ({ kind: f.properties?.kind, label: f.properties?.label || "", top: f.properties?.top_ft, base: f.properties?.base_ft, rings: rings(f.geometry) })),
+    volcanoes: feats("volcanoes").filter((f) => active.has(f.id ?? f.properties?.id) || f.properties?.active).map((f) => ({ id: f.id ?? f.properties?.id, name: f.properties?.name, code: f.properties?.color_code, at: f.geometry?.coordinates })),
+    aircraft: feats("aircraft").map((f) => ({ hex: f.properties.hex, flight: f.properties.proxy_flight, cs: f.properties.callsign, at: f.geometry?.coordinates, trk: f.properties.track_deg, exposed: !!f.properties.exposed })),
+    airports,
   };
 }
+
+// The whole flow board. input: { state, trace, feeds, feedReads, budget, duty, snapshot, region,
+// handPlan, docs, recovery, realNow }.
+export function flowModel(input) {
+  const s = input.state;
+  if (!s) return { ready: false };
+  const replay = s.mode === "REPLAY";
+  const realNow = input.realNow ?? Date.now();
+  // a budget that failed to load says nothing about now: no gate state, no queue from an old copy
+  const budgetError = input.budgetError || null;
+  const budget = budgetError ? null : input.budget || null;
+  const stub = s.llm?.backend === "stub" || budget?.backend === "stub";
+  const ai = aiStateOf({ stub, budget, errors: aiErrorsOf(input.trace), duty: input.duty || null, plan: newestPlan(input.recovery), replay, now: realNow });
+  const { events, t0, t1 } = flowEvents({ trace: input.trace || [], feeds: input.feeds || [], feedReads: input.feedReads || [], now: ms(s.now) });
+  const waiting = (Array.isArray(budget?.waiting) ? budget.waiting : []).filter((w) => w.status === "WAITING");
+  const reset = Date.parse(budget?.resets_at || "");
+  const slot = Math.min(...waiting.map((w) => Date.parse(w.next_slot_at || "")).filter(Number.isFinite), Number.isFinite(reset) ? reset : Infinity);
+  // a slot or reset already behind the real clock is not "in 1 min": the budget has not caught up
+  const due = Number.isFinite(slot) && slot <= realNow;
+  const slotWhen = Number.isFinite(slot) && !due ? realWhen(slot, realNow, replay) : null;
+  const dueWords = due ? (replay ? `was due ${lasting(realNow - slot)} ago` : `was due at ${hhmmzOf(slot)}`) : "";
+  const kindOf = (w) => w.item?.kind || (w.kind === "recover" ? "RECOVER" : null);
+  // a waiting job sits in front of the first skill that does its kind (a PLAN job is the Flight
+  // planner's before the Drafter's; an ASSESS job the Plume reader's)
+  const team = HELPERS.filter((h) => h.role === "team");
+  const ownerOf = (w) => team.find((h) => h.kinds?.includes(kindOf(w)))?.id || null;
+  const skills = team.map((h) => {
+    const jobs = waiting.filter((w) => ownerOf(w) === h.id);
+    const own = (input.trace || []).filter((t) => t.stage === h.stage && MODEL_ACTORS.has(t.actor));
+    const newest = own[own.length - 1] || null;
+    return { id: h.id, name: h.name, does: h.does, to: h.to || null, inLine: jobs.length, jobs: jobs.map((w) => w.label),
+      last: newest ? { text: plainLine(newest.message), at: ms(newest.at), failed: newest.level === "error" } : null };
+  });
+  // the assistant's state in the board's words (spec 5); the chip's words for trouble and off
+  const words = aiWords(ai, { home: `Details › ${ASSISTANT}`, opens: "nothing" });
+  const left = Number.isFinite(slot) ? slot - realNow : NaN;
+  const jobs = plural2(waiting.length, "job");
+  const inLine = budgetError ? "Jobs in line: unknown, the AI budget did not load" : waiting.length ? `${jobs} in line` : "Nothing waits in line";
+  let status, sub, gate;
+  if (ai.kind === "paused") {
+    status = Number.isFinite(left) && left > 0 ? `paused for ${lasting(left)}` : "paused";
+    const until = due ? "" : replay ? (slotWhen ? ` ${slotWhen.until}` : "") : Number.isFinite(slot) ? ` until ${hhmmzOf(slot)}` : "";
+    const cause = due ? `Google's free AI quota is spent: its reset ${dueWords}, and the AI budget still says it is closed.` : `Google's free AI quota is spent${until}.`;
+    sub = budgetError
+      ? "The Coordinator's newest run found Google's free AI quota spent. The AI budget did not load, so how long it stays closed is unknown. Code still reads every feed and checks every flight, and must-do flights come straight to you."
+      : `${cause} Code still reads every feed and checks every flight; ${jobs} keep their place in line, and must-do flights come straight to you.`;
+    gate = { open: false, kind: "closed", name: "AI model · quota spent",
+      meta: budgetError ? inLine : `${jobs} in line${slotWhen ? ` · next slot ${slotWhen.at}` : due ? ` · reset ${dueWords}` : ""}`, title: "Real clock: Google's free quota resets once a day." };
+  } else if (ai.kind === "off") {
+    status = "off (code only)";
+    sub = "No model is connected. Code reads every feed, checks every flight and orders the work, and code templates write the drafts. Every draft still waits for you.";
+    // no model to close: the skills run as code templates, so work goes past the gate
+    gate = { open: true, kind: "nomodel", name: "No model · code templates", meta: "Skills run as code, no model is called", title: "NO MODEL: the offline stub" };
+  } else if (ai.kind === "trouble") {
+    status = words.suffix;
+    sub = `${ai.trouble.map(causeShort).join(". ")}. Nothing was put in its place: code still checks every flight, and that work comes to you.`;
+    gate = { open: false, kind: "trouble", name: "AI model · gave no result", meta: inLine, title: "" };
+  } else {
+    status = "working";
+    sub = "The Coordinator hands each job to a skill, and every draft waits for you. Code checks every number before you see it.";
+    gate = { open: true, kind: "open", name: "AI model · open", meta: budgetError ? inLine : waiting.length ? `${jobs} in line` : "Quota left today", title: "" };
+  }
+  const run = input.duty || null;
+  const coord = { meta: ai.kind === "paused" ? "Waits for the quota to reset" : ai.kind === "off" ? "Code orders the jobs (no model)" : "Orders the jobs and hands them to skills",
+    refused: run?.outcome === "MODEL_FAILED", lastAt: run ? ms(run.finished_at) : NaN };
+  // You decide: the Wall's own counts, this mode's work only
+  const plan = newestPlan(input.recovery);
+  const sra = [...new Set((input.docs || []).filter((d) => d.kind === "SRA" && d.status === "DRAFT" && d.replay === replay).map((d) => d.region_name || d.title || d.region))];
+  const desk = {
+    drafts: s.draft_count ?? null,
+    handPlan: input.handPlan || null,
+    sra: { n: sra.length, names: sra.map((x) => String(x).replace(/^SRA draft: /, "")) },
+    plan: plan?.status === "DRAFT" ? "waits for approval" : plan?.status === "AI_UNAVAILABLE" ? "by hand" : null,
+    planNote: plan?.status === "AI_UNAVAILABLE" ? (planFailure(plan)?.title || "") : "",
+    must: (run?.undispatched || []).length,
+  };
+  const runs = events.filter((e) => e.type === "refused" || e.type === "undone");
+  const region = input.region || s.region || null;
+  return {
+    ready: true, replay, stub, mode: s.mode,
+    ai: { kind: ai.kind, symbol: aiSymbol(ai.kind), title: words.title, label: words.label, suffix: words.suffix, tone: words.tone }, status, sub, gate, budgetError,
+    queue: waiting.map((w) => ({ label: w.label, kind: kindOf(w), skill: ownerOf(w) })),
+    skills, coord, desk, runs, events, t0, t1, spanMin: Number.isFinite(t0) ? Math.max(1, Math.round((t1 - t0) / 60000)) : 0,
+    feeds: (input.feeds || []).map((f) => ({ feed: f.feed, status: f.status, records: f.record_count, error: f.last_error || null, kind: FEED_KIND[f.feed] || "weather" })),
+    geo: geoOf(region, input.snapshot, s.active_volcano_ids),
+  };
+}
+

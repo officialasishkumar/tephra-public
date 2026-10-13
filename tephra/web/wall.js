@@ -7,15 +7,15 @@ import { $, el, ms, prefs, reducedMotion, inlineSprite, icon } from "./wall/util
 import { derive, actionWords, deciderName, LEVEL_MAX, levelFromFrac, regionOfVent, sortSituations } from "./wall/derive.js";
 import { WallMap, readTokens, SAT } from "./wall/map.js";
 import {
-  renderChrome, renderClock, mapPills, renderTimeline, sourcesDialog, timelineTarget, setAiState, FEED_NAME,
+  renderChrome, renderFrame, renderClock, mapPills, renderTimeline, sourcesDialog, timelineTarget, setAiState,
 } from "./wall/panels.js";
 import { policyDialog } from "./wall/policy.js";
 import { helpContent, aboutContent } from "./wall/controls.js";
 import { ext, loadExt, ingest, noteTrace, satScale, aiState, handPlan } from "./wall/ext.js";
 import { renderStory, coverageNote } from "./wall/story.js";
 import { renderDetails, sectionOf, PANELS } from "./wall/details.js";
-import { boardModel } from "./wall/board.js";
-import { renderBoard, watchEdges } from "./wall/board-view.js";
+import { boardModel, flowModel } from "./wall/board.js";
+import { mountFlow } from "./wall/board-view.js";
 import { describeReplay } from "./wall/x-parts.js";
 
 const STREAM_TIMEOUT_MS = 45e3;
@@ -30,7 +30,9 @@ const DETAILS_KEY = "tephra.wall.details";
 
 // routeLines: "WIII-WSSS" -> the route line fetched for a picked flight that is not in or heading
 // into an area (null while it loads or when the server has no line for it).
-const store = { state: null, snapshot: null, advisories: [], trace: [], feeds: [], routeLines: new Map() };
+// feedReads: each feed's last successful read as the `state` stream moved it ({ feed, at, n }), so
+// the board can play back reads that are not trace steps (UI-DESIGN 7.21).
+const store = { state: null, snapshot: null, advisories: [], trace: [], feeds: [], feedReads: [], routeLines: new Map() };
 // Human decisions composed on the Wall from advisory events: the backend's trace has no
 // DESK step yet, and the trace must show the human deciding (7.9).
 const localTrace = [];
@@ -73,7 +75,7 @@ const ui = {
   present: PRESENT,
   selFlight: null, // { hex, proxy } of the aircraft picked on the map or in the flights list
   tlCurrent: null, // title of the timeline event last chosen (R7)
-  board: { open: false, card: null, opener: null }, // TEPHRA Assistant at work: open, the card opened in it, who opened it
+  board: { open: false, opener: null }, // TEPHRA Assistant at work: open, who opened it
 };
 const conn = { lostAt: null, source: null, watchdog: null, lastEventAt: 0, loaded: false, everLost: false, hiddenTimer: null, paused: false, lastTick: null };
 const extra = { error: null, basemap: null, mapError: null };
@@ -188,7 +190,7 @@ function openStream() {
   es.onerror = () => { if (es.readyState !== EventSource.OPEN) streamLost(); };
   on("state", (s) => {
     store.state = s;
-    if (s.feeds) store.feeds = s.feeds;
+    if (s.feeds) { noteReads(s.feeds); store.feeds = s.feeds; }
     setClock(s.now);
     if (store.snapshot && Array.isArray(s.active_volcano_ids)) {
       const active = new Set(s.active_volcano_ids);
@@ -228,6 +230,8 @@ function openStream() {
   on("trace", (t) => {
     store.trace.push(t);
     noteTrace(t);
+    // the board animates a step the moment it arrives, before the debounced render
+    if (ui.board.open) flow?.push(t);
     setTimeout(scheduleRender, 6200);
     if (store.trace.length > TRACE_KEEP) store.trace.splice(0, store.trace.length - TRACE_KEEP);
     ui.freshTrace.add(t.id);
@@ -246,6 +250,21 @@ function openStream() {
       announce(a.status === "REJECTED" ? `${who} rejected the advisory for ${a.proxy_flight}` : `${who} approved ${actionWords(a)} for ${a.proxy_flight}`);
     }
   });
+}
+
+// A feed whose last successful read moved is a real read: kept for the board's playback and, while
+// the board is open, shown at once.
+const READS_KEEP = 300;
+function noteReads(feeds) {
+  const before = new Map(store.feeds.map((f) => [f.feed, f.last_success_at]));
+  for (const f of feeds) {
+    const was = before.get(f.feed);
+    if (!f.last_success_at || !was || f.last_success_at === was || ms(f.last_success_at) <= ms(was)) continue;
+    const read = { feed: f.feed, at: f.last_success_at, n: f.record_count };
+    store.feedReads.push(read);
+    if (ui.board.open) flow?.pushRead(read);
+  }
+  if (store.feedReads.length > READS_KEEP) store.feedReads.splice(0, store.feedReads.length - READS_KEEP);
 }
 
 function mergeTrace(server) {
@@ -361,6 +380,13 @@ function renderNow() {
     return;
   }
   D = derive(store, ui, now());
+  // The board covers the whole Wall: while it is open only the board is drawn; closing it draws
+  // the Wall again (the board's close handler).
+  if (ui.board.open) {
+    renderFrame(D.state);
+    renderFlow();
+    return;
+  }
   fetchRouteLine(D);
   let reframe = false;
   if (D.selected !== lastSel) {
@@ -377,7 +403,7 @@ function renderNow() {
     renderTools();
     renderCtx();
     renderDetails(D, store, ui, conn, { reroutes: () => store.snapshot?.reroutes?.features || [] });
-    if (ui.board.open) renderBoard(boardModel(boardInput()), ui, conn);
+    if (ui.board.open) renderFlow();
     updateFold();
     if (dialogKind === "about") { /* static; nothing to refresh */ }
   });
@@ -406,7 +432,7 @@ function renderNow() {
 
 // Before the first /api/wall answer: the Connecting story, no numbers (R5.4).
 function renderShell() {
-  if (ui.board.open) renderBoard(boardModel(boardInput()), ui, conn);
+  if (ui.board.open) renderFlow();
   renderStory(null, store, ui, { conn, extra, announce });
   renderTimeline(null, store, ui, conn);
   renderTools();
@@ -689,19 +715,35 @@ function closeAreaMenu(focusBtn = true) {
 
 // ------------------------------------------------------------------ TEPHRA Assistant at work (UI-DESIGN 7.21)
 
-// What the board reads: the data the Wall already holds, and when each trace line and hand-out
-// reached this page (a step that just arrived is "working", a hand-out that just happened lights
-// its edge).
+// What the board's details read: the data the Wall already holds, and when each trace line reached
+// this page (a step that just arrived is "working").
 function boardInput() {
   const since = (t) => performance.now() - (t ?? -1e12);
   return {
     state: store.state, duty: store.snapshot?.duty || null, budget: ext.budget, budgetError: ext.errors.budget || null,
-    trace: store.trace, recovery: ext.recovery, docs: ext.docs, docsLoaded: ext.loaded.docs, satellite: store.snapshot?.satellite || [],
-    advisories: store.advisories, feeds: store.feeds, feedNames: FEED_NAME, situations: store.snapshot?.situations || [],
-    arrivedAgo: (id) => since(ext.arrivals.get(id)), liveAgo: (tool) => since(ext.handoffs.get(tool)),
-    // the flights the assistant left to a dispatcher, all volcanoes (the story's Plan by hand)
-    handPlan: D ? (({ flights, must }) => ({ n: flights.length, must }))(handPlan(D, store)) : null,
+    trace: store.trace, recovery: ext.recovery, docs: ext.docs, satellite: store.snapshot?.satellite || [],
+    advisories: store.advisories, situations: store.snapshot?.situations || [],
+    arrivedAgo: (id) => since(ext.arrivals.get(id)),
   };
+}
+
+// The flow board's input: the same data, plus the feed reads, the snapshot's map layers and the
+// region the Wall shows.
+function flowInput() {
+  const s = store.state;
+  const region = s ? (s.regions || []).find((r) => r.key === ui.region) || s.region : null;
+  const hp = D ? handPlan(D, store) : null;
+  return {
+    state: s, trace: store.trace, feeds: store.feeds, feedReads: store.feedReads, budget: ext.budget, budgetError: ext.errors.budget || null, duty: store.snapshot?.duty || null,
+    snapshot: store.snapshot, region, recovery: ext.recovery, docs: ext.docs, realNow: Date.now(),
+    handPlan: hp ? { n: hp.flights.length, must: hp.must } : null,
+  };
+}
+
+let flow = null;
+function renderFlow() {
+  if (!flow || !store.state) return;
+  flow.update(flowModel(flowInput()), boardModel(boardInput()), conn);
 }
 
 function openBoard(opener) {
@@ -711,20 +753,20 @@ function openBoard(opener) {
   ui.board.opener = opener || document.activeElement;
   describeModal(dlg);
   if (!dlg.open) dlg.showModal();
-  watchEdges($("board-body"));
+  // the board covers the map: its marching paths stop until the board closes
+  if (map) map.paused = true;
+  flow = flow || mountFlow(dlg);
+  flow.open();
   renderNow();
   $("board-title").focus({ preventScroll: true });
 }
 
-function toggleBoardCard(id) {
-  ui.board.card = ui.board.card === id ? null : id;
-  renderNow();
-}
-
 $("board").addEventListener("close", () => {
   const back = ui.board.opener;
-  ui.board = { open: false, card: null, opener: null };
-  $("board-body").dataset.key = "";
+  ui.board = { open: false, opener: null };
+  if (map) map.paused = false;
+  flow?.close();
+  renderNow();
   (back && document.contains(back) && back.offsetParent !== null ? back : $("ai-chip")).focus({ preventScroll: true });
 });
 // A click on the dimmed page around the board closes it, as Esc and the close button do.
@@ -882,7 +924,6 @@ document.addEventListener("click", (e) => {
   else if (t.id === "area-btn") { if ($("regions").hidden) openAreaMenu(); else closeAreaMenu(); }
   else if (t.id === "ai-chip" || act === "board-open") openBoard(t);
   else if (act === "board-close") $("board").close();
-  else if (act === "board-card") toggleBoardCard(t.dataset.id);
   else if (act === "board-details") { $("board").close(); openDetails(t.dataset.sec, { opener: $("ai-chip") }); }
   else if (t.id === "feeds-chip") openDetails("feeds", { opener: t });
   else if (t.id === "details-btn") { if (ui.details.open) closeDetails(); else openDetails(null, { opener: t }); }

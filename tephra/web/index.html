@@ -217,21 +217,12 @@
     <div id="dlg-body" class="dlg__body"></div>
   </dialog>
 
-  <!-- TEPHRA Assistant at work (UI-DESIGN 7.21): a full overlay over the Wall, built by wall/board-view.js -->
+  <!-- TEPHRA Assistant at work (UI-DESIGN 7.21): the flow board, a full overlay over the Wall. Its
+       head (#board-title, #board-status, #board-lede), map, panel, log and player are built by
+       wall/board-view.js into #board-body; #board-live speaks at most one line every 10 s. -->
   <dialog id="board" class="board" aria-labelledby="board-title" aria-describedby="board-lede">
-    <div class="board__head">
-      <div class="board__titlebar">
-        <div class="board__titles">
-          <h2 id="board-title" class="board__title" tabindex="-1"><svg class="icon board__mark" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>TEPHRA Assistant at work</h2>
-          <p id="board-lede" class="board__lede">Its Coordinator hands the work to six skills. A dispatcher decides on everything they make.</p>
-        </div>
-        <button type="button" class="dlg__close" data-act="board-close" aria-label="Close TEPHRA Assistant at work">
-          <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-x"></use></svg>
-        </button>
-      </div>
-      <div id="board-status" class="board__status"></div>
-    </div>
     <div id="board-body" class="board__body"></div>
+    <p id="board-live" class="sr-only" aria-live="polite" aria-atomic="true"></p>
   </dialog>
 </body>
 </html>

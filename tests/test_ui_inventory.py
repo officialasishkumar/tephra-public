@@ -82,6 +82,7 @@ WALL_IDS = [
     "board-title",
     "board-status",
     "board-body",
+    "board-live",
 ]
 WALL_CLASSES = ["desk-link", "brand", "brand__sub", "honesty__airline", "map-vignette", "map-scrim"]
 DESK_IDS = [
@@ -187,7 +188,9 @@ BUILDERS = {
     "timeline lanes": "When each source last reported",
     "sources side by side dialog": "export function sourcesDialog",
     "AI at work board": "export function boardModel",
-    "AI at work hand-out lines": "export function drawEdges",
+    # the flow board (UI-DESIGN 7.21) draws each hand-out as a token down the AI lane
+    "AI at work hand-out lines": "function drawRails(",
+    "AI at work flow board": "export function flowModel",
 }
 HONESTY = [
     "Decision support only - fictional airline - not for operational use",

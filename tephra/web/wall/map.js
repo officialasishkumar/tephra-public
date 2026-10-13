@@ -970,7 +970,7 @@ export class WallMap {
     let last = -1;
     const tick = (t) => {
       requestAnimationFrame(tick);
-      if (document.hidden || reducedMotion() || !this.loaded || !this.map.getLayer("exposure-path")) return;
+      if (document.hidden || this.paused || reducedMotion() || !this.loaded || !this.map.getLayer("exposure-path")) return;
       if (!this.D?.exposed.length) return;
       const i = Math.floor(t / 60) % ANT_STEPS.length;
       if (i === last) return;

@@ -121,8 +121,9 @@ export function areaWords(D, key) {
   return `${r.name} · ${n ? `${n} with ash` : D.state.last_tick ? "none" : "reading…"}`;
 }
 
-export function renderChrome(D, store, ui) {
-  const s = D.state;
+// The frame strip and the page title: drawn on every render, the board's included (the board
+// covers the Wall, which is not redrawn while it is open, but the strip stays on screen above it).
+export function renderFrame(s) {
   const replay = s.mode === "REPLAY";
   document.body.dataset.mode = s.mode;
   document.title = `${replay ? "REPLAY - " : ""}TEPHRA Wall`;
@@ -140,6 +141,12 @@ export function renderChrome(D, store, ui) {
   // gets the strip's current REPLAY words in its sr-only description (x-parts describeReplay).
   const stripWords = replay ? banner.textContent.replace(/\s+/g, " ").trim() : "";
   for (const dlg of document.querySelectorAll("dialog[open]")) describeReplay(dlg, stripWords);
+}
+
+export function renderChrome(D, store, ui) {
+  const s = D.state;
+  const replay = s.mode === "REPLAY";
+  renderFrame(s);
   // The mode pill is not a control: in REPLAY the strip says it, so the pill only says "Live".
   const badge = $("mode-badge");
   badge.hidden = replay;
