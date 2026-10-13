@@ -75,6 +75,7 @@
       <svg class="st" aria-hidden="true" focusable="false"><use href="/static/icons.svg#st-stale"></use></svg>
       <span id="stale-text">Not updating</span>
     </span>
+    <a class="connect-link" href="/connect" target="_blank" rel="noopener" title="Plug your airline's data in">Connect</a>
     <a class="desk-link" href="/desk" target="_blank" rel="noopener">
       <span class="desk-link__long">Desk</span> <span aria-hidden="true">→</span>
     </a>
@@ -122,6 +123,14 @@
         </div>
         <div class="map-vignette" aria-hidden="true"></div>
         <div class="map-scrim" aria-hidden="true"></div>
+        <!-- which flights the map shows (UI-DESIGN 7.7): every flight, or only the RFA flights inside
+             the ash, or only those heading in; wall.js fills the counts -->
+        <div id="flight-filter" class="ffilter" role="radiogroup" aria-label="Flights on the map">
+          <button type="button" role="radio" class="ffilter__b" data-ff="all" aria-checked="true"><span>All</span><b data-ffn="all"></b></button>
+          <button type="button" role="radio" class="ffilter__b ffilter__b--inside" data-ff="inside" aria-checked="false"><i aria-hidden="true"></i><span>Inside</span><b data-ffn="inside"></b></button>
+          <button type="button" role="radio" class="ffilter__b ffilter__b--heading" data-ff="heading" aria-checked="false"><i aria-hidden="true"></i><span>Heading in</span><b data-ffn="heading"></b></button>
+        </div>
+
         <!-- the map key, on the map (top left); a phone moves it under the map (wall.js) -->
         <section id="legend" class="key" aria-label="Map key"></section>
 

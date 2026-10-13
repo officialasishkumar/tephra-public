@@ -62,7 +62,7 @@ from tephra.config import (
     Settings,
     apply_process_env,
 )
-from tephra.desk import audit, crew_reports
+from tephra.desk import audit, connections, crew_reports, sample_feed
 from tephra.desk.approvals import SYSTEM_ACTOR, submit_draft, supersede
 from tephra.desk.crew_reports import CheckedEntry, CrewEntry, FixHistory, FixLookup
 from tephra.desk.failures import (
@@ -92,7 +92,7 @@ from tephra.feeds.routes import RouteTable, load_routes, route_features
 from tephra.feeds.sigmet import fetch_sigmets
 from tephra.feeds.volcanoes import VolcanoCatalogue, load_volcanoes
 from tephra.feeds.winds import fetch_winds
-from tephra.geo.cone import build_cone
+from tephra.geo.cone import build_cone, geometry_to_shape
 from tephra.geo.exposure import find_exposed
 from tephra.geo.reroute import coordinate_text
 from tephra.geo.units import deg_to_compass, distance_nm, ft_to_fl, haversine_km
@@ -108,6 +108,7 @@ from tephra.models import (
     AviationColor,
     BtdOverlay,
     BtdResult,
+    Connection,
     CrewFlag,
     CrewPicture,
     CrewReport,
@@ -135,6 +136,9 @@ from tephra.models import (
     PlumeMode,
     PolicySummary,
     ProductKind,
+    PushedDot,
+    PushResult,
+    PushSummary,
     ReplayCase,
     RerouteFeatureProps,
     RerouteKind,
@@ -300,6 +304,11 @@ class Runtime:
     open_failures: dict[str, AiFailure] = field(init=False, default_factory=dict)
     """flight id -> its open AI failure on the Desk (one per flight), until it no longer stands"""
     _failures_followed: bool = field(init=False, default=False)
+    pushed: dict[str, Aircraft] = field(init=False, default_factory=dict)
+    """hex -> the newest position an airline connection pushed (``take_push``)"""
+    sample_stop: asyncio.Event | None = field(init=False, default=None, repr=False)
+    """Set to end the running sample feed; None while none runs"""
+    sample_connection_id: str | None = field(init=False, default=None)
     """This picture's open failures were read back from the store (``_follow_failures``)"""
     _unexposed_since: dict[str, datetime] = field(init=False, default_factory=dict)
     """flight id -> since when an open draft's flight is seen outside every cone"""
@@ -1190,7 +1199,116 @@ class Runtime:
         return [volcano for volcano in found if volcano is not None]
 
     def aircraft(self) -> list[Aircraft]:
-        return merge_aircraft(self.live.adsb)
+        """ADS-B targets and the positions airline connections pushed, newest per address.
+        A pushed position counts while it is :data:`connections.PUSH_FRESH_S` old or less."""
+        merged = {target.hex: target for target in merge_aircraft(self.live.adsb)}
+        at = timeutil.now()
+        for target in self.pushed.values():
+            if timeutil.age_s(target.observed_at, at) > connections.PUSH_FRESH_S:
+                continue
+            held = merged.get(target.hex)
+            if held is None or target.observed_at >= held.observed_at:
+                merged[target.hex] = target
+        return [merged[key] for key in sorted(merged)]
+
+    # --- airline data connections (tephra.desk.connections) -------------------------------
+
+    async def take_push(self, connection: Connection, raw: Sequence[dict[str, Any]]) -> PushResult:
+        """Take one push: keep the positions that pass, check them against the ash as an
+        ADS-B pass does (when no tick holds the lock; else the tick does), and say so on the
+        ``push`` event. Refused records change nothing."""
+        at = timeutil.now()
+        accepted, problems = connections.checked_positions(raw, connection, at)
+        for target in accepted:
+            self.pushed[target.hex] = target
+        if accepted and self.live.active and not self.lock.locked():
+            async with self.lock:
+                report = TickReport(started_at=at, finished_at=at, mode=self.mode, reason="push")
+                await self.run_exposures(at, report)
+                await self.publish_live()
+        exposed = {flight.hex for flight in self.exposed.values()}
+        in_ash = sorted({t.hex for t in accepted if t.hex in exposed})
+        saved = await connections.save_counts(
+            self.store, connection, accepted=len(accepted), rejected=len(problems), at=at
+        )
+        reasons = list(dict.fromkeys(problem.reason for problem in problems))[:3]
+        self.bus.publish(
+            SseEvent.PUSH,
+            PushSummary(
+                connection_id=saved.id,
+                name=saved.name,
+                sample=saved.sample,
+                at=at,
+                accepted=len(accepted),
+                rejected=len(problems),
+                reasons=reasons,
+                dots=[
+                    PushedDot(
+                        hex=t.hex,
+                        callsign=t.callsign,
+                        lat=t.lat,
+                        lon=t.lon,
+                        alt_baro_ft=t.alt_baro_ft or 0,
+                        track_deg=t.track_deg,
+                        in_ash=t.hex in exposed,
+                    )
+                    for t in accepted[:200]
+                ],
+            ),
+        )
+        return PushResult(
+            connection_id=saved.id,
+            received_at=at,
+            accepted=len(accepted),
+            rejected=problems,
+            in_ash=in_ash,
+        )
+
+    def sample_areas(self) -> list[Any]:
+        """The ash areas now, as shapes, for the sample feed's choice of flights."""
+        volcanoes = {v.id: v for v in self.active_volcanoes()}
+        return [
+            geometry_to_shape(cone.geometry, ref_lon=volcanoes[cone.volcano_id].lon)
+            for cone in self.cones.values()
+            if cone.geometry is not None and cone.volcano_id in volcanoes
+        ]
+
+    async def start_sample_feed(self, *, actor: str) -> Connection:
+        """Start pushing real recorded flights through the sample connection (made once)."""
+        existing = [c for c in await connections.list_connections(self.store) if c.sample]
+        live = next((c for c in existing if c.revoked_at is None), None)
+        if live is None:
+            live, _ = await connections.create_connection(
+                self.store, "Sample airline feed", actor=actor, sample=True
+            )
+        if self.sample_stop is not None:
+            return live
+        pool = await asyncio.to_thread(
+            sample_feed.load_pool, self.settings.data_dir, self.settings.region_preset.bbox
+        )
+        skip = {target.hex for target in merge_aircraft(self.live.adsb)}
+        flights = sample_feed.pick_flights(pool, self.sample_areas(), skip=skip)
+        stop = asyncio.Event()
+        self.sample_stop, self.sample_connection_id = stop, live.id
+        connection = live
+
+        async def push(positions: list[dict[str, Any]]) -> None:
+            await self.take_push(connection, positions)
+
+        async def run() -> None:
+            try:
+                await sample_feed.run_sample_feed(flights, push, stop)
+            finally:
+                if self.sample_stop is stop:
+                    self.sample_stop, self.sample_connection_id = None, None
+
+        self.spawn(run())
+        return live
+
+    def stop_sample_feed(self) -> None:
+        if self.sample_stop is not None:
+            self.sample_stop.set()
+            self.sample_stop, self.sample_connection_id = None, None
 
     def known_routes(self) -> dict[str, FlightRoute]:
         """hex -> the usual route of each airline target, when it flies along a leg of it."""
@@ -2340,6 +2458,7 @@ class Runtime:
         self.situations.clear()
         self.assessments.clear()
         self.cones.clear()
+        self.pushed.clear()
         self.exposed.clear()
         self.reroutes.clear()
         self.satellite.clear()
@@ -2768,6 +2887,7 @@ def _aircraft_features(
             origin_icao=route.origin_icao if route is not None else None,
             dest_icao=route.dest_icao if route is not None else None,
             label=_aircraft_label(target, hit),
+            data_source="AIRLINE" if target.source_id.startswith("PUSH:") else "ADSB",
         )
         features.append(feature(point(target.lat, target.lon), props, feature_id=target.hex))
     return feature_collection(features)

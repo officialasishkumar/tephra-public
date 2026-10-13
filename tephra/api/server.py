@@ -305,6 +305,11 @@ async def desk_page() -> FileResponse:
     return await _page("desk.html")
 
 
+@pages.get("/connect", include_in_schema=False)
+async def connect_page() -> FileResponse:
+    return await _page("connect.html")
+
+
 @pages.get("/guide", include_in_schema=False)
 async def guide_page() -> FileResponse:
     return await _page("guide.html")
@@ -1051,6 +1056,7 @@ def _include_feature_routers(app: FastAPI) -> None:
         routes_ask,
         routes_backtest,
         routes_comms,
+        routes_connect,
         routes_crew,
         routes_duty,
         routes_notices,
@@ -1067,6 +1073,7 @@ def _include_feature_routers(app: FastAPI) -> None:
         routes_backtest,
         routes_duty,
         routes_crew,
+        routes_connect,
     ):
         app.include_router(module.router, prefix="/api")
 

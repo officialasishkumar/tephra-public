@@ -51,6 +51,7 @@ class Collection(StrEnum):
     BACKTEST = "backtest"  # "latest" -> BacktestScorecard
     DUTY = "duty"  # run id -> DutyRun
     CREW_REPORTS = "crew_reports"  # report id -> CrewReport (entered on the Desk)
+    CONNECTIONS = "connections"  # connection id -> Connection (airline data pushed in)
     OUTBOUND = "outbound"  # message id -> OutboundMessage
     AUDIT = "audit"  # entry id -> AuditEntry (append-only)
     FEED_STATE = "feed_state"  # FeedId value -> FeedHealth

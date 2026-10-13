@@ -40,6 +40,7 @@ modules (sections 5.11 to 5.17) were built against.
 | backtest | `tephra/backtest/{__init__,models,metrics,runner,report}.py`, `tephra/agents/prompts/backtest.md`, `tephra/api/routes_backtest.py`, `scripts/backtest.py`, `docs/backtest/`, `tests/test_backtest.py` |
 | web-wall | `tephra/web/index.html`, `tephra/web/wall.js`, `tephra/web/wall.css`, `tephra/web/mapui.css` (map controls, shared), `tephra/web/guide.{html,js,css}` (the guide page) |
 | web-desk | `tephra/web/desk.html`, `tephra/web/desk.js`, `tephra/web/desk.css` |
+| connect | `tephra/desk/connections.py`, `tephra/desk/sample_feed.py`, `tephra/api/routes_connect.py`, `scripts/push_sample.py`, `tephra/web/connect.{html,js,css}`, `tests/test_connect.py` (airline data connections: section 5.20) |
 | crew | `tephra/geo/crew_area.py`, `tephra/desk/crew_reports.py`, `tephra/api/routes_crew.py` (crew reports of ash: section 5.19) |
 | ops-evals | `Dockerfile`, `.dockerignore`, `.gcloudignore`, `.env.example`, `deploy/_common.sh`, `deploy/cloudbuild.yaml`, `deploy/cloudrun.sh`, `deploy/ar-cleanup.json`, `scripts/live_smoke.sh`, `deploy/scheduler.sh`, `deploy/secrets.sh`, `deploy/firestore.rules`, `deploy/README.md`, `deploy/github_deploy_setup.sh`, `deploy/deploy_paths.py`, `deploy/report_interrupted.sh`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`, `scripts/record_replay.py`, `scripts/count_traffic.py`, `scripts/plume_eval.py`, `scripts/make_plume_cases.py`, `scripts/free_model_check.py`, `evals/plume/README.md`, `evals/free_models/`, `data/replay/README.md`, `tests/test_scripts.py`, `tests/test_record_replay.py`, `tests/fixtures/ops_evals/` |
 
@@ -225,7 +226,7 @@ Enum additions of the extensions: `FeedId.JMA_VOLCANO` (`jma_volcano`); `ActionK
 `AuditAction` `AI_FAILED`, `AI_FAILURE_HANDLED`, `ASKED`, `NOTICE_READ`, `RECOVERY_PROPOSED`,
 `RECOVERY_DECIDED`, `MESSAGE_DRAFTED`, `MESSAGE_DECIDED`, `DOC_DRAFTED`, `DOC_SIGNED`,
 `HANDOVER_ACKED`; `TraceStage` `SATELLITE`, `NOTICE`, `ASK`, `RECOVERY`, `MESSAGES`, `DOCS`;
-`SseEvent` `reroutes`, `routes` (the usual routes of the flights heading in), `ai_failure`, `satellite`, `notice`, `recovery`, `message`, `doc`, `budget`,
+`SseEvent` `reroutes`, `routes` (the usual routes of the flights heading in), `ai_failure`, `satellite`, `notice`, `recovery`, `message`, `doc`, `budget`, `push`,
 `duty`; `TraceStage.DUTY`; `PlumeAssessment.outcome` `PENDING` (a plume read queued for the Duty
 Officer: official products only until it runs, never reused as current). Duty Officer models:
 `DutyItemKind` (ASSESS, PLAN, RECOVER, SRA), `DutyItem`, `DutyPriority`, `DutyBrief`,
@@ -2659,6 +2660,26 @@ Rules:
   `CREW_REPORT_EXPIRED` ("the replay run it was entered in has ended"), so a replay played
   again never brings it back.
 
+### 5.20 Airline data connections (connect)
+
+An airline pushes aircraft positions in; they join the ADS-B targets and are checked against
+the ash the same way. `tephra.desk.connections`: `create_connection(store, name, *, actor,
+sample=False) -> (Connection, key)` (key `tph_` + 32 url-safe characters, shown once, only its
+SHA-256 stored), `find_by_key`, `list_connections`, `revoke_connection`, `save_counts`,
+`checked_positions(raw, connection, at) -> (list[Aircraft], list[PushProblem])` (source id
+`PUSH:<connection id>:<DDHHMMZ>`; `PUSH_FRESH_S` 300). `Runtime.take_push(connection, raw)`
+keeps the positions that pass in `Runtime.pushed` (hex -> newest; cleared on a picture reset),
+runs `run_exposures` and `publish_live` when no tick holds the lock (else the next tick does),
+saves the counters, publishes `push` and returns `PushResult`. `Runtime.aircraft()` merges the
+ADS-B targets and the pushed positions not older than `PUSH_FRESH_S` (newest per address), so
+exposure, drafts, the Wall, the Desk and Ask all see them; `AircraftFeatureProps.data_source`
+says `AIRLINE` for them. `tephra.desk.sample_feed`: the sample feed is real airline aircraft
+(address, callsign, type, position, level, speed, track) from the replay cases' recorded ADS-B;
+each is moved along its own track at its own speed from its recorded fix (a 900 km leg, then
+again) and pushed every 5 s through `take_push`, flights whose leg crosses an ash area first;
+`Runtime.start_sample_feed(*, actor)`, `stop_sample_feed()`; it stops itself after an hour.
+`scripts/push_sample.py` does the same from any computer with a key (standard library only).
+
 ## 6. Quota and model use
 
 | Step | Backend | Model | When it runs |
@@ -2723,6 +2744,7 @@ metrics.
 | `ai_failures` | failure id | `AiFailure` (a flight with no plan or draft; handled by hand, or closed by code once it no longer stands) | core (`desk.failures`, through `Runtime.track_failure`) |
 | `duty` | run id | `DutyRun` | duty (`tephra.duty.dispatch_duty`, run by the AI worker) |
 | `crew_reports` | `CR-<12 hex>` | `CrewReport` (both modes; withdrawn and expired ones kept) | crew (`tephra.desk.crew_reports`, through `Runtime.enter_crew_report`, `withdraw_crew_report`, `update_crew`) |
+| `connections` | `CN-<10 hex>` | `Connection` (the key's SHA-256 only, never the key; revoked ones kept) | connect (`tephra.desk.connections`) |
 | `reroutes` | `RerouteOption` id | `RerouteOption` (every option of a planned flight) | core |
 | `sat_readings` | reading id (`SAT-...`) | `SatelliteReading` | core |
 | `notices` | `NOTICE-<sha12>` | `NoticeReading` | `routes_notices` |
@@ -2811,6 +2833,14 @@ The headers above are unchanged by compression.
 | `GET /api/replays` | `ReplayCaseList` = `{cases: [ReplayCaseSummary]}`: each recorded case without its records (`case_id`, `label`, `recorded_from`, `recorded_to`, `region`, `volcano_ids`, `notes`, `record_count`, `banner`). Built once per app in the lifespan (`ReplayCatalogue` on `app.state.replays`: summaries, serialised bytes, strong `ETag` = quoted sha256 of the bytes); a manifest that cannot be read fails startup. Served with `Cache-Control: no-cache` and the `ETag`; a matching `If-None-Match` answers 304 with no body |
 | `GET /api/routes/{origin_icao}/{dest_icao}` | FeatureCollection (`RouteFeatureProps`, `routes.route_features`): the great circle between two airports and a Point at each end, for the route of a flight picked on the Wall that is not in `WallSnapshot.routes` (the line's id is the pair in alphabetical order, whichever order is asked). Which airports a flight flies between comes only from `AircraftFeatureProps`; this answer depends only on the two positions, so it is sent with `Cache-Control: public, max-age=86400`. 404 `not_found` for a code that is not 4 capitals or digits, the same airport twice, or an airport with no known position |
 | `GET /api/airports` | FeatureCollection of the airport catalogue (`data/airports.json`, `Airport`): a Point per airport with `icao`, `iata`, `name`, `country`, `longest_runway_m` (feature id the ICAO code), for the maps to place the airports an airport plan closes. The catalogue changes only with a deploy: `Cache-Control: public, max-age=3600` |
+| `GET /connect` | `tephra/web/connect.html`, TEPHRA Connect (UI-DESIGN 7.24) |
+| `GET /api/connect/format` | `FormatInfo` `{format, max_positions, fresh_s, push_url, schema}`: the push format `tephra.positions/1` and its JSON Schema |
+| `GET /api/connect/schema.json`, `GET /api/connect/sample.json` | Downloads (`Content-Disposition: attachment`): the JSON Schema, and an example push of 12 real recorded flights (`sample_feed`) at their recorded fixes, timed on the active clock now, accepted as it is for `PUSH_FRESH_S` |
+| `GET /api/desk/connections` | `ConnectionList` `{connections: [ConnectionView], sample_running, sample_connection_id}` (desk session) |
+| `POST /api/desk/connections` | `{name}` -> `ConnectionView` with `key`, the only time the key is shown; audit `CONNECTION_CREATED` (desk session, CSRF) |
+| `POST /api/desk/connections/{id}/revoke` | `ConnectionView`; the key stops working at once; audit `CONNECTION_REVOKED`; stops the sample feed when it is the sample connection (desk session, CSRF) |
+| `POST /api/desk/sample-feed` | `{on}` -> `ConnectionList`: starts or stops the sample feed (desk session, CSRF) |
+| `POST /api/push/positions` | `PositionBatch` `{format: "tephra.positions/1", positions: [...]}` (at most 1000) with `Authorization: Bearer <key>` -> `PushResult` `{connection_id, received_at, accepted, rejected: [{index, reason}], in_ash}`. 401 without a live key; 429 `too_many_pushes` faster than one a second. Each record is checked alone (`PushedPosition`): well formed and `observed_at` within `PUSH_FRESH_S` (300 s) before, or 120 s after, the active clock |
 | `GET /api/blobs/{key}` | PNG bytes; `key` must match `BLOB_KEY_PATTERN` (else 404); `Cache-Control: public, max-age=86400, immutable` |
 | `GET /api/duty?limit=10` | `DutyRunList` `{runs: [DutyRun]}`, current mode (in REPLAY, the replay run playing), newest first (`limit` 1 to 20) |
 | `GET /api/budget` | `BudgetView` `{backend, as_of, quota_day, resets_at, models: [{model_id, jobs, used, limit, free_limit, remaining, closed, lanes: [{lane, words, used, share}], routine_allowed_now, next_routine_slot, pacing}], tiers: [{tier, model_id, used, limit, remaining}], waiting: [AiWork], note}` |
@@ -2893,6 +2923,7 @@ Wall resyncs from `/api/wall` and the Desk reloads its list when the stream reop
 | `budget` | `BudgetView` | replace the AI budget chip |
 | `duty` | `DutyRun` | replace the Duty Officer panel and the Desk's brief card |
 | `crew` | `CrewPicture` | replace the crew report areas, their list and the flags (Wall and Desk) |
+| `push` | `PushSummary` | the Connect page: a push taken (its connection, counts, up to 3 refusal reasons, the positions as dots with `in_ash`) |
 | `heartbeat` | `{"now": iso, "mode": "LIVE"}` (no `id`) | update clock |
 
 Core publishes `state`, `volcanoes`, `situation`, `official`, `cones`, `exposures`,

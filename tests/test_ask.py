@@ -42,6 +42,7 @@ from tephra.api import routes_ask
 from tephra.api.server import create_app
 from tephra.config import PROJECT_ROOT, Settings
 from tephra.desk import audit
+from tephra.feeds.adsb import merge_aircraft
 from tephra.feeds.airports import AirportCatalogue
 from tephra.feeds.registry import LiveData
 from tephra.geo.cone import geometry_to_shape
@@ -403,6 +404,9 @@ class FakeRuntime:
     duty: Any = None
     published: list[tuple[str, Any]] = field(default_factory=list)
     traces: list[str] = field(default_factory=list)
+
+    def aircraft(self) -> list[Any]:
+        return merge_aircraft(self.live.adsb)
 
     def trace(self, stage: Any, actor: Any, message: str, **_: Any) -> None:
         self.traces.append(message)

@@ -78,6 +78,16 @@ export function readTokens() {
 const empty = () => fc([]);
 const before = (map, id) => (map.getLayer(id) ? id : undefined);
 
+// The hexes the flight filter keeps (null: every flight). "inside": RFA flights inside the ash;
+// "heading": RFA flights heading into it. The picked flight is always kept.
+export function keptFlights(D, filter) {
+  if (!filter || filter === "all") return null;
+  const inside = (p) => p.inside === true || p.minutes_to_entry === 0;
+  const set = new Set(D.exposed.filter((f) => (filter === "inside" ? inside(f.properties) : !inside(f.properties))).map((f) => f.properties.hex));
+  if (D.selFlight) set.add(D.selFlight.properties.hex);
+  return set;
+}
+
 // ------------------------------------------------------------------ layer builders
 
 function tuneBasemap(map, C, ui) {
@@ -504,14 +514,23 @@ export class WallMap {
     const map = this.map;
     this.send("official", fc(D.official));
     this.send("cones", fc(D.cones));
+    // the flight filter (UI-DESIGN 7.7): only the RFA flights inside the ash, or only those heading
+    // in; every other plane, path, route and label leaves the map. The picked flight always stays.
+    const kept = keptFlights(D, this.ui.flightFilter);
+    const keep = (hex) => !kept || kept.has(hex);
     // the picked flight's entry point is marked at every zoom (exposure-entry-sel)
     const pickedHex = D.selFlight?.properties.hex;
-    this.send("exposures", pickedHex ? fc((D.exposures.features || []).map((f) => (f.properties.flight_id?.split(":")[0] === pickedHex ? { ...f, properties: { ...f.properties, picked: true } } : f))) : D.exposures);
-    this.send("aircraft", fc(D.aircraft));
-    if (map.getSource("routes")) this.send("routes", fc(D.routes));
+    const exposures = (D.exposures.features || []).filter((f) => keep(f.properties.flight_id?.split(":")[0]));
+    this.send("exposures", fc(pickedHex ? exposures.map((f) => (f.properties.flight_id?.split(":")[0] === pickedHex ? { ...f, properties: { ...f.properties, picked: true } } : f)) : exposures));
+    this.send("aircraft", fc(D.aircraft.filter((f) => keep(f.properties.hex))));
+    if (map.getSource("routes")) {
+      const lines = D.routes.filter((f) => f.properties.feature !== "airport" && (!kept || (f.properties.hexes || []).some(keep)));
+      const ends = new Set(lines.flatMap((f) => f.properties.ends || []));
+      this.send("routes", fc(kept ? [...lines, ...D.routes.filter((f) => f.properties.feature === "airport" && ends.has(f.properties.icao))] : D.routes));
+    }
     if (map.getSource("crew")) this.send("crew", D.crew.map);
     // The clustered copy draws the planes too (exposed-icon), so it carries what the icon reads.
-    if (map.getSource("exposed-pts")) this.send("exposed-pts", fc(D.exposed.filter((f) => !f.properties.picked).map((f) => { const p = f.properties; return { type: "Feature", geometry: f.geometry, properties: { hex: p.hex, volcano_id: p.volcano_id, elabel: p.elabel, inside: p.inside, minutes_to_entry: p.minutes_to_entry, is_sel_vid: p.volcano_id === D.selected, exposed: true, crew_only: false, stale: p.stale, track_deg: p.track_deg } }; })));
+    if (map.getSource("exposed-pts")) this.send("exposed-pts", fc(D.exposed.filter((f) => !f.properties.picked && keep(f.properties.hex)).map((f) => { const p = f.properties; return { type: "Feature", geometry: f.geometry, properties: { hex: p.hex, volcano_id: p.volcano_id, elabel: p.elabel, inside: p.inside, minutes_to_entry: p.minutes_to_entry, is_sel_vid: p.volcano_id === D.selected, exposed: true, crew_only: false, stale: p.stale, track_deg: p.track_deg } }; })));
     map.setFilter("fir-active", ["in", ["get", "icao"], ["literal", D.firsWithSigmet]]);
     this.updateExt();
     this.updateVolcanoes();

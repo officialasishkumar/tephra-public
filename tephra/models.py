@@ -31,6 +31,7 @@ from pydantic import (
     ConfigDict,
     Field,
     PlainSerializer,
+    ValidationInfo,
     computed_field,
     field_validator,
     model_validator,
@@ -262,6 +263,8 @@ class AuditAction(StrEnum):
     CREW_REPORT_ENTERED = "CREW_REPORT_ENTERED"
     CREW_REPORT_WITHDRAWN = "CREW_REPORT_WITHDRAWN"
     CREW_REPORT_EXPIRED = "CREW_REPORT_EXPIRED"
+    CONNECTION_CREATED = "CONNECTION_CREATED"
+    CONNECTION_REVOKED = "CONNECTION_REVOKED"
 
 
 class FeedStatus(StrEnum):
@@ -318,6 +321,8 @@ class SseEvent(StrEnum):
     DUTY = "duty"
     CREW = "crew"
     BUDGET = "budget"
+    PUSH = "push"
+    """An airline connection's push was taken (``PushSummary``)"""
     HEARTBEAT = "heartbeat"
     END_STREAMS = "end_streams"
     """Never sent: on the bus it ends every open stream, so browsers reconnect"""
@@ -757,6 +762,118 @@ class AdsbSnapshot(TephraModel):
     provenance: Provenance
     query: AdsbQueryPoint
     aircraft: list[Aircraft]
+
+
+# --- airline data connections (``tephra.desk.connections``) ---------------------------------
+
+POSITIONS_FORMAT: Final = "tephra.positions/1"
+MAX_PUSH_POSITIONS: Final = 1000
+
+
+class PushedPosition(TephraModel):
+    """One aircraft position an airline pushes (format ``tephra.positions/1``). It becomes an
+    :class:`Aircraft` beside the ADS-B targets, checked against the ash the same way."""
+
+    hex: str = Field(pattern=r"^[0-9a-f]{6}$", description="ICAO 24-bit address, 6 hex digits")
+    callsign: str | None = Field(
+        default=None, pattern=r"^[A-Z0-9]{2,8}$", description="ATC callsign, e.g. GIA215"
+    )
+    type_icao: str | None = Field(default=None, pattern=r"^[A-Z0-9]{2,4}$", description="e.g. A320")
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    alt_baro_ft: int = Field(ge=-1500, le=60000, description="Pressure altitude, feet")
+    gs_kt: float | None = Field(default=None, ge=0, le=1000, description="Ground speed, knots")
+    track_deg: float | None = Field(default=None, ge=0, lt=360, description="True track, degrees")
+    observed_at: UtcDatetime = Field(description="When the position was measured, UTC")
+
+    @field_validator("hex", "callsign", "type_icao", mode="before")
+    @classmethod
+    def _tidy(cls, value: object, info: ValidationInfo) -> object:
+        if not isinstance(value, str):
+            return value
+        value = value.strip()
+        return value.lower() if info.field_name == "hex" else value.upper() or None
+
+
+class PositionBatch(TephraModel):
+    """One push. Records are checked one by one, so one bad record never refuses the rest."""
+
+    format: Literal["tephra.positions/1"]
+    positions: list[dict[str, Any]] = Field(max_length=MAX_PUSH_POSITIONS)
+
+
+class PushProblem(TephraModel):
+    index: int = Field(description="0-based position in ``positions``")
+    reason: str
+
+
+class PushResult(TephraModel):
+    connection_id: str
+    received_at: UtcDatetime = Field(description="TEPHRA's active clock")
+    accepted: int
+    rejected: list[PushProblem]
+    in_ash: list[str] = Field(
+        default_factory=list, description="Hexes of accepted positions in or heading into the ash"
+    )
+
+
+class Connection(TephraModel):
+    """A source an airline pushes into. Only the key's SHA-256 is kept."""
+
+    id: str = Field(pattern=r"^CN-[0-9a-f]{10}$")
+    name: str = Field(min_length=2, max_length=48)
+    kind: Literal["positions"] = "positions"
+    sample: bool = Field(default=False, description="TEPHRA's own sample feed of real flights")
+    created_at: UtcDatetime
+    created_by: str
+    key_sha256: str
+    key_hint: str = Field(description="The key's last 4 characters, to tell keys apart")
+    revoked_at: UtcDatetime | None = None
+    last_push_at: UtcDatetime | None = None
+    pushes: int = 0
+    accepted: int = 0
+    rejected: int = 0
+
+
+class ConnectionView(TephraModel):
+    """A connection as the Connect page shows it; ``key`` only in the answer that created it."""
+
+    id: str
+    name: str
+    kind: str
+    sample: bool
+    created_at: UtcDatetime
+    created_by: str
+    key_hint: str
+    revoked_at: UtcDatetime | None
+    last_push_at: UtcDatetime | None
+    pushes: int
+    accepted: int
+    rejected: int
+    key: str | None = None
+
+
+class PushedDot(TephraModel):
+    hex: str
+    callsign: str | None
+    lat: float
+    lon: float
+    alt_baro_ft: int
+    track_deg: float | None
+    in_ash: bool
+
+
+class PushSummary(TephraModel):
+    """The ``push`` event: what one push brought, for the Connect page."""
+
+    connection_id: str
+    name: str
+    sample: bool
+    at: UtcDatetime
+    accepted: int
+    rejected: int
+    reasons: list[str] = Field(default_factory=list, description="Up to 3 distinct reasons")
+    dots: list[PushedDot] = Field(default_factory=list)
 
 
 class WindLevel(TephraModel):
@@ -2184,6 +2301,9 @@ class AircraftFeatureProps(TephraModel):
     )
     dest_icao: str | None = None
     label: str = Field(description="e.g. 'RFA4821 FL350' or 'RFA4821 FL350 +14 MIN'")
+    data_source: Literal["ADSB", "AIRLINE"] = Field(
+        default="ADSB", description="AIRLINE: pushed by an airline connection (Connect page)"
+    )
 
 
 class RouteFeatureProps(TephraModel):

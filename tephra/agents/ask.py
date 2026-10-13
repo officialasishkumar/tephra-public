@@ -31,7 +31,6 @@ from tephra.agents.schemas import gemini_schema, parse_json_model
 from tephra.agents.validators import CLOCK_PATTERNS
 from tephra.config import Settings
 from tephra.desk import audit, failures
-from tephra.feeds.adsb import merge_aircraft
 from tephra.feeds.airports import AirportCatalogue
 from tephra.feeds.registry import LiveData, health_view
 from tephra.geo.cone import geometry_to_shape, shape_to_geometry
@@ -752,7 +751,7 @@ class AskToolkit:
 
     def _what_if(self, cone: HazardCone, changed: HazardCone, assumed: dict[str, Any]) -> _Built:
         settings, policy = self._rt.settings, self._rt.policy
-        aircraft = merge_aircraft(self._rt.live.adsb)
+        aircraft = self._rt.aircraft()
         at = timeutil.now()
 
         def exposed_by(shape: HazardCone) -> dict[str, ExposedFlight]:

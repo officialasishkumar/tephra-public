@@ -30,6 +30,7 @@ export function planeCard(p, adv) {
       p.origin_icao && p.dest_icao ? { text: `${p.origin_icao} → ${p.dest_icao}` } : null,
       where,
       adv ? { text: `${STATUS_WORD[adv.status] || adv.status}${decided}` } : null,
+      p.data_source === "AIRLINE" ? { text: "Position from the airline's own feed (Connect)", tone: "feed" } : null,
     ],
     action: p.proxy_flight ? { text: "Flight details ›", act: "details-open", sec: "flight" } : null,
   });

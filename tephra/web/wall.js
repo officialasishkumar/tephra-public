@@ -62,6 +62,8 @@ const ui = {
   // phone's map; a choice made with its button is kept for the session
   // the key starts folded (one "Map key" button on the map) and stays as the viewer leaves it
   keyOpen: (() => { try { return sessionStorage.getItem("tephra.wall.key") === "open"; } catch { return false; } })(),
+  // which flights the map shows: all, inside the ash, heading in (kept for the session)
+  flightFilter: (() => { try { return sessionStorage.getItem("tephra.wall.flights") || "all"; } catch { return "all"; } })(),
   // the side panel (story and Details) hidden for the whole map, kept for the session
   panelHidden: (() => { try { return sessionStorage.getItem("tephra.wall.panel") === "hidden"; } catch { return false; } })(),
   trustOpen: false, // the hero's note on what TEPHRA's ash area is
@@ -459,7 +461,25 @@ function renderPills() {
     n.action ? el("button", { type: "button", class: "link-btn", dataset: { act: n.action, sec: n.sec || null, focus: `pill-${n.action}` }, text: n.actionText }) : null)));
 }
 
+function renderFlightFilter() {
+  if (!D) return;
+  const inside = (p) => p.inside === true || p.minutes_to_entry === 0;
+  const hexes = (pred) => new Set(D.exposed.filter((f) => pred(f.properties)).map((f) => f.properties.hex)).size;
+  const n = { all: D.aircraft.length, inside: hexes(inside), heading: hexes((p) => !inside(p)) };
+  for (const b of document.querySelectorAll("#flight-filter [data-ff]")) {
+    b.setAttribute("aria-checked", String(b.dataset.ff === ui.flightFilter));
+    b.querySelector("b").textContent = String(n[b.dataset.ff]);
+  }
+}
+
+function setFlightFilter(f) {
+  ui.flightFilter = f;
+  try { sessionStorage.setItem("tephra.wall.flights", f); } catch { /* storage blocked */ }
+  renderNow();
+}
+
 function renderTools() {
+  renderFlightFilter();
   const lb = document.querySelector('#tools [data-tool="layers"]');
   if (lb) lb.setAttribute("aria-expanded", ui.details.open && ui.details.sec === "layers" ? "true" : "false");
   const pressed = { "sat-toggle": ui.sat !== "off", compare: ui.compare, "3d": ui.d3 };
@@ -952,6 +972,7 @@ document.addEventListener("click", (e) => {
   else if (tool === "layers") toggleSection("layers", t);
   else if (tool === "levels") openDetails("levels", { opener: t });
   else if (t.id === "panel-toggle") setPanel(!ui.panelHidden);
+  else if (t.dataset.ff) setFlightFilter(t.dataset.ff);
   else if (t.id === "area-btn") { if ($("regions").hidden) openAreaMenu(); else closeAreaMenu(); }
   else if (t.id === "ai-chip" || act === "board-open") openBoard(t);
   else if (act === "board-close") $("board").close();

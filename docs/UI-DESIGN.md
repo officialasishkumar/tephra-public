@@ -1040,7 +1040,11 @@ Bottom-right, stacked by MapLibre: `#tools` (a custom control, one column of 40 
 S), 3D (`data-tool="3d"`, D) and Layers (`data-tool="layers"`, L, opens Details › Map layers); the
 three switches are pressed while on. Zoom +/- at every desktop width (the compass only in 3D), and
 the attribution (`AttributionControl`, `compact: false`, 12 px: "OpenFreeMap © OpenMapTiles Data
-from OpenStreetMap"). A phone keeps Fit and Layers in a row; pinch zooms. Bottom-left, `.map-pills`, only while true and one line each: `#ctx-label` (one
+from OpenStreetMap"). A phone keeps Fit and Layers in a row; pinch zooms. The flight filter,
+one pill at the map's top centre: "All 72 · Inside 33 · Heading in 2" (counts of the RFA flights
+in or heading into TEPHRA's area); Inside or Heading in leaves only those flights on the map, with
+their paths, routes and labels (the picked flight always stays); kept for the session
+(`tephra.wall.flights`). Bottom-left, `.map-pills`, only while true and one line each: `#ctx-label` (one
 `.ctx-pill` per satellite, SO2 or BTD layer, never folded: "CONTEXT ONLY" and the caption wrap
 together, the ✕ that turns the layer off sits beside them, and the GIBS scale, where one is
 published, is inside the same pill; at most 520 px wide), and `#map-notes`: "Height filter FL180–FL350 hides 1 official
@@ -1437,6 +1441,30 @@ and crew reports still open their Details sections.
 The side panel (story and Details) hides with a tab on the map's left edge for the whole map, and
 the same tab brings it back; kept for the session (`tephra.wall.panel`); opening Details shows it
 again; not on a phone.
+
+### 7.24 TEPHRA Connect (`/connect`, 13 Oct 2026)
+
+Where an airline plugs its own data in, shown rather than explained. Connect's own accent is
+cyan to violet (`#5eead4` to `#8b9bff`), for data arriving and nothing else; amber stays TEPHRA's
+area and the flights in it, pink stays official.
+- **The live map** (left, most of the screen): the night basemap with the ash areas and the active
+  volcanoes; each pushed flight is a plane icon on its track that glides to its new position over
+  the 5 s between pushes, with a short trail; amber when it is in or heading into the ash, ice
+  white otherwise; callsigns from zoom 5.5. It frames the traffic when it first arrives. Three
+  numbers over it: positions / min, flights live, in the ash (they bump when they change). With
+  nothing arriving: a breathing orb, "Waiting for data" and "Start sample feed".
+- **Sources** (right): the sample airline feed as a switch; "Your airline": each connection with
+  its key's last 4 characters, positions taken, a 5-minute sparkline and positions / min, glowing
+  while data flows, ✕ to revoke (confirmed in a dialog); "Public feeds": each feed's state dot,
+  age and records. "Connect" opens: name -> the key, shown once with Copy.
+- **The ticker**: one card per push sliding in (+40 positions, 12 in the ash, refused in red with
+  the reasons in its tooltip).
+- **Plug in your data**: 1 the format as field chips with real example values, "Sample file" and
+  "JSON Schema"; 2 "Create a connection"; 3 the push in curl, Python or JavaScript with the key
+  filled in once made, and Copy.
+- Signed out it is read-only: the public parts show, and "Sign in" (name and Desk PIN in a dialog)
+  unlocks connections and the sample feed. Linked from the Wall's header ("Connect") and the Desk's
+  account menu. On the Wall a pushed flight's card says "Position from the airline's own feed".
 
 ## 8. 3D, compare, the time bar and the height filter
 

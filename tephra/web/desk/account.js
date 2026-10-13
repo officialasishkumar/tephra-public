@@ -103,6 +103,7 @@ function renderMenu() {
       el('input', { type: 'checkbox', id: 'wake-toggle', checked: app.wakeWanted }),
       el('span', { text: 'Keep the screen on while drafts wait' })));
   }
+  items.push(el('a', { class: 'menu__item', href: '/connect' }, icon('i-network'), el('span', { text: 'Connect airline data' })));
   items.push(el('button', { type: 'button', class: 'menu__item', 'data-menu': 'signout' }, icon('i-log-out'), el('span', { text: 'Sign out' })));
   menu.replaceChildren(...items);
 }
