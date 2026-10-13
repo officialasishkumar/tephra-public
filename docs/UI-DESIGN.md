@@ -942,8 +942,8 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
   · re-planning…" (caution) and its section opens with a spinner line. The Desk's Airports tab
   follows the same trace line.
 - Buttons: the one filled button on the Wall, "Decide on the Desk →", linking to
-  `/desk#review/{the most urgent DRAFT advisory of this volcano}` in the Desk's own urgency order
-  (`byUrgency`: inside now first, then the soonest entry on the clock, then the oldest draft); the
+  `/desk#review/{the DRAFT advisory of this volcano to decide first}` in the Desk's act-by order
+  (`byActBy`, 10.17: the soonest act-by, keep watching and continue inside now last); the
   Desk opens that draft as its Next decision, so one flight is primary on both screens; with no
   draft it is the secondary "Open the Desk". Under it, quiet, "See the AI at work" (A) opens the
   board (7.21).
@@ -1458,11 +1458,12 @@ never truncates); live, the disclaimer alone. On a phone the two wrap to two sho
 one band. `#net-banner` (offline, back online) under it. `state` is read from `GET /api/state`
 at start and from `state` events; until then the static HTML disclaimer is shown.
 
-Tabs `#tabbar` (R10.2): Decide, Ask, Airports, Paperwork, each an icon and a word with a 12 px
-count badge. The `data-tab` keys `queue`, `ask`, `network`, `docs` and the `sessionStorage` key
-`tephra.desk.tab` are unchanged. Decide's badge counts advisories + messages + flights to plan
-by hand, and its `aria-label` and title say so ("Decide, 28 waiting: 23 advisories · 3 messages ·
-2 flights to plan by hand"); Airports counts plans waiting; Paperwork counts documents to sign.
+Tabs `#tabbar` (R10.2, 10.17): Decide, Airports, Paperwork, Ask, a `role="tablist"` of
+`role="tab"` buttons with `aria-selected`, each an icon and a word. The `data-tab` keys `queue`,
+`ask`, `network`, `docs` and the `sessionStorage` key `tephra.desk.tab` are unchanged. Only Decide
+has a badge (neutral, text-1 on surface-3): `waitingCount()`, the same number as Decide's count
+line and the page title, and its `aria-label` and title say what it counts ("Decide, 30 waiting: 5
+advisories · 23 flights to plan by hand · 1 airport plan · 1 document to sign").
 
 ### 10.2 Sign-in
 
@@ -1484,10 +1485,11 @@ advisory." until it is known). On success: focus moves to the Decide title and t
 
 Title "Decide" (`#q-title`, 24) and a ⋯ button (`#q-more-btn`, `aria-label="More actions"`,
 `aria-expanded`, Esc closes and returns focus, arrow keys move) holding "Report ash from a crew"
-(`#crew-report-btn`, 10.15), "Paste a notice" (`#paste-notice`) and "Refresh the lists"
+(`#crew-report-btn`, 10.15), "Paste a notice" (`#paste-notice`) and "Reload the lists"
 (`#refresh`, spins while loading). Pull-to-refresh and the
-refresh on every `advisory` event stay. Sort: inside now first, then entry time, then
-`created_at`. In order:
+refresh on every `advisory` event stay. Sort: the act-by order (10.17, `byActBy`), which replaces
+"inside now first". 10.17 replaces items 1 and 3 below (the lead card and the deadline groups);
+the rest stands. In order:
 
 1. The Next decision card (`section.next`): eyebrow "NEXT DECISION" (`#drafts-title`), "1 of 23
    advisories · most urgent first" (`#q-count`), the breakdown "23 advisories · 3 messages · 2
@@ -1533,7 +1535,7 @@ refresh on every `advisory` event stay. Sort: inside now first, then entry time,
    Plan by hand; any other must-do work stays in a caution box here (UI-AI-QUIET K92). A run that
    did not run reads "Duty Officer: no brief this run · its must-do flights are in Plan by hand"
    (the cause is said once, in the Plan by hand card).
-5. `#closed` "Decided while this page was open (2)", a collapsed `<details>`.
+5. `#closed` "Decided since 0955Z · 2" (10.17), a collapsed `<details>`.
 6. `.qfoot`: "Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft
    or any real system."
 
@@ -1610,7 +1612,7 @@ line above (`--c-approve` fill, `--c-approve-ink`, 56 tall, radius 12, 18 px 600
   alternative (2.5.7) and the confirmation step (3.3.4). There is no swipe-to-act.
 - While sending: the button shows a spinner and "Approving…", all decision buttons are
   disabled. Success: the decided stamp, then the sheet moves on to the next draft (on a phone too)
-  and the toast (11.8) carries the audit line and "Next: RFA1530 · inside now". There is no bulk
+  and the receipt line (10.17) is pinned above it. There is no bulk
   approval: the next draft needs its own hold or confirm. With no draft left the sheet closes and
   focus goes to the empty state.
 
@@ -1627,11 +1629,11 @@ hold-or-tap rule), secondary "Cancel". 422 shows `problems` under the field.
 ### 10.7 Reject
 
 Sheet view "Reject RFA4821": reason textarea (required, 3-500 characters, counter), quick
-reasons as chips that insert text and stay editable: "Flight already clear of the area", "Level
-already outside the hazard band", "Duplicate of another advisory", "Hazard data look wrong";
+reasons as chips that insert text and stay editable: "Flight already outside the area", "Level
+already outside the ash band", "Duplicate of another draft", "Ash data look wrong";
 note "The reason is recorded in the audit log. A rejected draft is not queued." Primary "Reject
-advisory for RFA4821" (`--c-reject` fill, white text, `i-x`; tap only, no hold), secondary
-"Cancel".
+draft for RFA4821" (the neutral filled button, never red, 10.17; tap only, no hold), secondary
+"Cancel". "Reject…" in the review's bar is a neutral outline at the same width as "Edit text".
 
 ### 10.8 After a decision; conflict
 
@@ -1640,6 +1642,8 @@ advisory for RFA4821" (`--c-reject` fill, white text, `i-x`; tap only, no hold),
   and flight, and "AK · 1607Z · queued, not sent to any aircraft" (16 text-2), above a 3 px rule
   in the same colour. It is not interactive; it enters with a short scale-in that reduced motion
   drops (the 1200 ms hold stays). Then the sheet closes and the toast follows.
+- Replaced by the receipt line (10.17, D3): the decision toast and its 15 s are gone; toasts stay
+  for "Back online." and the session warning. Kept for the record:
 - Toast (bottom, 15 s for a decision toast so the receipt can be read, 6 s for other toasts, `role="status"`, persists while focused; title 16 px 600; at most 40vh tall
   on phones): approved "Approved: HOLD FL250
   for RFA4821 · queued 1607Z under AK. Not sent to any aircraft."; edited "Approved with your
@@ -1971,6 +1975,86 @@ Before → after, item by item:
 5. "Anak Krakatau · left undone at 1143Z ·" → "Anak Krakatau · since 1043Z"; the reason as
    recorded → the cause in words, the code under Technical detail.
 
+### 10.17 Desk redesign, 13 Oct 2026 (b): Decide as an inbox, a review that reads down
+
+The build spec is `tephra-desk-redesign-spec-2026-10-13.md` (Inbox triage), ideas 1, 2, 3 and 5;
+the naming (idea 4) was already in. Plan by hand (10.16) is kept as it is and is group 1 of the
+inbox. This section wins over 10.1 to 10.8 where they differ.
+
+**Act-by** (`format.js actBy`, `byActBy`; `byUrgency` is kept as its alias): a flight heading in
+acts by its entry (drafted time + minutes to entry); a flight inside now whose draft changes it
+(HOLD, CHANGE_LEVEL, REROUTE, DIVERT) acts now (its drafted time); inside now with MONITOR or
+CONTINUE has no act-by and waits in Keep watching, inside longest first. Ties: the older draft.
+Code sets this order; the Coordinator's order is only a note (its row stays on Decide).
+
+**Decide**, in order: "Decide" and ⋯; one count line `#q-count`, "23 waiting · 3 due in 10 min"
+(with hand work: "30 waiting · 5 advisories · 23 flights to plan by hand"), the same number as
+the badge and the page title (`waitingCount()`: advisories + flights to plan by hand + messages
++ airport plans + documents to sign); the drafts set aside from the other mode (`#q-breakdown`);
+the first-use line; the receipt line on Decide when the last decision closed the review
+(`#q-receipt`); "More urgent: RFA3001 · entry due now · Show" (`#q-newer`) when a more urgent
+item arrived (the lead never swaps under the thumb); then:
+
+0. The lead card (`#q-next`, the one card): "RFA1456 · MAS723" with the time cell; the action in
+   plain words (16 600); "Anak Krakatau · now FL310 · entry due now" (the level now is ADS-B
+   `alt_baro` from the Wall's aircraft layer, left out when the flight is not tracked); caution
+   lines only when they apply (crew report, HYPOTHESIS, needs a careful read, sources stale, and
+   "Drafted 12 min ago: entry time may have moved." past 10 min); the mark line; "Review RFA1456 ›"
+   (filled neutral). No mono preview. At 1100 px and up the card is the selected row of the open
+   review (left edge, no button).
+1. Plan by hand (`#fail-section`, 10.16, unchanged).
+2. BEFORE ENTRY · n (`#more-title`, `#cards`): one-line rows in act-by order, advisories and the
+   messages for a flight still heading in; 5 rows, then "Show all n" (`#cards-all`).
+3. KEEP WATCHING · n inside now (`#watch-section`): rows "RFA2408 · FL310 · Anak Krakatau ·
+   inside"; 3 rows, then "Show all n" and "Review one by one ›".
+4. OTHER DECISIONS · n (`#other-section`): the airport plan (`#plan-section`, "Airport plan · 3
+   airports closed · to approve", opens Airports), each document to sign ("to sign", opens
+   Paperwork), and messages not tied to a flight still on this page (`#msg-section`, "to approve",
+   opens the message).
+5. The crew reports, notices and Coordinator rows (`.qlinks`, unchanged); "Decided since 0955Z ·
+   n" (`#closed`, the page-open time on the active clock); the footer sentence.
+
+A row (`.irow`): subject (14 600), the action in plain words (16; it wraps, never cut), a caution
+shape when one applies, a 6 px dot while new, the time cell, ›. Time cell: "now" or "3 min" in
+caution at 10 min or less, "23 min" and "inside" in text-2, "to approve" / "to sign" for items with
+no clock. One sentence for screen readers per row ("RFA9885, hold at FL140, enters in 3 minutes.
+Review."). At 600 px and up rows add callsign, volcano and level.
+
+**Review** (`#sheet`): the top bar "‹ Decide · 1 of 21 · Skip for now ›" (the position in the
+act-by order; "Skip for now" opens the next item, decides nothing and is not audited); "RFA1456 ·
+MAS723 · v1"; the action as the sheet's h1 (`#s-title`, 24 600); the entry line once ("Entry due
+now (est.)", caution at 10 min or less). CHECK BEFORE YOU APPROVE (`#why`): Level ("now FL310 →
+hold at FL226"), Ash (band · volcano), Area (8 px swatches with words, ›), Sources ("7 · 5 official ·
+newest 3 min", ›), Fuel, Route (with a 140 px sketch, ›). TEXT TO APPROVE: one box, the header
+code wrote dim and not editable (its SRC lines fold to "7 source lines (code)"), a hairline, the
+body that is approved. The mark line. "Record · ids, policy, history, audit ›". Pages inside the
+sheet (the bar stays): Sources (OFFICIAL / CONTEXT ONLY rows that open in place to the full id,
+times, hash and link), Area (the words, the mode sentence, "TEPHRA's area is never smaller than the
+official area."), Route, Record (ids, the proxy and hex, drafted-at and minutes to entry, the action
+code, the fuel formula and cost note, drafted by and the validator notes, the policy, the full
+header, History from `/api/audit`, "Ask TEPHRA about RFA1456 ›"). "Drafted from recorded feeds" left
+the review: REPLAY is said by the frame strip (and the header line inside the approved text).
+
+**One decision bar**: the primary (Approve, green, advisories only; hold or tap-and-confirm), the
+hint "Hold to approve, or tap to confirm." (offline: "Reconnect to approve"), then "Edit text" and
+"Reject…" at equal width, both neutral outlines. Editing: "Stop editing" and "Reject…"; "Unchanged
+from the draft…" shows only after an approve attempt. The confirm step: "Approve: hold RFA1456 at
+FL226?", "Entry due now, est. 1008Z · version 1", the queued sentence. "Nothing is sent…" is said
+twice per approval: the confirm and the stamp.
+
+**Receipt line** (`#receipt`, D3): after the 1200 ms stamp the sheet opens the next item with
+"✓ Approved: hold RFA1456 at FL226 · 1003Z · AK" pinned above it, "Draft crew briefing ›" (drafts
+and opens the briefing) and "Audit ▸" (opens in place to the entry `/api/audit` lists for this
+decision, or "Audit line not listed yet. It appears in Record when the server lists it.";
+nothing is put in its place). Said once: "Approved: …. Next: RFA9885." No toast, no Undo.
+
+**Header**: `#net-banner` moved out of the sticky header to the top of the view, so the header
+never grows offline (93 px at 390 in every state).
+
+**Ask**: the conversation reads down, oldest first; the composer is pinned at the bottom above the
+tab bar; the newest answer scrolls into view above it and is announced once ("Answer: …", 140
+characters); the suggestions show only before the first question.
+
 ## 11. Copy deck
 
 Sentence case in prose; caps only for codes, aviation words and small caps labels. Hyphens in
@@ -2067,7 +2151,7 @@ receipt ("Approved: MONITOR for RFA1225 · …") and the audit keep the ICAO wor
 ash now", "Enters in 12 min (est.)". Buttons: "Approve: keep watching {proxy}" (10.5), "Approve
 edited text for {proxy}", "Reject advisory for {proxy}", "Review {proxy}", "Edit text", "Reject…",
 "Approve now", "Cancel", "Back to Decide", "Review the new version", "Sign in", "Sign out", "Try
-again", "Refresh the lists", "Re-plan now", "Approve plan…", "Write the handover", "Draft SRA",
+again", "Reload the lists", "Re-plan now", "Approve plan…", "Write the handover", "Draft SRA",
 "Draft VAR". Tabs: "Decide", "Ask", "Airports", "Paperwork". Labels: "Version 1" (not "v1"),
 "Written by a code template (AI off)" (not "Template · NO MODEL"), "AI calls today: 0 of 450",
 "Pilot ash report (VAR)", "Ready for you", "from: flights heading in" (not "T01 exposed_flights"),
@@ -2256,9 +2340,8 @@ context label (section 7.3, 5.6).
   (listed for 24 h, not drawn); a report withdrawn or expired leaves the drafts it flagged as they
   are (no recheck card); the Wall's flights list shows the crew line only for flights heading into
   TEPHRA's area (a flagged flight outside it is reached from the map or Details › Crew reports).
-- The decision receipt stays 15 s. On a phone it sits in the review sheet's flow under the sheet
-  head (`#sheet-receipts`), so it pushes the next draft down instead of covering it; at 1440 it is
-  the usual toast under the queue column.
+- The decision receipt is one line pinned above the next review (`#receipt` in `#sheet-receipts`,
+  10.17); it stays until the next decision or until the review is closed.
 
 - The CSP (MODULES.md 8.1 and `server.py`) allows GIBS and Mapterhorn for images and fetches,
   and scripts only from the two pinned unpkg packages; any other script host is refused.
