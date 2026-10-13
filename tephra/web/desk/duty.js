@@ -42,7 +42,7 @@ export async function loadDuty() {
   if (res.ok && res.data && Array.isArray(res.data.runs)) {
     app.duty = res.data.runs[0] || null;
     app.dutyLoaded = true;
-    renderDuty();
+    app.hub.dutyChanged();
   }
 }
 
@@ -50,7 +50,7 @@ export function onDutyEvent(run) {
   if (!run || typeof run !== 'object' || typeof run.id !== 'string' || !Array.isArray(run.worklist)) return;
   app.duty = run;
   app.dutyLoaded = true;
-  renderDuty();
+  app.hub.dutyChanged();
 }
 
 // One entry per tool, calls added up: the same tool called twice shows once.

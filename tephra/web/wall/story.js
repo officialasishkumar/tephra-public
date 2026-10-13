@@ -310,7 +310,9 @@ export function crewLines(D, sit) {
 
 let lastAnnounce = { at: 0, key: "" };
 
-const openBtn = (act, cls, label, ...kids) => el("button", { type: "button", class: cls, "aria-label": label, dataset: { act: "details-open", sec: act, focus: `story-${cls.split(" ")[0]}-${act}` } }, ...kids);
+// A button that opens a Details section. Its visible words are its name (WCAG 2.5.3); `title`
+// carries the full sentence for a pointer.
+const openBtn = (act, cls, title, ...kids) => el("button", { type: "button", class: cls, title, dataset: { act: "details-open", sec: act, focus: `story-${cls.split(" ")[0]}-${act}` } }, ...kids);
 
 // The trust note (R5.7, docs/UI-AI-QUIET.md W17): one sentence that holds in every AI state, one
 // tap from "TEPHRA's ash area" in the hero; the map key's TEPHRA row says it on screen.
@@ -330,13 +332,13 @@ function heroNode(h, ui) {
       h.count != null ? el("span", { class: "sr-only", text: `${h.count} ` }) : null,
       words,
       h.split ? el("p", { class: "hero__split" }, el("span", { text: h.split }),
-        h.show ? [el("span", { class: "hero__dot", "aria-hidden": "true", text: " · " }), openBtn("flights", "link-btn hero__show", `Show the ${plural(h.show, "flight", "flights")}`, h.show === 1 ? "Show it" : "Show them")] : null) : null),
+        h.show ? [el("span", { class: "hero__dot", "aria-hidden": "true", text: " · " }), openBtn("flights", "link-btn hero__show", `Show the ${plural(h.show, "flight", "flights")} in Details`, h.show === 1 ? "Show it" : "Show them")] : null) : null),
     h.count != null ? trustNode(!!ui.trustOpen) : null);
 }
 
 function factNode(f) {
   return el("li", { class: `fact${f.tone ? ` fact--${f.tone}` : ""}` },
-    openBtn(f.act, "fact__btn", `${f.title} Opens Details.`,
+    openBtn(f.act, "fact__btn", f.title,
       el("span", { class: "fact__label", text: f.label }),
       el("span", { class: "fact__value" }, f.busy ? el("span", { class: "spinner", "aria-hidden": "true" }) : f.tone ? st(`st-${f.tone}`, `var(--c-${f.tone})`) : null, f.value),
       f.sub ? el("span", { class: "fact__sub", text: f.sub }) : null));

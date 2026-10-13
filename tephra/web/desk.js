@@ -927,6 +927,12 @@ function wire() {
       if (app.me && isWide() && !sheetOpenFor() && app.pane !== 'failures' && openFailures().length) openFailPane({ focus: false });
       syncPanes();
     },
+    // a new Duty Officer run changes the must-do marks and the AI's state (renderFailures draws
+    // the Duty Officer card too)
+    dutyChanged: () => {
+      renderFailures();
+      updateBadges();
+    },
     measureBar: measure,
     goTab: (name) => goTab(name, { focus: true }),
     draftMessages: requestMessageDrafts,

@@ -55,9 +55,9 @@ const ui = {
   traceScope: "volcano",
   readOpen: false,
   historyOpen: false,
-  // the map key starts open on the map at 601 px and up, folded to one bar under a phone's map;
-  // a choice made with its button is kept for the session
-  keyOpen: (() => { try { const k = sessionStorage.getItem("tephra.wall.key"); return k ? k === "open" : window.innerWidth > 600; } catch { return window.innerWidth > 600; } })(),
+  // the map key starts open on the map from 1360 px, folded to its bar on smaller maps and under a
+  // phone's map; a choice made with its button is kept for the session
+  keyOpen: (() => { try { const k = sessionStorage.getItem("tephra.wall.key"); return k ? k === "open" : window.innerWidth >= 1360; } catch { return window.innerWidth >= 1360; } })(),
   trustOpen: false, // the hero's note on what TEPHRA's ash area is
   traceFilter: "all",
   historyLane: "all",

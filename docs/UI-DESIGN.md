@@ -858,7 +858,8 @@ close together · click to zoom in", "Official forecast area (+6 h)", "Other air
 on the satellite picture · AI-read · supporting only", then "Full map key and alert colours ›"
 (Help). Each row is the swatch on the label's line with its note under it. The card folds to its
 bar, "Map key" with the first three swatches and a chevron (`aria-expanded`, `aria-controls`); it
-starts open at 601 px and up and folded on a phone, and a choice is kept for the session. A fit
+starts open from 1360 px and folded on smaller maps and on a phone, and a choice is kept for the
+session. A fit
 keeps the framed area clear of the open card (`safeInsets`, at most 40% of the map's width).
 Compare mode moves it below the "A · official reports only" label. On a phone the same node sits
 under the map as one 44 px bar. Help's full key is one column, two from 520 px. Swatches keep their
@@ -1455,13 +1456,16 @@ by hand, and its `aria-label` and title say so ("Decide, 28 waiting: 23 advisori
 
 ### 10.2 Sign-in
 
-Centred card (max 400): title "Dispatcher sign-in" (24), hint "Your name is recorded on every
+Centred card (max 400): title "Dispatcher sign-in" (24), then what the Desk is, for anyone who
+arrives here first ("The Desk is where a person decides. Every advisory, message, airport plan and
+document TEPHRA drafts waits here for a dispatcher to approve, edit or reject. Nothing is sent to
+an aircraft or any real system."), hint "Your name is recorded on every
 decision. The PIN is never stored on this phone." Name field (autocomplete `username`, 2-32
 chars) and PIN (`current-password`, numeric keyboard `inputmode="numeric"`), 48 px tall, 16 px
 text, labels above, errors under the field (`aria-describedby`), button "Sign in" (primary
 neutral: `--c-text-1` fill with ink text, 48 tall, full width). Errors (11.8): bad PIN, too many
 attempts (button disabled with a countdown from the `Retry-After` header), desk disabled,
-offline. A deep link waiting for a session shows "Sign in to review RFA1225." above the form
+offline. The fine print ends with "See the Wall, the public picture, with no sign-in". A deep link waiting for a session shows "Sign in to review RFA1225." above the form
 (`#login-pending`, the flight named from the public `/api/advisories`; "Sign in to review this
 advisory." until it is known). On success: focus moves to the Decide title and the hash resumes
 (10.14).
@@ -1925,7 +1929,7 @@ Plan by hand (`desk/failures.js`):
   the note (optional, 500), and "Mark RFA1701 handled". Focus then goes to the next flight.
 - Several flights: the sheet "Mark flights handled": "Tick each flight you have planned by hand.
   Each one is saved on its own, with the note below, under your name in the audit log."; "All 23
-  flights" (tri-state) and a ticked list (none ticked to start); the note; "Mark 5 flights
+  flights" (tri-state) and a ticked list (none ticked to start, "Must do" marked); the note; "Mark 5 flights
   handled" ("Tick the flights you handled" while none is). It sends one request per flight
   ("Saving 3 of 5…"), marks each row "Saved" or "Not saved", and keeps the sheet open with the
   reasons when any failed.
