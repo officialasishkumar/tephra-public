@@ -1,14 +1,16 @@
-// The tab bar (UI-REDESIGN R10.2): Decide / Ask / Airports / Paperwork, each an icon and a word
-// with a count badge. The data-tab keys (queue, ask, network, docs) and the sessionStorage key are
-// unchanged; only the labels changed. One panel is shown at a time.
+// The tab bar (UI-REDESIGN R10.2, Desk redesign D5 and 11): Decide · Airports · Paperwork · Ask,
+// a real tablist (role=tab, aria-selected, aria-controls; the panels are tabpanels). The data-tab
+// keys (queue, ask, network, docs) and the sessionStorage key are unchanged; the three work tabs
+// sit together and the read-only Ask goes last. Only Decide has a badge: Decide is the inbox and
+// its one count (waitingCount in desk.js) is the h1, the badge and the page title alike.
 
 import { byId, el, icon } from './dom.js';
 import { app } from './state.js';
 
-export const TABS = ['queue', 'ask', 'network', 'docs'];
+export const TABS = ['queue', 'network', 'docs', 'ask'];
 const LABEL = { queue: 'Decide', ask: 'Ask', network: 'Airports', docs: 'Paperwork' };
-const WAITING = { queue: 'waiting', network: 'plan waiting', docs: 'to sign' };
 const ICON = { queue: 'i-inbox', ask: 'i-chat', network: 'i-network', docs: 'i-file' };
+const PANEL = (name) => (name === 'queue' ? 'desk-view' : `panel-${name}`);
 const KEY = 'tephra.desk.tab';
 
 let onChange = () => {};
@@ -16,19 +18,28 @@ let onChange = () => {};
 export function initTabs(handler) {
   onChange = handler;
   const bar = byId('tabbar');
+  bar.setAttribute('role', 'tablist');
+  bar.setAttribute('aria-label', 'Desk sections');
   bar.replaceChildren(...TABS.map((name) =>
-    el('button', { type: 'button', class: 'tab', 'data-tab': name, 'aria-controls': name === 'queue' ? 'desk-view' : `panel-${name}` },
-      el('span', { class: 'tab__ic' }, icon(ICON[name]), el('span', { class: 'tab__badge', 'data-badge': name, hidden: true })),
+    el('button', { type: 'button', role: 'tab', id: `tab-${name}`, class: 'tab', 'data-tab': name, 'aria-controls': PANEL(name), 'aria-selected': 'false', tabindex: '-1' },
+      el('span', { class: 'tab__ic' }, icon(ICON[name]), name === 'queue' ? el('span', { class: 'tab__badge', 'data-badge': name, 'aria-hidden': 'true', hidden: true }) : null),
       el('span', { class: 'tab__l', text: LABEL[name] }))));
+  for (const name of TABS) {
+    const panel = byId(PANEL(name));
+    if (!panel) continue;
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', `tab-${name}`);
+  }
   bar.addEventListener('click', (event) => {
     const b = event.target.closest('.tab');
     if (b) goTab(b.dataset.tab, { focus: true });
   });
   bar.addEventListener('keydown', (event) => {
-    const dir = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+    const keys = { ArrowRight: 1, ArrowLeft: -1, Home: 'first', End: 'last' };
+    const dir = keys[event.key];
     if (!dir) return;
     const i = TABS.indexOf(app.tab);
-    const next = TABS[(i + dir + TABS.length) % TABS.length];
+    const next = dir === 'first' ? TABS[0] : dir === 'last' ? TABS[TABS.length - 1] : TABS[(i + dir + TABS.length) % TABS.length];
     event.preventDefault();
     goTab(next, { focus: true });
     bar.querySelector(`[data-tab="${next}"]`).focus();
@@ -48,8 +59,9 @@ export function goTab(name, { focus = false, quiet = false } = {}) {
   app.tab = name;
   document.body.dataset.tab = name;
   for (const b of byId('tabbar').children) {
-    if (b.dataset.tab === name) b.setAttribute('aria-current', 'page');
-    else b.removeAttribute('aria-current');
+    const on = b.dataset.tab === name;
+    b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on ? 0 : -1;
   }
   for (const t of TABS) {
     if (t === 'queue') continue;
@@ -65,17 +77,15 @@ export function goTab(name, { focus = false, quiet = false } = {}) {
   onChange(name, { changed, focus });
 }
 
-// `detail` names what a badge counts (R2.7): "Decide, 28 waiting: 23 advisories · 3 messages · …".
+// The one waiting count on Decide's tab; `detail` names what it counts ("21 advisories · 2
+// flights to plan by hand · 1 airport plan").
 export function setBadges(counts, detail = {}) {
-  for (const name of TABS) {
-    const node = byId('tabbar').querySelector(`[data-badge="${name}"]`);
-    if (!node) continue;
-    const n = counts[name] || 0;
-    node.hidden = n === 0;
-    node.textContent = n > 99 ? '99+' : String(n);
-    const tab = node.closest('.tab');
-    const what = detail[name] ? `: ${detail[name]}` : '';
-    tab.setAttribute('aria-label', n ? `${LABEL[name]}, ${n} ${WAITING[name] || 'waiting'}${what}` : LABEL[name]);
-    tab.title = n && detail[name] ? detail[name] : '';
-  }
+  const node = byId('tabbar').querySelector('[data-badge="queue"]');
+  if (!node) return;
+  const n = counts.queue || 0;
+  node.hidden = n === 0;
+  node.textContent = n > 99 ? '99+' : String(n);
+  const tab = node.closest('.tab');
+  tab.setAttribute('aria-label', n ? `${LABEL.queue}, ${n} waiting${detail.queue ? `: ${detail.queue}` : ''}` : LABEL.queue);
+  tab.title = n && detail.queue ? detail.queue : '';
 }

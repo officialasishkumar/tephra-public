@@ -30,6 +30,7 @@ export const app = {
   listError: '',
   loadSeq: 0,
   lastLoadedAt: null, // active-clock ms of the last good list
+  pageOpenedAt: null, // active-clock ms of the first good list ("Decided since 0955Z")
   selectedId: null, // the draft open in the review sheet (or selected at 1440)
   pane: null, // 'failures' while the flights to plan by hand are open (the right pane, or a phone's view)
   offline: false, // no network, a failed fetch, or the stream down for 10 s

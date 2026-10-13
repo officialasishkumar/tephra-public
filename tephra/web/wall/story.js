@@ -50,11 +50,13 @@ export function advisoryFacts(D, store, vid) {
   const rejected = mine.filter((a) => a.status === "REJECTED").length;
   const allDrafts = store.advisories.filter((a) => a.status === "DRAFT").length;
   const partial = store.advisories.length >= 50 && D.state.draft_count != null && allDrafts < D.state.draft_count;
-  // Most urgent first, in the Desk's order (desk/format.js byUrgency): inside now, then the
-  // soonest entry on the clock (drafted time + minutes to entry), then the oldest draft. The Desk
-  // opens this draft as its Next decision (review 2, item 6).
-  const entryAt = (a) => ms(a.created_at) + (a.inside_now ? 0 : Math.max(0, a.minutes_to_entry || 0) * 60000);
-  const urgent = drafts.slice().sort((a, b) => Number(!!b.inside_now) - Number(!!a.inside_now) || entryAt(a) - entryAt(b) || ms(a.created_at) - ms(b.created_at))[0] || null;
+  // The draft to decide first, in the Desk's act-by order (desk/format.js byActBy): a flight
+  // heading in by its entry (drafted time + minutes to entry), a flight inside now whose draft
+  // changes it by its drafted time (act now), and flights inside told to keep watching or continue
+  // last (no clock); ties go to the older draft. The Desk opens this draft (review 2, item 6).
+  const watchOnly = (a) => !!a.inside_now && (a.action === "MONITOR" || a.action === "CONTINUE");
+  const actBy = (a) => (watchOnly(a) ? Infinity : ms(a.created_at) + (a.inside_now ? 0 : Math.max(0, a.minutes_to_entry || 0) * 60000));
+  const urgent = drafts.slice().sort((a, b) => actBy(a) - actBy(b) || ms(a.created_at) - ms(b.created_at))[0] || null;
   return { drafts: drafts.length, approved, rejected, decided: approved + rejected, partial, urgent, unknown: D.state.draft_count === null };
 }
 

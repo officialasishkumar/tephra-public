@@ -42,10 +42,12 @@
       </p>
       <p id="disclaimer" class="disclaimer">Decision support only - fictional airline - not for operational use</p>
     </div>
-    <div id="net-banner" class="netbanner" role="status" hidden></div>
   </header>
 
   <main id="main" class="dmain" tabindex="-1">
+    <!-- Offline and back online: one line at the top of the view, out of the sticky header, so the
+         header never grows (Desk redesign 4.1). -->
+    <div id="net-banner" class="netbanner" role="status" hidden></div>
     <p id="boot" class="boot"><span class="spinner" aria-hidden="true"></span> <span>Checking your session…</span></p>
 
     <section id="login-view" class="login" aria-labelledby="login-title" hidden>
@@ -105,35 +107,50 @@
                 <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-clipboard"></use></svg><span>Paste a notice</span>
               </button>
               <button id="refresh" type="button" class="menu__item">
-                <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-refresh"></use></svg><span>Refresh the lists</span>
+                <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-refresh"></use></svg><span>Reload the lists</span>
               </button>
             </div>
           </div>
         </div>
+        <!-- Decide is the inbox (Desk redesign 5.2): one count, the lead card (the advisory to decide
+             first, by act-by), Plan by hand, then one-line rows in deadline groups. Code sets the
+             order; the Coordinator's order is only a note. -->
+        <p class="qcount"><span id="q-count"></span></p>
+        <p id="q-breakdown" class="qcount__more"></p>
+        <!-- the first-use disclosure (docs/UI-AI-QUIET.md 8.4, Desk spec 5.2): once per browser, until closed (desk.js) -->
+        <p id="firstuse" class="firstuse" hidden>
+          <svg class="icon firstuse__mark" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>
+          <span class="firstuse__text">TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything. <button id="firstuse-about" type="button" class="firstuse__about">About ›</button></span>
+          <button id="firstuse-close" type="button" class="iconbtn firstuse__close" aria-label="Hide this line" title="Hide this line"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-x"></use></svg></button>
+        </p>
+        <div id="q-receipt" class="qreceipt"></div>
+        <p id="q-newer" class="next__newer" role="status" hidden></p>
+        <div id="q-state" class="qstate"></div>
         <section class="next" aria-labelledby="drafts-title">
-          <h2 id="drafts-title" class="next__eyebrow">Next decision</h2>
-          <p class="next__count"><span id="q-count"></span></p>
-          <p id="q-breakdown" class="next__breakdown"></p>
-          <!-- the first-use disclosure (docs/UI-AI-QUIET.md 8.4, Desk spec 5.2): once per browser, until closed (desk.js) -->
-          <p id="firstuse" class="firstuse" hidden>
-            <svg class="icon firstuse__mark" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>
-            <span class="firstuse__text">TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything. <button id="firstuse-about" type="button" class="firstuse__about">About ›</button></span>
-            <button id="firstuse-close" type="button" class="iconbtn firstuse__close" aria-label="Hide this line" title="Hide this line"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-x"></use></svg></button>
-          </p>
-          <p id="q-newer" class="next__newer" role="status" hidden></p>
-          <div id="q-state" class="qstate"></div>
+          <h2 id="drafts-title" class="sr-only">Next decision</h2>
           <div id="q-next" class="next__slot"></div>
         </section>
-        <!-- Flights to plan by hand: never folded, one compact group after the Next decision
-             (docs/UI-AI-QUIET.md K77; was "Problems to acknowledge" above it, UI-REDESIGN R10.4). -->
+        <!-- Group 1, Plan by hand: flights TEPHRA Assistant could not plan, never folded, directly
+             after the lead card (docs/UI-AI-QUIET.md K77; Desk redesign 5.2). -->
         <section id="fail-section" class="qsec qsec--fail" hidden></section>
-        <h2 id="more-title" class="more__title" hidden></h2>
-        <ul id="cards" class="cards" aria-labelledby="more-title"></ul>
-        <button id="cards-all" type="button" class="linkbtn cards__all" hidden><span>Show all</span></button>
+        <!-- Group 2, Before entry: act-by order, five rows, then "Show all n". -->
+        <section class="grp" aria-labelledby="more-title">
+          <h2 id="more-title" class="ghead" hidden></h2>
+          <ul id="cards" class="cards irows" aria-labelledby="more-title"></ul>
+          <button id="cards-all" type="button" class="linkbtn grp__all" hidden><span>Show all</span></button>
+        </section>
+        <!-- Group 3, Keep watching: inside now, keep watching or continue (no clock), inside longest first. -->
+        <section id="watch-section" class="grp" aria-labelledby="watch-title" hidden></section>
+        <!-- Group 4, Other decisions: the airport plan, documents to sign, messages. -->
+        <section id="other-section" class="grp" aria-labelledby="other-title" hidden>
+          <h2 id="other-title" class="ghead"></h2>
+          <ul class="irows">
+            <li id="plan-section" class="irows__slot" hidden></li>
+          </ul>
+          <ul id="msg-section" class="irows" hidden></ul>
+        </section>
         <div class="qlinks">
           <section id="crew-section" class="qsec qlink" aria-label="Crew reports of ash" hidden></section>
-          <section id="plan-section" class="qsec qlink" hidden></section>
-          <section id="msg-section" class="qsec qlink" hidden></section>
           <section id="notice-section" class="qsec qlink" hidden></section>
           <section id="duty-section" class="qsec qsec--duty qlink" aria-label="Coordinator brief" hidden></section>
         </div>
@@ -141,7 +158,7 @@
           <details class="closed__box">
             <summary class="closed__sum">
               <svg class="icon disclosure" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-chevron-right"></use></svg>
-              <span id="closed-title" class="closed__title">Decided while this page was open</span> <span id="closed-count" class="closed__count"></span>
+              <span id="closed-title" class="closed__title">Decided since this page opened</span> <span id="closed-count" class="closed__count"></span>
             </summary>
             <ul id="closed-list" class="closed__list"></ul>
           </details>

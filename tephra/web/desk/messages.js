@@ -4,10 +4,9 @@
 
 import { PATHS, api, errorCode, isUnavailable, problems, unavailableReason } from './api.js';
 import { announce, byId, el, icon } from './dom.js';
-import { hhmmz } from './format.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
-import { aiMark, openBSheet, sectionHead, unavailableCard } from './ui.js';
+import { aiMark, openBSheet, unavailableCard } from './ui.js';
 
 export const KIND = {
   CREW_BRIEFING: ['Crew briefing', 'i-aircraft'],
@@ -24,7 +23,6 @@ export async function loadMessages() {
   const res = await api(PATHS.messages('DRAFT'));
   if (res.ok && res.data && Array.isArray(res.data.messages)) {
     app.messages = new Map(res.data.messages.filter((m) => m && m.id).map((m) => [m.id, m]));
-    renderMessages();
     app.hub.badges();
   }
 }
@@ -35,55 +33,17 @@ export function onMessageEvent(m) {
   if (known && known.version > m.version) return;
   if (m.status === 'DRAFT') app.messages.set(m.id, m);
   else app.messages.delete(m.id);
-  renderMessages();
   app.hub.badges();
   if (!known && m.status === 'DRAFT') announce(`New message draft: ${(KIND[m.kind] || [m.kind])[0]}${m.flight_no ? ` for ${m.flight_no}` : ''}.`);
 }
 
 const title = (m) => `${(KIND[m.kind] || [m.kind])[0]}${m.flight_no ? ` · ${m.flight_no}` : ''}`;
 
-function card(m) {
-  const first = m.texts[0];
-  const langs = m.texts.map((t) => (LANG[t.language] || [t.language.toUpperCase()])[0]).join(' · ');
-  return el('li', { class: 'mcard' },
-    el('button', { type: 'button', class: 'mcard__btn', 'data-msg': m.id },
-      el('span', { class: 'mcard__row' },
-        icon((KIND[m.kind] || [0, 'i-raw-text'])[1], 'icon'),
-        el('span', { class: 'mcard__title', text: title(m) }),
-        el('span', { class: 'mcard__langs', text: langs })),
-      m.route ? el('span', { class: 'mcard__meta', text: `${m.route}${m.tail ? ` · ${m.tail}` : ''}` }) : null,
-      el('span', { class: 'mcard__body', 'aria-hidden': 'true', lang: LANG_ATTR[first.language] || null, text: m.final_bodies[first.language] || first.body }),
-      el('span', { class: 'tags' }, aiMark(undefined, m.llm_backend === 'stub' ? null : m.model_id),
-        m.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null,
-        el('span', { class: 'chip chip--sm' }, icon('i-clock', 'st'), el('span', { text: `drafted ${hhmmz(m.created_at)}` })))));
-}
-
-export function renderMessages() {
-  const host = byId('msg-section');
-  if (!host) return;
-  const list = draftMessages().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-  host.hidden = list.length === 0;
-  if (!list.length) {
-    host.replaceChildren();
-    return;
-  }
-  // One line on Decide (R10.4) that opens in place: "Messages to approve (3) ›".
-  const box = el('details', { class: 'qlink__box', open: msgOpen },
-    el('summary', { class: 'qlink__btn' }, icon('i-dispatcher', 'icon qlink__ic'),
-      el('span', { class: 'qlink__t' }, el('strong', { id: 'msg-title', text: `Messages to approve (${list.length})` })),
-      icon('i-chevron-right', 'icon qlink__go disclosure')),
-    el('p', { class: 'qlink__sub', text: "Crew and passenger drafts. Approved text goes only to TEPHRA's own outbound queue." }),
-    el('ul', { class: 'mcards', 'aria-labelledby': 'msg-title' }, list.map(card)));
-  box.addEventListener('toggle', () => {
-    msgOpen = box.open;
-  });
-  host.replaceChildren(box);
-}
-
-let msgOpen = false;
+// Decide lists each draft message as one row (queue.js); app.hub.badges() redraws it.
 
 // Drafting: from an approved advisory or an approved recovery plan.
-export async function requestMessageDrafts(body, button = null) {
+// `openFirst`: from the receipt after an approval, the first draft opens as soon as it arrives.
+export async function requestMessageDrafts(body, button = null, { openFirst = false } = {}) {
   if (app.offline) {
     toast({ tone: 'caution', title: "You're offline. Reconnect to draft messages." });
     return false;
@@ -100,8 +60,12 @@ export async function requestMessageDrafts(body, button = null) {
   }
   if (res.ok && res.data && Array.isArray(res.data.messages)) {
     for (const m of res.data.messages) if (m.status === 'DRAFT') app.messages.set(m.id, m);
-    renderMessages();
     app.hub.badges();
+    const first = res.data.messages.find((m) => m.status === 'DRAFT' && m.kind === 'CREW_BRIEFING') || res.data.messages.find((m) => m.status === 'DRAFT');
+    if (openFirst && first && (!button || button.isConnected)) {
+      openMessage(first.id);
+      return true;
+    }
     toast({ tone: 'ok', title: res.data.messages.length ? `${res.data.messages.length} message draft${res.data.messages.length === 1 ? '' : 's'} ready on Decide.` : 'No new messages to draft.' });
     app.hub.goTab('queue');
     return true;
@@ -208,7 +172,7 @@ export function openMessage(id) {
         el('button', { type: 'button', class: 'btn btn--block', onclick: () => go('review') }, el('span', { text: 'Cancel' }))));
     } else {
       sheet.setFooter(el('div', { class: 'fstack' }, off,
-        el('button', { type: 'button', class: 'btn btn--approve btn--block btn--primary', disabled: app.offline, onclick: () => submit('approve') }, icon('i-check'), el('span', { text: `Approve ${current.texts.length} language${current.texts.length === 1 ? '' : 's'}` })),
+        el('button', { type: 'button', class: 'btn btn--approve btn--block btn--primary', disabled: app.offline, onclick: () => submit('approve') }, icon('i-check'), el('span', { text: `Approve ${title(current).replace(/ · .*/, '').toLowerCase()} (${current.texts.map((t) => (LANG[t.language] || [t.language.toUpperCase()])[0]).join(', ')})${current.flight_no ? ` for ${current.flight_no}` : ''}` })),
         el('p', { class: 'approve__hint', text: "Queues on TEPHRA's own outbound queue. Nothing is sent to a passenger, crew member or aircraft." }),
         el('div', { class: 'secondary' },
           el('button', { type: 'button', class: 'btn', onclick: () => go('edit') }, icon('i-pencil'), el('span', { text: 'Edit text' })),
@@ -245,7 +209,6 @@ export function openMessage(id) {
     busy = false;
     if (res.ok && res.data && res.data.id) {
       app.messages.delete(res.data.id);
-      renderMessages();
       app.hub.badges();
       sheet.close();
       const word = { approve: 'Approved', edit: 'Approved with your edits', reject: 'Rejected' }[kind];
@@ -257,7 +220,6 @@ export function openMessage(id) {
       current = res.data.current;
       if (current.status === 'DRAFT') app.messages.set(current.id, current);
       else app.messages.delete(current.id);
-      renderMessages();
       app.hub.badges();
       notice = current.status === 'DRAFT' ? 'This message changed while you were reviewing it. Review the new version.' : `This message was already ${current.status.toLowerCase()}.`;
       view = 'review';

@@ -162,13 +162,38 @@ export function entryState(adv, now) {
   return { kind: 'due', minutes: -left };
 }
 
-// Queue order (10.3): inside now first, then minutes to entry, then oldest draft first.
-export function byUrgency(a, b) {
-  return (
-    Number(b.inside_now) - Number(a.inside_now) ||
-    entryAt(a) - entryAt(b) ||
-    (parseTime(a.created_at) ?? 0) - (parseTime(b.created_at) ?? 0)
-  );
+// Act-by (Desk redesign 5.2): the instant code says a dispatcher must decide by. A flight heading
+// in: its entry. A flight inside now whose draft changes it (HOLD, CHANGE_LEVEL, REROUTE, DIVERT):
+// the draft's own time (act now). A flight inside now told to keep watching or continue: no
+// act-by (null); those wait in the Keep watching group.
+export const watchOnly = (adv) => Boolean(adv.inside_now) && (adv.action === 'MONITOR' || adv.action === 'CONTINUE');
+
+export function actBy(adv) {
+  if (watchOnly(adv)) return null;
+  return adv.inside_now ? parseTime(adv.created_at) ?? 0 : entryAt(adv);
+}
+
+// The Decide order and the review's "Next": act-by first (ties: the older draft), then the
+// Keep watching drafts, inside longest first. Code sets this order; the Coordinator's order is
+// only a note.
+export function byActBy(a, b) {
+  const ka = actBy(a);
+  const kb = actBy(b);
+  if ((ka === null) !== (kb === null)) return ka === null ? 1 : -1;
+  return (ka === null ? 0 : ka - kb) || (parseTime(a.created_at) ?? 0) - (parseTime(b.created_at) ?? 0);
+}
+
+// Kept for callers of the old name; the inside-first rule is gone (Desk redesign 5.2).
+export const byUrgency = byActBy;
+
+// The time cell at the right of a row (5.2): { text, soon }. "soon" (10 min or less) is the
+// caution tone, always with its words.
+export function timeCell(adv, now) {
+  if (watchOnly(adv)) return { text: 'inside', soon: false };
+  if (adv.inside_now) return { text: 'now', soon: true };
+  const st = entryState(adv, now);
+  if (st.kind === 'due') return { text: 'now', soon: true };
+  return { text: `${st.minutes} min`, soon: st.minutes <= 10 };
 }
 
 export const deskName = (actor) =>
@@ -228,7 +253,7 @@ export function actionShort(adv) {
     case 'MONITOR':
       return 'Keep watching';
     case 'CONTINUE':
-      return 'Continue';
+      return 'Continue as planned';
     case 'HOLD':
       return Number.isFinite(adv.hold_fl) ? `Hold at ${fl(adv.hold_fl)}` : 'Hold';
     case 'DIVERT':
@@ -280,6 +305,15 @@ export function entryWords(adv, now) {
   if (st.kind === 'inside') return 'Inside the ash now';
   if (st.kind === 'ahead') return `Enters in ${st.minutes} min (est.)`;
   return st.minutes ? `Entry was due ${st.minutes} min ago (est.)` : 'Entry is due now (est.)';
+}
+
+// The lead card's entry words (5.2): "entry due now", "enters in 23 min", "inside when drafted
+// 0957Z" (the draft knows the flight was inside when drafted, not when it entered).
+export function entryLead(adv, now) {
+  const st = entryState(adv, now);
+  if (st.kind === 'inside') return `inside when drafted ${hhmmz(adv.created_at)}`;
+  if (st.kind === 'ahead') return `enters in ${st.minutes} min`;
+  return st.minutes ? `entry due ${st.minutes} min ago` : 'entry due now';
 }
 
 // The short form for one-line rows: "inside now", "enters in 12 min".

@@ -21,7 +21,7 @@ import { renderDuty } from './duty.js';
 import { WHY, machineText, reasonClass } from '../wall/x-parts.js';
 
 const NOTE_MAX = 500;
-const HANDLED_CHIPS = ['Contacted the flight by phone', 'Re-planned by hand', 'Flight already clear', 'Duplicate'];
+const HANDLED_CHIPS = ['Contacted the flight by phone', 'Re-planned by hand', 'Flight already outside the area', 'Duplicate'];
 
 const isOpen = (f) => !f.handled_at && !f.closed_at;
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;

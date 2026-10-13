@@ -8,8 +8,6 @@ import { announce, byId, el, icon, isWide, loadSprite } from './desk/dom.js';
 import {
   actionText,
   activeNow,
-  byUrgency,
-  entryShort,
   entryState,
   hhmmz,
   parseTime,
@@ -18,18 +16,18 @@ import {
   setServerTime,
 } from './desk/format.js';
 import { SESSION_ENDED, hideLogin, initLogin, setPending, showLogin } from './desk/login.js';
-import { breakdownText, flashNew, renderQueue, showAllDrafts, showMostUrgent, updateTimes } from './desk/queue.js';
-import { closeSheet, onSheetClick, openSheet, sheetBusy, sheetOpenFor, sheetReceiptHost, sheetStepBack, showStamp, syncSheet, updateSheetTimes } from './desk/review.js';
+import { breakdownText, flashNew, renderQueue, showAllDrafts, showAllWatching, showMostUrgent, updateTimes, waitingCount, walkOrder } from './desk/queue.js';
+import { closeSheet, onSheetClick, openSheet, receiptWords, refreshFacts, setReceipt, sheetBusy, sheetOpenFor, sheetStepBack, showStamp, syncSheet, updateSheetTimes } from './desk/review.js';
 import { app, draftList } from './desk/state.js';
 import { toast } from './desk/toast.js';
 import { initAsk, focusAsk, setFlightContext } from './desk/ask.js';
 import { deskAi, drawAiChip, fitHead, loadBudget, openBudget, setBudget } from './desk/budget.js';
-import { clearHandover, loadDocs, loadHandover, onDocEvent, onDocsClick, renderDocs, docsToSign } from './desk/docs.js';
+import { clearHandover, loadDocs, loadHandover, onDocEvent, onDocsClick, renderDocs } from './desk/docs.js';
 import { loadDuty, onDutyEvent } from './desk/duty.js';
 import { loadFailures, onFailureEvent, openBulk, openFailures, openHandled, renderFailures } from './desk/failures.js';
 import { renderIdle } from './desk/idle.js';
-import { draftMessages, loadMessages, onMessageEvent, openMessage, requestMessageDrafts } from './desk/messages.js';
-import { draftPlans, latestPlan, loadPlans, noteTrace, onNetworkClick, onRecoveryEvent, renderNetwork, chosenOf } from './desk/network.js';
+import { loadMessages, onMessageEvent, openMessage, requestMessageDrafts } from './desk/messages.js';
+import { loadPlans, noteTrace, onNetworkClick, onRecoveryEvent, renderNetwork } from './desk/network.js';
 import { loadNotices, onNoticeEvent, openNotice, openPaste } from './desk/notice.js';
 import { goTab, initTabs, setBadges } from './desk/tabs.js';
 import { closeBSheet } from './desk/ui.js';
@@ -41,7 +39,6 @@ const SSE_RETRY_MS = 5000;
 const BACK_ONLINE_MS = 3000;
 const SESSION_WARN_MS = 5 * 60000;
 const STAMP_MS = 1200; // the decided stamp; kept under reduced motion (only its entrance moves)
-const DECISION_TOAST_MS = 15000; // the receipt toast; other toasts keep 6 s
 
 let events = null;
 let sseDownTimer = 0;
@@ -88,8 +85,9 @@ function applyState(state) {
   }
 }
 
+// The page title, the Decide badge and Decide's count read the same number (waitingCount).
 function setTitle() {
-  const n = app.me ? draftList().length + openFailures().length + draftMessages().length + draftPlans().length : 0;
+  const n = app.me ? waitingCount().n : 0;
   const replay = app.state && app.state.mode === 'REPLAY';
   document.title = `${replay ? 'REPLAY - ' : ''}${n ? `(${n}) ` : ''}TEPHRA Desk`;
 }
@@ -124,6 +122,11 @@ function applyExposed(fc) {
   }
   app.exposedIds = ids;
   if (app.tab === 'docs' && app.me) renderDocs();
+  // the levels on Decide's rows and in the review's Check facts come from this layer
+  if (app.me) {
+    renderQueue();
+    refreshFacts();
+  }
 }
 
 // Paperwork lists the regions with an active volcano first (R10.7): a region is active when an
@@ -154,6 +157,7 @@ function applyCones(fc) {
   }
   renderQueue();
   syncSheet();
+  refreshFacts();
 }
 
 // --- connection: SSE, offline, back online ---------------------------------------------------
@@ -327,6 +331,7 @@ async function loadDrafts() {
   app.listLoaded = true;
   app.listError = '';
   app.lastLoadedAt = activeNow();
+  if (app.pageOpenedAt === null) app.pageOpenedAt = app.lastLoadedAt;
   firstListDone = true;
   afterListChange();
   for (const id of arrivals) arrived(fresh.get(id));
@@ -367,7 +372,7 @@ function afterListChange() {
   // At 1100 px and up the right pane is never empty while there is work: the first card is
   // selected, or, with no draft, the flights to plan by hand open there.
   if (isWide() && app.me && app.pane !== 'failures') {
-    const sorted = draftList().sort(byUrgency);
+    const sorted = walkOrder();
     const current = sheetOpenFor();
     if (!current || (!app.drafts.has(current) && !app.closed.has(current))) {
       if (sorted[0]) selectDraft(sorted[0].id, { focus: false });
@@ -457,6 +462,9 @@ function syncPanes() {
 
 function closeReview({ fromHistory = false, focusId = null, force = false } = {}) {
   if (sheetBusy() && !force) return;
+  // The receipt line stays until the next decision or until the dispatcher closes the review;
+  // after the last decision (forced close) it stays on Decide.
+  if (!force) setReceipt(null);
   if (isWide()) {
     // The pane stays; the dispatcher just goes back to the list.
     focusCard(app.selectedId);
@@ -475,7 +483,7 @@ function closeReview({ fromHistory = false, focusId = null, force = false } = {}
 function focusCard(id) {
   const sel = id && CSS.escape(id);
   const card = sel && (byId('q-next').querySelector(`.next__card[data-id="${sel}"] [data-open]`)
-    || byId('cards').querySelector(`li[data-id="${sel}"]:not(.is-leaving) .card`));
+    || byId('desk-view').querySelector(`li[data-id="${sel}"]:not(.is-leaving):not([hidden]) .card`));
   if (card) card.focus();
   else focusQueueTitle();
 }
@@ -513,25 +521,24 @@ async function decide(kind, adv, body) {
     return res;
   }
   const decided = res.data;
-  // Focus goes to the card that took this one's place (the next most urgent).
-  const index = Math.max(0, draftList().sort(byUrgency).findIndex((a) => a.id === decided.id));
+  // "Next" follows the act-by order from the item decided: the one that took its place.
+  const index = Math.max(0, walkOrder().findIndex((a) => a.id === decided.id));
   app.drafts.delete(decided.id);
   app.closed.set(decided.id, decided);
-  announce(toastTitle(decided));
-  // The human moment (10.8): the bar shows the decision, who and when, before the sheet closes.
+  // The human moment (10.8): the bar shows the decision, who and when, before the sheet moves on.
   showStamp(decided);
   afterListChange();
   await new Promise((resolve) => window.setTimeout(resolve, STAMP_MS));
-  const sorted = draftList().sort(byUrgency);
+  const sorted = walkOrder();
   const next = sorted[Math.min(index, sorted.length - 1)] || null;
   // The dispatcher may have signed out, or a stream event may have moved the sheet meanwhile.
   const moveOn = Boolean(app.me) && sheetOpenFor() === decided.id;
-  // The receipt names the draft the sheet moves on to; on a phone it sits in the sheet's flow.
-  decisionToast(decided, moveOn ? next : draftList().sort(byUrgency)[0], moveOn && next && !isWide());
+  // D3: one receipt line, pinned above the next review (or on Decide), said once. No toast.
+  setReceipt(decided);
+  announce(`${receiptWords(decided)}.${moveOn && next ? ` Next: ${next.proxy_flight}.` : ''}`);
   if (!moveOn) return res;
-  // R10.3: the sheet moves on to the next draft ("Next: RFA1530 · inside now"); no bulk approval,
-  // the next one needs its own hold or confirm.
-  if (next) announce(`Next: ${next.proxy_flight} · ${entryShort(next, activeNow())}`);
+  // R10.3: the sheet moves on to the next draft; no bulk approval, the next one needs its own
+  // hold or confirm.
   if (isWide()) {
     if (next) selectDraft(next.id, { focus: false });
     else {
@@ -551,25 +558,12 @@ async function decide(kind, adv, body) {
   return res;
 }
 
-function toastTitle(adv) {
-  const by = app.me ? app.me.name : '';
-  if (adv.status === 'APPROVED') return `Approved: ${actionText(adv)} for ${adv.proxy_flight} · queued ${hhmmz(adv.decided_at)} under ${by}. Not sent to any aircraft.`;
-  if (adv.status === 'EDITED') return `Approved with your edits: ${adv.proxy_flight} · both versions are in the audit log.`;
-  return `Rejected: ${adv.proxy_flight} · reason recorded.`;
-}
-
-// 10.8: the toast carries the audit line: the first two SRC lines and the audit entry for this
-// decision. It stays DECISION_TOAST_MS (longer than other toasts) so the receipt can be read.
-// Only the entry that records this decision is shown; another entry is never put in its place.
-async function decisionToast(adv, nextUp, inSheet) {
-  const src = String(adv.header || '').split('\n').filter((l) => l.startsWith('SRC ')).slice(0, 2);
-  const note = nextUp ? `Next: ${nextUp.proxy_flight} · ${entryShort(nextUp, activeNow())}` : '';
-  const t = toast({ tone: adv.status === 'REJECTED' ? 'rejected' : 'ok', title: toastTitle(adv), note, lines: src, ttl: DECISION_TOAST_MS, inline: inSheet ? sheetReceiptHost() : null });
-  const res = await api(PATHS.audit(adv.id));
-  const entries = res.ok && res.data && Array.isArray(res.data.entries) ? res.data.entries : [];
-  const entry = entries.find((e) => e && e.action === adv.status);
-  if (entry) t.setLines(src, `AUDIT ${entry.action} ${entry.actor} ${hhmmz(entry.at)}`);
-  else t.setLines([...src, res.ok ? 'Audit entry not listed yet: see History under Decided while this page was open.' : "Can't load the audit line: see History under Decided while this page was open."]);
+// "Skip for now" (5.3): the next item in the act-by order opens; this one stays in Decide. It is
+// not a decision and is not audited.
+function skipTo(id) {
+  if (!app.drafts.has(id) || sheetBusy()) return;
+  if (!isWide() && history.state && history.state.sheet) history.replaceState({ sheet: id }, '');
+  selectDraft(id, { push: false });
 }
 
 // --- deep link (R10.3): #review/<id> selects a draft, #tab/<key> switches tab ------------------
@@ -651,7 +645,7 @@ async function route() {
   routeToast?.dismiss();
   routeToast = toast({ tone: 'caution', title: gone ? 'This advisory no longer exists.' : 'This advisory is no longer a draft.' });
   showMostUrgent();
-  const top = draftList().sort(byUrgency)[0];
+  const top = walkOrder()[0];
   if (top && isWide()) selectDraft(top.id, { focus: false });
   focusCard(top && top.id);
 }
@@ -753,6 +747,7 @@ function leaveDesk() {
   app.known.clear();
   app.inFlight.clear();
   app.listLoaded = false;
+  app.pageOpenedAt = null;
   app.loadSeq += 1;
   firstListDone = false;
   app.selectedId = null;
@@ -768,7 +763,8 @@ function leaveDesk() {
   app.notices = [];
   byId('cards').replaceChildren();
   byId('q-next').replaceChildren();
-  for (const id of ['fail-section', 'fail-pane', 'idle-pane', 'msg-section', 'plan-section', 'notice-section', 'crew-section']) byId(id).replaceChildren();
+  setReceipt(null);
+  for (const id of ['fail-section', 'fail-pane', 'idle-pane', 'msg-section', 'plan-section', 'notice-section', 'crew-section', 'watch-section']) byId(id).replaceChildren();
   byId('fail-pane').hidden = true;
   byId('crew-section').hidden = true;
   byId('tabbar').hidden = true;
@@ -869,14 +865,11 @@ function loadAll() {
   loadExtras();
 }
 
-// R2.7: the Decide badge counts advisories, messages and open problems together, and says so.
+// One waiting count (Desk redesign 3, A11): only Decide has a badge, and it is the h1's number
+// and the page title's. Its label says what it counts.
 function updateBadges() {
-  setBadges({
-    queue: draftList().length + openFailures().length + draftMessages().length,
-    network: draftPlans().length,
-    docs: docsToSign().length,
-  }, { queue: breakdownText() });
-  // Messages and problems change the Next decision's breakdown line too.
+  setBadges({ queue: waitingCount().n }, { queue: breakdownText() });
+  // Messages, plans, documents and flights to plan by hand are rows on Decide too.
   if (app.me && app.listLoaded) renderQueue();
   renderIdle();
   setTitle();
@@ -884,28 +877,9 @@ function updateBadges() {
   drawAiChip();
 }
 
-// Decide links to an airport plan that waits for a decision; the plan itself is on Airports
-// (R10.4): "Airport plan waiting: 3 airports closed, cancel 133 ›".
+// An airport plan waiting for a decision is a row in Decide's Other decisions (queue.js); the
+// plan itself is on Airports.
 function afterPlans() {
-  const host = byId('plan-section');
-  const list = draftPlans();
-  host.hidden = list.length === 0;
-  if (list.length) {
-    const p = list[0];
-    const sc = chosenOf(p);
-    const t = sc && sc.totals;
-    const n = (p.closures || []).length;
-    const bits = [`${n} airport${n === 1 ? '' : 's'} closed (all volcanoes)`];
-    if (t) bits.push(`cancel ${t.cancelled_flights}`);
-    else bits.push('no plan found');
-    // the link names the plan it opens: an older draft is not the newest plan (K94)
-    const latest = latestPlan();
-    const head = latest && latest.id !== p.id ? `Earlier plan ${hhmmz(p.created_at)} waiting for your decision: ` : 'Airport plan waiting: ';
-    host.replaceChildren(el('button', { type: 'button', class: 'qlink__btn', 'data-goto': 'network' },
-      icon('i-network', 'icon qlink__ic'),
-      el('span', { class: 'qlink__t' }, el('strong', { id: 'plan-title', text: head }), el('span', { text: bits.join(', ') })),
-      icon('i-chevron-right', 'icon qlink__go')));
-  } else host.replaceChildren();
   updateBadges();
 }
 
@@ -938,6 +912,7 @@ function wire() {
     measureBar: measure,
     goTab: (name) => goTab(name, { focus: true }),
     draftMessages: requestMessageDrafts,
+    skipTo,
     askAbout,
     afterPlans,
     badges: updateBadges,
@@ -983,8 +958,14 @@ function wire() {
       else if (extra.dataset.goto) goTab(extra.dataset.goto, { focus: true });
       return;
     }
+    if (event.target.closest('[data-watch="all"]')) {
+      showAllWatching();
+      const rows = byId('watch-list') ? byId('watch-list').querySelectorAll('li:not(.is-leaving) .card') : [];
+      if (rows[3]) rows[3].focus();
+      return;
+    }
     if (event.target.closest('[data-newest]')) {
-      const top = draftList().sort(byUrgency)[0];
+      const top = walkOrder()[0];
       // The Next decision follows the open review, so the most urgent is opened in it too.
       if (top && app.selectedId && app.selectedId !== top.id && isWide()) selectDraft(top.id, { focus: false });
       showMostUrgent();

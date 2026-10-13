@@ -1,43 +1,57 @@
-// Decide (docs/UI-REDESIGN.md R10.4, was the Queue): the Next decision card first, then one
-// line per other draft, most urgent first, and the advisories that left DRAFT while this page was
-// open (collapsed).
+// Decide, the inbox (Desk redesign 5.2; docs/UI-REDESIGN.md R10.4). One count; the lead card, the
+// advisory code says must be decided first (act-by order, format.js byActBy); Plan by hand
+// (failures.js) directly under it; then one-line rows in deadline groups: Before entry (act-by),
+// Keep watching (inside now, keep watching or continue: no clock), Other decisions (the airport
+// plan, documents to sign, messages not tied to a flight), and the advisories decided since the
+// page opened. The lead card never swaps under the thumb: a more urgent arrival shows "More
+// urgent: … · Show" instead. Code sets the order; the Coordinator's order is only a note.
 
 import { byId, el, icon } from './dom.js';
 import {
-  ACTION_ICON,
-  actionPlain,
+  actBy,
   actionShort,
   activeNow,
-  ago,
   band,
-  byUrgency,
+  byActBy,
   deskName,
+  entryLead,
   entryShort,
   entryState,
-  entryWords,
+  fl,
   hhmmz,
   isStub,
   parseTime,
   pct,
-  sourcesSummary,
+  timeCell,
+  watchOnly,
 } from './format.js';
 import { openFailures } from './failures.js';
 import { aiMark } from './ui.js';
 import { recordedWords } from '../wall/x-parts.js';
 import { crewFlag, crewKey } from './crew.js';
-import { draftMessages } from './messages.js';
+import { KIND, draftMessages } from './messages.js';
+import { docsToSign } from './docs.js';
+import { draftPlans, latestPlan } from './network.js';
 import { app, draftList, setAsideCount } from './state.js';
 
 const OLD_DRAFT_MIN = 10;
+const SOON_MIN = 10;
 const ROWS_FIRST = 5;
+const WATCH_FIRST = 3;
+const NEW_TAG_MS = 120000;
+const CLOSED_MAX = 8;
 let showAllRows = false;
+let showAllWatch = false;
 
 export function showAllDrafts() {
   showAllRows = true;
   renderQueue();
 }
-const NEW_TAG_MS = 120000;
-const CLOSED_MAX = 8;
+
+export function showAllWatching() {
+  showAllWatch = true;
+  renderQueue();
+}
 
 export function coneFor(adv) {
   return app.cones.get(adv.cone_id) || null;
@@ -49,38 +63,23 @@ export function needsCarefulRead(adv) {
 
 export const anyStaleSource = (adv) => (adv.sources || []).some((s) => s && s.stale);
 
-// On a card the chip carries a visible "Area" prefix so "OFFICIAL 100%" is not read as a
-// certainty score; in the review the row label already says "TEPHRA area" (bare).
-export function modeChip(adv, { long = false, bare = false } = {}) {
-  const shape = { OFFICIAL: 'lg-area-official', WIDENED: 'lg-area-hatch', HYPOTHESIS: 'lg-area-hatch' }[adv.plume_mode];
-  // Plain words (review 2, item 5); the mode code and confidence stay in the tooltip.
+// The flight's level now, from the Wall's aircraft layer (ADS-B alt_baro); null when not tracked.
+export function levelNow(adv) {
+  const p = (app.aircraft || []).find((a) => a.hex === adv.hex);
+  return p && Number.isFinite(p.alt_baro_ft) ? Math.round(p.alt_baro_ft / 100) : null;
+}
+
+// The area words with the area's data swatch (5.3, 8): pink official, amber TEPHRA estimate.
+export function modeChip(adv) {
   const conf = pct(adv.confidence);
-  const words = {
-    OFFICIAL: 'Official area only',
-    WIDENED: `Wider than the official area${conf ? ` · ${conf} confidence` : ''}`,
-    HYPOTHESIS: long ? 'HYPOTHESIS · MONITOR or HOLD only' : 'HYPOTHESIS',
-  }[adv.plume_mode] || String(adv.plume_mode || '');
-  return el(
-    'span',
-    { class: `chip chip--mode chip--${String(adv.plume_mode || '').toLowerCase()}`, title: `TEPHRA cautious area for this draft (${adv.plume_mode}${conf ? ` ${conf}` : ''}${isStub(adv) ? ', set by code with TEPHRA Assistant off' : ''})` },
-    icon(shape, 'st'),
-    bare ? null : el('span', { class: 'caps chip__k', text: 'Area' }),
-    el('span', { text: words }),
-  );
-}
-
-export function replayChip() {
-  return el('span', { class: 'chip chip--replay' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' }));
-}
-
-// The entry status in words, with its shape (R12.10): "Inside the ash now", "Enters in 12 min
-// (est.)". Computed by code from the draft's created_at and minutes_to_entry.
-function entryNode(adv, now) {
-  const st = entryState(adv, now);
-  const tone = st.kind === 'inside' ? 'inside' : st.kind === 'due' ? 'due' : 'ahead';
-  return el('span', { class: `entry entry--${tone}` },
-    icon(st.kind === 'inside' ? 'st-inside' : st.kind === 'due' ? 'st-caution' : 'i-clock', 'st'),
-    el('span', { text: entryWords(adv, now) }));
+  const parts = {
+    OFFICIAL: [['official', 'official area only']],
+    WIDENED: [['official', 'official'], ['tephra', 'TEPHRA estimate']],
+    HYPOTHESIS: [['tephra', 'TEPHRA estimate only (HYPOTHESIS)']],
+  }[adv.plume_mode] || [['tephra', String(adv.plume_mode || '')]];
+  return el('span', { class: 'areaw', title: `TEPHRA area for this draft: ${adv.plume_mode}${conf ? ` ${conf}` : ''}${isStub(adv) ? ', set by code with TEPHRA Assistant off' : ''}` },
+    parts.map(([kind, words], i) => [i ? el('span', { class: 'areaw__plus', text: ' + ' }) : null,
+      el('span', { class: 'areaw__part' }, el('i', { class: `swatch swatch--${kind}`, 'aria-hidden': 'true' }), el('span', { text: words }))]));
 }
 
 function ageMinutes(adv, now) {
@@ -88,127 +87,206 @@ function ageMinutes(adv, now) {
   return now === null || created === null ? 0 : (now - created) / 60000;
 }
 
-// Only what needs the dispatcher's care stays on the card (R10.4): the area mode, model and
-// REPLAY chips moved to the header and the review's "Why". HYPOTHESIS is a safety rule, so it stays.
-// Each caution: [shape, the card's words, the row's short word]. A row shows the short word next
-// to its shape, never a bare icon (review 1, item 15).
-function cautions(adv, now) {
+// What needs the dispatcher's care, said on the item it affects: [shape, words, short word].
+function cautions(adv) {
   const out = [];
-  // A crew report of ash on the route comes first: it is the newest evidence and needs a reason
-  // to keep the flight on its route (UI-DESIGN 10.15).
   const flag = crewFlag(adv);
   if (flag) out.push(['i-pin', flag.line || 'Crew report of ash on this route', 'crew report']);
-  if (adv.plume_mode === 'HYPOTHESIS') out.push(['st-caution', 'HYPOTHESIS: only MONITOR or HOLD', 'hypothesis']);
+  if (adv.plume_mode === 'HYPOTHESIS') out.push(['st-caution', 'HYPOTHESIS: only Keep watching or Hold', 'hypothesis']);
   if (needsCarefulRead(adv)) out.push(['st-caution', 'Needs a careful read', 'read carefully']);
   if (anyStaleSource(adv)) out.push(['st-stale', 'Sources stale', 'sources stale']);
-  const age = ageMinutes(adv, now);
-  if (age > OLD_DRAFT_MIN) out.push(['i-clock', `Drafted ${Math.floor(age)} min ago: entry time may have moved`, `${Math.floor(age)} min old`]);
   return out;
 }
 
-// The row's caution: the most important one's shape and short word, "+n" for the rest.
-function rowMark(marks) {
-  if (!marks.length) return null;
-  const all = marks.map((m) => m[1]).join('. ');
-  return el('span', { class: 'row__mark', title: all },
-    icon(marks[0][0], 'st'),
-    el('span', { class: 'row__markword', 'aria-hidden': 'true', text: `${marks[0][2]}${marks.length > 1 ? ` +${marks.length - 1}` : ''}` }),
-    el('span', { class: 'sr-only', text: all }));
+const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
+const langs = (m) => m.texts.map((t) => String(t.language || '').toUpperCase()).join(' · ');
+
+// --- the walk order and the one count ---------------------------------------------------------
+
+// Every advisory in the order Decide lists them and the review's "Next" walks them.
+export const walkOrder = () => draftList().sort(byActBy);
+
+// The advisory a message is about, when it is still on this page (a draft, or decided here).
+function sourceAdvisory(m) {
+  if (m.source_kind !== 'advisory' || !m.flight_no) return null;
+  const pool = [...app.drafts.values(), ...app.closed.values()].filter((a) => a.proxy_flight === m.flight_no);
+  return pool.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] || null;
 }
-
-function tagsNode(adv, now) {
-  const list = cautions(adv, now);
-  return el('span', { class: 'tags' }, list.map(([shape, word]) =>
-    el('span', { class: 'chip chip--caution' }, icon(shape, 'st'), el('span', { text: word }))));
-}
-
-// Who wrote the text, as a mark (the model id in its title) and the instruction (K86).
-const writerLine = (adv) => [aiMark(undefined, isStub(adv) ? null : adv.model_id),
-  el('span', { text: ` ${adv.recorded_answer && !isStub(adv) ? `${recordedWords(adv.recorded_answer)}. ` : ''}Check the sources first.` })];
-
-const identText = (adv) => {
-  const bits = [adv.callsign ? `proxy for ${adv.callsign}` : 'proxy, no callsign'];
-  if (adv.type_icao) bits.push(adv.type_icao);
-  return bits.join(' · ');
+const flightActBy = (m) => {
+  const adv = sourceAdvisory(m);
+  return adv && !watchOnly(adv) ? actBy(adv) : null;
 };
 
-function metaText(adv, now) {
-  const created = parseTime(adv.created_at);
-  const age = now === null || created === null ? `at ${hhmmz(adv.created_at)}` : ago(now - created);
-  const b = band(coneFor(adv));
-  return `${adv.volcano_name || adv.volcano_id}${b ? ` · ash ${b}` : ''} · drafted ${age}`;
+// The one number (5.2, A11): every item on Decide that needs a person. The h1, the tab badge and
+// the page title all read it.
+export function waitingCount() {
+  const advisories = draftList().length;
+  const hand = openFailures().length;
+  const messages = draftMessages().length;
+  const plans = draftPlans().length;
+  const docs = docsToSign().length;
+  return { n: advisories + hand + messages + plans + docs, advisories, hand, messages, plans, docs };
 }
 
-// The Next decision card (R10.4): one draft, expanded, with one neutral button into its review.
-function buildNext(adv, items) {
+// "23 advisories · 3 messages · 2 flights to plan by hand · 1 airport plan · 1 document to sign"
+export function breakdownText() {
+  const c = waitingCount();
+  return [
+    plural(c.advisories, 'advisory', 'advisories'),
+    c.hand ? `${plural(c.hand, 'flight')} to plan by hand` : '',
+    c.messages ? plural(c.messages, 'message') : '',
+    c.plans ? plural(c.plans, 'airport plan') : '',
+    c.docs ? `${plural(c.docs, 'document')} to sign` : '',
+  ].filter(Boolean).join(' · ');
+}
+
+function countLine(items) {
+  const c = waitingCount();
+  if (!c.n) return '';
+  if (c.hand) return `${c.n} waiting · ${plural(c.advisories, 'advisory', 'advisories')} · ${plural(c.hand, 'flight')} to plan by hand`;
   const now = activeNow();
-  const position = items.findIndex((a) => a.id === adv.id) + 1;
-  const card = el('article', { class: 'next__card', 'data-id': adv.id, 'data-version': String(adv.version), 'data-band': band(coneFor(adv)), 'data-crewkey': crewKey(adv), 'aria-labelledby': 'next-flight' },
-    el('div', { class: 'next__row' },
-      el('p', { class: 'next__who' },
-        el('span', { class: 'next__flight', id: 'next-flight', text: adv.proxy_flight }),
-        el('span', { class: 'next__ident', text: identText(adv) })),
-      el('span', { class: 'next__entry', 'data-slot': 'entry' }, entryNode(adv, now))),
-    el('p', { class: 'next__action' }, icon(ACTION_ICON[adv.action] || 'i-arrow-right'), el('span', { text: actionPlain(adv) })),
-    el('p', { class: 'next__meta', 'data-slot': 'meta', text: metaText(adv, now) }),
-    el('p', { class: 'next__body', text: adv.edited_body ?? adv.body }),
-    el('p', { class: 'next__writer' }, ...writerLine(adv)),
-    el('p', { class: 'next__src', 'data-slot': 'src' }, icon('i-file', 'st'), el('span', { text: sourcesSummary(adv, now) })),
-    el('span', { 'data-slot': 'tags' }, tagsNode(adv, now)),
-    el('button', { type: 'button', class: 'btn btn--cta next__go', 'data-open': adv.id, 'aria-describedby': 'next-flight' },
+  const soon = items.filter((a) => {
+    const k = actBy(a);
+    return k !== null && (now === null ? a.minutes_to_entry <= SOON_MIN : k - now <= SOON_MIN * 60000);
+  }).length;
+  return `${c.n} waiting${soon ? ` · ${soon} due in ${SOON_MIN} min` : ''}`;
+}
+
+function asideLine() {
+  const aside = setAsideCount();
+  if (!aside) return '';
+  const other = app.state && app.state.mode === 'REPLAY' ? 'live' : 'replay';
+  return `${plural(aside, `${other} draft`)} set aside until ${other === 'live' ? 'live feeds play' : 'that replay plays'} again`;
+}
+
+// --- the lead card ----------------------------------------------------------------------------
+
+const factsText = (adv, now) => {
+  const lvl = levelNow(adv);
+  return [adv.volcano_name || adv.volcano_id, lvl !== null ? `now ${fl(lvl)}` : null, entryLead(adv, now)].filter(Boolean).join(' · ');
+};
+
+function timeNode(adv, now) {
+  const tc = timeCell(adv, now);
+  return el('span', { class: `tcell${tc.soon ? ' is-soon' : ''}`, 'data-slot': 'time', text: tc.text });
+}
+
+function staleLine(adv, now) {
+  const age = ageMinutes(adv, now);
+  return age > OLD_DRAFT_MIN ? `Drafted ${Math.floor(age)} min ago: entry time may have moved.` : '';
+}
+
+function buildLead(adv) {
+  const now = activeNow();
+  const who = [adv.proxy_flight, adv.callsign].filter(Boolean).join(' · ');
+  const writer = [aiMark(undefined, isStub(adv) ? null : adv.model_id)];
+  if (adv.recorded_answer && !isStub(adv)) writer.push(el('span', { text: ` ${recordedWords(adv.recorded_answer)}.` }));
+  return el('article', { class: 'lead next__card', 'data-id': adv.id, 'data-version': String(adv.version), 'data-band': band(coneFor(adv)), 'data-crewkey': crewKey(adv), 'data-level': String(levelNow(adv)), 'aria-labelledby': 'next-flight next-action' },
+    el('p', { class: 'lead__top' }, el('span', { class: 'lead__who', id: 'next-flight', text: who }), timeNode(adv, now)),
+    el('h3', { class: 'lead__action', id: 'next-action', text: actionShort(adv) }),
+    el('p', { class: 'lead__facts', 'data-slot': 'facts', text: factsText(adv, now) }),
+    ...cautions(adv).map(([shape, words]) => el('p', { class: 'lead__caution' }, icon(shape, 'st'), el('span', { text: words }))),
+    el('p', { class: 'lead__stale', 'data-slot': 'stale', text: staleLine(adv, now) }),
+    el('p', { class: 'lead__by' }, ...writer),
+    el('button', { type: 'button', class: 'btn btn--cta next__go', 'data-open': adv.id },
       el('span', { text: `Review ${adv.proxy_flight}` }), icon('i-chevron-right')));
-  card.dataset.position = String(position);
-  return card;
 }
 
-// One compact row per other draft: "RFA1530 · inside now · Keep watching ›".
-function buildRow(adv) {
+// --- rows -------------------------------------------------------------------------------------
+
+const timeWords = (adv, now) => {
+  if (watchOnly(adv)) return 'inside the ash now';
+  if (adv.inside_now) return 'inside the ash now, act now';
+  const st = entryState(adv, now);
+  return st.kind === 'ahead' ? `enters in ${plural(st.minutes, 'minute')}` : 'entry due now';
+};
+
+function advRow(adv) {
   const now = activeNow();
-  const marks = cautions(adv, now);
-  const button = el('button', { type: 'button', class: 'card card--row', 'data-open': adv.id },
-    el('span', { class: 'row__flight', text: adv.proxy_flight }),
-    el('span', { class: `row__entry row__entry--${entryState(adv, now).kind}`, 'data-slot': 'entry', text: entryShort(adv, now) }),
-    el('span', { class: 'row__action', text: actionShort(adv) }),
-    el('span', { class: 'row__marks', 'data-slot': 'tags' }, rowMark(marks)),
-    el('span', { class: 'card__new', 'data-slot': 'new', hidden: true }, el('span', { text: 'New' })),
-    icon('i-chevron-right', 'icon row__go'));
-  return el('li', { class: 'cards__item', 'data-id': adv.id, 'data-version': String(adv.version), 'data-band': band(coneFor(adv)), 'data-crewkey': crewKey(adv) }, button);
+  const watch = watchOnly(adv);
+  const lvl = levelNow(adv);
+  const main = watch ? [lvl !== null ? fl(lvl) : null, adv.volcano_name].filter(Boolean).join(' · ') || 'Keep watching' : actionShort(adv);
+  const marks = cautions(adv);
+  const sentence = `${adv.proxy_flight}, ${main.toLowerCase().replace(/\bfl(\d)/g, 'FL$1')}, ${timeWords(adv, now)}${marks.length ? `. ${marks.map((m) => m[1]).join('. ')}` : ''}. Review.`;
+  const extra = [adv.callsign, watch ? null : adv.volcano_name, watch || lvl === null ? null : fl(lvl)].filter(Boolean).join(' · ');
+  const button = el('button', { type: 'button', class: 'card irow', 'data-open': adv.id, 'aria-label': sentence },
+    el('span', { class: 'irow__who', 'aria-hidden': 'true', text: adv.proxy_flight }),
+    el('span', { class: 'irow__main', 'aria-hidden': 'true' },
+      el('span', { class: 'irow__text', text: main }),
+      extra ? el('span', { class: 'irow__extra', text: ` · ${extra}` }) : null),
+    marks.length ? el('span', { class: 'irow__flag', 'aria-hidden': 'true', title: marks.map((m) => m[1]).join('. ') }, icon(marks[0][0], 'st')) : null,
+    el('span', { class: 'irow__new', 'data-slot': 'new', 'aria-hidden': 'true', hidden: true }),
+    el('span', { 'aria-hidden': 'true' }, timeNode(adv, now)),
+    icon('i-chevron-right', 'icon irow__go'));
+  return el('li', { class: 'cards__item', 'data-id': adv.id, 'data-key': `${adv.id}|${adv.version}|${crewKey(adv)}|${lvl}` }, button);
 }
 
-function setSlot(root, name, node) {
-  const slot = root.querySelector(`[data-slot="${name}"]`);
-  if (slot) slot.replaceChildren(node);
+// One row for something that is not an advisory: subject, words, its state word ("to approve").
+function itemRow({ key, who = '', text, state, attrs, label }) {
+  return el('li', { class: 'cards__item', 'data-id': key, 'data-key': `${key}|${who}|${text}|${state}` },
+    el('button', { type: 'button', class: 'card irow', 'aria-label': label, ...attrs },
+      el('span', { class: 'irow__who', 'aria-hidden': 'true', text: who }),
+      el('span', { class: 'irow__main', 'aria-hidden': 'true' }, el('span', { class: 'irow__text', text })),
+      el('span', { 'aria-hidden': 'true' }, el('span', { class: 'tcell', text: state })),
+      icon('i-chevron-right', 'icon irow__go')));
 }
 
-// Live values: the countdown, the draft age, and the age-based tag. Runs every 15 s.
+const msgRow = (m) => {
+  const words = `${(KIND[m.kind] || [m.kind])[0]} · ${langs(m)}`;
+  return itemRow({ key: m.id, who: m.flight_no || '', text: words, state: 'to approve', attrs: { 'data-msg': m.id },
+    label: `${m.flight_no ? `${m.flight_no}, ` : ''}${words.replace(' · ', ' in ')}, to approve. Open.` });
+};
+
+// Rebuilds a list from keyed rows, keeping the nodes that did not change (focus stays put).
+function reconcile(list, rows) {
+  const wanted = new Map(rows.map((r) => [r.dataset.id, r]));
+  for (const li of [...list.children]) {
+    if (!wanted.has(li.dataset.id) && !li.classList.contains('is-leaving')) leave(li);
+  }
+  rows.forEach((row, index) => {
+    let li = [...list.children].find((c) => c.dataset.id === row.dataset.id && !c.classList.contains('is-leaving'));
+    if (!li || li.dataset.key !== row.dataset.key) {
+      const focused = li && li.contains(document.activeElement);
+      if (li) li.replaceWith(row);
+      li = row;
+      if (focused) li.querySelector('button').focus({ preventScroll: true });
+    }
+    const live = [...list.children].filter((c) => !c.classList.contains('is-leaving'));
+    if (live[index] !== li) list.insertBefore(li, live[index] || null);
+  });
+}
+
+function markSelected(list) {
+  for (const li of list.children) {
+    const b = li.querySelector('[data-open]');
+    if (!b) continue;
+    if (b.dataset.open === app.selectedId) b.setAttribute('aria-current', 'true');
+    else b.removeAttribute('aria-current');
+    li.classList.toggle('is-busy', app.inFlight.has(b.dataset.open));
+  }
+}
+
+// --- live values ------------------------------------------------------------------------------
+
+// The time cells, the lead card's facts and its draft age; runs every 15 s.
 export function updateTimes() {
   const now = activeNow();
-  const next = byId('q-next').querySelector('.next__card');
-  const nextAdv = next && app.drafts.get(next.dataset.id);
-  if (nextAdv) {
-    setSlot(next, 'entry', entryNode(nextAdv, now));
-    next.querySelector('[data-slot="meta"]').textContent = metaText(nextAdv, now);
-    next.querySelector('[data-slot="src"] > span').textContent = sourcesSummary(nextAdv, now);
-    setSlot(next, 'tags', tagsNode(nextAdv, now));
+  const lead = byId('q-next').querySelector('.lead');
+  const leadAdv = lead && app.drafts.get(lead.dataset.id);
+  if (leadAdv) {
+    lead.querySelector('[data-slot="time"]').replaceWith(timeNode(leadAdv, now));
+    lead.querySelector('[data-slot="facts"]').textContent = factsText(leadAdv, now);
+    lead.querySelector('[data-slot="stale"]').textContent = staleLine(leadAdv, now);
   }
-  for (const li of byId('cards').children) {
+  for (const li of document.querySelectorAll('#cards > li, #watch-list > li')) {
     const adv = app.drafts.get(li.dataset.id);
     if (!adv) continue;
-    const marks = li.querySelector('.row__marks');
-    if (marks) {
-      const m = rowMark(cautions(adv, now));
-      if ((marks.textContent || '') !== (m ? m.textContent : '')) marks.replaceChildren(...(m ? [m] : []));
-    }
-    const entry = li.querySelector('[data-slot="entry"]');
-    if (entry) {
-      entry.textContent = entryShort(adv, now);
-      entry.className = `row__entry row__entry--${entryState(adv, now).kind}`;
-    }
+    const cell = li.querySelector('[data-slot="time"]');
+    if (cell) cell.replaceWith(timeNode(adv, now));
     const arrived = app.arrivedAt.get(adv.id);
     const fresh = arrived !== undefined && performance.now() - arrived < NEW_TAG_MS;
     const tag = li.querySelector('[data-slot="new"]');
     if (tag) tag.hidden = !fresh;
-    li.classList.toggle('is-fresh', fresh);
   }
 }
 
@@ -219,65 +297,109 @@ function skeleton() {
   return [item(), item(), item()];
 }
 
-// The Next decision stays put while the dispatcher reads it (R14.6): a newer, more urgent draft
-// shows the line "1 more urgent draft arrived · Show" instead of swapping the card.
-let nextId = null;
+// --- render -----------------------------------------------------------------------------------
 
+let nextId = null;
 export const nextDraftId = () => nextId;
 
 export function showMostUrgent() {
-  const items = draftList().sort(byUrgency);
+  const items = walkOrder();
   nextId = items[0] ? items[0].id : null;
   renderQueue();
 }
 
-const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
-
-// "23 advisories · 3 messages · 2 flights to plan by hand" (R2.7, K85): what the Decide badge counts.
-export function breakdownText() {
-  const parts = [plural(draftList().length, 'advisory', 'advisories')];
-  const m = draftMessages().length;
-  const f = openFailures().length;
-  if (m) parts.push(plural(m, 'message'));
-  if (f) parts.push(`${plural(f, 'flight')} to plan by hand`);
-  return parts.join(' · ');
+function groupHead(node, title, n, extra = '') {
+  node.textContent = `${title} · ${n}${extra}`;
+  node.hidden = false;
 }
 
-// Under the Next decision header only when it adds something to "1 of 23 advisories".
-function breakdownLine() {
-  const aside = setAsideCount();
-  const other = app.state && app.state.mode === 'REPLAY' ? 'live' : 'replay';
-  const note = aside ? `${plural(aside, `${other} draft`)} set aside until ${other === 'live' ? 'live feeds play' : 'that replay plays'} again` : '';
-  return [draftList().length && (draftMessages().length || openFailures().length) ? breakdownText() : '', note].filter(Boolean).join(' · ');
+function renderWatch(items) {
+  const host = byId('watch-section');
+  host.hidden = items.length === 0;
+  if (!items.length) {
+    host.replaceChildren();
+    showAllWatch = false;
+    return;
+  }
+  let head = byId('watch-title');
+  let list = byId('watch-list');
+  let foot = host.querySelector('.grp__foot');
+  if (!list) {
+    head = el('h2', { id: 'watch-title', class: 'ghead' });
+    list = el('ul', { id: 'watch-list', class: 'cards irows', 'aria-labelledby': 'watch-title' });
+    foot = el('p', { class: 'grp__foot' });
+    host.replaceChildren(head, list, foot);
+  }
+  groupHead(head, 'Keep watching', items.length, ' inside now');
+  reconcile(list, items.map(advRow));
+  markSelected(list);
+  const capped = !showAllWatch && items.length > WATCH_FIRST + 1;
+  [...list.children].forEach((li, i) => {
+    li.hidden = capped && i >= WATCH_FIRST && li.dataset.id !== app.selectedId;
+  });
+  const hadFocus = foot.contains(document.activeElement) ? document.activeElement.dataset.watch : null;
+  foot.replaceChildren(...[
+    capped ? el('button', { type: 'button', class: 'linkbtn', 'data-watch': 'all' }, el('span', { text: `Show all ${items.length}` })) : null,
+    el('button', { type: 'button', class: 'linkbtn', 'data-watch': 'one', 'data-open': items[0].id }, el('span', { text: 'Review one by one' }), icon('i-chevron-right')),
+  ].filter(Boolean));
+  if (hadFocus) foot.querySelector(`[data-watch="${hadFocus}"]`)?.focus({ preventScroll: true });
+}
+
+function renderOther(flightless) {
+  const host = byId('other-section');
+  const planHost = byId('plan-section');
+  const msgs = byId('msg-section');
+  const plans = draftPlans();
+  const docs = docsToSign();
+  const n = plans.length + docs.length + flightless.length;
+  host.hidden = n === 0;
+  groupHead(byId('other-title'), 'Other decisions', n);
+  // the plan row names the plan it opens: an older draft is not the newest plan (K94)
+  planHost.hidden = plans.length === 0;
+  const latest = latestPlan();
+  planHost.replaceChildren(...plans.slice(0, 1).map((p) => {
+    const closed = (p.closures || []).length;
+    const name = latest && latest.id !== p.id ? `Earlier airport plan ${hhmmz(p.created_at)}` : 'Airport plan';
+    const text = `${name} · ${plural(closed, 'airport')} closed`;
+    return el('button', { type: 'button', class: 'card irow', id: 'plan-title', 'data-goto': 'network', 'aria-label': `${text}, to approve. Opens Airports.` },
+      el('span', { class: 'irow__main irow__main--wide', 'aria-hidden': 'true' }, el('span', { class: 'irow__text', text })),
+      el('span', { 'aria-hidden': 'true' }, el('span', { class: 'tcell', text: 'to approve' })),
+      icon('i-chevron-right', 'icon irow__go'));
+  }));
+  const docRows = planHost.parentElement;
+  for (const li of docRows.querySelectorAll('.irow-doc')) li.remove();
+  for (const d of docs) {
+    docRows.append(el('li', { class: 'irow-doc' },
+      el('button', { type: 'button', class: 'card irow', 'data-goto': 'docs', 'aria-label': `${d.title}, to sign. Opens Paperwork.` },
+        el('span', { class: 'irow__main irow__main--wide', 'aria-hidden': 'true' }, el('span', { class: 'irow__text', text: d.title })),
+        el('span', { 'aria-hidden': 'true' }, el('span', { class: 'tcell', text: 'to sign' })),
+        icon('i-chevron-right', 'icon irow__go'))));
+  }
+  msgs.hidden = flightless.length === 0;
+  reconcile(msgs, flightless.map(msgRow));
 }
 
 export function renderQueue() {
   const list = byId('cards');
   const stateBox = byId('q-state');
   const slot = byId('q-next');
-  const items = draftList().sort(byUrgency);
+  const items = walkOrder();
   const n = items.length;
-  // The draft open in the review is the Next decision, so one flight is primary at a time: a
-  // deep link from the Wall ("Decide on the Desk") or a tapped row puts that draft in the card
-  // (review 2, item 6). Its place in the urgency order stays visible ("5 of 41").
-  if (app.selectedId && app.drafts.has(app.selectedId)) nextId = app.selectedId;
-  if (!nextId || !app.drafts.has(nextId)) nextId = items[0] ? items[0].id : null;
-  const nextAdv = nextId ? app.drafts.get(nextId) : null;
-  const position = nextAdv ? items.indexOf(nextAdv) + 1 : 0;
-  byId('q-count').textContent = app.listLoaded && n
-    ? `${position} of ${plural(n, 'advisory', 'advisories')} · most urgent first`
-    : '';
-  byId('q-breakdown').textContent = app.listLoaded ? breakdownLine() : '';
+  if (!nextId || !app.drafts.has(nextId) || !items.some((a) => a.id === nextId)) nextId = items[0] ? items[0].id : null;
+  const lead = nextId ? app.drafts.get(nextId) : null;
+  const position = lead ? items.indexOf(lead) + 1 : 0;
+  byId('q-count').textContent = app.listLoaded ? countLine(items) : '';
+  byId('q-breakdown').textContent = app.listLoaded ? asideLine() : '';
   const newer = byId('q-newer');
-  newer.hidden = !(nextAdv && position > 1);
+  newer.hidden = !(lead && position > 1);
   if (!newer.hidden) {
-    newer.replaceChildren(icon('st-caution', 'st'),
-      el('span', { text: `${plural(position - 1, 'draft')} ${position === 2 ? 'is' : 'are'} more urgent` }),
-      el('button', { type: 'button', class: 'linkbtn', 'data-newest': '1' }, el('span', { text: 'Show the most urgent' })));
+    const top = items[0];
+    newer.replaceChildren(el('span', { text: `More urgent: ${top.proxy_flight} · ${entryShort(top, activeNow())}` }),
+      el('button', { type: 'button', class: 'linkbtn', 'data-newest': '1' }, el('span', { text: 'Show' })));
   }
 
   if (!app.listLoaded && !app.listError) {
-    stateBox.replaceChildren(el('p', { class: 'sr-only', text: 'Loading drafts…' }));
+    stateBox.replaceChildren(el('p', { class: 'qstate__loading', text: 'Loading drafts…' }));
     if (!list.querySelector('.skeleton')) list.replaceChildren(...skeleton());
     slot.replaceChildren();
     byId('more-title').hidden = true;
@@ -287,72 +409,66 @@ export function renderQueue() {
 
   if (app.listError) {
     stateBox.replaceChildren(
-      el('div', { class: 'panel panel--serious', role: 'alert' },
+      el('div', { class: 'panel panel--serious', role: 'status' },
         el('p', { class: 'panel__title' }, icon('st-serious', 'st'), el('span', { text: "Can't load drafts." })),
-        el('p', { text: app.listError }),
+        el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: app.listError })),
         el('button', { type: 'button', class: 'btn btn--outline', 'data-retry': '1' }, icon('i-refresh'), el('span', { text: 'Try again' }))),
     );
   } else if (n === 0) {
-    const last = app.lastLoadedAt === null ? '' : ` Last update ${new Date(app.lastLoadedAt).toISOString().slice(11, 19)}Z.`;
-    // no green "all clear" while flights wait to be planned by hand (H9)
+    const last = app.lastLoadedAt === null ? '' : ` Last update ${hhmmz(app.lastLoadedAt)}.`;
+    // no "all clear" while flights wait to be planned by hand (H9)
     const hand = openFailures().length;
     stateBox.replaceChildren(
       el('div', { class: 'panel panel--empty' },
-        el('p', { class: 'panel__title' }, icon(hand ? 'st-info' : 'i-check', hand ? 'st is-info' : 'st'), el('span', { text: hand ? 'No drafts to approve.' : 'No drafts waiting.' })),
+        el('p', { class: 'panel__title' }, icon(hand ? 'st-info' : 'i-check', hand ? 'st is-info' : 'st'), el('span', { text: hand ? 'No drafts to approve.' : 'Nothing waits for you.' })),
         el('p', { text: hand ? `${plural(hand, 'flight')} wait${hand === 1 ? 's' : ''} in Plan by hand.${last}` : `A draft appears here when a flight's projected track enters TEPHRA's estimated ash area.${last}` })),
     );
   } else {
     stateBox.replaceChildren();
   }
 
-  // The Next decision card.
-  const shown = slot.querySelector('.next__card');
-  if (!nextAdv) slot.replaceChildren();
-  else if (!shown || shown.dataset.id !== nextAdv.id || Number(shown.dataset.version) !== nextAdv.version || shown.dataset.band !== band(coneFor(nextAdv)) || shown.dataset.crewkey !== crewKey(nextAdv)) {
+  // The lead card: rebuilt only when its advisory changed.
+  const shown = slot.querySelector('.lead');
+  if (!lead) slot.replaceChildren();
+  else if (!shown || shown.dataset.id !== lead.id || Number(shown.dataset.version) !== lead.version || shown.dataset.band !== band(coneFor(lead)) || shown.dataset.crewkey !== crewKey(lead) || shown.dataset.level !== String(levelNow(lead))) {
     const hadFocus = shown && shown.contains(document.activeElement);
-    slot.replaceChildren(buildNext(nextAdv, items));
+    slot.replaceChildren(buildLead(lead));
     if (hadFocus) slot.querySelector('.next__go').focus({ preventScroll: true });
   }
-  const card = slot.querySelector('.next__card');
-  if (card) card.classList.toggle('is-current', nextAdv.id === app.selectedId);
+  const card = slot.querySelector('.lead');
+  if (card) card.classList.toggle('is-current', lead.id === app.selectedId);
 
-  // The rest, one line each.
+  // Before entry: the advisories with an act-by, and the messages for a flight still heading in.
   const rest = items.filter((a) => a.id !== nextId);
-  const more = byId('more-title');
-  more.hidden = rest.length === 0;
-  more.textContent = `${rest.length} more waiting`;
-  const wanted = new Set(rest.map((a) => a.id));
-  for (const li of [...list.children]) {
-    if (!wanted.has(li.dataset.id) && !li.classList.contains('is-leaving')) leave(li);
-  }
-  // At most ROWS_FIRST rows until "Show all n" (review 1, item 8), so the one-line links under
-  // the list (airport plan, Coordinator, messages) stay near the top. The selected row is never hidden.
-  const capped = !showAllRows && rest.length > ROWS_FIRST + 1;
-  rest.forEach((adv, index) => {
-    let li = list.querySelector(`li[data-id="${CSS.escape(adv.id)}"]`);
-    if (!li || Number(li.dataset.version) !== adv.version || li.dataset.band !== band(coneFor(adv)) || li.dataset.crewkey !== crewKey(adv)) {
-      const row = buildRow(adv);
-      if (li) li.replaceWith(row);
-      li = row;
-    }
-    const live = [...list.children].filter((c) => !c.classList.contains('is-leaving'));
-    if (live[index] !== li) list.insertBefore(li, live[index] || null);
-    const btn = li.querySelector('.card');
-    if (adv.id === app.selectedId) btn.setAttribute('aria-current', 'true');
-    else btn.removeAttribute('aria-current');
-    li.classList.toggle('is-busy', app.inFlight.has(adv.id));
-    li.hidden = capped && index >= ROWS_FIRST && adv.id !== app.selectedId;
+  const before = rest.filter((a) => !watchOnly(a));
+  const watching = rest.filter(watchOnly);
+  const msgs = draftMessages();
+  const tied = msgs.filter((m) => flightActBy(m) !== null);
+  const flightless = msgs.filter((m) => flightActBy(m) === null).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+  const entries = [
+    ...before.map((a) => ({ k: actBy(a), t: a.created_at, row: () => advRow(a), id: a.id })),
+    ...tied.map((m) => ({ k: flightActBy(m), t: m.created_at, row: () => msgRow(m), id: m.id })),
+  ].sort((x, y) => x.k - y.k || String(x.t).localeCompare(String(y.t)));
+  const head = byId('more-title');
+  head.hidden = entries.length === 0;
+  if (entries.length) groupHead(head, 'Before entry', entries.length);
+  reconcile(list, entries.map((e) => e.row()));
+  markSelected(list);
+  const capped = !showAllRows && entries.length > ROWS_FIRST + 1;
+  [...list.children].forEach((li, i) => {
+    li.hidden = capped && i >= ROWS_FIRST && li.dataset.id !== app.selectedId;
   });
   const allBtn = byId('cards-all');
-  if (allBtn) {
-    allBtn.hidden = !capped;
-    if (capped) allBtn.querySelector('span').textContent = `Show all ${rest.length}`;
-  }
+  allBtn.hidden = !capped;
+  if (capped) allBtn.querySelector('span').textContent = `Show all ${entries.length}`;
+
+  renderWatch(watching);
+  renderOther(flightless);
   updateTimes();
   renderClosed();
 }
 
-// The card leaves over --dur-3 (instantly under reduced motion).
+// A row leaves over --dur-3 (instantly under reduced motion).
 function leave(li) {
   const focused = li.contains(document.activeElement);
   li.classList.add('is-leaving');
@@ -363,14 +479,9 @@ function leave(li) {
   if (focused) app.hub.focusQueueTitle();
 }
 
-// Marks a row as just arrived: a short highlight and a "New" tag for two minutes.
+// Marks a row as just arrived: a dot for two minutes, never a colour.
 export function flashNew(id) {
   app.arrivedAt.set(id, performance.now());
-  const li = byId('cards').querySelector(`li[data-id="${CSS.escape(id)}"]`);
-  if (!li) return;
-  li.classList.remove('is-arriving');
-  void li.offsetWidth; // restart the animation
-  li.classList.add('is-arriving');
   updateTimes();
 }
 
@@ -403,7 +514,8 @@ function renderClosed() {
     .sort((a, b) => (parseTime(b.updated_at) ?? 0) - (parseTime(a.updated_at) ?? 0))
     .slice(0, CLOSED_MAX);
   section.hidden = items.length === 0;
-  byId('closed-count').textContent = `(${app.closed.size})`;
+  byId('closed-title').textContent = app.pageOpenedAt === null ? 'Decided since this page opened' : `Decided since ${hhmmz(app.pageOpenedAt)}`;
+  byId('closed-count').textContent = `· ${app.closed.size}`;
   list.replaceChildren(
     ...items.map((adv) =>
       el('li', {},
@@ -411,7 +523,7 @@ function renderClosed() {
           statusBadge(adv),
           el('span', { class: 'closed__what' },
             el('span', { class: 'closed__flight', text: adv.proxy_flight }),
-            el('span', { text: ` ${actionPlain(adv)}` })),
+            el('span', { text: ` ${actionShort(adv)}` })),
           el('span', { class: 'closed__when', text: decidedLine(adv) }))),
     ),
   );

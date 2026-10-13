@@ -69,14 +69,15 @@ export function initAsk() {
   const form = el('form', { class: 'acomposer', novalidate: true }, paused, ctx, el('div', { class: 'acomposer__row' }, input, mic, send),
     el('p', { id: 'ask-status', class: 'fine acomposer__note', 'aria-live': 'polite', text: 'Read-only: Ask never changes an advisory, a plan or a message.' }));
   composer = { form, input, mic, send, ctx };
-  // R10.5: the composer is the primary thing; the suggestions sit under it; answers follow,
-  // newest first.
+  // Desk redesign 5.8: a conversation, oldest at the top; the newest answer scrolls into view
+  // above the composer, which is pinned at the bottom (above the tab bar). The suggestions show
+  // only before the first question.
   const sugg = el('div', { id: 'ask-sugg', class: 'asugg-wrap' });
   panel.replaceChildren(
     el('div', { class: 'phead' },
       el('h1', { id: 'ask-title', class: 'phead__title', tabindex: '-1', text: 'Ask TEPHRA' }),
       el('p', { class: 'phead__sub', text: "Answers use only TEPHRA's own tools and show where each claim comes from." })),
-    form, sugg, log);
+    sugg, log, form);
   sugg.addEventListener('click', onLogClick);
   form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -177,18 +178,21 @@ function setBusy(on) {
   composer.mic.disabled = on || !canRecord();
 }
 
-// The newest exchange is the first one under the composer: keep the composer and it in view.
-// Brings the newest turn into view. With `target` (the answer that just landed) its first lines are
-// put just under the sticky header whenever they would start in the lower part of the screen, so
-// an answer never lands below the fold on a phone (review 1, item 15).
+// Brings the newest turn into view above the pinned composer. With `target` (the answer that just
+// landed) its first lines go just under the sticky header when it would start under the composer
+// or above the header, so an answer never lands below the fold on a phone (5.8, A19).
 function scrollEnd(target = null) {
   window.requestAnimationFrame(() => {
-    const node = target && target.isConnected ? target : log.firstElementChild;
+    const node = target && target.isConnected ? target : log.lastElementChild;
     if (!node) return;
     const r = node.getBoundingClientRect();
     const head = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--head-h')) || 108;
-    const low = target ? r.top > window.innerHeight * 0.5 || r.top < head : r.top > window.innerHeight - 120;
-    if (low) window.scrollTo({ top: Math.max(0, window.scrollY + r.top - head - 16), behavior: reducedMotion() ? 'auto' : 'smooth' });
+    const floor = composer.form.getBoundingClientRect().top;
+    const hidden = r.top < head || r.bottom > floor;
+    if (!hidden) return;
+    // the answer's top under the header; a short answer sits just above the composer instead
+    const top = r.height < floor - head - 16 ? window.scrollY + r.bottom - floor + 8 : window.scrollY + r.top - head - 16;
+    window.scrollTo({ top: Math.max(0, top), behavior: reducedMotion() ? 'auto' : 'smooth' });
   });
 }
 
@@ -210,7 +214,8 @@ async function submit() {
   }
   composer.form.querySelector('#ask-status').textContent = 'Read-only: Ask never changes an advisory, a plan or a message.';
   const wait = thinking("Reading TEPHRA's tools…");
-  log.prepend(el('div', { class: 'aturn' }, youBubble(text), wait));
+  byId('ask-sugg').hidden = true;
+  log.append(el('div', { class: 'aturn' }, youBubble(text), wait));
   composer.input.value = '';
   autosize(composer.input);
   scrollEnd();
@@ -233,7 +238,9 @@ function finish(wait, res, question) {
   if (res.ok && res.data && typeof res.data.answer === 'string') {
     const node = answerCard(res.data);
     wait.replaceWith(node);
-    announce(res.data.status === 'refused' ? `Not in the evidence TEPHRA has. ${res.data.refusal_reason || ''}` : res.data.answer);
+    // said once, through the page's one polite region (the log itself stays aria-live off)
+    const said = res.data.status === 'refused' ? `Not in the evidence TEPHRA has. ${res.data.refusal_reason || ''}` : res.data.answer;
+    announce(`Answer: ${said.length > 140 ? `${said.slice(0, 139)}…` : said}`);
     scrollEnd(node);
     return;
   }
@@ -483,7 +490,8 @@ async function sendVoice(blob) {
   }
   const mine = ++seq;
   const wait = thinking('Listening to your question…');
-  log.prepend(el('div', { class: 'aturn' }, wait));
+  byId('ask-sugg').hidden = true;
+  log.append(el('div', { class: 'aturn' }, wait));
   scrollEnd();
   micStatus('Sending the recording…');
   const form = new FormData();

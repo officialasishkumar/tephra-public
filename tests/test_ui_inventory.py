@@ -131,6 +131,11 @@ DESK_IDS = [
     "fp-title",
     "idle-pane",
     "idle-title",
+    # Desk redesign (UI-DESIGN 10.17): the inbox groups, the receipt line, the first-use line
+    "watch-section",
+    "other-section",
+    "receipt",
+    "firstuse",
 ]
 DESK_TABS = ["queue", "ask", "network", "docs"]
 # R8.3: every Details section key
