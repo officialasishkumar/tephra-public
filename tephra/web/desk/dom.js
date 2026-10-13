@@ -87,4 +87,10 @@ export function announce(text) {
 export const reducedMotion = () =>
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-export const isWide = () => window.matchMedia('(min-width: 1100px)').matches;
+// Two panes (Decide beside the review) from 1100 to 1279 px. From 1280 px the Desk is the map with
+// one panel (UI-DESIGN 10.18): Decide, then a review in its place with Back, as on a phone, so the
+// phone's flow (one view at a time, Back and Escape return to Decide) runs there too.
+export const WIDE_QUERY = '(min-width: 1100px) and (max-width: 1279.98px)';
+export const isWide = () => window.matchMedia(WIDE_QUERY).matches;
+// the tab pill under the header, the panel cards and the sheet's own scroll: 1100 px and up
+export const isDesktop = () => window.matchMedia('(min-width: 1100px)').matches;

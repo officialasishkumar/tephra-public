@@ -71,7 +71,7 @@ export function initAsk() {
     el('p', { id: 'ask-status', class: 'fine acomposer__note', 'aria-live': 'polite', text: 'Read-only: Ask never changes an advisory, a plan or a message.' }));
   composer = { form, input, mic, send, ctx };
   // Desk redesign 5.8: a conversation, oldest at the top; the newest answer scrolls into view
-  // above the composer, which is pinned at the bottom (above the tab bar). The suggestions show
+  // above the composer, which is pinned at the bottom of the Ask drawer (UI-DESIGN 10.18). The suggestions show
   // only before the first question.
   const sugg = el('div', { id: 'ask-sugg', class: 'asugg-wrap' });
   panel.replaceChildren(
@@ -148,9 +148,10 @@ export function setFlightContext(adv) {
     el('button', { type: 'button', class: 'actx__x', 'aria-label': `Stop asking about ${app.askFlight.proxy}`, onclick: () => setFlightContext(null) }, icon('i-x')));
 }
 
+// The drawer opens ready to type: the question box takes focus.
 export function focusAsk() {
-  const t = byId('ask-title');
-  if (t) t.focus({ preventScroll: true });
+  const input = byId('ask-input');
+  if (input) input.focus({ preventScroll: true });
   scrollEnd();
 }
 
@@ -194,14 +195,15 @@ function scrollEnd(target = null) {
   window.requestAnimationFrame(() => {
     const node = target && target.isConnected ? target : log.lastElementChild;
     if (!node) return;
+    // the drawer's panel scrolls, under its pinned composer
+    const box = byId('panel-ask');
     const r = node.getBoundingClientRect();
-    const head = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--head-h')) || 108;
+    const top = box.getBoundingClientRect().top;
     const floor = composer.form.getBoundingClientRect().top;
-    const hidden = r.top < head || r.bottom > floor;
-    if (!hidden) return;
-    // the answer's top under the header; a short answer sits just above the composer instead
-    const top = r.height < floor - head - 16 ? window.scrollY + r.bottom - floor + 8 : window.scrollY + r.top - head - 16;
-    window.scrollTo({ top: Math.max(0, top), behavior: reducedMotion() ? 'auto' : 'smooth' });
+    if (r.top >= top && r.bottom <= floor) return;
+    // the answer's top at the drawer's top; a short answer sits just above the composer instead
+    const delta = r.height < floor - top - 16 ? r.bottom - floor + 8 : r.top - top - 16;
+    box.scrollTo({ top: Math.max(0, box.scrollTop + delta), behavior: reducedMotion() ? 'auto' : 'smooth' });
   });
 }
 

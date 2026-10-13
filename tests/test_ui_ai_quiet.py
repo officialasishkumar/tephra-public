@@ -204,13 +204,10 @@ def test_the_disclosure_still_says_ai() -> None:
     assert about in _function(_read("wall/controls.js"), "aboutContent")
     assert about in _read("wall/controls.js")
     assert about in _read("desk/budget.js")
-    # the first-use line, on the first screen of both pages until the viewer closes it
+    # no first-use card on either page (13 Oct 2026): the line is one click away, in About and the
+    # assistant sheet, and in the chip's tooltip
     for page in ("index.html", "desk.html"):
-        html = _read(page)
-        start = html.index('id="firstuse"')
-        assert about in html[start : html.index("</p>", start)], page
-    assert 'prefs.get("firstuse", 0)' in _read("../web/wall.js")
-    assert "tephra.desk.firstuse" in _read("../web/desk.js")
+        assert 'id="firstuse"' not in _read(page), page
 
 
 def test_a_run_no_model_called_is_not_credited_to_the_assistant() -> None:

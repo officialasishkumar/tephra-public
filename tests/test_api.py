@@ -42,6 +42,7 @@ from tephra.config import (
     PROJECT_ROOT,
     Settings,
 )
+from tephra.feeds.airports import AirportCatalogue, load_airports
 from tephra.models import (
     ActionKind,
     Advisory,
@@ -105,6 +106,11 @@ class FakeRuntime:
     policy: OperatorPolicy = field(default_factory=lambda: POLICY)
     policy_summary: PolicySummary = field(default_factory=lambda: PolicySummary.of(POLICY))
     replay_run_since: datetime | None = None
+    airports: AirportCatalogue = field(
+        default_factory=lambda: load_airports(
+            PROJECT_ROOT / "data", min_runway_m=POLICY.alternates.min_runway_m.value
+        )
+    )
 
     async def tick(self, *, reason: str = "scheduler") -> TickReport:
         if self.fail_tick:
@@ -537,6 +543,20 @@ def test_state_is_labelled_fictional_and_no_model(client: TestClient) -> None:
     assert body["disclaimer"] == DISCLAIMER
     assert body["llm"]["label"] == NO_MODEL_LABEL
     assert ISO_UTC.fullmatch(body["now"])
+
+
+def test_airports_are_points_with_their_codes(client: TestClient) -> None:
+    response = client.get("/api/airports")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "public, max-age=3600"
+    body = response.json()
+    assert body["type"] == "FeatureCollection"
+    by_icao = {f["properties"]["icao"]: f for f in body["features"]}
+    assert "WIII" in by_icao
+    lon, lat = by_icao["WIII"]["geometry"]["coordinates"]
+    assert 106 < lon < 107
+    assert -7 < lat < -6
+    assert by_icao["WIII"]["properties"]["iata"] == "CGK"
 
 
 def test_wall_bundles_state_snapshot_advisories_and_trace(

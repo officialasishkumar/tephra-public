@@ -68,6 +68,8 @@ export function renderLayers(ui, phone) {
       check("paths", "Flight paths into the area", L.paths),
       check("routes", "Flight routes", L.routes, "origin to destination · RFA flights heading in, and the picked one"),
       check("reroutes", "Suggested reroutes", L.reroutes, "computed by code around TEPHRA's estimate")),
+    group("Airports",
+      check("airports", "Airports", L.airports, "the ones the airport plan closes are ringed red, with their closure radius")),
     group("Map context",
       check("context", "FIR and VAAC lines", L.context, "approximate"),
       check("navaids", "Navaids", L.navaids, "from zoom 8"),

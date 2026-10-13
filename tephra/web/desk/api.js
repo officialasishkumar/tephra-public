@@ -4,6 +4,7 @@
 export const PATHS = {
   state: '/api/state',
   wall: '/api/wall',
+  airports: '/api/airports',
   events: '/api/events',
   me: '/api/desk/me',
   login: '/api/desk/login',

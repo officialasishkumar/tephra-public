@@ -237,6 +237,7 @@ export function addImages(map, C) {
       inactive: eruptionIcon("#6d7b8a", "", false),
       boxOfficial: labelBox(C.official),
       boxTephra: labelBox(C.tephra),
+      boxClosed: labelBox(C.serious || C.official),
       boxAngle: labelBox(C.text1),
       boxObserver: labelBox(C.observer),
       boxRoute: routeBox(C.route, 0.5),
@@ -252,6 +253,7 @@ export function addImages(map, C) {
   add("volcano-inactive", cache.inactive, { pixelRatio: 2 });
   add("box-official", ...cache.boxOfficial);
   add("box-tephra", ...cache.boxTephra);
+  add("box-closed", ...cache.boxClosed);
   add("box-angle", ...cache.boxAngle);
   add("box-observer", ...cache.boxObserver);
   add("box-route", ...cache.boxRoute);

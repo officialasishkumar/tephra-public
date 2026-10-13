@@ -259,6 +259,11 @@ export function renderClock(D, conn) {
 export function mapPills(D, ui, extra) {
   const pills = [];
   if (!D) return pills;
+  // 3D says how to move it, once, where the eye already is
+  if (ui.d3) {
+    const touch = window.matchMedia("(pointer: coarse)").matches;
+    pills.push({ tone: "info", text: touch ? "3D, heights ×6: two fingers tilt and turn" : "3D, heights ×6: right-drag or Ctrl + drag to tilt and turn", action: "view-2d", actionText: "Back to 2D" });
+  }
   if (!D.levelAll) {
     const what = D.hiddenOfficial
       ? ` hides ${D.hiddenOfficial} official area${D.hiddenOfficial === 1 ? "" : "s"}${D.hiddenFlights ? ` and ${D.hiddenFlights} flight${D.hiddenFlights === 1 ? "" : "s"}` : ""}`
@@ -276,6 +281,7 @@ export function mapPills(D, ui, extra) {
     }
   }
   if (extra.basemap && extra.basemapPill) pills.push({ tone: "info", text: extra.basemap });
+  if (extra.airportsMissing) pills.push({ tone: "caution", text: "Airport positions did not load: closed airports are listed in Details", action: "details-open", sec: "recovery", actionText: "Show" });
   return pills;
 }
 

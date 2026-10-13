@@ -74,12 +74,25 @@ def test_one_waiting_count_for_title_badge_and_heading() -> None:
 
 def test_tabs_are_a_real_tablist_in_the_new_order() -> None:
     tabs = _read("desk/tabs.js")
-    assert "export const TABS = ['queue', 'network', 'docs', 'ask'];" in tabs
+    assert "export const TABS = ['queue', 'network', 'docs'];" in tabs
     assert "setAttribute('role', 'tablist')" in tabs
     assert "role: 'tab'" in tabs
     assert "'aria-selected'" in tabs
     assert "setAttribute('role', 'tabpanel')" in tabs
     assert "aria-current" not in tabs
+
+
+def test_ask_is_a_drawer_open_from_every_tab() -> None:
+    """UI-DESIGN 10.18: Ask is the header's button and a drawer beside whatever is open, not a tab;
+    asking about a flight keeps its review open."""
+    html = _read("desk.html")
+    assert 'id="ask-btn"' in html
+    drawer = html[html.index('id="ask-drawer"') :]
+    assert drawer.index('id="panel-ask"') < drawer.index("</aside>")
+    desk = _read("desk.js")
+    ask_about = desk[desk.index("function askAbout(") : desk.index("// --- wiring")]
+    assert "openAsk()" in ask_about
+    assert "closeReview" not in ask_about
 
 
 def test_reject_is_never_red() -> None:
@@ -276,8 +289,8 @@ def test_decide_rows_and_counts() -> None:
     assert 'id="closed-open"' in html
     assert "closed__box" not in html
     assert "export function openClosed(" in queue
-    # the first-use line sits under the lead card and Plan by hand
-    order = [html.index(f'id="{i}"') for i in ("q-next", "fail-section", "firstuse", "cards")]
+    # Plan by hand sits under the lead card, the rows under it
+    order = [html.index(f'id="{i}"') for i in ("q-next", "fail-section", "cards")]
     assert order == sorted(order)
 
 

@@ -654,11 +654,10 @@ Two reviews of the naming build (coverage and honesty) found these, fixed here:
   differ. This replaces the spec's "not running", which contradicted the tooltip; a single
   Coordinator failure no longer reads as the whole assistant "not running". The tooltip names each
   cause once. The narrow "N problems" still counts causes.
-- **First use and About.** The first-use line ("TEPHRA Assistant is an AI assistant. ...") sits
-  on the first screen of both pages (`#firstuse`: the top of the Wall's story, under the Desk's
-  Decide summary) until the viewer closes it (`tephra.wall.firstuse` / `tephra.desk.firstuse`,
-  every storage call in try/catch; blocked storage shows it again). "About ›" opens the Wall's
-  About, which now carries the same line, or the Desk's assistant sheet. The stub chip's tooltip
+- **First use and About.** The line "TEPHRA Assistant is an AI assistant. ..." is in the Wall's
+  About and the Desk's assistant sheet, one click from the assistant chip on both pages. The
+  first-use card that carried it on both first screens was removed on 13 Oct 2026: a reader with
+  little time met four lines of text before the story. The stub chip's tooltip
   says what TEPHRA Assistant is too, so stub mode (the demo default) discloses it.
 - **No credit for a run no model made.** The Coordinator run's fact "Run by: TEPHRA Assistant"
   is "Started: by code, after new aircraft" (code starts every run; the Model fact says whether a

@@ -41,6 +41,10 @@
       <button id="budget-chip" type="button" class="budget" data-tone="on" aria-haspopup="dialog" aria-label="TEPHRA Assistant, connecting">
         <span id="model-chip" class="model-chip">TEPHRA Assistant</span>
       </button>
+      <!-- Ask from anywhere (UI-DESIGN 10.18): a drawer beside whatever is open, not a tab -->
+      <button id="ask-btn" type="button" class="askbtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="ask-drawer" hidden>
+        <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-chat"></use></svg><span>Ask</span>
+      </button>
       <span id="conn" class="conn" data-conn="idle"><span>Connecting…</span></span>
       <div class="account">
         <button id="account-btn" type="button" class="avatar" aria-haspopup="true" aria-expanded="false"
@@ -134,11 +138,6 @@
         <section id="fail-section" class="qsec qsec--fail" hidden></section>
         <!-- the first-use disclosure (docs/UI-AI-QUIET.md 8.4, Desk spec 5.2): once per browser, until closed
              (desk.js); under the lead card and Plan by hand, so the work stays at the top of the screen -->
-        <p id="firstuse" class="firstuse" hidden>
-          <svg class="icon firstuse__mark" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>
-          <span class="firstuse__text">TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything. <button id="firstuse-about" type="button" class="firstuse__about">About ›</button></span>
-          <button id="firstuse-close" type="button" class="iconbtn firstuse__close" aria-label="Hide this line" title="Hide this line"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-x"></use></svg></button>
-        </p>
         <!-- Group 2, Before entry: act-by order, five rows, then "Show all n". -->
         <section class="grp" aria-labelledby="more-title">
           <h2 id="more-title" class="ghead" hidden></h2>
@@ -187,7 +186,12 @@
       <section id="idle-pane" class="idle" aria-labelledby="idle-title"></section>
     </div>
 
-    <section id="panel-ask" class="panel-tab" aria-label="Ask TEPHRA" hidden></section>
+    <aside id="ask-drawer" class="askdrawer" role="dialog" aria-modal="false" aria-labelledby="ask-title" hidden>
+      <button id="ask-close" type="button" class="iconbtn askdrawer__x" aria-label="Close Ask">
+        <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-x"></use></svg>
+      </button>
+      <section id="panel-ask" class="panel-tab" aria-label="Ask TEPHRA"></section>
+    </aside>
     <section id="panel-network" class="panel-tab" aria-label="Airports: the airport plan" hidden></section>
     <section id="panel-docs" class="panel-tab" aria-label="Paperwork" hidden></section>
   </main>

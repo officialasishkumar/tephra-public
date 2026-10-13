@@ -16,7 +16,7 @@ import {
   errorCode,
   problems,
 } from './api.js';
-import { announce, append, byId, el, icon, isWide } from './dom.js';
+import { announce, append, byId, el, icon, isDesktop, isWide } from './dom.js';
 import {
   FEED_NAMES,
   MODE_SENTENCE,
@@ -245,7 +245,7 @@ function placeBar() {
   if (!bar || !sheet) return;
   bar.classList.remove('actions--after');
   const text = byId('sheet').querySelector('.textbox__body');
-  if (!isWide() && text && !sheet.page && (sheet.view === 'review' || sheet.view === 'closed')) {
+  if (!isDesktop() && text && !sheet.page && (sheet.view === 'review' || sheet.view === 'closed')) {
     const lines = 2 * (parseFloat(getComputedStyle(text).lineHeight) || 20);
     const textTop = text.getBoundingClientRect().top + window.scrollY;
     if (textTop + Math.min(text.offsetHeight, lines) > window.innerHeight - bar.offsetHeight) bar.classList.add('actions--after');

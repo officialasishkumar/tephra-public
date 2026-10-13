@@ -4,7 +4,7 @@
 
 import { initAccount, setAccount } from './desk/account.js';
 import { PATHS, api, isAdvisory, isSession, onReachability, parseEvent } from './desk/api.js';
-import { announce, byId, el, icon, isWide, loadSprite } from './desk/dom.js';
+import { WIDE_QUERY, announce, byId, el, icon, isDesktop, isWide, loadSprite } from './desk/dom.js';
 import {
   actionText,
   activeNow,
@@ -713,6 +713,7 @@ function enterDesk(session, { focus = true } = {}) {
   app.listLoaded = false;
   app.listError = '';
   byId('tabbar').hidden = false;
+  byId('ask-btn').hidden = false;
   if (!askReady) {
     initAsk();
     askReady = true;
@@ -773,7 +774,9 @@ function leaveDesk() {
   byId('crew-section').hidden = true;
   byId('reports').hidden = true;
   byId('tabbar').hidden = true;
-  for (const t of ['ask', 'network', 'docs']) byId(`panel-${t}`).hidden = true;
+  for (const t of ['network', 'docs']) byId(`panel-${t}`).hidden = true;
+  closeAsk();
+  byId('ask-btn').hidden = true;
   delete document.body.dataset.tab;
   byId('desk-view').hidden = true;
   byId('desk-view').dataset.view = 'queue';
@@ -826,12 +829,12 @@ function measure() {
   root.style.setProperty('--dhead-h', `${headH}px`);
   // Sheets and dialogs open below the frame strip (the header's top row), never over it.
   root.style.setProperty('--dframe-h', `${byId('frame').offsetHeight}px`);
-  root.style.setProperty('--head-h', `${headH + (isWide() && !byId('tabbar').hidden ? 48 : 0)}px`);
+  root.style.setProperty('--head-h', `${headH + (isDesktop() && !byId('tabbar').hidden ? 48 : 0)}px`);
   const bar = byId('sheet-actions');
   // a bar placed after the content (review.js placeBar) takes no room from it
   root.style.setProperty('--bar-h', `${bar && !bar.classList.contains('actions--after') ? bar.offsetHeight : 0}px`);
   // The tab bar gives way to the review's fixed action bar on phones.
-  const reviewing = app.tab === 'queue' && byId('desk-view').dataset.view === 'review' && !isWide();
+  const reviewing = app.tab === 'queue' && byId('desk-view').dataset.view === 'review' && !isDesktop();
   document.body.dataset.review = reviewing ? '1' : '0';
 }
 
@@ -843,9 +846,7 @@ function onTab(name, { changed, focus }) {
     routeToast = null;
   }
   measure();
-  if (name === 'ask') {
-    focusAsk();
-  } else if (name === 'network') {
+  if (name === 'network') {
     renderNetwork();
     if (changed && app.me) loadPlans();
   } else if (name === 'docs') {
@@ -853,7 +854,7 @@ function onTab(name, { changed, focus }) {
     if (changed && app.me) loadDocs();
   } else if (focus) focusQueueTitle();
   if (focus && name !== 'queue') {
-    const title = byId({ network: 'net-title', docs: 'docs-title', ask: 'ask-title' }[name]);
+    const title = byId({ network: 'net-title', docs: 'docs-title' }[name]);
     if (title) title.focus({ preventScroll: true });
   }
 }
@@ -891,10 +892,26 @@ function afterPlans() {
   updateBadges();
 }
 
+// Ask opens beside whatever is open (the review stays, so a question about a flight keeps it in
+// view); Escape, the close button or the Ask button again closes it.
+function openAsk() {
+  byId('ask-drawer').hidden = false;
+  byId('ask-btn').setAttribute('aria-expanded', 'true');
+  document.body.dataset.ask = '1';
+  focusAsk();
+}
+
+function closeAsk() {
+  if (byId('ask-drawer').hidden) return;
+  byId('ask-drawer').hidden = true;
+  byId('ask-btn').setAttribute('aria-expanded', 'false');
+  document.body.dataset.ask = '0';
+  byId('ask-btn').focus({ preventScroll: true });
+}
+
 function askAbout(adv) {
   setFlightContext(adv);
-  closeReview({ force: true });
-  goTab('ask', { focus: true });
+  openAsk();
 }
 
 // --- wiring -----------------------------------------------------------------------------------
@@ -1010,19 +1027,16 @@ function wire() {
     loadExtras();
   });
   byId('budget-chip').addEventListener('click', openBudget);
-  // The first-use disclosure shows until the viewer closes it (blocked storage: it shows again).
-  let seen = false;
-  try { seen = localStorage.getItem('tephra.desk.firstuse') === '1'; } catch { /* storage blocked */ }
-  byId('firstuse').hidden = seen;
-  byId('firstuse-about').addEventListener('click', openBudget);
-  byId('firstuse-close').addEventListener('click', () => {
-    try { localStorage.setItem('tephra.desk.firstuse', '1'); } catch { /* storage blocked */ }
-    byId('firstuse').hidden = true;
-    byId('q-title').focus({ preventScroll: true });
-  });
   // the chip drops its time below 420 px (UI-AI-QUIET 5.2)
   window.addEventListener('resize', drawAiChip);
+  byId('ask-btn').addEventListener('click', () => (byId('ask-drawer').hidden ? openAsk() : closeAsk()));
+  byId('ask-close').addEventListener('click', closeAsk);
   document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !byId('ask-drawer').hidden && event.target.closest('#ask-drawer')) {
+      event.preventDefault();
+      closeAsk();
+      return;
+    }
     if (event.key !== 'Escape' || app.tab !== 'queue' || event.target.closest('dialog, #account-menu')) return;
     if (app.pane === 'failures' && !isWide()) {
       closeFailPane({ focus: true });
@@ -1049,7 +1063,7 @@ function wire() {
     if (!events || events.readyState === EventSource.CLOSED) openEvents();
   });
   new ResizeObserver(measure).observe(byId('dhead'));
-  window.matchMedia('(min-width: 1100px)').addEventListener('change', () => {
+  window.matchMedia(WIDE_QUERY).addEventListener('change', () => {
     if (isWide()) {
       byId('desk-view').dataset.view = 'review';
       afterListChange();

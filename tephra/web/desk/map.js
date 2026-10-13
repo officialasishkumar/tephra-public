@@ -2,7 +2,8 @@
 // being decided is seen where it is. It draws the snapshot the Desk already reads from /api/wall:
 // the ash areas (the official area filled, TEPHRA's wider area dashed), every RFA flight in or
 // heading in with its path into the ash, the volcanoes, and for the flight under review its ring,
-// its card and the reroute its draft proposes. Selecting a plane that has an open draft opens that review.
+// its card and the reroute its draft proposes. Selecting a plane that has an open draft opens that
+// review; any other plane shows its path and card. The airports the airport plan closes are ringed.
 // Read-only: the map never changes a draft. MapLibre is loaded only when the map is shown, so a
 // phone never downloads it.
 
@@ -10,6 +11,7 @@ import { STYLE_URL, nightBasemap, nightColours, symbolColours } from '../wall/ba
 import { addImages } from '../wall/images.js';
 import { PATHS, api } from './api.js';
 import { byId, el, icon, reducedMotion } from './dom.js';
+import { latestPlan } from './network.js';
 import { app, draftList } from './state.js';
 
 const MAPLIBRE = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl';
@@ -24,6 +26,7 @@ let onOpen = null;
 let card = null;
 let shownFor = null;
 let C = null;
+let airports = null; // the catalogue (GET /api/airports), for the airports the plan closes
 const feats = (k) => (snap && snap[k] && Array.isArray(snap[k].features) ? snap[k].features : []);
 
 function loadLib() {
@@ -50,7 +53,7 @@ function draftByHex() {
 }
 
 function addLayers(C) {
-  for (const id of ['d-cones', 'd-paths', 'd-reroute', 'd-volcanoes', 'd-aircraft']) map.addSource(id, { type: 'geojson', data: fc([]) });
+  for (const id of ['d-cones', 'd-paths', 'd-reroute', 'd-closures', 'd-airports', 'd-volcanoes', 'd-aircraft']) map.addSource(id, { type: 'geojson', data: fc([]) });
   const official = ['==', ['get', 'mode'], 'OFFICIAL'];
   map.addLayer({ id: 'd-cone-fill', type: 'fill', source: 'd-cones', filter: official, paint: { 'fill-color': C.official, 'fill-opacity': 0.09 } });
   map.addLayer({ id: 'd-cone-line', type: 'line', source: 'd-cones', filter: official, layout: { 'line-join': 'round' }, paint: { 'line-color': C.official, 'line-opacity': 0.7, 'line-width': 1.6 } });
@@ -58,6 +61,10 @@ function addLayers(C) {
   map.addLayer({ id: 'd-paths', type: 'line', source: 'd-paths', layout: { 'line-cap': 'round' }, paint: { 'line-color': C.tephra, 'line-opacity': ['case', ['get', 'sel'], 0.95, 0.22], 'line-width': ['case', ['get', 'sel'], 2.4, 1], 'line-dasharray': [1, 2] } });
   map.addLayer({ id: 'd-reroute-casing', type: 'line', source: 'd-reroute', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': C.halo, 'line-width': 6, 'line-opacity': 0.8 } });
   map.addLayer({ id: 'd-reroute', type: 'line', source: 'd-reroute', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': C.reroute, 'line-width': 3 } });
+  // the airports the current airport plan closes: ringed in --c-serious, the closure radius dashed
+  map.addLayer({ id: 'd-closure-ring', type: 'line', source: 'd-closures', paint: { 'line-color': C.serious, 'line-opacity': 0.8, 'line-width': 1.3, 'line-dasharray': [3, 2] } });
+  map.addLayer({ id: 'd-airports', type: 'circle', source: 'd-airports', paint: { 'circle-radius': 5.5, 'circle-color': C.halo, 'circle-stroke-color': C.serious, 'circle-stroke-width': 2.2 } });
+  map.addLayer({ id: 'd-airport-label', type: 'symbol', source: 'd-airports', layout: { 'text-field': ['step', ['zoom'], ['get', 'icao'], 6.5, ['concat', ['get', 'icao'], ' closed']], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-variable-anchor': ['bottom', 'top', 'left', 'right'], 'text-radial-offset': 1, 'text-optional': true }, paint: { 'text-color': C.serious, 'text-halo-color': C.halo, 'text-halo-width': 2 } });
   map.addLayer({ id: 'd-volcanoes', type: 'symbol', source: 'd-volcanoes', layout: { 'icon-image': ['concat', 'volcano-', ['get', 'code']], 'icon-size': 0.7, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 12, 'text-offset': [0, 1.4], 'text-anchor': 'top', 'text-optional': true }, paint: { 'text-color': C.text1, 'text-halo-color': C.halo, 'text-halo-width': 1.5 } });
   map.addLayer({ id: 'd-sel-ring', type: 'circle', source: 'd-aircraft', filter: ['get', 'sel'], paint: { 'circle-radius': 16, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': C.tephra, 'circle-stroke-width': 2 } });
   map.addLayer({
@@ -67,14 +74,39 @@ function addLayers(C) {
   });
 }
 
+// The flight the map is about: the draft under review, else a plane selected on the map (its path
+// and card, said as having no open draft).
+let pickHex = null;
+function focusOf() {
+  const adv = app.selectedId ? app.drafts.get(app.selectedId) || app.closed.get(app.selectedId) : null;
+  if (adv) return adv;
+  const f = pickHex && feats('aircraft').find((x) => x.properties && x.properties.hex === pickHex);
+  if (!f) return null;
+  const p = f.properties;
+  return {
+    id: `pick:${pickHex}`, hex: pickHex, flight_id: `${pickHex}:${p.volcano_id}`, volcano_id: p.volcano_id, picked: true,
+    proxy_flight: p.proxy_flight || p.callsign, exposed: Boolean(p.exposed), inside_now: Boolean(p.exposed) && p.minutes_to_entry === 0,
+    minutes_to_entry: p.exposed ? p.minutes_to_entry : null, reroute: null,
+  };
+}
+
 function draw() {
   if (!ready || !snap) return;
-  const sel = app.selectedId ? app.drafts.get(app.selectedId) || app.closed.get(app.selectedId) : null;
+  const sel = focusOf();
   const drafts = draftByHex();
   map.getSource('d-cones').setData(fc(feats('cones').filter((f) => f.properties && f.properties.part === 'cone')));
   map.getSource('d-paths').setData(fc(feats('exposures').filter((f) => f.properties && f.properties.kind === 'path')
     .map((f) => ({ ...f, properties: { ...f.properties, sel: Boolean(sel && f.properties.flight_id === sel.flight_id) } }))));
   map.getSource('d-reroute').setData(fc(rerouteOf(sel)));
+  const shut = new Map(((latestPlan() && latestPlan().closures) || []).map((c) => [c.icao, c]));
+  const ports = airports ? airports.features.filter((f) => shut.has(f.properties.icao)) : [];
+  map.getSource('d-airports').setData(fc(ports));
+  map.getSource('d-closures').setData(fc(ports.filter((f) => shut.get(f.properties.icao).radius_nm > 0).map((f) => {
+    const [lon, lat] = f.geometry.coordinates;
+    const r = shut.get(f.properties.icao).radius_nm / 60;
+    const k = Math.cos((lat * Math.PI) / 180) || 1;
+    return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [Array.from({ length: 65 }, (_, i) => { const t = (i / 64) * 2 * Math.PI; return [lon + (r * Math.cos(t)) / k, lat + r * Math.sin(t)]; })] } };
+  })));
   map.getSource('d-volcanoes').setData(fc(feats('volcanoes').filter((f) => f.properties && f.properties.active)
     .map((f) => ({ ...f, properties: { name: f.properties.name, code: f.properties.color_code in C.codes ? f.properties.color_code : 'UNKNOWN' } }))));
   map.getSource('d-aircraft').setData(fc(feats('aircraft').filter((f) => f.properties && f.geometry)
@@ -101,6 +133,8 @@ function placeCard(sel) {
   }
   if (!plane) {
     if (card) card.remove();
+    // back from a review to Decide: the whole picture again
+    if (!sel && shownFor !== null && ready) fitAll();
     shownFor = null;
     return;
   }
@@ -109,7 +143,8 @@ function placeCard(sel) {
   const when = sel.inside_now ? 'inside the ash' : Number.isFinite(sel.minutes_to_entry) ? `enters in ${sel.minutes_to_entry} min` : null;
   const node = el('div', { class: 'dmap-card' },
     el('b', { text: sel.proxy_flight || sel.callsign || sel.hex }),
-    el('span', { text: [level, when].filter(Boolean).join(' · ') }));
+    el('span', { text: [level, sel.picked && !sel.exposed ? 'not heading into the ash' : when].filter(Boolean).join(' · ') }),
+    sel.picked ? el('span', { text: 'No open draft' }) : null);
   if (!card) card = new window.maplibregl.Marker({ element: el('div', { class: 'dmap-card-anchor' }), anchor: 'left', offset: [22, 0] });
   card.getElement().replaceChildren(node);
   card.setLngLat(plane.geometry.coordinates).addTo(map);
@@ -155,12 +190,20 @@ function build(node) {
     if (!app.selectedId) fitAll();
   });
   map.on('load', () => node.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show'));
-  map.on('mouseenter', 'd-aircraft', (e) => { if (e.features?.[0]?.properties.draft) map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseenter', 'd-aircraft', () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'd-aircraft', () => { map.getCanvas().style.cursor = ''; });
-  map.on('click', 'd-aircraft', (e) => {
-    const hit = (e.features || []).find((f) => f.properties.draft);
-    const adv = hit && draftByHex().get(hit.properties.hex);
-    if (adv && onOpen) onOpen(adv.id);
+  // a plane with an open draft opens its review; any other shows its path and card
+  map.on('click', (e) => {
+    const hits = map.queryRenderedFeatures([[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]], { layers: ['d-aircraft'] });
+    const withDraft = hits.find((f) => f.properties.draft);
+    const adv = withDraft && draftByHex().get(withDraft.properties.hex);
+    if (adv && onOpen) {
+      pickHex = null;
+      onOpen(adv.id);
+      return;
+    }
+    pickHex = hits[0] ? hits[0].properties.hex : null;
+    draw();
   });
   node.addEventListener('click', (e) => {
     const b = e.target.closest('[data-dmap]');
@@ -188,7 +231,9 @@ export function initDeskMap(open) {
       el('span', { class: 'dmap__sw dmap__sw--official' }), 'Official ash',
       el('span', { class: 'dmap__sw dmap__sw--tephra' }), "TEPHRA's area",
       el('span', { class: 'dmap__sw dmap__sw--sel' }), 'This flight',
-      el('span', { class: 'dmap__sw dmap__sw--route' }), 'Reroute'));
+      el('span', { class: 'dmap__sw dmap__sw--route' }), 'Reroute',
+      el('span', { class: 'dmap__sw dmap__sw--closed' }), 'Closed airport'));
+  api(PATHS.airports).then((res) => { if (res.ok && res.data && Array.isArray(res.data.features)) { airports = res.data; draw(); } });
   loadLib().then(() => build(node)).catch(() => {
     node.replaceChildren(el('p', { class: 'dmap__off', text: 'Map offline: the review has every fact.' }));
   });

@@ -498,7 +498,16 @@ ash); parks and land cover at 0.12; country names in spaced capitals and city na
 `--map-label-minor` (5.2:1 on `--map-land`); suburbs and villages hidden; the board and the Desk keep
 country names only. Map controls (`mapui.css`): one column of 40 px glass icon buttons, each naming
 itself beside it on hover and focus: zoom, Fit, Satellite (infrared on or off), Compare, 3D and
-Layers on the Wall (a phone keeps Fit and Layers); a pressed or open button is solid. The style's
+Layers on the Wall (a phone keeps Fit and Layers); a pressed or open button is solid.
+
+Airports (13 Oct 2026, `GET /api/airports` once): every catalogue airport a small `--c-text-2`
+dot, its code from zoom 6; each airport the current airport plan closes a dark dot ringed in
+`--c-serious`, its closure radius (`Closure.radius_nm`) a dashed `--c-serious` circle over a 6 %
+fill, and its code in red beside it, from zoom 6.5 a "WIII closed" tag. Above the ash fills, beneath
+the planes; selecting a closed one opens Details › Airport closures. Map layers › Airports turns
+them off; the map key adds "Closed airport · dashed: its closure radius" while one is drawn. If the
+catalogue does not load, a caution pill says so and links Airport closures. The Desk map draws the
+same closed-airport marks. The style's
 `ne2_shaded` raster is added as `ne2-relief` under `water` with the terrain switch (saturation -1,
 contrast 0.15, brightness-max 0.45, opacity 0.5, maxzoom 8); add
 Mapterhorn `raster-dem` (`https://tiles.mapterhorn.com/{z}/{x}/{y}.webp`, terrarium, tileSize
@@ -1401,13 +1410,16 @@ paths stop.
 
 ### 8.1 3D mode (D)
 
-`easeTo({ pitch: 55, bearing: -20, zoom: flat fit + 0.35, duration: --dur-camera-long })` (round 2: the old zoom-out showed half of Asia), enable drag-rotate, set sky
+`easeTo({ pitch: 55, bearing: -20, zoom: flat fit + 0.35, duration: --dur-camera-long })` (round 2: the old zoom-out showed half of Asia), enable drag-rotate with tilt (right-drag or Ctrl + drag turns and tilts, `pitchWithRotate: true`; two fingers on a touch screen; off again in 2D) and say so in a map pill ("3D, heights ×6: right-drag or Ctrl + drag to tilt and turn · Back to 2D"), set sky
 (`sky-color #0b1220`, `horizon-color #1b2430`, `fog-color #07090d`, blends 0.6/0.6/0.8). Add, in
 this order (extrusions share the depth buffer; inner first): `official-volume` (now-valid
 official features, `--c-official`, opacity 0.45, base/height = `base_ft`/`top_ft` × 0.3048 × 6,
 vertical gradient off), `tephra-volume` (cone part, `--c-tephra`, 0.14), aircraft lollipops (a
 2.5 km box at `alt_baro_ft` ± 300 ft on a thin stem from the ground, amber for exposed, grey
-otherwise; stems 0.55, boxes 0.95). No 3D terrain while volumes are shown (it shifts levels). A
+otherwise; stems 0.55, boxes 0.95), and each RFA flight's path into the area (`exposures`, kind
+`path`) as a 1.2 km band at its level ± 250 ft (± 500 ft for the picked flight), `--c-tephra` at 0.5:
+track and level held, as the advisory says, so it is seen flying into the ash volume. No descent or
+landing is drawn: TEPHRA has no planned profile. No 3D terrain while volumes are shown (it shifts levels). A
 legend row "3D view · heights ×6" appears and the headline appends "3D, heights ×6". Exit with D
 or Esc: pitch 0, bearing 0, remove the volumes. Decisions are never made in 3D: the Desk is 2D
 text. Under reduced motion, `jumpTo`.
@@ -2065,8 +2077,8 @@ item arrived (the lead never swaps under the thumb); then:
    "Drafted 12 min ago: entry time may have moved." past 10 min); the mark line; "Review RFA1456 ›"
    (filled neutral). No mono preview. At 1100 px and up the card is the selected row of the open
    review (left edge, no button).
-1. Plan by hand (`#fail-section`, 10.16, unchanged). The first-use line (`#firstuse`) comes after
-   it, so the lead card's top stays at 195 px at 390 on a first visit too.
+1. Plan by hand (`#fail-section`, 10.16, unchanged). (The first-use line that followed it was
+   removed on 13 Oct 2026, UI-AI-QUIET 8.4.)
 2. BEFORE ENTRY · n (`#more-title`, `#cards`): one-line rows in act-by order, advisories and the
    messages for a flight still on this page; 5 rows, then "Show all n" (`#cards-all`). A message
    row shows its flight's time cell ("RFA1540 Crew briefing · EN 23 min"), the reason it sorts there.
@@ -2149,22 +2161,31 @@ The Desk takes the flow board's look, so the Wall, the board and the Desk read a
 - **Cards.** Every card (the review, the lead card, the airport plan, Paperwork's "Ready for you",
   panels, the sign-in) is the board's glass panel: a soft surface gradient, a 7 % hairline, an
   18 px radius and a deep shadow. Empty states stay dashed.
-- **Tabs.** From 1100 px one pill under the header (the board's "Real now / Example" control); the
-  chosen tab is filled. A phone keeps the bottom bar.
-- **The map of the flight** (`desk/map.js`, 1280 px and up): Decide | the map | the review. The
+- **Tabs.** Decide · Airports · Paperwork. From 1100 px one pill under the header (the board's
+  "Real now / Example" control); the chosen tab is filled. A phone keeps the bottom bar.
+- **Ask from anywhere.** Ask is not a tab: the header's Ask button opens a drawer at the right edge
+  over whatever is open (a full-width sheet on a phone), the question box focused; Escape, its ✕
+  or the button again closes it. "Ask about this flight" opens it with the review still open.
+- **One panel** (1280 px and up): the map fills the page and one glass panel on the right holds
+  Decide; a review (or Plan by hand) takes the panel's place with "‹ Decide", as on a phone (the
+  phone's flow and Back run there; `isWide()` is 1100 to 1279 px only, where the two panes stay).
+  The page does not scroll; the panel does.
+- **The map of the flight** (`desk/map.js`, 1280 px and up). The
   night basemap with the ash (the official area filled, TEPHRA's wider area dashed), the active
   volcanoes, every aircraft (a flight with an open draft bright, others dim), every path into the
   ash (faint), and for the flight under review its amber ring, its card (flight, level, inside or
   minutes to entry), its path and the reroute its draft proposes (`--c-reroute`; never a reroute
   the draft does not propose), framed together with its volcano. Selecting
-  a bright plane opens its review. A draft whose aircraft the newest picture no longer holds says
+  a bright plane opens its review; any other plane shows its path and a card that says it has no
+  open draft. The airports the airport plan closes are ringed in `--c-serious` with their closure
+  radius (section 5). A draft whose aircraft the newest picture no longer holds says
   so on the map ("RFA1738: no current position in the newest picture"); nothing is guessed. Zoom
   and "Every flight in or heading in" are the shared control column; a key pill names the four
   marks. The aircraft and cones follow the stream; the paths are read again every minute.
   MapLibre loads only when the map shows (a phone never downloads it). Read-only: it changes no
   draft.
 - **Less to read.** The sign-in says what the Desk is in two short sentences; the RFA line is in the
-  frame strip and About.
+  frame strip and About; the first-use card is gone from both pages (UI-AI-QUIET 8.4).
 
 ## 11. Copy deck
 

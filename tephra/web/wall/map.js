@@ -233,6 +233,37 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
   if (withTephra) addRoseLayers(map, C, ui, noText);
 }
 
+// Airports (5, 13 Oct 2026): every catalogue airport a small dot (its code from zoom 6), and each
+// airport the current airport plan closes ringed in --c-serious with its closure radius dashed and
+// a "WIII closed" tag at every zoom. Above the ash fills, beneath the planes; a click on a closed
+// one opens Details › Airport closures.
+function addAirportLayers(map, C, ui, noText) {
+  map.addSource("airports", { type: "geojson", data: empty() });
+  map.addSource("closures", { type: "geojson", data: empty() });
+  const vis = ui.layers.airports ? "visible" : "none";
+  const closed = ["==", ["get", "closed"], true];
+  const at = before(map, "aircraft-icon");
+  map.addLayer({ id: "closure-area", type: "fill", source: "closures", layout: { visibility: vis }, paint: { "fill-color": C.serious, "fill-opacity": 0.06 } }, at);
+  map.addLayer({ id: "closure-ring", type: "line", source: "closures", layout: { visibility: vis }, paint: { "line-color": C.serious, "line-opacity": 0.85, "line-width": 1.4, "line-dasharray": [3, 2] } }, at);
+  map.addLayer({ id: "airport-dot", type: "circle", source: "airports", layout: { visibility: vis, "circle-sort-key": ["case", closed, 1, 0] }, paint: {
+    "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, ["case", closed, 4.5, 2], 8, ["case", closed, 6.5, 3.2]],
+    "circle-color": ["case", closed, C.halo, C.text2], "circle-opacity": ["case", closed, 1, 0.7],
+    "circle-stroke-color": ["case", closed, C.serious, C.halo], "circle-stroke-width": ["case", closed, 2.4, 1],
+  } }, at);
+  if (noText) return;
+  // zoomed out a closed airport is its code in red beside the ring; from zoom 6.5 a tag that says it
+  const anchors = { "text-variable-anchor-offset": ["bottom", [0, -1.1], "top", [0, 1.1], "left", [1.1, 0], "right", [-1.1, 0]], "text-allow-overlap": false, "symbol-sort-key": 0 };
+  map.addLayer({ id: "airport-closed-code", type: "symbol", source: "airports", maxzoom: 6.5, filter: closed, layout: { visibility: vis,
+    "text-field": ["get", "icao"], "text-font": FONT_BOLD, "text-size": 12, "text-letter-spacing": 0.06, "text-optional": true, ...anchors },
+    paint: { "text-color": C.serious, "text-halo-color": C.halo, "text-halo-width": 2 } });
+  map.addLayer({ id: "airport-closed-label", type: "symbol", source: "airports", minzoom: 6.5, filter: closed, layout: { visibility: vis,
+    "icon-image": "box-closed", "icon-text-fit": "both", "icon-text-fit-padding": [3, 7, 3, 7], "text-field": ["concat", ["get", "icao"], " closed"],
+    "text-font": FONT_BOLD, "text-size": 12, "icon-allow-overlap": false, ...anchors }, paint: { "text-color": C.serious } });
+  map.addLayer({ id: "airport-label", type: "symbol", source: "airports", minzoom: 6, filter: ["!", closed], layout: { visibility: vis,
+    "text-field": ["get", "icao"], "text-font": FONT_REG, "text-size": 12, "text-letter-spacing": 0.06, "text-variable-anchor": ["left", "right", "top", "bottom"], "text-radial-offset": 0.7, "text-optional": true },
+    paint: { "text-color": C.text3, "text-halo-color": C.halo, "text-halo-width": 1.5 } });
+}
+
 // A flight's usual route (VRS standing data), origin to destination: a thin, faint, neutral great
 // circle, a small filled dot at each airport and its code in a small tag (so it never reads as a
 // basemap town name). All of it sits above the basemap's roads and borders but beneath its place
@@ -341,10 +372,12 @@ export class WallMap {
     this.container = container;
     this.map = new window.maplibregl.Map({
       container, style: STYLE_URL, center: [111, -7.6], zoom: 5.5, maxPitch: 70,
-      attributionControl: false, dragRotate: false, pitchWithRotate: false, fadeDuration: 150,
+      // drag-rotate (right-drag or Ctrl + drag) tilts as well as turns; it is on only in 3D (8.1)
+      attributionControl: false, dragRotate: false, pitchWithRotate: true, fadeDuration: 150,
       preserveDrawingBuffer: SHOTS, keyboard: true,
     });
     this.map.touchZoomRotate.disableRotation();
+    this.map.touchPitch.disable();
     window.__tephra = Object.freeze({ map: this.map });
     // Bottom-right, stacked by MapLibre: the OpenStreetMap credit (always, never compact; R6.6),
     // zoom and compass, then Fit and Layers (#tools, a custom control) on top.
@@ -411,12 +444,14 @@ export class WallMap {
       addImages(map, this.C);
       addContext(map, this.C, this.ui, this.noText);
       addHazard(map, this.C, this.ui, { noText: this.noText });
+      addAirportLayers(map, this.C, this.ui, this.noText);
       addExtLayers(map, this.noText, this.ui.layers.reroutes);
       setExtVisible(map, true, this.ui.layers.satboxes);
       this.loaded = true;
+      this.updateAirports();
       if (!this.hoverBound) {
         this.hoverBound = true;
-        for (const id of ["aircraft-icon", "exposed-icon", "exposed-cluster", "volcano-active", "official-fill-now", "tephra-fill", "reroute-line", "reroute-wp", "crew-pin", "crew-label", "crew-fill"]) {
+        for (const id of ["aircraft-icon", "exposed-icon", "exposed-cluster", "volcano-active", "official-fill-now", "tephra-fill", "reroute-line", "reroute-wp", "crew-pin", "crew-label", "crew-fill", "airport-closed-label", "airport-closed-code"]) {
           map.on("mouseenter", id, () => { map.getCanvas().style.cursor = "pointer"; });
           map.on("mouseleave", id, () => { map.getCanvas().style.cursor = ""; });
         }
@@ -431,6 +466,36 @@ export class WallMap {
   }
 
   // ---------------------------------------------------------------- data
+
+  // The airport catalogue (GET /api/airports, once) and the current plan's closures (each render).
+  setAirports(fc) {
+    this.airportCat = fc;
+    this.updateAirports();
+  }
+
+  setClosures(closures) {
+    const key = (closures || []).map((c) => `${c.icao}${c.end}${c.radius_nm}`).join("|");
+    if (key === this.closureKey) return;
+    this.closureKey = key;
+    this.closures = closures || [];
+    this.updateAirports();
+  }
+
+  updateAirports() {
+    if (!this.loaded || !this.airportCat || !this.map.getSource("airports")) return;
+    const shut = new Map((this.closures || []).map((c) => [c.icao, c]));
+    const pts = this.airportCat.features.map((f) => ({ ...f, properties: { ...f.properties, closed: shut.has(f.properties.icao) } }));
+    const rings = [];
+    for (const f of pts) {
+      const c = shut.get(f.properties.icao);
+      if (!c || !(c.radius_nm > 0)) continue;
+      const km = c.radius_nm * 1.852;
+      const ring = Array.from({ length: 65 }, (_, i) => dest(f.geometry.coordinates, (i * 360) / 64, km));
+      rings.push({ type: "Feature", properties: { icao: f.properties.icao, closed: true }, geometry: { type: "Polygon", coordinates: [ring] } });
+    }
+    this.send("airports", fc(pts));
+    this.send("closures", fc(rings));
+  }
 
   update(D) {
     this.D = D;
@@ -940,7 +1005,7 @@ export class WallMap {
   // No popups: a click opens the matching Details section (wall.js), and a flight cluster zooms in.
 
   onClick(e) {
-    const order = ["exposed-cluster", "aircraft-icon", "exposed-icon", "exposure-entry", "exposure-entry-sel", "reroute-wp", "reroute-line", "crew-pin", "crew-label", "crew-path", "volcano-active", "volcano-inactive", "crew-line", "official-fill-now", "official-line-now", "official-line-f6", "official-line-f12", "official-line-f18", "tephra-line", "tephra-fill", "tephra-hatch", "crew-fill"];
+    const order = ["exposed-cluster", "aircraft-icon", "exposed-icon", "exposure-entry", "exposure-entry-sel", "reroute-wp", "reroute-line", "crew-pin", "crew-label", "crew-path", "volcano-active", "volcano-inactive", "airport-closed-label", "airport-closed-code", "airport-dot", "closure-ring", "crew-line", "official-fill-now", "official-line-now", "official-line-f6", "official-line-f12", "official-line-f18", "tephra-line", "tephra-fill", "tephra-hatch", "crew-fill"];
     const layers = order.filter((id) => this.map.getLayer(id));
     const hits = this.map.queryRenderedFeatures([[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]], { layers });
     if (!hits.length) return;
@@ -982,6 +1047,7 @@ export class WallMap {
   applyLayers() {
     const L = this.ui.layers;
     this.setVisible(["hillshade", "ne2-relief"], L.terrain);
+    this.setVisible(["closure-area", "closure-ring", "airport-dot", "airport-closed-code", "airport-closed-label", "airport-label"], L.airports);
     this.setVisible(["fir-line", "fir-active", "fir-label", "vaac-line", "vaac-label"], L.context);
     this.setVisible(["navaid", "navaid-label"], L.navaids);
     this.setVisible(["tephra-fill", "tephra-hatch", "tephra-line", "tephra-label"], L.tephra);
@@ -1127,12 +1193,16 @@ export class WallMap {
     if (on) {
       map.dragRotate.enable();
       map.touchZoomRotate.enableRotation();
+      map.touchPitch.enable();
       const exag = 6, h = (p) => ["*", ["coalesce", ["get", p], 0], 0.3048 * exag];
       if (!map.getLayer("official-volume")) {
         const beforeId = before(map, "volcano-inactive");
         map.addLayer({ id: "official-volume", type: "fill-extrusion", source: "official", filter: ["all", ["==", ["get", "step"], "now"], ["==", ["get", "fill"], true], ["==", ["get", "valid"], true]], paint: { "fill-extrusion-color": this.C.official, "fill-extrusion-opacity": 0.45, "fill-extrusion-base": h("base_ft"), "fill-extrusion-height": h("top_ft"), "fill-extrusion-vertical-gradient": false } }, beforeId);
         if (this.ui.layers.tephra) map.addLayer({ id: "tephra-volume", type: "fill-extrusion", source: "cones", filter: ["all", ["==", ["get", "part"], "cone"], ["!=", ["get", "mode"], "OFFICIAL"]], paint: { "fill-extrusion-color": this.C.tephra, "fill-extrusion-opacity": 0.14, "fill-extrusion-base": h("base_ft"), "fill-extrusion-height": h("top_ft"), "fill-extrusion-vertical-gradient": false } }, beforeId);
         map.addLayer({ id: "ac3d-stem", type: "fill-extrusion", source: "ac3d", filter: ["==", ["get", "part"], "stem"], paint: { "fill-extrusion-color": ["case", ["==", ["get", "exposed"], true], this.C.tephra, this.C.aircraft], "fill-extrusion-opacity": 0.55, "fill-extrusion-base": 0, "fill-extrusion-height": ["get", "h"] } }, beforeId);
+        // each RFA flight's path into the area as a band at its level (track and level held, as the
+        // advisory says), so it is seen flying into the ash volume; the picked one brightest
+        map.addLayer({ id: "ac3d-ribbon", type: "fill-extrusion", source: "ac3d", filter: ["==", ["get", "part"], "ribbon"], paint: { "fill-extrusion-color": this.C.tephra, "fill-extrusion-opacity": 0.5, "fill-extrusion-base": ["get", "b"], "fill-extrusion-height": ["get", "h"] } }, beforeId);
         map.addLayer({ id: "ac3d-box", type: "fill-extrusion", source: "ac3d", filter: ["==", ["get", "part"], "box"], paint: { "fill-extrusion-color": ["case", ["==", ["get", "exposed"], true], this.C.tephra, this.C.aircraft], "fill-extrusion-opacity": 0.95, "fill-extrusion-base": ["get", "b"], "fill-extrusion-height": ["get", "h"] } }, beforeId);
       }
       if (this.ui.layers.terrain && map.getLayer("hillshade")) map.setLayoutProperty("hillshade", "visibility", "visible");
@@ -1141,9 +1211,10 @@ export class WallMap {
       // 3D always targets the selected volcano (8.1)
       if (this.D?.sit) this.frame({ animate: true }); else map.easeTo({ pitch: 60, bearing: -20, duration: dur });
     } else {
-      for (const id of ["official-volume", "tephra-volume", "ac3d-stem", "ac3d-box"]) if (map.getLayer(id)) map.removeLayer(id);
+      for (const id of ["official-volume", "tephra-volume", "ac3d-stem", "ac3d-ribbon", "ac3d-box"]) if (map.getLayer(id)) map.removeLayer(id);
       map.dragRotate.disable();
       map.touchZoomRotate.disableRotation();
+      map.touchPitch.disable();
       if (this.D?.sit) this.frame({ animate: true }); else map.easeTo({ pitch: 0, bearing: 0, duration: reducedMotion() ? 0 : 1600 });
     }
   }
@@ -1161,6 +1232,23 @@ export class WallMap {
       const lo = Math.max(0, p.alt_baro_ft - 300) * exag, hi = (p.alt_baro_ft + 300) * exag;
       feats.push({ type: "Feature", geometry: sq(0.25), properties: { part: "stem", exposed: !!p.exposed, h: lo } });
       feats.push({ type: "Feature", geometry: sq(1.77), properties: { part: "box", exposed: !!p.exposed, b: lo, h: hi } });
+    }
+    // the bands: one quad per segment of each path into the area, 1.2 km wide, at the plane's level
+    const alt = new Map(this.D.aircraft.filter((f) => f.properties.alt_baro_ft != null).map((f) => [f.properties.hex, f.properties.alt_baro_ft]));
+    const picked = this.D.selFlight?.properties.hex;
+    for (const f of this.D.exposures?.features || []) {
+      if (f.properties.kind !== "path" || f.geometry?.type !== "LineString") continue;
+      const hex = String(f.properties.flight_id || "").split(":")[0];
+      const ft = alt.get(hex);
+      if (ft == null) continue;
+      const lo = Math.max(0, ft - (hex === picked ? 500 : 250)) * exag, hi = (ft + (hex === picked ? 500 : 250)) * exag;
+      const pts = f.geometry.coordinates;
+      for (let i = 1; i < pts.length; i++) {
+        const [a, b] = [pts[i - 1], pts[i]];
+        const brg = (Math.atan2((b[0] - a[0]) * Math.cos((a[1] * Math.PI) / 180), b[1] - a[1]) * 180) / Math.PI;
+        const quad = [dest(a, brg - 90, 0.6), dest(b, brg - 90, 0.6), dest(b, brg + 90, 0.6), dest(a, brg + 90, 0.6)];
+        feats.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [[...quad, quad[0]]] }, properties: { part: "ribbon", exposed: true, b: lo, h: hi } });
+      }
     }
     this.send("ac3d", fc(feats));
   }

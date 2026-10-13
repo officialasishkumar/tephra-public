@@ -136,9 +136,9 @@ DESK_IDS = [
     "watch-section",
     "other-section",
     "receipt",
-    "firstuse",
 ]
-DESK_TABS = ["queue", "ask", "network", "docs"]
+# Ask left the tab bar for the header's Ask drawer (UI-DESIGN 10.18)
+DESK_TABS = ["queue", "network", "docs"]
 # R8.3: every Details section key
 SECTION_KEYS = [
     "sources",

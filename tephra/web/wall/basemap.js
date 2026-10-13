@@ -96,7 +96,7 @@ export function symbolColours() {
   const tok = (name) => css.getPropertyValue(name).trim();
   return {
     official: tok("--c-official"), tephra: tok("--c-tephra"), observer: tok("--c-observer"), crew: tok("--c-crew"),
-    route: tok("--c-route"), reroute: tok("--c-reroute"), aircraft: tok("--c-aircraft"), text1: tok("--c-text-1"), halo: tok("--map-halo"),
+    route: tok("--c-route"), reroute: tok("--c-reroute"), aircraft: tok("--c-aircraft"), text1: tok("--c-text-1"), halo: tok("--map-halo"), serious: tok("--c-serious"),
     codes: { GREEN: tok("--c-code-green"), YELLOW: tok("--c-code-yellow"), ORANGE: tok("--c-code-orange"), RED: tok("--c-code-red"), UNKNOWN: tok("--c-code-unknown") },
   };
 }

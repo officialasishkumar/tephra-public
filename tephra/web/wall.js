@@ -12,7 +12,7 @@ import {
 import { policyDialog } from "./wall/policy.js";
 import { helpContent, aboutContent } from "./wall/controls.js";
 import { ext, loadExt, ingest, noteTrace, satScale, aiState, handPlan } from "./wall/ext.js";
-import { renderStory, coverageNote } from "./wall/story.js";
+import { renderStory, coverageNote, currentPlan } from "./wall/story.js";
 import { renderDetails, sectionOf, PANELS } from "./wall/details.js";
 import { boardModel, flowModel } from "./wall/board.js";
 import { mountFlow } from "./wall/board-view.js";
@@ -23,7 +23,7 @@ const STREAM_TIMEOUT_MS = 45e3;
 const HIDDEN_PAUSE_MS = 5 * 60e3;
 const TRACE_KEEP = 200;
 const SAT_CYCLE = ["off", "ir", "vis", "airmass"];
-const DEFAULT_LAYERS = { tephra: true, rose: true, aircraft: true, paths: true, routes: true, acLabels: true, context: false, navaids: false, terrain: false, reroutes: false, satboxes: true };
+const DEFAULT_LAYERS = { airports: true, tephra: true, rose: true, aircraft: true, paths: true, routes: true, acLabels: true, context: false, navaids: false, terrain: false, reroutes: false, satboxes: true };
 const DETAILS_KEY = "tephra.wall.details";
 
 // ------------------------------------------------------------------ state
@@ -424,6 +424,7 @@ function renderNow() {
     const rr = store.snapshot?.reroutes;
     const pickedKey = ui.selFlight ? D.aircraft.find((f) => f.properties.hex === ui.selFlight.hex) : null;
     const reroutes = ui.layers.reroutes || !rr ? rr : { ...rr, features: (rr.features || []).filter((f) => pickedKey && (f.properties.flight_id === `${pickedKey.properties.hex}:${pickedKey.properties.volcano_id}` || f.properties.proxy_flight === pickedKey.properties.proxy_flight)) };
+    map.setClosures(currentPlan()?.closures || []);
     map.setExt({ reroutes, satellite: store.snapshot?.satellite, frames: [...(store.snapshot?.overlays?.frames || []), ...(store.snapshot?.situations || []).flatMap((x) => x.frames || [])] });
     map.update(D);
     if (reframe && D.sit) map.frame({ animate: !reducedMotion() && map.framedOnce });
@@ -858,6 +859,8 @@ function onFeature(hit) {
     openDetails("crew", { vid: p.report_id || null, opener: canvas });
   } else if (id.startsWith("official") || id.startsWith("tephra")) {
     openDetails("area", { vid: p.volcano_id || D.selected, opener: canvas });
+  } else if ((id.startsWith("airport") || id.startsWith("closure")) && p.closed) {
+    openDetails("recovery", { opener: canvas });
   }
 }
 
@@ -902,6 +905,11 @@ function startMap() {
   const canvas = map.map.getCanvas();
   canvas.setAttribute("aria-label", "Map. Arrow keys pan, plus and minus zoom. Click an area or a plane for its details.");
   canvas.id = "map-canvas";
+  // where each airport is, for the airports the plan closes (the catalogue changes only on deploy)
+  fetch("/api/airports")
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+    .then((fc) => map.setAirports(fc))
+    .catch(() => { extra.airportsMissing = true; scheduleRender(); });
   if (D) map.update(D);
 }
 
@@ -933,8 +941,6 @@ document.addEventListener("click", (e) => {
   else if (t.id === "details-btn") { if (ui.details.open) closeDetails(); else openDetails(null, { opener: t }); }
   else if (t.id === "time-pill") { document.body.classList.toggle("tl-sheet"); renderNow(); if (document.body.classList.contains("tl-sheet")) $("timeline").querySelector("button")?.focus(); }
   else if (t.id === "about-btn") openAbout(t);
-  else if (act === "firstuse-about") openAbout(t);
-  else if (act === "firstuse-close") { prefs.set("firstuse", 1); $("firstuse").hidden = true; $("story").focus({ preventScroll: true }); }
   else if (t.id === "attribution") openAbout(t, "about-credits");
   else if (t.id === "help-btn") openHelp(t);
   else if (t.id === "policy-btn") openPolicy(t);
@@ -1154,7 +1160,6 @@ function placeChips() {
 phoneMq.addEventListener?.("change", placeChips);
 placeChips();
 // The first-use disclosure shows until the viewer closes it (kept per browser; blocked storage shows it again).
-$("firstuse").hidden = prefs.get("firstuse", 0) === 1;
 // The frame strip's height: the phone header sticks below it, and dialogs open below it so the
 // strip stays on screen and undimmed (UI-DESIGN 7.1). Its height changes with its words and width.
 new ResizeObserver(() => {

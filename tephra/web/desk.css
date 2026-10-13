@@ -4986,47 +4986,10 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   box-shadow: var(--shadow-1);
 }
 
-/* the first-use disclosure (docs/UI-AI-QUIET.md 8.4): one quiet line, once per browser */
-.firstuse {
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
-  column-gap: var(--sp-2);
-  align-items: start;
-  margin-top: var(--sp-2);
-  padding: var(--sp-2) 0 var(--sp-2) var(--sp-3);
-  border: 1px solid var(--c-line-1);
-  border-radius: var(--radius-md);
-  background: var(--c-surface-2);
-  font-size: var(--fs-2);
-  line-height: 1.4;
-  color: var(--c-text-2);
-}
 
-.firstuse[hidden] {
-  display: none;
-}
 
-.firstuse__mark {
-  width: 16px;
-  height: 16px;
-  margin-top: calc((1.4em - 16px) / 2);
-}
 
-.firstuse__about {
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: var(--c-text-1);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  white-space: nowrap;
-}
 
-.firstuse__close {
-  margin: -6px 0;
-  align-self: center;
-}
 
 .next__newer {
   display: flex;
@@ -8121,6 +8084,12 @@ body {
   color: var(--c-text-2);
 }
 
+.dmap__sw--closed {
+  width: 10px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px var(--c-serious);
+}
+
 .dmap__off {
   position: absolute;
   inset: 0;
@@ -8207,44 +8176,185 @@ body {
   }
 }
 
-/* 1280 px and up: Decide | the map | the review */
+/* 1280 px and up: the map, and one panel on the right. The panel shows Decide; a review (or the
+   flights to plan by hand) takes its place, with Back, as on a phone. The page does not scroll:
+   the panel does. */
 @media (min-width: 1280px) {
   .dmain {
     max-width: none;
+    padding: calc(var(--sp-4) + 54px) var(--sp-4) var(--sp-4);
   }
 
   .desk {
-    grid-template-columns: 380px minmax(0, 1fr) minmax(460px, 560px);
+    --panel-w: min(520px, 40vw);
+    --stage-h: calc(100dvh - var(--head-h, 108px) - var(--sp-4) - var(--sp-4));
+    grid-template-columns: minmax(0, 1fr) var(--panel-w);
+    gap: var(--sp-4);
     justify-content: stretch;
-  }
-
-  .desk > .queue {
-    grid-column: 1;
-    grid-row: 1 / span 4;
+    align-items: start;
   }
 
   .desk > .dmap {
     position: sticky;
-    top: calc(var(--head-h, 108px) + var(--sp-6));
+    top: calc(var(--head-h, 108px) + var(--sp-4));
     display: block;
-    grid-column: 2;
-    grid-row: 1 / span 4;
-    height: calc(100dvh - var(--head-h, 108px) - var(--sp-6) - var(--sp-4));
-    min-height: 420px;
+    grid-column: 1;
+    grid-row: 1;
+    height: var(--stage-h);
     overflow: hidden;
     border-radius: 18px;
     background: var(--map-water);
     box-shadow: var(--shadow-3), 0 0 0 1px color-mix(in srgb, var(--c-text-1) 7%, transparent);
   }
 
+  /* the one panel: whichever view is open */
+  .desk > .queue,
   .desk > .sheet,
-  .desk > .fpane,
+  .desk > .fpane {
+    position: sticky;
+    top: calc(var(--head-h, 108px) + var(--sp-4));
+    grid-column: 2;
+    grid-row: 1;
+    max-height: var(--stage-h);
+    margin: 0;
+  }
+
+  .desk > .queue {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--sp-5) var(--sp-5) var(--sp-6);
+    border: 1px solid color-mix(in srgb, var(--c-text-1) 7%, transparent);
+    border-radius: 18px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--c-surface-2) 86%, transparent), color-mix(in srgb, var(--c-surface-1) 92%, transparent));
+    box-shadow: var(--shadow-3), inset 0 1px 0 color-mix(in srgb, var(--c-text-1) 5%, transparent);
+  }
+
+  .desk[data-view="review"] > .queue,
+  .desk[data-view="failures"] > .queue,
   .desk > .idle {
-    grid-column: 3;
+    display: none !important;
+  }
+
+  .desk > .sheet {
+    height: var(--stage-h);
+  }
+
+  .desk > .fpane {
+    overflow-y: auto;
+  }
+
+  /* Back to Decide, as on a phone */
+  .sheet[data-view="review"] .sheet__back,
+  .sheet[data-view="closed"] .sheet__back,
+  .sheet[data-view="conflict"] .sheet__back,
+  .sheet[data-view="gone"] .sheet__back {
+    display: inline-flex;
+  }
+
+  .sheet__head {
+    padding: 0 var(--sp-5) 0 var(--sp-3);
+  }
+
+  .sheet__body {
+    padding: var(--sp-4) var(--sp-5) var(--sp-5);
+  }
+
+  .actions {
+    padding: var(--sp-3) var(--sp-5) var(--sp-4);
   }
 
   .toasts {
-    left: var(--sp-6);
-    width: 380px;
+    left: auto;
+    right: var(--sp-6);
+    width: min(420px, 36vw);
+  }
+}
+
+/* --- Ask from anywhere: the header's Ask button and its drawer (UI-DESIGN 10.18) --------------- */
+.askbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--c-surface-glass);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-text-1) 12%, transparent);
+  color: var(--c-text-1);
+  font-size: var(--fs-2);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+
+.askbtn:hover,
+.askbtn[aria-expanded="true"] {
+  background: var(--c-surface-3);
+}
+
+.askbtn .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.askdrawer {
+  position: fixed;
+  z-index: var(--z-popover);
+  top: var(--dhead-h, 92px);
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(460px, 100vw);
+  border-left: 1px solid color-mix(in srgb, var(--c-text-1) 8%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c-surface-2) 94%, transparent), color-mix(in srgb, var(--c-surface-1) 97%, transparent));
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+  backdrop-filter: blur(18px) saturate(1.1);
+  box-shadow: var(--shadow-3);
+}
+
+.askdrawer[hidden] {
+  display: none;
+}
+
+.askdrawer__x {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  right: 12px;
+}
+
+.askdrawer #panel-ask {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  max-width: none;
+  margin: 0;
+  padding: var(--sp-5) var(--sp-5) 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.askdrawer #panel-ask .phead {
+  padding-right: 44px;
+}
+
+.askdrawer #panel-ask .acomposer {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  padding: var(--sp-3) 0 var(--sp-4);
+  background: linear-gradient(180deg, transparent, var(--c-surface-1) 18px);
+}
+
+@media (max-width: 599px) {
+  .askbtn span {
+    display: none;
+  }
+
+  .askbtn {
+    min-width: 40px;
+    padding: 0 10px;
   }
 }

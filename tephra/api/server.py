@@ -480,6 +480,36 @@ async def get_route_line(origin_icao: str, dest_icao: str, runtime: RuntimeDep) 
     )
 
 
+@read_api.get("/airports")
+async def get_airports(runtime: RuntimeDep) -> Response:
+    """The airport catalogue as GeoJSON points, for the maps: where an airport the plan closes is.
+
+    The catalogue is the shipped OurAirports extract, so it changes only with a deploy.
+    """
+    features = [
+        {
+            "type": "Feature",
+            "id": airport.icao,
+            "geometry": {"type": "Point", "coordinates": [airport.lon, airport.lat]},
+            "properties": {
+                "icao": airport.icao,
+                "iata": airport.iata,
+                "name": airport.name,
+                "country": airport.country,
+                "longest_runway_m": airport.longest_runway_m,
+            },
+        }
+        for airport in runtime.airports.all()
+    ]
+    return Response(
+        content=json.dumps(
+            {"type": "FeatureCollection", "features": features}, separators=(",", ":")
+        ),
+        media_type="application/json",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
 @read_api.get("/events", response_class=StreamingResponse)
 @read_api.get("/stream", response_class=StreamingResponse, include_in_schema=False)
 async def get_events(request: Request, runtime: RuntimeDep) -> StreamingResponse:

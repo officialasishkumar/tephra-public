@@ -295,15 +295,6 @@ body.details-open .stage { grid-template-columns: var(--story-w) minmax(0, 1fr) 
 .story > .fail-line + .verdict, .story > .verdict:first-child { border-top: 0; padding-top: 0; }
 .story > .fail-line[hidden] + .verdict { border-top: 0; padding-top: 0; }
 
-/* the first-use disclosure (docs/UI-AI-QUIET.md 8.4): one quiet line at the top of the story,
-   once per browser, closed with its own button. Neutral: it is information, not an alarm. */
-.firstuse { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; column-gap: var(--sp-2); align-items: start; padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3); border: 1px solid var(--c-line-1); border-radius: var(--radius-sm); background: var(--c-surface-2); color: var(--c-text-2); font-size: var(--fs-2); line-height: 1.4; }
-.firstuse[hidden] { display: none; }
-.firstuse__mark { width: 16px; height: 16px; margin-top: calc((1.4em - 16px) / 2); color: var(--c-text-2); }
-.firstuse__about { display: inline; min-height: 0; font-size: inherit; white-space: nowrap; }
-.firstuse__close { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin: -4px 0; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--c-text-2); }
-.firstuse__close:hover { color: var(--c-text-1); background: var(--c-surface-3); }
-.firstuse__close .icon { width: 16px; height: 16px; }
 
 /* failure line (R5.6): plain words at body-small size on the serious background, a red edge, and
    the serious shape centred on each item's first line; at most two items, then "+ n more" */
@@ -469,6 +460,7 @@ body.is-compare .map-pane > .key { top: 56px; }
 .sw--aircraft { color: var(--c-aircraft); width: 20px; height: 20px; margin: 2px; }
 .sw--exposed { color: var(--c-tephra); width: 22px; height: 22px; margin: 1px; }
 .sw--reroute { color: var(--c-reroute); }
+.sw--closed { color: var(--c-serious); }
 .sw--sat { color: var(--c-sat); }
 .sw--route { color: var(--c-route); }
 
@@ -1265,6 +1257,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   --c-sat-text: #ffffff;
 }
 .sw--reroute { color: var(--c-reroute); }
+.sw--closed { color: var(--c-serious); }
 .sw--sat { color: var(--c-sat); }
 
 .x-loading { display: flex; flex-direction: column; gap: 4px; }
@@ -1864,7 +1857,6 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .story { overflow: visible; padding: var(--sp-4) var(--gutter); box-shadow: none; display: contents; }
   .story > * { padding-left: var(--gutter); padding-right: var(--gutter); }
   .story > .fail-line { margin: var(--sp-3) var(--gutter) 0; order: 0; }
-  .story > .firstuse { margin: var(--sp-3) var(--gutter) 0; order: 0; padding-left: var(--sp-3); padding-right: var(--sp-2); }
   .story > .verdict, .story > .fail-line[hidden] + .verdict { order: 1; padding-top: var(--sp-4); padding-bottom: var(--sp-4); background: var(--c-surface-1); }
   .mapcol { order: 2; display: block; }
   .story > .key { order: 3; padding: 0 !important; background: var(--c-surface-1); border-bottom: 1px solid var(--c-line-1); }
