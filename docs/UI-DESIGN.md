@@ -1406,6 +1406,34 @@ hidden), at most 160 particles, 90 afterglow routes and 40 tokens, no layout rea
 words that changed. While the board is open the Wall under it is not drawn and its map's marching
 paths stop.
 
+### 7.22 The guide page (`/guide`, 13 Oct 2026)
+
+The manual is a page of its own, so the Wall and the Desk show the situation and not the manual:
+`guide.html` + `guide.js` + `guide.css`, built from the same builders the dialogs used
+(`helpContent` and `aboutContent` in `wall/controls.js` with `{ page: true }`, `policyDialog` in
+`wall/policy.js`): Read the map (3 steps, the full key, the words used, the keyboard), About TEPHRA
+(what it is, safety limits, credits, acknowledgement) and the operator policy. The Wall's footer says
+"Map and data credits", "Policy A (illustrative)" and "Guide", links that open its sections in a
+new tab (the Wall keeps its place); "?", "Full map key and alert colours ›" and every Help or
+policy button do the same. The guide's "Track record ›" opens the Wall at Details › Track record
+(`/#track-record`).
+
+### 7.23 The map's card (13 Oct 2026, `wall/pick.js`)
+
+Selecting a plane, a volcano or an airport on the Wall map opens one small glass card at that point
+(above it, or below it near the map's top edge), as a flight tracker does, with only what is needed
+and one link: a plane: RFA flight and real callsign, level and ground speed, origin → destination,
+inside or minutes to entry (caution and serious words), its advisory's state, "Flight details ›";
+a volcano: its alert colour, the official band now, the RFA flights in or heading in, "This ash
+area ›"; an airport: codes and name, "Closed until 1910Z" and why or "Open: no closure in the
+airport plan", the longest runway, "Airport plan ›". Selecting a plane still picks it (ring, route,
+path). The card follows the map; Escape, its ✕ or a click on empty map closes it. Areas, reroutes
+and crew reports still open their Details sections.
+
+The side panel (story and Details) hides with a tab on the map's left edge for the whole map, and
+the same tab brings it back; kept for the session (`tephra.wall.panel`); opening Details shows it
+again; not on a phone.
+
 ## 8. 3D, compare, the time bar and the height filter
 
 ### 8.1 3D mode (D)

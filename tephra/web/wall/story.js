@@ -61,7 +61,7 @@ export function advisoryFacts(D, store, vid) {
 }
 
 // Official areas valid now for a volcano: the highest top and its base (R5.3 L1).
-function officialBand(D, vid) {
+export function officialBand(D, vid) {
   const feats = D.official.filter((f) => f.properties.volcano_id === vid && f.properties.valid && f.properties.step === "now");
   if (!feats.length) return null;
   const top = Math.max(...feats.map((f) => f.properties.top_ft));

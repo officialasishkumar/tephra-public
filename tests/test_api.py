@@ -545,6 +545,14 @@ def test_state_is_labelled_fictional_and_no_model(client: TestClient) -> None:
     assert ISO_UTC.fullmatch(body["now"])
 
 
+def test_the_guide_page_is_served_with_the_page_headers(client: TestClient) -> None:
+    response = client.get("/guide")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.headers["content-security-policy"] == CONTENT_SECURITY_POLICY
+    assert '<script type="module" src="/static/guide.js"></script>' in response.text
+
+
 def test_airports_are_points_with_their_codes(client: TestClient) -> None:
     response = client.get("/api/airports")
     assert response.status_code == 200

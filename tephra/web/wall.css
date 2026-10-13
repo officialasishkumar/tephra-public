@@ -1257,7 +1257,6 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   --c-sat-text: #ffffff;
 }
 .sw--reroute { color: var(--c-reroute); }
-.sw--closed { color: var(--c-serious); }
 .sw--sat { color: var(--c-sat); }
 
 .x-loading { display: flex; flex-direction: column; gap: 4px; }
@@ -2000,4 +1999,47 @@ body.present .details-btn { border-style: dashed; }
 .vrow > .st { color: var(--c-caution); }
 @media (forced-colors: active) {
   .story__mark--crew { forced-color-adjust: none; }
+}
+
+/* ---------------------------------------------------------------- the map's card (UI-DESIGN 7.23)
+   One small glass card where a plane, a volcano or an airport was selected: a title, at most four
+   short lines, one link. It follows the map (a MapLibre marker). */
+.mcard {
+  position: relative; display: flex; flex-direction: column; gap: 3px; min-width: 200px; max-width: 280px;
+  padding: 10px 36px 10px 12px; border-radius: 12px;
+  background: var(--c-surface-glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-text-1) 9%, transparent), var(--shadow-3);
+  font-size: var(--fs-2); line-height: 1.4; color: var(--c-text-2); cursor: default;
+}
+.mcard::after { content: ""; position: absolute; left: 50%; bottom: -6px; width: 12px; height: 12px; transform: translateX(-50%) rotate(45deg); background: var(--c-surface-glass); box-shadow: 1px 1px 0 color-mix(in srgb, var(--c-text-1) 9%, transparent); }
+.mcard--below::after { top: -6px; bottom: auto; box-shadow: -1px -1px 0 color-mix(in srgb, var(--c-text-1) 9%, transparent); }
+.mcard__t { display: flex; flex-direction: column; margin: 0 0 2px; }
+.mcard__t b { color: var(--c-text-1); font-size: var(--fs-3); font-weight: var(--fw-semibold); }
+.mcard__sub { font-size: var(--fs-1); color: var(--c-text-3); }
+.mcard__l { margin: 0; }
+.mcard__l--caution { color: var(--c-caution); }
+.mcard__l--serious { color: var(--c-serious); }
+.mcard__go { align-self: flex-start; margin-top: 4px; font-size: var(--fs-2); }
+.mcard__x { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--c-text-3); }
+.mcard__x:hover { color: var(--c-text-1); background: var(--c-surface-3); }
+.mcard__x .icon { width: 14px; height: 14px; }
+
+/* ---------------------------------------------------------------- hide the side panel
+   A tab on the map's left edge folds the story and Details away for the whole map, and brings
+   them back. Not on a phone, where the page scrolls. */
+.panel-toggle {
+  position: absolute; z-index: var(--z-map-overlay); left: 0; top: 50%; transform: translateY(-50%);
+  display: grid; place-items: center; width: 22px; height: 64px; padding: 0; border: 0; border-radius: 0 10px 10px 0;
+  background: var(--c-surface-glass); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-text-1) 9%, transparent), var(--shadow-2); color: var(--c-text-2); cursor: pointer;
+}
+.panel-toggle:hover { color: var(--c-text-1); background: var(--c-surface-3); }
+.panel-toggle:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+.panel-toggle .icon { width: 16px; height: 16px; }
+body.panel-hidden .panel-toggle .icon { transform: rotate(180deg); }
+body.panel-hidden .stage, body.panel-hidden.details-open .stage { grid-template-columns: 0px minmax(0, 1fr) 0px; }
+body.panel-hidden .story, body.panel-hidden .drawer { display: none; }
+@media (max-width: 600px) {
+  .panel-toggle { display: none; }
+  body.panel-hidden .story { display: contents; }
 }

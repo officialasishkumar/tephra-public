@@ -65,7 +65,6 @@ WALL_IDS = [
     "attribution",
     "policy-btn",
     "help-btn",
-    "about-btn",
     "dlg",
     "story",
     "details",

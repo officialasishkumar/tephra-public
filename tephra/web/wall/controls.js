@@ -98,8 +98,9 @@ export const SHORTCUTS = [
   ["Esc", "Close, one step at a time: a dialog or menu, a Details section, Details, History, the picked flight, compare, 3D"],
 ];
 
-// Help (R9.1): read the map in 3 steps, the full key, the words used here, the keyboard.
-export function helpContent(enabled) {
+// Help (R9.1): read the map in 3 steps, the full key, the words used here, the keyboard. On the
+// guide page (`page`) the Wall's own shortcut switch is left out.
+export function helpContent(enabled, { page = false } = {}) {
   const sw = (id, cls) => icon(id, `sw ${cls}`);
   const keyRow = (s, label, sub) => el("li", {}, s, el("span", {}, el("strong", { text: label }), sub ? el("span", { class: "key__sub", text: ` · ${sub}` }) : null));
   const codes = ["GREEN", "YELLOW", "ORANGE", "RED", "UNKNOWN"].map((c) => icon("i-eruption", "icon", `var(--c-code-${c.toLowerCase()})`));
@@ -141,7 +142,7 @@ export function helpContent(enabled) {
       el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Key" }), el("th", { scope: "col", text: "Action" }))),
       el("tbody", {}, ...SHORTCUTS.map(([k, a]) => el("tr", {}, el("td", {}, ...k.split(" ").map((x) => el("kbd", { text: x }))), el("td", { text: a }))))),
     el("p", { class: "muted", text: "Shortcuts work when focus is not in a text field and no modifier key is held. Every shortcut also has a visible control. On the map: arrow keys pan, plus and minus zoom." }),
-    el("label", { class: "opt" },
+    page ? null : el("label", { class: "opt" },
       el("input", { type: "checkbox", dataset: { act: "shortcuts-toggle" }, checked: enabled ? true : null }),
       el("span", { text: "Single-key shortcuts on" })));
 }
@@ -160,8 +161,9 @@ const CREDITS = [
   ["Lucide, Material Symbols", "Icons, and the aircraft glyph", "ISC / MIT, Apache License 2.0"],
 ];
 
-// About (R9.2): what TEPHRA is, the safety limits, the credits, the acknowledgement.
-export function aboutContent(state, attribution = ATTRIBUTION) {
+// About (R9.2): what TEPHRA is, the safety limits, the credits, the acknowledgement. On the guide
+// page (`page`) its links go to the Wall and to the guide's own sections.
+export function aboutContent(state, attribution = ATTRIBUTION, { page = false } = {}) {
   const replay = state?.mode === "REPLAY" ? state.replay : null;
   return el("div", { class: "about" },
     el("h3", { class: "help__h", text: "What TEPHRA is" }),
@@ -178,7 +180,7 @@ export function aboutContent(state, attribution = ATTRIBUTION) {
       el("li", { text: "TEPHRA's estimate is an estimate, never a forecast. The official reports are binding." }),
       el("li", { text: "Satellite and SO2 layers are context only, never ash detection." }),
       el("li", { text: GASES_SCOPE })),
-    el("p", {}, el("button", { type: "button", class: "honesty__about", dataset: { act: "details-open", sec: "proof" }, text: "Track record ›" }), " How TEPHRA's estimate scored against later official areas."),
+    el("p", {}, page ? el("a", { class: "honesty__about", href: "/#track-record", text: "Track record ›" }) : el("button", { type: "button", class: "honesty__about", dataset: { act: "details-open", sec: "proof" }, text: "Track record ›" }), " How TEPHRA's estimate scored against later official areas."),
     el("h3", { id: "about-credits", class: "help__h", tabindex: "-1", text: "Credits" }),
     el("table", { class: "table" },
       el("caption", { class: "sr-only", text: "Credits" }),
@@ -187,12 +189,12 @@ export function aboutContent(state, attribution = ATTRIBUTION) {
     el("p", { class: "about__attrib", text: `On screen: ${attribution}` }),
     el("h3", { class: "help__h", text: "Acknowledgement" }),
     el("p", { text: "We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Science Data and Information System (ESDIS). Himawari-9 data: JMA via NOAA. No source endorses TEPHRA." }),
-    el("h3", { class: "help__h", text: "Operator policy" }),
-    el("p", {},
+    page ? null : el("h3", { class: "help__h", text: "Operator policy" }),
+    page ? null : el("p", {},
       el("button", { type: "button", class: "honesty__about", "aria-haspopup": "dialog", dataset: { act: "policy" }, text: "Open the operator policy" }),
       " (illustrative): every margin, minimum and threshold TEPHRA applies, with its reason."),
-    el("h3", { class: "help__h", text: "Help" }),
-    el("p", {},
+    page ? null : el("h3", { class: "help__h", text: "Help" }),
+    page ? null : el("p", {},
       el("button", { type: "button", class: "honesty__about", "aria-haspopup": "dialog", dataset: { act: "help" }, text: "Open Help" }),
       ": how to read this screen, the words used and every keyboard shortcut (or press ?)."));
 }

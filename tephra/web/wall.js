@@ -9,10 +9,9 @@ import { WallMap, readTokens, SAT } from "./wall/map.js";
 import {
   renderChrome, renderFrame, renderClock, mapPills, renderTimeline, sourcesDialog, timelineTarget, setAiState,
 } from "./wall/panels.js";
-import { policyDialog } from "./wall/policy.js";
-import { helpContent, aboutContent } from "./wall/controls.js";
 import { ext, loadExt, ingest, noteTrace, satScale, aiState, handPlan } from "./wall/ext.js";
-import { renderStory, coverageNote, currentPlan } from "./wall/story.js";
+import { renderStory, coverageNote, currentPlan, officialBand } from "./wall/story.js";
+import { planeCard, volcanoCard, airportCard } from "./wall/pick.js";
 import { renderDetails, sectionOf, PANELS } from "./wall/details.js";
 import { boardModel, flowModel } from "./wall/board.js";
 import { mountFlow } from "./wall/board-view.js";
@@ -62,6 +61,8 @@ const ui = {
   // phone's map; a choice made with its button is kept for the session
   // the key starts folded (one "Map key" button on the map) and stays as the viewer leaves it
   keyOpen: (() => { try { return sessionStorage.getItem("tephra.wall.key") === "open"; } catch { return false; } })(),
+  // the side panel (story and Details) hidden for the whole map, kept for the session
+  panelHidden: (() => { try { return sessionStorage.getItem("tephra.wall.panel") === "hidden"; } catch { return false; } })(),
   trustOpen: false, // the hero's note on what TEPHRA's ash area is
   traceFilter: "all",
   historyLane: "all",
@@ -651,8 +652,20 @@ function placeDetails() {
   else if (legend.parentElement !== $("map-pane")) $("map-pane").append(legend);
 }
 
+function setPanel(hidden) {
+  ui.panelHidden = hidden;
+  try { sessionStorage.setItem("tephra.wall.panel", hidden ? "hidden" : "shown"); } catch { /* storage blocked */ }
+  document.body.classList.toggle("panel-hidden", hidden);
+  const b = $("panel-toggle");
+  const words = hidden ? "Show the side panel" : "Hide the side panel";
+  b.setAttribute("aria-expanded", hidden ? "false" : "true");
+  b.setAttribute("aria-label", words);
+  b.title = words;
+}
+
 function openDetails(sec = null, { vid = null, opener = null, from = null } = {}) {
   if (ui.present) return;
+  if (ui.panelHidden) setPanel(false);
   const was = ui.details.open;
   ui.details = { open: true, sec, vid, from: from || ui.details.from, opener: was ? ui.details.opener : (opener || document.activeElement) };
   if (sec && sectionOf(sec)?.xtab) ui.rail = sectionOf(sec).xtab;
@@ -799,25 +812,12 @@ function openDialog(kind, title, body, opener) {
   return dlg;
 }
 
-function openHelp(opener, at = null) {
-  const dlg = openDialog("help", "Help", helpContent(ui.shortcuts), opener);
-  if (at) requestAnimationFrame(() => { const h = $(at); h?.scrollIntoView({ block: "start" }); h?.focus({ preventScroll: true }); });
-  return dlg;
+// Help, About and the operator policy live on the guide page (UI-DESIGN 7.22), in a tab of its own
+// so the Wall keeps its place.
+function openGuide(section) {
+  window.open(`/guide#${section}`, "_blank", "noopener");
 }
 
-function openAbout(opener, at = null) {
-  openDialog("about", "About TEPHRA", aboutContent(store.state, $("drawer-attrib").textContent || undefined), opener);
-  if (at) requestAnimationFrame(() => { const h = $(at); h?.scrollIntoView({ block: "start" }); h?.focus({ preventScroll: true }); });
-}
-
-async function openPolicy(opener) {
-  let data = null;
-  try {
-    const res = await fetch("/api/policy", { headers: { Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(8000) });
-    if (res.ok) data = await res.json();
-  } catch { /* the dialog says it could not load */ }
-  openDialog("policy", "Operator policy", policyDialog(data), opener);
-}
 
 function openSources(kind, opener) {
   const dlg = openDialog("sources", "Sources side by side", sourcesDialog(D, kind), opener);
@@ -838,7 +838,9 @@ $("details-sheet").addEventListener("cancel", (e) => { e.preventDefault(); escap
 
 // ------------------------------------------------------------------ map wiring
 
-function onFeature(hit) {
+// A plane, a volcano or an airport opens the map's card (UI-DESIGN 7.23): only what is needed, and
+// one link to its Details section. Areas, reroutes and crew reports open their Details section.
+function onFeature(hit, lngLat) {
   if (!D) return;
   const id = hit.layer.id;
   const p = hit.properties || {};
@@ -849,17 +851,23 @@ function onFeature(hit) {
     const f = D.aircraft.find((a) => a.properties.hex === hex);
     if (!f) return;
     pickFlight(f);
-    openDetails("flight", { opener: canvas });
+    const adv = store.advisories.filter((a) => a.hex === hex && a.status !== "SUPERSEDED").sort((a, b) => ms(b.updated_at) - ms(a.updated_at))[0] || null;
+    map.showCard(f.geometry.coordinates, planeCard(f.properties, adv));
+  } else if (id.startsWith("volcano")) {
+    if (D.sits.some((s) => s.volcano_id === p.id)) select(p.id);
+    const sit = D.sits.find((s) => s.volcano_id === p.id);
+    map.showCard(hit.geometry?.type === "Point" ? hit.geometry.coordinates : [lngLat.lng, lngLat.lat], volcanoCard(p, officialBand(D, p.id), sit?.exposed_count || 0));
+  } else if (id.startsWith("airport")) {
+    const closure = (currentPlan()?.closures || []).find((c) => c.icao === p.icao) || null;
+    map.showCard(hit.geometry.coordinates, airportCard(p, closure));
   } else if (id === "reroute-line" || id === "reroute-wp") {
     const f = D.aircraft.find((a) => `${a.properties.hex}:${a.properties.volcano_id}` === p.flight_id || a.properties.proxy_flight === p.proxy_flight);
     if (f) { pickFlight(f); openDetails("flight", { opener: canvas }); }
-  } else if (id.startsWith("volcano")) {
-    if (D.sits.some((s) => s.volcano_id === p.id)) select(p.id);
   } else if (id.startsWith("crew")) {
     openDetails("crew", { vid: p.report_id || null, opener: canvas });
   } else if (id.startsWith("official") || id.startsWith("tephra")) {
     openDetails("area", { vid: p.volcano_id || D.selected, opener: canvas });
-  } else if ((id.startsWith("airport") || id.startsWith("closure")) && p.closed) {
+  } else if (id.startsWith("closure")) {
     openDetails("recovery", { opener: canvas });
   }
 }
@@ -933,6 +941,7 @@ document.addEventListener("click", (e) => {
   else if (tool === "sat-toggle") setSat(ui.sat === "off" ? "ir" : "off");
   else if (tool === "layers") toggleSection("layers", t);
   else if (tool === "levels") openDetails("levels", { opener: t });
+  else if (t.id === "panel-toggle") setPanel(!ui.panelHidden);
   else if (t.id === "area-btn") { if ($("regions").hidden) openAreaMenu(); else closeAreaMenu(); }
   else if (t.id === "ai-chip" || act === "board-open") openBoard(t);
   else if (act === "board-close") $("board").close();
@@ -940,10 +949,6 @@ document.addEventListener("click", (e) => {
   else if (t.id === "feeds-chip") openDetails("feeds", { opener: t });
   else if (t.id === "details-btn") { if (ui.details.open) closeDetails(); else openDetails(null, { opener: t }); }
   else if (t.id === "time-pill") { document.body.classList.toggle("tl-sheet"); renderNow(); if (document.body.classList.contains("tl-sheet")) $("timeline").querySelector("button")?.focus(); }
-  else if (t.id === "about-btn") openAbout(t);
-  else if (t.id === "attribution") openAbout(t, "about-credits");
-  else if (t.id === "help-btn") openHelp(t);
-  else if (t.id === "policy-btn") openPolicy(t);
   else if (t.dataset.region) { const fromMenu = !!t.closest("#regions"); chooseRegion(t.dataset.region); if (fromMenu) $("area-btn").focus(); }
   else if (t.dataset.flight) flyToFlight(t.dataset.flight);
   else if (act === "select" && t.dataset.vid) select(t.dataset.vid);
@@ -990,9 +995,9 @@ document.addEventListener("click", (e) => {
   else if (act === "ctx-off") { if (t.dataset.layer === "sat") setSat("off"); else setLayer(t.dataset.layer, false); }
   else if (act === "view-2d") toggle3d(false);
   else if (act === "dlg-close") $("dlg").close();
-  else if (act === "help") openHelp(t.closest("#dlg") ? dialogOpener : t);
-  else if (act === "help-map") openHelp(t, "help-key");
-  else if (act === "policy") openPolicy(t.closest("#dlg") ? dialogOpener : t); // About's button: focus goes back to About
+  else if (act === "help") openGuide("read");
+  else if (act === "help-map") openGuide("help-key");
+  else if (act === "policy") openGuide("policy");
 });
 
 // Previous / next event (R7): choose the neighbouring marker and act as if it was clicked.
@@ -1120,7 +1125,7 @@ function shortcut(e) {
   else if (k === "h" || k === "H") { openDetails("levels", { opener: document.activeElement }); requestAnimationFrame(() => $("levels").querySelector('[data-thumb="max"]')?.focus()); }
   else if (k === "p" || k === "P") setPresent(!ui.present);
   else if (k === "a" || k === "A") openBoard(document.activeElement);
-  else if (k === "?") openHelp(document.activeElement);
+  else if (k === "?") openGuide("read");
   else handled = false;
   if (handled) e.preventDefault();
 }
@@ -1135,6 +1140,7 @@ function escape(e) {
   if ($("dlg").open || $("board").open) return; // a dialog closes itself
   if (!$("regions").hidden) { closeAreaMenu(); e.preventDefault(); return; }
   if (document.body.classList.contains("tl-sheet")) { document.body.classList.remove("tl-sheet"); renderNow(); $("time-pill").focus(); e.preventDefault(); return; }
+  if (map?.hideCard()) { e.preventDefault(); return; }
   if (ui.details.open) { escapeDetails(); e.preventDefault(); return; }
   if (ui.historyOpen) { ui.historyOpen = false; renderNow(); e.preventDefault(); return; }
   if (ui.selFlight) { clearFlight(); e.preventDefault(); return; }
@@ -1187,12 +1193,15 @@ try {
   }
 } catch { /* storage blocked: Details starts closed */ }
 placeDetails();
+setPanel(ui.panelHidden);
 renderShell();
-// "See TEPHRA Assistant at work" links from the Desk land here (/#ai-at-work); the hash is not kept, so a
-// reload shows the Wall.
-if (location.hash === "#ai-at-work") {
+// "See TEPHRA Assistant at work" links from the Desk land here (/#ai-at-work), and the guide's
+// "Track record ›" (/#track-record); the hash is not kept, so a reload shows the Wall.
+if (location.hash === "#ai-at-work" || location.hash === "#track-record") {
+  const board = location.hash === "#ai-at-work";
   history.replaceState(history.state, "", location.pathname + location.search);
-  openBoard($("ai-chip"));
+  if (board) openBoard($("ai-chip"));
+  else openDetails("proof", { opener: $("details-btn") });
 }
 inlineSprite().then(() => { if (store.state) renderNow(); else renderShell(); });
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startMap, { once: true });

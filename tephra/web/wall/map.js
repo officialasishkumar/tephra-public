@@ -400,6 +400,7 @@ export class WallMap {
     // labels are re-fitted to the canvas after every move, not only after a zoom (review 2, 10)
     this.map.on("moveend", () => { if (this.D && this.loaded) { this.updateLabels(); this.updateVolcanoes(); } });
     this.map.on("click", (e) => this.onClick(e));
+    this.map.getContainer().addEventListener("click", (e) => { if (e.target.closest("[data-act='card-close']")) this.hideCard(); });
     this.styleTimer = setTimeout(() => { if (!this.loaded) this.fallbackStyle(); }, 8000);
     const pulseNode = el("div", { class: "pulse", "aria-hidden": "true" });
     pulseNode.addEventListener("animationend", (e) => { if (e.pseudoElement === "::after" && pulseNode.classList.contains("pulse--rose")) pulseNode.classList.add("pulse--done"); });
@@ -1005,13 +1006,29 @@ export class WallMap {
   // No popups: a click opens the matching Details section (wall.js), and a flight cluster zooms in.
 
   onClick(e) {
-    const order = ["exposed-cluster", "aircraft-icon", "exposed-icon", "exposure-entry", "exposure-entry-sel", "reroute-wp", "reroute-line", "crew-pin", "crew-label", "crew-path", "volcano-active", "volcano-inactive", "airport-closed-label", "airport-closed-code", "airport-dot", "closure-ring", "crew-line", "official-fill-now", "official-line-now", "official-line-f6", "official-line-f12", "official-line-f18", "tephra-line", "tephra-fill", "tephra-hatch", "crew-fill"];
+    const order = ["exposed-cluster", "aircraft-icon", "exposed-icon", "exposure-entry", "exposure-entry-sel", "reroute-wp", "reroute-line", "crew-pin", "crew-label", "crew-path", "volcano-active", "volcano-inactive", "airport-closed-label", "airport-closed-code", "airport-dot", "airport-label", "closure-ring", "crew-line", "official-fill-now", "official-line-now", "official-line-f6", "official-line-f12", "official-line-f18", "tephra-line", "tephra-fill", "tephra-hatch", "crew-fill"];
     const layers = order.filter((id) => this.map.getLayer(id));
     const hits = this.map.queryRenderedFeatures([[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]], { layers });
-    if (!hits.length) return;
+    if (!hits.length) { this.hideCard(); return; }
     hits.sort((a, b) => order.indexOf(a.layer.id) - order.indexOf(b.layer.id));
     if (hits[0].layer.id === "exposed-cluster") { this.zoomCluster(hits[0]); return; }
     this.onFeature?.(hits[0], e.lngLat);
+  }
+
+  // The map's card (pick.js): anchored at a point, it follows the map; one at a time.
+  // Above the point, or below it when the point is near the map's top edge.
+  showCard(lngLat, node) {
+    this.hideCard();
+    const below = this.map.project(lngLat).y < 230;
+    node.classList.toggle("mcard--below", below);
+    this.card = new window.maplibregl.Marker({ element: el("div", { class: "mcard-anchor" }, node), anchor: below ? "top" : "bottom", offset: [0, below ? 16 : -16] });
+    this.card.setLngLat(lngLat).addTo(this.map);
+  }
+
+  hideCard() {
+    if (!this.card?.getElement().isConnected) return false;
+    this.card.remove();
+    return true;
   }
 
   async zoomCluster(hit) {

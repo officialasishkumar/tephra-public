@@ -155,6 +155,11 @@
           </button>
         </div>
 
+        <!-- hide the side panel for the whole map, and bring it back (UI-DESIGN 4, 13 Oct 2026) -->
+        <button id="panel-toggle" class="panel-toggle" type="button" aria-expanded="true" aria-controls="story" aria-label="Hide the side panel" title="Hide the side panel">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-chevron-left"></use></svg>
+        </button>
+
         <button id="time-pill" class="time-pill" type="button" aria-haspopup="dialog" aria-controls="timeline">–</button>
       </section>
 
@@ -198,10 +203,10 @@
   <footer class="honesty">
     <span class="honesty__airline" title="Ring of Fire Air (RFA) is a fictional airline. Its flight numbers are proxies for real aircraft (About)."><span class="honesty__short">RFA is a fictional airline.</span></span>
     <span class="honesty__links">
-      <button id="attribution" class="honesty__about" type="button" aria-haspopup="dialog">Map and data credits</button>
-      <button id="policy-btn" class="honesty__about honesty__policy" type="button" aria-haspopup="dialog" hidden>Policy A (illustrative)</button>
-      <button id="help-btn" class="honesty__about" type="button" aria-haspopup="dialog" aria-keyshortcuts="?">Help</button>
-      <button id="about-btn" class="honesty__about" type="button" aria-haspopup="dialog">About</button>
+      <!-- the manual is the guide page (UI-DESIGN 7.22), in a tab of its own -->
+      <a id="attribution" class="honesty__about" href="/guide#about-credits" target="_blank" rel="noopener">Map and data credits</a>
+      <a id="policy-btn" class="honesty__about honesty__policy" href="/guide#policy" target="_blank" rel="noopener" hidden>Policy A (illustrative)</a>
+      <a id="help-btn" class="honesty__about" href="/guide#read" target="_blank" rel="noopener" aria-keyshortcuts="?">Guide</a>
       <a class="honesty__about" href="/privacy">Privacy</a>
     </span>
   </footer>

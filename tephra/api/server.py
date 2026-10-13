@@ -302,6 +302,11 @@ async def desk_page() -> FileResponse:
     return await _page("desk.html")
 
 
+@pages.get("/guide", include_in_schema=False)
+async def guide_page() -> FileResponse:
+    return await _page("guide.html")
+
+
 @pages.get("/privacy", include_in_schema=False)
 async def privacy_page() -> FileResponse:
     return await _page("privacy.html")
