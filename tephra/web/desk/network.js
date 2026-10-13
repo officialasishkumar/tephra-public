@@ -11,7 +11,8 @@ import { activeNow, dayMonthHhmm, deskName, hhmmz, secs } from './format.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
 import { aiMark, fmtUsd, openBSheet, unavailableCard } from './ui.js';
-import { WHY, reasonClass } from '../wall/x-parts.js';
+import { WHY, machineText, reasonClass } from '../wall/x-parts.js';
+import { slotWords } from './budget.js';
 
 const STATUS = {
   DRAFT: ['i-clock', 'Waiting for your decision', 'neutral'],
@@ -27,15 +28,14 @@ const noRecWords = (p) => `AI unavailable (${WHY[reasonClass([p.unavailable_reas
 // The re-plan the budget holds for later: "A new plan waits for AI: next slot 0700Z."
 function queuedReplan() {
   const w = app.budget && Array.isArray(app.budget.waiting) ? app.budget.waiting.find((x) => x.status === 'WAITING' && x.item && x.item.kind === 'RECOVER') : null;
-  const real = app.state && app.state.mode === 'REPLAY' ? ' real time' : '';
-  return w ? `A new plan waits for AI: next slot ${w.next_slot_at ? `${hhmmz(w.next_slot_at)}${real}` : 'not set'}.` : '';
+  return w ? `A new plan waits for AI: next slot ${slotWords(w.next_slot_at) || 'not set'}.` : '';
 }
 
 // A plan that found no plan (R2.6): the solver's status in plain words, never "AI unavailable".
 // The raw string stays under Technical detail. Null when the failure is not a solver result.
 export function planProblem(plan) {
   if (!plan) return null;
-  const raw = [plan.unavailable_reason, ...(plan.validation_errors || [])].filter(Boolean).join('; ');
+  const raw = [plan.unavailable_reason, ...(plan.validation_errors || [])].filter(Boolean).join(' · ');
   const fromText = /NO FEASIBLE PLAN[^(]*\(([A-Z_]+)\)|HAS NO PLAN \(([A-Z_]+)\)/.exec(raw);
   const noPlan = (plan.scenarios || []).find((sc) => sc.status === 'NO_PLAN');
   const status = fromText ? fromText[1] || fromText[2] : plan.status === 'AI_UNAVAILABLE' && noPlan ? noPlan.solver_status : null;
@@ -154,7 +154,7 @@ function closuresList(p) {
         // The full reason and every source id stay for audit.
         el('details', { class: 'clo__more' },
           el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: 'Full reason and sources' })),
-          el('p', { class: 'clo__why', text: c.reason }),
+          el('p', { class: 'clo__why', text: machineText(c.reason) }),
           c.source_ids && c.source_ids.length ? el('p', { class: 'clo__src mono', text: c.source_ids.join(' · ') }) : null))))];
 }
 
@@ -229,7 +229,7 @@ function whyContent(p) {
     // the card above already says it: the words once more here, quietly, the reason one tap in (K96)
     const solved = (p.scenarios || []).length > 0;
     return [el('p', { role: 'status', text: `${noRecWords(p)} ${solved ? "The solver's plans stand, but no recommendation was made. Choose by hand." : 'No plan was solved: plan the network by hand.'}` }),
-      techNode(p.unavailable_reason || (p.validation_errors || []).join('; ') || 'no reason given')];
+      techNode(p.unavailable_reason || (p.validation_errors || []).join(' · ') || 'no reason given')];
   }
   const m = STUB_WHY.exec(p.rationale || '');
   const text = m
@@ -249,7 +249,7 @@ function whyContent(p) {
   return [card];
 }
 
-const techNode = (raw) => (raw ? el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: raw })) : null);
+const techNode = (raw) => (raw ? el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: machineText(raw) })) : null);
 
 // A flight number repeats every day, so a flight is shown by its key: number and service date.
 const flightLabel = (a) => a.flight_key || a.flight_no;
@@ -512,7 +512,7 @@ function confirmReject(p) {
       return;
     }
     const list = problems(res);
-    msg.replaceChildren(el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: `Not rejected: ${list.length ? list.join('; ') : (res.data && res.data.detail) || `HTTP ${res.status}`}` })));
+    msg.replaceChildren(el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: `Not rejected: ${list.length ? list.join(' · ') : (res.data && res.data.detail) || `HTTP ${res.status}`}` })));
   });
   window.setTimeout(() => area.focus(), 50);
 }

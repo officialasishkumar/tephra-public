@@ -266,7 +266,7 @@ export function openMessage(id) {
     }
     if (res.status === 422) {
       const list = problems(res);
-      notice = `Check the text: ${list.length ? list.join('; ') : 'the change was not accepted'}`;
+      notice = `Check the text: ${list.length ? list.join(' · ') : 'the change was not accepted'}`;
       draw();
       return;
     }

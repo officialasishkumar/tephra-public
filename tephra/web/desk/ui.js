@@ -4,7 +4,8 @@
 // (docs/UI-AI-QUIET.md, docs/EXTENSIONS.md rule 0).
 
 import { byId, el, icon } from './dom.js';
-import { aiStateOf } from '../wall/x-parts.js';
+import { serverNow } from './format.js';
+import { aiStateOf, machineText } from '../wall/x-parts.js';
 
 // The one mark set (UI-AI-QUIET Q5): the visible verb only ("AI-written", "AI-read",
 // "AI-chosen"), the model id in the title and the label; "Code (AI off)" when no model wrote it.
@@ -24,7 +25,7 @@ export function aiMark(verb, modelId, { backend = null } = {}) {
 export function aiState({ budget = null, failures = [], llm = null, duty = null, plan = null, replay = false } = {}) {
   const errors = failures.map((f) => ({ stage: f.stage, reason: f.reason, at: Date.parse(f.created_at || ''), raw: `${f.reason}${f.model_id ? ` · would have used ${f.model_id}` : ''}` }));
   const stub = (llm && llm.backend === 'stub') || (budget && budget.backend === 'stub');
-  return aiStateOf({ stub, budget, errors, duty, plan, replay });
+  return aiStateOf({ stub, budget, errors, duty, plan, replay, now: serverNow() });
 }
 
 export const codeChip = (text = 'Code-written') =>
@@ -37,12 +38,12 @@ export const codeChip = (text = 'Code-written') =>
 export function unavailableCard(reason, { instead = 'AI unavailable: nothing was put in its place. Do this step by hand.', onRetry = null, retryLabel = 'Try again', retryDisabled = false, title = 'AI unavailable', serious = false } = {}) {
   const card = serious
     ? el('div', { class: 'panel panel--serious unavail', role: 'alert' },
-      el('p', { class: 'panel__title' }, icon('st-serious', 'st'), el('span', { text: `${title}: ${reason}` })),
+      el('p', { class: 'panel__title' }, icon('st-serious', 'st'), el('span', { text: `${title}: ${machineText(reason)}` })),
       instead ? el('p', { class: 'unavail__instead', text: instead }) : null)
     : el('div', { class: 'panel panel--caution unavail', role: 'status' },
       el('p', { class: 'panel__title' }, icon('st-caution', 'st'), el('span', { text: title })),
       instead ? el('p', { class: 'unavail__instead', text: instead }) : null,
-      reason ? el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: String(reason) })) : null);
+      reason ? el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: machineText(reason) })) : null);
   if (onRetry) {
     card.append(el('button', { type: 'button', class: 'btn btn--outline', onclick: onRetry, disabled: retryDisabled }, icon('i-refresh'), el('span', { text: retryLabel })));
   }

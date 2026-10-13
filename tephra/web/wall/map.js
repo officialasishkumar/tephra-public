@@ -777,7 +777,12 @@ export class WallMap {
     if (phone) return { top: 40, bottom: 56, left: 24, right: 24 };
     const ctrls = this.container.querySelector(".maplibregl-ctrl-bottom-right");
     const w = ctrls ? ctrls.getBoundingClientRect().width : 0;
-    return { top: 48, bottom: 56, left: 48, right: Math.max(48, w + 24) };
+    // the map key sits on the map's top left: a framed area keeps clear of it
+    const key = document.getElementById("legend");
+    const kr = key && !key.hidden && this.container.closest(".map-pane")?.contains(key) ? key.getBoundingClientRect() : null;
+    const box = this.container.getBoundingClientRect();
+    const left = kr && kr.width ? Math.min(kr.right - box.left + 16, box.width * 0.4) : 48;
+    return { top: 48, bottom: 56, left: Math.max(48, left), right: Math.max(48, w + 24) };
   }
 
   frame({ animate = true, includeFlights = true } = {}) {

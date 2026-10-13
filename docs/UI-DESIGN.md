@@ -98,18 +98,17 @@ Copy deck · 12 Accessibility · 13 Data rules · 14 Video shot list · 15 Open 
 
 | Beat | Carried by (Wall) | Where | Must read at 2 m |
 |---|---|---|---|
-| Official ash area | Story L1 "Official reports put the ash up to 50,000 ft (FL500)."; the pink filled polygon with its label box "Official ash area · SFC–FL500 · until 1045Z / moving SE at 10 kt" | Story, map | The sentence and the pink shape |
+| Official ash area | Story tile "Ash up to FL500 · 50,000 ft"; the pink filled polygon with its label box "Official ash area · SFC–FL500 · until 1045Z / moving SE at 10 kt" | Story, map | The sentence and the pink shape |
 | Where sources disagree | Story L2 "The sources disagree on where the ash is heading (135° apart)."; the direction rose at the vent; Details › Where the sources disagree | Story, map | The sentence and the two arrows |
-| TEPHRA's area | The amber dashed outline drawn just outside the official edge with its tag "TEPHRA's estimate · same as official (AI off)"; the key row "TEPHRA's estimate · never smaller than official" | Map, key | The amber dashes around the pink |
-| Who is flying into it | Story L4 "23 flights of RFA, our fictional airline, are in or heading into TEPHRA's estimated ash area."; amber planes with marching paths, one-line labels or a "23 RFA flights" cluster ("20 RFA flights here" when some planes sit outside it) | Story, map | The number and the amber planes |
-| A human deciding | Story L5 "23 advisories wait for a dispatcher." (plus a small note "n of them are for flights no longer seen heading in." when drafts outnumber the flights) and the one filled button "Decide on the Desk →"; Details › Decisions | Story, Desk | The button |
+| TEPHRA's area | The amber dashed outline drawn just outside the official edge with its tag "TEPHRA's estimate · same as official (AI off)"; the key row on the map "TEPHRA's estimate · never smaller than official" | Map, key | The amber dashes around the pink |
+| Who is flying into it | Story hero "23 · RFA flights in or heading into TEPHRA's ash area · 19 inside now · 4 heading in"; amber planes with marching paths, one-line labels or a "23 RFA flights" cluster ("20 RFA flights here" when some planes sit outside it) | Story, map | The number and the amber planes |
+| A human deciding | Story tile "Advisories 23 · to decide" (with "n for flights gone" when drafts outnumber the flights), the one notice when the AI could not draft ("Plan the 14 flights by hand on the Desk"), and the one filled button "Decide on the Desk →"; Details › Decisions | Story, Desk | The button |
 
-A still frame of the story column explains itself (UI-REDESIGN R5): `Anak Krakatau … as of 1030Z` /
-`Java / Bali · (Red alert) · (Recorded)` / the lead `23 flights of RFA, our fictional airline, are
-in or heading into TEPHRA's estimated ash area.` / `23 advisories wait for a dispatcher.` /
-`Official reports put the ash up to 50,000 ft (FL500).` / `Ash from Anak Krakatau closes 2 RFA
-airports: WIHH, WIII.` / `3 across all volcanoes · airport plan as of 1031Z` /
-`[Decide on the Desk →]`.
+A still frame of the story column explains itself (UI-REDESIGN R5, redesigned 13 Oct 2026):
+`Anak Krakatau … as of 1030Z` / `Java / Bali · (Red alert) · (Recorded)` / the hero `23 RFA flights
+in or heading into TEPHRA's ash area ⓘ` / `19 inside now · 4 heading in · Show them` / the tiles
+`Ash up to FL500` `Airports closed 2 · WIHH · WIII` `Advisories 23 · to decide` / `[Decide on the
+Desk →]` / `See the AI at work`.
 
 ## 3. Design tokens
 
@@ -343,10 +342,11 @@ y 0    ┌─ REPLAY band 32 (REPLAY only): "REPLAY: recorded real feeds from 05
 y 32   ├─ top bar 56: TEPHRA · sub-line · Replay · Area ▾ ……… AI chip · Data chip · clock · Desk → ────────┤
 y 88   ├─ story 460 ─────────────┬─ map 1460 (980 with Details open) ─────────────┬─ Details 480 (open) ─┤
        │ failure line (if any)   │ official label box (selected volcano)          │ (pushes the map;     │
-       │ eyebrow · lead · facts  │ pink area, amber dashed estimate, amber planes │  the story stays)    │
-       │ trust line              │ name-only labels for other volcanoes           │                      │
+       │ eyebrow · hero number   │ map key card (top left, folds to its bar)      │  the story stays)    │
+       │ three fact tiles        │ pink area, amber dashed estimate, amber planes │                      │
+       │ one notice (if any)     │ name-only labels for other volcanoes           │                      │
        │ [Decide on the Desk →]  │ pills bottom-left        Fit · Layers · ± ·  © │                      │
-       │ key (one column)        ├─ time bar 52: mode · scrubber · Forecast · ‹ › · History ───────────────┤
+       │ See the AI at work      ├─ time bar 52: mode · scrubber · Forecast · ‹ › · History ───────────────┤
        │ All volcanoes + 3 rows  │                                                │                      │
        │ [☰ Details]             │                                                │                      │
 y 1048 ├─ footer 32: disclaimer · RFA line · credits · Policy A · Help · About · Privacy ──────────────────┤
@@ -357,27 +357,24 @@ y 1048 ├─ footer 32: disclaimer · RFA line · credits · Policy A · Help �
   column is the map plus the 52 px time bar. A 24 px fade runs from the story column into the map.
 - The story never scrolls at desktop widths in the Krakatau case: a fit pass (`fitStory()` in
   `wall/story.js`, review 2 item 4) raises `#story[data-fit]` from 0 to 8 until the content fits,
-  each step tightening, never removing: 1 tighter rhythm; 2 the lead line 1 px smaller; 3 the key
-  rows closer (every note keeps its own line); 4 the lead 2 px smaller (never more than 3 px in
-  all); 5 "Show the n flights" beside the button; 6 the other-volcanoes rows fold into "+ n more"
-  (rows are given back while they still fit) and the fact lines 1 px smaller; 7 the Details button
-  on one line (its sub-line stays in its tooltip); 8 the tightest rhythm. The map key never
-  folds in the story (R5.5). It re-runs when the story's words, the fonts or the column's own box
+  each step tightening, never removing: 1 tighter rhythm; 2 the hero number smaller; 4 the tiles
+  and the notice closer; 6 the other-volcanoes rows fold into "+ n more" (rows are given back while
+  they still fit); 7 the Details button on one line (its sub-line stays in its tooltip); 8 the
+  tightest rhythm and the smallest hero number. The map key is on the map (7.5). It re-runs when the story's words, the fonts or the column's own box
   change: a ResizeObserver on `#story` measures again once the column settles, because at
   1360-1599 px it comes back from under Details at the drawer's width and narrows while the stage
   animates (a pass on that render once left "+ 3 more" under the pinned button). Only if level 8
   still overflows does the column scroll (`.story--scrolls`, with the fade above the pinned
-  button). Measured in REPLAY with the live failures (two problems in the failure line, 23
-  flights, closures): 1920x1080 level 6; 1440x900 level 8, the key open, no scroll, also after
-  Details is opened and closed; 1280x720 level 8 and the column scrolls.
+  button). Measured 13 Oct 2026 with the live state (AI paused, 14 flights, 3 closures, no airport
+  plan): 1920x1080 and 1440x900 fit at level 0 with two other-volcano rows shown.
 - Framing pads 48 px (7.4), max zoom 8.6.
 
 ### 4.2 Wall at 1440x900
 
-Root 15 px. The same structure: story 400, map about 1040 x 732, story lines 24 px, the brand
-sub-line hidden, the zoom buttons hidden (wheel, pinch and keys still zoom), the footer's airline line
+Root 15 px. The same structure: story 400, map about 1040 x 732, the brand sub-line "Volcanic-ash
+decision desk" shown (hidden under 1200 px), the zoom buttons hidden (wheel, pinch and keys still zoom), the footer's airline line
 in full. Details takes the story column's place at 480 px (the map shrinks to about 960 px and is
-never covered), with the story strip on top and the key pinned at the bottom. The other-volcanoes
+never covered), with the story strip on top; the key stays on the map. The other-volcanoes
 list shows 2 rows (fewer if the fit pass needs the room). The time bar (48) keeps every control; in a
 map column under 1080 px it drops the "Forecast:" word but keeps "‹ Previous" and "Next ›" in words
 (R4.2, R7.1); under 960 px (1280, or Details open) they become 44 px icon buttons with labels and
@@ -400,7 +397,7 @@ in two rows: brand, mode pill, clock, "Desk →"; the disclaimer line (12 px). U
 `#phone-bar`: the native area picker ("Java / Bali · 2"), the AI chip and the Data chip (wall.js
 moves these three nodes there on a phone and back at wider widths). Then: the failure line, the story card (20 px lines, full-width "Decide on
 the Desk →"), the map (42vh, min 300; Fit and Layers 40 px with words; the time pill "⟲ 1030Z · Now
-▾" bottom-left opens the full time bar as a bottom sheet), the key strip, the trust line, All
+▾" bottom-left opens the full time bar as a bottom sheet), the map key as one folded bar, All
 volcanoes with every row, "☰ Details" (a full-screen sheet below the header, with "‹ Details" and
 Close), then the footer. A sticky bottom call to action "Decide on the Desk (23) →" (or "Open the
 Desk" at secondary weight) shows only while the story's own button is out of view
@@ -651,7 +648,7 @@ this layer animates continuously.
 | Infrared | `Himawari_AHI_Band13_Clean_Infrared` | `GoogleMapsCompatible_Level6` | 6 | 10-min slot (below) | "CONTEXT ONLY · Himawari-9 infrared (band 13) 1620Z · not ash detection · Imagery: NASA GIBS · Himawari-9 data: JMA via NOAA" |
 | Visible | `Himawari_AHI_Band3_Red_Visible_1km` | `GoogleMapsCompatible_Level7` | 7 | 10-min slot | same, "visible (band 3), daylight only" |
 | Air mass | `Himawari_AHI_Air_Mass` | `GoogleMapsCompatible_Level6` | 6 | 10-min slot | same, "Air Mass RGB" |
-| SO2 | `TROPOMI_L2_Sulfur_Dioxide_Total_Vertical_Column` | `GoogleMapsCompatible_Level6` | 6 | `YYYY-MM-DD` | "CONTEXT ONLY · SO2 (TROPOMI, daily) 25 Sep 2026 · SO2 is not ash; gases not modelled · Imagery: NASA GIBS · Contains modified Copernicus Sentinel data 2026" |
+| SO2 | `TROPOMI_L2_Sulfur_Dioxide_Total_Vertical_Column` | `GoogleMapsCompatible_Level6` | 6 | `YYYY-MM-DD` | "CONTEXT ONLY · SO2 (TROPOMI, daily) 25 Sep 2026 · SO2 is not ash, gases not modelled · Imagery: NASA GIBS · Contains modified Copernicus Sentinel data 2026" |
 
 URL template: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/{layer}/default/{time}/{matrix}/{z}/{y}/{x}.png`
 (note `{y}` before `{x}`), `tileSize: 256`.
@@ -851,19 +848,21 @@ when it changes because an area was chosen and its first volcano arrived later).
 
 ### 7.5 Key block
 
-`#legend` is a fixed list in the story column (R5.5), never a floating panel, listing what is drawn
-now: "Official ash area · binding", "TEPHRA's estimate · never smaller than official", "Crew report
-caution area · operator policy, not a VAA or SIGMET" (while one is drawn), "RFA flight in
-or heading in", "Official forecast area (+6 h)", "Other aircraft (not RFA)", "Route (origin to destination) · airport codes at the ends"
-(while a route line is drawn), "Suggested reroute",
-"Observatory's reported drift", "Where TEPHRA widened the area", "Box marked on the satellite picture ·
-supporting only", then the link "Full map key and alert colours ›" (Help). Each row is the swatch on
-the label's line with the note under the label on its own smaller muted line (a hanging indent), in
-two columns in the story, each as wide as its longest row, with 12 px labels (14 px from 1600 px),
-and "Full map key ›" in the last cell; one column when the block is narrower than 350 px. The story
-never folds the key (section 4). Help's full key is one column, two from 520 px. From 601 to 1599 px, while Details is open, the same node is moved to the bottom of
-the drawer as a compact strip; on a phone it is the strip under the map. Swatches keep their colours
-in forced-colours mode.
+Moved onto the map on 13 Oct 2026 (user feedback: the key took a third of the story column).
+`#legend` is a glass card on the map's top left at 601 px and up (248 px wide, `--z-map-overlay`),
+listing what is drawn now: "Official ash area · binding", "TEPHRA's estimate · never smaller than
+official", "Crew report area" (while one is drawn), "RFA flight in or heading in", "RFA flights
+close together · click to zoom in", "Official forecast area (+6 h)", "Other aircraft (not RFA)",
+"Route (origin to destination) · airport codes at the ends" (while a route line is drawn),
+"Suggested reroute", "Observatory's reported drift", "Where TEPHRA widened the area", "Box marked
+on the satellite picture · AI-read · supporting only", then "Full map key and alert colours ›"
+(Help). Each row is the swatch on the label's line with its note under it. The card folds to its
+bar, "Map key" with the first three swatches and a chevron (`aria-expanded`, `aria-controls`); it
+starts open at 601 px and up and folded on a phone, and a choice is kept for the session. A fit
+keeps the framed area clear of the open card (`safeInsets`, at most 40% of the map's width).
+Compare mode moves it below the "A · official reports only" label. On a phone the same node sits
+under the map as one 44 px bar. Help's full key is one column, two from 520 px. Swatches keep their
+colours in forced-colours mode.
 
 ### 7.6 Story card, failure line, trust line, notes
 
@@ -885,26 +884,38 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
   and "as of 1030Z" right-aligned on the same row; under it, muted, the area, the alert colour as a
   small pill in words with a dot in the code colour ("Red alert"; "Alert colour not given" for
   UNKNOWN) and, in REPLAY, the "Recorded" tag.
-- Lines `#headline`, replaced only when their words change, as a hierarchy: the HYPOTHESIS banner
-  first when it applies ("HYPOTHESIS: no valid official product. Only MONITOR or HOLD may be
-  advised."); then the lead line at 28/24/22/20 px, L4 "23 flights of RFA, our fictional airline,
-  are in or heading into TEPHRA's estimated ash area." (the number in amber) or, at 0, "No RFA
-  flight is seen heading into TEPHRA's area right now." with the sub-line "Aircraft coverage here
-  is patchy: an empty map is not an empty sky." (or "Aircraft data is failing/off: …"); then the
-  facts at body size, each with an optional quieter sub-line: L5 "30 advisories wait for a
-  dispatcher." (advisories, never "n of their": a draft can outlive its flight's exposure; "At
-  least 30 …" when the Wall's page of the 50 newest advisories cannot hold them all), with the
-  sub-line "7 of them are for flights no longer seen heading in." when some drafts' flights are not
-  among the flights counted in L4; "All n advisories are decided: a approved, r rejected.", "Their
-  advisories are not drafted yet." or "Advisory count unknown (database error)."; L1 "Official
-  reports put the ash up to 50,000 ft (FL500)." (or "between … and …"; muted, it is context); L3
-  "Ash from Anak Krakatau closes 2 RFA airports: WIHH, WIII." with the sub-line "3 across all
-  volcanoes · airport plan as of 1031Z" (the current plan's closures whose source ids are this
-  volcano's official products or cone; the all-volcano total is added when it differs, so every
-  count states its scope, G8); L2 "The sources disagree on where the ash is heading, 135° apart."
-  with the sub-line "TEPHRA's estimate covers both." (WIDENED) or "TEPHRA's estimate has not been
-  widened (AI off)." (OFFICIAL, stub); SILENCE and CONFLICT lines.
-- Crew report line (`crewLines()` in `wall/story.js`), after the facts, at body size, at most
+- The story `#headline` (redesigned 13 Oct 2026 after "too cluttered": one big number, a row of
+  facts, one notice, the lines about the sources; colour only for what is abnormal or the number
+  to read first, ISA-101's high-performance HMI), replaced only when its words change:
+  - the HYPOTHESIS banner first when it applies ("HYPOTHESIS: no valid official product. Only
+    MONITOR or HOLD may be advised.");
+  - the hero: the flights as a 64 px number in TEPHRA amber (72 px from 1600 px, 56 px at 1280
+    and on a phone, smaller at fit levels 2 and 8) beside "RFA flights in or heading into TEPHRA's
+    ash area ⓘ" (18 px semibold) and the quiet split "13 inside now · 1 heading in · Show them"
+    ("Show them" opens Details › Flights heading in). The ⓘ (`aria-expanded`, `aria-controls`)
+    opens the trust note `#trust` under the hero. At 0 the hero is the sentence "No RFA flight is
+    seen heading into TEPHRA's ash area right now." with "Aircraft coverage here is patchy: an empty
+    map is not an empty sky." (or "Aircraft data is failing/off: …");
+  - up to three fact tiles, each a button to its Details section with the full sentence as its
+    accessible name and title: "Ash up to FL500 · 50,000 ft" (or "Ash between FL100–FL500",
+    What the official reports say); "Airports closed 3 · WARA · WIHH · WIII" (Airport closures;
+    this volcano's closures, or the network's when the plan covers only others, with the scope
+    and the plan's time in the title; the caution shape at the value when there is no airport
+    plan; "re-planning the day…" with a spinner while code re-plans); "Advisories 12 · to decide"
+    ("≥30" when the Wall's page of the 50 newest cannot hold them all, "to decide, 7 for flights
+    gone" when some drafts' flights are not counted in the hero, "5 · decided · 4 approved, 1
+    rejected", "0 · drafted", "? · unknown (database error)" in the serious tone; Decisions);
+  - one notice, caution (`role="status"`, never red), when the AI's absence or a missing airport
+    plan changes the dispatcher's work, said once for both: title "AI paused until 0700Z" (in
+    REPLAY "AI paused for another 2 h 45 min"), "AI unavailable (timed out)", "Waiting for AI, next
+    slot 0700Z", "Must-do flights left for the Desk" or "No airport plan"; then "No advisory drafts
+    and no airport plan. Plan the 14 flights and the network by hand on the Desk." and one link,
+    "Why ›" (Details › AI helpers) or, for a solver-only failure, "Airport closures ›";
+  - the lines about the sources, one row each that opens Where the sources disagree: "The sources
+    disagree on where the ash is heading, 135° apart." with "TEPHRA's estimate covers both."
+    (WIDENED) or "TEPHRA's estimate has not been widened (AI off/AI waiting/AI unavailable)."; the
+    SILENCE and CONFLICT lines.
+- Crew report line (`crewLines()` in `wall/story.js`), a row after the source lines, at most
   one, for the selected volcano's ACTIVE crew areas only (a COVERED one adds nothing the
   official lines do not say): "Crew report of ash: 4 RFA flights on its route." with the pin (the
   flight numbers are in Details, one tap away), or "Crew report of ash outside the official area: …" with the
@@ -916,20 +927,18 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
   shape when outside) after the volcano rows, only when they all fit with room for it, else
   "+ 4 more · 3 crew reports" (the full list holds the row). The key row is "Crew report area"
   (one line).
-- Re-planning: while the newest airport-plan step in the trace is "Closed airports changed: …;
-  recovery agent started" and no plan has landed since (`ext.replanning`), L3 is "Ash closes 3 RFA
-  airports (all volcanoes): WARA, WIHH, WIII." with the sub-line "Re-planning the day's flights… ·
-  started 1031Z" (the trace does not
-  say which volcano closed them, so the line says its scope), Details › Airport closures reads "3
-  airports (all volcanoes) · re-planning…" (caution) and its section opens with a spinner line
-  instead of "No RFA airport is closed". With a plan, the row reads "2 from Anak Krakatau, 3 across
-  all volcanoes · plan waiting". The Desk's Airports tab follows the same trace line (section 16).
+- Re-planning: while the newest airport-plan step in the trace is "Closed airports changed: …,
+  recovery agent started" and no plan has landed since (`ext.replanning`), the airports tile
+  reads "re-planning the day…" with a spinner (the trace does not say which volcano closed them,
+  so its title says "all volcanoes"), Details › Airport closures reads "3 airports (all volcanoes)
+  · re-planning…" (caution) and its section opens with a spinner line. The Desk's Airports tab
+  follows the same trace line.
 - Buttons: the one filled button on the Wall, "Decide on the Desk →", linking to
   `/desk#review/{the most urgent DRAFT advisory of this volcano}` in the Desk's own urgency order
   (`byUrgency`: inside now first, then the soonest entry on the clock, then the oldest draft); the
   Desk opens that draft as its Next decision, so one flight is primary on both screens; with no
-  draft it is the secondary "Open the Desk". "Show the n flights" opens
-  Details › Flights heading in (hidden at 0).
+  draft it is the secondary "Open the Desk". Under it, quiet, "See the AI at work" (A) opens the
+  board (7.21).
 - Reading (`D.reading`): before the server's first tick, or while an active volcano in scope has
   no situation card yet, h1 the area, a spinner, "Reading the official reports…" and "TEPHRA has
   just started and is reading every feed for the first time. This takes up to a minute." (or "Ash is
@@ -939,23 +948,23 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
   elsewhere:" with a button per area that has ash ("Java / Bali · 1"). Nothing active anywhere: "No
   official ash report is in force in the watched regions right now." Connecting: the h1 "Connecting
   to TEPHRA…" with a spinner, no story line repeating it, and no numbers. Never "clear" or "safe".
-- Trust line `#trust`: "AI is off. Code built this summary from the official reports." or "AI is
-  on. It can widen TEPHRA's estimate, never shrink the official area." followed, on its own row, by
-  each model id of `state.llm.label` as a small mono chip (the second always-visible model state). It sits inside the story card, right under the lines it describes
-  and above the button, so it is on screen at every width (R0.2.5).
-- All volcanoes: one comma-separated sentence, "5 volcanoes with ash, 23 RFA flights in or heading
-  in, 26 advisories waiting" (`#kpi-active`, `#kpi-exposed`, `#kpi-drafts` hold the numbers); at 0
-  flights it reads "no RFA flight seen heading in", never "– RFA flights" or a line that starts
-  with a "·".
+- Trust note `#trust`, one tap from the hero's ⓘ: "TEPHRA's estimate is never smaller than the
+  official area, which stays binding. AI can widen it, never shrink it." and "How TEPHRA built it
+  ›" (Details › TEPHRA's estimate). The key's TEPHRA row says "never smaller than official" on
+  screen at all times; the model ids are in AI at work and Details › AI helpers.
+- All volcanoes: one quiet line, "5 volcanoes with ash · 23 RFA flights in or heading in · 26
+  advisories waiting" (`#kpi-active`, `#kpi-exposed`, `#kpi-drafts` hold the numbers, in grey: the
+  hero already carries the number to read; the dot ends each count, so a wrapped line never starts
+  with one); at 0 flights it reads "no RFA flight seen heading in". Why a count is 0 is the notice's,
+  said once.
 - Story notes `#story-notes`: notes that are not map pills (the basemap note; the 150 km coverage
   note when the flight line has not said it).
 - "☰ Details" (`#details-btn`) is sticky at the bottom of the story column from 601 px up, so the
   route to everything else is always on screen at 1280 and 1440; the fade above it shows only when
   the column really scrolls (after the fit pass). The fade spans the column's full width and the
   strip under the button is solid, so nothing scrolled under it shows a stray edge.
-- The changed flight count gets a `--dur-5` highlight (not under reduced motion). `#announce` speaks
-  "{volcano}: {L4} {L5}" at most once every 30 s, only when the volcano, the flight count or the
-  waiting count changes.
+- The changed hero number gets a `--dur-5` glow (not under reduced motion). `#announce` speaks
+  "{volcano}: {hero} {advisories} {notice}" at most once every 30 s, only when they change.
 
 ### 7.7 Map controls and status pills
 
@@ -1210,7 +1219,7 @@ A full overlay (`<dialog id="board">`, `wall/board.js` for the logic, `wall/boar
 page) that shows the AI as a team with a person in charge: public feeds, then the Duty Officer,
 then the six specialists it hands work to (Plume Reader, Satellite reader, Flight planner, Drafter,
 Recovery planner, Paperwork drafter), then "A dispatcher decides" at the Desk. Opened by the AI
-chip, by "See the AI at work ›" in the story's trust line, by the button at the top of Details ›
+chip, by "See the AI at work" under the story's main button, by the button at the top of Details ›
 AI helpers, by A, and by the link `/#ai-at-work` (the Desk's "See the AI at work on the Wall";
 the hash is removed once read). It covers the Wall, never adds a column, and leaves the story and
 the map as they are underneath.
@@ -1836,7 +1845,7 @@ guess.
 - On drafts: a flagged flight's Next decision card and row carry "Crew report of ash on this
   route" ("This flight's crew reported ash" for the reporting flight; first caution). The review shows the crew box (dashed ivory edge): "Crew report of ash
   on this route", "RFA7554 is inside the crew report area now." (or enters in n min), one line per
-  report with "See the report ›", and "Crew report caution area (operator policy A; not a VAA or
+  report with "See the report ›", and "Crew report caution area (operator policy A, not a VAA or
   SIGMET). A flag only: nothing was re-planned."
 - The reason box: for Keep watching (MONITOR) or Continue (CONTINUE) on a flagged flight (every
   tracked flight is airborne), "Reason to keep watching on this route (required)" with "Recorded
@@ -1962,7 +1971,7 @@ the disclaimer exactly as `state.disclaimer` gives them.
 | Model label (both pages, always) | The AI's one state on both pages (`aiStateOf()`, docs/UI-AI-QUIET.md 5.2): "AI on", "AI paused · 0700Z", "AI on · 1 problem", "AI off" (the Wall's AI chip, the Desk's AI chip, AI at work); the model ids are in the Desk's AI today sheet, AI at work and Details › AI helpers |
 | AI marking | "AI-drafted" (advisory body), "AI-written · {model}" (plume reading, satellite limits); with no model the Wall says "Written by code (AI off)" |
 | Every satellite layer | "CONTEXT ONLY · {layer} {time} · not ash detection · Imagery: NASA GIBS · Himawari-9 data: JMA via NOAA" |
-| SO2 layer | "CONTEXT ONLY · SO2 (TROPOMI, daily) {date} · SO2 is not ash; gases not modelled · Imagery: NASA GIBS · Contains modified Copernicus Sentinel data 2026" |
+| SO2 layer | "CONTEXT ONLY · SO2 (TROPOMI, daily) {date} · SO2 is not ash, gases not modelled · Imagery: NASA GIBS · Contains modified Copernicus Sentinel data 2026" |
 | BTD overlay | "Split-window BTD (computed by TEPHRA) · an indicator, not ash detection" |
 | Airline | "Ring of Fire Air (RFA) is a fictional airline. RFA flight numbers are proxies for real aircraft." |
 | Outbound | "Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system." |
@@ -2094,7 +2103,7 @@ solver result; "The AI could not tell" while AI is off; any paraphrase of an unk
 
 | Where | Text |
 |---|---|
-| Area label (map, Details, Desk) | "Crew report caution area (operator policy A; not a VAA or SIGMET)" (`CREW_AREA_LABEL`) |
+| Area label (map, Details, Desk) | "Crew report caution area (operator policy A, not a VAA or SIGMET)" (`CREW_AREA_LABEL`, whose semicolon the pages show as a comma: no page text carries a semicolon) |
 | Flag line | "Crew report of ash on this route" (`CREW_FLAG_LINE`) |
 | Discrepancy | "Crew report outside the official area" (`CREW_OUTSIDE_LINE`) |
 | Age | "reported 47 min ago" (server `age_text`) |

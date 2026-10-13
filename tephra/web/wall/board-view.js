@@ -49,8 +49,8 @@ function modelFoot(c) {
   const m = c.model;
   return el("span", { class: `bcard__model${m.tone ? ` bcard__model--${m.tone}` : ""}` },
     m.id ? dkChip(m.id, { mono: true, title: "The model this helper calls" }) : null, el("span", { text: m.text }),
-    m.closed ? el("span", { class: "bcard__closed", title: m.closed.by === "Google" ? "Google answered that today's free-tier calls for this model are spent. The time is real time." : "TEPHRA's daily budget for this model is used up. The time is real time." },
-      icon("i-clock", "st"), el("span", { text: `${m.closed.by === "Google" ? "closed by Google" : "used up"}${m.closed.until ? ` until ${m.closed.until}` : " for today"}` })) : null);
+    m.closed ? el("span", { class: "bcard__closed", title: m.closed.by === "Google" ? "Google answered that today's free-tier calls for this model are spent." : "TEPHRA's daily budget for this model is used up." },
+      icon("i-clock", "st"), el("span", { text: `${m.closed.by === "Google" ? "closed by Google" : "used up"}${m.closed.until ? ` ${m.closed.until}` : " for today"}` })) : null);
 }
 
 function steps(c) {
@@ -90,7 +90,7 @@ function card(c, ui, edgeState) {
   el("span", { class: "bcard__top" },
     el("span", { class: "bcard__icon" }, icon(ICON[c.id] || "i-agent")),
     el("span", { class: "bcard__names" }, el("span", { class: "bcard__name", text: c.name }), el("span", { class: "bcard__does", text: c.does })),
-    statePill(c.state, c.state === "waiting" && c.waiting?.until ? `Waiting until ${c.waiting.until}` : c.word, c.state === "waiting" && c.waiting?.slot ? `Waiting for AI budget, ${c.waiting.slot}` : null)),
+    statePill(c.state, c.state === "waiting" && c.waiting?.until ? `Waiting ${c.waiting.until}` : c.word, c.state === "waiting" && c.waiting?.slot ? `Waiting for AI budget, ${c.waiting.slot}` : null)),
   lastLine(c),
   el("span", { class: "bcard__foot" }, modelFoot(c),
     handed ? el("span", { class: `bcard__handed${c.handoff.failed ? " bcard__handed--failed" : ""}`, text: handed }) : null,
@@ -179,7 +179,7 @@ function header(m, conn) {
     el("div", { class: "board__pills" },
       aiPill(m.ai),
       conn.lostAt ? el("span", { class: "dk-pill dk-pill--caution" }, dkDot("stale", "st"), el("span", { text: `Not updating since ${hhmmz(conn.lostAt)}` })) : null,
-      m.replay ? el("span", { class: "board__clocknote", text: "Times are on the replay clock. AI budget times (waiting until, closed until) are real time." }) : null),
+      m.replay ? el("span", { class: "board__clocknote", text: "Times are on the replay clock. AI quota waits are time left on the real clock." }) : null),
     el("ul", { class: "board__counts", "aria-label": `${total} helpers by state` }, ...counts),));
   // the calm lead, the same words as Details › AI helpers and the Desk's AI today sheet
   parts.push(el("div", { class: "board__lead" }, ...m.ai.lead.map((p) => el("p", {}, el("strong", { text: p.strong }), ` ${p.text}`)),

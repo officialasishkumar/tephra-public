@@ -10,7 +10,6 @@
   --time-h: 52px;
   --foot-h: 32px;
   --story-size: 28px;
-  --story-body: 17px; /* the story's fact lines; the lead line is --story-size */
   --gutter: 20px;
   --band-px: 0px; /* the REPLAY band's height on a phone, measured by wall.js */
 }
@@ -329,29 +328,67 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 @media (prefers-reduced-motion: no-preference) { body.is-connecting .eyebrow__name::before { animation: spin 0.9s linear infinite; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* story lines (R5.3): one lead line at the story size, the number in TEPHRA amber; the facts at
-   body size, muted where they are context, each with an optional quieter sub-line */
-.story__lines { display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--story-body); line-height: 1.4; font-weight: var(--fw-regular); color: var(--c-text-2); }
-/* balance: a fact never ends on a lone word or code ("WIHH, WIII.", "50,000 ft (FL500).") */
-.story__line { margin: 0; text-wrap: balance; }
-.story__lead { margin-bottom: 2px; font-size: var(--story-fit-size, var(--story-size)); line-height: var(--lh-story, 1.25); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-tight); color: var(--c-text-1); }
-.story__num { color: var(--c-tephra-text); }
-.story__wait, .story__dis, .story__closed { color: var(--c-text-1); }
-.story__wait { font-weight: var(--fw-medium); }
-/* an AI consequence at the place: the existing line, with a caution dot and a "Why ›" (Q3) */
-.story__wait--ai .st { width: 12px; height: 12px; vertical-align: -1px; }
-.story__why { min-height: 0; padding: 0; margin-left: 4px; font-size: var(--fs-2); font-weight: var(--fw-regular); white-space: nowrap; }
-.story__sublink { display: inline; min-height: 0; padding: 0; font: inherit; color: var(--c-text-2); text-align: left; }
-.story__sublink--own { display: block; }
-.story__sublink .st { width: 12px; height: 12px; margin-right: 4px; vertical-align: -1px; }
-.story__sub { display: block; margin-top: 2px; font-size: var(--fs-2); line-height: 1.4; font-weight: var(--fw-regular); letter-spacing: 0; color: var(--c-text-3); }
+/* the story (UI-DESIGN 7.6, redesigned 13 Oct 2026): a hero number, up to three fact tiles, one
+   notice, the lines about the sources. Grey at rest (ISA-101's high-performance HMI): colour marks
+   only what is abnormal or the number to look at. */
+.story__lines { display: flex; flex-direction: column; gap: var(--sp-4); font-size: var(--fs-3); line-height: 1.4; color: var(--c-text-2); }
 .story__note, .story__connecting { color: var(--c-text-2); }
 .story__hyp { display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-2) var(--sp-3); background: var(--c-hypothesis-bg); border: 1px solid var(--c-tephra); border-radius: var(--radius-md); color: var(--c-tephra-text); font-size: var(--fs-3); font-weight: var(--fw-semibold); letter-spacing: 0; line-height: 1.35; }
 .story__hyp .st { margin-top: 3px; }
+
+.hero { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--sp-4); align-items: start; }
+.hero--none { grid-template-columns: minmax(0, 1fr); }
+.hero__num { font-size: var(--hero-num, 64px); line-height: 0.9; font-weight: var(--fw-bold); letter-spacing: -0.03em; color: var(--c-tephra-text); font-variant-numeric: tabular-nums; }
+.hero__text { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding-top: 2px; }
+.hero__words { font-size: var(--hero-words, var(--fs-4)); line-height: var(--lh-snug); font-weight: var(--fw-semibold); color: var(--c-text-1); text-wrap: balance; }
+.hero__words--alone { font-size: var(--story-size); line-height: 1.25; letter-spacing: var(--tracking-tight); }
+.hero__area { white-space: nowrap; }
+.hero__info { display: inline-grid; place-items: center; width: 28px; height: 28px; margin: -6px 0 -6px 2px; padding: 0; vertical-align: middle; background: transparent; border: 0; border-radius: var(--radius-pill); color: var(--c-text-3); }
+.hero__info .icon { width: 16px; height: 16px; }
+.hero__info:hover, .hero__info[aria-expanded="true"] { color: var(--c-text-1); background: var(--c-surface-3); }
+.hero__split { font-size: var(--fs-2); color: var(--c-text-2); }
+.hero__dot { color: var(--c-text-3); }
+.hero__show { display: inline; min-height: 0; margin: 0; padding: 0; font-size: inherit; }
+.hero .trust { grid-column: 1 / -1; margin-top: var(--sp-3); }
 @media (prefers-reduced-motion: no-preference) {
-  .story__flights.is-changed { animation: changed var(--dur-5) var(--ease-standard) 2; }
+  .hero__num.is-changed { animation: changed var(--dur-5) var(--ease-standard) 2; }
 }
-@keyframes changed { 50% { background: var(--c-tephra-soft); } }
+@keyframes changed { 50% { color: var(--c-text-1); text-shadow: 0 0 18px var(--c-tephra); } }
+
+/* the fact tiles: what each fact is, its value, one quiet line; each opens its Details section */
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: var(--sp-2); }
+.fact__btn {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; height: 100%; min-height: 76px;
+  padding: var(--sp-2) var(--sp-3); background: var(--c-surface-2); border: 1px solid var(--c-line-1); border-radius: var(--radius-md);
+  color: var(--c-text-1); text-align: left; transition: background-color var(--dur-2) var(--ease-standard), border-color var(--dur-2) var(--ease-standard);
+}
+.fact__btn:hover { background: var(--c-surface-3); border-color: var(--c-line-2); }
+.fact__label { font-size: var(--fs-1); line-height: 1.3; color: var(--c-text-3); }
+.fact__value { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-5); font-weight: var(--fw-semibold); line-height: 1.2; font-variant-numeric: tabular-nums; }
+.fact__sub { font-size: var(--fs-1); line-height: 1.35; color: var(--c-text-2); overflow-wrap: anywhere; }
+.fact--caution .fact__btn { border-color: color-mix(in srgb, var(--c-caution) 45%, var(--c-line-1)); }
+.fact__value .st { width: 16px; height: 16px; }
+.fact--serious .fact__btn { border-color: var(--c-serious); }
+
+/* the one notice: what the dispatcher must now do by hand, and why (UI-AI-QUIET Q3, Q4: caution,
+   never the picture's red) */
+.notice { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: var(--sp-3); padding: var(--sp-3); background: var(--c-surface-2); border: 1px solid var(--c-line-1); border-left: 3px solid var(--c-caution); border-radius: var(--radius-md); }
+.notice__icon { width: 18px; height: 18px; margin-top: 1px; color: var(--c-caution); }
+.notice__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.notice__title { font-size: var(--fs-3); font-weight: var(--fw-semibold); line-height: var(--lh-snug); color: var(--c-text-1); }
+.notice__text { font-size: var(--fs-2); line-height: 1.45; color: var(--c-text-2); }
+.notice__why { display: inline; min-height: 0; margin: 0; padding: 0; font-size: inherit; white-space: nowrap; color: var(--c-text-1); }
+
+/* the lines about the sources and crew reports: one row each, opening its Details section */
+.slines { display: flex; flex-direction: column; border-top: 1px solid var(--c-line-1); }
+.sline { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: start; column-gap: var(--sp-2); width: 100%; min-height: 44px; padding: var(--sp-2) var(--sp-1); background: transparent; border: 0; border-bottom: 1px solid var(--c-line-1); color: var(--c-text-1); text-align: left; font-size: var(--fs-2); line-height: 1.4; }
+.sline:hover { background: var(--c-surface-3); }
+.sline .icon, .sline .st { width: 16px; height: 16px; margin-top: 2px; }
+.story__mark { color: var(--c-text-2); }
+.story__mark--disagree { color: var(--c-caution); }
+.sline__text { display: flex; flex-direction: column; min-width: 0; }
+.sline__sub { color: var(--c-text-2); }
+.sline__go { color: var(--c-text-3); font-size: var(--fs-4); line-height: 1; }
 
 .story__actions { display: flex; flex-direction: column; align-items: stretch; gap: var(--sp-2); }
 .story__actions .btn-row { margin-top: 0; }
@@ -369,33 +406,47 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 }
 .cta:hover { background: var(--c-cta-hover, #ffffff); }
 .cta--quiet { min-height: var(--tap-comfort); font-size: var(--fs-3); }
-.story__show { align-self: flex-start; margin: 0; font-size: var(--fs-2); }
+.story__board { display: inline-flex; align-items: center; gap: 6px; align-self: center; min-height: 36px; margin: 0; font-size: var(--fs-2); color: var(--c-text-2); }
+.story__board .icon { width: 16px; height: 16px; }
+.story__board:hover { color: var(--c-text-1); }
 
-/* key block (R5.5): fixed rows, never a floating panel, never folded in the story. Each row: a
-   20 px swatch on the label's line, the note under the label on its own smaller line (a hanging
-   indent). In the story, two columns filled row by row, each as wide as its longest row, so seven
-   rows take four lines; "Full map key ›" is the last cell, beside the seventh row. The labels are
-   12 px there (14 px from 1600 px) so the longest rows fit side by side without wrapping; a block
-   narrower than 350 px (1280 px windows, small phones) keeps one column rather than wrap them.
-   Help's full key keeps one column, two from 520 px. */
-.key { display: flex; flex-direction: column; gap: var(--sp-1); container-type: inline-size; }
+/* the map key (R5.5, moved onto the map 13 Oct 2026): a glass card on the map's top left at 601 px
+   and up, folding to its bar ("Map key" and three swatches); under the map on a phone. Each row is
+   a 20 px swatch and its label, the note under it. Help's full key uses the same rows. */
+.key { display: flex; flex-direction: column; container-type: inline-size; }
 .key__rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px var(--sp-4); }
 @container (min-width: 520px) { .key__rows { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.key > .key__rows { grid-template-columns: repeat(2, minmax(0, max-content)); justify-content: space-between; column-gap: var(--sp-3); }
-.key > .key__rows .key__label, .key > .key__rows .key__more { font-size: var(--fs-1); }
-@media (min-width: 1600px) { .key > .key__rows .key__label, .key > .key__rows .key__more { font-size: var(--fs-2); } }
-@container (max-width: 349px) { .key > .key__rows { grid-template-columns: minmax(0, 1fr); } }
 .key__rows li { display: grid; grid-template-columns: 26px 1fr; align-items: center; gap: var(--sp-2); min-height: 28px; font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.3; }
 .key__rows .key__row { grid-template-columns: 20px minmax(0, 1fr); align-items: start; column-gap: var(--sp-2); min-height: 20px; line-height: 20px; }
 .key__row > .sw { width: 20px; height: 20px; margin: 0; }
 .key__row > .sw--aircraft { width: 16px; height: 16px; margin: 2px; }
 .key__row > .sw--exposed { width: 18px; height: 18px; margin: 1px; }
-.key__text { display: flex; flex-direction: column; min-width: 0; text-wrap: balance; }
+.key__text { display: flex; flex-direction: column; min-width: 0; }
 .key__label, .key__rows strong { color: var(--c-text-1); font-weight: var(--fw-medium); }
 .key__sub { color: var(--c-text-2); }
 .key__text .key__sub { font-size: var(--fs-1); line-height: 16px; color: var(--c-text-3); }
 .key__rows li.key__more-row { display: flex; align-items: flex-start; min-height: 0; }
-.key__more { min-height: 20px; line-height: 20px; font-size: var(--fs-2); text-align: left; }
+.key__more { min-height: 24px; margin: 0; font-size: var(--fs-1); text-align: left; }
+.key__toggle { display: flex; align-items: center; gap: var(--sp-2); width: 100%; min-height: 40px; padding: 0 var(--sp-3); background: transparent; border: 0; color: var(--c-text-1); font-size: var(--fs-2); font-weight: var(--fw-semibold); text-align: left; }
+.key__toggle:hover { background: var(--c-surface-3); }
+.key__toggle:focus-visible { outline: var(--focus-ring); outline-offset: -2px; box-shadow: none; }
+.key__glyphs { display: inline-flex; gap: 6px; margin-left: auto; }
+.key__glyphs .sw { width: 16px; height: 16px; margin: 0; }
+.key.is-open .key__glyphs { display: none; }
+.key__chev { width: 16px; height: 16px; color: var(--c-text-2); }
+.key.is-open .key__chev { margin-left: auto; transform: rotate(180deg); }
+@media (prefers-reduced-motion: no-preference) { .key__chev { transition: transform var(--dur-2) var(--ease-standard); } }
+.map-pane > .key {
+  position: absolute; top: 12px; left: 12px; z-index: var(--z-map-overlay); width: 248px; max-height: calc(100% - 24px); overflow: hidden auto;
+  background: var(--c-surface-glass); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--c-line-2); border-radius: var(--radius-lg); box-shadow: var(--shadow-2);
+}
+.map-pane > .key:not(.is-open) { width: auto; }
+.map-pane > .key .key__toggle { border-radius: var(--radius-lg); }
+.map-pane > .key .key__rows { padding: 2px var(--sp-3) var(--sp-3); }
+.map-pane > .key .key__label { font-size: var(--fs-2); }
+/* compare mode puts its "A · official reports only" label in the same corner */
+body.is-compare .map-pane > .key { top: 56px; }
 .sw { width: 24px; height: 24px; forced-color-adjust: none; }
 .sw--official { color: var(--c-official); }
 .sw--tephra { color: var(--c-tephra); }
@@ -406,14 +457,12 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 .sw--sat { color: var(--c-sat); }
 .sw--route { color: var(--c-route); }
 
-/* trust line (R5.7): the plain sentence, then the model ids as small mono chips */
-.trust { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: var(--sp-2); align-items: start; font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.4; }
-.trust__icon { width: 16px; height: 16px; margin-top: calc((1.4em - 16px) / 2); color: var(--c-text-3); }
+/* the trust note (R5.7): one tap from "TEPHRA's ash area" in the hero */
+.trust { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: var(--sp-2); align-items: start; padding: var(--sp-2) var(--sp-3); background: var(--c-surface-2); border-left: 2px solid var(--c-tephra); border-radius: var(--radius-sm); font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.45; }
+.trust__icon { width: 16px; height: 16px; margin-top: calc((1.45em - 16px) / 2); color: var(--c-tephra-text); }
 .trust__body { min-width: 0; }
-.trust__text { display: block; }
-.trust__models { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.trust__models .dk-chip { min-height: 20px; padding: 0 8px; color: var(--c-text-2); }
-.trust__board { min-height: 24px; font-size: var(--fs-1); }
+.trust__text { display: block; color: var(--c-text-1); }
+.trust__more { min-height: 28px; margin: 2px 0 0; font-size: var(--fs-2); }
 .story-notes { display: flex; flex-direction: column; gap: var(--sp-1); }
 .story-notes:empty { display: none; }
 .story-note { display: flex; gap: var(--sp-2); align-items: flex-start; font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.4; }
@@ -421,11 +470,10 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 
 .allv { display: flex; flex-direction: column; gap: var(--sp-2); }
 .allv__title { font-size: var(--fs-2); font-weight: var(--fw-semibold); color: var(--c-text-3); }
-.kpis { display: flex; flex-wrap: wrap; gap: 2px 0.4em; font-size: var(--fs-2); color: var(--c-text-2); }
-.kpi dd span:not(.kpi__l) { color: var(--c-text-1); font-weight: var(--fw-semibold); }
-.kpi:not(:last-child) dd::after { content: ","; color: var(--c-text-2); }
+.kpis { display: flex; flex-wrap: wrap; gap: 2px 0.4em; font-size: var(--fs-2); color: var(--c-text-3); }
+.kpi dd span:not(.kpi__l) { color: var(--c-text-2); font-weight: var(--fw-semibold); }
+.kpi:not(:last-child) dd::after { content: "·"; margin-left: 0.4em; color: var(--c-text-3); }
 .kpi { display: flex; }
-.kpi--hot dd span:not(.kpi__l) { color: var(--c-tephra-text); }
 .vlist { display: flex; flex-direction: column; }
 .vrow {
   display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: var(--sp-2);
@@ -634,27 +682,6 @@ body.history-open .maplibregl-ctrl-bottom-right, body.history-open .map-pills { 
 /* the full credit string, untruncated, at the end of the drawer (R8.3) */
 .drawer__credits { margin-top: var(--sp-6); border-top: 1px solid var(--c-line-1); }
 .drawer__foot { padding: 0 0 var(--sp-3) calc(16px + var(--sp-2)); font-size: var(--fs-1); color: var(--c-text-2); line-height: 1.45; overflow-wrap: anywhere; }
-/* 601-1599: the key pinned at the drawer's bottom folds to one 44 px bar (three swatches and a
-   count); opened, its rows sit above the bar in two columns. Elsewhere the bar is not shown. */
-.key__toggle { display: none; }
-.drawer > .key { flex: none; flex-direction: column; gap: 0; padding: 0; border-top: 1px solid var(--c-line-1); background: var(--c-surface-2); }
-.drawer > .key .key__toggle { order: 2; display: flex; align-items: center; gap: var(--sp-2); width: 100%; min-height: 44px; padding: 0 var(--sp-4); background: transparent; border: 0; color: var(--c-text-2); font-size: var(--fs-2); font-weight: var(--fw-semibold); text-align: left; cursor: pointer; transition: background-color var(--dur-2) var(--ease-standard); }
-.drawer > .key .key__toggle:hover { background: var(--c-surface-3); color: var(--c-text-1); }
-.drawer > .key .key__toggle:focus-visible { outline: var(--focus-ring); outline-offset: -2px; box-shadow: none; }
-.key__toggle-label { color: var(--c-text-1); }
-.key__glyphs { display: inline-flex; gap: 6px; }
-.key__glyphs .sw { width: 18px; height: 18px; }
-.key__toggle-word { margin-left: auto; font-weight: var(--fw-regular); font-size: var(--fs-1); }
-.key__chev { width: 16px; height: 16px; transition: transform var(--dur-2) var(--ease-standard); }
-.key.is-open .key__chev { transform: rotate(180deg); }
-.drawer > .key:not(.is-open) .key__rows { display: none; }
-.drawer > .key .key__rows { order: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--sp-3); padding: var(--sp-2) var(--sp-4) 0; }
-.drawer > .key .key__rows li { grid-template-columns: 20px auto; min-height: 26px; font-size: var(--fs-1); gap: 6px; }
-.drawer > .key .key__sub { display: none; }
-.drawer > .key .sw { width: 18px; height: 18px; }
-.drawer > .key .key__rows li.key__more-row { min-height: 26px; align-items: center; }
-.drawer > .key .key__more { font-size: var(--fs-1); }
-
 /* the index: four groups of rows, each a button with its live status in words under its title
    (R8.2); a "Needs a look" card on top points at the rows that are serious or caution */
 .dindex { display: flex; flex-direction: column; }
@@ -1590,19 +1617,14 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 @media (min-width: 1600px) {
   .map-vignette { display: block; }
   .vrow, .dindex__row { font-size: var(--fs-3); }
-  /* the story must fit about 900 px without scrolling (R4.1): tighter rhythm, the key in two
-     columns, the flights link beside the button, the trust line on one line */
-  .story { gap: 10px; padding-top: var(--sp-4); padding-bottom: var(--sp-2); }
-  .story > * + * { padding-top: 10px; }
-  .story__lines { gap: 6px; }
-  .story__actions { flex-direction: row; align-items: center; gap: var(--sp-4); }
-  .story__actions .cta, .story__actions .cta--quiet { flex: 1 1 auto; }
-  .story__show { align-self: center; flex: none; }
+  :root { --hero-num: 72px; --hero-words: var(--fs-5); }
   .allv { gap: 4px; }
   .details-btn { min-height: 48px; padding-top: 6px !important; padding-bottom: 6px; }
 }
-@media (max-width: 1599px) {
+@media (max-width: 1199px) {
   .brand__sub { display: none; }
+}
+@media (max-width: 1599px) {
   /* zoom buttons only at 1600 px and up (R6.6); the map still zooms by wheel, pinch and keys */
   .maplibregl-ctrl-zoom-in, .maplibregl-ctrl-zoom-out { display: none !important; }
   body:not(.is-3d) .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group:not(.map-ctrls) { display: none; }
@@ -1612,7 +1634,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 
 @media (max-width: 1599px) {
   html { font-size: 15px; }
-  :root { --story-w: 400px; --drawer-w: 480px; --time-h: 48px; --story-size: 24px; --story-body: 16px; --gutter: 16px; }
+  :root { --story-w: 400px; --drawer-w: 480px; --time-h: 48px; --story-size: 24px; --gutter: 16px; }
   .clock__time { font-size: var(--fs-6); }
   .story { padding: var(--sp-4) var(--sp-4) var(--sp-3); gap: var(--sp-3); }
   .story > * + * { padding-top: var(--sp-3); }
@@ -1629,7 +1651,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 
 @media (max-width: 1359px) {
   html { font-size: 14px; }
-  :root { --band-h: 28px; --bar-h: 48px; --story-w: 360px; --drawer-w: 440px; --time-h: 44px; --foot-h: 28px; --story-size: 22px; --story-body: 15px; --gutter: 12px; }
+  :root { --band-h: 28px; --bar-h: 48px; --story-w: 360px; --drawer-w: 440px; --time-h: 44px; --foot-h: 28px; --story-size: 22px; --gutter: 12px; --hero-num: 56px; }
   .replay-banner__case { display: none; }
   .cmdbar { gap: var(--sp-2); }
   .brand__mark { font-size: var(--fs-4); letter-spacing: 0.14em; }
@@ -1651,7 +1673,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 
 @media (max-width: 600px) {
   html { font-size: 16px; }
-  :root { --story-w: 100%; --drawer-w: 100%; --time-h: 0px; --story-size: 20px; --story-body: 16px; --gutter: 12px; }
+  :root { --story-w: 100%; --drawer-w: 100%; --time-h: 0px; --story-size: 20px; --gutter: 12px; --hero-num: 56px; }
   /* the viewport scrolls (never the body), so the band and the header can stick */
   html { height: auto; overflow-x: clip; }
   body.wall { display: block; height: auto; overflow: visible; padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
@@ -1704,7 +1726,9 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .story > .fail-line { margin: var(--sp-3) var(--gutter) 0; order: 0; }
   .story > .verdict, .story > .fail-line[hidden] + .verdict { order: 1; padding-top: var(--sp-4); padding-bottom: var(--sp-4); background: var(--c-surface-1); }
   .mapcol { order: 2; display: block; }
-  .story > .key { order: 3; padding-top: var(--sp-3); }
+  .story > .key { order: 3; padding: 0 !important; background: var(--c-surface-1); border-bottom: 1px solid var(--c-line-1); }
+  .story > .key .key__toggle { min-height: 44px; padding: 0 var(--gutter); }
+  .story > .key .key__rows { padding: 0 var(--gutter) var(--sp-3); }
   /* the failure line sits on the page background above the story card: leave room under it */
   .story > .fail-line + .verdict { padding-top: var(--sp-3); margin-top: var(--sp-3); }
   .story > .story-notes { order: 5; }
@@ -1802,65 +1826,42 @@ body.present .details-btn { border-style: dashed; }
 
 /* ---------------------------------------------------------------- story fit (R4.1, review 2, item 4)
    wall/story.js raises data-fit one step at a time until the column stops scrolling. Each step
-   tightens, never removes: the key keeps every row and its notes ("binding", "never smaller than
-   official"), and the other-volcanoes rows folded at level 6 stay one tap away under "+ n more".
-   Desktop only; phones scroll the page. */
+   tightens, never removes: every tile keeps its words, and the other-volcanoes rows folded at
+   level 6 stay one tap away under "+ n more". Desktop only; phones scroll the page. */
 @media (min-width: 601px) {
-  .story[data-fit="1"], .story[data-fit="2"], .story[data-fit="3"], .story[data-fit="4"], .story[data-fit="5"], .story[data-fit="6"], .story[data-fit="7"] {
-    gap: 10px; padding-top: var(--sp-3);
-  }
+  .story[data-fit]:not([data-fit="0"]) { gap: 10px; padding-top: var(--sp-3); }
   .story[data-fit]:not([data-fit="0"]) > * + * { padding-top: 10px; }
   .story[data-fit]:not([data-fit="0"]) .verdict { gap: var(--sp-2); }
-  .story[data-fit]:not([data-fit="0"]) .story__lines { gap: 4px; }
-  /* the lead line shrinks at most 3 px, so it stays the column's largest line */
-  .story[data-fit="2"], .story[data-fit="3"] { --story-fit-size: calc(var(--story-size) - 1px); }
-  .story[data-fit="4"], .story[data-fit="5"], .story[data-fit="6"], .story[data-fit="7"] { --story-fit-size: calc(var(--story-size) - 2px); }
-  /* 3+: the key rows closer together; every row keeps its note on its own line */
-  .story[data-fit="3"] .key__rows, .story[data-fit="4"] .key__rows, .story[data-fit="5"] .key__rows, .story[data-fit="6"] .key__rows, .story[data-fit="7"] .key__rows, .story[data-fit="8"] .key__rows { row-gap: 2px; }
-  .story[data-fit="3"] .key__more, .story[data-fit="4"] .key__more, .story[data-fit="5"] .key__more, .story[data-fit="6"] .key__more, .story[data-fit="7"] .key__more { font-size: var(--fs-1); min-height: 24px; }
-  /* 6+: the fact lines a pixel smaller */
-  .story[data-fit="6"], .story[data-fit="7"], .story[data-fit="8"] { --story-body: calc(var(--fs-3) - 1px); }
-  /* 5+: the flights link beside the button */
-  .story[data-fit="5"] .story__actions, .story[data-fit="6"] .story__actions, .story[data-fit="7"] .story__actions { flex-direction: row; align-items: center; gap: var(--sp-3); }
-  .story[data-fit="5"] .story__actions .cta, .story[data-fit="6"] .story__actions .cta, .story[data-fit="7"] .story__actions .cta,
-  .story[data-fit="5"] .story__actions .cta--quiet, .story[data-fit="6"] .story__actions .cta--quiet, .story[data-fit="7"] .story__actions .cta--quiet { flex: 1 1 auto; min-height: 44px; }
-  .story[data-fit="5"] .story__show, .story[data-fit="6"] .story__show, .story[data-fit="7"] .story__show { align-self: center; flex: none; }
-  /* 7: the Details button on one line */
-  .story[data-fit="7"] .details-btn { min-height: 44px; grid-template-rows: auto; }
-  .story[data-fit="7"] .details-btn__sub { display: none; }
-  .story[data-fit="7"] .details-btn .icon { grid-row: 1; }
+  .story[data-fit]:not([data-fit="0"]) .story__lines { gap: var(--sp-3); }
+  /* 2+: the hero number a step smaller, still the column's largest */
+  .story[data-fit="2"], .story[data-fit="3"], .story[data-fit="4"], .story[data-fit="5"], .story[data-fit="6"], .story[data-fit="7"], .story[data-fit="8"] { --hero-num: 52px; }
+  /* 4+: the tiles and the notice closer */
+  .story[data-fit="4"] .fact__btn, .story[data-fit="5"] .fact__btn, .story[data-fit="6"] .fact__btn, .story[data-fit="7"] .fact__btn, .story[data-fit="8"] .fact__btn { min-height: 0; padding-top: 6px; padding-bottom: 6px; }
+  .story[data-fit="4"] .notice, .story[data-fit="5"] .notice, .story[data-fit="6"] .notice, .story[data-fit="7"] .notice, .story[data-fit="8"] .notice { padding: var(--sp-2) var(--sp-3); }
+  /* 7+: the Details button on one line */
+  .story[data-fit="7"] .details-btn, .story[data-fit="8"] .details-btn { min-height: 44px; grid-template-rows: auto; }
+  .story[data-fit="7"] .details-btn__sub, .story[data-fit="8"] .details-btn__sub { display: none; }
+  .story[data-fit="7"] .details-btn .icon, .story[data-fit="8"] .details-btn .icon { grid-row: 1; }
   .story[data-fit="7"] .allv { gap: 2px; }
   /* 8: the tightest rhythm (1280x720 with a long story) */
-  .story[data-fit="8"] { gap: 6px; padding-top: var(--sp-2); --story-fit-size: calc(var(--story-size) - 3px); }
+  .story[data-fit="8"] { gap: 6px; padding-top: var(--sp-2); --hero-num: 44px; }
   .story[data-fit="8"] > * + * { padding-top: 6px !important; }
-  .story[data-fit="8"] .key__more, .story[data-fit="8"] .vlist__more { font-size: var(--fs-1); min-height: 24px; }
-  .story[data-fit="8"] .story__actions { flex-direction: row; align-items: center; gap: var(--sp-3); }
-  .story[data-fit="8"] .story__actions .cta, .story[data-fit="8"] .story__actions .cta--quiet { flex: 1 1 auto; min-height: 44px; }
-  .story[data-fit="8"] .story__show { align-self: center; flex: none; }
-  .story[data-fit="8"] .details-btn { min-height: 44px; grid-template-rows: auto; }
-  .story[data-fit="8"] .details-btn__sub { display: none; }
-  .story[data-fit="8"] .details-btn .icon { grid-row: 1; }
+  .story[data-fit="8"] .story__lines { gap: var(--sp-2); }
+  .story[data-fit="8"] .vlist__more { font-size: var(--fs-1); min-height: 24px; }
   .story[data-fit="8"] .allv, .story[data-fit="8"] .verdict { gap: 2px; }
   .story[data-fit="8"] > .fail-line { padding-top: 6px !important; padding-bottom: 6px !important; }
   .story[data-fit="8"] .fail-line__list { gap: 4px; }
-  .story[data-fit="8"] .trust__models { margin-top: 2px; }
   /* last resort: the column scrolls, and says so with a fade above the pinned button */
   .story:not(.story--scrolls) > .details-btn::before { display: none; }
 }
 
 /* ---------------------------------------------------------------- crew reports of ash (UI-DESIGN 5.7, 7.20)
    An operator-policy flag in warm ivory with long dashes and a pin: never the official magenta,
-   never TEPHRA's amber. The lines sit after the flights in the story, one size down. */
+   never TEPHRA's amber. Its line in the story is a row with the crew pin. */
 .sw--crew { color: var(--c-crew); }
-.story__crew { display: block; font-weight: var(--fw-medium); color: var(--c-text-1); }
-.story__crew .story__pin { width: 0.95em; height: 0.95em; vertical-align: -0.12em; color: var(--c-crew); }
-.story__crew .st { width: 0.85em; height: 0.85em; vertical-align: -0.08em; }
-/* the crew line opens Details › Crew reports: the sentence is the button, underlined on hover */
-.story__act { display: inline; padding: 0; margin: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: var(--c-line-2); text-underline-offset: 0.18em; }
-.story__act:hover { text-decoration-color: currentColor; }
-.story__act:focus-visible { outline: 2px solid var(--c-focus, currentColor); outline-offset: 2px; border-radius: 2px; }
+.story__mark--crew { color: var(--c-crew); }
 .vrow .vrow__crew, .vrow > .st { width: 20px; height: 20px; color: var(--c-crew); flex: none; }
 .vrow > .st { color: var(--c-caution); }
 @media (forced-colors: active) {
-  .story__pin { forced-color-adjust: none; }
+  .story__mark--crew { forced-color-adjust: none; }
 }

@@ -109,7 +109,7 @@ function drawPaused() {
   if (!note) return;
   const ai = deskAi();
   note.hidden = ai.kind !== 'paused';
-  note.textContent = ai.kind === 'paused' ? `Ask is paused${ai.until ? ` until ${ai.until}` : ''} (today's free AI quota). The Wall shows every flight and count.` : '';
+  note.textContent = ai.kind === 'paused' ? `Ask is paused${ai.until ? ` ${ai.until}` : ''} (today's free AI quota). The Wall shows every flight and count.` : '';
 }
 
 function autosize(input) {
@@ -243,9 +243,9 @@ function finish(wait, res, question) {
     // the quota: "Try again" waits for the reset; any other cause can be asked again now
     const ai = deskAi();
     const quota = reasonClass(unavailableReason(res)) === 'budget';
-    const until = quota && ai.until ? ` until ${ai.until}` : '';
+    const until = quota && ai.until ? ` ${ai.until}` : '';
     card = unavailableCard(unavailableReason(res), quota
-      ? { title: `No answer: AI paused${until}`, instead: 'Nothing was made up.', onRetry: retry, retryLabel: ai.until ? `Try again after ${ai.until}` : 'Try again', retryDisabled: Boolean(ai.until) }
+      ? { title: `No answer: AI paused${until}`, instead: 'Nothing was made up.', onRetry: retry, retryLabel: ai.after ? `Try again ${ai.after}` : 'Try again', retryDisabled: Boolean(ai.after) }
       : { title: 'No answer: AI unavailable', instead: 'Nothing was made up. Ask again, or read the Wall.', onRetry: retry });
   } else if (res.status === 401) card = unavailableCard('Your session has ended. Sign in again.', { title: 'Not asked', instead: '', serious: true });
   else if (res.status === 0) card = unavailableCard("Can't reach the server.", { title: 'Not asked', instead: 'Check your connection and ask again.', onRetry: retry, serious: true });

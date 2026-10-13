@@ -567,3 +567,21 @@ design. This document stayed the base for every AI word. What changed against se
    several, each still its own request and audit entry. Announcements stay one per batch, and
    flights code closed are said in the same batch.
 5. The helper is "Flight planner" everywhere (the board's roster), not "Planner".
+
+### 8.3 The story column redesigned, and the reset time in REPLAY (2026-10-13)
+
+After user feedback that the Wall's story column was cluttered (two AI warnings, three link
+styles, the key in the column), the story became a hero number, three fact tiles, one notice and
+the source lines (docs/UI-DESIGN.md 7.6). Against this document:
+
+1. W14 and W15 merged: the advisory line and the closure sub-line are one caution notice, said
+   once, with one "Why ›": "AI paused until 0700Z" / "No advisory drafts and no airport plan. Plan
+   the 14 flights and the network by hand on the Desk."
+2. W17 amended: the trust line is one tap from the hero's ⓘ ("What is TEPHRA's ash area?").
+   "never smaller than official" stays on screen in the map key, now a card on the map.
+3. W20 amended: "0 advisories waiting" carries no "(AI paused)"; the notice says why once.
+4. The reset time in REPLAY: "0700Z real time" read awkwardly. In REPLAY a real-clock time is said
+   as the time left, which reads the same on either clock: the chip "AI paused · 2 h 45 min left",
+   the sentence "AI paused for another 2 h 45 min", "next slot in 2 h 45 min", "Try again in 2 h
+   45 min" (`realWhen` in `wall/x-parts.js`, used on both pages and on AI at work). Live, the
+   clock time stays ("until 0700Z").

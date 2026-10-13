@@ -55,7 +55,8 @@ def test_ai_chip_text_carries_no_model_id() -> None:
     budget = _function(_read("desk/budget.js"), "drawAiChip")
     assert "model_id" not in budget
     assert "label" in budget
-    trust = _function(_read("wall/story.js"), "renderTrust")
+    story = _read("wall/story.js")
+    trust = story[story.index("const TRUST = ") : story.index("// The hero:")]
     assert "model" not in trust.lower()
 
 
@@ -118,9 +119,12 @@ def test_duty_officer_that_ran_is_never_called_unavailable() -> None:
     assert "cls === 'undone'" in _function(_read("desk/failures.js"), "causeWords")
 
 
-def test_reset_time_names_its_clock_in_replay() -> None:
-    """Review H4: the reset is on the real clock; in REPLAY it says so."""
-    assert "real time" in _function(_read("wall/x-parts.js"), "aiStateOf")
+def test_reset_time_never_reads_as_replay_clock_time() -> None:
+    """Review H4: the reset is on the real clock. In REPLAY it is said as the time left
+    ("for another 2 h 45 min"), which reads the same on either clock."""
+    xparts = _read("wall/x-parts.js")
+    assert "realWhen(Date.parse(budget?.resets_at" in _function(xparts, "aiStateOf")
+    assert "for another ${left}" in _function(xparts, "realWhen")
     assert 'replay: D?.mode === "REPLAY"' in _read("wall/ext.js")
     assert "app.state.mode === 'REPLAY'" in _read("desk/budget.js")
 

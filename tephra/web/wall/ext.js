@@ -8,7 +8,7 @@
 
 import { $, el, icon, ms, hhmmz } from "./util.js";
 import { frameFor } from "./ext-map.js";
-import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, causeTitle, handPlanOf, reasonClass, WHY } from "./x-parts.js";
+import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, causeTitle, handPlanOf, reasonClass, realWhen, machineText, WHY } from "./x-parts.js";
 import { dutyDetail, dispatchedTools } from "./duty.js";
 import { HELPERS } from "./board.js";
 import {
@@ -249,7 +249,7 @@ function noticesPanel() {
     title: all.length ? `${all.length} notice${all.length === 1 ? "" : "s"} · newest ${clock(newest.created_at)}` : "No notices yet",
     sub: "A notice only enters the picture once every claim is found word for word in it.",
   });
-  const about = el("div", { class: "dk-abouts" }, dkAbout("How notices are checked", "notices", "Notices pasted on the Desk, and JMA volcano reports. A pasted notice is read by a model, then every claim is checked against its own words; only a verified notice can enter the picture. JMA reports are read by code from JMA's XML."));
+  const about = el("div", { class: "dk-abouts" }, dkAbout("How notices are checked", "notices", "Notices pasted on the Desk, and JMA volcano reports. A pasted notice is read by a model, then every claim is checked against its own words. Only a verified notice can enter the picture. JMA reports are read by code from JMA's XML."));
   if (!all.length) return [dkSection("notices-head", head, dkEmpty("Nothing to show", "Paste a notice on the Desk (EN, ID, JA or FIL) and it shows up here.", el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Open the Desk ›" })), about)];
   const tiles = dkTiles([
     { label: "Notices", value: String(all.length) },
@@ -311,7 +311,7 @@ const scenarioName = (label) => {
   const t = String(label || "").toLowerCase();
   return t.charAt(0).toUpperCase() + t.slice(1);
 };
-const LEDE = "Airports the ash closes, and the day's flights of RFA (a fictional airline, synthetic schedule) re-planned around them. An optimiser (code) builds the scenarios; a model only picks one and explains it. A dispatcher approves on the Desk.";
+const LEDE = "Airports the ash closes, and the day's flights of RFA (a fictional airline, synthetic schedule) re-planned around them. An optimiser (code) builds the scenarios, and a model only picks one and explains it. A dispatcher approves on the Desk.";
 
 function recoveryPanel(D, store) {
   const re = replanning(store);
@@ -344,7 +344,7 @@ function recoveryPanel(D, store) {
   const kids = [head, busy];
   if (fail) {
     kids.push(dkList([dkRow({ key: "rec-fail", dot: "caution", edge: "caution", title: fail.title, sub: fail.sub, open: false, body: [dkTech(fail.raw)] })], { key: "rec-fail" }));
-    if (queued) kids.push(dkNote("info", `A new plan waits for AI: next slot ${Number.isFinite(queuedAt) ? `${hhmmz(queuedAt)}${D.mode === "REPLAY" ? " real time" : ""}` : "not set"}.`, { role: "status" }));
+    if (queued) kids.push(dkNote("info", `A new plan waits for AI: next slot ${realWhen(queuedAt, Date.now(), D.mode === "REPLAY")?.at || "not set"}.`, { role: "status" }));
   }
   // closed airports: a row each; the full reason and its sources are one tap further in
   kids.push(dkGroup(`Closed airports, all volcanoes · ${plan.closures.length}`, null, dkList(plan.closures.map((c) => dkRow({
@@ -352,7 +352,7 @@ function recoveryPanel(D, store) {
     foot: el("span", { class: "mono", text: `${clock(c.start)} – ${c.open_ended ? "open" : clock(c.end)}` }),
     body: [dkFacts([["Closed from", clock(c.start), { mono: true }], ["Until", c.open_ended ? "open-ended" : clock(c.end), { mono: true }], ["Heights", c.top_ft != null ? `${LEVEL(c.base_ft ?? 0)}–${LEVEL(c.top_ft)}` : null, { mono: true }], ["Radius", c.radius_nm != null ? `${Math.round(c.radius_nm)} NM` : null]]),
       el("details", { class: "tech x-closure__more" }, el("summary", { text: "Full reason and sources" }),
-        el("p", { class: "tech__line mono", text: c.reason }),
+        el("p", { class: "tech__line mono", text: machineText(c.reason) }),
         c.source_ids?.length ? el("p", { class: "tech__line mono", text: c.source_ids.join(" · ") }) : null)],
   })), { first: 4, key: "rec-airports" })));
   if (plan.disruption) {
@@ -509,11 +509,11 @@ export function agentStatus(D, store, ai) {
     if (last) state = last.level === "error" ? "failed" : nowT - (ext.arrivals.get(last.id) ?? -1e9) < RUNNING_MS ? "running" : "done";
     // the badge says what happened ("Not run" only where no model was called); `words` says why,
     // without repeating the badge (review H6)
-    const paused = (cls) => (cls === "budget" ? (ai.paused ? `AI paused${ai.until ? ` until ${ai.until}` : ""}` : WHY.budget) : `AI unavailable (${WHY[cls] || WHY.other})`);
+    const paused = (cls) => (cls === "budget" ? (ai.paused ? `AI paused${ai.until ? ` ${ai.until}` : ""}` : WHY.budget) : `AI unavailable (${WHY[cls] || WHY.other})`);
     if (a.id === "duty" && run?.outcome === "MODEL_FAILED") {
       const cls = reasonClass((run.validation_errors || [])[0]);
       state = "failed"; badge = cls === "budget" ? "Not run" : "No brief"; words = paused(cls); at = at || run.finished_at;
-    } else if (a.id === "plume" && pending) { state = "waiting"; words = `plume read queued ${ai.until ? `until ${ai.until}` : "for the Duty Officer"}`; }
+    } else if (a.id === "plume" && pending) { state = "waiting"; words = `plume read queued ${ai.until || "for the Duty Officer"}`; }
     else if (a.id === "recovery" && pf?.ai) { state = "failed"; badge = "No plan"; words = `AI unavailable (${pf.why})`; at = plan.created_at; }
     else if (a.id === "sra" && sra) { state = "waiting"; words = `next slot ${sra.slot || "not set"}`; }
     else if (state === "failed") { const cls = reasonClass(last.message); badge = cls === "budget" ? "Not run" : cls === "undone" ? "Left for the Desk" : "No result"; words = cls === "undone" ? "must-do jobs passed to the Desk" : paused(cls); }
@@ -596,7 +596,7 @@ function budgetTile(stub, ai) {
   const waiting = ai.waiting.length ? `${ai.waiting.length} job${ai.waiting.length === 1 ? "" : "s"} waiting` : null;
   if (closed) {
     return {
-      label: "AI calls today", value: ai.until ? `Closed until ${ai.until}` : "Closed for today", wide: true, tone: "caution",
+      label: "AI calls today", value: ai.until ? `Closed ${ai.until}` : "Closed for today", wide: true, tone: "caution",
       meter: { value: used, max: lite.limit, tone: "caution", label: `AI calls today: ${used} of ${lite.limit} used, closed for today by Google` },
       sub: [`Google closed the free quota after ${used.toLocaleString("en")} of ${lite.limit.toLocaleString("en")} calls`, waiting].filter(Boolean).join(" · "),
     };
@@ -670,7 +670,7 @@ function helperRow(a, store, n, stub, until) {
 // The state pill at the AI home (D64): one state, never red.
 export function aiPill(ai) {
   if (ai.kind === "off") return dkPill("off", "AI off");
-  if (ai.kind === "paused") return dkPill("caution", ai.until ? `Paused until ${ai.until}` : "Paused");
+  if (ai.kind === "paused") return dkPill("caution", ai.until ? `Paused ${ai.until}` : "Paused");
   if (ai.kind === "trouble") return dkPill("caution", `On · ${plural(ai.trouble.length, "problem")}`);
   return dkPill("ok", "AI on");
 }

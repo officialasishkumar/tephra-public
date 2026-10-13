@@ -212,7 +212,7 @@ export function openPaste() {
       return;
     }
     const list = problems(res);
-    const why = res.status === 0 ? "Can't reach the server." : res.status === 401 ? 'Your session has ended. Sign in again.' : `${(res.data && res.data.detail) || `HTTP ${res.status}`}${list.length ? `: ${list.join('; ')}` : ''}`;
+    const why = res.status === 0 ? "Can't reach the server." : res.status === 401 ? 'Your session has ended. Sign in again.' : `${(res.data && res.data.detail) || `HTTP ${res.status}`}${list.length ? `: ${list.join(' · ')}` : ''}`;
     msg.replaceChildren(el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: why })));
   });
   window.setTimeout(() => area.focus(), 50);

@@ -13,7 +13,7 @@ import { app } from './state.js';
 import { aiMark } from './ui.js';
 import { drawAiChip } from './budget.js';
 // The Wall's plain-words table (wall/x-parts.js, R12.7), shared so both screens say the same.
-import { plainLine, reasonClass } from '../wall/x-parts.js';
+import { machineText, plainLine, reasonClass } from '../wall/x-parts.js';
 
 const RESULTS_SHOWN = 2;
 
@@ -204,8 +204,8 @@ function buildCard(run) {
   const meta = `${stub ? 'AI off (NO MODEL, offline stub)' : refused(run) ? `no call made · would have used ${run.model_id}` : run.model_id}${refused(run) ? '' : ` · ${plural(run.turns, 'turn')}`} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · AI worker after ${run.trigger === 'adsb' ? 'new aircraft' : 'a tick'}, done ${hhmmz(run.finished_at)}${run.replay ? ' · recorded' : ''}${run.recorded_answer ? ` · ${run.recorded_answer}` : ''}`;
   more.append(el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }),
     el('p', { class: 'mono tech__line dcard__meta', text: meta }),
-    b && stub && b.summary ? el('p', { class: 'mono tech__line', text: b.summary }) : null,
-    failed ? el('p', { class: 'mono tech__line', text: `Duty Officer AI unavailable: ${run.validation_errors[0] || 'no reason recorded'}` }) : null));
+    b && stub && b.summary ? el('p', { class: 'mono tech__line', text: machineText(b.summary) }) : null,
+    failed ? el('p', { class: 'mono tech__line', text: `Duty Officer AI unavailable: ${machineText(run.validation_errors[0] || 'no reason recorded')}` }) : null));
   card.append(more);
 
   toggle.addEventListener('click', () => {

@@ -108,7 +108,7 @@ function cautions(adv, now) {
 // The row's caution: the most important one's shape and short word, "+n" for the rest.
 function rowMark(marks) {
   if (!marks.length) return null;
-  const all = marks.map((m) => m[1]).join('; ');
+  const all = marks.map((m) => m[1]).join('. ');
   return el('span', { class: 'row__mark', title: all },
     icon(marks[0][0], 'st'),
     el('span', { class: 'row__markword', 'aria-hidden': 'true', text: `${marks[0][2]}${marks.length > 1 ? ` +${marks.length - 1}` : ''}` }),

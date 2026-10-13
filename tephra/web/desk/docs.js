@@ -5,7 +5,8 @@
 
 import { PATHS, api, errorCode, isUnavailable, problems, unavailableReason } from './api.js';
 import { announce, byId, el, icon } from './dom.js';
-import { actionShort, activeNow, dayMonthHhmm, hhmmz } from './format.js';
+import { actionShort, activeNow, dayMonthHhmm } from './format.js';
+import { slotWords } from './budget.js';
 import { renderDoc, renderHandover, roleName } from './docview.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
@@ -242,9 +243,8 @@ export function renderDocs() {
   const sraKids = [el('p', { id: 'sra-note', class: 'fine', text: "One draft per region, filled from TEPHRA's evidence. Blanks stay blank." })];
   // an SRA the budget holds for later, at the place it would land (docs/UI-AI-QUIET.md K98)
   const queued = app.budget && Array.isArray(app.budget.waiting) ? app.budget.waiting.find((w) => w.status === 'WAITING' && w.item && w.item.kind === 'SRA') : null;
-  // the slot is on the real clock; in REPLAY it says so (review H4)
-  const real = app.state && app.state.mode === 'REPLAY' ? ' real time' : '';
-  const queuedWords = queued ? `Waiting for AI: next slot ${queued.next_slot_at ? `${hhmmz(queued.next_slot_at)}${real}` : 'not set'}` : '';
+  // the slot is on the real clock: in REPLAY it is the time left (review H4)
+  const queuedWords = queued ? `Waiting for AI: next slot ${slotWords(queued.next_slot_at) || 'not set'}` : '';
   // the summary line says it waits; the note says only what to do (review clutter 11)
   if (queued) sraKids.push(el('p', { class: 'note', role: 'status' }, icon('st-caution', 'st'), el('span', { text: 'Complete it by hand if it cannot wait.' })));
   if (draftError && draftError.kind === 'SRA') sraKids.push(draftErrorNode());
@@ -342,7 +342,7 @@ export function openDoc(doc) {
         return;
       }
       const list = problems(res);
-      msg.replaceChildren(el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: res.status === 409 ? ((res.data && res.data.detail) || 'Already signed.') : `Not signed: ${list.length ? list.join('; ') : (res.data && res.data.detail) || `HTTP ${res.status}`}` })));
+      msg.replaceChildren(el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: res.status === 409 ? ((res.data && res.data.detail) || 'Already signed.') : `Not signed: ${list.length ? list.join(' · ') : (res.data && res.data.detail) || `HTTP ${res.status}`}` })));
     });
   };
   draw();
@@ -370,7 +370,7 @@ async function generateHandover(incomingInput, msg) {
     hoError = null;
     announce('Handover brief ready.');
   } else if (isUnavailable(res)) hoError = { reason: unavailableReason(res) };
-  else if (res.status === 422) hoError = { text: `Check the form: ${problems(res).join('; ') || 'a field was not accepted'}` };
+  else if (res.status === 422) hoError = { text: `Check the form: ${problems(res).join(' · ') || 'a field was not accepted'}` };
   else hoError = { text: res.status === 0 ? "Can't reach the server." : `No brief: ${(res.data && res.data.detail) || `HTTP ${res.status}`}` };
   renderDocs();
 }

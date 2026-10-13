@@ -13,7 +13,7 @@ import { app } from './state.js';
 import { toast } from './toast.js';
 import { openBSheet } from './ui.js';
 
-const CREW_LABEL = 'Crew report caution area (operator policy A; not a VAA or SIGMET)';
+const CREW_LABEL = 'Crew report caution area (operator policy A, not a VAA or SIGMET)';
 const FLAG_LINE = 'Crew report of ash on this route';
 // models.CrewCue, in the order a crew report is usually read; the words are CREW_CUE_TEXT.
 const CUES = [
@@ -308,7 +308,7 @@ function withdrawView(v, sheet, draw) {
       announce(`Crew report from ${v.report.flight} withdrawn.`);
       return;
     }
-    const why = res.status === 409 ? 'This report is already withdrawn.' : res.status === 404 ? 'This crew report no longer exists.' : res.status === 0 ? "Can't reach the server." : `Not withdrawn: ${problems(res).join('; ') || (res.data && res.data.detail) || `HTTP ${res.status}`}`;
+    const why = res.status === 409 ? 'This report is already withdrawn.' : res.status === 404 ? 'This crew report no longer exists.' : res.status === 0 ? "Can't reach the server." : `Not withdrawn: ${problems(res).join(' · ') || (res.data && res.data.detail) || `HTTP ${res.status}`}`;
     msg.replaceChildren(errLine(why));
   });
   sheet.setFooter(el('div', { class: 'secondary' }, go, cancel));
@@ -512,7 +512,7 @@ export function openCrewForm({ hex = null } = {}) {
       } else {
         f.fix = null;
         f.fixState = 'error';
-        f.fixNote = res.status === 0 ? "Can't reach the server to look for the ADS-B fix." : `No fix lookup: ${problems(res).join('; ') || (res.data && res.data.detail) || `HTTP ${res.status}`}`;
+        f.fixNote = res.status === 0 ? "Can't reach the server to look for the ADS-B fix." : `No fix lookup: ${problems(res).join(' · ') || (res.data && res.data.detail) || `HTTP ${res.status}`}`;
       }
       drawPos();
     }, 250);

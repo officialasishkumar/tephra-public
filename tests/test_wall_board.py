@@ -262,7 +262,8 @@ def test_a_closed_ai_day_reads_as_waiting_and_not_run(tmp_path: Path) -> None:
     assert (duty["state"], duty["word"]) == ("notrun", "Not run")
     # the reset time is on the real clock, so in REPLAY it says so
     assert duty["last"]["text"] == (
-        "Not run: today's free AI quota is used up (until 0700Z real time). No brief was made. "
+        "Not run: today's free AI quota is used up (AI paused for another 6 h 30 min). No brief "
+        "was made. "
         "Passed 1 must-do job to the Desk."
     )
     assert duty["last"]["tone"] == "caution"
@@ -282,10 +283,11 @@ def test_a_closed_ai_day_reads_as_waiting_and_not_run(tmp_path: Path) -> None:
     for helper in ("planner", "drafter", "recovery", "sra"):
         card = _card(model, helper)
         assert card["state"] == "waiting", helper
-        assert card["waiting"]["slot"] == "next slot 0700Z", helper
+        # REPLAY: a real-clock time is said as the time left (the AI state's rule)
+        assert card["waiting"]["slot"] == "next slot in 6 h 30 min", helper
         # a closed day's limit is left out: no call can go, whatever is left of it
         assert card["model"]["text"] == "1 call today, shared", helper
-        assert card["model"]["closed"] == {"until": "0700Z", "by": "Google"}, helper
+        assert card["model"]["closed"] == {"until": "for another 6 h 30 min", "by": "Google"}, helper
         assert card["steps"][0]["source"] == "AI work queue", helper
     recovery = _card(model, "recovery")
     # a model was called and timed out: "failed" (No result), drawn in caution
@@ -377,18 +379,19 @@ def test_no_run_yet_says_so(tmp_path: Path) -> None:
 
 def test_the_ai_status_uses_the_chips_words(tmp_path: Path) -> None:
     """One derived state (wall/x-parts.js aiStateOf) for the AI chip, this board and the Desk: a
-    closed day is "AI paused · 0700Z real time" in caution, never a red count of failed steps."""
+    closed day is "AI paused" in caution, never a red count of failed steps."""
     (tmp_path / "paused").mkdir()
     (tmp_path / "off").mkdir()
     paused = _board(tmp_path / "paused", _closed_day())["ai"]
     assert paused["kind"] == "paused"
     words = paused["words"]
+    # in REPLAY the reset is said as the time left, which reads the same on either clock
     assert (words["label"], words["suffix"], words["tone"]) == (
         "AI paused",
-        "0700Z real time",
+        "6 h 30 min left",
         "caution",
     )
-    assert paused["lead"][0]["strong"] == "AI paused until 0700Z real time."
+    assert paused["lead"][0]["strong"] == "AI paused for another 6 h 30 min."
     assert "Queued work (3 jobs) runs then" in paused["lead"][0]["text"]
     off = _board(tmp_path / "off", _stub_run())["ai"]
     assert (off["kind"], off["words"]["label"]) == ("off", "AI off")

@@ -6,7 +6,7 @@
 import { $, el, icon, hhmmz, ms, fl, kmBetween, reducedMotion } from "./util.js";
 import { SEV_RANK, regionOfVent } from "./derive.js";
 import { ext, replanning, aiState, handPlan } from "./ext.js";
-import { planFailure, draftBlock } from "./x-parts.js";
+import { planFailure, draftBlock, machineText } from "./x-parts.js";
 import { FEED_NAME } from "./panels.js";
 
 const CODE_WORD = { RED: "Red", ORANGE: "Orange", YELLOW: "Yellow", GREEN: "Green" };
@@ -127,7 +127,7 @@ function renderFailures(list) {
       seenFailures.add(f.key);
       // the part that failed in bold, the rest in plain words; the machine text in the words'
       // tooltip, never on the item, where it would become the item's (and the alert's) name
-      const title = f.raw ? `Recorded reason: ${f.raw}` : null;
+      const title = f.raw ? `Recorded reason: ${machineText(f.raw)}` : null;
       const words = f.who && f.text.startsWith(f.who)
         ? el("span", { class: "fail-line__text", title }, el("strong", { class: "fail-line__who", text: f.who }), f.text.slice(f.who.length))
         : el("span", { class: "fail-line__text", title, text: f.text });
@@ -173,93 +173,105 @@ function eyebrow(D, sit, region, store) {
   setText(asof, `as of ${hhmmz(ms(sit.as_of))}`);
 }
 
-// The lines of the story (R5.3), as { text, cls, sub, lead, count } objects. One lead line, the
-// flights (the dispatcher's first question), at the story size with the number in TEPHRA amber;
-// then the facts at body size, each with an optional quieter sub-line (`sub`: scope, plan time,
-// what follows from it). `text` is the line's words for the change key and the announcement.
-function storyLines(D, store, ui, sit) {
-  const lines = [];
-  const facts = [];
+// The story of one volcano (docs/UI-DESIGN.md 7.6, redesigned 13 Oct 2026), as one model built by
+// code from fields: a hero (the flights, the one number a dispatcher asks first), up to three fact
+// tiles (the ash's height, the airports it closes, the advisories), one notice when the AI's
+// absence or a missing airport plan changes the dispatcher's work, and the lines about sources
+// that disagree and crew reports. Every fact a sentence used to carry is in a tile's words, its
+// title or one tap in, in Details. `text` fields are the words for the change key and the
+// announcement.
+function storyModel(D, store, sit) {
+  const m = { banner: null, hero: null, facts: [], notice: null, lines: [] };
   const cone = D.coneOf(sit.volcano_id)?.properties;
   const stub = D.state.llm?.backend === "stub";
   const ai = aiState(D, store);
   const hand = handPlan(D, store, ai);
   const handHere = hand.flights.filter((x) => x.p.volcano_id === sit.volcano_id).length;
-  // the Duty Officer left must-do flights for the Desk: said once, whatever the drafts line says
-  const undoneLine = hand.block?.undone && handHere
-    ? { text: `The Duty Officer left ${handHere} must-do ${handHere === 1 ? "flight" : "flights"} for the Desk: plan ${handHere === 1 ? "it" : "them"} by hand.`, cls: "story__wait story__wait--ai story__hand", mark: "caution", why: true }
-    : null;
-  if (cone?.mode === "HYPOTHESIS") {
-    lines.push({ text: "HYPOTHESIS: no valid official product. Only MONITOR or HOLD may be advised.", cls: "story__hyp", banner: true });
-  }
+  if (cone?.mode === "HYPOTHESIS") m.banner = "HYPOTHESIS: no valid official product. Only MONITOR or HOLD may be advised.";
+
+  // the hero: the flights in or heading into TEPHRA's area, inside now against heading in
   const n = sit.exposed_count || 0;
   if (n > 0) {
-    lines.push({ text: `${n} ${n === 1 ? "flight" : "flights"} of RFA, our fictional airline, ${n === 1 ? "is" : "are"} in or heading into TEPHRA's estimated ash area.`, cls: "story__flights", lead: true, count: n });
-    const a = advisoryFacts(D, store, sit.volcano_id);
-    let t, goneNote = null, waitLine = null;
-    if (a.unknown) t = "Advisory count unknown (database error).";
-    // One advisory per flight; a draft can outlive the flight's exposure, so the count is of
-    // advisories, never "n of their" (review 1, item 3).
-    else if (a.drafts > 0) {
-      t = `${a.partial ? "At least " : ""}${a.drafts} ${a.drafts === 1 ? "advisory waits" : "advisories wait"} for a dispatcher.`;
-      // drafts whose flight is not among the n seen heading in now, said once so 30 next to 23 adds up
-      const seen = new Set(D.exposed.filter((f) => f.properties.volcano_id === sit.volcano_id).map((f) => `${f.properties.hex}:${sit.volcano_id}`));
-      const gone = store.advisories.filter((x) => x.volcano_id === sit.volcano_id && x.status === "DRAFT" && !seen.has(x.flight_id)).length;
-      if (gone > 0 && !a.partial) goneNote = `${gone} of them ${gone === 1 ? "is for a flight" : "are for flights"} no longer seen heading in.`;
-    }
-    else if (a.decided > 0) t = `All ${a.decided} advisories are decided: ${a.approved} approved, ${a.rejected} rejected.`;
-    else {
-      // the advisories' AI part is missing: said here, once, with what to do (W14)
-      const block = hand.block || draftBlock(ai);
-      const nf = `${handHere} ${handHere === 1 ? "flight" : "flights"}`;
-      if (block?.undone) t = "Their advisories are not drafted yet.";
-      else if (block?.word === "AI paused" && handHere) t = `No advisory drafts: AI paused${block.until ? ` until ${block.until}` : ""}. Plan the ${nf} by hand.`;
-      else if (block?.word === "AI unavailable" && handHere) t = `No advisory drafts: AI unavailable (${block.why}). Plan the ${nf} by hand.`;
-      else if (block?.word === "AI waiting") t = `Advisories not drafted yet: waiting for AI, next slot ${block.slot || "not set"}.`;
-      else t = "Their advisories are not drafted yet.";
-      if (block && !block.undone && (handHere || block.word === "AI waiting")) waitLine = { text: t, cls: "story__wait story__wait--ai", mark: "caution", why: true };
-    }
-    lines.push(waitLine || { text: t, cls: "story__wait", sub: goneNote ? [goneNote] : null });
-    if (undoneLine) lines.push(undoneLine);
+    const mine = D.exposed.filter((f) => f.properties.volcano_id === sit.volcano_id);
+    const inside = mine.filter((f) => f.properties.inside).length;
+    const split = mine.length === n ? [inside ? `${inside} inside now` : null, n - inside ? `${n - inside} heading in` : null].filter(Boolean).join(" · ") : null;
+    m.hero = { count: n, words: `RFA ${n === 1 ? "flight" : "flights"} in or heading into TEPHRA's ash area`, split, show: mine.length, text: `${n} RFA ${n === 1 ? "flight" : "flights"} in or heading into TEPHRA's ash area${split ? `. ${split}` : ""}.` };
   } else {
     const adsb = store.feeds.find((f) => f.feed === "adsb");
-    const ok = adsb?.status === "OK";
-    lines.push({ text: "No RFA flight is seen heading into TEPHRA's area right now.", lead: true,
-      sub: [ok ? "Aircraft coverage here is patchy: an empty map is not an empty sky." : `Aircraft data is ${adsbWord(adsb?.status)}: an empty map is not an empty sky.`] });
+    const empty = adsb?.status === "OK" ? "Aircraft coverage here is patchy: an empty map is not an empty sky." : `Aircraft data is ${adsbWord(adsb?.status)}: an empty map is not an empty sky.`;
+    m.hero = { count: null, words: "No RFA flight is seen heading into TEPHRA's ash area right now.", split: empty, text: "No RFA flight is seen heading into TEPHRA's ash area right now." };
   }
+
+  // tile 1: the ash's height in the official reports
   if (cone?.mode !== "HYPOTHESIS") {
     const b = officialBand(D, sit.volcano_id);
     if (b) {
-      facts.push({
-        text: b.base > 0
-          ? `Official reports put the ash between ${ft(b.base)} and ${ft(b.top)}\u00a0ft (${fl(b.base)}–${fl(b.top)}).`
-          : `Official reports put the ash up to ${ft(b.top)}\u00a0ft (${fl(b.top)}).`,
-      });
+      const sentence = b.base > 0 ? `Official reports put the ash between ${ft(b.base)} and ${ft(b.top)} ft (${fl(b.base)}–${fl(b.top)}).` : `Official reports put the ash up to ${ft(b.top)} ft (${fl(b.top)}).`;
+      m.facts.push({ key: "ash", label: b.base > 0 ? "Ash between" : "Ash up to", value: b.base > 0 ? `${fl(b.base)}–${fl(b.top)}` : fl(b.top), sub: b.base > 0 ? `${ft(b.base)}–${ft(b.top)} ft` : `${ft(b.top)} ft`, title: sentence, act: "sources", text: sentence });
     }
   }
+
+  // tile 2: the RFA airports the ash closes (the airport plan covers the whole network)
   const plan = currentPlan();
   const closed = closuresFor(D, sit.volcano_id, plan);
   const re = replanning(store);
+  const pf = plan?.closures.length ? planFailure(plan) : null;
   if (re) {
-    // The trace does not say which volcano closed them, so the line says its scope: every
-    // volcano (review 2, item 2, spec G8).
-    facts.push({ cls: "story__closed", text: `Ash closes ${plural(re.airports.length, "RFA airport", "RFA airports")} (all volcanoes): ${re.airports.join(", ")}.`, sub: ["Re-planning the day's flights…", `started ${hhmmz(re.at)}`] });
-  } else if (closed.length) {
-    const icaos = [...new Set(closed.map((c) => c.icao))];
-    const all = new Set(plan.closures.map((c) => c.icao)).size;
-    // no plan: the job, at the place, with the cause one tap in (W15)
-    const pf = planFailure(plan);
-    const planPart = pf ? { text: `${pf.place} ›`, act: "recovery", title: `Recorded reason: ${pf.raw}`, tone: "caution" } : `airport plan as of ${hhmmz(ms(plan.created_at))}`;
-    facts.push({ cls: "story__closed", text: `Ash from ${sit.volcano_name} closes ${plural(icaos.length, "RFA airport", "RFA airports")}: ${icaos.join(", ")}.`,
-      sub: [all > icaos.length ? `${all} across all volcanoes` : null, planPart].filter(Boolean) });
-  } else if (plan?.closures.length && planFailure(plan)) {
-    // the airport plan covers the whole network: with no closure of this volcano's own, its
-    // failure is still the dispatcher's job here (review H6)
-    const pf = planFailure(plan);
-    const icaos = [...new Set(plan.closures.map((c) => c.icao))];
-    facts.push({ cls: "story__closed", text: `Ash closes ${plural(icaos.length, "RFA airport", "RFA airports")} (all volcanoes): ${icaos.join(", ")}.`,
-      sub: [{ text: `${pf.place} ›`, act: "recovery", title: `Recorded reason: ${pf.raw}`, tone: "caution" }] });
+    // the trace does not say which volcano closed them: the scope is every volcano (review 2, item 2)
+    m.facts.push({ key: "airports", label: "Airports closed", value: String(re.airports.length), sub: "re-planning the day…", busy: true, title: `Ash closes ${plural(re.airports.length, "RFA airport", "RFA airports")}, all volcanoes: ${re.airports.join(", ")}. Re-planning the day's flights, started ${hhmmz(re.at)}.`, act: "recovery", text: `${re.airports.length} RFA airports closed, re-planning` });
+  } else if (closed.length || pf) {
+    const here = [...new Set(closed.map((c) => c.icao))];
+    const all = [...new Set(plan.closures.map((c) => c.icao))];
+    const list = here.length ? here : all;
+    const scope = here.length ? (all.length > here.length ? ` (${all.length} across all volcanoes)` : "") : " across the network";
+    m.facts.push({ key: "airports", label: "Airports closed", value: String(list.length), sub: list.join(" · "),
+      tone: pf ? "caution" : null, title: `Ash ${here.length ? `from ${sit.volcano_name} ` : ""}closes ${plural(list.length, "RFA airport", "RFA airports")}${scope}: ${list.join(", ")}. ${pf ? pf.place : `Airport plan as of ${hhmmz(ms(plan.created_at))}`}.`, act: "recovery", text: `${list.length} RFA airports closed${scope}` });
   }
+
+  // tile 3: the advisories for this volcano's flights
+  const a = advisoryFacts(D, store, sit.volcano_id);
+  if (n > 0 || a.drafts || a.decided || a.unknown) {
+    let fact;
+    if (a.unknown) fact = { value: "?", label: "Advisories", sub: "unknown (database error)", tone: "serious" };
+    else if (a.drafts > 0) {
+      // drafts whose flight is not among the n seen heading in now, said so 30 next to 23 adds up
+      const seen = new Set(D.exposed.filter((f) => f.properties.volcano_id === sit.volcano_id).map((f) => `${f.properties.hex}:${sit.volcano_id}`));
+      const gone = store.advisories.filter((x) => x.volcano_id === sit.volcano_id && x.status === "DRAFT" && !seen.has(x.flight_id)).length;
+      fact = { value: `${a.partial ? "≥" : ""}${a.drafts}`, label: "Advisories", sub: gone > 0 && !a.partial ? `to decide, ${gone} for flights gone` : "to decide", title: `${a.partial ? "At least " : ""}${plural(a.drafts, "advisory waits", "advisories wait")} for a dispatcher.${gone > 0 && !a.partial ? ` ${gone} of them ${gone === 1 ? "is for a flight" : "are for flights"} no longer seen heading in.` : ""}` };
+    } else if (a.decided > 0) fact = { value: String(a.decided), label: "Advisories", sub: `decided · ${a.approved} approved, ${a.rejected} rejected` };
+    else fact = { value: "0", label: "Advisories", sub: "drafted" };
+    m.facts.push({ key: "advisories", ...fact, act: "decisions", title: fact.title || `Advisories: ${fact.value} ${fact.sub}.`, text: fact.title || `${fact.value} advisories ${fact.sub}.` });
+  }
+
+  // one notice: what the dispatcher must now do by hand, and why, said once (UI-AI-QUIET Q3)
+  const block = hand.block || draftBlock(ai);
+  const draftsGap = n > 0 && !a.drafts && !a.decided && !a.unknown && block && ((handHere && !block.undone) || block.word === "AI waiting");
+  const undone = hand.block?.undone && handHere;
+  if (draftsGap || undone || pf) {
+    const nf = plural(handHere, "flight", "flights");
+    const parts = [];
+    const noDrafts = draftsGap && block.word !== "AI waiting";
+    if (undone) parts.push(`The Duty Officer left ${handHere} must-do ${handHere === 1 ? "flight" : "flights"} for the Desk.`);
+    else if (draftsGap && !noDrafts) parts.push("Advisories are not drafted yet.");
+    // the missing pieces in one sentence when the same AI stop explains both
+    if (noDrafts && pf?.ai) parts.push("No advisory drafts and no airport plan.");
+    else {
+      if (noDrafts) parts.push("No advisory drafts.");
+      if (pf) parts.push(pf.ai ? "No airport plan." : `No airport plan: ${pf.place.replace(/^No airport plan \((.+)\): plan the network by hand$/, "$1")}.`);
+    }
+    const todo = [noDrafts || undone ? (handHere === 1 ? "the flight" : `the ${nf}`) : null, pf ? "the network" : null].filter(Boolean);
+    if (todo.length) parts.push(`Plan ${todo.join(" and ")} by hand on the Desk.`);
+    const aiCause = draftsGap || undone || pf?.ai;
+    const title = draftsGap && block.word === "AI paused" ? `AI paused${block.until ? ` ${block.until}` : ""}`
+      : draftsGap && block.word === "AI unavailable" ? `AI unavailable (${block.why})`
+        : draftsGap && block.word === "AI waiting" ? `Waiting for AI${block.slot ? `, next slot ${block.slot}` : ""}`
+          : undone ? "Must-do flights left for the Desk"
+            : pf?.ai ? `AI unavailable (${pf.why})` : "No airport plan";
+    m.notice = { title, body: parts.join(" "), why: aiCause ? { act: "ai", text: "Why ›", label: "Why: open AI helpers" } : { act: "recovery", text: "Airport closures ›", label: "Open Airport closures" },
+      raw: pf ? pf.raw : null, text: `${title}. ${parts.join(" ")}` };
+  }
+
+  // sources that disagree: TEPHRA's reason to exist, so they stay in the story, one line each
   const dir = sit.discrepancies.find((d) => d.kind === "DIRECTION_MISMATCH" && d.aspect === "direction" && (SEV_RANK[d.severity] || 0) >= 2);
   if (dir) {
     let tail = null;
@@ -270,20 +282,19 @@ function storyLines(D, store, ui, sit) {
         : outcome === "PENDING" ? "TEPHRA's estimate has not been widened yet (AI waiting)."
           : outcome === "MODEL_FAILED" ? "TEPHRA's estimate has not been widened (AI unavailable)." : "TEPHRA's estimate has not been widened.";
     }
-    facts.push({ text: `The sources disagree on where the ash is heading, ${Math.round(dir.magnitude)}° apart.`, cls: "story__dis", sub: tail ? [tail] : null });
+    m.lines.push({ text: `The sources disagree on where the ash is heading, ${Math.round(dir.magnitude)}° apart.`, sub: tail, mark: "disagree", act: "disagree" });
   }
-  const silence = sit.discrepancies.find((d) => d.kind === "SILENCE");
-  if (silence) facts.push({ text: "Ash was reported and no VAA has followed.", cls: "story__dis" });
-  const conflict = sit.discrepancies.find((d) => d.kind === "CONFLICT");
-  if (conflict) facts.push({ text: "A no-ash VAA was in force when another report saw ash after it.", cls: "story__dis" });
-  return [...lines, ...facts, ...crewLines(D, sit)];
+  if (sit.discrepancies.some((d) => d.kind === "SILENCE")) m.lines.push({ text: "Ash was reported and no VAA has followed.", mark: "disagree", act: "disagree" });
+  if (sit.discrepancies.some((d) => d.kind === "CONFLICT")) m.lines.push({ text: "A no-ash VAA was in force when another report saw ash after it.", mark: "disagree", act: "disagree" });
+  m.lines.push(...crewLines(D, sit));
+  return m;
 }
 
-// Crew reports of ash (UI-DESIGN 7.6, 7.20): one line at most, after the flights, for this
-// volcano's active crew areas (a report near no active volcano: the all-volcanoes story, and a
-// row in the volcano list). A covered area adds nothing the official lines do not already say,
-// so it has no line. The line opens Details › Crew reports. A crew area is an operator-policy
-// flag: its line never changes the official or TEPHRA lines above.
+// Crew reports of ash (UI-DESIGN 7.6, 7.20): one line at most, for this volcano's active crew
+// areas (a report near no active volcano: the all-volcanoes story, and a row in the volcano
+// list). A covered area adds nothing the official lines do not already say, so it has no line.
+// The line opens Details › Crew reports. A crew area is an operator-policy flag: its line never
+// changes the official or TEPHRA lines.
 export function crewLines(D, sit) {
   const C = D.crew;
   const mine = C.drawn.filter((v) => v.state === "ACTIVE" && (sit ? v.report.volcano_id === sit.volcano_id : C.homeless(v)));
@@ -292,79 +303,111 @@ export function crewLines(D, sit) {
   const flagged = C.flags.filter((f) => f.report_ids.some((id) => ids.has(id)));
   const outside = mine.some((v) => v.discrepancy);
   const what = `${mine.length === 1 ? "Crew report" : `${mine.length} crew reports`} of ash${outside ? " outside the official area" : ""}`;
-  let text;
-  // the flight numbers are one tap away (the line opens Details), so the line stays two lines
-  if (flagged.length) text = `${what}: ${plural(flagged.length, "RFA flight", "RFA flights")} on ${mine.length === 1 ? "its" : "their"} route.`;
-  else text = `${what}, ${mine[0].age_text}.`;
-  return [{ text, cls: "story__crew", mark: outside ? "caution" : "pin", act: "crew" }];
+  // the flight numbers are one tap away (the line opens Details), so the line stays short
+  const text = flagged.length ? `${what}: ${plural(flagged.length, "RFA flight", "RFA flights")} on ${mine.length === 1 ? "its" : "their"} route.` : `${what}, ${mine[0].age_text}.`;
+  return [{ text, mark: outside ? "caution" : "pin", act: "crew" }];
 }
 
 let lastAnnounce = { at: 0, key: "" };
 
-// One story line: the lead (the number in TEPHRA amber), a fact, or a line that opens Details.
-function lineNode(l) {
-  if (l.banner) return el("p", { class: "story__hyp", role: "note" }, st("st-caution", "var(--c-caution)"), el("span", { text: l.text }));
-  const p = el("p", { class: ["story__line", l.lead ? "story__lead" : "story__fact", l.cls].filter(Boolean).join(" ") });
-  // a line that opens its Details section is one button, the whole sentence its label
-  const host = l.act ? el("button", { type: "button", class: "story__act", dataset: { act: "details-open", sec: l.act, focus: `story-${l.act}` } }) : p;
-  if (l.mark === "pin") host.append(icon("i-pin", "icon story__pin"), " ");
-  else if (l.mark === "caution") host.append(st("st-caution", "var(--c-caution)"), " ");
-  const num = l.count != null ? String(l.count) : null;
-  if (num && l.text.startsWith(num)) host.append(el("span", { class: "story__num", text: num }), l.text.slice(num.length));
-  else host.append(l.text);
-  if (l.act) p.append(host);
-  // the cause of an AI consequence is one tap in, at the AI home
-  if (l.why) p.append(" ", el("button", { type: "button", class: "link-btn story__why", dataset: { act: "details-open", sec: "ai", focus: "story-why" }, "aria-label": "Why: open AI helpers", text: "Why ›" }));
-  // the quieter sub-line: scope, the plan's time, what follows; parts joined by a dot that screen
-  // readers hear as a pause (a hidden "; ")
-  if (l.sub?.length) {
-    // a link after other words starts its own line, so a wrapped line never ends on a bare dot
-    p.append(el("span", { class: "story__sub" }, ...l.sub.flatMap((t, i) => [
-      i && typeof t === "string" ? [el("span", { class: "story__dot", "aria-hidden": "true", text: " · " }), el("span", { class: "sr-only", text: "; " })] : i ? el("span", { class: "sr-only", text: "; " }) : [],
-      typeof t === "string" ? el("span", { text: t })
-        : el("button", { type: "button", class: `link-btn story__sublink${i ? " story__sublink--own" : ""}${t.tone ? ` story__sublink--${t.tone}` : ""}`, title: t.title || null, dataset: { act: "details-open", sec: t.act, focus: `story-sub-${t.act}` } }, t.tone ? st(`st-${t.tone}`, `var(--c-${t.tone})`) : null, t.text)])));
-  }
-  return p;
+const openBtn = (act, cls, label, ...kids) => el("button", { type: "button", class: cls, "aria-label": label, dataset: { act: "details-open", sec: act, focus: `story-${cls.split(" ")[0]}-${act}` } }, ...kids);
+
+// The trust note (R5.7, docs/UI-AI-QUIET.md W17): one sentence that holds in every AI state, one
+// tap from "TEPHRA's ash area" in the hero; the map key's TEPHRA row says it on screen.
+const TRUST = "TEPHRA's estimate is never smaller than the official area, which stays binding. AI can widen it, never shrink it.";
+const trustNode = (open) => el("p", { id: "trust", class: "trust", hidden: !open }, icon("i-info", "icon trust__icon"),
+  el("span", { class: "trust__body" }, el("span", { class: "trust__text", text: TRUST }),
+    el("button", { type: "button", class: "link-btn trust__more", dataset: { act: "details-open", sec: "estimate", focus: "trust-more" }, text: "How TEPHRA built it ›" })));
+
+// The hero: the number in TEPHRA amber, what it counts, and the split with "Show them".
+function heroNode(h, ui) {
+  const words = el("p", { class: "hero__words" }, h.words.replace(/TEPHRA's ash area$/, ""),
+    h.count != null ? el("span", { class: "hero__area" }, "TEPHRA's ash area",
+      el("button", { type: "button", class: "hero__info", "aria-expanded": ui.trustOpen ? "true" : "false", "aria-controls": "trust", "aria-label": "What is TEPHRA's ash area?", title: "What is TEPHRA's ash area?", dataset: { act: "trust-toggle", focus: "trust-toggle" } }, icon("i-info"))) : null);
+  return el("div", { class: `hero${h.count == null ? " hero--none" : ""}` },
+    h.count != null ? el("p", { class: "hero__num", "aria-hidden": "true", text: String(h.count) }) : null,
+    el("div", { class: "hero__text" },
+      h.count != null ? el("span", { class: "sr-only", text: `${h.count} ` }) : null,
+      words,
+      h.split ? el("p", { class: "hero__split" }, el("span", { text: h.split }),
+        h.show ? [el("span", { class: "hero__dot", "aria-hidden": "true", text: " · " }), openBtn("flights", "link-btn hero__show", `Show the ${plural(h.show, "flight", "flights")}`, h.show === 1 ? "Show it" : "Show them")] : null) : null),
+    h.count != null ? trustNode(!!ui.trustOpen) : null);
 }
+
+function factNode(f) {
+  return el("li", { class: `fact${f.tone ? ` fact--${f.tone}` : ""}` },
+    openBtn(f.act, "fact__btn", `${f.title} Opens Details.`,
+      el("span", { class: "fact__label", text: f.label }),
+      el("span", { class: "fact__value" }, f.busy ? el("span", { class: "spinner", "aria-hidden": "true" }) : f.tone ? st(`st-${f.tone}`, `var(--c-${f.tone})`) : null, f.value),
+      f.sub ? el("span", { class: "fact__sub", text: f.sub }) : null));
+}
+
+function noticeNode(nt) {
+  return el("div", { class: "notice", role: "status" },
+    icon("st-caution", "st notice__icon"),
+    el("div", { class: "notice__body" },
+      el("p", { class: "notice__title", text: nt.title }),
+      el("p", { class: "notice__text", title: nt.raw ? `Recorded reason: ${nt.raw}` : null }, nt.body, " ",
+        el("button", { type: "button", class: "link-btn notice__why", "aria-label": nt.why.label, dataset: { act: "details-open", sec: nt.why.act, focus: "story-why" }, text: nt.why.text }))));
+}
+
+function lineNode(l) {
+  const mark = l.mark === "pin" ? icon("i-pin", "icon story__mark story__mark--crew") : l.mark === "disagree" ? icon("i-compare-sources", "icon story__mark story__mark--disagree") : st("st-caution", "var(--c-caution)");
+  return el("li", {}, el("button", { type: "button", class: "sline", dataset: { act: "details-open", sec: l.act, focus: `story-line-${l.act}` } },
+    mark, el("span", { class: "sline__text" }, el("span", { text: l.text }), l.sub ? el("span", { class: "sline__sub", text: l.sub }) : null),
+    el("span", { class: "sline__go", "aria-hidden": "true", text: "›" })));
+}
+
+const modelKey = (m) => JSON.stringify([m.banner, m.hero, m.facts.map((f) => [f.label, f.value, f.sub, f.tone, f.title]), m.notice && [m.notice.title, m.notice.body], m.lines]);
 
 function renderLines(D, store, ui, sit, announce) {
   const box = $("headline");
-  let lines;
-  // connecting: the h1 already says "Connecting to TEPHRA…" with its spinner; no line repeats it
-  if (!D) lines = [];
-  else if (sit) lines = storyLines(D, store, ui, sit);
-  else if (D.reading) {
-    // Active volcanoes are known but their situation cards have not arrived: never "no ash".
-    lines = [{ text: "Reading the official reports…", cls: "story__connecting", lead: true },
-      { text: D.state.last_tick ? "Ash is reported here. The summary appears when TEPHRA has read the reports, usually within a minute." : "TEPHRA has just started and is reading every feed for the first time. This takes up to a minute.", cls: "story__note" }];
-  } else if (D.regionEmpty) {
-    const name = D.area?.name || "this area";
-    lines = [{ text: `No ash reported near ${name} right now.`, lead: true }];
-  } else lines = [{ text: "No official ash report is in force in the watched regions right now.", lead: true }];
-  if (D && !sit) lines.push(...crewLines(D, null));
-  // Replace the lines only when their words change, so screen readers are not re-read every render.
-  const key = lines.map((l) => `${l.cls || ""}:${l.text}:${(l.sub || []).map((x) => (typeof x === "string" ? x : x.text)).join("·")}`).join("|");
+  let kids = [], key = "", text = "", count = "";
+  if (!D) key = "";
+  else if (sit) {
+    const m = storyModel(D, store, sit);
+    key = `${modelKey(m)}|${ui.trustOpen ? 1 : 0}`;
+    text = [m.hero.text, m.facts.find((f) => f.key === "advisories")?.text, m.notice?.text].filter(Boolean).join(" ");
+    count = String(m.hero.count ?? "");
+    if (box.dataset.key !== key) {
+      kids = [
+        m.banner ? el("p", { class: "story__hyp", role: "note" }, st("st-caution", "var(--c-caution)"), el("span", { text: m.banner })) : null,
+        heroNode(m.hero, ui),
+        m.facts.length ? el("ul", { class: `facts facts--${m.facts.length}`, "aria-label": "Key facts" }, ...m.facts.map(factNode)) : null,
+        m.notice ? noticeNode(m.notice) : null,
+        m.lines.length ? el("ul", { class: "slines", "aria-label": "Also here" }, ...m.lines.map(lineNode)) : null,
+      ].filter(Boolean);
+    }
+  } else {
+    let lead, note = null;
+    if (D.reading) {
+      // active volcanoes are known but their situation cards have not arrived: never "no ash"
+      lead = "Reading the official reports…";
+      note = D.state.last_tick ? "Ash is reported here. The summary appears when TEPHRA has read the reports, usually within a minute." : "TEPHRA has just started and is reading every feed for the first time. This takes up to a minute.";
+    } else if (D.regionEmpty) lead = `No ash reported near ${D.area?.name || "this area"} right now.`;
+    else lead = "No official ash report is in force in the watched regions right now.";
+    const crew = crewLines(D, null);
+    key = [lead, note, ...crew.map((l) => l.text)].join("|");
+    if (box.dataset.key !== key) {
+      kids = [el("p", { class: `hero__words hero__words--alone${D.reading ? " story__connecting" : ""}`, text: lead }), note ? el("p", { class: "story__note", text: note }) : null,
+        crew.length ? el("ul", { class: "slines" }, ...crew.map(lineNode)) : null].filter(Boolean);
+    }
+  }
+  // Replace the story only when its words change, so screen readers are not re-read every render.
   if (box.dataset.key !== key) {
     const prev = box.dataset.count || "";
     box.dataset.key = key;
-    box.replaceChildren(...lines.map(lineNode));
-    const flights = lines.find((l) => l.count != null);
-    const now = String(flights?.count ?? "");
-    if (prev && now && prev !== now && !reducedMotion()) {
-      const node = box.querySelector(".story__flights");
-      node?.classList.add("is-changed");
-    }
-    box.dataset.count = now;
+    box.replaceChildren(...kids);
+    if (prev && count && prev !== count && !reducedMotion()) box.querySelector(".hero__num")?.classList.add("is-changed");
+    box.dataset.count = count;
   }
-  // One announcement at most every 30 s, only when the volcano, flight count or waiting count
-  // changes (R15.6). The message is the L4 and L5 lines.
-  if (sit && announce) {
-    const l4 = lines.find((l) => l.cls === "story__flights");
-    const l5 = lines.find((l) => l.cls === "story__wait");
-    const akey = [sit.volcano_id, l4?.count ?? 0, l5?.text || ""].join("|");
+  // One announcement at most every 30 s, only when the volcano, the flights or the advisories
+  // change (R15.6).
+  if (sit && announce && text) {
     const t = performance.now();
-    if (lastAnnounce.key && akey !== lastAnnounce.key && t - lastAnnounce.at > 30e3 && l4) {
-      announce(`${sit.volcano_name}: ${l4.text}${l5 ? ` ${l5.text}` : ""}`);
+    const akey = `${sit.volcano_id}|${text}`;
+    if (lastAnnounce.key && akey !== lastAnnounce.key && t - lastAnnounce.at > 30e3) {
+      announce(`${sit.volcano_name}: ${text}`);
       lastAnnounce = { at: t, key: akey };
     } else if (!lastAnnounce.key) lastAnnounce = { at: t, key: akey };
   }
@@ -383,14 +426,14 @@ function renderActions(D, store, ui, sit) {
   } else if (D && D.regionEmpty) {
     const others = (D.state.regions || []).filter((r) => D.regionCounts[r.key] > 0);
     if (others.length) {
-      kids.push(el("p", { class: "story__line story__note", text: "Ash elsewhere:" }),
+      kids.push(el("p", { class: "story__note", text: "Ash elsewhere:" }),
         el("div", { class: "btn-row" }, ...others.map((r) => el("button", { type: "button", class: "btn", dataset: { region: r.key, focus: `elsewhere-${r.key}` }, text: `${r.name} · ${D.regionCounts[r.key]}` }))));
     }
   }
   if (D) {
     kids.push(el("a", { id: "cta", class: primary ? "cta" : "btn cta--quiet", href: ctaHref, target: "_blank", rel: "noopener", dataset: { focus: "cta" } }, ctaText));
-    const n = sit ? D.exposed.filter((f) => f.properties.volcano_id === sit.volcano_id).length : 0;
-    if (sit && n > 0) kids.push(el("button", { type: "button", class: "link-btn story__show", dataset: { act: "details-open", sec: "flights", focus: "show-flights" }, text: `Show the ${n} ${n === 1 ? "flight" : "flights"}` }));
+    // the way into AI at work (UI-DESIGN 7.21) in words, beside the one main action
+    kids.push(el("button", { type: "button", class: "link-btn story__board", dataset: { act: "board-open", focus: "story-board" }, "aria-keyshortcuts": "A" }, icon("i-agent"), el("span", { text: "See the AI at work" })));
   }
   const key = kids.map((k) => `${k.textContent}|${k.getAttribute?.("href") || ""}`).join("§");
   if (box.dataset.key !== key) { box.dataset.key = key; box.replaceChildren(...kids); }
@@ -405,6 +448,9 @@ function renderActions(D, store, ui, sit) {
 
 // ------------------------------------------------------------------ key (R5.5)
 
+// The map key sits on the map (top left) at 601 px and up, and under the map on a phone; it folds
+// to one bar ("Map key" and three swatches). "never smaller than official" stays on its TEPHRA row
+// (docs/UI-AI-QUIET.md 2.2).
 export function keyRows(D, ui) {
   const rows = [];
   const sw = (id, cls) => icon(id, `sw ${cls}`);
@@ -415,7 +461,7 @@ export function keyRows(D, ui) {
   if (ui.layers.aircraft && D.exposed.length) rows.push([sw("i-aircraft", "sw--exposed"), "RFA flight in or heading in", null]);
   if (ui.layers.aircraft && D.exposed.length >= 6) rows.push([sw("lg-flight-group", "sw--exposed"), "RFA flights close together", "click to zoom in"]);
   const step = D.official.find((f) => f.properties.show && f.properties.step !== "now");
-  if (step) rows.push([sw("lg-area-forecast", "sw--official"), `Official forecast area\u00a0(${step.properties.layer.replace("FCST+", "+").replace("H", "\u00a0h")})`, null]);
+  if (step) rows.push([sw("lg-area-forecast", "sw--official"), `Official forecast area (${step.properties.layer.replace("FCST+", "+").replace("H", " h")})`, null]);
   if (ui.layers.aircraft && D.aircraft.some((f) => !f.properties.exposed)) rows.push([sw("i-aircraft", "sw--aircraft"), "Other aircraft (not RFA)", null]);
   if (ui.layers.routes && D.hasRouteLine) rows.push([sw("lg-route", "sw--route"), "Route (origin to destination)", "airport codes at the ends"]);
   const pickedReroute = !!D.selFlight && D.rerouteKeys?.has(`${D.selFlight.properties.hex}:${D.selFlight.properties.volcano_id}`);
@@ -429,34 +475,21 @@ export function keyRows(D, ui) {
 function renderKey(D, ui) {
   const box = $("legend");
   const rows = keyRows(D, ui);
+  box.hidden = !rows.length;
   const key = `${ui.keyOpen ? "open" : "shut"}§${rows.map((r) => `${r[1]}|${r[2]}`).join("§")}`;
   box.classList.toggle("is-open", !!ui.keyOpen);
   if (box.dataset.key === key && box.childElementCount) return;
   box.dataset.key = key;
-  // Under the Details drawer (601-1599 px, .key--pinned) the key folds to one bar with the first
-  // three swatches; the bar is hidden elsewhere (wall.css), where the rows always show.
   const glyphs = rows.slice(0, 3).map(([s]) => s.cloneNode(true));
   box.replaceChildren(
-    el("ul", { class: "key__rows", id: "key-rows" }, ...rows.map(([s, label, sub]) => el("li", { class: sub ? "key__row key__row--sub" : "key__row" }, s, el("span", { class: "key__text" }, el("span", { class: "key__label", text: label }), sub ? el("span", { class: "key__sub", text: sub }) : null))),
-      // the last cell of the grid, so with an odd count it sits beside the last row, not under it
-      el("li", { class: "key__more-row" }, el("button", { type: "button", class: "link-btn key__more", dataset: { act: "help-map", focus: "key-more" }, text: "Full map key and alert colours ›" }))),
     el("button", { type: "button", class: "key__toggle", "aria-expanded": ui.keyOpen ? "true" : "false", "aria-controls": "key-rows", dataset: { act: "key-toggle", focus: "key-toggle" } },
       el("span", { class: "key__toggle-label", text: "Map key" }), el("span", { class: "key__glyphs", "aria-hidden": "true" }, ...glyphs),
-      el("span", { class: "key__toggle-word", text: ui.keyOpen ? "Hide" : `${rows.length} item${rows.length === 1 ? "" : "s"}` }), icon("i-chevron-up", "icon key__chev")));
+      icon("i-chevron-down", "icon key__chev")),
+    el("ul", { class: "key__rows", id: "key-rows", hidden: !ui.keyOpen }, ...rows.map(([s, label, sub]) => el("li", { class: "key__row" }, s, el("span", { class: "key__text" }, el("span", { class: "key__label", text: label }), sub ? el("span", { class: "key__sub", text: sub }) : null))),
+      el("li", { class: "key__more-row" }, el("button", { type: "button", class: "link-btn key__more", dataset: { act: "help-map", focus: "key-more" }, text: "Full map key and alert colours ›" }))));
 }
 
-// ------------------------------------------------------------------ trust, notes, all volcanoes
-
-// The trust line (R5.7, docs/UI-AI-QUIET.md W17): one sentence that holds in every AI state. The
-// AI's own state is the chip's; the model ids are in Details › AI helpers.
-const TRUST = "TEPHRA's estimate is never smaller than the official area, which stays binding.";
-function renderTrust(D) {
-  const box = $("trust");
-  if (!D) { box.replaceChildren(); box.dataset.key = ""; return; }
-  if (box.dataset.key === TRUST) return;
-  box.dataset.key = TRUST;
-  box.replaceChildren(icon("i-code", "icon trust__icon"), el("span", { class: "trust__body" }, el("span", { class: "trust__text", text: TRUST })));
-}
+// ------------------------------------------------------------------ notes, all volcanoes
 
 function renderNotes(notes) {
   const box = $("story-notes");
@@ -466,9 +499,7 @@ function renderNotes(notes) {
   box.replaceChildren(...notes.map((n) => el("p", { class: "story-note" }, st("st-info", "var(--c-info)"), el("span", { text: n.text }))));
 }
 
-// the store of the newest render, for the fit pass, which re-renders this line on its own
-let curStore = null;
-function renderAll(D, ui, store = curStore) {
+function renderAll(D, ui) {
   const kx = $("kpi-exposed");
   const s = D?.state;
   const active = D?.activeCount ?? 0;
@@ -482,16 +513,14 @@ function renderAll(D, ui, store = curStore) {
   const exposed = s?.exposed_count ?? 0;
   setText(kx, exposed > 0 ? String(exposed) : D ? "no" : "–");
   label("kpi-exposed", exposed > 0 ? `RFA flight${exposed === 1 ? "" : "s"} in or heading in` : D ? "RFA flight seen heading in" : "RFA flights in or heading in");
-  kx.closest(".kpi").classList.toggle("kpi--hot", exposed > 0);
   kx.closest(".kpi").title = exposed > 0
     ? `${exposed} RFA (fictional) flight${exposed === 1 ? "" : "s"} in or heading into TEPHRA's estimated area, all volcanoes.`
     : "No RFA (fictional) flight seen heading in. Receiver coverage is patchy: an empty map is not an empty sky.";
-  kx.setAttribute("aria-label", exposed > 0 ? String(exposed) : "0 seen; an empty map is not an empty sky");
-  // null: the server could not read the drafts; an older count is not shown as current.
+  kx.setAttribute("aria-label", exposed > 0 ? String(exposed) : "0 seen. An empty map is not an empty sky");
+  // null: the server could not read the drafts; an older count is not shown as current. Why a
+  // count is 0 is the story's notice, said once there (not again here).
   setText($("kpi-drafts"), !D ? "–" : s.draft_count === null ? "unknown (database error)" : String(s.draft_count ?? 0));
-  // 0 because the AI did not run, said in the count's own words (W20)
-  const block = D && !s.draft_count ? draftBlock(aiState(D, store)) : null;
-  label("kpi-drafts", `${D && s.draft_count === 1 ? "advisory waiting" : "advisories waiting"}${block && block.word !== "AI waiting" ? ` (${block.word})` : ""}`);
+  label("kpi-drafts", D && s.draft_count === 1 ? "advisory waiting" : "advisories waiting");
   const ul = $("volcano-tabs");
   if (!D) { ul.replaceChildren(); return; }
   const others = D.sits.filter((x) => x.volcano_id !== D.selected);
@@ -523,7 +552,6 @@ function renderAll(D, ui, store = curStore) {
 
 export function renderStory(D, store, ui, { conn, extra, announce, notes = [] }) {
   const sit = D?.sit || null;
-  curStore = store;
   renderFailures(storyFailures(D, store, conn, extra));
   const h1 = $("volcano-name");
   if (!D) setText(h1, extra.error ? "TEPHRA" : "Connecting to TEPHRA…");
@@ -539,9 +567,8 @@ export function renderStory(D, store, ui, { conn, extra, announce, notes = [] })
   $("verdict").classList.toggle("verdict--hypothesis", !!sit && D.coneOf(sit.volcano_id)?.properties.mode === "HYPOTHESIS");
   renderActions(D, store, ui, sit);
   renderKey(D, ui);
-  renderTrust(D);
   renderNotes(notes);
-  renderAll(D, ui, store);
+  renderAll(D, ui);
   fitStory(D, ui);
 }
 
@@ -581,7 +608,7 @@ function fitStory(D, ui) {
   }
   // hidden under Details (1360-1599 px): nothing to measure; measure when it shows again
   if (!box.offsetHeight) { fitKey = ""; return; }
-  const key = `${box.offsetWidth}x${box.offsetHeight}|${ui.vlistOpen ? 1 : 0}|${box.querySelector("#verdict")?.textContent}|${$("legend").textContent}|${$("story-notes").textContent}|${$("fail-line").hidden ? "" : $("fail-line").textContent}|${$("allv").textContent}`;
+  const key = `${box.offsetWidth}x${box.offsetHeight}|${ui.vlistOpen ? 1 : 0}|${box.querySelector("#verdict")?.textContent}|${$("story-notes").textContent}|${$("fail-line").hidden ? "" : $("fail-line").textContent}|${$("allv").textContent}`;
   if (key === fitKey) return;
   fitKey = key;
   const over = () => box.scrollHeight - box.clientHeight > 1;

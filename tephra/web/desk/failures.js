@@ -18,7 +18,7 @@ import { openBSheet } from './ui.js';
 import { toast } from './toast.js';
 import { deskAi, openBudget } from './budget.js';
 import { renderDuty } from './duty.js';
-import { WHY, reasonClass } from '../wall/x-parts.js';
+import { WHY, machineText, reasonClass } from '../wall/x-parts.js';
 
 const NOTE_MAX = 500;
 const HANDLED_CHIPS = ['Contacted the flight by phone', 'Re-planned by hand', 'Flight already clear', 'Duplicate'];
@@ -53,7 +53,7 @@ const causeOf = (f) => `${HELPER[f.stage] || f.stage}|${reasonClass(f.reason)}`;
 // not hand the flight out, that (review H8), from the cause and the live budget.
 function causeWords(cls, ai) {
   if (cls === 'undone') return 'the Duty Officer ran and left it for the Desk';
-  if (cls === 'budget') return ai.kind === 'paused' ? `AI paused${ai.until ? ` until ${ai.until}` : ''}` : WHY.budget;
+  if (cls === 'budget') return ai.kind === 'paused' ? `AI paused${ai.until ? ` ${ai.until}` : ''}` : WHY.budget;
   return `AI unavailable (${WHY[cls] || WHY.other})`;
 }
 const causeSentence = (cls, ai, n) => causeWords(cls, ai).replace(/left it for/, n === 1 ? 'left it for' : 'left them for');
@@ -182,7 +182,7 @@ function group(title, items, mixed, key, must) {
 
 function paneBody(list, ai, must) {
   const mixed = causes(list).length > 1;
-  const raws = [...new Set(list.map((f) => `${f.reason}${f.model_id && f.model_id !== 'stub' ? ` · would have used ${f.model_id}` : ''}`))];
+  const raws = [...new Set(list.map((f) => `${machineText(f.reason)}${f.model_id && f.model_id !== 'stub' ? ` · would have used ${f.model_id}` : ''}`))];
   return [
     el('div', { class: 'fpane__head' },
       el('button', { type: 'button', class: 'linkbtn fpane__back', 'data-failpane': 'close' }, icon('i-chevron-left'), el('span', { text: 'Decide' })),
@@ -268,7 +268,7 @@ export function openHandled(id) {
     el('dt', { text: 'What happened' }), el('dd', {}, el('span', { text: `No AI plan for this flight: ${causeWords(reasonClass(f.reason), deskAi())}. Nothing was put in its place.` }),
       must ? [' ', el('span', { class: 'dcard__must', text: 'Must do' })] : null));
   const tech = el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }),
-    el('p', { class: 'mono tech__line', text: `${f.reason}${f.model_id && f.model_id !== 'stub' ? ` · would have used ${f.model_id}` : ''}` }),
+    el('p', { class: 'mono tech__line', text: `${machineText(f.reason)}${f.model_id && f.model_id !== 'stub' ? ` · would have used ${f.model_id}` : ''}` }),
     el('p', { class: 'mono tech__line', text: `stage ${f.stage} · ${f.id} · cone ${f.cone_id}` }));
   const go = el('button', { type: 'button', class: 'btn btn--approve btn--block', disabled: app.offline },
     icon('i-check'), el('span', { text: `Mark ${f.proxy_flight} handled` }));

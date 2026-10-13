@@ -88,12 +88,10 @@
           <div id="eyebrow-rest" class="eyebrow__rest"></div>
           <span id="eyebrow-asof" class="eyebrow__asof"></span>
         </div>
+        <!-- the hero, the fact tiles, one notice and the lines about the sources (wall/story.js) -->
         <div id="headline" class="story__lines"></div>
-        <!-- who built the summary sits right under it, so it is always on screen (R0.2.5) -->
-        <p id="trust" class="trust"></p>
         <div id="story-actions" class="story__actions"></div>
       </section>
-      <div id="legend" class="key" aria-label="Map key"></div>
       <div id="story-notes" class="story-notes"></div>
       <section id="allv" class="allv" aria-labelledby="allv-title">
         <h2 id="allv-title" class="allv__title">All volcanoes</h2>
@@ -118,6 +116,8 @@
         </div>
         <div class="map-vignette" aria-hidden="true"></div>
         <div class="map-scrim" aria-hidden="true"></div>
+        <!-- the map key, on the map (top left); a phone moves it under the map (wall.js) -->
+        <section id="legend" class="key" aria-label="Map key"></section>
 
         <div id="compare-labels" class="compare-labels" hidden>
           <span class="compare-label glass">A · official reports only</span>
@@ -183,7 +183,7 @@
       <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-info"></use></svg>
       <strong id="disclaimer">Decision support only - fictional airline - not for operational use</strong>
     </p>
-    <span class="honesty__airline"><span class="honesty__long">RFA (Ring of Fire Air) is a fictional airline; its flight numbers are proxies for real aircraft.</span><span class="honesty__short">RFA is a fictional airline.</span></span>
+    <span class="honesty__airline"><span class="honesty__long">RFA (Ring of Fire Air) is a fictional airline. Its flight numbers are proxies for real aircraft.</span><span class="honesty__short">RFA is a fictional airline.</span></span>
     <span class="honesty__links">
       <button id="attribution" class="honesty__about" type="button" aria-haspopup="dialog">Map and data credits</button>
       <button id="policy-btn" class="honesty__about honesty__policy" type="button" aria-haspopup="dialog" hidden>Policy A (illustrative)</button>

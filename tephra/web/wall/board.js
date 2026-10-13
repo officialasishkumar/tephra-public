@@ -5,8 +5,8 @@
 // the satellite readings. Nothing here is scripted: a card with no data says so. No DOM, so the
 // board's logic is tested on its own (tests/test_wall_board.py).
 
-import { ms, hhmmz } from "./util.js";
-import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiLead, reasonClass, WHY } from "./x-parts.js";
+import { ms } from "./util.js";
+import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiLead, reasonClass, realWhen, WHY } from "./x-parts.js";
 import { collapseRuns, plural } from "./dk.js";
 
 // Every AI helper on the Wall, in board order. `tool` is the Duty Officer tool that reaches it,
@@ -80,8 +80,10 @@ function traceSteps(h, lines) {
 
 const workOf = (h, work) => (work || []).filter((w) => (w.kind === "recover" && h.kinds?.includes("RECOVER")) || (w.item && h.kinds?.includes(w.item.kind)));
 
-// "next slot 0700Z". Budget times are on the real clock; in REPLAY the board says so once.
-const slotText = (at) => (Number.isFinite(at) ? `next slot ${hhmmz(at)}` : null);
+// "next slot 0700Z", or in REPLAY "next slot in 2 h 45 min": budget times are on the real clock
+// (realWhen, the AI state's rule).
+let clock = { now: Date.now(), replay: false };
+const slotText = (at) => { const w = realWhen(at, clock.now, clock.replay); return w ? `next slot ${w.at}` : null; };
 
 function queueSteps(items) {
   const out = [];
@@ -198,14 +200,14 @@ export function modelLine(tier, ctx) {
   if (!t) return { id: null, text: "Calls today: unknown", tone: "caution" };
   const m = (b.models || []).find((x) => x.model_id === t.model_id);
   const shared = (b.tiers || []).filter((x) => x.model_id === t.model_id).length > 1 || (m && /every other/i.test(m.jobs || ""));
-  const reset = ms(b.resets_at);
+  const reset = realWhen(ms(b.resets_at), clock.now, clock.replay);
   const out = Boolean(m?.closed) || t.remaining <= 0;
   // A closed day's limit means nothing to the reader ("1 of 450" while no call can go), so the
   // count stands alone and the closing says why and until when.
   const count = out ? plural(t.used, "call") : `${t.used.toLocaleString("en")} of ${t.limit.toLocaleString("en")} calls`;
   return {
     id: t.model_id, text: `${count} today${shared ? ", shared" : ""}`,
-    closed: out ? { until: Number.isFinite(reset) ? hhmmz(reset) : null, by: m?.closed ? "Google" : "budget" } : null, tone: null,
+    closed: out ? { until: reset?.until || null, by: m?.closed ? "Google" : "budget" } : null, tone: null,
   };
 }
 
@@ -240,7 +242,7 @@ function helperCard(h, ctx) {
   return {
     id: h.id, role: h.role, name: h.name, does: h.does, to: h.to || null, state, word: (state === "failed" || state === "notrun") && last.word ? last.word : STATE_WORD[state],
     last: last || { tone: "quiet", text: `Nothing in the newest ${plural(ctx.trace.length, "step")}. ${h.when}.`, at: NaN, source: SOURCE.trace },
-    waiting: waiting.length ? { n: waiting.length, slot: slotText(slot), until: Number.isFinite(slot) ? hhmmz(slot) : null } : null,
+    waiting: waiting.length ? { n: waiting.length, slot: slotText(slot), until: realWhen(slot, clock.now, clock.replay)?.until || null } : null,
     queued: queued.length,
     handoff: handoff(ctx.duty, h.tool),
     model: modelLine(h.tier, ctx),
@@ -262,7 +264,7 @@ export function dutyLine(run, ctx) {
   const first = n ? ` It handed out ${plural(handed, "job")} first.` : "";
   if (run.outcome === "MODEL_FAILED") {
     const cls = reasonClass((run.validation_errors || [])[0]);
-    if (cls === "budget") return { tone: "caution", word: "Not run", text: `Not run: today's free AI quota is used up${ctx.until ? ` (until ${ctx.until})` : ""}. No brief was made.${first}${tail ? ` ${tail}` : ""}` };
+    if (cls === "budget") return { tone: "caution", word: "Not run", text: `Not run: today's free AI quota is used up${ctx.until ? ` (AI paused ${ctx.until})` : ""}. No brief was made.${first}${tail ? ` ${tail}` : ""}` };
     return { tone: "failed", word: "No brief", text: `No brief: AI unavailable (${WHY[cls] || WHY.other}). Nothing was made up in its place.${first}${tail ? ` ${tail}` : ""}` };
   }
   if (run.outcome === "STUB") return { tone: "ok", text: `Handed out ${plural(handed, "job")} in urgency order (AI off).${tail ? ` ${tail}` : ""}` };
@@ -327,7 +329,9 @@ function feedsNode(feeds, names) {
 
 function gateNode(ctx) {
   const plan = newestPlan(ctx.recovery);
-  const sra = (ctx.docs || []).filter((d) => d.kind === "SRA" && d.status === "DRAFT" && d.replay === ctx.replay);
+  // one per region: older unsigned copies of a region's SRA (drafted again by earlier replay
+  // runs) are the same work, not more of it
+  const sra = [...new Set((ctx.docs || []).filter((d) => d.kind === "SRA" && d.status === "DRAFT" && d.replay === ctx.replay).map((d) => d.region))];
   const others = [];
   if (plan?.status === "DRAFT") others.push({ tone: "caution", text: "1 airport plan waits for approval" });
   else if (plan?.status === "AI_UNAVAILABLE") others.push({ tone: "caution", text: "No airport plan was made: a dispatcher plans the network by hand" });
@@ -362,7 +366,8 @@ export function boardModel(input) {
   const replay = s.mode === "REPLAY";
   const stub = s.llm?.backend === "stub" || input.budget?.backend === "stub";
   // the Wall's one AI state (docs/UI-AI-QUIET.md 1.2), from the same inputs as its AI chip
-  const ai = aiStateOf({ stub, budget: input.budget || null, errors: aiErrorsOf(input.trace), duty: input.duty || null, plan: newestPlan(input.recovery), replay });
+  clock = { now: input.realNow ?? Date.now(), replay };
+  const ai = aiStateOf({ stub, budget: input.budget || null, errors: aiErrorsOf(input.trace), duty: input.duty || null, plan: newestPlan(input.recovery), replay, now: clock.now });
   const ctx = {
     replay, stub, until: ai.until, trace: input.trace || [], duty: input.duty || null,
     budget: input.budget || null, budgetError: input.budgetError || null, work: Array.isArray(input.budget?.waiting) ? input.budget.waiting : [],

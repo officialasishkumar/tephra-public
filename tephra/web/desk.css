@@ -7333,10 +7333,10 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   line-height: var(--lh-body);
 }
 
+/* caution at its edge, never a filled warning box: the sheet is the AI's calm home (UI-AI-QUIET Q4) */
 .aisheet__lead--paused,
 .aisheet__lead--trouble {
-  border-color: var(--c-caution);
-  background: var(--c-caution-bg);
+  border-left: 3px solid var(--c-caution);
 }
 
 .aisheet__lead--off {

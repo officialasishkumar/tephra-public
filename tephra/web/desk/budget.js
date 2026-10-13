@@ -6,10 +6,10 @@
 
 import { PATHS, api } from './api.js';
 import { byId, el, icon } from './dom.js';
-import { dayMonthHhmm, hhmmz, parseTime } from './format.js';
+import { dayMonthHhmm, hhmmz, parseTime, serverNow } from './format.js';
 import { app } from './state.js';
 import { aiState, openBSheet } from './ui.js';
-import { aiLead, aiWords, causeTitle } from '../wall/x-parts.js';
+import { aiLead, aiWords, causeTitle, machineText, realWhen } from '../wall/x-parts.js';
 
 const LANE_WORDS = { urgent: 'flights in or near the ash', interactive: 'the Desk (questions, notices, messages, documents)', routine: 'routine work, paced through the day' };
 const BOARD_URL = '/#ai-at-work';
@@ -21,6 +21,10 @@ export function deskAi() {
   const plan = app.plans.find((p) => p.status !== 'SUPERSEDED') || null;
   return aiState({ budget: app.budget, failures, llm: app.state && app.state.llm, duty: app.duty, plan, replay: Boolean(app.state && app.state.mode === 'REPLAY') });
 }
+
+// A budget slot (real clock) in words after "next slot": "0700Z", or in REPLAY "in 2 h 45 min",
+// which reads the same on either clock (the AI state's rule, wall/x-parts.js realWhen).
+export const slotWords = (iso) => realWhen(parseTime(iso) ?? NaN, serverNow(), Boolean(app.state && app.state.mode === 'REPLAY'))?.at || null;
 
 function valid(b) {
   return b && typeof b === 'object' && Array.isArray(b.tiers) && b.tiers.every((t) => t && Number.isFinite(t.used) && Number.isFinite(t.limit));
@@ -69,7 +73,7 @@ function modelRow(m, until) {
   const bar = el('span', { class: `bbar bbar--${out ? 'out' : m.remaining / m.limit < 0.1 ? 'low' : 'ok'}`, 'aria-hidden': 'true' }, el('span', { class: 'bbar__fill' }));
   bar.firstElementChild.style.setProperty('--w', `${Math.max(pct, m.used ? 2 : 0)}%`);
   const status = m.closed
-    ? `Closed for today by Google${until ? ` until ${until}` : ''} (${m.remaining.toLocaleString('en')} of ${m.limit.toLocaleString('en')} unused)`
+    ? `Closed for today by Google${until ? ` ${until}` : ''} (${m.remaining.toLocaleString('en')} of ${m.limit.toLocaleString('en')} unused)`
     : out ? 'Used up for today' : `${m.remaining.toLocaleString('en')} left today`;
   return el('li', { class: 'aimodel' },
     el('p', { class: 'aimodel__h' },
@@ -80,11 +84,11 @@ function modelRow(m, until) {
     el('p', { class: 'aimodel__id mono', text: m.model_id }));
 }
 
-function workRow(w, replay) {
-  const slot = parseTime(w.next_slot_at);
+function workRow(w) {
+  const slot = slotWords(w.next_slot_at);
   const when = w.status === 'RUNNING' ? 'running now'
     : w.status === 'QUEUED' ? 'queued for the AI worker'
-      : slot !== null ? `waits for AI budget, next slot ${hhmmz(slot)}${replay ? ' real time' : ''}` : 'waits for AI budget';
+      : slot ? `waits for AI budget, next slot ${slot}` : 'waits for AI budget';
   return el('li', { class: 'aiwork' }, icon(w.status === 'RUNNING' ? 'i-play' : 'i-clock', 'st'),
     el('span', {}, el('span', { class: 'aiwork__label', text: w.label }), el('span', { class: 'aiwork__when', text: when })));
 }
@@ -107,8 +111,6 @@ export function openBudget() {
   const b = app.budget;
   const ai = deskAi();
   const stub = ai.kind === 'off';
-  const replay = Boolean(app.state && app.state.mode === 'REPLAY');
-  const real = replay ? ' real time' : '';
   const work = b && Array.isArray(b.waiting) ? b.waiting : [];
   const lead = el('div', { class: `aisheet__lead aisheet__lead--${ai.kind}`, role: 'status' },
     ...aiLead(ai).map((p, i) => el('p', { class: i === 0 ? 'aisheet__head' : null }, el('strong', { text: p.strong }), ` ${p.text}`)));
@@ -118,12 +120,12 @@ export function openBudget() {
       el('ul', { class: 'aiworks' }, ...ai.causes.map((c) => el('li', { class: 'aiwork' }, icon('st-caution', 'st'),
         el('span', {}, el('span', { class: 'aiwork__label', text: causeTitle(c) }),
           el('span', { class: 'aiwork__when', text: [c.steps ? `${c.steps} ${c.steps === 1 ? 'time' : 'times'}` : null, Number.isFinite(c.first) ? `${hhmmz(c.first)}${c.last !== c.first ? `–${hhmmz(c.last)}` : ''}` : null, c.consequence].filter(Boolean).join(' · ') }))))),
-      el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), ...[...new Set(ai.causes.flatMap((c) => c.raw))].map((r) => el('p', { class: 'mono tech__line', text: r }))))
+      el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), ...[...new Set(ai.causes.flatMap((c) => c.raw))].map((r) => el('p', { class: 'mono tech__line', text: machineText(r) }))))
     : null;
   const queue = work.length
     ? el('section', { class: 'aisheet__sec', 'aria-labelledby': 'ai-work-title' },
       el('h3', { id: 'ai-work-title', class: 'aisheet__h', text: `AI work waiting · ${work.length}` }),
-      el('ul', { class: 'aiworks' }, work.map((w) => workRow(w, replay))),
+      el('ul', { class: 'aiworks' }, work.map(workRow)),
       el('p', { class: 'note', text: 'Waiting work keeps its place and runs on the same model when its slot comes. Nothing is dropped or handed to another model.' }))
     : null;
   const calls = b && !stub
@@ -137,7 +139,7 @@ export function openBudget() {
   const foot = stub
     ? el('p', { class: 'note', text: 'With no model, no AI calls are made or counted.' })
     : b
-      ? el('p', { class: 'note', text: `${b.note}${b.resets_at ? ` Counts start again at ${hhmmz(b.resets_at)}${real}.` : ''} As of ${dayMonthHhmm(b.as_of)}${real}.` })
+      ? el('p', { class: 'note', text: `${b.note}${b.resets_at ? ` Counts start again ${slotWords(b.resets_at) === hhmmz(b.resets_at) ? `at ${hhmmz(b.resets_at)}` : slotWords(b.resets_at)}.` : ''} As of ${dayMonthHhmm(b.as_of)}.` })
       : el('p', { class: 'note', text: "Today's AI calls have not loaded yet." });
   openBSheet({
     title: 'AI today',

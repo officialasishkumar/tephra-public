@@ -3,6 +3,7 @@
 // place is invented; labels are composed from fields.
 
 import { band, compassDeg, fl, hhmmz, idTime, isNight, ms, inBbox, kmBetween } from "./util.js";
+import { machineText } from "./x-parts.js";
 
 export const STEP_OF_LAYER = { SIGMET: "now", OBS: "now", "FCST+6H": "f6", "FCST+12H": "f12", "FCST+18H": "f18" };
 export const SEV_RANK = { WARNING: 3, CAUTION: 2, INFO: 1 };
@@ -338,7 +339,7 @@ function deriveCrew(pic, activeIds) {
     return { ...f, properties: { ...p, line1 } };
   });
   return {
-    label: pic?.label || "",
+    label: machineText(pic?.label || "", ", "),
     reports,
     flags,
     byId,

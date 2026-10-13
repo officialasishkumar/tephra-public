@@ -148,7 +148,7 @@ export function indexStatus(key, D, store, ui) {
       const ai = aiState(D, store);
       const n = ai.trouble.length;
       if (ai.kind === "off") return { text: "Off · code only" };
-      if (ai.kind === "paused") return { text: ai.until ? `Paused until ${ai.until}` : "Paused", tone: "caution", noAttn: true };
+      if (ai.kind === "paused") return { text: ai.until ? `Paused ${ai.until}` : "Paused", tone: "caution", noAttn: true };
       if (ai.kind === "trouble") return { text: `On · ${n} problem${n === 1 ? "" : "s"}`, tone: "caution", noAttn: true };
       return { text: "On" };
     }
@@ -336,7 +336,7 @@ function flightDetail(D, ui, store) {
   }
   const rr = (store_reroutes(D) || []).find((r) => r.properties.flight_id === `${p.hex}:${p.volcano_id}` || r.properties.proxy_flight === p.proxy_flight);
   if (rr) kids.push(rerouteBlock(rr.properties, D));
-  kids.push(el("div", { class: "dk-abouts" }, dkAbout("How the entry is estimated", "flight", p.exposed ? "Code projection from the last position, if track, speed and level are held." : "Code projects the last position along its track, speed and level; this flight does not reach TEPHRA's area."),
+  kids.push(el("div", { class: "dk-abouts" }, dkAbout("How the entry is estimated", "flight", p.exposed ? "Code projection from the last position, if track, speed and level are held." : "Code projects the last position along its track, speed and level. This flight does not reach TEPHRA's area."),
     dkAbout("Where the route comes from", "flight-route", "The usual route for this callsign, from VRS standing data. It is not the filed flight plan, and TEPHRA never guesses one.")),
     techDetail(`ADS-B ${p.callsign || "(no callsign)"} · hex ${String(p.hex || "").toUpperCase()}${p.type_icao ? ` · type ${p.type_icao}` : ""}`));
   host.replaceChildren(dkSection("fl-head", kids));
@@ -358,7 +358,7 @@ function crewFlagBlock(D, flag) {
     el("p", {}, el("strong", { text: flag.line })),
     flag.reporter ? null : el("p", { text: `${flag.proxy_flight} ${whenFlag(flag)}.` }),
     ...views.map((v) => el("p", { text: `${v.report.flight} reported ${v.report.cues.map((c) => CUE_WORDS[c] || c).join(", ")} at ${crewBand(v.report)}, ${v.age_text} · ${v.state_label}` })),
-    el("p", { class: "dk-sub__note", text: "Operator policy A caution area; not a VAA or SIGMET. Approving Keep watching or Continue for this flight needs a written reason on the Desk." }),
+    el("p", { class: "dk-sub__note", text: "Operator policy A caution area, not a VAA or SIGMET. Approving Keep watching or Continue for this flight needs a written reason on the Desk." }),
   ].filter(Boolean), { iconId: "i-pin", action: el("button", { type: "button", class: "link-btn", dataset: { act: "details-open", sec: "crew", focus: `flag-crew-${flag.hex}` }, text: "Crew reports of ash ›" }) });
 }
 
@@ -410,13 +410,13 @@ function crewRow(D, v, picked) {
 function crewSection(D, ui) {
   const C = D.crew;
   const host = $("crew");
-  const label = C.label || "Crew report caution area (operator policy A; not a VAA or SIGMET)";
+  const label = C.label || "Crew report caution area (operator policy A, not a VAA or SIGMET)";
   const about = el("div", { class: "dk-abouts" }, dkAbout("How crew reports work", "crew",
-    `${label}.`, "A dispatcher enters a crew (pilot) report on the Desk; code draws a caution area around the reported position over the reported levels. It flags flights whose projected track crosses it.",
-    "It never shrinks or replaces an official area, re-plans nothing and calls no model. A sulphur smell or haze alone is a routine report with no area; a no-ash report never removes one."));
+    `${label}.`, "A dispatcher enters a crew (pilot) report on the Desk, and code draws a caution area around the reported position over the reported levels. It flags flights whose projected track crosses it.",
+    "It never shrinks or replaces an official area, re-plans nothing and calls no model. A sulphur smell or haze alone is a routine report with no area. A no-ash report never removes one."));
   const report = el("div", { class: "dk-actions" }, el("a", { class: "btn btn--small", href: "/desk#crew-report", target: "_blank", rel: "noopener", text: "Report ash from a crew on the Desk ›" }));
   const chip = dkChip("Operator policy A · not a VAA or SIGMET", { kind: "crew" });
-  const title = "A dispatcher enters a crew report on the Desk; code draws a caution area and flags flights that cross it.";
+  const title = "A dispatcher enters a crew report on the Desk. Code draws a caution area and flags flights that cross it.";
   if (!C.reports.length) {
     host.replaceChildren(dkSection("crew-head", dkHeader({ id: "crew-head", pills: [dkPill("ok", "None in the last 24 h")], title, chips: [chip] }),
       dkEmpty("No crew report of ash in the last 24 hours.", null), report, about));

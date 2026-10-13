@@ -89,16 +89,34 @@ export function aiErrorsOf(trace) {
 // The newest airport plan that a newer one has not replaced.
 export const newestPlan = (plans) => (plans || []).slice().sort((a, b) => ms(b.created_at) - ms(a.created_at)).find((p) => p.status !== "SUPERSEDED") || null;
 
+// "2 h 45 min", "14 min"
+function span(msLeft) {
+  const m = Math.max(1, Math.round(msLeft / 60000));
+  if (m < 60) return `${m} min`;
+  return m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} h`;
+}
+
+// A time on the real clock, in words that fit after "until", "next slot" or "after" (the field
+// names say which). Live it is the clock time ("until 0700Z"). In REPLAY the page shows the
+// recording's clock, so a real time would read as a time on that clock: it is said as the time
+// left ("for another 2 h 45 min", "next slot in 2 h 45 min"), which reads the same on either clock.
+export function realWhen(t, now, replay) {
+  if (!Number.isFinite(t)) return null;
+  if (!replay) return { until: `until ${hhmmz(t)}`, short: hhmmz(t), at: hhmmz(t), after: `after ${hhmmz(t)}` };
+  const left = span(t - now);
+  return { until: `for another ${left}`, short: `${left} left`, at: `in ${left}`, after: `in ${left}` };
+}
+
 // errors: [{ stage, reason, at (ms), raw }]. plan: the newest airport plan. duty: the newest run.
-// `replay`: the page plays a recording. The reset time is on the real clock, so in REPLAY it says
-// so and never reads as a time on the replay clock.
-export function aiStateOf({ stub = false, budget = null, errors = [], duty = null, plan = null, replay = false }) {
+// `replay`: the page plays a recording. `now`: the real clock (ms), for the time left in REPLAY.
+// `until` is the reset in words after "AI paused" ("until 0700Z", "for another 2 h 45 min"),
+// `untilShort` the chip's form and `after` the form after "Try again".
+export function aiStateOf({ stub = false, budget = null, errors = [], duty = null, plan = null, replay = false, now = Date.now() }) {
   const lite = liteModel(budget);
   const closed = !stub && lite?.closed === true;
-  const resets = Date.parse(budget?.resets_at || "");
-  const real = (t) => (t && replay ? `${t} real time` : t);
   // a statement about now, from the current budget only
-  const until = closed && Number.isFinite(resets) ? real(hhmmz(resets)) : null;
+  const reset = closed ? realWhen(Date.parse(budget?.resets_at || ""), now, replay) : null;
+  const until = reset?.until || null;
   const groups = new Map();
   const add = (helperKey, reason, at, raw, src, stage) => {
     const cls = reasonClass(reason);
@@ -114,7 +132,7 @@ export function aiStateOf({ stub = false, budget = null, errors = [], duty = nul
   for (const e of errors) add(helperOf(e.stage, e.reason), e.reason, e.at, e.raw, e.src, e.stage);
   // the newest airport plan's own failure: older than the trace window, still a cause (D67)
   if (plan && plan.status === "AI_UNAVAILABLE" && !planProblem(plan)) {
-    const reason = planReasons(plan).join("; ") || "no reason given";
+    const reason = planReasons(plan).join(" · ") || "no reason given";
     const key = `recovery|${reasonClass(reason)}`;
     if (!groups.has(key)) add("recovery", reason, Date.parse(plan.created_at), reason, { plan });
   }
@@ -144,11 +162,11 @@ export function aiStateOf({ stub = false, budget = null, errors = [], duty = nul
   }).sort((a, b) => (b.last || 0) - (a.last || 0));
   const trouble = causes.filter((c) => !c.absorbed);
   const waiting = (Array.isArray(budget?.waiting) ? budget.waiting : []).filter((w) => w.status === "WAITING").map((w) => {
-    const t = Date.parse(w.next_slot_at || "");
-    return { job: w.label, kind: w.item?.kind || w.kind, slot: Number.isFinite(t) ? real(hhmmz(t)) : null, volcano: w.item?.volcano_id || null };
+    const slot = realWhen(Date.parse(w.next_slot_at || ""), now, replay);
+    return { job: w.label, kind: w.item?.kind || w.kind, slot: slot?.at || null, volcano: w.item?.volcano_id || null };
   });
   const kind = stub ? "off" : paused ? "paused" : trouble.length ? "trouble" : "on";
-  return { kind, until, causes, trouble, waiting, paused };
+  return { kind, until, untilShort: reset?.short || null, after: reset?.after || null, causes, trouble, waiting, paused };
 }
 
 const problems = (n) => `${n} problem${n === 1 ? "" : "s"}`;
@@ -169,8 +187,8 @@ export function aiWords(s, { home = "AI helpers", opens = "Details, AI helpers",
   const never = "AI can widen TEPHRA's estimate, never shrink the official area.";
   if (s.kind === "off") return { label: "AI off", suffix: null, tone: "off", aria: `AI off, code only. Opens ${opens}.`, title: "AI off: no model is connected. Code does every step, and code templates write the text." };
   if (s.kind === "paused") {
-    const u = s.until ? ` until ${s.until}` : "";
-    return { label: "AI paused", suffix: !narrow && s.until ? s.until : null, tone: "caution",
+    const u = s.until ? ` ${s.until}` : "";
+    return { label: "AI paused", suffix: !narrow ? s.untilShort : null, tone: "caution",
       aria: `AI paused${u}: today's free AI quota is used up. Opens ${opens}.`,
       title: `AI paused${u}: today's free AI quota is used up.${s.until ? " Queued work runs then." : ""} ${never} Open ${home} for models and today's calls.` };
   }
@@ -194,7 +212,7 @@ export function aiLead(s) {
   if (s.kind === "trouble") return [{ strong: `AI on, ${problems(s.trouble.length)}.`, text: lines(s.trouble) }];
   const n = s.waiting.length;
   const jobs = n ? `Queued work (${n} job${n === 1 ? "" : "s"}) ${s.until ? "runs then" : "waits"}, on the same model. Nothing is dropped or handed to another model. ` : "";
-  const out = [{ strong: s.until ? `AI paused until ${s.until}.` : "AI paused.",
+  const out = [{ strong: s.until ? `AI paused ${s.until}.` : "AI paused.",
     text: `${s.until ? "Google reported today's free AI quota used up." : "Today's free AI quota was used up."} ${jobs}Until then, code still checks every flight against the official area, and nothing is made up in place of an AI step. Flights that need a plan are on the Desk to plan by hand.` }];
   if (s.trouble.length) out.push({ strong: "Also:", text: lines(s.trouble) });
   return out;
@@ -222,12 +240,13 @@ export function draftBlock(s) {
   return null;
 }
 
-// A draftBlock in words, for one flight: "AI paused until 0700Z", "AI unavailable (timed out)",
+// A draftBlock in words, for one flight: "AI paused until 0700Z" ("AI paused for another 2 h 45
+// min" in REPLAY), "AI unavailable (timed out)",
 // "the Duty Officer left it for the Desk".
 export function blockPhrase(b) {
   if (!b) return "";
   if (b.undone) return "the Duty Officer left it for the Desk";
-  return `${b.word}${b.until ? ` until ${b.until}` : b.why ? ` (${b.why})` : b.slot ? `, next slot ${b.slot}` : ""}`;
+  return `${b.word}${b.until ? ` ${b.until}` : b.why ? ` (${b.why})` : b.slot ? `, next slot ${b.slot}` : ""}`;
 }
 
 // Flights with no advisory while the AI cannot draft (docs/UI-AI-QUIET.md D56): every RFA flight
@@ -307,7 +326,7 @@ const PLAIN = [
   [/^(.+): cone (OFFICIAL|WIDENED|HYPOTHESIS) (\d+)%(?: \(NO MODEL\))?, (\S+), (\d+) official layer\(s\)$/, (m) => `${m[1]}: TEPHRA's estimate is ${m[2] === "OFFICIAL" ? "the official area" : m[2] === "WIDENED" ? "wider than the official area" : "a hypothesis"}, ${m[4]}, from ${m[5]} official layer${m[5] === "1" ? "" : "s"}`],
   [/^(.+): no CAUTION or WARNING discrepancy, no HYPOTHESIS case and no airline aircraft seen within 250 NM; cone from official products only$/, (m) => `${m[1]}: nothing to check and no RFA flight within 250 NM, so TEPHRA's estimate is the official area`],
   [/^Plume read queued for the Duty Officer \((\w+) FL(\d{3})-FL(\d{3}), (\d+)%\)$/, (m) => `Plume read queued for the Duty Officer (${m[2] === "000" ? "SFC" : `FL${m[2]}`}–FL${m[3]})`],
-  [/^(.+) is active: (.+)$/, (m) => `${m[1]} is active. Reports: ${m[2].replace(/; Valid SIGMET ([A-Z]{4}) (\d+): names it/g, "; SIGMET $1 $2").replace(/^Valid SIGMET ([A-Z]{4}) (\d+): names it/, "SIGMET $1 $2")}`],
+  [/^(.+) is active: (.+)$/, (m) => `${m[1]} is active. Reports: ${machineText(m[2].replace(/; Valid SIGMET ([A-Z]{4}) (\d+): names it/g, " · SIGMET $1 $2").replace(/^Valid SIGMET ([A-Z]{4}) (\d+): names it/, "SIGMET $1 $2"))}`],
   [/^(.+?): (\d+) new or changed record\(s\)$/, (m) => `${m[1]}: ${m[2]} new or changed record${m[2] === "1" ? "" : "s"}`],
   // The helpers' own tool calls (raw JSON stays under Technical detail; docs/UI-DETAILS-PANELS.md 5.1)
   [/^get_flight: \{"proxy_flight":"(RFA\d+)"/, (m) => `Planner looked up the position and track of ${m[1]}`],
@@ -352,7 +371,7 @@ export function plainLine(text) {
     const out = m ? fn(m) : null;
     if (out) return out;
   }
-  return raw;
+  return machineText(raw);
 }
 
 // ------------------------------------------------------------------ one failure in a few words
@@ -417,7 +436,7 @@ const planReasons = (plan) => {
 // (R2.6). Returns null when the plan's failure is not a solver result.
 export function planProblem(plan) {
   if (!plan) return null;
-  const raw = planReasons(plan).join("; ");
+  const raw = planReasons(plan).join(" · ");
   const fromText = /NO FEASIBLE PLAN[^(]*\(([A-Z_]+)\)|HAS NO PLAN \(([A-Z_]+)\)/.exec(raw);
   const noPlan = (plan.scenarios || []).find((s) => s.status === "NO_PLAN");
   const status = fromText ? fromText[1] || fromText[2] : plan.status === "AI_UNAVAILABLE" && noPlan ? noPlan.solver_status : null;
@@ -438,7 +457,7 @@ export function planProblem(plan) {
 export function planFailure(plan) {
   if (!plan || plan.status !== "AI_UNAVAILABLE") return null;
   const p = planProblem(plan);
-  const raw = planReasons(plan).join("; ") || "no reason given";
+  const raw = planReasons(plan).join(" · ") || "no reason given";
   if (p) {
     const solver = p.status.toLowerCase().replace(/_/g, " ");
     return {
@@ -454,9 +473,15 @@ export function planFailure(plan) {
   return { ...base, title: "No plan: AI unavailable", sub: "Nothing was put in its place. A dispatcher must plan the network by hand." };
 }
 
+// Machine text shown on the page (a recorded reason, a trace line, a closure's reason, a contract
+// label): its clause separator becomes the page's middle dot, so no page text carries a
+// semicolon. The words are unchanged. Official products, advisory text and model-written prose
+// are records and are shown exactly as written.
+export const machineText = (t, sep = " · ") => String(t ?? "").replace(/\s*;\s+/g, sep);
+
 // "Technical detail" disclosure holding raw machine text (R12.7).
 export function techDetail(...lines) {
   const kept = lines.flat().filter((l) => l != null && l !== "");
   if (!kept.length) return null;
-  return el("details", { class: "tech" }, el("summary", { text: "Technical detail" }), ...kept.map((l) => (l instanceof Node ? l : el("p", { class: "tech__line mono", text: String(l) }))));
+  return el("details", { class: "tech" }, el("summary", { text: "Technical detail" }), ...kept.map((l) => (l instanceof Node ? l : el("p", { class: "tech__line mono", text: machineText(l) }))));
 }

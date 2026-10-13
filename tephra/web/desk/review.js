@@ -559,7 +559,7 @@ function editView(adv) {
     const lines = [];
     if (problem) lines.push(el('p', { class: `msg msg--${problem.tone}` }, icon(problem.tone === 'serious' ? 'st-serious' : 'st-info', 'st'), el('span', { text: problem.text })));
     if (sheet.problems.length) {
-      lines.push(el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: `Check the text: ${sheet.problems.join('; ')}` })));
+      lines.push(el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: `Check the text: ${sheet.problems.join(' · ')}` })));
     }
     msg.replaceChildren(...lines);
     renderBar();
@@ -1033,7 +1033,7 @@ async function decide(kind) {
       render();
       byId('edit-body').focus();
     } else if (kind === 'reject') {
-      sheet.error = list.length ? `Check the reason: ${list.join('; ')}` : 'Give a reason of at least 3 characters.';
+      sheet.error = list.length ? `Check the reason: ${list.join(' · ')}` : 'Give a reason of at least 3 characters.';
       render();
       byId('reject-reason').focus();
     }

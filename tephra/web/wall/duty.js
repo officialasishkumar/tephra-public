@@ -145,7 +145,8 @@ function deferred(run) {
 }
 
 // The body of the Duty Officer's helper row.
-// `until`: when the quota opens again ("0700Z"), from the live budget; null when not known.
+// `until`: when the quota opens again, in words after "AI paused" ("until 0700Z"), from the live
+// budget; null when not known.
 export function dutyDetail(run, loaded, until = null) {
   if (!run) {
     return [dkEmpty(loaded ? "No Duty Officer run yet" : "Waiting for the first run", "It runs when code finds AI work due: a plume to read, a flight to plan, a network to re-plan.")];
@@ -159,7 +160,7 @@ export function dutyDetail(run, loaded, until = null) {
     el("div", { class: "dk-inline" }, dkPill(tone, word, why), dkRecorded(run.replay), el("span", { class: "dk-inline__meta mono", text: Number.isFinite(t) ? `finished ${dayTime(t)}` : "" })),
     dkFacts([
       // no model fact for a run the quota refused: no call was made (D68)
-      ["Model", outcome === "BUDGET" ? null : outcome === "MODEL_FAILED" ? "Called; no brief passed the checks" : model ? aiMark(model, null, "AI-written") : "AI off"],
+      ["Model", outcome === "BUDGET" ? null : outcome === "MODEL_FAILED" ? "Called, no brief passed the checks" : model ? aiMark(model, null, "AI-written") : "AI off"],
       ["Turns", String(run.turns), { mono: true }],
       ["Jobs given", `${run.worklist.length}${mandatory ? ` (${mandatory} must do)` : ""}`],
       ["Run by", run.trigger === "adsb" ? "AI worker, after new aircraft" : "AI worker, after a scheduler tick"],
@@ -168,8 +169,8 @@ export function dutyDetail(run, loaded, until = null) {
     ]),
   ];
   if (outcome === "BUDGET") {
-    kids.push(dkNote("caution", [`Not run: today's free AI quota is used up${until ? ` (until ${until})` : ""}.`, "No brief was made; nothing was made up in its place. Must-do jobs went to the Desk."], { role: "status" }),
-      dkTech(`${run.validation_errors.join("; ")} · would have used ${run.model_id}`));
+    kids.push(dkNote("caution", [`Not run: today's free AI quota is used up${until ? ` (AI paused ${until})` : ""}.`, "No brief was made, and nothing was made up in its place. Must-do jobs went to the Desk."], { role: "status" }),
+      dkTech(`${run.validation_errors.join(" · ")} · would have used ${run.model_id}`));
   } else if (run.outcome === "MODEL_FAILED") {
     kids.push(dkNote("caution", ["The model was called and gave no brief that passed the code's checks.", "No brief was made up in its place. The work below was not coordinated."], { role: "status" }),
       dkTech(`${run.validation_errors[0] || "no reason recorded"} · ${run.model_id}`));

@@ -71,7 +71,7 @@ export function renderLayers(ui, phone) {
     group("Map context",
       check("context", "FIR and VAAC lines", L.context, "approximate"),
       check("navaids", "Navaids", L.navaids, "from zoom 8"),
-      check("terrain", "Terrain shading", L.terrain, "Mapterhorn hillshade; sea tiles are absent")),
+      check("terrain", "Terrain shading", L.terrain, "Mapterhorn hillshade, no sea tiles")),
     el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { tool: "levels", focus: "tool-levels" }, "aria-keyshortcuts": "H", text: "Height filter ›" })),
     el("div", { class: "dk-abouts" }, more)));
 }
@@ -79,7 +79,7 @@ export function renderLayers(ui, phone) {
 // Keyboard (R16). Every shortcut also has a visible control.
 export const SHORTCUTS = [
   ["1 2 3", "Choose an area"],
-  ["[ ]", "Previous / next volcano; the area follows"],
+  ["[ ]", "Previous / next volcano (the area follows)"],
   ["F", "Fit the selected volcano"],
   ["D", "3D on/off"],
   ["S", "Compare on/off (not on a phone)"],
@@ -93,7 +93,7 @@ export const SHORTCUTS = [
   ["P", "Presentation layout for recording (keeps Details closed)"],
   ["A", "AI at work: the Duty Officer, its helpers and the Desk"],
   ["?", "This help"],
-  ["Esc", "Close a dialog or menu; a Details section, then Details; History; the picked flight; compare; 3D"],
+  ["Esc", "Close, one step at a time: a dialog or menu, a Details section, Details, History, the picked flight, compare, 3D"],
 ];
 
 // Help (R9.1): read the map in 3 steps, the full key, the words used here, the keyboard.
@@ -110,7 +110,7 @@ export function helpContent(enabled) {
     el("ul", { class: "help__list" },
       el("li", { text: "The story on the left says what is happening at the selected volcano. Details holds everything else: the sources, the timeline, how TEPHRA decided, the AI helpers and the data feeds." }),
       el("li", { text: "Nothing is sent to an aircraft or to any real system." }),
-      el("li", { text: "REPLAY means the data was recorded or reconstructed earlier; it is not live." }),
+      el("li", { text: "REPLAY means the data was recorded or reconstructed earlier. It is not live." }),
       el("li", { text: "Times ending in Z are UTC." })),
     el("h3", { id: "help-key", class: "help__h", text: "Full map key" }),
     el("ul", { class: "key__rows help__key" },
@@ -118,17 +118,17 @@ export function helpContent(enabled) {
       keyRow(sw("lg-area-forecast", "sw--official"), "Official forecast area (+6, +12, +18 h)", "dashed"),
       keyRow(sw("lg-area-tephra", "sw--tephra"), "TEPHRA's estimate", "never smaller than official"),
       keyRow(sw("lg-area-hatch", "sw--tephra"), "Where TEPHRA widened the area", null),
-      keyRow(sw("lg-area-crew", "sw--crew"), "Crew report caution area, with a pin at the report", "operator policy A; not a VAA or SIGMET; drawn beneath the official area"),
+      keyRow(sw("lg-area-crew", "sw--crew"), "Crew report caution area, with a pin at the report", "operator policy A, not a VAA or SIGMET, drawn beneath the official area"),
       keyRow(sw("i-aircraft", "sw--exposed"), "RFA flight in or heading in", "RFA is a fictional airline"),
-      keyRow(sw("lg-flight-group", "sw--exposed"), "Six or more RFA flights close together", "the badge is the count; click to zoom in"),
+      keyRow(sw("lg-flight-group", "sw--exposed"), "Six or more RFA flights close together", "the badge is the count, click to zoom in"),
       keyRow(sw("i-aircraft", "sw--crew"), "RFA flight on a crew report's route", "when TEPHRA's area does not reach it"),
       keyRow(sw("i-aircraft", "sw--aircraft"), "Other aircraft (not RFA)", null),
-      keyRow(sw("lg-route", "sw--route"), "Route (origin to destination)", "the callsign's usual route (VRS standing data), not the filed flight plan; the small tags at its ends are the airport codes"),
+      keyRow(sw("lg-route", "sw--route"), "Route (origin to destination)", "the callsign's usual route (VRS standing data), not the filed flight plan. The small tags at its ends are the airport codes"),
       keyRow(sw("lg-reroute", "sw--reroute"), "Suggested reroute", null),
       keyRow(sw("lg-arrow-official", "sw--official"), "Official movement", null),
       keyRow(sw("lg-arrow-observer", "sw--observer"), "Observatory's reported drift", null),
       keyRow(sw("lg-satbox", "sw--sat"), "Box marked on the satellite picture", "marked by the satellite reader (AI-read) · supporting only"),
-      el("li", { class: "help__codes" }, el("span", { class: "codes" }, ...codes), el("span", { text: "Alert colour: green, yellow, orange, red; grey = not given" }))),
+      el("li", { class: "help__codes" }, el("span", { class: "codes" }, ...codes), el("span", { text: "Alert colour: green, yellow, orange, red. Grey: not given" }))),
     el("p", { class: "muted", text: "FIR and VAAC lines are approximate. Times ending in Z are UTC. Satellite, SO2 and BTD layers are context only, never ash detection." }),
     el("h3", { id: "help-words", class: "help__h", text: "Words used here" }),
     el("dl", { class: "help__glossary" }, ...GLOSSARY.flatMap(([term, meaning]) => [el("dt", { text: term }), el("dd", { text: meaning })])),
@@ -146,15 +146,15 @@ export function helpContent(enabled) {
 const CREDITS = [
   ["OpenFreeMap", "Dark basemap style, vector tiles, Noto Sans glyphs", "OpenFreeMap © OpenMapTiles · Data © OpenStreetMap contributors (ODbL 1.0)"],
   ["Mapterhorn", "Terrain tiles for hillshade (Copernicus GLO-30 DEM over Indonesia and the Philippines)", "© Mapterhorn"],
-  ["NASA GIBS", "Himawari-9 infrared, visible and Air Mass tiles; TROPOMI SO2 (context only)", "Imagery: NASA GIBS · Himawari-9 data: JMA via NOAA · Contains modified Copernicus Sentinel data 2026"],
+  ["NASA GIBS", "Himawari-9 infrared, visible and Air Mass tiles, TROPOMI SO2 (context only)", "Imagery: NASA GIBS · Himawari-9 data: JMA via NOAA · Contains modified Copernicus Sentinel data 2026"],
   ["adsb.lol", "Aircraft positions", "Aircraft: adsb.lol (ODbL 1.0)"],
-  ["NOAA/NWS Aviation Weather Center", "FIR and VAAC boundaries (approximate); VA SIGMETs", "Public domain"],
+  ["NOAA/NWS Aviation Weather Center", "FIR and VAAC boundaries (approximate), VA SIGMETs", "Public domain"],
   ["Natural Earth", "Offline coastline fallback", "Made with Natural Earth (public domain)"],
   ["OurAirports", "Navaids", "Public domain"],
   ["Open-Meteo", "Winds", "Weather data by Open-Meteo.com (CC BY 4.0)"],
   ["MapLibre GL JS 4.7.1, maplibre-gl-compare 0.5.0", "Map rendering, swipe compare", "BSD-3-Clause, ISC"],
   ["IBM Plex Sans and Mono", "Interface type", "SIL Open Font License 1.1"],
-  ["Lucide, Material Symbols", "Icons; the aircraft glyph", "ISC / MIT; Apache License 2.0"],
+  ["Lucide, Material Symbols", "Icons, and the aircraft glyph", "ISC / MIT, Apache License 2.0"],
 ];
 
 // About (R9.2): what TEPHRA is, the safety limits, the credits, the acknowledgement.

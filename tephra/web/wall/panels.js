@@ -9,7 +9,7 @@ import {
 } from "./util.js";
 import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
-import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, handPlanOf, causeTitle, blockPhrase } from "./x-parts.js";
+import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, handPlanOf, causeTitle, blockPhrase, machineText } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkTech, dkSection, dkLink,
   dkRecorded, dkWhen, dkDot, collapseRuns, runRow, timeRange, plural, dayTime, times,
@@ -363,7 +363,7 @@ export function renderFlights(D, store, ui, target = $("flights")) {
     { label: "Heading in", value: String(heading), sub: heading ? `first in ${nextIn} min (est.)` : null },
     crew ? { label: "On a crew report's route", value: String(crew.n), tone: "plain" } : null,
   ], "Flights in numbers") : null;
-  const note = dkNote("info", `RFA (Ring of Fire Air) is a fictional airline; each flight number stands in for a real aircraft. ${coverageWords(D, store)}`);
+  const note = dkNote("info", `RFA (Ring of Fire Air) is a fictional airline. Each flight number stands in for a real aircraft. ${coverageWords(D, store)}`);
   const othersBox = others.size ? dkGroup("Other volcanoes", null, el("div", { class: "dk-actions" }, ...[...others].map(([vid, n]) => {
     const name = D.sits.find((x) => x.volcano_id === vid)?.volcano_name || vid;
     return el("button", { type: "button", class: "btn btn--small", dataset: { act: "select", vid, focus: `others-${vid}` }, text: `+${n} heading in at ${name}` });
@@ -483,7 +483,7 @@ export function renderTrace(D, store, ui, conn, target = $("trace")) {
   if (runs.length) { list.setAttribute("role", "log"); list.setAttribute("aria-live", "off"); list.setAttribute("aria-label", "How TEPHRA decided, newest first"); }
   target.classList.toggle("is-stale", !!conn.lostAt);
   target.replaceChildren(dkSection("trace-head", head, tiles, controls, list,
-    el("div", { class: "dk-abouts" }, dkAbout("How to read this", "trace", "Each step in plain words. Steps that say the same thing are one row with how many times and when; open a row for each step. Lines TEPHRA has no plain wording for are shown as written; the raw line is always under Technical detail."))));
+    el("div", { class: "dk-abouts" }, dkAbout("How to read this", "trace", "Each step in plain words. Steps that say the same thing are one row with how many times and when. Open a row for each step. Lines TEPHRA has no plain wording for are shown as written, and the raw line is always under Technical detail."))));
 }
 
 // ------------------------------------------------------------------ Details › the ash (R8.3)
@@ -612,11 +612,11 @@ export function disagreeSection(D, sit, ui) {
   const info = items.filter((d) => d.severity === "INFO");
   const minor = info.map((d) => {
     const [kind, headline] = kindOf(d);
-    return { _t: NaN, text: headline, why: capFirst(EXPLAIN[d.kind] ? EXPLAIN[d.kind].replace(/^Harmless: /, "") : ""), raw: `${kind} · ${d.id || ""} · ${d.summary}`, detail: d.summary };
+    return { _t: NaN, text: headline, why: capFirst(EXPLAIN[d.kind] ? EXPLAIN[d.kind].replace(/^Harmless: /, "") : ""), raw: `${kind} · ${d.id || ""} · ${d.summary}`, detail: machineText(d.summary) };
   });
   for (const card of sit.cards) {
     if (card.missing || !NON_OBS.has(card.evidence)) continue;
-    minor.push({ _t: NaN, text: `${card.kind} could not see the ash`, why: "Not evidence of no ash; it never shrinks TEPHRA's area or weakens an advisory.", raw: `NOT OBSERVED · ${card.source_id}`, detail: null });
+    minor.push({ _t: NaN, text: `${card.kind} could not see the ash`, why: "Not evidence of no ash. It never shrinks TEPHRA's area or weakens an advisory.", raw: `NOT OBSERVED · ${card.source_id}`, detail: null });
   }
   const worst = check.some((d) => d.severity === "WARNING") ? "serious" : "caution";
   const headText = check.length
@@ -663,7 +663,7 @@ function disRow(D, sit, d, ui) {
   }
   const row = dkRow({
     key: `dis-${d.id}`, dot: tone, edge: tone, title: headline, sub: explain, badge: word,
-    body: [el("p", { class: "dk-sub__note", text: d.summary }),
+    body: [el("p", { class: "dk-sub__note", text: machineText(d.summary) }),
       d.kind === "DIRECTION_MISMATCH" && D.rose ? el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "frame", focus: `show-${d.id}` } }, icon("i-frame"), "Show on the map")) : null,
       dkTech(`${kind} · ${d.kind}/${d.aspect || ""} · ${d.severity} · ${d.id || ""}`)],
   });
@@ -720,8 +720,9 @@ export function areaSection(D, sit, ui) {
       el("summary", { dataset: { focus: "area-read" } }, icon("i-chevron-right", "icon dk-about__chev"), el("span", { text: modelRead ? "How the model read it" : "How TEPHRA built it" }), modelRead ? aiMark(a.model_id, null, "AI-written") : el("span", { class: "dk-chip dk-chip--code", text: "Code-written" })),
       el("div", { class: "dk-about__body" },
         readings.length ? dkList(readings, { first: 5, key: "area-readings" }) : null,
-        est.rationale ? el("div", { class: "dk-sub" }, el("p", { class: "dk-sub__title", text: "Rationale" }), el("p", { class: "dk-quote", text: est.rationale })) : null,
-        est.uncertainty_notes ? el("div", { class: "dk-sub" }, el("p", { class: "dk-sub__title", text: "Uncertainty" }), el("p", { class: "dk-quote", text: est.uncertainty_notes })) : null));
+        // code's own sentences say their clauses with the page's dot; a model's words stay as written
+        est.rationale ? el("div", { class: "dk-sub" }, el("p", { class: "dk-sub__title", text: "Rationale" }), el("p", { class: "dk-quote", text: modelRead ? est.rationale : machineText(est.rationale) })) : null,
+        est.uncertainty_notes ? el("div", { class: "dk-sub" }, el("p", { class: "dk-sub__title", text: "Uncertainty" }), el("p", { class: "dk-quote", text: modelRead ? est.uncertainty_notes : machineText(est.uncertainty_notes) })) : null));
   }
   return dkSection("h-area",
     cone.mode === "HYPOTHESIS" ? hypothesisBanner(sit) : null,
@@ -731,7 +732,7 @@ export function areaSection(D, sit, ui) {
       { label: "Valid until", value: hhmmz(ms(cone.valid_to)), sub: untilWords(ms(cone.valid_to) - D.now) },
       cone.mode !== "OFFICIAL" ? { label: "Confidence", value: `${Math.round((cone.confidence ?? 0) * 100)}%`, sub: "in the widening" } : null,
     ], "Estimate in numbers"),
-    outcome === "MODEL_FAILED" ? dkNote("caution", `AI unavailable: ${a?.estimate?.uncertainty_notes || "no usable model output"}. TEPHRA shows the official area only; nothing was put in its place.`, { role: "status" }) : null,
+    outcome === "MODEL_FAILED" ? dkNote("caution", `AI unavailable: ${machineText(a?.estimate?.uncertainty_notes || "no usable model output")}. TEPHRA shows the official area only, and nothing was put in its place.`, { role: "status" }) : null,
     // A replay loop reuses the same model's reading of the same input; the label says so.
     dkFacts([["Read by", el("span", {}, readBy)], ["Answer", a?.recorded_answer || null]]),
     read,
@@ -781,7 +782,7 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
     { label: "Approved", value: String(ok.length), tone: ok.length ? "ok" : null, sub: capped ? "in the newest 50" : null },
     { label: "Rejected", value: String(rej.length), sub: capped ? "in the newest 50" : null },
   ], "Decisions in numbers") : null;
-  const caption = all.length ? el("p", { class: "dk-foot", text: `The waiting count covers every advisory on the server; the lists below show the ${capped ? "newest 50 loaded" : `${all.length} loaded`}.` }) : null;
+  const caption = all.length ? el("p", { class: "dk-foot", text: `The waiting count covers every advisory of this mode on the server. The lists below show the ${capped ? "newest 50 loaded" : `${all.length} loaded`}.` }) : null;
   const note = dkNote("info", "Approve on the Desk · nothing is sent anywhere. Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system.", { iconId: "i-outbound" });
   const groups = [];
   if (handN) {
@@ -1099,7 +1100,7 @@ export function historySection(D, store, ui) {
     : dkEmpty("No events in the last 9 hours.", null);
   box.replaceChildren(dkSection("hist-head", head,
     el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "history", focus: "hist-open" }, text: ui.historyOpen ? "Hide History on the time bar" : "Show History on the time bar" })),
-    D.stepsMissing?.length ? dkNote("info", "The chosen forecast step has no official area in the current products; no other step is drawn in its place.") : null,
+    D.stepsMissing?.length ? dkNote("info", "The chosen forecast step has no official area in the current products. No other step is drawn in its place.") : null,
     seg, list,
     el("div", { class: "dk-abouts" }, dkAbout("About lag", "hist", "Official reports are reissued every few hours, so they trail the observatory: a lag is usual. The time bar's History shows these events on three lanes."))));
 }

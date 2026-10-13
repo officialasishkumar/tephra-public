@@ -55,8 +55,10 @@ const ui = {
   traceScope: "volcano",
   readOpen: false,
   historyOpen: false,
-  // the map key pinned under the Details drawer (601-1599 px) starts folded to one bar
-  keyOpen: (() => { try { return sessionStorage.getItem("tephra.wall.key") === "open"; } catch { return false; } })(),
+  // the map key starts open on the map at 601 px and up, folded to one bar under a phone's map;
+  // a choice made with its button is kept for the session
+  keyOpen: (() => { try { const k = sessionStorage.getItem("tephra.wall.key"); return k ? k === "open" : window.innerWidth > 600; } catch { return window.innerWidth > 600; } })(),
+  trustOpen: false, // the hero's note on what TEPHRA's ash area is
   traceFilter: "all",
   historyLane: "all",
   vlistOpen: false,
@@ -430,6 +432,7 @@ function renderTools() {
   const lb = document.querySelector('#tools [data-tool="layers"]');
   if (lb) lb.setAttribute("aria-expanded", ui.details.open && ui.details.sec === "layers" ? "true" : "false");
   $("compare-labels").hidden = !ui.compare;
+  document.body.classList.toggle("is-compare", ui.compare);
 }
 
 // "CONTEXT ONLY" pills for satellite, SO2 and BTD layers (5.6, R6.4), always on screen while shown,
@@ -536,7 +539,7 @@ function wireCompareHandle() {
   handle.dataset.wired = "1";
   handle.tabIndex = 0;
   handle.setAttribute("role", "slider");
-  handle.setAttribute("aria-label", "Compare: drag or use arrow keys. Left side A, official reports only; right side B, with TEPHRA's estimate.");
+  handle.setAttribute("aria-label", "Compare: drag or use arrow keys. Left side A, official reports only. Right side B, with TEPHRA's estimate.");
   handle.setAttribute("aria-valuemin", "0");
   handle.setAttribute("aria-valuemax", "100");
   handle.setAttribute("aria-keyshortcuts", "S");
@@ -610,20 +613,16 @@ function placeDetails() {
     if (sheet.open) sheet.close();
   }
   if (!open && box.parentElement === sheet) $("main").append(box);
-  // 601-1599: the key block is pinned at the bottom of the drawer; the node is moved, not copied
+  // the map key: on the map at 601 px and up, under the map in the phone's one column (the node
+  // is moved, not copied)
   const legend = $("legend");
-  const mid = !phone() && !wide();
-  if (open && mid) { if (legend.parentElement !== box) box.append(legend); }
-  // back to its own place in the story, between the story card and the notes (it once went in
-  // before the trust line, inside the card, and stayed there once Details had been opened)
-  else if (legend.parentElement !== $("story")) $("story-notes").before(legend);
-  legend.classList.toggle("key--pinned", open && mid);
+  if (phone()) { if (legend.parentElement !== $("story")) $("story-notes").before(legend); }
+  else if (legend.parentElement !== $("map-pane")) $("map-pane").append(legend);
 }
 
 function openDetails(sec = null, { vid = null, opener = null, from = null } = {}) {
   if (ui.present) return;
   const was = ui.details.open;
-  if (sec && sec !== ui.details.sec) foldKey();
   ui.details = { open: true, sec, vid, from: from || ui.details.from, opener: was ? ui.details.opener : (opener || document.activeElement) };
   if (sec && sectionOf(sec)?.xtab) ui.rail = sectionOf(sec).xtab;
   placeDetails();
@@ -638,13 +637,6 @@ const openDisclosures = () => [...$("details-body").querySelectorAll(".dsec:not(
 function updateFold() {
   const n = ui.details.open && ui.details.sec ? openDisclosures().length : 0;
   $("details-fold").hidden = n < 2;
-}
-
-// A section opens with the pinned map key folded, so the key never takes the section's room.
-function foldKey() {
-  if (!ui.keyOpen) return;
-  ui.keyOpen = false;
-  try { sessionStorage.setItem("tephra.wall.key", "closed"); } catch { /* storage blocked */ }
 }
 
 function detailsIndex() {
@@ -904,6 +896,7 @@ document.addEventListener("click", (e) => {
     try { sessionStorage.setItem("tephra.wall.key", ui.keyOpen ? "open" : "closed"); } catch { /* storage blocked */ }
     renderNow();
   }
+  else if (act === "trust-toggle") { ui.trustOpen = !ui.trustOpen; renderNow(); }
   else if (act === "history-lane") { ui.historyLane = t.dataset.lane; renderNow(); }
   else if (act === "trace-filter") { ui.traceFilter = t.dataset.filter; renderNow(); }
   else if (act === "dk-jump") {
