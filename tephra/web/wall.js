@@ -16,6 +16,7 @@ import { renderStory, coverageNote } from "./wall/story.js";
 import { renderDetails, sectionOf, PANELS } from "./wall/details.js";
 import { boardModel } from "./wall/board.js";
 import { renderBoard, watchEdges } from "./wall/board-view.js";
+import { describeReplay } from "./wall/x-parts.js";
 
 const STREAM_TIMEOUT_MS = 45e3;
 // A Wall hidden this long gives its stream (a Cloud Run request slot) back until it is shown.
@@ -590,7 +591,7 @@ function saveDetails() {
 }
 
 // The phone sheet starts under the sticky header. The header grows after the first render (the
-// REPLAY band, the disclaimer row), so the edge is measured again on every render; a stale edge
+// frame strip gets its REPLAY words), so the edge is measured again on every render; a stale edge
 // left a clipped line of header text showing above the sheet.
 function syncSheetTop() {
   const bottom = `${Math.max(0, document.querySelector(".cmdbar").getBoundingClientRect().bottom)}px`;
@@ -606,7 +607,7 @@ function placeDetails() {
   if (phone()) {
     syncSheetTop();
     if (open && box.parentElement !== sheet) sheet.append(box);
-    if (open && !sheet.open) sheet.showModal();
+    if (open && !sheet.open) { describeModal(sheet); sheet.showModal(); }
     if (!open && sheet.open) sheet.close();
   } else {
     if (box.parentElement !== $("main")) $("main").append(box);
@@ -708,6 +709,7 @@ function openBoard(opener) {
   if ($("dlg").open) $("dlg").close();
   ui.board.open = true;
   ui.board.opener = opener || document.activeElement;
+  describeModal(dlg);
   if (!dlg.open) dlg.showModal();
   watchEdges($("board-body"));
   renderNow();
@@ -730,6 +732,13 @@ $("board").addEventListener("click", (e) => { if (e.target === $("board")) $("bo
 
 // ------------------------------------------------------------------ dialogs
 
+// A modal makes the frame strip inert for screen readers, so each one carries the strip's REPLAY
+// words as sr-only text in its description (wall/x-parts.js describeReplay); live, none.
+function describeModal(dlg) {
+  const banner = $("replay-banner");
+  describeReplay(dlg, banner.hidden ? "" : banner.textContent.replace(/\s+/g, " ").trim());
+}
+
 function openDialog(kind, title, body, opener) {
   const dlg = $("dlg");
   dialogKind = kind;
@@ -739,6 +748,7 @@ function openDialog(kind, title, body, opener) {
   $("dlg-body").replaceChildren(body);
   // One dialog shows each kind in turn: a new kind starts at its top, not where the last was read.
   $("dlg-body").scrollTop = 0;
+  describeModal(dlg);
   if (!dlg.open) dlg.showModal();
   return dlg;
 }
@@ -1083,15 +1093,10 @@ function escape(e) {
 
 // ------------------------------------------------------------------ phone: header, sheet, CTA (R4.4)
 
-// The disclaimer lives in the sticky header on a phone, in the footer elsewhere; the node moves.
 const phoneMq = window.matchMedia("(max-width: 600px)");
-function placeHonesty() {
-  const line = document.querySelector(".honesty__line");
-  if (!line) return;
-  if (phoneMq.matches) { if (line.parentElement !== $("phone-honesty")) $("phone-honesty").append(line); }
-  else if (line.parentElement !== document.querySelector(".honesty")) document.querySelector(".honesty").prepend(line);
-  // On a phone the sticky header keeps the brand, mode, clock, Desk and the disclaimer; the area,
-  // Assistant and data chips sit in a bar under it that scrolls away (review 1, item 13).
+function placeChips() {
+  // On a phone the sticky header keeps the brand, mode, clock and Desk under the frame strip; the
+  // area, Assistant and data chips sit in a bar under it that scrolls away (review 1, item 13).
   const area = document.querySelector(".areapick"), ai = $("ai-chip"), feeds = $("feeds-chip"), bar = $("phone-bar");
   if (phoneMq.matches) { if (area.parentElement !== bar) bar.append(area, ai, feeds); }
   else if (area.parentElement === bar) {
@@ -1101,15 +1106,15 @@ function placeHonesty() {
   }
   placeDetails();
 }
-phoneMq.addEventListener?.("change", placeHonesty);
-placeHonesty();
+phoneMq.addEventListener?.("change", placeChips);
+placeChips();
 // The first-use disclosure shows until the viewer closes it (kept per browser; blocked storage shows it again).
 $("firstuse").hidden = prefs.get("firstuse", 0) === 1;
-// On a phone the header sticks below the REPLAY band, whose height wraps with its words.
+// The frame strip's height: the phone header sticks below it, and dialogs open below it so the
+// strip stays on screen and undimmed (UI-DESIGN 7.1). Its height changes with its words and width.
 new ResizeObserver(() => {
-  const band = $("replay-banner");
-  document.documentElement.style.setProperty("--band-px", `${band.hidden ? 0 : band.offsetHeight}px`);
-}).observe($("replay-banner"));
+  document.documentElement.style.setProperty("--frame-px", `${$("frame").offsetHeight}px`);
+}).observe($("frame"));
 
 // The sticky call to action shows only while the story's own button is out of view.
 const io = "IntersectionObserver" in window ? new IntersectionObserver((entries) => {

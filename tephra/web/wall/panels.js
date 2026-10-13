@@ -9,10 +9,10 @@ import {
 } from "./util.js";
 import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
-import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, aiSymbol, recordedWords, handPlanOf, causeTitle, blockPhrase, machineText, MARK, ASSISTANT } from "./x-parts.js";
+import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, aiSymbol, recordedWords, replayWords, stripLabel, describeReplay, handPlanOf, causeTitle, blockPhrase, machineText, MARK, ASSISTANT } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkTech, dkSection, dkLink,
-  dkRecorded, dkWhen, dkDot, collapseRuns, runRow, timeRange, plural, dayTime, times,
+  dkWhen, dkDot, dkFromReplay, collapseRuns, runRow, timeRange, plural, dayTime, times,
 } from "./dk.js";
 
 // ------------------------------------------------------------------ vocabulary (section 11)
@@ -126,20 +126,25 @@ export function renderChrome(D, store, ui) {
   const replay = s.mode === "REPLAY";
   document.body.dataset.mode = s.mode;
   document.title = `${replay ? "REPLAY - " : ""}TEPHRA Wall`;
+  // The frame strip says REPLAY once (UI-DESIGN 7.1); the case title is in its tooltip.
   const banner = $("replay-banner");
   banner.hidden = !replay;
-  if (replay && s.replay) {
-    // role=status: write only when the words change, so a screen reader announces it once.
-    setText($("replay-banner-text"), s.replay.banner);
-    // the phone's one-line band: "REPLAY: recorded 05 Sep 2026" (the full words stay in the title)
-    setText($("replay-banner-short"), s.replay.banner.replace(/recorded real feeds from/i, "recorded"));
-    setText($("replay-banner-case"), ` · ${s.replay.label}${s.replay.auto ? " · switched automatically: no live activity" : ""}`);
-    banner.title = `${s.replay.banner} · not live · ${s.replay.label}`;
+  $("frame").setAttribute("aria-label", stripLabel(replay));
+  if (replay) {
+    const w = replayWords(s.replay);
+    setText($("replay-banner-text"), w.text);
+    setText($("replay-banner-case"), w.more);
+    banner.title = w.title;
   }
+  // A modal open before the state arrived (the board from #ai-at-work) or across a mode switch
+  // gets the strip's current REPLAY words in its sr-only description (x-parts describeReplay).
+  const stripWords = replay ? banner.textContent.replace(/\s+/g, " ").trim() : "";
+  for (const dlg of document.querySelectorAll("dialog[open]")) describeReplay(dlg, stripWords);
+  // The mode pill is not a control: in REPLAY the strip says it, so the pill only says "Live".
   const badge = $("mode-badge");
-  badge.className = `mode-badge mode-badge--${replay ? "replay" : "live"}`;
-  const word = replay ? "Replay" : "Live";
-  if (badge.dataset.word !== word) { badge.dataset.word = word; badge.replaceChildren(icon(replay ? "i-replay" : "i-live"), word); }
+  badge.hidden = replay;
+  badge.className = "mode-badge mode-badge--live";
+  if (!replay && badge.dataset.word !== "Live") { badge.dataset.word = "Live"; badge.replaceChildren(icon("i-live"), "Live"); }
 
   // Area picker (R3.1): one menu button; the phone keeps the native select.
   const regions = s.regions || [];
@@ -276,7 +281,7 @@ export function actionText(a) {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
-export function advisoryLine(a, recorded) {
+export function advisoryLine(a) {
   if (!a) return null;
   const act = actionText(a);
   const who = deciderName(a);
@@ -289,7 +294,7 @@ export function advisoryLine(a, recorded) {
     SUPERSEDED: ["i-superseded", "off", "Replaced by a newer draft"],
   };
   const [ic, tone, text] = M[a.status] || M.DRAFT;
-  return el("span", { class: `adv adv--${tone}` }, icon(ic), el("span", { text }), a.status === "EDITED" ? icon("i-pencil") : null, recorded ? el("span", { class: "tag tag--replay", text: "recorded" }) : null);
+  return el("span", { class: `adv adv--${tone}` }, icon(ic), el("span", { text }), a.status === "EDITED" ? icon("i-pencil") : null);
 }
 
 // ------------------------------------------------------------------ Details › Flights heading in (R8.3)
@@ -356,7 +361,7 @@ export function renderFlights(D, store, ui, target = $("flights")) {
     id: "flights-head",
     sub: allStale ? el("span", { class: "dk-warn", text: `Every position is old: up to ${oldest} min.` }) : null,
     // the counts are the tiles' and the groups' to say; the header pill only marks the empty case
-    pills: [flights.length ? null : dkPill("ok", "None projected"), dkRecorded(D.mode === "REPLAY")],
+    pills: [flights.length ? null : dkPill("ok", "None projected")],
     title: flights.length ? `${flights.length} RFA ${flights.length === 1 ? "flight" : "flights"} in or heading into TEPHRA's estimated area${scopeName ? ` at ${scopeName}` : ""}` : `No RFA flight is projected to enter TEPHRA's area${scopeName ? ` at ${scopeName}` : ""}.`,
   });
   const tiles = flights.length || crew ? dkTiles([
@@ -467,7 +472,7 @@ export function renderTrace(D, store, ui, conn, target = $("trace")) {
     ...opts.map(([v, text]) => el("button", { type: "button", "aria-pressed": (ui[key] || opts[0][0]) === v ? "true" : "false", dataset: { act, [act === "trace-scope" ? "scope" : "filter"]: v, focus: `${act}-${v}` }, text })));
   const head = dkHeader({
     id: "trace-head",
-    pills: [conn.lostAt ? dkPill("caution", `Paused at ${hhmmz(conn.lostAt)}`) : dkPill("info", "Updating", "New steps appear here as they happen"), dkRecorded(D.mode === "REPLAY")],
+    pills: [conn.lostAt ? dkPill("caution", `Paused at ${hhmmz(conn.lostAt)}`) : dkPill("info", "Updating", "New steps appear here as they happen")],
     title: `${plural(lines.length, "step")}, newest first. Repeats are grouped.`,
   });
   const tiles = dkTiles([
@@ -750,7 +755,6 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
   const draft = advs.filter((a) => a.status === "DRAFT");
   const ok = advs.filter((a) => a.status === "APPROVED" || a.status === "EDITED");
   const rej = advs.filter((a) => a.status === "REJECTED");
-  const replay = D.mode === "REPLAY";
   const capped = all.length >= 50;
   const serverWaiting = D.state.draft_count;
   const row = (a) => {
@@ -774,7 +778,7 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
   const handN = hand.flights.length;
   const head = dkHeader({
     id: "h-dec",
-    pills: [serverWaiting === null ? dkPill("serious", "Count unknown") : waitingN ? dkPill("caution", "Waiting for a dispatcher") : handN ? dkPill("caution", "Nothing to approve") : dkPill("ok", "Nothing waiting"), dkRecorded(replay)],
+    pills: [serverWaiting === null ? dkPill("serious", "Count unknown") : waitingN ? dkPill("caution", "Waiting for a dispatcher") : handN ? dkPill("caution", "Nothing to approve") : dkPill("ok", "Nothing waiting")],
     title: all.length ? "Every advisory is a draft until a dispatcher decides on the Desk." : "No advisories yet. A draft appears when a flight's projected track enters TEPHRA's area.",
     sub: handN && !waitingN ? el("span", {}, `No drafts: ${hand.block.undone ? "the Coordinator left its must-do flights for the Desk" : blockPhrase(hand.block)}. `, el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Plan by hand on the Desk ›" })) : null,
   });
@@ -943,7 +947,8 @@ export function renderTimeline(D, store, ui, conn) {
     bar.style.width = `${(p * 100).toFixed(1)}%`;
     const pctText = `${Math.round(p * 100)}%`;
     meta.append(
-      el("span", { class: "tl__mode" }, icon("i-replay"), "Replay"),
+      // the frame strip says REPLAY; here the icon marks the replay clock, and the time follows
+      el("span", { class: "tl__mode", title: "Replay clock" }, icon("i-replay"), el("span", { class: "sr-only", text: "Replay clock" })),
       // The clock, then how far the recording has played. The recording's own span sits in the
       // tooltip and in History, not beside the 12 h axis, so two time scales never sit side by
       // side (review 2, item 12).
@@ -1135,7 +1140,7 @@ export function feedsSection(D, store, target = $("feeds")) {
     else if (f.status === "ERROR") sub = `Error · last good ${ago}`;
     else sub = offWords(f);
     return el("div", { class: `feeds__row feeds__row--${f.status.toLowerCase()}` }, dkRow({
-      key: `feed-${f.feed}`, dot: tone, title: [FEED_NAME[f.feed] || f.feed, f.replay && !(D?.mode === "REPLAY") ? [" ", el("span", { class: "tag tag--replay", text: "recorded" })] : null], sub,
+      key: `feed-${f.feed}`, dot: tone, title: [FEED_NAME[f.feed] || f.feed, f.replay && D?.mode !== "REPLAY" ? [" ", dkFromReplay(f.replay, false)] : null], sub,
       meta: f.status === "OK" || f.status === "STALE" ? el("span", { class: "mono", text: Number.isFinite(last) ? hhmmz(last) : "" }) : null,
       body: [dkFacts([["Status", word], ["Last good", Number.isFinite(last) ? `${dayTime(last)} (${ago})` : "never"], ["Records", String(f.record_count ?? 0), { mono: true }]]),
         techDetail(`last good (UTC): ${Number.isFinite(last) ? `${dayMonth(last)} ${hhmmz(last)}` : "never"} · records: ${f.record_count ?? 0} · feed key: ${f.feed}`, f.last_error || null)],
@@ -1165,15 +1170,14 @@ export function feedsSection(D, store, target = $("feeds")) {
     : offN ? dkPill("off", [by.DISABLED ? `${by.DISABLED} off` : null, by.NEVER ? `${by.NEVER} not read` : null].filter(Boolean).join(" · ")) : dkPill("ok", "All working");
   const dbBad = db && !db.ok;
   target.replaceChildren(dkSection("feeds-head",
-    dkHeader({ id: "feeds-head", pills: [pill, dkRecorded(!!replay)], title: `${by.ERROR ? `${by.ERROR} failing · ` : ""}${by.STALE ? `${by.STALE} stale · ` : ""}${by.OK || 0} working${offN ? ` · ${offN} off or not read` : ""}`, sub: db ? (db.ok ? "The database is working too." : "The database is failing.") : null }),
+    dkHeader({ id: "feeds-head", pills: [pill], title: `${by.ERROR ? `${by.ERROR} failing · ` : ""}${by.STALE ? `${by.STALE} stale · ` : ""}${by.OK || 0} working${offN ? ` · ${offN} off or not read` : ""}`, sub: db ? (db.ok ? "The database is working too." : "The database is failing.") : null }),
     dkTiles([
       { label: "Working", value: String(by.OK || 0), tone: by.OK ? "ok" : null, sub: "feeds" },
       by.STALE ? { label: "Stale", value: String(by.STALE), tone: "stale" } : null,
       errN ? { label: "Errors", value: String(errN), tone: "serious", sub: dbBad ? (by.ERROR ? "feeds and the database" : "the database") : "feeds" } : null,
       { label: "Off or not read", value: String(offN), tone: "plain", sub: offN ? (replay ? "not in this recording or switched off" : "switched off or not polled yet") : null },
     ], "Feeds in numbers"),
-    replay ? dkNote("replay", `REPLAY: every feed below plays a recording (${replay.label}). Nothing is live.`, { iconId: "i-replay" })
-      : dkNote("info", "When a feed fails, TEPHRA shows the last good data with its time, and says so. It never shows substitute data."),
+    dkNote("info", "When a feed fails, TEPHRA shows the last good data with its time, and says so. It never shows substitute data."),
     look.length || dbBad ? dkGroup("Needs a look", null, dkList([dbBad ? dbRow : null, ...look.map(rowOf)], { first: 6, key: "feeds-look" })) : null,
     dkGroup("Working", null, dkList([...working.map(rowOf), db?.ok ? dbRow : null], { first: 8, key: "feeds-ok" })),
     off.length ? dkGroup(`Off or not read · ${off.length}`, null, dkList(off.map(rowOf), { first: 0, key: "feeds-off", more: `Show ${off.length} feeds that are off` })) : null));

@@ -19,6 +19,20 @@
   <a class="skip-link" href="#main">Skip to content</a>
 
   <header id="dhead" class="dhead">
+    <!-- The frame strip, as on the Wall (UI-DESIGN 7.1, 10.16): the top row of the page, the one
+         REPLAY label (violet) and the disclaimer, in the sticky header, so both show on every view.
+         Sheets and dialogs open below it and dim the rest. The case title and "switched
+         automatically" are in the REPLAY part's tooltip and #replay-case; desk.js sets the label. -->
+    <div id="frame" class="frame" role="note" aria-label="Disclaimer">
+      <p id="replay-bar" class="frame__replay" hidden>
+        <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-replay"></use></svg>
+        <span><span id="replay-text">Replay</span><span class="frame__live"> · not live</span><span id="replay-case" class="sr-only"></span></span>
+      </p>
+      <p class="frame__honesty">
+        <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-info"></use></svg>
+        <strong id="disclaimer">Decision support only - fictional airline - not for operational use</strong>
+      </p>
+    </div>
     <div class="dhead__row">
       <p class="brand"><span class="brand__mark">TEPHRA</span> <span class="brand__sub">Desk</span></p>
       <!-- One assistant chip (docs/UI-AI-QUIET.md K78, Naming): TEPHRA Assistant's state; the models,
@@ -32,15 +46,6 @@
                 aria-controls="account-menu" hidden></button>
         <div id="account-menu" class="menu" hidden></div>
       </div>
-    </div>
-    <!-- The REPLAY label and the disclaimer share one band; both always show (UI-DESIGN 10.16). -->
-    <div class="honesty">
-      <p id="replay-bar" class="replay-bar" hidden>
-        <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-replay"></use></svg>
-        <span id="replay-text"></span>
-        <span id="replay-auto" class="replay-bar__auto" hidden>auto</span>
-      </p>
-      <p id="disclaimer" class="disclaimer">Decision support only - fictional airline - not for operational use</p>
     </div>
   </header>
 

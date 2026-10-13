@@ -7,7 +7,7 @@ import { PATHS, api, isUnavailable, problems, unavailableReason } from './api.js
 import { announce, byId, el, icon } from './dom.js';
 import { dayMonthHhmm } from './format.js';
 import { app } from './state.js';
-import { aiMark, codeChip, openBSheet, reportsHead, unavailableCard } from './ui.js';
+import { aiMark, codeChip, fromReplayChip, openBSheet, reportsHead, unavailableCard } from './ui.js';
 
 const MAX_CHARS = 6000;
 const MIN_CHARS = 20;
@@ -101,7 +101,7 @@ export function readingView(n) {
   const out = [];
   const head = el('div', { class: 'nhead' }, statusBadge(n),
     el('span', { class: 'chip chip--sm', title: 'Language detected by the model', text: LANGS[n.language] || 'Language not recognised' }),
-    n.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null,
+    fromReplayChip(n),
     n.status === 'ai_unavailable' ? null : aiMark('Read by Notice reader', n.llm_backend === 'stub' ? null : n.model_id));
   out.push(head);
 

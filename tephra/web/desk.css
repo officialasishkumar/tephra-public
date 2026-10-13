@@ -277,43 +277,6 @@ a {
   border-color: var(--c-text-2);
 }
 
-.replay-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  min-height: 28px;
-  padding: var(--sp-1) var(--sp-4);
-  background: var(--c-replay-bg);
-  border-top: 1px solid var(--c-replay);
-  color: var(--c-replay-ink);
-  font-size: var(--fs-2);
-  font-weight: var(--fw-semibold);
-  line-height: var(--lh-snug);
-}
-
-.replay-bar .icon {
-  color: var(--c-replay);
-}
-
-.replay-bar__auto {
-  margin-left: auto;
-  padding: 0 6px;
-  border: 1px solid var(--c-replay);
-  border-radius: var(--radius-sm);
-  font-size: var(--fs-1);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-caps);
-}
-
-.disclaimer {
-  padding: 6px var(--sp-4) 7px;
-  border-top: var(--border-hair);
-  font-size: var(--fs-1);
-  font-weight: var(--fw-semibold);
-  line-height: 1.35;
-  color: var(--c-text-1);
-}
-
 .netbanner {
   display: flex;
   align-items: flex-start;
@@ -1448,6 +1411,17 @@ textarea.field {
 
 .sheet__body {
   padding: var(--sp-4) var(--sp-4) calc(var(--bar-h, 200px) + var(--sp-6));
+}
+
+/* "From a replay" on a replay draft opened while live feeds play (UI-DESIGN 7.1) */
+.replay-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-2);
+  color: var(--c-text-2);
 }
 
 /* check-answers list */
@@ -6338,62 +6312,116 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
    an empty box. These rules come last on purpose.
    ===================================================================================== */
 
-/* --- the honesty band: REPLAY and the disclaimer, one band, both always shown -------------- */
+/* --- the frame strip (UI-DESIGN 7.1): REPLAY said once, and the disclaimer ---------------------
+   The Wall's strip, the same look on the Desk: the top row of the sticky header, the violet REPLAY
+   part on the left (REPLAY only), the disclaimer with its info mark on the right; one line on
+   desktop, two short lines on a phone; live, the disclaimer alone. Violet is only on the REPLAY
+   part. It is a label, not a control, so it sits above the brand row, never next to the tabs. */
 
-.honesty {
+.frame {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: stretch;
   justify-content: space-between;
-  gap: 2px var(--sp-4);
-  padding: 5px max(var(--sp-4), env(safe-area-inset-right)) 6px max(var(--sp-4), env(safe-area-inset-left));
-  border-top: var(--border-hair);
+  min-width: 0;
+  min-height: 32px;
+  border-bottom: var(--border-hair);
+  background: var(--c-surface-1);
+  font-size: var(--fs-2);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
 }
 
-.honesty:has(.replay-bar:not([hidden])) {
-  border-top: 1px solid var(--c-replay);
-  background: var(--c-replay-bg);
+.frame > p {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  margin: 0;
+  padding: 4px max(var(--sp-4), env(safe-area-inset-right)) 4px max(var(--sp-4), env(safe-area-inset-left));
+  text-wrap: balance;
 }
 
-.honesty .replay-bar,
-.honesty .disclaimer {
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-}
-
-.honesty .replay-bar {
-  gap: 6px;
-}
-
-.honesty .replay-bar .icon {
-  width: 15px;
-  height: 15px;
+.frame .icon {
+  width: 16px;
+  height: 16px;
   flex: none;
 }
 
-.honesty .disclaimer {
-  font-size: var(--fs-1);
-  line-height: 1.35;
+.frame__replay {
+  background-color: var(--c-replay-bg);
+  background-image: repeating-linear-gradient(135deg, rgb(183 148 255 / 0.16) 0 10px, transparent 10px 20px);
+  background-size: 28px 100%;
+  background-repeat: no-repeat;
+  box-shadow: inset 0 -2px 0 var(--c-replay);
+  color: var(--c-text-1);
+}
+
+.frame__replay .icon {
+  margin-left: 12px;
+  color: var(--c-replay);
+}
+
+.frame__live {
+  color: var(--c-replay-text);
+}
+
+.frame__honesty {
+  color: var(--c-text-1);
+}
+
+.frame__honesty .icon {
+  color: var(--c-info);
 }
 
 @media (min-width: 1100px) {
-  .honesty {
-    padding-left: var(--sp-6);
-    padding-right: var(--sp-6);
+  .frame > p {
+    padding-left: var(--sp-5);
+    padding-right: var(--sp-5);
   }
 }
 
 @media (max-width: 599px) {
-  .honesty {
-    padding-top: 4px;
-    padding-bottom: 5px;
-  }
-
-  .honesty .replay-bar {
+  .frame {
+    flex-direction: column;
     font-size: var(--fs-1);
   }
+
+  .frame > p {
+    padding: 3px max(var(--sp-3), env(safe-area-inset-right)) 3px max(var(--sp-3), env(safe-area-inset-left));
+  }
+
+  .frame__replay .icon {
+    margin-left: 0;
+  }
+
+  .frame__honesty .icon {
+    display: none;
+  }
+}
+
+/* Sheets and dialogs open below the strip, and their backdrop starts there too: the strip is never
+   covered or dimmed, while the brand row, the assistant chip and the avatar under it are dimmed
+   with the page (they cannot be used while a sheet is open). --dframe-h is measured by desk.js. */
+.dlg::backdrop,
+.bsheet::backdrop {
+  top: var(--dframe-h, 0px);
+}
+
+.bsheet {
+  top: var(--dframe-h, 0px);
+  max-height: min(92dvh, calc(100dvh - var(--dframe-h, 0px)));
+}
+
+@media (min-width: 700px) {
+  .bsheet {
+    max-height: min(88dvh, calc(100dvh - var(--dframe-h, 0px) - 16px));
+  }
+}
+
+.dlg {
+  top: var(--dframe-h, 0px);
+  max-height: calc(100dvh - var(--dframe-h, 0px) - 32px);
 }
 
 /* --- Decide: Plan by hand, summed up (caution, never the picture's red: UI-AI-QUIET Q4) --- */

@@ -34,6 +34,49 @@ export const aiSymbol = (kind) => (kind === "on" ? "ta-working" : kind === "paus
 //     -> "TEPHRA Assistant's answer recorded on this replay's first pass at 0912Z real time"
 //   "Every other AI step" (a model's jobs) -> "Every other skill"
 export const recordedWords = (text) => (text ? String(text).replace(/\bAI answer recorded\b/g, `${ASSISTANT}'s answer recorded`) : text);
+// The REPLAY label, said once in the frame strip of the Wall and the Desk (UI-DESIGN 7.1, "Say it
+// once, in the frame"): "Replay · recorded feeds from 05 Sep 2026" then " · not live"; the case
+// title, and whether the switch was automatic, go in its tooltip. The date is the recording's
+// first day (UTC), as the server's banner words it.
+const MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export function replayWords(replay) {
+  const t = Date.parse(replay?.recorded_from || "");
+  const d = Number.isFinite(t) ? new Date(t) : null;
+  const day = d ? `${String(d.getUTCDate()).padStart(2, "0")} ${MON3[d.getUTCMonth()]} ${d.getUTCFullYear()}` : null;
+  const auto = replay?.auto ? "switched automatically: no live activity" : null;
+  return {
+    text: day ? `Replay · recorded feeds from ${day}` : "Replay · recorded feeds",
+    live: " · not live",
+    title: [replay?.banner, "not live", replay?.label, auto].filter(Boolean).join(" · "),
+    // for screen readers, after the visible words: the tooltip is not read on touch screens
+    more: [replay?.label, auto].filter(Boolean).map((s) => ` · ${s}`).join(""),
+  };
+}
+// The strip's accessible name says what it holds: the REPLAY notice and the disclaimer, or (live)
+// the disclaimer alone.
+export const stripLabel = (replay) => (replay ? "Replay notice and disclaimer" : "Disclaimer");
+// The strip sits outside every modal dialog, and a modal makes the rest of the page inert, so a
+// screen reader cannot reach the strip while a dialog is open. Each modal carries the REPLAY
+// sentence as sr-only text in its description (no visible label); live, the text is empty.
+// `words` is the strip's REPLAY text ("" when live). Call it just before showModal().
+export function describeReplay(dlg, words) {
+  if (!dlg || !dlg.id) return;
+  const id = `${dlg.id}-replay`;
+  let p = document.getElementById(id);
+  if (!p || p.parentElement !== dlg) {
+    if (p) p.remove();
+    p = document.createElement("p");
+    p.id = id;
+    p.className = "sr-only";
+    dlg.prepend(p);
+  }
+  const text = words ? `${words}.` : "";
+  if (p.textContent !== text) p.textContent = text;
+  const ids = (dlg.getAttribute("aria-describedby") || "").split(/\s+/).filter((x) => x && x !== id);
+  if (words) ids.push(id);
+  if (ids.length) dlg.setAttribute("aria-describedby", ids.join(" "));
+  else dlg.removeAttribute("aria-describedby");
+}
 // "waiting for AI budget, next slot 0700Z" (the API's slot words, inside a model's pacing sentence)
 export const pacingWords = (text) => String(text || "").replace(/waiting for AI budget, next slot (\d{4}Z)/g, "the next slot is at $1").replace(/waiting for AI budget/g, "waiting for the next slot");
 export const jobsWords = (text) => (text ? String(text).replace(/\b(e|E)very other AI step\b/g, (_, e) => `${e}very other skill`) : text);

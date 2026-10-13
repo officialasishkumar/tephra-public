@@ -17,7 +17,10 @@ docs/UI-AI-QUIET.md (`aiStateOf()`), which wins where this document differs. Ver
 with skills named by job (the Duty Officer is shown as the Coordinator) and the Strata mark; "AI
 helpers" is Details › TEPHRA Assistant, "AI at work" is TEPHRA Assistant at work, the Desk's "AI
 today" sheet is the TEPHRA Assistant sheet, and the old "AI …" chip words and marks below read as
-that section's table says.
+that section's table says. Version 3.4 (13 Oct 2026, 7.1 "Say it once, in the frame"): REPLAY is
+said once, by one frame strip on the Wall and the Desk that also holds the disclaimer; the
+stacked band and disclaimer bar, the Replay mode pill, the story's "Recorded" tag, the per-section
+"recorded" pills, the board's own band and the Desk's per-card and per-review REPLAY tags are gone.
 
 What this covers: the Wall (`/`, `index.html` + `wall.js` + `wall/*.js` + `wall.css`) and the Desk
 (`/desk`, `desk.html` + `desk.js` + `desk.css`). Shared assets that already exist and must be
@@ -71,8 +74,9 @@ Copy deck · 12 Accessibility · 13 Data rules · 14 Video shot list · 15 Open 
    dashed TEPHRA, dashed observatory arrow), a shape (status symbols, eruption symbol), a letter
    (G/Y/O/R/U in the volcano symbol) or a word. The colour-vision tables in section 3.3 are the
    evidence; keep them true.
-4. **Honest by construction.** The disclaimer, the REPLAY banner and the model label are layout,
-   not decoration: they are always on screen and never collapse, scroll away or truncate. Credits
+4. **Honest by construction.** The disclaimer, the REPLAY label and the model label are layout,
+   not decoration: they are always on screen and never collapse, scroll away or truncate. REPLAY
+   is said once, in the frame strip (7.1), not again on every card and section. Credits
    are always reachable (the footer's "Map and data credits", About › Credits, the drawer's end),
    and the OpenStreetMap credit is always visible on the map. TEPHRA's output is "cautious area", "estimate", "hypothesis", "advisory draft";
    never "forecast", "warning", "detection" or "release". Satellite and SO2 layers say "context
@@ -183,7 +187,7 @@ Modes and decisions:
 
 | Token | Hex | Use |
 |---|---|---|
-| `--c-replay` / `--c-replay-text` / `--c-replay-bg` / `--c-replay-ink` | `#b794ff` / `#cdb6ff` / `#1c1233` / `#e3d6ff` | REPLAY banner, REPLAY badge, replay clock caption, timeline progress |
+| `--c-replay` / `--c-replay-text` / `--c-replay-bg` / `--c-replay-ink` | `#b794ff` / `#cdb6ff` / `#1c1233` / `#e3d6ff` | the frame strip's REPLAY part (7.1), the "From a replay" tag, replay clock caption, timeline progress |
 | `--c-hypothesis-bg` | `#2b1d00` | HYPOTHESIS banner background (text `--c-tephra-text`) |
 | `--c-approve` / `--c-approve-progress` / `--c-approve-ink` | `#2fbf71` / `#7ef0b0` / `#04130a` | Approve button, its hold fill, its text |
 | `--c-reject` / `--c-reject-ink` / `--c-reject-text` | `#c9302c` / `#fff` / `#ff7a6e` | Final reject button, outline reject button text |
@@ -343,8 +347,8 @@ Dimensions are CSS px at the named viewport. The Wall's layout tokens (`--band-h
 ### 4.1 Wall at 1920x1080 (the video frame)
 
 ```
-y 0    ┌─ REPLAY band 32 (REPLAY only): "REPLAY: recorded real feeds from 05 Sep 2026 · not live · {case}" ─┐
-y 32   ├─ top bar 56: TEPHRA · sub-line · Replay · Area ▾ ……… AI chip · Data chip · clock · Desk → ────────┤
+y 0    ┌─ frame strip 32: "◷ Replay · recorded feeds from 05 Sep 2026 · not live" ……… "ⓘ Decision support only - …" ┐
+y 32   ├─ top bar 56: TEPHRA · sub-line · (Live) · Area ▾ ……… AI chip · Data chip · clock · Desk → ──────┤
 y 88   ├─ story 460 ─────────────┬─ map 1460 (980 with Details open) ─────────────┬─ Details 480 (open) ─┤
        │ failure line (if any)   │ official label box (selected volcano)          │ (pushes the map;     │
        │ eyebrow · hero number   │ map key card (top left, folds to its bar)      │  the story stays)    │
@@ -354,10 +358,10 @@ y 88   ├─ story 460 ─────────────┬─ map 1460 (
        │ See the AI at work      ├─ time bar 52: mode · scrubber · Forecast · ‹ › · History ───────────────┤
        │ All volcanoes + 3 rows  │                                                │                      │
        │ [☰ Details]             │                                                │                      │
-y 1048 ├─ footer 32: disclaimer · RFA line · credits · Policy A · Help · About · Privacy ──────────────────┤
+y 1048 ├─ footer 32: RFA line · credits · Policy A · Help · About · Privacy ──────────────────────────────┤
 ```
 
-- Rows: band 32 (0 in LIVE), bar 56, stage `1fr`, footer 32. Stage columns: story 460, map
+- Rows: frame strip 32 (always: live it holds the disclaimer alone), bar 56, stage `1fr`, footer 32. Stage columns: story 460, map
   `minmax(0, 1fr)`, drawer 0 or 480 (animated over `--dur-4`, a cut under reduced motion). The map
   column is the map plus the 52 px time bar. A 24 px fade runs from the story column into the map.
 - The story never scrolls at desktop widths in the Krakatau case: a fit pass (`fitStory()` in
@@ -396,9 +400,9 @@ other-volcanoes list shows 1 row.
 ### 4.4 Wall at 390x844 (phone)
 
 One column that scrolls; the document is exactly 390 px wide (`overflow-x: clip` after the causes
-were fixed). Sticky (about 120 px, 14% of the screen): the REPLAY band on one line ("REPLAY: recorded
-05 Sep 2026 · not live", `#replay-banner-short`; the full words stay in its title), then the header
-in two rows: brand, mode pill, clock, "Desk →"; the disclaimer line (12 px). Under it, not sticky,
+were fixed). Sticky (about 110 px, 13% of the screen): the frame strip in two short 12 px lines
+("◷ Replay · recorded feeds from 05 Sep 2026 · not live", then the disclaimer; live, the disclaimer
+alone), then the header in one row: brand, mode pill (live only), clock, "Desk →". Under it, not sticky,
 `#phone-bar`: the native area picker ("Java / Bali · 2"), the AI chip and the Data chip (wall.js
 moves these three nodes there on a phone and back at wider widths). Then: the failure line, the story card (20 px lines, full-width "Decide on
 the Desk →"), the map (42vh, min 300; Fit and Layers 40 px with words; the time pill "⟲ 1030Z · Now
@@ -469,8 +473,8 @@ to the bar height).
 ### 4.7 Desk at 1440x900
 
 Header full width: row 1 (48) brand left, then the AI chip ("AI paused · 0700Z real time",
-10.16), "Connected" and the account button; one honesty band (28) under it with the REPLAY words
-on the left and the disclaimer on the right; the tab bar (48, four 148 px tabs with icon, word and
+10.16), "Connected" and the account button, under the frame strip (32, 7.1: the header's top row,
+as on the Wall) with the violet REPLAY part on the left and the disclaimer on the right; the tab bar (48, four 148 px tabs with icon, word and
 badge) under the header. Below: two
 panes inside a 1280 max-width frame: Decide 420 wide on the left (the Next decision card, then the
 compact rows; the selected row is outlined in `--c-line-input` with a 3 px left bar, and the Next
@@ -770,21 +774,56 @@ placement), `wall/story.js` (story column), `wall/details.js` (Details drawer), 
 plan, track record, AI helpers), `wall/duty.js`, `wall/controls.js` (layers, Help, About),
 `wall/map.js` and `wall/ext-map.js` (the map), `wall/x-parts.js` (shared parts and `plainLine`).
 
-Structure (R3): `body.wall` is a grid of four rows: the REPLAY band, the top bar, the stage and the
+Structure (R3): `body.wall` is a grid of four rows: the frame strip, the top bar, the stage and the
 footer. The stage is a grid of three columns: the story (`#story`), the map column (`.mapcol`: the
 map, then the slim time bar) and the drawer (`#details`, 0 px wide while closed). Nothing floats over
 the map except its labels, the status pills (bottom-left), the map controls and the attribution
 (bottom-right), and the compare labels in compare mode. The body never scrolls at 601 px and up;
 the story column and the drawer scroll inside themselves.
 
-### 7.1 REPLAY band
+### 7.1 The frame strip: REPLAY said once (13 Oct 2026)
 
-`#replay-banner` (violet, 32 px; 28 px at 1280; one line on a phone, sticky there, showing the short
-`#replay-banner-short` "REPLAY: recorded 05 Sep 2026" instead of the full words): the REPLAY icon,
-`state.replay.banner` verbatim, " · not live", then " · {case label}" (and " · switched
-automatically: no live activity" when the switch was automatic). At 1280 the case label is hidden
-and stays in the band's tooltip, About and Details › Data feeds. `role="status"`: written only when
-the words change.
+"Too many mentions of replay everywhere": a violet band stacked over a separate disclaimer bar, a
+"Replay" mode pill, "Recorded" on the story, "recorded" pills on most Details sections, a second
+band on the board, REPLAY tags on Desk cards and reviews. CLAUDE.md's "REPLAY is always labelled"
+needs one label that is always visible, so the label is said once, in the frame.
+
+`#frame` (`role="note"`, named by `stripLabel()`: "Replay notice and disclaimer" in REPLAY,
+"Disclaimer" live), one slim strip above the top bar (32 px; 28 at
+1280): on the left, in REPLAY only, `#replay-banner` (`.frame__replay`, the only violet: the
+`i-replay` icon, "Replay · recorded feeds from 05 Sep 2026" in `#replay-banner-text`, then " · not
+live"); on the right the info icon and `#disclaimer`, verbatim from `state.disclaimer`. Live, the
+disclaimer alone. The words come from `replayWords()` (wall/x-parts.js), shared with the Desk; the
+date is the recording's first day (UTC). The case title, and "switched automatically: no live
+activity" when it was, are in the REPLAY part's tooltip and, for screen readers, in the sr-only
+`#replay-banner-case`; About shows the case in words for touch screens.
+
+On a phone the strip is sticky at the top in two short 12 px lines (the REPLAY part, then the
+disclaimer), and the header sticks below it (`--frame-px`, measured by wall.js). The strip is never
+covered or dimmed: the board, Help, About and the other dialogs open below it with their backdrop
+starting there, and the phone Details sheet starts below the header. A modal makes the strip inert
+for screen readers, so each modal (the board, `#dlg`, the Details sheet, the Desk's `#bsheet` and
+`#display-dialog`) carries the strip's REPLAY words as sr-only text in its `aria-describedby`
+(`describeReplay()` in wall/x-parts.js); live, none. Nothing visible is added.
+
+The Desk's strip is the same strip (same classes, sizes, icon and words), the top row of its sticky
+header above the brand row, so it reads as a label and never sits next to the tab bar (10.16).
+
+Kept, because each says something the strip does not: the clock's "Replay clock · 5 Sep · UTC"
+(which time you see); the time bar's replay icon with the time and "9% played" (the word "Replay"
+went); `document.title` "REPLAY - TEPHRA Wall"; reasons ("Not in this recording.", "Off: no PVMBG
+permission (replay only)", "No aircraft data in this recording."); recorded-answer facts ("TEPHRA
+Assistant's answer recorded on this replay's first pass at 0912Z real time"); Technical detail and
+tooltips; Help, About and the glossary; and at data level documents, advisory and message headers
+written by code, audit and outbound records. A record whose mode differs from what plays (a
+replay record seen while live feeds play) keeps one tag, worded "From a replay" on both pages
+(`dkFromReplay` on the Wall, `fromReplayChip` on the Desk): Details rows, feed rows, crew reports,
+and on the Desk the Next decision, the review ("From a replay · Drafted while a replay played, not
+from live feeds", for a replay draft opened from a link while live feeds play), Ask answers,
+messages, notices, airport plans and crew reports. Decide lists only the drafts of the mode playing,
+and a set-aside draft opened from a link never becomes the Next decision.
+Before the Desk has read the state the mode is unknown and no tag shows. Nothing else in the main
+views repeats the label.
 
 ### 7.2 Top bar
 
@@ -819,13 +858,11 @@ R17.2). Left to right:
 
 ### 7.3 Footer
 
-`footer.honesty`, one line (32 px; 28 at 1280): the info icon and `#disclaimer` (from
-`state.disclaimer`); "RFA (Ring of Fire Air) is a fictional airline; its flight numbers are proxies
-for real aircraft." ("RFA is a fictional airline." below 1360 px); then "Map and data credits"
-(`#attribution`, opens About › Credits), "Policy A (illustrative)" (`#policy-btn`), "Help"
-(`#help-btn`), "About" (`#about-btn`), "Privacy". On a phone the disclaimer line moves (the node is
-re-parented) into the sticky header (`#phone-honesty`), so it is always visible without a fixed
-footer covering content; the rest of the footer is the last thing on the page.
+`footer.honesty`, one line (32 px; 28 at 1280): "RFA (Ring of Fire Air) is a fictional airline;
+its flight numbers are proxies for real aircraft." ("RFA is a fictional airline." below 1360 px);
+then "Map and data credits" (`#attribution`, opens About › Credits), "Policy A (illustrative)"
+(`#policy-btn`), "Help" (`#help-btn`), "About" (`#about-btn`), "Privacy". The disclaimer is in the
+frame strip (7.1), always on screen; on a phone the footer is the last thing on the page.
 
 ### 7.3a Help (`?`)
 
@@ -891,7 +928,7 @@ The story (R5, `wall/story.js`), built by code from fields, about the selected v
 - Eyebrow, two rows in sentence case: the eruption symbol, `#volcano-name` (the page's h1, bold)
   and "as of 1030Z" right-aligned on the same row; under it, muted, the area, the alert colour as a
   small pill in words with a dot in the code colour ("Red alert"; "Alert colour not given" for
-  UNKNOWN) and, in REPLAY, the "Recorded" tag.
+  UNKNOWN). REPLAY is said by the frame strip (7.1), not here.
 - The story `#headline` (redesigned 13 Oct 2026 after "too cluttered": one big number, a row of
   facts, one notice, the lines about the sources; colour only for what is abnormal or the number
   to read first, ISA-101's high-performance HMI), replaced only when its words change:
@@ -990,7 +1027,7 @@ Show". While History is open the pills and controls move up above it.
 
 ### 7.8 Details › Flights heading in, This flight
 
-`#flights` (R8.3): the count sentence and the RECORDED tag, the first 5 rows (plane, "RFA1225",
+`#flights` (R8.3): the count sentence, the first 5 rows (plane, "RFA1225",
 "proxy for GIA616 · FL310", "inside now" or "in 12 min, est.", the advisory status when one is
 loaded), then "All n" (`<details>`), the RFA and coverage note, and "+n heading in at Semeru" links.
 A row picks the flight (white ring on the map), flies to it and opens This flight: the proxy and
@@ -1086,7 +1123,8 @@ pill with the model ids as chips, failures grouped by cause, "Passed the checks"
   270 px, labels SFC FL060 FL180 FL350 FL550, the official and TEPHRA bands, aircraft ticks), a key,
   and the presets All, Hazard, ≤FL180, ≥FL180. Arrow keys, Page keys, Home/End and drag.
 - Data feeds (`#feeds`): one row per feed (R12.8 names), the status word with its shape, the age,
-  "recorded" in REPLAY, and "Technical detail" (last good time, records, feed key, the raw error);
+  "From a replay" only on a replay feed while live plays (7.1), and "Technical detail" (last good
+  time, records, feed key, the raw error);
   the database row last.
 - Map layers (`#layers-pop`): the status ("satellite off"), "On the map" (official locked on;
   TEPHRA's estimate; crew report caution areas locked on; aircraft; other aircraft labels; flight paths; flight routes (on; the usual routes of the RFA flights
@@ -1110,7 +1148,7 @@ The feed health dialog became Details › Data feeds (7.14); the Data chip opens
 Connecting (story "Connecting to TEPHRA…", mode pill "Connecting…", no numbers); load error (the
 failure line only, retried every 5 s with a countdown; never a cached story); stream lost (the
 failure line, `#stale-chip`, the clock stops, a light scrim on the map, the time bar dims);
-REPLAY (the band, the mode pill, "Recorded" on the story, "recorded" tags); HYPOTHESIS (the banner
+REPLAY (the frame strip's REPLAY part, 7.1, and the clock's "Replay clock"); HYPOTHESIS (the banner
 replaces L1); empty area and nothing active (7.6); 3D and compare (8.1, 8.2).
 
 ### 7.18 Operator policy
@@ -1201,12 +1239,12 @@ back to the opener. The state (`tephra.wall.details`: a section key, "index" or 
 Section key `crew`, host `#crew`, group The ash. Index status: "2 active · 6 flights flagged · 2
 outside the official area" (caution shape while any report is outside), "1 report, none active",
 or "none in the last 24 h". The section: "3 crew reports in the last 24 hours · 1 with a caution
-area now" with the "recorded" tag in REPLAY; the label and a plain explanation (a dispatcher
+area now"; a report entered in REPLAY says "From a replay" only while live feeds play (7.1); the label and a plain explanation (a dispatcher
 enters it on the Desk; code draws the area; it flags flights, never shrinks or replaces an
 official area, re-plans nothing and calls no model; a sulphur smell or haze alone is a routine
 report with no area; a no-ash report never removes one); then one card per report, newest first,
 with its record: the flight, the state with its shape and word (Active, Covered by official
-area, Expired, Withdrawn, or the no-area wording), the age, "entered in REPLAY", for a
+area, Expired, Withdrawn, or the no-area wording), the age, "From a replay" (live only), for a
 withdrawn or expired report what ended it ("Withdrawn by AK at 1052Z: Wrong position. It no
 longer flags any flight."), the discrepancy line "Crew report outside the official area. Part of
 it lies outside every valid official area, sideways or in height. A dispatcher can start a
@@ -1268,14 +1306,15 @@ shows without scrolling in the stub run; with the live site's longer lines the l
 short scroll at 1440. At 390 px nothing scrolls sideways.
 
 The head stays put: the title "TEPHRA Assistant at work" with the `ta-16` mark, one sentence
-("Its Coordinator hands the work to six skills. A dispatcher decides on everything they make."), the close button, and in
-REPLAY the violet REPLAY band with the case label, so the label is on screen however far the board
-scrolls. The body then has the AI's one state in the AI chip's words ("AI on", "AI off", "AI
+("Its Coordinator hands the work to six skills. A dispatcher decides on everything they make."), and the close button. The board
+opens below the Wall's frame strip (7.1), which stays on screen and undimmed above it, so the board
+repeats neither REPLAY nor the disclaimer however far it scrolls. The body then has the AI's one state in the AI chip's words ("AI on", "AI off", "AI
 paused · 0700Z real time", `aiWords`, docs/UI-AI-QUIET.md 5.2), its calm lead (5.1) and a link to
 Details › AI helpers, "Not updating since 1048Z" while the stream is lost (the cards dim), and in REPLAY "Times are on the
 replay clock. AI budget times (waiting until, closed until) are real time."; on the right the
-summary counts of the seven cards by state; then the flow; then "How to read this board" and the
-disclaimer.
+summary counts of the seven cards by state; then the flow; then "How to read this board". The feeds
+node says "Public feeds" (the replay icon in REPLAY); a reused first-pass answer is a neutral
+"first-pass answer" tag with the recorded words in its title.
 
 Each card, from data only:
 - the helper's name and what it does ("Flight planner · Chooses an action for each flight");
@@ -1452,10 +1491,17 @@ opens the TEPHRA Assistant sheet; the connection `#conn`, always a word with its
 "Live", which under the REPLAY bar would read as live data), `st-stale` "Reconnecting…",
 `st-serious` "Offline", `st-never` "Connecting…"; the account button (initials in a 32 px circle,
 menu: "Signed in as AK · session ends 1830Z", "Display: LIVE" with "Change display…" (10.10), and
-"Sign out"). Row 2, the honesty band (`.honesty`): in REPLAY the violet band with `i-replay` +
-`state.replay.banner` on the left and the disclaimer on the right (12 px semibold text-1, wraps,
-never truncates); live, the disclaimer alone. On a phone the two wrap to two short lines in the
-one band. `#net-banner` (offline, back online) under it. `state` is read from `GET /api/state`
+"Sign out"). Above that row, the header's top row, the frame strip (`#frame.frame`, `role="note"`,
+the Wall's strip, 7.1): in REPLAY the violet REPLAY
+part (`#replay-bar`: `i-replay`, "Replay · recorded feeds from 05 Sep 2026 · not live", the case
+title and an automatic switch in its tooltip and `#replay-case`) on the left and the disclaimer on
+the right with the info icon (14 px semibold text-1, 12 on a phone, wraps balanced, never
+truncates); violet only on the REPLAY part; live, the disclaimer alone. On a phone the two are two
+short lines. Sheets and dialogs open below the strip (`--dframe-h`, measured by desk.js) with their
+backdrop starting there, so the strip is never covered or dimmed, while the brand row, the
+assistant chip and the avatar are dimmed with the page (they cannot be used while a sheet is open). Cards, the
+review, Ask answers, messages, notices, crew reports, airport plans and Paperwork rows carry no
+REPLAY tag; a record from the other mode shows "From a replay" (`fromReplayChip`). `#net-banner` (offline, back online) under it. `state` is read from `GET /api/state`
 at start and from `state` events; until then the static HTML disclaimer is shown.
 
 Tabs `#tabbar` (R10.2, 10.17): Decide, Airports, Paperwork, Ask, a `role="tablist"` of
@@ -1552,7 +1598,9 @@ Opens from the Next decision's button or a row (full screen on phones, the right
 and up). Header: back "‹ Decide" (hidden in the pane), title "Review RFA1225" (`#s-title`),
 "Version 1". The primary facts come first, above the action bar:
 
-- closed or HYPOTHESIS banners when they apply; the REPLAY chip "Drafted from recorded feeds";
+- closed or HYPOTHESIS banners when they apply; no REPLAY chip (the frame strip says it, 7.1),
+  except a replay draft opened while live feeds play: "From a replay · Drafted while a replay
+  played, not from live feeds";
 - "RFA1225" + "Proxy for ADS-B GIA616 (hex 8A01DE) · A320";
 - the action, large: "Keep watching (MONITOR)" (24 600);
 - the entry ("Inside the ash now" with "Inside TEPHRA's estimated area when drafted at 1030Z", or
@@ -1694,7 +1742,7 @@ draft for RFA4821" (the neutral filled button, never red, 10.17; tap only, no ho
 queue: "Display: LIVE" or "Display: REPLAY · {case label}", and a "Change display…" item that
 opens a sheet listing "Live feeds" and each case from `GET /api/replays` (label, window
 "23 SEP 1200Z → 27 SEP 0600Z", record count). Choosing one asks once: "Switch every screen to
-REPLAY of {label}? Viewers see the REPLAY banner. The switch is recorded in the audit log under
+REPLAY of {label}? Viewers see REPLAY in the strip at the top. The switch is recorded in the audit log under
 your name." with "Switch to replay" / "Cancel" (or "Switch to live feeds"). Errors: 404 "That
 recording is not on this server.", 409 "No recording is available." The new `state` event updates
 both pages; the Desk shows a toast "Display switched to REPLAY by AK."
@@ -1840,7 +1888,7 @@ guess.
   `flagged` (the server's answer), named from the picture's flags or the tracked flights, so it
   is right before the `crew` event arrives; the open record redraws on every new picture.
 - A report's record (`openCrewReport`, from a row, "See the report" or `#crew/<id>`): the state,
-  age and REPLAY chip; the outside box ("Crew report outside the official area" with the
+  age, and "From a replay" only while live feeds play (7.1); the outside box ("Crew report outside the official area" with the
   server's `outside_detail` and "Pass the difference on to the weather office and the VAAC (EUR
   Doc 019 3.2.9 e)."); one line of what the area does now (active or covered: the label and that
   it flags flights; withdrawn: "Withdrawn by AK at 1052Z: Wrong position. Its area no longer
@@ -1915,9 +1963,10 @@ calls" or "Closed", a bar, its state with a shape, the model id in small mono), 
 shared" (a disclosure: each lane's calls and the pacing sentence), "See the AI at work on the
 Wall" (opens `/#ai-at-work` in a new tab), the count note and "As of …", in real time.
 
-The honesty band (`.honesty`): the REPLAY words on the left and the disclaimer on the right, one
-violet band, one row from 600 px; on a phone the two wrap to two short lines in the same band
-(about 40 px instead of 58). Live, the disclaimer alone.
+The honesty band: the REPLAY words on the left and the disclaimer on the right, one row from
+600 px; on a phone two short lines (about 46 px instead of 58). Live, the disclaimer alone. Amended
+the same day by 7.1: it is the Wall's frame strip (`#frame.frame`, same words, sizes and icon), the
+top row of the header above the brand row, and only the REPLAY part is violet.
 
 Plan by hand (`desk/failures.js`):
 - The card on Decide (`#fail-section`, after the Next decision, UI-AI-QUIET K77), caution with a
@@ -2039,7 +2088,9 @@ times, hash and link), Area (the words, the mode sentence, "TEPHRA's area is nev
 official area."), Route, Record (ids, the proxy and hex, drafted-at and minutes to entry, the action
 code, the fuel formula and cost note, drafted by and the validator notes, the policy, the full
 header, History from `/api/audit`, "Ask TEPHRA about RFA1456 ›"). "Drafted from recorded feeds" left
-the review: REPLAY is said by the frame strip (and the header line inside the approved text).
+the review: REPLAY is said by the frame strip (and the header line inside the approved text); a
+replay draft opened while live feeds play carries "From a replay" in the review and on the lead
+card (7.1).
 
 **One decision bar**: the primary (Approve, green, advisories only; hold or tap-and-confirm), the
 hint "Hold to approve, or tap to confirm." (offline: "Reconnect to approve"), then "Edit text" and
@@ -2083,7 +2134,7 @@ the disclaimer exactly as `state.disclaimer` gives them.
 | Where | Text |
 |---|---|
 | Disclaimer (both pages, always) | `Decision support only - fictional airline - not for operational use` (from `state.disclaimer`; the HTML ships the same text) |
-| REPLAY banner (both pages, whole session) | `state.replay.banner`, e.g. "REPLAY: recorded real feeds from 23 Sep 2026" |
+| REPLAY label (both pages, whole session, once: the frame strip, 7.1) | "Replay · recorded feeds from 23 Sep 2026 · not live" (`replayWords()`); `state.replay.banner` ("REPLAY: recorded real feeds from 23 Sep 2026") is its tooltip and the About line |
 | Model label (both pages, always) | The AI's one state on both pages (`aiStateOf()`, docs/UI-AI-QUIET.md 5.2): "AI on", "AI paused · 0700Z", "AI on · 1 problem", "AI off" (the Wall's AI chip, the Desk's AI chip, AI at work); the model ids are in the Desk's AI today sheet, AI at work and Details › AI helpers |
 | AI marking | "AI-drafted" (advisory body), "AI-written · {model}" (plume reading, satellite limits); with no model the Wall says "Written by code (AI off)" |
 | Every satellite layer | "CONTEXT ONLY · {layer} {time} · not ash detection · Imagery: NASA GIBS · Himawari-9 data: JMA via NOAA" |
@@ -2098,7 +2149,7 @@ the disclaimer exactly as `state.disclaimer` gives them.
 | Mode | Short | Sentence |
 |---|---|---|
 | LIVE | "Live" (mode pill), "Live · 9 h back, 3 h ahead" (time bar) | "Live feeds" |
-| REPLAY | "Replay" (mode pill), "Replay clock · 5 Sep · UTC" | the band + " · not live"; "Recorded" on the story; "recorded" on tags |
+| REPLAY | "Replay clock · 5 Sep · UTC" (the mode pill is hidden: the strip says it) | the frame strip, once: "Replay · recorded feeds from 05 Sep 2026 · not live"; no "Recorded" on the story, no "recorded" tags; "From a replay" only on a record from the other mode |
 | OFFICIAL (cone) | "TEPHRA's estimate · same as official (AI off)" | "Same as the official area (AI off, nothing added)." |
 | WIDENED | "TEPHRA's estimate · wider than official" | "The official area plus the observatory's drift, never smaller." |
 | HYPOTHESIS | "TEPHRA's estimate · hypothesis" | "HYPOTHESIS: no valid official product. Only MONITOR or HOLD may be advised." |
@@ -2156,7 +2207,7 @@ errors go under "Technical detail". Status lines: OK "Working · updated 27 s ag
 "Stale · last good 14 min ago · showing the last good copy"; ERROR "Error · last good 2 h ago"
 (or "never") + the error; DISABLED "Off" + the reason verbatim (the VONA feed's status word is
 "Off: no PVMBG permission (replay only)", so it is not read as the operator policy); NEVER "Not
-polled yet". Replay: add the tag "recorded".
+polled yet". A replay feed shown while live feeds play: add the tag "From a replay" (7.1).
 
 ### 11.7 Action words (Desk and Wall)
 
@@ -2307,8 +2358,8 @@ All inputs are MODULES.md section 8 shapes. Nothing below calls a model or inven
 
 The storyboard is `docs/PITCH.md` (rows as of 10 Oct). Record the Wall at 1920x1080, browser
 zoom 100%, `prefers-reduced-motion` off, after `body[data-map-ready="true"]`, with `?present=1`
-(Details stays closed until opened on purpose). Every replay shot shows the REPLAY band; the
-disclaimer is in every frame. The opening uses the Krakatau window of UI-REDESIGN R2.2
+(Details stays closed until opened on purpose). Every replay shot shows the frame strip's REPLAY
+part; the disclaimer is in every frame. The opening uses the Krakatau window of UI-REDESIGN R2.2
 (`TEPHRA_REPLAY_CASE=anak-krakatau-20260905`, `TEPHRA_REPLAY_START=2026-09-05T10:30:00Z`,
 `TEPHRA_REPLAY_END=2026-09-05T19:30:00Z`): the Wall opens on Anak Krakatau with flights and
 advisories, and the story card carries the beat. For the disagreement beat open Details › What the
@@ -2430,5 +2481,5 @@ primary text. In short:
   12 h axis never sits beside a second time scale.
 - Help › Full map key: "Suggested reroute" and "Box marked on the satellite picture" (no ICAO-form
   note, no "AI-marked" while AI is off). Track record: "generated 11 OCT 1515Z" (one Z).
-- Phone Details sheet: the backdrop is transparent, so the band, header and disclaimer above the
+- Phone Details sheet: the backdrop is transparent, so the frame strip and header above the
   sheet stay at full contrast. Details index statuses wrap in their own column.

@@ -123,7 +123,7 @@ function docRow(d, why = null) {
   return el('li', {}, el('button', { type: 'button', class: 'drow', 'data-doc': d.id },
     el('span', { class: 'drow__kind', text: KIND_WORD[d.kind] || d.kind }),
     el('span', { class: 'drow__what' }, el('span', { class: 'drow__t', text: d.title }),
-      el('span', { class: 'drow__m', text: `${why || signing} · drafted ${dayMonthHhmm(d.created_at)}${d.replay ? ' · recorded' : ''}` })),
+      el('span', { class: 'drow__m', text: `${why || signing} · drafted ${dayMonthHhmm(d.created_at)}` })),
     el('span', { class: `adv-status adv-status--${tone}` }, icon(shape, 'st'), el('span', { text: word })),
     icon('i-chevron-right', 'icon nrow__go')));
 }

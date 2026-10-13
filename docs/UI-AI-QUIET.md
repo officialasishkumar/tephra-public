@@ -95,7 +95,8 @@ reasonClass, steps, first, last, raw, consequence, link }], waiting: [{ job, slo
 3. **"Never shrink the official area"** stays in the AI home header, the AI chip's tooltip and the
    map key; the trust line keeps the same meaning in "never smaller" words.
 4. **REPLAY** labels (banner, mode badge, clock sub, eyebrow "Recorded", the Desk's `REPLAY`
-   chips) are not touched.
+   chips) are not touched by this spec. (Since 13 Oct 2026, UI-DESIGN 7.1: REPLAY is said once, in
+   the frame strip; the clock sub stays, the others went.)
 5. **Feed, database, connection, map and load failures** keep the red banner, `role=alert` on
    `#lost-banner`, the red Data chip on ERROR, and their order (worst first).
 6. **Nothing is deleted.** Every piece of information in the inventory is kept: it is moved, merged

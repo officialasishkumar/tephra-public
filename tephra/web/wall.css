@@ -11,7 +11,7 @@
   --foot-h: 32px;
   --story-size: 28px;
   --gutter: 20px;
-  --band-px: 0px; /* the REPLAY band's height on a phone, measured by wall.js */
+  --frame-px: 0px; /* the frame strip's height, measured by wall.js: the phone header and dialogs sit below it */
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -34,7 +34,7 @@ body.wall {
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
-body.wall > .replay-banner { grid-row: 1; }
+body.wall > .frame { grid-row: 1; }
 body.wall > .cmdbar { grid-row: 2; }
 body.wall > .stage { grid-row: 3; }
 body.wall > .honesty { grid-row: 4; }
@@ -128,23 +128,35 @@ q { quotes: "“" "”"; }
 }
 @keyframes skel { 50% { opacity: 0.45; } }
 
-/* ---------------------------------------------------------------- REPLAY band (7.1, R11.1) */
+/* ---------------------------------------------------------------- the frame strip (7.1, "Say it once, in the frame")
+   One slim strip above everything: in REPLAY the violet replay part on the left, the disclaimer on
+   the right; live, the disclaimer alone. Dialogs open below it, so it is never covered or dimmed. */
 
-.replay-banner {
-  display: flex; align-items: center; gap: var(--sp-2);
-  min-height: var(--band-h); padding: 0 var(--gutter);
-  background-color: var(--c-replay-bg);
-  background-image: repeating-linear-gradient(135deg, rgb(183 148 255 / 0.16) 0 10px, transparent 10px 20px);
-  background-size: 56px 100%; background-repeat: no-repeat;
-  border-bottom: 2px solid var(--c-replay);
-  color: var(--c-replay-ink); font-size: var(--fs-2); font-weight: var(--fw-semibold);
-  white-space: nowrap; overflow: hidden;
+.frame {
+  display: flex; align-items: stretch; justify-content: space-between; flex-wrap: wrap;
+  min-height: var(--band-h); min-width: 0;
+  background: var(--c-surface-1); border-bottom: 1px solid var(--c-line-1);
+  font-size: var(--fs-2); font-weight: var(--fw-semibold); line-height: var(--lh-snug);
   z-index: var(--z-banner);
 }
-.replay-banner .icon { color: var(--c-replay); width: 18px; height: 18px; margin-left: 44px; }
-.replay-banner__text { color: var(--c-text-1); }
-.replay-banner__live { color: var(--c-replay-text); }
-.replay-banner__case { color: var(--c-replay-text); font-weight: var(--fw-regular); }
+.frame > p { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; padding: 4px var(--gutter); text-wrap: balance; }
+.frame .icon { width: 16px; height: 16px; }
+.frame__replay {
+  background-color: var(--c-replay-bg);
+  background-image: repeating-linear-gradient(135deg, rgb(183 148 255 / 0.16) 0 10px, transparent 10px 20px);
+  background-size: 28px 100%; background-repeat: no-repeat;
+  box-shadow: inset 0 -2px 0 var(--c-replay);
+  color: var(--c-text-1);
+}
+.frame__replay .icon { color: var(--c-replay); margin-left: 12px; }
+.frame__live { color: var(--c-replay-text); }
+.frame__honesty { color: var(--c-text-1); }
+.frame__honesty .icon { color: var(--c-info); }
+/* Every dialog opens below the strip and its backdrop starts there too, so the strip is never
+   covered or dimmed: the board, Help, About, the sources and policy dialogs (and on a phone the
+   Details sheet, which starts below the header). */
+.dlg, .board { top: var(--frame-px, 0px); }
+.dlg::backdrop, .board::backdrop { top: var(--frame-px, 0px); }
 
 /* ---------------------------------------------------------------- top bar (R3.1) */
 
@@ -158,7 +170,6 @@ q { quotes: "“" "”"; }
 }
 .cmdbar > * { flex-shrink: 0; }
 .cmdbar__spacer { flex: 1 1 0; min-width: 0; }
-.cmdbar__honesty { display: none; }
 .brand { display: flex; align-items: baseline; gap: var(--sp-3); white-space: nowrap; }
 .brand__mark { font-size: var(--fs-5); font-weight: var(--fw-bold); letter-spacing: 0.18em; }
 .brand__sub { color: var(--c-text-3); font-size: var(--fs-2); }
@@ -170,7 +181,6 @@ q { quotes: "“" "”"; }
   font-weight: var(--fw-semibold); font-size: var(--fs-2); color: var(--c-text-2); white-space: nowrap;
 }
 .mode-badge--live { color: var(--c-ok); border-color: var(--c-ok); background: var(--c-ok-bg); }
-.mode-badge--replay { background: var(--c-replay); color: #120a24; border-color: var(--c-replay); }
 .mode-badge .icon { width: 16px; height: 16px; }
 
 .areapick { position: relative; }
@@ -251,13 +261,12 @@ q { quotes: "“" "”"; }
   background: var(--c-surface-1); border-top: 1px solid var(--c-line-1);
   font-size: var(--fs-1); z-index: var(--z-sticky); white-space: nowrap;
 }
-.honesty__line { display: flex; align-items: center; gap: var(--sp-2); }
-.honesty__line strong { color: var(--c-text-1); font-weight: var(--fw-semibold); font-size: var(--fs-2); }
-.honesty__line .icon { color: var(--c-info); }
 .honesty__airline { color: var(--c-text-2); }
 .honesty__short { display: none; }
 .honesty__links { display: flex; align-items: center; gap: var(--sp-3); margin-left: auto; }
-.honesty__about { display: inline-flex; align-items: center; flex: none; padding: 0; background: transparent; border: 0; color: var(--c-text-2); text-decoration: underline; text-underline-offset: 3px; min-height: 28px; font-size: var(--fs-1); border-radius: var(--radius-sm); }
+.honesty__about { display: inline-flex; align-items: center; flex: none; padding: 0; background: transparent; border: 0; color: var(--c-text-2); text-decoration: underline; text-underline-offset: 3px; min-height: min(28px, calc(var(--foot-h) - 1px)); font-size: var(--fs-1); border-radius: var(--radius-sm); }
+/* (the links fit inside the footer's row less its 1 px top border: at 1280 a 28 px link in the 28 px
+   row made the page 1 px taller than the screen, so it scrolled by 1 px) */
 .honesty__about:hover { color: var(--c-text-1); }
 
 /* ---------------------------------------------------------------- stage grid (R3) */
@@ -312,7 +321,7 @@ body.details-open .stage { grid-template-columns: var(--story-w) minmax(0, 1fr) 
 .verdict { display: flex; flex-direction: column; gap: var(--sp-3); }
 .verdict--error .story__actions, .verdict--error .story__lines { display: none; }
 /* eyebrow (R5.1): the name in sentence case with "as of" on its right; under it, muted, the area,
-   the alert colour as a pill in words and the REPLAY "Recorded" tag */
+   the alert colour as a pill in words (REPLAY is said once, by the frame strip) */
 .eyebrow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "icon name asof" ". rest rest"; align-items: center; gap: 4px var(--sp-2); }
 .eyebrow:has(> .eyebrow__icon:empty) { grid-template-areas: "name name asof" "rest rest rest"; }
 .eyebrow__icon { grid-area: icon; display: inline-flex; }
@@ -909,8 +918,6 @@ button.dk-row--link .dk-row__meta { align-self: center; padding-top: 0; }
 .dk-note__body .link-btn { align-self: flex-start; }
 .dk-note--caution { background: var(--c-caution-bg); border-color: color-mix(in srgb, var(--c-caution) 35%, transparent); }
 .dk-note--serious { background: var(--c-serious-bg); border-color: color-mix(in srgb, var(--c-serious) 40%, transparent); }
-.dk-note--replay { background: var(--c-replay-bg); border-color: color-mix(in srgb, var(--c-replay) 45%, transparent); color: var(--c-replay-ink); }
-.dk-note--replay .dk-note__icon { color: var(--c-replay-text); }
 .dk-note--crew { border-color: color-mix(in srgb, var(--c-crew) 45%, transparent); background: var(--c-crew-soft); }
 .dk-note--crew .dk-note__icon { color: var(--c-crew); }
 .dk-abouts { display: flex; flex-direction: column; border-top: 1px solid var(--c-line-1); }
@@ -1358,7 +1365,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
    word; the only motion is a hand-out line marching for a few seconds, none under reduced motion. */
 
 .board {
-  width: min(1840px, calc(100vw - 48px)); height: calc(100vh - 48px); max-width: none; max-height: none;
+  width: min(1840px, calc(100vw - 48px)); height: calc(100vh - 48px - var(--frame-px, 0px)); max-width: none; max-height: none;
   padding: 0; overflow: hidden;
   background: var(--c-surface-1); color: var(--c-text-1);
   border: 1px solid var(--c-line-2); border-radius: var(--radius-lg); box-shadow: var(--shadow-3);
@@ -1376,7 +1383,6 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 .board__lede { font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.45; text-wrap: pretty; }
 @media (max-width: 600px) { .board__lede { font-size: var(--fs-1); } }
 .board__status:empty { display: none; }
-.board__replay { position: static; border-top: 1px solid var(--c-line-1); }
 .board__bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2) var(--sp-4); margin: calc(-1 * var(--sp-2)) 0 var(--sp-5); }
 .board__pills { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 .board__lead { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; max-width: 72rem; margin: calc(-1 * var(--sp-3)) 0 var(--sp-5); font-size: var(--fs-2); line-height: var(--lh-body); color: var(--c-text-2); }
@@ -1523,17 +1529,14 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 
 .board__foot { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: var(--sp-8); }
 .board__foot .dk-about { border-top: 1px solid var(--c-line-1); }
-.board__disclaimer { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-2); color: var(--c-text-1); }
-.board__disclaimer .icon { color: var(--c-info); }
 
 @media (max-width: 600px) {
-  .board { width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; }
+  .board { width: 100vw; height: calc(100dvh - var(--frame-px, 0px)); max-height: none; margin: 0; border: 0; border-radius: 0; }
   .board__titlebar { padding: var(--sp-3) var(--sp-2) var(--sp-2) var(--sp-3); }
   .board__title { font-size: var(--fs-5); }
   .board__body { padding: var(--sp-4) var(--sp-3); }
   .flow__cards { padding-left: 24px; }
   .bcard__steps { padding-left: var(--sp-4); }
-  .board__replay { white-space: nowrap; }
 }
 @media (forced-colors: active) {
   .bcard, .bnode, .bstat, .bchip, .bfeeds__item, .bcard__handed { border: 1px solid CanvasText; }
@@ -1662,7 +1665,6 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 @media (max-width: 1359px) {
   html { font-size: 14px; }
   :root { --band-h: 28px; --bar-h: 48px; --story-w: 360px; --drawer-w: 440px; --time-h: 44px; --foot-h: 28px; --story-size: 22px; --gutter: 12px; --hero-num: 56px; }
-  .replay-banner__case { display: none; }
   .cmdbar { gap: var(--sp-2); }
   .brand__mark { font-size: var(--fs-4); letter-spacing: 0.14em; }
   .clock__time { font-size: var(--fs-5); }
@@ -1687,13 +1689,15 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   /* the viewport scrolls (never the body), so the band and the header can stick */
   html { height: auto; overflow-x: clip; }
   body.wall { display: block; height: auto; overflow: visible; padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
-  .replay-banner { position: sticky; top: 0; z-index: calc(var(--z-sticky) + 1); white-space: normal; flex-wrap: wrap; min-height: 32px; padding: 4px 12px; gap: 0 6px; background-size: 8px 100%; }
-  .replay-banner .icon { margin-left: 4px; }
-  .replay-banner__case { display: none; }
+  /* the frame strip sticks at the top in two short lines: the replay part, then the disclaimer */
+  .frame { position: sticky; top: 0; z-index: calc(var(--z-sticky) + 1); flex-direction: column; font-size: var(--fs-1); }
+  .frame > p { padding: 3px var(--gutter); }
+  .frame__replay .icon { margin-left: 0; }
+  .frame__honesty .icon { display: none; }
   .cmdbar {
-    position: sticky; top: var(--band-px); height: auto;
-    display: grid; grid-template-columns: auto auto 1fr auto; grid-template-areas: "brand mode clock desk" "honesty honesty honesty honesty";
-    gap: 4px 8px; padding: 6px 12px 4px;
+    position: sticky; top: var(--frame-px); height: auto;
+    display: grid; grid-template-columns: auto auto 1fr auto; grid-template-areas: "brand mode clock desk";
+    gap: 4px 8px; padding: 6px 12px;
   }
   /* the area, AI and data chips, moved here by wall.js: under the header, not sticky (item 13) */
   /* the area picker keeps room for its name ("Java / Bali · 2"); when the chips need more than
@@ -1703,10 +1707,6 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .phone-bar > .areapick { flex: 1 1 7.5rem; min-width: 7.5rem; }
   .phone-bar .ai-chip, .phone-bar .feeds-chip { height: 36px; flex: none; }
   /* the chip keeps its Strata state mark here: the mark, not a dot, says the state (Naming) */
-  /* the REPLAY band: one line ("REPLAY: recorded 05 Sep 2026 · not live") */
-  .replay-banner { flex-wrap: nowrap !important; white-space: nowrap !important; min-height: 28px !important; font-size: 13px; }
-  .replay-banner__text { display: none; }
-  .replay-banner__short { display: inline; }
   .brand { grid-area: brand; }
   .brand__mark { font-size: 18px; letter-spacing: 0.12em; }
   .mode-badge { grid-area: mode; height: 32px; padding: 0 10px; }
@@ -1727,8 +1727,6 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .feeds-chip:not(.feeds-chip--error) .feeds-chip__part--ok + .feeds-chip__sep:has(+ .feeds-chip__part--disabled) { display: inline; }
   .stale-chip { grid-column: 1 / -1; }
   .cmdbar__spacer { display: none; }
-  .cmdbar__honesty { grid-area: honesty; display: block; font-size: var(--fs-1); border-top: 1px solid var(--c-line-1); padding-top: 4px; }
-  .cmdbar__honesty .honesty__line strong { font-size: var(--fs-1); }
   .stage { display: flex; flex-direction: column; }
   .story { overflow: visible; padding: var(--sp-4) var(--gutter); box-shadow: none; display: contents; }
   .story > * { padding-left: var(--gutter); padding-right: var(--gutter); }
@@ -1776,7 +1774,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   /* the sheet starts below the sticky header, which stays visible above it (R8.1) */
   .sheet { position: fixed; inset: var(--sheet-top, 0px) 0 0 0; width: 100%; max-width: 100%; height: auto; max-height: none; margin: 0; padding: 0; border: 0; border-top: 2px solid var(--c-line-2); background: var(--c-surface-1); color: var(--c-text-1); }
   .sheet .story-strip { display: none; }
-  /* the sheet fills everything under the band, header and disclaimer; those stay undimmed, so the
+  /* the sheet fills everything under the frame strip and the header; those stay undimmed, so the
      safety line reads at full contrast (review 2, item 15) */
   .sheet::backdrop { background: transparent; }
   .sheet .drawer { height: 100%; }
@@ -1785,7 +1783,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .dlg[data-kind="sources"] { height: auto; }
 }
 .cta-sticky { display: none; }
-@media (min-width: 601px) { .phone-bar, .replay-banner__short { display: none; } }
+@media (min-width: 601px) { .phone-bar { display: none; } }
 @media (max-width: 600px) { .cta-sticky:not([hidden]) { display: flex; } }
 .sheet:not([open]) { display: none; }
 

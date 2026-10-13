@@ -6,6 +6,7 @@ import { byId, el, icon } from './dom.js';
 import { dayMonthHhmm, hhmmz, initials } from './format.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
+import { describeReplayIn } from './ui.js';
 
 const WAKE_KEY = 'tephra.desk.wake';
 export const wakeSupported = () => 'wakeLock' in navigator;
@@ -118,6 +119,7 @@ async function openDisplayDialog() {
     body,
   );
   dialog.setAttribute('aria-labelledby', 'display-title');
+  describeReplayIn(dialog);
   dialog.showModal();
   const res = await api(PATHS.replays);
   if (!dialog.open) return;
@@ -134,7 +136,7 @@ async function openDisplayDialog() {
     })),
   ];
   body.replaceChildren(
-    el('p', { class: 'note', text: 'Switches what every screen shows. REPLAY screens carry the REPLAY banner.' }),
+    el('p', { class: 'note', text: 'Switches what every screen shows. REPLAY screens say so in the strip at the top.' }),
     el('ul', { class: 'choices' }, options.map((o) =>
       el('li', {}, el('button', { type: 'button', class: `choice ${o.on ? 'is-current' : ''}`.trim(), 'aria-current': o.on ? 'true' : null,
         onclick: () => confirmSwitch(o, body) },
@@ -150,7 +152,7 @@ function confirmSwitch(option, body) {
   const live = option.mode === 'LIVE';
   const question = live
     ? 'Switch every screen to live feeds? The switch is recorded in the audit log under your name.'
-    : `Switch every screen to REPLAY of ${option.title}? Viewers see the REPLAY banner. The switch is recorded in the audit log under your name.`;
+    : `Switch every screen to REPLAY of ${option.title}? Viewers see REPLAY in the strip at the top. The switch is recorded in the audit log under your name.`;
   const error = el('p', { class: 'msg msg--serious', hidden: true });
   const go = el('button', { type: 'button', class: 'btn btn--neutral' }, el('span', { text: live ? 'Switch to live feeds' : 'Switch to replay' }));
   const cancel = el('button', { type: 'button', class: 'btn btn--outline', text: 'Cancel', onclick: () => byId('display-dialog').close() });

@@ -57,7 +57,9 @@ function domChecks() {
   if (d) { const r = d.getBoundingClientRect(); if (!(r.bottom > 0 && r.top < innerHeight && vis(d))) out.push("the disclaimer is not in the viewport"); }
   const mc = document.getElementById("model-chip");
   if (mc && !vis(mc)) out.push("the model chip is not visible");
-  if (document.body.dataset.mode === "REPLAY" && !vis(document.getElementById("replay-banner"))) out.push("REPLAY band not visible");
+  // REPLAY is said once, in the frame strip (UI-DESIGN 7.1): visible and in the viewport
+  const rb = document.getElementById("replay-banner");
+  if (document.body.dataset.mode === "REPLAY" && !(vis(rb) && rb.getBoundingClientRect().top >= 0 && rb.getBoundingClientRect().top < innerHeight)) out.push("REPLAY strip not in view");
   const legend = document.getElementById("legend");
   if (legend && legend.querySelector("li") && !vis(legend) && !document.querySelector("#details-sheet[open]")) out.push("the key is not visible");
   return out.slice(0, 12);

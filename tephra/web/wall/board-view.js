@@ -95,7 +95,7 @@ function card(c, ui, edgeState) {
   lastLine(c),
   el("span", { class: "bcard__foot" }, modelFoot(c),
     handed ? el("span", { class: `bcard__handed${c.handoff.failed ? " bcard__handed--failed" : ""}`, text: handed }) : null,
-    c.recorded ? el("span", { class: "tag tag--replay", title: recordedWords(c.recorded), text: "first-pass answer" }) : null,
+    c.recorded ? el("span", { class: "tag", title: recordedWords(c.recorded), text: "first-pass answer" }) : null,
     el("span", { class: "sr-only", text: edgeState === "idle" ? " No job from the Coordinator's latest run." : "" })),
   icon("i-chevron-down", "icon bcard__chev"));
   return el("article", { class: `bcard bcard--${c.state}${edgeState === "live" ? " is-live" : ""}${open ? " is-open" : ""}`, dataset: { node: c.id } }, btn, cardSteps(c, open));
@@ -121,7 +121,7 @@ function dutyCard(c, ui) {
     r.later ? stat(r.later, "left for later") : null,
     c.waiting ? stat(c.waiting.n, "wait for the next slot", "caution") : null) : null,
   lastLine(c),
-  el("span", { class: "bcard__foot" }, modelFoot(c), c.recorded ? el("span", { class: "tag tag--replay", title: recordedWords(c.recorded), text: "first-pass answer" }) : null),
+  el("span", { class: "bcard__foot" }, modelFoot(c), c.recorded ? el("span", { class: "tag", title: recordedWords(c.recorded), text: "first-pass answer" }) : null),
   icon("i-chevron-down", "icon bcard__chev"));
   return el("article", { class: `bcard bcard--lead bcard--${c.state}${open ? " is-open" : ""}`, dataset: { node: "duty" } }, btn, cardSteps(c, open));
 }
@@ -129,7 +129,7 @@ function dutyCard(c, ui) {
 function feedsNode(f, replay) {
   const words = [`${f.working} working`, f.stale ? `${f.stale} stale` : null, f.failing ? `${f.failing} failing` : null, f.off ? `${f.off} off` : null].filter(Boolean).join(" · ");
   return el("section", { class: "bnode bnode--feeds", dataset: { node: "feeds" }, "aria-labelledby": "bfeeds-title" },
-    el("p", { class: "bnode__kicker" }, icon(replay ? "i-replay" : "i-live"), el("span", { id: "bfeeds-title", text: replay ? "Public feeds, recorded" : "Public feeds" })),
+    el("p", { class: "bnode__kicker" }, icon(replay ? "i-replay" : "i-live"), el("span", { id: "bfeeds-title", text: "Public feeds" })),
     el("p", { class: "bnode__title", text: words || "No feed read yet" }),
     f.shown.length ? el("ul", { class: "bfeeds", "aria-label": "Feeds that are on" }, ...f.shown.map((x) => el("li", { class: "bfeeds__item" }, dkDot(x.tone, "st"), el("span", { text: x.name })))) : null,
     el("p", { class: "bnode__note", text: "Code reads them every minute and finds the assistant work that is due." }));
@@ -151,15 +151,6 @@ function gateNode(g, desk) {
       el("ul", { class: "bgate__chips" }, ...desk.map((d) => el("li", { class: `bchip bchip--${d.state}`, title: `${d.name}: ${d.does}. ${d.word}${Number.isFinite(d.at) ? ` ${hhmmz(d.at)}` : ""}.` },
         d.state === "working" ? el("span", { class: "spinner board__spin", "aria-hidden": "true" }) : dkDot(STATE_LOOK[d.state]?.pill || "never", "st"),
         el("span", { text: d.name }), el("span", { class: "sr-only", text: `: ${d.word.toLowerCase()}` }))))));
-}
-
-// The REPLAY band stays in the board's fixed head, so it is on screen however far the board scrolls.
-function replayBand(m) {
-  if (!m.replay || !m.replayInfo) return [];
-  const r = m.replayInfo;
-  return [el("div", { class: "replay-banner board__replay", role: "note" },
-    icon("i-replay"), el("span", { class: "replay-banner__text", text: r.banner }), el("span", { class: "replay-banner__short", text: r.banner.replace(/recorded real feeds from/i, "recorded") }),
-    el("span", { class: "replay-banner__live", text: " · not live" }), el("span", { class: "replay-banner__case", text: ` · ${r.label}` }))];
 }
 
 // TEPHRA Assistant's one state in the chip's words (wall/x-parts.js aiWords); the full sentence is its title.
@@ -213,8 +204,7 @@ function foot(m) {
       "Lines run from the Coordinator to each skill. A solid line means its latest run handed that skill work, a dashed line means it did not. A line lights up for a few seconds as a hand-out happens.",
       "Each card shows what the skill is doing now, its newest result and when, and the model it calls. Open a card for its newest steps, each with its time and where it came from.",
       `Calls today are counted per model, the way Google's free tier counts them, not per skill: the lite model's count is shared by every skill on it. Waiting work keeps its place and runs on the same model when its slot comes.`,
-      `Nothing here is scripted. Every line comes from TEPHRA's own records: the Coordinator's run, the assistant's work queue and the newest ${m.window} steps in How TEPHRA decided. A card with nothing to show says so.`),
-    m.disclaimer ? el("p", { class: "board__disclaimer" }, icon("i-info"), el("strong", { text: m.disclaimer })) : null);
+      `Nothing here is scripted. Every line comes from TEPHRA's own records: the Coordinator's run, the assistant's work queue and the newest ${m.window} steps in How TEPHRA decided. A card with nothing to show says so.`));
 }
 
 function loading() {
@@ -235,7 +225,9 @@ export function renderBoard(m, ui, conn) {
     body.replaceChildren(...loading());
     return true;
   }
-  status.replaceChildren(...replayBand(m));
+  // The board opens below the Wall's frame strip, which stays on screen and says REPLAY and the
+  // disclaimer once (UI-DESIGN 7.1, 7.21): the board repeats neither.
+  status.replaceChildren();
   body.classList.toggle("is-stale", !!conn.lostAt);
   // a rebuild (the time left changes each minute) keeps the disclosures the reader opened
   const opened = new Set([...body.querySelectorAll("details[open][data-k]")].map((d) => d.dataset.k));

@@ -10,7 +10,7 @@ import { announce, byId, el, icon } from './dom.js';
 import { activeNow, dayMonthHhmm, deskName, hhmmz, secs } from './format.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
-import { aiMark, fmtUsd, openBSheet, unavailableCard } from './ui.js';
+import { aiMark, fmtUsd, fromReplayChip, openBSheet, unavailableCard } from './ui.js';
 import { WHY, machineText, reasonClass } from '../wall/x-parts.js';
 import { slotWords } from './budget.js';
 
@@ -394,7 +394,7 @@ export function renderNetwork() {
   card.append(
     el('p', { class: 'plan__tags' },
       el('span', { class: 'chip chip--fict', title: 'Ring of Fire Air and its schedule are made up' }, icon('i-info', 'st'), el('span', { text: 'Fictional airline RFA · synthetic schedule' })),
-      p.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'Recorded' })) : null),
+      fromReplayChip(p)),
     // "explained by" only when a model explained something (K95, H7)
     el('p', { class: 'plan__foot', text: `${solvedAny || p.status !== 'AI_UNAVAILABLE' ? 'Planned' : 'Tried'} ${hhmmz(p.created_at)}${solvedAny ? ' by code' : ''} · version ${p.version}${p.rationale && p.llm_backend !== 'stub' && p.model_id && p.model_id !== 'stub' ? ' · explained by the Recovery planner' : ''}` }));
   const dec = decisionRow(p, Boolean(t) && !problem);

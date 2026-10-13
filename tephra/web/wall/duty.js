@@ -9,7 +9,7 @@
 
 import { el, ms } from "./util.js";
 import { aiMark, plainLine, reasonClass, recordedWords } from "./x-parts.js";
-import { dkPill, dkChip, dkFacts, dkRow, dkList, dkNote, dkEmpty, dkTech, dkRecorded, dkLink, collapseRuns, seconds, plural, dayTime } from "./dk.js";
+import { dkPill, dkChip, dkFacts, dkRow, dkList, dkNote, dkEmpty, dkTech, dkFromReplay, dkLink, collapseRuns, seconds, plural, dayTime } from "./dk.js";
 
 // What each Coordinator (duty officer) tool reaches. Tool names are fixed by the backend toolkit.
 export const SPECIALISTS = {
@@ -147,7 +147,7 @@ function deferred(run) {
 // The body of the Coordinator's skill row.
 // `until`: when the quota opens again, in words after "waiting" ("until 0700Z"), from the live
 // budget; null when not known.
-export function dutyDetail(run, loaded, until = null) {
+export function dutyDetail(run, loaded, until = null, modeReplay = false) {
   if (!run) {
     return [dkEmpty(loaded ? "No Coordinator run yet" : "Waiting for the first run", "It runs when code finds assistant work due: a plume to read, a flight to plan, a network to re-plan.")];
   }
@@ -157,7 +157,7 @@ export function dutyDetail(run, loaded, until = null) {
   const mandatory = run.worklist.filter((i) => i.mandatory).length;
   const model = dutyModel(run);
   const kids = [
-    el("div", { class: "dk-inline" }, dkPill(tone, word, why), dkRecorded(run.replay), el("span", { class: "dk-inline__meta mono", text: Number.isFinite(t) ? `finished ${dayTime(t)}` : "" })),
+    el("div", { class: "dk-inline" }, dkPill(tone, word, why), dkFromReplay(run.replay, modeReplay), el("span", { class: "dk-inline__meta mono", text: Number.isFinite(t) ? `finished ${dayTime(t)}` : "" })),
     dkFacts([
       // no model fact for a run the quota refused: no call was made (D68)
       // the model id in words: this is the assistant's own home (Details › TEPHRA Assistant); the

@@ -249,6 +249,79 @@ def test_honesty_strings_are_kept(text: str) -> None:
     assert text in ALL, text
 
 
+def test_replay_is_labelled_once_in_the_frame_strip() -> None:
+    """CLAUDE.md "REPLAY is always labelled", said once (UI-DESIGN 7.1): on the Wall and the Desk
+    one frame strip (role=note) holds the REPLAY words and the disclaimer; the story, the Details
+    sections, the board, the Desk's cards and reviews no longer repeat it."""
+    index = (WEB / "index.html").read_text(encoding="utf-8")
+    start = index.index('<div id="frame"')
+    strip = index[start : index.index("</div>", start)]
+    for part in ('role="note"', 'id="replay-banner"', 'id="disclaimer"', "not live"):
+        assert part in strip, part
+    assert index.count('id="replay-banner"') == 1
+    assert index.count('id="disclaimer"') == 1
+    desk = (WEB / "desk.html").read_text(encoding="utf-8")
+    # the Desk's strip is the same strip, the header's top row (above the brand row)
+    band = desk[desk.index('<div id="frame"') : desk.index('<div class="dhead__row"')]
+    parts = ('role="note"', 'class="frame"', 'id="replay-bar"', 'id="disclaimer"')
+    parts += ("not live", "#i-info")
+    for part in parts:
+        assert part in band, part
+    assert desk.index('<div id="frame"') < desk.index('<div class="dhead__row"')
+    # its accessible name follows the mode on both pages ("Disclaimer" live)
+    assert "stripLabel(" in _text([WEB / "wall" / "panels.js"])
+    assert "stripLabel(" in _text([WEB / "desk.js"])
+    # both pages word it from one function
+    assert "replayWords(" in _text([WEB / "wall" / "panels.js"])
+    assert "replayWords(" in _text([WEB / "desk.js"])
+    # the second labels are gone from the main views
+    for gone in ("dkRecorded", "eyebrow__rec", "board__replay", "replayBand", "mode-badge--replay"):
+        assert gone not in WALL, gone
+    for gone in ("replayChip", "Drafted from recorded feeds", "replay-bar__auto"):
+        assert gone not in DESK, gone
+
+
+def test_a_record_from_the_other_mode_keeps_one_tag() -> None:
+    """The strip says what plays, so a replay record seen while live feeds play keeps a tag, worded
+    "From a replay" everywhere; the Desk's review and Next decision card carry it too (a replay
+    draft opened from a link while live feeds play is otherwise unlabelled)."""
+    assert 'text: "From a replay"' in WALL
+    assert "text: 'From a replay'" in DESK
+    for gone in ('"from a replay"', '"entered in REPLAY"', 'text: "recorded" }'):
+        assert gone not in WALL, gone
+    review = (WEB / "desk" / "review.js").read_text(encoding="utf-8")
+    assert "fromReplayChip(adv)" in review
+    queue = (WEB / "desk" / "queue.js").read_text(encoding="utf-8")
+    assert "fromReplayChip(adv)" in queue
+    # before the state loads the mode is unknown: no chip, never a flash of it in REPLAY
+    ui = (WEB / "desk" / "ui.js").read_text(encoding="utf-8")
+    assert "!app.state || app.state.mode === 'REPLAY'" in ui
+
+
+def test_every_modal_carries_the_replay_words_for_screen_readers() -> None:
+    """A modal dialog makes the strip inert, so each modal on the Wall and the Desk gets the strip's
+    REPLAY words as sr-only text in its description (no visible label)."""
+    wall = (WEB / "wall.js").read_text(encoding="utf-8")
+    assert wall.count("describeModal(") >= 4  # the definition, the Details sheet, the board, #dlg
+    ui = (WEB / "desk" / "ui.js").read_text(encoding="utf-8")
+    assert "describeReplayIn(dlg);\n  if (!dlg.open) dlg.showModal();" in ui
+    account = (WEB / "desk" / "account.js").read_text(encoding="utf-8")
+    assert "describeReplayIn(dialog);\n  dialog.showModal();" in account
+
+
+def test_the_frame_strip_stays_on_screen_over_dialogs_and_sheets() -> None:
+    """The strip is never covered or dimmed: the phone Wall keeps it sticky, and every dialog,
+    the board and the Desk's sheets open below it with their backdrop starting there."""
+    wall_css = (WEB / "wall.css").read_text(encoding="utf-8")
+    assert ".dlg, .board { top: var(--frame-px, 0px); }" in wall_css
+    assert ".dlg::backdrop, .board::backdrop { top: var(--frame-px, 0px); }" in wall_css
+    assert re.search(r"\.frame \{ position: sticky; top: 0;", wall_css)
+    desk_css = (WEB / "desk.css").read_text(encoding="utf-8")
+    backdrop = r"\.dlg::backdrop,\s*\.bsheet::backdrop \{\s*top: var\(--dframe-h, 0px\);"
+    assert re.search(backdrop, desk_css)
+    assert "--dframe-h" in (WEB / "desk.js").read_text(encoding="utf-8")
+
+
 def test_wall_trust_line_says_never_smaller() -> None:
     """docs/UI-AI-QUIET.md W17, 2.2: the trust line keeps the floor in every AI state."""
     assert "never smaller than the official area" in WALL

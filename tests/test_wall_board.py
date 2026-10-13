@@ -420,7 +420,7 @@ def test_the_gate_says_how_many_flights_wait_to_be_planned_by_hand(tmp_path: Pat
 XPARTS_RUNNER = """
 import {
   aiStateOf, aiWords, draftBlock, blockPhrase, plainLine, recordedWords, jobsWords, pacingWords,
-  aiSymbol,
+  aiSymbol, replayWords, stripLabel,
 } from "./wall/x-parts.js";
 const at = Date.parse("2026-10-13T06:00:00Z");
 const e = (stage, reason) => ({ stage, reason, at, raw: reason });
@@ -445,6 +445,12 @@ process.stdout.write(JSON.stringify({
   jobs: jobsWords("Every other AI step"),
   pacing: pacingWords("Routine work is paced: 3 used; waiting for AI budget, next slot 0700Z."),
   symbols: ["on", "paused", "trouble", "off"].map(aiSymbol),
+  strip: replayWords({
+    recorded_from: "2026-09-05T06:00:00.000Z",
+    banner: "REPLAY: recorded real feeds from 05 Sep 2026",
+    label: "Anak Krakatau (reconstructed)", auto: true,
+  }),
+  stripLabels: [stripLabel(true), stripLabel(false)],
 }));
 """
 
@@ -499,3 +505,25 @@ def test_server_words_are_shown_in_assistant_words(tmp_path: Path) -> None:
     )
     assert out["jobs"] == "Every other skill"
     assert out["pacing"] == "Routine work is paced: 3 used; the next slot is at 0700Z."
+
+
+def test_the_frame_strip_says_replay_once_with_the_case_in_its_tooltip(tmp_path: Path) -> None:
+    """Say it once, in the frame (UI-DESIGN 7.1): the Wall and the Desk word the REPLAY strip from
+    the same function; the case title and an automatic switch are in its tooltip and, for screen
+    readers, after the visible words."""
+    strip = _xparts(tmp_path)["strip"]
+    assert strip["text"] == "Replay · recorded feeds from 05 Sep 2026"
+    assert strip["live"] == " · not live"
+    assert strip["title"] == (
+        "REPLAY: recorded real feeds from 05 Sep 2026 · not live · Anak Krakatau (reconstructed)"
+        " · switched automatically: no live activity"
+    )
+    assert strip["more"] == (
+        " · Anak Krakatau (reconstructed) · switched automatically: no live activity"
+    )
+
+
+def test_the_frame_strip_is_named_for_what_it_holds(tmp_path: Path) -> None:
+    """The strip's accessible name says "Replay" only while a replay plays; live, the strip holds
+    the disclaimer alone and is named so."""
+    assert _xparts(tmp_path)["stripLabels"] == ["Replay notice and disclaimer", "Disclaimer"]

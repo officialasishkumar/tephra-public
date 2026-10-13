@@ -146,18 +146,16 @@ function renderFailures(list) {
 // ------------------------------------------------------------------ the story card (R5.1-R5.4)
 
 // Eyebrow (R5.1): the eruption symbol and the volcano's name (the h1) on the first row with "as of"
-// on its right; under them, muted, the area, the alert colour as a pill in words and, in REPLAY,
-// the "Recorded" tag, so a frame of the story alone says it is a recording.
+// on its right; under them, muted, the area and the alert colour as a pill in words. REPLAY is
+// said once, by the frame strip above every view (UI-DESIGN 7.1), not again here.
 function eyebrow(D, sit, region, store) {
   const iconBox = $("eyebrow-icon");
   const rest = $("eyebrow-rest");
-  const replay = D?.mode === "REPLAY";
   const asof = $("eyebrow-asof");
   asof.title = "Times ending in Z are UTC";
   if (!sit) {
     iconBox.replaceChildren();
-    const k = replay ? "replay" : "";
-    if (rest.dataset.key !== k) { rest.dataset.key = k; rest.replaceChildren(...(replay ? [el("span", { class: "tag tag--replay eyebrow__rec", text: "Recorded" })] : [])); }
+    if (rest.dataset.key !== "") { rest.dataset.key = ""; rest.replaceChildren(); }
     setText(asof, D ? `as of ${hhmmz(D.now)}` : "");
     return;
   }
@@ -165,13 +163,12 @@ function eyebrow(D, sit, region, store) {
   const regName = region ? (D.state.regions || []).find((r) => r.key === region)?.name : null;
   const code = CODE_WORD[sit.color_code] ? sit.color_code.toLowerCase() : "unknown";
   const alert = CODE_WORD[sit.color_code] ? `${CODE_WORD[sit.color_code]} alert` : "Alert colour not given";
-  const k = [regName, alert, replay].join("|");
+  const k = [regName, alert].join("|");
   if (rest.dataset.key !== k) {
     rest.dataset.key = k;
     rest.replaceChildren(...[
       regName ? el("span", { class: "eyebrow__region", text: regName }) : null,
-      el("span", { class: `code-pill code-pill--${code}`, title: "The volcano's aviation colour code" }, el("span", { class: "code-pill__dot", "aria-hidden": "true" }), el("span", { text: alert })),
-      replay ? el("span", { class: "tag tag--replay eyebrow__rec", text: "Recorded" }) : null].filter(Boolean));
+      el("span", { class: `code-pill code-pill--${code}`, title: "The volcano's aviation colour code" }, el("span", { class: "code-pill__dot", "aria-hidden": "true" }), el("span", { text: alert }))].filter(Boolean));
   }
   setText(asof, `as of ${hhmmz(ms(sit.as_of))}`);
 }

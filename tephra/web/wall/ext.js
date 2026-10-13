@@ -14,7 +14,7 @@ import { dutyDetail, dispatchedTools } from "./duty.js";
 import { HELPERS } from "./board.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkMeter, meterTone, dkGroup, dkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkTech,
-  dkSection, dkLink, dkRecorded, dkWhen, timeRange, times, plural, dayTime,
+  dkSection, dkLink, dkFromReplay, dkWhen, timeRange, times, plural, dayTime,
 } from "./dk.js";
 
 // ------------------------------------------------------------------ state
@@ -139,7 +139,7 @@ function satRow(D, reading, sit, store) {
   const frames = [...(sit?.frames || []), ...(store.snapshot?.overlays?.frames || [])];
   const frame = frameFor(reading, frames);
   const scan = reading.observed_at ? `scan ${clock(reading.observed_at)}` : "";
-  const rec = D.mode === "REPLAY" || reading.replay ? dkRecorded(true) : null;
+  const rec = dkFromReplay(reading.replay, D.mode === "REPLAY");
   if (reading.status === "ai_unavailable") {
     return dkRow({ key: `sat-${vid}`, dot: "caution", edge: "caution", title: name, sub: `Not read: ${reasonClass(reading.reason) === "budget" ? WHY.budget : `Satellite reader gave no result (${WHY[reasonClass(reading.reason)] || WHY.other})`}. Nothing was put in its place.`, meta: scan,
       body: [dkTech(String(reading.reason || "no reason given"), reading.model_id ? `would have used ${reading.model_id}` : null)], open: vid === D.selected });
@@ -214,13 +214,13 @@ function noticeState(n) {
 
 // A JMA report comes from /api/notices like a pasted notice but was parsed by code from JMA's XML:
 // its fields carry no quoted evidence and no model is named.
-function noticeRow(n) {
+function noticeRow(n, modeReplay) {
   const [tone, word, why] = noticeState(n);
   const title = isJma(n) ? `JMA · ${n.vona?.volcano_name || "volcano report"}` : "Pasted notice";
   const fields = (n.fields || []).map((f) => [capFirst(f.name.replace(/_/g, " ")), el("span", {}, el("span", { class: "mono", text: f.derived || f.value }), f.evidence ? [" ", el("q", { class: "x-fields__ev", text: f.evidence })] : null)]);
   return dkRow({
     key: `notice-${n.id}`, dot: tone, edge: n.status === "ai_unavailable" ? "caution" : null,
-    title: [langBadge(n.language), " ", title, n.replay ? [" ", dkRecorded(true)] : null],
+    title: [langBadge(n.language), " ", title, n.replay && !modeReplay ? [" ", dkFromReplay(n.replay, modeReplay)] : null],
     sub: `${word}${n.fields?.length ? ` · ${plural(n.fields.length, "claim")}` : ""}`,
     meta: el("span", { class: "mono", text: clock(n.created_at) }),
     body: [
@@ -235,7 +235,7 @@ function noticeRow(n) {
   });
 }
 
-function noticesPanel() {
+function noticesPanel(D) {
   if (!ext.loaded.notices) return [loadingBox()];
   if (ext.errors.notices) return [dkNote("caution", `Notices unavailable: ${ext.errors.notices}`, { role: "status" })];
   const all = ext.notices.slice().sort((a, b) => ms(b.created_at) - ms(a.created_at));
@@ -257,12 +257,14 @@ function noticesPanel() {
     { label: "Verified", value: String(verified), tone: verified ? "ok" : null },
     { label: "Not verified", value: String(notV), tone: notV ? "caution" : null },
   ], "Notices in numbers");
-  const newestRows = all.slice(0, 3).map(noticeRow);
+  const modeReplay = D?.mode === "REPLAY";
+  const row = (n) => noticeRow(n, modeReplay);
+  const newestRows = all.slice(0, 3).map(row);
   const rest = all.slice(3);
   const more = rest.length ? el("details", { class: "dk-about", dataset: { k: "notices-all" } }, el("summary", { dataset: { focus: "notices-all" } }, icon("i-chevron-right", "icon dk-about__chev"), el("span", { text: `All notices and their claims (${all.length})` })),
     el("div", { class: "dk-about__body dk-about__body--flush" },
-      pasted.length ? dkGroup(`Pasted notices · ${pasted.length}`, null, dkList(pasted.map(noticeRow), { first: 5, key: "notices-pasted" })) : null,
-      jma.length ? dkGroup(`JMA reports · ${jma.length}`, null, dkList(jma.map(noticeRow), { first: 5, key: "notices-jma" })) : null)) : null;
+      pasted.length ? dkGroup(`Pasted notices · ${pasted.length}`, null, dkList(pasted.map(row), { first: 5, key: "notices-pasted" })) : null,
+      jma.length ? dkGroup(`JMA reports · ${jma.length}`, null, dkList(jma.map(row), { first: 5, key: "notices-jma" })) : null)) : null;
   return [dkSection("notices-head", head, tiles, dkGroup("Newest", null, dkList(newestRows, { key: "notices-new" })), more, about)];
 }
 
@@ -339,7 +341,7 @@ function recoveryPanel(D, store) {
   const queuedAt = queued ? ms(queued.next_slot_at) : NaN;
   const head = dkHeader({
     id: "rec-head",
-    pills: [dkPill(tone, word), dkRecorded(!!plan.replay)],
+    pills: [dkPill(tone, word), dkFromReplay(plan.replay, D.mode === "REPLAY")],
     title, sub: fail ? null : what,
     chips: [dkChip(clock(plan.created_at), { label: "As of" }), chosenBy, dkChip(String(plan.version), { label: "Plan version" })],
   });
@@ -432,7 +434,7 @@ function proofPanel() {
   const ticks = proofTicks() || 0;
   const head = dkHeader({
     id: "proof-head",
-    pills: [arms.includes("G") ? dkPill("ok", "Plume reader scored") : dkPill("caution", "Baseline only"), dkRecorded(true, "recorded replays")],
+    pills: [arms.includes("G") ? dkPill("ok", "Plume reader scored") : dkPill("caution", "Baseline only")],
     title: "How TEPHRA's area compares with the official areas issued later, scored by code on recorded replays.",
   });
   const kids = [head,
@@ -649,7 +651,7 @@ function causeRows(causes) {
   });
 }
 
-function helperRow(a, store, n, stub, until) {
+function helperRow(a, store, n, stub, until, replay) {
   const [tone, word] = STATE_UI[a.state];
   const last = ms(a.last);
   const run = store.snapshot?.duty;
@@ -661,7 +663,7 @@ function helperRow(a, store, n, stub, until) {
   const badge = a.state === "failed" || a.state === "waiting" ? a.badge || word : null;
   let body;
   if (a.id === "duty") {
-    body = [...dutyDetail(run, !!store.snapshot, until), a.detail ? dkTech(`newest step: ${a.detail}`) : null];
+    body = [...dutyDetail(run, !!store.snapshot, until, replay), a.detail ? dkTech(`newest step: ${a.detail}`) : null];
   } else if (a.id === "backtest") {
     body = [dkFacts([["Status", a.state === "done" ? "Done: scored by code, no model" : "Not run yet"], ["Cases scored", a.state === "done" ? String(a.count) : null], ["Generated", Number.isFinite(last) ? dayTime(last) : null, { mono: true }]]),
       dkLink("Track record ›", { act: "details-sec", sec: "proof", focus: "helper-proof" })];
@@ -698,7 +700,7 @@ function aiPanel(D, store) {
 
   const head = dkHeader({
     id: "ai-head",
-    pills: [aiPill(ai), dkRecorded(D.mode === "REPLAY")],
+    pills: [aiPill(ai)],
     title: stub ? "Code does every step, and code templates write the text a model would." : "TEPHRA Assistant is TEPHRA's AI assistant (Gemini). Its skills can widen TEPHRA's estimate but never shrink the official area.",
     chips: stub ? [dkChip("No model (offline stub)")] : ids.map(([k, id]) => dkChip(id, { label: k, mono: true })),
     extra: el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "board-open", focus: "ai-board" }, "aria-keyshortcuts": "A" }, icon("ta-16"), `See ${ASSISTANT} at work`)),
@@ -723,7 +725,7 @@ function aiPanel(D, store) {
   const first = Math.min(6, active) || 3;
   const quiet = order.length - first;
   kids.push(dkGroup("Skills", `${active} of ${agents.length} active`,
-    dkList(order.map((a) => helperRow(a, store, n, stub, ai.until)), { first, key: "ai-helpers", more: order.slice(first).every((a) => a.state === "idle") ? `Show quiet skills (${quiet})` : `Show all ${order.length} skills` })));
+    dkList(order.map((a) => helperRow(a, store, n, stub, ai.until, D.mode === "REPLAY")), { first, key: "ai-helpers", more: order.slice(first).every((a) => a.state === "idle") ? `Show quiet skills (${quiet})` : `Show all ${order.length} skills` })));
 
   kids.push(el("div", { class: "dk-abouts" },
     dkAbout("Models and today's calls", "ai-budget", budgetBlock(D.mode === "REPLAY")),

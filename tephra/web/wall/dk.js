@@ -40,7 +40,10 @@ export function dkChip(text, { label = null, mono = false, kind = null, title = 
     el("span", { class: mono ? "dk-chip__v mono" : "dk-chip__v", text }));
 }
 
-export const dkRecorded = (on, text = "recorded") => (on ? el("span", { class: "tag tag--replay", text }) : null);
+// REPLAY is said once, by the frame strip (UI-DESIGN 7.1). A record keeps a tag only when its mode
+// differs from what plays: a replay record seen while live feeds play says "From a replay", the
+// one wording on the Wall and the Desk (desk/ui.js fromReplayChip).
+export const dkFromReplay = (recordReplay, modeReplay) => (recordReplay && !modeReplay ? el("span", { class: "tag tag--replay", text: "From a replay" }) : null);
 
 // The section header: pills, one plain sentence, an optional muted line and chips.
 export function dkHeader({ id, pills = [], title, sub = null, chips = [], extra = null }) {
@@ -160,9 +163,9 @@ export function dkFacts(rows, cls = null) {
   return dl;
 }
 
-// A callout: one or two sentences with a shape. Tones info, caution, serious, replay.
+// A callout: one or two sentences with a shape. Tones info, caution, serious.
 export function dkNote(tone, text, { iconId = null, action = null, role = null, cls = null } = {}) {
-  const ic = iconId ? icon(iconId, "icon dk-note__icon") : dkDot(tone === "replay" ? "info" : tone, "st dk-note__icon");
+  const ic = iconId ? icon(iconId, "icon dk-note__icon") : dkDot(tone, "st dk-note__icon");
   return el("div", { class: `dk-note dk-note--${tone}${cls ? ` ${cls}` : ""}`, role },
     ic, el("div", { class: "dk-note__body" }, ...(Array.isArray(text) ? text : [text]).map((t) => (t instanceof Node ? t : el("p", { text: t }))), action));
 }

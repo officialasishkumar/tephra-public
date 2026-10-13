@@ -7,7 +7,7 @@ import { announce, byId, el, icon } from './dom.js';
 import { holdButton } from './hold.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
-import { aiMark, openBSheet, unavailableCard } from './ui.js';
+import { aiMark, fromReplayChip, openBSheet, unavailableCard } from './ui.js';
 
 export const KIND = {
   CREW_BRIEFING: ['Crew briefing', 'i-aircraft'],
@@ -127,7 +127,7 @@ export function openMessage(id) {
     const head = [
       el('p', { class: 'mmeta' },
         aiMark(undefined, current.llm_backend === 'stub' ? null : current.model_id),
-        current.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null,
+        fromReplayChip(current),
         el('span', { class: 'chip chip--sm', text: `v${current.version}` })),
       el('p', { class: 'note mnote', text: `${current.route ? `${current.route}. ` : ''}Written from the ${current.source_kind === 'advisory' ? 'approved advisory' : 'approved airport plan'}. ${current.llm_backend === 'stub' ? 'A code template wrote the words' : 'TEPHRA Assistant drafted the words'}. Code filled in every time, number and flight.` }),
     ];

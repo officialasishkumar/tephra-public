@@ -30,7 +30,8 @@ import { loadMessages, onMessageEvent, openMessage, requestMessageDrafts } from 
 import { loadPlans, noteTrace, onNetworkClick, onRecoveryEvent, renderNetwork } from './desk/network.js';
 import { loadNotices, onNoticeEvent, openNotice, openPaste } from './desk/notice.js';
 import { goTab, initTabs, setBadges } from './desk/tabs.js';
-import { closeBSheet } from './desk/ui.js';
+import { closeBSheet, describeReplayIn } from './desk/ui.js';
+import { replayWords, stripLabel } from './wall/x-parts.js';
 import { loadCrewPolicy, openCrewForm, openCrewReport, renderCrewSection, setAircraft, setCrew } from './desk/crew.js';
 
 const TICK_MS = 15000;
@@ -53,7 +54,7 @@ let resumeId = null;
 let firstListDone = false;
 let askReady = false;
 
-// --- system state: model label, REPLAY banner, disclaimer, clocks --------------------------
+// --- system state: model label, the frame strip (REPLAY, disclaimer), clocks --------------------------
 
 function applyState(state) {
   if (!state || typeof state !== 'object' || typeof state.mode !== 'string') return;
@@ -62,14 +63,17 @@ function applyState(state) {
   setActiveClock(state.now);
   setServerTime(state.server_time);
 
+  // REPLAY is said once, in the frame strip, with the Wall's words (wall/x-parts.js replayWords).
   const replay = state.mode === 'REPLAY';
   const bar = byId('replay-bar');
   bar.hidden = !replay;
-  byId('replay-text').textContent = replay
-    ? (state.replay && typeof state.replay.banner === 'string' && state.replay.banner) || 'REPLAY: recorded real feeds'
-    : '';
-  bar.title = replay && state.replay ? String(state.replay.label || '') : '';
-  byId('replay-auto').hidden = !(replay && state.replay && state.replay.auto);
+  const words = replayWords(replay ? state.replay : null);
+  byId('replay-text').textContent = replay ? words.text : '';
+  byId('replay-case').textContent = replay ? words.more : '';
+  bar.title = replay ? words.title : '';
+  byId('frame').setAttribute('aria-label', stripLabel(replay));
+  // a sheet open across a mode switch gets the strip's new words in its sr-only description
+  for (const dlg of document.querySelectorAll('dialog[open]')) describeReplayIn(dlg);
   if (typeof state.disclaimer === 'string' && state.disclaimer) byId('disclaimer').textContent = state.disclaimer;
 
   // R10.1, docs/UI-AI-QUIET.md K78: one AI chip with the AI's state; the model ids are in its sheet.
@@ -820,6 +824,8 @@ function measure() {
   const root = document.documentElement;
   const headH = byId('dhead').offsetHeight;
   root.style.setProperty('--dhead-h', `${headH}px`);
+  // Sheets and dialogs open below the frame strip (the header's top row), never over it.
+  root.style.setProperty('--dframe-h', `${byId('frame').offsetHeight}px`);
   root.style.setProperty('--head-h', `${headH + (isWide() && !byId('tabbar').hidden ? 48 : 0)}px`);
   const bar = byId('sheet-actions');
   // a bar placed after the content (review.js placeBar) takes no room from it

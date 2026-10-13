@@ -26,7 +26,7 @@ import {
   watchOnly,
 } from './format.js';
 import { openFailures } from './failures.js';
-import { aiMark, closeBSheet, openBSheet } from './ui.js';
+import { aiMark, closeBSheet, fromReplayChip, openBSheet } from './ui.js';
 import { recordedWords } from '../wall/x-parts.js';
 import { crewFlag, crewKey } from './crew.js';
 import { KIND, draftMessages } from './messages.js';
@@ -181,10 +181,13 @@ function buildLead(adv) {
   const who = [adv.proxy_flight, adv.callsign].filter(Boolean).join(' · ');
   const writer = [aiMark(undefined, isStub(adv) ? null : adv.model_id)];
   if (adv.recorded_answer && !isStub(adv)) writer.push(el('span', { text: ` ${recordedWords(adv.recorded_answer)}.` }));
+  // The frame strip says REPLAY; only a replay draft shown while live feeds play carries a tag.
+  const fromReplay = fromReplayChip(adv);
   return el('article', { class: 'lead next__card', 'data-id': adv.id, 'data-version': String(adv.version), 'data-band': band(coneFor(adv)), 'data-crewkey': crewKey(adv), 'data-level': String(levelNow(adv)), 'aria-labelledby': 'next-flight next-action' },
     el('p', { class: 'lead__top' }, el('span', { class: 'lead__who', id: 'next-flight', text: who }), timeNode(adv, now)),
     el('h3', { class: 'lead__action', id: 'next-action', text: actionShort(adv) }),
     el('p', { class: 'lead__facts', 'data-slot': 'facts', text: factsText(adv, now) }),
+    fromReplay ? el('p', { class: 'lead__replay' }, fromReplay) : null,
     ...cautions(adv).map(([shape, words]) => el('p', { class: 'lead__caution' }, icon(shape, 'st'), el('span', { text: words }))),
     el('p', { class: 'lead__stale', 'data-slot': 'stale', text: staleLine(adv, now) }),
     el('p', { class: 'lead__by' }, ...writer),

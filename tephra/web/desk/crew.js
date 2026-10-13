@@ -11,7 +11,7 @@ import { activeNow, fl, hhmmz } from './format.js';
 import { loadDocs, openDoc } from './docs.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
-import { openBSheet, reportsHead } from './ui.js';
+import { fromReplayChip, openBSheet, reportsHead } from './ui.js';
 
 const CREW_LABEL = 'Crew report caution area (operator policy A, not a VAA or SIGMET)';
 const FLAG_LINE = 'Crew report of ash on this route';
@@ -263,7 +263,7 @@ function reportBody(v, note) {
   return el('div', { class: 'stack' },
     note,
     el('p', { class: 'crewhead' }, stateBadge(v), el('span', { class: 'fine', text: v.age_text }),
-      r.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null),
+      fromReplayChip(r)),
     v.discrepancy ? outsideLine(v) : null,
     el('p', { class: 'note', text: effectLine(v) }),
     dl,

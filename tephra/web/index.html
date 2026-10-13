@@ -27,12 +27,19 @@
   <a class="skip-link" href="#map">Skip to map</a>
   <a class="skip-link" href="#details-btn">Skip to details</a>
 
-  <div id="replay-banner" class="replay-banner" role="status" hidden>
-    <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-replay"></use></svg>
-    <span id="replay-banner-text" class="replay-banner__text"></span>
-    <span id="replay-banner-short" class="replay-banner__short"></span>
-    <span class="replay-banner__live"> · not live</span>
-    <span id="replay-banner-case" class="replay-banner__case"></span>
+  <!-- The frame strip (UI-DESIGN 7.1, "Say it once, in the frame"): the one REPLAY label and the
+       disclaimer, always on screen above everything, dialogs and sheets included. Live, the
+       disclaimer alone. The case title is in the REPLAY part's tooltip and, for screen readers,
+       in #replay-banner-case. wall.js sets the strip's label ("Replay notice and disclaimer"). -->
+  <div id="frame" class="frame" role="note" aria-label="Disclaimer">
+    <p id="replay-banner" class="frame__replay" hidden>
+      <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-replay"></use></svg>
+      <span><span id="replay-banner-text">Replay</span><span class="frame__live"> · not live</span><span id="replay-banner-case" class="sr-only"></span></span>
+    </p>
+    <p class="frame__honesty">
+      <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-info"></use></svg>
+      <strong id="disclaimer">Decision support only - fictional airline - not for operational use</strong>
+    </p>
   </div>
 
   <header class="cmdbar">
@@ -70,7 +77,6 @@
     <a class="desk-link" href="/desk" target="_blank" rel="noopener">
       <span class="desk-link__long">Desk</span> <span aria-hidden="true">→</span>
     </a>
-    <div id="phone-honesty" class="cmdbar__honesty"></div>
   </header>
   <!-- phone only: the area, assistant and data chips move here, below the sticky header, and scroll away -->
   <div id="phone-bar" class="phone-bar" role="group" aria-label="Area, assistant and data"></div>
@@ -185,10 +191,6 @@
   </main>
 
   <footer class="honesty">
-    <p class="honesty__line">
-      <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-info"></use></svg>
-      <strong id="disclaimer">Decision support only - fictional airline - not for operational use</strong>
-    </p>
     <span class="honesty__airline"><span class="honesty__long">RFA (Ring of Fire Air) is a fictional airline. Its flight numbers are proxies for real aircraft.</span><span class="honesty__short">RFA is a fictional airline.</span></span>
     <span class="honesty__links">
       <button id="attribution" class="honesty__about" type="button" aria-haspopup="dialog">Map and data credits</button>

@@ -6,7 +6,7 @@
 import { PATHS, api, isUnavailable, problems, unavailableReason } from './api.js';
 import { announce, byId, el, icon, reducedMotion } from './dom.js';
 import { app } from './state.js';
-import { aiMark, openBSheet, unavailableCard } from './ui.js';
+import { aiMark, fromReplayChip, openBSheet, unavailableCard } from './ui.js';
 import { deskAi } from './budget.js';
 import { reasonClass } from '../wall/x-parts.js';
 
@@ -335,7 +335,7 @@ export function answerCard(a) {
     el('span', { class: 'acard__meta' },
       aiMark('Answered by TEPHRA Assistant', a.llm_backend === 'stub' ? null : a.model_id),
       el('span', { class: 'chip chip--sm', title: 'Language of the question and the answer', text: LANG_NAME[a.language] || a.language }),
-      a.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null),
+      fromReplayChip(a)),
     el('span', { class: 'spk__msg fine', role: 'status' })));
   wrap.append(card);
   return wrap;

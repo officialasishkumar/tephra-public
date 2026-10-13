@@ -297,7 +297,7 @@ function dutyCard(ctx) {
     { tone: "info", text: `Code gave it ${plural(run.worklist.length, "job")}${mandatory ? `, ${mandatory} of them must do` : ""}`, count: 1, at: ms(run.started_at), source: SOURCE.run },
     { tone: line.tone, text: line.text, count: 1, at, source: SOURCE.run },
     run.undispatched?.length ? { tone: "caution", text: `To the Desk, for a dispatcher: ${label(run.undispatched[0])}${run.undispatched.length > 1 ? ` and ${run.undispatched.length - 1} more` : ""}`, count: 1, at, source: SOURCE.run } : null,
-    run.recorded_answer ? { tone: "info", text: `Same answer as the replay's first pass: ${recordedWords(run.recorded_answer)}`, count: 1, at, source: SOURCE.run } : null,
+    run.recorded_answer ? { tone: "info", text: recordedWords(run.recorded_answer), count: 1, at, source: SOURCE.run } : null,
   ].filter(Boolean);
   const state = working ? "working" : line.tone === "failed" ? "failed" : line.tone === "caution" ? "notrun" : "done";
   const brief = run.brief && run.outcome !== "MODEL_FAILED" ? { text: run.brief.summary, model: run.outcome === "STUB" || run.llm_backend === "stub" ? null : run.model_id } : null;
@@ -392,7 +392,7 @@ export function boardModel(input) {
   const gate = gateNode(ctx);
   const counts = Object.fromEntries(STATES.map((k) => [k, cards.filter((c) => c.state === k).length]));
   return {
-    ready: true, replay, stub, mode: s.mode, replayInfo: s.replay || null, disclaimer: s.disclaimer || "",
+    ready: true, replay, stub, mode: s.mode,
     ai: { kind: ai.kind, words: aiWords(ai, { home: `Details › ${ASSISTANT}`, opens: "nothing" }), lead: aiLead(ai) },
     budgetLoaded: !!input.budget || !!input.budgetError, budgetError: input.budgetError || null,
     window: ctx.trace.length,

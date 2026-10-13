@@ -43,7 +43,7 @@ import { EARLY_RELEASE_HINT, holdButton } from './hold.js';
 import { anyStaleSource, coneFor, decidedLine, levelNow, modeChip, needsCarefulRead, statusBadge, statusView, walkOrder } from './queue.js';
 import { app } from './state.js';
 import { routeMap } from './route.js';
-import { aiMark, codeChip } from './ui.js';
+import { aiMark, codeChip, fromReplayChip } from './ui.js';
 import { recordedWords } from '../wall/x-parts.js';
 import { CREW_REASON_MIN, crewBox, crewKey, crewReasonNeeded } from './crew.js';
 
@@ -357,7 +357,11 @@ function reviewView(adv) {
       statusBadge(adv), el('p', { text: closedSentence(adv) })));
   }
   if (adv.plume_mode === 'HYPOTHESIS') out.push(hypothesisBanner());
-  const who = [adv.proxy_flight, adv.callsign].filter(Boolean).join(' · ');
+  // REPLAY is said by the frame strip; a replay draft opened while live feeds play says so here,
+  // since the strip then says nothing about it (UI-DESIGN 7.1, cross-mode records).
+  const fromReplay = fromReplayChip(adv);
+  if (fromReplay) out.push(el('p', { class: 'replay-note' }, fromReplay, el('span', { text: 'Drafted while a replay played, not from live feeds' })));
+  const who =[adv.proxy_flight, adv.callsign].filter(Boolean).join(' · ');
   out.push(
     el('p', { class: 'rv2__who' }, el('span', { text: who }), el('span', { class: 'rv2__ver', title: 'Version of this advisory', text: `v${adv.version}` })),
     el('h1', { id: 's-title', class: 'rv2__action', tabindex: '-1', text: actionShort(adv) }),

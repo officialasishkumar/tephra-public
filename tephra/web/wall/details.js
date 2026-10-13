@@ -15,7 +15,7 @@ import { ext, renderXPanel, recoverySummary, proofTicks, rerouteBlock, replannin
 import { renderLayers, layersStatus } from "./controls.js";
 import { currentPlan, advisoryFacts, closuresFor } from "./story.js";
 import { planFailure, techDetail, blockPhrase } from "./x-parts.js";
-import { dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkSection, dkRecorded, dkDot } from "./dk.js";
+import { dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkSection, dkDot, dkFromReplay } from "./dk.js";
 
 // Section key, index group, title, host element id, the old rail panel id it stands for (R8.2).
 export const SECTIONS = [
@@ -292,7 +292,7 @@ function flightDetail(D, ui, store) {
   const f = D.selFlight;
   const clear = el("button", { type: "button", class: "link-btn fdetail__clear", "aria-label": "Clear the picked flight", dataset: { act: "flight-clear", focus: "flight-clear" }, text: "Clear" });
   if (!f) {
-    host.replaceChildren(dkSection("fl-head", dkHeader({ id: "fl-head", pills: [dkRecorded(D.mode === "REPLAY")], title: pick.proxy, extra: clear }),
+    host.replaceChildren(dkSection("fl-head", dkHeader({ id: "fl-head", title: pick.proxy, extra: clear }),
       D.selHiddenByLevel
         ? dkNote("info", `Hidden by the height filter ${fl(ui.level.min)}–${fl(ui.level.max)}.`, { action: el("button", { type: "button", class: "link-btn", dataset: { act: "level-reset", focus: "fdetail-reset" }, text: "Reset" }) })
         : dkEmpty("No current position for this flight in the aircraft data.", null)));
@@ -301,7 +301,7 @@ function flightDetail(D, ui, store) {
   const p = f.properties;
   const entryPill = p.exposed ? (p.inside ? dkPill("inside", "Inside TEPHRA's area now") : dkPill("tephra", `Enters in ${p.minutes_to_entry} min (estimated)`)) : dkPill("ok", "Not projected to enter TEPHRA's area");
   const kids = [
-    dkHeader({ id: "fl-head", pills: [entryPill, dkRecorded(D.mode === "REPLAY")], title: f.properties.proxy_flight, extra: clear }),
+    dkHeader({ id: "fl-head", pills: [entryPill], title: f.properties.proxy_flight, extra: clear }),
     dkNote("info", `RFA is a fictional airline. This flight stands in for ${p.callsign || "an aircraft with no callsign"}.`),
     dkTiles([
       { label: "Level", value: p.alt_baro_ft != null ? fl(p.alt_baro_ft) : "unknown", sub: p.alt_baro_ft != null ? `${Number(p.alt_baro_ft).toLocaleString("en")} ft${p.nav_altitude_mcp_ft != null ? ` · selected ${fl(p.nav_altitude_mcp_ft)}` : ""}` : null },
@@ -390,7 +390,7 @@ function crewRow(D, v, picked) {
   ]) : null;
   return dkRow({
     key: `crew-${r.id}`, open: picked, dot: icon(shape, "st", colour), edge: v.discrepancy ? "caution" : drawn ? "crew" : null, cls: drawn ? null : "dk-row--muted",
-    title: [el("span", { id: `crew-${r.id}`, text: r.flight }), r.replay ? [" ", el("span", { class: "tag tag--replay", text: "entered in REPLAY" })] : null],
+    title: [el("span", { id: `crew-${r.id}`, text: r.flight }), r.replay && D?.mode !== "REPLAY" ? [" ", dkFromReplay(r.replay, false)] : null],
     sub: [r.cues.map((c) => CUE_WORDS[c] || c).join(", "), ` · ${crewBand(r)}`, v.place_text ? ` · ${v.place_text}` : ""],
     foot: [el("span", { class: `dk-crewstate dk-crewstate--${CREW_TONE[v.state] || "info"}`, text: v.state_label }), el("span", { text: v.age_text }), flagged.length && drawn ? el("span", { text: `${plural(flagged.length, "flight", "flights")} flagged` }) : null],
     body: [
@@ -425,7 +425,7 @@ function crewSection(D, ui) {
   const act = C.reports.filter((v) => v.state === "ACTIVE" || v.state === "COVERED").length;
   const out = C.reports.filter((v) => v.discrepancy).length;
   host.replaceChildren(dkSection("crew-head",
-    dkHeader({ id: "crew-head", pills: [act ? dkPill("caution", `${act} with a caution area now`) : dkPill("off", "None active"), dkRecorded(D.mode === "REPLAY")], title, chips: [chip] }),
+    dkHeader({ id: "crew-head", pills: [act ? dkPill("caution", `${act} with a caution area now`) : dkPill("off", "None active")], title, chips: [chip] }),
     dkTiles([
       { label: "Reports (24 h)", value: String(C.reports.length) },
       { label: "Caution area now", value: String(act), tone: act ? "caution" : null },

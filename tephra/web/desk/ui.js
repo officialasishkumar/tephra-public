@@ -5,7 +5,24 @@
 
 import { byId, el, icon } from './dom.js';
 import { serverNow } from './format.js';
-import { aiStateOf, machineText, MARK } from '../wall/x-parts.js';
+import { aiStateOf, describeReplay, machineText, MARK } from '../wall/x-parts.js';
+import { app } from './state.js';
+
+// REPLAY is said once, by the frame strip in the header (UI-DESIGN 7.1). A record keeps a chip
+// only when its mode differs from what plays: a replay record seen while live feeds play. Before
+// the state has loaded the mode is unknown, so no chip (never a flash of it in REPLAY).
+export function fromReplayChip(rec) {
+  if (!rec || !rec.replay || !app.state || app.state.mode === 'REPLAY') return null;
+  return el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'From a replay' }));
+}
+
+// The strip's REPLAY words ("" when live), for the sr-only line every modal carries: a modal makes
+// the strip inert for screen readers (wall/x-parts.js describeReplay).
+export function replayModalWords() {
+  const bar = byId('replay-bar');
+  return bar && !bar.hidden ? bar.textContent.replace(/\s+/g, ' ').trim() : '';
+}
+export const describeReplayIn = (dlg) => describeReplay(dlg, replayModalWords());
 
 // The one mark set (UI-AI-QUIET Q5, Naming): the Strata mark and the visible words only
 // ("Drafted by TEPHRA Assistant", "Read by Notice reader", "Answered by TEPHRA Assistant"), the
@@ -136,6 +153,7 @@ export function openBSheet({ title, body = null, footer = null, wide = false, fu
   dlg.addEventListener('close', finish);
   dlg.addEventListener('click', backdrop);
   current = handle;
+  describeReplayIn(dlg);
   if (!dlg.open) dlg.showModal();
   bodyNode.scrollTop = 0;
   titleNode.focus({ preventScroll: true });
