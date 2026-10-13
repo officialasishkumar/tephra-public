@@ -2109,6 +2109,9 @@ stack; at 1100 px and up the review pane stays). The same decision bar, filled n
 advisory-only): "Approve crew briefing (EN) for RFA1225", hold or tap for the confirm ("…? · Queued
 under AK on TEPHRA's own outbound queue · nothing is sent to a passenger, crew member or
 aircraft." · Approve now · Cancel), then "Edit text" and "Reject…". From the receipt: 3 taps.
+The `sources` field on drafted messages (redesign spec, Phase 4) is not built: it changes the
+approved template in three languages and the model's slots, so it waits for its own audited
+change. Until then the body keeps "Source: …" and is shown exactly as it will be approved.
 
 **Receipt line** (`#receipt`, D3): after the 1200 ms stamp the sheet opens the next item with
 "✓ Approved: hold RFA1456 at FL226 · 1003Z · AK" pinned above it, "Draft crew briefing ›" (drafts
@@ -2117,7 +2120,7 @@ decision, or "Audit line not listed yet. It appears in Record when the server li
 nothing is put in its place). Said once: "Approved: …. Next: RFA9885." No toast, no Undo.
 
 **Header**: `#net-banner` moved out of the sticky header to the top of the view, so the header
-never grows offline (93 px at 390 in every state).
+never grows offline (94 px at 390 in every state, the frame strip included).
 
 **Ask**: the conversation reads down, oldest first; the composer is pinned at the bottom above the
 tab bar (sticky; the old static rule is gone); the newest answer scrolls into view above it and is
