@@ -33,7 +33,9 @@ from tephra.models import (
     TraceStage,
 )
 from tephra.regdocs.evidence import NoActiveVolcano, UnknownRegion
+from tephra.regdocs.models import DocKind, DocStatus, SraDraft
 from tephra.regdocs.narrative import AiUnavailable
+from tephra.regdocs.registry import list_docs
 from tephra.regdocs.sra import draft_sra
 from tephra.store.base import Collection
 from tephra.util import timeutil
@@ -336,6 +338,10 @@ class _RuntimeExecutor:
     async def draft_sra(self, region: str) -> dict[str, Any]:
         runtime = self._runtime
         runtime.sra_drafted.add((region, self._at.date()))
+        waiting = await _open_sra(runtime, region)
+        if waiting is not None:
+            summary = f"SRA draft {waiting.id} for {waiting.region_name} waits for sign-off"
+            return {"summary": summary, "doc_id": waiting.id}
         try:
             document = await draft_sra(runtime, region)
         except AiUnavailable as exc:
@@ -346,6 +352,22 @@ class _RuntimeExecutor:
             "summary": f"SRA draft {document.id} for {document.region_name}",
             "doc_id": document.id,
         }
+
+
+async def _open_sra(runtime: "Runtime", region: str) -> SraDraft | None:
+    """The region's unsigned SRA draft of the mode playing, if one waits. The day's mark is held
+    in memory, and a replay plays again on every run, so without this each run (and each
+    restart) left one more identical draft for a dispatcher to sign."""
+    replay = runtime.mode is RunMode.REPLAY
+    for doc in await list_docs(runtime.store, kind=DocKind.SRA):
+        if (
+            isinstance(doc, SraDraft)
+            and doc.region_key == region
+            and doc.replay == replay
+            and doc.status is DocStatus.DRAFT
+        ):
+            return doc
+    return None
 
 
 # --- the safety line --------------------------------------------------------------------------

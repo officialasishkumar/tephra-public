@@ -23,7 +23,25 @@ let draftError = null;
 let sraRegion = '';
 const opened = new Set(); // starters kept open across re-renders
 
-export const docsToSign = () => app.docs.filter((d) => d.status === 'DRAFT');
+// Drafts to sign: this mode's, and one SRA per region (the newest). Before 13 Oct 2026 every
+// replay run and restart drafted the same region's SRA again, so older unsigned copies can wait
+// in the store; they and the other mode's drafts are listed apart, one tap in, never dropped.
+const ofMode = (d) => !app.state || Boolean(d.replay) === (app.state.mode === 'REPLAY');
+function splitDrafts() {
+  const sign = [];
+  const apart = [];
+  const regions = new Set();
+  for (const d of app.docs.filter((x) => x.status === 'DRAFT')) {
+    if (!ofMode(d)) apart.push([d, d.replay ? 'from a replay, set aside while live feeds play' : 'from live feeds, set aside while a replay plays']);
+    else if (d.kind === 'SRA' && regions.has(d.region)) apart.push([d, 'an older draft of the same region']);
+    else {
+      if (d.kind === 'SRA') regions.add(d.region);
+      sign.push(d);
+    }
+  }
+  return { sign, apart };
+}
+export const docsToSign = () => splitDrafts().sign;
 
 export async function loadDocs() {
   const res = await api(PATHS.docs);
@@ -97,14 +115,14 @@ function draftBtn(key, label, onclick) {
     on ? el('span', { class: 'spinner', 'aria-hidden': 'true' }) : icon('i-file'), el('span', { text: on ? 'Drafting…' : label }));
 }
 
-function docRow(d) {
+function docRow(d, why = null) {
   const open = d.missing_roles.length;
   const [tone, shape, word] = STATUS_VIEW[d.status] || STATUS_VIEW.DRAFT;
   const signing = d.status === 'WITHDRAWN' ? 'crew report withdrawn, not to be sent' : d.status === 'SIGNED' ? 'all lines signed' : `${d.signed_roles.length} of ${d.signed_roles.length + open} signed`;
   return el('li', {}, el('button', { type: 'button', class: 'drow', 'data-doc': d.id },
     el('span', { class: 'drow__kind', text: KIND_WORD[d.kind] || d.kind }),
     el('span', { class: 'drow__what' }, el('span', { class: 'drow__t', text: d.title }),
-      el('span', { class: 'drow__m', text: `${signing} · drafted ${dayMonthHhmm(d.created_at)}${d.replay ? ' · recorded' : ''}` })),
+      el('span', { class: 'drow__m', text: `${why || signing} · drafted ${dayMonthHhmm(d.created_at)}${d.replay ? ' · recorded' : ''}` })),
     el('span', { class: `adv-status adv-status--${tone}` }, icon(shape, 'st'), el('span', { text: word })),
     icon('i-chevron-right', 'icon nrow__go')));
 }
@@ -175,7 +193,7 @@ export function renderDocs() {
   const parts = [head];
 
   // Primary: what waits for a person (drafts to sign, a handover to read back).
-  const toSign = docsToSign();
+  const { sign: toSign, apart } = splitDrafts();
   const signed = app.docs.filter((d) => d.status !== 'DRAFT');
   const n = toSign.length + (handoverWaiting() ? 1 : 0);
   const ready = el('section', { class: 'ready', 'aria-labelledby': 'doc-list' },
@@ -191,6 +209,13 @@ export function renderDocs() {
   }
   ready.append(rows.length ? el('ul', { class: 'drows' }, rows)
     : el('p', { class: 'ready__none', text: 'Nothing waits for your signature. Start a document below.' }));
+  if (apart.length) {
+    const box = el('details', { class: 'ready__signed', open: opened.has('apart') },
+      el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: `Other drafts (${apart.length})` })),
+      el('ul', { class: 'drows' }, apart.map(([d, why]) => docRow(d, why))));
+    box.addEventListener('toggle', () => (box.open ? opened.add('apart') : opened.delete('apart')));
+    ready.append(box);
+  }
   if (signed.length) {
     const box = el('details', { class: 'ready__signed', open: opened.has('signed') },
       el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: `${signed.some((d) => d.status === 'WITHDRAWN') ? 'Signed or withdrawn' : 'Signed'} (${signed.length})` })),

@@ -20,6 +20,7 @@ from tephra.api.routes_regdocs import router
 from tephra.api.server import create_app
 from tephra.config import NO_MODEL_LABEL, PROJECT_ROOT, REGIONS, Settings
 from tephra.desk import audit
+from tephra.duty import _RuntimeExecutor
 from tephra.geo.fuel import category_for_type, hold_line
 from tephra.models import (
     ActionKind,
@@ -47,6 +48,7 @@ from tephra.models import (
     Situation,
     SseEvent,
     SystemState,
+    TickReport,
     TraceActor,
     TraceEvent,
     TraceStage,
@@ -569,6 +571,24 @@ async def test_a_replay_sra_says_so(tmp_path: Path) -> None:
     doc = await draft_sra(runtime, "java_bali")
     assert doc.replay
     await runtime.store.aclose()
+
+
+async def test_the_duty_officer_drafts_no_second_sra_while_one_waits(
+    runtime: FakeRuntime,
+) -> None:
+    """One unsigned SRA draft per region and mode: the day's mark is held in memory, so a replay
+    run or a restart offers the region again, and gets the waiting draft back, not one more."""
+    first = await draft_sra(runtime, "java_bali")
+    runtime.sra_drafted = set()  # a fresh picture: the in-memory mark is gone
+    report = TickReport(started_at=AT, finished_at=AT, mode=RunMode.LIVE, reason="manual")
+    executor = _RuntimeExecutor(runtime, AT, report, {}, 0)  # type: ignore[arg-type]
+
+    result = await executor.draft_sra("java_bali")
+
+    assert result["doc_id"] == first.id
+    assert [doc.id for doc in await list_docs(runtime.store, kind=DocKind.SRA)] == [first.id]
+    runtime.mode = RunMode.REPLAY  # a replay's SRA is its own: the live draft does not stand in
+    assert (await executor.draft_sra("java_bali"))["doc_id"] != first.id
 
 
 async def test_unknown_region_and_a_quiet_region_are_refused(runtime: FakeRuntime) -> None:

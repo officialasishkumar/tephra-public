@@ -294,8 +294,8 @@ found it, in wall-clock time: `ok` turns False on a failed checked read or write
 on the next successful write; `last_error` is the newest error (cut to 300 characters) and
 `last_error_at` when the current run of failures began. `SystemState.store` carries it (a
 `StoreHealth()` default, ok with no times, where nothing reports one), and
-`SystemState.draft_count` is None when the open drafts could not be read (never an older
-count). The database is not a `FeedId`: `due_feeds` and the pollers iterate `FeedId`.
+`SystemState.draft_count` counts the open drafts of the mode playing (`Runtime.open_drafts`, the
+list the Desk shows), None when they could not be read (never an older count). The database is not a `FeedId`: `due_feeds` and the pollers iterate `FeedId`.
 
 AI failures and replay runs (13 Oct 2026). A REPLAY plays its recording again from the start on
 every run (a process start, a switch to REPLAY, a loop), so records stamped on the replay clock
@@ -1913,8 +1913,11 @@ Core rules:
   leaves them out) and keeps, with `run_since`, only the replay run that started then.
   `Runtime.replay_run_since` is that wall-clock start (None when live). Once per picture (a
   start, a mode switch, a loop) the first `settle_drafts` follows the failures back from the
-  store (`_follow_failures`): an earlier replay run's open failures close with
-  `REPLAY_RUN_ENDED`, this mode's are followed, one per flight. A picture reset also clears
+  store (`_follow_failures`): in REPLAY every open REPLAY draft is superseded first with
+  `DRAFT_RUN_ENDED` ("THE REPLAY RUN IT WAS DRAFTED IN HAS ENDED", audited `SUPERSEDED` under
+  the system actor, one DESK trace line each): the AI works only after this first pass, so such a
+  draft was made in an earlier run and its picture has ended. An earlier replay run's open
+  failures close with `REPLAY_RUN_ENDED`, this mode's are followed, one per flight. A picture reset also clears
   `Runtime.duty`, so the Wall shows no Duty Officer run of an earlier picture.
 - Restart. A LIVE runtime restores from the store the feed health (except feeds the settings
   switch off and states saved during a replay), the SIGMETs still valid, the VONAs within
@@ -2519,7 +2522,7 @@ The agent (`AGENT_NAME = "tephra_duty_officer"`, lite tier, at most 12 model tur
 | `assess_volcanoes(volcano_ids)` | `Runtime.assess_volcano`: Satellite Reader, Plume Reader, `build_cone`, the volcano's exposure | only volcanoes with an ASSESS item; returns the PLAN items the new cone made due (an older item for the same flight is replaced, not left undone) |
 | `plan_flights(flight_ids)` | `Runtime.plan_flight_now`: reroutes, Exposure Planner, Dispatch Drafter, the Desk | only flights with a PLAN item; refused while the flight's volcano has an ASSESS item; results are the draft or the AI failure |
 | `run_recovery()` | `Runtime.start_recovery`: a recovery job queued in the AI worker | only with a RECOVER item |
-| `draft_sra(region)` | `regdocs.sra.draft_sra` | only with an SRA item; marked done for the day even when it fails |
+| `draft_sra(region)` | `regdocs.sra.draft_sra` | only with an SRA item; marked done for the day even when it fails; while an unsigned SRA draft of the region in the mode playing waits, that draft is returned and no new one is made (the day's mark is in memory, so a replay run or a restart would otherwise add one more to sign) |
 | `defer(item_ids, reason)` | nothing | mandatory items and items with no reason are refused |
 | `submit_brief(summary, priority_item_ids, priority_reasons, watch)` | the brief | `validate_brief`: summary 500 chars, reasons 160, at most 4 watch lines of 160; known item ids, each once; no clock times; every number and RFA flight must appear in the digest, the work list or a tool result |
 

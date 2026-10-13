@@ -43,6 +43,7 @@ from tephra.geo.cone import covers_official
 from tephra.models import (
     ActionKind,
     AdsbQueryPoint,
+    Advisory,
     AdvisoryStatus,
     AiFailure,
     AuditAction,
@@ -52,6 +53,7 @@ from tephra.models import (
     FeedId,
     FeedStatus,
     FrameProduct,
+    PlumeMode,
     RunMode,
     SseEvent,
     TickReport,
@@ -64,7 +66,7 @@ from tephra.store.base import Collection
 from tephra.store.sqlite_store import SqliteStore
 from tephra.util import timeutil
 from tephra.util.events import EventBus
-from tephra.util.hashing import sha256_bytes
+from tephra.util.hashing import proxy_flight_number, sha256_bytes
 from tephra.util.timeutil import FixedClock, use_clock
 
 
@@ -617,6 +619,75 @@ async def test_a_new_replay_run_closes_the_failures_an_earlier_run_left(
         assert replay.replay_run_since >= since
     finally:
         await replay.aclose()
+
+
+async def test_a_new_replay_run_retires_the_drafts_an_earlier_run_left(
+    tmp_path: Path, source: FixtureSource, clock: FixedClock
+) -> None:
+    """A replay plays its recording again on every run, and the AI works only after the run's
+    first pass: an open REPLAY draft then is an earlier run's, superseded under the system actor
+    and never counted as this run's work. A LIVE draft is the live desk's and stays."""
+    replay = make_runtime(make_settings(tmp_path), source, mode=RunMode.REPLAY)
+    try:
+        earlier = make_draft("adv_000000000001", replay=True)
+        live = make_draft("adv_000000000002", replay=False, flight_id=f"8a0999:{SEMERU}")
+        for item in (earlier, live):
+            await replay.store.put(Collection.ADVISORIES, item.id, item.model_dump(mode="json"))
+        assert (await replay.system_state()).draft_count == 1, "this mode's drafts only"
+
+        await replay.settle_drafts(
+            AT, TickReport(started_at=AT, finished_at=AT, mode=RunMode.REPLAY, reason="manual")
+        )
+
+        status = {a.id: a.status for a in await list_advisories(replay.store, limit=10)}
+        assert status == {earlier.id: AdvisoryStatus.SUPERSEDED, live.id: AdvisoryStatus.DRAFT}
+        entries = await audit.list_entries(replay.store, limit=10)
+        retired = [e for e in entries if e.action is AuditAction.SUPERSEDED]
+        assert [(e.actor, e.note) for e in retired] == [
+            (SYSTEM_ACTOR, pipeline_module.DRAFT_RUN_ENDED)
+        ]
+        assert (await replay.system_state()).draft_count == 0
+    finally:
+        await replay.aclose()
+
+
+def make_draft(
+    advisory_id: str, *, replay: bool, flight_id: str = f"{GIA417}:{SEMERU}"
+) -> Advisory:
+    hex_id = flight_id.split(":")[0]
+    return Advisory(
+        id=advisory_id,
+        version=1,
+        status=AdvisoryStatus.DRAFT,
+        created_at=AT,
+        updated_at=AT,
+        replay=replay,
+        volcano_id=SEMERU,
+        volcano_name="Semeru",
+        flight_id=flight_id,
+        proxy_flight=proxy_flight_number(hex_id),
+        callsign="GIA417",
+        hex=hex_id,
+        type_icao="B738",
+        action=ActionKind.MONITOR,
+        minutes_to_entry=14,
+        inside_now=False,
+        fuel_line="",
+        plume_mode=PlumeMode.OFFICIAL,
+        confidence=1.0,
+        cone_id="CONE-0123456789ab",
+        assessment_id="PA-0123456789ab",
+        plan_id="PLAN-0123456789ab",
+        header="TEPHRA COMPANY ADVISORY - RING OF FIRE AIR (FICTIONAL) - NOT FOR OPERATIONAL USE",
+        body="MONITOR. ASH SFC/FL150 AHEAD, ENTRY 14 MIN. REPORT VAR.",
+        cost_note="NO EXTRA FUEL",
+        sources=[],
+        input_hash="0" * 64,
+        llm_backend="stub",
+        model_id="stub",
+        prompt_hashes={},
+        dedupe_key=f"DD-{advisory_id[-12:]}",
+    )
 
 
 def make_failure(failure_id: str, **changes: Any) -> AiFailure:

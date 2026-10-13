@@ -230,6 +230,7 @@ situation again for them would cost 1,440 writes a day per silent volcano."""
 
 RESTORED_NOTE: Final = "restored after restart"
 DESK_UNREACHABLE_NOTE: Final = "Desk store unreachable: drafts not updated this tick"
+DRAFT_RUN_ENDED: Final = "THE REPLAY RUN IT WAS DRAFTED IN HAS ENDED"
 STORE_ERROR_CHARS: Final = 300
 FEED_STATE_CLOCK_FIELDS: Final[IncEx] = {"age_s", "last_attempt_at", "last_success_at"}
 """Feed-state fields that move on every poll: storing them would rewrite every feed's state at
@@ -390,18 +391,15 @@ class Runtime:
         return await run_tick(self, reason=reason)
 
     async def system_state(self) -> SystemState:
-        """``draft_count`` is None when the drafts cannot be read: an older count would be
-        presented as current."""
+        """``draft_count`` counts the open drafts of the mode playing (``open_drafts``), as the
+        Desk lists them; None when the drafts cannot be read: an older count would be presented
+        as current."""
         at = timeutil.now()
         draft_count: int | None
         try:
-            drafts = await _list_drafts(self.store)
-        except Exception as exc:
-            logger.warning("reading the open drafts for the state failed: %s", exc)
-            self.store_failed(exc, calls="reads")
+            draft_count = len(await self.open_drafts())
+        except DeskUnreachable:
             draft_count = None
-        else:
-            draft_count = len(drafts)
         replay = None
         if self.mode is RunMode.REPLAY and self.replay_case is not None:
             replay = replay_info(self.replay_case, auto=self.auto_replay, window=self.replay_window)
@@ -2045,13 +2043,16 @@ class Runtime:
             await close_failure(self.store, self.bus, failure.id, reason=reason)
 
     async def _follow_failures(self) -> None:
-        """Once per picture (a start, a mode switch, a replay loop): close the open failures
-        an earlier replay run left, and follow this mode's open ones, one per flight, so a
-        flight that leaves the area or gets a draft closes its own."""
+        """Once per picture (a start, a mode switch, a replay loop): retire the open drafts
+        and close the open failures an earlier replay run left, and follow this mode's open
+        failures, one per flight, so a flight that leaves the area or gets a draft closes its
+        own."""
         if self._failures_followed:
             return
         run_since = self.replay_run_since
         replay = self.mode is RunMode.REPLAY
+        if replay and not await self._retire_earlier_drafts():
+            return
         for failure in await list_failures(self.store, replay=replay, limit=LIST_WINDOW):
             current = self.open_failures.get(failure.flight_id)
             if not of_run(failure, run_since):
@@ -2061,6 +2062,19 @@ class Runtime:
             elif current.id != failure.id:  # listed newest first: this one is older
                 await close_failure(self.store, self.bus, failure.id, reason=NEWER_FAILURE)
         self._failures_followed = True
+
+    async def _retire_earlier_drafts(self) -> bool:
+        """A replay plays its recording again on every run, and the AI works only after this
+        first pass, so every open REPLAY draft here was made in an earlier run: its picture has
+        ended, and a dispatcher must never see it as this run's work. False when the store
+        cannot be read (the next pass tries again)."""
+        try:
+            drafts = await self.open_drafts()
+        except DeskUnreachable:
+            return False
+        for draft in drafts:
+            await self._supersede_draft(draft, DRAFT_RUN_ENDED)
+        return True
 
     async def _supersede_draft(
         self, draft: Advisory, reason: str, *, superseded_by: str | None = None
