@@ -160,7 +160,7 @@ export function openMessage(id) {
         aiMark('AI-written', current.llm_backend === 'stub' ? null : current.model_id),
         current.replay ? el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'REPLAY' })) : null,
         el('span', { class: 'chip chip--sm', text: `v${current.version}` })),
-      el('p', { class: 'note mnote', text: `${current.route ? `${current.route}. ` : ''}Written from the ${current.source_kind === 'advisory' ? 'approved advisory' : 'approved airport plan'}. The model wrote the words; code filled every time, number and flight in them.` }),
+      el('p', { class: 'note mnote', text: `${current.route ? `${current.route}. ` : ''}Written from the ${current.source_kind === 'advisory' ? 'approved advisory' : 'approved airport plan'}. The model wrote the words. Code filled in every time, number and flight.` }),
     ];
     if (notice) head.push(el('div', { class: 'banner banner--caution', role: 'alert' }, icon('st-caution', 'st'), el('p', { text: notice })));
     const parts = [...head, tabs()];

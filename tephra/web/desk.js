@@ -26,7 +26,8 @@ import { initAsk, focusAsk, setFlightContext } from './desk/ask.js';
 import { drawAiChip, loadBudget, openBudget, setBudget } from './desk/budget.js';
 import { clearHandover, loadDocs, loadHandover, onDocEvent, onDocsClick, renderDocs, docsToSign } from './desk/docs.js';
 import { loadDuty, onDutyEvent } from './desk/duty.js';
-import { loadFailures, onFailureEvent, openFailures, openHandled } from './desk/failures.js';
+import { loadFailures, onFailureEvent, openBulk, openFailures, openHandled, renderFailures } from './desk/failures.js';
+import { renderIdle } from './desk/idle.js';
 import { draftMessages, loadMessages, onMessageEvent, openMessage, requestMessageDrafts } from './desk/messages.js';
 import { draftPlans, latestPlan, loadPlans, noteTrace, onNetworkClick, onRecoveryEvent, renderNetwork, chosenOf } from './desk/network.js';
 import { loadNotices, onNoticeEvent, openNotice, openPaste } from './desk/notice.js';
@@ -163,8 +164,8 @@ function setConn(conn) {
   // "Connected", not "Live": in REPLAY a green "Live" under the REPLAY bar reads as live data.
   const view = {
     live: ['st-ok', 'Connected', 'Connected to the TEPHRA server (updates stream in)'],
-    reconnecting: ['st-stale', 'Reconnecting…', 'Lost the update stream; trying again'],
-    offline: ['st-serious', 'Offline', "Can't reach the TEPHRA server; decisions are off"],
+    reconnecting: ['st-stale', 'Reconnecting…', 'Lost the update stream, trying again'],
+    offline: ['st-serious', 'Offline', "Can't reach the TEPHRA server, so decisions are off"],
     idle: ['st-never', 'Connecting…', 'Connecting to the TEPHRA server'],
   }[conn];
   chip.dataset.conn = conn;
@@ -362,18 +363,23 @@ function applyAdvisory(adv, { stream }) {
 }
 
 function afterListChange() {
-  // At 1100 px and up the first card is always selected.
-  if (isWide() && app.me) {
+  // At 1100 px and up the right pane is never empty while there is work: the first card is
+  // selected, or, with no draft, the flights to plan by hand open there.
+  if (isWide() && app.me && app.pane !== 'failures') {
     const sorted = draftList().sort(byUrgency);
     const current = sheetOpenFor();
     if (!current || (!app.drafts.has(current) && !app.closed.has(current))) {
       if (sorted[0]) selectDraft(sorted[0].id, { focus: false });
-      else if (current) {
-        app.selectedId = null;
-        closeSheet();
+      else {
+        if (current) {
+          app.selectedId = null;
+          closeSheet();
+        }
+        if (app.listLoaded && openFailures().length) openFailPane({ focus: false });
       }
     }
   }
+  syncPanes();
   renderQueue();
   syncSheet();
   renderCrewSection();
@@ -391,14 +397,61 @@ function findAdvisory(id) {
 function selectDraft(id, { focus = true, push = true } = {}) {
   const adv = findAdvisory(id);
   if (!adv) return;
+  if (app.pane === 'failures') {
+    app.pane = null;
+    renderFailures();
+  }
   app.selectedId = id;
   openSheet(adv, { focus });
   byId('desk-view').dataset.view = 'review';
   if (!isWide() && push && !(history.state && history.state.sheet === id)) {
     history.pushState({ sheet: id }, '');
   }
+  syncPanes();
   renderQueue();
   measure();
+}
+
+// --- the flights to plan by hand: the right pane at 1100 px and up, a view of its own on a
+// phone (with a history entry, so Back returns to Decide) -------------------------------------
+
+function openFailPane({ focus = true, push = true } = {}) {
+  if (!openFailures().length) return;
+  app.pane = 'failures';
+  if (isWide()) {
+    app.selectedId = null;
+    closeSheet();
+  } else {
+    byId('desk-view').dataset.view = 'failures';
+    if (push && !(history.state && history.state.failures)) history.pushState({ failures: true }, '');
+    window.scrollTo({ top: 0 });
+  }
+  renderFailures();
+  syncPanes();
+  renderQueue();
+  measure();
+  if (focus) byId('fp-title')?.focus({ preventScroll: true });
+}
+
+function closeFailPane({ fromHistory = false, focus = false } = {}) {
+  if (app.pane !== 'failures') return;
+  app.pane = null;
+  if (!isWide()) {
+    byId('desk-view').dataset.view = 'queue';
+    if (!fromHistory && history.state && history.state.failures) history.back();
+  }
+  renderFailures();
+  syncPanes();
+  measure();
+  if (focus) byId('fail-section').querySelector('[data-failpane]')?.focus();
+}
+
+// Which of the right-hand panes shows: the review (review.js owns #sheet), the flights to handle
+// by hand, or the idle pane (CSS shows it at 1100 px and up while the other two are hidden).
+function syncPanes() {
+  const view = byId('desk-view').dataset.view;
+  byId('fail-pane').hidden = !(app.pane === 'failures' && (isWide() || view === 'failures'));
+  renderIdle();
 }
 
 function closeReview({ fromHistory = false, focusId = null, force = false } = {}) {
@@ -432,9 +485,14 @@ function focusQueueTitle() {
 
 window.addEventListener('popstate', (event) => {
   if (isWide()) return;
-  const id = event.state && event.state.sheet;
-  if (id && findAdvisory(id)) selectDraft(id, { push: false });
-  else if (sheetOpenFor()) closeReview({ fromHistory: true });
+  const st = event.state || {};
+  if (st.sheet && findAdvisory(st.sheet)) {
+    selectDraft(st.sheet, { push: false });
+    return;
+  }
+  if (sheetOpenFor()) closeReview({ fromHistory: true });
+  if (st.failures) openFailPane({ push: false });
+  else closeFailPane({ fromHistory: true, focus: true });
 });
 
 // --- decisions -----------------------------------------------------------------------------
@@ -691,6 +749,7 @@ function leaveDesk() {
   app.loadSeq += 1;
   firstListDone = false;
   app.selectedId = null;
+  app.pane = null;
   closeSheet();
   closeBSheet();
   app.failures.clear();
@@ -702,7 +761,8 @@ function leaveDesk() {
   app.notices = [];
   byId('cards').replaceChildren();
   byId('q-next').replaceChildren();
-  for (const id of ['fail-section', 'msg-section', 'plan-section', 'notice-section', 'crew-section']) byId(id).replaceChildren();
+  for (const id of ['fail-section', 'fail-pane', 'idle-pane', 'msg-section', 'plan-section', 'notice-section', 'crew-section']) byId(id).replaceChildren();
+  byId('fail-pane').hidden = true;
   byId('crew-section').hidden = true;
   byId('tabbar').hidden = true;
   for (const t of ['ask', 'network', 'docs']) byId(`panel-${t}`).hidden = true;
@@ -811,6 +871,7 @@ function updateBadges() {
   }, { queue: breakdownText() });
   // Messages and problems change the Next decision's breakdown line too.
   if (app.me && app.listLoaded) renderQueue();
+  renderIdle();
   setTitle();
   // failures and plans change the AI's state (one cause however many flights)
   drawAiChip();
@@ -855,6 +916,12 @@ function wire() {
     closeReview: () => closeReview(),
     focusQueueTitle,
     applyState,
+    closeFailPane: () => closeFailPane(),
+    // With no draft to review, the flights to plan by hand fill the right pane (1100 px and up).
+    failuresChanged: () => {
+      if (app.me && isWide() && !sheetOpenFor() && app.pane !== 'failures' && openFailures().length) openFailPane({ focus: false });
+      syncPanes();
+    },
     measureBar: measure,
     goTab: (name) => goTab(name, { focus: true }),
     draftMessages: requestMessageDrafts,
@@ -884,6 +951,14 @@ function wire() {
     if (crew) {
       if (crew.dataset.crewform) openCrewForm();
       else if (crew.dataset.crew) openCrewReport(crew.dataset.crew);
+      return;
+    }
+    const pane = event.target.closest('[data-failpane], [data-failbulk]');
+    if (pane) {
+      if (pane.dataset.failbulk) openBulk();
+      else if (pane.dataset.failpane === 'close') closeFailPane({ focus: true });
+      else if (app.pane !== 'failures') openFailPane();
+      else byId('fp-title')?.focus();
       return;
     }
     const extra = event.target.closest('[data-handle], [data-msg], [data-notice], [data-paste], [data-goto]');
@@ -929,8 +1004,12 @@ function wire() {
   // the chip drops its time below 420 px (UI-AI-QUIET 5.2)
   window.addEventListener('resize', drawAiChip);
   document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape' || !sheetOpenFor() || app.tab !== 'queue') return;
-    if (event.target.closest('dialog, #account-menu')) return;
+    if (event.key !== 'Escape' || app.tab !== 'queue' || event.target.closest('dialog, #account-menu')) return;
+    if (app.pane === 'failures' && !isWide()) {
+      closeFailPane({ focus: true });
+      return;
+    }
+    if (!sheetOpenFor()) return;
     // One level per press: Reject or Edit (even from inside its text box) back to the review,
     // then, on a phone, the review back to Decide (review 2, item 9).
     if (sheetStepBack()) {
@@ -955,7 +1034,8 @@ function wire() {
     if (isWide()) {
       byId('desk-view').dataset.view = 'review';
       afterListChange();
-    } else if (!sheetOpenFor()) byId('desk-view').dataset.view = 'queue';
+    } else if (!sheetOpenFor()) byId('desk-view').dataset.view = app.pane === 'failures' ? 'failures' : 'queue';
+    syncPanes();
     measure();
   });
 }

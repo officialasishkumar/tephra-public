@@ -31,6 +31,7 @@ export const app = {
   loadSeq: 0,
   lastLoadedAt: null, // active-clock ms of the last good list
   selectedId: null, // the draft open in the review sheet (or selected at 1440)
+  pane: null, // 'failures' while the flights to plan by hand are open (the right pane, or a phone's view)
   offline: false, // no network, a failed fetch, or the stream down for 10 s
   conn: 'idle', // idle | live | reconnecting | offline
   inFlight: new Set(), // ids with a decision request outstanding

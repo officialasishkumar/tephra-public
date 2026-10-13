@@ -6,10 +6,11 @@
 // in caution tone (docs/UI-AI-QUIET.md). Every feed or model string goes in through el()
 // (textContent); AI-written text carries a short mark with the model id in its title.
 
-import { $, el, icon, ms, hhmmz, hhmmssz } from "./util.js";
+import { $, el, icon, ms, hhmmz } from "./util.js";
 import { frameFor } from "./ext-map.js";
-import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiLead, causeTitle, handPlanOf, reasonClass, WHY } from "./x-parts.js";
+import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, causeTitle, handPlanOf, reasonClass, WHY } from "./x-parts.js";
 import { dutyDetail, dispatchedTools } from "./duty.js";
+import { HELPERS } from "./board.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkMeter, meterTone, dkGroup, dkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkTech,
   dkSection, dkLink, dkRecorded, dkWhen, timeRange, times, plural, dayTime,
@@ -18,10 +19,11 @@ import {
 // ------------------------------------------------------------------ state
 
 export const ext = {
-  notices: [], recovery: [], budget: null, backtest: null,
-  loaded: { notices: false, recovery: false, budget: false, backtest: false },
+  notices: [], recovery: [], budget: null, backtest: null, docs: [],
+  loaded: { notices: false, recovery: false, budget: false, backtest: false, docs: false },
   errors: {},
   arrivals: new Map(), // trace id -> performance.now() when it arrived on the stream
+  handoffs: new Map(), // Duty Officer tool -> performance.now() of its newest hand-out on the stream
   lastSeenSat: new Map(),
 };
 
@@ -41,6 +43,7 @@ export async function loadExt(onChange) {
     ["recovery", "/api/recovery", (d) => { ext.recovery = d.plans || []; }],
     ["budget", "/api/budget", (d) => { ext.budget = d; }],
     ["backtest", "/api/backtest", (d) => { ext.backtest = d; }],
+    ["docs", "/api/docs", (d) => { ext.docs = d.docs || []; }],
   ];
   await Promise.all(jobs.map(async ([key, url, set]) => {
     try { set(await getJson(url)); ext.errors[key] = null; } catch (e) { ext.errors[key] = e.message; }
@@ -53,6 +56,7 @@ export function ingest(name, data) {
   if (name === "notice") upsert(ext.notices, data, true);
   else if (name === "recovery") upsert(ext.recovery, data, true);
   else if (name === "budget") { ext.budget = data; ext.errors.budget = null; ext.loaded.budget = true; }
+  else if (name === "doc") upsert(ext.docs, data, true);
 }
 
 function upsert(list, item, front) {
@@ -60,7 +64,12 @@ function upsert(list, item, front) {
   if (i >= 0) list[i] = item; else if (front) list.unshift(item); else list.push(item);
 }
 
-export function noteTrace(t) { ext.arrivals.set(t.id, performance.now()); }
+const HANDOFF = /^Duty Officer -> (\w+):/;
+export function noteTrace(t) {
+  ext.arrivals.set(t.id, performance.now());
+  const m = t.stage === "DUTY" ? HANDOFF.exec(t.message || "") : null;
+  if (m) ext.handoffs.set(m[1], performance.now());
+}
 
 // ------------------------------------------------------------------ small parts
 
@@ -454,23 +463,14 @@ function proofPanel() {
 
 // ------------------------------------------------------------------ AI helpers (docs/UI-DETAILS-PANELS.md 3)
 
+// The helpers are board.js's roster (one table for the names, shared with AI at work), plus the
+// backtest, which is code and calls no model.
 export const AGENTS = [
-  { id: "duty", name: "Duty Officer", stage: "DUTY", what: "Orders the day's AI work" },
-  { id: "plume", name: "Plume Reader", stage: "PLUME", what: "Proposes TEPHRA's cautious area" },
-  { id: "sat", name: "Satellite reader", stage: "SATELLITE", what: "Reads the satellite picture" },
-  { id: "planner", name: "Planner", stage: "PLANNER", what: "Chooses an action for each flight" },
-  { id: "drafter", name: "Drafter", stage: "DRAFTER", what: "Writes the advisories" },
-  { id: "recovery", name: "Recovery planner", stage: "RECOVERY", what: "Re-plans flights around closed airports" },
-  { id: "notice", name: "Notice reader", stage: "NOTICE", what: "Reads pasted notices" },
-  { id: "ask", name: "Ask", stage: "ASK", what: "Answers questions from the data" },
-  { id: "messages", name: "Messages", stage: "MESSAGES", what: "Drafts crew and passenger messages", skip: /HANDOVER/i },
-  { id: "handover", name: "Handover", stage: "MESSAGES", what: "Writes the shift handover", only: /HANDOVER/i },
-  { id: "sra", name: "Safety risk assessment", stage: "DOCS", what: "Drafts regulator paperwork (SRA, VAR)" },
+  ...HELPERS.map(({ id, name, stage, does, skip, only }) => ({ id, name, stage, what: does, skip, only })),
   { id: "backtest", name: "Backtest", stage: null, what: "Scores TEPHRA against later official areas (code, no model)" },
 ];
 // The Duty Officer tool that reaches each specialist.
 const DELEGATED_VIA = { plume: "assess_volcanoes", sat: "assess_volcanoes", planner: "plan_flights", drafter: "plan_flights", recovery: "run_recovery", sra: "draft_sra" };
-const AI_STAGES = new Set(AGENTS.map((a) => a.stage).filter(Boolean));
 const RUNNING_MS = 6000;
 
 const STATE_ORDER = { failed: 0, waiting: 1, running: 2, done: 3, idle: 4 };
@@ -479,12 +479,7 @@ const STATE_ORDER = { failed: 0, waiting: 1, running: 2, done: 3, idle: 4 };
 // map all word their AI lines from it. AI steps that failed in the trace the Wall holds, the
 // newest Duty Officer run, the newest airport plan and the live budget.
 export function aiState(D, store) {
-  // a recovery step code ran and lost (no schedule, an exception) is a data failure, not an AI
-  // one: it keeps the red story line (storyFailures) and its own words
-  const errors = (store?.trace || []).filter((t) => t.level === "error" && AI_STAGES.has(t.stage) && !(t.stage === "RECOVERY" && t.actor === "system"))
-    .map((t) => ({ stage: t.stage, reason: t.message, at: ms(t.at), raw: `${hhmmssz(ms(t.at))} · ${t.stage} · ${t.message}`, src: t }));
-  const plans = ext.recovery.slice().sort((a, b) => ms(b.created_at) - ms(a.created_at));
-  return aiStateOf({ stub: D?.state?.llm?.backend === "stub", budget: ext.budget, errors, duty: store?.snapshot?.duty || null, plan: plans.find((p) => p.status !== "SUPERSEDED") || null, replay: D?.mode === "REPLAY" });
+  return aiStateOf({ stub: D?.state?.llm?.backend === "stub", budget: ext.budget, errors: aiErrorsOf(store?.trace), duty: store?.snapshot?.duty || null, plan: newestPlan(ext.recovery), replay: D?.mode === "REPLAY" });
 }
 
 // Flights to plan by hand (docs/UI-AI-QUIET.md D56), with the Wall's AI state.
@@ -545,7 +540,7 @@ function waitingBlock() {
   return el("div", { class: "dk-sub" },
     el("p", { class: "dk-sub__title", text: "AI work queued or waiting" }),
     dkFacts(work.map((w) => [w.lane === "urgent" ? "Urgent" : "Routine", `${w.label}: ${workWords(w)}`])),
-    el("p", { class: "dk-sub__note", text: "Waiting work is kept and runs on the same model when its slot comes; nothing is dropped or handed to another model." }));
+    el("p", { class: "dk-sub__note", text: "Waiting work is kept and runs on the same model when its slot comes. Nothing is dropped or handed to another model." }));
 }
 
 // The budget meters never use the picture's red (Q4): a low or closed model is a caution.
@@ -696,6 +691,7 @@ function aiPanel(D, store) {
     pills: [aiPill(ai), dkRecorded(D.mode === "REPLAY")],
     title: stub ? "Code does every step, and code templates write the text a model would." : "Helpers can widen TEPHRA's estimate but never shrink the official area.",
     chips: stub ? [dkChip("No model (offline stub)")] : ids.map(([k, id]) => dkChip(id, { label: k, mono: true })),
+    extra: el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "board-open", focus: "ai-board" }, "aria-keyshortcuts": "A" }, icon("i-agent"), "See the AI at work")),
   });
   // the calm lead (5.1): what state the AI is in, what still holds, where the hand work is
   const lead = el("div", { class: "dk-lead", role: "status" }, ...aiLead(ai).map((p) => el("p", {}, el("strong", { text: p.strong }), ` ${p.text}`)));
@@ -722,7 +718,7 @@ function aiPanel(D, store) {
   kids.push(el("div", { class: "dk-abouts" },
     dkAbout("Models and today's calls", "ai-budget", budgetBlock()),
     dkAbout("How this works", "ai-how",
-      "One coordinator agent, the Duty Officer, orders the day's AI work and hands it to the specialists through tools. Code builds the work list and holds the safety line; the Duty Officer decides the order and writes the brief.",
+      "One coordinator agent, the Duty Officer, orders the day's AI work and hands it to the specialists through tools. Code builds the work list and holds the safety line. The Duty Officer decides the order and writes the brief.",
       `Every AI step on the Wall is listed in How TEPHRA decided. Status here comes from the newest ${n} steps the Wall holds, the newest Duty Officer run, the newest airport plan and the budget's queue. When a step does not run it says why, and nothing is made up in its place.`)));
   return [dkSection("ai-head", kids)];
 }

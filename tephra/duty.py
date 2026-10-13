@@ -18,7 +18,6 @@ from tephra.agents.budget import BudgetView
 from tephra.agents.duty_officer import RecordedDuty, run_duty_officer
 from tephra.desk import audit
 from tephra.desk.approvals import SYSTEM_ACTOR
-from tephra.desk.failures import record_failure
 from tephra.models import (
     Advisory,
     AiFailure,
@@ -37,6 +36,7 @@ from tephra.regdocs.evidence import NoActiveVolcano, UnknownRegion
 from tephra.regdocs.narrative import AiUnavailable
 from tephra.regdocs.sra import draft_sra
 from tephra.store.base import Collection
+from tephra.util import timeutil
 from tephra.util.hashing import stable_id
 
 if TYPE_CHECKING:
@@ -111,6 +111,7 @@ async def dispatch_duty(
     runtime.duty_offered = {
         item_id: when for item_id, when in runtime.duty_offered.items() if at - when < 2 * rerun
     }
+    duty = duty.model_copy(update={"recorded_wall_at": timeutil.SystemClock().now()})
     await _hold_the_line(runtime, duty)
     runtime.duty = duty
     await runtime.store.put(Collection.DUTY, duty.id, duty.model_dump(mode="json"))
@@ -363,9 +364,7 @@ async def _hold_the_line(runtime: "Runtime", duty: DutyRun) -> None:
         if item.kind is DutyItemKind.PLAN:
             flight = runtime.exposed.get(item.subject)
             if flight is not None:
-                await record_failure(
-                    runtime.store, runtime.bus, _failure(runtime, flight, reason, duty)
-                )
+                await runtime.track_failure(_failure(runtime, flight, reason, duty))
         elif item.kind is DutyItemKind.ASSESS:
             runtime.trace(
                 TraceStage.DUTY,

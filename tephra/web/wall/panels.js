@@ -166,10 +166,10 @@ export function renderChrome(D, store, ui) {
   sel.value = cur || "all";
 
   // The AI chip (R3.1, docs/UI-AI-QUIET.md W1-W3): the AI's one state in words, never a count of
-  // failed steps and never red. It is the AI's home in the top bar: the model ids, budgets and
-  // causes are one tap in, in Details › AI helpers.
+  // failed steps and never red. It opens AI at work (UI-DESIGN 7.21), which leads with the same
+  // words and links to Details › AI helpers for the model ids, budgets and causes.
   const ai = aiStateNow(D, store);
-  const w = aiWords(ai, { narrow: window.innerWidth <= 420 });
+  const w = aiWords(ai, { home: "AI at work", opens: "AI at work", narrow: window.innerWidth <= 420 });
   const chip = $("ai-chip");
   setText($("model-chip"), w.label);
   const suffix = chip.querySelector(".ai-chip__fail");
@@ -438,7 +438,7 @@ function traceRun(run, ui, stub, ai) {
 }
 // Which step it was and who did it: "Flight check · done by code", "Planner · AI off".
 const STAGE_WORD = {
-  DUTY: "Duty Officer", PLUME: "Plume Reader", SATELLITE: "Satellite reader", PLANNER: "Planner", DRAFTER: "Drafter", RECOVERY: "Recovery planner",
+  DUTY: "Duty Officer", PLUME: "Plume Reader", SATELLITE: "Satellite reader", PLANNER: "Flight planner", DRAFTER: "Drafter", RECOVERY: "Recovery planner",
   EXPOSURE: "Flight check", CONE: "TEPHRA's estimate", DISCREPANCY: "Disagreement check", DOCS: "Paperwork", MESSAGES: "Messages", NOTICE: "Notices", ASK: "Ask",
   DESK: "Desk", POLL: "Data feeds",
 };
@@ -1171,51 +1171,6 @@ export function feedsSection(D, store, target = $("feeds")) {
     look.length || dbBad ? dkGroup("Needs a look", null, dkList([dbBad ? dbRow : null, ...look.map(rowOf)], { first: 6, key: "feeds-look" })) : null,
     dkGroup("Working", null, dkList([...working.map(rowOf), db?.ok ? dbRow : null], { first: 8, key: "feeds-ok" })),
     off.length ? dkGroup(`Off or not read · ${off.length}`, null, dkList(off.map(rowOf), { first: 0, key: "feeds-off", more: `Show ${off.length} feeds that are off` })) : null));
-}
-
-// The operator policy (GET /api/policy), summary first (R9.3): what it does in one sentence, then
-// every margin, buffer and minimum the code applies, with its unit and why it has that value.
-const POLICY_BLOCKS = [["exposure", "Exposure"], ["alternates", "Alternates"], ["planner", "Planner"], ["reroute", "Reroutes"], ["recovery", "Airport plan"], ["fuel", "Fuel"], ["drafts", "Drafts"], ["duty", "Duty Officer"]];
-const isValue = (v) => v && typeof v === "object" && "value" in v && "unit" in v;
-
-export function policyDialog(data) {
-  const p = data?.policy;
-  if (!p) return el("p", { text: "The operator policy could not be loaded." });
-  const cites = Object.fromEntries((p.citations || []).map((c) => [c.id, c]));
-  const margin = p.exposure?.vertical_margin_ft;
-  const tbody = [];
-  let n = 0;
-  for (const [key, title] of POLICY_BLOCKS) {
-    const rows = Object.entries(p[key] || {}).filter(([, v]) => isValue(v));
-    if (!rows.length) continue;
-    tbody.push(el("tbody", {}, el("tr", {}, el("th", { scope: "colgroup", colspan: "3", class: "policy__block", text: title })),
-      ...rows.map(([name, v]) => {
-        n++;
-        const refs = (v.citation_ids || []).map((id) => cites[id]?.ref).filter(Boolean);
-        return el("tr", {},
-          el("th", { scope: "row", class: "mono", text: `${key}.${name}` }),
-          el("td", { class: "mono", text: `${v.value} ${v.unit}` }),
-          el("td", { text: [v.source, ...refs].join(" · ") }));
-      })));
-  }
-  const quotes = (p.citations || []).map((c) => {
-    const url = safeExternalUrl(c.url);
-    return el("li", {}, el("strong", { text: c.ref }), el("q", { text: c.text }),
-      url ? el("a", { class: "link-btn", href: url, target: "_blank", rel: "noopener noreferrer" }, icon("i-external-link"), "Source") : null);
-  });
-  return el("div", { class: "policy" },
-    el("p", { class: "policy__lede" }, el("strong", { text: `Policy ${p.preset} (illustrative): ` }),
-      `avoid every official ash area${isValue(margin) ? `, with ${Number(margin.value).toLocaleString("en")} ${margin.unit} above and below` : ""}. Not reviewed by an airline.`),
-    el("p", { class: "muted", text: `${p.title} · v${p.version} · ${p.label} · risk owner: ${p.risk_owner} · SRA: ${p.sra_ref || "none (illustrative)"} · content hash #${String(data.policy_hash || "").slice(0, 12)}` }),
-    el("details", { class: "more" }, el("summary", { text: "What the policy says in full" }), el("p", { text: p.summary_text })),
-    el("details", { class: "more" }, el("summary", { text: `Show all ${n} values` }),
-      el("table", { class: "table" }, el("caption", { class: "sr-only", text: "Operator policy values" }),
-        el("thead", {}, el("tr", {}, ...["Name", "Value", "Why this value"].map((h) => el("th", { scope: "col", text: h })))), ...tbody)),
-    el("details", { class: "more" }, el("summary", { text: "Source-trust order (what the code does today)" }),
-      el("p", { class: "muted", text: "Operator choice. Doc 9974 asks the operator to resolve conflicts among its sources (2.4(d))." }),
-      el("ol", { class: "policy__order" }, ...(p.source_order || []).map((r) => el("li", {}, el("span", { text: r.text }),
-        el("span", { class: "muted", text: ` Applied by: ${r.enforced_by}` }))))),
-    el("details", { class: "more" }, el("summary", { text: `Citations (${quotes.length})` }), el("ul", { class: "policy__cites" }, ...quotes)));
 }
 
 export function sourcesDialog(D, focusKind) {

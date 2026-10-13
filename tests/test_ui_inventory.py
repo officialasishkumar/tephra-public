@@ -77,6 +77,11 @@ WALL_IDS = [
     "cta-sticky",
     "story-strip",
     "time-pill",
+    # AI at work (UI-DESIGN 7.21)
+    "board",
+    "board-title",
+    "board-status",
+    "board-body",
 ]
 WALL_CLASSES = ["desk-link", "brand", "brand__sub", "honesty__airline", "map-vignette", "map-scrim"]
 DESK_IDS = [
@@ -121,6 +126,11 @@ DESK_IDS = [
     "docs-title",
     "ask-title",
     "why",
+    # Desk redesign (UI-DESIGN 10.16): the flights to plan by hand, the idle right pane
+    "fail-pane",
+    "fp-title",
+    "idle-pane",
+    "idle-title",
 ]
 DESK_TABS = ["queue", "ask", "network", "docs"]
 # R8.3: every Details section key
@@ -171,6 +181,8 @@ BUILDERS = {
     "level filter": "export function renderLevels",
     "timeline lanes": "When each source last reported",
     "sources side by side dialog": "export function sourcesDialog",
+    "AI at work board": "export function boardModel",
+    "AI at work hand-out lines": "export function drawEdges",
 }
 HONESTY = [
     "Decision support only - fictional airline - not for operational use",

@@ -110,7 +110,7 @@ function docRow(d) {
 }
 
 function handoverBody() {
-  const out = [el('p', { class: 'fine', text: 'WEST and I-PASS. Code gathers the facts; an AI writes the situation and the if/then lines; the receiver reads it back.' })];
+  const out = [el('p', { class: 'fine', text: 'WEST and I-PASS. Code gathers the facts, an AI writes the situation and the if/then lines, and the receiver reads it back.' })];
   const incoming = el('input', { id: 'ho-in', class: 'field', type: 'text', maxlength: '64', minlength: '2', autocomplete: 'off', placeholder: 'Name of the incoming dispatcher', 'aria-describedby': 'ho-msg' });
   incoming.value = sessionStorageGet('ho-incoming');
   incoming.addEventListener('input', () => sessionStorageSet('ho-incoming', incoming.value));
@@ -234,7 +234,7 @@ export function renderDocs() {
 
   // VAR: one row per exposed flight.
   const flights = flightsForVar();
-  const varKids = [el('p', { class: 'fine', text: 'Per exposed flight. Items 1 to 5 from ADS-B and the hazard; the pilot completes the rest. No model writes any of it.' })];
+  const varKids = [el('p', { class: 'fine', text: 'Per exposed flight. Items 1 to 5 come from ADS-B and the hazard. The pilot completes the rest. No model writes any of it.' })];
   if (draftError && draftError.kind === 'VAR') varKids.push(draftErrorNode());
   varKids.push(flights.length ? el('ul', { class: 'dflights' }, flights.map((a) => el('li', { class: 'dflight' },
     el('span', { class: 'dflight__name' }, el('span', { class: 'mono', text: a.proxy_flight }), el('span', { class: 'dflight__sub', text: `${a.volcano_name} · ${actionShort(a)}` })),

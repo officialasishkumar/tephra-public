@@ -297,6 +297,16 @@ on the next successful write; `last_error` is the newest error (cut to 300 chara
 `SystemState.draft_count` is None when the open drafts could not be read (never an older
 count). The database is not a `FeedId`: `due_feeds` and the pollers iterate `FeedId`.
 
+AI failures and replay runs (13 Oct 2026). A REPLAY plays its recording again from the start on
+every run (a process start, a switch to REPLAY, a loop), so records stamped on the replay clock
+cannot tell one run from the next. `AiFailure.recorded_wall_at` and `DutyRun.recorded_wall_at`
+are the wall-clock time the record was stored (`created_at` and `started_at` follow the REPLAY
+clock); None only on records stored before the field. `AiFailure.closed_at` and `closed_reason`
+are set by code when a failure no longer stands (section 5.7, `desk.failures`); a dispatcher's
+decision is `handled_by`, `handled_at` and `handled_note`, which code never fills.
+`AiFailure.open` (a property, not stored) is true while neither is set. `AuditAction.AI_FAILURE_CLOSED`
+records code's closing, always under the system actor, with the reason as the note.
+
 ### 4.5 `tephra.config`
 
 `Settings` (every env var; see the class), `get_settings()`, `apply_process_env(settings)`,
@@ -1884,6 +1894,28 @@ Core rules:
 - Crew reports are durable (`crew_reports`, written on entry, withdrawal and expiry) and are
   restored in both modes by `restore_crew_reports` before anything else; the fix history is
   memory only and starts empty after a restart or a mode switch (section 5.19).
+- AI failures (`desk.failures`). A flight has at most one open failure on the Desk.
+  `Runtime.track_failure(failure)` records one (the planner's and the drafter's through
+  `_record_failure`, the Duty Officer's undone flights through `tephra.duty`) and keeps it in
+  `Runtime.open_failures` (flight id -> failure); a newer failure for the same flight closes the
+  older one. Code closes a flight's open failure, audited as `AI_FAILURE_CLOSED` under the system
+  actor, when it no longer stands: `NEWER_FAILURE`; `DRAFT_WAITING` when a draft for the flight is
+  stored; and, with the draft retirement rules and grace times (`_retire_gone`), `NO LONGER
+  EXPOSED IF TRACK AND LEVEL ARE HELD`, `VOLCANO NO LONGER ACTIVE` or `POSITION LOST FOR N MIN`.
+  `record_failure(store, bus, failure, *, run_since=None)` stamps `recorded_wall_at` and returns
+  None while the same flight, cone and stage already stands (open or handled, in this run); one
+  closed by code, or recorded in an earlier replay run, is replaced (an open one of an earlier
+  run is closed first with `REPLAY_RUN_ENDED`). `close_failure(store, bus, failure_id, *, reason)`
+  closes one only while it is still open (one transaction; None otherwise), and
+  `mark_handled` returns a failure code already closed unchanged, with nobody recorded as
+  handling it. `list_failures(store, *, open_only, replay, run_since, limit)` reads the newest
+  `LIST_WINDOW` (200) records by `recorded_wall_at` (records without it sort last; Firestore
+  leaves them out) and keeps, with `run_since`, only the replay run that started then.
+  `Runtime.replay_run_since` is that wall-clock start (None when live). Once per picture (a
+  start, a mode switch, a loop) the first `settle_drafts` follows the failures back from the
+  store (`_follow_failures`): an earlier replay run's open failures close with
+  `REPLAY_RUN_ENDED`, this mode's are followed, one per flight. A picture reset also clears
+  `Runtime.duty`, so the Wall shows no Duty Officer run of an earlier picture.
 - Restart. A LIVE runtime restores from the store the feed health (except feeds the settings
   switch off and states saved during a replay), the SIGMETs still valid, the VONAs within
   `vona_window_h`, the VAAs of the last 30 h, and the bookkeeping (planned marks, the latest
@@ -2062,8 +2094,15 @@ status. Top bar: LIVE/REPLAY badge (`state.mode`, `state.replay.banner` as a per
 banner), LLM label (`state.llm.label`, "AI-drafted" marking), feed health ages, and the
 `state.disclaimer` line, with a short "Policy A · illustrative" button (`state.policy`; on
 phones it is hidden and the About dialog carries it, so the credit line keeps its room) that
-opens `GET /api/policy` as a table of every value, its unit and its reason. Readable at
-1280x720, keyboard accessible (focusable controls,
+opens `GET /api/policy` as the Operator policy dialog (`wall/policy.js`: a one-line summary
+and the key values, then every value under a name a person reads, with its unit, its reason
+and its sources, and the policy's metadata; docs/UI-DESIGN.md 7.18). "AI at work"
+(`wall/board.js`, `wall/board-view.js`; docs/UI-DESIGN.md 7.21) draws the Duty Officer, its
+helpers and the Desk from `/api/wall`, `/api/budget`, `/api/recovery`, `/api/docs` and the
+stream, and opens from the AI chip, the A key or `/#ai-at-work`. The AI's one state in words
+(`aiStateOf()` in `wall/x-parts.js`, shared with the Desk and the board; docs/UI-AI-QUIET.md)
+comes from `state.llm`, `/api/budget`, the trace, the newest Duty Officer run and airport plan.
+Readable at 1280x720, keyboard accessible (focusable controls,
 visible focus, no hover-only information). Attribution: OpenFreeMap/OpenStreetMap,
 "Aircraft: adsb.lol (ODbL 1.0)", "Himawari-9 data: JMA via NOAA".
 
@@ -2075,6 +2114,9 @@ hashes, cone mode and confidence, the operator policy the draft was made under (
 `policy_version`); Approve / Edit (textarea, 400-char counter) / Reject
 (reason required). Send `version`; on 409 show the current version and let the dispatcher
 re-decide. Refresh on `advisory` SSE events. Works at 375 px width, tap targets >= 44 px.
+Flights to handle by hand (`desk/failures.js`) come from `GET /api/desk/ai-failures` and the
+`ai_failure` event (a record with `handled_at` or `closed_at` leaves the list); the header's AI
+status (`desk/budget.js`) from `/api/state` and `/api/budget` (docs/UI-DESIGN.md 10.16).
 
 Crew reports of ash (section 5.19; the screens are docs/UI-DESIGN.md 5.7, 7.20 and 10.15): the
 Wall draws `WallSnapshot.crew` (replaced whole by the `crew` event) beneath the official areas,
@@ -2489,7 +2531,11 @@ delegations stand. Then `_hold_the_line`: each undone mandatory PLAN item become
 DID NOT DISPATCH THIS FLIGHT`) on the Desk; an undone mandatory ASSESS item writes an error trace
 line and an `AI_FAILED` audit entry (the area stays at the official products). The run is stored
 in `duty`, kept as `Runtime.duty` (restored on restart), published as SSE `duty`, and counted in
-the AI worker's `TickReport.duty_runs`. Trace lines use stage `DUTY`. With `TEPHRA_LLM=stub` the run dispatches
+the AI worker's `TickReport.duty_runs`. Each run is stamped `recorded_wall_at` before it is stored, and
+`_hold_the_line` records undone flights through `Runtime.track_failure` (section 5.7), so a
+flight's failure of an earlier run or cone is closed, not listed twice. `GET /api/duty` reads the
+newest 200 runs by `recorded_wall_at` and lists those of the current mode and, in REPLAY, of the
+replay run playing (`Runtime.replay_run_since`). Trace lines use stage `DUTY`. With `TEPHRA_LLM=stub` the run dispatches
 everything, plume reads first, most urgent first, and briefs `NO MODEL: ...` (outcome `STUB`).
 
 ### 5.19 crew (crew reports of ash)
@@ -2665,7 +2711,7 @@ metrics.
 | `assessments` | assessment id | `PlumeAssessment` | core (each Plume Reader run) |
 | `cones` | volcano_id | latest `HazardCone` | core (on change) |
 | `plans` | plan id | `PlannedAction` | core |
-| `ai_failures` | failure id | `AiFailure` (a flight with no plan or draft; handled by hand) | core (`desk.failures`) |
+| `ai_failures` | failure id | `AiFailure` (a flight with no plan or draft; handled by hand, or closed by code once it no longer stands) | core (`desk.failures`, through `Runtime.track_failure`) |
 | `duty` | run id | `DutyRun` | duty (`tephra.duty.dispatch_duty`, run by the AI worker) |
 | `crew_reports` | `CR-<12 hex>` | `CrewReport` (both modes; withdrawn and expired ones kept) | crew (`tephra.desk.crew_reports`, through `Runtime.enter_crew_report`, `withdraw_crew_report`, `update_crew`) |
 | `reroutes` | `RerouteOption` id | `RerouteOption` (every option of a planned flight) | core |
@@ -2755,7 +2801,7 @@ The headers above are unchanged by compression.
 | `GET /api/replays` | `ReplayCaseList` = `{cases: [ReplayCaseSummary]}`: each recorded case without its records (`case_id`, `label`, `recorded_from`, `recorded_to`, `region`, `volcano_ids`, `notes`, `record_count`, `banner`). Built once per app in the lifespan (`ReplayCatalogue` on `app.state.replays`: summaries, serialised bytes, strong `ETag` = quoted sha256 of the bytes); a manifest that cannot be read fails startup. Served with `Cache-Control: no-cache` and the `ETag`; a matching `If-None-Match` answers 304 with no body |
 | `GET /api/routes/{origin_icao}/{dest_icao}` | FeatureCollection (`RouteFeatureProps`, `routes.route_features`): the great circle between two airports and a Point at each end, for the route of a flight picked on the Wall that is not in `WallSnapshot.routes` (the line's id is the pair in alphabetical order, whichever order is asked). Which airports a flight flies between comes only from `AircraftFeatureProps`; this answer depends only on the two positions, so it is sent with `Cache-Control: public, max-age=86400`. 404 `not_found` for a code that is not 4 capitals or digits, the same airport twice, or an airport with no known position |
 | `GET /api/blobs/{key}` | PNG bytes; `key` must match `BLOB_KEY_PATTERN` (else 404); `Cache-Control: public, max-age=86400, immutable` |
-| `GET /api/duty?limit=10` | `DutyRunList` `{runs: [DutyRun]}`, current mode, newest first (`limit` 1 to 20) |
+| `GET /api/duty?limit=10` | `DutyRunList` `{runs: [DutyRun]}`, current mode (in REPLAY, the replay run playing), newest first (`limit` 1 to 20) |
 | `GET /api/budget` | `BudgetView` `{backend, as_of, quota_day, resets_at, models: [{model_id, jobs, used, limit, free_limit, remaining, closed, lanes: [{lane, words, used, share}], routine_allowed_now, next_routine_slot, pacing}], tiers: [{tier, model_id, used, limit, remaining}], waiting: [AiWork], note}` |
 | `GET /api/notices?limit=` | `{notices: [NoticeReading]}`, current mode, newest first; includes the JMA volcano reports of the live picture (`JMA-` VONA records) as `source_kind "jma_xml"`, language `ja`, verified, no model |
 | `GET /api/recovery?limit=` | `{plans: [RecoveryPlan]}`, current mode, newest first |
@@ -2864,8 +2910,8 @@ never pauses. The Desk keeps its stream open while hidden: its tab title counts 
 | `POST /api/desk/advisories/{id}/approve` | `DecisionRequest` `{version, reason?}` | `Advisory` (APPROVED); 409 `version_conflict`/`invalid_transition`; 404; 422 `reason_required` |
 | `POST /api/desk/advisories/{id}/edit` | `EditRequest` `{version, body, reason?}` | `Advisory` (EDITED); 422 `validation_failed` (empty, or over 400 characters once stripped and upper-cased); 422 `reason_required` |
 | `POST /api/desk/advisories/{id}/reject` | `RejectRequest` `{version, reason (3-500 chars)}` | `Advisory` (REJECTED); 422 when the reason is too short |
-| `GET /api/desk/ai-failures?open_only=true&limit=50` | none | `AiFailureList`: flights the AI could not plan or draft for, in the current mode |
-| `POST /api/desk/ai-failures/{id}/handled` | `HandledRequest` `{note}` | `AiFailure` with `handled_by`, `handled_at`; marking twice keeps the first; 404 |
+| `GET /api/desk/ai-failures?open_only=true&limit=50` | none | `AiFailureList`: flights the AI could not plan or draft for, in the current mode (in REPLAY, the replay run playing), newest recorded first; open means neither handled nor closed by code |
+| `POST /api/desk/ai-failures/{id}/handled` | `HandledRequest` `{note}` | `AiFailure` with `handled_by`, `handled_at`; marking twice keeps the first, and a failure code closed meanwhile is returned unchanged (no `handled_by`); 404. The Desk's "Mark several handled" sends one request per ticked flight, so each is its own audit entry |
 | `POST /api/mode` | `ModeRequest` `{mode, case_id?}` | `SystemState` after the switch. REPLAY plays `case_id` (404 `not_found` when there is no such case), else the case playing, else the newest recorded case (409 `invalid_transition` when none exists). Writes a `MODE_SWITCH` audit entry with the dispatcher as actor, beside the runtime's own entry for a switch that happens. |
 
 The CSRF guard (`auth.require_csrf`, 403 `forbidden`) refuses a cross-site `Sec-Fetch-Site`

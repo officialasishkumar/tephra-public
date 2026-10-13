@@ -636,11 +636,13 @@ async def reject_advisory(
 async def desk_ai_failures(
     session: DeskSession, runtime: RuntimeDep, open_only: bool = True, limit: Limit = 50
 ) -> Response:
-    """Flights the AI could not plan or draft for, in the current mode."""
+    """Flights the AI could not plan or draft for, in the current mode (in REPLAY, the run
+    playing)."""
     listed = await failures.list_failures(
         runtime.store,
         open_only=open_only,
         replay=runtime.mode is RunMode.REPLAY,
+        run_since=runtime.replay_run_since,
         limit=limit,
     )
     return _json(AiFailureList(failures=listed))

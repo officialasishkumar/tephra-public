@@ -33,12 +33,15 @@
         <div id="account-menu" class="menu" hidden></div>
       </div>
     </div>
-    <p id="replay-bar" class="replay-bar" hidden>
-      <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-replay"></use></svg>
-      <span id="replay-text"></span>
-      <span id="replay-auto" class="replay-bar__auto" hidden>auto</span>
-    </p>
-    <p id="disclaimer" class="disclaimer">Decision support only - fictional airline - not for operational use</p>
+    <!-- The REPLAY label and the disclaimer share one band; both always show (UI-DESIGN 10.16). -->
+    <div class="honesty">
+      <p id="replay-bar" class="replay-bar" hidden>
+        <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-replay"></use></svg>
+        <span id="replay-text"></span>
+        <span id="replay-auto" class="replay-bar__auto" hidden>auto</span>
+      </p>
+      <p id="disclaimer" class="disclaimer">Decision support only - fictional airline - not for operational use</p>
+    </div>
     <div id="net-banner" class="netbanner" role="status" hidden></div>
   </header>
 
@@ -138,12 +141,11 @@
       </section>
 
       <section id="sheet" class="sheet" aria-labelledby="s-title" hidden></section>
-      <!-- At 1100 px and up, shown in the review pane while nothing is selected (CSS only). -->
-      <div class="sheet-idle" aria-hidden="true">
-        <svg class="icon sheet-idle__icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-list"></use></svg>
-        <p class="sheet-idle__title">Choose an advisory to review</p>
-        <p class="sheet-idle__note">Most urgent first: the top card is selected when drafts arrive.</p>
-      </div>
+      <!-- The flights to plan by hand (desk/failures.js): the right pane at 1100 px and up, a
+           full-screen view on a phone. -->
+      <section id="fail-pane" class="fpane" aria-labelledby="fp-title" hidden></section>
+      <!-- At 1100 px and up, the right pane while nothing is open in it (desk/idle.js). -->
+      <section id="idle-pane" class="idle" aria-labelledby="idle-title"></section>
     </div>
 
     <section id="panel-ask" class="panel-tab" aria-label="Ask TEPHRA" hidden></section>

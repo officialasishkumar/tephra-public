@@ -23,8 +23,14 @@ import pytest
 from tephra import pipeline as pipeline_module
 from tephra.agents.llm import get_llm
 from tephra.config import PROJECT_ROOT, Settings
-from tephra.desk.approvals import list_advisories
-from tephra.desk.failures import list_failures
+from tephra.desk import audit
+from tephra.desk.approvals import SYSTEM_ACTOR, list_advisories
+from tephra.desk.failures import (
+    DRAFT_WAITING,
+    NEWER_FAILURE,
+    REPLAY_RUN_ENDED,
+    list_failures,
+)
 from tephra.feeds import registry
 from tephra.feeds.adsb import MAX_CACHED_COPY_AGE_S
 from tephra.feeds.airports import load_airports
@@ -38,7 +44,10 @@ from tephra.models import (
     ActionKind,
     AdsbQueryPoint,
     AdvisoryStatus,
+    AiFailure,
+    AuditAction,
     DiscrepancyKind,
+    DutyRun,
     FeedHealth,
     FeedId,
     FeedStatus,
@@ -471,6 +480,163 @@ async def test_a_flight_the_planner_cannot_plan_goes_to_the_desk_without_a_draft
     assert failures[0].reason == "PLANNER AGENT ERROR: RuntimeError"
     messages = [e["message"] for e in trace_events(runtime) if e["level"] == "error"]
     assert any("AI UNAVAILABLE" in message for message in messages)
+
+
+def failing_planner(monkeypatch: pytest.MonkeyPatch) -> None:
+    real_plan_flight = pipeline_module.plan_flight
+
+    async def failing_plan_flight(*args: Any, **kwargs: Any) -> Any:
+        plan = await real_plan_flight(*args, **kwargs)
+        return plan.model_copy(
+            update={
+                "decision": None,
+                "fuel": None,
+                "outcome": "MODEL_FAILED",
+                "validation_errors": ["PLANNER AGENT ERROR: RuntimeError"],
+            }
+        )
+
+    monkeypatch.setattr(pipeline_module, "plan_flight", failing_plan_flight)
+
+
+async def closings(runtime: Runtime) -> list[tuple[str, str | None]]:
+    """(actor, reason) of every AI_FAILURE_CLOSED audit entry, oldest first."""
+    entries = await audit.list_entries(runtime.store, limit=100)
+    closed = [e for e in entries if e.action is AuditAction.AI_FAILURE_CLOSED]
+    return [(e.actor, e.note) for e in reversed(closed)]
+
+
+async def test_a_draft_for_the_flight_closes_its_ai_failure(
+    runtime: Runtime, source: FixtureSource, clock: FixedClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The flight now has advice for a dispatcher: its failure no longer stands, and code (not
+    a person) closes it."""
+    with monkeypatch.context() as patched:
+        failing_planner(patched)
+        await tick_and_work(runtime, reason="manual")
+    [failure] = await list_failures(runtime.store)
+    assert {fid: item.id for fid, item in runtime.open_failures.items()} == {
+        failure.flight_id: failure.id
+    }
+
+    inside = {**AIRCRAFT[0], "lat": -8.10, "lon": 113.20}  # now inside Semeru's area
+    source.aircraft = [inside, *AIRCRAFT[1:]]
+    clock.advance(timedelta(seconds=60))
+    report = await tick_and_work(runtime, reason="manual")
+
+    assert report.drafts_created == 1
+    assert await list_failures(runtime.store) == []
+    [closed] = await list_failures(runtime.store, open_only=False)
+    assert (closed.closed_reason, closed.handled_by) == (DRAFT_WAITING, None)
+    assert runtime.open_failures == {}
+    assert await closings(runtime) == [(SYSTEM_ACTOR, DRAFT_WAITING)]
+
+
+async def test_a_failed_flight_lost_from_the_picture_closes_after_the_grace_time(
+    runtime: Runtime, source: FixtureSource, clock: FixedClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The draft retirement rules, applied to a failure: a lost position is POSITION LOST,
+    never "no longer exposed"."""
+    failing_planner(monkeypatch)
+    await tick_and_work(runtime, reason="manual")
+    source.aircraft = []
+    clock.advance(timedelta(seconds=60))
+    await tick_and_work(runtime, reason="manual")
+    assert len(await list_failures(runtime.store)) == 1, "kept while the grace time lasts"
+
+    lost_min = runtime.policy.drafts.position_lost_retire_min.value
+    clock.advance(timedelta(minutes=lost_min))
+    await tick_and_work(runtime, reason="manual")
+
+    assert await list_failures(runtime.store) == []
+    assert await closings(runtime) == [(SYSTEM_ACTOR, f"POSITION LOST FOR {lost_min} MIN")]
+
+
+async def test_a_newer_failure_closes_the_flights_older_one(runtime: Runtime) -> None:
+    """One open failure per flight, however many cones and stages failed for it."""
+    first = make_failure("AIF-000000000001", cone_id="CONE-000000000001")
+    second = make_failure("AIF-000000000002", cone_id="CONE-000000000002")
+    assert await runtime.track_failure(first) is not None
+    assert await runtime.track_failure(first) is None, "the same failure is stored once"
+    assert await runtime.track_failure(second) is not None
+
+    assert [f.id for f in await list_failures(runtime.store)] == [second.id]
+    assert runtime.open_failures[second.flight_id].id == second.id
+    assert await closings(runtime) == [(SYSTEM_ACTOR, NEWER_FAILURE)]
+
+
+async def test_a_new_replay_run_closes_the_failures_an_earlier_run_left(
+    tmp_path: Path, source: FixtureSource, clock: FixedClock
+) -> None:
+    """Each replay run plays the recording from its start: failures recorded in an earlier
+    run (or before the field existed) close, and the run's own are followed."""
+    replay = make_runtime(make_settings(tmp_path), source, mode=RunMode.REPLAY)
+    try:
+        since = replay.replay_run_since
+        assert since is not None
+        earlier = make_failure("AIF-000000000001", replay=True, recorded_wall_at=None)
+        mine = make_failure(
+            "AIF-000000000002", replay=True, flight_id="8a0999:263300", recorded_wall_at=since
+        )
+        for item in (earlier, mine):
+            await replay.store.put(Collection.AI_FAILURES, item.id, item.model_dump(mode="json"))
+
+        await replay.settle_drafts(
+            AT, TickReport(started_at=AT, finished_at=AT, mode=RunMode.REPLAY, reason="manual")
+        )
+
+        listed = await list_failures(replay.store, open_only=False)
+        assert {f.id: f.closed_reason for f in listed} == {
+            earlier.id: REPLAY_RUN_ENDED,
+            mine.id: None,
+        }
+        assert list(replay.open_failures) == [mine.flight_id]
+
+        replay.duty = DutyRun(
+            id="DUTY-000000000001",
+            started_at=AT,
+            finished_at=AT,
+            replay=True,
+            trigger="tick",
+            worklist=[],
+            outcome="STUB",
+            llm_backend="stub",
+            model_id="stub",
+            prompt_hash="0" * 64,
+        )
+        replay.follow_replay_clock(
+            AT, TickReport(started_at=AT, finished_at=AT, mode=RunMode.REPLAY, reason="manual")
+        )
+        replay.follow_replay_clock(
+            AT - timedelta(hours=1),
+            TickReport(started_at=AT, finished_at=AT, mode=RunMode.REPLAY, reason="manual"),
+        )
+        assert replay.duty is None, "a loop starts a fresh picture: no Duty Officer run yet"
+        assert replay.open_failures == {}
+        assert replay.replay_run_since is not None
+        assert replay.replay_run_since >= since
+    finally:
+        await replay.aclose()
+
+
+def make_failure(failure_id: str, **changes: Any) -> AiFailure:
+    base = AiFailure(
+        id=failure_id,
+        created_at=AT,
+        replay=False,
+        stage="planner",
+        reason="PLANNER AGENT ERROR: RuntimeError",
+        model_id="stub",
+        volcano_id=SEMERU,
+        volcano_name="Semeru",
+        flight_id=f"{GIA417}:{SEMERU}",
+        proxy_flight="RFA0001",
+        hex=GIA417,
+        cone_id="CONE-000000000001",
+        minutes_to_entry=4,
+        inside_now=False,
+    )
+    return base.model_copy(update=changes)
 
 
 async def test_a_second_tick_does_not_draft_again(runtime: Runtime, clock: FixedClock) -> None:

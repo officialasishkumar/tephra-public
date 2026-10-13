@@ -104,6 +104,7 @@ class FakeRuntime:
     closed: bool = False
     policy: OperatorPolicy = field(default_factory=lambda: POLICY)
     policy_summary: PolicySummary = field(default_factory=lambda: PolicySummary.of(POLICY))
+    replay_run_since: datetime | None = None
 
     async def tick(self, *, reason: str = "scheduler") -> TickReport:
         if self.fail_tick:
@@ -234,6 +235,7 @@ def make_duty_runs() -> list[DutyRun]:
                 llm_backend="stub",
                 model_id="stub",
                 prompt_hash="0" * 64,
+                recorded_wall_at=started,
             )
         )
     return runs
@@ -907,6 +909,22 @@ def test_duty_lists_the_live_desks_runs_newest_first(client: TestClient) -> None
     assert [run["id"] for run in runs] == ["DUTY-000000000001", "DUTY-000000000000"]
     assert client.get("/api/duty?limit=1").json()["runs"][0]["id"] == "DUTY-000000000001"
     assert client.get("/api/duty?limit=0").status_code == 422
+
+
+def test_duty_lists_only_the_replay_run_playing(client: TestClient, harness: Harness) -> None:
+    """Each replay run plays the recording again from its start: a run stored by an earlier
+    one would sit ahead of the replay clock, so only this run's are listed."""
+    runtime = harness.runtime
+    runtime.mode = RunMode.REPLAY
+    runtime.replay_run_since = timeutil.now() - timedelta(seconds=90)
+    earlier = make_duty_runs()[2].model_copy(
+        update={"id": "DUTY-00000000000e", "recorded_wall_at": timeutil.now() - timedelta(hours=3)}
+    )
+    client.portal.call(
+        runtime.store.put, Collection.DUTY, earlier.id, earlier.model_dump(mode="json")
+    )
+    runs = client.get("/api/duty").json()["runs"]
+    assert [run["id"] for run in runs] == ["DUTY-000000000002"]
 
 
 @pytest.mark.parametrize("advisory_id", ["adv_ffffffffffff", "not-an-id"])

@@ -145,7 +145,7 @@ export function readingView(n) {
   });
   if (n.fields.length) {
     out.push(el('h3', { class: 'ssub', text: `Extracted fields (${n.fields.length})` }),
-      el('p', { class: 'fine', text: 'Tap a field to see its words in the notice. Values are what the model read; the quote proves it.' }), fieldList);
+      el('p', { class: 'fine', text: 'Tap a field to see its words in the notice. Values are what the model read, and the quote proves it.' }), fieldList);
   } else if (n.status !== 'ai_unavailable') {
     out.push(el('p', { class: 'note', text: 'No field passed the checks.' }));
   }
@@ -178,7 +178,7 @@ export function openPaste() {
     title: 'Paste a notice',
     wide: true,
     body: el('div', { class: 'stack' },
-      el('p', { class: 'note', text: `${SAMPLE_HINT} An AI reads it; code checks every field against the words it quoted. A notice that fails the check is not used.` }),
+      el('p', { class: 'note', text: `${SAMPLE_HINT} An AI reads it, then code checks every field against the words it quoted. A notice that fails the check is not used.` }),
       el('label', { class: 'flabel', for: 'notice-text', text: 'Notice text' }), area, count, msg, result),
     footer: go,
   });

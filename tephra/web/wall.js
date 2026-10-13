@@ -7,12 +7,15 @@ import { $, el, ms, prefs, reducedMotion, inlineSprite, icon } from "./wall/util
 import { derive, actionWords, deciderName, LEVEL_MAX, levelFromFrac, regionOfVent, sortSituations } from "./wall/derive.js";
 import { WallMap, readTokens, SAT } from "./wall/map.js";
 import {
-  renderChrome, renderClock, mapPills, renderTimeline, sourcesDialog, policyDialog, timelineTarget, setAiState,
+  renderChrome, renderClock, mapPills, renderTimeline, sourcesDialog, timelineTarget, setAiState, FEED_NAME,
 } from "./wall/panels.js";
+import { policyDialog } from "./wall/policy.js";
 import { helpContent, aboutContent } from "./wall/controls.js";
 import { ext, loadExt, ingest, noteTrace, satScale, aiState } from "./wall/ext.js";
 import { renderStory, coverageNote } from "./wall/story.js";
 import { renderDetails, sectionOf, PANELS } from "./wall/details.js";
+import { boardModel } from "./wall/board.js";
+import { renderBoard, watchEdges } from "./wall/board-view.js";
 
 const STREAM_TIMEOUT_MS = 45e3;
 // A Wall hidden this long gives its stream (a Cloud Run request slot) back until it is shown.
@@ -67,6 +70,7 @@ const ui = {
   present: PRESENT,
   selFlight: null, // { hex, proxy } of the aircraft picked on the map or in the flights list
   tlCurrent: null, // title of the timeline event last chosen (R7)
+  board: { open: false, card: null, opener: null }, // AI at work: open, the card opened in it, who opened it
 };
 const conn = { lostAt: null, source: null, watchdog: null, lastEventAt: 0, loaded: false, everLost: false, hiddenTimer: null, paused: false, lastTick: null };
 const extra = { error: null, basemap: null, mapError: null };
@@ -191,7 +195,7 @@ function openStream() {
   });
   on("heartbeat", (h) => { if (h.now) setClock(h.now); });
   for (const name of ["volcanoes", "official", "cones", "exposures", "aircraft", "reroutes", "routes"]) on(name, (fc) => { if (store.snapshot) store.snapshot[name] = fc; });
-  for (const name of ["notice", "recovery", "budget"]) on(name, (d) => ingest(name, d));
+  for (const name of ["notice", "recovery", "budget", "doc"]) on(name, (d) => ingest(name, d));
   on("satellite", (r) => {
     if (!store.snapshot) return;
     const list = store.snapshot.satellite || (store.snapshot.satellite = []);
@@ -370,6 +374,7 @@ function renderNow() {
     renderTools();
     renderCtx();
     renderDetails(D, store, ui, conn, { reroutes: () => store.snapshot?.reroutes?.features || [] });
+    if (ui.board.open) renderBoard(boardModel(boardInput()), ui, conn);
     updateFold();
     if (dialogKind === "about") { /* static; nothing to refresh */ }
   });
@@ -398,6 +403,7 @@ function renderNow() {
 
 // Before the first /api/wall answer: the Connecting story, no numbers (R5.4).
 function renderShell() {
+  if (ui.board.open) renderBoard(boardModel(boardInput()), ui, conn);
   renderStory(null, store, ui, { conn, extra, announce });
   renderTimeline(null, store, ui, conn);
   renderTools();
@@ -688,6 +694,46 @@ function closeAreaMenu(focusBtn = true) {
   if (focusBtn) $("area-btn").focus();
 }
 
+// ------------------------------------------------------------------ AI at work (UI-DESIGN 7.21)
+
+// What the board reads: the data the Wall already holds, and when each trace line and hand-out
+// reached this page (a step that just arrived is "working", a hand-out that just happened lights
+// its edge).
+function boardInput() {
+  const since = (t) => performance.now() - (t ?? -1e12);
+  return {
+    state: store.state, duty: store.snapshot?.duty || null, budget: ext.budget, budgetError: ext.errors.budget || null,
+    trace: store.trace, recovery: ext.recovery, docs: ext.docs, docsLoaded: ext.loaded.docs, satellite: store.snapshot?.satellite || [],
+    advisories: store.advisories, feeds: store.feeds, feedNames: FEED_NAME, situations: store.snapshot?.situations || [],
+    arrivedAgo: (id) => since(ext.arrivals.get(id)), liveAgo: (tool) => since(ext.handoffs.get(tool)),
+  };
+}
+
+function openBoard(opener) {
+  const dlg = $("board");
+  if ($("dlg").open) $("dlg").close();
+  ui.board.open = true;
+  ui.board.opener = opener || document.activeElement;
+  if (!dlg.open) dlg.showModal();
+  watchEdges($("board-body"));
+  renderNow();
+  $("board-title").focus({ preventScroll: true });
+}
+
+function toggleBoardCard(id) {
+  ui.board.card = ui.board.card === id ? null : id;
+  renderNow();
+}
+
+$("board").addEventListener("close", () => {
+  const back = ui.board.opener;
+  ui.board = { open: false, card: null, opener: null };
+  $("board-body").dataset.key = "";
+  (back && document.contains(back) && back.offsetParent !== null ? back : $("ai-chip")).focus({ preventScroll: true });
+});
+// A click on the dimmed page around the board closes it, as Esc and the close button do.
+$("board").addEventListener("click", (e) => { if (e.target === $("board")) $("board").close(); });
+
 // ------------------------------------------------------------------ dialogs
 
 function openDialog(kind, title, body, opener) {
@@ -697,6 +743,8 @@ function openDialog(kind, title, body, opener) {
   dlg.dataset.kind = kind;
   $("dlg-title").textContent = title;
   $("dlg-body").replaceChildren(body);
+  // One dialog shows each kind in turn: a new kind starts at its top, not where the last was read.
+  $("dlg-body").scrollTop = 0;
   if (!dlg.open) dlg.showModal();
   return dlg;
 }
@@ -828,7 +876,10 @@ document.addEventListener("click", (e) => {
   else if (tool === "layers") toggleSection("layers", t);
   else if (tool === "levels") openDetails("levels", { opener: t });
   else if (t.id === "area-btn") { if ($("regions").hidden) openAreaMenu(); else closeAreaMenu(); }
-  else if (t.id === "ai-chip") openDetails("ai", { opener: t });
+  else if (t.id === "ai-chip" || act === "board-open") openBoard(t);
+  else if (act === "board-close") $("board").close();
+  else if (act === "board-card") toggleBoardCard(t.dataset.id);
+  else if (act === "board-details") { $("board").close(); openDetails(t.dataset.sec, { opener: $("ai-chip") }); }
   else if (t.id === "feeds-chip") openDetails("feeds", { opener: t });
   else if (t.id === "details-btn") { if (ui.details.open) closeDetails(); else openDetails(null, { opener: t }); }
   else if (t.id === "time-pill") { document.body.classList.toggle("tl-sheet"); renderNow(); if (document.body.classList.contains("tl-sheet")) $("timeline").querySelector("button")?.focus(); }
@@ -992,7 +1043,7 @@ function shortcut(e) {
   if (!ui.shortcuts || e.ctrlKey || e.metaKey || e.altKey) return;
   const t = e.target;
   if (t.matches?.("input, textarea, select, [contenteditable='true']")) return;
-  if ($("dlg").open) return;
+  if ($("dlg").open || $("board").open) return;
   const k = e.key;
   const regions = store.state?.regions || [];
   let handled = true;
@@ -1010,6 +1061,7 @@ function shortcut(e) {
   else if (k === "t" || k === "T") openDetails("trace", { opener: document.activeElement });
   else if (k === "h" || k === "H") { openDetails("levels", { opener: document.activeElement }); requestAnimationFrame(() => $("levels").querySelector('[data-thumb="max"]')?.focus()); }
   else if (k === "p" || k === "P") setPresent(!ui.present);
+  else if (k === "a" || k === "A") openBoard(document.activeElement);
   else if (k === "?") openHelp(document.activeElement);
   else handled = false;
   if (handled) e.preventDefault();
@@ -1022,7 +1074,7 @@ function escapeDetails() {
 // Esc (R16): dialog or menu → section → Details index → close Details → History → the picked
 // flight → compare → 3D.
 function escape(e) {
-  if ($("dlg").open) return; // the dialog closes itself
+  if ($("dlg").open || $("board").open) return; // a dialog closes itself
   if (!$("regions").hidden) { closeAreaMenu(); e.preventDefault(); return; }
   if (document.body.classList.contains("tl-sheet")) { document.body.classList.remove("tl-sheet"); renderNow(); $("time-pill").focus(); e.preventDefault(); return; }
   if (ui.details.open) { escapeDetails(); e.preventDefault(); return; }
@@ -1082,6 +1134,12 @@ try {
 } catch { /* storage blocked: Details starts closed */ }
 placeDetails();
 renderShell();
+// "See the AI at work" links from the Desk land here (/#ai-at-work); the hash is not kept, so a
+// reload shows the Wall.
+if (location.hash === "#ai-at-work") {
+  history.replaceState(history.state, "", location.pathname + location.search);
+  openBoard($("ai-chip"));
+}
 inlineSprite().then(() => { if (store.state) renderNow(); else renderShell(); });
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startMap, { once: true });
 else startMap();

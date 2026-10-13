@@ -245,6 +245,7 @@ class AuditAction(StrEnum):
     OUTBOUND_QUEUED = "OUTBOUND_QUEUED"
     AI_FAILED = "AI_FAILED"
     AI_FAILURE_HANDLED = "AI_FAILURE_HANDLED"
+    AI_FAILURE_CLOSED = "AI_FAILURE_CLOSED"
     ASKED = "ASKED"
     NOTICE_READ = "NOTICE_READ"
     RECOVERY_PROPOSED = "RECOVERY_PROPOSED"
@@ -1695,6 +1696,11 @@ class DutyRun(TephraModel):
         "from the replay's first pass: 'AI answer recorded on this replay's first pass at HHMMZ "
         "real time'",
     )
+    recorded_wall_at: UtcDatetime | None = Field(
+        default=None,
+        description="Wall-clock time the run was stored (started_at follows the REPLAY clock);"
+        " None only on runs stored before the field",
+    )
 
     def dispatched_ids(self) -> set[str]:
         return {item_id for dispatch in self.dispatches for item_id in dispatch.item_ids}
@@ -1724,6 +1730,24 @@ class AiFailure(TephraModel):
     handled_by: str | None = None
     handled_at: UtcDatetime | None = None
     handled_note: str | None = None
+    recorded_wall_at: UtcDatetime | None = Field(
+        default=None,
+        description="Wall-clock time it was recorded (created_at follows the REPLAY clock);"
+        " None only on records written before the field",
+    )
+    closed_at: UtcDatetime | None = Field(
+        default=None,
+        description="When code closed it because it no longer stands; a dispatcher never"
+        " closes one (that is handled_at)",
+    )
+    closed_reason: str | None = Field(
+        default=None, description="Code-written: why it no longer stands (desk.failures)"
+    )
+
+    @property
+    def open(self) -> bool:
+        """Still waiting for a dispatcher: neither handled by one nor closed by code."""
+        return self.handled_at is None and self.closed_at is None
 
 
 class OutboundMessage(TephraModel):

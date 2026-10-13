@@ -212,7 +212,7 @@ function scenariosList(p) {
   const list = p.scenarios || [];
   const max = Math.max(0, ...list.map((sc) => (sc.totals ? sc.totals.total_usd : 0)));
   return [
-    el('p', { class: 'fine', text: "The same day re-planned if the closure lasts as forecast, or longer. Solved by code; costs use the operator's illustrative weights." }),
+    el('p', { class: 'fine', text: "The same day re-planned if the closure lasts as forecast, or longer. Solved by code. Costs use the operator's illustrative weights." }),
     list.length ? el('ul', { class: 'scs' }, list.map((sc) => scenarioCard(p, sc, max))) : el('p', { class: 'note', text: 'No scenario was solved.' }),
     list.length ? el('p', { class: 'fine', text: 'Tap a scenario to see its flights under Flight by flight.' }) : null,
   ];
@@ -359,7 +359,7 @@ export function renderNetwork() {
     parts.push(app.plansLoaded
       ? el('div', { class: 'plan plan--empty' },
         el('p', { class: 'plan__lead', text: 'No RFA airport is closed by ash right now.' }),
-        el('p', { class: 'plan__foot', text: `Last checked ${checkedAt === null ? '–' : hhmmz(checkedAt)}. A plan appears here when the ash closes an airport of the RFA network; you can also choose Plan now in the ⋯ menu.` }),
+        el('p', { class: 'plan__foot', text: `Last checked ${checkedAt === null ? '–' : hhmmz(checkedAt)}. A plan appears here when the ash closes an airport of the RFA network. You can also choose Plan now in the ⋯ menu.` }),
         el('p', { class: 'plan__tags' }, el('span', { class: 'chip chip--fict', title: 'Ring of Fire Air and its schedule are made up' }, icon('i-info', 'st'), el('span', { text: 'Fictional airline RFA · synthetic schedule' }))))
       : el('p', { class: 'boot' }, el('span', { class: 'spinner', 'aria-hidden': 'true' }), el('span', { text: 'Loading…' })));
     panel.replaceChildren(...parts);
@@ -416,7 +416,7 @@ export function renderNetwork() {
         x.status === 'DRAFT' ? [icon('st-caution', 'st'), ' '] : null,
         `${hhmmz(x.created_at)} · ${planProblem(x) ? 'No plan found' : (STATUS[x.status] || [0, x.status])[1]}${chosenOf(x) && chosenOf(x).totals ? ` · ${fmtUsd(chosenOf(x).totals.total_usd)}` : ''}`)))]));
   }
-  parts.push(el('p', { class: 'fine plan__fine', text: "Decision support only. Approving a plan queues it on TEPHRA's own outbound queue; nothing is sent to an airline system." }));
+  parts.push(el('p', { class: 'fine plan__fine', text: "Decision support only. Approving a plan queues it on TEPHRA's own outbound queue. Nothing is sent to an airline system." }));
   panel.replaceChildren(...parts);
   restoreFocus(panel, keep);
 }

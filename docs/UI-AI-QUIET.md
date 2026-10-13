@@ -542,3 +542,28 @@ Still not met: the Wall at 1440x900 still folds "+ 4 more" (the advisory and clo
 lines each), and the Wall shows five AI mentions because W21 keeps "AI" in the Details button's
 sub-line as navigation. No axe scan was run (axe-core is not installed here); CSP was checked only
 through the console (no violation messages).
+
+### 8.2 Merged with AI at work and the Desk redesign (2026-10-13)
+
+The branch `ai-at-work-desk-redesign` (AI at work, the Operator policy dialog, the Desk's list and
+idle panes, and the backend fix for repeated failures across replay runs) was merged onto this
+design. This document stayed the base for every AI word. What changed against sections 3 to 6:
+
+1. One source. The branch's own status table (`wall/ai-status.js`) is gone. AI at work
+   (`wall/board.js`) derives the same `aiStateOf()` from the same inputs as the chip: the trace
+   through `aiErrorsOf()` (moved to `wall/x-parts.js` with the RECOVERY/system rule of review H7),
+   the newest Duty Officer run, `newestPlan()` and the live budget. Its header shows `aiWords()` and
+   the calm lead `aiLead()`. The Desk chip and its "AI today" sheet keep `deskAi()`.
+2. W1 amended: the Wall's AI chip opens AI at work, which leads with the AI home's words and links
+   to Details › AI helpers (still the record of models, calls and causes). A and `/#ai-at-work`
+   open it too.
+3. Q4 on the board: a helper that gave nothing is caution, never red. "No result" (warning shape)
+   when a model was called, "Not run" (dot) when none was, or the helper's own word ("No brief",
+   "No plan"). A failed hand-out line is amber. The board no longer counts failed steps.
+4. K77/K81-K84 amended: the Plan by hand group is a summary card after the Next decision (the cause
+   once, the counts with "must do", "Show the n flights", "Why ›"); the flights open in the right
+   pane at 1100 px and up and as their own view on a phone, inside the ash first, must-do first. A
+   row opens the flight's sheet ("Plan RFA1701 by hand"), and "Mark several handled…" ticks
+   several, each still its own request and audit entry. Announcements stay one per batch, and
+   flights code closed are said in the same batch.
+5. The helper is "Flight planner" everywhere (the board's roster), not "Planner".

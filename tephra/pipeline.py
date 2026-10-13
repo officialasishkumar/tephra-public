@@ -65,7 +65,16 @@ from tephra.config import (
 from tephra.desk import audit, crew_reports
 from tephra.desk.approvals import SYSTEM_ACTOR, submit_draft, supersede
 from tephra.desk.crew_reports import CheckedEntry, CrewEntry, FixHistory, FixLookup
-from tephra.desk.failures import record_failure
+from tephra.desk.failures import (
+    DRAFT_WAITING,
+    LIST_WINDOW,
+    NEWER_FAILURE,
+    REPLAY_RUN_ENDED,
+    close_failure,
+    list_failures,
+    of_run,
+    record_failure,
+)
 from tephra.duty import DeskUnreachable
 from tephra.feeds.adsb import merge_aircraft
 from tephra.feeds.airports import AirportCatalogue, load_airports
@@ -285,6 +294,10 @@ class Runtime:
     """flight id -> (cone id, the most urgent bucket it was planned in for that cone)"""
     _plan_failures: dict[str, _PlanFailure] = field(init=False, default_factory=dict)
     """flight id -> its last planning error, until it is planned or leaves the cone"""
+    open_failures: dict[str, AiFailure] = field(init=False, default_factory=dict)
+    """flight id -> its open AI failure on the Desk (one per flight), until it no longer stands"""
+    _failures_followed: bool = field(init=False, default=False)
+    """This picture's open failures were read back from the store (``_follow_failures``)"""
     _unexposed_since: dict[str, datetime] = field(init=False, default_factory=dict)
     """flight id -> since when an open draft's flight is seen outside every cone"""
     _unseen_since: dict[str, datetime] = field(init=False, default_factory=dict)
@@ -357,6 +370,12 @@ class Runtime:
     def quota(self) -> QuotaLedger:
         assert self.ledger is not None  # set in __post_init__
         return self.ledger
+
+    @property
+    def replay_run_since(self) -> datetime | None:
+        """Wall-clock start of the replay run playing (None when live): records of an earlier
+        run of the same recording belong to a picture that has ended."""
+        return self._replay_run_wall if self.mode is RunMode.REPLAY else None
 
     @property
     def recorded_feeds(self) -> frozenset[FeedId] | None:
@@ -572,8 +591,9 @@ class Runtime:
         report.exposed_flights = len(self.exposed)
 
     async def settle_drafts(self, at: datetime, report: TickReport) -> None:
-        """Retire drafts whose flight has left every cone or the ADS-B picture (MODULES.md
-        5.7), once the Duty Officer has planned what was due."""
+        """Retire drafts, and close AI failures, whose flight has left every cone or the ADS-B
+        picture (MODULES.md 5.7), once the Duty Officer has planned what was due."""
+        await self._follow_failures()
         if not self.positions_fresh:
             return
         exposed = self.exposed
@@ -583,7 +603,7 @@ class Runtime:
             self.desk_unreachable(report)
             return
         seen = {target.hex for target in self.aircraft()}
-        report.drafts_superseded += await self._retire_drafts(open_drafts, seen, at, report)
+        report.drafts_superseded += await self._retire_gone(open_drafts, seen, at, report)
         self._planned = {fid: mark for fid, mark in self._planned.items() if fid in exposed}
         self._plan_failures = {
             fid: failure for fid, failure in self._plan_failures.items() if fid in exposed
@@ -1961,6 +1981,7 @@ class Runtime:
             report.drafts_superseded += await self._supersede_draft(
                 draft, reason, superseded_by=created.id
             )
+        await self._close_failure_of(flight.id, DRAFT_WAITING)
         report.drafts_created += 1
         self.trace(
             TraceStage.DESK,
@@ -1991,7 +2012,7 @@ class Runtime:
     async def _record_failure(self, failure: AiFailure) -> None:
         """No plan or no draft: the flight goes to the Desk for a dispatcher, and outdated
         drafts stay up, since there is no newer advice to replace them."""
-        if await record_failure(self.store, self.bus, failure) is None:
+        if await self.track_failure(failure) is None:
             return
         self.trace(
             TraceStage.DESK,
@@ -2003,6 +2024,43 @@ class Runtime:
             flight_id=failure.flight_id,
             detail={"failure_id": failure.id, "reason": failure.reason},
         )
+
+    async def track_failure(self, failure: AiFailure) -> AiFailure | None:
+        """Record a failure for the Desk (``desk.failures``) and follow it: the flight's earlier
+        open failure no longer stands. None when the same failure already stands."""
+        recorded = await record_failure(
+            self.store, self.bus, failure, run_since=self.replay_run_since
+        )
+        if recorded is None:
+            return None
+        previous = self.open_failures.get(recorded.flight_id)
+        self.open_failures[recorded.flight_id] = recorded
+        if previous is not None and previous.id != recorded.id:
+            await close_failure(self.store, self.bus, previous.id, reason=NEWER_FAILURE)
+        return recorded
+
+    async def _close_failure_of(self, flight_id: str, reason: str) -> None:
+        failure = self.open_failures.pop(flight_id, None)
+        if failure is not None:
+            await close_failure(self.store, self.bus, failure.id, reason=reason)
+
+    async def _follow_failures(self) -> None:
+        """Once per picture (a start, a mode switch, a replay loop): close the open failures
+        an earlier replay run left, and follow this mode's open ones, one per flight, so a
+        flight that leaves the area or gets a draft closes its own."""
+        if self._failures_followed:
+            return
+        run_since = self.replay_run_since
+        replay = self.mode is RunMode.REPLAY
+        for failure in await list_failures(self.store, replay=replay, limit=LIST_WINDOW):
+            current = self.open_failures.get(failure.flight_id)
+            if not of_run(failure, run_since):
+                await close_failure(self.store, self.bus, failure.id, reason=REPLAY_RUN_ENDED)
+            elif current is None:
+                self.open_failures[failure.flight_id] = failure
+            elif current.id != failure.id:  # listed newest first: this one is older
+                await close_failure(self.store, self.bus, failure.id, reason=NEWER_FAILURE)
+        self._failures_followed = True
 
     async def _supersede_draft(
         self, draft: Advisory, reason: str, *, superseded_by: str | None = None
@@ -2041,45 +2099,53 @@ class Runtime:
         snapshots = self.live.adsb
         return bool(snapshots) and all(snapshot.provenance.stale for snapshot in snapshots)
 
-    async def _retire_drafts(
+    async def _retire_gone(
         self, open_drafts: Sequence[Advisory], seen: set[str], at: datetime, report: TickReport
     ) -> int:
-        """Retire the open drafts of flights out of every cone, after the policy's grace time.
+        """Retire the open drafts, and close the open AI failures, of flights out of every cone,
+        after the policy's grace time; returns the drafts retired.
 
         A flight seen outside every cone (or whose volcano is no longer active) keeps its
-        draft for ``drafts.unexposed_retire_min``; one missing from the ADS-B picture keeps it
-        for ``drafts.position_lost_retire_min`` and is retired as POSITION LOST, never as no
-        longer exposed: a dropped position says nothing about the ash. Only fresh positions
-        count towards either time."""
+        draft or failure for ``drafts.unexposed_retire_min``; one missing from the ADS-B picture
+        keeps it for ``drafts.position_lost_retire_min`` and is retired as POSITION LOST, never
+        as no longer exposed: a dropped position says nothing about the ash. Only fresh
+        positions count towards either time."""
         candidates = [draft for draft in open_drafts if draft.flight_id not in self.exposed]
-        if not candidates or not self._adsb_fresh(at):
+        failed = [item for fid, item in self.open_failures.items() if fid not in self.exposed]
+        if not (candidates or failed) or not self._adsb_fresh(at):
             self._forget_absences()
             if candidates:
                 report.notes.append("ADS-B is stale: open drafts kept until positions refresh")
             return 0
-        unseen = {draft.flight_id for draft in candidates if draft.hex not in seen}
-        unexposed = {draft.flight_id for draft in candidates} - unseen
+        hexes = {item.flight_id: item.hex for item in [*candidates, *failed]}
+        unseen = {fid for fid, hex_ in hexes.items() if hex_ not in seen}
+        unexposed = hexes.keys() - unseen
         self._unseen_since = {fid: self._unseen_since.get(fid, at) for fid in unseen}
         self._unexposed_since = {fid: self._unexposed_since.get(fid, at) for fid in unexposed}
-        rules = self.policy.drafts
         retired = 0
         for draft in candidates:
-            if draft.flight_id in unseen:
-                lost = at - self._unseen_since[draft.flight_id]
-                if lost < timedelta(minutes=rules.position_lost_retire_min.value):
-                    continue
-                reason = f"POSITION LOST FOR {int(lost.total_seconds() // 60)} MIN"
-            else:
-                away = at - self._unexposed_since[draft.flight_id]
-                if away < timedelta(minutes=rules.unexposed_retire_min.value):
-                    continue
-                reason = (
-                    "NO LONGER EXPOSED IF TRACK AND LEVEL ARE HELD"
-                    if draft.volcano_id in self.live.active
-                    else "VOLCANO NO LONGER ACTIVE"
-                )
-            retired += await self._supersede_draft(draft, reason)
+            if (reason := self._gone_reason(draft.flight_id, draft.volcano_id, at)) is not None:
+                retired += await self._supersede_draft(draft, reason)
+        for failure in failed:
+            if (reason := self._gone_reason(failure.flight_id, failure.volcano_id, at)) is not None:
+                await self._close_failure_of(failure.flight_id, reason)
         return retired
+
+    def _gone_reason(self, flight_id: str, volcano_id: str, at: datetime) -> str | None:
+        """Why a flight out of every cone needs its draft or failure no more; None while its
+        grace time lasts."""
+        rules = self.policy.drafts
+        if flight_id in self._unseen_since:
+            lost = at - self._unseen_since[flight_id]
+            if lost < timedelta(minutes=rules.position_lost_retire_min.value):
+                return None
+            return f"POSITION LOST FOR {int(lost.total_seconds() // 60)} MIN"
+        away = at - self._unexposed_since[flight_id]
+        if away < timedelta(minutes=rules.unexposed_retire_min.value):
+            return None
+        if volcano_id in self.live.active:
+            return "NO LONGER EXPOSED IF TRACK AND LEVEL ARE HELD"
+        return "VOLCANO NO LONGER ACTIVE"
 
     def _forget_absences(self) -> None:
         """Grace times restart: stale or no positions are no evidence a flight has gone."""
@@ -2254,6 +2320,9 @@ class Runtime:
         self._schedule = None
         self._planned.clear()
         self._plan_failures.clear()
+        self.open_failures.clear()
+        self._failures_followed = False
+        self.duty = None
         self._forget_absences()
         self._digests.clear()
         self._published.clear()

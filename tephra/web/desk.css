@@ -207,37 +207,6 @@ a {
   font-weight: var(--fw-regular);
 }
 
-.model-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 26px;
-  max-width: 11rem;
-  padding: 0 var(--sp-2);
-  border: 1.5px solid var(--c-line-input);
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: var(--fs-1);
-  font-weight: var(--fw-medium);
-  white-space: nowrap;
-  color: var(--c-text-1);
-}
-
-.model-chip > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.model-chip .icon {
-  width: 14px;
-  height: 14px;
-  color: var(--c-text-2);
-}
-
-.model-chip--stub {
-  border-style: dashed;
-}
-
 .conn {
   display: inline-flex;
   align-items: center;
@@ -2663,12 +2632,6 @@ textarea.field {
   color: var(--c-text-2);
 }
 
-/* --- the empty review pane at 1100 px and up (hidden elsewhere) --------------------------- */
-
-.sheet-idle {
-  display: none;
-}
-
 /* --- phones and tablets: short hint, compact bar and cards ------------------------------- */
 
 @media (max-width: 1099px) {
@@ -2911,38 +2874,6 @@ textarea.field {
     padding: var(--sp-5) var(--sp-6) var(--sp-6);
   }
 
-  .sheet[hidden] + .sheet-idle {
-    position: sticky;
-    top: calc(var(--head-h, 108px) + var(--sp-6));
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--sp-2);
-    min-height: 420px;
-    padding: var(--sp-8);
-    border: 1px dashed var(--c-line-2);
-    border-radius: var(--radius-lg);
-    text-align: center;
-  }
-
-  .sheet-idle__icon {
-    width: 32px;
-    height: 32px;
-    color: var(--c-text-3);
-  }
-
-  .sheet-idle__title {
-    font-size: var(--fs-5);
-    font-weight: var(--fw-semibold);
-    color: var(--c-text-2);
-  }
-
-  .sheet-idle__note {
-    font-size: var(--fs-2);
-    color: var(--c-text-3);
-  }
-
   .actions {
     position: static;
     padding: var(--sp-4) var(--sp-6) var(--sp-5);
@@ -3105,34 +3036,7 @@ body[data-review="1"] .tabbar {
   box-shadow: 0 0 0 2px var(--c-surface-1);
 }
 
-/* --- AI budget sheet: one row per model, its count, a bar, its lanes and pacing ----------- */
-
-.btiers {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.btier__h {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: var(--sp-3);
-  margin: 0 0 var(--sp-1);
-}
-
-.btier__k {
-  font-weight: 600;
-}
-
-.btier__n {
-  flex: none;
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
+/* --- AI status sheet: a bar per model's calls today ---------------------------------------- */
 
 .bbar {
   display: block;
@@ -3211,18 +3115,6 @@ body[data-review="1"] .tabbar {
   .conn[data-conn="live"] .st {
     width: 10px;
     height: 10px;
-  }
-}
-
-@media (max-width: 380px) {
-  .model-chip .icon,
-  .budget .icon {
-    display: none;
-  }
-
-  .model-chip,
-  .budget {
-    padding: 0 6px;
   }
 }
 
@@ -3315,10 +3207,6 @@ body[data-review="1"] .tabbar {
   margin-top: var(--sp-6);
 }
 
-.qsec--fail {
-  margin: var(--sp-4) 0 var(--sp-2);
-}
-
 .chip--code {
   border-style: dotted;
   font-weight: var(--fw-medium);
@@ -3332,12 +3220,6 @@ body[data-review="1"] .tabbar {
 
 .unavail .unavail__instead {
   color: var(--c-text-2);
-}
-
-.panel__note {
-  font-size: var(--fs-2);
-  line-height: var(--lh-body);
-  color: var(--c-text-1);
 }
 
 .ssub {
@@ -3452,16 +3334,12 @@ body[data-review="1"] .tabbar {
   }
 }
 
-/* --- queue: AI failures, messages, plan card, notices ------------------------------------------- */
+/* --- queue: messages, plan card, notices -------------------------------------------------------- */
 
 .mcards {
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
-}
-
-.fcard__btn {
-  flex: none;
 }
 
 .mcard__btn {
@@ -5284,51 +5162,10 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
    These rules come last on purpose: they override the older blocks above.
    ===================================================================================== */
 
-/* --- header (R10.1): the model, the AI budget and the connection, always in words --------- */
-
-.model-chip {
-  max-width: none;
-  font-family: var(--font-sans);
-  font-weight: var(--fw-semibold);
-}
-
-.model-chip > span {
-  overflow: visible;
-  text-overflow: clip;
-}
-
-.model-chip__more,
-.budget__long {
-  white-space: nowrap;
-}
-
-.budget {
-  font-family: var(--font-sans);
-  font-weight: var(--fw-semibold);
-}
-
-.budget__short {
-  display: none;
-}
+/* --- header (R10.1): the connection, always in words -------------------------------------- */
 
 .conn {
   font-weight: var(--fw-medium);
-}
-
-@media (max-width: 760px) {
-  .budget__long {
-    display: none;
-  }
-
-  .budget__short {
-    display: inline;
-  }
-}
-
-@media (max-width: 520px) {
-  .model-chip__more {
-    display: none;
-  }
 }
 
 /* "Connected" is always a word (G11), also on a phone. */
@@ -5352,20 +5189,8 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
     clip: auto;
   }
 
-  .conn,
-  .model-chip,
-  .budget {
+  .conn {
     font-size: var(--fs-1);
-  }
-
-  .model-chip .icon,
-  .budget .icon {
-    display: none;
-  }
-
-  .model-chip,
-  .budget {
-    padding: 0 6px;
   }
 }
 
@@ -7059,136 +6884,710 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   color: var(--c-caution);
 }
 
-.ailead {
+.panel--empty .panel__title .st.is-info {
+  color: var(--c-info);
+}
+
+/* =====================================================================================
+   Desk redesign, 13 Oct 2026 (docs/UI-DESIGN.md 10.16): the AI status in words, one honesty
+   band, the flights to plan by hand as a summary and a list, and a right pane that is never
+   an empty box. These rules come last on purpose.
+   ===================================================================================== */
+
+/* --- the honesty band: REPLAY and the disclaimer, one band, both always shown -------------- */
+
+.honesty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px var(--sp-4);
+  padding: 5px max(var(--sp-4), env(safe-area-inset-right)) 6px max(var(--sp-4), env(safe-area-inset-left));
+  border-top: var(--border-hair);
+}
+
+.honesty:has(.replay-bar:not([hidden])) {
+  border-top: 1px solid var(--c-replay);
+  background: var(--c-replay-bg);
+}
+
+.honesty .replay-bar,
+.honesty .disclaimer {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.honesty .replay-bar {
+  gap: 6px;
+}
+
+.honesty .replay-bar .icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.honesty .disclaimer {
+  font-size: var(--fs-1);
+  line-height: 1.35;
+}
+
+@media (min-width: 1100px) {
+  .honesty {
+    padding-left: var(--sp-6);
+    padding-right: var(--sp-6);
+  }
+}
+
+@media (max-width: 599px) {
+  .honesty {
+    padding-top: 4px;
+    padding-bottom: 5px;
+  }
+
+  .honesty .replay-bar {
+    font-size: var(--fs-1);
+  }
+}
+
+/* --- Decide: Plan by hand, summed up (caution, never the picture's red: UI-AI-QUIET Q4) --- */
+
+.qsec--fail {
+  margin: var(--sp-4) 0 var(--sp-5);
+}
+
+.hcard {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: var(--sp-3);
-  border-left: 3px solid var(--c-caution);
-  border-radius: var(--radius-sm);
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border: 1px solid var(--c-line-2);
+  border-left: 4px solid var(--c-caution);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface-1);
+}
+
+.hcard__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.hcard__title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-4);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+}
+
+.hcard__title .st {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--c-caution);
+}
+
+.hcard__whybtn {
+  margin-top: 0;
+  font-size: var(--fs-2);
+  white-space: nowrap;
+}
+
+.hcard__why {
+  font-size: var(--fs-2);
+  line-height: var(--lh-body);
+  color: var(--c-text-1);
+}
+
+.hcard__causes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 1.1em;
+  list-style: disc;
+  font-size: var(--fs-2);
+  line-height: var(--lh-body);
+}
+
+.hcard__counts {
+  font-size: var(--fs-2);
+  font-weight: var(--fw-semibold);
+  color: var(--c-text-2);
+}
+
+.hcard__go {
+  align-self: flex-start;
+  margin-top: var(--sp-1);
+}
+
+.hcard__go[aria-expanded="true"] {
+  border-color: var(--c-line-2);
+  color: var(--c-text-2);
+}
+
+/* --- the list itself: the right pane at 1100 px and up, its own view on a phone ------------ */
+
+.fpane[hidden] {
+  display: none;
+}
+
+.desk[data-view="failures"] .queue {
+  display: none;
+}
+
+.fpane__head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-3);
+}
+
+.fpane__back {
+  margin-top: 0;
+  text-decoration: none;
+  color: var(--c-text-2);
+}
+
+.fpane__title {
+  font-size: var(--fs-6);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+}
+
+.fpane__title:focus {
+  outline: none;
+}
+
+.fcause {
+  display: flex;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-caution);
+  border-radius: var(--radius-lg);
+  background: var(--c-caution-bg);
+  font-size: var(--fs-2);
+  line-height: var(--lh-body);
+}
+
+.fcause__icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin-top: 2px;
+  color: var(--c-caution);
+}
+
+.fcause__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.fpane__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+  margin: var(--sp-4) 0 var(--sp-2);
+}
+
+.fpane__actions .fine {
+  flex: 1 1 14rem;
+}
+
+.flgroup {
+  margin-top: var(--sp-5);
+}
+
+.flgroup__title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--c-text-2);
+}
+
+.flgroup__n {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+  color: var(--c-text-3);
+}
+
+.frows {
+  border-top: var(--border-hair);
+}
+
+.frow__item {
+  border-bottom: var(--border-hair);
+}
+
+.frow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 18px;
+  grid-template-areas: "main entry go" "meta meta go";
+  align-items: center;
+  column-gap: var(--sp-3);
+  row-gap: 2px;
+  width: 100%;
+  min-height: 56px;
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
+  border: 0;
+  background: none;
+  color: var(--c-text-1);
+  font-size: var(--fs-2);
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.frow:hover {
+  background: var(--c-surface-2);
+}
+
+.frow:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.frow__main {
+  grid-area: main;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--sp-2);
+  min-width: 0;
+}
+
+.frow__flight {
+  font-family: var(--font-mono);
+  font-size: var(--fs-3);
+  font-weight: var(--fw-semibold);
+}
+
+.frow__ident {
+  color: var(--c-text-2);
+}
+
+.frow__entry {
+  grid-area: entry;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+  color: var(--c-text-1);
+}
+
+.frow__entry .st {
+  width: 14px;
+  height: 14px;
+  color: var(--c-text-2);
+}
+
+.frow__entry.is-inside,
+.frow__entry.is-inside .st {
+  color: var(--c-serious);
+}
+
+.frow__meta {
+  grid-area: meta;
+  font-size: var(--fs-1);
+  color: var(--c-text-2);
+}
+
+.frow__go {
+  grid-area: go;
+  width: 18px;
+  height: 18px;
+  color: var(--c-text-3);
+}
+
+/* one flight's details, in its sheet */
+.ffacts {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  gap: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-2);
+  line-height: var(--lh-body);
+}
+
+.ffacts dt {
+  color: var(--c-text-2);
+}
+
+.ffacts dd {
+  margin: 0;
+  color: var(--c-text-1);
+  overflow-wrap: anywhere;
+}
+
+.ffacts dd.is-inside {
+  font-weight: var(--fw-semibold);
+  color: var(--c-serious);
+}
+
+/* several flights: a ticked list, each saved on its own */
+.bulk__set {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.bulk__all {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--tap-min);
+  font-size: var(--fs-2);
+  font-weight: var(--fw-semibold);
+}
+
+.bulk__list {
+  border-top: var(--border-hair);
+}
+
+.bulk__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--tap-min);
+  padding: 2px var(--sp-1);
+  border-bottom: var(--border-hair);
+}
+
+.bulk__set input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--c-ok);
+}
+
+.bulk__label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--sp-3);
+  padding: var(--sp-2) 0;
+  font-size: var(--fs-2);
+  cursor: pointer;
+}
+
+.bulk__flight {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-semibold);
+}
+
+.bulk__entry.is-inside {
+  font-weight: var(--fw-semibold);
+  color: var(--c-serious);
+}
+
+.bulk__meta {
+  color: var(--c-text-2);
+}
+
+.bulk__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semibold);
+}
+
+.bulk__state[data-state="ok"] {
+  color: var(--c-ok);
+}
+
+.bulk__state[data-state="bad"] {
+  color: var(--c-serious);
+}
+
+.bulk__state .st {
+  width: 14px;
+  height: 14px;
+}
+
+/* --- the AI status sheet --------------------------------------------------------------------- */
+
+.aisheet__lead {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-line-2);
+  border-radius: var(--radius-lg);
   background: var(--c-surface-2);
   font-size: var(--fs-2);
   line-height: var(--lh-body);
 }
 
-.hgroup {
+.aisheet__lead--paused,
+.aisheet__lead--trouble {
+  border-color: var(--c-caution);
+  background: var(--c-caution-bg);
+}
+
+.aisheet__lead--off {
+  border-style: dashed;
+}
+
+.aisheet__head {
+  font-size: var(--fs-3);
+  line-height: var(--lh-body);
+  color: var(--c-text-1);
+}
+
+.aisheet__h {
+  margin-bottom: var(--sp-2);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--c-text-2);
+}
+
+.aiworks,
+.aimodels {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-2);
-  padding: var(--sp-3);
-  border: 1px solid var(--c-line-2);
-  border-left: 3px solid var(--c-caution);
-  border-radius: var(--radius-lg);
-  background: var(--c-surface-1);
+  gap: var(--sp-3);
 }
 
-.hgroup + .hgroup {
-  margin-top: var(--sp-3);
-}
-
-.hgroup__head {
+.aiwork {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: flex-start;
   gap: var(--sp-2);
+  font-size: var(--fs-2);
+  line-height: var(--lh-body);
 }
 
-.hgroup__title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--fs-3);
-  font-weight: var(--fw-semibold);
-}
-
-.hgroup__title .st {
+.aiwork .st {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin-top: 3px;
   color: var(--c-caution);
 }
 
-.hgroup__why {
-  font-size: var(--fs-2);
-  white-space: nowrap;
+.aiwork__label {
+  display: block;
+  color: var(--c-text-1);
 }
 
-.hgroup__sub {
+.aiwork__when {
+  display: block;
+  font-size: var(--fs-1);
+  color: var(--c-text-2);
+}
+
+.aimodel__h {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-1);
   font-size: var(--fs-2);
+}
+
+.aimodel__jobs {
+  font-weight: var(--fw-semibold);
+}
+
+.aimodel__n {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text-2);
+}
+
+.aimodel__status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semibold);
+  color: var(--c-text-2);
+}
+
+.aimodel__status .st {
+  width: 13px;
+  height: 13px;
+  color: var(--c-ok);
+}
+
+.aimodel__status.is-out,
+.aimodel__status.is-out .st {
+  color: var(--c-caution);
+}
+
+.aimodel__id {
+  margin-top: 2px;
+  font-size: var(--fs-1);
+  color: var(--c-text-3);
+}
+
+.aisheet__lanes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin-top: var(--sp-2);
+  font-size: var(--fs-1);
   line-height: var(--lh-body);
   color: var(--c-text-2);
 }
 
-.hrows {
-  display: flex;
-  flex-direction: column;
+.aisheet__board {
+  gap: var(--sp-2);
 }
 
-.hrow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 2px var(--sp-2);
-  padding: 6px 0;
-  border-top: 1px solid var(--c-line-1);
-  font-size: var(--fs-2);
-  line-height: 1.35;
+/* --- desktop: the list and the idle pane sit where the review does --------------------------- */
+
+.idle {
+  display: none;
 }
 
-.hrow > .hrow__line:first-child {
-  grid-column: 1 / -1;
+@media (min-width: 1100px) {
+  .fpane {
+    position: sticky;
+    top: calc(var(--head-h, 108px) + var(--sp-6));
+    max-height: calc(100dvh - var(--head-h, 108px) - var(--sp-6) - var(--sp-4));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--sp-5) var(--sp-6) var(--sp-6);
+    border: 1px solid var(--c-line-2);
+    border-radius: var(--radius-lg);
+    background: var(--c-surface-1);
+    box-shadow: var(--shadow-2);
+  }
+
+  .fpane__back {
+    display: none;
+  }
+
+  .sheet,
+  .fpane,
+  .idle {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .sheet[hidden] ~ .fpane[hidden] ~ .idle {
+    position: sticky;
+    top: calc(var(--head-h, 108px) + var(--sp-6));
+    display: block;
+    padding: var(--sp-8) var(--sp-8) var(--sp-6);
+    border: 1px solid var(--c-line-2);
+    border-radius: var(--radius-lg);
+    background: var(--c-surface-1);
+  }
+
+  .idle__box {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--sp-3);
+    max-width: 34rem;
+  }
+
+  .idle__icon {
+    width: 28px;
+    height: 28px;
+    color: var(--c-text-2);
+  }
+
+  .idle__title {
+    font-size: var(--fs-6);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-tight);
+  }
+
+  .idle__lead {
+    font-size: var(--fs-3);
+    line-height: var(--lh-body);
+    color: var(--c-text-1);
+  }
+
+  .idle__ai {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    font-size: var(--fs-2);
+    line-height: var(--lh-body);
+    color: var(--c-text-2);
+  }
+
+  .idle__ai .st {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    margin-top: 2px;
+    color: var(--c-ok);
+  }
+
+  .idle__ai--paused .st,
+  .idle__ai--trouble .st {
+    color: var(--c-caution);
+  }
+
+  .idle__ai--off .st {
+    color: var(--c-text-2);
+  }
+
+  .idle__h {
+    margin-top: var(--sp-3);
+    font-size: var(--fs-1);
+    font-weight: var(--fw-semibold);
+    letter-spacing: var(--tracking-caps);
+    text-transform: uppercase;
+    color: var(--c-text-2);
+  }
+
+  .idle__list {
+    align-self: stretch;
+    border-top: var(--border-hair);
+  }
+
+  .idle__list > li {
+    border-bottom: var(--border-hair);
+  }
+
+  .idle__board {
+    gap: var(--sp-2);
+  }
 }
 
-.hrow__line {
-  min-width: 0;
-  overflow-wrap: anywhere;
+@media (forced-colors: active) {
+  .hcard,
+  .fcause,
+  .aisheet__lead {
+    border: 1px solid CanvasText;
+  }
 }
 
-.hrow .fcard__btn {
-  min-height: 32px;
-  padding: 0 var(--sp-2);
-  font-size: var(--fs-1);
-}
-/* with a mouse the row is about 56 px (K77): a 28 px button (above the 24 px target minimum) and
-   tighter padding; touch keeps the 32 px button */
-@media (pointer: fine) {
-  .hrow { padding: 4px 0; }
-  .hrow .fcard__btn { min-height: 28px; }
+/* No draft: the Next decision box holds one calm line, not a dashed box inside a box. */
+.next .qstate .panel--empty {
+  gap: var(--sp-1);
+  padding: 0;
+  border: 0;
+  background: none;
 }
 
-.hrow__flight {
-  font-weight: var(--fw-semibold);
+.next .qstate .panel--empty .panel__title {
+  font-size: var(--fs-3);
 }
 
-.hrow__ident,
-.hrow__meta {
+.next .qstate .panel--empty .panel__title .st {
   color: var(--c-text-2);
-}
-
-.hrow__entry {
-  font-weight: var(--fw-semibold);
-}
-
-.hrow__entry.is-inside {
-  color: var(--c-serious);
-}
-
-.hrow .dcard__must {
-  margin-right: 0;
-}
-
-.hmore > summary {
-  min-height: 36px;
-  padding: 6px 0;
-  font-size: var(--fs-2);
-  font-weight: var(--fw-semibold);
-  color: var(--c-text-1);
-  cursor: pointer;
-}
-
-.btn--sm {
-  min-height: 36px;
-  padding: 0 var(--sp-3);
-  font-size: var(--fs-2);
-}
-
-.panel--empty .panel__title .st.is-info {
-  color: var(--c-info);
 }

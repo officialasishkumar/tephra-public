@@ -384,8 +384,8 @@ function draftedByValue(adv) {
     : el('span', { class: 'v-strong' }, `${adv.model_id} · AI-written`);
   const out = [who];
   out.push(fine(isStub(adv)
-    ? 'AI off: built from the official reports only. A code template wrote the text; code writes every time, id and hash.'
-    : 'Model-written body; times, ids and hashes are written by code.'));
+    ? 'AI off: built from the official reports only. A code template wrote the text. Code writes every time, id and hash.'
+    : 'Model-written body. Times, ids and hashes are written by code.'));
   const notes = (adv.validation_notes || []).filter((n) => typeof n === 'string');
   if (notes.length) {
     const careful = needsCarefulRead(adv);
@@ -508,7 +508,7 @@ function reviewView(adv) {
     // The policy this draft was made under, which can differ from the one in force now.
     adv.policy_version ? row('Operator policy', [
       el('span', { class: 'mono', text: `${adv.policy_id} v${adv.policy_version}${adv.policy_hash ? ` #${adv.policy_hash}` : ''}` }),
-      fine('Illustrative values, not an airline SRA; not reviewed by an airline dispatcher')]) : null,
+      fine('Illustrative values, not an airline SRA, and not reviewed by an airline dispatcher')]) : null,
     // The disclosure's own summary names these rows, so their labels are for screen readers only.
     row('Header', el('details', { class: 'disclose' },
       el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: 'Advisory header (written by code)' })),

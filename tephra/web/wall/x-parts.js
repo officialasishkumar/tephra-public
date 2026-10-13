@@ -3,7 +3,7 @@
 // Every string goes in through el() (textContent); AI-written text carries a short mark whose
 // model id sits in its title and label, never in the visible text.
 
-import { el, icon, hhmmz } from "./util.js";
+import { el, icon, ms, hhmmz, hhmmssz } from "./util.js";
 
 // The mark set (docs/UI-AI-QUIET.md Q5): "AI-written", "AI-read", "AI-chosen", and "Code (AI off)"
 // when no model wrote it. Only for content a model actually produced (a model id, and an outcome
@@ -22,7 +22,7 @@ export function aiMark(modelId, label, verb = "AI-written") {
 // failures, Duty Officer run and budget.
 
 export const HELPER_NAME = {
-  duty: "Duty Officer", plume: "Plume Reader", sat: "Satellite reader", planner: "Planner", drafter: "Drafter", ask: "Ask",
+  duty: "Duty Officer", plume: "Plume Reader", sat: "Satellite reader", planner: "Flight planner", drafter: "Drafter", ask: "Ask",
   notice: "Notice reader", recovery: "Recovery planner", messages: "Messages", docs: "Paperwork drafter",
 };
 const HELPER_KEY = {
@@ -74,6 +74,20 @@ const liteModel = (budget) => {
   const models = Array.isArray(budget?.models) ? budget.models : [];
   return (tier && models.find((m) => m.model_id === tier.model_id)) || models.find((m) => /every other/i.test(m.jobs || "")) || null;
 };
+
+// Trace stages an AI helper writes (the roster in wall/board.js).
+const AI_STAGES = new Set(["DUTY", "PLUME", "SATELLITE", "PLANNER", "DRAFTER", "RECOVERY", "DOCS", "NOTICE", "ASK", "MESSAGES"]);
+
+// The AI steps that failed in a trace, as aiStateOf takes them. A recovery step code ran and lost
+// (no schedule, an exception, actor "system") is a data failure, not an AI one: it keeps the red
+// story line (storyFailures) and its own words.
+export function aiErrorsOf(trace) {
+  return (trace || []).filter((t) => t.level === "error" && AI_STAGES.has(t.stage) && !(t.stage === "RECOVERY" && t.actor === "system"))
+    .map((t) => ({ stage: t.stage, reason: t.message, at: ms(t.at), raw: `${hhmmssz(ms(t.at))} · ${t.stage} · ${t.message}`, src: t }));
+}
+
+// The newest airport plan that a newer one has not replaced.
+export const newestPlan = (plans) => (plans || []).slice().sort((a, b) => ms(b.created_at) - ms(a.created_at)).find((p) => p.status !== "SUPERSEDED") || null;
 
 // errors: [{ stage, reason, at (ms), raw }]. plan: the newest airport plan. duty: the newest run.
 // `replay`: the page plays a recording. The reset time is on the real clock, so in REPLAY it says
@@ -153,7 +167,7 @@ export function causeShort(c) {
 // chip opens. `narrow` (420 px and less) drops the time and the "on".
 export function aiWords(s, { home = "AI helpers", opens = "Details, AI helpers", narrow = false } = {}) {
   const never = "AI can widen TEPHRA's estimate, never shrink the official area.";
-  if (s.kind === "off") return { label: "AI off", suffix: null, tone: "off", aria: `AI off, code only. Opens ${opens}.`, title: "AI off: no model is connected. Code does every step; code templates write the text." };
+  if (s.kind === "off") return { label: "AI off", suffix: null, tone: "off", aria: `AI off, code only. Opens ${opens}.`, title: "AI off: no model is connected. Code does every step, and code templates write the text." };
   if (s.kind === "paused") {
     const u = s.until ? ` until ${s.until}` : "";
     return { label: "AI paused", suffix: !narrow && s.until ? s.until : null, tone: "caution",
@@ -162,7 +176,7 @@ export function aiWords(s, { home = "AI helpers", opens = "Details, AI helpers",
   }
   if (s.kind === "trouble") {
     const n = s.trouble.length;
-    const list = s.trouble.map(causeShort).join("; ");
+    const list = s.trouble.map(causeShort).join(". ");
     return { label: narrow ? "AI" : "AI on", suffix: problems(n), tone: "caution",
       aria: `AI on, ${problems(n)}: ${list}. Opens ${opens}.`,
       title: `AI on, ${problems(n)}: ${list}. Nothing was put in their place. ${never} Open ${home} for the details.` };
@@ -175,11 +189,11 @@ export function aiLead(s) {
   const at = (t) => (Number.isFinite(t) ? ` at ${hhmmz(t)}` : "");
   const causeLine = (c) => `${causeShort(c)}${at(c.last)}. ${c.consequence}.`;
   const lines = (list) => `${list.map(causeLine).join(" ")} Nothing was put in their place.`;
-  if (s.kind === "off") return [{ strong: "AI off.", text: "No model is connected. Code does every step; code templates write the text." }];
+  if (s.kind === "off") return [{ strong: "AI off.", text: "No model is connected. Code does every step, and code templates write the text." }];
   if (s.kind === "on") return [{ strong: "AI on.", text: "It can widen TEPHRA's estimate, never shrink the official area. AI-written parts are marked." }];
   if (s.kind === "trouble") return [{ strong: `AI on, ${problems(s.trouble.length)}.`, text: lines(s.trouble) }];
   const n = s.waiting.length;
-  const jobs = n ? `Queued work (${n} job${n === 1 ? "" : "s"}) ${s.until ? "runs then" : "waits"}, on the same model; nothing is dropped or handed to another model. ` : "";
+  const jobs = n ? `Queued work (${n} job${n === 1 ? "" : "s"}) ${s.until ? "runs then" : "waits"}, on the same model. Nothing is dropped or handed to another model. ` : "";
   const out = [{ strong: s.until ? `AI paused until ${s.until}.` : "AI paused.",
     text: `${s.until ? "Google reported today's free AI quota used up." : "Today's free AI quota was used up."} ${jobs}Until then, code still checks every flight against the official area, and nothing is made up in place of an AI step. Flights that need a plan are on the Desk to plan by hand.` }];
   if (s.trouble.length) out.push({ strong: "Also:", text: lines(s.trouble) });
@@ -324,8 +338,8 @@ const PLAIN = [
   [/^disruption: \{/, () => "Recovery planner was given the closed airports and the day's flights"],
   [/^run_scenario: \{.*"label":"([^"]+)".*?"status":"([A-Z_]+)"/, (m) => `Recovery planner tried a scenario: ${m[1].toLowerCase()} (${m[2].toLowerCase().replace(/_/g, " ")})`],
   [/^(.+): (LAG|ENVELOPE|HEIGHT_MISMATCH|DIRECTION_MISMATCH|SILENCE|CONFLICT) - /, (m) => `${m[1]}: ${DIFF_WORDS[m[2]]}`],
-  [/^AI UNAVAILABLE: RECOVERY AGENT ERROR: TimeoutError\b/, () => "Recovery planner did not run: AI unavailable (timed out). No plan was made; a dispatcher must plan the network."],
-  [/^AI UNAVAILABLE: RECOVERY AGENT ERROR: (\w+)/, (m) => `Recovery planner did not run: AI unavailable (the AI stopped with an error, ${m[1]}). No plan was made; a dispatcher must plan the network.`],
+  [/^AI UNAVAILABLE: RECOVERY AGENT ERROR: TimeoutError\b/, () => "Recovery planner: AI unavailable (timed out). No plan was made, so a dispatcher must plan the network."],
+  [/^AI UNAVAILABLE: RECOVERY AGENT ERROR: (\w+)/, (m) => `Recovery planner: AI unavailable (the AI stopped with an error, ${m[1]}). No plan was made, so a dispatcher must plan the network.`],
   // Any other code-template line: say who wrote it in words, keep the rest as written.
   [/^NO MODEL: (.+)$/, (m) => `Written by code (AI off): ${/[a-z]/.test(m[1]) ? m[1] : m[1].charAt(0) + m[1].slice(1).toLowerCase()}`],
   [/^AI UNAVAILABLE: NO FEASIBLE PLAN FOR THE PUBLISHED CLOSURE \((\w+)\).*$/, (m) => (m[1] === "UNKNOWN" ? "Airport plan: no plan found (the solver did not finish in time). A dispatcher must plan the network by hand." : `Airport plan: no plan found (solver: ${m[1]}). A dispatcher must plan the network by hand.`)],

@@ -134,7 +134,10 @@ def test_failed_checks_run_is_not_not_run_and_has_no_ai_mark() -> None:
 
 
 def test_recovery_data_failures_stay_red() -> None:
-    """Review H7: a recovery step code could not run (no schedule) is a data failure."""
-    ai_state = _function(_read("wall/ext.js"), "aiState")
-    assert '!(t.stage === "RECOVERY" && t.actor === "system")' in ai_state
+    """Review H7: a recovery step code could not run (no schedule) is a data failure. The Wall's
+    chip (ext.js aiState) and AI at work (board.js) both read the trace through aiErrorsOf."""
+    errors = _function(_read("wall/x-parts.js"), "aiErrorsOf")
+    assert '!(t.stage === "RECOVERY" && t.actor === "system")' in errors
+    assert "aiErrorsOf(store?.trace)" in _function(_read("wall/ext.js"), "aiState")
+    assert "aiErrorsOf(input.trace)" in _read("wall/board.js")
     assert 'key: "recovery-data"' in _function(_read("wall/story.js"), "storyFailures")

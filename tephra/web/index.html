@@ -53,7 +53,7 @@
       </label>
     </div>
     <div class="cmdbar__spacer"></div>
-    <button id="ai-chip" class="ai-chip is-pending" type="button" aria-label="AI helpers, connecting">
+    <button id="ai-chip" class="ai-chip is-pending" type="button" aria-label="AI at work, connecting" aria-haspopup="dialog" aria-keyshortcuts="A">
       <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-model"></use></svg>
       <span id="model-chip" class="model-chip">AI ·</span>
       <span class="ai-chip__fail" hidden></span>
@@ -207,6 +207,23 @@
       </button>
     </div>
     <div id="dlg-body" class="dlg__body"></div>
+  </dialog>
+
+  <!-- AI at work (UI-DESIGN 7.21): a full overlay over the Wall, built by wall/board-view.js -->
+  <dialog id="board" class="board" aria-labelledby="board-title" aria-describedby="board-lede">
+    <div class="board__head">
+      <div class="board__titlebar">
+        <div class="board__titles">
+          <h2 id="board-title" class="board__title" tabindex="-1">AI at work</h2>
+          <p id="board-lede" class="board__lede">The Duty Officer hands the AI work to six specialist helpers. A dispatcher decides on everything they make.</p>
+        </div>
+        <button type="button" class="dlg__close" data-act="board-close" aria-label="Close AI at work">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-x"></use></svg>
+        </button>
+      </div>
+      <div id="board-status" class="board__status"></div>
+    </div>
+    <div id="board-body" class="board__body"></div>
   </dialog>
 </body>
 </html>

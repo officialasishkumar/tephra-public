@@ -231,10 +231,10 @@ function factRow(dl, k, val) {
 // What the area does now, in one line: the record's facts say the rest (no second paragraph).
 function effectLine(v) {
   const r = v.report;
-  if (v.state === 'WITHDRAWN') return `Withdrawn by ${who(r.withdrawn_by)} at ${hhmmz(r.withdrawn_at)}: ${r.withdraw_reason || 'no reason recorded'}. Its area no longer flags any flight; the report and its audit entries are kept.`;
+  if (v.state === 'WITHDRAWN') return `Withdrawn by ${who(r.withdrawn_by)} at ${hhmmz(r.withdrawn_at)}: ${r.withdraw_reason || 'no reason recorded'}. Its area no longer flags any flight. The report and its audit entries are kept.`;
   if (v.state === 'EXPIRED') return 'Expired: the area no longer flags any flight. A new report draws a new area.';
   if (v.state === 'NO_AREA') return 'Recorded with its audit entry. No caution area was drawn, and nothing was removed or shortened.';
-  return `${CREW_LABEL}. It flags flights whose projected track crosses it; it never shrinks or replaces an official area.`;
+  return `${CREW_LABEL}. It flags flights whose projected track crosses it. It never shrinks or replaces an official area.`;
 }
 
 function reportBody(v, note) {
@@ -426,7 +426,7 @@ export function openCrewForm({ hex = null } = {}) {
   const flFrom = el('input', { id: 'crew-fl-from', class: 'field crewmono crewfl', type: 'text', inputmode: 'numeric', maxlength: '3', autocomplete: 'off', placeholder: '350', 'aria-describedby': 'crew-level-hint crew-level-msg' });
   const flTo = el('input', { id: 'crew-fl-to', class: 'field crewmono crewfl', type: 'text', inputmode: 'numeric', maxlength: '3', autocomplete: 'off', 'aria-label': 'Top of the band, flight level (optional)', 'aria-describedby': 'crew-level-hint crew-level-msg' });
   const margin = value('level_margin_ft');
-  const levelHint = el('p', { id: 'crew-level-hint', class: 'fine', text: `The level the crew gave; fill the second box only for a band.${margin ? ` The area spans it ${margin.toLocaleString('en')} ft above and below.` : ''} A report with no level is refused: TEPHRA never invents one.` });
+  const levelHint = el('p', { id: 'crew-level-hint', class: 'fine', text: `The level the crew gave. Fill the second box only for a band.${margin ? ` The area spans it ${margin.toLocaleString('en')} ft above and below.` : ''} A report with no level is refused: TEPHRA never invents one.` });
 
   // Observed at (UTC), on the active clock: today or yesterday, HHMM.
   const now0 = activeNow();
@@ -602,7 +602,7 @@ export function openCrewForm({ hex = null } = {}) {
     const from = flFrom.value.trim();
     const to = flTo.value.trim();
     if (!from) {
-      fieldError('level', 'A crew report needs the reported flight level or band; TEPHRA never invents one.', flFrom);
+      fieldError('level', 'A crew report needs the reported flight level or band. TEPHRA never invents one.', flFrom);
       local.push(flFrom);
     } else if (!/^\d{1,3}$/.test(from) || (to && !/^\d{1,3}$/.test(to))) {
       fieldError('level', 'Flight levels are numbers, such as 350 for FL350.', flFrom);
@@ -698,7 +698,7 @@ function recorded(v, sheet) {
   another.addEventListener('click', () => openCrewForm());
   showReport(sheet, v, el('div', { class: 'stack' },
     el('div', { class: 'banner banner--approved', role: 'status' }, icon('i-check', 'st'),
-      el('p', { text: `Recorded under ${app.me ? app.me.name : 'your name'} at ${hhmmz(r.created_at)}. The Wall shows it now; the audit log has the entry.` })),
+      el('p', { text: `Recorded under ${app.me ? app.me.name : 'your name'} at ${hhmmz(r.created_at)}. The Wall shows it now, and the audit log has the entry.` })),
     another));
 }
 

@@ -7,7 +7,12 @@ source and full rationale is `docs/UI-REDESIGN.md`, and the sections below descr
 built from it (the Desk in 4.5-4.7 and 10.1-10.14). Version 3.1 (12 Oct 2026) adds crew (pilot)
 reports of ash: the map layer (5.7), the story lines (7.6), Details › Crew reports of ash (7.20),
 the flag in This flight (7.8) and, on the Desk, the "Report ash from a crew" form, the line on
-affected drafts and the reason box (10.15). The backend is MODULES.md 5.19.
+affected drafts and the reason box (10.15). The backend is MODULES.md 5.19. Version 3.2 (13 Oct
+2026) adds AI at work (7.21), the full overlay that shows the Duty Officer handing work to the
+specialist helpers and a dispatcher deciding at the end, redesigns the Operator policy dialog
+(7.18), and redesigns the Desk (10.16): one honesty band, Plan by hand as a summary and a list,
+and a right pane that is never an empty box. Every AI word on both pages comes from
+docs/UI-AI-QUIET.md (`aiStateOf()`), which wins where this document differs.
 
 What this covers: the Wall (`/`, `index.html` + `wall.js` + `wall/*.js` + `wall.css`) and the Desk
 (`/desk`, `desk.html` + `desk.js` + `desk.css`). Shared assets that already exist and must be
@@ -407,13 +412,11 @@ is in Details.
 
 ```
 ┌ sticky header ─────────────────────────────────┐
-│ TEPHRA  [AI: off] [AI 0/450] ● Connected  (AK) │ 48
-│ REPLAY: recorded real feeds from 05 Sep 2026   │ 28 (REPLAY only)
-│ Decision support only - fictional airline -    │
-│ not for operational use                        │ 32
+│ TEPHRA      [AI paused]  ● Connected      (AK) │ 48
+│ REPLAY: recorded real feeds from 05 Sep 2026   │ one band, 40
+│ Decision support only - fictional airline - …  │ (REPLAY line only in REPLAY)
 ├────────────────────────────────────────────────┤
 │ Decide                                     ⋯   │
-│ [problems to acknowledge, red, when any]       │
 │ ┌ NEXT DECISION ─────────────────────────────┐ │
 │ │ 1 of 23 advisories · most urgent first     │ │
 │ │ 23 advisories · 3 messages · 2 problems    │ │ (only when it adds to the line above)
@@ -426,6 +429,10 @@ is in Details.
 │ │ 7 sources · newest 3 min ago               │ │
 │ │ [ Review RFA1225 › ]                       │ │ neutral filled, 48
 │ └────────────────────────────────────────────┘ │
+│ ┃ ⚠ Plan by hand · 23 flights         Why ›    │ │ when any (10.16), caution
+│ ┃ No AI plan for these flights: AI paused …  │ │
+│ ┃ 12 inside the ash now · 11 heading in      │ │
+│ ┃ [ Show the 23 flights › ]                  │ │
 │ 22 more waiting                                │
 │ RFA1530   inside now                      ⚠ ›  │ 52, two lines
 │           Keep watching                        │
@@ -441,9 +448,9 @@ is in Details.
 ```
 
 - Gutters 16. Max content width 600 (centred above 632 px). Header sticky, `--c-surface-1`,
-  bottom hairline. On a phone the model chip reads "AI: off" (the full "AI: off · code only" is its
-  `aria-label` and shows from 521 px), the budget chip "AI 0/450" (full words from 761 px), and the
-  connection is always a word.
+  bottom hairline. On a phone the AI chip reads "AI on", "AI off", "AI paused" or "AI · 1
+  problem" (the time is in its `aria-label` and shows above 420 px), and the connection is always
+  a word.
 - One primary thing: the Next decision card (`--c-surface-2`, radius 12, padding 16, the only
   filled button on the tab). The other drafts are one-line rows (hairlines, no boxes).
 - Review sheet: full screen under the page header, its own sticky header ("‹ Decide", "Review
@@ -459,15 +466,18 @@ to the bar height).
 
 ### 4.7 Desk at 1440x900
 
-Header full width: row 1 (48) brand left, then "AI: off · code only", "AI calls today: 0 of 450",
-"Connected" and the account button; the REPLAY bar (28) and the disclaimer row (24) under it, full
-width; the tab bar (48, four 148 px tabs with icon, word and badge) under the header. Below: two
+Header full width: row 1 (48) brand left, then the AI chip ("AI paused · 0700Z real time",
+10.16), "Connected" and the account button; one honesty band (28) under it with the REPLAY words
+on the left and the disclaimer on the right; the tab bar (48, four 148 px tabs with icon, word and
+badge) under the header. Below: two
 panes inside a 1280 max-width frame: Decide 420 wide on the left (the Next decision card, then the
 compact rows; the selected row is outlined in `--c-line-input` with a 3 px left bar, and the Next
 decision's button gets a ring when its draft is the one in the pane), the review pane on the right
 (fluid, max 760) with "Why this advisory" open and the action bar at the pane's bottom. The most
-urgent draft is selected on load. `.sheet-idle` ("Choose an advisory to review") shows while
-nothing is selected. Ask, Airports and Paperwork are one centred column, max 880.
+urgent draft is selected on load. With no draft, the right pane holds the flights to plan by
+hand (`#fail-pane`, 10.16) when there are any, else the idle pane (`#idle-pane`): what the Desk
+waits for and where the other work is. Ask, Airports and Paperwork are one centred column, max
+880.
 
 ## 5. Map symbology
 
@@ -789,10 +799,12 @@ R17.2). Left to right:
    ash" in All volcanoes, so the picker and the story never disagree. Before the server's first
    tick an area with nothing yet reads "· reading…", never "· none".
 4. Spacer.
-5. AI chip `#ai-chip` (button) with `#model-chip` as its text: the AI's one state, "AI on", "AI
+5. AI chip `#ai-chip` (button) with `#model-chip` as its text: the AI's one state from
+   `aiStateOf()` (`wall/x-parts.js`, shared with the Desk and AI at work), "AI on", "AI
    paused · 0700Z", "AI on · 1 problem" or "AI off" ("AI paused", "AI · 1 problem" at 420 px and
    less), never red and never a count of failed steps or a model id (docs/UI-AI-QUIET.md). It
-   opens Details › AI helpers, the AI's home.
+   opens AI at work (7.21), as A does, which leads with the same words and links to Details › AI
+   helpers, the record of models, calls and causes.
 6. Data chip `#feeds-chip`: "Data: 6 working · 5 off", worst first ("Data: 1 error · 5 working ·
    5 off", serious shape and border; "2 stale" in caution); "ok" for "working" below 1360 px. It
    opens Details › Data feeds.
@@ -1086,10 +1098,62 @@ replaces L1); empty area and nothing active (7.6); 3D and compare (8.1, 8.2).
 
 ### 7.18 Operator policy
 
-Summary first (R9.3): "Policy A (illustrative): avoid every official ash area, with 2,000 ft above
-and below. Not reviewed by an airline." (the margin from `exposure.vertical_margin_ft`), the
-policy id, version, risk owner, SRA and hash, then folded: the full summary text, "Show all n
-values" (every block that has values, grouped), the source-trust order, the citations.
+Redesigned 13 Oct 2026 (`wall/policy.js`, opened by "Policy A (illustrative)" in the footer and
+from About). The old dialog led with a run of metadata joined by " · ", listed all values at once
+under raw keys (`exposure.vertical_margin_ft`), let "2000" wrap away from "ft", ran each reason and
+its citations into one paragraph, and left out the five crew report values (43 of 48 shown).
+
+What it follows: progressive disclosure (Nielsen Norman Group, "Progressive Disclosure": show the
+few things most people need first, keep the rest one clear step away, and no more than two
+levels), and the WAI-ARIA tabs pattern (w3.org/WAI/ARIA/apg/patterns/tabs: a labelled `tablist`,
+`aria-selected` and `aria-controls` on each tab, a `tabpanel` labelled by its tab, arrow keys,
+Home and End between tabs, activation on focus because the panels show at once, `tabindex="0"`
+on a panel whose first element is not focusable).
+
+Four tabs, sticky at the top of the dialog body: Overview, Values (48), Sources (10), Trust order
+(3).
+- Overview: the sentence "Policy A: avoid every official ash area, with 2,000 ft above and below."
+  (the margin from `exposure.vertical_margin_ft`); three chips: the status ("Illustrative, not an
+  airline SRA", caution outline), "Version 2026.10.9", "Risk owner Flight Operations"; one line
+  that it is an example no airline has reviewed; "The values that shape most advice" as six tiles
+  (margin above and below the ash, distance kept from the ash, divert and hold times, the airport
+  closure radius, the crew report radius), each opening that value in Values; "All 48 values ›";
+  then two disclosures: "What the policy says in full" (the summary text and its three source
+  chips) and "About this policy" (name, policy id, version, status, risk owner, safety risk
+  assessment, the full content hash with its first 12 characters, the part every advisory
+  records, in bold).
+- Values: "Find a value" (filters by name, setting, value, reason and source; "12 of 48 values";
+  "No value matches" with a hint), then the nine sections in reading order (Height margin, Flight
+  plans, Reroutes, Alternate airports, Crew reports of ash, Airport plan, Fuel, Drafts, Duty
+  Officer), each with one line on what its values decide. A row is a name a person reads and the
+  value with its unit ("Distance kept from the ash · 20 NM", "Highest level proposed · FL410",
+  "Width of a proposed level band · 20 FL (2,000 ft)", "Longest delay before cancelling · 360 min
+  (6 h)", "$1,500"; a no-break space keeps a number with its unit). Opening a row (one at a time
+  per section) shows the reason, the source chips (each opens its citation in Sources) and
+  "Setting `exposure.vertical_margin_ft` · 2000 ft" for traceability. A block the page does not
+  know yet still shows, under a heading made from its name.
+- Sources: one card per citation: the full reference, the quotation exactly as published, "Used
+  by" (the values, the policy text and the trust-order rules that cite it) and "Open the source".
+- Trust order: the three rules, numbered, each with "Operator choice (illustrative)", "Applied by"
+  and the code it names, and its source chip; above them the line that this is an operator choice
+  under ICAO Doc 9974 2.4(d).
+
+Words. The page shows the policy file's own words and changes none of their meaning: a reason
+that opens "TEPHRA illustrative choice:" shows that as a tag and the rest as written; a
+semicolon in a reason, the policy text or a trust-order rule is shown as a full stop with the next
+word capitalised. The file itself is unchanged (version 2026.10.9, hash `51826941aff3`), so the
+hash every advisory records stays the same. Quotations of the sources keep their own punctuation,
+semicolons included, inside quotation marks.
+
+Where each old piece went: the header's name, version, label, risk owner, SRA and hash → the
+status and version chips and "About this policy"; the raw key → the row's name, and the key under
+"Setting" in the open row; "2000 ft" → "2,000 ft" on one line; "Why this value" → the open row's
+reason; its inline citation refs → source chips and the Sources tab; "Show all 43 values" → the
+Values tab, now with all 48; "What the policy says in full" → the same disclosure on Overview;
+"Source-trust order" → the Trust order tab; "Citations (n)" → the Sources tab. The Desk shows no
+policy dialog (a draft's review shows only the policy id, version and hash it was made under), so
+nothing changed there. `tests/test_wall_policy.py` checks that every value is shown once with a
+readable name, the unit formats and that no reason keeps a semicolon.
 
 ### 7.19 The Details drawer
 
@@ -1139,6 +1203,133 @@ map" and "Open on the Desk ›" (`/desk#crew/<id>`); "Technical detail" with the
 wind and covered-by ids and the policy. The section ends with "Report ash from a crew on the
 Desk ›" (`/desk#crew-report`). The drawer's volcano picker is hidden here: the list is the same
 for every volcano. The Wall is read-only: entering, withdrawing and the message are on the Desk.
+
+### 7.21 AI at work
+
+A full overlay (`<dialog id="board">`, `wall/board.js` for the logic, `wall/board-view.js` for the
+page) that shows the AI as a team with a person in charge: public feeds, then the Duty Officer,
+then the six specialists it hands work to (Plume Reader, Satellite reader, Flight planner, Drafter,
+Recovery planner, Paperwork drafter), then "A dispatcher decides" at the Desk. Opened by the AI
+chip, by "See the AI at work ›" in the story's trust line, by the button at the top of Details ›
+AI helpers, by A, and by the link `/#ai-at-work` (the Desk's "See the AI at work on the Wall";
+the hash is removed once read). It covers the Wall, never adds a column, and leaves the story and
+the map as they are underneath.
+
+Why it exists. Globot, the Gemini 3 grand-prize winner, showed five agent cards with a status and
+a last action, a chain-of-thought panel and a final "Waiting for human approval" step, but its
+reasoning was scripted demo data (research/16, `demo/cot_data.py`, its README's "High-Fidelity
+Mock"). TEPHRA's helpers are real: the Duty Officer hands out jobs and every step is recorded. Until
+this view that was buried in Details › AI helpers. The board makes it readable in about five
+seconds, and it is live and labelled, not scripted.
+
+What it draws on, and what was taken:
+- Sentry's AI Agents dashboards (docs.sentry.io/ai/monitoring/agents/dashboards): agent runs, LLM
+  calls by model and tool calls as separate counts, handoffs between agents as a first-class step,
+  and an abbreviated "AI spans" view with a link to the full trace. Taken: hand-outs drawn as
+  lines, calls counted by model, and a short card with "Every step in How TEPHRA decided ›" as the
+  full trace.
+- Dailybot's live agent dashboard (dailybot.com/academy/product/agents/dashboard): one card per
+  agent with a health word and colour, the time of its last report, summary counts at the top, a
+  card that opens to a timeline. Taken: the summary counts ("4 waiting for AI budget · 1 failed ·
+  1 not run"), the time on every line, the card that opens to its steps.
+- Langfuse's agent graphs (langfuse.com/docs/observability/features/agent-graphs): an aggregated
+  view where a repeated step is one node with a counter. Taken: repeated steps collapse into one
+  line with "14×" (`collapseRuns`).
+- LangGraph's thread states (idle, busy, interrupted, error). Taken as the state words, in plain
+  English: Quiet, Working, Waiting for AI budget or Not run, Failed, plus Done and Queued.
+- Aegis's lesson (research/16: "our first version showed too much reasoning text"): a card opens
+  to at most five short steps, each with its time and source, never a wall of reasoning.
+- Not taken: named personas, a debate panel or a 3D globe (research/16, "what TEPHRA must not look
+  like"). The helpers keep the names the code gives them.
+
+Layout. The columns follow the board's own width (a container query): four from 1640 px (feeds,
+Duty Officer, specialists, Desk), three from 1100 px (the feeds sit above the Duty Officer), one
+below (the cards hang off a trunk line on the left and the Desk comes last). The ends are top
+aligned, so opening a card never moves them. The board is `min(1840px, 100vw - 48px)` by
+`100vh - 48px`; at 600 px and below it is the whole screen. At 1440x900 and 1920x1080 every card
+shows without scrolling in the stub run; with the live site's longer lines the last card needs a
+short scroll at 1440. At 390 px nothing scrolls sideways.
+
+The head stays put: the title "AI at work", one sentence ("The Duty Officer hands the AI work to
+six specialist helpers. A dispatcher decides on everything they make."), the close button, and in
+REPLAY the violet REPLAY band with the case label, so the label is on screen however far the board
+scrolls. The body then has the AI's one state in the AI chip's words ("AI on", "AI off", "AI
+paused · 0700Z real time", `aiWords`, docs/UI-AI-QUIET.md 5.2), its calm lead (5.1) and a link to
+Details › AI helpers, "Not updating since 1048Z" while the stream is lost (the cards dim), and in REPLAY "Times are on the
+replay clock. AI budget times (waiting until, closed until) are real time."; on the right the
+summary counts of the seven cards by state; then the flow; then "How to read this board" and the
+disclaimer.
+
+Each card, from data only:
+- the helper's name and what it does ("Flight planner · Chooses an action for each flight");
+- its state, as shape, colour and word: Working (a spinner, while its work is RUNNING in the AI
+  work queue or a step of its own arrived in the last 6 s), "Waiting until 0700Z" (a clock, caution;
+  its work is WAITING for budget, the full words "Waiting for AI budget, next slot 0700Z" in its
+  title and for screen readers), Queued (a clock, grey), No result (the warning shape, caution: a
+  model was called and gave nothing usable), Not run (a caution dot: no model was called, such as a
+  plume read the Duty Officer could not hand out or a quota refusal), or the helper's own word
+  ("No brief", "No plan"); never the picture's red (docs/UI-AI-QUIET.md Q4),
+  Done, Quiet (nothing in the newest steps the Wall holds; the line says when it runs);
+- its newest result in plain words with its time: its own trace steps (`plainLine`), and its
+  records: the Plume Reader's outcome per volcano from each situation's assessment (STUB,
+  ACCEPTED, REPAIRED, MODEL_FAILED, PENDING, OFFICIAL_ONLY; volcanoes with the same outcome share
+  a line), the newest airport plan, satellite reading, safety risk assessment draft and advisory;
+- the model it calls and the calls today ("gemini-3.5-flash-lite · 1 of 450 calls today, shared";
+  when Google closed the day "1 call today, shared · closed by Google until 0700Z", since the
+  limit means nothing while no call can go, and "used up until 0700Z" when TEPHRA's own budget
+  ran out). Google counts the free tier per model, so the
+  count is the model's and the word "shared" says so; the Plume Reader's model runs nothing else.
+  With the stub: "No model (offline stub): no calls";
+- "Given 24 flights" when the Duty Officer's latest run handed it work ("· 1 failed" when a
+  hand-out failed), and "first-pass answer" (the violet tag, the label in its title) when a REPLAY
+  loop reused the first pass's answer.
+
+The Duty Officer's card adds its latest run as numbers (jobs given, must do, handed out, to the
+Desk, left for later, waiting for AI budget) and one sentence: "Handed out 24 jobs in urgency order
+(AI off).", "Handed out 3 jobs. Its brief passed the code's checks.", "Not run: today's free AI
+quota is used up (until 0700Z real time). No brief was made. Passed 1 must-do job to the Desk." or
+"No brief: AI unavailable (the answer failed the code's checks). Nothing was made up in its
+place." (the words of Details › AI helpers, wall/duty.js OUTCOME). Opened, it shows the run's steps and its brief with the AI-written mark.
+
+Opening a card (a button with `aria-expanded`, one card open at a time) shows at most five steps,
+newest first, the queue first: each with its shape, its words, its time and where it came from
+(How TEPHRA decided, AI work queue, Duty Officer run, TEPHRA's estimate, Airport plan, Satellite
+reading, Paperwork, Advisories), "14×" for a repeated step, then "Every step in How TEPHRA decided
+›" (and "The full run in Details ›" for the Duty Officer), which close the board and open that
+Details section.
+
+The lines (SVG, measured from the cards after each build and on every resize, with the old drawing
+removed first so a narrower window never keeps the wider drawing and scrolls sideways): from the
+feeds into
+the Duty Officer; from the Duty Officer to each specialist, solid when its latest run handed that
+helper work, caution (amber) when a hand-out failed, dashed when it did not; from the Drafter, the Recovery
+planner and the Paperwork drafter into the Desk, solid while that helper has work waiting there. A
+hand-out arriving on the stream ("Duty Officer -> plan_flights: ...") lights its line for 6 s:
+brighter, thicker, a dash that marches four times (no march under reduced motion), and the card's
+border brightens. The lines are decoration; each card says the same in words.
+
+The Desk node: the big number is `state.draft_count` ("23 advisories wait for a dispatcher";
+"Advisory count unknown (database error)" when null), then, when true: "1 airport plan waits for
+approval", "No airport plan was made: a dispatcher plans the network by hand", "4 safety risk
+assessment drafts wait for sign-off" (this mode's SRA drafts in `/api/docs`, kept live by the `doc`
+event), "1 must-do flight passed to a dispatcher by the latest Duty Officer run, to handle by
+hand"; the filled "Open the Desk →" (`/desk`, new tab); "Nothing leaves TEPHRA until a dispatcher
+approves it, and then only to its own outbound queue."; and "On call at the Desk, when a dispatcher
+asks": Notice reader, Ask, Messages, Handover, each with its state.
+
+States: before the first `/api/wall` answer the board shows "Connecting to TEPHRA…" and three
+skeleton bars; a budget that did not load reads "Calls today: unknown, the AI budget did not
+load" on each card; no Duty Officer run yet reads "No run yet. It runs when code finds AI work due:
+…"; a quiet helper says what makes it run. Live updates come from the Wall's own stream and polls:
+the board is rebuilt only when what it shows changes, keeps its scroll, and keeps focus on the
+same control (`data-focus`), so a tick never moves the reader.
+
+Accessibility: a native modal dialog (the page behind is inert, Tab stays inside), focus moves to
+the title on open, Esc, the close button or a click on the dimmed page closes it and focus returns
+to the control that opened it; the cards are buttons with `aria-expanded` and `aria-controls`;
+the steps are a labelled region; every state has a shape, a colour and a word; the summary
+counts are also one polite status sentence; the lines are `aria-hidden` and each card carries the
+same fact in words; forced colours draw the lines in `CanvasText` (live in `Highlight`).
 
 ## 8. 3D, compare, the time bar and the height filter
 
@@ -1214,6 +1405,7 @@ too, and controls carry `aria-keyshortcuts`.
 | `T` | Details › How TEPHRA decided |
 | `H` | Details › Height filter, focus on the top thumb |
 | `P` | Presentation layout (keeps Details closed) |
+| `A` | AI at work (7.21) |
 | `?` | Help |
 | `Esc` | Close the dialog or menu → the section → the Details index → close Details → collapse History → clear the picked flight → leave compare → leave 3D |
 
@@ -1233,24 +1425,24 @@ decision sends the `version` the dispatcher saw.
 
 ### 10.1 Header (always)
 
-Row 1 (48): "TEPHRA" (700, letter-spaced) + "Desk" (text-3, hidden at 430 px and under); the model
-chip `#model-chip` "AI: off · code only" (dashed, `i-code`) or "AI: on · {state.llm.label}"
-(`i-model`), with the exact label and the old sentence ("NO MODEL: official products only…") in
-its title; the budget chip `#budget-chip` "AI calls today: 0 of 450" (phone "AI 0/450", the
-`aria-label` always full; it opens the per-tier budget sheet); the connection `#conn`, always a
-word with its shape: `st-ok` "Connected" (not "Live", which under the REPLAY bar would read as
-live data), `st-stale` "Reconnecting…", `st-serious` "Offline", `st-never` "Connecting…"; the
-account button (initials in a 32 px circle, menu: "Signed in as AK · session ends 1830Z",
-"Display: LIVE" with "Change display…" (10.10), and "Sign out"). Row 2 (REPLAY only, 28): violet
-bar `i-replay` + `state.replay.banner`. Row 3: the disclaimer, 12 px semibold text-1, wraps,
-never truncates. `#net-banner` (offline, back online) under it. `state` is read from `GET
-/api/state` at start and from `state` events; until then the static HTML disclaimer is shown.
+Row 1 (48): "TEPHRA" (700, letter-spaced) + "Desk" (text-3, hidden at 430 px and under); the AI
+chip `#budget-chip` with `#model-chip` as its label (10.16, docs/UI-AI-QUIET.md K78): "AI on",
+"AI paused · 0700Z real time", "AI on · 1 problem" or "AI off", never red, which opens the "AI
+today" sheet; the connection `#conn`, always a word with its shape: `st-ok` "Connected" (not
+"Live", which under the REPLAY bar would read as live data), `st-stale` "Reconnecting…",
+`st-serious` "Offline", `st-never` "Connecting…"; the account button (initials in a 32 px circle,
+menu: "Signed in as AK · session ends 1830Z", "Display: LIVE" with "Change display…" (10.10), and
+"Sign out"). Row 2, the honesty band (`.honesty`): in REPLAY the violet band with `i-replay` +
+`state.replay.banner` on the left and the disclaimer on the right (12 px semibold text-1, wraps,
+never truncates); live, the disclaimer alone. On a phone the two wrap to two short lines in the
+one band. `#net-banner` (offline, back online) under it. `state` is read from `GET /api/state`
+at start and from `state` events; until then the static HTML disclaimer is shown.
 
 Tabs `#tabbar` (R10.2): Decide, Ask, Airports, Paperwork, each an icon and a word with a 12 px
 count badge. The `data-tab` keys `queue`, `ask`, `network`, `docs` and the `sessionStorage` key
-`tephra.desk.tab` are unchanged. Decide's badge counts advisories + messages + open problems, and
-its `aria-label` and title say so ("Decide, 28 waiting: 23 advisories · 3 messages · 2 problems to
-acknowledge"); Airports counts plans waiting; Paperwork counts documents to sign.
+`tephra.desk.tab` are unchanged. Decide's badge counts advisories + messages + flights to plan
+by hand, and its `aria-label` and title say so ("Decide, 28 waiting: 23 advisories · 3 messages ·
+2 flights to plan by hand"); Airports counts plans waiting; Paperwork counts documents to sign.
 
 ### 10.2 Sign-in
 
@@ -1274,11 +1466,9 @@ Title "Decide" (`#q-title`, 24) and a ⋯ button (`#q-more-btn`, `aria-label="Mo
 refresh on every `advisory` event stay. Sort: inside now first, then entry time, then
 `created_at`. In order:
 
-1. `#fail-section` "Problems to acknowledge" (red, count): AI failures, each with "Mark handled…".
-   Failures are never folded, so they sit above the Next decision.
-2. The Next decision card (`section.next`): eyebrow "NEXT DECISION" (`#drafts-title`), "1 of 23
+1. The Next decision card (`section.next`): eyebrow "NEXT DECISION" (`#drafts-title`), "1 of 23
    advisories · most urgent first" (`#q-count`), the breakdown "23 advisories · 3 messages · 2
-   problems to acknowledge" (`#q-breakdown`, shown only when there are messages or problems), then
+   flights to plan by hand" (`#q-breakdown`, shown only with drafts and messages or hand work), then
    the draft in `#q-next`: flight (24 600) and "proxy for GIA616 · A320"; the entry pill (shape +
    words: "Inside the ash now", "Enters in 12 min (est.)", "Entry was due 3 min ago (est.)"); the
    action in plain words with the ICAO word in brackets (20 600, 11.7); "Anak Krakatau · ash
@@ -1299,6 +1489,9 @@ refresh on every `advisory` event stay. Sort: inside now first, then entry time,
      text, writer line and sources line are hidden (they are in the pane), and the "Review" button
      is hidden when the pane already shows this draft. One advisory is never shown twice at equal
      weight.
+2. `#fail-section`, when the AI left flights to a person: the Plan by hand card (10.16) with the
+   cause once, the counts and "Show the 23 flights". It is never folded. The list opens in the
+   right pane at 1100 px and up and as its own view on a phone.
 3. "{22} more waiting" (`#more-title`) and `#cards`: one row per other draft, two lines: flight |
    "inside now" / "enters in 9 min" over "Keep watching" | a caution mark: its shape and a short
    word ("crew report", "16 min old", "sources stale", "read carefully", "hypothesis", "+1" for more; the full
@@ -1313,15 +1506,18 @@ refresh on every `advisory` event stay. Sort: inside now first, then entry time,
    summary, "Do first" (priorities with "Must do" tags; with AI off the code reason is said once in
    the heading, "Do first · in urgency order (AI off)", not under every item), "Watch", "Delegated
    to", "Deferred", and under "Technical detail" the run line (model, turns, offered, trigger, time)
-   and the raw stub text. Must-do items the Duty Officer did not
-   hand out are a failure: that red box stays visible while the brief is folded, and the line
-   reads "Duty Officer (AI off): 1 must-do item not handed out".
+   and the raw stub text. Must-do flights the Duty Officer did not hand out carry "Must do" in
+   Plan by hand; any other must-do work stays in a caution box here (UI-AI-QUIET K92). A run that
+   did not run reads "Duty Officer: no brief this run · its must-do flights are in Plan by hand"
+   (the cause is said once, in the Plan by hand card).
 5. `#closed` "Decided while this page was open (2)", a collapsed `<details>`.
 6. `.qfoot`: "Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft
    or any real system."
 
 States: loading (skeleton rows), empty ("No drafts waiting." + "A draft appears here when a
-flight's projected track enters TEPHRA's estimated ash area. Last update 16:07:12Z."), error
+flight's projected track enters TEPHRA's estimated ash area. Last update 16:07:12Z.", or, while
+flights wait to be planned by hand, "No drafts to approve." + "23 flights to plan by hand are
+below."; one calm line inside the Next decision box, not a dashed box in a box), error
 ("Can't load drafts." + the reason + "Try again"), offline (10.9), a new draft (announced "New
 draft: RFA4821, HOLD FL250, enters in 12 min").
 
@@ -1656,6 +1852,102 @@ guess.
   does); the others are counted under the Next decision header ("30 replay drafts set aside
   until that replay plays again").
 
+### 10.16 Desk redesign, 13 Oct 2026: Plan by hand, one honesty band, a pane never empty
+
+What was wrong, on the live site (REPLAY, Google had closed the day's free calls of the model
+that plans and drafts): "Problems to acknowledge 50" as 50 near-identical red cards in the 420 px
+column, each repeating the raw reason, "No substitute plan or template was made. Decide this
+flight by hand." and a full-width "Mark handled…", while the Wall said 23 flights; cards stamped
+"left undone at 1143Z" with the replay clock at 1045Z; a huge dashed right pane ("Choose an
+advisory to review") with nothing to review; the REPLAY bar and the disclaimer on two rows;
+trailing separators; raw codes in sentences. The 50 against 23 and the 1143Z were a data bug,
+fixed in the backend (MODULES.md 4.4 and 5.7): a replay plays its recording again on every run,
+failures of earlier runs and builds were never closed, and each new cone made a new failure for
+the same flight. Now a flight has at most one open failure, and a run lists only its own.
+
+This section was merged with docs/UI-AI-QUIET.md (K77-K85), which is the base for every AI word:
+the header chip, the "AI today" sheet and the cause words come from `aiStateOf()` and are never
+red. What this section adds is the layout: a summary and a list instead of 50 cards or a long
+inline group, the list-detail panes and the bulk sheet.
+
+What it follows: the list-detail layout (Android's canonical layouts,
+developer.android.com/develop/ui/compose/layouts/adaptive/canonical-layouts: two panes when the
+window is wide, one at a time on a phone, Back returns to the list), progressive disclosure
+(7.18: the cause once, the flights in a scannable list, each flight's detail one tap away), and a
+bulk action that keeps a person's decision behind every item: nothing is ticked for the
+dispatcher, the confirm button counts what is ticked, and each flight is its own request and
+its own audit entry.
+
+The AI chip (`#budget-chip` with `#model-chip` as its label, `desk/budget.js`): the one state of
+docs/UI-AI-QUIET.md 5.2 ("AI on", "AI paused · 0700Z real time", "AI on · 1 problem", "AI off"),
+caution for paused and trouble, never red. Its sheet, "AI today": the calm lead (UI-AI-QUIET
+5.1), "What went wrong" by cause (each with its count, its times and what the dispatcher does
+instead, the raw lines under Technical detail), "AI work waiting" (each job with "waits for AI
+budget, next slot 0700Z real time"), "Calls today, per model" (what the model does, "1 of 450
+calls" or "Closed", a bar, its state with a shape, the model id in small mono), "How the calls are
+shared" (a disclosure: each lane's calls and the pacing sentence), "See the AI at work on the
+Wall" (opens `/#ai-at-work` in a new tab), the count note and "As of …", in real time.
+
+The honesty band (`.honesty`): the REPLAY words on the left and the disclaimer on the right, one
+violet band, one row from 600 px; on a phone the two wrap to two short lines in the same band
+(about 40 px instead of 58). Live, the disclaimer alone.
+
+Plan by hand (`desk/failures.js`):
+- The card on Decide (`#fail-section`, after the Next decision, UI-AI-QUIET K77), caution with a
+  4 px left bar: "Plan by hand · 23 flights" and "Why ›" (opens AI today); the cause once ("No AI
+  plan for these flights: AI paused until 0700Z real time. Nothing was substituted."), or one line
+  per cause when causes differ; "12 inside the ash now · 11 heading in · 3 must do"; "Show the 23
+  flights ›" (`aria-expanded`, `aria-controls="fail-pane"`; "Showing the flights ✓" while the list
+  is open in the pane).
+- The list (`#fail-pane`): the right pane at 1100 px and up (opened by itself when there is no
+  draft to review), its own view on a phone ("‹ Decide", a history entry, so Back and Esc return
+  to Decide with focus on the card's button). Title "Plan by hand · 23 flights"; the cause panel
+  (caution: the cause once, "Decide each flight by hand, then mark it handled.", the raw reasons
+  under Technical detail); "Mark several handled…" (only with two or more flights); then "Inside
+  the ash now · 12" and "Heading in, soonest first · 11", one row per flight, must-do first: the
+  RFA number (mono), "proxy for GIA616 · A320", "Must do" when the Duty Officer's newest run left
+  it, the entry with its shape ("◉ inside now", "🕑 in 16 min"), "Anak Krakatau · since 1043Z" (and
+  a short cause, such as "AI timed out", only when causes differ), and ›. One open failure per
+  flight: the server keeps one, and the list keeps the newest.
+- One flight (a row): the sheet "Plan RFA1701 by hand": Where, Aircraft (callsign, type, hex),
+  Volcano, Since, What happened ("No AI plan for this flight: AI paused until 0700Z real time.
+  Nothing was put in its place.", "Must do" when listed), the reason as recorded under Technical
+  detail (with the model it would have used, the stage, failure id and cone), the quick notes and
+  the note (optional, 500), and "Mark RFA1701 handled". Focus then goes to the next flight.
+- Several flights: the sheet "Mark flights handled": "Tick each flight you have planned by hand.
+  Each one is saved on its own, with the note below, under your name in the audit log."; "All 23
+  flights" (tri-state) and a ticked list (none ticked to start); the note; "Mark 5 flights
+  handled" ("Tick the flights you handled" while none is). It sends one request per flight
+  ("Saving 3 of 5…"), marks each row "Saved" or "Not saved", and keeps the sheet open with the
+  reasons when any failed.
+- Announcements are one per batch (UI-AI-QUIET K84): "23 flights to plan by hand: AI paused until
+  0700Z real time.", then only the change ("1 more flight to plan by hand."). Code closing a
+  failure (a draft now waits for the flight, it left the area, the replay run ended, a newer
+  failure for it) takes it off the list and is said in the same batch ("RFA1701 no longer needs
+  planning by hand: an advisory draft now waits for it."). Nobody is recorded as handling it.
+
+The right pane when nothing is open in it (`#idle-pane`, 1100 px and up): "Nothing waits for a
+decision" (or "Choose an advisory to review", or "Plan by hand · 23 flights" with "Show the
+flights" in the moment before the list opens), one line on the flights in or heading into the ash
+("25 RFA flights are in or heading into the ash. A draft comes here once the AI has planned each
+one."), the AI today sheet's calm lead, "Also waiting for you" (Airports: an airport plan,
+Paperwork: documents to sign, each a link row), and "See the AI at work on the Wall".
+
+Words: no semicolons in the Desk's own sentences; no trailing separators; no raw codes in
+sentences (they stay under Technical detail).
+
+Before → after, item by item:
+1. 50 red cards repeating the same three lines → one caution card (the cause once) and a list of
+   flights, one 56 px row each, grouped inside the ash and heading in; per-flight detail one tap
+   away; "Mark several handled…" with a ticked list, one audit entry per flight.
+2. 50 failures while the Wall said 23, "left undone at 1143Z" at 1045Z → the backend keeps one
+   open failure per flight and lists only the replay run playing; `/api/duty` the same.
+3. An empty dashed right pane and a cramped left column → the list of flights fills the right
+   pane when there is no draft; otherwise the review, or a useful idle pane.
+4. REPLAY and the disclaimer on two rows → one band.
+5. "Anak Krakatau · left undone at 1143Z ·" → "Anak Krakatau · since 1043Z"; the reason as
+   recorded → the cause in words, the code under Technical detail.
+
 ## 11. Copy deck
 
 Sentence case in prose; caps only for codes, aviation words and small caps labels. Hyphens in
@@ -1667,7 +1959,7 @@ the disclaimer exactly as `state.disclaimer` gives them.
 |---|---|
 | Disclaimer (both pages, always) | `Decision support only - fictional airline - not for operational use` (from `state.disclaimer`; the HTML ships the same text) |
 | REPLAY banner (both pages, whole session) | `state.replay.banner`, e.g. "REPLAY: recorded real feeds from 23 Sep 2026" |
-| Model label (both pages, always) | The AI chip "AI: off · code only" / "AI: on · {state.llm.label}" on both pages (the Desk's `#model-chip`, "AI: off" on a phone with the full words in its `aria-label`), and the Wall story's trust line; the exact `state.llm.label` stays in the chip's title and Details › AI helpers |
+| Model label (both pages, always) | The AI's one state on both pages (`aiStateOf()`, docs/UI-AI-QUIET.md 5.2): "AI on", "AI paused · 0700Z", "AI on · 1 problem", "AI off" (the Wall's AI chip, the Desk's AI chip, AI at work); the model ids are in the Desk's AI today sheet, AI at work and Details › AI helpers |
 | AI marking | "AI-drafted" (advisory body), "AI-written · {model}" (plume reading, satellite limits); with no model the Wall says "Written by code (AI off)" |
 | Every satellite layer | "CONTEXT ONLY · {layer} {time} · not ash detection · Imagery: NASA GIBS · Himawari-9 data: JMA via NOAA" |
 | SO2 layer | "CONTEXT ONLY · SO2 (TROPOMI, daily) {date} · SO2 is not ash; gases not modelled · Imagery: NASA GIBS · Contains modified Copernicus Sentinel data 2026" |
@@ -1777,7 +2069,11 @@ again", "Refresh the lists", "Re-plan now", "Approve plan…", "Write the handov
 | Approved | "Approved: {action} for {proxy} · queued {HHMM}Z under {name}. Not sent to any aircraft." |
 | Edited | "Approved with your edits: {proxy} · both versions are in the audit log." |
 | Rejected | "Rejected: {proxy} · reason recorded." |
-| Empty Decide list | "No drafts waiting." / "A draft appears here when a flight's projected track enters TEPHRA's estimated ash area." |
+| Empty Decide list | "No advisories to review." / "A draft appears here when a flight's projected track enters TEPHRA's estimated ash area." (while the AI is paused: "The AI is paused (back in 6 h 30 min), so no new drafts are written until it is back.") |
+| Plan by hand | "Plan by hand · 23 flights" / "No AI plan for these flights: AI paused until 0700Z real time. Nothing was substituted." |
+| One flight marked handled | "RFA1701 marked handled. Recorded under AK." |
+| Several marked handled | "5 flights marked handled. Each is recorded under AK." / "3 flights saved. Not saved: RFA1890 (it no longer exists)." |
+| Code closed a failure | "RFA1701 no longer needs handling by hand: an advisory draft now waits for it." / "RFA1701 left the list: it is no longer in or heading into the ash." |
 | Deep link, signed out | "Sign in to review {proxy}." |
 | Newer draft while reading | "1 draft is more urgent · Show the most urgent" |
 | No plan (solver) | "No plan found: the solver did not finish in time. A dispatcher must plan the network by hand." |

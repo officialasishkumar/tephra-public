@@ -247,7 +247,7 @@ function breakdownLine() {
   const aside = setAsideCount();
   const other = app.state && app.state.mode === 'REPLAY' ? 'live' : 'replay';
   const note = aside ? `${plural(aside, `${other} draft`)} set aside until ${other === 'live' ? 'live feeds play' : 'that replay plays'} again` : '';
-  return [draftMessages().length || openFailures().length ? breakdownText() : '', note].filter(Boolean).join(' · ');
+  return [draftList().length && (draftMessages().length || openFailures().length) ? breakdownText() : '', note].filter(Boolean).join(' · ');
 }
 
 export function renderQueue() {

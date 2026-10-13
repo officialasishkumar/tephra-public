@@ -91,6 +91,7 @@ export const SHORTCUTS = [
   ["T", "Details › How TEPHRA decided"],
   ["H", "Details › Height filter"],
   ["P", "Presentation layout for recording (keeps Details closed)"],
+  ["A", "AI at work: the Duty Officer, its helpers and the Desk"],
   ["?", "This help"],
   ["Esc", "Close a dialog or menu; a Details section, then Details; History; the picked flight; compare; 3D"],
 ];
