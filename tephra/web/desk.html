@@ -114,6 +114,12 @@
           <h2 id="drafts-title" class="next__eyebrow">Next decision</h2>
           <p class="next__count"><span id="q-count"></span></p>
           <p id="q-breakdown" class="next__breakdown"></p>
+          <!-- the first-use disclosure (docs/UI-AI-QUIET.md 8.4, Desk spec 5.2): once per browser, until closed (desk.js) -->
+          <p id="firstuse" class="firstuse" hidden>
+            <svg class="icon firstuse__mark" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>
+            <span class="firstuse__text">TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything. <button id="firstuse-about" type="button" class="firstuse__about">About ›</button></span>
+            <button id="firstuse-close" type="button" class="iconbtn firstuse__close" aria-label="Hide this line" title="Hide this line"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-x"></use></svg></button>
+          </p>
           <p id="q-newer" class="next__newer" role="status" hidden></p>
           <div id="q-state" class="qstate"></div>
           <div id="q-next" class="next__slot"></div>

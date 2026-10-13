@@ -804,7 +804,7 @@ R17.2). Left to right:
 5. Assistant chip `#ai-chip` (button) with `#model-chip` as its text and the Strata state mark:
    TEPHRA Assistant's one state from `aiStateOf()` (`wall/x-parts.js`, shared with the Desk and
    the board), "TEPHRA Assistant · on", "TEPHRA Assistant · waiting until 0700Z", "TEPHRA
-   Assistant · Recovery planner not running" or "TEPHRA Assistant · off (code only)" ("Assistant ·
+   Assistant · Recovery planner gave no result" or "TEPHRA Assistant · off (code only)" ("Assistant ·
    waiting", "Assistant · 1 problem" at 420 px and less), never red and never a count of failed
    steps or a model id (docs/UI-AI-QUIET.md 8.4). It opens TEPHRA Assistant at work (7.21), as A
    does, which leads with the same words and links to Details › TEPHRA Assistant, the record of
@@ -1267,7 +1267,7 @@ aligned, so opening a card never moves them. The board is `min(1840px, 100vw - 4
 shows without scrolling in the stub run; with the live site's longer lines the last card needs a
 short scroll at 1440. At 390 px nothing scrolls sideways.
 
-The head stays put: the title "TEPHRA Assistant at work" with the `ta-64` mark, one sentence
+The head stays put: the title "TEPHRA Assistant at work" with the `ta-16` mark, one sentence
 ("Its Coordinator hands the work to six skills. A dispatcher decides on everything they make."), the close button, and in
 REPLAY the violet REPLAY band with the case label, so the label is on screen however far the board
 scrolls. The body then has the AI's one state in the AI chip's words ("AI on", "AI off", "AI
@@ -1445,8 +1445,9 @@ decision sends the `version` the dispatcher saw.
 
 Row 1 (48): "TEPHRA" (700, letter-spaced) + "Desk" (text-3, hidden at 430 px and under); the AI
 chip `#budget-chip` with `#model-chip` as its label (10.16, docs/UI-AI-QUIET.md K78, 8.4): "TEPHRA
-Assistant · on", "TEPHRA Assistant · waiting until 0700Z", "TEPHRA Assistant · not running" or
-"TEPHRA Assistant · off (code only)" ("Assistant · waiting" at 420 px and less), never red, which
+Assistant · on", "TEPHRA Assistant · waiting until 0700Z", "TEPHRA Assistant · Drafter gave no result" or
+"TEPHRA Assistant · off (code only)" ("Assistant · waiting" at 420 px and less; the name drops
+when the row would scroll sideways, docs/UI-AI-QUIET.md 8.5), never red, which
 opens the TEPHRA Assistant sheet; the connection `#conn`, always a word with its shape: `st-ok` "Connected" (not
 "Live", which under the REPLAY bar would read as live data), `st-stale` "Reconnecting…",
 `st-serious` "Offline", `st-never` "Connecting…"; the account button (initials in a 32 px circle,

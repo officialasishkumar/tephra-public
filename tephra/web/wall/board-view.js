@@ -8,7 +8,7 @@
 
 import { $, el, icon, hhmmz } from "./util.js";
 import { dkDot, dkChip, dkAbout } from "./dk.js";
-import { aiMark } from "./x-parts.js";
+import { aiMark, aiSymbol, recordedWords } from "./x-parts.js";
 import { STATE_WORD } from "./board.js";
 
 const ICON = {
@@ -95,7 +95,7 @@ function card(c, ui, edgeState) {
   lastLine(c),
   el("span", { class: "bcard__foot" }, modelFoot(c),
     handed ? el("span", { class: `bcard__handed${c.handoff.failed ? " bcard__handed--failed" : ""}`, text: handed }) : null,
-    c.recorded ? el("span", { class: "tag tag--replay", title: c.recorded, text: "first-pass answer" }) : null,
+    c.recorded ? el("span", { class: "tag tag--replay", title: recordedWords(c.recorded), text: "first-pass answer" }) : null,
     el("span", { class: "sr-only", text: edgeState === "idle" ? " No job from the Coordinator's latest run." : "" })),
   icon("i-chevron-down", "icon bcard__chev"));
   return el("article", { class: `bcard bcard--${c.state}${edgeState === "live" ? " is-live" : ""}${open ? " is-open" : ""}`, dataset: { node: c.id } }, btn, cardSteps(c, open));
@@ -121,7 +121,7 @@ function dutyCard(c, ui) {
     r.later ? stat(r.later, "left for later") : null,
     c.waiting ? stat(c.waiting.n, "wait for the next slot", "caution") : null) : null,
   lastLine(c),
-  el("span", { class: "bcard__foot" }, modelFoot(c), c.recorded ? el("span", { class: "tag tag--replay", title: c.recorded, text: "first-pass answer" }) : null),
+  el("span", { class: "bcard__foot" }, modelFoot(c), c.recorded ? el("span", { class: "tag tag--replay", title: recordedWords(c.recorded), text: "first-pass answer" }) : null),
   icon("i-chevron-down", "icon bcard__chev"));
   return el("article", { class: `bcard bcard--lead bcard--${c.state}${open ? " is-open" : ""}`, dataset: { node: "duty" } }, btn, cardSteps(c, open));
 }
@@ -166,7 +166,7 @@ function replayBand(m) {
 function aiPill(ai) {
   const w = ai.words;
   const tone = { off: "off", caution: "caution", on: "ok" }[w.tone] || "off";
-  const mark = icon(ai.kind === "on" ? "ta-working" : ai.kind === "paused" ? "ta-waiting" : "ta-unavailable", "st");
+  const mark = icon(aiSymbol(ai.kind), "st");
   return el("span", { class: `dk-pill dk-pill--${tone}`, title: w.title }, mark, el("span", { text: w.suffix ? `${w.label} · ${w.suffix}` : w.label }));
 }
 

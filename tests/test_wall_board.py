@@ -415,3 +415,87 @@ def test_the_gate_says_how_many_flights_wait_to_be_planned_by_hand(tmp_path: Pat
         == "14 flights to plan by hand, 1 of them must do: TEPHRA Assistant made no plan for them"
     )
     assert not any("passed to a dispatcher" in text for text in texts)
+
+
+XPARTS_RUNNER = """
+import {
+  aiStateOf, aiWords, draftBlock, blockPhrase, plainLine, recordedWords, jobsWords, pacingWords,
+  aiSymbol,
+} from "./wall/x-parts.js";
+const at = Date.parse("2026-10-13T06:00:00Z");
+const e = (stage, reason) => ({ stage, reason, at, raw: reason });
+const chip = (errors) => aiWords(aiStateOf({ errors, now: at }));
+const plume2 = [
+  e("PLUME", "Plume read timed out after 60 s"), e("PLUME", "Plume read FAILED CHECKS: band"),
+];
+const recovery = e("RECOVERY", "AI UNAVAILABLE: RECOVERY AGENT ERROR: TimeoutError");
+const dutyRaw = "Duty Officer AI UNAVAILABLE (TimeoutError); 0 delegation(s) made, "
+  + "3 mandatory item(s) to the Desk";
+const lane = aiStateOf({ errors: [e("PLANNER", "429 RESOURCE_EXHAUSTED quota")], now: at });
+process.stdout.write(JSON.stringify({
+  oneSkillTwoWays: chip(plume2),
+  twoSkills: chip([...plume2, recovery]),
+  lane: aiWords(lane),
+  laneBlock: blockPhrase(draftBlock(lane)),
+  off: aiWords(aiStateOf({ stub: true })),
+  coordinator: chip([e("DUTY", dutyRaw)]),
+  dutyLine: plainLine(dutyRaw),
+  oddLine: plainLine("Duty Officer AI UNAVAILABLE (SOMETHING NEW) · nothing"),
+  recorded: recordedWords("AI answer recorded on this replay's first pass at 0912Z real time"),
+  jobs: jobsWords("Every other AI step"),
+  pacing: pacingWords("Routine work is paced: 3 used; waiting for AI budget, next slot 0700Z."),
+  symbols: ["on", "paused", "trouble", "off"].map(aiSymbol),
+}));
+"""
+
+
+def _xparts(tmp_path: Path) -> dict[str, Any]:
+    (tmp_path / "wall").mkdir()
+    for name in MODULES:
+        shutil.copy(WALL / name, tmp_path / "wall" / name)
+    (tmp_path / "package.json").write_text('{"type": "module"}', encoding="utf-8")
+    (tmp_path / "run.mjs").write_text(XPARTS_RUNNER, encoding="utf-8")
+    result = subprocess.run(
+        [str(NODE), "run.mjs"], cwd=tmp_path, capture_output=True, text=True, timeout=60, check=True
+    )
+    return json.loads(result.stdout)
+
+
+def test_the_chip_counts_skills_and_uses_its_tooltips_verb(tmp_path: Path) -> None:
+    """Naming review: one skill that failed two ways is one skill, not "2 skills not running";
+    the chip says what its tooltip says ("gave no result", "did not run" only where no model was
+    called), and the tooltip names each cause once."""
+    out = _xparts(tmp_path)
+    assert out["oneSkillTwoWays"]["suffix"] == "Plume reader gave no result"
+    assert out["oneSkillTwoWays"]["title"].count("Plume reader gave no result (timed out)") == 1
+    assert out["twoSkills"]["suffix"] == "2 skills gave no result"
+    assert out["coordinator"]["suffix"] == "Coordinator gave no result"
+    assert out["lane"]["suffix"] == "Flight planner did not run"
+    # a lane's quota refusal is "did not run" in the flight's words too, as in causeShort
+    assert out["laneBlock"] == "Flight planner did not run (today's free AI quota is used up)"
+    assert out["symbols"] == ["ta-working", "ta-waiting", "ta-unavailable", "ta-unavailable"]
+
+
+def test_the_off_chip_still_discloses_ai(tmp_path: Path) -> None:
+    """Naming review: in stub mode (the demo default) the chip's tooltip still says what TEPHRA
+    Assistant is, and that it never shrinks the official area."""
+    title = _xparts(tmp_path)["off"]["title"]
+    assert "TEPHRA's AI assistant" in title
+    assert "never shrink the official area" in title
+    assert "NO MODEL" in title
+
+
+def test_server_words_are_shown_in_assistant_words(tmp_path: Path) -> None:
+    """Naming review: a Coordinator outage line gets a real pattern (never a half-renamed raw
+    rule-9 line); a line no pattern knows that carries "AI UNAVAILABLE" is shown verbatim; the
+    REPLAY label keeps "recorded ... first pass ... real time"."""
+    out = _xparts(tmp_path)
+    assert out["dutyLine"] == (
+        "Coordinator gave no result (timed out). 3 jobs that must be done went to the Desk"
+    )
+    assert out["oddLine"].startswith("Duty Officer AI UNAVAILABLE")
+    assert out["recorded"] == (
+        "TEPHRA Assistant's answer recorded on this replay's first pass at 0912Z real time"
+    )
+    assert out["jobs"] == "Every other skill"
+    assert out["pacing"] == "Routine work is paced: 3 used; the next slot is at 0700Z."

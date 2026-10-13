@@ -9,7 +9,7 @@
 
 import { $, el, icon, ms, hhmmz } from "./util.js";
 import { frameFor } from "./ext-map.js";
-import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, causeTitle, handPlanOf, reasonClass, realWhen, machineText, machineSentences, WHY, MARK, ASSISTANT } from "./x-parts.js";
+import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, causeTitle, handPlanOf, reasonClass, realWhen, machineText, machineSentences, recordedWords, jobsWords, pacingWords, WHY, MARK, ASSISTANT } from "./x-parts.js";
 import { dutyDetail, dispatchedTools } from "./duty.js";
 import { HELPERS } from "./board.js";
 import {
@@ -161,7 +161,7 @@ function satRow(D, reading, sit, store) {
         ["Ash marked on the picture", n ? `${n} box${n === 1 ? "" : "es"}` : "none"],
         ["Reading", aiMark(reading.model_id, reading.label, MARK.read("Satellite reader"))],
         ["Scan", scan.replace(/^scan /, ""), { mono: true }],
-        ["Answer", reading.recorded_answer || null],
+        ["Answer", recordedWords(reading.recorded_answer) || null],
       ]),
       el("details", { class: "dk-about", dataset: { k: `sat-pic-${vid}` } },
         el("summary", { dataset: { focus: `sat-pic-${vid}` } }, icon("i-chevron-right", "icon dk-about__chev"), el("span", { text: "Show the picture" })),
@@ -531,17 +531,25 @@ const STATE_UI = {
 const LANE_WORDS = { urgent: "Urgent", interactive: "Desk", routine: "Routine" };
 const TIER_WORDS = { main: "Main", lite: "Lite", tts: "Speech" };
 
-// What one queued job is doing, in the code's own words (the reason carries the next slot).
-const workWords = (w) => (w.status === "RUNNING" ? "running now" : w.status === "QUEUED" ? "queued for the assistant" : w.reason || "waiting for the next slot");
+// What one queued job is doing, in the assistant's words. The server's reason ("waiting for AI
+// budget, next slot 0700Z") is not shown: the next slot is said from next_slot_at, as the time
+// left in REPLAY (a real-clock time would read as a time on the recording's clock).
+function workWords(w, replay) {
+  if (w.status === "RUNNING") return "running now";
+  if (w.status === "QUEUED") return `queued for ${ASSISTANT}`;
+  const slot = realWhen(ms(w.next_slot_at), Date.now(), replay);
+  return slot ? `waiting for the next slot, ${replay ? slot.at : `at ${slot.at}`}` : "waiting for the next slot";
+}
+
 const waitingWork = () => (Array.isArray(ext.budget?.waiting) ? ext.budget.waiting : []);
 
 // Assistant work the worker holds: running, queued, or waiting for its model's next paced slot.
-function waitingBlock() {
+function waitingBlock(replay) {
   const work = waitingWork();
   if (!work.length) return null;
   return el("div", { class: "dk-sub" },
     el("p", { class: "dk-sub__title", text: "Assistant work queued or waiting" }),
-    dkFacts(work.map((w) => [w.lane === "urgent" ? "Urgent" : "Routine", `${w.label}: ${workWords(w)}`])),
+    dkFacts(work.map((w) => [w.lane === "urgent" ? "Urgent" : "Routine", `${w.label}: ${workWords(w, replay)}`])),
     el("p", { class: "dk-sub__note", text: "Waiting work is kept and runs on the same model when its slot comes. Nothing is dropped or handed to another model." }));
 }
 
@@ -550,7 +558,7 @@ const budgetTone = (left, stub, closed) => (closed ? "caution" : meterTone(left,
 
 // Free-tier calls per model, with a meter each (`x-tier`), the share each kind of work has and
 // the pacing in words, in "Models and today's calls".
-function budgetBlock() {
+function budgetBlock(replay) {
   if (!ext.loaded.budget) return loadingBox();
   if (ext.errors.budget || !ext.budget) return dkNote("caution", `Budget unavailable: ${ext.errors.budget || "no answer"}`, { role: "status" });
   const b = ext.budget;
@@ -563,13 +571,13 @@ function budgetBlock() {
       const left = m.limit ? m.remaining / m.limit : 0;
       const lanes = (m.lanes || []).map((l) => `${LANE_WORDS[l.lane] || l.lane} ${l.used} of ${l.share}`).join(" · ");
       return el("div", { class: "x-tier" },
-        el("div", { class: "x-tier__top" }, el("span", { class: "x-tier__name" }, el("strong", { text: m.jobs }), dkChip(m.model_id, { mono: true })),
+        el("div", { class: "x-tier__top" }, el("span", { class: "x-tier__name" }, el("strong", { text: jobsWords(m.jobs) }), dkChip(m.model_id, { mono: true })),
           el("span", { class: "mono", text: m.closed ? `Closed for today by Google (${m.remaining} of ${m.limit} unused)` : `${m.remaining} left of ${m.limit}` })),
-        dkMeter({ value: m.remaining, max: m.limit, tone: budgetTone(left, stub, m.closed), label: `${m.jobs}: ${m.remaining} of ${m.limit} calls left${m.closed ? ", closed for today by Google" : ""}` }),
+        dkMeter({ value: m.remaining, max: m.limit, tone: budgetTone(left, stub, m.closed), label: `${jobsWords(m.jobs)}: ${m.remaining} of ${m.limit} calls left${m.closed ? ", closed for today by Google" : ""}` }),
         lanes ? el("p", { class: "dk-sub__note mono", text: lanes }) : null,
-        stub ? null : el("p", { class: "dk-sub__note", text: m.pacing }));
+        stub ? null : el("p", { class: "dk-sub__note", text: pacingWords(m.pacing) }));
     }),
-    waitingBlock(),
+    waitingBlock(replay),
     el("p", { class: "dk-sub__note", text: `${b.note || ""}${Number.isFinite(resets) ? ` Counts start again at ${hhmmz(resets)}.` : ""}`.trim() }));
 }
 
@@ -718,7 +726,7 @@ function aiPanel(D, store) {
     dkList(order.map((a) => helperRow(a, store, n, stub, ai.until)), { first, key: "ai-helpers", more: order.slice(first).every((a) => a.state === "idle") ? `Show quiet skills (${quiet})` : `Show all ${order.length} skills` })));
 
   kids.push(el("div", { class: "dk-abouts" },
-    dkAbout("Models and today's calls", "ai-budget", budgetBlock()),
+    dkAbout("Models and today's calls", "ai-budget", budgetBlock(D.mode === "REPLAY")),
     dkAbout("How this works", "ai-how",
       "TEPHRA Assistant is TEPHRA's AI assistant. It reads feeds and drafts text. Code does every number and safety rule, and a person approves everything. One skill, the Coordinator, orders the day's assistant work and hands it to the other skills through tools. Code builds the work list and holds the safety line. The Coordinator decides the order and writes the brief.",
       `Every assistant step on the Wall is listed in How TEPHRA decided. Status here comes from the newest ${n} steps the Wall holds, the newest Coordinator run, the newest airport plan and the budget's queue. When a step does not run it says why, and nothing is made up in its place.`)));

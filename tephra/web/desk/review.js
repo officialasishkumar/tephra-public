@@ -44,6 +44,7 @@ import { anyStaleSource, coneFor, decidedLine, modeChip, needsCarefulRead, repla
 import { app } from './state.js';
 import { routeMap } from './route.js';
 import { aiMark, codeChip } from './ui.js';
+import { recordedWords } from '../wall/x-parts.js';
 import { CREW_REASON_MIN, crewBox, crewKey, crewReasonNeeded } from './crew.js';
 
 const GHOST_TAP_MS = 450;
@@ -310,7 +311,7 @@ function writerNote(adv) {
   const stub = isStub(adv);
   const words = [];
   if (adv.edited_body != null) words.push(stub ? 'Edited by a dispatcher from a code-template text (code only).' : 'Edited by a dispatcher from text drafted by TEPHRA Assistant.');
-  if (adv.recorded_answer) words.push(`${adv.recorded_answer}.`);
+  if (adv.recorded_answer) words.push(`${recordedWords(adv.recorded_answer)}.`);
   if (sheet && sheet.view === 'review') words.push('Check the sources first.');
   return el('p', { class: 'writer-note' }, aiMark(undefined, stub ? null : adv.model_id), words.length ? el('span', { text: ` ${words.join(' ')}` }) : null);
 }
@@ -381,7 +382,8 @@ function rerouteValue(adv, cone) {
 function draftedByValue(adv) {
   const who = isStub(adv)
     ? el('span', { class: 'v-strong' }, 'Written by a code template (code only)')
-    : el('span', { class: 'v-strong' }, `Drafted by TEPHRA Assistant · ${adv.model_id}`);
+    // the row is "Drafted by": its value names who, not "Drafted by" again
+    : el('span', { class: 'v-strong' }, `TEPHRA Assistant · ${adv.model_id}`);
   const out = [who];
   out.push(fine(isStub(adv)
     ? 'Code only (assistant off): built from the official reports only. A code template wrote the text. Code writes every time, id and hash.'

@@ -10,7 +10,7 @@ import { byId, el, icon } from './dom.js';
 import { dayMonthHhmm, hhmmz, parseTime, serverNow } from './format.js';
 import { app } from './state.js';
 import { aiState, openBSheet } from './ui.js';
-import { aiLead, aiWords, causeTitle, machineText, realWhen, ASSISTANT } from '../wall/x-parts.js';
+import { aiLead, aiSymbol, aiWords, causeTitle, jobsWords, pacingWords, machineText, realWhen, ASSISTANT } from '../wall/x-parts.js';
 
 const LANE_WORDS = { urgent: 'flights in or near the ash', interactive: 'the Desk (questions, notices, messages, documents)', routine: 'routine work, paced through the day' };
 const BOARD_URL = '/#ai-at-work';
@@ -46,6 +46,17 @@ const models = (b) => (Array.isArray(b.models) && b.models.length ? b.models : b
 const isOut = (m) => Boolean(m.closed) || m.limit <= 0 || m.remaining <= 0;
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
+// The header row never scrolls sideways (review: 406 px at 390 with "Assistant · 3 problems" and
+// "Connecting…"). When the chip and the connection words do not fit, the chip keeps its mark and
+// its state words and drops the visible name; its label and tooltip still say "TEPHRA Assistant".
+export function fitHead() {
+  const row = document.querySelector('.dhead__row');
+  const chip = byId('budget-chip');
+  if (!row || !chip) return;
+  chip.classList.remove('is-tight');
+  if (row.scrollWidth > row.clientWidth) chip.classList.add('is-tight');
+}
+
 // The chip: the one state; `model-chip` is its label span (re-parented in desk.html).
 export function drawAiChip() {
   const chip = byId('budget-chip');
@@ -56,9 +67,10 @@ export function drawAiChip() {
   const w = aiWords(ai, { home: 'the assistant sheet', opens: 'the assistant sheet', narrow });
   chip.dataset.tone = w.tone;
   label.textContent = w.label;
-  const kids = [icon(ai.kind === 'on' ? 'ta-working' : ai.kind === 'paused' ? 'ta-waiting' : 'ta-unavailable'), label];
-  if (w.suffix) kids.push(el('span', { class: 'budget__w', text: `· ${w.suffix}` }));
+  const kids = [icon(aiSymbol(ai.kind)), label];
+  if (w.suffix) kids.push(el('span', { class: 'budget__w' }, el('span', { class: 'budget__sep', text: '· ' }), w.suffix));
   chip.replaceChildren(...kids);
+  fitHead();
   const jobs = ai.waiting.length ? ` ${plural(ai.waiting.length, 'job')} wait${ai.waiting.length === 1 ? 's' : ''}.` : '';
   chip.setAttribute('aria-label', w.aria.replace(/ Opens /, `${ai.kind === 'paused' ? jobs : ''} Opens `));
   chip.title = w.title;
@@ -78,7 +90,7 @@ function modelRow(m, until) {
     : out ? 'Used up for today' : `${m.remaining.toLocaleString('en')} left today`;
   return el('li', { class: 'aimodel' },
     el('p', { class: 'aimodel__h' },
-      el('span', { class: 'aimodel__jobs', text: m.jobs || m.tier }),
+      el('span', { class: 'aimodel__jobs', text: jobsWords(m.jobs) || m.tier }),
       el('span', { class: 'aimodel__n', text: m.closed ? 'Closed' : `${m.used.toLocaleString('en')} of ${m.limit.toLocaleString('en')} calls` })),
     bar,
     el('p', { class: `aimodel__status${out ? ' is-out' : ''}` }, icon(out ? 'st-caution' : 'st-ok', 'st'), el('span', { text: status })),
@@ -97,7 +109,7 @@ function workRow(w) {
 function lanes(b) {
   const rows = models(b).flatMap((m) => (m.lanes || []).filter((l) => l.share > 0 || l.used > 0).map((l) =>
     el('li', {}, el('span', { class: 'mono', text: m.model_id }), ` · ${LANE_WORDS[l.lane] || l.lane}: ${l.used} of ${l.share}`)));
-  const pacing = models(b).filter((m) => m.pacing).map((m) => el('li', {}, el('span', { class: 'mono', text: m.model_id }), ` · ${m.pacing}`));
+  const pacing = models(b).filter((m) => m.pacing).map((m) => el('li', {}, el('span', { class: 'mono', text: m.model_id }), ` · ${pacingWords(m.pacing)}`));
   if (!rows.length && !pacing.length) return null;
   return el('details', { class: 'more aisheet__more' },
     el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: 'How the calls are shared' })),

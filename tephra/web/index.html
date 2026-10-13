@@ -77,6 +77,12 @@
 
   <main class="stage" id="main">
     <section id="story" class="story" aria-labelledby="volcano-name" tabindex="-1">
+      <!-- the first-use disclosure (docs/UI-AI-QUIET.md 8.4): once per browser, until closed (wall.js) -->
+      <p id="firstuse" class="firstuse" hidden>
+        <svg class="icon firstuse__mark" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>
+        <span class="firstuse__text">TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything. <button type="button" class="link-btn firstuse__about" data-act="firstuse-about">About ›</button></span>
+        <button type="button" class="firstuse__close" data-act="firstuse-close" aria-label="Hide this line" title="Hide this line"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-x"></use></svg></button>
+      </p>
       <div id="fail-line" class="fail-line" hidden>
         <p id="lost-banner" class="lost-banner" role="alert" hidden></p>
         <ul id="fail-list" class="fail-line__list"></ul>
@@ -214,7 +220,7 @@
     <div class="board__head">
       <div class="board__titlebar">
         <div class="board__titles">
-          <h2 id="board-title" class="board__title" tabindex="-1"><svg class="icon board__mark" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-64"></use></svg>TEPHRA Assistant at work</h2>
+          <h2 id="board-title" class="board__title" tabindex="-1"><svg class="icon board__mark" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>TEPHRA Assistant at work</h2>
           <p id="board-lede" class="board__lede">Its Coordinator hands the work to six skills. A dispatcher decides on everything they make.</p>
         </div>
         <button type="button" class="dlg__close" data-act="board-close" aria-label="Close TEPHRA Assistant at work">

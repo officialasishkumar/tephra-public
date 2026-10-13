@@ -878,6 +878,8 @@ document.addEventListener("click", (e) => {
   else if (t.id === "details-btn") { if (ui.details.open) closeDetails(); else openDetails(null, { opener: t }); }
   else if (t.id === "time-pill") { document.body.classList.toggle("tl-sheet"); renderNow(); if (document.body.classList.contains("tl-sheet")) $("timeline").querySelector("button")?.focus(); }
   else if (t.id === "about-btn") openAbout(t);
+  else if (act === "firstuse-about") openAbout(t);
+  else if (act === "firstuse-close") { prefs.set("firstuse", 1); $("firstuse").hidden = true; $("story").focus({ preventScroll: true }); }
   else if (t.id === "attribution") openAbout(t, "about-credits");
   else if (t.id === "help-btn") openHelp(t);
   else if (t.id === "policy-btn") openPolicy(t);
@@ -1101,6 +1103,8 @@ function placeHonesty() {
 }
 phoneMq.addEventListener?.("change", placeHonesty);
 placeHonesty();
+// The first-use disclosure shows until the viewer closes it (kept per browser; blocked storage shows it again).
+$("firstuse").hidden = prefs.get("firstuse", 0) === 1;
 // On a phone the header sticks below the REPLAY band, whose height wraps with its words.
 new ResizeObserver(() => {
   const band = $("replay-banner");

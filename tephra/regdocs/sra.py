@@ -504,8 +504,8 @@ _RISK_ROWS: Final[tuple[tuple[str, str, str, str], ...]] = (
         "TEPHRA's AI adds caution that is not needed",
         "Flights are delayed, rerouted or held for ash that is not there.",
         "A model widening is shown as its own mode (WIDENED) with a confidence beside the official"
-        " areas. A dispatcher decides every advisory, and model text is marked AI-written with"
-        " its model id.",
+        ' areas. A dispatcher decides every advisory, and model text is marked "Drafted by'
+        " TEPHRA Assistant\" (TEPHRA's AI assistant), with its model id in the record.",
     ),
     (
         "R8",

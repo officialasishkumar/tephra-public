@@ -164,6 +164,8 @@ export function aboutContent(state, attribution = ATTRIBUTION) {
   return el("div", { class: "about" },
     el("h3", { class: "help__h", text: "What TEPHRA is" }),
     el("p", { text: "TEPHRA reads the official volcanic-ash reports (SIGMET, VAA, VONA), shows where they disagree, and draws an estimate of the ash area that is never smaller than the official one. Code works out which flights of a fictional airline would enter that area and drafts an advisory for each. A human dispatcher approves or rejects every advisory on the Desk." }),
+    // the About disclosure (docs/UI-AI-QUIET.md 8.4): one of the few places that say "AI"
+    el("p", { text: "TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything." }),
     replay ? el("p", { class: "about__replay" }, el("strong", { text: `${replay.banner} · not live. ` }), el("span", { text: `Case: ${replay.label}` })) : null,
     el("h3", { class: "help__h", text: "Safety limits" }),
     el("ul", { class: "about__list" },

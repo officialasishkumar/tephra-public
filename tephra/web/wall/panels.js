@@ -9,7 +9,7 @@ import {
 } from "./util.js";
 import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
-import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, handPlanOf, causeTitle, blockPhrase, machineText, MARK, ASSISTANT } from "./x-parts.js";
+import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, aiSymbol, recordedWords, handPlanOf, causeTitle, blockPhrase, machineText, MARK, ASSISTANT } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkTech, dkSection, dkLink,
   dkRecorded, dkWhen, dkDot, collapseRuns, runRow, timeRange, plural, dayTime, times,
@@ -177,7 +177,7 @@ export function renderChrome(D, store, ui) {
   suffix.hidden = !w.suffix;
   setText(suffix, w.suffix ? `· ${w.suffix}` : "");
   chip.dataset.tone = w.tone;
-  chip.querySelector("use")?.setAttribute("href", `${chip.querySelector("use").getAttribute("href").split("#")[0]}#${ai.kind === "on" ? "ta-working" : ai.kind === "paused" ? "ta-waiting" : "ta-unavailable"}`);
+  chip.querySelector("use")?.setAttribute("href", `${chip.querySelector("use").getAttribute("href").split("#")[0]}#${aiSymbol(ai.kind)}`);
   chip.title = w.title;
   chip.setAttribute("aria-label", w.aria);
   // shown first with its state, so the bar never jumps to its real width (W5)
@@ -735,7 +735,7 @@ export function areaSection(D, sit, ui) {
     ], "Estimate in numbers"),
     outcome === "MODEL_FAILED" ? dkNote("caution", `Plume reader gave no result: ${machineText(a?.estimate?.uncertainty_notes || "no usable model output")}. TEPHRA shows the official area only, and nothing was put in its place.`, { role: "status" }) : null,
     // A replay loop reuses the same model's reading of the same input; the label says so.
-    dkFacts([["Reading", el("span", {}, readBy)], ["Answer", a?.recorded_answer || null]]),
+    dkFacts([["Reading", el("span", {}, readBy)], ["Answer", recordedWords(a?.recorded_answer) || null]]),
     read,
     dkTech(`Mode ${cone.mode} · label ${cone.label} · ${cone.cone_id || ""}`),
     el("div", { class: "dk-abouts" }, dkAbout("About the estimate", "area", "TEPHRA's estimate is an estimate, not a forecast. It is drawn as the amber dashed line, never smaller than the official area, which stays binding.")));

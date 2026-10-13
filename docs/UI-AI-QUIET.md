@@ -603,28 +603,29 @@ honesty list of section 2 are unchanged.
 
 | Before (sections 1.1, 5) | Now |
 |---|---|
-| Chip `AI on` / `AI paused · 0700Z` / `AI on · 1 problem` / `AI off` | `TEPHRA Assistant · on` / `TEPHRA Assistant · waiting until 0700Z` (REPLAY: `waiting for another 2 h 45 min`, 8.3) / `TEPHRA Assistant · Recovery planner not running`, `· not running` (the Coordinator), `· 2 skills not running` / `TEPHRA Assistant · off (code only)`. At 420 px and less: `Assistant · on`, `Assistant · waiting`, `Assistant · 1 problem`, `Assistant · off` (the label and tooltip keep the full name). |
+| Chip `AI on` / `AI paused · 0700Z` / `AI on · 1 problem` / `AI off` | `TEPHRA Assistant · on` / `TEPHRA Assistant · waiting until 0700Z` (REPLAY: `waiting for another 2 h 45 min`, 8.3) / `TEPHRA Assistant · Recovery planner gave no result`, `· Coordinator gave no result`, `· Flight planner did not run` (a quota refusal), `· 2 skills gave no result` / `TEPHRA Assistant · off (code only)`. Counted by skill, never by cause (8.5). At 420 px and less: `Assistant · on`, `Assistant · waiting`, `Assistant · 1 problem`, `Assistant · off` (the label and tooltip keep the full name). |
 | `AI paused` / `AI paused · 0700Z` (markers) | `Assistant waiting` / "TEPHRA Assistant is waiting until 0700Z (today's free AI quota is used up)" |
 | `AI waiting` (a job queued) | "Waiting for the next slot (0700Z)", "A new plan waits for TEPHRA Assistant: next slot 0700Z" |
 | `AI unavailable ({why})` | "{Skill} gave no result ({why}): nothing was put in its place." "{Skill} did not run" stays reserved for a step no model was called for (8.1 item 5); a run that answered and left work says so ("left must-do jobs for the Desk"). |
 | `AI-written` / `AI-read` / `AI-chosen` | "Drafted by TEPHRA Assistant" / "Read by Plume reader" (Satellite reader, Notice reader) / "Chosen by TEPHRA Assistant"; also "Ordered by Coordinator", "Explained by Recovery planner", "Answered by TEPHRA Assistant". Still only on content a model produced (Q5); the model id stays in the title and label. |
 | `Code (AI off)` | "Code only (assistant off)"; "(AI off)" in sentences reads "(code only)". |
 | "AI helpers" (Details), "AI today" (Desk sheet), "AI at work" (board) | "TEPHRA Assistant" (its group "Skills"), "TEPHRA Assistant" (the sheet), "TEPHRA Assistant at work" |
-| Duty Officer (on screen) | Coordinator. A trace line no plain-words pattern knows gets only the name changed (`plainLine`); the raw line keeps it. |
+| Duty Officer (on screen) | Coordinator. A trace line no plain-words pattern knows gets only the name changed (`plainLine`); the raw line keeps it. A line that also carries a raw "AI UNAVAILABLE" is shown verbatim instead (8.5). |
 
 **Where "AI" is still written** (disclosure only): the chip's tooltip ("TEPHRA Assistant is
 TEPHRA's AI assistant (Gemini). It can widen TEPHRA's estimate, never shrink the official area.");
 the first-use and About lines ("TEPHRA Assistant is an AI assistant. It reads feeds and drafts
-text. Code does every number and safety rule. You approve everything." in the Wall's Help, the
+text. Code does every number and safety rule. You approve everything." as the first-use line at
+the top of the Wall's story and under the Desk's Decide summary, in the Wall's About and Help, the
 board's "How to read this board", the Desk's assistant sheet, and Details › TEPHRA Assistant ›
-How this works); the quota phrase "today's free AI quota"; the glossary; Technical detail, the
+How this works); the stub chip's tooltip; the quota phrase "today's free AI quota"; the glossary; Technical detail, the
 audit and the raw rule-9 strings; the privacy page. Model ids stay only in tooltips, the
 assistant's home (Details › TEPHRA Assistant, the Desk's sheet, the board's cards), Technical
 detail and the record (Why this advisory › Drafted by, the audit).
 
 **The mark.** The Strata mark (a vent dot with flight-level bands stepping downwind; chosen
-direction C) is five symbols in `tephra/web/icons.svg`, `currentColor` only: `ta-64` (the board
-title, the Desk sheet), `ta-16` (attribution marks, the "See TEPHRA Assistant at work" links, the
+direction C) is five symbols in `tephra/web/icons.svg`, `currentColor` only: `ta-64` (the Desk
+sheet, drawn at 48 px), `ta-16` (the board title, attribution marks, the "See TEPHRA Assistant at work" links, the
 Details section title, the Coordinator's card), and `ta-working` / `ta-waiting` (hollow bands, the
 outline 1.5 px instead of 1.25 px so it holds at 14-16 px) / `ta-unavailable` (a slash cuts the
 top band) for the chip by state (on / waiting / trouble or off), on both pages and on the board's
@@ -637,3 +638,45 @@ official area" in the chip tooltip and the assistant home, "never smaller" in th
 trust line, the REPLAY labels and the decision-support line are unchanged. `tests/test_ui_ai_quiet.py`
 pins the name, the disclosure lines, the five symbols, and that none of the old words is left in a
 page string.
+
+### 8.5 Naming: review fixes (2026-10-13)
+
+Two reviews of the naming build (coverage and honesty) found these, fixed here:
+
+- **The chip counts skills, not causes.** A cause is a skill plus a kind of failure, so one skill
+  that failed two ways read "2 skills not running". The chip now counts skills, and it uses the
+  verb its tooltip uses: "gave no result" (a model was called and gave nothing usable), "did not
+  run" (no model was called: a quota refusal), "left jobs for the Desk", "had problems" when they
+  differ. This replaces the spec's "not running", which contradicted the tooltip; a single
+  Coordinator failure no longer reads as the whole assistant "not running". The tooltip names each
+  cause once. The narrow "N problems" still counts causes.
+- **First use and About.** The first-use line ("TEPHRA Assistant is an AI assistant. ...") sits
+  on the first screen of both pages (`#firstuse`: the top of the Wall's story, under the Desk's
+  Decide summary) until the viewer closes it (`tephra.wall.firstuse` / `tephra.desk.firstuse`,
+  every storage call in try/catch; blocked storage shows it again). "About ›" opens the Wall's
+  About, which now carries the same line, or the Desk's assistant sheet. The stub chip's tooltip
+  says what TEPHRA Assistant is too, so stub mode (the demo default) discloses it.
+- **No credit for a run no model made.** The Coordinator run's fact "Run by: TEPHRA Assistant"
+  is "Started: by code, after new aircraft" (code starts every run; the Model fact says whether a
+  model was called, with its id there, in the assistant's own home).
+- **Server words in the assistant's words, in the UI** (their API values are pinned):
+  "AI answer recorded on this replay's first pass at HHMMZ real time" reads "TEPHRA Assistant's
+  answer recorded ..." (`recordedWords`); a model's jobs "Every other AI step" read "Every other
+  skill" (`jobsWords`); the queue's "waiting for AI budget, next slot 0700Z" is not shown: the
+  next slot is said from `next_slot_at`, as the time left in REPLAY (`workWords`, `pacingWords`).
+- **"Did not run" only where no model was called**, also for a flight with no draft
+  (`draftBlock`). A Coordinator outage line has its own plain-words pattern ("Coordinator gave no
+  result (timed out). N jobs that must be done went to the Desk").
+- **The Desk header never scrolls sideways.** When the chip and the connection words do not fit
+  (390 px, "3 problems" and "Reconnecting…"), the chip keeps its mark and state words and drops
+  the visible name (`fitHead`); its label and tooltip keep "TEPHRA Assistant".
+- **Smaller:** one `aiSymbol()` for the four chips; the board title uses `ta-16` (the cut for
+  14-24 px); the review's "Drafted by" row says "TEPHRA Assistant · model", not "Drafted by"
+  twice; the SRA's R7 mitigation says what the screen shows ("Drafted by TEPHRA Assistant", model
+  id in the record).
+- **Kept as is:** the stub "off" chip keeps `ta-unavailable` (Desk spec 6.6 ties it to "off or
+  not running"); the narrow Wall chip keeps "Assistant · waiting" without the time (with it the
+  chip takes a row of its own under the area menu at 390 px); the Desk card head "Ordered by
+  Coordinator" marks the order the model chose and the brief's body "Drafted by TEPHRA Assistant"
+  marks its text (spec 9.4); the board's cards keep their model chips (the board is the
+  assistant's home, as Details › TEPHRA Assistant is).

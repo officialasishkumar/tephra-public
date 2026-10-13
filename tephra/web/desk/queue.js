@@ -23,6 +23,7 @@ import {
 } from './format.js';
 import { openFailures } from './failures.js';
 import { aiMark } from './ui.js';
+import { recordedWords } from '../wall/x-parts.js';
 import { crewFlag, crewKey } from './crew.js';
 import { draftMessages } from './messages.js';
 import { app, draftList, setAsideCount } from './state.js';
@@ -123,7 +124,7 @@ function tagsNode(adv, now) {
 
 // Who wrote the text, as a mark (the model id in its title) and the instruction (K86).
 const writerLine = (adv) => [aiMark(undefined, isStub(adv) ? null : adv.model_id),
-  el('span', { text: ` ${adv.recorded_answer && !isStub(adv) ? `${adv.recorded_answer}. ` : ''}Check the sources first.` })];
+  el('span', { text: ` ${adv.recorded_answer && !isStub(adv) ? `${recordedWords(adv.recorded_answer)}. ` : ''}Check the sources first.` })];
 
 const identText = (adv) => {
   const bits = [adv.callsign ? `proxy for ${adv.callsign}` : 'proxy, no callsign'];
@@ -298,7 +299,7 @@ export function renderQueue() {
     stateBox.replaceChildren(
       el('div', { class: 'panel panel--empty' },
         el('p', { class: 'panel__title' }, icon(hand ? 'st-info' : 'i-check', hand ? 'st is-info' : 'st'), el('span', { text: hand ? 'No drafts to approve.' : 'No drafts waiting.' })),
-        el('p', { text: hand ? `${plural(hand, 'flight')} wait in Plan by hand.${last}` : `A draft appears here when a flight's projected track enters TEPHRA's estimated ash area.${last}` })),
+        el('p', { text: hand ? `${plural(hand, 'flight')} wait${hand === 1 ? 's' : ''} in Plan by hand.${last}` : `A draft appears here when a flight's projected track enters TEPHRA's estimated ash area.${last}` })),
     );
   } else {
     stateBox.replaceChildren();

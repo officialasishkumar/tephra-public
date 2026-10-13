@@ -198,8 +198,24 @@ def test_the_disclosure_still_says_ai() -> None:
     assert "never shrink the official area" in words
     assert "today's free AI quota is used up" in words
     about = "TEPHRA Assistant is an AI assistant. It reads feeds and drafts text."
+    assert about in _function(_read("wall/controls.js"), "aboutContent")
     assert about in _read("wall/controls.js")
     assert about in _read("desk/budget.js")
+    # the first-use line, on the first screen of both pages until the viewer closes it
+    for page in ("index.html", "desk.html"):
+        html = _read(page)
+        start = html.index('id="firstuse"')
+        assert about in html[start : html.index("</p>", start)], page
+    assert 'prefs.get("firstuse", 0)' in _read("../web/wall.js")
+    assert "tephra.desk.firstuse" in _read("../web/desk.js")
+
+
+def test_a_run_no_model_called_is_not_credited_to_the_assistant() -> None:
+    """Naming review: code starts every Coordinator run; the run's facts never say the assistant
+    ran it when the quota refused the call or no model is connected."""
+    assert '["Started", run.trigger === "adsb" ? "by code' in _read("wall/duty.js")
+    assert "TEPHRA Assistant after" not in _read("desk/duty.js")
+    assert "Run by" not in _read("wall/duty.js")
 
 
 def test_the_strata_mark_is_in_the_sprite() -> None:

@@ -5314,6 +5314,48 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   display: none;
 }
 
+/* the first-use disclosure (docs/UI-AI-QUIET.md 8.4): one quiet line, once per browser */
+.firstuse {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  column-gap: var(--sp-2);
+  align-items: start;
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) 0 var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-line-1);
+  border-radius: var(--radius-md);
+  background: var(--c-surface-2);
+  font-size: var(--fs-2);
+  line-height: 1.4;
+  color: var(--c-text-2);
+}
+
+.firstuse[hidden] {
+  display: none;
+}
+
+.firstuse__mark {
+  width: 16px;
+  height: 16px;
+  margin-top: calc((1.4em - 16px) / 2);
+}
+
+.firstuse__about {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--c-text-1);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+
+.firstuse__close {
+  margin: -6px 0;
+  align-self: center;
+}
+
 .next__newer {
   display: flex;
   flex-wrap: wrap;
@@ -6840,6 +6882,11 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   border: 0;
   font-family: var(--font-sans);
   font-weight: var(--fw-semibold);
+}
+
+.budget.is-tight .model-chip,
+.budget.is-tight .budget__sep {
+  display: none;
 }
 
 .budget .budget__w {

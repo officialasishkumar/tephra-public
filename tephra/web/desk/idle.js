@@ -9,7 +9,7 @@ import { deskAi } from './budget.js';
 import { docsToSign } from './docs.js';
 import { draftPlans } from './network.js';
 import { openFailures } from './failures.js';
-import { aiLead } from '../wall/x-parts.js';
+import { aiLead, aiSymbol } from '../wall/x-parts.js';
 
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
@@ -52,7 +52,7 @@ export function renderIdle() {
       el('h2', { id: 'idle-title', class: 'idle__title', text: title }),
       sub ? el('p', { class: 'idle__lead', text: sub }) : null,
       !loading && !drafts && hand ? el('button', { type: 'button', class: 'btn btn--outline', 'data-failpane': 'open' }, el('span', { text: 'Show the flights' }), icon('i-chevron-right')) : null,
-      el('p', { class: `idle__ai idle__ai--${ai.kind}` }, icon(ai.kind === 'on' ? 'ta-working' : ai.kind === 'paused' ? 'ta-waiting' : 'ta-unavailable', 'st'),
+      el('p', { class: `idle__ai idle__ai--${ai.kind}` }, icon(aiSymbol(ai.kind), 'st'),
         el('span', {}, el('strong', { text: lead.strong }), ` ${lead.text}`)),
       other.length ? el('h3', { class: 'idle__h', text: 'Also waiting for you' }) : null,
       other.length ? el('ul', { class: 'idle__list' }, other) : null,

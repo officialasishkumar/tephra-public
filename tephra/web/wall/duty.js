@@ -8,7 +8,7 @@
 // in through el() (textContent).
 
 import { el, ms } from "./util.js";
-import { aiMark, plainLine, reasonClass } from "./x-parts.js";
+import { aiMark, plainLine, reasonClass, recordedWords } from "./x-parts.js";
 import { dkPill, dkChip, dkFacts, dkRow, dkList, dkNote, dkEmpty, dkTech, dkRecorded, dkLink, collapseRuns, seconds, plural, dayTime } from "./dk.js";
 
 // What each Coordinator (duty officer) tool reaches. Tool names are fixed by the backend toolkit.
@@ -160,12 +160,15 @@ export function dutyDetail(run, loaded, until = null) {
     el("div", { class: "dk-inline" }, dkPill(tone, word, why), dkRecorded(run.replay), el("span", { class: "dk-inline__meta mono", text: Number.isFinite(t) ? `finished ${dayTime(t)}` : "" })),
     dkFacts([
       // no model fact for a run the quota refused: no call was made (D68)
-      ["Model", outcome === "BUDGET" ? null : outcome === "MODEL_FAILED" ? "Called, no brief passed the checks" : model ? aiMark(model) : "Code only (assistant off)"],
+      // the model id in words: this is the assistant's own home (Details › TEPHRA Assistant); the
+      // brief below carries the "Drafted by" mark
+      ["Model", outcome === "BUDGET" ? null : outcome === "MODEL_FAILED" ? `Called (${run.model_id || "model unknown"}), no brief passed the checks` : model || "Code only (assistant off)", model && outcome !== "MODEL_FAILED" ? { mono: true } : undefined],
       ["Turns", String(run.turns), { mono: true }],
       ["Jobs given", `${run.worklist.length}${mandatory ? ` (${mandatory} must do)` : ""}`],
-      ["Run by", run.trigger === "adsb" ? "TEPHRA Assistant, after new aircraft" : "TEPHRA Assistant, after a scheduler tick"],
+      // code starts every run, whether or not a model is then called (no claim the assistant ran)
+      ["Started", run.trigger === "adsb" ? "by code, after new aircraft" : "by code, after a scheduler tick"],
       // a replay loop reuses this model's own run for the same question; the label says so
-      ["Answer", run.recorded_answer || null],
+      ["Answer", recordedWords(run.recorded_answer) || null],
     ]),
   ];
   if (outcome === "BUDGET") {

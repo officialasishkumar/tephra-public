@@ -7,7 +7,7 @@
 // board's logic is tested on its own (tests/test_wall_board.py).
 
 import { ms } from "./util.js";
-import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiLead, reasonClass, realWhen, WHY, ASSISTANT } from "./x-parts.js";
+import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiLead, reasonClass, realWhen, recordedWords, WHY, ASSISTANT } from "./x-parts.js";
 import { collapseRuns, plural } from "./dk.js";
 
 // Every skill of TEPHRA Assistant on the Wall, in board order. `tool` is the Coordinator's tool that reaches it,
@@ -297,7 +297,7 @@ function dutyCard(ctx) {
     { tone: "info", text: `Code gave it ${plural(run.worklist.length, "job")}${mandatory ? `, ${mandatory} of them must do` : ""}`, count: 1, at: ms(run.started_at), source: SOURCE.run },
     { tone: line.tone, text: line.text, count: 1, at, source: SOURCE.run },
     run.undispatched?.length ? { tone: "caution", text: `To the Desk, for a dispatcher: ${label(run.undispatched[0])}${run.undispatched.length > 1 ? ` and ${run.undispatched.length - 1} more` : ""}`, count: 1, at, source: SOURCE.run } : null,
-    run.recorded_answer ? { tone: "info", text: `Same answer as the replay's first pass: ${run.recorded_answer}`, count: 1, at, source: SOURCE.run } : null,
+    run.recorded_answer ? { tone: "info", text: `Same answer as the replay's first pass: ${recordedWords(run.recorded_answer)}`, count: 1, at, source: SOURCE.run } : null,
   ].filter(Boolean);
   const state = working ? "working" : line.tone === "failed" ? "failed" : line.tone === "caution" ? "notrun" : "done";
   const brief = run.brief && run.outcome !== "MODEL_FAILED" ? { text: run.brief.summary, model: run.outcome === "STUB" || run.llm_backend === "stub" ? null : run.model_id } : null;

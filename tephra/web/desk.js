@@ -23,7 +23,7 @@ import { closeSheet, onSheetClick, openSheet, sheetBusy, sheetOpenFor, sheetRece
 import { app, draftList } from './desk/state.js';
 import { toast } from './desk/toast.js';
 import { initAsk, focusAsk, setFlightContext } from './desk/ask.js';
-import { deskAi, drawAiChip, loadBudget, openBudget, setBudget } from './desk/budget.js';
+import { deskAi, drawAiChip, fitHead, loadBudget, openBudget, setBudget } from './desk/budget.js';
 import { clearHandover, loadDocs, loadHandover, onDocEvent, onDocsClick, renderDocs, docsToSign } from './desk/docs.js';
 import { loadDuty, onDutyEvent } from './desk/duty.js';
 import { loadFailures, onFailureEvent, openBulk, openFailures, openHandled, renderFailures } from './desk/failures.js';
@@ -171,6 +171,7 @@ function setConn(conn) {
   chip.dataset.conn = conn;
   chip.title = view[2];
   chip.replaceChildren(icon(view[0], 'st'), el('span', { text: view[1] }));
+  fitHead();
 }
 
 function openEvents() {
@@ -705,6 +706,7 @@ function enterDesk(session, { focus = true } = {}) {
   byId('boot').hidden = true;
   byId('desk-view').hidden = false;
   setAccount(session);
+  fitHead();
   app.listLoaded = false;
   app.listError = '';
   byId('tabbar').hidden = false;
@@ -1012,6 +1014,16 @@ function wire() {
     loadExtras();
   });
   byId('budget-chip').addEventListener('click', openBudget);
+  // The first-use disclosure shows until the viewer closes it (blocked storage: it shows again).
+  let seen = false;
+  try { seen = localStorage.getItem('tephra.desk.firstuse') === '1'; } catch { /* storage blocked */ }
+  byId('firstuse').hidden = seen;
+  byId('firstuse-about').addEventListener('click', openBudget);
+  byId('firstuse-close').addEventListener('click', () => {
+    try { localStorage.setItem('tephra.desk.firstuse', '1'); } catch { /* storage blocked */ }
+    byId('firstuse').hidden = true;
+    byId('q-title').focus({ preventScroll: true });
+  });
   // the chip drops its time below 420 px (UI-AI-QUIET 5.2)
   window.addEventListener('resize', drawAiChip);
   document.addEventListener('keydown', (event) => {

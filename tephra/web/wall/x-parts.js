@@ -23,6 +23,21 @@ export function aiMark(modelId, label, verb = MARK.written) {
     icon(no ? "i-code" : "ta-16"), el("span", { text: no ? MARK.none : verb, "aria-hidden": "true" }));
 }
 
+// The chip's mark by state (docs/UI-AI-QUIET.md 8.4, Desk spec 6.6): working when on, hollow bands
+// while waiting, the cut band when not running or off (no model connected). One choice for the
+// Wall chip, the board's pill, the Desk chip and the Desk's idle line.
+export const aiSymbol = (kind) => (kind === "on" ? "ta-working" : kind === "paused" ? "ta-waiting" : "ta-unavailable");
+
+// Server words that still say "AI" (their API values are pinned), in the assistant's words for a
+// main view. The REPLAY label keeps its meaning: recorded, the first pass, real time.
+//   "AI answer recorded on this replay's first pass at 0912Z real time"
+//     -> "TEPHRA Assistant's answer recorded on this replay's first pass at 0912Z real time"
+//   "Every other AI step" (a model's jobs) -> "Every other skill"
+export const recordedWords = (text) => (text ? String(text).replace(/\bAI answer recorded\b/g, `${ASSISTANT}'s answer recorded`) : text);
+// "waiting for AI budget, next slot 0700Z" (the API's slot words, inside a model's pacing sentence)
+export const pacingWords = (text) => String(text || "").replace(/waiting for AI budget, next slot (\d{4}Z)/g, "the next slot is at $1").replace(/waiting for AI budget/g, "waiting for the next slot");
+export const jobsWords = (text) => (text ? String(text).replace(/\b(e|E)very other AI step\b/g, (_, e) => `${e}very other skill`) : text);
+
 // ------------------------------------------------------------------ the AI state (UI-AI-QUIET 1.2)
 // AI is in one state: on, paused (today's quota used up), trouble (n causes) or off (stub).
 // Failures count by cause (helper + reason class), never by step or tick. Pure: the Wall passes
@@ -189,14 +204,29 @@ export function causeShort(c) {
   return `${c.helper} gave no result (${WHY[c.reasonClass] || WHY.other})`;
 }
 
-// The chip's state words after "TEPHRA Assistant ·" when there is trouble: one skill by name, the
-// Coordinator (the whole run) as "not running", more than one counted.
-function troubleWords(list) {
-  if (list.length > 1) return list.some((c) => c.reasonClass === "undone") ? problems(list.length) : `${list.length} skills not running`;
-  const c = list[0];
-  if (c.reasonClass === "undone") return `${c.helper} left jobs for the Desk`;
-  return c.helperKey === "duty" ? "not running" : `${c.helper} not running`;
+// What happened to one skill, from its causes: "gave no result" (a model was called and gave nothing
+// usable), "did not run" (only where no model was called: a budget refusal), "left jobs for the
+// Desk" (it answered and left must-do work), "had problems" when its causes differ.
+function skillWord(list) {
+  const cls = new Set(list.map((c) => (c.reasonClass === "budget" || c.reasonClass === "undone" ? c.reasonClass : "none")));
+  if (cls.size > 1) return "had problems";
+  const [k] = cls;
+  return k === "budget" ? "did not run" : k === "undone" ? "left jobs for the Desk" : "gave no result";
 }
+
+// The chip's state words after "TEPHRA Assistant ·" when there is trouble, counted by skill, never
+// by cause (one skill can fail two ways): one skill by name with the same verb its tooltip uses
+// ("Recovery planner gave no result"), more than one counted ("2 skills gave no result").
+function troubleWords(list) {
+  const bySkill = new Map();
+  for (const c of list) bySkill.set(c.helperKey, [...(bySkill.get(c.helperKey) || []), c]);
+  if (bySkill.size === 1) return `${list[0].helper} ${skillWord(list)}`;
+  const words = new Set([...bySkill.values()].map(skillWord));
+  return `${bySkill.size} skills ${words.size === 1 ? [...words][0] : "had problems"}`;
+}
+
+// The causes in a few words for a tooltip, each said once.
+const causeList = (list) => [...new Set(list.map(causeShort))].join(". ");
 
 // The one state in words, for a chip (`label` and its `suffix`: "TEPHRA Assistant · on"), its
 // tooltip and its label. `home` names the assistant home ("TEPHRA Assistant at work" on the Wall,
@@ -207,16 +237,18 @@ export function aiWords(s, { home = `${ASSISTANT} at work`, opens = `${ASSISTANT
   // one of the few places that say "AI" (disclosure, docs/UI-AI-QUIET.md Naming)
   const is = "TEPHRA Assistant is TEPHRA's AI assistant (Gemini).";
   const label = narrow ? "Assistant" : ASSISTANT;
-  if (s.kind === "off") return { label, suffix: narrow ? "off" : "off (code only)", tone: "off", aria: `${ASSISTANT} off: no model is connected, code only. Opens ${opens}.`, title: `${ASSISTANT} off: no model is connected (NO MODEL). Code does every step, and code templates write the text. It never shrinks the official area.` };
+  if (s.kind === "off") return { label, suffix: narrow ? "off" : "off (code only)", tone: "off", aria: `${ASSISTANT} off: no model is connected, code only. Opens ${opens}.`, title: `${ASSISTANT} off: no model is connected (NO MODEL). Code does every step, and code templates write the text. TEPHRA Assistant is TEPHRA's AI assistant (Gemini) when a model is connected. ${never}` };
   if (s.kind === "paused") {
     const u = s.until ? ` ${s.until}` : "";
+    // narrow: no time. With it the chip takes a row of its own under the area menu at 390 px
+    // (measured); the time is in its tooltip and label, and in the story's lead
     return { label, suffix: narrow || !s.until ? "waiting" : `waiting ${s.until}`, tone: "caution",
       aria: `${ASSISTANT} waiting${u}: today's free AI quota is used up. Opens ${opens}.`,
       title: `${ASSISTANT} is waiting${u}: today's free AI quota is used up.${s.until ? " Queued work runs then." : ""} ${is} ${never} Open ${home} for models and today's calls.` };
   }
   if (s.kind === "trouble") {
     const n = s.trouble.length;
-    const list = s.trouble.map(causeShort).join(". ");
+    const list = causeList(s.trouble);
     return { label, suffix: narrow ? problems(n) : troubleWords(s.trouble), tone: "caution",
       aria: `${ASSISTANT}, ${problems(n)}: ${list}. Opens ${opens}.`,
       title: `${ASSISTANT}, ${problems(n)}: ${list}. Nothing was put in their place. ${is} ${never} Open ${home} for the details.` };
@@ -256,7 +288,8 @@ export function draftBlock(s) {
   if (s.kind === "paused") return { word: "Assistant waiting", until: s.until, paused: true };
   const mine = s.trouble.filter((x) => x.helperKey === "duty" || x.helperKey === "planner" || x.helperKey === "drafter");
   const c = mine.find((x) => x.reasonClass !== "undone");
-  if (c) return { word: `${c.helper} gave no result`, why: WHY[c.reasonClass] || WHY.other, unavailable: true };
+  // "did not run" only where no model was called (a budget refusal), as causeShort says it
+  if (c) return { word: `${c.helper} ${c.reasonClass === "budget" ? "did not run" : "gave no result"}`, why: WHY[c.reasonClass] || WHY.other, unavailable: true };
   if (mine.length) return { word: "left for the Desk", undone: true, why: "the Coordinator did not hand them out" };
   const w = s.waiting.find((x) => x.kind === "PLAN");
   if (w) return { word: "Waiting for the next slot", slot: w.slot, queued: true };
@@ -369,6 +402,8 @@ const PLAIN = [
     (m) => `Coordinator did not run: ${ASSISTANT} waiting (daily quota). ${m[1] !== "0" ? `It handed out ${jobs(m[1])}; ` : ""}${jobs(m[2])} that must be done went to the Desk`],
   [/^Duty Officer AI UNAVAILABLE \(GEMINI DAILY QUOTA SPENT.*?\); (\d+) delegation\(s\) made, (\d+) mandatory item\(s\) to the Desk$/,
     (m) => `Coordinator did not run: ${ASSISTANT} waiting (daily quota). ${m[1] !== "0" ? `It handed out ${jobs(m[1])}; ` : ""}${jobs(m[2])} that must be done went to the Desk`],
+  [/^Duty Officer AI UNAVAILABLE \((.+)\); (\d+) delegation\(s\) made, (\d+) mandatory item\(s\) to the Desk$/,
+    (m) => `Coordinator gave no result (${WHY[reasonClass(m[1])] || WHY.other}). ${m[2] !== "0" ? `It handed out ${jobs(m[2])}; ` : ""}${jobs(m[3])} that must be done went to the Desk`],
   [/^Plume read: (.+?) \((.+)\): not dispatched; the area stays at the official products$/,
     (m) => `Plume read for ${m[1]} was not handed out (${m[2]}). TEPHRA's area stays at the official reports`],
   [/^Duty Officer left (\d+) mandatory item\(s\) undone: to the Desk$/, (m) => `Coordinator passed ${m[1]} must-do ${Number(m[1]) === 1 ? "job" : "jobs"} to the Desk`],
@@ -387,7 +422,9 @@ const PLAIN = [
   [/^NO MODEL: (.+)$/, (m) => `Written by code (code only): ${/[a-z]/.test(m[1]) ? m[1] : m[1].charAt(0) + m[1].slice(1).toLowerCase()}`],
   // Any other line the coordinating agent wrote: its name on screen is "Coordinator" (Naming); the
   // raw line, with the code's own name, stays under Technical detail.
-  [/\bDuty Officer\b/, (m) => machineText(m.input.replace(/\bDuty Officer\b/g, "Coordinator"))],
+  // A line that also carries a raw rule-9 reason ("AI UNAVAILABLE") is not paraphrased: it is
+  // shown verbatim, like any line no pattern knows.
+  [/\bDuty Officer\b/, (m) => (/AI UNAVAILABLE/.test(m.input) ? null : machineText(m.input.replace(/\bDuty Officer\b/g, "Coordinator")))],
   [/^AI UNAVAILABLE: NO FEASIBLE PLAN FOR THE PUBLISHED CLOSURE \((\w+)\).*$/, (m) => (m[1] === "UNKNOWN" ? "Airport plan: no plan found (the solver did not finish in time). A dispatcher must plan the network by hand." : `Airport plan: no plan found (solver: ${m[1]}). A dispatcher must plan the network by hand.`)],
 ];
 
