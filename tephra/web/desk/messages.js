@@ -4,6 +4,7 @@
 
 import { PATHS, api, errorCode, isUnavailable, problems, unavailableReason } from './api.js';
 import { announce, byId, el, icon } from './dom.js';
+import { holdButton } from './hold.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
 import { aiMark, openBSheet, unavailableCard } from './ui.js';
@@ -91,7 +92,11 @@ export function openMessage(id) {
   const edits = {};
   let reason = '';
   let notice = '';
-  const sheet = openBSheet({ title: title(m), wide: true });
+  let confirm = false; // the confirm step of the decision bar (tap on the primary)
+  let hint = '';
+  let hintTimer = 0;
+  if (app.hub.leaveReview) app.hub.leaveReview();
+  const sheet = openBSheet({ title: title(m), wide: true, full: true, onClose: () => window.clearTimeout(hintTimer) });
 
   const bodyOf = (msg, l) => msg.final_bodies[l] ?? (msg.texts.find((t) => t.language === l) || {}).body ?? '';
 
@@ -155,34 +160,87 @@ export function openMessage(id) {
     setFooter();
   }
 
+  // "Approve crew briefing (EN) for RFA1225": names only the languages that were drafted (5.5).
+  const approveWords = (edited) => (edited
+    ? `Approve edited text${current.flight_no ? ` for ${current.flight_no}` : ''}`
+    : `Approve ${title(current).replace(/ · .*/, '').toLowerCase()} (${current.texts.map((t) => (LANG[t.language] || [t.language.toUpperCase()])[0]).join(', ')})${current.flight_no ? ` for ${current.flight_no}` : ''}`);
+  const nowrapWords = (words) => {
+    const at = current.flight_no ? words.lastIndexOf(current.flight_no) : -1;
+    return at < 0 ? [document.createTextNode(words)]
+      : [document.createTextNode(words.slice(0, at)), el('span', { class: 'nowrap', text: current.flight_no })];
+  };
+
+  function cancelConfirm() {
+    confirm = false;
+    setFooter();
+    byId('bsheet').querySelector('.approve')?.focus();
+  }
+
+  function setHint(text) {
+    hint = text;
+    setFooter();
+    announce(text);
+    window.clearTimeout(hintTimer);
+    hintTimer = window.setTimeout(() => {
+      hint = '';
+      setFooter();
+    }, 4000);
+  }
+
+  // The one decision bar (6.5), the same as an advisory's but filled neutral (green stays
+  // advisory-only): hold to approve, or tap for the confirm step; Edit and Reject at equal width.
   function setFooter() {
     if (busy) {
-      sheet.setFooter(el('button', { type: 'button', class: 'btn btn--block is-busy', disabled: true }, el('span', { class: 'spinner', 'aria-hidden': 'true' }), el('span', { text: 'Saving…' })));
+      sheet.setFooter(el('div', { class: 'fstack' }, el('button', { type: 'button', class: 'approve approve--neutral is-busy', disabled: true }, el('span', { class: 'spinner', 'aria-hidden': 'true' }), el('span', { text: 'Saving…' }))));
       return;
     }
-    const off = app.offline ? el('p', { class: 'actions__offline' }, icon('i-offline', 'st'), el('span', { text: "You're offline. Reconnect to decide." })) : null;
-    if (view === 'edit') {
-      sheet.setFooter(el('div', { class: 'fstack' }, off,
-        el('button', { type: 'button', class: 'btn btn--approve btn--block', disabled: app.offline, onclick: () => submit('edit') }, icon('i-check'), el('span', { text: 'Approve edited text' })),
-        el('button', { type: 'button', class: 'btn btn--block', onclick: () => go('review') }, el('span', { text: 'Cancel' }))));
-    } else if (view === 'reject') {
+    const offHint = el('p', { class: 'approve__hint', id: 'msg-hint', text: 'Reconnect to approve.' });
+    if (view === 'reject') {
       const ok = reason.trim().length >= 3;
-      sheet.setFooter(el('div', { class: 'fstack' }, off,
-        el('button', { type: 'button', class: 'btn btn--reject-solid btn--block', 'aria-disabled': ok ? null : 'true', disabled: app.offline, onclick: () => (ok ? submit('reject') : byId('msg-reason').focus()) }, icon('i-x'), el('span', { text: 'Reject message' })),
-        el('button', { type: 'button', class: 'btn btn--block', onclick: () => go('review') }, el('span', { text: 'Cancel' }))));
-    } else {
-      sheet.setFooter(el('div', { class: 'fstack' }, off,
-        el('button', { type: 'button', class: 'btn btn--approve btn--block btn--primary', disabled: app.offline, onclick: () => submit('approve') }, icon('i-check'), el('span', { text: `Approve ${title(current).replace(/ · .*/, '').toLowerCase()} (${current.texts.map((t) => (LANG[t.language] || [t.language.toUpperCase()])[0]).join(', ')})${current.flight_no ? ` for ${current.flight_no}` : ''}` })),
-        el('p', { class: 'approve__hint', text: "Queues on TEPHRA's own outbound queue. Nothing is sent to a passenger, crew member or aircraft." }),
-        el('div', { class: 'secondary' },
-          el('button', { type: 'button', class: 'btn', onclick: () => go('edit') }, icon('i-pencil'), el('span', { text: 'Edit text' })),
-          el('button', { type: 'button', class: 'btn btn--reject', onclick: () => go('reject') }, icon('i-x'), el('span', { text: 'Reject…' })))));
+      const reject = el('button', { type: 'button', class: 'btn btn--neutral btn--block', 'aria-disabled': ok && !app.offline ? null : 'true', 'aria-describedby': app.offline ? 'msg-hint' : null, onclick: () => (app.offline ? null : ok ? submit('reject') : byId('msg-reason').focus()) }, el('span', { text: 'Reject message' }));
+      sheet.setFooter(el('div', { class: 'fstack' }, reject, app.offline ? offHint : null,
+        el('button', { type: 'button', class: 'btn btn--outline btn--block', onclick: () => go('review') }, el('span', { text: 'Cancel' }))));
+      return;
     }
+    const edited = view === 'edit';
+    if (confirm) {
+      const go2 = el('button', { type: 'button', class: 'btn btn--neutral', 'aria-disabled': app.offline ? 'true' : null, onclick: () => (app.offline ? null : submit(edited ? 'edit' : 'approve')) }, el('span', { text: 'Approve now' }));
+      sheet.setFooter(el('div', { class: 'confirm', role: 'group', 'aria-labelledby': 'msg-confirm-q' },
+        el('p', { id: 'msg-confirm-q', class: 'confirm__q', tabindex: '-1' }, ...nowrapWords(`${approveWords(edited)}?`)),
+        el('p', { class: 'confirm__note', text: `Queued under ${app.me ? app.me.name : 'your name'} on TEPHRA's own outbound queue · nothing is sent to a passenger, crew member or aircraft.` }),
+        app.offline ? offHint : null,
+        el('div', { class: 'secondary' }, go2,
+          el('button', { type: 'button', class: 'btn btn--outline', 'data-msg-cancel': '1', onclick: cancelConfirm }, el('span', { text: 'Cancel' })))));
+      return;
+    }
+    const words = approveWords(edited);
+    const primary = holdButton({
+      label: () => nowrapWords(words),
+      iconId: null,
+      className: `approve approve--neutral${words.length > 34 ? ' approve--long' : ''}`,
+      onHold: () => submit(edited ? 'edit' : 'approve'),
+      onTap: () => {
+        if (app.offline) return;
+        confirm = true;
+        setFooter();
+        byId('msg-confirm-q')?.focus();
+      },
+      onEarlyRelease: setHint,
+    });
+    primary.setAttribute('aria-describedby', 'msg-hint');
+    if (app.offline) primary.setAttribute('aria-disabled', 'true');
+    const hintNode = el('p', { class: 'approve__hint', id: 'msg-hint' },
+      el('span', { class: hint || app.offline ? 'hint-early' : null, text: app.offline ? 'Reconnect to approve.' : hint || 'Hold to approve, or tap to confirm.' }));
+    sheet.setFooter(el('div', { class: 'fstack' }, primary, hintNode,
+      el('div', { class: 'secondary' },
+        el('button', { type: 'button', class: 'btn btn--outline', onclick: () => go(edited ? 'review' : 'edit') }, edited ? null : icon('i-pencil'), el('span', { text: edited ? 'Stop editing' : 'Edit text' })),
+        el('button', { type: 'button', class: 'btn btn--outline', onclick: () => go('reject') }, el('span', { text: 'Reject…' })))));
   }
 
   function go(next) {
     view = next;
     notice = '';
+    confirm = false;
     draw();
   }
 
@@ -197,6 +255,7 @@ export function openMessage(id) {
       }
       if (!Object.keys(bodies).length) {
         view = 'review';
+        confirm = false;
         notice = 'Unchanged from the draft. Approve it as drafted, or change the text.';
         draw();
         return;
@@ -207,6 +266,7 @@ export function openMessage(id) {
     setFooter();
     const res = await api(PATHS.messageDecide(current.id, kind), { method: 'POST', body });
     busy = false;
+    confirm = false;
     if (res.ok && res.data && res.data.id) {
       app.messages.delete(res.data.id);
       app.hub.badges();

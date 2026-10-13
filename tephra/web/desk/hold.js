@@ -20,7 +20,7 @@ export function holdButton({ label, iconId = 'i-check', className = 'approve', o
     else text.textContent = label;
   };
   showLabel();
-  const button = el('button', { type: 'button', class: className }, icon(iconId), text, armedText);
+  const button = el('button', { type: 'button', class: className }, iconId ? icon(iconId) : null, text, armedText);
   let phase = 'idle'; // idle | holding | armed
   let started = 0;
   let frame = 0;

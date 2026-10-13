@@ -11,7 +11,7 @@ import { activeNow, fl, hhmmz } from './format.js';
 import { loadDocs, openDoc } from './docs.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
-import { openBSheet } from './ui.js';
+import { openBSheet, reportsHead } from './ui.js';
 
 const CREW_LABEL = 'Crew report caution area (operator policy A, not a VAA or SIGMET)';
 const FLAG_LINE = 'Crew report of ash on this route';
@@ -150,8 +150,10 @@ export function renderCrewSection() {
   if (!list.length) {
     host.dataset.key = '';
     host.replaceChildren();
+    reportsHead();
     return;
   }
+  reportsHead();
   const drawn = list.filter(isDrawn).length;
   const outside = list.filter((v) => v.discrepancy).length;
   const flags = app.crew.flags.length;
@@ -164,9 +166,10 @@ export function renderCrewSection() {
         el('span', { class: 'nrow__meta' }, v.discrepancy ? el('span', { class: 'crow__dis' }, icon('st-caution', 'st'), el('span', { text: ' outside the official area · ' })) : null, `${v.age_text} · ${v.place_text}`)),
       icon('i-chevron-right', 'icon nrow__go'))));
   const box = el('details', { class: 'qlink__box ndisc crewsec', open: sectionOpen },
-    el('summary', { class: 'qlink__btn' }, icon('i-pin', 'icon qlink__ic'),
+    el('summary', { class: 'qlink__btn' },
+      el('span', { class: 'qlink__who', text: 'Crew' }),
       el('span', { class: 'qlink__t' },
-        el('strong', { text: `Crew reports of ash (${list.length})` }),
+        el('span', { text: `${list.length} report${list.length === 1 ? '' : 's'} of ash` }),
         el('span', { class: 'qlink__sub', text: ` · ${sub}` }),
         outside ? el('span', { class: 'crewsec__dis' }, icon('st-caution', 'st'), el('span', { text: ` ${outside} outside the official area` })) : null),
       icon('i-chevron-right', 'icon qlink__go disclosure')),

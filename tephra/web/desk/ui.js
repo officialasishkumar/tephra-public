@@ -64,6 +64,15 @@ export function sectionHead(title, { count = null, sub = '', id = '', tone = '' 
     sub ? el('p', { class: 'shead__sub', text: sub }) : null);
 }
 
+// The Reports group's head (5.2 group 5): one row per kind that has something to show.
+export function reportsHead() {
+  const group = byId('reports');
+  if (!group) return;
+  const n = ['crew-section', 'notice-section', 'duty-section'].filter((id) => byId(id) && !byId(id).hidden).length;
+  group.hidden = n === 0;
+  byId('reports-title').textContent = `Reports · ${n}`;
+}
+
 export function badge(n, label) {
   return el('span', { class: 'badge', 'aria-label': label || null, text: n > 99 ? '99+' : String(n) });
 }
@@ -76,7 +85,8 @@ let current = null;
 
 // openSheet({ title, body, footer, wide }) -> { close, body, setFooter, setTitle }.
 // A native <dialog>: focus is trapped, Escape closes, focus returns to the opener.
-export function openBSheet({ title, body = null, footer = null, wide = false, onClose = null }) {
+// `full`: a full-screen sheet on a phone (messages, 6.7); a bottom sheet otherwise.
+export function openBSheet({ title, body = null, footer = null, wide = false, full = false, onClose = null }) {
   const dlg = byId('bsheet');
   if (current) {
     current.dispose();
@@ -90,6 +100,7 @@ export function openBSheet({ title, body = null, footer = null, wide = false, on
   if (footer) footNode.append(footer);
   footNode.hidden = !footer;
   dlg.classList.toggle('bsheet--wide', wide);
+  dlg.classList.toggle('bsheet--full', full);
   dlg.replaceChildren(el('div', { class: 'bsheet__head' }, titleNode, closeBtn), bodyNode, footNode);
   dlg.setAttribute('aria-labelledby', 'bsheet-title');
   const handle = {

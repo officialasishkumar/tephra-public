@@ -16,7 +16,7 @@ import {
   setServerTime,
 } from './desk/format.js';
 import { SESSION_ENDED, hideLogin, initLogin, setPending, showLogin } from './desk/login.js';
-import { breakdownText, flashNew, renderQueue, showAllDrafts, showAllWatching, showMostUrgent, updateTimes, waitingCount, walkOrder } from './desk/queue.js';
+import { breakdownText, flashNew, openClosed, renderQueue, showAllDrafts, showAllWatching, showMostUrgent, updateTimes, waitingCount, walkOrder } from './desk/queue.js';
 import { closeSheet, onSheetClick, openSheet, receiptWords, refreshFacts, setReceipt, sheetBusy, sheetOpenFor, sheetStepBack, showStamp, syncSheet, updateSheetTimes } from './desk/review.js';
 import { app, draftList } from './desk/state.js';
 import { toast } from './desk/toast.js';
@@ -767,6 +767,7 @@ function leaveDesk() {
   for (const id of ['fail-section', 'fail-pane', 'idle-pane', 'msg-section', 'plan-section', 'notice-section', 'crew-section', 'watch-section']) byId(id).replaceChildren();
   byId('fail-pane').hidden = true;
   byId('crew-section').hidden = true;
+  byId('reports').hidden = true;
   byId('tabbar').hidden = true;
   for (const t of ['ask', 'network', 'docs']) byId(`panel-${t}`).hidden = true;
   delete document.body.dataset.tab;
@@ -821,7 +822,8 @@ function measure() {
   root.style.setProperty('--dhead-h', `${headH}px`);
   root.style.setProperty('--head-h', `${headH + (isWide() && !byId('tabbar').hidden ? 48 : 0)}px`);
   const bar = byId('sheet-actions');
-  root.style.setProperty('--bar-h', `${bar ? bar.offsetHeight : 0}px`);
+  // a bar placed after the content (review.js placeBar) takes no room from it
+  root.style.setProperty('--bar-h', `${bar && !bar.classList.contains('actions--after') ? bar.offsetHeight : 0}px`);
   // The tab bar gives way to the review's fixed action bar on phones.
   const reviewing = app.tab === 'queue' && byId('desk-view').dataset.view === 'review' && !isWide();
   document.body.dataset.review = reviewing ? '1' : '0';
@@ -913,6 +915,12 @@ function wire() {
     goTab: (name) => goTab(name, { focus: true }),
     draftMessages: requestMessageDrafts,
     skipTo,
+    openDraft: (id) => selectDraft(id),
+    // Sheets never stack (3): on a phone the review closes before a message sheet opens; the
+    // receipt line stays on Decide. At 1100 px and up the review is a pane and stays.
+    leaveReview: () => {
+      if (!isWide() && sheetOpenFor()) closeReview({ force: true });
+    },
     askAbout,
     afterPlans,
     badges: updateBadges,
@@ -984,6 +992,7 @@ function wire() {
       loadDrafts();
     }
   });
+  byId('closed-open').addEventListener('click', openClosed);
   byId('cards-all').addEventListener('click', () => {
     showAllDrafts();
     // focus moves to the first row that was hidden

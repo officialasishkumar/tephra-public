@@ -543,8 +543,8 @@ a {
 }
 
 .banner--rejected {
-  border-color: var(--c-serious);
-  background: var(--c-serious-bg);
+  border-color: var(--c-line-input);
+  background: var(--c-surface-2);
 }
 
 .banner--superseded {
@@ -1330,7 +1330,7 @@ textarea.field {
 
 .closed__item {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) 16px;
   align-items: center;
   column-gap: var(--sp-3);
   row-gap: 2px;
@@ -1381,6 +1381,10 @@ textarea.field {
 
 .adv-status--serious .st {
   color: var(--c-serious);
+}
+
+.adv-status--rejected .st {
+  color: var(--c-text-2);
 }
 
 .adv-status--off .st {
@@ -1706,7 +1710,7 @@ textarea.field {
 }
 
 .timeline__item--rejected .timeline__dot {
-  color: var(--c-serious);
+  color: var(--c-text-2);
 }
 
 .timeline__item--superseded .timeline__dot {
@@ -1747,8 +1751,8 @@ textarea.field {
 /* edit and reject views (10.6, 10.7) */
 .counter {
   margin-top: 6px;
-  font-family: var(--font-mono);
-  font-size: var(--fs-2);
+  font-size: var(--fs-1);
+  font-variant-numeric: tabular-nums;
   color: var(--c-text-3);
 }
 
@@ -1914,6 +1918,10 @@ textarea.field {
   border-left-color: var(--c-serious);
 }
 
+.outcome--rejected {
+  border-left-color: var(--c-line-input);
+}
+
 .outcome__text {
   font-size: var(--fs-4);
   font-weight: var(--fw-semibold);
@@ -1961,7 +1969,7 @@ textarea.field {
 }
 
 .decided-stamp--rejected {
-  color: var(--c-reject-text);
+  color: var(--c-text-1);
 }
 
 .decided-stamp__word {
@@ -2008,6 +2016,13 @@ textarea.field {
   border-top: 1px solid var(--c-line-2);
   background: var(--c-surface-1);
   box-shadow: 0 -12px 28px rgb(0 0 0 / 0.5);
+}
+
+/* after the content, not pinned (review.js placeBar): the text to approve comes first */
+.actions.actions--after {
+  position: static;
+  margin-top: var(--sp-4);
+  box-shadow: none;
 }
 
 .actions__inner {
@@ -2090,6 +2105,31 @@ textarea.field {
 
 .approve[aria-disabled="true"]::before {
   display: none;
+}
+
+/* The neutral primary (6.4): message, plan and document approvals. Green stays advisory-only. */
+.approve--neutral {
+  background: var(--c-cta);
+  color: var(--c-cta-ink);
+}
+
+.approve--neutral::before {
+  background: var(--c-text-3);
+  box-shadow: none;
+}
+
+.approve--neutral.is-armed {
+  box-shadow: 0 0 0 3px var(--c-text-3), var(--focus-halo);
+}
+
+/* A message is a full-screen sheet on a phone (6.7); a centred sheet from 700 px. */
+@media (max-width: 699px) {
+  .bsheet.bsheet--full {
+    height: 100dvh;
+    max-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
 }
 
 .approve__hint {
@@ -2238,7 +2278,7 @@ textarea.field {
 }
 
 .toast--rejected .toast__auditline {
-  color: var(--c-reject-text);
+  color: var(--c-text-2);
 }
 
 .toast__close {
@@ -2269,11 +2309,11 @@ textarea.field {
 }
 
 .toast--rejected {
-  border-left-color: var(--c-serious);
+  border-left-color: var(--c-line-input);
 }
 
 .toast--rejected .toast__title > .icon {
-  color: var(--c-serious);
+  color: var(--c-text-2);
 }
 
 .toast--caution {
@@ -5110,8 +5150,52 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
 .qlinks {
   display: flex;
   flex-direction: column;
-  margin-top: var(--sp-6);
   border-top: var(--border-hair);
+}
+
+#reports[hidden] {
+  display: none;
+}
+
+/* Reports rows read like the inbox rows (6.2): the subject, the words, the chevron. */
+.qlinks .qlink__btn,
+.qlinks .qsec--duty .dcard__head {
+  gap: var(--sp-2);
+  min-height: var(--tap-comfort);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
+  font-size: var(--fs-2);
+}
+
+.qlink__who {
+  flex: none;
+  min-width: 4.5em;
+  font-size: var(--fs-2);
+  font-weight: var(--fw-semibold);
+  color: var(--c-text-1);
+}
+
+.qlinks .qlink__t,
+.qlinks .qsec--duty .dcard__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-3);
+  font-weight: var(--fw-regular);
+  line-height: 1.5;
+  color: var(--c-text-1);
+}
+
+.qlinks .qlink__go,
+.qlinks .qsec--duty .dcard__chev {
+  width: 16px;
+  height: 16px;
+  color: var(--c-text-3);
+}
+
+.qlinks .qsec--duty .dcard__icon {
+  width: 16px;
+  height: 16px;
+  margin-right: var(--sp-1);
+  vertical-align: -2px;
 }
 
 .qlinks > .qsec {
@@ -5261,37 +5345,47 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   margin-top: var(--sp-6);
 }
 
-.closed__sum {
+/* "DECIDED SINCE 1001Z · 1 ›": a group head that is a row (5.12); the list opens in a sheet */
+.closed__row {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  min-height: var(--tap-min);
-  list-style: none;
+  gap: 0.4em;
+  width: 100%;
+  min-height: var(--tap-comfort);
+  padding: 0 var(--sp-2) 0 0;
+  border: 0;
+  border-top: var(--border-hair);
+  border-bottom: var(--border-hair);
+  background: none;
+  text-align: left;
   cursor: pointer;
 }
 
-.closed__sum::-webkit-details-marker {
-  display: none;
+.closed__row:hover {
+  background: var(--c-surface-2);
 }
 
-.closed__box[open] > .closed__sum .disclosure {
-  transform: rotate(90deg);
+.closed__row .closed__title,
+.closed__row .closed__count {
+  margin: 0;
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--c-text-3);
 }
 
-.closed__sum .disclosure {
+.closed__go {
+  flex: none;
   width: 16px;
   height: 16px;
+  margin-left: auto;
   color: var(--c-text-3);
-  transition: transform var(--dur-2) var(--ease-standard);
 }
 
-.closed__title {
-  margin: 0;
-}
-
-.closed__count {
-  font-size: var(--fs-1);
-  color: var(--c-text-3);
+.closed__item .closed__go {
+  grid-column: 3;
+  grid-row: 1 / span 2;
 }
 
 /* --- the review sheet (R10.4): primary first, then "Why this advisory" ------------------- */
@@ -5611,17 +5705,7 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   }
 }
 
-/* --- Ask (R10.5): the composer first, suggestions under it, answers newest first --------- */
-
-#panel-ask .acomposer {
-  position: static;
-  margin: 0;
-  padding: 0;
-  border-top: 0;
-  background: none;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
+/* --- Ask: the composer stays pinned above the tab bar (the sticky rule on .acomposer) ------ */
 
 #panel-ask .acomposer__note {
   margin-top: var(--sp-2);
@@ -7299,8 +7383,11 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
 
 .sheet__pos {
   flex: 1 1 auto;
+  min-width: 0;
   text-align: center;
   font-size: var(--fs-2);
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
   color: var(--c-text-3);
 }
 
@@ -7412,8 +7499,8 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   grid-template-columns: 5.5em minmax(0, 1fr);
   column-gap: var(--sp-3);
   align-items: baseline;
-  min-height: 40px;
-  padding: 10px 0;
+  min-height: 32px;
+  padding: 6px 0;
   border-bottom: var(--border-hair);
   font-size: var(--fs-2);
   line-height: 1.43;
@@ -7521,28 +7608,34 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   color: var(--c-text-3);
 }
 
-.textbox__src summary {
+.textbox__hdr summary {
   display: flex;
   align-items: center;
   gap: 4px;
-  min-height: 32px;
+  min-height: var(--tap-min);
+  margin: calc(-1 * var(--sp-2)) 0 0;
   font-size: var(--fs-1);
   color: var(--c-text-3);
   cursor: pointer;
   list-style: none;
 }
 
-.textbox__src summary::-webkit-details-marker {
+.textbox__hdr summary::-webkit-details-marker {
   display: none;
 }
 
-.textbox__src summary .icon {
+.textbox__hdr summary .icon {
+  flex: none;
   width: 14px;
   height: 14px;
 }
 
-.textbox__src[open] summary .disclosure {
+.textbox__hdr[open] summary .disclosure {
   transform: rotate(90deg);
+}
+
+.textbox__hdr > .textbox__head {
+  margin-bottom: var(--sp-1);
 }
 
 .textbox__body {
@@ -7807,8 +7900,8 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   margin-top: var(--sp-4);
 }
 
-/* --- 600 px and up: rows add their columns ---------------------------------------------------- */
-@media (min-width: 600px) {
+/* --- 600 to 1099 px: rows add their columns (the 420 px list pane at 1100 and up keeps one line) */
+@media (min-width: 600px) and (max-width: 1099px) {
   .irow__extra {
     display: inline;
   }
@@ -7833,7 +7926,7 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
 @media (prefers-reduced-motion: reduce) {
   .receipt__links .disclosure,
   .srcrow > summary .disclosure,
-  .textbox__src summary .disclosure {
+  .textbox__hdr summary .disclosure {
     transition: none;
   }
 }

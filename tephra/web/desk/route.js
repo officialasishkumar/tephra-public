@@ -23,7 +23,10 @@ function rings(geometry) {
   return [];
 }
 
-export function routeMap(option, geometry, { mode = 'OFFICIAL' } = {}) {
+// `small`: the 140 px sketch in the review's Check section. Its labels would draw under 12 px, so it
+// has none and is hidden from screen readers: the Route row beside it says the route in words, and
+// "Route ›" opens the labelled sketch full size.
+export function routeMap(option, geometry, { mode = 'OFFICIAL', small = false } = {}) {
   const path = (option.path || []).filter(finite);
   if (path.length < 2) return null;
   const pts = [...path, ...(option.waypoints || []).filter(finite)];
@@ -44,13 +47,9 @@ export function routeMap(option, geometry, { mode = 'OFFICIAL' } = {}) {
   const px = ([lon, lat]) => [offX + (lon - minLon) * kx * scale, H - offY - (lat - minLat) * scale];
   const d = (list) => list.map((p, i) => `${i ? 'L' : 'M'}${px(p).map((n) => n.toFixed(1)).join(' ')}`).join('');
 
-  const root = svg('svg', {
-    class: 'rmap',
-    viewBox: `0 0 ${W} ${H}`,
-    role: 'img',
-    'aria-label': `Route sketch: ${option.route_string || 'reroute'}`,
-    preserveAspectRatio: 'xMidYMid meet',
-  });
+  const root = svg('svg', small
+    ? { class: 'rmap rmap--small', viewBox: `0 0 ${W} ${H}`, 'aria-hidden': 'true', focusable: 'false', preserveAspectRatio: 'xMidYMid meet' }
+    : { class: 'rmap', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `Route sketch: ${option.route_string || 'reroute'}`, preserveAspectRatio: 'xMidYMid meet' });
   const defs = svg('defs');
   const hatch = svg('pattern', { id: 'rmap-hatch', width: 7, height: 7, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' });
   hatch.append(svg('line', { x1: 0, y1: 0, x2: 0, y2: 7, class: 'rmap__hatch' }));
@@ -74,17 +73,17 @@ export function routeMap(option, geometry, { mode = 'OFFICIAL' } = {}) {
   (option.waypoints || []).filter(finite).forEach((wp, i) => {
     const [x, y] = px(wp);
     root.append(svg('circle', { class: 'rmap__wp', cx: x.toFixed(1), cy: y.toFixed(1), r: 8 }));
-    root.append(svg('text', { class: 'rmap__wpn', x: x.toFixed(1), y: (y + 3.6).toFixed(1), 'text-anchor': 'middle' }, String(i + 1)));
+    if (!small) root.append(svg('text', { class: 'rmap__wpn', x: x.toFixed(1), y: (y + 3.6).toFixed(1), 'text-anchor': 'middle' }, String(i + 1)));
   });
 
   const [sx, sy] = px(first);
   root.append(svg('circle', { class: 'rmap__start', cx: sx.toFixed(1), cy: sy.toFixed(1), r: 5 }));
   const flipNow = sx > W - 50;
-  root.append(svg('text', { class: 'rmap__lab', x: (flipNow ? sx - 9 : sx + 9).toFixed(1), y: (sy - 7).toFixed(1), 'text-anchor': flipNow ? 'end' : 'start' }, 'Now'));
+  if (!small) root.append(svg('text', { class: 'rmap__lab', x: (flipNow ? sx - 9 : sx + 9).toFixed(1), y: (sy - 7).toFixed(1), 'text-anchor': flipNow ? 'end' : 'start' }, 'Now'));
   const [ex, ey] = px(last);
   root.append(svg('rect', { class: 'rmap__end', x: (ex - 5).toFixed(1), y: (ey - 5).toFixed(1), width: 10, height: 10, transform: `rotate(45 ${ex.toFixed(1)} ${ey.toFixed(1)})` }));
   const endWord = option.end_icao || (option.kind === 'REJOIN_TRACK' ? 'Rejoin' : 'End');
   const anchorEnd = ex > W - 60;
-  root.append(svg('text', { class: 'rmap__lab', x: (anchorEnd ? ex - 9 : ex + 9).toFixed(1), y: (ey - 7).toFixed(1), 'text-anchor': anchorEnd ? 'end' : 'start' }, endWord));
+  if (!small) root.append(svg('text', { class: 'rmap__lab', x: (anchorEnd ? ex - 9 : ex + 9).toFixed(1), y: (ey - 7).toFixed(1), 'text-anchor': anchorEnd ? 'end' : 'start' }, endWord));
   return root;
 }

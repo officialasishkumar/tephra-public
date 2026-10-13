@@ -238,9 +238,11 @@ function finish(wait, res, question) {
   if (res.ok && res.data && typeof res.data.answer === 'string') {
     const node = answerCard(res.data);
     wait.replaceWith(node);
-    // said once, through the page's one polite region (the log itself stays aria-live off)
-    const said = res.data.status === 'refused' ? `Not in the evidence TEPHRA has. ${res.data.refusal_reason || ''}` : res.data.answer;
-    announce(`Answer: ${said.length > 140 ? `${said.slice(0, 139)}…` : said}`);
+    // said once, in full, through the page's one polite region (the log itself stays aria-live
+    // off), with the same attribution the card shows: the mark's words only when a model answered
+    const said = res.data.status === 'refused' ? `Not in the evidence TEPHRA has. ${res.data.refusal_reason || ''}` : stubWords(res.data.answer, res.data);
+    const by = res.data.llm_backend === 'stub' || !res.data.model_id || res.data.model_id === 'stub' ? '' : ' Answered by TEPHRA Assistant.';
+    announce(`Answer: ${said.trim()}${by}`);
     scrollEnd(node);
     return;
   }

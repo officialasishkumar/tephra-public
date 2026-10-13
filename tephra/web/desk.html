@@ -117,12 +117,6 @@
              order; the Coordinator's order is only a note. -->
         <p class="qcount"><span id="q-count"></span></p>
         <p id="q-breakdown" class="qcount__more"></p>
-        <!-- the first-use disclosure (docs/UI-AI-QUIET.md 8.4, Desk spec 5.2): once per browser, until closed (desk.js) -->
-        <p id="firstuse" class="firstuse" hidden>
-          <svg class="icon firstuse__mark" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>
-          <span class="firstuse__text">TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything. <button id="firstuse-about" type="button" class="firstuse__about">About ›</button></span>
-          <button id="firstuse-close" type="button" class="iconbtn firstuse__close" aria-label="Hide this line" title="Hide this line"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-x"></use></svg></button>
-        </p>
         <div id="q-receipt" class="qreceipt"></div>
         <p id="q-newer" class="next__newer" role="status" hidden></p>
         <div id="q-state" class="qstate"></div>
@@ -133,6 +127,13 @@
         <!-- Group 1, Plan by hand: flights TEPHRA Assistant could not plan, never folded, directly
              after the lead card (docs/UI-AI-QUIET.md K77; Desk redesign 5.2). -->
         <section id="fail-section" class="qsec qsec--fail" hidden></section>
+        <!-- the first-use disclosure (docs/UI-AI-QUIET.md 8.4, Desk spec 5.2): once per browser, until closed
+             (desk.js); under the lead card and Plan by hand, so the work stays at the top of the screen -->
+        <p id="firstuse" class="firstuse" hidden>
+          <svg class="icon firstuse__mark" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>
+          <span class="firstuse__text">TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything. <button id="firstuse-about" type="button" class="firstuse__about">About ›</button></span>
+          <button id="firstuse-close" type="button" class="iconbtn firstuse__close" aria-label="Hide this line" title="Hide this line"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-x"></use></svg></button>
+        </p>
         <!-- Group 2, Before entry: act-by order, five rows, then "Show all n". -->
         <section class="grp" aria-labelledby="more-title">
           <h2 id="more-title" class="ghead" hidden></h2>
@@ -149,19 +150,23 @@
           </ul>
           <ul id="msg-section" class="irows" hidden></ul>
         </section>
-        <div class="qlinks">
-          <section id="crew-section" class="qsec qlink" aria-label="Crew reports of ash" hidden></section>
-          <section id="notice-section" class="qsec qlink" hidden></section>
-          <section id="duty-section" class="qsec qsec--duty qlink" aria-label="Coordinator brief" hidden></section>
-        </div>
+        <!-- Group 5, Reports: crew reports of ash, read notices and the Coordinator's brief, one row
+             each that opens in place (ui.js reportsHead counts them). -->
+        <section id="reports" class="grp" aria-labelledby="reports-title" hidden>
+          <h2 id="reports-title" class="ghead"></h2>
+          <div class="qlinks">
+            <section id="crew-section" class="qsec qlink" aria-label="Crew reports of ash" hidden></section>
+            <section id="notice-section" class="qsec qlink" hidden></section>
+            <section id="duty-section" class="qsec qsec--duty qlink" aria-label="Coordinator brief" hidden></section>
+          </div>
+        </section>
+        <!-- Group 6, Decided since: one row that opens the list in a sheet (5.12), so a re-render of
+             Decide can't close it. -->
         <section id="closed" class="closed" aria-labelledby="closed-title" hidden>
-          <details class="closed__box">
-            <summary class="closed__sum">
-              <svg class="icon disclosure" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-chevron-right"></use></svg>
-              <span id="closed-title" class="closed__title">Decided since this page opened</span> <span id="closed-count" class="closed__count"></span>
-            </summary>
-            <ul id="closed-list" class="closed__list"></ul>
-          </details>
+          <button id="closed-open" type="button" class="closed__row" aria-haspopup="dialog">
+            <span id="closed-title" class="closed__title">Decided since this page opened</span><span id="closed-count" class="closed__count"></span>
+            <svg class="icon closed__go" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-chevron-right"></use></svg>
+          </button>
         </section>
         <p class="qfoot">Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system.</p>
       </section>

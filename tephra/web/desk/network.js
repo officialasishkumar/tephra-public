@@ -17,7 +17,7 @@ import { slotWords } from './budget.js';
 const STATUS = {
   DRAFT: ['i-clock', 'Waiting for your decision', 'neutral'],
   APPROVED: ['i-approved', 'Approved', 'ok'],
-  REJECTED: ['i-rejected', 'Rejected', 'serious'],
+  REJECTED: ['i-rejected', 'Rejected', 'neutral'], // a decision, not an alarm: never red (D4)
   SUPERSEDED: ['i-superseded', 'Replaced by a newer plan', 'off'],
   AI_UNAVAILABLE: ['st-caution', 'No result', 'caution'],
 };

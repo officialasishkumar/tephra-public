@@ -232,6 +232,25 @@ function render() {
   host.dataset.view = sheet.page && sheet.view !== 'edit' && sheet.view !== 'reject' ? 'page' : sheet.view;
   renderHead();
   renderBar();
+  // after the frame: the caller switches Decide to the review view once this returns
+  window.requestAnimationFrame(placeBar);
+}
+
+// The words come before the button (review: the body sat under the pinned bar). On a phone the
+// decision bar is pinned only when the first lines of the text to approve are above it when the
+// review opens; otherwise (a short screen, a reroute's sketch, a receipt line) it sits after the
+// content, where reading down reaches it once the text has been read. Pages keep it pinned.
+function placeBar() {
+  const bar = byId('sheet-actions');
+  if (!bar || !sheet) return;
+  bar.classList.remove('actions--after');
+  const text = byId('sheet').querySelector('.textbox__body');
+  if (!isWide() && text && !sheet.page && (sheet.view === 'review' || sheet.view === 'closed')) {
+    const lines = 2 * (parseFloat(getComputedStyle(text).lineHeight) || 20);
+    const textTop = text.getBoundingClientRect().top + window.scrollY;
+    if (textTop + Math.min(text.offsetHeight, lines) > window.innerHeight - bar.offsetHeight) bar.classList.add('actions--after');
+  }
+  app.hub.measureBar();
 }
 
 // The top bar (5.3): "‹ Decide", where this item sits in the act-by order, "Skip for now ›".
@@ -248,7 +267,9 @@ function renderHead() {
   append(head, [
     el('button', { type: 'button', class: 'sheet__back', 'data-back': '1' }, icon('i-chevron-left'),
       el('span', { text: sheet.page && !sub ? sheet.seen.proxy_flight : sub ? 'Review' : 'Decide' })),
-    draft ? el('span', { class: 'sheet__pos', text: `${at + 1} of ${order.length}` }) : el('span', { class: 'sheet__pos' }),
+    // the walk is the advisories only, so it says so: "1 of 15 advisories" next to "16 waiting"
+    // (which also counts messages, plans, documents and flights to plan by hand) is not a second count
+    draft ? el('span', { class: 'sheet__pos', text: `${at + 1} of ${order.length} ${order.length === 1 ? 'advisory' : 'advisories'}` }) : el('span', { class: 'sheet__pos' }),
     next ? el('button', { type: 'button', class: 'sheet__skip', 'data-skip': next.id, 'aria-label': `Skip for now: open ${next.proxy_flight}, leave ${sheet.seen.proxy_flight} in Decide` },
       el('span', { text: 'Skip for now' }), icon('i-chevron-right')) : null]);
   if (hadFocus) head.querySelector(hadFocus)?.focus({ preventScroll: true });
@@ -302,18 +323,16 @@ function sourcesFact(adv) {
   return [String(list.length), `${official} official`, newest].filter(Boolean).join(' · ');
 }
 
-// The text box (5.3): the header code wrote, dim and not editable, above a hairline; the body
-// below it is what gets approved. The header's source lines fold to one line (they are listed
-// on the Sources page too); nothing is left out of what is approved.
+// The text box (5.3): the header code wrote, dim and not editable, folded to one line ("Header
+// written by code ▸") so the body, what gets approved, is on the first screen above the decision
+// bar; the full header is one tap away here and in Record. Nothing is left out of what is approved.
 function textBox(adv, { body = true } = {}) {
-  const lines = String(adv.header || '').split('\n');
-  const head = lines.filter((l) => !l.startsWith('SRC '));
-  const src = lines.filter((l) => l.startsWith('SRC '));
+  const lines = String(adv.header || '').split('\n').filter((l) => l.trim() !== '');
   return el('div', { class: 'textbox' },
-    el('pre', { class: 'textbox__head', 'aria-label': 'Header written by code (not editable)', text: head.join('\n') }),
-    src.length ? el('details', { class: 'textbox__src' },
-      el('summary', {}, icon('i-chevron-right', 'icon disclosure'), el('span', { text: `${src.length} source line${src.length === 1 ? '' : 's'} (code)` })),
-      el('pre', { class: 'textbox__head', text: src.join('\n') })) : null,
+    lines.length ? el('details', { class: 'textbox__hdr' },
+      el('summary', {}, icon('i-chevron-right', 'icon disclosure'),
+        el('span', { text: `Header written by code · ${lines.length} line${lines.length === 1 ? '' : 's'}` })),
+      el('pre', { class: 'textbox__head', text: lines.join('\n') })) : null,
     body ? el('pre', { class: 'textbox__body', text: adv.edited_body ?? adv.body }) : null);
 }
 
@@ -376,7 +395,7 @@ function checkSection(adv) {
     fact('Sources', el('span', { 'data-slot': 'srcsum', text: sourcesFact(adv) }), { page: 'sources' }),
     adv.fuel_line ? fact('Fuel', adv.fuel && Number.isFinite(adv.fuel.fuel_kg) ? `+${Math.round(adv.fuel.fuel_kg).toLocaleString('en-US')} kg` : adv.fuel_line) : null,
     adv.reroute ? fact('Route', routeSummary(adv.reroute), { page: 'route' }) : null);
-  const map = adv.reroute ? routeMap(adv.reroute, app.coneGeo.get(adv.cone_id), { mode: adv.plume_mode }) : null;
+  const map = adv.reroute ? routeMap(adv.reroute, app.coneGeo.get(adv.cone_id), { mode: adv.plume_mode, small: true }) : null;
   return el('section', { id: 'why', class: 'check', 'aria-labelledby': 'check-title', 'data-key': `${level}|${ash}|${Boolean(map)}` },
     el('h2', { id: 'check-title', class: 'ghead', text: 'Check before you approve' }),
     facts,
@@ -393,6 +412,7 @@ export function refreshFacts() {
   const focused = old.contains(document.activeElement) ? document.activeElement.dataset.page : null;
   old.replaceWith(next);
   if (focused) next.querySelector(`[data-page="${focused}"]`)?.focus({ preventScroll: true });
+  placeBar();
 }
 
 function routeSummary(r) {
@@ -617,6 +637,10 @@ function editView(adv) {
     sheet.editTried = false;
     update();
   });
+  sheet.refreshEdit = () => {
+    if (area.isConnected) update();
+    else render();
+  };
   queueMicrotask(update);
   return [
     el('p', { class: 'rv2__who' }, el('span', { text: adv.proxy_flight }), el('span', { class: 'rv2__ver', text: `v${adv.version}` })),
@@ -676,7 +700,10 @@ function rejectView(adv) {
       },
     }, icon('i-plus', 'icon reason-chip__add'), icon('i-check', 'icon reason-chip__on'), el('span', { text })));
   }
-  const chips = el('div', { class: 'reason-chips', role: 'group', 'aria-label': 'Quick reasons (inserted into the text, still editable)' }, chipButtons);
+  // "Other…" inserts nothing: it takes the dispatcher to the reason box to write their own
+  const other = el('button', { type: 'button', class: 'reason-chip reason-chip--other', 'aria-controls': 'reject-reason', onclick: () => area.focus() },
+    el('span', { text: 'Other…' }));
+  const chips = el('div', { class: 'reason-chips', role: 'group', 'aria-label': 'Quick reasons (inserted into the text, still editable)' }, chipButtons, other);
   queueMicrotask(update);
   return [
     el('h1', { id: 's-title', class: 'rv2__action', tabindex: '-1', text: `Reject the draft for ${adv.proxy_flight}` }),
@@ -845,12 +872,13 @@ function renderBar() {
     const editBad = edited && editProblem(sheet.edit);
     const editBlocks = editBad && editBad.tone === 'serious';
     const attempt = (then) => () => {
-      // An unchanged edit is said only now, at the attempt (5.3).
+      // An unchanged edit is said only now, at the attempt (5.3), once: by the field's own polite
+      // message line, updated in place (re-rendering would replace the region and lose it).
       if (edited && editProblem(sheet.edit)) {
         sheet.editTried = true;
-        render();
+        if (sheet.refreshEdit) sheet.refreshEdit();
+        else render();
         byId('edit-body')?.focus();
-        announce('Unchanged from the draft. Approve it as drafted, or change the text.');
         return;
       }
       then();
@@ -965,6 +993,7 @@ function placeReceipt() {
   const focused = host.contains(document.activeElement) ? (document.activeElement.dataset.audit ? '[data-audit]' : '[data-draftmsg]') : null;
   host.replaceChildren(...(receipt ? [receiptNode()] : []));
   if (focused) host.querySelector(focused)?.focus({ preventScroll: true });
+  if (sheet) placeBar();
 }
 
 async function toggleAudit() {

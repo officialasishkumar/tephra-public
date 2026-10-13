@@ -26,7 +26,7 @@ import {
   watchOnly,
 } from './format.js';
 import { openFailures } from './failures.js';
-import { aiMark } from './ui.js';
+import { aiMark, closeBSheet, openBSheet } from './ui.js';
 import { recordedWords } from '../wall/x-parts.js';
 import { crewFlag, crewKey } from './crew.js';
 import { KIND, draftMessages } from './messages.js';
@@ -39,7 +39,6 @@ const SOON_MIN = 10;
 const ROWS_FIRST = 5;
 const WATCH_FIRST = 3;
 const NEW_TAG_MS = 120000;
-const CLOSED_MAX = 8;
 let showAllRows = false;
 let showAllWatch = false;
 
@@ -143,7 +142,8 @@ export function breakdownText() {
 function countLine(items) {
   const c = waitingCount();
   if (!c.n) return '';
-  if (c.hand) return `${c.n} waiting · ${plural(c.advisories, 'advisory', 'advisories')} · ${plural(c.hand, 'flight')} to plan by hand`;
+  // the parts add up to the one number: every advisory, message, plan and document is a draft
+  if (c.hand) return `${c.n} waiting · ${plural(c.hand, 'flight')} to plan by hand · ${plural(c.n - c.hand, 'draft')}`;
   const now = activeNow();
   const soon = items.filter((a) => {
     const k = actBy(a);
@@ -208,7 +208,7 @@ function advRow(adv) {
   const main = watch ? [lvl !== null ? fl(lvl) : null, adv.volcano_name].filter(Boolean).join(' · ') || 'Keep watching' : actionShort(adv);
   const marks = cautions(adv);
   const sentence = `${adv.proxy_flight}, ${main.toLowerCase().replace(/\bfl(\d)/g, 'FL$1')}, ${timeWords(adv, now)}${marks.length ? `. ${marks.map((m) => m[1]).join('. ')}` : ''}. Review.`;
-  const extra = [adv.callsign, watch ? null : adv.volcano_name, watch || lvl === null ? null : fl(lvl)].filter(Boolean).join(' · ');
+  const extra = [adv.callsign, watch ? null : adv.volcano_name, watch || lvl === null ? null : `now ${fl(lvl)}`].filter(Boolean).join(' · ');
   const button = el('button', { type: 'button', class: 'card irow', 'data-open': adv.id, 'aria-label': sentence },
     el('span', { class: 'irow__who', 'aria-hidden': 'true', text: adv.proxy_flight }),
     el('span', { class: 'irow__main', 'aria-hidden': 'true' },
@@ -221,20 +221,26 @@ function advRow(adv) {
   return el('li', { class: 'cards__item', 'data-id': adv.id, 'data-key': `${adv.id}|${adv.version}|${crewKey(adv)}|${lvl}` }, button);
 }
 
-// One row for something that is not an advisory: subject, words, its state word ("to approve").
-function itemRow({ key, who = '', text, state, attrs, label }) {
-  return el('li', { class: 'cards__item', 'data-id': key, 'data-key': `${key}|${who}|${text}|${state}` },
+// One row for something that is not an advisory: subject, words, its time cell (`time`, a flight's
+// clock) or its state word ("to approve").
+function itemRow({ key, who = '', text, state, time = null, attrs, label }) {
+  const cell = time || el('span', { class: 'tcell', text: state });
+  return el('li', { class: 'cards__item', 'data-id': key, 'data-key': `${key}|${who}|${text}|${state}|${Boolean(time)}` },
     el('button', { type: 'button', class: 'card irow', 'aria-label': label, ...attrs },
       el('span', { class: 'irow__who', 'aria-hidden': 'true', text: who }),
       el('span', { class: 'irow__main', 'aria-hidden': 'true' }, el('span', { class: 'irow__text', text })),
-      el('span', { 'aria-hidden': 'true' }, el('span', { class: 'tcell', text: state })),
+      el('span', { 'aria-hidden': 'true' }, cell),
       icon('i-chevron-right', 'icon irow__go')));
 }
 
+// A message for a flight still on this page sorts by that flight's act-by, so its row shows the
+// flight's clock (5.2 "RFA1540 Crew briefing · EN 23 min"): the reason it sits where it does.
 const msgRow = (m) => {
   const words = `${(KIND[m.kind] || [m.kind])[0]} · ${langs(m)}`;
-  return itemRow({ key: m.id, who: m.flight_no || '', text: words, state: 'to approve', attrs: { 'data-msg': m.id },
-    label: `${m.flight_no ? `${m.flight_no}, ` : ''}${words.replace(' · ', ' in ')}, to approve. Open.` });
+  const adv = flightActBy(m) === null ? null : sourceAdvisory(m);
+  const now = activeNow();
+  return itemRow({ key: m.id, who: m.flight_no || '', text: words, state: 'to approve', time: adv ? timeNode(adv, now) : null, attrs: { 'data-msg': m.id },
+    label: `${m.flight_no ? `${m.flight_no}, ` : ''}${words.replace(' · ', ' in ')}, to approve${adv ? `, the flight ${timeWords(adv, now)}` : ''}. Open.` });
 };
 
 // Rebuilds a list from keyed rows, keeping the nodes that did not change (focus stays put).
@@ -279,7 +285,8 @@ export function updateTimes() {
     lead.querySelector('[data-slot="stale"]').textContent = staleLine(leadAdv, now);
   }
   for (const li of document.querySelectorAll('#cards > li, #watch-list > li')) {
-    const adv = app.drafts.get(li.dataset.id);
+    const msg = app.messages.get(li.dataset.id);
+    const adv = app.drafts.get(li.dataset.id) || (msg ? sourceAdvisory(msg) : null);
     if (!adv) continue;
     const cell = li.querySelector('[data-slot="time"]');
     if (cell) cell.replaceWith(timeNode(adv, now));
@@ -488,7 +495,8 @@ export function flashNew(id) {
 const STATUS_VIEW = {
   APPROVED: ['i-approved', 'Approved', 'ok'],
   EDITED: ['i-approved', 'Approved with edits', 'ok'],
-  REJECTED: ['i-rejected', 'Rejected', 'serious'],
+  // a reject is a decision, not an alarm: neutral, never red (D4)
+  REJECTED: ['i-rejected', 'Rejected', 'rejected'],
   SUPERSEDED: ['i-superseded', 'Replaced by a newer draft', 'off'],
   DRAFT: ['i-clock', 'Awaiting dispatcher', 'neutral'],
 };
@@ -507,24 +515,32 @@ export function decidedLine(adv) {
   return `${who ? `by ${who} ` : ''}at ${when}`;
 }
 
+const closedTitle = () => (app.pageOpenedAt === null ? 'Decided since this page opened' : `Decided since ${hhmmz(app.pageOpenedAt)}`);
+
 function renderClosed() {
-  const section = byId('closed');
-  const list = byId('closed-list');
-  const items = [...app.closed.values()]
-    .sort((a, b) => (parseTime(b.updated_at) ?? 0) - (parseTime(a.updated_at) ?? 0))
-    .slice(0, CLOSED_MAX);
-  section.hidden = items.length === 0;
-  byId('closed-title').textContent = app.pageOpenedAt === null ? 'Decided since this page opened' : `Decided since ${hhmmz(app.pageOpenedAt)}`;
+  byId('closed').hidden = app.closed.size === 0;
+  byId('closed-title').textContent = closedTitle();
   byId('closed-count').textContent = `· ${app.closed.size}`;
-  list.replaceChildren(
-    ...items.map((adv) =>
-      el('li', {},
-        el('button', { type: 'button', class: 'closed__item', 'data-open': adv.id, 'aria-current': adv.id === app.selectedId ? 'true' : null },
-          statusBadge(adv),
-          el('span', { class: 'closed__what' },
-            el('span', { class: 'closed__flight', text: adv.proxy_flight }),
-            el('span', { text: ` ${actionShort(adv)}` })),
-          el('span', { class: 'closed__when', text: decidedLine(adv) }))),
-    ),
-  );
+  byId('closed-open').setAttribute('aria-label', `${closedTitle()}: ${plural(app.closed.size, 'decision')}. Opens the list.`);
+}
+
+// 5.12: the list opens in a sheet, newest first, one row each; a row opens the closed review.
+export function openClosed() {
+  const items = [...app.closed.values()].sort((a, b) => (parseTime(b.updated_at) ?? 0) - (parseTime(a.updated_at) ?? 0));
+  const list = el('ul', { class: 'closed__list' }, items.map((adv) =>
+    el('li', {},
+      el('button', {
+        type: 'button', class: 'closed__item', 'aria-current': adv.id === app.selectedId ? 'true' : null,
+        onclick: () => {
+          closeBSheet();
+          app.hub.openDraft(adv.id);
+        },
+      },
+      statusBadge(adv),
+      el('span', { class: 'closed__what' },
+        el('span', { class: 'closed__flight', text: adv.proxy_flight }),
+        el('span', { text: ` ${actionShort(adv)}` })),
+      el('span', { class: 'closed__when', text: decidedLine(adv) }),
+      icon('i-chevron-right', 'icon closed__go')))));
+  openBSheet({ title: `${closedTitle()} · ${items.length}`, body: list });
 }

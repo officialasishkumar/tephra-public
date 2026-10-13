@@ -91,6 +91,24 @@ def test_reject_is_never_red() -> None:
     assert "--c-reject" not in rule
     solid = css[css.rindex(".btn--reject-solid {") :]
     assert "--c-reject" not in solid[: solid.index("}")]
+    # the outcome of a reject is neutral too: the stamp, the status tone, the closed banner, the
+    # conflict outcome and the history dot (review: a red "Rejected" stamp broke D4)
+    neutral = (
+        ".decided-stamp--rejected {",
+        ".banner--rejected {",
+        ".outcome--rejected {",
+        ".adv-status--rejected .st {",
+        ".timeline__item--rejected .timeline__dot {",
+        ".toast--rejected {",
+    )
+    for selector in neutral:
+        rule = css[css.rindex(selector) :]
+        rule = rule[: rule.index("}")]
+        assert "--c-reject" not in rule, selector
+        assert "--c-serious" not in rule, selector
+    assert "REJECTED: ['i-rejected', 'Rejected', 'rejected']," in _read("desk/queue.js")
+    assert "REJECTED: ['i-rejected', 'Rejected', 'serious']" not in _read("desk/network.js")
+    assert "decided-stamp--${adv.status === 'REJECTED' ? 'rejected' : 'approved'}" in review
 
 
 def test_the_receipt_line_replaces_the_decision_toast() -> None:
@@ -179,3 +197,99 @@ def test_the_offline_line_is_out_of_the_header() -> None:
     head = html[html.index('<header id="dhead"') : html.index("</header>")]
     assert 'id="net-banner"' not in head
     assert 'id="net-banner"' in html[html.index('<main id="main"') :]
+
+
+def test_the_text_to_approve_is_on_the_first_screen() -> None:
+    """Review look 1: the code header folds to one line and the bar never comes before the words."""
+    review = _read("desk/review.js")
+    box = _function(review, "textBox")
+    assert "class: 'textbox__hdr'" in box
+    assert "Header written by code · ${lines.length} line" in box
+    assert "textbox__src" not in review
+    place = _function(review, "placeBar")
+    assert "actions--after" in place
+    assert "window.innerHeight - bar.offsetHeight" in place
+    assert "window.requestAnimationFrame(placeBar);" in review
+    css = _read("desk.css")
+    rule = css[css.index(".actions.actions--after {") :]
+    assert "position: static;" in rule[: rule.index("}")]
+    # a bar after the content takes no room from it
+    assert "bar.classList.contains('actions--after') ? bar.offsetHeight : 0" in _read("desk.js")
+    # the full header stays in Record
+    assert "'Header written by code'" in review
+
+
+def test_review_position_names_what_it_counts() -> None:
+    review = _read("desk/review.js")
+    assert "${order.length === 1 ? 'advisory' : 'advisories'}" in review
+
+
+def test_the_small_route_sketch_has_no_labels_under_12px() -> None:
+    route = _read("desk/route.js")
+    assert "small = false" in route
+    assert "'aria-hidden': 'true'" in route
+    assert route.count("if (!small) root.append(svg('text'") == 3
+    assert "small: true" in _function(_read("desk/review.js"), "checkSection")
+
+
+def test_ask_composer_is_pinned_and_answers_said_in_full() -> None:
+    css = _read("desk.css")
+    assert "#panel-ask .acomposer {\n  position: static;" not in css
+    sticky = css[css.index("\n.acomposer {") :]
+    assert "position: sticky;" in sticky[: sticky.index("}")]
+    ask = _read("desk/ask.js")
+    assert "said.slice(0, 139)" not in ask
+    assert "' Answered by TEPHRA Assistant.'" in ask
+
+
+def test_messages_use_the_one_decision_bar() -> None:
+    """Review look 5 / honest 4: hold or confirm, filled neutral, and no sheet on a sheet."""
+    msgs = _read("desk/messages.js")
+    assert "holdButton({" in msgs
+    assert "approve approve--neutral" in msgs
+    assert "btn--approve" not in msgs
+    assert "'Hold to approve, or tap to confirm.'" in msgs
+    assert "nothing is sent to a passenger, crew member or aircraft." in msgs
+    assert "'Approve now'" in msgs
+    assert "app.hub.leaveReview()" in msgs
+    assert "full: true" in msgs
+    assert "leaveReview: () => {" in _read("desk.js")
+    css = _read("desk.css")
+    rule = css[css.index(".approve--neutral {") :]
+    assert "var(--c-cta)" in rule[: rule.index("}")]
+
+
+def test_decide_rows_and_counts() -> None:
+    queue = _read("desk/queue.js")
+    # the outage line adds up to the one number
+    assert "${plural(c.n - c.hand, 'draft')}" in queue
+    # a message row shows its flight's clock
+    assert "time: adv ? timeNode(adv, now) : null" in queue
+    # the extra level is the level now
+    assert "`now ${fl(lvl)}`" in queue
+    css = _read("desk.css")
+    assert "@media (min-width: 600px) and (max-width: 1099px) {\n  .irow__extra {" in css
+    # Reports have a group head; the decided list is a sheet
+    html = _read("desk.html")
+    assert 'id="reports-title"' in html
+    assert "export function reportsHead(" in _read("desk/ui.js")
+    assert 'id="closed-open"' in html
+    assert "closed__box" not in html
+    assert "export function openClosed(" in queue
+    # the first-use line sits under the lead card and Plan by hand
+    order = [html.index(f'id="{i}"') for i in ("q-next", "fail-section", "firstuse", "cards")]
+    assert order == sorted(order)
+
+
+def test_reject_sheet_details() -> None:
+    review = _read("desk/review.js")
+    assert "'Other…'" in _function(review, "rejectView")
+    css = _read("desk.css")
+    counter = css[css.index(".counter {") :]
+    assert "--font-mono" not in counter[: counter.index("}")]
+
+
+def test_unchanged_is_said_once() -> None:
+    review = _read("desk/review.js")
+    assert "announce('Unchanged from the draft." not in review
+    assert "sheet.refreshEdit()" in review

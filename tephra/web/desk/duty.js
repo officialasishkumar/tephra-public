@@ -10,7 +10,7 @@ import { PATHS, api } from './api.js';
 import { append, byId, el, icon } from './dom.js';
 import { hhmmz } from './format.js';
 import { app } from './state.js';
-import { aiMark } from './ui.js';
+import { aiMark, reportsHead } from './ui.js';
 import { drawAiChip } from './budget.js';
 // The Wall's plain-words table (wall/x-parts.js, R12.7), shared so both screens say the same.
 import { machineText, plainLine, reasonClass, recordedWords } from '../wall/x-parts.js';
@@ -128,17 +128,17 @@ function undone(run) {
 // The one line Decide shows (R10.4): "Coordinator (code only): 3 flights need a plan first ›". A
 // run that did not run points at Plan by hand, which holds its flights (K91).
 function oneLine(run, failed, stub) {
-  const who = stub ? 'Coordinator (code only)' : 'Coordinator';
+  const code = stub ? 'Code only · ' : '';
   // the cause is said once, in the Plan by hand group's head; this line says where the work went
-  if (failed) return [who, 'no brief this run · its must-do flights are in Plan by hand'];
-  if (run.undispatched.length) return [who, `${plural(run.undispatched.length, 'must-do item')} not handed out`];
+  if (failed) return 'No brief this run · its must-do flights are in Plan by hand';
+  if (run.undispatched.length) return `${code}${plural(run.undispatched.length, 'must-do item')} not handed out`;
   const prios = run.brief ? run.brief.priorities : [];
   if (prios.length) {
     // One noun for every run, with the run's time, so the line does not read as two different
     // counts when an aircraft-triggered run and a tick run alternate (review 2, item 14).
-    return [who, `${plural(prios.length, 'item')} put in order of urgency · latest run ${hhmmz(run.finished_at)}`];
+    return `${code}${plural(prios.length, 'item')} in order of urgency · run ${hhmmz(run.finished_at)}`;
   }
-  return [who, `${plural(run.dispatches.length, 'job')} handed out · latest run ${hhmmz(run.finished_at)}`];
+  return `${code}${plural(run.dispatches.length, 'job')} handed out · run ${hhmmz(run.finished_at)}`;
 }
 
 function buildCard(run) {
@@ -149,7 +149,7 @@ function buildCard(run) {
   const failed = run.outcome === 'MODEL_FAILED';
   const b = run.brief;
   const stub = run.outcome === 'STUB' || run.llm_backend === 'stub';
-  const [who, what] = oneLine(run, failed, stub);
+  const what = oneLine(run, failed, stub);
   const left = undone(run);
   const bad = failed || Boolean(left);
 
@@ -159,12 +159,12 @@ function buildCard(run) {
     'aria-expanded': String(expanded),
     'aria-controls': 'duty-more',
   },
-    icon(bad ? 'st-caution' : 'ta-16', bad ? 'st dcard__icon' : 'icon dcard__icon'),
-    el('span', { class: 'dcard__title', id: 'duty-title' }, el('strong', { text: `${who}: ` }), el('span', { text: what }),
+    el('span', { class: 'qlink__who', id: 'duty-who', text: 'Coordinator' }),
+    el('span', { class: 'dcard__title qlink__t', id: 'duty-title' }, bad ? icon('st-caution', 'st dcard__icon') : null, el('span', { text: what }),
       !failed && !stub ? [' ', aiMark('Ordered by Coordinator', run.model_id)] : null),
     icon(expanded ? 'i-chevron-down' : 'i-chevron-right', 'icon dcard__chev'));
 
-  const card = el('article', { class: `dcard dcard--${tone}${expanded ? ' is-open' : ''}`, 'aria-labelledby': 'duty-title' }, toggle);
+  const card = el('article', { class: `dcard dcard--${tone}${expanded ? ' is-open' : ''}`, 'aria-labelledby': 'duty-who duty-title' }, toggle);
   // The work left undone is never folded, even while the brief is collapsed.
   if (left) card.append(left);
 
@@ -221,6 +221,7 @@ export function renderDuty() {
   if (!host) return;
   const run = app.duty;
   host.hidden = !run;
+  reportsHead();
   if (!run) {
     host.replaceChildren();
     return;

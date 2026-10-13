@@ -7,7 +7,7 @@ import { PATHS, api, isUnavailable, problems, unavailableReason } from './api.js
 import { announce, byId, el, icon } from './dom.js';
 import { dayMonthHhmm } from './format.js';
 import { app } from './state.js';
-import { aiMark, codeChip, openBSheet, unavailableCard } from './ui.js';
+import { aiMark, codeChip, openBSheet, reportsHead, unavailableCard } from './ui.js';
 
 const MAX_CHARS = 6000;
 const MIN_CHARS = 20;
@@ -49,6 +49,7 @@ export function renderNotices() {
   const host = byId('notice-section');
   if (!host) return;
   host.hidden = app.notices.length === 0;
+  reportsHead();
   if (!app.notices.length) {
     host.replaceChildren();
     return;
@@ -63,8 +64,9 @@ export function renderNotices() {
   });
   // One line on Decide (R10.4) that opens in place: "Notices (4) ›".
   const box = el('details', { class: 'qlink__box ndisc', open: noticesOpen },
-    el('summary', { class: 'qlink__btn' }, icon('i-clipboard', 'icon qlink__ic'),
-      el('span', { class: 'qlink__t' }, el('strong', { text: `Notices (${app.notices.length})` }), el('span', { text: ' read from observatory text' })),
+    el('summary', { class: 'qlink__btn' },
+      el('span', { class: 'qlink__who', text: 'Notices' }),
+      el('span', { class: 'qlink__t', text: `${app.notices.length} read from observatory text` }),
       icon('i-chevron-right', 'icon qlink__go disclosure')),
     el('ul', { class: 'nlist' }, rows));
   box.addEventListener('toggle', () => {

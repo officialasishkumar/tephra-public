@@ -1988,10 +1988,10 @@ CONTINUE has no act-by and waits in Keep watching, inside longest first. Ties: t
 Code sets this order; the Coordinator's order is only a note (its row stays on Decide).
 
 **Decide**, in order: "Decide" and ⋯; one count line `#q-count`, "23 waiting · 3 due in 10 min"
-(with hand work: "30 waiting · 5 advisories · 23 flights to plan by hand"), the same number as
+(with hand work: "33 waiting · 23 flights to plan by hand · 10 drafts", parts that add up), the same number as
 the badge and the page title (`waitingCount()`: advisories + flights to plan by hand + messages
 + airport plans + documents to sign); the drafts set aside from the other mode (`#q-breakdown`);
-the first-use line; the receipt line on Decide when the last decision closed the review
+the receipt line on Decide when the last decision closed the review
 (`#q-receipt`); "More urgent: RFA3001 · entry due now · Show" (`#q-newer`) when a more urgent
 item arrived (the lead never swaps under the thumb); then:
 
@@ -2002,31 +2002,37 @@ item arrived (the lead never swaps under the thumb); then:
    "Drafted 12 min ago: entry time may have moved." past 10 min); the mark line; "Review RFA1456 ›"
    (filled neutral). No mono preview. At 1100 px and up the card is the selected row of the open
    review (left edge, no button).
-1. Plan by hand (`#fail-section`, 10.16, unchanged).
+1. Plan by hand (`#fail-section`, 10.16, unchanged). The first-use line (`#firstuse`) comes after
+   it, so the lead card's top stays at 195 px at 390 on a first visit too.
 2. BEFORE ENTRY · n (`#more-title`, `#cards`): one-line rows in act-by order, advisories and the
-   messages for a flight still heading in; 5 rows, then "Show all n" (`#cards-all`).
+   messages for a flight still on this page; 5 rows, then "Show all n" (`#cards-all`). A message
+   row shows its flight's time cell ("RFA1540 Crew briefing · EN 23 min"), the reason it sorts there.
 3. KEEP WATCHING · n inside now (`#watch-section`): rows "RFA2408 · FL310 · Anak Krakatau ·
    inside"; 3 rows, then "Show all n" and "Review one by one ›".
 4. OTHER DECISIONS · n (`#other-section`): the airport plan (`#plan-section`, "Airport plan · 3
    airports closed · to approve", opens Airports), each document to sign ("to sign", opens
    Paperwork), and messages not tied to a flight still on this page (`#msg-section`, "to approve",
    opens the message).
-5. The crew reports, notices and Coordinator rows (`.qlinks`, unchanged); "Decided since 0955Z ·
-   n" (`#closed`, the page-open time on the active clock); the footer sentence.
+5. REPORTS · n (`#reports`): the crew reports, notices and Coordinator rows (`.qlinks`), in the row
+   look (subject "Crew", "Notices", "Coordinator"; the words in 16; they open in place).
+6. "DECIDED SINCE 0955Z · n ›" (`#closed-open`, the page-open time on the active clock), one row that
+   opens the list in a sheet (newest first; a row opens the closed review); the footer sentence.
 
 A row (`.irow`): subject (14 600), the action in plain words (16; it wraps, never cut), a caution
 shape when one applies, a 6 px dot while new, the time cell, ›. Time cell: "now" or "3 min" in
 caution at 10 min or less, "23 min" and "inside" in text-2, "to approve" / "to sign" for items with
 no clock. One sentence for screen readers per row ("RFA9885, hold at FL140, enters in 3 minutes.
-Review."). At 600 px and up rows add callsign, volcano and level.
+Review."). From 600 to 1099 px rows add callsign, volcano and "now FL…"; the 420 px list pane at
+1100 px and up keeps them to the action and the time.
 
-**Review** (`#sheet`): the top bar "‹ Decide · 1 of 21 · Skip for now ›" (the position in the
-act-by order; "Skip for now" opens the next item, decides nothing and is not audited); "RFA1456 ·
+**Review** (`#sheet`): the top bar "‹ Decide · 1 of 20 advisories · Skip for now ›" (the position in the
+act-by order of the advisories, which is all the review walks; "Skip for now" opens the next item, decides nothing and is not audited); "RFA1456 ·
 MAS723 · v1"; the action as the sheet's h1 (`#s-title`, 24 600); the entry line once ("Entry due
 now (est.)", caution at 10 min or less). CHECK BEFORE YOU APPROVE (`#why`): Level ("now FL310 →
 hold at FL226"), Ash (band · volcano), Area (8 px swatches with words, ›), Sources ("7 · 5 official ·
-newest 3 min", ›), Fuel, Route (with a 140 px sketch, ›). TEXT TO APPROVE: one box, the header
-code wrote dim and not editable (its SRC lines fold to "7 source lines (code)"), a hairline, the
+newest 3 min", ›), Fuel, Route (with a 140 px sketch with no labels, hidden from screen readers:
+the row says the route, ›). TEXT TO APPROVE: one box, the header code wrote folded to one line
+("Header written by code · 15 lines ▸", dim, not editable; full in Record too), a hairline, the
 body that is approved. The mark line. "Record · ids, policy, history, audit ›". Pages inside the
 sheet (the bar stays): Sources (OFFICIAL / CONTEXT ONLY rows that open in place to the full id,
 times, hash and link), Area (the words, the mode sentence, "TEPHRA's area is never smaller than the
@@ -2040,7 +2046,18 @@ hint "Hold to approve, or tap to confirm." (offline: "Reconnect to approve"), th
 "Reject…" at equal width, both neutral outlines. Editing: "Stop editing" and "Reject…"; "Unchanged
 from the draft…" shows only after an approve attempt. The confirm step: "Approve: hold RFA1456 at
 FL226?", "Entry due now, est. 1008Z · version 1", the queued sentence. "Nothing is sent…" is said
-twice per approval: the confirm and the stamp.
+twice per approval: the confirm and the stamp. On a phone the bar is pinned only when the first two
+lines of the text to approve are above it when the review opens; otherwise (a short screen, a
+reroute's sketch) it sits after the content (`.actions--after`), so the words always come before the
+button. A reject is neutral everywhere, never red: the button, the stamp, the status in Decided
+since and the conflict outcome. Reject reasons end with "Other…" (goes to the box); the counter is
+in sans.
+
+**Messages** (`openMessage`): a full-screen sheet on a phone; the review closes first (sheets never
+stack; at 1100 px and up the review pane stays). The same decision bar, filled neutral (green stays
+advisory-only): "Approve crew briefing (EN) for RFA1225", hold or tap for the confirm ("…? · Queued
+under AK on TEPHRA's own outbound queue · nothing is sent to a passenger, crew member or
+aircraft." · Approve now · Cancel), then "Edit text" and "Reject…". From the receipt: 3 taps.
 
 **Receipt line** (`#receipt`, D3): after the 1200 ms stamp the sheet opens the next item with
 "✓ Approved: hold RFA1456 at FL226 · 1003Z · AK" pinned above it, "Draft crew briefing ›" (drafts
@@ -2052,8 +2069,9 @@ nothing is put in its place). Said once: "Approved: …. Next: RFA9885." No toas
 never grows offline (93 px at 390 in every state).
 
 **Ask**: the conversation reads down, oldest first; the composer is pinned at the bottom above the
-tab bar; the newest answer scrolls into view above it and is announced once ("Answer: …", 140
-characters); the suggestions show only before the first question.
+tab bar (sticky; the old static rule is gone); the newest answer scrolls into view above it and is
+announced once, in full ("Answer: …", plus "Answered by TEPHRA Assistant." when a model answered);
+the suggestions show only before the first question.
 
 ## 11. Copy deck
 
