@@ -1,0 +1,196 @@
+{
+ "generated_at": "2026-10-14T22:04:39Z",
+ "model": "gemini-3.8-flash",
+ "runs": 3,
+ "arm_i": {
+  "cases": [
+   {
+    "id": "20260910_29039000_0001",
+    "class": "ash",
+    "call": "ash",
+    "findings": [
+     "ash_seen",
+     "ash_seen",
+     "ash_seen"
+    ],
+    "agree": 3,
+    "runs": 3,
+    "confidences": [
+     "high",
+     "high",
+     "high"
+    ],
+    "direction": "truth 72 deg; drift E; box 70: OK",
+    "schema_problems": []
+   },
+   {
+    "id": "20260910_29039000_0002",
+    "class": "quiet",
+    "call": "not ash",
+    "findings": [
+     "obscured_by_met_cloud",
+     "obscured_by_met_cloud",
+     "obscured_by_met_cloud"
+    ],
+    "agree": 3,
+    "runs": 3,
+    "confidences": [],
+    "direction": "n/a",
+    "schema_problems": []
+   },
+   {
+    "id": "20260921_29036000_0002",
+    "class": "ash",
+    "call": "ash",
+    "findings": [
+     "ash_seen",
+     "ash_seen",
+     "ash_seen"
+    ],
+    "agree": 3,
+    "runs": 3,
+    "confidences": [
+     "high",
+     "high",
+     "high"
+    ],
+    "direction": "truth 50 deg; drift NE; box 40: OK",
+    "schema_problems": []
+   },
+   {
+    "id": "20260921_29036000_0004",
+    "class": "quiet",
+    "call": "not ash",
+    "findings": [
+     "obscured_by_met_cloud",
+     "obscured_by_met_cloud"
+    ],
+    "agree": 2,
+    "runs": 2,
+    "confidences": [],
+    "direction": "n/a",
+    "schema_problems": []
+   },
+   {
+    "id": "20260925_30027000_0335",
+    "class": "ash",
+    "call": "ash",
+    "findings": [
+     "ash_seen"
+    ],
+    "agree": 1,
+    "runs": 1,
+    "confidences": [
+     "high"
+    ],
+    "direction": "truth 287 deg; drift SW; box 284: OK",
+    "schema_problems": []
+   },
+   {
+    "id": "20260926_30027000_0343",
+    "class": "quiet",
+    "call": "not ash",
+    "findings": [
+     "obscured_by_met_cloud",
+     "obscured_by_met_cloud",
+     "obscured_by_met_cloud"
+    ],
+    "agree": 3,
+    "runs": 3,
+    "confidences": [],
+    "direction": "n/a",
+    "schema_problems": []
+   },
+   {
+    "id": "20260927_30027000_0345",
+    "class": "ash",
+    "call": "ash",
+    "findings": [
+     "ash_seen",
+     "ash_seen"
+    ],
+    "agree": 2,
+    "runs": 2,
+    "confidences": [
+     "high",
+     "high"
+    ],
+    "direction": "truth 49 deg; drift NE; box 52: OK",
+    "schema_problems": []
+   },
+   {
+    "id": "20261008_27307000_0023",
+    "class": "ash",
+    "call": "not ash",
+    "findings": [
+     "no_ash_seen",
+     "no_ash_seen"
+    ],
+    "agree": 2,
+    "runs": 2,
+    "confidences": [],
+    "direction": "n/a",
+    "schema_problems": []
+   },
+   {
+    "id": "20261008_27307000_0024",
+    "class": "quiet",
+    "call": "not ash",
+    "findings": [
+     "no_ash_seen",
+     "no_ash_seen",
+     "no_ash_seen"
+    ],
+    "agree": 3,
+    "runs": 3,
+    "confidences": [],
+    "direction": "n/a",
+    "schema_problems": []
+   },
+   {
+    "id": "20261008_28208001_0279",
+    "class": "quiet",
+    "call": "not ash",
+    "findings": [
+     "no_ash_seen",
+     "no_ash_seen",
+     "no_ash_seen"
+    ],
+    "agree": 3,
+    "runs": 3,
+    "confidences": [],
+    "direction": "n/a",
+    "schema_problems": []
+   }
+  ],
+  "schema": {
+   "clean": 25,
+   "expected": 30
+  },
+  "existence": {
+   "correct": 9,
+   "cases": 10,
+   "quiet_high_confidence_ash": 0
+  },
+  "direction": {
+   "detected_within_45_deg": 4
+  },
+  "stability": {
+   "agreeing": 9,
+   "cases": 10
+  },
+  "missing": 5,
+  "expected": 30,
+  "verdicts": {
+   "schema": "INCOMPLETE (5 of 30 responses not run yet)",
+   "existence": "INCOMPLETE (5 of 30 responses not run yet)",
+   "direction": "INCOMPLETE (5 of 30 responses not run yet)",
+   "stability": "INCOMPLETE (5 of 30 responses not run yet)"
+  }
+ },
+ "arm_t": null,
+ "incomplete": [
+  "Arm I: 5 of 30 responses not run yet",
+  "Arm T: not run"
+ ]
+}

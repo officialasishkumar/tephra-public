@@ -18,7 +18,7 @@ vertexai=False)``, and the ADK agents get the same key through ``apply_process_e
 * The key is read from the environment only. It is never printed or written; error text is
   scrubbed of it before it is kept.
 
-Tests 2 to 4 run TEPHRA's own code on a labelled stub replay of the judged window
+Tests 2 to 4 run TEPHRA's own code on a labelled stub replay of the demo window
 (``anak-krakatau-20260905`` at 11:00Z: 27 exposed flights, the 31-item Duty work list). Test 2
 runs the Dispatch Drafter, the Notice Reader and the shift handover with a probe backend in
 Gemini's place; a repair request is recorded and not sent, because the test scores the first
@@ -82,7 +82,7 @@ DEFAULT_TESTS: Final = tuple(test for test in TEST_IDS if test != 7)
 
 CASE_ID: Final = "anak-krakatau-20260905"
 CASE_AT: Final = datetime(2026, 9, 5, 11, 0, tzinfo=UTC)
-"""The judged replay window (deploy.yml) at its busiest probed minute: 27 exposed flights."""
+"""The demo replay window (deploy.yml) at its busiest probed minute: 27 exposed flights."""
 NOTICE_FIXTURE: Final = (
     PROJECT_ROOT / "tests" / "fixtures" / "notices" / "synthetic_id_ash_seen.txt"
 )
@@ -511,7 +511,7 @@ class RecordedExecutor:
 
 
 async def build_world(tmp: Path) -> World:
-    """One stub tick (``TEPHRA_LLM=stub``, no network, throwaway store) of the judged window,
+    """One stub tick (``TEPHRA_LLM=stub``, no network, throwaway store) of the demo window,
     with the Duty Officer's real work list, digest and delegation results captured."""
     import tephra.duty as duty_module
     from tephra.agents.exposure_planner import build_planner_context, plan_flight

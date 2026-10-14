@@ -55,6 +55,13 @@ CASES_DIR = ROOT / "cases"
 ARM_T_DIR = ROOT / "arm_t"
 RAW_DIR = ROOT / "results" / "raw"
 
+
+def scorecard_json_path() -> Path:
+    """``docs/evals/plume-scorecard.json`` beside ``ROOT``'s repository (``evals/plume``), so a
+    test that moves ``ROOT`` moves the JSON with it and never writes into the repository."""
+    return ROOT.parent.parent / "docs" / "evals" / "plume-scorecard.json"
+
+
 SYSTEM_ARM_I = """You are the Plume Reader for an airline dispatch desk. You look at Himawari-9 images of one volcano and say only what the images show.
 Image conventions: north is up. The red triangle marks the volcano vent. White or green lines are coastlines. A thin white vertical line is a meridian. Text in the top-left corner is a timestamp; ignore it.
 Image types: "Ash RGB" (R = 12.3-10.4 micron difference, G = 10.4-8.6 micron difference, B = 10.4 micron brightness temperature). Ash often looks pink, red or orange but its colour changes with latitude, time of day and what is underneath; low water cloud can look similar in a single frame. "IR" is the 10.4 micron infrared image: brighter is colder.
@@ -406,11 +413,13 @@ def _box_bearing(answer: dict[str, Any], case: dict[str, Any]) -> float | None:
 
 def score_arm_i(
     results: dict[str, list[dict[str, Any] | None]], runs: int
-) -> tuple[list[str], dict[str, str]]:
+) -> tuple[list[str], dict[str, str], dict[str, Any]]:
+    """Markdown rows, the verdict lines, and the same facts as JSON-safe values."""
     rows = [
         "| Case | Class | Call | Findings | Agree | Conf | Direction check | Schema |",
         "|---|---|---|---|---|---|---|---|",
     ]
+    cases: list[dict[str, Any]] = []
     correct = stable = detected_dir_ok = 0
     quiet_high = schema_ok = 0
     for case_id, answers in results.items():
@@ -448,9 +457,31 @@ def score_arm_i(
             f"{agree}/{len(answers)} | {', '.join(confidences) or '-'} | {direction} | "
             f"{'ok' if not problems else '; '.join(sorted(set(problems)))} |"
         )
+        cases.append(
+            {
+                "id": case_id,
+                "class": case["class"],
+                "call": call,
+                "findings": findings,
+                "agree": agree,
+                "runs": len(answers),
+                "confidences": confidences,
+                "direction": direction,
+                "schema_problems": sorted(set(problems)),
+            }
+        )
     n = len(results)
     expected = n * runs
     missing = expected - sum(len(answers) for answers in results.values())
+    facts: dict[str, Any] = {
+        "cases": cases,
+        "schema": {"clean": schema_ok, "expected": expected},
+        "existence": {"correct": correct, "cases": n, "quiet_high_confidence_ash": quiet_high},
+        "direction": {"detected_within_45_deg": detected_dir_ok},
+        "stability": {"agreeing": stable, "cases": n},
+        "missing": missing,
+        "expected": expected,
+    }
     verdict = {
         "schema": f"{schema_ok}/{expected} responses clean -> "
         + _verdict(schema_ok == expected, missing, expected),
@@ -461,7 +492,8 @@ def score_arm_i(
         "stability": f"{stable}/{n} cases with >= 2 runs agreeing -> "
         + _verdict(stable >= 8, missing, expected),
     }
-    return rows, verdict
+    facts["verdicts"] = {key: value.rsplit(" -> ", 1)[1] for key, value in verdict.items()}
+    return rows, verdict, facts
 
 
 def _names(disagreement: dict[str, Any], field: str) -> bool:
@@ -474,7 +506,10 @@ def _names(disagreement: dict[str, Any], field: str) -> bool:
     )
 
 
-def score_arm_t(answers: list[dict[str, Any] | None], ids: set[str], runs: int) -> dict[str, str]:
+def score_arm_t(
+    answers: list[dict[str, Any] | None], ids: set[str], runs: int
+) -> tuple[dict[str, str], dict[str, Any]]:
+    """The verdict lines and the same facts as JSON-safe values."""
     clean = [a for a in answers if a and not schema_problems(a, ids, "T")]
     names_direction = sum(
         any(_names(d, "direction") for d in a.get("disagreements") or []) for a in clean
@@ -486,13 +521,25 @@ def score_arm_t(answers: list[dict[str, Any] | None], ids: set[str], runs: int) 
         (a.get("top_fl") or 0) >= 150 and a.get("top_fl_basis") == "text_source" for a in clean
     )
     need = runs // 2 + 1
-    return {
+    verdict = _verdict(names_direction >= need and top_ok >= need, runs - len(answers), runs)
+    lines = {
         "schema": f"{len(clean)}/{runs} responses clean",
         "SIGMET-VONA direction disagreement named": f"{names_direction}/{runs}",
         "SIGMET-VONA height difference named (reported only)": f"{names_height}/{runs}",
         "top_fl >= FL150 from text": f"{top_ok}/{runs}",
-        "verdict": _verdict(names_direction >= need and top_ok >= need, runs - len(answers), runs),
+        "verdict": verdict,
     }
+    facts = {
+        "runs": runs,
+        "answered": len(answers),
+        "schema_clean": len(clean),
+        "direction_disagreement_named": names_direction,
+        "height_difference_named": names_height,
+        "top_fl_from_text": top_ok,
+        "verdict": verdict,
+        "missing": runs - len(answers),
+    }
+    return lines, facts
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -506,7 +553,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
 
     arm_i = args.arm in ("I", "both") and any(CASES_DIR.glob("*/case.json"))
-    arm_t = args.arm in ("T", "both") and (ARM_T_DIR / "sigmets.json").exists()
+    arm_t = args.arm in ("T", "both") and all(
+        (ARM_T_DIR / name).exists() for name in ("sigmets.json", "vona.txt")
+    )
     if not (arm_i or arm_t):
         print(f"No inputs for arm {args.arm} under {ROOT}: run make_plume_cases.py first.")
         return 2
@@ -517,15 +566,38 @@ def main(argv: list[str] | None = None) -> int:
         f"Model: `{args.model}`; runs per case: {args.runs}; protocol: research/10 section 5.",
         "",
     ]
+    scorecard: dict[str, Any] = {
+        "generated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "model": args.model,
+        "runs": args.runs,
+        "arm_i": None,
+        "arm_t": None,
+        "incomplete": [],
+    }
     if arm_i:
-        rows, verdict = score_arm_i(run_arm_i(caller, args.runs), args.runs)
+        rows, verdict, facts = score_arm_i(run_arm_i(caller, args.runs), args.runs)
         lines += ["## Arm I (images, advisory text withheld)", "", *rows, ""]
         lines += [f"- **{k}:** {v}" for k, v in verdict.items()] + [""]
+        scorecard["arm_i"] = facts
+        if facts["missing"]:
+            scorecard["incomplete"].append(
+                f"Arm I: {facts['missing']} of {facts['expected']} responses not run yet"
+            )
+    else:
+        scorecard["incomplete"].append("Arm I: not run")
     if arm_t:
         answers, ids = run_arm_t(caller, args.runs)
+        arm_t_lines, arm_t_facts = score_arm_t(answers, ids, args.runs)
         lines += ["## Arm T (Semeru texts)", ""]
-        lines += [f"- **{k}:** {v}" for k, v in score_arm_t(answers, ids, args.runs).items()]
+        lines += [f"- **{k}:** {v}" for k, v in arm_t_lines.items()]
         lines += [""]
+        scorecard["arm_t"] = arm_t_facts
+        if arm_t_facts["missing"]:
+            scorecard["incomplete"].append(
+                f"Arm T: {arm_t_facts['missing']} of {arm_t_facts['runs']} responses not run yet"
+            )
+    else:
+        scorecard["incomplete"].append("Arm T: not run")
     lines += [
         "If Arm I fails, the image leaves the decision path: the Plume Reader becomes "
         "text-and-winds reconciliation and the video says so (research/10)."
@@ -533,8 +605,11 @@ def main(argv: list[str] | None = None) -> int:
     out = ROOT / "results" / f"scorecard-{datetime.now(UTC):%Y%m%dT%H%MZ}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n")
+    json_out = scorecard_json_path()
+    json_out.parent.mkdir(parents=True, exist_ok=True)
+    json_out.write_text(json.dumps(scorecard, indent=1) + "\n")
     print("\n".join(lines))
-    print(f"\nwrote {out}")
+    print(f"\nwrote {out} and {json_out}")
     return 0
 
 

@@ -1,0 +1,111 @@
+{
+ "generated_at": "2026-10-15",
+ "script": "scripts/count_model_calls.py --start 2026-09-05T10:30:00Z --minutes 540 --loops 2",
+ "stand_in": "the stub's offline answers under a model's name; every ask counted per skill (no model, no network)",
+ "tree": "before T02 (material planner and drafter questions); the after-T02 run is added when T02 merges",
+ "runs": {
+  "offset_0": {
+   "args": {
+    "loop_offset_s": 0,
+    "quantum_s": 0
+   },
+   "loops": [
+    {
+     "coordinator": 299,
+     "drafter": 388,
+     "flight_planner": 615,
+     "plume_reader": 30,
+     "sra": 1
+    },
+    {
+     "coordinator": 48,
+     "drafter": 149,
+     "flight_planner": 50,
+     "plume_reader": 2
+    }
+   ],
+   "total": {
+    "coordinator": 347,
+    "drafter": 537,
+    "flight_planner": 665,
+    "plume_reader": 32,
+    "sra": 1
+   },
+   "total_asks": 1582,
+   "answers": {
+    "coordinator expired": 67,
+    "coordinator hit": 279,
+    "coordinator kept": 347,
+    "coordinator miss": 272,
+    "coordinator rejected": 8,
+    "drafter expired": 214,
+    "drafter hit": 844,
+    "drafter kept": 537,
+    "drafter miss": 310,
+    "drafter rejected": 13,
+    "flight_planner expired": 75,
+    "flight_planner hit": 703,
+    "flight_planner kept": 665,
+    "flight_planner miss": 590,
+    "plume_reader expired": 3,
+    "plume_reader hit": 28,
+    "plume_reader kept": 32,
+    "plume_reader miss": 29,
+    "sra kept": 1,
+    "sra miss": 1
+   }
+  },
+  "offset_30_quantum_60": {
+   "args": {
+    "loop_offset_s": 30,
+    "quantum_s": 60
+   },
+   "loops": [
+    {
+     "coordinator": 299,
+     "drafter": 388,
+     "flight_planner": 615,
+     "plume_reader": 30,
+     "sra": 1
+    },
+    {
+     "coordinator": 48,
+     "drafter": 149,
+     "flight_planner": 50,
+     "plume_reader": 2
+    }
+   ],
+   "total": {
+    "coordinator": 347,
+    "drafter": 537,
+    "flight_planner": 665,
+    "plume_reader": 32,
+    "sra": 1
+   },
+   "total_asks": 1582,
+   "answers": {
+    "coordinator expired": 67,
+    "coordinator hit": 279,
+    "coordinator kept": 347,
+    "coordinator miss": 272,
+    "coordinator rejected": 8,
+    "drafter expired": 214,
+    "drafter hit": 844,
+    "drafter kept": 537,
+    "drafter miss": 310,
+    "drafter rejected": 13,
+    "flight_planner expired": 75,
+    "flight_planner hit": 703,
+    "flight_planner kept": 665,
+    "flight_planner miss": 590,
+    "plume_reader expired": 3,
+    "plume_reader hit": 28,
+    "plume_reader kept": 32,
+    "plume_reader miss": 29,
+    "sra kept": 1,
+    "sra miss": 1
+   }
+  }
+ },
+ "note": "Loop 1 is the cold window; loop 2 plays it again from kept answers. With the replay minute (quantum 60 s) a loop started 30 s later asks at the same instants and counts exactly as the unshifted loop."
+}

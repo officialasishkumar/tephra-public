@@ -11,10 +11,13 @@ The window plays ``--loops`` times from ``--start`` for ``--minutes`` replay min
 minute with the AI worker drained after each, as a looping replay plays it again. A served
 replay's ticks follow the wall clock, so a later loop rarely ticks on the same seconds:
 ``--loop-offset-s`` starts each later loop that many seconds later than the one before.
+``--quantum-s`` floors every tick instant to that many seconds, as the replay minute
+(``TEPHRA_REPLAY_QUANTUM_S``) floors the clock, so an offset loop asks at the same instants.
 
     uv run python scripts/count_model_calls.py
     uv run python scripts/count_model_calls.py --start 2026-09-05T12:00:00Z --minutes 30 --loops 2
     uv run python scripts/count_model_calls.py --loop-offset-s 30
+    uv run python scripts/count_model_calls.py --loop-offset-s 30 --quantum-s 60
 """
 
 from __future__ import annotations
@@ -139,9 +142,20 @@ def runtime_for(case_id: str, settings: Settings, llm: CountingModel, work: Path
     return runtime
 
 
+def floored(at: datetime, quantum_s: int) -> datetime:
+    """``at`` floored to the quantum, anchored to the wall clock's own boundaries as
+    ``ReplayClock`` anchors it."""
+    if quantum_s <= 0:
+        return at
+    seconds = at.timestamp()
+    return datetime.fromtimestamp(seconds - seconds % quantum_s, tz=UTC)
+
+
 async def count(args: argparse.Namespace) -> dict[str, Any]:
     asks: Counter[str] = Counter()
     stand_in_agents(asks)
+    # Read with getattr: tests build the Namespace by hand, without every flag.
+    quantum_s = int(getattr(args, "quantum_s", 0))
     settings = Settings(_env_file=None, llm="stub", recovery_auto=False)
     loops: list[dict[str, int]] = []
     with tempfile.TemporaryDirectory(prefix="tephra-count-") as name:
@@ -152,7 +166,8 @@ async def count(args: argparse.Namespace) -> dict[str, Any]:
                     before = Counter(asks)
                     start = args.start + timedelta(seconds=loop * args.loop_offset_s)
                     for minute in range(args.minutes):
-                        clock.set(start + timedelta(minutes=minute))  # type: ignore[attr-defined]
+                        at = floored(start + timedelta(minutes=minute), quantum_s)
+                        clock.set(at)  # type: ignore[attr-defined]
                         await run_tick(runtime, reason="count")
                         await runtime.worker.drain()
                     loops.append(dict(sorted((asks - before).items())))
@@ -169,6 +184,7 @@ async def count(args: argparse.Namespace) -> dict[str, Any]:
         "start": timeutil.to_iso(args.start),
         "minutes": args.minutes,
         "loop_offset_s": args.loop_offset_s,
+        "quantum_s": quantum_s,
         "loops": loops,
         "total": dict(sorted(asks.items())),
         "total_asks": sum(asks.values()),
@@ -187,6 +203,7 @@ def main() -> None:
     parser.add_argument("--minutes", type=int, default=30)
     parser.add_argument("--loops", type=int, default=2)
     parser.add_argument("--loop-offset-s", type=int, default=0)
+    parser.add_argument("--quantum-s", type=int, default=0, help="the replay minute, in seconds")
     print(json.dumps(asyncio.run(count(parser.parse_args())), indent=1))
 
 

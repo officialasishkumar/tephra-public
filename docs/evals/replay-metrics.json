@@ -1,0 +1,22 @@
+{
+ "generated_at": "2026-10-14T22:23:39Z",
+ "speed": {
+  "label": "stub, replay clock, model latency excluded",
+  "case": "anak-krakatau-20260905",
+  "window_from": "2026-09-05T10:30:00.000Z",
+  "window_minutes": 60,
+  "flights_exposed": 161,
+  "flights_drafted": 90,
+  "median_minutes": 0.0,
+  "p90_minutes": 0.0,
+  "stand_in_asks": {
+   "coordinator": 62,
+   "drafter": 117,
+   "flight_planner": 200,
+   "plume_reader": 7,
+   "sra": 1
+  }
+ },
+ "tokens": "not measured",
+ "note": "Speed is measured on the replay clock with the stub's instant answers; a live run adds the models' latency. Tokens come from records that carry token fields; 'not measured' where none does."
+}
