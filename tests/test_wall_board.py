@@ -844,6 +844,42 @@ def test_flow_feed_particles_come_only_from_real_reads(tmp_path: Path) -> None:
     assert sigmet["text"] == "VA SIGMETs read: 9 current"
 
 
+def test_an_airline_push_is_a_read_of_aircraft_on_the_board(tmp_path: Path) -> None:
+    """Positions an airline pushes through Connect show on the board as a read (drawn as the
+    aircraft feed is), counted with the feed reads; the Wall shows one at most every 15 s."""
+    data = _refused_day()
+    data["feedReads"] = [{"feed": "airline", "at": "2026-09-05T11:28:40.000Z", "n": 40}]
+    out = _flow(tmp_path, data)
+    [push] = [e for e in out["m"]["events"] if e.get("feed") == "airline"]
+    assert (push["type"], push["text"]) == ("adsb", "Airline positions pushed: 40 positions")
+    wall = (WALL.parent / "wall.js").read_text(encoding="utf-8")
+    handler = wall[wall.index('on("push", (p) => {') :]
+    handler = handler[: handler.index("});")]
+    assert "at - lastPushShown < PUSH_SHOW_MS" in handler
+    assert 'const read = { feed: "airline", at: p.at, n: p.accepted };' in handler
+    assert "flow?.pushRead(read)" in handler
+
+
+def test_the_assistant_is_a_page_not_a_dialog() -> None:
+    """/assistant shows the board in place of the Wall (UI-DESIGN 7.27): page-mode.js marks the
+    page before it draws, the board is shown non-modal, and from the Wall its chip, key and links
+    go to the page; every page's nav links it."""
+    wall = (WALL.parent / "wall.js").read_text(encoding="utf-8")
+    opener = wall[wall.index("function openBoard() {") :]
+    opener = opener[: opener.index("\n}\n")]
+    assert 'if (!ASSISTANT_PAGE) { location.assign("/assistant"); return; }' in opener
+    assert "dlg.show();" in opener
+    assert "showModal" not in opener
+    mode = (WALL.parent / "page-mode.js").read_text(encoding="utf-8")
+    assert '=== "/assistant" ? "assistant" : "wall"' in mode
+    index = (WALL.parent / "index.html").read_text(encoding="utf-8")
+    assert index.index('<script src="/static/page-mode.js"></script>') < index.index("wall.css")
+    for page in ("index.html", "desk.html", "connect.html", "guide.html"):
+        html = (WALL.parent / page).read_text(encoding="utf-8")
+        assert '<a href="/assistant">Assistant</a>' in html, page
+    assert "board-close" not in (WALL / "board-view.js").read_text(encoding="utf-8")
+
+
 def test_flow_steps_map_to_the_skills_they_name(tmp_path: Path) -> None:
     data = _refused_day()
     data["steps"] = [
@@ -1051,14 +1087,16 @@ def test_flow_a_hand_out_goes_before_the_work_it_started(tmp_path: Path) -> None
 
 def test_the_page_says_replay_while_the_board_covers_the_wall() -> None:
     """The board covers the Wall, which is not redrawn while it is open; the page title and the
-    board's sr-only REPLAY words are, so a board opened from #ai-at-work in REPLAY still says it."""
+    board's sr-only REPLAY words are, so the Assistant page in REPLAY still says it."""
     wall = (WALL.parent / "wall.js").read_text(encoding="utf-8")
-    board_branch = wall[wall.index("  if (ui.board.open) {\n    renderFrame(D.state);") :]
+    start = "  if (ui.board.open) {\n    withFocusKept(() => { renderChrome(D, store, ui);"
+    board_branch = wall[wall.index(start) :]
     board_branch = board_branch[: board_branch.index("return;")]
     assert "renderFlow();" in board_branch
     panels = (WALL / "panels.js").read_text(encoding="utf-8")
     frame = panels[panels.index("export function renderFrame(s)") :]
     frame = frame[: frame.index("\n}\n")]
-    assert 'document.title = `${replay ? "REPLAY - " : ""}TEPHRA Wall`;' in frame
+    assert '`${replay ? "REPLAY - " : ""}TEPHRA ${' in frame
+    assert '=== "assistant" ? "Assistant" : "Wall"}`' in frame
     assert "describeReplay(dlg, replayLine(s))" in frame
     assert "renderFrame(s);" in panels[panels.index("export function renderChrome") :]

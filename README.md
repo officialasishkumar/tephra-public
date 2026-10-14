@@ -110,6 +110,7 @@ All settings are in [`.env.example`](.env.example). Gemini is reached only with 
 | Path | Purpose |
 |---|---|
 | `/` | The Wall: map, official polygons, the hazard area, aircraft, the three source cards, the live reasoning trace |
+| `/assistant` | TEPHRA Assistant at work: the live map of every feed read, the Coordinator, the skills and what waits for you |
 | `/desk` | The phone desk: PIN login, draft cards, approve / edit / reject, plus Ask, recovery, messages, handover and documents |
 | `/api/wall`, `/api/state`, `/api/events` (SSE), `/api/budget`, `/api/backtest`, `/api/notices`, `/api/recovery`, `/api/docs` | Read endpoints the Wall uses |
 | `/api/desk/...` | Desk endpoints (cookie session, CSRF header, optimistic versioning); the full list is in [`MODULES.md`](MODULES.md) section 8 |

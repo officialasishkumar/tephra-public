@@ -13,7 +13,7 @@ import { aiState, openBSheet } from './ui.js';
 import { aiLead, aiSymbol, aiWords, causeTitle, jobsWords, pacingWords, machineText, realWhen, ASSISTANT } from '../wall/x-parts.js';
 
 const LANE_WORDS = { urgent: 'flights in or near the ash', interactive: 'the Desk (questions, notices, messages, documents)', routine: 'routine work, paced through the day' };
-const BOARD_URL = '/#ai-at-work';
+const BOARD_URL = '/assistant';
 
 // The Desk's AI state now: the live budget, the open assistant failures, the newest Coordinator run
 // and airport plan, and the backend.
@@ -157,7 +157,7 @@ export function openBudget() {
       lanes(b))
     : null;
   const board = el('a', { class: 'btn btn--outline btn--block aisheet__board', href: BOARD_URL, target: '_blank', rel: 'noopener' },
-    icon('ta-16'), el('span', { text: `See ${ASSISTANT} at work on the Wall` }), icon('i-external-link'));
+    icon('ta-16'), el('span', { text: `See ${ASSISTANT} at work` }), icon('i-external-link'));
   const foot = stub
     ? el('p', { class: 'note', text: 'With no model, no calls are made or counted.' })
     : b

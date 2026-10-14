@@ -339,7 +339,7 @@ const MODEL_ACTORS = new Set(["gemini", "adk", "stub"]);
 // aircraft, satellite pictures (the Wall's data colours).
 export const FEED_KIND = {
   sigmet: "official", vaac_darwin: "official", vaac_tokyo: "official", vona: "observer", jma_volcano: "observer",
-  metar: "weather", taf: "weather", winds: "weather", adsb: "aircraft", frames: "satellite", hsd: "satellite",
+  metar: "weather", taf: "weather", winds: "weather", adsb: "aircraft", airline: "aircraft", frames: "satellite", hsd: "satellite",
 };
 const FEED_WORDS = {
   sigmet: ["VA SIGMETs read", "current", "current"], vaac_darwin: ["Darwin VAAs read", "advisory", "advisories"], vaac_tokyo: ["Tokyo VAAs read", "advisory", "advisories"],
@@ -368,6 +368,8 @@ const plural2 = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 function feedRead(feed, n, at, id, src, raw) {
   const kind = FEED_KIND[feed] || "weather";
   if (feed === "adsb") return { id, at, type: "adsb", raw, src, text: "Aircraft positions read (adsb.lol)" };
+  // an airline's own positions, pushed through Connect: drawn as the aircraft feed is
+  if (feed === "airline") return { id, at, type: "adsb", feed, raw, src, text: `Airline positions pushed${Number.isFinite(n) ? `: ${plural2(n, "position")}` : ""}` };
   const w = FEED_WORDS[feed];
   const text = w ? `${w[0]}${Number.isFinite(n) ? `: ${plural2(n, w[1], w[2])}` : ""}` : `${feed} read`;
   return { id, at, type: "feed", feed, kind, n: Number.isFinite(n) ? n : null, src, raw, text };

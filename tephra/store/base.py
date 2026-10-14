@@ -58,7 +58,7 @@ class Collection(StrEnum):
     RUNTIME = "runtime"  # "state" -> core's bookkeeping: mode, replay choice, LIVE marks
     AI_BUDGET = "ai_budget"  # "<quota day>/<model id>" -> that model's calls on that day
     AI_WORK = "ai_work"  # work id -> AI work waiting for, or running in, the AI worker
-    REPLAY_ANSWERS = "replay_answers"  # answer key -> a model's answer on a replay's first pass
+    AI_ANSWERS = "ai_answers"  # answer key -> AiAnswer: a model's answer to a material question
 
 
 WhereOp = Literal["==", "!=", "<", "<=", ">", ">=", "in"]

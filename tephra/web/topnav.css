@@ -1,7 +1,7 @@
 /* The header every TEPHRA page shares (UI-DESIGN 7.25): a bar at the top that starts the same way
    on every page, so moving between pages nothing jumps. The TEPHRA mark (a fixed 132 px,
-   it goes home) at 24 px from the left, then the pill nav Wall · Desk · Connect · Guide with the
-   current page filled. Sizes are in px: the pages' root font sizes differ. Link after tokens.css
+   it goes home) at 24 px from the left, then the pill nav Wall · Assistant · Desk · Connect · Guide
+   with the current page filled. Sizes are in px: the pages' root font sizes differ. Link after tokens.css
    and before the page's own stylesheet; the page's own bar rules give way to these. */
 
 .tn-bar.tn-bar { padding-left: 24px; column-gap: 12px; }
@@ -22,6 +22,8 @@
 .topnav a:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 
 
+/* 1100-1279: five links and the Wall's chips share the bar, so the links sit closer */
+@media (max-width: 1279px) { .topnav a { padding: 0 9px; } }
 /* below desktop the nav keeps the page you are on (and the Wall's Desk link) */
 @media (max-width: 1099px) {
   .tn-home { width: auto; }

@@ -300,6 +300,13 @@ async def wall_page() -> FileResponse:
     return await _page("index.html")
 
 
+@pages.get("/assistant", include_in_schema=False)
+async def assistant_page() -> FileResponse:
+    """The TEPHRA Assistant board as a page of its own: the Wall's page, which page-mode.js
+    switches to the board."""
+    return await _page("index.html")
+
+
 @pages.get("/desk", include_in_schema=False)
 async def desk_page() -> FileResponse:
     return await _page("desk.html")

@@ -1493,7 +1493,7 @@ and the flights in it, pink stays official.
 
 Every page starts the same way, so moving between them nothing jumps: a 56 px bar at the top
 (`.tn-bar`; the 32 px strip above it was removed on 15 Oct 2026, 7.1) that opens with the TEPHRA
-mark (`.tn-home`, 132 px wide at 24 px from the left; it goes home, the Wall) and the pill nav Wall · Desk · Connect · Guide with the page you are
+mark (`.tn-home`, 132 px wide at 24 px from the left; it goes home, the Wall) and the pill nav Wall · Desk · Connect · Guide (Assistant added in 7.27) with the page you are
 on filled. The gap after the mark and the nav's sizes are in px, as the pages' root font sizes
 differ. Each page's own controls follow: the Wall's area, Assistant, data and clock (the Wall's old
 "Connect" and "Desk →" header buttons are gone, the nav has both), the Desk's chips on the right,
@@ -1520,6 +1520,29 @@ sign-in).
 
 Times a reader meets first say "10:32 UTC" (`utcTime`), not "1032Z": the story card ("Updated
 10:32 UTC", its notes and the airport plan) and the time bar's clock.
+
+### 7.27 TEPHRA Assistant is a page (15 Oct 2026)
+
+"Let's not make this a dialog, make it a separate page." The board (7.21) is `/assistant`, in every
+page's nav (Wall · Assistant · Desk · Connect · Guide). The route serves the Wall's own page:
+`page-mode.js`, a plain script in the head, sets `data-page="assistant"` before anything draws, so
+the Wall never flashes; CSS then hides the Wall's stage and status line and puts `#board` in the
+grid row under the shared header, and `wall.js` shows it with `show()` (never `showModal`, no close
+button, no backdrop) and draws the header's chips and clock as on the Wall. The Wall's assistant
+chip, its `A` key, the story's "See TEPHRA Assistant at work", the footer key and the Desk's links
+all go to the page; `/#ai-at-work` redirects there. A Details link on the page opens the Wall at
+that section (`/#details-<section>`). The Wall's own map is not started on this page.
+
+It moves with your data: an airline's push through Connect (the `push` event, the sample feed
+included) is a read of aircraft on the board, "Airline positions pushed: 40 positions", glinting
+on the planes and flowing into Code checks, at most one every 15 s. The flights it brings are
+checked on the next tick like any other, so the Coordinator, the skills and "You decide" fill as
+their exposures arrive.
+
+On desktop the title, the log with the player, and "Inside TEPHRA" are three glass cards over the
+map. The board's height rules count the 56 px header (1016 and 896 px), and below 780 px of height
+the panel keeps the decision and "Open the Desk" and drops the Desk's counts and the Details link.
+Below 1280 px the nav's links sit 9 px apart so the Wall's header still fits at 1100.
 
 ## 8. 3D, compare, the time bar and the height filter
 

@@ -555,6 +555,15 @@ def test_the_guide_page_is_served_with_the_page_headers(client: TestClient) -> N
     assert '<script type="module" src="/static/guide.js"></script>' in response.text
 
 
+def test_the_assistant_page_is_the_wall_page(client: TestClient) -> None:
+    """/assistant serves the Wall's page; page-mode.js shows the board there (UI-DESIGN 7.27)."""
+    response = client.get("/assistant")
+    assert response.status_code == 200
+    assert response.headers["content-security-policy"] == CONTENT_SECURITY_POLICY
+    assert response.text == client.get("/").text
+    assert '<script src="/static/page-mode.js"></script>' in response.text
+
+
 def test_airports_are_points_with_their_codes(client: TestClient) -> None:
     response = client.get("/api/airports")
     assert response.status_code == 200

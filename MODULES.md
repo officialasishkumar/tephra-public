@@ -2975,8 +2975,9 @@ request input.
 | Method, path | Response |
 |---|---|
 | `GET /` | `tephra/web/index.html` |
+| `GET /assistant` | `tephra/web/index.html` again: `page-mode.js` marks it `data-page="assistant"` and `wall.js` shows the TEPHRA Assistant board in place of the Wall (UI-DESIGN 7.27) |
 | `GET /desk` | `tephra/web/desk.html` |
-| `GET /privacy` | `tephra/web/privacy.html`, the privacy notice (linked from the Wall footer, the Desk sign-in and README) |
+| `GET /privacy` | `tephra/web/privacy.html`, the privacy notice (linked from the guide's foot, the Desk sign-in and README) |
 | `GET /guide` | `tephra/web/guide.html`, the guide: how to read the map, the words used, the keyboard, About and credits, and the operator policy (linked from the Wall footer, `?` and the map key) |
 | `GET /robots.txt` | `text/plain`: `User-agent: *` and `Disallow: /`; every page also carries `<meta name="robots" content="noindex, nofollow">` |
 | `GET /static/{path}` | files under `tephra/web/` (`wall.js`, `wall.css`, `desk.js`, `desk.css`, `favicon.svg` (the icon every page links), ...) |

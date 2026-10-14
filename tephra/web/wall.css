@@ -1340,7 +1340,14 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden;
   background: var(--c-bg); color: var(--c-text-1); border: 0; border-radius: 0;
 }
-.board::backdrop { background: var(--c-scrim); }
+/* the /assistant page (UI-DESIGN 7.27): the board takes the stage's place under the shared header,
+   a part of the page, never a dialog over it; the Wall's stage and status line are not drawn */
+html[data-page="assistant"] body.wall { grid-template-rows: var(--bar-h) minmax(0, 1fr); }
+html[data-page="assistant"] body.wall > .stage, html[data-page="assistant"] body.wall > .honesty { display: none; }
+html[data-page="assistant"] .board { position: relative; grid-row: 2; inset: auto; width: auto; height: auto; min-height: 0; z-index: auto; }
+html[data-page="assistant"] .topnav a[href="/"]:not([aria-current="page"]) { color: var(--c-text-2); background: transparent; }
+html[data-page="assistant"] .topnav a[href="/assistant"] { color: var(--c-text-ink); background: var(--c-text-1); }
+html[data-page="assistant"] .topnav a[href="/assistant"] { display: inline-flex; }
 .board__body { position: absolute; inset: 0; overflow: hidden; }
 .board.is-stale .flow-stage { opacity: 0.7; }
 .flow-stage { position: relative; width: 100%; height: 100%; }
@@ -1566,8 +1573,27 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 .flow-sheet__state { color: var(--c-text-1); }
 .flow-sheet__fine { font-size: var(--fs-1); }
 
-/* shorter desktop windows: the same parts, tighter; the counters, run bars and facts stay */
-@media (min-width: 761px) and (max-height: 960px) {
+/* desktop: the title, the log and the player sit on the same glass as "Inside TEPHRA", so every
+   part reads over the moving map and the page has three calm cards (UI-DESIGN 7.27) */
+@media (min-width: 761px) {
+  .flow-head__brand, .flow-dock {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--c-surface-2) 78%, transparent), color-mix(in srgb, var(--c-surface-1) 86%, transparent));
+    backdrop-filter: blur(16px) saturate(1.15); -webkit-backdrop-filter: blur(16px) saturate(1.15);
+    border-radius: 18px; box-shadow: var(--shadow-3), inset 0 1px 0 color-mix(in srgb, var(--c-text-1) 5%, transparent);
+  }
+  .flow-head { padding-top: 16px; padding-left: 24px; }
+  .flow-head__brand { padding: 14px 20px 14px 16px; }
+  .flow-head__sub { text-shadow: none; }
+  .flow-dock { padding: 14px 16px 12px; gap: 10px; pointer-events: auto; }
+  .flow-log { min-height: 84px; }
+  .flow-log li { text-shadow: none; }
+  .flow-logrow { padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--c-text-1) 7%, transparent); }
+  .flow-player { background: color-mix(in srgb, var(--c-text-1) 4%, transparent); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+/* shorter desktop windows (the page's 56 px header included): the same parts, tighter; the counters,
+   run bars and facts stay */
+@media (min-width: 761px) and (max-height: 1016px) {
   .flow-skill { min-height: 28px; }
   .flow-skill__btn { min-height: 28px; }
   .flow-facts li:nth-child(n+3) { display: none; }
@@ -1578,7 +1604,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .flow-runs__bars { height: 22px; }
   .flow-cta { height: 40px; }
 }
-@media (min-width: 761px) and (max-height: 840px) {
+@media (min-width: 761px) and (max-height: 896px) {
   .flow-panel { top: 88px; bottom: 16px; padding-top: 14px; padding-bottom: 14px; }
   .flow-eyebrow { margin-bottom: 6px; }
   .flow-row { min-height: 32px; }
@@ -1601,6 +1627,12 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .flow-you > .flow-link { margin-top: 2px; }
   .flow-dock { bottom: 16px; }
 }
+/* very short windows (1280x720 and below): the decision and its button stay; the Desk's counts
+   and the Details link are one click away (Open the Desk, the assistant chip) */
+@media (min-width: 761px) and (max-height: 780px) {
+  .flow-facts__cap, .flow-facts, .flow-you > .flow-link { display: none; }
+  .flow-who { margin-bottom: 10px; }
+}
 @media (min-width: 761px) and (max-width: 1180px) {
   .flow-panel { width: 360px; }
   .flow-dock { right: calc(360px + 48px); }
@@ -1614,6 +1646,11 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 
 /* phones and narrow windows: the parts stack and scroll; the player stays at the bottom */
 @media (max-width: 760px) {
+  html[data-page="assistant"] .board { border-top: 1px solid var(--c-line-1); }
+}
+/* on a phone the Wall's page scrolls (never the body's grid), so the board's parts flow in it */
+@media (max-width: 600px) {
+  html[data-page="assistant"] .board, html[data-page="assistant"] .board__body { position: static; overflow: visible; }
   .board__body { overflow: auto; overscroll-behavior: contain; }
   .flow-stage { height: auto; min-height: 100%; display: flex; flex-direction: column; padding-bottom: 84px; }
   .flow-head { position: relative; order: 1; flex-direction: column; gap: 12px; padding: 16px 16px 0; }
@@ -1625,7 +1662,6 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .flow-head__right { width: 100%; }
   .flow-head__col { flex: 1; align-items: stretch; }
   .flow-seg__btn { flex: 1; padding: 6px 8px; font-size: var(--fs-1); }
-  .flow-close { position: absolute; top: 12px; right: 12px; }
   .flow-stale { position: relative; order: 2; left: auto; top: auto; margin: 10px 16px 0; }
   .flow-map { position: relative; order: 3; inset: auto; flex: none; height: 320px; margin-top: 10px; }
   .flow-ctl { top: 8px; right: 8px; transform: none; }

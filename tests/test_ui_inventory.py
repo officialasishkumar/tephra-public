@@ -262,7 +262,7 @@ def test_replay_is_labelled_by_the_page_not_a_strip() -> None:
         assert 'id="frame"' not in html, page
         assert "tn-strip" not in html, page
     panels = _text([WEB / "wall" / "panels.js"])
-    assert '`${replay ? "REPLAY - " : ""}TEPHRA Wall`' in panels
+    assert '`${replay ? "REPLAY - " : ""}TEPHRA ${' in panels
     assert '"Replay clock · "' in panels
     assert 'replay: "Replay"' in panels
     assert "'REPLAY - '" in _text([WEB / "desk.js"])

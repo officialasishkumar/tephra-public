@@ -25,6 +25,10 @@ const TRACE_KEEP = 200;
 const SAT_CYCLE = ["off", "ir", "vis", "airmass"];
 const DEFAULT_LAYERS = { airports: true, tephra: true, rose: true, aircraft: true, paths: true, routes: true, acLabels: true, context: false, navaids: false, terrain: false, reroutes: false, satboxes: true };
 const DETAILS_KEY = "tephra.wall.details";
+// /assistant: the same page shows the TEPHRA Assistant board (page-mode.js, UI-DESIGN 7.27)
+const ASSISTANT_PAGE = document.documentElement.dataset.page === "assistant";
+// an airline push shows on the board at most this often (the sample feed pushes every few seconds)
+const PUSH_SHOW_MS = 15e3;
 
 // ------------------------------------------------------------------ state
 
@@ -80,13 +84,14 @@ const ui = {
   present: PRESENT,
   selFlight: null, // { hex, proxy } of the aircraft picked on the map or in the flights list
   tlCurrent: null, // title of the timeline event last chosen (R7)
-  board: { open: false, opener: null }, // TEPHRA Assistant at work: open, who opened it
+  board: { open: false }, // TEPHRA Assistant at work: shown (the /assistant page)
 };
 const conn = { lostAt: null, source: null, watchdog: null, lastEventAt: 0, loaded: false, everLost: false, hiddenTimer: null, paused: false, lastTick: null };
 const extra = { error: null, basemap: null, mapError: null };
 const clock = { base: NaN, at: 0 };
 const seenDis = new Set();
 let D = null;
+let lastPushShown = -Infinity;
 let map = null;
 let dialogKind = null;
 let dialogOpener = null;
@@ -242,6 +247,15 @@ function openStream() {
     ui.freshTrace.add(t.id);
     setTimeout(() => ui.freshTrace.delete(t.id), 800);
   });
+  // an airline's positions arriving through Connect: a read on the board, like the public feeds
+  on("push", (p) => {
+    const at = ms(p.at);
+    if (!p.accepted || !Number.isFinite(at) || at - lastPushShown < PUSH_SHOW_MS) return;
+    lastPushShown = at;
+    const read = { feed: "airline", at: p.at, n: p.accepted };
+    store.feedReads.push(read);
+    if (ui.board.open) flow?.pushRead(read);
+  });
   on("advisory", (a) => {
     const i = store.advisories.findIndex((x) => x.id === a.id);
     const prev = i >= 0 ? store.advisories[i] : null;
@@ -385,10 +399,9 @@ function renderNow() {
     return;
   }
   D = derive(store, ui, now());
-  // The board covers the whole Wall: while it is open only the board is drawn; closing it draws
-  // the Wall again (the board's close handler).
+  // The Assistant page draws the shared header and the board, never the Wall's stage.
   if (ui.board.open) {
-    renderFrame(D.state);
+    withFocusKept(() => { renderChrome(D, store, ui); renderClock(D, conn); });
     renderFlow();
     return;
   }
@@ -685,6 +698,8 @@ function setPanel(hidden) {
 }
 
 function openDetails(sec = null, { vid = null, opener = null, from = null } = {}) {
+  // Details live on the Wall: from the Assistant page, a Details link opens the Wall at that section
+  if (ASSISTANT_PAGE) { location.assign(`/#details-${sec || "index"}`); return; }
   if (ui.present) return;
   if (ui.panelHidden) setPanel(false);
   const was = ui.details.open;
@@ -784,31 +799,20 @@ function renderFlow() {
   flow.update(flowModel(flowInput()), boardModel(boardInput()), conn);
 }
 
-function openBoard(opener) {
+// The board is a page of its own (/assistant, UI-DESIGN 7.27): from the Wall, its chip, key and
+// links go there; on that page it is shown in place of the Wall, never as a dialog.
+function openBoard() {
+  if (!ASSISTANT_PAGE) { location.assign("/assistant"); return; }
   const dlg = $("board");
-  if ($("dlg").open) $("dlg").close();
   ui.board.open = true;
-  ui.board.opener = opener || document.activeElement;
   describeModal(dlg);
-  if (!dlg.open) dlg.showModal();
-  // the board covers the map: its marching paths stop until the board closes
-  if (map) map.paused = true;
+  if (!dlg.open) dlg.show();
   flow = flow || mountFlow(dlg);
   flow.open();
   renderNow();
   $("board-title").focus({ preventScroll: true });
 }
 
-$("board").addEventListener("close", () => {
-  const back = ui.board.opener;
-  ui.board = { open: false, opener: null };
-  if (map) map.paused = false;
-  flow?.close();
-  renderNow();
-  (back && document.contains(back) && back.offsetParent !== null ? back : $("ai-chip")).focus({ preventScroll: true });
-});
-// A click on the dimmed page around the board closes it, as Esc and the close button do.
-$("board").addEventListener("click", (e) => { if (e.target === $("board")) $("board").close(); });
 
 // ------------------------------------------------------------------ dialogs
 
@@ -974,9 +978,8 @@ document.addEventListener("click", (e) => {
   else if (t.id === "panel-toggle") setPanel(!ui.panelHidden);
   else if (t.dataset.ff) setFlightFilter(t.dataset.ff);
   else if (t.id === "area-btn") { if ($("regions").hidden) openAreaMenu(); else closeAreaMenu(); }
-  else if (t.id === "ai-chip" || act === "board-open") openBoard(t);
-  else if (act === "board-close") $("board").close();
-  else if (act === "board-details") { $("board").close(); openDetails(t.dataset.sec, { opener: $("ai-chip") }); }
+  else if (t.id === "ai-chip" || act === "board-open") openBoard();
+  else if (act === "board-details") openDetails(t.dataset.sec);
   else if (t.id === "feeds-chip") openDetails("feeds", { opener: t });
   else if (t.id === "details-btn") { if (ui.details.open) closeDetails(); else openDetails(null, { opener: t }); }
   else if (t.id === "time-pill") { document.body.classList.toggle("tl-sheet"); renderNow(); if (document.body.classList.contains("tl-sheet")) $("timeline").querySelector("button")?.focus(); }
@@ -1160,7 +1163,7 @@ function runKey(k) {
   else if (k === "t" || k === "T") openDetails("trace", { opener: document.activeElement });
   else if (k === "h" || k === "H") { openDetails("levels", { opener: document.activeElement }); requestAnimationFrame(() => $("levels").querySelector('[data-thumb="max"]')?.focus()); }
   else if (k === "p" || k === "P") setPresent(!ui.present);
-  else if (k === "a" || k === "A") openBoard(document.activeElement);
+  else if (k === "a" || k === "A") openBoard();
   else if (k === "?") openGuide("read");
   else handled = false;
   return handled;
@@ -1224,16 +1227,25 @@ try {
 placeDetails();
 setPanel(ui.panelHidden);
 renderShell();
-// "See TEPHRA Assistant at work" links from the Desk land here (/#ai-at-work), and the guide's
-// "Track record ›" (/#track-record); the hash is not kept, so a reload shows the Wall.
-if (location.hash === "#ai-at-work" || location.hash === "#track-record") {
-  const board = location.hash === "#ai-at-work";
+// Old "See TEPHRA Assistant at work" links (/#ai-at-work) go to its page; the guide's "Track
+// record ›" (/#track-record) and the board's "Details ›" (/#details-<section>) open that Details
+// section. The hash is not kept, so a reload shows the Wall.
+const hashSec = location.hash === "#track-record" ? "proof" : location.hash.match(/^#details-([a-z]+)$/)?.[1];
+if (location.hash === "#ai-at-work") location.replace("/assistant");
+else if (hashSec && !ASSISTANT_PAGE) {
   history.replaceState(history.state, "", location.pathname + location.search);
-  if (board) openBoard($("ai-chip"));
-  else openDetails("proof", { opener: $("details-btn") });
+  openDetails(hashSec === "index" ? null : hashSec, { opener: $("details-btn") });
+}
+if (ASSISTANT_PAGE) {
+  // the nav says which page this is (page-mode.js has already set the look)
+  document.querySelector('.topnav a[href="/"]')?.removeAttribute("aria-current");
+  document.querySelector('.topnav a[href="/assistant"]')?.setAttribute("aria-current", "page");
+  openBoard();
 }
 inlineSprite().then(() => { if (store.state) renderNow(); else renderShell(); });
-if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startMap, { once: true });
+// the Assistant page draws the board's own map, not the Wall's
+if (ASSISTANT_PAGE) { /* no Wall map */ }
+else if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startMap, { once: true });
 else startMap();
 load();
 

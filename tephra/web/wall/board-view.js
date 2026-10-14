@@ -1,7 +1,7 @@
-// "TEPHRA Assistant at work" (docs/UI-DESIGN.md 7.21): the flow board, a full overlay (the modal
-// <dialog id="board">) opened from the assistant chip, the story, Details › TEPHRA Assistant, A or
-// /#ai-at-work. A live map of the region (MapLibre on the night basemap: drag, zoom, click a plane,
-// a volcano, an ash area or a feed for what it is) with the snapshot's real ash areas, volcanoes,
+// "TEPHRA Assistant at work" (docs/UI-DESIGN.md 7.21, 7.27): the flow board, the page /assistant
+// (the Wall's page with <dialog id="board"> shown in place of the Wall, never modal), reached from
+// the nav, the assistant chip, the story, A or /#ai-at-work. A live map of the region (MapLibre on
+// the night basemap: drag, zoom, click a plane, a volcano, an ash area or a feed for what it is) with the snapshot's real ash areas, volcanoes,
 // airports and aircraft, a beacon where each feed comes from, and one glass panel, "Inside TEPHRA": Code checks,
 // the Coordinator, the model gate with its waiting jobs, the six skills and "You decide". Work moves
 // only for real records (flowModel in board.js): a trace step that arrives on the stream animates at
@@ -118,7 +118,6 @@ export function mountFlow(dialog) {
   const btnEx = el("button", { type: "button", class: "flow-seg__btn", "aria-pressed": "false", dataset: { flowmode: "example" }, text: "Example: working normally" });
   const exFlag = el("p", { class: "flow-exflag", hidden: true, text: "Example · illustrative, not recorded. The assistant steps it shows did not happen." });
   const helpBtn = el("button", { type: "button", class: "flow-iconbtn", "aria-label": "How this moves", title: "How this moves", dataset: { flowsheet: "help" }, text: "?" });
-  const closeBtn = el("button", { type: "button", class: "flow-iconbtn flow-close", "aria-label": "Close TEPHRA Assistant at work", dataset: { act: "board-close" } }, icon("i-x"));
   const head = el("header", { class: "flow-head" },
     el("div", { class: "flow-head__brand" }, markUse,
       el("div", { class: "flow-head__titles" },
@@ -126,7 +125,7 @@ export function mountFlow(dialog) {
         lede)),
     el("div", { class: "flow-head__right" },
       el("div", { class: "flow-head__col" }, el("div", { class: "flow-seg", role: "group", "aria-label": "What to show" }, btnReal, btnEx), exFlag),
-      helpBtn, closeBtn));
+      helpBtn));
 
   // the panel: the pipeline as a drawn spine
   const node = (cls, a, kid = null) => el("span", { class: `flow-node ${cls}`, dataset: { a } }, kid);
@@ -168,7 +167,7 @@ export function mountFlow(dialog) {
   const decide = el("section", { class: "flow-you", "aria-labelledby": "flow-you" },
     el("div", { class: "flow-you__head" }, node("flow-node--you", "you"), youHead),
     el("p", { class: "flow-hero" }, heroN, heroW), who, runsBox, factsCap, facts,
-    el("a", { class: "flow-cta", href: "/desk", target: "_blank", rel: "noopener", dataset: { focus: "board-desk" } }, el("span", { text: "Open the Desk" }), el("span", { "aria-hidden": "true", text: "→" })),
+    el("a", { class: "flow-cta", href: "/desk", dataset: { focus: "board-desk" } }, el("span", { text: "Open the Desk" }), el("span", { "aria-hidden": "true", text: "→" })),
     el("button", { type: "button", class: "flow-link", dataset: { act: "board-details", sec: "ai", focus: "board-ai-home" }, text: "Details › TEPHRA Assistant ›" }));
   const panel = el("aside", { class: "flow-panel", "aria-label": "Inside TEPHRA" },
     el("p", { class: "flow-eyebrow", text: "Inside TEPHRA" }),
@@ -1513,15 +1512,6 @@ export function mountFlow(dialog) {
     open() {
       isOpen = true;
       requestAnimationFrame(() => { layout(); ensureMap(); if (M) seek(following ? T1 : simT); kick(); });
-    },
-    close() {
-      isOpen = false;
-      if (raf) cancelAnimationFrame(raf);
-      raf = 0;
-      if (sheet.open) sheet.close();
-      // next time it opens on real data, at the live edge or (REPLAY) from the start of the window
-      hidePick(); userMoved = false; layerMenu.hidden = true; layersBtn.setAttribute("aria-expanded", "false");
-      M = null; fired.clear(); following = true; playing = false; mode = "real"; legendFor = ""; logMode = "";
     },
   };
 

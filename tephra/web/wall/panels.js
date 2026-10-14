@@ -125,13 +125,12 @@ export function areaWords(D, key) {
 // its description (x-parts describeReplay). On screen the page title and the clock say REPLAY.
 export const replayLine = (s) => (s?.mode === "REPLAY" ? replayWords(s.replay).text : "");
 
-// The page title: drawn on every render, the board's included (the board covers the Wall, which is
-// not redrawn while it is open).
+// The page title: drawn on every render, the Assistant page's included.
 export function renderFrame(s) {
   const replay = s.mode === "REPLAY";
   document.body.dataset.mode = s.mode;
-  document.title = `${replay ? "REPLAY - " : ""}TEPHRA Wall`;
-  // A modal open before the state arrived (the board from #ai-at-work) or across a mode switch
+  document.title = `${replay ? "REPLAY - " : ""}TEPHRA ${document.documentElement.dataset.page === "assistant" ? "Assistant" : "Wall"}`;
+  // A dialog open before the state arrived (the Assistant page's board) or across a mode switch
   // gets the current REPLAY words in its sr-only description.
   for (const dlg of document.querySelectorAll("dialog[open]")) describeReplay(dlg, replayLine(s));
 }
