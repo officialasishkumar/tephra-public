@@ -723,13 +723,20 @@ async def plan_flight(
 
 
 def planner_question(
-    ctx: PlannerContext, *, cone_version: str, policy_version: str, max_age: timedelta
+    ctx: PlannerContext,
+    *,
+    cone_version: str | None = None,
+    policy_version: str,
+    max_age: timedelta,
 ) -> Question:
-    """What is material to a plan: the flight and its cone (id and :func:`cone_version`), the
-    actions the mode and the operator policy allow, how soon it enters (inside, or the
-    policy's divert and hold buckets, as the AI worker plans them), its level in 2,000 ft
-    steps and the alternates whose screen is open. A move of a few miles, a minute or a few
-    hundred feet is not."""
+    """What is material to a plan: the flight, the hazard band in flight levels, the actions
+    the mode and the operator policy allow, how soon it enters (inside, or the policy's divert
+    and hold buckets, as the AI worker plans them), its level in 2,000 ft steps, the
+    alternates whose screen is open and the reroutes that are OK. The cone's id and times are
+    not: a cone reissued with the same band asks nothing again. A move of a few miles, a
+    minute or a few hundred feet is not material either.
+
+    ``cone_version`` is ignored since the material question; removed with T18."""
     flight = ctx.flight
     level = present_fl(flight)
     return Question(
@@ -737,16 +744,26 @@ def planner_question(
         {
             "prompt": prompt_version(PROMPT_PATH.read_text(encoding="utf-8")),
             "flight": flight.id,
-            "cone": [flight.cone_id, cone_version],
             "mode": ctx.plume_mode.value,
             "allowed": sorted(action.value for action in ctx.allowed_actions),
             "policy": policy_version,
             "urgency": urgency_band(ctx),
             "level_step": None if level is None else level // LEVEL_STEP_FL,
+            "band": hazard_band_fl(ctx),
             "alternates_open": sorted(alt.icao for alt in ctx.alternates if alt.check.ok),
+            "reroutes": sorted(o.id for o in ctx.reroutes if o.status is RerouteStatus.OK),
         },
         max_age,
     )
+
+
+def hazard_band_fl(ctx: PlannerContext) -> list[int]:
+    return [ft_to_fl(ctx.hazard_base_ft), ft_to_fl(ctx.hazard_top_ft)]
+
+
+def plan_key(question: Question) -> str:
+    """The key a flight is planned once under (``Advisory.plan_key``)."""
+    return sha256_json(question.material)[:16]
 
 
 def cone_version(cone: HazardCone) -> str:

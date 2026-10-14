@@ -58,7 +58,7 @@ from tephra.models import (
     Situation,
     WindProfile,
 )
-from tephra.util.hashing import stable_id
+from tephra.util.hashing import sha256_text, stable_id
 
 __all__ = ["clear_cache", "coordinate_text", "plan_reroutes"]
 
@@ -771,8 +771,9 @@ def _option(
     else:
         status, note = RerouteStatus.OK, "LATERAL ROUTE AROUND THE BUFFERED HAZARD"
     waypoints: list[Position] = [(lon, lat) for lat, lon in path[1:-1]]
+    route_string = _route_string(kind, route, path)
     return RerouteOption(
-        id=_option_id(trip, kind),
+        id=_option_id(trip, kind, route_string),
         flight_id=trip.flight.id,
         cone_id=trip.cone.id,
         kind=kind,
@@ -791,7 +792,7 @@ def _option(
         buffer_nm=reroute.buffer_nm.value,
         max_turn_deg=round(largest_turn, 1),
         fuel=reroute_line(trip.flight.category, extra_min, extra_nm),
-        route_string=_route_string(kind, route, path),
+        route_string=route_string,
         wind_note=_wind_note(trip, tail_kt),
     )
 
@@ -852,8 +853,10 @@ def coordinate_text(lat: float, lon: float) -> str:
     )
 
 
-def _option_id(trip: _Trip, kind: RerouteKind) -> str:
-    return stable_id("RR", trip.flight.id, trip.cone.id, kind.value)
+def _option_id(trip: _Trip, kind: RerouteKind, route_string: str = "") -> str:
+    """By content, not by cone: the same route at the same level under a new cone keeps its
+    id, so a kept plan that names it still passes the checks."""
+    return stable_id("RR", trip.flight.id, kind.value, sha256_text(f"{route_string}|{trip.fl}"))
 
 
 def _refusal(trip: _Trip, kind: RerouteKind, status: RerouteStatus, note: str) -> RerouteOption:

@@ -15,8 +15,14 @@ from typing import Any, Final, Literal, NamedTuple
 from uuid import uuid4
 
 from tephra.agents.answers import Question, Reuse, prompt_version
-from tephra.agents.exposure_planner import band_text, flight_summary, present_fl
-from tephra.agents.llm import LlmBackend, LlmCall, LlmPart
+from tephra.agents.exposure_planner import (
+    band_text,
+    flight_summary,
+    hazard_band_fl,
+    present_fl,
+    urgency_band,
+)
+from tephra.agents.llm import LlmBackend, LlmCall, LlmPart, sum_known
 from tephra.agents.validators import (
     ACTION_WORDS,
     COST_NOTE_MAX_CHARS,
@@ -289,13 +295,19 @@ def drafter_question(
     ctx: PlannerContext,
     plan: PlannedAction,
     *,
-    cone_version: str,
+    cone_version: str | None = None,
     policy_version: str,
     max_age: timedelta,
 ) -> Question:
-    """What is material to a draft: the flight, its cone (id and version), the operator
-    policy it is drafted under, and the action with its target (the level band or hold level,
-    the alternate, the reroute option)."""
+    """What is material to a draft: the flight, the operator policy it is drafted under, the
+    action with its target (the level band or hold level, the alternate, the reroute option),
+    the hazard band in flight levels and the planner's urgency bucket (inside now, or the
+    policy's divert and hold buckets): a body says INSIDE NOW or ENTRY N MIN, and the checks
+    cannot tell one wording from the other, so a bucket change is a new question. The minutes
+    within a bucket are not material (a kept body with a stale figure fails the number check
+    and is asked again), and neither are the cone's id and times.
+
+    ``cone_version`` is ignored since the material question; removed with T18."""
     decision = plan.decision
     if decision is None:
         raise ValueError(f"plan {plan.id} has no decision to draft")
@@ -304,13 +316,14 @@ def drafter_question(
         {
             "prompt": prompt_version(PROMPT_PATH.read_text(encoding="utf-8")),
             "flight": ctx.flight.id,
-            "cone": [ctx.flight.cone_id, cone_version],
             "policy": policy_version,
             "action": decision.action.value,
             "level_band": [decision.change_level_fl_min, decision.change_level_fl_max],
             "hold_fl": decision.hold_fl,
             "alternate": decision.alternate_icao,
             "reroute": decision.reroute_id,
+            "band": hazard_band_fl(ctx),
+            "urgency": urgency_band(ctx),
         },
         max_age,
     )
@@ -334,13 +347,15 @@ async def draft_advisory(
     feed_health: Mapping[FeedId, FeedHealth] | None = None,
     replay_case: ReplayCase | None = None,
     reuse: Reuse | None = None,
+    plan_key: str | None = None,
 ) -> Advisory | AiFailure:
     """``policy`` is stamped on the advisory (id, version and short content hash) so every
     decision on it records the operator policy it was drafted under. ``feed_health`` adds an
     OFFICIAL PICTURE INCOMPLETE line for a degraded SIGMET or VAAC feed; ``replay_case``
     names the case on a REPLAY draft. ``reuse`` (``drafter_question``): the same model's body
     for the same material question is used when it passes the checks against this flight and
-    plan now, keeping the time it was written; a new body that passes is kept."""
+    plan now, keeping the time it was written; a new body that passes is kept. ``plan_key``
+    is the planner question the draft answers (``Advisory.plan_key``)."""
     if plan.decision is None:
         raise ValueError(f"plan {plan.id} has no decision to draft")
     if replay_case is not None and not _replay(situation):
@@ -348,12 +363,14 @@ async def draft_advisory(
     system = PROMPT_PATH.read_text(encoding="utf-8")
     parts = _draft_parts(ctx, plan)
     known = await _known_draft(reuse, llm, ctx, plan) if reuse is not None else None
+    calls: list[LlmCall] = []
     if known is not None:
         draft: DraftText | None = known.draft
         call = known.call
         problems: list[str] = []
     else:
         draft, call = await _ask(llm, system, parts, ctx, plan)
+        calls.append(call)
         problems = _problems(draft, call, ctx, plan)
     drafter_hash = call.prompt_hash
     # The model answered (even unreadably): one repair. No answer at all (budget, API
@@ -370,6 +387,7 @@ async def draft_advisory(
         )
         repair = _text_part(_repair_text(draft, call, problems), "repair")
         draft, call = await _ask(llm, system, [*parts, repair], ctx, plan)
+        calls.append(call)
         problems = _problems(draft, call, ctx, plan)
 
     backend: LlmBackendName = llm.name
@@ -439,6 +457,9 @@ async def draft_advisory(
             "planner": plan.prompt_hash,
             "drafter": drafter_hash,
         },
+        plan_key=plan_key,
+        input_tokens=sum_known(c.input_tokens for c in calls),
+        output_tokens=sum_known(c.output_tokens for c in calls),
     )
 
 
@@ -553,6 +574,9 @@ def _advisory(
     backend: LlmBackendName,
     model_id: str,
     prompt_hashes: dict[str, str],
+    plan_key: str | None,
+    input_tokens: int | None,
+    output_tokens: int | None,
 ) -> Advisory:
     flight = ctx.flight
     decision = plan.decision
@@ -600,6 +624,9 @@ def _advisory(
         prompt_hashes=prompt_hashes,
         validation_notes=[],
         drafted_at=drafted,
+        plan_key=plan_key,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
         dedupe_key=stable_id(
             "DD",
             flight.hex,
