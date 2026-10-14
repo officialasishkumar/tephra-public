@@ -3,7 +3,8 @@
 Gemini is reached only with a Google AI Studio key through ``genai.Client(api_key=...)``;
 never Vertex AI, never Application Default Credentials. Every call:
 
-* is answered from a disk cache when the same model already saw the same prompt and images,
+* is answered from a disk cache only when the caller gives one (``cache_dir``; the backtest's
+  arm G): the runtime keeps its answers in the store (``tephra.agents.answers``), not on disk,
 * has every HTTP attempt, retries included, reserved before it is sent from its model's daily
   budget (``tephra.agents.quota``: per model id and Google quota day, kept in the store, split
   into urgent, interactive and routine shares),
@@ -296,8 +297,7 @@ class GeminiBackend:
         self._settings = settings
         self._api_key = api_key
         self._client_obj = client
-        llm_dir = cache_dir if cache_dir is not None else settings.cache_dir / "llm"
-        self._cache = _DiskCache(llm_dir)
+        self._cache = _DiskCache(cache_dir) if cache_dir is not None else None
         self.quota = quota if quota is not None else QuotaLedger(settings, None)
         self._retry_delays_s = tuple(retry_delays_s)
         self._pacers: dict[str, RatePacer] = {}
@@ -356,7 +356,9 @@ class GeminiBackend:
         )
         call = LlmCall(backend="gemini", model_id=model, prompt_hash=p_hash)
 
-        cached_text = await asyncio.to_thread(self._cache.read, key)
+        cached_text = (
+            await asyncio.to_thread(self._cache.read, key) if self._cache is not None else None
+        )
         if cached_text is not None:
             try:
                 value = parse_json_model(cached_text, schema)
@@ -405,7 +407,8 @@ class GeminiBackend:
             call = call.model_copy(update={"error": f"invalid_output: {exc}"})
             self._log(tier, call, "invalid")
             return None, call
-        await asyncio.to_thread(self._cache.write, key, model, p_hash, text)
+        if self._cache is not None:
+            await asyncio.to_thread(self._cache.write, key, model, p_hash, text)
         self._log(tier, call, "ok")
         return value, call
 

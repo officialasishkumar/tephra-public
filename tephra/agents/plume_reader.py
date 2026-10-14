@@ -25,7 +25,11 @@ from tephra.agents.llm import (
     prompt_hash,
     sum_known,
 )
-from tephra.agents.validators import ZONE_TIME_PATTERN, first_problems
+from tephra.agents.validators import (
+    ZONE_TIME_PATTERN,
+    _number_tokens,  # private until T07 exports number_tokens
+    first_problems,
+)
 from tephra.config import (
     MAX_HORIZON_H,
     MAX_PLUME_EXTENT_KM,
@@ -117,6 +121,8 @@ _NARROWING: Final = re.compile(
 )
 _NEGATIONS: Final = frozenset({"not", "never", "no", "cannot", "nor", "without", "neither"})
 _SENTENCE_END: Final = re.compile(r"[.;!?\n]+")
+_FENCE_TAG: Final = re.compile(r"<(?=/?source\b)", re.IGNORECASE)
+"""A product text may not close or open the <source> fence it sits in."""
 
 Actor = Literal["code", "gemini", "stub"]
 Outcome = Literal["ACCEPTED", "REPAIRED", "MODEL_FAILED", "OFFICIAL_ONLY", "PENDING", "STUB"]
@@ -417,6 +423,7 @@ def validate_estimate(estimate: PlumeEstimate, situation: Situation) -> list[str
     return [
         *_citation_problems(estimate, situation),
         *_timestamp_problems(estimate, situation),
+        *_number_problems(estimate, situation, _parts_text(situation)),
         *_mode_problems(estimate, situation),
         *_geometry_problems(estimate, situation),
         *_hypothesis_problems(estimate, situation),
@@ -452,18 +459,106 @@ def _citation_problems(estimate: PlumeEstimate, situation: Situation) -> list[st
 
 def _timestamp_problems(estimate: PlumeEstimate, situation: Situation) -> list[str]:
     """Times are rendered by code from provenance; the model may cite ids, never write times."""
-    ids = sorted(
-        {*_citable_ids(situation), *(d.id for d in situation.discrepancies)}, key=len, reverse=True
-    )
     problems: list[str] = []
     for name, text in _text_fields(estimate):
-        scrubbed = text
-        for identifier in ids:
-            scrubbed = scrubbed.replace(identifier, " ")
+        scrubbed = _without_ids(text, situation)
         found = sorted({match.group(0) for p in _TIMESTAMPS for match in p.finditer(scrubbed)})
         if found:
             problems.append(f"{name} contains time or date text {', '.join(found)}; write none")
     return problems
+
+
+def _number_problems(estimate: PlumeEstimate, situation: Situation, parts_text: str) -> list[str]:
+    """A model never writes a number that is not in its input: every number in the prose must
+    be printed in the text blocks it was given, be a flight-level or feet form of a height it
+    was given, or be one of its own answer's fields."""
+    allowed = (
+        _number_tokens(parts_text)
+        | _height_forms(situation)
+        | _movement_forms(situation)
+        | _own_numbers(estimate)
+    )
+    problems: list[str] = []
+    for name, text in _text_fields(estimate):
+        invented = _invented_numbers(_without_ids(text, situation), allowed)
+        if invented:
+            problems.append(f"{name} has numbers not in the input: {', '.join(invented)}")
+    return problems
+
+
+def _invented_numbers(text: str, allowed: set[str]) -> list[str]:
+    return sorted({token for token in _number_tokens(text) if token not in allowed}, key=float)
+
+
+def _parts_text(situation: Situation) -> str:
+    """The text blocks as the model saw them, the images block included: each frame and the
+    BTD map stand in by their source id, which is all that block prints of them."""
+    pictured = [frame.provenance.source_id for frame in situation.frames]
+    if situation.btd is not None:
+        pictured.append(situation.btd.provenance.source_id)
+    stand_ins = [LlmPart.of_image(b"", label=source_id) for source_id in pictured]
+    parts = build_parts(situation, stand_ins)
+    return "\n".join(part.text or "" for part in parts if part.kind == "text")
+
+
+def _height_forms(situation: Situation) -> set[str]:
+    """Each height the model was given, in feet (exact, to the hundred and to the thousand) and
+    as a flight level (rounded either way): the prompt asks it to compare the two."""
+    heights_ft = [
+        *(ft for layer in situation.official_layers for ft in (layer.base_ft, layer.top_ft)),
+        *(vona.cloud_top_ft for vona in situation.vonas if vona.cloud_top_ft is not None),
+    ]
+    forms: list[float] = []
+    for ft in heights_ft:
+        forms += [ft, round(ft, -2), round(ft, -3), ft_to_fl(ft), ft // 100, math.ceil(ft / 100)]
+    return _number_tokens(" ".join(f"{value:g}" for value in forms))
+
+
+def _movement_forms(situation: Situation) -> set[str]:
+    """Each product's parsed movement, as a bearing and a speed: "MOV SE 10KT" and "moving
+    to northeast" are in the text, and 135 or 45 degrees is how the model restates them."""
+    values = [
+        *(sigmet.movement_toward_deg for sigmet in situation.sigmets),
+        *(sigmet.movement_speed_kt for sigmet in situation.sigmets),
+        *(vona.movement_toward_deg for vona in situation.vonas),
+    ]
+    return _number_tokens(" ".join(f"{value:g}" for value in values if value is not None))
+
+
+def _own_numbers(estimate: PlumeEstimate) -> set[str]:
+    """The estimate's own fields, as it may restate them: levels and their feet, bearings and
+    the sweep between them, the extent in km and nm, the horizon and the confidence as a
+    percentage."""
+    values = [
+        estimate.base_fl,
+        estimate.top_fl,
+        estimate.base_fl * 100,
+        estimate.top_fl * 100,
+        estimate.bearing_from_deg,
+        estimate.bearing_to_deg,
+        round(estimate.bearing_from_deg),
+        round(estimate.bearing_to_deg),
+        estimate.sector_width_deg(),
+        round(estimate.sector_width_deg()),
+        estimate.extent_km,
+        round(estimate.extent_km),
+        round(estimate.extent_km / KM_PER_NM),
+        estimate.horizon_h,
+        estimate.confidence,
+        round(estimate.confidence * 100),
+    ]
+    return _number_tokens(" ".join(f"{value:g}" for value in values))
+
+
+def _without_ids(text: str, situation: Situation) -> str:
+    """The prose with every citable source id and discrepancy id blanked: ids are cited, and
+    the digits inside them are neither times nor numbers the model wrote."""
+    ids = sorted(
+        {*_citable_ids(situation), *(d.id for d in situation.discrepancies)}, key=len, reverse=True
+    )
+    for identifier in ids:
+        text = text.replace(identifier, " ")
+    return text
 
 
 def _text_fields(estimate: PlumeEstimate) -> list[tuple[str, str]]:
@@ -805,18 +900,19 @@ def _texts_block(situation: Situation) -> str:
         *situation.vonas,
         *situation.vaas,
     ]
-    lines = ["SOURCE TEXTS (verbatim; ages are minutes before now)"]
+    lines = ["SOURCE TEXTS (verbatim, each between <source> tags; ages are minutes before now)"]
     if not records:
         lines.append("No SIGMET, VONA or VAA text is available.")
     for record in records:
         state = evidence_state(record, situation.volcano, situation.as_of)
-        header = (
-            f"[{record.provenance.source_id}] {_kind(record)}, evidence {state.value}, "
-            f"{_age(_observed_at(record), situation.as_of)}"
+        attributes = (
+            f'id="{record.provenance.source_id}" kind="{_kind(record)}" '
+            f'evidence="{state.value}" age="{_age(_observed_at(record), situation.as_of)}"'
         )
         if record.provenance.stale:
-            header += ", served from the last good copy after a failed fetch"
-        lines.extend(["", header, record.raw_text.strip()])
+            attributes += ' served="last good copy after a failed fetch"'
+        text = _FENCE_TAG.sub("&lt;", record.raw_text.strip())
+        lines.extend(["", f"<source {attributes}>", text, "</source>"])
     return "\n".join(lines)
 
 
@@ -990,7 +1086,7 @@ def _age(then: datetime, now: datetime) -> str:
     minutes = round(timeutil.minutes_between(then, now))
     if minutes < 0:
         return f"starts in {-minutes} min"
-    return f"observation age {minutes} min"
+    return f"{minutes} min"
 
 
 def _band(base_ft: int, top_ft: int) -> str:
