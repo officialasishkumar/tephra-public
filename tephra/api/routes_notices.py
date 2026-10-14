@@ -62,7 +62,11 @@ async def post_notice(body: NoticeRequest, session: DeskSession, runtime: Runtim
         return _json(known)
 
     reading = await read_notice(
-        text, runtime.llm, runtime.catalogue, replay=runtime.mode is RunMode.REPLAY
+        text,
+        runtime.llm,
+        runtime.catalogue,
+        replay=runtime.mode is RunMode.REPLAY,
+        answers=runtime.answers,
     )
     await runtime.store.put(Collection.NOTICES, reading.id, reading.model_dump(mode="json"))
     await audit.record(

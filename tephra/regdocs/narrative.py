@@ -14,9 +14,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from tephra.agents.answers import AiAnswers, Question, Reuse, prompt_version
 from tephra.agents.llm import LlmBackend, LlmCall, LlmPart
 from tephra.agents.validators import clock_problems, first_problems
 from tephra.regdocs.models import NarrativeBox, SraNarrative
+from tephra.util import timeutil
 
 __all__ = [
     "AI_UNAVAILABLE",
@@ -24,6 +26,7 @@ __all__ = [
     "NARRATIVE_MAX_CHARS",
     "PROMPT_PATH",
     "AiUnavailable",
+    "narrative_question",
     "stub_narrative",
     "validate_narrative",
     "write_narrative",
@@ -137,12 +140,23 @@ def _name_problems(name: str, text: str, allowed: _Allowed) -> list[str]:
 # --- the call ---------------------------------------------------------------------------
 
 
+def narrative_question(facts: Mapping[str, Any]) -> Question:
+    """SRA boxes are reused only for identical facts (they carry no clock time)."""
+    system = PROMPT_PATH.read_text(encoding="utf-8")
+    return Question("sra", {"prompt": prompt_version(system), "facts": dict(facts)})
+
+
 async def write_narrative(
-    llm: LlmBackend, facts: Mapping[str, Any]
+    llm: LlmBackend, facts: Mapping[str, Any], *, answers: AiAnswers | None = None
 ) -> tuple[SraNarrative, LlmCall]:
-    """The checked boxes and the call that made them; :class:`AiUnavailable` otherwise."""
+    """The checked boxes and the call that made them; :class:`AiUnavailable` otherwise. With
+    ``answers``, the same model's boxes for identical facts are used when they pass the checks
+    now, and new boxes that pass are kept."""
     system = PROMPT_PATH.read_text(encoding="utf-8")
     parts = [LlmPart.of_text(json.dumps(facts, indent=1, ensure_ascii=False))]
+    reuse = Reuse(answers, narrative_question(facts)) if answers is not None else None
+    if reuse is not None and (held := await _known_narrative(reuse, llm, facts)):
+        return held
     narrative, call = await _ask(llm, system, parts, facts)
     problems = _problems(narrative, call, facts)
     answered = narrative is not None or bool(call.raw_text)
@@ -157,6 +171,28 @@ async def write_narrative(
             else f"NARRATIVE FAILED CHECKS AFTER REPAIR: {'; '.join(first_problems(problems, 3))}"
         )
         raise AiUnavailable(reason, model_id=call.model_id)
+    if reuse is not None:
+        await reuse.keep(
+            call.model_id,
+            narrative.model_dump(mode="json"),
+            prompt_hash=call.prompt_hash,
+            answered_at=timeutil.now(),
+        )
+    return narrative, call
+
+
+async def _known_narrative(
+    reuse: Reuse, llm: LlmBackend, facts: Mapping[str, Any]
+) -> tuple[SraNarrative, LlmCall] | None:
+    answer = await reuse.recall(llm.model_id("lite"))
+    if answer is None:
+        return None
+    narrative = SraNarrative.model_validate(answer.payload)
+    problems = validate_narrative(narrative, facts)
+    if problems:
+        reuse.rejected(problems)
+        return None
+    call = LlmCall(backend=llm.name, model_id=answer.model_id, prompt_hash=answer.prompt_hash)
     return narrative, call
 
 

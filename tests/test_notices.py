@@ -688,6 +688,7 @@ async def desk(tmp_path: Path) -> AsyncIterator[SimpleNamespace]:
         catalogue=CATALOGUE,
         mode=RunMode.LIVE,
         llm=ScriptedLlm([]),
+        answers=None,
         add_verified_notice=add_verified_notice,
         joined=joined,
         live=SimpleNamespace(vonas={}),

@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 from tephra.agents.adk_runtime import ModelGuard, summarise
+from tephra.agents.answers import Question, Reuse, prompt_version
 from tephra.agents.llm import (
     LlmBackend,
     LlmPart,
@@ -70,6 +71,7 @@ from tephra.models import (
     TraceStage,
     polygon_from_latlon,
 )
+from tephra.util import timeutil
 from tephra.util.hashing import stable_id
 
 if TYPE_CHECKING:
@@ -86,6 +88,8 @@ ADK_USER_ID: Final = "tephra-dispatch"
 
 MAX_MODEL_TURNS: Final = 10
 """Model calls allowed per planning turn (tool round trips included) before code stops it."""
+LEVEL_STEP_FL: Final = 20
+"""A plan answers the same question while the flight stays within one 2,000 ft step."""
 _RING_POINTS: Final = 64
 """Vertices of the buffer disc; its edges fall at most 0.03 NM inside the true circle."""
 
@@ -648,8 +652,11 @@ async def plan_flight(
     *,
     settings: Settings,
     trace: TraceSink | None = None,
+    reuse: Reuse | None = None,
 ) -> PlannedAction:
-    phash = planner_prompt_hash(ctx)
+    """``reuse`` (``planner_question``): the same model's plan for the same material question
+    is used when it passes the checks against ``ctx`` now; a new plan that passes is kept."""
+    phash = prompt_hash(PROMPT_PATH.read_text(encoding="utf-8"), [_context_part(ctx)])
     if llm.name == "stub":
         decision = rule_based_decision(ctx)
         _emit(trace, ctx, "stub", f"NO MODEL: {_decision_line(decision)}")
@@ -662,6 +669,8 @@ async def plan_flight(
             outcome="STUB",
         )
     model_id = llm.model_id("lite")
+    if reuse is not None and (known := await _known_plan(ctx, reuse, model_id, trace)):
+        return known
     run = _AgentRun()
     try:
         await _run_agent(ctx, llm, run, settings=settings, trace=trace)
@@ -671,7 +680,7 @@ async def plan_flight(
         run.problems = [f"PLANNER AGENT ERROR: {type(exc).__name__}"]
     if run.decision is not None and not run.problems:
         _emit(trace, ctx, "adk", f"PLAN {run.outcome}: {_decision_line(run.decision)}")
-        return _planned(
+        planned = _planned(
             ctx,
             run.decision,
             backend=llm.name,
@@ -682,6 +691,14 @@ async def plan_flight(
             input_tokens=sum_known(run.input_tokens),
             output_tokens=sum_known(run.output_tokens),
         )
+        if reuse is not None:
+            await reuse.keep(
+                model_id,
+                planned.model_dump(mode="json"),
+                prompt_hash=phash,
+                answered_at=timeutil.now(),
+            )
+        return planned
     reasons = "; ".join(first_problems(run.problems, 3)) or "NO PLAN"
     _emit(
         trace,
@@ -705,48 +722,74 @@ async def plan_flight(
     )
 
 
-def planner_prompt_hash(ctx: PlannerContext) -> str:
-    """The hash of the planner's question for ``ctx``: its instructions and the flight's
-    context. A REPLAY loop reuses a recorded plan only for exactly this question."""
-    return prompt_hash(PROMPT_PATH.read_text(encoding="utf-8"), [_context_part(ctx)])
+def planner_question(ctx: PlannerContext, *, policy_version: str, max_age: timedelta) -> Question:
+    """What is material to a plan: the flight and its cone (id and version), the actions the
+    mode and the operator policy allow, how soon it enters (inside, or the policy's divert and
+    hold buckets, as the AI worker plans them), its level in 2,000 ft steps and the alternates
+    whose screen is open. A move of a few miles, a minute or a few hundred feet is not."""
+    flight = ctx.flight
+    level = present_fl(flight)
+    return Question(
+        "flight_planner",
+        {
+            "prompt": prompt_version(PROMPT_PATH.read_text(encoding="utf-8")),
+            "flight": flight.id,
+            "cone": flight.cone_id,
+            "mode": ctx.plume_mode.value,
+            "allowed": sorted(action.value for action in ctx.allowed_actions),
+            "policy": policy_version,
+            "urgency": urgency_band(ctx),
+            "level_step": None if level is None else level // LEVEL_STEP_FL,
+            "alternates_open": sorted(alt.icao for alt in ctx.alternates if alt.check.ok),
+        },
+        max_age,
+    )
 
 
-def plan_from_record(
-    ctx: PlannerContext,
-    recorded: PlannedAction,
-    *,
-    label: str,
-    trace: TraceSink | None = None,
+def urgency_band(ctx: PlannerContext) -> int:
+    """0 inside now; else 1 plus the number of the policy's divert and hold limits the entry
+    lies beyond (the AI worker's planning buckets)."""
+    flight = ctx.flight
+    if flight.inside_now:
+        return 0
+    limits = (ctx.divert_within_min, ctx.hold_within_min)
+    return 1 + sum(flight.minutes_to_entry > limit for limit in limits)
+
+
+async def _known_plan(
+    ctx: PlannerContext, reuse: Reuse, model_id: str, trace: TraceSink | None
 ) -> PlannedAction | None:
-    """A REPLAY loop's plan from the first pass's answer to the same question (the same
-    planner instructions and flight context, :func:`planner_prompt_hash`): the same model's
-    decision, checked again against the flight now. None when it was an answer to another
-    question or no longer passes the checks (the caller then asks the model)."""
-    if recorded.decision is None or recorded.prompt_hash != planner_prompt_hash(ctx):
+    """The same model's plan for the same material question, checked again against the flight
+    now (the action still allowed, the band still clear, the alternate still open, the
+    reroute still computed and OK); None when there is none or it no longer passes."""
+    answer = await reuse.recall(model_id)
+    if answer is None:
         return None
-    decision = normalise_decision(recorded.decision)
+    held = PlannedAction.model_validate(answer.payload)
+    if held.decision is None:
+        reuse.rejected(["NO DECISION"])
+        return None
+    decision = normalise_decision(held.decision)
     problems = validate_decision(decision, ctx)
     if problems:
-        _emit(
-            trace,
-            ctx,
-            "code",
-            "Recorded plan from the replay's first pass no longer fits; asking the model",
-            level="warn",
-            detail={"problems": problems},
-        )
+        reuse.rejected(problems)
         return None
-    _emit(trace, ctx, "adk", f"PLAN {_decision_line(decision)} ({label})")
-    planned = _planned(
+    planned_at = answer.shown_at(timeutil.now())
+    _emit(
+        trace,
+        ctx,
+        "adk",
+        f"PLAN {held.outcome} at {timeutil.hhmmz(planned_at)}: {_decision_line(decision)}",
+    )
+    return _planned(
         ctx,
         decision,
-        backend=recorded.llm_backend,
-        model_id=recorded.model_id,
-        prompt_hash=recorded.prompt_hash,
-        outcome=recorded.outcome,
-        tool_calls=recorded.tool_calls,
+        backend=held.llm_backend,
+        model_id=held.model_id,
+        prompt_hash=held.prompt_hash,
+        outcome=held.outcome,
+        tool_calls=held.tool_calls,
     )
-    return planned.model_copy(update={"recorded_answer": label})
 
 
 @dataclass

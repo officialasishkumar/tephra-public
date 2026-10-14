@@ -9,7 +9,7 @@
 
 import { $, el, icon, ms, hhmmz } from "./util.js";
 import { frameFor } from "./ext-map.js";
-import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, causeTitle, handPlanOf, reasonClass, realWhen, machineText, machineSentences, recordedWords, jobsWords, pacingWords, whyLink, WHY, MARK, ASSISTANT } from "./x-parts.js";
+import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, causeTitle, handPlanOf, reasonClass, realWhen, machineText, machineSentences, jobsWords, pacingWords, whyLink, WHY, MARK, ASSISTANT } from "./x-parts.js";
 import { dutyDetail, dispatchedTools } from "./duty.js";
 import { HELPERS } from "./board.js";
 import {
@@ -161,7 +161,6 @@ function satRow(D, reading, sit, store) {
         ["Ash marked on the picture", n ? `${n} box${n === 1 ? "" : "es"}` : "none"],
         ["Reading", aiMark(reading.model_id, reading.label, MARK.read("Satellite reader"))],
         ["Scan", scan.replace(/^scan /, ""), { mono: true }],
-        ["Answer", recordedWords(reading.recorded_answer) || null],
       ]),
       el("details", { class: "dk-about", dataset: { k: `sat-pic-${vid}` } },
         el("summary", { dataset: { focus: `sat-pic-${vid}` } }, icon("i-chevron-right", "icon dk-about__chev"), el("span", { text: "Show the picture" })),

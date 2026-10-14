@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Final, Protocol
 from uuid import uuid4
 
+from tephra.agents.answers import Question, Reuse, prompt_version
 from tephra.agents.llm import LlmCall, LlmPart
 from tephra.agents.validators import first_problems
 from tephra.comms.messages import (
@@ -73,6 +74,7 @@ __all__ = [
     "acknowledge",
     "draft_handover",
     "get_handover",
+    "handover_question",
     "list_handovers",
     "narrative_problems",
     "summary_of",
@@ -464,13 +466,26 @@ def _stub_narrative(evidence: Sequence[Evidence]) -> Narrative:
     )
 
 
+def handover_question(facts_text: str) -> Question:
+    """A handover narrative is reused only for identical inputs: every fact the model is given
+    but the clock line (``as_of``), whose figures the checks then hold the narrative to."""
+    facts = {key: value for key, value in json.loads(facts_text).items() if key != "as_of"}
+    system = PROMPT_PATH.read_text(encoding="utf-8")
+    return Question("handover", {"prompt": prompt_version(system), "facts": facts})
+
+
 async def _narrate(
     runtime: HandoverRuntime, evidence: Sequence[Evidence], facts_text: str
 ) -> tuple[Narrative, LlmCall]:
-    """One lite call and at most one repair; ``AiUnavailable`` when it cannot be checked."""
+    """One lite call and at most one repair; ``AiUnavailable`` when it cannot be checked.
+    The same model's narrative for identical inputs is used when it passes the checks now."""
     system = PROMPT_PATH.read_text(encoding="utf-8")
     parts = [text_part(facts_text, "facts")]
     ids = {item.id for item in evidence}
+    answers = runtime.answers
+    reuse = Reuse(answers, handover_question(facts_text)) if answers is not None else None
+    if reuse is not None and (held := await _known_narrative(reuse, runtime, facts_text, ids)):
+        return held
 
     async def ask(extra: Sequence[LlmPart]) -> tuple[Narrative | None, LlmCall]:
         return await runtime.llm.structured(
@@ -510,7 +525,31 @@ async def _narrate(
             else f"NARRATIVE FAILED CHECKS AFTER REPAIR: {'; '.join(first_problems(problems, 3))}"
         )
         raise AiUnavailable(reason)
+    if reuse is not None:
+        await reuse.keep(
+            call.model_id,
+            answer.model_dump(mode="json"),
+            prompt_hash=first.prompt_hash,
+            answered_at=timeutil.now(),
+        )
     return answer, first
+
+
+async def _known_narrative(
+    reuse: Reuse, runtime: HandoverRuntime, facts_text: str, ids: set[str]
+) -> tuple[Narrative, LlmCall] | None:
+    answer = await reuse.recall(runtime.llm.model_id("lite"))
+    if answer is None:
+        return None
+    narrative = Narrative.model_validate(answer.payload)
+    problems = narrative_problems(narrative, facts_text=facts_text, evidence_ids=ids)
+    if problems:
+        reuse.rejected(problems)
+        return None
+    call = LlmCall(
+        backend=runtime.llm.name, model_id=answer.model_id, prompt_hash=answer.prompt_hash
+    )
+    return narrative, call
 
 
 # --- drafting ----------------------------------------------------------------------------

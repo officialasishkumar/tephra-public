@@ -135,7 +135,6 @@ def _closed_day() -> dict[str, Any]:
         "turns": 1,
         "validation_errors": ["budget_exhausted"],
         "undispatched": ["DI-a"],
-        "recorded_answer": None,
     }
     waiting = [
         _work("DI-p", "PLAN", "Plan RFA5275 (Anak Krakatau): enters the area in 19 min"),
@@ -230,7 +229,6 @@ def _stub_run() -> dict[str, Any]:
         "turns": 0,
         "validation_errors": [],
         "undispatched": [],
-        "recorded_answer": None,
     }
     trace = [_trace(n, "DRAFTER", "DRAFT MONITOR (NO MODEL)") for n in range(3)]
     trace.append(_trace(9, "PLANNER", "NO MODEL: MONITOR"))
@@ -414,7 +412,7 @@ def test_you_decide_takes_the_walls_count_of_flights_to_plan_by_hand(tmp_path: P
 
 XPARTS_RUNNER = """
 import {
-  aiStateOf, aiWords, aiLead, draftBlock, blockPhrase, plainLine, recordedWords, jobsWords,
+  aiStateOf, aiWords, aiLead, draftBlock, blockPhrase, plainLine, jobsWords,
   pacingWords, aiSymbol, replayWords, stripLabel, planFailure, failureEach, causeTitle,
 } from "./wall/x-parts.js";
 const at = Date.parse("2026-10-13T06:00:00Z");
@@ -495,7 +493,6 @@ process.stdout.write(JSON.stringify({
   coordinator: chip([e("DUTY", dutyRaw)]),
   dutyLine: plainLine(dutyRaw),
   oddLine: plainLine("Duty Officer AI UNAVAILABLE (SOMETHING NEW) · nothing"),
-  recorded: recordedWords("AI answer recorded on this replay's first pass at 0912Z real time"),
   jobs: jobsWords("Every other AI step"),
   pacing: pacingWords("Routine work is paced: 3 used; waiting for AI budget, next slot 0700Z."),
   symbols: ["on", "paused", "trouble", "off"].map(aiSymbol),
@@ -658,16 +655,12 @@ def test_the_off_chip_still_discloses_ai(tmp_path: Path) -> None:
 
 def test_server_words_are_shown_in_assistant_words(tmp_path: Path) -> None:
     """Naming review: a Coordinator outage line gets a real pattern (never a half-renamed raw
-    rule-9 line); a line no pattern knows that carries "AI UNAVAILABLE" is shown verbatim; the
-    REPLAY label keeps "recorded ... first pass ... real time"."""
+    rule-9 line); a line no pattern knows that carries "AI UNAVAILABLE" is shown verbatim."""
     out = _xparts(tmp_path)
     assert out["dutyLine"] == (
         "Coordinator gave no result (timed out). 3 jobs that must be done went to the Desk"
     )
     assert out["oddLine"].startswith("Duty Officer AI UNAVAILABLE")
-    assert out["recorded"] == (
-        "TEPHRA Assistant's answer recorded on this replay's first pass at 0912Z real time"
-    )
     assert out["jobs"] == "Every other skill"
     assert out["pacing"] == "Routine work is paced: 3 used; the next slot is at 0700Z."
 

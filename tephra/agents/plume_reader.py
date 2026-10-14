@@ -16,6 +16,7 @@ from functools import cache
 from pathlib import Path
 from typing import Final, Literal
 
+from tephra.agents.answers import AiAnswer, Question, prompt_version
 from tephra.agents.llm import (
     BUDGET_EXHAUSTED,
     LlmBackend,
@@ -56,7 +57,9 @@ __all__ = [
     "PROMPT_PATH",
     "build_parts",
     "official_only",
+    "plume_question",
     "read_plume",
+    "reused_assessment",
     "stub_estimate",
     "validate_estimate",
 ]
@@ -267,6 +270,42 @@ async def _read_with_stub(
         "STUB",
         validation_errors=errors,
     )
+
+
+def plume_question(situation: Situation, *, max_age: timedelta) -> Question:
+    """What is material to a plume read: the official products by content (the situation's
+    ``input_hash``: the SIGMET, VONA and VAA texts and the split-window indicator) and the set of
+    discrepancies with their severities."""
+    discrepancies = sorted((item.id, item.severity.value) for item in situation.discrepancies)
+    return Question(
+        "plume_reader",
+        {
+            "prompt": prompt_version(_system_prompt()),
+            "volcano": situation.volcano.id,
+            "products": situation.input_hash,
+            "discrepancies": discrepancies,
+        },
+        max_age,
+    )
+
+
+def reused_assessment(
+    answer: AiAnswer, situation: Situation, *, trace: TraceSink | None = None
+) -> tuple[PlumeAssessment | None, list[str]]:
+    """The same model's earlier reading for the same products, checked again against the
+    situation now; its time is when it was read. ``(None, problems)`` when it no longer passes."""
+    held = PlumeAssessment.model_validate(answer.payload)
+    problems = [] if held.input_hash == situation.input_hash else ["THE PRODUCTS CHANGED"]
+    problems += validate_estimate(held.estimate, situation)
+    if problems:
+        return None, problems
+    read_at = answer.shown_at(timeutil.now())
+    _Reporter(trace, situation)(
+        "gemini",
+        f"Plume Reader {held.outcome.lower()} at {timeutil.hhmmz(read_at)}: "
+        f"{_estimate_line(held.estimate)}",
+    )
+    return held.model_copy(update={"created_at": read_at}), []
 
 
 def _problems(estimate: PlumeEstimate | None, call: LlmCall, situation: Situation) -> list[str]:

@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Final, Literal, Protocol
 from uuid import uuid4
 
+from tephra.agents.answers import AiAnswers, Question, Reuse, prompt_version
 from tephra.agents.llm import LlmBackend, LlmCall, LlmPart
 from tephra.agents.validators import first_problems
 from tephra.comms.models import (
@@ -87,6 +88,7 @@ __all__ = [
     "recovery_input",
     "reject",
     "template_problems",
+    "templates_question",
     "text_part",
 ]
 
@@ -164,6 +166,9 @@ class CommsRuntime(Protocol):
 
     @property
     def llm(self) -> LlmBackend: ...
+
+    @property
+    def answers(self) -> AiAnswers | None: ...
 
     @property
     def airports(self) -> AirportCatalogue: ...
@@ -623,11 +628,25 @@ def _repair_text(
     )
 
 
+def templates_question(spec: TemplateSpec) -> Question:
+    """What is material to a set of templates: everything the model is given, which is the
+    template spec (kind, status, jurisdiction, languages and placeholders), never a flight's
+    or an advisory's own values (code fills those in)."""
+    system = PROMPT_PATH.read_text(encoding="utf-8")
+    return Question("messages", {"prompt": prompt_version(system), "spec": _facts(spec)})
+
+
 async def request_templates(runtime: CommsRuntime, spec: TemplateSpec) -> Templates:
-    """One lite call (and at most one repair). Raises ``AiUnavailable``; never substitutes."""
+    """One lite call (and at most one repair). Raises ``AiUnavailable``; never substitutes.
+    The same model's templates for the same spec are used when they pass the checks now; new
+    ones that pass are kept."""
     system = PROMPT_PATH.read_text(encoding="utf-8")
     parts = [text_part(json.dumps(_facts(spec), ensure_ascii=False, indent=1), "facts")]
     known = _known_codes(runtime.airports)
+    answers = runtime.answers
+    reuse = Reuse(answers, templates_question(spec)) if answers is not None else None
+    if reuse is not None and (held := await _known_templates(reuse, runtime, spec, known)):
+        return held
 
     async def ask(extra: Sequence[LlmPart]) -> tuple[TemplateSet | None, LlmCall]:
         return await runtime.llm.structured(
@@ -647,11 +666,37 @@ async def request_templates(runtime: CommsRuntime, spec: TemplateSpec) -> Templa
         problems = _answer_problems(answer, call, spec, known)
     if answer is None or problems:
         raise AiUnavailable(_failure_reason(answer, call, problems))
+    if reuse is not None:
+        await reuse.keep(
+            call.model_id,
+            answer.model_dump(mode="json"),
+            prompt_hash=first_hash,
+            answered_at=timeutil.now(),
+        )
     return Templates(
         by_language={text.language: text.text.strip() for text in answer.texts},
         backend=runtime.llm.name,
         model_id=call.model_id,
         prompt_hash=first_hash,
+    )
+
+
+async def _known_templates(
+    reuse: Reuse, runtime: CommsRuntime, spec: TemplateSpec, known: frozenset[str]
+) -> Templates | None:
+    answer = await reuse.recall(runtime.llm.model_id("lite"))
+    if answer is None:
+        return None
+    held = TemplateSet.model_validate(answer.payload)
+    problems = template_problems(held, spec, known_codes=known)
+    if problems:
+        reuse.rejected(problems)
+        return None
+    return Templates(
+        by_language={text.language: text.text.strip() for text in held.texts},
+        backend=runtime.llm.name,
+        model_id=answer.model_id,
+        prompt_hash=answer.prompt_hash,
     )
 
 

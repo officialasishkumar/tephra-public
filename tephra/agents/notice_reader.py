@@ -23,6 +23,7 @@ from typing import Final, Literal
 
 from pydantic import Field, computed_field
 
+from tephra.agents.answers import AiAnswers, Question, Reuse, prompt_version
 from tephra.agents.llm import LlmBackend, LlmPart, prompt_hash
 from tephra.agents.plume_reader import AI_UNAVAILABLE
 from tephra.config import FEED_CLOCK_SLACK, NO_MODEL_LABEL
@@ -54,6 +55,7 @@ __all__ = [
     "jma_reading",
     "normalise_notice",
     "notice_id",
+    "notice_question",
     "parse_notice_time",
     "read_notice",
     "stub_extraction",
@@ -274,13 +276,23 @@ def jma_reading(vona: Vona, *, replay: bool) -> NoticeReading:
 
 
 async def read_notice(
-    text: str, llm: LlmBackend, catalogue: VolcanoCatalogue, *, replay: bool = False
+    text: str,
+    llm: LlmBackend,
+    catalogue: VolcanoCatalogue,
+    *,
+    replay: bool = False,
+    answers: AiAnswers | None = None,
 ) -> NoticeReading:
+    """With ``answers``, the same model's reading of the same text is used when it passes the
+    checks now (it keeps the time it was read), and a new one that passes them is kept."""
     source = normalise_notice(text)
     system = _system_prompt()
     parts = [LlmPart.of_text(_notice_part(source))]
     p_hash = prompt_hash(system, parts)
     at = timeutil.now()
+    reuse = Reuse(answers, notice_question(source)) if answers is not None else None
+    if reuse is not None and (known := await _known_reading(reuse, source, catalogue, llm, replay)):
+        return known
 
     def stub() -> NoticeExtraction:
         return stub_extraction(source, catalogue)
@@ -301,7 +313,36 @@ async def read_notice(
         )
         if second is not None:
             extraction, check = second, check_extraction(second, source, catalogue, at)
+    if reuse is not None and not check.problems:
+        await reuse.keep(
+            llm.model_id("lite"),
+            extraction.model_dump(mode="json"),
+            prompt_hash=p_hash,
+            answered_at=at,
+        )
     return base.finish(extraction, check)
+
+
+def notice_question(source: str) -> Question:
+    """What is material to a notice reading: its text (normalised), nothing else."""
+    return Question(
+        "notice_reader", {"prompt": prompt_version(_system_prompt()), "text": _sha(source)}
+    )
+
+
+async def _known_reading(
+    reuse: Reuse, source: str, catalogue: VolcanoCatalogue, llm: LlmBackend, replay: bool
+) -> NoticeReading | None:
+    answer = await reuse.recall(llm.model_id("lite"))
+    if answer is None:
+        return None
+    extraction = NoticeExtraction.model_validate(answer.payload)
+    check = check_extraction(extraction, source, catalogue, timeutil.now())
+    if check.problems:
+        reuse.rejected(check.problems)
+        return None
+    read_at = answer.shown_at(timeutil.now())
+    return _ReadBase(source, read_at, replay, llm, answer.prompt_hash).finish(extraction, check)
 
 
 def stub_extraction(text: str, catalogue: VolcanoCatalogue) -> NoticeExtraction:

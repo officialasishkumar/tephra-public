@@ -28,6 +28,7 @@ import {
   ago,
   ddhhmmz,
   deskName,
+  draftedAt,
   entryAt,
   entryState,
   fl,
@@ -44,7 +45,6 @@ import { anyStaleSource, coneFor, decidedLine, levelNow, modeChip, needsCarefulR
 import { app } from './state.js';
 import { routeMap } from './route.js';
 import { aiMark, codeChip, fromReplayChip } from './ui.js';
-import { recordedWords } from '../wall/x-parts.js';
 import { CREW_REASON_MIN, crewBox, crewKey, crewReasonNeeded } from './crew.js';
 
 const GHOST_TAP_MS = 450;
@@ -341,7 +341,6 @@ function writerLine(adv) {
   const stub = isStub(adv);
   const words = [];
   if (adv.edited_body != null) words.push(`edited by ${deskName(adv.decided_by) || 'a dispatcher'}`);
-  if (adv.recorded_answer && !stub) words.push(`${recordedWords(adv.recorded_answer)}`);
   return el('p', { class: 'writer-note' }, aiMark(undefined, stub ? null : adv.model_id), words.length ? el('span', { text: ` · ${words.join(' · ')}` }) : null);
 }
 
@@ -535,6 +534,16 @@ function draftedByValue(adv) {
   return out;
 }
 
+// When the text was written and where the flight stood: one line when both are of the same
+// minute, else each with its own time (the text is never shown as newer than it is).
+function draftedFacts(adv) {
+  const drafted = hhmmz(draftedAt(adv));
+  const facts = hhmmz(adv.created_at);
+  const entry = adv.inside_now ? "inside TEPHRA's area" : `${adv.minutes_to_entry} min to entry, if track and level are held`;
+  if (drafted === facts) return [fact('Drafted', adv.inside_now ? `at ${facts}, ${entry}` : `at ${facts} with ${entry}`)];
+  return [fact('Drafted', `at ${drafted}`), fact('Entry', `at ${facts}, ${entry}`)];
+}
+
 function recordPage(adv) {
   const hex = String(adv.hex || '').toUpperCase();
   const costNote = typeof adv.cost_note === 'string' ? adv.cost_note.trim() : '';
@@ -544,7 +553,7 @@ function recordPage(adv) {
     el('dl', { class: 'facts facts--record' },
       fact('Advisory', el('span', { class: 'mono', text: `${adv.id} · v${adv.version}` })),
       fact('Flight', `${adv.proxy_flight}, proxy for ADS-B ${adv.callsign || 'no callsign'} (hex ${hex})${adv.type_icao ? ` · ${adv.type_icao}` : ''}`),
-      fact('Drafted', adv.inside_now ? `at ${hhmmz(adv.created_at)}, inside TEPHRA's area` : `at ${hhmmz(adv.created_at)} with ${adv.minutes_to_entry} min to entry, if track and level are held`),
+      ...draftedFacts(adv),
       fact('Action code', actionText(adv)),
       adv.fuel_line ? fact('Fuel formula', [el('span', { class: 'mono', text: adv.fuel_line }), fine('Simple TEPHRA formula, not airline tables')]) : null,
       costNote && costNote !== String(adv.fuel_line || '').trim() ? fact('Cost note', costNote) : null,
@@ -815,7 +824,7 @@ const put = (node, ...kids) => append(node, kids);
 function confirmFacts(adv) {
   const st = entryState(adv, activeNow());
   const at = hhmmz(entryAt(adv));
-  const entry = st.kind === 'inside' ? `Inside the ash when drafted at ${hhmmz(adv.created_at)}`
+  const entry = st.kind === 'inside' ? `Inside the ash at ${hhmmz(adv.created_at)}`
     : st.kind === 'ahead' ? `Enters in ${st.minutes} min, est. ${at}`
       : `Entry ${st.minutes ? `was due ${st.minutes} min ago` : 'due now'}, est. ${at}`;
   return `${entry} · version ${adv.version}`;

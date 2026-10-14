@@ -17,7 +17,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Final, Literal, Protocol
 from uuid import uuid4
@@ -26,6 +26,7 @@ from pydantic import Field
 from shapely import affinity
 
 from tephra.agents.adk_runtime import ModelGuard
+from tephra.agents.answers import AiAnswer, AiAnswers, Question, Reuse, prompt_version
 from tephra.agents.llm import LlmBackend, LlmPart, prompt_hash
 from tephra.agents.schemas import gemini_schema, parse_json_model
 from tephra.agents.validators import CLOCK_PATTERNS
@@ -71,6 +72,7 @@ __all__ = [
     "AskToolkit",
     "Language",
     "answer_question",
+    "ask_question",
     "build_ask_agent",
     "store_ask",
     "validate_reply",
@@ -219,6 +221,8 @@ class AskRuntime(Protocol):
     def exposed(self) -> Mapping[str, ExposedFlight]: ...
     @property
     def duty(self) -> DutyRun | None: ...
+    @property
+    def answers(self) -> AiAnswers | None: ...
 
 
 class _ToolError(Exception):
@@ -1059,6 +1063,26 @@ async def answer_question(
             evidence=toolkit.evidence,
             tool_calls=toolkit.records,
         )
+    answers = runtime.answers
+    age = timedelta(minutes=runtime.settings.ai_answer_ask_min)
+    reuse = (
+        Reuse(answers, ask_question(runtime, question, flight_id, max_age=age))
+        if answers is not None
+        else None
+    )
+    known = await reuse.recall(model_id) if reuse is not None else None
+    if reuse is not None and known is not None:
+        held = await _known_answer(known, reuse, runtime, toolkit, question)
+        if held is not None:
+            _emit(trace, "adk", f"ANSWER {held.status.upper()}")
+            return AskAnswer(
+                **{**base, "model_id": known.model_id, "prompt_hash": known.prompt_hash},
+                **held.model_dump(),
+                id=_new_id(),
+                evidence=toolkit.evidence,
+                tool_calls=toolkit.records,
+            )
+        toolkit = AskToolkit(runtime, trace=trace)
     run = _AskRun()
     try:
         await _run_agent(runtime, llm, toolkit, run, question, flight_id)
@@ -1068,6 +1092,16 @@ async def answer_question(
         run.problems = [f"ASK AGENT ERROR: {type(exc).__name__}"]
     if run.reply is not None and not run.problems:
         _emit(trace, "adk", f"ANSWER {run.reply.status.upper()}")
+        if reuse is not None:
+            await reuse.keep(
+                model_id,
+                {
+                    "reply": run.reply.model_dump(mode="json"),
+                    "calls": [{"name": r.name, "args": r.args} for r in toolkit.records],
+                },
+                prompt_hash=phash,
+                answered_at=timeutil.now(),
+            )
         return AskAnswer(
             **base,
             **run.reply.model_dump(),
@@ -1081,6 +1115,51 @@ async def answer_question(
     return AskFailure(
         **base, id=_new_id(), reason=reason, evidence=toolkit.evidence, tool_calls=toolkit.records
     )
+
+
+def ask_question(
+    runtime: AskRuntime, question: str, flight_id: str | None, *, max_age: timedelta
+) -> Question:
+    """What is material to an answer: the question (case, spacing and closing punctuation
+    aside), the flight it is asked about, and the picture's version: each active volcano's
+    products and cone, and the set of exposed flights."""
+    normal = " ".join(question.lower().split()).rstrip("?!. ")
+    volcanoes = sorted(
+        [volcano_id, situation.input_hash, getattr(runtime.cones.get(volcano_id), "id", None)]
+        for volcano_id, situation in runtime.situations.items()
+    )
+    return Question(
+        "ask",
+        {
+            "prompt": prompt_version(_system_prompt()),
+            "question": normal,
+            "flight": flight_id,
+            "volcanoes": volcanoes,
+            "exposed": sorted(runtime.exposed),
+        },
+        max_age,
+    )
+
+
+async def _known_answer(
+    answer: AiAnswer, reuse: Reuse, runtime: AskRuntime, toolkit: AskToolkit, question: str
+) -> AskReply | None:
+    """The same model's answer to the same question in the same picture, checked again: the
+    tools it used are run again now and every figure it cites must be in their results."""
+    reply = AskReply.model_validate(answer.payload["reply"])
+    tools = {tool.__name__: tool for tool in toolkit.tools()}
+    for call in answer.payload.get("calls", []):
+        tool = tools.get(str(call.get("name")))
+        if tool is None:
+            reuse.rejected([f"UNKNOWN TOOL {call.get('name')}"])
+            return None
+        await tool(**dict(call.get("args") or {}))
+    icaos = runtime.airports.icaos()
+    problems = validate_reply(reply, toolkit.evidence, question=question, airport_icaos=icaos)
+    if problems:
+        reuse.rejected(problems)
+        return None
+    return reply
 
 
 async def store_ask(store: Store, result: AskAnswer | AskFailure, *, actor: str) -> None:

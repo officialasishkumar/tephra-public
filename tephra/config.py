@@ -244,6 +244,29 @@ class Settings(BaseSettings):
         gt=0,
         description="A Duty Officer run, with every delegation it makes (each plans flights)",
     )
+    ai_answer_keep_h: float = Field(
+        default=72.0,
+        gt=0,
+        description=(
+            "Wall-clock hours a model's answer stays in ai_answers for the same material "
+            "question (a LIVE answer no longer than its skill's own limit)"
+        ),
+    )
+    ai_answer_plan_min: int = Field(
+        default=60,
+        gt=0,
+        description="Minutes a plan (and its draft) answers the same material question",
+    )
+    ai_answer_duty_min: int = Field(
+        default=30,
+        gt=0,
+        description="Minutes a Duty Officer run's decisions answer the same work list",
+    )
+    ai_answer_ask_min: int = Field(
+        default=10,
+        gt=0,
+        description="Minutes an Ask TEPHRA answer answers the same question in the same picture",
+    )
 
     # Storage.
     store: Literal["sqlite", "firestore"] = "sqlite"

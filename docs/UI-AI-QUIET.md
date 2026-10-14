@@ -662,10 +662,8 @@ Two reviews of the naming build (coverage and honesty) found these, fixed here:
 - **No credit for a run no model made.** The Coordinator run's fact "Run by: TEPHRA Assistant"
   is "Started: by code, after new aircraft" (code starts every run; the Model fact says whether a
   model was called, with its id there, in the assistant's own home).
-- **Server words in the assistant's words, in the UI** (their API values are pinned):
-  "AI answer recorded on this replay's first pass at HHMMZ real time" reads "TEPHRA Assistant's
-  answer recorded ..." (`recordedWords`); a model's jobs "Every other AI step" read "Every other
-  skill" (`jobsWords`); the queue's "waiting for AI budget, next slot 0700Z" is not shown: the
+- **Server words in the assistant's words, in the UI** (their API values are pinned): a
+  model's jobs "Every other AI step" read "Every other skill" (`jobsWords`); the queue's "waiting for AI budget, next slot 0700Z" is not shown: the
   next slot is said from `next_slot_at`, as the time left in REPLAY (`workWords`, `pacingWords`).
 - **"Did not run" only where no model was called**, also for a flight with no draft
   (`draftBlock`). A Coordinator outage line has its own plain-words pattern ("Coordinator gave no

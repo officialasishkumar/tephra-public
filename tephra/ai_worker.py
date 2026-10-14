@@ -21,6 +21,12 @@ with the time of its next slot (the Wall and Desk say "waiting for AI budget, ne
 It is not offered to the Duty Officer, so waiting costs no model call; it is not dropped; and it
 is never handed to another model.
 
+Work whose model answers are all on hand (``tephra.agents.answers``: the same model's answers to
+the same material questions, the Duty Officer's for exactly that work too) costs no call, so it
+does not wait for a slot, even while the assistant is paused. Each answer is still checked again
+when the work runs; one that no longer passes asks its model under the routine pacing, which may
+refuse it (AI UNAVAILABLE).
+
 The worker runs only the scheduled work. Ask, voice, notices, messages, documents and a recovery
 run started from the Desk call the models directly, at the same time as the worker's jobs; every
 call, wherever it comes from, is counted against its model's budget before it is sent.
@@ -228,6 +234,12 @@ class AiWorker:
         await runtime.quota.load_all(runtime.llm.model_id(tier) for tier in ("main", "lite"))
         urgent = [item for item in fresh if item.mandatory]
         routine, waiting, later = self._admit([item for item in fresh if not item.mandatory])
+        answered = False
+        if not routine and waiting:
+            routine = await self._answered([item for item in fresh if item.id in waiting])
+            answered = bool(routine)
+            for item in routine:
+                del waiting[item.id]
         self._sync(fresh, [*urgent, *routine, *later], waiting)
         recovery = self._recovery_ready()
         await self._persist()
@@ -242,7 +254,9 @@ class AiWorker:
             await self._start_recovery(recovery)
             return True
         if routine:
-            await self._duty(routine, "routine", drafts, at, epoch, len(waiting), report)
+            await self._duty(
+                routine, "routine", drafts, at, epoch, len(waiting), report, admitted=not answered
+            )
             return True
         return False
 
@@ -289,6 +303,32 @@ class AiWorker:
             else:
                 later.append(item)
         return admitted, waiting, later
+
+    async def _answered(self, items: list[DutyItem]) -> list[DutyItem]:
+        """Routine items waiting for budget whose model answers are all on hand, the Duty
+        Officer's for this very work list too: run now, they cost no model call, even while the
+        assistant is paused. At most :data:`MAX_ROUTINE_ITEMS`, most urgent first, a plan only
+        with or after its volcano's plume read. Nothing when the Duty Officer would have to be
+        asked."""
+        runtime = self._runtime
+        chosen: list[DutyItem] = []
+        for item in sorted(items, key=lambda item: (item.urgency, item.label)):
+            if len(chosen) >= MAX_ROUTINE_ITEMS:
+                break
+            if (
+                item.kind is DutyItemKind.PLAN
+                and item.volcano_id in runtime.assess_due
+                and not any(
+                    done.kind is DutyItemKind.ASSESS and done.volcano_id == item.volcano_id
+                    for done in chosen
+                )
+            ):
+                continue
+            if await runtime.answered(item):
+                chosen.append(item)
+        if chosen and await runtime.coordinator_answered(chosen):
+            return chosen
+        return []
 
     def _wait(self, calls: Mapping[Tier, int]) -> _Wait | None:
         """None when ``calls`` routine calls fit every model now, else why not: the latest of
@@ -384,13 +424,17 @@ class AiWorker:
         epoch: int,
         waiting: int,
         report: TickReport,
+        *,
+        admitted: bool = True,
     ) -> None:
+        """``admitted=False`` (a routine run whose answers are on hand): a step whose answer no
+        longer passes the checks asks the model under routine pacing, which may refuse it."""
         runtime = self._runtime
         self._mark(items, "RUNNING")
         await self._persist()
         await runtime.publish_budget()
         try:
-            with use_lane(lane, admitted=lane == "routine"):
+            with use_lane(lane, admitted=lane == "routine" and admitted):
                 await dispatch_duty(
                     runtime,
                     items,

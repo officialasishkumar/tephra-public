@@ -72,7 +72,7 @@ async def draft_sra(runtime: DocsRuntime, region: str, *, actor: str = SYSTEM_AC
     evidence = await gather_evidence(runtime, region)
     facts = narrative_facts(evidence, runtime.policy)
     try:
-        narrative, call = await write_narrative(runtime.llm, facts)
+        narrative, call = await write_narrative(runtime.llm, facts, answers=runtime.answers)
     except AiUnavailable as exc:
         await audit.record(
             runtime.store,

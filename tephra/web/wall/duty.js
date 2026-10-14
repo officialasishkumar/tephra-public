@@ -8,7 +8,7 @@
 // in through el() (textContent).
 
 import { el, ms } from "./util.js";
-import { aiMark, plainLine, reasonClass, recordedWords } from "./x-parts.js";
+import { aiMark, plainLine, reasonClass } from "./x-parts.js";
 import { dkPill, dkChip, dkFacts, dkRow, dkList, dkNote, dkEmpty, dkTech, dkFromReplay, dkLink, collapseRuns, seconds, plural, dayTime } from "./dk.js";
 
 // What each Coordinator (duty officer) tool reaches. Tool names are fixed by the backend toolkit.
@@ -167,8 +167,6 @@ export function dutyDetail(run, loaded, until = null, modeReplay = false) {
       ["Jobs given", `${run.worklist.length}${mandatory ? ` (${mandatory} must do)` : ""}`],
       // code starts every run, whether or not a model is then called (no claim the assistant ran)
       ["Started", run.trigger === "adsb" ? "by code, after new aircraft" : "by code, after a scheduler tick"],
-      // a replay loop reuses this model's own run for the same question; the label says so
-      ["Answer", recordedWords(run.recorded_answer) || null],
     ]),
   ];
   if (outcome === "BUDGET") {

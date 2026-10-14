@@ -6,6 +6,7 @@ properties keep the protocol from demanding more than the drafts use.
 
 from typing import Any, Protocol
 
+from tephra.agents.answers import AiAnswers
 from tephra.agents.llm import LlmBackend
 from tephra.config import Settings
 from tephra.models import (
@@ -39,6 +40,9 @@ class DocsRuntime(Protocol):
 
     @property
     def llm(self) -> LlmBackend: ...
+
+    @property
+    def answers(self) -> AiAnswers | None: ...
 
     @property
     def policy(self) -> OperatorPolicy: ...

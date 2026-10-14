@@ -32,27 +32,24 @@ import shapely
 from pydantic import BaseModel, ValidationError
 from pydantic.main import IncEx
 
+from tephra.agents.answers import AiAnswers, AnswerScope, Question, Reuse
 from tephra.agents.budget import BudgetView, budget_view
-from tephra.agents.dispatch_drafter import (
-    RecordedDraft,
-    ai_failure,
-    draft_advisory,
-    drafter_prompt_hash,
-)
+from tephra.agents.dispatch_drafter import ai_failure, draft_advisory, drafter_question
+from tephra.agents.duty_officer import coordinator_question
 from tephra.agents.exposure_planner import (
     build_planner_context,
     plan_flight,
-    plan_from_record,
-    planner_prompt_hash,
+    planner_question,
 )
-from tephra.agents.llm import LlmBackend, LlmPart, Tier, get_llm
-from tephra.agents.plume_reader import read_plume
+from tephra.agents.llm import LlmBackend, LlmPart, get_llm
+from tephra.agents.plume_reader import plume_question, read_plume, reused_assessment
 from tephra.agents.quota import QuotaLedger
 from tephra.agents.satellite_reader import (
     SatelliteReading,
     is_current,
     plume_part,
     read_satellite,
+    recall_satellite,
     select_frames,
 )
 from tephra.ai_worker import AiWorker
@@ -124,7 +121,8 @@ from tephra.models import (
     CrewReport,
     CrewReportKind,
     CrewReportView,
-    DraftText,
+    DutyItem,
+    DutyItemKind,
     DutyRun,
     ExposedFlight,
     ExposureFeatureProps,
@@ -198,7 +196,6 @@ from tephra.recovery.models import Closure, Schedule
 from tephra.recovery.network import network_closures, run_lock
 from tephra.recovery.schedule import ScheduleError, load_schedule
 from tephra.regdocs.registry import withdraw_crew_messages
-from tephra.replay.answers import AnswerKind, RecordedAnswer, ReplayAnswers
 from tephra.replay.cases import (
     ReplaySource,
     case_path,
@@ -383,11 +380,13 @@ class Runtime:
     _replay_run_wall: datetime = field(init=False)
     """Wall-clock start of the replay run playing: a process start, a switch to REPLAY or a
     loop. Crew reports entered in an earlier run end with it and are not shown again."""
+    _answer_book: AiAnswers = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.ledger is None:
             self.ledger = QuotaLedger(self.settings, self.store)
         self.worker = AiWorker(self)
+        self._answer_book = AiAnswers(self.store, self.settings, scope=self._answer_scope)
         self.policy_summary = PolicySummary.of(self.policy)
         self.fixes = FixHistory(timedelta(minutes=self.settings.crew_fix_history_min))
         self._replay_run_wall = timeutil.SystemClock().now()
@@ -403,6 +402,20 @@ class Runtime:
         minutes out does not stand at 15 minutes)."""
         rules = self.policy.planner
         return rules.divert_within_min.value, rules.hold_within_min.value
+
+    @property
+    def answers(self) -> AiAnswers | None:
+        """The models' answers kept for the mode playing (``tephra.agents.answers``); None with
+        the offline stub, whose NO MODEL results are no model's answers."""
+        return None if self.llm.name == "stub" else self._answer_book
+
+    @property
+    def plan_answer_age(self) -> timedelta:
+        return timedelta(minutes=self.settings.ai_answer_plan_min)
+
+    @property
+    def duty_answer_age(self) -> timedelta:
+        return timedelta(minutes=self.settings.ai_answer_duty_min)
 
     @property
     def quota(self) -> QuotaLedger:
@@ -1170,31 +1183,58 @@ class Runtime:
     async def budget_view(self) -> BudgetView:
         return await budget_view(self.settings, self.llm, self.quota, self.worker.queue())
 
-    # --- replay answers (a loop reuses the first pass's answers) ---------------------------
+    # --- the models' kept answers (tephra.agents.answers) --------------------------------
 
-    def _answers(self) -> ReplayAnswers | None:
-        if self.mode is not RunMode.REPLAY or self.replay_case is None or self.llm.name == "stub":
-            return None
-        return ReplayAnswers(
-            self.store, case_id=self.replay_case.case_id, build=self.settings.build_sha
-        )
+    def _answer_scope(self) -> AnswerScope:
+        return AnswerScope(self.mode, self._replay_case_id())
 
-    async def recorded_answer(
-        self, kind: AnswerKind, subject: str, input_key: str, tier: Tier = "lite"
-    ) -> RecordedAnswer | None:
-        """The replay's first-pass answer to exactly this job and input, from the model the
-        tier runs now; None when LIVE, offline, or not recorded."""
-        answers = self._answers()
+    async def answered(self, item: DutyItem) -> bool:
+        """Whether every model answer a work item needs is on hand for the question it would
+        ask now, so it costs no model call (the AI worker's look ahead; the answers are still
+        checked again when the item runs). A recovery run or an SRA always asks."""
+        answers = self.answers
         if answers is None:
-            return None
-        return await answers.find(kind, subject, input_key, self.llm.model_id(tier))
+            return False
+        if item.kind is DutyItemKind.ASSESS:
+            situation = self.situations.get(item.subject)
+            if situation is None:
+                return False
+            question = plume_question(situation, max_age=REASK_UNCHANGED)
+            return await answers.peek(question, self.llm.model_id("main")) is not None
+        if item.kind is DutyItemKind.PLAN:
+            return await self._plan_answered(item.subject)
+        return False
 
-    async def keep_answer(
-        self, kind: AnswerKind, subject: str, input_key: str, model_id: str, payload: dict[str, Any]
-    ) -> None:
-        answers = self._answers()
-        if answers is not None:
-            await answers.keep(kind, subject, input_key, model_id, payload)
+    async def coordinator_answered(self, items: Sequence[DutyItem]) -> bool:
+        answers = self.answers
+        if answers is None:
+            return False
+        question = coordinator_question(items, max_age=self.duty_answer_age)
+        return await answers.peek(question, self.llm.model_id("lite")) is not None
+
+    async def _plan_answered(self, flight_id: str) -> bool:
+        answers = self.answers
+        flight = self.exposed.get(flight_id)
+        cone = self.cones.get(flight.volcano_id) if flight is not None else None
+        if answers is None or flight is None or cone is None:
+            return False
+        ctx = self._planner_context(flight, cone, timeutil.now())
+        if ctx is None:
+            return False
+        model = self.llm.model_id("lite")
+        plan = await answers.peek(self._planner_question(ctx), model)
+        if plan is None:
+            return False
+        held = PlannedAction.model_validate(plan.payload)
+        if held.decision is None:
+            return False
+        question = drafter_question(ctx, held, max_age=self.plan_answer_age)
+        return await answers.peek(question, model) is not None
+
+    def _planner_question(self, ctx: PlannerContext) -> Question:
+        return planner_question(
+            ctx, policy_version=self.policy.version, max_age=self.plan_answer_age
+        )
 
     async def publish_live(self) -> None:
         """The between-ticks update after an extra ADS-B poll: aircraft, exposures, state."""
@@ -1225,6 +1265,10 @@ class Runtime:
             await self._persist_live()
         except Exception:  # a checkpoint is a cache; losing one must not fail the tick
             logger.exception("checkpoint failed; the live picture stays in memory")
+        try:
+            await self._answer_book.sweep()
+        except Exception as exc:  # the next sweep tries again
+            logger.warning("removing expired AI answers failed: %s", exc)
 
     # --- helpers the registry and scheduler use ------------------------------------------
 
@@ -1818,7 +1862,7 @@ class Runtime:
             if self.epoch != epoch or situation is None or volcano_id not in self.assess_due:
                 return {"volcano_id": volcano_id, "error": "NO PLUME READ IS DUE"}
             del self.assess_due[volcano_id]
-        assessment = await self._read_or_reuse(situation, report)
+        assessment = await self._plume_read(situation, report)
         async with self.lock:
             current = self.situations.get(volcano_id)
             if self.epoch != epoch or current is None:
@@ -1905,51 +1949,57 @@ class Runtime:
         self.assessments[volcano.id] = assessment
         return assessment
 
-    async def _read_or_reuse(self, situation: Situation, report: TickReport) -> PlumeAssessment:
-        """A model read, or on a REPLAY loop the first pass's reading of the same input by the
-        same model (its satellite reading with it)."""
-        volcano = situation.volcano
-        recorded = await self.recorded_answer(
-            "assess", volcano.id, situation.input_hash, tier="main"
-        )
-        if recorded is not None:
-            first = PlumeAssessment.model_validate(recorded.payload["assessment"])
-            assessment = first.model_copy(
-                update={"created_at": timeutil.now(), "recorded_answer": recorded.label}
-            )
-            reading = recorded.payload.get("satellite")
-            if reading is not None:
-                held = SatelliteReading.model_validate(reading).model_copy(
-                    update={"recorded_answer": recorded.label}
+    async def _plume_read(self, situation: Situation, report: TickReport) -> PlumeAssessment:
+        """The Plume Reader's reading: the same model's reading of the same products when it
+        passes the checks now (with the satellite reading of the newest frames, when one is
+        on hand: no model is asked for it then), else a model read, kept when it passes."""
+        answers = self.answers
+        question = plume_question(situation, max_age=REASK_UNCHANGED)
+        model = self.llm.model_id("main")
+        answer = await answers.recall(question, model) if answers is not None else None
+        if answers is not None and answer is not None:
+            known, problems = reused_assessment(answer, situation, trace=self.sink)
+            if known is not None:
+                await self._known_satellite(situation, answers)
+                report.assessments_run += 1
+                await self.store.put(
+                    Collection.ASSESSMENTS, known.id, known.model_dump(mode="json")
                 )
-                self.satellite[volcano.id] = held
-                self.bus.publish(SseEvent.SATELLITE, held)
-            self.trace(
-                TraceStage.PLUME,
-                "gemini",
-                f"{volcano.name}: plume read {assessment.outcome} ({recorded.label})",
-                volcano_id=volcano.id,
-                detail={"assessment_id": assessment.id, "model_id": assessment.model_id},
-            )
-            report.assessments_run += 1
-            await self.store.put(
-                Collection.ASSESSMENTS, assessment.id, assessment.model_dump(mode="json")
-            )
-            return assessment
+                return known
+            answers.rejected(question, problems)
         assessment = await self._read(situation, report, call_model=True)
-        if assessment.outcome in ("ACCEPTED", "REPAIRED") and assessment.llm_backend == "gemini":
-            held = self.satellite.get(volcano.id)
-            await self.keep_answer(
-                "assess",
-                volcano.id,
-                situation.input_hash,
+        if answers is not None and assessment.outcome in ("ACCEPTED", "REPAIRED"):
+            await answers.keep(
+                question,
                 assessment.model_id,
-                {
-                    "assessment": assessment.model_dump(mode="json"),
-                    "satellite": held.model_dump(mode="json") if held is not None else None,
-                },
+                assessment.model_dump(mode="json"),
+                prompt_hash=assessment.prompt_hash,
+                answered_at=assessment.created_at,
             )
         return assessment
+
+    async def _known_satellite(self, situation: Situation, answers: AiAnswers) -> None:
+        """The satellite reading of the newest frames, when the same model's is on hand."""
+        volcano = situation.volcano
+        probe = [(frame, b"") for frame in self.live.frames.get(volcano.id, [])]
+        if is_current(self.satellite.get(volcano.id), volcano, probe):
+            return
+        reading = await recall_satellite(
+            volcano,
+            probe,
+            situation.official_layers,
+            self.llm,
+            answers,
+            replay=self.mode is RunMode.REPLAY,
+            trace=self.sink,
+        )
+        if reading is not None:
+            await self._hold_satellite(reading)
+
+    async def _hold_satellite(self, reading: SatelliteReading) -> None:
+        self.satellite[reading.volcano_id] = reading
+        await self.store.put(Collection.SAT_READINGS, reading.id, reading.model_dump(mode="json"))
+        self.bus.publish(SseEvent.SATELLITE, reading)
 
     async def _read(
         self,
@@ -2014,11 +2064,10 @@ class Runtime:
                 self.llm,
                 replay=self.mode is RunMode.REPLAY,
                 trace=self.sink,
+                answers=self.answers,
             )
             report.satellite_reads += 1
-            self.satellite[volcano.id] = held
-            await self.store.put(Collection.SAT_READINGS, held.id, held.model_dump(mode="json"))
-            self.bus.publish(SseEvent.SATELLITE, held)
+            await self._hold_satellite(held)
             if held.status == "ai_unavailable":
                 await audit.record(
                     self.store,
@@ -2181,23 +2230,19 @@ class Runtime:
         whether it was committed (False: the picture moved on while the models worked)."""
         situation = self.situations[flight.volcano_id]
         assessment = self.assessments[flight.volcano_id]
-        ctx = build_planner_context(
-            flight,
-            cone,
-            volcano_name=situation.volcano.name,
-            airports=self.airports,
-            tafs=self.live.tafs,
-            at=at,
-            policy=self.policy,
-            routes=self.routes,
-            situation=situation,
+        ctx = self._planner_context(flight, cone, at)
+        if ctx is None:
+            raise KeyError(f"no situation for {flight.volcano_id}")
+        answers = self.answers
+        plan = await plan_flight(
+            ctx,
+            self.llm,
+            settings=self.settings,
+            trace=self.sink,
+            reuse=Reuse(answers, self._planner_question(ctx)) if answers is not None else None,
         )
-        subject = f"{flight.id}/{urgency}"
-        plan = await self._plan_or_reuse(ctx, subject)
         advisory: Advisory | AiFailure | None = None
-        recorded_draft: RecordedDraft | None = None
         if plan.decision is not None:
-            recorded_draft = await self._recorded_draft(ctx, plan, subject)
             advisory = await draft_advisory(
                 situation=situation,
                 assessment=assessment,
@@ -2210,7 +2255,11 @@ class Runtime:
                 trace=self.sink,
                 feed_health=self.live.health,
                 replay_case=self.replay_case if self.mode is RunMode.REPLAY else None,
-                recorded=recorded_draft,
+                reuse=(
+                    Reuse(answers, drafter_question(ctx, plan, max_age=self.plan_answer_age))
+                    if answers is not None
+                    else None
+                ),
             )
         async with self.lock:
             stale = self._planned_too_late(flight, cone, epoch)
@@ -2226,7 +2275,6 @@ class Runtime:
                 return {"error": stale.upper()}, False
             await self._store_reroutes(flight, ctx.reroutes)
             await self.store.put(Collection.PLANS, plan.id, plan.model_dump(mode="json"))
-            await self._keep_plan_answers(ctx, plan, advisory, recorded_draft, subject)
             return await self._commit_draft(
                 ctx, flight, plan, advisory, urgency, report, outdated
             ), True
@@ -2243,64 +2291,23 @@ class Runtime:
             return "the area changed while the flight was planned; it is planned again for it"
         return None
 
-    async def _plan_or_reuse(self, ctx: PlannerContext, subject: str) -> PlannedAction:
-        """On a REPLAY loop, the first pass's plan for exactly this question (the planner's
-        prompt hash: its instructions and the flight's context now), else the model."""
-        recorded = await self.recorded_answer("plan", subject, planner_prompt_hash(ctx))
-        if recorded is not None:
-            first = PlannedAction.model_validate(recorded.payload)
-            reused = plan_from_record(ctx, first, label=recorded.label, trace=self.sink)
-            if reused is not None:
-                return reused
-        return await plan_flight(ctx, self.llm, settings=self.settings, trace=self.sink)
-
-    async def _recorded_draft(
-        self, ctx: PlannerContext, plan: PlannedAction, subject: str
-    ) -> RecordedDraft | None:
-        """The first pass's draft for exactly this question (the drafter's prompt hash: its
-        instructions and the facts of this flight and plan), if recorded."""
-        question = drafter_prompt_hash(ctx, plan)
-        recorded = await self.recorded_answer("draft", subject, question)
-        if recorded is None:
+    def _planner_context(
+        self, flight: ExposedFlight, cone: HazardCone, at: datetime
+    ) -> PlannerContext | None:
+        situation = self.situations.get(flight.volcano_id)
+        if situation is None:
             return None
-        payload = recorded.payload
-        return RecordedDraft(
-            draft=DraftText.model_validate(payload["draft"]),
-            model_id=str(payload["model_id"]),
-            prompt_hash=str(payload["prompt_hash"]),
-            question_hash=question,
-            label=recorded.label,
+        return build_planner_context(
+            flight,
+            cone,
+            volcano_name=situation.volcano.name,
+            airports=self.airports,
+            tafs=self.live.tafs,
+            at=at,
+            policy=self.policy,
+            routes=self.routes,
+            situation=situation,
         )
-
-    async def _keep_plan_answers(
-        self,
-        ctx: PlannerContext,
-        plan: PlannedAction,
-        advisory: Advisory | AiFailure | None,
-        recorded_draft: RecordedDraft | None,
-        subject: str,
-    ) -> None:
-        """On a REPLAY's first pass, record the planner's and the drafter's answers that passed
-        the checks, for the loops that follow, each keyed by the question it answered."""
-        fresh_plan = plan.recorded_answer is None and plan.outcome in ("ACCEPTED", "REPAIRED")
-        if fresh_plan and plan.llm_backend == "gemini":
-            await self.keep_answer(
-                "plan", subject, plan.prompt_hash, plan.model_id, plan.model_dump(mode="json")
-            )
-        drafted = isinstance(advisory, Advisory) and advisory.llm_backend == "gemini"
-        if recorded_draft is None and isinstance(advisory, Advisory) and drafted:
-            draft = DraftText(body=advisory.body, cost_note=advisory.cost_note)
-            await self.keep_answer(
-                "draft",
-                subject,
-                drafter_prompt_hash(ctx, plan),
-                advisory.model_id,
-                {
-                    "draft": draft.model_dump(mode="json"),
-                    "model_id": advisory.model_id,
-                    "prompt_hash": advisory.prompt_hashes.get("drafter", ""),
-                },
-            )
 
     async def _commit_draft(
         self,

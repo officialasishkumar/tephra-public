@@ -831,8 +831,7 @@ header above the brand row, so it reads as a label and never sits next to the ta
 Kept, because each says something the strip does not: the clock's "Replay clock · 5 Sep · UTC"
 (which time you see); the time bar's replay icon with the time and "9% played" (the word "Replay"
 went); `document.title` "REPLAY - TEPHRA Wall"; reasons ("Not in this recording.", "Off: no PVMBG
-permission (replay only)", "No aircraft data in this recording."); recorded-answer facts ("TEPHRA
-Assistant's answer recorded on this replay's first pass at 0912Z real time"); Technical detail and
+permission (replay only)", "No aircraft data in this recording."); Technical detail and
 tooltips; Help, About and the glossary; and at data level documents, advisory and message headers
 written by code, audit and outbound records. A record whose mode differs from what plays (a
 replay record seen while live feeds play) keeps one tag, worded "From a replay" on both pages

@@ -9,7 +9,7 @@ import {
 } from "./util.js";
 import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
-import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, aiSymbol, recordedWords, replayWords, stripLabel, describeReplay, handPlanOf, causeTitle, blockPhrase, whyLink, machineText, MARK, ASSISTANT } from "./x-parts.js";
+import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, aiSymbol, replayWords, stripLabel, describeReplay, handPlanOf, causeTitle, blockPhrase, whyLink, machineText, MARK, ASSISTANT } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkEmpty, dkTech, dkSection, dkLink,
   dkWhen, dkDot, dkFromReplay, collapseRuns, runRow, timeRange, plural, dayTime, times,
@@ -765,8 +765,7 @@ export function areaSection(D, sit, ui) {
       cone.mode !== "OFFICIAL" ? { label: "Confidence", value: `${Math.round((cone.confidence ?? 0) * 100)}%`, sub: "in the widening" } : null,
     ], "Estimate in numbers"),
     outcome === "MODEL_FAILED" ? dkNote("caution", `Plume reader gave no result: ${machineText(a?.estimate?.uncertainty_notes || "no usable model output")}. TEPHRA shows the official area only, and nothing was put in its place.`, { role: "status" }) : null,
-    // A replay loop reuses the same model's reading of the same input; the label says so.
-    dkFacts([["Reading", el("span", {}, readBy)], ["Answer", recordedWords(a?.recorded_answer) || null]]),
+    dkFacts([["Reading", el("span", {}, readBy)]]),
     read,
     dkTech(`Mode ${cone.mode} · label ${cone.label} · ${cone.cone_id || ""}`));
 }
@@ -787,7 +786,7 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
     const status = {
       DRAFT: ["i-clock", "var(--c-text-2)"], APPROVED: ["i-approved", "var(--c-ok)"], EDITED: ["i-approved", "var(--c-ok)"], REJECTED: ["i-rejected", "var(--c-serious)"],
     }[a.status] || ["i-clock", "var(--c-text-2)"];
-    const when = a.status === "DRAFT" ? `drafted ${age((D.now - ms(a.created_at)) / 1000)} ago` : `${a.status === "REJECTED" ? "rejected" : "approved"} by ${deciderName(a)}${a.decided_at ? ` · ${hhmmz(ms(a.decided_at))}` : ""}${a.status === "EDITED" ? " · with edits" : ""}`;
+    const when = a.status === "DRAFT" ? `drafted ${age((D.now - ms(a.drafted_at || a.created_at)) / 1000)} ago` : `${a.status === "REJECTED" ? "rejected" : "approved"} by ${deciderName(a)}${a.decided_at ? ` · ${hhmmz(ms(a.decided_at))}` : ""}${a.status === "EDITED" ? " · with edits" : ""}`;
     const r = el("a", { class: `dk-row dk-row--link dk-dec${fresh ? " is-stamped" : ""}`, href: `/desk#review/${encodeURIComponent(a.id)}`, target: "_blank", rel: "noopener", dataset: { adv: a.id } },
       el("span", { class: "dk-row__head" },
         el("span", { class: "dk-row__dot" }, icon(status[0], "icon", status[1])),

@@ -9,13 +9,14 @@ no advisory: an ``AiFailure`` goes to the Desk and a dispatcher writes the messa
 
 import json
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Final, Literal, NamedTuple
 from uuid import uuid4
 
+from tephra.agents.answers import Question, Reuse, prompt_version
 from tephra.agents.exposure_planner import band_text, flight_summary, present_fl
-from tephra.agents.llm import LlmBackend, LlmCall, LlmPart, prompt_hash
+from tephra.agents.llm import LlmBackend, LlmCall, LlmPart
 from tephra.agents.validators import (
     ACTION_WORDS,
     COST_NOTE_MAX_CHARS,
@@ -86,10 +87,17 @@ def render_header(
     replay: bool = False,
     replay_case: ReplayCase | None = None,
     degraded_feeds: Sequence[FeedHealth] = (),
+    drafted_at: datetime | None = None,
 ) -> str:
     """Every line is code-written. A REPLAY header names its case right after the flight
-    line; a degraded official feed adds an information line and changes no action."""
+    line; a degraded official feed adds an information line and changes no action.
+    ``drafted_at`` is when the body was written; when that was in an earlier minute than ``at``
+    (the facts' time), the entry line says the time it is as of."""
     flight = ctx.flight
+    drafted = drafted_at or at
+    entry = "INSIDE NOW" if flight.inside_now else f"ENTRY {flight.minutes_to_entry} MIN"
+    if timeutil.hhmmz(drafted) != timeutil.hhmmz(at):
+        entry = f"{entry} AT {timeutil.hhmmz(at)}"
     cone_line = f"CONE {cone.mode.value} {round(cone.confidence * 100)}%"
     if cone.llm_backend == "stub":
         cone_line += " NO MODEL"
@@ -100,10 +108,10 @@ def render_header(
         f"VOLCANO {ctx.volcano_name}",
         f"ACTION {_action_text(plan.decision)}",
         *_vertical_lines(ctx, plan.decision),
-        "INSIDE NOW" if flight.inside_now else f"ENTRY {flight.minutes_to_entry} MIN",
+        entry,
         cone_line,
         *(_incomplete_line(health) for health in degraded_feeds),
-        f"DRAFTED {timeutil.hhmmz(at)}",
+        f"DRAFTED {timeutil.hhmmz(drafted)}",
     ]
     source_lines = [_source_line(source) for source in _binding_first(sources)]
     return "\n".join([*(_ascii_upper(line) for line in lines), *source_lines])
@@ -277,23 +285,26 @@ def _template_cost_note(plan: PlannedAction) -> str:
 # --- drafting ---------------------------------------------------------------------------
 
 
-class RecordedDraft(NamedTuple):
-    """The first pass's draft for the same question, on a REPLAY loop."""
-
-    draft: DraftText
-    model_id: str
-    prompt_hash: str
-    """The hash of the call that wrote it (a repair call's, when it was repaired)"""
-    question_hash: str
-    """:func:`drafter_prompt_hash` of the question it answered"""
-    label: str
-
-
-def drafter_prompt_hash(ctx: PlannerContext, plan: PlannedAction) -> str:
-    """The hash of the drafter's first question for this flight and plan: its instructions
-    and the facts it may use. A REPLAY loop reuses a recorded draft only for exactly this
-    question."""
-    return prompt_hash(PROMPT_PATH.read_text(encoding="utf-8"), _draft_parts(ctx, plan))
+def drafter_question(ctx: PlannerContext, plan: PlannedAction, *, max_age: timedelta) -> Question:
+    """What is material to a draft: the flight, its cone, and the action with its target (the
+    level band or hold level, the alternate, the reroute option)."""
+    decision = plan.decision
+    if decision is None:
+        raise ValueError(f"plan {plan.id} has no decision to draft")
+    return Question(
+        "drafter",
+        {
+            "prompt": prompt_version(PROMPT_PATH.read_text(encoding="utf-8")),
+            "flight": ctx.flight.id,
+            "cone": ctx.flight.cone_id,
+            "action": decision.action.value,
+            "level_band": [decision.change_level_fl_min, decision.change_level_fl_max],
+            "hold_fl": decision.hold_fl,
+            "alternate": decision.alternate_icao,
+            "reroute": decision.reroute_id,
+        },
+        max_age,
+    )
 
 
 def _draft_parts(ctx: PlannerContext, plan: PlannedAction) -> list[LlmPart]:
@@ -313,36 +324,24 @@ async def draft_advisory(
     trace: TraceSink | None = None,
     feed_health: Mapping[FeedId, FeedHealth] | None = None,
     replay_case: ReplayCase | None = None,
-    recorded: RecordedDraft | None = None,
+    reuse: Reuse | None = None,
 ) -> Advisory | AiFailure:
     """``policy`` is stamped on the advisory (id, version and short content hash) so every
     decision on it records the operator policy it was drafted under. ``feed_health`` adds an
     OFFICIAL PICTURE INCOMPLETE line for a degraded SIGMET or VAAC feed; ``replay_case``
-    names the case on a REPLAY draft. ``recorded`` (REPLAY only) is the first pass's draft
-    for the same question (:func:`drafter_prompt_hash`): used, labelled, when it passes the
-    checks now; otherwise the model is asked as usual."""
+    names the case on a REPLAY draft. ``reuse`` (``drafter_question``): the same model's body
+    for the same material question is used when it passes the checks against this flight and
+    plan now, keeping the time it was written; a new body that passes is kept."""
     if plan.decision is None:
         raise ValueError(f"plan {plan.id} has no decision to draft")
     if replay_case is not None and not _replay(situation):
         raise ValueError(f"replay case {replay_case.case_id} given for a LIVE situation")
     system = PROMPT_PATH.read_text(encoding="utf-8")
     parts = _draft_parts(ctx, plan)
-    reused = (
-        recorded
-        if recorded is not None
-        and recorded.question_hash == prompt_hash(system, parts)
-        and not _recorded_problems(recorded, ctx, plan, trace)
-        else None
-    )
-    if reused is not None:
-        draft: DraftText | None = reused.draft
-        call = LlmCall(
-            backend="gemini",
-            model_id=reused.model_id,
-            prompt_hash=reused.prompt_hash,
-            raw_text=reused.draft.model_dump_json(),
-            cached=True,
-        )
+    known = await _known_draft(reuse, llm, ctx, plan) if reuse is not None else None
+    if known is not None:
+        draft: DraftText | None = known.draft
+        call = known.call
         problems: list[str] = []
     else:
         draft, call = await _ask(llm, system, parts, ctx, plan)
@@ -364,7 +363,7 @@ async def draft_advisory(
         draft, call = await _ask(llm, system, [*parts, repair], ctx, plan)
         problems = _problems(draft, call, ctx, plan)
 
-    backend: LlmBackendName = "gemini" if reused is not None else llm.name
+    backend: LlmBackendName = llm.name
     model_id = call.model_id
     if draft is None or problems:
         reason = _failure_reason(draft, call, problems)
@@ -384,10 +383,15 @@ async def draft_advisory(
             replay=_replay(situation),
             plan_id=plan.id,
         )
-    line = _draft_line(plan, backend)
-    _emit(trace, ctx, _actor(backend), f"{line} ({reused.label})" if reused else line)
-
     created = timeutil.now()
+    drafted = known.drafted_at if known is not None else created
+    line = _draft_line(plan, backend)
+    _emit(trace, ctx, _actor(backend), f"{line} at {timeutil.hhmmz(drafted)}" if known else line)
+    if reuse is not None and known is None:
+        await reuse.keep(
+            model_id, draft.model_dump(mode="json"), prompt_hash=drafter_hash, answered_at=created
+        )
+
     sources = select_sources(situation, ctx.flight)
     official_feeds = (FeedId.SIGMET, _VAAC_FEEDS[situation.volcano.vaac])
     degraded = [
@@ -404,6 +408,7 @@ async def draft_advisory(
         replay=_replay(situation),
         replay_case=replay_case,
         degraded_feeds=degraded,
+        drafted_at=drafted,
     )
     return _advisory(
         situation=situation,
@@ -417,6 +422,7 @@ async def draft_advisory(
         header=header,
         replay_case=replay_case,
         created=created,
+        drafted=drafted,
         backend=backend,
         model_id=model_id,
         prompt_hashes={
@@ -424,37 +430,35 @@ async def draft_advisory(
             "planner": plan.prompt_hash,
             "drafter": drafter_hash,
         },
-        recorded_answer=_recorded_words(
-            plan.recorded_answer, reused.label if reused is not None else None
-        ),
     )
 
 
-def _recorded_words(plan_label: str | None, draft_label: str | None) -> str | None:
-    """Which part of the advisory a REPLAY loop reused from its first pass, if any."""
-    if plan_label is not None and draft_label is not None:
-        return f"Plan and draft: {draft_label}"
-    if plan_label is not None:
-        return f"Plan: {plan_label}; the draft was written by the model now"
-    if draft_label is not None:
-        return f"Draft: {draft_label}; the plan was made by the model now"
-    return None
+class _KnownDraft(NamedTuple):
+    draft: DraftText
+    call: LlmCall
+    drafted_at: datetime
 
 
-def _recorded_problems(
-    recorded: RecordedDraft, ctx: PlannerContext, plan: PlannedAction, trace: TraceSink | None
-) -> list[str]:
-    problems = validate_draft(recorded.draft, ctx=ctx, plan=plan)
+async def _known_draft(
+    reuse: Reuse, llm: LlmBackend, ctx: PlannerContext, plan: PlannedAction
+) -> _KnownDraft | None:
+    """The same model's body for the same material question, checked again against this
+    flight and plan now; None when there is none or it no longer passes."""
+    answer = await reuse.recall(llm.model_id("lite"))
+    if answer is None:
+        return None
+    draft = DraftText.model_validate(answer.payload)
+    problems = validate_draft(draft, ctx=ctx, plan=plan)
     if problems:
-        _emit(
-            trace,
-            ctx,
-            "code",
-            "Recorded draft from the replay's first pass no longer fits; asking the model",
-            level="warn",
-            detail={"problems": problems},
-        )
-    return problems
+        reuse.rejected(problems)
+        return None
+    call = LlmCall(
+        backend=llm.name,
+        model_id=answer.model_id,
+        prompt_hash=answer.prompt_hash,
+        raw_text=draft.model_dump_json(),
+    )
+    return _KnownDraft(draft, call, answer.shown_at(timeutil.now()))
 
 
 async def _ask(
@@ -536,10 +540,10 @@ def _advisory(
     header: str,
     replay_case: ReplayCase | None,
     created: datetime,
+    drafted: datetime,
     backend: LlmBackendName,
     model_id: str,
     prompt_hashes: dict[str, str],
-    recorded_answer: str | None,
 ) -> Advisory:
     flight = ctx.flight
     decision = plan.decision
@@ -585,8 +589,8 @@ def _advisory(
         llm_backend=backend,
         model_id=model_id,
         prompt_hashes=prompt_hashes,
-        recorded_answer=recorded_answer,
         validation_notes=[],
+        drafted_at=drafted,
         dedupe_key=stable_id(
             "DD",
             flight.hex,

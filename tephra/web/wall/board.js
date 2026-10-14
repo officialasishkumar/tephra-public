@@ -10,7 +10,7 @@
 // (docs/UI-AI-QUIET.md 8.6 "Say the cause once").
 
 import { ms } from "./util.js";
-import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiSymbol, causeShort, reasonClass, recordedWords, WHY, ASSISTANT } from "./x-parts.js";
+import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiSymbol, causeShort, reasonClass, WHY, ASSISTANT } from "./x-parts.js";
 import { collapseRuns, plural } from "./dk.js";
 
 // Every skill of TEPHRA Assistant on the Wall, in board order. `tool` is the Coordinator's tool that reaches it,
@@ -139,15 +139,14 @@ function plumeSteps(ctx) {
   for (const sit of ctx.situations) {
     const a = sit.assessment;
     if (!a || !PLUME_OUTCOME[a.outcome]) continue;
-    const g = by.get(a.outcome) || { names: [], at: -Infinity, recorded: null };
+    const g = by.get(a.outcome) || { names: [], at: -Infinity };
     g.names.push(sit.volcano_name);
     g.at = Math.max(g.at, ms(a.created_at));
-    g.recorded = g.recorded || a.recorded_answer || null;
     by.set(a.outcome, g);
   }
   return [...by].map(([outcome, g]) => {
     const [tone, words] = PLUME_OUTCOME[outcome];
-    return { tone, text: `${names(g.names)}: ${words}`, count: 1, at: g.at, source: SOURCE.estimate, recorded: g.recorded };
+    return { tone, text: `${names(g.names)}: ${words}`, count: 1, at: g.at, source: SOURCE.estimate };
   });
 }
 
@@ -172,7 +171,7 @@ function resultSteps(h, ctx) {
       // a quota refusal called no model: "did not run", never "gave no result" (Q4)
       const text = r.status === "ai_unavailable" ? `${name}: not read (Satellite reader ${reasonClass(r.reason) === "budget" ? "did not run" : "gave no result"}). Nothing was put in its place`
         : r.status === "no_frames" ? `${name}: no picture to read` : `${name}: ${ash}`;
-      out.push({ tone: r.status === "ai_unavailable" ? "failed" : r.status === "no_frames" ? "caution" : "ok", text, count: 1, at: ms(r.created_at || r.observed_at), source: SOURCE.reading, recorded: r.recorded_answer || null });
+      out.push({ tone: r.status === "ai_unavailable" ? "failed" : r.status === "no_frames" ? "caution" : "ok", text, count: 1, at: ms(r.created_at || r.observed_at), source: SOURCE.reading });
     }
   }
   if (h.id === "sra") {
@@ -183,7 +182,7 @@ function resultSteps(h, ctx) {
     const adv = (ctx.advisories || []).filter((a) => a.replay === ctx.replay).sort((a, b) => ms(b.created_at) - ms(a.created_at))[0];
     if (adv) {
       const text = h.id === "drafter" ? `Newest advisory: ${adv.proxy_flight}${adv.status === "DRAFT" ? ", waiting for a dispatcher" : ""}` : `Newest plan: ${adv.proxy_flight}, ${actionPlain(adv.action) || String(adv.action || "").toLowerCase().replace(/_/g, " ")}`;
-      out.push({ tone: "ok", text, count: 1, at: ms(adv.created_at), source: SOURCE.advisory, recorded: adv.recorded_answer || null });
+      out.push({ tone: "ok", text, count: 1, at: ms(adv.drafted_at || adv.created_at), source: SOURCE.advisory });
     }
   }
   return out;
@@ -200,10 +199,6 @@ export function modelLine(tier, ctx) {
   return { id: t.model_id, text: `Model: ${t.model_id}`, tone: null };
 }
 
-function recordedOf(steps) {
-  return steps.find((s) => s.recorded)?.recorded || null;
-}
-
 function stateOf({ working, waiting, queued, last }) {
   if (working) return "working";
   if (waiting) return "waiting";
@@ -217,7 +212,7 @@ function stateOf({ working, waiting, queued, last }) {
 // A step that just arrived shows its skill working only when it is work a skill did: never a
 // failure or a quota refusal (no model was called), and never the work list code writes before
 // any model is called ("Duty Officer: 3 item(s) to dispatch").
-const CODE_LINE = /^Duty Officer: (?:\d+ item\(s\) to dispatch|the same work as on the first pass)\b|AI UNAVAILABLE|left \d+ mandatory item\(s\) undone/;
+const CODE_LINE = /^Duty Officer: \d+ item\(s\) to dispatch\b|AI UNAVAILABLE|left \d+ mandatory item\(s\) undone/;
 export const isWorkLine = (t) => Boolean(t) && t.level !== "error" && !CODE_LINE.test(String(t.message || ""));
 
 function helperCard(h, ctx) {
@@ -240,7 +235,6 @@ function helperCard(h, ctx) {
     queued: queued.length,
     handoff: handoff(ctx.duty, h.tool),
     model: modelLine(h.tier, ctx),
-    recorded: recordedOf(past),
     steps: [...now, ...past].slice(0, STEPS_SHOWN),
     more: Math.max(0, now.length + past.length - STEPS_SHOWN),
   };
@@ -283,7 +277,7 @@ function dutyCard(ctx) {
     return {
       id: h.id, role: h.role, name: h.name, does: h.does, state: working ? "working" : "quiet", word: STATE_WORD[working ? "working" : "quiet"],
       last: { tone: "quiet", text: "No run yet. It runs when code finds assistant work due: a plume to read, a flight to plan, a network to re-plan.", at: NaN, source: SOURCE.run },
-      run: null, waiting: waiting.length ? { n: waiting.length } : null, model, recorded: null, steps: traceSteps(h, lines).slice(0, STEPS_SHOWN), more: 0, brief: null,
+      run: null, waiting: waiting.length ? { n: waiting.length } : null, model, steps: traceSteps(h, lines).slice(0, STEPS_SHOWN), more: 0, brief: null,
     };
   }
   const line = dutyLine(run);
@@ -294,7 +288,6 @@ function dutyCard(ctx) {
     { tone: "info", text: `Code gave it ${plural(run.worklist.length, "job")}${mandatory ? `, ${mandatory} of them must do` : ""}`, count: 1, at: ms(run.started_at), source: SOURCE.run },
     { tone: line.tone, text: line.text, count: 1, at, source: SOURCE.run },
     run.undispatched?.length ? { tone: "caution", text: `To the Desk, for a dispatcher: ${label(run.undispatched[0])}${run.undispatched.length > 1 ? ` and ${run.undispatched.length - 1} more` : ""}`, count: 1, at, source: SOURCE.run } : null,
-    run.recorded_answer ? { tone: "info", text: recordedWords(run.recorded_answer), count: 1, at, source: SOURCE.run } : null,
   ].filter(Boolean);
   const state = working ? "working" : line.tone === "failed" ? "failed" : line.tone === "caution" ? "notrun" : "done";
   const brief = run.brief && run.outcome !== "MODEL_FAILED" ? { text: run.brief.summary, model: run.outcome === "STUB" || run.llm_backend === "stub" ? null : run.model_id } : null;
@@ -306,7 +299,7 @@ function dutyCard(ctx) {
       undone: (run.undispatched || []).length, later: (run.deferred || []).length, turns: run.turns, at,
     },
     waiting: waiting.length ? { n: waiting.length } : null,
-    model, recorded: run.recorded_answer || null, brief,
+    model, brief,
     steps: runSteps.slice(0, STEPS_SHOWN), more: Math.max(0, runSteps.length - STEPS_SHOWN),
   };
 }

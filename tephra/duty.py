@@ -14,8 +14,9 @@ from collections import Counter
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Final, Literal
 
+from tephra.agents.answers import Reuse
 from tephra.agents.budget import BudgetView
-from tephra.agents.duty_officer import RecordedDuty, run_duty_officer
+from tephra.agents.duty_officer import coordinator_question, run_duty_officer
 from tephra.desk import audit
 from tephra.desk.approvals import SYSTEM_ACTOR
 from tephra.models import (
@@ -81,13 +82,12 @@ async def dispatch_duty(
     after the picture was reset (a mode switch or a replay loop) changes nothing."""
     executor = _RuntimeExecutor(runtime, at, report, drafts, epoch)
     budget = await runtime.budget_view()
-
-    async def recall(question: str) -> RecordedDuty | None:
-        recorded = await runtime.recorded_answer("duty", "duty", question)
-        if recorded is None:
-            return None
-        return RecordedDuty(DutyRun.model_validate(recorded.payload), recorded.label)
-
+    answers = runtime.answers
+    reuse = (
+        Reuse(answers, coordinator_question(worklist, max_age=runtime.duty_answer_age))
+        if answers is not None
+        else None
+    )
     duty = await run_duty_officer(
         worklist,
         executor,
@@ -97,7 +97,7 @@ async def dispatch_duty(
         trigger=trigger,
         replay=runtime.mode is RunMode.REPLAY,
         trace=runtime.sink,
-        recall=recall,
+        reuse=reuse,
     )
     if runtime.epoch != epoch:
         runtime.trace(
@@ -119,10 +119,6 @@ async def dispatch_duty(
     await runtime.store.put(Collection.DUTY, duty.id, duty.model_dump(mode="json"))
     runtime.bus.publish(SseEvent.DUTY, duty)
     report.duty_runs += 1
-    if duty.outcome in ("ACCEPTED", "REPAIRED") and duty.recorded_answer is None:
-        await runtime.keep_answer(
-            "duty", "duty", duty.prompt_hash, duty.model_id, duty.model_dump(mode="json")
-        )
     await runtime.publish_budget()
     return duty
 

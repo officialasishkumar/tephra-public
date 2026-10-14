@@ -23,6 +23,7 @@ from google.genai import types
 from pydantic import BaseModel
 
 from tephra.agents import ask, voice
+from tephra.agents.answers import AiAnswers
 from tephra.agents.ask import (
     AiUnavailable,
     AskAnswer,
@@ -384,6 +385,7 @@ class FakeRuntime:
     llm: Any
     live: LiveData = field(default_factory=make_live)
     mode: RunMode = RunMode.LIVE
+    answers: AiAnswers | None = None
     policy: Any = field(default_factory=lambda: POLICY)
     bus: EventBus = field(default_factory=EventBus)
     airports: AirportCatalogue = field(

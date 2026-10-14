@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
+from tephra.agents.answers import AiAnswers
 from tephra.agents.llm import LlmCall, LlmPart, prompt_hash
 from tephra.api.routes_regdocs import router
 from tephra.api.server import create_app
@@ -343,6 +344,7 @@ class FakeRuntime:
     cones: dict[str, HazardCone] = field(default_factory=dict)
     exposed: dict[str, ExposedFlight] = field(default_factory=dict)
     traces: list[tuple[TraceStage, str, str]] = field(default_factory=list)
+    answers: AiAnswers | None = None
 
     def aircraft(self) -> list[Any]:
         return []

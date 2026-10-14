@@ -16,6 +16,7 @@ A model failure, or an answer that fails the checks after one repair, is
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from functools import cache
 from pathlib import Path
 from typing import Annotated, Final, Literal
@@ -25,6 +26,7 @@ from pydantic import Field
 from shapely.geometry import Polygon, shape
 from shapely.geometry.base import BaseGeometry
 
+from tephra.agents.answers import AiAnswers, Question, Reuse, prompt_version
 from tephra.agents.llm import LlmBackend, LlmPart, prompt_hash
 from tephra.agents.plume_reader import AI_UNAVAILABLE
 from tephra.config import NO_MODEL_LABEL
@@ -55,6 +57,8 @@ __all__ = [
     "is_current",
     "plume_part",
     "read_satellite",
+    "recall_satellite",
+    "satellite_question",
     "select_frames",
     "validate_extraction",
 ]
@@ -135,10 +139,6 @@ class SatelliteReading(TephraModel):
     model_id: str | None = None
     prompt_hash: str | None = None
     label: str | None = Field(default=None, description="NO MODEL for the stub backend")
-    recorded_answer: str | None = Field(
-        default=None,
-        description="Set when a REPLAY loop reused this reading from the replay's first pass",
-    )
 
 
 # --- the call ---------------------------------------------------------------------------
@@ -165,6 +165,42 @@ def is_current(reading: SatelliteReading | None, volcano: Volcano, frames: Frame
     return reading is not None and reading.frame_ids == _frame_ids(chosen)
 
 
+def satellite_question(
+    volcano: Volcano, chosen: dict[FrameProduct, tuple[SatelliteFrame, bytes]]
+) -> Question:
+    """What is material to a reading: the volcano and the scans read (their source ids and
+    times)."""
+    frames = [
+        [chosen[product][0].provenance.source_id, timeutil.to_iso(chosen[product][0].observed_at)]
+        for product in READ_PRODUCTS
+        if product in chosen
+    ]
+    return Question(
+        "satellite_reader",
+        {"prompt": prompt_version(_system_prompt()), "volcano": volcano.id, "frames": frames},
+    )
+
+
+async def recall_satellite(
+    volcano: Volcano,
+    frames: Frames,
+    official_layers: Sequence[OfficialLayer],
+    llm: LlmBackend,
+    answers: AiAnswers,
+    *,
+    replay: bool = False,
+    trace: TraceSink | None = None,
+) -> SatelliteReading | None:
+    """The same model's earlier reading of these newest frames, checked again; None when there
+    is none (no model is asked here)."""
+    chosen = select_frames(volcano, frames)
+    if FrameProduct.DUST_RGB not in chosen:
+        return None
+    reuse = Reuse(answers, satellite_question(volcano, chosen))
+    maker = _Maker(volcano, chosen, _frame_ids(chosen), llm, replay)
+    return await _recalled(reuse, maker, official_layers, _Emitter(trace, volcano))
+
+
 async def read_satellite(
     volcano: Volcano,
     frames: Frames,
@@ -173,9 +209,12 @@ async def read_satellite(
     *,
     replay: bool = False,
     trace: TraceSink | None = None,
+    answers: AiAnswers | None = None,
 ) -> SatelliteReading:
     """One reading of the newest frames. The call is the caller's to gate: run it only when
-    the Plume Reader is about to be asked about this volcano and ``is_current`` is False."""
+    the Plume Reader is about to be asked about this volcano and ``is_current`` is False.
+    With ``answers``, the same model's earlier reading of the same scans is used when it
+    passes the checks, and a new reading that passes them is kept."""
     chosen = select_frames(volcano, frames)
     frame_ids = _frame_ids(chosen)
     reading = _Maker(volcano, chosen, frame_ids, llm, replay)
@@ -184,6 +223,9 @@ async def read_satellite(
     if FrameProduct.DUST_RGB not in chosen:
         emit("code", "Satellite Reader: no Dust RGB frame for this volcano, nothing read")
         return reading.made("no_frames", reason="no Dust RGB frame for this volcano")
+    reuse = Reuse(answers, satellite_question(volcano, chosen)) if answers is not None else None
+    if reuse is not None and (known := await _recalled(reuse, reading, official_layers, emit)):
+        return known
 
     system = _system_prompt()
     parts = _parts(volcano, chosen)
@@ -214,6 +256,44 @@ async def read_satellite(
     emit(
         actor,
         f"Satellite Reader: ash visible {result.ash_visible}, cloud {result.obscured_by_cloud}",
+    )
+    if reuse is not None:
+        await reuse.keep(
+            result.model_id or llm.model_id("lite"),
+            extraction.model_dump(mode="json"),
+            prompt_hash=p_hash,
+            answered_at=result.created_at,
+        )
+    return result
+
+
+async def _recalled(
+    reuse: Reuse,
+    maker: "_Maker",
+    official_layers: Sequence[OfficialLayer],
+    emit: "_Emitter",
+) -> SatelliteReading | None:
+    answer = await reuse.recall(maker.llm.model_id("lite"))
+    if answer is None:
+        return None
+    extraction = SatelliteExtraction.model_validate(answer.payload)
+    problems = validate_extraction(extraction)
+    if problems:
+        reuse.rejected(problems)
+        return None
+    read_at = answer.shown_at(timeutil.now())
+    dust = maker.chosen[FrameProduct.DUST_RGB][0]
+    result = maker.made(
+        "read",
+        extraction=extraction,
+        boxes=_place_boxes(extraction, maker.volcano, dust, official_layers),
+        prompt=answer.prompt_hash,
+        created=read_at,
+    )
+    emit(
+        "gemini",
+        f"Satellite Reader at {timeutil.hhmmz(read_at)}: ash visible {result.ash_visible}, "
+        f"cloud {result.obscured_by_cloud}",
     )
     return result
 
@@ -284,12 +364,13 @@ class _Maker:
         extraction: SatelliteExtraction | None = None,
         boxes: list[SatelliteBox] | None = None,
         prompt: str | None = None,
+        created: datetime | None = None,
     ) -> SatelliteReading:
         dust = self.chosen.get(FrameProduct.DUST_RGB)
         return SatelliteReading(
             id=stable_id("SAT", self.volcano.id, *self.frame_ids),
             volcano_id=self.volcano.id,
-            created_at=timeutil.now(),
+            created_at=created or timeutil.now(),
             replay=self.replay,
             status=status,
             reason=reason,

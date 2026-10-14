@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from test_api import DISPATCHER, FAILURE_ID, PIN, TASK_TOKEN, make_advisory, make_failure
 
+from tephra.agents.answers import AiAnswers
 from tephra.agents.llm import LlmCall, LlmPart, StubBackend, prompt_hash
 from tephra.api.auth import CSRF_HEADER
 from tephra.api.routes_comms import router
@@ -178,6 +179,7 @@ class FakeRuntime:
     mode: RunMode = RunMode.LIVE
     situations: dict[str, Situation] = field(default_factory=dict)
     traces: list[TraceEvent] = field(default_factory=list)
+    answers: AiAnswers | None = None
 
     def trace(
         self,
@@ -1240,6 +1242,7 @@ class Harness:
         @dataclass
         class Both(ApiRuntime):
             llm: Any = None
+            answers: AiAnswers | None = None
             airports: AirportCatalogue = AIRPORTS
             situations: dict[str, Situation] = field(default_factory=dict)
             traces: list[TraceEvent] = field(default_factory=list)

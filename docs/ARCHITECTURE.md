@@ -27,6 +27,10 @@ which are binding whatever the model does (a failed Plume Reader means "official
 only", labelled, not a guess). The reroute geometry, the recovery solver, the JMA XML parser
 and the backtest metrics are the primary design of those steps. `TEPHRA_LLM=stub` is the
 offline test mode: every model step then has a deterministic answer, labelled **NO MODEL**.
+A model's earlier answer is used again only when it is the same model's answer to materially the
+same question and passes the code's checks again against the input of the moment (section 4,
+"Model answers"); when it does not, the model is asked, and when the model cannot be asked the
+step reports `AI UNAVAILABLE`: the earlier answer is never shown in its place.
 
 ## 1. The system
 
@@ -323,8 +327,29 @@ flowchart TB
   the main model, 450 for Flash-Lite, 9 for speech), counted per model and Google quota day in
   the store, every attempt before it is sent; if the store cannot be read, no call goes. Routine
   work is paced through the day and waits, visibly, for its next slot; once started it finishes
-  within the daily cap. A REPLAY loop reuses the first pass's answers to exactly the same
-  questions. Past a budget a step reports `AI UNAVAILABLE` and nothing is substituted.
+  within the daily cap. A model is asked only when something material changed (below). Past a
+  budget a step reports `AI UNAVAILABLE` and nothing is substituted.
+- **Model answers: asked only when something material changed.** Each skill names what is
+  material to its question: the Plume reader the official products by content and the
+  discrepancy set (for at most 3 h, as the plume gate), the Satellite reader the volcano and the
+  scans, the Flight planner the cone (id and version), the allowed actions and policy version,
+  the urgency band (inside, within the divert or hold limit, later), the level in 2,000 ft steps
+  and the open alternates (1 h), the Drafter the flight, the action and its target and the cone
+  (as long as the plan), the Coordinator the work list's kinds, subjects and mandatory flags
+  without the digest's budget counts and times (30 min), the Notice reader the text, Messages the
+  template spec, Ask the question and the picture's version (10 min), the handover and the SRA
+  boxes only identical inputs. An answer that passed the code's checks is kept in `ai_answers`
+  (Firestore in production, SQLite locally) under the mode (LIVE, or REPLAY and its case), the
+  build, the model id, the skill and that material. When the same model would be asked the same
+  material question, the kept answer is checked again by the same validators against the input
+  of the moment and used only when it passes: no model call, no budget, and it works while the
+  assistant is paused (the AI worker runs such work without waiting for a slot). It keeps the
+  time the model gave it, never later than now: an advisory's "drafted" time is when its text
+  was written. Otherwise the model is asked under the usual budget and pacing, and AI
+  UNAVAILABLE stands as before. Server logs count hits and misses per skill (`ai_answer`); the
+  UI does not announce reuse. Answers expire after their skill's limit (LIVE) or 72 h, and an
+  hourly sweep deletes them. Offline, `scripts/count_model_calls.py` counts the asks one replay
+  window makes per skill with a counting stand-in for the model.
 - **Cost per advisory is not stated.** Once token totals are recorded on each plume
   assessment and planned action (a separate change), a replay can measure the tokens behind
   one advisory. Until that is measured, no cost figure is given.

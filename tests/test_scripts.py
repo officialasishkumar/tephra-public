@@ -13,6 +13,7 @@ import json
 import os
 import re
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -777,3 +778,28 @@ def test_smoke_without_retries_reports_the_429() -> None:
     line = _line(out, "healthz")
     assert line.startswith("FAIL healthz: 429")
     assert "not retried: no retries" in line
+
+
+async def test_count_model_calls_asks_nothing_again_on_a_second_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The offline counter of model asks (no model, no network): a second loop of the same
+    replay window asks no model again; every answer is the same model's, checked again."""
+    from tephra.agents import duty_officer, exposure_planner
+
+    for module in (exposure_planner, duty_officer):  # the script swaps in its stand-ins
+        monkeypatch.setattr(module, "_run_agent", module._run_agent)
+    script = _load_script("count_model_calls")
+    args = argparse.Namespace(
+        case="anak-krakatau-20260905",
+        start=datetime(2026, 9, 5, 12, 0, tzinfo=UTC),
+        minutes=6,
+        loops=2,
+        loop_offset_s=30,
+    )
+    result = await script.count(args)
+    first, second = result["loops"]
+    assert first["flight_planner"] > 0
+    assert first["drafter"] > 0
+    assert sum(second.values()) < sum(first.values()) / 4
+    assert result["answers"]["flight_planner hit"] > 0

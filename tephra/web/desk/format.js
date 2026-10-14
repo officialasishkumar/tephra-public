@@ -307,11 +307,15 @@ export function entryWords(adv, now) {
   return st.minutes ? `Entry was due ${st.minutes} min ago (est.)` : 'Entry is due now (est.)';
 }
 
-// The lead card's entry words (5.2): "entry due now", "enters in 23 min", "inside when drafted
-// 0957Z" (the draft knows the flight was inside when drafted, not when it entered).
+// When the advisory's text was written: the model's own time, never later than the draft's
+// facts (created_at, which advisories stored before drafted_at fall back to).
+export const draftedAt = (adv) => adv.drafted_at || adv.created_at;
+
+// The lead card's entry words (5.2): "entry due now", "enters in 23 min", "inside at 0957Z" (the
+// draft knows the flight was inside at the time of its facts, not when it entered).
 export function entryLead(adv, now) {
   const st = entryState(adv, now);
-  if (st.kind === 'inside') return `inside when drafted ${hhmmz(adv.created_at)}`;
+  if (st.kind === 'inside') return `inside at ${hhmmz(adv.created_at)}`;
   if (st.kind === 'ahead') return `enters in ${st.minutes} min`;
   return st.minutes ? `entry due ${st.minutes} min ago` : 'entry due now';
 }

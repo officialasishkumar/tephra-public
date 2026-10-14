@@ -28,12 +28,6 @@ export function aiMark(modelId, label, verb = MARK.written) {
 // Wall chip, the board's pill, the Desk chip and the Desk's idle line.
 export const aiSymbol = (kind) => (kind === "on" ? "ta-working" : kind === "paused" ? "ta-waiting" : "ta-unavailable");
 
-// Server words that still say "AI" (their API values are pinned), in the assistant's words for a
-// main view. The REPLAY label keeps its meaning: recorded, the first pass, real time.
-//   "AI answer recorded on this replay's first pass at 0912Z real time"
-//     -> "TEPHRA Assistant's answer recorded on this replay's first pass at 0912Z real time"
-//   "Every other AI step" (a model's jobs) -> "Every other skill"
-export const recordedWords = (text) => (text ? String(text).replace(/\bAI answer recorded\b/g, `${ASSISTANT}'s answer recorded`) : text);
 // The REPLAY label, said once in the frame strip of the Wall and the Desk (UI-DESIGN 7.1, "Say it
 // once, in the frame"): "Replay · recorded feeds from 05 Sep 2026" then " · not live"; the case
 // title, and whether the switch was automatic, go in its tooltip. The date is the recording's
@@ -79,6 +73,8 @@ export function describeReplay(dlg, words) {
 }
 // "waiting for AI budget, next slot 0700Z" (the API's slot words, inside a model's pacing sentence)
 export const pacingWords = (text) => String(text || "").replace(/waiting for AI budget, next slot (\d{4}Z)/g, "the next slot is at $1").replace(/waiting for AI budget/g, "waiting for the next slot");
+// Server words that still say "AI" (their API values are pinned), in the assistant's words for a
+// main view: "Every other AI step" (a model's jobs) -> "Every other skill"
 export const jobsWords = (text) => (text ? String(text).replace(/\b(e|E)very other AI step\b/g, (_, e) => `${e}very other skill`) : text);
 
 // ------------------------------------------------------------------ the AI state (UI-AI-QUIET 1.2)
@@ -560,7 +556,7 @@ export const ACTOR_WORDS = { code: "by code", gemini: `by ${ASSISTANT}`, adk: `b
 // Agent-framework ("adk") steps code writes before any model is called: the Coordinator's work
 // list. They say "by code (agent worklist)"; "by TEPHRA Assistant" is kept for steps a model took
 // (docs/UI-AI-QUIET.md D63).
-const ADK_CODE = [/^Duty Officer: \d+ item\(s\) to dispatch\b/, /^Duty Officer: the same work as on the first pass\b/];
+const ADK_CODE = [/^Duty Officer: \d+ item\(s\) to dispatch\b/];
 // With the assistant off (the stub backend) the agent framework still runs, but no model speaks:
 // an "adk" or "gemini" step is then code following the skill's script, so it says "code only
 // (assistant off)" (review 1, 6).
