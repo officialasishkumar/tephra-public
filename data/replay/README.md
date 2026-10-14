@@ -26,7 +26,8 @@ Not recorded yet: Taal 2026-10-08 12:00-20:00 (Tokyo VAAC with frames), which le
 - `backfill` rebuilds a window from archives, with every response stored under the URL the live poller requests, at the time it describes:
   - product legs: VA SIGMETs, Darwin VAAs and MAGMA VONA list pages;
   - context legs (`--context`): replay ticks over the window, through a source that logs every URL the pollers ask for, find the exact TAF, METAR, winds and ADS-B URLs (they depend on the active volcanoes, the region and the flights near the cone). Each URL is then filled across the whole window, and probing repeats until nothing is missing. ADS-B is probed every minute inside its spans.
-- `probe` runs replay ticks at chosen times and prints the picture: active volcanoes, discrepancies, cones, exposed flights, drafts, and any URL the case lacks.
+- `probe` runs replay ticks at chosen times and prints the picture: active volcanoes, discrepancies, cones, exposed flights, drafts, each situation's VONAs and its input hash, and any URL the case lacks.
+- `rebuild-vona --case <id> --write` rewrites a case's MAGMA VONA list pages from PVMBG's notices (below). A run without `--write` prints the plan.
 
 Pass `--cache-dir` to keep every archive answer (and the decoded heatmap positions) on disk, so a rebuild fetches nothing twice and still works after an archive drops the dates.
 
@@ -34,7 +35,7 @@ Pass `--cache-dir` to keep every archive answer (and the decoded heatmap positio
 
 Nothing from `ftp.bom.gov.au` goes into a case. BoM's anonymous FTP terms allow personal or in-organisation use and say "you may not supply that material to any other person". Darwin VAAs therefore come from the IEM NOAAPort archive, the public-domain relay of the same bulletins that NWS serves on tgftp. The recorder refuses any content carrying BoM's copyright footer.
 
-MAGMA is never fetched here, because its robots.txt disallows crawling (research/05). The VONA legs import the list pages the research census saved on 9 Oct 2026, and the poller reads them from their list cards. It asks for each notice's detail page too; those are not in any case, so it falls back to the cards.
+MAGMA is never fetched here, because its robots.txt disallows crawling (research/05). The VONA legs import the list pages the research census saved on 9 Oct 2026; `rebuild-vona` then rewrites each page so that it holds, per notice, only what the parser reads (the notice's MAGMA URL without its signed token, its title, its issue time, its colour word and its summary paragraph verbatim), with MAGMA's page chrome, staff names, tokens and beacons removed. The rebuilt pages are not MAGMA's pages, and each record says so (`reconstructed: true`). The poller reads the notices from their list cards; it asks for each notice's detail page too, and those are not in any case, so it falls back to the cards.
 
 ### What is real and what is reconstructed
 
@@ -43,7 +44,7 @@ MAGMA is never fetched here, because its robots.txt disallows crawling (research
 | VA SIGMETs, Semeru | real AWC JSON (`date=` snapshots saved hourly by the census) | aviationweather.gov, NWS, public domain |
 | VA SIGMETs, Krakatau | **rebuilt**: raw bulletins wrapped in the isigmet JSON fields the parser reads | IEM NOAAPort archive, public domain (bulletins by BMKG and BoM, relayed by NWS) |
 | Darwin VAAs | real bulletin text, stored under the tgftp slot of its heading | IEM NOAAPort archive, public domain (bulletins by Darwin VAAC) |
-| VONAs | real MAGMA list pages, read from their list cards | MAGMA Indonesia (PVMBG), via the census |
+| VONAs | **rebuilt**: each notice's summary paragraph as PVMBG wrote it, on a minimal list page the parser reads as the original (same `Vona`, byte-equal `raw_text`, same input hash) | PVMBG notices, via the census's MAGMA list pages; MAGMA's chrome removed |
 | TAF, METAR, Semeru | real AWC JSON (`date=` history, 30 days) | aviationweather.gov, NWS, public domain |
 | METAR, Krakatau | **rebuilt**: IEM ASOS text decoded into AWC's METAR JSON | IEM ASOS archive, public domain |
 | Winds | real Open-Meteo answers from its Historical Forecast API, under the live URL | Open-Meteo, CC BY 4.0 ("Weather data by Open-Meteo.com") |
@@ -51,6 +52,7 @@ MAGMA is never fetched here, because its robots.txt disallows crawling (research
 
 How each rebuilt leg is made:
 
+- **VONA list pages from PVMBG's notices.** `rebuild-vona` parses each saved MAGMA list page with the same parser the replay uses, and writes a page that carries per card `a.card-link[href]` (the notice's `/v1/vona/<id>` URL, unsigned), `.timeline-title` ("NAME - YYYYMMDD/HHMMZ"), `.timeline-time small` (the issue time), `a.btn` (the colour word) and `.timeline-text` (the summary paragraph verbatim after whitespace cleaning), and nothing else. The first line says what the page is. `parse_vona_list` reads the same cards from it and `parse_vona_card` the same `Vona`, with `raw_text` byte for byte the same, so `Situation.input_hash` does not change (`tests/test_record_replay.py`); each record's sha256 and path change, `url` and `fetched_at` stay. Checked with `probe --at 2026-09-05T10:30Z` before and after the rebuild: VONA #22575 (RED, ash not observed) and the same input hash for Anak Krakatau.
 - **isigmet JSON around raw bulletins.** AWC's JSON for early September no longer exists. Each WIIF, WAAF and YMMM VA SIGMET bulletin keeps its exact text in `rawSigmet`, and gets `icaoId`, `firId`, `firName`, `seriesId`, `hazard` (`VA`), `validTimeFrom`/`validTimeTo` (from its VALID group) and `receiptTime` (from its heading or the archive hour). Geometry, levels and movement stay in `rawSigmet` for the parser to read. A SIGMET with a forecast polygon also gets an `F` record, as AWC makes. A `CNL SIGMET` bulletin is listed as a record of its own and ends the SIGMET it cancels at its start, as AWC shortens `validTimeTo`. A list is stored at the window start and after each later arrival.
 - **Relayed twice.** NOAAPort carries many bulletins twice, wrapped differently and sometimes with `*` turned into `?`. Copies are merged by their content key (FIR, series, validity and correction for SIGMETs; heading, advisory number and DTG for VAAs). The copy kept has the fewest `?`, then the most text, and counts from the first copy's arrival.
 - **Darwin slots.** Each VAA is stored under `tgftp.nws.noaa.gov/data/raw/fv/fvauNN.adrm..txt` for its `FVAUNN ADRM` heading, at the later of its DTG and its arrival. Each slot also keeps its last bulletin before the window, so the replay never shows a slot's first bulletin of the window early. A slot never goes back to an older advisory: NOAAPort sometimes replays a backlog (on 23 Sep 10:00-15:00Z it re-sent Darwin's bulletins of 13-15 Sep), and a bulletin whose DTG is older than one its slot already received is skipped. A slot with a bulletin in the window but none in the streamed days before it gets an empty 204 record at the window start (read as unavailable).
@@ -90,6 +92,7 @@ uv run python scripts/record_replay.py backfill --case anak-krakatau-20260905 --
     --adsb-span 2026-09-05T10:00Z/2026-09-05T19:30Z \
     --adsb-span 2026-09-06T00:30Z/2026-09-06T01:30Z \
     --cache-dir /tmp/rr-cache
+uv run python scripts/record_replay.py rebuild-vona --case anak-krakatau-20260905 --write
 uv run python scripts/record_replay.py probe --case anak-krakatau-20260905 \
     --from 2026-09-05T06:00Z --at 2026-09-05T17:30Z --at 2026-09-06T01:00Z
 ```
@@ -117,6 +120,7 @@ uv run python scripts/record_replay.py backfill --case semeru-20260923 --force \
     --start 2026-09-23T12:00Z --end 2026-09-27T06:00Z --volcano 263300 \
     --census-dir research/data/census --sigmet-source census --with-vona \
     --noaaport-dir /tmp/np-semeru --context taf,metar,winds --cache-dir /tmp/rr-cache
+uv run python scripts/record_replay.py rebuild-vona --case semeru-20260923 --write
 ```
 
 ## `java-live-20261010`
@@ -124,3 +128,17 @@ uv run python scripts/record_replay.py backfill --case semeru-20260923 --force \
 Recorded live for 90 min from 05:59Z (13:00 WIB) on 10 Oct 2026 with `live --minutes 90`: every feed's real answers, including Darwin VAAs from tgftp and ADS-B from adsb.lol's API (ODbL 1.0). NICT true-colour frames were removed after recording because NICT's terms allow non-commercial use only; JMA frames (Public Data License 1.0) remain.
 
 The ADS-B answers still carry each aircraft's registration (`r`) and database flags, and include business jets, military, police and light aircraft. `scripts/scrub_adsb.py` removes them: it drops every target whose callsign is not an airline callsign by the app's own rule, or that is flagged military (`dbFlags & 1`), and deletes `r` and `dbFlags` from the targets it keeps (`t` stays, because the type drives fuel and exposure). It rewrites each changed file's sha256 in `manifest.json` and adds a line to the manifest notes. Its default is a dry run; a person runs it with `--write` and commits the result. The original files stay in git history, so publishing this case also needs the FEED-05 history filter (a user step).
+
+## Kept answers (`answers/`)
+
+A case may carry `answers/ai_answers.jsonl` and `answers/answers.json`: the answers the models gave to the case's material questions on an earlier run, kept because they passed the code's checks. A REPLAY run loads them on restore and checks each again before use; the UI shows them as what they are, the model's answer at the time it was given. `answers.json` names the window (`recorded_wall_from`, `recorded_wall_to`), the build, the model ids (`models.main`, `models.lite`, and `model_ids` as stored), the prompt versions the answers were given under, and the counts per skill.
+
+`scripts/prewarm_replay.py` writes both files: from a fill of its own store (only with the service's main budget paused for the day), or with `--export-from-store firestore` from the service's own store after it has filled. It never exports stub answers.
+
+| Case | Model ids | Recording dates |
+|---|---|---|
+| `anak-krakatau-20260905` | none exported yet (the service fills its store from 15 Oct 2026; the export is the owner's step O-7) | none yet |
+| `semeru-20260923` | none | none |
+| `java-live-20261010` | none | none |
+
+When an export lands, this table names the model ids and dates from its `answers.json`.

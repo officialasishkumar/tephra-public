@@ -27,9 +27,10 @@ from tephra.feeds.base import FetchResult
 from tephra.feeds.sigmet import SIGMET_PARAMS, SIGMET_URL, parse_sigmets
 from tephra.feeds.taf import parse_metars
 from tephra.feeds.vaac import DARWIN_BULLETIN_URLS, parse_vaa
+from tephra.feeds.vona import parse_vona_card, parse_vona_list
 from tephra.feeds.winds import parse_winds, wind_params
 from tephra.geo.units import initial_bearing_deg
-from tephra.models import AdsbQueryPoint, FeedId
+from tephra.models import AdsbQueryPoint, AviationColor, FeedId, ReplayCase, ReplayRecord
 from tephra.util.hashing import sha256_bytes
 
 
@@ -1054,3 +1055,250 @@ async def test_probe_finds_the_context_urls_a_case_lacks(tmp_path: Path) -> None
     assert "WIII" in metar
     assert "WILL" in metar
     assert all(feed in (FeedId.WINDS, FeedId.ADSB, FeedId.METAR) for feed in missing.values())
+
+
+# --- VONA list pages rebuilt from PVMBG's notices (rebuild-vona) --------------------------
+
+VONA_FETCHED_AT = datetime(2026, 10, 9, 19, 33, 48, tzinfo=UTC)
+VONA_PAGE_URL = "https://magma.esdm.go.id/v1/vona?page=3"
+
+# The shape of a MAGMA list page: chrome, a staff name, a token, a beacon script, a signed
+# notice link and two cards. The names and tokens here are made up.
+MAGMA_LIST_PAGE = b"".join(
+    line + b"\n"
+    for line in (
+        b"<!DOCTYPE html>",
+        b'<html lang="en"><head><meta charset="utf-8"><meta name="csrf-token" content="t0k3n">',
+        b"<title>VONA - MAGMA Indonesia</title>",
+        b'<script src="https://magma.esdm.go.id/js/beacon.js"></script></head>',
+        b'<body><nav><a href="https://magma.esdm.go.id/v1/vona?page=4" rel="next">&raquo;</a>',
+        b"</nav>",
+        b'<div class="timeline-group">',
+        b'<div class="timeline-item timeline-day"><div class="timeline-time">&nbsp;</div>',
+        b'<div class="timeline-body"><p class="timeline-date">5 September 2026</p></div></div>',
+        b'<div class="timeline-item">',
+        b'  <div class="timeline-time"><small>2026-09-05 02:00:00 UTC</small>',
+        b'    <a href="#" class="btn btn-sm btn-danger">Red</a></div>',
+        b'  <div class="timeline-body">',
+        b'    <p class="timeline-title"><a href="#">Anak Krakatau - 20260905/0200Z</a></p>',
+        b'    <p class="timeline-author"><a href="#">Observer Name, S.T.</a>, Anak Krakatau',
+        b"      Volcano Observatory - 5 weeks ago </p>",
+        b'    <p class="timeline-text">Eruption at 0200 UTC (0900 local). Ash-cloud is not',
+        b"      observed. Ash-cloud is not observed..</p>",
+        b'    <a class="card-link m-b-10" href="https://magma.esdm.go.id/v1/vona/22575'
+        b'?signature=abc123">View</a>',
+        b"  </div>",
+        b"</div>",
+        b'<div class="timeline-item">',
+        b'  <div class="timeline-time"><small>2026-09-05 06:37:00 UTC</small>',
+        b'    <a href="#" class="btn btn-sm btn-warning">Orange</a></div>',
+        b'  <div class="timeline-body">',
+        b'    <p class="timeline-title"><a href="#">Semeru - 20260905/0637Z</a></p>',
+        b'    <p class="timeline-author"><a href="#">Another Name</a>, Semeru Volcano',
+        b"      Observatory - 5 weeks ago </p>",
+        b'    <p class="timeline-text">Eruption with volcanic ash cloud at 0637 UTC (1337 local).',
+        b"      Best estimate of ash-cloud top is around 14357 FT (4376 M) above sea level or",
+        b"      1600 FT (500 M) above summit. May be higher than what can be observed clearly.",
+        b"      Source of height data: ground observer. Ash cloud moving from north to east",
+        b"      &amp; northeast. Volcanic ash is observed to be gray. The intensity of volcanic",
+        b"      ash is observed to be thick..</p>",
+        b'    <a class="card-link m-b-10" href="https://magma.esdm.go.id/v1/vona/22576'
+        b'?signature=def456">View</a>',
+        b"  </div>",
+        b"</div>",
+        b"</div>",
+        b"<footer>&copy; 2026 All Rights Reserved. MAGMA Indonesia</footer>",
+        b'<script>window.track("t0k3n")</script>',
+        b"</body></html>",
+    )
+)
+
+
+def _listing(content: bytes, url: str = VONA_PAGE_URL) -> FetchResult:
+    return FetchResult(
+        feed=FeedId.VONA,
+        url=url,
+        status_code=200,
+        content=content,
+        content_type="text/html",
+        fetched_at=VONA_FETCHED_AT,
+        sha256=sha256_bytes(content),
+        replay=True,
+    )
+
+
+def test_rebuilt_vona_page_reads_back_the_same_cards_and_vonas() -> None:
+    """Every ``Vona`` field the parser reads from the card, ``raw_text`` byte for byte, is the
+    same from the rebuilt page; only the notice link loses MAGMA's signature."""
+    listing = _listing(MAGMA_LIST_PAGE)
+    rebuilt = _listing(rr.rebuild_vona_page(listing))
+
+    before, after = parse_vona_list(listing), parse_vona_list(rebuilt)
+
+    assert len(before) == 2
+    assert [item.url for item in after] == [
+        "https://magma.esdm.go.id/v1/vona/22575",
+        "https://magma.esdm.go.id/v1/vona/22576",
+    ]
+    for old, new in zip(before, after, strict=True):
+        assert new.model_dump(exclude={"url"}) == old.model_dump(exclude={"url"})
+        vona_before = parse_vona_card(listing, old)
+        vona_after = parse_vona_card(rebuilt, new)
+        assert vona_after.raw_text == vona_before.raw_text
+        assert vona_after.raw_text.encode() == vona_before.raw_text.encode()
+        assert vona_after.model_dump(exclude={"provenance"}) == vona_before.model_dump(
+            exclude={"provenance"}
+        )
+        assert vona_after.provenance.source_id == vona_before.provenance.source_id
+        assert vona_after.provenance.url == vona_before.provenance.url
+        assert vona_after.provenance.fetched_at == vona_before.provenance.fetched_at
+    krakatau, semeru = parse_vona_card(rebuilt, after[0]), parse_vona_card(rebuilt, after[1])
+    assert (krakatau.magma_id, krakatau.color_code, krakatau.ash_observed) == (
+        22575,
+        AviationColor.RED,
+        False,
+    )
+    assert "Ash cloud moving from north to east & northeast" in semeru.raw_text
+    assert semeru.cloud_top_m == 4376
+
+
+def test_rebuilt_vona_page_carries_no_magma_chrome() -> None:
+    page = rr.rebuild_vona_page(_listing(MAGMA_LIST_PAGE))
+    text = page.decode()
+
+    assert text.splitlines()[0] == rr.VONA_REBUILT_HEADER
+    for chrome in (
+        "csrf-token",
+        "t0k3n",
+        "Observer Name",
+        "Another Name",
+        "timeline-author",
+        "<script",
+        "signature=",
+        "All Rights Reserved",
+        'rel="next"',
+    ):
+        assert chrome not in text
+    assert text.count('class="timeline-item"') == 2
+    assert "VONA list, page 3 (rebuilt)" in text
+
+
+def _vona_case(tmp_path: Path) -> tuple[Path, Path]:
+    data_dir = tmp_path / "data"
+    case_dir = data_dir / "replay" / "vona-rebuild"
+    (case_dir / "raw" / "vona").mkdir(parents=True)
+    (case_dir / "raw" / "sigmet").mkdir(parents=True)
+    page_path = case_dir / "raw" / "vona" / f"{sha256_bytes(MAGMA_LIST_PAGE)[:20]}.html"
+    page_path.write_bytes(MAGMA_LIST_PAGE)
+    sigmet = b"[]"
+    (case_dir / "raw" / "sigmet" / "aaaa.json").write_bytes(sigmet)
+    records = [
+        ReplayRecord(
+            feed=FeedId.VONA,
+            url=VONA_PAGE_URL,
+            fetched_at=VONA_FETCHED_AT,
+            sha256=sha256_bytes(MAGMA_LIST_PAGE),
+            path=f"raw/vona/{page_path.name}",
+            status_code=200,
+            content_type="text/html",
+        ),
+        ReplayRecord(
+            feed=FeedId.VONA,
+            url=VONA_PAGE_URL,
+            fetched_at=VONA_FETCHED_AT + timedelta(hours=1),
+            sha256=sha256_bytes(MAGMA_LIST_PAGE),
+            path=f"raw/vona/{page_path.name}",
+            status_code=200,
+            content_type="text/html",
+        ),
+        ReplayRecord(
+            feed=FeedId.SIGMET,
+            url=SIGMET_URL,
+            fetched_at=VONA_FETCHED_AT,
+            sha256=sha256_bytes(sigmet),
+            path="raw/sigmet/aaaa.json",
+            status_code=200,
+            content_type="application/json",
+        ),
+    ]
+    case = ReplayCase(
+        case_id="vona-rebuild",
+        label="rebuild test",
+        recorded_from=datetime(2026, 9, 5, tzinfo=UTC),
+        recorded_to=datetime(2026, 9, 6, tzinfo=UTC),
+        region="java_bali",
+        notes="Reconstructed from archives.",
+        records=records,
+    )
+    (case_dir / "manifest.json").write_text(case.model_dump_json(indent=2))
+    return data_dir, case_dir
+
+
+def test_rebuild_vona_command_rewrites_the_records_and_the_manifest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    data_dir, case_dir = _vona_case(tmp_path)
+    before = (case_dir / "manifest.json").read_bytes()
+    argv = ["rebuild-vona", "--case", "vona-rebuild", "--data-dir", str(data_dir)]
+
+    assert rr.main(argv) == 0  # a dry run
+    assert "dry run: 1 page(s) would be rebuilt" in capsys.readouterr().out
+    assert (case_dir / "manifest.json").read_bytes() == before
+    assert len(list((case_dir / "raw" / "vona").iterdir())) == 1
+
+    assert rr.main([*argv, "--write"]) == 0
+
+    manifest = json.loads((case_dir / "manifest.json").read_text())
+    vona_rows = [row for row in manifest["records"] if row["feed"] == "vona"]
+    sigmet_row = next(row for row in manifest["records"] if row["feed"] == "sigmet")
+    [page] = list((case_dir / "raw" / "vona").iterdir())
+    assert page.read_bytes().startswith(rr.VONA_REBUILT_HEADER.encode())
+    fetched = ("2026-10-09T19:33:48.000Z", "2026-10-09T20:33:48.000Z")
+    for row, fetched_at in zip(vona_rows, fetched, strict=True):
+        assert row["sha256"] == sha256_bytes(page.read_bytes())
+        assert row["path"] == f"raw/vona/{page.name}"
+        assert row["reconstructed"] is True
+        assert row["url"] == VONA_PAGE_URL
+        assert row["fetched_at"] == fetched_at
+    assert "reconstructed" not in sigmet_row
+    assert sigmet_row["sha256"] == sha256_bytes(b"[]")
+    assert manifest["notes"] == f"Reconstructed from archives. {rr.VONA_REBUILT_NOTE}"
+    case = ReplayCase.model_validate_json((case_dir / "manifest.json").read_bytes())
+    assert [record.reconstructed for record in case.records] == [True, True, False]
+
+    # A second run finds pages already rebuilt: nothing changes, the note is not repeated.
+    assert rr.main([*argv, "--write"]) == 0
+    assert json.loads((case_dir / "manifest.json").read_text()) == manifest
+    assert [page] == list((case_dir / "raw" / "vona").iterdir())
+
+
+def test_rebuild_vona_refuses_a_page_that_does_not_match_its_record(tmp_path: Path) -> None:
+    data_dir, case_dir = _vona_case(tmp_path)
+    [page] = list((case_dir / "raw" / "vona").iterdir())
+    page.write_bytes(MAGMA_LIST_PAGE + b"\n")
+
+    with pytest.raises(SystemExit, match="do not match the manifest sha256"):
+        rr.main(["rebuild-vona", "--case", "vona-rebuild", "--data-dir", str(data_dir), "--write"])
+
+
+@pytest.mark.parametrize("case_id", ["anak-krakatau-20260905", "semeru-20260923"])
+def test_the_repo_cases_serve_rebuilt_vona_pages(case_id: str) -> None:
+    """The committed cases hold rebuilt pages only: each VONA record is marked, its file
+    hashes to its record and starts with the rebuilt header, and no MAGMA chrome is left."""
+    case_dir = PROJECT_ROOT / "data" / "replay" / case_id
+    case = ReplayCase.model_validate_json((case_dir / "manifest.json").read_bytes())
+    vona_records = [record for record in case.records if record.feed is FeedId.VONA]
+
+    assert vona_records
+    for record in vona_records:
+        content = (case_dir / record.path).read_bytes()
+        assert record.reconstructed is True
+        assert sha256_bytes(content) == record.sha256
+        assert content.startswith(rr.VONA_REBUILT_HEADER.encode())
+        assert b"csrf-token" not in content
+        assert b"signature=" not in content
+        assert b"timeline-author" not in content
+        assert b"All Rights Reserved" not in content
+        assert parse_vona_list(_listing(content, record.url))
+    assert case.notes is not None
+    assert rr.VONA_REBUILT_NOTE in case.notes

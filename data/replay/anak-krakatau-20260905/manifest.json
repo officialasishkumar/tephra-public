@@ -7,7 +7,7 @@
   "volcano_ids": [
     "262000"
   ],
-  "notes": "Reconstructed from archives, not recorded live. VA SIGMETs (WIIF, WAAF, YMMM) from the IEM NOAAPort raw-text archive (public domain; bulletins issued by BMKG and BoM and relayed by NWS). AWC's JSON for these dates no longer exists, so the isigmet JSON is a reconstruction around the raw bulletins: each bulletin is wrapped in the fields the parser reads (rawSigmet, hazard, icaoId, firId, firName, seriesId, validTimeFrom/To from the VALID group, receiptTime from the heading or the archive hour), and geometry, levels and movement are left for the parser to read from rawSigmet. A SIGMET with a forecast polygon also gets an F record, as AWC makes. CNL SIGMET bulletins are listed as cancelled records and end the SIGMET they cancel at their start, as AWC shortens validTimeTo. A list is stored at the window start and at each later arrival; copies relayed twice with different line wrapping are merged. Darwin VAA bulletins (FVAU01-10 ADRM) from the IEM NOAAPort archive, the public-domain relay whose files NWS serves on tgftp: each is stored under the tgftp slot of its heading at the later of its DTG and its arrival, with every slot's last bulletin before the window, and copies relayed twice are merged. Nothing comes from BoM's FTP server. IEM's NOAAPort archive holds no bulletin between 18:00Z on 5 Sep 2026 and 20:00Z on 5 Sep 2026; SIGMETs and VAAs issued then are missing from this case. Darwin advisories missing from the archive: DUKONO 268010 2026/715; KRAKATAU 262000 2026/180. MAGMA VONA list pages as the research census fetched them on 9 Oct 2026; the poller reads only notices issued before the replay clock, from their list cards. METARs from the IEM ASOS archive (public domain), converted to AWC's METAR JSON by TEPHRA, a reconstruction: icaoId, obsTime, reportTime, rawOb (IEM's text, without AWC's METAR/SPECI prefix), visib (statute miles as AWC renders them), wxString, clouds, vertVis and fltCat are decoded from the text. Every 30 min each response holds the latest METAR per station, under the station lists the pollers request. Pressure-level winds from the Open-Meteo Historical Forecast API (CC BY 4.0, Weather data by Open-Meteo.com), hourly, under the live winds URLs: each response is the archive's answer for the same fields from one hour before to 23 hours after its time (start_hour/end_hour in place of past_hours/forecast_hours). These are short-range model runs stitched together, not the forecast that was current then. ADS-B for 2026-09-05T10:00Z to 2026-09-05T19:30Z, 2026-09-06T00:30Z to 2026-09-06T01:30Z reconstructed from adsb.lol's globe_history heatmaps (ODbL 1.0, Aircraft: adsb.lol), not fetched from its API: every 60 s, one /v2/point response per query point the replay requests, holding each aircraft whose latest heatmap position in the last 60 s lies inside the radius. hex, flight, lat, lon, alt_baro (25 ft steps; the heatmap falls back to geometric altitude when baro is missing) and gs come from the heatmap; track is derived from successive positions and seen_pos/seen from the position's age; type, registration and selected altitude are absent. Outside the spans each point holds an empty 204 record, so the replay shows ADS-B as failing rather than freezing or leaking positions. Not in this case, and shown as such: Tokyo VAAC, TAF, Satellite frames, Himawari HSD.",
+  "notes": "Reconstructed from archives, not recorded live. VA SIGMETs (WIIF, WAAF, YMMM) from the IEM NOAAPort raw-text archive (public domain; bulletins issued by BMKG and BoM and relayed by NWS). AWC's JSON for these dates no longer exists, so the isigmet JSON is a reconstruction around the raw bulletins: each bulletin is wrapped in the fields the parser reads (rawSigmet, hazard, icaoId, firId, firName, seriesId, validTimeFrom/To from the VALID group, receiptTime from the heading or the archive hour), and geometry, levels and movement are left for the parser to read from rawSigmet. A SIGMET with a forecast polygon also gets an F record, as AWC makes. CNL SIGMET bulletins are listed as cancelled records and end the SIGMET they cancel at their start, as AWC shortens validTimeTo. A list is stored at the window start and at each later arrival; copies relayed twice with different line wrapping are merged. Darwin VAA bulletins (FVAU01-10 ADRM) from the IEM NOAAPort archive, the public-domain relay whose files NWS serves on tgftp: each is stored under the tgftp slot of its heading at the later of its DTG and its arrival, with every slot's last bulletin before the window, and copies relayed twice are merged. Nothing comes from BoM's FTP server. IEM's NOAAPort archive holds no bulletin between 18:00Z on 5 Sep 2026 and 20:00Z on 5 Sep 2026; SIGMETs and VAAs issued then are missing from this case. Darwin advisories missing from the archive: DUKONO 268010 2026/715; KRAKATAU 262000 2026/180. MAGMA VONA list pages as the research census fetched them on 9 Oct 2026; the poller reads only notices issued before the replay clock, from their list cards. METARs from the IEM ASOS archive (public domain), converted to AWC's METAR JSON by TEPHRA, a reconstruction: icaoId, obsTime, reportTime, rawOb (IEM's text, without AWC's METAR/SPECI prefix), visib (statute miles as AWC renders them), wxString, clouds, vertVis and fltCat are decoded from the text. Every 30 min each response holds the latest METAR per station, under the station lists the pollers request. Pressure-level winds from the Open-Meteo Historical Forecast API (CC BY 4.0, Weather data by Open-Meteo.com), hourly, under the live winds URLs: each response is the archive's answer for the same fields from one hour before to 23 hours after its time (start_hour/end_hour in place of past_hours/forecast_hours). These are short-range model runs stitched together, not the forecast that was current then. ADS-B for 2026-09-05T10:00Z to 2026-09-05T19:30Z, 2026-09-06T00:30Z to 2026-09-06T01:30Z reconstructed from adsb.lol's globe_history heatmaps (ODbL 1.0, Aircraft: adsb.lol), not fetched from its API: every 60 s, one /v2/point response per query point the replay requests, holding each aircraft whose latest heatmap position in the last 60 s lies inside the radius. hex, flight, lat, lon, alt_baro (25 ft steps; the heatmap falls back to geometric altitude when baro is missing) and gs come from the heatmap; track is derived from successive positions and seen_pos/seen from the position's age; type, registration and selected altitude are absent. Outside the spans each point holds an empty 204 record, so the replay shows ADS-B as failing rather than freezing or leaking positions. Not in this case, and shown as such: Tokyo VAAC, TAF, Satellite frames, Himawari HSD. VONA list pages rebuilt from PVMBG's notices: each notice's summary paragraph as PVMBG wrote it, with MAGMA's page chrome, staff names, tokens and beacons removed; they are not MAGMA's pages.",
   "records": [
     {
       "feed": "vaac_darwin",
@@ -46390,208 +46390,231 @@
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona",
       "fetched_at": "2026-10-09T19:33:48.000Z",
-      "sha256": "c0e1646808a2e130f79252bd379f31d34bcbf7a76b8357866de6b847b2882f8b",
-      "path": "raw/vona/c0e1646808a2e130f792.html",
+      "sha256": "1f9f5e96d35e9b58d433fb5e146f230d8e071933bde1480b673e432ce36e71d0",
+      "path": "raw/vona/1f9f5e96d35e9b58d433.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=2",
       "fetched_at": "2026-10-09T19:33:59.000Z",
-      "sha256": "a295599d8754f20958af5b2a57e5b3af610d46cb112978f8ae7e963de85c4d3b",
-      "path": "raw/vona/a295599d8754f20958af.html",
+      "sha256": "97b5afea52b40f22d79100b05a72f5683139b96fb1f7acf952b39d5a12b7f4c8",
+      "path": "raw/vona/97b5afea52b40f22d791.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=3",
       "fetched_at": "2026-10-09T19:34:00.000Z",
-      "sha256": "5aabadb33eece7fbe8ecbbf8a795863f7b357a2442816578489358a767260fbc",
-      "path": "raw/vona/5aabadb33eece7fbe8ec.html",
+      "sha256": "e814be70928e4db068925fd65b63f7b88a7babfdeaec03957db6007ee3dd9b5f",
+      "path": "raw/vona/e814be70928e4db06892.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=4",
       "fetched_at": "2026-10-09T19:34:02.000Z",
-      "sha256": "6a1b2e8b9062f2693629a33365917c168c2b6d1799e41848ac782b2c58f63202",
-      "path": "raw/vona/6a1b2e8b9062f2693629.html",
+      "sha256": "9f9ed19f5705e28b14a23ea7aecd79d77643dfb3440b323b39b62a3dbe484bca",
+      "path": "raw/vona/9f9ed19f5705e28b14a2.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=5",
       "fetched_at": "2026-10-09T19:34:03.000Z",
-      "sha256": "fc3654c15ef042bdc0dee65fd9f2acdef07441da1c2c7c899875f318176ec071",
-      "path": "raw/vona/fc3654c15ef042bdc0de.html",
+      "sha256": "ae3584c403cd270149812950d5565703f996ff330c234d673c854c1effc88087",
+      "path": "raw/vona/ae3584c403cd27014981.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=6",
       "fetched_at": "2026-10-09T19:34:05.000Z",
-      "sha256": "afee00cdd1eb62a880247f52b4bbeddc3870270642b0b3df4c9c18b6bcb34a73",
-      "path": "raw/vona/afee00cdd1eb62a88024.html",
+      "sha256": "42bc6b62d1dbfcd03a834dd5260458b602411d465215f49530e6814c2ebc0125",
+      "path": "raw/vona/42bc6b62d1dbfcd03a83.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=7",
       "fetched_at": "2026-10-09T19:34:07.000Z",
-      "sha256": "739c75b6189c9e53ca9dc55a6f0bcbdf0517c93122447015eaed3ac71ba62c9e",
-      "path": "raw/vona/739c75b6189c9e53ca9d.html",
+      "sha256": "44238a896451660e5c75adcabcd1f3a3a185ec7004f8be2b1ab4388f8fa2cc2a",
+      "path": "raw/vona/44238a896451660e5c75.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=8",
       "fetched_at": "2026-10-09T19:34:08.000Z",
-      "sha256": "81ae0aa804e878705c112c7c31fc46343aaf8aa77e589b963e788c61d3bd23aa",
-      "path": "raw/vona/81ae0aa804e878705c11.html",
+      "sha256": "eda02ae3ba843f82e423a0b7782b62a90fcc99bb2b1d754b34790da97a08060d",
+      "path": "raw/vona/eda02ae3ba843f82e423.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=9",
       "fetched_at": "2026-10-09T19:34:10.000Z",
-      "sha256": "89fe84770d00a67cf74c147eacd27b55fdd43fe7f34a5a4953fadc3789124adb",
-      "path": "raw/vona/89fe84770d00a67cf74c.html",
+      "sha256": "94f293a50a5aafdbd074f6a03d960fbe519a193fba483bf8399a6aab4e2fc990",
+      "path": "raw/vona/94f293a50a5aafdbd074.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=10",
       "fetched_at": "2026-10-09T19:34:11.000Z",
-      "sha256": "f4087b0d8510650b562a5463f986aa0f776000161619bb2e3c76c0546fbd995c",
-      "path": "raw/vona/f4087b0d8510650b562a.html",
+      "sha256": "50e05eae6e0158141a90e3ed678a74005ea2b9e1ccb5a240230d1debd43b1549",
+      "path": "raw/vona/50e05eae6e0158141a90.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=11",
       "fetched_at": "2026-10-09T19:34:13.000Z",
-      "sha256": "527b60ee11eb259e0e8d4db9bde70214a8c2c6b8ed21d2fb5274741a0ae11faf",
-      "path": "raw/vona/527b60ee11eb259e0e8d.html",
+      "sha256": "452201586f350d773201d4e18c666cf0047b54a8557357301b50b65b1d8e3e28",
+      "path": "raw/vona/452201586f350d773201.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=12",
       "fetched_at": "2026-10-09T19:34:14.000Z",
-      "sha256": "7f3c0397d9bff3ced8f91b7dc571e44b25fa39a91fc9d7b19c3834c5028afd3e",
-      "path": "raw/vona/7f3c0397d9bff3ced8f9.html",
+      "sha256": "ec1d3c44ad79a82d347ad0620e53a5d45fd717382f04dc2f390818299245cdfa",
+      "path": "raw/vona/ec1d3c44ad79a82d347a.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=13",
       "fetched_at": "2026-10-09T19:34:16.000Z",
-      "sha256": "bbc43d2d8515c8ffce995961f1e587adf16b85f002d962d0bea1127d23ccd3e7",
-      "path": "raw/vona/bbc43d2d8515c8ffce99.html",
+      "sha256": "2a82588dd0481ff8b92939d00a322ac46d7728e0ca40d7bdf3a3cf3722dc475f",
+      "path": "raw/vona/2a82588dd0481ff8b929.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=14",
       "fetched_at": "2026-10-09T19:34:17.000Z",
-      "sha256": "e18998597a2cf14f118980a360e57744b3f6b9172ada2962e3da750e22a2fae5",
-      "path": "raw/vona/e18998597a2cf14f1189.html",
+      "sha256": "a0914984f434d5a5290e206c9b91643e2e39aef7e1f13d092d4ad498430dc169",
+      "path": "raw/vona/a0914984f434d5a5290e.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=15",
       "fetched_at": "2026-10-09T19:34:19.000Z",
-      "sha256": "c23fef883ee71f3792678458ecbcf5c07f6c1243e0dd9fe106fcb3a8f16fe498",
-      "path": "raw/vona/c23fef883ee71f379267.html",
+      "sha256": "421c7e61862b856fbdc34ebfb54a77ef0f45a02dbea1dd18d4ba90fa3967c1ec",
+      "path": "raw/vona/421c7e61862b856fbdc3.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=16",
       "fetched_at": "2026-10-09T19:34:20.000Z",
-      "sha256": "5e727500aa6e8d778cc2ecdd28aa83ae533e95551efead7f14bd5cbe6766e6e6",
-      "path": "raw/vona/5e727500aa6e8d778cc2.html",
+      "sha256": "278b65141bac8803fe9d5a14191944cc2b379ac858fe58535151eeeb461ee53a",
+      "path": "raw/vona/278b65141bac8803fe9d.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=17",
       "fetched_at": "2026-10-09T19:34:22.000Z",
-      "sha256": "66a4301f4f41e2e232f4bbb272488489af0ccbda18ad983f60c01dbdd4fe921f",
-      "path": "raw/vona/66a4301f4f41e2e232f4.html",
+      "sha256": "cb9ab54bb4764b7fbc12394f0546379bdecc70ee9cb7aa0a24d33ce3fdfbf6a3",
+      "path": "raw/vona/cb9ab54bb4764b7fbc12.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=18",
       "fetched_at": "2026-10-09T19:34:23.000Z",
-      "sha256": "2e213ce55f05ad72eb30e74dd9e95066bdf58420b57a8afcf7afbd633e04d69a",
-      "path": "raw/vona/2e213ce55f05ad72eb30.html",
+      "sha256": "c6b3e5861599a1febe49f097c6b211d866323750525a2ad453e0aec9a92e179c",
+      "path": "raw/vona/c6b3e5861599a1febe49.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=19",
       "fetched_at": "2026-10-09T19:34:25.000Z",
-      "sha256": "6a027bc864681f082f5eb1e9f8ed74e3a995255da7172b74efd8e3d5a98437e6",
-      "path": "raw/vona/6a027bc864681f082f5e.html",
+      "sha256": "5874f455456742cd3b1785b53746b5d6818250cf9ba505da272d23fa92d8f111",
+      "path": "raw/vona/5874f455456742cd3b17.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=20",
       "fetched_at": "2026-10-09T19:34:33.000Z",
-      "sha256": "593d2e6c03ec5e1ec298d532b31d0029558a9aa6f44f2da4d39e3189c7d8f107",
-      "path": "raw/vona/593d2e6c03ec5e1ec298.html",
+      "sha256": "dd8b57a4d1fb5140beab5120377e4114b318b92900c1629acb6e626d5e2bce47",
+      "path": "raw/vona/dd8b57a4d1fb5140beab.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=21",
       "fetched_at": "2026-10-09T19:34:35.000Z",
-      "sha256": "913f9688dabd2808e8d5b035a662f598597f58b237be58df241fe1c1842d4569",
-      "path": "raw/vona/913f9688dabd2808e8d5.html",
+      "sha256": "da26b8ba7969761a362f678ef579b877cf5026d8b99b7b959971e5bd62556b6b",
+      "path": "raw/vona/da26b8ba7969761a362f.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona?page=22",
       "fetched_at": "2026-10-09T19:34:37.000Z",
-      "sha256": "6161a17953319b51c96fe331822047624a267df9c2e06c80c1fb3c529605857c",
-      "path": "raw/vona/6161a17953319b51c96f.html",
+      "sha256": "65906030af4da18ecd080dda2290cb0305953cdfcb9ae7717f8ccd1bfed795ab",
+      "path": "raw/vona/65906030af4da18ecd08.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     },
     {
       "feed": "vona",
       "url": "https://magma.esdm.go.id/v1/vona",
       "fetched_at": "2026-10-09T20:25:07.000Z",
-      "sha256": "750c8ea346038e7ebacba034dd35d3bdc73fcb65567598d16d068fb1f23434fb",
-      "path": "raw/vona/750c8ea346038e7ebacb.html",
+      "sha256": "1f9f5e96d35e9b58d433fb5e146f230d8e071933bde1480b673e432ce36e71d0",
+      "path": "raw/vona/1f9f5e96d35e9b58d433.html",
       "status_code": 200,
-      "content_type": "text/html"
+      "content_type": "text/html",
+      "reconstructed": true
     }
   ]
 }

@@ -24,7 +24,14 @@ it describes, so ``ReplaySource`` serves it as if it had been fetched then. Comm
                 Historical Forecast API (winds) or adsb.lol globe_history heatmaps (ADS-B,
                 ``--adsb-span``), and probing repeats until nothing is missing.
 ``probe``     Replay ticks at chosen times: active volcanoes, discrepancies, cones, exposed
-              flights, drafts, and any URL the case lacks.
+              flights, drafts, each situation's VONAs and input hash, and any URL the case
+              lacks.
+``rebuild-vona``  Rewrite a case's MAGMA VONA list pages from PVMBG's notices: each card keeps
+              the notice's summary paragraph as PVMBG wrote it, and MAGMA's page chrome, staff
+              names, tokens and beacons go. The parser reads the same ``Vona`` from the
+              rebuilt page, byte for byte in ``raw_text``, so the replay's input hashes do not
+              change. A dry run prints the plan; ``--write`` rewrites the files and the
+              manifest.
 
 Licence rule: nothing from ftp.bom.gov.au goes into a case. BoM's anonymous FTP terms say
 "you may not supply that material to any other person", so Darwin VAAs come from the
@@ -50,6 +57,7 @@ Examples::
         --adsb-span 2026-09-05T10:00Z/2026-09-05T19:30Z
     uv run python scripts/record_replay.py probe --case anak-krakatau-20260905 \
         --at 2026-09-05T17:30Z --at 2026-09-06T01:00Z
+    uv run python scripts/record_replay.py rebuild-vona --case anak-krakatau-20260905 --write
 """
 
 from __future__ import annotations
@@ -59,6 +67,7 @@ import asyncio
 import csv
 import gzip
 import hashlib
+import html
 import io
 import json
 import logging
@@ -92,7 +101,7 @@ from tephra.feeds.base import (
 )
 from tephra.feeds.sigmet import SIGMET_PARAMS, SIGMET_URL
 from tephra.feeds.vaac import DARWIN_BULLETIN_URLS
-from tephra.feeds.vona import VONA_LIST_URL
+from tephra.feeds.vona import VONA_LIST_URL, VonaListItem, parse_vona_list
 from tephra.geo.units import distance_nm, initial_bearing_deg
 from tephra.models import AdvisoryStatus, FeedId, ReplayCase, ReplayRecord, RunMode
 from tephra.pipeline import Runtime, create_runtime
@@ -916,6 +925,168 @@ def import_census_vona_pages(saved: list[Saved], case_dir: Path) -> list[ReplayR
         )
     print(f"  imported {len(records)} VONA list pages")
     return records
+
+
+VONA_REBUILT_HEADER: Final = (
+    "<!-- Rebuilt from PVMBG's notices: the summary paragraph as PVMBG wrote it; page chrome, "
+    "staff names, tokens and beacons removed. Not a MAGMA page. -->"
+)
+VONA_REBUILT_NOTE: Final = (
+    "VONA list pages rebuilt from PVMBG's notices: each notice's summary paragraph as PVMBG "
+    "wrote it, with MAGMA's page chrome, staff names, tokens and beacons removed; they are not "
+    "MAGMA's pages."
+)
+_VONA_NOTICE_URL: Final = "https://magma.esdm.go.id/v1/vona/{magma_id}"
+
+
+@dataclass(frozen=True)
+class VonaRebuild:
+    """One VONA list page of a case, before and after the rebuild."""
+
+    path: str
+    new_path: str
+    sha256: str
+    new_sha256: str
+    cards: int
+    records: int
+
+
+def rebuild_vona_page(listing: FetchResult) -> bytes:
+    """A minimal list page holding, per card and nothing else, what the parser reads: the
+    notice's MAGMA URL (unsigned), its title, its issue time, its colour word and its summary
+    paragraph verbatim. ``parse_vona_list`` reads the same cards from it."""
+    cards = "\n".join(_vona_card_html(item) for item in parse_vona_list(listing))
+    match = _VONA_PAGE.match(listing.url)
+    page = int(match.group(1) or 1) if match else 1
+    return (
+        f'{VONA_REBUILT_HEADER}\n<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">'
+        f"<title>VONA list, page {page} (rebuilt)</title></head>\n<body>\n{cards}\n</body></html>\n"
+    ).encode()
+
+
+def _vona_card_html(item: VonaListItem) -> str:
+    title = f"{item.volcano_name} - {timeutil.slash_dtg(item.issued_at)}"
+    colour = item.color_code.value.title()
+    summary = html.escape(item.summary or "", quote=False)
+    notice_url = _VONA_NOTICE_URL.format(magma_id=item.magma_id)
+    return (
+        '<div class="timeline-item">\n'
+        f'<div class="timeline-time"><small>{item.issued_at:%Y-%m-%d %H:%M:%S} UTC</small> '
+        f'<a class="btn" href="#">{colour}</a></div>\n'
+        '<div class="timeline-body">\n'
+        f'<p class="timeline-title"><a href="#">{html.escape(title, quote=False)}</a></p>\n'
+        f'<p class="timeline-text">{summary}</p>\n'
+        f'<a class="card-link" href="{html.escape(notice_url)}">View</a>\n'
+        "</div>\n</div>"
+    )
+
+
+def plan_vona_rebuild(case_dir: Path, case: ReplayCase) -> list[VonaRebuild]:
+    """What ``rebuild-vona`` would do to each VONA page file of the case (one entry per file,
+    however many records point at it). A file whose bytes differ from its records' sha256
+    stops the rebuild: the case is not what its manifest says."""
+    by_path: dict[str, list[ReplayRecord]] = {}
+    for record in case.records:
+        if record.feed is FeedId.VONA and record.status_code == 200:
+            by_path.setdefault(record.path, []).append(record)
+    plans: list[VonaRebuild] = []
+    for path, records in sorted(by_path.items()):
+        content = (case_dir / path).read_bytes()
+        if {record.sha256 for record in records} != {hashlib.sha256(content).hexdigest()}:
+            raise SystemExit(f"{path}: bytes do not match the manifest sha256")
+        first = records[0]
+        listing = FetchResult(
+            feed=FeedId.VONA,
+            url=first.url,
+            status_code=first.status_code,
+            content=content,
+            content_type=first.content_type,
+            fetched_at=first.fetched_at,
+            sha256=first.sha256,
+            replay=True,
+        )
+        rebuilt = rebuild_vona_page(listing)
+        cards = parse_vona_list(listing)
+        if parse_vona_list(_rebuilt_result(listing, rebuilt)) != _unsigned(cards):
+            raise SystemExit(f"{path}: the rebuilt page does not read back as the same cards")
+        digest = hashlib.sha256(rebuilt).hexdigest()
+        plans.append(
+            VonaRebuild(
+                path=path,
+                new_path=(Path("raw") / FeedId.VONA.value / f"{digest[:20]}.html").as_posix(),
+                sha256=first.sha256,
+                new_sha256=digest,
+                cards=len(cards),
+                records=len(records),
+            )
+        )
+    return plans
+
+
+def apply_vona_rebuild(case_dir: Path, case: ReplayCase, plans: list[VonaRebuild]) -> ReplayCase:
+    """Write each rebuilt page, point its records at it (``reconstructed``, same url and
+    ``fetched_at``), drop the MAGMA page, note it in the manifest and write the manifest."""
+    by_path = {plan.path: plan for plan in plans}
+    records: list[ReplayRecord] = []
+    for record in case.records:
+        plan = by_path.get(record.path)
+        if plan is None:
+            records.append(record)
+            continue
+        listing = FetchResult(
+            feed=record.feed,
+            url=record.url,
+            status_code=record.status_code,
+            content=(case_dir / plan.path).read_bytes(),
+            content_type=record.content_type,
+            fetched_at=record.fetched_at,
+            sha256=record.sha256,
+            replay=True,
+        )
+        target = case_dir / plan.new_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(rebuild_vona_page(listing))
+        records.append(
+            record.model_copy(
+                update={"sha256": plan.new_sha256, "path": plan.new_path, "reconstructed": True}
+            )
+        )
+    for plan in plans:
+        if plan.new_path != plan.path:
+            (case_dir / plan.path).unlink()
+    notes = case.notes or ""
+    if VONA_REBUILT_NOTE not in notes:
+        notes = f"{notes} {VONA_REBUILT_NOTE}".strip()
+    rebuilt = case.model_copy(update={"records": records, "notes": notes})
+    # Written as write_manifest writes it, with the default (not rebuilt) flag left out, so
+    # the manifest's other thousands of records keep their lines.
+    data = rebuilt.model_dump(mode="json")
+    for row in data["records"]:
+        if not row["reconstructed"]:
+            del row["reconstructed"]
+    (case_dir / "manifest.json").write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    return rebuilt
+
+
+def _rebuilt_result(listing: FetchResult, content: bytes) -> FetchResult:
+    return FetchResult(
+        feed=listing.feed,
+        url=listing.url,
+        status_code=listing.status_code,
+        content=content,
+        content_type=listing.content_type,
+        fetched_at=listing.fetched_at,
+        sha256=hashlib.sha256(content).hexdigest(),
+        replay=True,
+    )
+
+
+def _unsigned(items: list[VonaListItem]) -> list[VonaListItem]:
+    """The cards as the rebuilt page lists them: the notice URL without MAGMA's signature."""
+    return [
+        item.model_copy(update={"url": _VONA_NOTICE_URL.format(magma_id=item.magma_id)})
+        for item in items
+    ]
 
 
 def read_census(census_dir: Path) -> list[Saved]:
@@ -1773,6 +1944,13 @@ async def describe(runtime: Runtime, at: datetime) -> str:
             f"{len(situation.vonas)} VONA, {len(situation.official_layers)} official layers"
         )
         lines.append(f"  {situation.volcano.name}: {counts}")
+        for vona in situation.vonas:
+            observed = "ash observed" if vona.ash_observed else "ash not observed"
+            lines.append(
+                f"    VONA #{vona.magma_id} {vona.color_code.value} "
+                f"{timeutil.slash_dtg(vona.issued_at)} {observed}"
+            )
+        lines.append(f"    input_hash {situation.input_hash}")
         for item in situation.discrepancies:
             lines.append(f"    {item.kind.value}: {item.summary}")
         cone = runtime.cones.get(vid)
@@ -1875,8 +2053,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     probe_cmd.add_argument("--every", type=int, default=1, help="minutes between ticks")
     probe_cmd.add_argument("--data-dir", type=Path, default=PROJECT_ROOT / "data")
+    rebuild = sub.add_parser(
+        "rebuild-vona", help="rewrite a case's VONA list pages from PVMBG's notices"
+    )
+    rebuild.add_argument("--case", required=True)
+    rebuild.add_argument("--data-dir", type=Path, default=PROJECT_ROOT / "data")
+    rebuild.add_argument(
+        "--write", action="store_true", help="rewrite the files and the manifest (else a dry run)"
+    )
     args = parser.parse_args(argv)
-    if args.command in ("noaaport", "probe"):
+    if args.command in ("noaaport", "probe", "rebuild-vona"):
         return args
     if not _CASE_ID.match(args.case):
         parser.error("--case must be 3-64 chars of lowercase letters, digits and dashes")
@@ -2053,6 +2239,26 @@ def context_notes(args: argparse.Namespace) -> list[str]:
     return notes
 
 
+def rebuild_vona(args: argparse.Namespace) -> int:
+    case = load_case(args.data_dir, args.case)
+    case_dir = case_path(args.data_dir, args.case)
+    plans = plan_vona_rebuild(case_dir, case)
+    for plan in plans:
+        print(
+            f"{plan.path} -> {plan.new_path}: {plan.cards} cards, {plan.records} record(s), "
+            f"sha256 {plan.sha256[:12]} -> {plan.new_sha256[:12]}"
+        )
+    if not plans:
+        print("no VONA list pages in the case")
+        return 0
+    if not args.write:
+        print(f"dry run: {len(plans)} page(s) would be rebuilt; pass --write to rewrite them")
+        return 0
+    apply_vona_rebuild(case_dir, case, plans)
+    print(f"written: {len(plans)} page(s) and {case_dir / 'manifest.json'}")
+    return 0
+
+
 def absent_note(records: Iterable[ReplayRecord]) -> str:
     held = {record.feed for record in records}
     names = [FEED_LABELS[feed] for feed in FeedId if feed not in held]
@@ -2069,6 +2275,8 @@ def main(argv: list[str] | None = None) -> int:
         case = load_case(args.data_dir, args.case)
         asyncio.run(probe(args.data_dir, case, args.at, timedelta(minutes=args.every), args.begin))
         return 0
+    if args.command == "rebuild-vona":
+        return rebuild_vona(args)
     case_dir = case_path(args.data_dir, args.case)
     if not args.force and any((case_dir / name).exists() for name in ("manifest.json", "raw")):
         raise SystemExit(f"{case_dir} already holds a case; pass --force to overwrite it")
