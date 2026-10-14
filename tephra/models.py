@@ -767,7 +767,11 @@ class AdsbSnapshot(TephraModel):
 # --- airline data connections (``tephra.desk.connections``) ---------------------------------
 
 POSITIONS_FORMAT: Final = "tephra.positions/1"
+AIRLINE_FORMAT: Final = "tephra.airline/1"
+"""Positions, flight plans and pilot reports in one push; tephra.positions/1 is positions only"""
 MAX_PUSH_POSITIONS: Final = 1000
+MAX_PUSH_PLANS: Final = 1000
+MAX_PUSH_REPORTS: Final = 20
 
 
 class PushedPosition(TephraModel):
@@ -795,25 +799,73 @@ class PushedPosition(TephraModel):
         return value.lower() if info.field_name == "hex" else value.upper() or None
 
 
-class PositionBatch(TephraModel):
-    """One push. Records are checked one by one, so one bad record never refuses the rest."""
+class PushedFlightPlan(TephraModel):
+    """One of the airline's flight plans: the flight it names gets this route on the maps (in
+    place of the callsign's usual route) and the closed-airport check."""
 
-    format: Literal["tephra.positions/1"]
-    positions: list[dict[str, Any]] = Field(max_length=MAX_PUSH_POSITIONS)
+    flight: str = Field(pattern=r"^[A-Z0-9]{3,8}$", description="The airline's flight number")
+    hex: str | None = Field(default=None, pattern=r"^[0-9a-f]{6}$")
+    callsign: str | None = Field(default=None, pattern=r"^[A-Z0-9]{2,8}$")
+    origin_icao: str = Field(pattern=r"^[A-Z0-9]{4}$")
+    dest_icao: str = Field(pattern=r"^[A-Z0-9]{4}$")
+    std: UtcDatetime | None = Field(default=None, description="Scheduled departure, UTC")
+    sta: UtcDatetime | None = Field(default=None, description="Scheduled arrival, UTC")
+    cruise_fl: int | None = Field(default=None, ge=0, le=600)
+
+    @field_validator("flight", "hex", "callsign", "origin_icao", "dest_icao", mode="before")
+    @classmethod
+    def _tidy(cls, value: object, info: ValidationInfo) -> object:
+        if not isinstance(value, str):
+            return value
+        value = value.strip()
+        return value.lower() if info.field_name == "hex" else value.upper() or None
+
+    @model_validator(mode="after")
+    def _named(self) -> Self:
+        if self.hex is None and self.callsign is None:
+            raise ValueError("give the aircraft's hex or callsign")
+        if self.origin_icao == self.dest_icao:
+            raise ValueError("origin and destination are the same airport")
+        return self
+
+
+class PositionBatch(TephraModel):
+    """One push. Records are checked one by one, so one bad record never refuses the rest.
+    ``tephra.positions/1`` carries positions only; ``tephra.airline/1`` any of the three
+    sections (a pilot report is a ``CrewEntry``, as the Desk enters one)."""
+
+    format: Literal["tephra.positions/1", "tephra.airline/1"]
+    positions: list[dict[str, Any]] = Field(default_factory=list, max_length=MAX_PUSH_POSITIONS)
+    flight_plans: list[dict[str, Any]] = Field(default_factory=list, max_length=MAX_PUSH_PLANS)
+    pilot_reports: list[dict[str, Any]] = Field(default_factory=list, max_length=MAX_PUSH_REPORTS)
+
+    @model_validator(mode="after")
+    def _sections(self) -> Self:
+        if self.format == POSITIONS_FORMAT and (self.flight_plans or self.pilot_reports):
+            raise ValueError("tephra.positions/1 carries positions only; use tephra.airline/1")
+        if not (self.positions or self.flight_plans or self.pilot_reports):
+            raise ValueError("the push is empty")
+        return self
 
 
 class PushProblem(TephraModel):
-    index: int = Field(description="0-based position in ``positions``")
+    section: Literal["positions", "flight_plans", "pilot_reports"] = "positions"
+    index: int = Field(description="0-based place in its section")
     reason: str
 
 
 class PushResult(TephraModel):
     connection_id: str
     received_at: UtcDatetime = Field(description="TEPHRA's active clock")
-    accepted: int
+    accepted: int = Field(description="Positions taken")
     rejected: list[PushProblem]
     in_ash: list[str] = Field(
         default_factory=list, description="Hexes of accepted positions in or heading into the ash"
+    )
+    plans_taken: int = 0
+    reports_taken: int = Field(default=0, description="Pilot reports entered as crew reports")
+    closed_hits: list[str] = Field(
+        default_factory=list, description="Flights whose plan departs or lands at a closed airport"
     )
 
 
@@ -874,6 +926,9 @@ class PushSummary(TephraModel):
     accepted: int
     rejected: int
     in_ash: int = 0
+    plans: int = 0
+    reports: int = 0
+    closed_hits: int = 0
     reasons: list[str] = Field(default_factory=list, description="Up to 3 distinct reasons")
     dots: list[PushedDot] = Field(default_factory=list)
 
@@ -889,6 +944,16 @@ class ConnectFlow(TephraModel):
     last_push_wall_at: UtcDatetime | None
 
 
+class PlanLine(TephraModel):
+    """A pushed flight plan as the Connect page draws it: origin to destination."""
+
+    flight: str
+    origin_icao: str
+    dest_icao: str
+    closed: bool = Field(description="It departs or lands at an airport the airport plan closes")
+    coordinates: list[Position]
+
+
 class ConnectLive(TephraModel):
     """``GET /api/connect/live``: what the Connect page shows, so a reload starts complete."""
 
@@ -897,6 +962,10 @@ class ConnectLive(TephraModel):
     sample_connection_id: str | None
     flows: list[ConnectFlow]
     dots: list[PushedDot] = Field(description="Every pushed flight on the map now")
+    plans: list[PlanLine] = Field(default_factory=list, description="The flight plans held")
+    reports: dict[str, Any] = Field(
+        default_factory=dict, description="The crew report areas (``CrewPicture.features``)"
+    )
     recent: list[PushSummary] = Field(description="The newest pushes, newest first, no dots")
 
 
@@ -1550,7 +1619,7 @@ class FlightRoute(TephraModel):
     origin_icao: str = Field(pattern=r"^[A-Z0-9]{4}$")
     dest_icao: str = Field(pattern=r"^[A-Z0-9]{4}$")
     cross_track_nm: float = Field(ge=0, description="Aircraft's distance from the leg")
-    source: Literal["vrs-standing-data"] = "vrs-standing-data"
+    source: Literal["vrs-standing-data", "airline-plan"] = "vrs-standing-data"
 
 
 class RerouteOption(TephraModel):
@@ -2328,6 +2397,10 @@ class AircraftFeatureProps(TephraModel):
     data_source: Literal["ADSB", "AIRLINE"] = Field(
         default="ADSB", description="AIRLINE: pushed by an airline connection (Connect page)"
     )
+    route_source: Literal["VRS", "PLAN"] | None = Field(
+        default=None, description="Where origin and destination come from: PLAN is the airline's"
+    )
+    flight_plan: str | None = Field(default=None, description="The airline's flight number")
 
 
 class RouteFeatureProps(TephraModel):

@@ -17,22 +17,25 @@ import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Final
 
 import shapely
 from shapely.geometry import LineString
 
-from tephra.geo.units import destination_point
-from tephra.models import POSITIONS_FORMAT, BBox
+from tephra.geo.units import destination_point, distance_nm
+from tephra.models import AIRLINE_FORMAT, BBox, FlightRoute
 from tephra.util import timeutil
+from tephra.util.hashing import proxy_flight_number
 
 __all__ = [
     "PUSH_EVERY_S",
     "SampleFlight",
     "load_pool",
     "pick_flights",
+    "pilot_report",
+    "plans_for",
     "positions_at",
     "sample_batch",
 ]
@@ -116,10 +119,18 @@ def load_pool(data_dir: Path, bbox: BBox) -> list[SampleFlight]:
 
 
 def pick_flights(
-    pool: Sequence[SampleFlight], areas: Sequence[Any], *, skip: set[str], limit: int = MAX_FLIGHTS
+    pool: Sequence[SampleFlight],
+    areas: Sequence[Any],
+    *,
+    skip: set[str],
+    limit: int = MAX_FLIGHTS,
+    prefer: Callable[[SampleFlight], bool] | None = None,
 ) -> list[SampleFlight]:
-    """Flights whose leg crosses an ash area first (up to two thirds), then the rest."""
+    """Flights whose leg crosses an ash area first (up to two thirds), then the rest; within
+    each, the ``prefer``red ones (those with a known route, so they get a flight plan) first."""
     usable = [flight for flight in pool if flight.hex not in skip]
+    if prefer is not None:
+        usable.sort(key=lambda flight: not prefer(flight))
     shape = shapely.union_all(list(areas)) if areas else None
     crossing = [f for f in usable if shape is not None and f.leg().intersects(shape)]
     others = [f for f in usable if f not in crossing]
@@ -150,9 +161,72 @@ def positions_at(flights: Sequence[SampleFlight], elapsed_s: float, at: datetime
     return out
 
 
-def sample_batch(flights: Sequence[SampleFlight], at: datetime) -> dict[str, Any]:
-    """A downloadable example push: these flights at their recorded fixes, on TEPHRA's clock."""
-    return {"format": POSITIONS_FORMAT, "positions": positions_at(flights, 0.0, at)}
+def plans_for(
+    flights: Sequence[SampleFlight],
+    route_of: Callable[[SampleFlight], FlightRoute | None],
+    position_of: Callable[[str], tuple[float, float] | None],
+    at: datetime,
+) -> list[dict[str, Any]]:
+    """A flight plan for each flight whose callsign has a usual route it is flying (VRS
+    standing data): its real origin and destination, the RFA flight number it stands for, the
+    level it flies, and departure and arrival times worked out from its speed and where it is
+    now (the sample's only estimate)."""
+    out = []
+    for flight in flights:
+        route = route_of(flight)
+        if route is None:
+            continue
+        origin, dest = position_of(route.origin_icao), position_of(route.dest_icao)
+        if origin is None or dest is None:
+            continue
+        speed = max(flight.gs_kt, 1.0)
+        sta = at + timedelta(hours=distance_nm(flight.lat, flight.lon, *dest) / speed)
+        std = sta - timedelta(hours=distance_nm(*origin, *dest) / speed)
+        out.append(
+            {
+                "flight": proxy_flight_number(flight.hex),
+                "hex": flight.hex,
+                "callsign": flight.callsign,
+                "origin_icao": route.origin_icao,
+                "dest_icao": route.dest_icao,
+                "std": timeutil.to_iso(std.replace(second=0, microsecond=0)),
+                "sta": timeutil.to_iso(sta.replace(second=0, microsecond=0)),
+                "cruise_fl": round(flight.alt_baro_ft / 1000) * 10,
+            }
+        )
+    return out
+
+
+def pilot_report(position: dict[str, Any], at: datetime) -> dict[str, Any]:
+    """A crew report of ash from a flight now (a ``CrewEntry``). No position: TEPHRA holds the
+    flight's fix (its pushed position), and a report on a tracked flight is placed there."""
+    fl = position["alt_baro_ft"] // 100
+    return {
+        "hex": position["hex"],
+        "cues": ["ASH_SEEN", "SULPHUR_SMELL"],
+        "level_from_fl": max(0, fl - 20),
+        "level_to_fl": min(600, fl + 10),
+        "observed_at": timeutil.to_iso(at),
+        "remarks": "Sample feed: crew report ash in sight",
+    }
+
+
+def sample_batch(
+    flights: Sequence[SampleFlight],
+    plans: list[dict[str, Any]],
+    in_ash: Callable[[dict[str, Any]], bool],
+    at: datetime,
+) -> dict[str, Any]:
+    """A downloadable example of every section, on TEPHRA's clock: the flights at their recorded
+    fixes, their flight plans, and pilot reports from up to two of them in the ash."""
+    positions = positions_at(flights, 0.0, at)
+    reports = [pilot_report(p, at) for p in positions if in_ash(p)][:2]
+    return {
+        "format": AIRLINE_FORMAT,
+        "positions": positions,
+        "flight_plans": plans,
+        "pilot_reports": reports,
+    }
 
 
 async def run_sample_feed(

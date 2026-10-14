@@ -56,18 +56,26 @@ function buildMap() {
     const C = symbolColours();
     nightBasemap(map, nightColours(), { places: false });
     addImages(map, C);
-    for (const id of ["cones", "volcanoes", "trails", "dots"]) map.addSource(id, { type: "geojson", data: fc([]) });
+    for (const id of ["cones", "volcanoes", "trails", "dots", "plans", "reports"]) map.addSource(id, { type: "geojson", data: fc([]) });
     const official = ["==", ["get", "mode"], "OFFICIAL"];
     const cyan = "#5eead4";
     map.addLayer({ id: "cone-fill", type: "fill", source: "cones", filter: official, paint: { "fill-color": C.official, "fill-opacity": 0.1 } });
     map.addLayer({ id: "cone-line", type: "line", source: "cones", filter: official, paint: { "line-color": C.official, "line-opacity": 0.75, "line-width": 1.5 } });
     map.addLayer({ id: "tephra-line", type: "line", source: "cones", filter: ["!", official], paint: { "line-color": C.tephra, "line-opacity": 0.8, "line-width": 1.4, "line-dasharray": [4, 3] } });
+    // the airline's flight plans: origin to destination, red where an airport on it is closed
+    map.addLayer({ id: "plan-line", type: "line", source: "plans", layout: { "line-cap": "round" }, paint: { "line-color": ["case", ["get", "closed"], C.serious || "#ff7a6e", "#8b9bff"], "line-opacity": ["case", ["get", "closed"], 0.85, 0.45], "line-width": ["case", ["get", "closed"], 2, 1.2], "line-dasharray": [2, 2] } });
+    map.addLayer({ id: "plan-end", type: "circle", source: "plans", filter: ["==", ["geometry-type"], "Point"], paint: { "circle-radius": 3.5, "circle-color": ["case", ["get", "closed"], C.serious || "#ff7a6e", "#8b9bff"], "circle-stroke-color": "#04121a", "circle-stroke-width": 1 } });
+    // pilot reports: their caution areas and pins
+    map.addLayer({ id: "report-area", type: "fill", source: "reports", filter: ["==", ["get", "feature"], "area"], paint: { "fill-color": C.crew || "#e8dcc6", "fill-opacity": 0.12 } });
+    map.addLayer({ id: "report-edge", type: "line", source: "reports", filter: ["==", ["get", "feature"], "area"], paint: { "line-color": C.crew || "#e8dcc6", "line-width": 1.6, "line-dasharray": [5, 3] } });
+    map.addLayer({ id: "report-pin", type: "symbol", source: "reports", filter: ["==", ["get", "feature"], "pin"], layout: { "icon-image": "crew-pin", "icon-anchor": "bottom", "icon-size": 0.9, "icon-allow-overlap": true } });
     map.addLayer({ id: "volcanoes", type: "symbol", source: "volcanoes", layout: { "icon-image": ["concat", "volcano-", ["get", "code"]], "icon-size": 0.7, "icon-allow-overlap": true } });
     map.addLayer({ id: "trails", type: "line", source: "trails", layout: { "line-cap": "round" }, paint: { "line-color": ["case", ["get", "inAsh"], C.tephra, cyan], "line-opacity": 0.35, "line-width": 1.5 } });
     map.addLayer({ id: "dot-glow", type: "circle", source: "dots", paint: { "circle-radius": 13, "circle-blur": 0.9, "circle-color": ["case", ["get", "inAsh"], C.tephra, cyan], "circle-opacity": 0.4 } });
     map.addLayer({ id: "dot-plane", type: "symbol", source: "dots", layout: { "icon-image": "ac-sdf", "icon-size": ["case", ["get", "inAsh"], 0.62, 0.5], "icon-rotate": ["get", "trk"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true }, paint: { "icon-color": ["case", ["get", "inAsh"], C.tephra, "#e6fffb"], "icon-halo-color": "#04121a", "icon-halo-width": 1 } });
     map.addLayer({ id: "dot-label", type: "symbol", source: "dots", minzoom: 5.5, layout: { "text-field": ["get", "cs"], "text-font": ["Noto Sans Regular"], "text-size": 12, "text-offset": [0, 1.2], "text-anchor": "top", "text-optional": true }, paint: { "text-color": ["case", ["get", "inAsh"], C.tephra, "#bdf5ee"], "text-halo-color": "#05070a", "text-halo-width": 1.5 } });
     ready = true;
+    drawPlansAndReports();
     loadWall();
     frameTraffic();
     paint();
@@ -87,6 +95,16 @@ async function loadWall() {
 function setCones(layer) {
   if (!ready || !layer?.features) return;
   map.getSource("cones").setData(fc(layer.features.filter((f) => f.properties?.part === "cone")));
+}
+
+function drawPlansAndReports() {
+  if (!ready || !app.live) return;
+  const plans = (app.live.plans || []).flatMap((p) => [
+    { type: "Feature", properties: { flight: p.flight, closed: p.closed }, geometry: { type: "LineString", coordinates: p.coordinates } },
+    ...[p.coordinates[0], p.coordinates[p.coordinates.length - 1]].map((c) => ({ type: "Feature", properties: { closed: p.closed }, geometry: { type: "Point", coordinates: c } })),
+  ]);
+  map.getSource("plans").setData(fc(plans));
+  map.getSource("reports").setData(app.live.reports?.features ? app.live.reports : fc([]));
 }
 
 function frameTraffic() {
@@ -191,6 +209,8 @@ function tick(p) {
     el("b", { text: p.name }),
     el("span", {}, el("span", { class: "ok", text: `+${p.accepted}` }), " positions"),
     p.in_ash ? el("span", {}, el("span", { class: "ash", text: String(p.in_ash) }), " in the ash") : el("span"),
+    p.plans ? el("span", {}, el("span", { class: "plan", text: String(p.plans) }), " plans") : null,
+    p.reports ? el("span", {}, el("span", { class: "rep", text: String(p.reports) }), " pilot reports") : null,
     p.rejected ? el("span", {}, el("span", { class: "bad", text: String(p.rejected) }), " refused") : null);
 }
 
@@ -235,12 +255,15 @@ function resultBlock() {
   const r = app.result;
   if (!r) return null;
   if (r.error) return el("p", { class: "cx-err", text: r.error });
-  const reasons = [...new Set(r.rejected.map((x) => x.reason))].slice(0, 4);
+  const reasons = [...new Set(r.rejected.map((x) => `${x.section.replace("_", " ")} ${x.index + 1}: ${x.reason}`))].slice(0, 4);
+  const row = (ic, n, what, goes, tone) => el("li", { class: `cx-went__r cx-went__r--${tone}` }, icon(ic), el("b", { text: String(n) }), el("span", { text: what }), el("span", { class: "cx-went__go", text: goes }));
   return el("div", { class: "cx-form" },
-    el("div", { class: "cx-result" },
-      el("div", { class: "ok" }, el("b", { text: String(r.accepted) }), el("span", { text: "taken" })),
-      el("div", { class: "ash" }, el("b", { text: String(r.in_ash.length) }), el("span", { text: "in the ash" })),
-      el("div", { class: "bad" }, el("b", { text: String(r.rejected.length) }), el("span", { text: "refused" }))),
+    el("p", { class: "cx-cap", text: "Where it went" }),
+    el("ul", { class: "cx-went" },
+      row("i-aircraft", r.accepted, "positions", r.in_ash.length ? `${r.in_ash.length} in the ash` : "checked", r.in_ash.length ? "ash" : "ok"),
+      row("i-route", r.plans_taken, "flight plans", r.closed_hits.length ? `${r.closed_hits.length} via a closed airport` : "routes on the maps", r.closed_hits.length ? "bad" : "ok"),
+      row("i-pin", r.reports_taken, "pilot reports", r.reports_taken ? "caution areas" : "–", "rep"),
+      r.rejected.length ? row("i-x", r.rejected.length, "refused", "see below", "bad") : null),
     reasons.length ? el("ul", { class: "cx-reasons" }, ...reasons.map((t) => el("li", { text: t }))) : null);
 }
 
@@ -248,7 +271,7 @@ function uploadPanel() {
   if (!app.me) return [signInForm("Sign in to send a file")];
   const file = el("input", { type: "file", accept: ".json,application/json", hidden: true });
   const drop = el("div", { class: "cx-drop", tabindex: "0", role: "button", "aria-label": "Choose or drop a JSON file of positions" },
-    el("span", { class: "cx-drop__ic" }, icon("i-file")), el("b", { text: app.sending ? "Sending…" : "Drop a positions file" }), el("span", { text: "JSON, tephra.positions/1" }), file);
+    el("span", { class: "cx-drop__ic" }, icon("i-file")), el("b", { text: app.sending ? "Sending…" : "Drop a positions file" }), el("span", { text: "positions · flight plans · pilot reports" }), file);
   drop.addEventListener("click", () => file.click());
   drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); file.click(); } });
   drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("is-over"); });
@@ -265,7 +288,7 @@ function uploadPanel() {
       el("button", { type: "button", class: "cx-btn cx-btn--soft", dataset: { act: "paste" } }, icon("i-clipboard"), el("span", { text: app.paste ? "Hide paste" : "Paste JSON" }))),
   ];
   if (app.paste) {
-    const area = el("textarea", { class: "cx-paste", spellcheck: "false", placeholder: '{"format": "tephra.positions/1", "positions": [ … ]}' });
+    const area = el("textarea", { class: "cx-paste", spellcheck: "false", placeholder: '{"format": "tephra.airline/1", "positions": […], "flight_plans": […], "pilot_reports": […]}' });
     const go = el("button", { type: "button", class: "cx-btn cx-btn--glow cx-btn--block", text: "Send" });
     go.addEventListener("click", () => send(area.value));
     kids.push(area, go);
@@ -288,17 +311,20 @@ async function send(text) {
   renderPanel();
   const res = await call("/api/desk/upload", { method: "POST", body: { ...body, retime: app.retime } });
   app.sending = false;
-  app.result = res.ok ? res.data : { error: res.status === 422 ? "The file is not a tephra.positions/1 push (format and positions are required)." : res.status === 401 ? "Your session has ended. Sign in again." : `Not sent (HTTP ${res.status}).` };
+  app.result = res.ok ? res.data : { error: res.status === 422 ? "The file is not a TEPHRA push (tephra.airline/1 with positions, flight_plans or pilot_reports)." : res.status === 401 ? "Your session has ended. Sign in again." : `Not sent (HTTP ${res.status}).` };
   renderPanel();
 }
 
 function apiPanel() {
-  const props = app.format?.schema?.properties?.positions?.items?.properties || {};
-  const required = new Set(app.format?.schema?.properties?.positions?.items?.required || []);
-  const ex = app.example || {};
-  const record = el("div", { class: "cx-record", "aria-label": "One position, field by field" }, ...Object.keys(props).map((k) => el("span", { class: `cx-field${required.has(k) ? "" : " cx-field--opt"}`, title: props[k].description || null },
-    el("b", { text: k }), el("span", { text: ex[k] == null ? "…" : String(ex[k]).replace(/\.\d{3}Z$/, "Z") }))));
-  const kids = [el("p", { class: "cx-cap", text: "One position" }), record,
+  const S = app.format?.schema?.properties || {};
+  const section = (key, title, ex) => {
+    const item = S[key]?.items || {};
+    const props = item.properties || {};
+    const required = new Set(item.required || []);
+    return [el("p", { class: "cx-cap", text: title }), el("div", { class: "cx-record" }, ...Object.keys(props).map((k) => el("span", { class: `cx-field${required.has(k) ? "" : " cx-field--opt"}`, title: props[k].description || null },
+      el("b", { text: k }), el("span", { text: ex?.[k] == null ? "…" : Array.isArray(ex[k]) ? ex[k].join(", ") : String(ex[k]).replace(/\.\d{3}Z$/, "Z") }))))];
+  };
+  const kids = [...section("positions", "positions[ ]", app.example?.positions?.[0]), ...section("flight_plans", "flight_plans[ ]", app.example?.flight_plans?.[0]), ...section("pilot_reports", "pilot_reports[ ]", app.example?.pilot_reports?.[0]),
     el("div", { class: "cx-row2" }, el("a", { class: "cx-btn cx-btn--soft", href: "/api/connect/schema.json", download: "" }, icon("i-code"), el("span", { text: "JSON Schema" })))];
   if (!app.me) return [...kids, signInForm("Sign in to get a key")];
   if (app.key) {
@@ -352,11 +378,11 @@ function samplePanel() {
   const kids = [el("div", { class: "cx-sample" },
     el("button", { type: "button", class: `cx-sample__big${on ? " is-on" : ""}`, dataset: { act: "sample" }, "aria-pressed": String(on), "aria-label": on ? "Stop the sample feed" : "Start the sample feed", disabled: app.me ? null : true }, icon(on ? "i-pause" : "i-play")),
     el("b", { text: on ? "Sample feed running" : "Sample airline feed" }),
-    el("p", { text: "Real airline flights from recorded ADS-B, flying their own tracks at their own speed." }),
+    el("p", { text: "Real flights fly their own tracks, with their flight plans, and crews report the ash they meet." }),
     el("div", { class: "cx-facts" },
       el("div", {}, el("b", { text: on ? String(flow?.per_min ?? 0) : "–" }), el("span", { text: "per min" })),
-      el("div", {}, el("b", { text: "40" }), el("span", { text: "flights" })),
-      el("div", {}, el("b", { text: "5 s" }), el("span", { text: "a push" }))))];
+      el("div", {}, el("b", { text: "40" }), el("span", { text: "real flights" })),
+      el("div", {}, el("b", { text: "3" }), el("span", { text: "kinds of data" }))))];
   if (!app.me) kids.push(signInForm("Sign in to start it"));
   return kids;
 }
@@ -406,16 +432,40 @@ async function loadLive({ first = false } = {}) {
   }
   renderKpis();
   renderFlows();
+  renderWhere();
+  drawPlansAndReports();
   if (app.tab === "sample") renderPanel();
+}
+
+// Where your data goes: each section, what it became, counted live.
+function renderWhere() {
+  const live = app.live || {};
+  const dots = [...app.dots.values()];
+  const plans = live.plans || [];
+  const areas = (live.reports?.features || []).filter((f) => f.properties?.feature === "area");
+  const flagged = (live.reports?.features || []).filter((f) => f.properties?.feature === "path").length;
+  const card = (ic, n, what, goes, hot) => el("li", { class: `cx-where__c${hot ? " is-hot" : ""}` },
+    el("span", { class: "cx-where__ic" }, icon(ic)),
+    el("span", { class: "cx-where__n" }, el("b", { text: String(n) }), el("span", { text: what })),
+    el("span", { class: "cx-where__arrow", "aria-hidden": "true", text: "→" }),
+    el("span", { class: "cx-where__go", text: goes }));
+  const inAsh = dots.filter((d) => d.inAsh).length;
+  const closed = plans.filter((p) => p.closed).length;
+  $("cx-where").replaceChildren(
+    card("i-aircraft", dots.length, "positions", inAsh ? `${inAsh} in the ash · drafts on the Desk` : "checked against the ash", inAsh > 0),
+    card("i-route", plans.length, "flight plans", closed ? `${closed} to or from a closed airport` : "routes on the maps", closed > 0),
+    card("i-pin", areas.length, "pilot reports", flagged ? `${flagged} flights flagged · caution areas` : "caution areas on the maps", areas.length > 0));
 }
 
 function onPush(p) {
   takeDots(p.dots, { glide: true });
+  if (p.plans || p.reports) loadLive();
   const list = $("cx-ticker");
   list.prepend(tick(p));
   while (list.children.length > 14) list.lastElementChild.remove();
   frameTraffic();
   renderKpis();
+  renderWhere();
   kick();
 }
 
@@ -444,7 +494,7 @@ async function boot() {
   app.state = state.ok ? state.data : null;
   app.me = me.ok ? me.data : null;
   app.format = format.ok ? format.data : null;
-  app.example = sample.ok ? sample.data?.positions?.[0] : null;
+  app.example = sample.ok ? sample.data : null;
   await Promise.all([loadConnections(), loadLive({ first: true })]);
   document.body.classList.remove("is-loading");
   renderPublic();

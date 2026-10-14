@@ -22,6 +22,7 @@ from tephra.models import (
     AuditAction,
     Connection,
     ConnectionView,
+    PushedFlightPlan,
     PushedPosition,
     PushProblem,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "KEY_PREFIX",
     "PUSH_FRESH_S",
     "ConnectionNotFound",
+    "checked_plans",
     "checked_positions",
     "create_connection",
     "find_by_key",
@@ -185,3 +187,17 @@ def checked_positions(
             )
         )
     return accepted, problems
+
+
+def checked_plans(
+    raw: Sequence[dict[str, Any]],
+) -> tuple[list[PushedFlightPlan], list[PushProblem]]:
+    """The flight plans that pass, and why each other one was refused."""
+    plans: list[PushedFlightPlan] = []
+    problems: list[PushProblem] = []
+    for index, record in enumerate(raw):
+        try:
+            plans.append(PushedFlightPlan.model_validate(record))
+        except ValidationError as exc:
+            problems.append(PushProblem(section="flight_plans", index=index, reason=_reason(exc)))
+    return plans, problems

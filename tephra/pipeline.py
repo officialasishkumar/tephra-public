@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, Final, Literal, NamedTuple
 
+import shapely
 from pydantic import BaseModel, ValidationError
 from pydantic.main import IncEx
 
@@ -89,7 +90,13 @@ from tephra.feeds.registry import (
     initial_health,
     save_unsaved,
 )
-from tephra.feeds.routes import RouteTable, load_routes, route_features
+from tephra.feeds.routes import (
+    RouteTable,
+    cross_track_nm,
+    great_circle,
+    load_routes,
+    route_features,
+)
 from tephra.feeds.sigmet import fetch_sigmets
 from tephra.feeds.volcanoes import VolcanoCatalogue, load_volcanoes
 from tephra.feeds.winds import fetch_winds
@@ -133,6 +140,7 @@ from tephra.models import (
     MissingReason,
     OperatorPolicy,
     Overlays,
+    PlanLine,
     PlannedAction,
     PlannerContext,
     PlumeAssessment,
@@ -140,6 +148,8 @@ from tephra.models import (
     PolicySummary,
     ProductKind,
     PushedDot,
+    PushedFlightPlan,
+    PushProblem,
     PushResult,
     PushSummary,
     ReplayCase,
@@ -315,6 +325,12 @@ class Runtime:
     sample_stop: asyncio.Event | None = field(init=False, default=None, repr=False)
     """Set to end the running sample feed; None while none runs"""
     sample_connection_id: str | None = field(init=False, default=None)
+    flight_plans: dict[str, tuple[PushedFlightPlan, datetime]] = field(
+        init=False, default_factory=dict
+    )
+    """hex, or 'cs:<callsign>' -> the airline's newest flight plan for it and when it came"""
+    _report_keys: set[str] = field(init=False, default_factory=set, repr=False)
+    """Pilot reports already entered from a push (a repeat is not entered twice)"""
     push_log: "deque[PushSummary]" = field(
         init=False, default_factory=lambda: deque(maxlen=PUSH_LOG_SIZE), repr=False
     )
@@ -459,7 +475,9 @@ class Runtime:
             ),
             cones=feature_collection(part for cone in cones for part in cone.to_features()),
             exposures=_exposure_features(self.exposed.values()),
-            aircraft=_aircraft_features(self.aircraft(), self.exposed.values(), self.crew, routes),
+            aircraft=_aircraft_features(
+                self.aircraft(), self.exposed.values(), self.crew, routes, self.plan_numbers()
+            ),
             reroutes=_reroute_features(self.reroutes, self.exposed),
             routes=self.route_layer(routes),
             duty=self.duty,
@@ -1078,7 +1096,11 @@ class Runtime:
         self.bus.publish(
             SseEvent.AIRCRAFT,
             _aircraft_features(
-                self.aircraft(), self.exposed.values(), self.crew, self.known_routes()
+                self.aircraft(),
+                self.exposed.values(),
+                self.crew,
+                self.known_routes(),
+                self.plan_numbers(),
             ),
         )
         view = self.crew_view(report_id)
@@ -1179,7 +1201,9 @@ class Runtime:
         routes = self.known_routes()
         self.bus.publish(
             SseEvent.AIRCRAFT,
-            _aircraft_features(self.aircraft(), self.exposed.values(), self.crew, routes),
+            _aircraft_features(
+                self.aircraft(), self.exposed.values(), self.crew, routes, self.plan_numbers()
+            ),
         )
         self.bus.publish(SseEvent.EXPOSURES, _exposure_features(self.exposed.values()))
         self._publish_changed(SseEvent.ROUTES, self.route_layer(routes))
@@ -1224,30 +1248,52 @@ class Runtime:
     # --- airline data connections (tephra.desk.connections) -------------------------------
 
     async def take_push(
-        self, connection: Connection, raw: Sequence[dict[str, Any]], *, retime: bool = False
+        self,
+        connection: Connection,
+        positions: Sequence[dict[str, Any]] = (),
+        *,
+        plans: Sequence[dict[str, Any]] = (),
+        reports: Sequence[dict[str, Any]] = (),
+        retime: bool = False,
     ) -> PushResult:
-        """Take one push: keep the positions that pass, check them against the ash as an
-        ADS-B pass does (when no tick holds the lock; else the tick does), and say so on the
-        ``push`` event. Refused records change nothing. ``retime`` (an upload a dispatcher
-        marks as current) stamps every record with TEPHRA's clock now before the checks."""
+        """Take one push (``tephra.airline/1``). Positions that pass join the aircraft and are
+        checked against the ash as an ADS-B pass does (when no tick holds the lock; else the
+        tick does). Flight plans that pass give their flights the airline's route and the
+        closed-airport check. Each pilot report is entered as a crew report, as the Desk enters
+        one (same checks, same caution area and flags). Refused records change nothing; the
+        ``push`` event says what came. ``retime`` (an upload a dispatcher marks as current)
+        stamps every position and report with TEPHRA's clock now before the checks."""
         at = timeutil.now()
         if retime:
-            raw = [
-                {**record, "observed_at": timeutil.to_iso(at)}
-                if isinstance(record, dict)
-                else record
-                for record in raw
+            stamp = timeutil.to_iso(at)
+            positions = [
+                {**r, "observed_at": stamp} if isinstance(r, dict) else r for r in positions
             ]
-        accepted, problems = connections.checked_positions(raw, connection, at)
+            reports = [{**r, "observed_at": stamp} if isinstance(r, dict) else r for r in reports]
+        accepted, problems = connections.checked_positions(positions, connection, at)
         for target in accepted:
             self.pushed[target.hex] = target
-        if accepted and self.live.active and not self.lock.locked():
+        plans_ok, plan_problems = connections.checked_plans(plans)
+        problems += plan_problems
+        self.take_plans(plans_ok, at)
+        if (accepted or plans_ok) and self.live.active and not self.lock.locked():
             async with self.lock:
                 report = TickReport(started_at=at, finished_at=at, mode=self.mode, reason="push")
                 await self.run_exposures(at, report)
                 await self.publish_live()
+        reports_taken = 0
+        for index, raw in enumerate(reports):
+            reason = await self._take_pilot_report(connection, raw)
+            if reason is None:
+                reports_taken += 1
+            else:
+                problems.append(PushProblem(section="pilot_reports", index=index, reason=reason))
         exposed = {flight.hex for flight in self.exposed.values()}
         in_ash = sorted({t.hex for t in accepted if t.hex in exposed})
+        closed = self.closed_now()
+        closed_hits = sorted(
+            {p.flight for p in plans_ok if p.origin_icao in closed or p.dest_icao in closed}
+        )
         saved = await connections.save_counts(
             self.store, connection, accepted=len(accepted), rejected=len(problems), at=at
         )
@@ -1260,6 +1306,9 @@ class Runtime:
             accepted=len(accepted),
             rejected=len(problems),
             in_ash=len(in_ash),
+            plans=len(plans_ok),
+            reports=reports_taken,
+            closed_hits=len(closed_hits),
             reasons=list(dict.fromkeys(problem.reason for problem in problems))[:3],
         )
         self.push_log.appendleft(summary)
@@ -1271,7 +1320,29 @@ class Runtime:
             accepted=len(accepted),
             rejected=problems,
             in_ash=in_ash,
+            plans_taken=len(plans_ok),
+            reports_taken=reports_taken,
+            closed_hits=closed_hits,
         )
+
+    async def _take_pilot_report(self, connection: Connection, raw: Any) -> str | None:
+        """Enter one pushed pilot report as a crew report; the reason when it is refused. The
+        same report (flight and time) pushed again is not entered twice."""
+        try:
+            entry = CrewEntry.model_validate(raw)
+        except ValidationError as exc:
+            first = exc.errors()[0]
+            where = ".".join(str(part) for part in first.get("loc", ())) or "report"
+            return f"{where}: {first.get('msg', 'invalid')}"
+        key = f"{connection.id}|{entry.hex or entry.callsign}|{timeutil.to_iso(entry.observed_at)}"
+        if key in self._report_keys:
+            return None
+        try:
+            await self.enter_crew_report(entry, actor=f"connect:{connection.name}")
+        except crew_reports.CrewReportRefused as exc:
+            return "; ".join(exc.problems)
+        self._report_keys.add(key)
+        return None
 
     def connect_live(self) -> ConnectLive:
         """The Connect page's whole picture now: every pushed flight updated in the last
@@ -1309,6 +1380,8 @@ class Runtime:
             sample_connection_id=self.sample_connection_id,
             flows=list(flows.values()),
             dots=dots,
+            plans=self.plan_lines(),
+            reports=self.crew.features,
             recent=list(self.push_log)[:14],
         )
 
@@ -1335,13 +1408,31 @@ class Runtime:
             sample_feed.load_pool, self.settings.data_dir, self.settings.region_preset.bbox
         )
         skip = {target.hex for target in merge_aircraft(self.live.adsb)}
-        flights = sample_feed.pick_flights(pool, self.sample_areas(), skip=skip)
+        flights = sample_feed.pick_flights(
+            pool, self.sample_areas(), skip=skip, prefer=self._has_route
+        )
         stop = asyncio.Event()
         self.sample_stop, self.sample_connection_id = stop, live.id
         connection = live
+        plans = self.sample_plans(flights)
+        pushes = 0
 
         async def push(positions: list[dict[str, Any]]) -> None:
-            await self.take_push(connection, positions)
+            # positions every push; the flight plans with the first and every minute after; a
+            # pilot report from a sample flight in the ash 15 s in, then every 4 minutes
+            nonlocal pushes
+            pushes += 1
+            exposed = {flight.hex for flight in self.exposed.values()}
+            in_ash = [p for p in positions if p["hex"] in exposed]
+            report_due = pushes == 4 or (pushes > 4 and pushes % 48 == 4)
+            now = timeutil.now()
+            reports = [sample_feed.pilot_report(p, now) for p in in_ash[: 2 if pushes == 4 else 1]]
+            await self.take_push(
+                connection,
+                positions,
+                plans=plans if pushes % 12 == 1 else (),
+                reports=reports if report_due else (),
+            )
 
         async def run() -> None:
             try:
@@ -1353,21 +1444,124 @@ class Runtime:
         self.spawn(run())
         return live
 
+    def _has_route(self, flight: sample_feed.SampleFlight) -> bool:
+        return self.routes.lookup(flight, self.airports, self.policy) is not None
+
+    def sample_plans(self, flights: Sequence[sample_feed.SampleFlight]) -> list[dict[str, Any]]:
+        return sample_feed.plans_for(
+            flights,
+            lambda flight: self.routes.lookup(flight, self.airports, self.policy),
+            lambda icao: self.routes.position(icao, self.airports),
+            timeutil.now(),
+        )
+
+    def sample_bundle(self, limit: int = 12) -> dict[str, Any]:
+        """The downloadable sample: every section, real flights, on TEPHRA's clock now."""
+        pool = sample_feed.load_pool(self.settings.data_dir, self.settings.region_preset.bbox)
+        areas = self.sample_areas()
+        flights = sample_feed.pick_flights(
+            pool, areas, skip=set(), limit=limit, prefer=self._has_route
+        )
+        shape = shapely.union_all(areas) if areas else None
+
+        def in_ash(position: dict[str, Any]) -> bool:
+            return shape is not None and shape.contains(
+                shapely.Point(position["lon"], position["lat"])
+            )
+
+        return sample_feed.sample_batch(flights, self.sample_plans(flights), in_ash, timeutil.now())
+
     def stop_sample_feed(self) -> None:
         if self.sample_stop is not None:
             self.sample_stop.set()
             self.sample_stop, self.sample_connection_id = None, None
 
     def known_routes(self) -> dict[str, FlightRoute]:
-        """hex -> the usual route of each airline target, when it flies along a leg of it."""
+        """hex -> the route of each airline target: the airline's own flight plan when one was
+        pushed for it (``airline-plan``), else its callsign's usual route when it flies along a
+        leg of it (VRS standing data)."""
         known: dict[str, FlightRoute] = {}
         for target in self.aircraft():
+            plan = self.plan_for(target)
+            if plan is not None:
+                route = self._plan_route(target, plan)
+                if route is not None:
+                    known[target.hex] = route
+                    continue
             if not target.airline:
                 continue
             route = self.routes.lookup(target, self.airports, self.policy)
             if route is not None:
                 known[target.hex] = route
         return known
+
+    # --- pushed flight plans (tephra.desk.connections) ------------------------------------
+
+    def plan_for(self, target: Aircraft) -> PushedFlightPlan | None:
+        held = self.flight_plans.get(target.hex)
+        if held is None and target.callsign:
+            held = self.flight_plans.get(f"cs:{target.callsign}")
+        return held[0] if held is not None else None
+
+    def plan_numbers(self) -> dict[str, str]:
+        """hex -> the airline's flight number, for the aircraft a held plan names."""
+        out: dict[str, str] = {}
+        for target in self.aircraft():
+            plan = self.plan_for(target)
+            if plan is not None:
+                out[target.hex] = plan.flight
+        return out
+
+    def _plan_route(self, target: Aircraft, plan: PushedFlightPlan) -> FlightRoute | None:
+        origin = self.routes.position(plan.origin_icao, self.airports)
+        dest = self.routes.position(plan.dest_icao, self.airports)
+        if origin is None or dest is None:
+            return None
+        cross = cross_track_nm(target, *origin, *dest)
+        if cross is None:  # beyond an end of the leg: the distance to the nearer end
+            cross = min(distance_nm(target.lat, target.lon, *p) for p in (origin, dest))
+        return FlightRoute(
+            callsign=target.callsign or plan.flight,
+            origin_icao=plan.origin_icao,
+            dest_icao=plan.dest_icao,
+            cross_track_nm=round(cross, 1),
+            source="airline-plan",
+        )
+
+    def closed_now(self) -> frozenset[str]:
+        """The airports the current airport plan closes (empty before one is made)."""
+        return self._closed_airports or frozenset()
+
+    def take_plans(self, plans: Sequence[PushedFlightPlan], at: datetime) -> None:
+        for plan in plans:
+            if plan.hex:
+                self.flight_plans[plan.hex] = (plan, at)
+            if plan.callsign:
+                self.flight_plans[f"cs:{plan.callsign}"] = (plan, at)
+        # a plan is held until 3 h after its arrival, or 12 h after it came without one
+        for key, (plan, got) in list(self.flight_plans.items()):
+            until = (plan.sta or got + timedelta(hours=9)) + timedelta(hours=3)
+            if at > until:
+                del self.flight_plans[key]
+
+    def plan_lines(self) -> list[PlanLine]:
+        closed = self.closed_now()
+        lines: dict[str, PlanLine] = {}
+        for plan, _ in self.flight_plans.values():
+            if plan.flight in lines:
+                continue
+            origin = self.routes.position(plan.origin_icao, self.airports)
+            dest = self.routes.position(plan.dest_icao, self.airports)
+            if origin is None or dest is None:
+                continue
+            lines[plan.flight] = PlanLine(
+                flight=plan.flight,
+                origin_icao=plan.origin_icao,
+                dest_icao=plan.dest_icao,
+                closed=plan.origin_icao in closed or plan.dest_icao in closed,
+                coordinates=great_circle(*origin, *dest),
+            )
+        return list(lines.values())
 
     def route_layer(self, known: Mapping[str, FlightRoute]) -> dict[str, Any]:
         """The Wall's route lines: only for the RFA flights in or heading into an area."""
@@ -2907,7 +3101,9 @@ def _aircraft_features(
     exposed: Iterable[ExposedFlight],
     crew: CrewPicture,
     routes: Mapping[str, FlightRoute],
+    plans: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
+    """``plans``: hex -> the airline's flight number, for the flights a pushed plan names."""
     earliest: dict[str, ExposedFlight] = {}
     for flight in exposed:
         held = earliest.get(flight.hex)
@@ -2936,9 +3132,19 @@ def _aircraft_features(
             dest_icao=route.dest_icao if route is not None else None,
             label=_aircraft_label(target, hit),
             data_source="AIRLINE" if target.source_id.startswith("PUSH:") else "ADSB",
+            route_source=None
+            if route is None
+            else "PLAN"
+            if route.source == "airline-plan"
+            else "VRS",
+            flight_plan=(plans or {}).get(target.hex),
         )
         features.append(feature(point(target.lat, target.lon), props, feature_id=target.hex))
     return feature_collection(features)
+
+
+def _stamped(record: Any, stamp: str) -> Any:
+    return {**record, "observed_at": stamp} if isinstance(record, dict) else record
 
 
 def _pushed_dot(target: Aircraft, exposed: set[str]) -> PushedDot:

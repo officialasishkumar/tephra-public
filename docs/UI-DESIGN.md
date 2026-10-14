@@ -1461,6 +1461,19 @@ and the flights in it, pink stays official.
   "Get a key" (shown once with Copy), the push in curl, Python or JavaScript with the key filled
   in, and "Your connections" with Revoke (confirmed). **Sample**: one big play button, real flights
   from recorded ADS-B, its rate. Signed out, each tab asks for the name and Desk PIN in place.
+- **Where your data goes** (under the map), one card per section with its count and what it
+  became: positions -> "9 in the ash · drafts on the Desk"; flight plans -> "routes on the maps"
+  or "24 to or from a closed airport"; pilot reports -> "5 flights flagged · caution areas". A card
+  glows amber when its section is touching the ash or a closure. On the map, flight plans are
+  dashed violet lines origin to destination (red when an airport on them is closed) and pilot
+  reports their crew caution areas and pins. An upload's answer says the same per section
+  ("Where it went"). On the Wall a flight with a pushed plan shows "WIII → WADD · RFA4259 flight
+  plan" and "Lands at WIII: closed"; a pushed pilot report says "pushed by <connection> (Connect)".
+- **The sample feed** is three kinds of real data: 40 real airline flights from recorded ADS-B
+  (those whose callsign has a known route first, so each gets a flight plan with its real origin
+  and destination), their flight plans with the first push and every minute, and a crew report
+  of ash from a sample flight in the ash 15 s in and every 4 minutes. The downloadable sample
+  file holds all three sections.
 - **Sources** (under the map): each connection with a 5-minute sparkline and positions / min,
   glowing while it flows; the public feeds as chips with a state dot and their records.
 - **Ticker**: one card per push (+40 positions, 12 in the ash, refused in red).

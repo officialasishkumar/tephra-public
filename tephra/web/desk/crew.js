@@ -114,7 +114,8 @@ function flaggedOf(v) {
     return a ? a.proxy_flight : hex.toUpperCase();
   });
 }
-const who = (actor) => String(actor || '').replace(/^desk:/, '');
+// a dispatcher's name, or the airline connection a pilot report was pushed through
+const who = (actor) => { const a = String(actor || ''); return a.startsWith('connect:') ? `${a.slice(8)} (Connect)` : a.replace(/^desk:/, ''); };
 
 // A row's short state word; the full code-written label stays in its title and in the record.
 const SHORT_STATE = { ACTIVE: 'Active', COVERED: 'Covered', EXPIRED: 'Expired', WITHDRAWN: 'Withdrawn' };

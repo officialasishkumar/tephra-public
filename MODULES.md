@@ -2662,8 +2662,23 @@ Rules:
 
 ### 5.20 Airline data connections (connect)
 
-An airline pushes aircraft positions in; they join the ADS-B targets and are checked against
-the ash the same way. `tephra.desk.connections`: `create_connection(store, name, *, actor,
+An airline pushes its own data in (`tephra.airline/1`; `tephra.positions/1` is positions only), in
+three sections, each with a place to go:
+- `positions` (`PushedPosition`): join the ADS-B targets and are checked against the ash the
+  same way (exposure, drafts, the Wall, the Desk, Ask).
+- `flight_plans` (`PushedFlightPlan`: the airline's flight number, the aircraft's hex or
+  callsign, origin, destination, optional times and cruise level): held in
+  `Runtime.flight_plans` until 3 h after arrival; `known_routes()` uses a plan's origin and
+  destination before the callsign's usual route (`FlightRoute.source` `airline-plan`;
+  `AircraftFeatureProps.route_source` `PLAN`, `flight_plan` its number), and a plan departing
+  or landing at an airport the current airport plan closes is a `closed_hits` entry. The
+  re-planning solver still plans the RFA schedule (`data/rfa`); pushed plans do not join it.
+- `pilot_reports` (a `CrewEntry`, as the Desk enters one): each is entered through
+  `Runtime.enter_crew_report` with actor `connect:<connection name>` (same checks, caution area
+  and flags; a report on a tracked flight is placed at its fix); the same report pushed again
+  is not entered twice.
+
+The first section, in detail: `tephra.desk.connections`: `create_connection(store, name, *, actor,
 sample=False) -> (Connection, key)` (key `tph_` + 32 url-safe characters, shown once, only its
 SHA-256 stored), `find_by_key`, `list_connections`, `revoke_connection`, `save_counts`,
 `checked_positions(raw, connection, at) -> (list[Aircraft], list[PushProblem])` (source id
@@ -2842,7 +2857,7 @@ The headers above are unchanged by compression.
 | `POST /api/desk/connections` | `{name}` -> `ConnectionView` with `key`, the only time the key is shown; audit `CONNECTION_CREATED` (desk session, CSRF) |
 | `POST /api/desk/connections/{id}/revoke` | `ConnectionView`; the key stops working at once; audit `CONNECTION_REVOKED`; stops the sample feed when it is the sample connection (desk session, CSRF) |
 | `POST /api/desk/sample-feed` | `{on}` -> `ConnectionList`: starts or stops the sample feed (desk session, CSRF) |
-| `POST /api/push/positions` | `PositionBatch` `{format: "tephra.positions/1", positions: [...]}` (at most 1000) with `Authorization: Bearer <key>` -> `PushResult` `{connection_id, received_at, accepted, rejected: [{index, reason}], in_ash}`. 401 without a live key; 429 `too_many_pushes` faster than one a second. Each record is checked alone (`PushedPosition`): well formed and `observed_at` within `PUSH_FRESH_S` (300 s) before, or 120 s after, the active clock |
+| `POST /api/push/positions` | `PositionBatch` `{format: "tephra.airline/1" or "tephra.positions/1", positions, flight_plans, pilot_reports}` (at most 1000, 1000 and 20) with `Authorization: Bearer <key>` -> `PushResult` `{connection_id, received_at, accepted, rejected: [{section, index, reason}], in_ash, plans_taken, reports_taken, closed_hits}`. 401 without a live key; 429 `too_many_pushes` faster than one a second. Each record is checked alone: a position must have `observed_at` within `PUSH_FRESH_S` (300 s) before, or 120 s after, the active clock |
 | `GET /api/blobs/{key}` | PNG bytes; `key` must match `BLOB_KEY_PATTERN` (else 404); `Cache-Control: public, max-age=86400, immutable` |
 | `GET /api/duty?limit=10` | `DutyRunList` `{runs: [DutyRun]}`, current mode (in REPLAY, the replay run playing), newest first (`limit` 1 to 20) |
 | `GET /api/budget` | `BudgetView` `{backend, as_of, quota_day, resets_at, models: [{model_id, jobs, used, limit, free_limit, remaining, closed, lanes: [{lane, words, used, share}], routine_allowed_now, next_routine_slot, pacing}], tiers: [{tier, model_id, used, limit, remaining}], waiting: [AiWork], note}` |

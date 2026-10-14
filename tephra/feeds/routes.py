@@ -37,7 +37,14 @@ from tephra.models import (
     point,
 )
 
-__all__ = ["ROUTES_FILE", "RouteTable", "great_circle", "load_routes", "route_features"]
+__all__ = [
+    "ROUTES_FILE",
+    "RouteTable",
+    "cross_track_nm",
+    "great_circle",
+    "load_routes",
+    "route_features",
+]
 
 ROUTES_FILE: Final = "routes_apac.json"
 _LINE_STEP_NM: Final = 40.0
@@ -157,6 +164,14 @@ def _cross_track_nm(
     )
     sine = math.sin(from_origin / _EARTH_RADIUS_NM) * math.sin(angle)
     return abs(math.asin(max(-1.0, min(1.0, sine)))) * _EARTH_RADIUS_NM
+
+
+def cross_track_nm(
+    aircraft: _Located, lat1: float, lon1: float, lat2: float, lon2: float
+) -> float | None:
+    """The aircraft's distance from the leg's great circle, or None beyond either end (also
+    used for a route an airline's own flight plan gives)."""
+    return _cross_track_nm(aircraft, lat1, lon1, lat2, lon2)
 
 
 def great_circle(lat1: float, lon1: float, lat2: float, lon2: float) -> list[Position]:

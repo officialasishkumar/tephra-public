@@ -16,13 +16,18 @@ from pydantic import Field
 from tephra.api import ApiError
 from tephra.api.auth import require_csrf
 from tephra.api.server import DeskSession, RuntimeDep, _actor, _json
-from tephra.desk import connections, sample_feed
+from tephra.desk import connections
+from tephra.desk.crew_reports import CrewEntry
 from tephra.models import (
+    AIRLINE_FORMAT,
+    MAX_PUSH_PLANS,
     MAX_PUSH_POSITIONS,
+    MAX_PUSH_REPORTS,
     POSITIONS_FORMAT,
     ConnectionView,
     ConnectLive,
     PositionBatch,
+    PushedFlightPlan,
     PushedPosition,
     PushResult,
     TephraModel,
@@ -71,15 +76,29 @@ class FormatInfo(TephraModel):
 
 
 def _schema() -> dict[str, Any]:
-    record = PushedPosition.model_json_schema()
+    """tephra.airline/1: any of the three sections; tephra.positions/1 is positions only."""
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "TEPHRA aircraft positions push",
+        "title": "TEPHRA airline push",
         "type": "object",
-        "required": ["format", "positions"],
+        "required": ["format"],
         "properties": {
-            "format": {"const": POSITIONS_FORMAT},
-            "positions": {"type": "array", "maxItems": MAX_PUSH_POSITIONS, "items": record},
+            "format": {"enum": [AIRLINE_FORMAT, POSITIONS_FORMAT]},
+            "positions": {
+                "type": "array",
+                "maxItems": MAX_PUSH_POSITIONS,
+                "items": PushedPosition.model_json_schema(),
+            },
+            "flight_plans": {
+                "type": "array",
+                "maxItems": MAX_PUSH_PLANS,
+                "items": PushedFlightPlan.model_json_schema(),
+            },
+            "pilot_reports": {
+                "type": "array",
+                "maxItems": MAX_PUSH_REPORTS,
+                "items": CrewEntry.model_json_schema(),
+            },
         },
     }
 
@@ -87,7 +106,7 @@ def _schema() -> dict[str, Any]:
 @router.get("/connect/format", response_model=FormatInfo)
 async def get_format() -> Response:
     info = FormatInfo(
-        format=POSITIONS_FORMAT,
+        format=AIRLINE_FORMAT,
         max_positions=MAX_PUSH_POSITIONS,
         fresh_s=connections.PUSH_FRESH_S,
         push_url="/api/push/positions",
@@ -106,18 +125,14 @@ def _download(body: dict[str, Any], filename: str) -> Response:
 
 @router.get("/connect/schema.json")
 async def get_schema_file() -> Response:
-    return _download(_schema(), "tephra-positions.schema.json")
+    return _download(_schema(), "tephra-airline.schema.json")
 
 
 @router.get("/connect/sample.json")
 async def get_sample_file(runtime: RuntimeDep) -> Response:
-    """Real recorded flights at their recorded fixes, timed on TEPHRA's clock now, so the file
-    is accepted as it is for the next few minutes."""
-    pool = sample_feed.load_pool(runtime.settings.data_dir, runtime.settings.region_preset.bbox)
-    flights = sample_feed.pick_flights(pool, runtime.sample_areas(), skip=set(), limit=12)
-    return _download(
-        sample_feed.sample_batch(flights, timeutil.now()), "tephra-positions.sample.json"
-    )
+    """Every section of tephra.airline/1 from real recorded flights, timed on TEPHRA's clock now,
+    so the file is accepted as it is for the next few minutes."""
+    return _download(runtime.sample_bundle(), "tephra-airline.sample.json")
 
 
 async def _list(runtime: Any) -> ConnectionList:
@@ -149,7 +164,14 @@ async def upload(body: Upload, session: DeskSession, runtime: RuntimeDep) -> Res
         connection, _ = await connections.create_connection(
             runtime.store, UPLOAD_CONNECTION, actor=_actor(session)
         )
-    return _json(await runtime.take_push(connection, body.positions, retime=body.retime))
+    taken = await runtime.take_push(
+        connection,
+        body.positions,
+        plans=body.flight_plans,
+        reports=body.pilot_reports,
+        retime=body.retime,
+    )
+    return _json(taken)
 
 
 @router.get("/desk/connections", response_model=ConnectionList)
@@ -219,5 +241,7 @@ async def push_positions(
     last = connection.last_push_at
     if last is not None and 0 <= (timeutil.now() - last).total_seconds() < MIN_PUSH_GAP_S:
         raise ApiError(429, "too_many_pushes", "At most one push a second per connection")
-    result = await runtime.take_push(connection, body.positions)
+    result = await runtime.take_push(
+        connection, body.positions, plans=body.flight_plans, reports=body.pilot_reports
+    )
     return _json(result)

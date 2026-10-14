@@ -308,7 +308,7 @@ function flightDetail(D, ui, store) {
       { label: "Speed", value: p.gs_kt != null ? `${Math.round(p.gs_kt)} kt` : "unknown" },
       { label: "Track", value: p.track_deg != null ? `${Math.round(p.track_deg)}° ${compassWord(p.track_deg)}` : "unknown" },
       // The callsign's usual route from VRS standing data (code, never guessed): not the filed plan.
-      { label: "Route", value: p.origin_icao && p.dest_icao ? `${p.origin_icao} → ${p.dest_icao}` : "Not known", sub: p.origin_icao && p.dest_icao ? "usual route, not the filed plan" : null },
+      { label: "Route", value: p.origin_icao && p.dest_icao ? `${p.origin_icao} → ${p.dest_icao}` : "Not known", sub: p.origin_icao && p.dest_icao ? (p.route_source === "PLAN" ? `the airline's flight plan${p.flight_plan ? ` (${p.flight_plan})` : ""}` : "usual route, not the filed plan") : null },
     ], "This flight in numbers"),
     el("p", { class: "dk-foot", text: `Position ${age(p.ageS)} old.` }),
   ];
@@ -379,7 +379,9 @@ function crewRow(D, v, picked) {
     ["At", `${crewBand(r)} · observed ${hhmmz(ms(r.observed_at))}`],
     ["Position", `${latLon(r)} · ${r.position_basis === "ADSB_FIX" ? `ADS-B fix at ${hhmmz(ms(r.position_observed_at))}` : "typed by dispatcher"}`],
     ["Near", v.place_text],
-    ["Entered", `${String(r.entered_by || "").replace(/^desk:/, "")} at ${hhmmz(ms(r.created_at))} on the Desk`],
+    ["Entered", String(r.entered_by || "").startsWith("connect:")
+      ? `pushed by ${String(r.entered_by).slice(8)} at ${hhmmz(ms(r.created_at))} (Connect)`
+      : `${String(r.entered_by || "").replace(/^desk:/, "")} at ${hhmmz(ms(r.created_at))} on the Desk`],
     ["Remarks", r.remarks ? el("q", { text: r.remarks }) : null],
   ]);
   const area = a ? dkFacts([

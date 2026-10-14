@@ -231,3 +231,32 @@ button { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .cx-empty__orb, .cx-sample__big.is-on, .cx-tick, .cx-kpi b.is-bump, .cx-result, .is-loading .cx-kpi b::after, .cx-skel::after { animation: none; }
 }
+
+/* --- where your data goes: one card per section, what it became ------------------------------ */
+.cx-where { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: var(--sp-5) 0 0; padding: 0; list-style: none; }
+.cx-where__c { display: grid; grid-template-columns: 44px auto auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 14px 16px; border-radius: 18px; background: var(--cx-panel); box-shadow: 0 0 0 1px var(--cx-hair); }
+.cx-where__c.is-hot { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-tephra) 45%, transparent), 0 0 30px -12px var(--c-tephra); }
+.cx-where__ic { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; background: var(--cx-grad); color: var(--cx-ink); }
+.cx-where__c:nth-child(2) .cx-where__ic { background: linear-gradient(120deg, var(--cx-2), #c4b5fd); }
+.cx-where__c:nth-child(3) .cx-where__ic { background: linear-gradient(120deg, var(--c-crew), #fde68a); }
+.cx-where__n { display: flex; flex-direction: column; }
+.cx-where__n b { font-size: 1.6rem; line-height: 1.1; font-weight: var(--fw-bold); }
+.cx-where__n span { font-size: var(--fs-1); color: var(--c-text-3); }
+.cx-where__arrow { color: var(--c-text-3); font-size: var(--fs-4); }
+.cx-where__go { font-size: var(--fs-2); color: var(--c-text-1); line-height: 1.35; }
+.cx-where__c.is-hot .cx-where__go { color: var(--c-tephra); font-weight: var(--fw-semibold); }
+
+/* the answer to a send: where each section went */
+.cx-went { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; animation: cx-in var(--dur-4) var(--ease-enter); }
+.cx-went__r { display: grid; grid-template-columns: 20px auto auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; background: color-mix(in srgb, var(--c-text-1) 5%, transparent); font-size: var(--fs-2); }
+.cx-went__r b { font-size: var(--fs-4); }
+.cx-went__r > span:not(.cx-went__go) { color: var(--c-text-2); }
+.cx-went__go { justify-self: end; font-size: var(--fs-1); color: var(--c-text-2); }
+.cx-went__r--ok .icon, .cx-went__r--ok b { color: var(--cx-1); }
+.cx-went__r--ash .icon, .cx-went__r--ash b, .cx-went__r--ash .cx-went__go { color: var(--c-tephra); }
+.cx-went__r--bad .icon, .cx-went__r--bad b, .cx-went__r--bad .cx-went__go { color: var(--c-serious); }
+.cx-went__r--rep .icon, .cx-went__r--rep b { color: var(--c-crew); }
+.cx-tick .plan { color: var(--cx-2); font-weight: var(--fw-semibold); }
+.cx-tick .rep { color: var(--c-crew); font-weight: var(--fw-semibold); }
+.cx-tick { grid-template-columns: repeat(4, auto); }
+@media (max-width: 1100px) { .cx-where { grid-template-columns: 1fr; } }

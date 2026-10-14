@@ -1,8 +1,9 @@
 """Push aircraft positions into TEPHRA from any computer, as an airline's system would.
 
 Needs only the Python standard library. It downloads TEPHRA's sample file (real recorded flights
-at their recorded fixes), then every few seconds moves each flight along its own track at its own
-ground speed and pushes the batch to ``/api/push/positions`` with your connection's key. Times
+at their recorded fixes, their flight plans and pilot reports), then every few seconds moves each
+flight along its own track at its own ground speed and pushes to ``/api/push/positions`` with
+your connection's key: the plans every minute, the pilot reports once. Times
 follow TEPHRA's active clock (read from ``/api/state``), so it works in REPLAY too.
 
     python scripts/push_sample.py --url https://<your TEPHRA> --key tph_... [--every 5]
@@ -64,11 +65,15 @@ def main() -> int:
     parser.add_argument("--minutes", type=float, default=30.0, help="stop after this long")
     args = parser.parse_args()
     base = args.url.rstrip("/")
-    fixes = get_json(f"{base}/api/connect/sample.json")["positions"]
+    sample = get_json(f"{base}/api/connect/sample.json")
+    fixes = sample["positions"]
+    plans, reports = sample.get("flight_plans", []), sample.get("pilot_reports", [])
     offset = tephra_now(base) - datetime.now(UTC)
     started = time.monotonic()
-    print(f"pushing {len(fixes)} real flights to {base} every {args.every:g} s")
+    print(f"pushing {len(fixes)} flights, {len(plans)} plans, {len(reports)} pilot reports")
+    pushes = 0
     while time.monotonic() - started < args.minutes * 60:
+        pushes += 1
         elapsed_h = (time.monotonic() - started) / 3600
         at = datetime.now(UTC) + offset
         positions = []
@@ -79,10 +84,17 @@ def main() -> int:
             positions.append(
                 {**fix, "lat": round(lat, 5), "lon": round(lon, 5), "observed_at": iso}
             )
+        # the plans with the first push and every minute after; the pilot reports once, 15 s in
+        batch = {"format": "tephra.airline/1", "positions": positions}
+        if pushes % max(1, round(60 / args.every)) == 1:
+            batch["flight_plans"] = plans
+        if pushes == 4:
+            batch["pilot_reports"] = [{**r, "observed_at": iso} for r in reports]
         try:
-            result = push(base, args.key, {"format": "tephra.positions/1", "positions": positions})
+            result = push(base, args.key, batch)
             ash, refused = len(result["in_ash"]), len(result["rejected"])
-            print(f"{at:%H%MZ}  +{result['accepted']}  in the ash {ash}  refused {refused}")
+            taken = f"plans {result['plans_taken']}  reports {result['reports_taken']}"
+            print(f"{at:%H%MZ}  +{result['accepted']}  ash {ash}  {taken}  refused {refused}")
         except urllib.error.HTTPError as exc:
             print(f"push refused: HTTP {exc.code} {exc.read().decode()[:200]}", file=sys.stderr)
             if exc.code == 401:

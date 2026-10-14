@@ -16,8 +16,9 @@ function card({ title, sub, lines, action }) {
     action ? el("button", { type: "button", class: "link-btn mcard__go", dataset: { act: action.act, sec: action.sec || null }, text: action.text }) : null);
 }
 
-// p: AircraftFeatureProps; adv: its newest advisory that is not superseded, if any
-export function planeCard(p, adv) {
+// p: AircraftFeatureProps; adv: its newest advisory that is not superseded, if any; closed: the
+// ICAO codes the airport plan closes
+export function planeCard(p, adv, closed = new Set()) {
   const where = !p.exposed ? null
     : p.minutes_to_entry > 0 ? { text: `Enters TEPHRA's ash area in ${p.minutes_to_entry} min`, tone: "caution" }
       : { text: "Inside TEPHRA's ash area", tone: "serious" };
@@ -27,7 +28,8 @@ export function planeCard(p, adv) {
     sub: p.proxy_flight ? [p.callsign, p.type_icao].filter(Boolean).join(" · ") : "Not an RFA flight",
     lines: [
       { text: [p.alt_baro_ft != null ? fl(p.alt_baro_ft) : null, p.gs_kt != null ? `${Math.round(p.gs_kt)} kt` : null].filter(Boolean).join(" · ") || "Level not reported" },
-      p.origin_icao && p.dest_icao ? { text: `${p.origin_icao} → ${p.dest_icao}` } : null,
+      p.origin_icao && p.dest_icao ? { text: `${p.origin_icao} → ${p.dest_icao}${p.route_source === "PLAN" ? ` · ${p.flight_plan || "airline"} flight plan` : ""}` } : null,
+      closed.has(p.dest_icao) ? { text: `Lands at ${p.dest_icao}: closed`, tone: "serious" } : closed.has(p.origin_icao) ? { text: `Departed ${p.origin_icao}: closed now`, tone: "caution" } : null,
       where,
       adv ? { text: `${STATUS_WORD[adv.status] || adv.status}${decided}` } : null,
       p.data_source === "AIRLINE" ? { text: "Position from the airline's own feed (Connect)", tone: "feed" } : null,

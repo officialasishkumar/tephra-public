@@ -873,7 +873,8 @@ function onFeature(hit, lngLat) {
     if (!f) return;
     pickFlight(f);
     const adv = store.advisories.filter((a) => a.hex === hex && a.status !== "SUPERSEDED").sort((a, b) => ms(b.updated_at) - ms(a.updated_at))[0] || null;
-    map.showCard(f.geometry.coordinates, planeCard(f.properties, adv));
+    const closed = new Set((currentPlan()?.closures || []).map((c) => c.icao));
+    map.showCard(f.geometry.coordinates, planeCard(f.properties, adv, closed));
   } else if (id.startsWith("volcano")) {
     if (D.sits.some((s) => s.volcano_id === p.id)) select(p.id);
     const sit = D.sits.find((s) => s.volcano_id === p.id);

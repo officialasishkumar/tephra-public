@@ -15,7 +15,7 @@ from test_pipeline import AT, FixtureSource, make_runtime, make_settings
 from tephra.api.server import create_app
 from tephra.config import PROJECT_ROOT
 from tephra.desk import connections, sample_feed
-from tephra.models import POSITIONS_FORMAT, AuditAction, Connection, SseEvent
+from tephra.models import AIRLINE_FORMAT, POSITIONS_FORMAT, AuditAction, Connection, SseEvent
 from tephra.store.base import Collection
 from tephra.util import timeutil
 from tephra.util.timeutil import FixedClock, use_clock
@@ -149,10 +149,17 @@ def client(tmp_path: Path) -> Any:
 
 def test_the_connect_api_end_to_end(client: TestClient) -> None:
     fmt = client.get("/api/connect/format").json()
-    assert fmt["format"] == POSITIONS_FORMAT
-    assert fmt["schema"]["properties"]["format"] == {"const": POSITIONS_FORMAT}
+    assert fmt["format"] == AIRLINE_FORMAT
+    assert fmt["schema"]["properties"]["format"] == {"enum": [AIRLINE_FORMAT, POSITIONS_FORMAT]}
+    assert set(fmt["schema"]["properties"]) == {
+        "format",
+        "positions",
+        "flight_plans",
+        "pilot_reports",
+    }
     sample = client.get("/api/connect/sample.json")
     assert "attachment" in sample.headers["content-disposition"]
+    assert sample.json()["format"] == AIRLINE_FORMAT
     assert sample.json()["positions"]
     page = client.get("/connect")
     assert page.status_code == 200
@@ -222,3 +229,66 @@ async def test_the_sample_feed_starts_and_stops(tmp_path: Path) -> None:
     assert running
     assert runtime.sample_stop is None
     assert pushed.pushes >= 1
+
+
+def plan(**changes: Any) -> dict[str, Any]:
+    return {
+        "flight": "RFA4259",
+        "hex": "8a0a1e",
+        "callsign": "BTK6711",
+        "origin_icao": "WIII",
+        "dest_icao": "WADD",
+        "cruise_fl": 340,
+        **changes,
+    }
+
+
+async def test_a_flight_plan_gives_its_flight_the_airlines_route(tmp_path: Path) -> None:
+    with use_clock(FixedClock(AT)):
+        runtime = make_runtime(make_settings(tmp_path), FixtureSource())
+        try:
+            result = await runtime.take_push(
+                connection(),
+                [position(track_deg=110.0, lat=-6.3, lon=107.5)],
+                plans=[plan(), plan(dest_icao="WIII"), plan(hex=None, callsign=None)],
+            )
+            routes = runtime.known_routes()
+            numbers = runtime.plan_numbers()
+            lines = runtime.plan_lines()
+        finally:
+            await runtime.aclose()
+
+    assert result.plans_taken == 1
+    assert [(p.section, p.index) for p in result.rejected] == [
+        ("flight_plans", 1),
+        ("flight_plans", 2),
+    ]
+    route = routes["8a0a1e"]
+    assert (route.origin_icao, route.dest_icao, route.source) == ("WIII", "WADD", "airline-plan")
+    assert numbers == {"8a0a1e": "RFA4259"}
+    assert [(line.flight, line.closed) for line in lines] == [("RFA4259", False)]
+
+
+async def test_a_pushed_pilot_report_is_entered_as_a_crew_report(tmp_path: Path) -> None:
+    with use_clock(FixedClock(AT)):
+        runtime = make_runtime(make_settings(tmp_path), FixtureSource())
+        try:
+            await runtime.take_push(connection(), [position()])
+            report = {
+                "hex": "8a0a1e",
+                "cues": ["ASH_SEEN"],
+                "level_from_fl": 120,
+                "level_to_fl": 160,
+                "observed_at": timeutil.to_iso(AT - timedelta(seconds=10)),
+            }
+            first = await runtime.take_push(connection(), reports=[report, {"hex": "8a0a1e"}])
+            again = await runtime.take_push(connection(), reports=[report])
+            stored = await runtime.store.list_docs(Collection.CREW_REPORTS)
+        finally:
+            await runtime.aclose()
+
+    assert first.reports_taken == 1
+    assert [(p.section, p.index) for p in first.rejected] == [("pilot_reports", 1)]
+    assert again.reports_taken == 1
+    assert len(stored) == 1
+    assert stored[0]["entered_by"].startswith("connect:")
