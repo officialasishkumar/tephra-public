@@ -1,20 +1,52 @@
 name: ci
 
-# Manual only: nothing runs on push or pull request until the team turns it on.
+# Static checks and the offline (stub-model) test suite on every push to main and every pull
+# request. No model call, no network: TEPHRA_LLM=stub. The deploy workflow does not wait for
+# this one (no `needs: test`) until the owner adds that after 17 Oct 2026: a flaky test must
+# not block a fix while two people push. The README badge reads this workflow's result.
+#
+# Every action is pinned to a commit SHA. actions/checkout carries the SHA deploy.yml already
+# uses; the setup-uv line still carries a version tag because the agents who wrote this file
+# work offline (tests/test_ci_workflow.py accepts a tag only on a line with the owner note).
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
+# A newer push to the same branch replaces a run still going: only the tip's result matters.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
-  check:
+  test:
     runs-on: ubuntu-latest
+    # The stub suite takes about 7 minutes; the limit leaves room for a slow runner.
+    timeout-minutes: 25
     env:
       TEPHRA_LLM: stub
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: astral-sh/setup-uv@v6 # owner: replace with the commit SHA (O-5)
         with:
           python-version: "3.12"
+
       - run: uv sync --extra dev
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run pytest
+      # The runner image ships Node; tests/test_ui_* run node --check on the Wall and Desk.
+      - run: node --version
+      - run: TEPHRA_LLM=stub uv run pytest -x -q --durations=15 --junitxml=junit.xml
+
+      - name: Keep the test report
+        if: always()
+        uses: actions/upload-artifact@v4 # owner: replace with the commit SHA (O-5)
+        with:
+          name: junit
+          path: junit.xml
+          if-no-files-found: ignore

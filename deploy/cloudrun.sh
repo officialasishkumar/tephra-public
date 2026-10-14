@@ -23,10 +23,6 @@ TEPHRA_CI_CAPABLE=1
 # shellcheck source=deploy/_common.sh
 source "$(dirname "$0")/_common.sh"
 
-if [ -n "${TEPHRA_MIN_INSTANCES:-}" ]; then
-  echo "TEPHRA_MIN_INSTANCES is gone: set TEPHRA_HOSTING=always-on or on-demand instead." >&2
-  exit 1
-fi
 HOSTING="${TEPHRA_HOSTING:-always-on}"
 MEMORY="${TEPHRA_MEMORY:-1Gi}"
 SCIENCE="${TEPHRA_SCIENCE:-false}"
@@ -38,8 +34,31 @@ SECRETS=(GEMINI_API_KEY TEPHRA_DESK_PIN TEPHRA_TASK_TOKEN TEPHRA_SESSION_SECRET)
 # Settings forwarded to the service when they are set in this shell; nothing else is.
 FORWARDED=(TEPHRA_MODE TEPHRA_REPLAY_CASE TEPHRA_REPLAY_START TEPHRA_REPLAY_END TEPHRA_REPLAY_SPEED
   TEPHRA_AUTO_REPLAY TEPHRA_REGION TEPHRA_MODEL TEPHRA_MODEL_LITE
-  TEPHRA_MODEL_DAILY_BUDGET TEPHRA_MODEL_LITE_DAILY_BUDGET)
+  TEPHRA_MODEL_DAILY_BUDGET TEPHRA_MODEL_LITE_DAILY_BUDGET
+  TEPHRA_FEATURES TEPHRA_VISITOR_ACCESS TEPHRA_REPLAY_QUANTUM_S TEPHRA_RECOVERY_AUTO
+  TEPHRA_CLOUD_REGION TEPHRA_AI_INTERACTIVE_SHARE TEPHRA_AI_ANSWER_REPLAY_KEEP_H)
 KEEP_TAG="${TEPHRA_KEEP_TAG:-}"
+# --- B21 (optional): pin secret versions ------------------------------------------------
+# TEPHRA_SECRET_VERSIONS="GEMINI_API_KEY=3,TEPHRA_DESK_PIN=2" mounts those versions instead
+# of "latest" (a rollback target then reads the same secret values it was tested with). Names
+# must be the four above; a version is a number or "latest".
+declare -A secret_version=()
+if [ -n "${TEPHRA_SECRET_VERSIONS:-}" ]; then
+  IFS=, read -r -a pins <<<"$TEPHRA_SECRET_VERSIONS"
+  for pin in "${pins[@]}"; do
+    name="${pin%%=*}"
+    version="${pin#*=}"
+    if [[ "$pin" != *=* ]] || ! [[ " ${SECRETS[*]} " == *" $name "* ]] \
+       || ! [[ "$version" =~ ^([1-9][0-9]*|latest)$ ]]; then
+      echo "TEPHRA_SECRET_VERSIONS: '$pin' is not NAME=VERSION with NAME one of ${SECRETS[*]}" >&2
+      echo "  and VERSION a number or 'latest'." >&2
+      exit 1
+    fi
+    secret_version["$name"]="$version"
+  done
+  unset pins pin name version
+fi
+# --- end B21 ------------------------------------------------------------------------------
 # The same value builds the image and switches the app's layer on, so both must agree.
 case "$SCIENCE" in
   true) MEMORY="${TEPHRA_MEMORY:-2Gi}"; science_arg=1 ;;
@@ -127,6 +146,8 @@ SHA="$(git rev-parse --short=12 HEAD)"
 
 env_vars=(
   "TEPHRA_STORE=firestore"
+  # Beside --set-secrets below: the app shows where its secrets come from, never guesses.
+  "TEPHRA_SECRETS_SOURCE=secret-manager"
   "TEPHRA_GCP_PROJECT=$TEPHRA_PROJECT"
   "TEPHRA_GCS_BUCKET=$BUCKET"
   "TEPHRA_LLM=$LLM"
@@ -258,6 +279,11 @@ if [ -n "$KEEP_TAG" ]; then
 fi
 
 # --- gated rollout ------------------------------------------------------------------------
+# NAME=NAME:VERSION for each secret; "latest" unless TEPHRA_SECRET_VERSIONS pinned it.
+secret_refs=""
+for secret in "${SECRETS[@]}"; do
+  secret_refs+="${secret_refs:+,}$secret=$secret:${secret_version[$secret]:-latest}"
+done
 deploy_args=(
   --image "$IMAGE"
   --region "$REGION"
@@ -268,8 +294,19 @@ deploy_args=(
   --cpu 1
   --timeout 3600
   --set-env-vars "$env_list"
-  --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest,TEPHRA_DESK_PIN=TEPHRA_DESK_PIN:latest,TEPHRA_TASK_TOKEN=TEPHRA_TASK_TOKEN:latest,TEPHRA_SESSION_SECRET=TEPHRA_SESSION_SECRET:latest"
+  --set-secrets "$secret_refs"
 )
+# --- B06 (own commit; the owner checks these flags against `gcloud run deploy --help`) ------
+# One instance serves the Wall's event streams and the Desk, so it takes many idle
+# connections: 300 rather than the default 80. The start-up probe gives the restore from
+# Firestore up to 2 minutes before Cloud Run gives up on the instance; the liveness probe
+# replaces a stuck one.
+deploy_args+=(
+  --concurrency 300
+  --startup-probe "httpGet.path=/health,initialDelaySeconds=2,periodSeconds=3,timeoutSeconds=2,failureThreshold=40"
+  --liveness-probe "httpGet.path=/health,periodSeconds=30,timeoutSeconds=3,failureThreshold=3"
+)
+# --- end B06 ------------------------------------------------------------------------------
 # Public access is an IAM binding on the service, which outlives revisions. A person sets it;
 # the deployer (roles/run.developer) cannot change IAM, and a revision keeps the binding.
 [ "$CI_MODE" = true ] || deploy_args+=(--allow-unauthenticated)

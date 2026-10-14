@@ -11,7 +11,9 @@
 #
 # Optional expectations (environment): EXPECT_SHA (build commit), EXPECT_MODE (LIVE|REPLAY),
 # EXPECT_CASE (replay case id), TICK_INTERVAL_S (default 60; a tick older than 3x fails).
-# Exit status is non-zero when any check fails.
+# Exit status is non-zero when any check fails. When the build reports where it runs
+# (state.cloud), the run also checks it is Cloud Run on Firestore with a revision name, that
+# GET /api/audit/verify answers 200, and GET /api/evals (404 is reported, not failed).
 #
 # Cloud Run answers 429 or 503 while the single instance starts. A request that gets one is
 # retried with backoff for up to SMOKE_RETRY_S (default 90) seconds, and SMOKE_RETRY_BUDGET_S
@@ -265,6 +267,27 @@ def store():
     report(ok is True, "store", json.dumps(state["store"])[:200])
 
 
+def cloud():
+    """The facts a deployed build reports about where it runs, and the two routes a reader of
+    the Wall's Runs on and Track record panels reaches: the audit chain's verification and
+    the evals index. GET /api/evals answers 404 until the scorecard JSON is committed; that
+    is reported, not failed."""
+    if "cloud" not in state:
+        report(None, "cloud", "cloud facts not exposed by this build")
+        return
+    facts = state["cloud"] or {}
+    platform, revision, store_kind = facts.get("platform"), facts.get("revision"), facts.get("store")
+    ok = platform == "cloud-run" and bool(revision) and store_kind == "firestore"
+    report(ok, "cloud", f"platform={platform}, revision={revision}, store={store_kind}")
+    status = fetch("/api/audit/verify")[0]
+    report(status == 200, "audit-verify", f"GET /api/audit/verify -> {status}")
+    status = fetch("/api/evals")[0]
+    if status == 404:
+        report(None, "evals", "GET /api/evals -> 404 (no scorecard JSON in this build yet)")
+    else:
+        report(status == 200, "evals", f"GET /api/evals -> {status}")
+
+
 def mode_and_case():
     want_mode = os.environ.get("EXPECT_MODE")
     want_case = os.environ.get("EXPECT_CASE")
@@ -330,6 +353,7 @@ if state:
     check("build_sha", build_sha)
     check("store", store)
     check("mode", mode_and_case)
+    check("cloud", cloud)
 else:
     report(False, "state checks", "skipped: GET /api/state failed")
 check("page /", lambda: page("/"))

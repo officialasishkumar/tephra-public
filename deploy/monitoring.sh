@@ -98,8 +98,29 @@ summary="log-based metrics gemini_calls, gemini_latency_ms, tephra_ticks and the
 if [ "$ALERTS" = "true" ]; then
   summary="$summary, plus an email channel and two alert policies"
 fi
+# --- B20 (optional; the owner reads the uptime-check pricing page first) -------------------
+# One uptime check on GET /health every 5 minutes, from Google's checkers, so an instance
+# that stops answering is seen without anyone opening the Wall. Idempotent by display name.
+UPTIME_NAME="TEPHRA /health"
+service_host="$(gcloud run services describe "$SERVICE" --region "$REGION" \
+  --format='value(status.url)' | sed -e 's#^https://##')"
+[ -n "$service_host" ] || { echo "Deploy the service first (deploy/cloudrun.sh)." >&2; exit 1; }
+summary="$summary, plus an uptime check on https://$service_host/health every 5 min"
+# --- end B20 ------------------------------------------------------------------------------
 confirm "Create $summary for service $SERVICE (check pricing first)?"
 run gcloud services enable logging.googleapis.com monitoring.googleapis.com
+
+# --- B20 (continued) ----------------------------------------------------------------------
+existing_uptime="$(gcloud monitoring uptime list-configs \
+  --filter="displayName=\"$UPTIME_NAME\"" --format='value(name)' | head -n 1)"
+if [ -n "$existing_uptime" ]; then
+  echo "Uptime check '$UPTIME_NAME' already exists ($existing_uptime); left as it is."
+else
+  run gcloud monitoring uptime create "$UPTIME_NAME" \
+    --resource-type=uptime-url --resource-labels="host=$service_host,project_id=$TEPHRA_PROJECT" \
+    --protocol=https --port=443 --path=/health --period=5 --timeout=10
+fi
+# --- end B20 ------------------------------------------------------------------------------
 
 for metric in gemini_calls gemini_latency_ms tephra_ticks; do
   if gcloud logging metrics describe "$metric" >/dev/null 2>&1; then

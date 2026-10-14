@@ -28,11 +28,20 @@ on:
       - "tephra/**"
       - "data/**"
       - "docs/backtest/**"
+      - "docs/evals/**"
       - "deploy/**"
       - scripts/live_smoke.sh
       - tests/test_policy.py
       - .github/workflows/deploy.yml
   workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: >-
+          Not read yet. Once the deploy job waits for the ci workflow (`needs: test`, added by
+          the owner after 17 Oct 2026), "true" lets a manual run deploy a fix without that wait.
+        type: boolean
+        default: false
+        required: false
 
 # One deploy at a time, in push order. A running deploy is never cancelled (that could stop it
 # between moving traffic and its smoke test); a newer push replaces any run still waiting.
@@ -57,12 +66,26 @@ env:
   TEPHRA_GCS_BUCKET: tephra-regal-wall-392020-blobs
   TEPHRA_HOSTING: always-on
   TEPHRA_LLM: gemini
-  # The demo configuration (deploy/README.md, "Judging window").
+  # The demo configuration (deploy/README.md, "Automatic deploys"): the Krakatau window
+  # played as a loop, the hero features only, visitors may decide on the Desk, the recovery
+  # planner runs only when asked from the Desk, and the replay minute (every loop asks the
+  # same questions at the same replay minute, so kept answers are reused at zero quota).
   TEPHRA_MODE: REPLAY
   TEPHRA_REPLAY_CASE: anak-krakatau-20260905
   TEPHRA_REPLAY_START: "2026-09-05T10:30:00Z"
   TEPHRA_REPLAY_END: "2026-09-05T19:30:00Z"
   TEPHRA_AUTO_REPLAY: "false"
+  TEPHRA_FEATURES: "hero"
+  TEPHRA_VISITOR_ACCESS: "replay"
+  # Delete this line to refuse the replay minute (aircraft then refresh every 30 s and about
+  # 100 lite calls a loop are asked again).
+  TEPHRA_REPLAY_QUANTUM_S: "60"
+  TEPHRA_RECOVERY_AUTO: "false"
+  # Shown under Details > Runs on; the service cannot read its own region.
+  TEPHRA_CLOUD_REGION: asia-southeast1
+  # Held for the Desk's Ask and messages. Left out until the answer store has filled (push 4,
+  # 17 Oct 2026 evening), so the fill days keep the whole lite budget for the loop.
+  # TEPHRA_AI_INTERACTIVE_SHARE: "0.3"
   CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
 
 jobs:

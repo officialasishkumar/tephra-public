@@ -646,6 +646,7 @@ def test_deploy_paths_reads_the_same_list_github_does() -> None:
         ("tephra/agents/prompts/plume_reader.md", True),
         ("data/replay/README.md", True),
         ("docs/backtest/results.json", True),
+        ("docs/evals/plume_scorecard.json", True),
         ("deploy/cloudrun.sh", True),
         ("Dockerfile", True),
         ("uv.lock", True),
@@ -690,6 +691,66 @@ def test_deploy_paths_cover_everything_the_image_is_built_from() -> None:
     assert missing == []
 
 
+_CLOUDRUN = PROJECT_ROOT / "deploy" / "cloudrun.sh"
+
+
+def _bash_array(script: str, name: str) -> list[str]:
+    match = re.search(rf"^{name}=\((.*?)\)", script, re.M | re.S)
+    assert match is not None, name
+    return match.group(1).split()
+
+
+def test_cloudrun_forwards_the_demo_settings_when_set() -> None:
+    forwarded = _bash_array(_CLOUDRUN.read_text(encoding="utf-8"), "FORWARDED")
+    expected = {
+        "TEPHRA_FEATURES",
+        "TEPHRA_VISITOR_ACCESS",
+        "TEPHRA_REPLAY_QUANTUM_S",
+        "TEPHRA_RECOVERY_AUTO",
+        "TEPHRA_CLOUD_REGION",
+        "TEPHRA_AI_INTERACTIVE_SHARE",
+        "TEPHRA_AI_ANSWER_REPLAY_KEEP_H",
+    }
+    assert expected <= set(forwarded)
+    assert len(forwarded) == len(set(forwarded))
+    # Every forwarded name is a real setting, by its env alias.
+    aliases = set()
+    for field in Settings.model_fields.values():
+        alias = field.validation_alias
+        choices = alias.choices if isinstance(alias, AliasChoices) else [alias]
+        aliases.update(str(choice) for choice in choices if choice)
+    env_names = {f"TEPHRA_{name.upper()}" for name in Settings.model_fields}
+    assert set(forwarded) <= aliases | env_names
+
+
+def test_cloudrun_says_where_the_secrets_come_from_beside_set_secrets() -> None:
+    script = _CLOUDRUN.read_text(encoding="utf-8")
+    env_vars = _bash_array(script, "env_vars")
+    assert '"TEPHRA_SECRETS_SOURCE=secret-manager"' in env_vars
+    assert '--set-secrets "$secret_refs"' in script
+    assert set(_bash_array(script, "SECRETS")) == {
+        "GEMINI_API_KEY",
+        "TEPHRA_DESK_PIN",
+        "TEPHRA_TASK_TOKEN",
+        "TEPHRA_SESSION_SECRET",
+    }
+
+
+def test_deploy_files_the_export_keeps_do_not_address_a_judge() -> None:
+    """The private runbook (dropped by the export) is the one place the word may stay."""
+    hits = []
+    for path in sorted((PROJECT_ROOT / "deploy").rglob("*")):
+        if not path.is_file() or path.name == "RUNBOOK-private.md" or "__pycache__" in path.parts:
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if re.search(r"\bjudg", line, re.IGNORECASE):
+                hits.append(f"{path.relative_to(PROJECT_ROOT)}:{number}")
+    assert hits == []
+    runbook = (PROJECT_ROOT / "deploy" / "RUNBOOK-private.md").read_text(encoding="utf-8")
+    assert "TEPHRA_KEEP_TAG=keep-submission-20261018" in runbook
+    assert "prewarm_replay.py" in runbook
+
+
 def test_deploy_paths_refuses_patterns_it_cannot_match() -> None:
     module = _deploy_paths()
     with pytest.raises(ValueError, match="unsupported path pattern"):
@@ -701,14 +762,16 @@ def test_deploy_paths_refuses_patterns_it_cannot_match() -> None:
 # --- live_smoke.sh: waiting out 429/503 ----------------------------------------------------
 
 
-def _smoke_against(script: dict[str, list[int]], env: dict[str, str]) -> str:
+def _smoke_against(
+    script: dict[str, list[int]], env: dict[str, str], state: dict[str, Any] | None = None
+) -> str:
     """Run scripts/live_smoke.sh --read-only against a local server answering each path with
     the listed statuses in turn (the last one repeats); return its output."""
     import subprocess
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-    state_body = json.dumps({"mode": "REPLAY", "build_sha": "abc", "policy": {}}).encode()
+    state_body = json.dumps(state or {"mode": "REPLAY", "build_sha": "abc", "policy": {}}).encode()
     calls: dict[str, int] = {}
 
     class Handler(BaseHTTPRequestHandler):
@@ -778,6 +841,41 @@ def test_smoke_without_retries_reports_the_429() -> None:
     line = _line(out, "healthz")
     assert line.startswith("FAIL healthz: 429")
     assert "not retried: no retries" in line
+
+
+_OK_ROUTES = {"/health": [200], "/api/state": [200]}
+_CLOUD_STATE: dict[str, Any] = {
+    "mode": "REPLAY",
+    "build_sha": "abc",
+    "policy": {},
+    "cloud": {"platform": "cloud-run", "revision": "tephra-00123-abc", "store": "firestore"},
+}
+
+
+def test_smoke_skips_the_cloud_checks_when_the_build_has_no_cloud_facts() -> None:
+    out = _smoke_against({"/health": [200], "/api/state": [200]}, {})
+    assert _line(out, "cloud").startswith("WARN cloud: cloud facts not exposed")
+    assert " audit-verify: " not in out
+    assert " evals: " not in out
+
+
+def test_smoke_checks_cloud_run_firestore_audit_verify_and_reports_missing_evals() -> None:
+    routes = {**_OK_ROUTES, "/api/audit/verify": [200], "/api/evals": [404]}
+    out = _smoke_against(routes, {}, _CLOUD_STATE)
+    assert _line(out, "cloud") == (
+        "PASS cloud: platform=cloud-run, revision=tephra-00123-abc, store=firestore"
+    )
+    assert _line(out, "audit-verify") == "PASS audit-verify: GET /api/audit/verify -> 200"
+    assert _line(out, "evals").startswith("WARN evals: GET /api/evals -> 404")
+
+
+def test_smoke_fails_a_local_platform_a_broken_verify_and_a_broken_evals() -> None:
+    state = {**_CLOUD_STATE, "cloud": {"platform": "local", "revision": None, "store": "sqlite"}}
+    routes = {**_OK_ROUTES, "/api/audit/verify": [500], "/api/evals": [500]}
+    out = _smoke_against(routes, {}, state)
+    assert _line(out, "cloud").startswith("FAIL cloud: platform=local")
+    assert _line(out, "audit-verify").startswith("FAIL audit-verify: ")
+    assert _line(out, "evals") == "FAIL evals: GET /api/evals -> 500"
 
 
 async def test_count_model_calls_asks_nothing_again_on_a_second_loop(

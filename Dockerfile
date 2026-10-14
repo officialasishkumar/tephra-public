@@ -23,6 +23,7 @@ RUN extras="--extra gcp"; \
 COPY tephra ./tephra
 COPY data ./data
 COPY docs/backtest ./docs/backtest
+COPY docs/evals ./docs/evals
 RUN extras="--extra gcp"; \
     if [ "$SCIENCE" = "1" ]; then extras="$extras --extra science"; fi; \
     uv sync --frozen --no-dev $extras
