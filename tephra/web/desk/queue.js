@@ -181,7 +181,7 @@ function buildLead(adv) {
   const now = activeNow();
   const who = [adv.proxy_flight, adv.callsign].filter(Boolean).join(' · ');
   const writer = [aiMark(undefined, isStub(adv) ? null : adv.model_id)];
-  // The frame strip says REPLAY; only a replay draft shown while live feeds play carries a tag.
+  // Only a replay draft shown while live feeds play carries a tag.
   const fromReplay = fromReplayChip(adv);
   return el('article', { class: 'lead next__card', 'data-id': adv.id, 'data-version': String(adv.version), 'data-band': band(coneFor(adv)), 'data-crewkey': crewKey(adv), 'data-level': String(levelNow(adv)), 'aria-labelledby': 'next-flight next-action' },
     el('p', { class: 'lead__top' }, el('span', { class: 'lead__who', id: 'next-flight', text: who }), timeNode(adv, now)),

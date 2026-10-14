@@ -802,6 +802,14 @@ the story column and the drawer scroll inside themselves.
 
 ### 7.1 The frame strip: REPLAY said once (13 Oct 2026)
 
+**Removed 15 Oct 2026, at the owner's request.** The strip (`#frame` on the Wall and the Desk,
+`.tn-strip` on Connect and the guide) is gone from every page, with its `--frame-px` and
+`--dframe-h` offsets. REPLAY is now said by each page's title ("REPLAY - TEPHRA Wall"), the Wall's
+clock ("Replay clock"), its time bar's replay mark and its status dot, and every modal's sr-only
+description (`replayLine`, `replayModalWords`). The disclaimer's words stay in the server state and
+About; the fictional airline is in the status line's tooltip. The rest of this section is the
+record of what the strip was.
+
 "Too many mentions of replay everywhere": a violet band stacked over a separate disclaimer bar, a
 "Replay" mode pill, "Recorded" on the story, "recorded" pills on most Details sections, a second
 band on the board, REPLAY tags on Desk cards and reviews. CLAUDE.md's "REPLAY is always labelled"
@@ -1483,10 +1491,9 @@ and the flights in it, pink stays official.
 
 ### 7.25 One product: the shared nav (14 Oct 2026, `topnav.css`)
 
-Every page starts the same way, so moving between them nothing jumps: a 32 px strip on top (the
-Wall's and the Desk's frame strip; on Connect and the guide a `.tn-strip` with the disclaimer), then
-a 56 px bar (`.tn-bar`) that opens with the TEPHRA mark (`.tn-home`, 132 px wide at 24 px from the
-left; it goes home, the Wall) and the pill nav Wall · Desk · Connect · Guide with the page you are
+Every page starts the same way, so moving between them nothing jumps: a 56 px bar at the top
+(`.tn-bar`; the 32 px strip above it was removed on 15 Oct 2026, 7.1) that opens with the TEPHRA
+mark (`.tn-home`, 132 px wide at 24 px from the left; it goes home, the Wall) and the pill nav Wall · Desk · Connect · Guide with the page you are
 on filled. The gap after the mark and the nav's sizes are in px, as the pages' root font sizes
 differ. Each page's own controls follow: the Wall's area, Assistant, data and clock (the Wall's old
 "Connect" and "Desk →" header buttons are gone, the nav has both), the Desk's chips on the right,

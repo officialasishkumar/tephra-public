@@ -356,8 +356,8 @@ function reviewView(adv) {
       statusBadge(adv), el('p', { text: closedSentence(adv) })));
   }
   if (adv.plume_mode === 'HYPOTHESIS') out.push(hypothesisBanner());
-  // REPLAY is said by the frame strip; a replay draft opened while live feeds play says so here,
-  // since the strip then says nothing about it (UI-DESIGN 7.1, cross-mode records).
+  // A replay draft opened while live feeds play says so here, since the page then says nothing
+  // about it (UI-DESIGN 7.1, cross-mode records).
   const fromReplay = fromReplayChip(adv);
   if (fromReplay) out.push(el('p', { class: 'replay-note' }, fromReplay, el('span', { text: 'Drafted while a replay played, not from live feeds' })));
   const who =[adv.proxy_flight, adv.callsign].filter(Boolean).join(' · ');

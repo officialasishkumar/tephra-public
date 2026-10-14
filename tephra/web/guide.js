@@ -21,7 +21,6 @@ const section = (id, title, body) => el("section", { id, class: "guide__sec", "a
 
 async function build() {
   const [state, policy] = await Promise.all([getJson("/api/state"), getJson("/api/policy")]);
-  if (state?.disclaimer) document.querySelector(".guide__honesty strong").textContent = state.disclaimer;
   document.getElementById("guide").replaceChildren(
     section("read", "Read the map", helpContent(false, { page: true })),
     section("how", "How each part works", el("div", { class: "guide__how" },

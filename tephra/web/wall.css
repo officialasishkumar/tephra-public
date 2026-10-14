@@ -3,7 +3,6 @@
    Dark only. Nothing floats over the map except its labels, status pills and controls (R3). */
 
 :root {
-  --band-h: 32px;
   --bar-h: 56px;
   --story-w: 460px;
   --drawer-w: 480px;
@@ -11,7 +10,6 @@
   --foot-h: 32px;
   --story-size: 28px;
   --gutter: 20px;
-  --frame-px: 0px; /* the frame strip's height, measured by wall.js: the phone header and dialogs sit below it */
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -23,7 +21,7 @@ html, body { height: 100%; margin: 0; }
 
 body.wall {
   display: grid;
-  grid-template-rows: auto var(--bar-h) minmax(0, 1fr) var(--foot-h);
+  grid-template-rows: var(--bar-h) minmax(0, 1fr) var(--foot-h);
   grid-template-columns: minmax(0, 1fr);
   background: var(--c-bg);
   color: var(--c-text-1);
@@ -34,10 +32,9 @@ body.wall {
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
-body.wall > .frame { grid-row: 1; }
-body.wall > .cmdbar { grid-row: 2; }
-body.wall > .stage { grid-row: 3; }
-body.wall > .honesty { grid-row: 4; }
+body.wall > .cmdbar { grid-row: 1; }
+body.wall > .stage { grid-row: 2; }
+body.wall > .honesty { grid-row: 3; }
 
 h1, h2, h3, h4, p, ul, ol, dl, dd, figure, fieldset, blockquote { margin: 0; }
 ul, ol { padding: 0; list-style: none; }
@@ -128,35 +125,6 @@ q { quotes: "“" "”"; }
 }
 @keyframes skel { 50% { opacity: 0.45; } }
 
-/* ---------------------------------------------------------------- the frame strip (7.1, "Say it once, in the frame")
-   One slim strip above everything: in REPLAY the violet replay part on the left, the disclaimer on
-   the right; live, the disclaimer alone. Dialogs open below it, so it is never covered or dimmed. */
-
-.frame {
-  display: flex; align-items: stretch; justify-content: space-between; flex-wrap: wrap;
-  min-height: var(--band-h); min-width: 0;
-  background: var(--c-surface-1); border-bottom: 1px solid var(--c-line-1);
-  font-size: var(--fs-2); font-weight: var(--fw-semibold); line-height: var(--lh-snug);
-  z-index: var(--z-banner);
-}
-.frame > p { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; padding: 4px var(--gutter); text-wrap: balance; }
-.frame .icon { width: 16px; height: 16px; }
-.frame__replay {
-  background-color: var(--c-replay-bg);
-  background-image: repeating-linear-gradient(135deg, rgb(183 148 255 / 0.16) 0 10px, transparent 10px 20px);
-  background-size: 28px 100%; background-repeat: no-repeat;
-  box-shadow: inset 0 -2px 0 var(--c-replay);
-  color: var(--c-text-1);
-}
-.frame__replay .icon { color: var(--c-replay); margin-left: 12px; }
-.frame__live { color: var(--c-replay-text); }
-.frame__honesty { color: var(--c-text-1); }
-.frame__honesty .icon { color: var(--c-info); }
-/* Every dialog opens below the strip and its backdrop starts there too, so the strip is never
-   covered or dimmed: the board, Help, About, the sources and policy dialogs (and on a phone the
-   Details sheet, which starts below the header). */
-.dlg, .board { top: var(--frame-px, 0px); }
-.dlg::backdrop, .board::backdrop { top: var(--frame-px, 0px); }
 
 /* ---------------------------------------------------------------- top bar (R3.1) */
 
@@ -325,8 +293,8 @@ body.details-open .stage { grid-template-columns: var(--story-w) minmax(0, 1fr) 
 
 .verdict { display: flex; flex-direction: column; gap: var(--sp-3); }
 .verdict--error .story__actions, .verdict--error .story__lines { display: none; }
-/* eyebrow (R5.1): the name in sentence case with "as of" on its right; under it, muted, the area,
-   the alert colour as a pill in words (REPLAY is said once, by the frame strip) */
+/* eyebrow (R5.1): the name in sentence case with "Updated" on its right; under it, muted, the area
+   and the alert colour as a pill in words */
 .eyebrow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "icon name asof" ". rest rest"; align-items: center; gap: 4px var(--sp-2); }
 .eyebrow:has(> .eyebrow__icon:empty) { grid-template-areas: "name name asof" "rest rest rest"; }
 .eyebrow__icon { grid-area: icon; display: inline-flex; }
@@ -1368,7 +1336,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
    scroll, and the player is a bar at the bottom. */
 
 .board {
-  position: fixed; inset: var(--frame-px, 0px) 0 0 0; width: 100vw; height: calc(100dvh - var(--frame-px, 0px));
+  position: fixed; inset: 0; width: 100vw; height: 100dvh;
   max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden;
   background: var(--c-bg); color: var(--c-text-1); border: 0; border-radius: 0;
 }
@@ -1843,13 +1811,8 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   /* the viewport scrolls (never the body), so the band and the header can stick */
   html { height: auto; overflow-x: clip; }
   body.wall { display: block; height: auto; overflow: visible; padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
-  /* the frame strip sticks at the top in two short lines: the replay part, then the disclaimer */
-  .frame { position: sticky; top: 0; z-index: calc(var(--z-sticky) + 1); flex-direction: column; font-size: var(--fs-1); }
-  .frame > p { padding: 3px var(--gutter); }
-  .frame__replay .icon { margin-left: 0; }
-  .frame__honesty .icon { display: none; }
   .cmdbar {
-    position: sticky; top: var(--frame-px); height: auto;
+    position: sticky; top: 0; height: auto;
     display: grid; grid-template-columns: auto auto 1fr; grid-template-areas: "brand nav clock" "mode mode mode";
     gap: 4px 8px; padding: 6px 12px;
   }
@@ -1930,7 +1893,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   /* the sheet starts below the sticky header, which stays visible above it (R8.1) */
   .sheet { position: fixed; inset: var(--sheet-top, 0px) 0 0 0; width: 100%; max-width: 100%; height: auto; max-height: none; margin: 0; padding: 0; border: 0; border-top: 2px solid var(--c-line-2); background: var(--c-surface-1); color: var(--c-text-1); }
   .sheet .story-strip { display: none; }
-  /* the sheet fills everything under the frame strip and the header; those stay undimmed, so the
+  /* the sheet fills everything under the header; it stays undimmed, so the
      safety line reads at full contrast (review 2, item 15) */
   .sheet::backdrop { background: transparent; }
   .sheet .drawer { height: 100%; }

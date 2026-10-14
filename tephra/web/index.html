@@ -29,21 +29,6 @@
   <a class="skip-link" href="#map">Skip to map</a>
   <a class="skip-link" href="#details-btn">Skip to details</a>
 
-  <!-- The frame strip (UI-DESIGN 7.1, "Say it once, in the frame"): the one REPLAY label and the
-       disclaimer, always on screen above everything, dialogs and sheets included. Live, the
-       disclaimer alone. The case title is in the REPLAY part's tooltip and, for screen readers,
-       in #replay-banner-case. wall.js sets the strip's label ("Replay notice and disclaimer"). -->
-  <div id="frame" class="frame" role="note" aria-label="Disclaimer">
-    <p id="replay-banner" class="frame__replay" hidden>
-      <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-replay"></use></svg>
-      <span><span id="replay-banner-text">Replay</span><span class="frame__live"> · not live</span><span id="replay-banner-case" class="sr-only"></span></span>
-    </p>
-    <p class="frame__honesty">
-      <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-info"></use></svg>
-      <strong id="disclaimer">Decision support only - fictional airline - not for operational use</strong>
-    </p>
-  </div>
-
   <header class="cmdbar tn-bar">
     <a class="tn-home brand" href="/" title="TEPHRA home">TEPHRA<span class="brand__sub sr-only"> volcanic-ash decision desk</span></a>
     <nav class="topnav" aria-label="TEPHRA pages"><a href="/" aria-current="page">Wall</a><a class="topnav__keep" href="/desk">Desk</a><a href="/connect">Connect</a><a href="/guide">Guide</a></nav>
@@ -200,24 +185,24 @@
     </aside>
   </main>
 
-  <!-- the status line (UI-DESIGN 7.26): what the Wall shows now on the left, written by panels.js,
+  <!-- the status line (UI-DESIGN 7.26): what the Wall shows now on the left, in plain words from panels.js,
        and the keys on the right; each key is also a button -->
   <footer class="honesty stl">
     <span id="stl-dot" class="stl__dot" aria-hidden="true"></span>
-    <span id="stl-where" class="stl__where">tephra://wall</span>
+    <span id="stl-where" class="stl__where"></span>
     <span class="stl__line">
       <span id="stl-facts" class="stl__facts honesty__airline" title="Ring of Fire Air (RFA) is a fictional airline. Its flight numbers are proxies for real aircraft (About)."></span>
       <a id="policy-btn" class="stl__seg" href="/guide#policy" target="_blank" rel="noopener" hidden></a>
-      <a id="attribution" class="stl__seg" href="/guide#about-credits" target="_blank" rel="noopener">credits</a>
+      <a id="attribution" class="stl__seg" href="/guide#about-credits" target="_blank" rel="noopener">Credits</a>
     </span>
     <span class="stl__keys" role="group" aria-label="Keyboard shortcuts">
-      <a id="help-btn" class="stl__key" href="/guide#read" target="_blank" rel="noopener" aria-keyshortcuts="?"><kbd>?</kbd>guide</a>
-      <button type="button" class="stl__key" data-act="key" data-key="a" aria-keyshortcuts="A"><kbd>a</kbd>assistant</button>
-      <button type="button" class="stl__key stl__key--wide" data-act="key" data-key="]" aria-keyshortcuts="[ ]"><kbd>[ ]</kbd>volcano</button>
-      <button type="button" class="stl__key" data-act="key" data-key="f" aria-keyshortcuts="F"><kbd>f</kbd>fit</button>
-      <button type="button" class="stl__key" data-act="key" data-key="d" aria-keyshortcuts="D"><kbd>d</kbd>3D</button>
-      <button type="button" class="stl__key" data-act="key" data-key="s" aria-keyshortcuts="S"><kbd>s</kbd>compare</button>
-      <button type="button" class="stl__key" data-act="key" data-key="Escape" aria-keyshortcuts="Escape"><kbd>esc</kbd>back</button>
+      <a id="help-btn" class="stl__key" href="/guide#read" target="_blank" rel="noopener" aria-keyshortcuts="?"><kbd>?</kbd>Guide</a>
+      <button type="button" class="stl__key" data-act="key" data-key="a" aria-keyshortcuts="A"><kbd>A</kbd>Assistant</button>
+      <button type="button" class="stl__key stl__key--wide" data-act="key" data-key="]" aria-keyshortcuts="[ ]"><kbd>[ ]</kbd>Volcano</button>
+      <button type="button" class="stl__key" data-act="key" data-key="f" aria-keyshortcuts="F"><kbd>F</kbd>Fit map</button>
+      <button type="button" class="stl__key" data-act="key" data-key="d" aria-keyshortcuts="D"><kbd>D</kbd>3D</button>
+      <button type="button" class="stl__key" data-act="key" data-key="s" aria-keyshortcuts="S"><kbd>S</kbd>Compare</button>
+      <button type="button" class="stl__key" data-act="key" data-key="Escape" aria-keyshortcuts="Escape"><kbd>Esc</kbd>Back</button>
     </span>
   </footer>
 

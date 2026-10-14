@@ -413,7 +413,7 @@ def test_you_decide_takes_the_walls_count_of_flights_to_plan_by_hand(tmp_path: P
 XPARTS_RUNNER = """
 import {
   aiStateOf, aiWords, aiLead, draftBlock, blockPhrase, plainLine, jobsWords,
-  pacingWords, aiSymbol, replayWords, stripLabel, planFailure, failureEach, causeTitle,
+  pacingWords, aiSymbol, replayWords, planFailure, failureEach, causeTitle,
 } from "./wall/x-parts.js";
 const at = Date.parse("2026-10-13T06:00:00Z");
 const e = (stage, reason) => ({ stage, reason, at, raw: reason });
@@ -501,7 +501,6 @@ process.stdout.write(JSON.stringify({
     banner: "REPLAY: recorded real feeds from 05 Sep 2026",
     label: "Anak Krakatau (reconstructed)", auto: true,
   }),
-  stripLabels: [stripLabel(true), stripLabel(false)],
 }));
 """
 
@@ -679,12 +678,6 @@ def test_the_frame_strip_says_replay_once_with_the_case_in_its_tooltip(tmp_path:
     assert strip["more"] == (
         " · Anak Krakatau (reconstructed) · switched automatically: no live activity"
     )
-
-
-def test_the_frame_strip_is_named_for_what_it_holds(tmp_path: Path) -> None:
-    """The strip's accessible name says "Replay" only while a replay plays; live, the strip holds
-    the disclaimer alone and is named so."""
-    assert _xparts(tmp_path)["stripLabels"] == ["Replay notice and disclaimer", "Disclaimer"]
 
 
 # ------------------------------------------------------------------ the flow board (UI-DESIGN 7.21)
@@ -1056,9 +1049,9 @@ def test_flow_a_hand_out_goes_before_the_work_it_started(tmp_path: Path) -> None
     assert row["tm"] == handoff["rec"]
 
 
-def test_the_frame_strip_says_replay_while_the_board_covers_the_wall() -> None:
-    """The board covers the Wall, which is not redrawn while it is open; the frame strip above it
-    is, so a board opened from #ai-at-work in REPLAY still says REPLAY once (UI-DESIGN 7.1)."""
+def test_the_page_says_replay_while_the_board_covers_the_wall() -> None:
+    """The board covers the Wall, which is not redrawn while it is open; the page title and the
+    board's sr-only REPLAY words are, so a board opened from #ai-at-work in REPLAY still says it."""
     wall = (WALL.parent / "wall.js").read_text(encoding="utf-8")
     board_branch = wall[wall.index("  if (ui.board.open) {\n    renderFrame(D.state);") :]
     board_branch = board_branch[: board_branch.index("return;")]
@@ -1066,5 +1059,6 @@ def test_the_frame_strip_says_replay_while_the_board_covers_the_wall() -> None:
     panels = (WALL / "panels.js").read_text(encoding="utf-8")
     frame = panels[panels.index("export function renderFrame(s)") :]
     frame = frame[: frame.index("\n}\n")]
-    assert "banner.hidden = !replay;" in frame
+    assert 'document.title = `${replay ? "REPLAY - " : ""}TEPHRA Wall`;' in frame
+    assert "describeReplay(dlg, replayLine(s))" in frame
     assert "renderFrame(s);" in panels[panels.index("export function renderChrome") :]

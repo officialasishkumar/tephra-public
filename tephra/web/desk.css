@@ -6275,116 +6275,19 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
    an empty box. These rules come last on purpose.
    ===================================================================================== */
 
-/* --- the frame strip (UI-DESIGN 7.1): REPLAY said once, and the disclaimer ---------------------
-   The Wall's strip, the same look on the Desk: the top row of the sticky header, the violet REPLAY
-   part on the left (REPLAY only), the disclaimer with its info mark on the right; one line on
-   desktop, two short lines on a phone; live, the disclaimer alone. Violet is only on the REPLAY
-   part. It is a label, not a control, so it sits above the brand row, never next to the tabs. */
-
-.frame {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  justify-content: space-between;
-  min-width: 0;
-  min-height: 32px;
-  border-bottom: var(--border-hair);
-  background: var(--c-surface-1);
-  font-size: var(--fs-2);
-  font-weight: var(--fw-semibold);
-  line-height: var(--lh-snug);
-}
-
-.frame > p {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  min-width: 0;
-  margin: 0;
-  padding: 4px max(var(--sp-4), env(safe-area-inset-right)) 4px max(var(--sp-4), env(safe-area-inset-left));
-  text-wrap: balance;
-}
-
-.frame .icon {
-  width: 16px;
-  height: 16px;
-  flex: none;
-}
-
-.frame__replay {
-  background-color: var(--c-replay-bg);
-  background-image: repeating-linear-gradient(135deg, rgb(183 148 255 / 0.16) 0 10px, transparent 10px 20px);
-  background-size: 28px 100%;
-  background-repeat: no-repeat;
-  box-shadow: inset 0 -2px 0 var(--c-replay);
-  color: var(--c-text-1);
-}
-
-.frame__replay .icon {
-  margin-left: 12px;
-  color: var(--c-replay);
-}
-
-.frame__live {
-  color: var(--c-replay-text);
-}
-
-.frame__honesty {
-  color: var(--c-text-1);
-}
-
-.frame__honesty .icon {
-  color: var(--c-info);
-}
-
-@media (min-width: 1100px) {
-  .frame > p {
-    padding-left: var(--sp-5);
-    padding-right: var(--sp-5);
-  }
-}
-
-@media (max-width: 599px) {
-  .frame {
-    flex-direction: column;
-    font-size: var(--fs-1);
-  }
-
-  .frame > p {
-    padding: 3px max(var(--sp-3), env(safe-area-inset-right)) 3px max(var(--sp-3), env(safe-area-inset-left));
-  }
-
-  .frame__replay .icon {
-    margin-left: 0;
-  }
-
-  .frame__honesty .icon {
-    display: none;
-  }
-}
-
-/* Sheets and dialogs open below the strip, and their backdrop starts there too: the strip is never
-   covered or dimmed, while the brand row, the assistant chip and the avatar under it are dimmed
-   with the page (they cannot be used while a sheet is open). --dframe-h is measured by desk.js. */
-.dlg::backdrop,
-.bsheet::backdrop {
-  top: var(--dframe-h, 0px);
-}
-
+/* Sheets and dialogs: from the top of the page, never taller than it. */
 .bsheet {
-  top: var(--dframe-h, 0px);
-  max-height: min(92dvh, calc(100dvh - var(--dframe-h, 0px)));
+  max-height: 92dvh;
 }
 
 @media (min-width: 700px) {
   .bsheet {
-    max-height: min(88dvh, calc(100dvh - var(--dframe-h, 0px) - 16px));
+    max-height: min(88dvh, calc(100dvh - 16px));
   }
 }
 
 .dlg {
-  top: var(--dframe-h, 0px);
-  max-height: calc(100dvh - var(--dframe-h, 0px) - 32px);
+  max-height: calc(100dvh - 32px);
 }
 
 /* --- Decide: Plan by hand, summed up (caution, never the picture's red: UI-AI-QUIET Q4) --- */

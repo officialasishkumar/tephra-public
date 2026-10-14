@@ -40,8 +40,8 @@ export function dkChip(text, { label = null, mono = false, kind = null, title = 
     el("span", { class: mono ? "dk-chip__v mono" : "dk-chip__v", text }));
 }
 
-// REPLAY is said once, by the frame strip (UI-DESIGN 7.1). A record keeps a tag only when its mode
-// differs from what plays: a replay record seen while live feeds play says "From a replay", the
+// REPLAY is said by the page (its title and clock), not by each record. A record keeps a tag only
+// when its mode differs from what plays: a replay record seen while live feeds play says "From a replay", the
 // one wording on the Wall and the Desk (desk/ui.js fromReplayChip).
 export const dkFromReplay = (recordReplay, modeReplay) => (recordReplay && !modeReplay ? el("span", { class: "tag tag--replay", text: "From a replay" }) : null);
 

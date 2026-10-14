@@ -147,7 +147,7 @@ function renderFailures(list) {
 
 // Eyebrow (R5.1): the eruption symbol and the volcano's name (the h1) on the first row with "Updated"
 // on its right; under them, muted, the area and the alert colour as a pill in words. REPLAY is
-// said once, by the frame strip above every view (UI-DESIGN 7.1), not again here.
+// said by the clock, not again here.
 function eyebrow(D, sit, region, store) {
   const iconBox = $("eyebrow-icon");
   const rest = $("eyebrow-rest");

@@ -155,7 +155,7 @@ def test_review_reads_top_to_bottom_with_pages() -> None:
         assert f"{page}: " in review[review.index("const PAGES") :][:200], page
     assert "' · ids, policy, history, audit'" in review
     assert "'Skip for now'" in review
-    # REPLAY is said by the frame strip; the review adds no REPLAY note of its own
+    # REPLAY is said by the page; the review adds no REPLAY note of its own
     assert "Drafted from recorded feeds" not in review
     assert "replayChip" not in review
     # HYPOTHESIS: only Keep watching or Hold

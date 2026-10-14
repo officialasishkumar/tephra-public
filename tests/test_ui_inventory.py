@@ -26,9 +26,6 @@ ALL = WALL + "\n" + DESK
 
 # R11.1-R11.4, plus the ids the spec's checks name. Every id stays; nodes were re-parented.
 WALL_IDS = [
-    "replay-banner",
-    "replay-banner-text",
-    "replay-banner-case",
     "mode-badge",
     "regions",
     "region-select",
@@ -61,7 +58,6 @@ WALL_IDS = [
     "volcano-name",
     "decisions",
     "announce",
-    "disclaimer",
     "attribution",
     "policy-btn",
     "help-btn",
@@ -97,8 +93,6 @@ DESK_IDS = [
     "model-chip",
     "budget-chip",
     "conn",
-    "replay-bar",
-    "disclaimer",
     "net-banner",
     "q-title",
     "paste-notice",
@@ -199,8 +193,8 @@ BUILDERS = {
     "AI at work hand-out lines": "function drawRails(",
     "AI at work flow board": "export function flowModel",
 }
+# the top strip with the disclaimer was removed at the owner's request (15 Oct 2026, UI-DESIGN 7.1)
 HONESTY = [
-    "Decision support only - fictional airline - not for operational use",
     "CONTEXT ONLY",
     "HYPOTHESIS",
     "never smaller",
@@ -259,31 +253,22 @@ def test_honesty_strings_are_kept(text: str) -> None:
     assert text in ALL, text
 
 
-def test_replay_is_labelled_once_in_the_frame_strip() -> None:
-    """CLAUDE.md "REPLAY is always labelled", said once (UI-DESIGN 7.1): on the Wall and the Desk
-    one frame strip (role=note) holds the REPLAY words and the disclaimer; the story, the Details
-    sections, the board, the Desk's cards and reviews no longer repeat it."""
-    index = (WEB / "index.html").read_text(encoding="utf-8")
-    start = index.index('<div id="frame"')
-    strip = index[start : index.index("</div>", start)]
-    for part in ('role="note"', 'id="replay-banner"', 'id="disclaimer"', "not live"):
-        assert part in strip, part
-    assert index.count('id="replay-banner"') == 1
-    assert index.count('id="disclaimer"') == 1
-    desk = (WEB / "desk.html").read_text(encoding="utf-8")
-    # the Desk's strip is the same strip, the header's top row (above the brand row)
-    band = desk[desk.index('<div id="frame"') : desk.index('<div class="dhead__row')]
-    parts = ('role="note"', 'class="frame"', 'id="replay-bar"', 'id="disclaimer"')
-    parts += ("not live", "#i-info")
-    for part in parts:
-        assert part in band, part
-    assert desk.index('<div id="frame"') < desk.index('<div class="dhead__row')
-    # its accessible name follows the mode on both pages ("Disclaimer" live)
-    assert "stripLabel(" in _text([WEB / "wall" / "panels.js"])
-    assert "stripLabel(" in _text([WEB / "desk.js"])
-    # both pages word it from one function
-    assert "replayWords(" in _text([WEB / "wall" / "panels.js"])
-    assert "replayWords(" in _text([WEB / "desk.js"])
+def test_replay_is_labelled_by_the_page_not_a_strip() -> None:
+    """The top strip (REPLAY words and the disclaimer) was removed at the owner's request on
+    15 Oct 2026 (UI-DESIGN 7.1). REPLAY stays in each page's title, the Wall's clock and status dot,
+    and every modal's sr-only description; records do not repeat it."""
+    for page in ("index.html", "desk.html", "connect.html", "guide.html"):
+        html = (WEB / page).read_text(encoding="utf-8")
+        assert 'id="frame"' not in html, page
+        assert "tn-strip" not in html, page
+    panels = _text([WEB / "wall" / "panels.js"])
+    assert '`${replay ? "REPLAY - " : ""}TEPHRA Wall`' in panels
+    assert '"Replay clock · "' in panels
+    assert 'replay: "Replay"' in panels
+    assert "'REPLAY - '" in _text([WEB / "desk.js"])
+    # the modals' sr-only REPLAY words come from one function on both pages
+    assert "replayWords(" in panels
+    assert "replayWords(" in _text([WEB / "desk" / "ui.js"])
     # the second labels are gone from the main views
     for gone in ("dkRecorded", "eyebrow__rec", "board__replay", "replayBand", "mode-badge--replay"):
         assert gone not in WALL, gone
@@ -317,19 +302,6 @@ def test_every_modal_carries_the_replay_words_for_screen_readers() -> None:
     assert "describeReplayIn(dlg);\n  if (!dlg.open) dlg.showModal();" in ui
     account = (WEB / "desk" / "account.js").read_text(encoding="utf-8")
     assert "describeReplayIn(dialog);\n  dialog.showModal();" in account
-
-
-def test_the_frame_strip_stays_on_screen_over_dialogs_and_sheets() -> None:
-    """The strip is never covered or dimmed: the phone Wall keeps it sticky, and every dialog,
-    the board and the Desk's sheets open below it with their backdrop starting there."""
-    wall_css = (WEB / "wall.css").read_text(encoding="utf-8")
-    assert ".dlg, .board { top: var(--frame-px, 0px); }" in wall_css
-    assert ".dlg::backdrop, .board::backdrop { top: var(--frame-px, 0px); }" in wall_css
-    assert re.search(r"\.frame \{ position: sticky; top: 0;", wall_css)
-    desk_css = (WEB / "desk.css").read_text(encoding="utf-8")
-    backdrop = r"\.dlg::backdrop,\s*\.bsheet::backdrop \{\s*top: var\(--dframe-h, 0px\);"
-    assert re.search(backdrop, desk_css)
-    assert "--dframe-h" in (WEB / "desk.js").read_text(encoding="utf-8")
 
 
 def test_wall_trust_line_says_never_smaller() -> None:

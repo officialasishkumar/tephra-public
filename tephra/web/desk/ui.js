@@ -5,10 +5,10 @@
 
 import { byId, el, icon } from './dom.js';
 import { serverNow } from './format.js';
-import { aiStateOf, describeReplay, machineText, MARK } from '../wall/x-parts.js';
+import { aiStateOf, describeReplay, machineText, MARK, replayWords } from '../wall/x-parts.js';
 import { app } from './state.js';
 
-// REPLAY is said once, by the frame strip in the header (UI-DESIGN 7.1). A record keeps a chip
+// REPLAY is said by the page (its title and clock), not by each record. A record keeps a chip
 // only when its mode differs from what plays: a replay record seen while live feeds play. Before
 // the state has loaded the mode is unknown, so no chip (never a flash of it in REPLAY).
 export function fromReplayChip(rec) {
@@ -16,11 +16,10 @@ export function fromReplayChip(rec) {
   return el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'From a replay' }));
 }
 
-// The strip's REPLAY words ("" when live), for the sr-only line every modal carries: a modal makes
-// the strip inert for screen readers (wall/x-parts.js describeReplay).
+// The REPLAY words ("" when live), for the sr-only line every modal carries (wall/x-parts.js
+// describeReplay).
 export function replayModalWords() {
-  const bar = byId('replay-bar');
-  return bar && !bar.hidden ? bar.textContent.replace(/\s+/g, ' ').trim() : '';
+  return app.state?.mode === 'REPLAY' ? replayWords(app.state.replay).text : '';
 }
 export const describeReplayIn = (dlg) => describeReplay(dlg, replayModalWords());
 

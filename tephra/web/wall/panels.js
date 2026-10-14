@@ -9,7 +9,7 @@ import {
 } from "./util.js";
 import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
-import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, aiSymbol, replayWords, stripLabel, describeReplay, handPlanOf, causeTitle, blockPhrase, whyLink, machineText, MARK, ASSISTANT } from "./x-parts.js";
+import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, aiSymbol, replayWords, describeReplay, handPlanOf, causeTitle, blockPhrase, whyLink, machineText, MARK, ASSISTANT } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkEmpty, dkTech, dkSection, dkLink,
   dkWhen, dkDot, dkFromReplay, collapseRuns, runRow, timeRange, plural, dayTime, times,
@@ -121,33 +121,26 @@ export function areaWords(D, key) {
   return `${r.name} · ${n ? `${n} with ash` : D.state.last_tick ? "none" : "reading…"}`;
 }
 
-// The frame strip and the page title: drawn on every render, the board's included (the board
-// covers the Wall, which is not redrawn while it is open, but the strip stays on screen above it).
+// The REPLAY words for screen readers ("" when live): every modal carries them as sr-only text in
+// its description (x-parts describeReplay). On screen the page title and the clock say REPLAY.
+export const replayLine = (s) => (s?.mode === "REPLAY" ? replayWords(s.replay).text : "");
+
+// The page title: drawn on every render, the board's included (the board covers the Wall, which is
+// not redrawn while it is open).
 export function renderFrame(s) {
   const replay = s.mode === "REPLAY";
   document.body.dataset.mode = s.mode;
   document.title = `${replay ? "REPLAY - " : ""}TEPHRA Wall`;
-  // The frame strip says REPLAY once (UI-DESIGN 7.1); the case title is in its tooltip.
-  const banner = $("replay-banner");
-  banner.hidden = !replay;
-  $("frame").setAttribute("aria-label", stripLabel(replay));
-  if (replay) {
-    const w = replayWords(s.replay);
-    setText($("replay-banner-text"), w.text);
-    setText($("replay-banner-case"), w.more);
-    banner.title = w.title;
-  }
   // A modal open before the state arrived (the board from #ai-at-work) or across a mode switch
-  // gets the strip's current REPLAY words in its sr-only description (x-parts describeReplay).
-  const stripWords = replay ? banner.textContent.replace(/\s+/g, " ").trim() : "";
-  for (const dlg of document.querySelectorAll("dialog[open]")) describeReplay(dlg, stripWords);
+  // gets the current REPLAY words in its sr-only description.
+  for (const dlg of document.querySelectorAll("dialog[open]")) describeReplay(dlg, replayLine(s));
 }
 
 export function renderChrome(D, store, ui) {
   const s = D.state;
   const replay = s.mode === "REPLAY";
   renderFrame(s);
-  // The mode pill is not a control: in REPLAY the strip says it, so the pill only says "Live".
+  // The mode pill is not a control: in REPLAY the clock says it, so the pill only says "Live".
   const badge = $("mode-badge");
   badge.hidden = replay;
   badge.className = "mode-badge mode-badge--live";
@@ -217,7 +210,6 @@ export function renderChrome(D, store, ui) {
   fc.classList.toggle("feeds-chip--error", !!by.ERROR);
   fc.setAttribute("aria-label", `Data feeds: ${parts.map((p) => p.textContent).join(", ")}. Opens Details, Data feeds.`);
 
-  setText($("disclaimer"), s.disclaimer || "Decision support only - fictional airline - not for operational use");
   renderStatusLine(D, ui);
 }
 
@@ -974,7 +966,7 @@ export function renderTimeline(D, store, ui, conn) {
     bar.style.width = `${(p * 100).toFixed(1)}%`;
     const pctText = `${Math.round(p * 100)}%`;
     meta.append(
-      // the frame strip says REPLAY; here the icon marks the replay clock, and the time follows
+      // the icon marks the replay clock, and the time follows
       el("span", { class: "tl__mode", title: "Replay clock" }, icon("i-replay"), el("span", { class: "sr-only", text: "Replay clock" })),
       // The clock, then how far the recording has played. The recording's own span sits in the
       // tooltip and in History, not beside the 12 h axis, so two time scales never sit side by

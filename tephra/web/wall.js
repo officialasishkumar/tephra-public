@@ -7,7 +7,7 @@ import { $, el, ms, prefs, reducedMotion, inlineSprite, icon } from "./wall/util
 import { derive, actionWords, deciderName, LEVEL_MAX, levelFromFrac, regionOfVent, sortSituations } from "./wall/derive.js";
 import { WallMap, readTokens, SAT } from "./wall/map.js";
 import {
-  renderChrome, renderFrame, renderClock, mapPills, renderTimeline, sourcesDialog, timelineTarget, setAiState,
+  renderChrome, renderFrame, replayLine, renderClock, mapPills, renderTimeline, sourcesDialog, timelineTarget, setAiState,
 } from "./wall/panels.js";
 import { ext, loadExt, ingest, noteTrace, satScale, aiState, handPlan } from "./wall/ext.js";
 import { renderStory, coverageNote, currentPlan, officialBand } from "./wall/story.js";
@@ -642,9 +642,9 @@ function saveDetails() {
   try { sessionStorage.setItem(DETAILS_KEY, ui.details.open ? ui.details.sec || "index" : "closed"); } catch { /* storage blocked */ }
 }
 
-// The phone sheet starts under the sticky header. The header grows after the first render (the
-// frame strip gets its REPLAY words), so the edge is measured again on every render; a stale edge
-// left a clipped line of header text showing above the sheet.
+// The phone sheet starts under the sticky header. The header can grow after the first render, so
+// the edge is measured again on every render; a stale edge left a clipped line of header text
+// showing above the sheet.
 function syncSheetTop() {
   const bottom = `${Math.max(0, document.querySelector(".cmdbar").getBoundingClientRect().bottom)}px`;
   if (document.documentElement.style.getPropertyValue("--sheet-top") !== bottom) document.documentElement.style.setProperty("--sheet-top", bottom);
@@ -812,11 +812,10 @@ $("board").addEventListener("click", (e) => { if (e.target === $("board")) $("bo
 
 // ------------------------------------------------------------------ dialogs
 
-// A modal makes the frame strip inert for screen readers, so each one carries the strip's REPLAY
-// words as sr-only text in its description (wall/x-parts.js describeReplay); live, none.
+// Each modal carries the REPLAY words as sr-only text in its description (wall/x-parts.js
+// describeReplay); live, none.
 function describeModal(dlg) {
-  const banner = $("replay-banner");
-  describeReplay(dlg, banner.hidden ? "" : banner.textContent.replace(/\s+/g, " ").trim());
+  describeReplay(dlg, replayLine(store.state));
 }
 
 function openDialog(kind, title, body, opener) {
@@ -1189,7 +1188,7 @@ function escape(e) {
 
 const phoneMq = window.matchMedia("(max-width: 600px)");
 function placeChips() {
-  // On a phone the sticky header keeps the TEPHRA mark, the nav, mode and clock under the frame strip; the
+  // On a phone the sticky header keeps the TEPHRA mark, the nav, mode and clock at the top; the
   // area, Assistant and data chips sit in a bar under it that scrolls away (review 1, item 13).
   const area = document.querySelector(".areapick"), ai = $("ai-chip"), feeds = $("feeds-chip"), bar = $("phone-bar");
   if (phoneMq.matches) { if (area.parentElement !== bar) bar.append(area, ai, feeds); }
@@ -1202,13 +1201,6 @@ function placeChips() {
 }
 phoneMq.addEventListener?.("change", placeChips);
 placeChips();
-// The first-use disclosure shows until the viewer closes it (kept per browser; blocked storage shows it again).
-// The frame strip's height: the phone header sticks below it, and dialogs open below it so the
-// strip stays on screen and undimmed (UI-DESIGN 7.1). Its height changes with its words and width.
-new ResizeObserver(() => {
-  document.documentElement.style.setProperty("--frame-px", `${$("frame").offsetHeight}px`);
-}).observe($("frame"));
-
 // The sticky call to action shows only while the story's own button is out of view.
 const io = "IntersectionObserver" in window ? new IntersectionObserver((entries) => {
   for (const en of entries) $("cta-sticky").hidden = !phoneMq.matches || en.isIntersecting || ui.details.open;
