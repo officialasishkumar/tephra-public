@@ -20,6 +20,10 @@ PAGES = {
     2: FIXTURES / "vona_list_p011_20261009.html",  # 26 Sep 17:15Z back to 25 Sep 02:48Z
     3: FIXTURES / "vona_list_p012_20261009.html",  # 24 Sep 23:56Z back to 21 Sep 16:01Z
 }
+ARCHIVE_FIXTURES = all(page.is_file() for page in PAGES.values())
+needs_archive = pytest.mark.skipif(
+    not ARCHIVE_FIXTURES, reason="private fixture (RED licence) not in this tree"
+)
 SAVED_AT = datetime(2026, 10, 9, 19, 34, tzinfo=UTC)
 CLOCK = datetime(2026, 9, 25, 16, 0, tzinfo=UTC)
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -62,18 +66,21 @@ async def read(**kwargs: object) -> tuple[list, ArchivedListing]:
     return vonas, source
 
 
+@needs_archive
 async def test_notices_issued_after_the_clock_are_never_read() -> None:
     vonas, _ = await read(max_pages=2)
     assert vonas
     assert all(CLOCK - timedelta(hours=24) <= vona.issued_at <= CLOCK for vona in vonas)
 
 
+@needs_archive
 async def test_a_page_of_later_notices_does_not_use_up_the_page_budget() -> None:
     vonas, source = await read(max_pages=1)
     assert source.requested[:2] == [VONA_LIST_URL, build_url(VONA_LIST_URL, {"page": "2"})]
     assert any(vona.magma_id == 22713 for vona in vonas)
 
 
+@needs_archive
 async def test_a_card_gives_the_notice_text_when_the_detail_page_is_missing() -> None:
     vonas, _ = await read(max_pages=3)
     by_id = {vona.magma_id: vona for vona in vonas}
@@ -94,6 +101,7 @@ async def test_a_card_gives_the_notice_text_when_the_detail_page_is_missing() ->
     assert unseen.movement_toward_deg is None
 
 
+@needs_archive
 async def test_known_notices_are_not_fetched_again() -> None:
     vonas, source = await read(max_pages=3, known_ids=frozenset({22713}))
     assert 22713 not in {vona.magma_id for vona in vonas}

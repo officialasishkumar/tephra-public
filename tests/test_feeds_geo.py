@@ -72,6 +72,21 @@ ADSB_JAKARTA = FIXTURES / "adsb" / "point_jakarta_-6.1_106.7_150.json"
 ADSB_KYUSHU = FIXTURES / "adsb" / "point_kyushu_31.6_130.6_200.json"
 WINDS_SEMERU = FIXTURES / "openmeteo" / "semeru_pressure_level_winds.json"
 HIMAWARI = FIXTURES / "himawari"
+MAGMA = FIXTURES / "magma"
+MAGMA_PAGES = ("vona_22880_semeru_ash.html", "vona_22881_ibu_ash.html")
+NICT_LATEST = HIMAWARI / "nict_latest.json"
+NICT_DAY_TILE = HIMAWARI / "nict_D531106_4d_550_20261009_050000_1_2_daytime.png"
+NICT_NIGHT_TILE = HIMAWARI / "nict_D531106_4d_550_20261009_192000_1_2.png"
+# MAGMA pages and NICT tiles are third-party content the public tree does not carry
+# (docs/DATA-LICENCES.md): their tests skip instead of running against invented files.
+MAGMA_FIXTURES = all((MAGMA / name).is_file() for name in MAGMA_PAGES)
+NICT_FIXTURES = all(path.is_file() for path in (NICT_LATEST, NICT_DAY_TILE, NICT_NIGHT_TILE))
+needs_magma = pytest.mark.skipif(
+    not MAGMA_FIXTURES, reason="private fixture (RED licence) not in this tree"
+)
+needs_nict = pytest.mark.skipif(
+    not NICT_FIXTURES, reason="private fixture (RED licence) not in this tree"
+)
 
 SAMPLED_AT = datetime(2026, 10, 9, 19, 43, tzinfo=UTC)
 
@@ -569,9 +584,10 @@ def test_vaa_fixture_volcanoes_resolve_to_their_printed_numbers(
         assert volcano.id == match.group(2)
 
 
-@pytest.mark.parametrize("fixture", ["vona_22880_semeru_ash.html", "vona_22881_ibu_ash.html"])
+@needs_magma
+@pytest.mark.parametrize("fixture", MAGMA_PAGES)
 def test_magma_locations_agree_with_gvp(volcanoes: VolcanoCatalogue, fixture: str) -> None:
-    page = (FIXTURES / "magma" / fixture).read_text(encoding="utf-8")
+    page = (MAGMA / fixture).read_text(encoding="utf-8")
     number = re.search(r"\((\d{6})\)", page)
     location = re.search(
         r"([NS]) (\d+) deg (\d+) min (\d+) sec ([EW]) (\d+) deg (\d+) min (\d+) sec", page
@@ -700,11 +716,12 @@ def _jma_responses(slot: str = "1900") -> dict[str, bytes]:
     }
 
 
+@needs_nict
 async def test_fetch_frames_at_night_returns_jma_crops_only(volcanoes: VolcanoCatalogue) -> None:
     semeru = volcanoes.get("263300")
     assert semeru is not None
     responses = _jma_responses()
-    responses[NICT_LATEST_URL] = (HIMAWARI / "nict_latest.json").read_bytes()
+    responses[NICT_LATEST_URL] = NICT_LATEST.read_bytes()
     source = FakeSource(responses)
 
     frames = await fetch_frames(source, semeru)
@@ -768,12 +785,13 @@ def _nict_day_source(tile: Path) -> FakeSource:
     return FakeSource({NICT_LATEST_URL: latest, tile_url: tile.read_bytes()})
 
 
+@needs_nict
 async def test_fetch_frames_crops_nict_true_colour_in_daylight(
     volcanoes: VolcanoCatalogue,
 ) -> None:
     lewotobi = volcanoes.get("264180")
     assert lewotobi is not None
-    tile = HIMAWARI / "nict_D531106_4d_550_20261009_050000_1_2_daytime.png"
+    tile = NICT_DAY_TILE
     frames = await fetch_frames(_nict_day_source(tile), lewotobi, areas=(), nict_level=4)
 
     assert len(frames) == 1
@@ -797,11 +815,12 @@ async def test_nict_is_never_asked_when_switched_off(volcanoes: VolcanoCatalogue
     assert not any("nict.go.jp" in call for call in source.calls)
 
 
+@needs_nict
 async def test_fetch_frames_skips_black_night_tiles(volcanoes: VolcanoCatalogue) -> None:
     lewotobi = volcanoes.get("264180")
     assert lewotobi is not None
-    tile = HIMAWARI / "nict_D531106_4d_550_20261009_192000_1_2.png"
-    assert await fetch_frames(_nict_day_source(tile), lewotobi, areas=(), nict_level=4) == []
+    source = _nict_day_source(NICT_NIGHT_TILE)
+    assert await fetch_frames(source, lewotobi, areas=(), nict_level=4) == []
 
 
 LIVE_RUN_ACTIVE = ("262000", "263300", "264230", "268010", "268030")
@@ -810,10 +829,11 @@ LIVE_RUN_ACTIVE = ("262000", "263300", "264230", "268010", "268030")
 
 def _night_jma_responses() -> dict[str, bytes]:
     responses = _jma_responses()
-    responses[NICT_LATEST_URL] = (HIMAWARI / "nict_latest.json").read_bytes()
+    responses[NICT_LATEST_URL] = NICT_LATEST.read_bytes()
     return responses
 
 
+@needs_nict
 async def test_one_frames_poll_fetches_each_url_once(volcanoes: VolcanoCatalogue) -> None:
     """The registry asks volcano by volcano; one area's slot list and images are shared.
 
@@ -834,9 +854,9 @@ async def test_one_frames_poll_fetches_each_url_once(volcanoes: VolcanoCatalogue
     assert Counter(source.calls) == dict.fromkeys(responses, 1)
 
 
+@needs_nict
 async def test_neighbouring_volcanoes_share_nict_tiles(volcanoes: VolcanoCatalogue) -> None:
-    tile = HIMAWARI / "nict_D531106_4d_550_20261009_050000_1_2_daytime.png"
-    source = _nict_day_source(tile)
+    source = _nict_day_source(NICT_DAY_TILE)
     with timeutil.use_clock(timeutil.FixedClock(SAMPLED_AT)):
         for volcano_id in ("264180", "264230"):  # Lewotobi and Ili Lewotolok: both in tile 1_2
             volcano = volcanoes.get(volcano_id)
@@ -846,6 +866,7 @@ async def test_neighbouring_volcanoes_share_nict_tiles(volcanoes: VolcanoCatalog
     assert sorted(Counter(source.calls).values()) == [1, 1]
 
 
+@needs_nict
 async def test_the_next_frames_poll_fetches_again(volcanoes: VolcanoCatalogue) -> None:
     semeru = volcanoes.get("263300")
     assert semeru is not None
@@ -859,6 +880,7 @@ async def test_the_next_frames_poll_fetches_again(volcanoes: VolcanoCatalogue) -
     assert Counter(source.calls) == dict.fromkeys(responses, 2)
 
 
+@needs_nict
 async def test_a_failed_download_is_tried_once_per_poll(volcanoes: VolcanoCatalogue) -> None:
     responses = _night_jma_responses()
     dust_url = next(url for url in responses if "_dst_" in url)
@@ -882,15 +904,17 @@ async def test_fetch_frames_raises_when_every_product_fails(volcanoes: VolcanoCa
     assert caught.value.feed is FeedId.FRAMES
 
 
+@needs_nict
 async def test_no_frame_at_night_outside_the_jma_areas_is_not_a_failure(
     volcanoes: VolcanoCatalogue,
 ) -> None:
     bagana = volcanoes.get("255020")  # east of se3 and south of jpn; 05:41 local solar time
     assert bagana is not None
-    source = FakeSource({NICT_LATEST_URL: (HIMAWARI / "nict_latest.json").read_bytes()})
+    source = FakeSource({NICT_LATEST_URL: NICT_LATEST.read_bytes()})
     assert await fetch_frames(source, bagana) == []
 
 
+@needs_nict
 async def test_frame_captions_cite_the_source_and_say_it_was_cropped(
     volcanoes: VolcanoCatalogue,
 ) -> None:
@@ -899,8 +923,7 @@ async def test_frame_captions_cite_the_source_and_say_it_was_cropped(
     assert semeru is not None
     assert lewotobi is not None
     jma = await fetch_frames(FakeSource(_night_jma_responses()), semeru)
-    tile = HIMAWARI / "nict_D531106_4d_550_20261009_050000_1_2_daytime.png"
-    nict = await fetch_frames(_nict_day_source(tile), lewotobi, areas=(), nict_level=4)
+    nict = await fetch_frames(_nict_day_source(NICT_DAY_TILE), lewotobi, areas=(), nict_level=4)
     captions = {frame.product: frame.caption for frame, _ in [*jma, *nict]}
     assert set(captions) == set(FrameProduct)
     for product, caption in captions.items():

@@ -150,6 +150,7 @@ PAGES: dict[str, str] = {
     f"{JMA_MSC}sat_img.php?area=se3": "himawari/jma_mscweb_sat_img_se3.html",
     "https://himawari8.nict.go.jp/img/D531106/latest.json": "himawari/nict_latest.json",
 }
+VONA_FIXTURES = (FIXTURES / "magma/vona_list.html").exists()
 PREFIXES: dict[str, str] = {
     OPEN_METEO: "openmeteo/semeru_pressure_level_winds.json",
     "https://aviationweather.gov/api/data/taf?": "wx/taf.json",
@@ -299,7 +300,10 @@ class FixtureSource:
             )
         if name is None:
             raise FetchError(url, feed, "not in the fixtures")
-        content = (FIXTURES / name).read_bytes()
+        try:
+            content = (FIXTURES / name).read_bytes()
+        except FileNotFoundError:
+            raise FetchError(url, feed, "fixture not in this tree") from None
         kind = {".json": "application/json", ".jpg": "image/jpeg"}.get(Path(name).suffix)
         return content, kind or "text/html; charset=UTF-8"
 
@@ -848,6 +852,7 @@ async def test_true_colour_frames_are_shown_but_never_sent_to_the_model(runtime:
     assert nict.provenance.source_id in {thumb.source_id for thumb in wall.overlays.frames}
 
 
+@pytest.mark.skipif(not VONA_FIXTURES, reason="private fixture (RED licence) not in this tree")
 async def test_with_live_vonas_a_non_observation_is_never_a_conflict(
     tmp_path: Path, clock: FixedClock
 ) -> None:
@@ -887,6 +892,7 @@ def test_a_replay_polls_recorded_vonas_even_with_live_polling_off(settings: Sett
     assert FeedId.VONA not in due_feeds(AT, replay_health, settings, active=False)
 
 
+@pytest.mark.skipif(not VONA_FIXTURES, reason="private fixture (RED licence) not in this tree")
 async def test_a_restart_keeps_vona_disabled_after_a_run_that_polled_it(
     tmp_path: Path, source: FixtureSource, clock: FixedClock
 ) -> None:

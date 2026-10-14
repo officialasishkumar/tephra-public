@@ -70,6 +70,26 @@ MAGMA_FIXTURE = {
     22881: "magma/vona_22881_ibu_ash.html",
     22889: "magma/vona_22889_semeru_no_ash.html",
 }
+BOM_FIXTURE = {
+    "recent": "darwin_vaac/bom_volc_ash_recent.html",
+    "process": "darwin_vaac/bom_process_volcanic-ash-darwin.json",
+}
+
+
+def _present(names: Mapping[Any, str]) -> bool:
+    return all((FIXTURES / name).is_file() for name in names.values())
+
+
+# The MAGMA and BoM pages are third-party content the public tree does not carry
+# (docs/DATA-LICENCES.md): their tests skip instead of running against invented pages.
+MAGMA_FIXTURES = (FIXTURES / "magma/vona_list.html").is_file() and _present(MAGMA_FIXTURE)
+BOM_FIXTURES = _present(BOM_FIXTURE)
+needs_magma = pytest.mark.skipif(
+    not MAGMA_FIXTURES, reason="private fixture (RED licence) not in this tree"
+)
+needs_bom = pytest.mark.skipif(
+    not BOM_FIXTURES, reason="private fixture (RED licence) not in this tree"
+)
 
 # Darwin's tgftp bulletin as quoted in research/05 section 3.7 (fvau02.adrm, 2026-10-10).
 FVAU02_SEMERU = """FVAU02 ADRM 091820
@@ -481,6 +501,7 @@ def vona_page_result(magma_id: int) -> FetchResult:
     )
 
 
+@needs_magma
 def test_parse_vona_list() -> None:
     items = parse_vona_list(vona_list_result())
     assert len(items) == 15
@@ -498,6 +519,7 @@ def test_parse_vona_list() -> None:
     assert [item.magma_id for item in items] == list(range(22889, 22874, -1))
 
 
+@needs_magma
 def test_vona_with_ash() -> None:
     items = {item.magma_id: item for item in parse_vona_list(vona_list_result())}
     vona = parse_vona_page(vona_page_result(22880), items[22880])
@@ -522,6 +544,7 @@ def test_vona_with_ash() -> None:
     assert "pvmbg" not in vona.raw_text.lower()
 
 
+@needs_magma
 def test_vona_without_ash() -> None:
     vona = parse_vona_page(vona_page_result(22889))
     assert vona.magma_id == 22889
@@ -534,6 +557,7 @@ def test_vona_without_ash() -> None:
     assert vona.source_text == "Semeru Volcano Observatory"
 
 
+@needs_magma
 def test_vona_ibu() -> None:
     vona = parse_vona_page(vona_page_result(22881))
     assert vona.volcano_name == "Ibu"
@@ -555,6 +579,7 @@ def test_vona_page_without_table_is_rejected() -> None:
         parse_vona_page(result)
 
 
+@needs_magma
 async def test_fetch_vonas_fetches_only_new_signed_pages() -> None:
     responses = {VONA_LIST_URL: (FIXTURES / "magma/vona_list.html").read_bytes()}
     for magma_id in (22880, 22889):
@@ -574,6 +599,7 @@ async def test_fetch_vonas_fetches_only_new_signed_pages() -> None:
     assert all(feed is FeedId.VONA for _, feed in source.requests)
 
 
+@needs_magma
 async def test_fetch_vonas_pages_with_page_param() -> None:
     listing = (FIXTURES / "magma/vona_list.html").read_bytes()
     page_two = build_url(VONA_LIST_URL, {"page": "2"})
@@ -608,7 +634,7 @@ def text_result(text: str, url: str = DARWIN_BULLETIN_URLS[1]) -> FetchResult:
 
 
 def bom_recent_block(vaac_heading: str) -> list[str]:
-    page = (FIXTURES / "darwin_vaac/bom_volc_ash_recent.html").read_text(encoding="utf-8")
+    page = (FIXTURES / BOM_FIXTURE["recent"]).read_text(encoding="utf-8")
     match = re.search(rf"<h3>{vaac_heading}</h3><pre>(.*?)</pre>", page, re.S)
     assert match is not None
     chunks = re.split(r"(?m)^Received .*$", match.group(1))
@@ -729,6 +755,7 @@ def test_darwin_backup_text_joins_wrapped_remarks() -> None:
     assert vaa.remarks.endswith("VA AREA IS AN ESTIMATED AREA.")
 
 
+@needs_bom
 def test_darwin_plain_text_with_indented_continuations() -> None:
     chunks = bom_recent_block("Darwin VAAC")
     advisories = [parse_vaa_text(chunk, text_result(chunk)) for chunk in chunks]
@@ -770,8 +797,9 @@ def test_darwin_plain_text_with_indented_continuations() -> None:
     assert taal.observation.layers == []
 
 
+@needs_bom
 def test_bom_html_fragment_with_split_coordinates() -> None:
-    path = FIXTURES / "darwin_vaac/bom_process_volcanic-ash-darwin.json"
+    path = FIXTURES / BOM_FIXTURE["process"]
     payload = json.loads(path.read_bytes())
     texts = {entry["name"]: entry["text"] for entry in payload["advisories"].values()}
     vaa = parse_vaa(text_result(texts["DUKONO 268010"]))
@@ -827,6 +855,7 @@ def test_notice_pseudo_advisory_is_not_an_advisory() -> None:
     assert parse_vaa_text(NOTICE_TEXT, text_result(NOTICE_TEXT)) is None
 
 
+@needs_bom
 def test_other_vaacs_and_non_vaa_text_are_rejected() -> None:
     buenos_aires = bom_recent_block("Buenos Aires VAAC")[0]
     with pytest.raises(ValueError, match="outside"):
