@@ -3,7 +3,7 @@
 // from fields and goes in with textContent; a missing field drops its line and is never guessed.
 // The story is about the selected volcano; the "All volcanoes" line carries the global counts.
 
-import { $, el, icon, hhmmz, ms, fl, kmBetween, reducedMotion } from "./util.js";
+import { $, el, icon, utcTime, ms, fl, kmBetween, reducedMotion } from "./util.js";
 import { SEV_RANK, regionOfVent } from "./derive.js";
 import { ext, replanning, aiState, handPlan } from "./ext.js";
 import { planFailure, draftBlock, blockPhrase, machineText, ASSISTANT } from "./x-parts.js";
@@ -82,7 +82,7 @@ const adsbWord = (status) => ({ ERROR: "failing", STALE: "stale", DISABLED: "off
 // `where` names the Details section that holds it.
 export function storyFailures(D, store, conn, extra) {
   const out = [];
-  if (conn.lostAt) out.push({ key: "stream", text: `Lost the live connection at ${hhmmz(conn.lostAt)}. Reconnecting…`, where: "feeds", lost: true });
+  if (conn.lostAt) out.push({ key: "stream", text: `Lost the live connection at ${utcTime(conn.lostAt)}. Reconnecting…`, where: "feeds", lost: true });
   if (extra.error) out.push({ key: "load", text: extra.error, where: "feeds", action: "retry", actionText: "Retry now" });
   if (extra.mapError) out.push({ key: "map", text: `The map could not load: ${extra.mapError}.`, where: "layers" });
   if (!D) return out;
@@ -92,7 +92,7 @@ export function storyFailures(D, store, conn, extra) {
     const good = ms(f.last_success_at);
     const what = id === "adsb" ? "positions" : "reports";
     const name = id === "adsb" ? "Aircraft data" : FEED_NAME[id] || id;
-    out.push({ key: `feed-${id}`, who: name, text: `${name} is failing. Showing the last good ${what}${Number.isFinite(good) ? `, from ${hhmmz(good)}` : ""}.`, raw: f.last_error || null, where: "feeds" });
+    out.push({ key: `feed-${id}`, who: name, text: `${name} is failing. Showing the last good ${what}${Number.isFinite(good) ? `, from ${utcTime(good)}` : ""}.`, raw: f.last_error || null, where: "feeds" });
   }
   if (D.state.store && D.state.store.ok === false) out.push({ key: "db", who: "The database", text: "The database is failing: some counts may be unknown.", where: "feeds" });
   // airport re-planning that code could not run (no schedule, an exception): data, not AI
@@ -145,18 +145,18 @@ function renderFailures(list) {
 
 // ------------------------------------------------------------------ the story card (R5.1-R5.4)
 
-// Eyebrow (R5.1): the eruption symbol and the volcano's name (the h1) on the first row with "as of"
+// Eyebrow (R5.1): the eruption symbol and the volcano's name (the h1) on the first row with "Updated"
 // on its right; under them, muted, the area and the alert colour as a pill in words. REPLAY is
 // said once, by the frame strip above every view (UI-DESIGN 7.1), not again here.
 function eyebrow(D, sit, region, store) {
   const iconBox = $("eyebrow-icon");
   const rest = $("eyebrow-rest");
   const asof = $("eyebrow-asof");
-  asof.title = "Times ending in Z are UTC";
+  asof.title = "When TEPHRA last updated this picture (UTC)";
   if (!sit) {
     iconBox.replaceChildren();
     if (rest.dataset.key !== "") { rest.dataset.key = ""; rest.replaceChildren(); }
-    setText(asof, D ? `as of ${hhmmz(D.now)}` : "");
+    setText(asof, D ? `Updated ${utcTime(D.now)}` : "");
     return;
   }
   iconBox.replaceChildren(eruptIcon(sit.color_code));
@@ -170,7 +170,7 @@ function eyebrow(D, sit, region, store) {
       regName ? el("span", { class: "eyebrow__region", text: regName }) : null,
       el("span", { class: `code-pill code-pill--${code}`, title: "The volcano's aviation colour code" }, el("span", { class: "code-pill__dot", "aria-hidden": "true" }), el("span", { text: alert }))].filter(Boolean));
   }
-  setText(asof, `as of ${hhmmz(ms(sit.as_of))}`);
+  setText(asof, `Updated ${utcTime(ms(sit.as_of))}`);
 }
 
 // The story of one volcano (docs/UI-DESIGN.md 7.6, redesigned 13 Oct 2026), as one model built by
@@ -218,14 +218,14 @@ function storyModel(D, store, sit) {
   const pf = plan?.closures.length ? planFailure(plan) : null;
   if (re) {
     // the trace does not say which volcano closed them: the scope is every volcano (review 2, item 2)
-    m.facts.push({ key: "airports", label: "Airports closed", value: String(re.airports.length), sub: "re-planning the day…", busy: true, title: `Ash closes ${plural(re.airports.length, "RFA airport", "RFA airports")}, all volcanoes: ${re.airports.join(", ")}. Re-planning the day's flights, started ${hhmmz(re.at)}.`, act: "recovery", text: `${re.airports.length} RFA airports closed, re-planning` });
+    m.facts.push({ key: "airports", label: "Airports closed", value: String(re.airports.length), sub: "re-planning the day…", busy: true, title: `Ash closes ${plural(re.airports.length, "RFA airport", "RFA airports")}, all volcanoes: ${re.airports.join(", ")}. Re-planning the day's flights, started ${utcTime(re.at)}.`, act: "recovery", text: `${re.airports.length} RFA airports closed, re-planning` });
   } else if (closed.length || pf) {
     const here = [...new Set(closed.map((c) => c.icao))];
     const all = [...new Set(plan.closures.map((c) => c.icao))];
     const list = here.length ? here : all;
     const scope = here.length ? (all.length > here.length ? ` (${all.length} across all volcanoes)` : "") : " across the network";
     m.facts.push({ key: "airports", label: "Airports closed", value: String(list.length), sub: list.join(" · "),
-      tone: pf ? "caution" : null, title: `Ash ${here.length ? `from ${sit.volcano_name} ` : ""}closes ${plural(list.length, "RFA airport", "RFA airports")}${scope}: ${list.join(", ")}. ${pf ? pf.place : `Airport plan as of ${hhmmz(ms(plan.created_at))}`}.`, act: "recovery", text: `${list.length} RFA airports closed${scope}` });
+      tone: pf ? "caution" : null, title: `Ash ${here.length ? `from ${sit.volcano_name} ` : ""}closes ${plural(list.length, "RFA airport", "RFA airports")}${scope}: ${list.join(", ")}. ${pf ? pf.place : `Airport plan from ${utcTime(ms(plan.created_at))}`}.`, act: "recovery", text: `${list.length} RFA airports closed${scope}` });
   }
 
   // tile 3: the advisories for this volcano's flights

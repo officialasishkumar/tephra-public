@@ -4,7 +4,7 @@
 // plus the dialogs. Every feed or model string goes in with textContent (via el()).
 
 import {
-  $, el, icon, age, band, dayMon, durMin, fl, hhmmz, hhmmssz, idTime, hhmmBefore, ms, pad, solarHour, isNight,
+  $, el, icon, age, band, dayMon, durMin, fl, hhmmz, utcTime, hhmmssz, idTime, hhmmBefore, ms, pad, solarHour, isNight,
   compassWord, kmBetween, safeExternalUrl, pointInGeom, dest, inBbox,
 } from "./util.js";
 import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
@@ -978,7 +978,7 @@ export function renderTimeline(D, store, ui, conn) {
       // The clock, then how far the recording has played. The recording's own span sits in the
       // tooltip and in History, not beside the 12 h axis, so two time scales never sit side by
       // side (review 2, item 12).
-      el("span", { class: "tl__window", text: `${hhmmz(D.now)} · ${pctText} played`, title: `${loop ? "The replay loops over" : "Recording"} ${dayMonth(pa)} ${hhmmz(pa)} to ${dayMonth(pb)} ${hhmmz(pb)}` }),
+      el("span", { class: "tl__window", text: `${utcTime(D.now)} · ${pctText} played`, title: `${loop ? "The replay loops over" : "Recording"} ${dayMonth(pa)} ${utcTime(pa)} to ${dayMonth(pb)} ${utcTime(pb)}` }),
       el("span", { class: "tl__progress", role: "progressbar", title: `${loop ? "The replay loops over" : "Recording"} ${dayMonth(pa)} ${hhmmz(pa)} to ${dayMonth(pb)} ${hhmmz(pb)}`, "aria-label": loop ? "Replay loop progress" : "Replay progress", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(p * 100)), "aria-valuetext": `${pctText} of the recording, ${hhmmz(pa)} to ${hhmmz(pb)}` }, bar));
     recChips = [
       `${loop ? "Replay loops" : "Recording"} ${pb - pa > 20 * 3600e3 ? `${dayMonth(pa)} ${hhmmz(pa)} – ${dayMonth(pb)} ${hhmmz(pb)}` : `${hhmmz(pa)}–${hhmmz(pb)}`}`,

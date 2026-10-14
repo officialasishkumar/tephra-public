@@ -1499,7 +1499,8 @@ name shortens. The Desk hides the nav below 600 px.
 
 ### 7.26 The Wall's footer is a status line (14 Oct 2026)
 
-The footer row (32 px) reads like a terminal status line. On the left: a dot for the state (green
+The footer row (32 px) reads like a terminal status line, inverted so it reads as its own strip: a
+light bar with dark ink, the pairing of the nav's current page. On the left: a dot for the state (green
 live, violet replay, amber when updates stopped), the address `tephra://wall/<volcano>`, then what
 the Wall shows now in short segments, all written by code: the volcano's valid official areas, the
 view (`view=2d|3d|compare`), `policy=A` (a link to the guide's policy, its id
@@ -1509,6 +1510,9 @@ stays in the strip on top. On the right: the keys, each also a button that runs 
 `a` assistant, `[ ]` volcano (from 1360 px), `f` fit, `d` 3D, `s` compare, `esc` back. On a phone the
 keys are hidden and the line wraps. The flights inside and heading in are not repeated here: the
 story says them (each fact once). Privacy moved to the guide's foot (and the Desk's sign-in).
+
+Times a reader meets first say "10:32 UTC" (`utcTime`), not "1032Z": the story card ("Updated
+10:32 UTC", its notes and the airport plan) and the time bar's clock.
 
 ## 8. 3D, compare, the time bar and the height filter
 

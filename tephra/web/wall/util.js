@@ -72,6 +72,12 @@ export function hhmmz(t) {
   const d = new Date(t);
   return `${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}Z`;
 }
+// The same time for a reader who does not know the Z: "10:32 UTC".
+export function utcTime(t) {
+  if (!Number.isFinite(t)) return "—";
+  const d = new Date(t);
+  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
+}
 export function hhmmssz(t) {
   if (!Number.isFinite(t)) return "--:--:--Z";
   const d = new Date(t);

@@ -251,29 +251,33 @@ q { quotes: "“" "”"; }
 
 /* ---------------------------------------------------------------- footer: the status line (UI-DESIGN 7.26) */
 
+/* inverted, as the nav's current page is: a light bar with dark ink, so it reads as its own strip */
 .honesty {
+  --stl-bg: color-mix(in srgb, var(--c-text-1) 90%, var(--c-bg));
+  --stl-ink: var(--c-text-ink);
+  --stl-mute: color-mix(in srgb, var(--c-text-ink) 62%, var(--stl-bg));
   display: flex; align-items: center; gap: var(--sp-3);
   padding: 0 var(--gutter) 0 24px; min-width: 0;
-  background: var(--c-surface-1); border-top: 1px solid var(--c-line-1);
+  background: var(--stl-bg); color: var(--stl-ink);
   font-size: 14px; z-index: var(--z-sticky); white-space: nowrap;
 }
-.stl__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--c-ok); box-shadow: 0 0 8px color-mix(in srgb, var(--c-ok) 60%, transparent); }
-.stl__dot[data-tone="replay"] { background: var(--c-replay); box-shadow: 0 0 8px color-mix(in srgb, var(--c-replay) 60%, transparent); }
-.stl__dot[data-tone="stale"] { background: var(--c-caution); box-shadow: none; }
-.stl__where { flex: none; color: var(--c-text-1); font-weight: var(--fw-medium); }
-.stl__line { min-width: 0; margin-left: var(--sp-3); overflow: hidden; text-overflow: ellipsis; color: var(--c-text-2); }
-.stl__seg { color: var(--c-text-2); text-decoration: none; }
-.stl__seg::before { content: "·"; display: inline-block; margin-right: 0.3em; color: var(--c-text-3); }
-.stl__seg:hover { color: var(--c-text-1); text-decoration: underline; text-underline-offset: 3px; }
+.stl__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: color-mix(in srgb, var(--c-ok) 60%, #000); }
+.stl__dot[data-tone="replay"] { background: color-mix(in srgb, var(--c-replay) 70%, #000); }
+.stl__dot[data-tone="stale"] { background: color-mix(in srgb, var(--c-caution) 55%, #000); }
+.stl__where { flex: none; color: var(--stl-ink); font-weight: var(--fw-semibold); }
+.stl__line { min-width: 0; margin-left: var(--sp-3); overflow: hidden; text-overflow: ellipsis; color: var(--stl-mute); }
+.stl__seg { color: var(--stl-mute); text-decoration: none; }
+.stl__seg::before { content: "·"; display: inline-block; margin-right: 0.3em; color: var(--stl-mute); }
+.stl__seg:hover { color: var(--stl-ink); text-decoration: underline; text-underline-offset: 3px; }
 .stl__keys { flex: none; display: flex; align-items: center; gap: 2px; margin-left: auto; }
 .stl__key {
   display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px;
-  background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--c-text-2);
+  background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--stl-mute);
   font: inherit; text-decoration: none; cursor: pointer;
 }
-.stl__key kbd { font: inherit; font-weight: var(--fw-semibold); color: var(--c-text-1); }
-.stl__key:hover { background: color-mix(in srgb, var(--c-text-1) 7%, transparent); color: var(--c-text-1); }
-.stl__key:focus-visible, .stl__seg:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+.stl__key kbd { font: inherit; font-weight: var(--fw-semibold); color: var(--stl-ink); border-color: color-mix(in srgb, var(--stl-ink) 28%, transparent); }
+.stl__key:hover { background: color-mix(in srgb, var(--stl-ink) 9%, transparent); color: var(--stl-ink); }
+.stl__key:focus-visible, .stl__seg:focus-visible { outline: 2px solid var(--stl-ink); outline-offset: 1px; }
 @media (max-width: 1359px) { .stl__key--wide { display: none; } }
 /* the guide's text links (controls.js) */
 .honesty__about { display: inline-flex; align-items: center; flex: none; padding: 0; background: transparent; border: 0; color: var(--c-text-2); text-decoration: underline; text-underline-offset: 3px; min-height: 28px; font-size: var(--fs-1); border-radius: var(--radius-sm); }
