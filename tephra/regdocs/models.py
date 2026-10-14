@@ -167,6 +167,11 @@ class SraDraft(_DocBase):
     llm_backend: LlmBackendName
     model_id: str
     prompt_hash: str
+    narrative_at: UtcDatetime | None = Field(
+        default=None,
+        description="When the model wrote the narrative boxes; the same model's boxes for "
+        "identical facts keep their time. None: created_at",
+    )
     sections: list[SraSection]
     source_ids: list[str] = Field(description="Every source id the evidence sections cite")
 

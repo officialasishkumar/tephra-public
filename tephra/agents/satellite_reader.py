@@ -22,11 +22,11 @@ from pathlib import Path
 from typing import Annotated, Final, Literal
 
 import shapely
-from pydantic import Field
+from pydantic import Field, ValidationError
 from shapely.geometry import Polygon, shape
 from shapely.geometry.base import BaseGeometry
 
-from tephra.agents.answers import AiAnswers, Question, Reuse, prompt_version
+from tephra.agents.answers import AiAnswer, AiAnswers, Question, Reuse, prompt_version
 from tephra.agents.llm import LlmBackend, LlmPart, prompt_hash
 from tephra.agents.plume_reader import AI_UNAVAILABLE
 from tephra.config import NO_MODEL_LABEL
@@ -55,9 +55,9 @@ __all__ = [
     "SatelliteExtraction",
     "SatelliteReading",
     "is_current",
+    "kept_reading",
     "plume_part",
     "read_satellite",
-    "recall_satellite",
     "satellite_question",
     "select_frames",
     "validate_extraction",
@@ -181,7 +181,7 @@ def satellite_question(
     )
 
 
-async def recall_satellite(
+async def kept_reading(
     volcano: Volcano,
     frames: Frames,
     official_layers: Sequence[OfficialLayer],
@@ -189,16 +189,23 @@ async def recall_satellite(
     answers: AiAnswers,
     *,
     replay: bool = False,
-    trace: TraceSink | None = None,
 ) -> SatelliteReading | None:
-    """The same model's earlier reading of these newest frames, checked again; None when there
-    is none (no model is asked here)."""
+    """The AI worker's look ahead: the same model's reading of these newest frames when it is
+    kept and passes the checks now; None otherwise. Nothing is asked, counted or traced."""
     chosen = select_frames(volcano, frames)
     if FrameProduct.DUST_RGB not in chosen:
         return None
-    reuse = Reuse(answers, satellite_question(volcano, chosen))
+    answer = await answers.peek(satellite_question(volcano, chosen), llm.model_id("lite"))
+    if answer is None:
+        return None
+    try:
+        extraction = SatelliteExtraction.model_validate(answer.payload)
+    except ValidationError:
+        return None
+    if validate_extraction(extraction):
+        return None
     maker = _Maker(volcano, chosen, _frame_ids(chosen), llm, replay)
-    return await _recalled(reuse, maker, official_layers, _Emitter(trace, volcano))
+    return _made_again(maker, answer, extraction, official_layers)
 
 
 async def read_satellite(
@@ -223,7 +230,7 @@ async def read_satellite(
     if FrameProduct.DUST_RGB not in chosen:
         emit("code", "Satellite Reader: no Dust RGB frame for this volcano, nothing read")
         return reading.made("no_frames", reason="no Dust RGB frame for this volcano")
-    reuse = Reuse(answers, satellite_question(volcano, chosen)) if answers is not None else None
+    reuse = None if answers is None else answers.reuse(satellite_question(volcano, chosen))
     if reuse is not None and (known := await _recalled(reuse, reading, official_layers, emit)):
         return known
 
@@ -273,29 +280,38 @@ async def _recalled(
     official_layers: Sequence[OfficialLayer],
     emit: "_Emitter",
 ) -> SatelliteReading | None:
-    answer = await reuse.recall(maker.llm.model_id("lite"))
-    if answer is None:
+    found = await reuse.recall_as(maker.llm.model_id("lite"), SatelliteExtraction)
+    if found is None:
         return None
-    extraction = SatelliteExtraction.model_validate(answer.payload)
+    answer, extraction = found
     problems = validate_extraction(extraction)
     if problems:
         reuse.rejected(problems)
         return None
-    read_at = answer.shown_at(timeutil.now())
+    result = _made_again(maker, answer, extraction, official_layers)
+    emit(
+        "gemini",
+        f"Satellite Reader at {timeutil.hhmmz(result.created_at)}: ash visible "
+        f"{result.ash_visible}, cloud {result.obscured_by_cloud}",
+    )
+    return result
+
+
+def _made_again(
+    maker: "_Maker",
+    answer: AiAnswer,
+    extraction: SatelliteExtraction,
+    official_layers: Sequence[OfficialLayer],
+) -> SatelliteReading:
+    """A reading from the same model's kept extraction, at the time it was read."""
     dust = maker.chosen[FrameProduct.DUST_RGB][0]
-    result = maker.made(
+    return maker.made(
         "read",
         extraction=extraction,
         boxes=_place_boxes(extraction, maker.volcano, dust, official_layers),
         prompt=answer.prompt_hash,
-        created=read_at,
+        created=answer.shown_at(timeutil.now()),
     )
-    emit(
-        "gemini",
-        f"Satellite Reader at {timeutil.hhmmz(read_at)}: ash visible {result.ash_visible}, "
-        f"cloud {result.obscured_by_cloud}",
-    )
-    return result
 
 
 def validate_extraction(extraction: SatelliteExtraction) -> list[str]:

@@ -663,7 +663,7 @@ function helperRow(a, store, n, stub, until, replay) {
   const last = ms(a.last);
   const run = store.snapshot?.duty;
   let lastT = last;
-  if (a.id === "duty" && run && !Number.isFinite(lastT)) lastT = ms(run.finished_at);
+  if (a.id === "duty" && run && !Number.isFinite(lastT)) lastT = ms(run.decided_at || run.finished_at);
   // "Quiet" only for a helper that is quiet; a row with a badge and no time shows no time
   const meta = Number.isFinite(lastT) ? el("span", { class: "mono", text: hhmmz(lastT) }) : a.state === "idle" ? el("span", { text: "Quiet" }) : null;
   const sub = [a.what, a.words, a.delegated ? "given a job by the Coordinator" : null].filter(Boolean).join(" · ");
@@ -704,7 +704,7 @@ function aiPanel(D, store) {
   const tiers = ext.budget?.tiers || [];
   const ids = tiers.length ? tiers.map((t) => [TIER_WORDS[t.tier] || t.tier, t.model_id]) : String(D.state.llm?.label || "").split(" + ").filter(Boolean).map((id, i) => [i ? "Lite" : "Main", id]);
   const jobsN = run ? (run.dispatches || []).length : null;
-  const runT = run ? ms(run.finished_at) : NaN;
+  const runT = run ? ms(run.decided_at || run.finished_at) : NaN;
 
   const head = dkHeader({
     id: "ai-head",

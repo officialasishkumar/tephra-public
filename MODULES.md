@@ -235,8 +235,14 @@ Officer: official products only until it runs, never reused as current). Duty Of
 `Advisory.drafted_at: UtcDatetime | None`: when the body was written, never later than
 `created_at` (the time of the advisory's facts); the same model's body for materially the same
 plan keeps the time it was written (section 5.7, model answers). None only on advisories stored
-before the field; the UI then shows `created_at`. No model carries a label saying an answer was
-reused.
+before the field; the UI then shows `created_at`. The same holds for the other model texts:
+`DutyRun.decided_at` (when the Duty Officer model made the run's decisions and wrote its brief;
+a run that made the same model's decisions again keeps their time; None: `finished_at`),
+`AskAnswer.answered_at` (when the model gave the answer; None for NO MODEL answers),
+`SraDraft.narrative_at` and `HandoverBrief.narrative_at` (when the model wrote the narrative
+parts; None: `created_at`). The UI shows these times for those texts (the Duty Officer's run and
+brief time, a document's "Parts drafted by TEPHRA Assistant <time>" line). No model carries a
+label saying an answer was reused.
 `PlannerContext.route` and `.reroutes` carry the published route and the code's lateral options;
 `PlannerDecision.reroute_id` names the chosen option; `Advisory.reroute` embeds it.
 Crew reports (section 5.19): `AuditAction` `CREW_REPORT_ENTERED`, `CREW_REPORT_WITHDRAWN`,
@@ -1124,11 +1130,13 @@ async def read_plume(situation: Situation, llm: LlmBackend, *, images: Sequence[
                      settings: Settings, trace: TraceSink | None = None,
                      call_model: bool = True) -> PlumeAssessment
 def plume_question(situation: Situation, *, max_age: timedelta) -> Question
-                     # material: the products by content (situation.input_hash) and the
-                     # discrepancies by id and severity (section 5.7, model answers)
-def reused_assessment(answer: AiAnswer, situation: Situation, *, trace: TraceSink | None = None
-                      ) -> tuple[PlumeAssessment | None, list[str]]
-                     # the kept reading, checked again with validate_estimate against situation;
+                     # material: the products by content (situation.input_hash), the
+                     # discrepancies by id and severity, and the supporting evidence (source id
+                     # and text hash: the Satellite Reader's reading) (section 5.7, model answers)
+def reused_assessment(answer: AiAnswer, held: PlumeAssessment, situation: Situation, *,
+                      trace: TraceSink | None = None) -> tuple[PlumeAssessment | None, list[str]]
+                     # the kept reading, checked again with validate_estimate against situation
+                     # (with its supporting evidence, as a fresh read gets it);
                      # created_at = answer.shown_at(now); (None, problems) when it fails
 def build_parts(situation: Situation, images: Sequence[LlmPart]) -> list[LlmPart]
 def validate_estimate(estimate: PlumeEstimate, situation: Situation) -> list[str]
@@ -1278,9 +1286,14 @@ async def plan_flight(ctx: PlannerContext, llm: LlmBackend, *, settings: Setting
                       # reuse: the same model's plan for the same material question, used when
                       # normalise_decision + validate_decision pass for ctx now (no ADK run, no
                       # budget); else the agent runs and a plan that passes is kept
-def planner_question(ctx: PlannerContext, *, policy_version: str, max_age: timedelta) -> Question
-                      # material: flight, cone id, plume mode, allowed actions, policy version,
-                      # urgency_band(ctx), level in 2,000 ft steps (LEVEL_STEP_FL), open alternates
+def planner_question(ctx: PlannerContext, *, cone_version: str, policy_version: str,
+                     max_age: timedelta) -> Question
+                      # material: flight, cone id and version, plume mode, allowed actions, policy
+                      # version, urgency_band(ctx), level in 2,000 ft steps (LEVEL_STEP_FL), open
+                      # alternates
+def cone_version(cone: HazardCone) -> str   # hash of the cone's content without created_at and
+                                            # valid_to: a cone rebuilt on new winds keeps its id
+                                            # but not its version
 def urgency_band(ctx: PlannerContext) -> int   # 0 inside; 1 + limits (divert, hold) the entry lies beyond
 ```
 `build_planner_context`: alternates are the 5 nearest from `airports.nearest(flight.lat,
@@ -1363,9 +1376,11 @@ async def draft_advisory(*, situation: Situation, assessment: PlumeAssessment, c
                          replay_case: ReplayCase | None = None,
                          reuse: Reuse | None = None) -> Advisory | AiFailure
                          # stamps policy_id, policy_version, policy_hash and replay_case_id
-def drafter_question(ctx: PlannerContext, plan: PlannedAction, *, max_age: timedelta) -> Question
-                         # material: flight, cone id, action and its target (band, hold FL,
-                         # alternate, reroute option id)
+def drafter_question(ctx: PlannerContext, plan: PlannedAction, *, cone_version: str,
+                     policy_version: str, max_age: timedelta) -> Question
+                         # material: flight, cone id and version, policy version (the advisory
+                         # records the policy it was drafted under), action and its target (band,
+                         # hold FL, alternate, reroute option id)
 ```
 ``reuse`` is the same model's body and cost note for the same material question: when
 ``validate_draft`` passes for this context and plan now, it is used without a model call (no
@@ -1447,7 +1462,8 @@ blobs under `cache_dir/blobs/`. `tephra/store/firestore_store.py`: `class
 FirestoreStore(Store)`, constructor `(project: str, database: str, bucket: str)`;
 `google.cloud.firestore.AsyncClient` and Cloud Storage for blobs (runs only inside Cloud Run
 with its service account); each document is stored as its JSON text in the field
-`tephra_doc` beside copies of its short top-level scalar fields; equality filters (and one
+`tephra_doc` beside copies of its short top-level scalar fields (for a collection in
+`INDEXED_ONLY`, `ai_answers`, only those fields: `expires_at`); equality filters (and one
 `in`) run on the server and the rest in memory, so no composite index is needed; CAS in a
 Firestore transaction; ids escaped with `escape_doc_id`. Both write documents with
 `encode_doc`.
@@ -1666,8 +1682,9 @@ class Runtime:
     def start_worker(self) -> None                               # create_runtime: the AI worker's loop (aclose stops it)
     answers: AiAnswers | None                                     # property: the kept model answers; None for the stub
     plan_answer_age: timedelta; duty_answer_age: timedelta        # properties: ai_answer_plan_min, ai_answer_duty_min
-    async def answered(self, item: DutyItem) -> bool              # every answer the item needs is on hand (ASSESS, PLAN)
+    async def answered(self, item: DutyItem) -> bool              # every answer the item needs is on hand (ASSESS, PLAN, SRA)
     async def coordinator_answered(self, items: Sequence[DutyItem]) -> bool   # the Duty Officer's for these items
+    def coordinator_question(self, items: Sequence[DutyItem]) -> Question       # with this policy and duty_answer_age
     def known_routes(self) -> dict[str, FlightRoute]             # hex -> RouteTable.lookup of each airline target (every publish)
     def route_layer(self, known: Mapping[str, FlightRoute]) -> dict[str, Any]   # WallSnapshot.routes: exposed flights only
     async def add_verified_notice(self, vona: Vona) -> None      # a verified pasted notice joins live.vonas and the store
@@ -1729,20 +1746,32 @@ class AiWorker:
 Skill = Literal["plume_reader", "satellite_reader", "flight_planner", "drafter", "coordinator",
                 "notice_reader", "messages", "ask", "handover", "sra"]
 class Question(NamedTuple): skill: Skill; material: Mapping[str, Any]; max_age: timedelta | None = None
-class AnswerScope(NamedTuple): mode: RunMode; case_id: str | None
+class AnswerScope(NamedTuple): mode: RunMode; case_id: str | None; epoch: int = 0   # epoch: not in the key
 class AiAnswer(TephraModel):       # ai_answers/<key>: key, mode, case_id, build, skill, model_id,
                                    # fingerprint, answered_at (run clock), stored_at, expires_at
                                    # (wall clock), prompt_hash, payload (the skill's answer model)
+    def age(self, now: datetime) -> timedelta       # abs(now - answered_at), on the run's clock
     def shown_at(self, now: datetime) -> datetime   # min(answered_at, now)
 class AiAnswers:
     def __init__(self, store: Store, settings: Settings, *, scope: Callable[[], AnswerScope])
-    counts: Counter[tuple[Skill, Outcome]]          # hit, miss, expired, rejected, kept
-    async def recall(self, question: Question, model_id: str) -> AiAnswer | None
+    scope: Callable[[], AnswerScope]                # the mode, case and epoch playing now
+    counts: Counter[tuple[Skill, Outcome]]          # hit, miss, expired, rejected, kept, dropped, not_on_hand
+    def reuse(self, question: Question) -> Reuse    # the question, put now
+    async def recall(self, question, model_id, scope: AnswerScope | None = None) -> AiAnswer | None
     async def peek(self, question: Question, model_id: str) -> AiAnswer | None   # the same, uncounted
-    def rejected(self, question: Question, problems: list[str]) -> None
-    async def keep(self, question, model_id, payload, *, prompt_hash: str, answered_at: datetime) -> None
-    async def sweep(self) -> int                    # at most once an hour; expired answers removed
-class Reuse(NamedTuple): book: AiAnswers; question: Question   # recall(model_id), rejected(problems), keep(...)
+    def rejected(self, question, problems: list[str], scope: AnswerScope | None = None) -> None
+    async def keep(self, question, model_id, payload, *, prompt_hash: str, answered_at: datetime,
+                   scope: AnswerScope | None = None) -> None   # dropped when scope is not the one now
+    async def sweep(self) -> int                    # at most every 10 min, at most SWEEP_PAGES pages
+class Reuse:                                        # Reuse(book, question): scope taken when put
+    book: AiAnswers; question: Question; scope: AnswerScope
+    async def recall(self, model_id: str) -> AiAnswer | None
+    async def recall_as(self, model_id: str, schema: type[T]) -> tuple[AiAnswer, T] | None
+                                                    # a payload that no longer reads: rejected
+    def rejected(self, problems: list[str]) -> None
+    async def keep(self, model_id, payload, *, prompt_hash: str, answered_at: datetime) -> None
+class NotOnHand(Exception): skill: Skill            # inside on_hand_only: no good answer, no model asked
+def on_hand_only(enabled: bool = True) -> ContextManager[None]
 def prompt_version(system: str) -> str             # a skill's instructions, in its material
 ```
 
@@ -1808,12 +1837,16 @@ Core rules:
   store cannot be read); it is not offered to the Duty Officer (waiting costs no call), not
   dropped and never given to another model. When no routine work is admitted and some waits,
   the waiting items whose model answers are all on hand (`Runtime.answered`: an ASSESS item's
-  plume read, a PLAN item's plan and draft; a RECOVER or SRA item never) and for which the Duty
-  Officer's own answer for exactly those items is on hand (`Runtime.coordinator_answered`) run
-  now, at most `MAX_ROUTINE_ITEMS`, even while the assistant is paused: they cost no call. Such a
-  run is `use_lane("routine")` not admitted, so a step whose kept answer fails its checks asks
-  the model under the routine pacing, which may refuse it (AI UNAVAILABLE, as for any refused
-  call). Ask, voice, notices, messages, documents and a
+  plume read with the satellite reading it would be given, a PLAN item's plan and draft, an SRA
+  item's narrative boxes; a RECOVER item never) and for which the Duty Officer's own answer for
+  exactly those items is on hand (`Runtime.coordinator_answered`) run now, at most
+  `MAX_ROUTINE_ITEMS`, even while the assistant is paused: they cost no call. Such a run is
+  `on_hand_only` (and `use_lane("routine")` not admitted): every answer is checked again, and a
+  step whose answer is missing or no longer passes asks no model but raises `NotOnHand`. The
+  run then stores no Duty Officer run; what was done stays done, what was not is due as before
+  (`assess_due`, the flight's plan marks and the region's SRA mark are restored), is not marked
+  offered and waits for budget again (never AI UNAVAILABLE for want of a slot); the look ahead
+  passes over those item ids for `duty.rerun_min`. Ask, voice, notices, messages, documents and a
   Desk-started recovery call the models directly, beside the worker; each call is counted all
   the same. A recovery job records the closed airports it planned for (the set of the moment,
   not the queued one), so a change while it waited does not queue a second run. Every item a run was given is marked offered,
@@ -1837,41 +1870,54 @@ Core rules:
 
   | Skill | Material | Age limit |
   |---|---|---|
-  | Plume reader | the products by content (`input_hash`), the discrepancies by id and severity | `REASK_UNCHANGED` (3 h) |
+  | Plume reader | the products by content (`input_hash`), the discrepancies by id and severity, the supporting evidence (the Satellite Reader's reading of the newest frames: source id and text hash) | `REASK_UNCHANGED` (3 h) |
   | Satellite reader | the volcano, the scans read (source ids and times) | none |
-  | Flight planner | flight, cone id, plume mode, allowed actions, policy version, urgency band (inside, within the divert limit, within the hold limit, later), level in 2,000 ft steps, open alternates | `ai_answer_plan_min` (60 min) |
-  | Drafter | flight, cone id, action and its target (band, hold FL, alternate, reroute option) | `ai_answer_plan_min` |
-  | Coordinator | the work list's item kinds, subjects and mandatory flags (not the digest: budget counts and other moving lines are left out) | `ai_answer_duty_min` (30 min) |
+  | Flight planner | flight, cone id and `cone_version`, plume mode, allowed actions, policy version, urgency band (inside, within the divert limit, within the hold limit, later), level in 2,000 ft steps, open alternates | `ai_answer_plan_min` (60 min) |
+  | Drafter | flight, cone id and version, policy version, action and its target (band, hold FL, alternate, reroute option) | `ai_answer_plan_min` |
+  | Coordinator | the policy version and the work list's item kinds, subjects, mandatory flags and urgency buckets (not the digest: budget counts and other moving lines are left out) | `ai_answer_duty_min` (30 min); deferrals only within `duty.rerun_min` |
   | Notice reader | the normalised text | none |
   | Messages | the template spec (kind, status, jurisdiction, languages, placeholders: everything the model sees) | none |
-  | Ask | the question (case, spacing and closing punctuation aside), the flight, each volcano's `input_hash` and cone id, the exposed flights | `ai_answer_ask_min` (10 min) |
+  | Ask | the question (case, spacing and closing punctuation aside), the flight, each volcano's `input_hash` and cone id; on recall every tool the answer used must return the same results now | `ai_answer_ask_min` (10 min) |
   | Handover, SRA | every fact the model is given (the handover's `as_of` clock line aside) | none |
 
   `AiAnswers.recall(question, model_id)` returns the answer while it is within the age limit and
   the store's expiry; the skill then checks it again with the same validators as a fresh answer,
   against the input of the moment (numbers, ids and times must be in the current input, the
   action still allowed, the band still clear, the alternate still open, the reroute still OK,
-  the brief's figures in this run's results), and uses it only when it passes. A hit makes no
+  the Coordinator's delegations coming out as they did and its deferral reasons and brief
+  passing their checks against this run's input, the digest and this run's tool results), and
+  uses it only when it passes. A payload that no longer reads as the skill's answer model counts
+  as rejected (`Reuse.recall_as`). A hit makes no
   model call and spends no budget. When it fails (`rejected`, logged with the problems), or there
   is none, the model is asked as usual (budget and pacing apply) and a new answer that passes is
   kept (a newer answer replaces the older); when the model cannot be asked the step reports AI
   UNAVAILABLE exactly as before, and the kept answer is never shown in its place (rule 9). A
   reused answer keeps the time the model gave it, `AiAnswer.shown_at(now) = min(answered_at,
   now)`: a plume read's and a satellite reading's `created_at`, a notice reading's `created_at`,
-  an advisory's `drafted_at` and header `DRAFTED` line. Code-built records around a reused text
-  (an advisory's facts, a message, a document, a Duty Officer run) carry the time code built
-  them. Nothing in the UI says an answer was reused; the trace says what was done and when
+  an advisory's `drafted_at` and header `DRAFTED` line, a Duty Officer run's `decided_at` and
+  `turns`, an Ask answer's `answered_at`, an SRA's and a handover's `narrative_at`. Code-built
+  records around a reused text (an advisory's facts, a message, a document, a Duty Officer run's
+  delegations) carry the time code built them. Nothing in the UI says an answer was reused; the trace says what was done and when
   ("Plume Reader accepted at 1830Z: ...", "PLAN ACCEPTED at 1830Z: ..."). Every hit, miss,
   expiry, rejection and keep is a log line (`event="ai_answer"`, `skill`, `outcome`, `mode`) and
   counted in `AiAnswers.counts`. The offline stub keeps nothing (`Runtime.answers` is None).
-  A plume hit also takes the satellite reading of the newest frames when one is kept
-  (`recall_satellite`, no model asked); a Coordinator hit makes the kept delegations and
-  deferrals again through the same tools (each specialist asks its own question again) and
-  submits the kept brief through `validate_brief`; when that fails, the model finishes the run.
-  `expires_at` (wall clock) is `stored_at + ai_answer_keep_h` (LIVE: no later than the age
-  limit); `AiAnswers.sweep` (at a checkpoint, at most once an hour) deletes expired answers,
-  oldest expiry first, by a single-field order Firestore serves from its automatic index. Answers
-  read once are held in memory (up to 2,000), so a recurring question reads the store once.
+  A plume read first takes the satellite reading of the newest frames, as a fresh read does
+  (`_with_satellite`: the held reading when current, else the Satellite Reader, which reuses its
+  own kept reading of those frames), and the question and its re-check include that evidence. A
+  Coordinator hit makes the kept delegations again through the same tools (each specialist asks
+  its own question again); each must come out as it did then (`_outcome_of`: done or not, and
+  the result's status, outcome, mode and action), its deferrals are made again through `defer`
+  (whose reason is checked like the brief's figures) only within `duty.rerun_min` of the
+  decision, and its brief goes through `validate_brief`; when any of that fails, the kept brief
+  and deferrals are dropped (the delegations done stay, and the task text lists them) and the
+  model finishes the run. A `Reuse` takes the scope (mode, case, picture epoch) when the question
+  is put: it looks the answer up there, and an answer that comes back after a mode switch or a
+  replay loop is dropped, not kept. `expires_at` (wall clock) is `stored_at + ai_answer_keep_h`
+  (LIVE: no later than the age limit); `AiAnswers.sweep` (at a checkpoint, at most every ten
+  minutes and at most `SWEEP_PAGES` pages of `SWEEP_PAGE`) deletes expired answers, oldest expiry
+  first, by a single-field order Firestore serves from its automatic index; in Firestore only
+  `expires_at` is copied beside an answer's JSON text (`INDEXED_ONLY`). Answers read once are
+  held in memory (up to 2,000), so a recurring question reads the store once.
 - Store errors. The open drafts are read with documents that no longer validate skipped and
   logged. When they cannot be read (`DeskUnreachable`), the Duty Officer's dispatch and draft
   retirement are skipped for the tick (an unread list is never taken as empty, which would
@@ -1906,9 +1952,10 @@ Core rules:
   `ai_unavailable`) is kept in `Runtime.satellite`, stored in `sat_readings`, published as SSE
   `satellite`, and an unavailable one writes an `AI_FAILED` audit entry; a stored failure for the
   same frames blocks a retry until a new frame arrives. A current `read` reading becomes
-  `Situation.supporting` for that call only (`plume_part(reading)` under its `SAT-` id). A
-  plume read answered from a kept reading asks no satellite model either: the kept satellite
-  reading of the newest frames, when there is one, is held and published (`recall_satellite`).
+  `Situation.supporting` for that call only (`plume_part(reading)` under its `SAT-` id). The
+  satellite reading comes before the Plume Reader's kept answer is looked up: it is part of the
+  question (model answers above). The look ahead uses `kept_reading` (a kept reading of the
+  newest frames, checked, nothing asked).
 - Advisory header facts. `_plan_and_draft` passes `feed_health=runtime.live.health` to
   `draft_advisory`, and `replay_case=runtime.replay_case` when the mode is REPLAY.
 - Reroutes. `_plan_and_draft` passes `routes=runtime.routes` and the situation to
@@ -2366,9 +2413,10 @@ level, ICAO code, callsign, time and id in `answer` and `claims` to appear in a 
 rejects "is safe" phrasing, allows one repair turn, then `AskFailure`. No dispatcher name is in a
 tool result. The stub answers with a labelled count of exposed flights. `AskRuntime.answers`
 (`AiAnswers | None`): the same model's answer to the same question in the same picture is
-checked again by running the tool calls it made again (code) and validating the reply against
-those results; when it passes, no model is asked (the answer's model id and prompt hash are
-the kept ones); else the agent runs, and an answer that passes is kept with its tool calls.
+checked again by running the tool calls it made again (code): their results must be what they
+were (a hash of every result kept with the answer) and the reply must validate against them;
+when it passes, no model is asked (the answer's model id, prompt hash and `answered_at` are the
+kept ones); else the agent runs, and an answer that passes is kept with its tool calls.
 `tephra/agents/voice.py`: `transcribe(llm, audio, mime_type) -> Transcript` (one lite call with
 an audio part), `speak(text, language, *, llm, client_factory, timeout_s) -> bytes`
 (Gemini TTS on the backend's `tts` tier, 24 kHz 16-bit PCM wrapped in a WAV header),
@@ -2411,8 +2459,9 @@ async def read_satellite(volcano, frames: Sequence[tuple[SatelliteFrame, bytes]]
                          answers: AiAnswers | None = None) -> SatelliteReading
                          # answers: the same model's reading of the same scans, checked again with
                          # validate_extraction, boxes placed by code now, created_at when it was read
-async def recall_satellite(volcano, frames, official_layers, llm, answers, *, replay=False,
-                           trace=None) -> SatelliteReading | None      # a kept reading only, no ask
+async def kept_reading(volcano, frames, official_layers, llm, answers, *, replay=False
+                       ) -> SatelliteReading | None   # the look ahead: a kept, checked reading;
+                                                      # nothing asked, counted or traced
 def satellite_question(volcano, chosen) -> Question
 def select_frames(volcano, frames) -> dict[FrameProduct, tuple[SatelliteFrame, bytes]]
 def is_current(reading, volcano, frames) -> bool         # the gate: same newest frames
@@ -2515,8 +2564,9 @@ first. `HandoverBrief` is stored in `docs` with `doc_type = "handover"` (ids `ho
 `tephra/regdocs/`
 ```python
 async def draft_sra(runtime: DocsRuntime, region: str, *, actor: str = "system") -> SraDraft   # sra.py; raises UnknownRegion, NoActiveVolcano, AiUnavailable
-async def write_narrative(llm, facts, *, answers: AiAnswers | None = None) -> tuple[SraNarrative, LlmCall]
-                         # narrative.py; the same model's boxes for identical facts, checked again
+async def write_narrative(llm, facts, *, answers: AiAnswers | None = None) -> Narrated
+                         # narrative.py; Narrated(narrative, call, written_at): the same model's
+                         # boxes for identical facts, checked again, keep their time
 def narrative_question(facts: Mapping[str, Any]) -> Question   # DocsRuntime.answers feeds it
 async def draft_var(runtime: DocsRuntime, flight_id: str, *, actor: str = "system") -> VarDraft  # var.py; raises FlightNotExposed; no model call
 async def draft_crew_message(runtime: DocsRuntime, view: CrewReportView, *, vaac: VaacCentre | None,
@@ -2595,11 +2645,14 @@ class DutyExecutor(Protocol):        # what the tools act on; tephra.duty implem
 async def run_duty_officer(worklist, executor, llm, *, digest: str, settings: Settings,
                            trigger: Literal["tick", "adsb"], replay: bool,
                            trace: TraceSink | None = None,
-                           reuse: Reuse | None = None) -> DutyRun
-def coordinator_question(worklist: Sequence[DutyItem], *, max_age: timedelta) -> Question
-                           # material: (kind, subject, mandatory) of each item, sorted
-class DutyDecisions(TephraModel):    # the kept answer: delegations [{tool, subjects}], deferrals and
-                                     # priorities [{kind, subject, text}], summary, watch, outcome
+                           reuse: Reuse | None = None, rerun: timedelta | None = None) -> DutyRun
+def coordinator_question(worklist: Sequence[DutyItem], *, policy_version: str,
+                         max_age: timedelta) -> Question
+                           # material: the policy version and (kind, subject, mandatory, urgency)
+                           # of each item, sorted
+class DutyDecisions(TephraModel):    # the kept answer: delegations [{tool, subjects, outcome}],
+                                     # deferrals and priorities [{kind, subject, text}], summary,
+                                     # watch, outcome, turns
 def build_duty_agent(model, toolkit, *, before_model_callback=None, on_model_error_callback=None) -> LlmAgent
 def validate_brief(brief: DutyBrief, toolkit: DutyToolkit) -> list[str]
 
@@ -2626,9 +2679,11 @@ of mandatory items or `use_lane("routine", admitted=True)`, with a digest per ac
 of routine items waiting for budget and the day's budget per model. The same model's
 decisions for the same work (`coordinator_question`, section 5.7) are made again instead
 (`DutyDecisions`, in subjects: item ids change with a cone or an input hash): its delegations
-and deferrals in its order through the same tools, then its brief (priorities mapped to this
-run's item ids) through `validate_brief`; a brief that no longer passes, or mandatory work left
-undone, is finished by the model. A run that ends after a picture reset (`epoch`) changes nothing.
+in its order through the same tools (each must come out as it did), its deferrals (within
+`rerun`, the policy's `duty.rerun_min`), then its brief (priorities mapped to this run's item
+ids) through `validate_brief`; when one of those fails, or mandatory work is left undone, the
+kept brief and deferrals are dropped and the model finishes the run. The run keeps the model's
+`decided_at` and `turns`. A run that ends after a picture reset (`epoch`) changes nothing.
 
 The agent (`AGENT_NAME = "tephra_duty_officer"`, lite tier, at most 12 model turns,
 `duty_run_timeout_s` per run) has six tools:
@@ -2639,7 +2694,7 @@ The agent (`AGENT_NAME = "tephra_duty_officer"`, lite tier, at most 12 model tur
 | `plan_flights(flight_ids)` | `Runtime.plan_flight_now`: reroutes, Exposure Planner, Dispatch Drafter, the Desk | only flights with a PLAN item; refused while the flight's volcano has an ASSESS item; results are the draft or the AI failure |
 | `run_recovery()` | `Runtime.start_recovery`: a recovery job queued in the AI worker | only with a RECOVER item |
 | `draft_sra(region)` | `regdocs.sra.draft_sra` | only with an SRA item; marked done for the day even when it fails; while an unsigned SRA draft of the region in the mode playing waits, that draft is returned and no new one is made (the day's mark is in memory, so a replay run or a restart would otherwise add one more to sign) |
-| `defer(item_ids, reason)` | nothing | mandatory items and items with no reason are refused |
+| `defer(item_ids, reason)` | nothing | mandatory items, items with no reason, and a reason with a clock time or a number or RFA flight not in the run's input (as the brief) are refused |
 | `submit_brief(summary, priority_item_ids, priority_reasons, watch)` | the brief | `validate_brief`: summary 500 chars, reasons 160, at most 4 watch lines of 160; known item ids, each once; no clock times; every number and RFA flight must appear in the digest, the work list or a tool result |
 
 After the first turn, a missing or rejected brief, or mandatory work still undone, gets one
@@ -2886,7 +2941,7 @@ metrics.
 | `runtime` | `state` | core bookkeeping: `mode`, `auto_replay`, `case_id` (read at startup to resume a replay), `quiet_ticks`, `planned` (`{flight_id: [cone_id, urgency]}`), `closed_airports`, `assessment_ids` (read back after a LIVE restart), `saved_at` | core (first at every checkpoint, and at every mode switch) |
 | `ai_budget` | `<quota day>/<model id>` | `ModelDay`: that model's calls per lane on that Google quota day, and whether Google closed it | `agents.quota` (one transaction per HTTP attempt, before it is sent) |
 | `ai_work` | work id (a Duty item id, or `recover`) | `AiWork`: AI work queued, running or WAITING for budget with its next slot | core (`tephra.ai_worker`, on change; restored after a LIVE restart) |
-| `ai_answers` | 32 hex (hash of mode, case, build, model, skill and material) | `AiAnswer`: a model's answer that passed the code's checks, for the same material question (`expires_at` is the sweep's field) | core (`tephra.agents.answers`; a newer answer replaces it; swept hourly) |
+| `ai_answers` | 32 hex (hash of mode, case, build, model, skill and material) | `AiAnswer`: a model's answer that passed the code's checks, for the same material question (`expires_at` is the sweep's field) | core (`tephra.agents.answers`; a newer answer replaces it; swept every ten minutes; in Firestore only `expires_at` is indexed) |
 | blobs | `frames/*.png`, `btd/*.png` | PNG bytes | core |
 
 Documents are strict JSON (`tephra.store.encode_doc`): NaN and infinities are stored as null.

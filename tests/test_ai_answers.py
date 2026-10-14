@@ -19,19 +19,35 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 from test_ai_worker import EARLY, LATER, NamedGemini
+from test_ask import make_runtime as ask_runtime
 from test_drafter import POLICY as DRAFTER_POLICY
 from test_drafter import change_level_case, make_assessment, make_cone, make_situation
-from test_duty_officer import ASSESS, PLAN_LATER, WORKLIST, FakeExecutor
+from test_duty_officer import ASSESS, PLAN_LATER, SRA, WORKLIST, FakeExecutor
 from test_pipeline import GIA417, SEMERU, FixtureSource, make_runtime, make_settings
 from test_planner import make_ctx as planner_ctx
 
 from tephra import ai_worker as ai_worker_module
+from tephra.agents import answers as answers_module
+from tephra.agents import ask as ask_module
 from tephra.agents import duty_officer as duty_officer_module
 from tephra.agents import exposure_planner as planner_module
-from tephra.agents.answers import AiAnswers, AnswerScope, Question, Reuse
+from tephra.agents.answers import (
+    AiAnswers,
+    AnswerScope,
+    NotOnHand,
+    Question,
+    Reuse,
+    on_hand_only,
+)
+from tephra.agents.ask import AskAnswer, AskClaim, AskReply, answer_question
 from tephra.agents.dispatch_drafter import draft_advisory, drafter_question
-from tephra.agents.duty_officer import coordinator_question, run_duty_officer
-from tephra.agents.exposure_planner import plan_flight, planner_question, rule_based_decision
+from tephra.agents.duty_officer import DutyToolkit, coordinator_question, run_duty_officer
+from tephra.agents.exposure_planner import (
+    cone_version,
+    plan_flight,
+    planner_question,
+    rule_based_decision,
+)
 from tephra.agents.llm import BUDGET_EXHAUSTED, LlmCall, StubBackend, Tier, prompt_hash
 from tephra.agents.notice_reader import notice_question
 from tephra.agents.plume_reader import plume_question
@@ -47,8 +63,10 @@ from tephra.models import (
     Discrepancy,
     DiscrepancyKind,
     DraftText,
+    DutyBrief,
     DutyItem,
     DutyItemKind,
+    DutyRun,
     FeedId,
     FrameProduct,
     LlmBackendName,
@@ -56,13 +74,14 @@ from tephra.models import (
     Provenance,
     RunMode,
     SatelliteFrame,
+    SupportingEvidence,
     TickReport,
     TraceEvent,
 )
 from tephra.pipeline import Runtime
 from tephra.scheduler import run_tick
 from tephra.store.base import Collection
-from tephra.store.firestore_store import FirestoreStore
+from tephra.store.firestore_store import DOC_FIELD, FirestoreStore
 from tephra.store.sqlite_store import SqliteStore
 from tephra.util.timeutil import FixedClock, use_clock
 
@@ -141,6 +160,7 @@ class Agents:
             await toolkit.run_recovery()
         order = [item.id for item in toolkit.worklist() if item.id not in toolkit.deferred]
         toolkit.submit_brief("Flights first, then the rest.", order, ["Urgent."] * len(order), [])
+        run.turns = 3
 
 
 @pytest.fixture
@@ -209,6 +229,46 @@ async def test_an_answer_is_found_only_in_its_mode_case_build_and_model(
     assert await new_build.recall(QUESTION, "lite") is None, "a new build asks afresh"
 
 
+async def test_an_answer_that_comes_back_after_a_reset_is_not_kept(
+    sqlite: SqliteStore, clock: FixedClock
+) -> None:
+    scope = Scope(AnswerScope(RunMode.REPLAY, "case-a", epoch=3))
+    book = book_on(sqlite, scope)
+    asked = book.reuse(QUESTION)  # put while the replay played
+    scope.now = AnswerScope(RunMode.LIVE, None, epoch=4)  # a switch to LIVE meanwhile
+    await asked.keep("lite", {"n": 1}, prompt_hash="p", answered_at=AT)
+    assert await book.recall(QUESTION, "lite") is None, "not filed under LIVE"
+    scope.now = AnswerScope(RunMode.REPLAY, "case-a", epoch=5)  # nor under the next loop
+    assert await book.recall(QUESTION, "lite") is None
+    assert book.counts[("flight_planner", "dropped")] == 1
+    assert await sqlite.list_docs(Collection.AI_ANSWERS) == []
+
+    looked_up = book.reuse(QUESTION)
+    await book.keep(QUESTION, "lite", {"n": 2}, prompt_hash="p", answered_at=AT)
+    scope.now = AnswerScope(RunMode.LIVE, None, epoch=6)
+    found = await looked_up.recall("lite")
+    assert found is not None, "looked up in the scope the question was put in"
+    assert await book.reuse(QUESTION).recall("lite") is None
+
+
+async def test_inside_on_hand_work_a_missing_or_failing_answer_asks_no_model(
+    sqlite: SqliteStore, clock: FixedClock
+) -> None:
+    book = book_on(sqlite)
+    with on_hand_only():
+        with pytest.raises(NotOnHand):
+            await book.reuse(QUESTION).recall("lite")
+        await book.keep(QUESTION, "lite", {"n": 1}, prompt_hash="p", answered_at=AT)
+        kept = book.reuse(QUESTION)
+        assert await kept.recall("lite") is not None
+        with pytest.raises(NotOnHand):
+            kept.rejected(["NO LONGER FITS"])
+        with pytest.raises(NotOnHand):
+            await kept.recall_as("lite", DraftText)  # unreadable as a draft: rejected
+    assert book.counts[("flight_planner", "not_on_hand")] == 3
+    assert await book.reuse(QUESTION).recall_as("lite", DraftText) is None, "outside: ask"
+
+
 async def test_an_answer_lives_as_long_as_its_question_allows(
     sqlite: SqliteStore, clock: FixedClock
 ) -> None:
@@ -226,14 +286,19 @@ async def test_an_answer_lives_as_long_as_its_question_allows(
     assert await book.recall(forever, "lite") is not None, "a notice's text never ages"
 
 
-async def test_the_sweep_removes_expired_answers_once_an_hour(sqlite: SqliteStore) -> None:
+async def test_the_sweep_removes_expired_answers_a_few_pages_at_a_time(
+    sqlite: SqliteStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(answers_module, "SWEEP_PAGE", 2)
+    monkeypatch.setattr(answers_module, "SWEEP_PAGES", 2)
     book = book_on(sqlite, ai_answer_keep_h=1e-9)
-    await book.keep(QUESTION, "lite", {"n": 1}, prompt_hash="p", answered_at=AT)
+    for n in range(5):
+        question = QUESTION._replace(material={"flight": f"f{n}"})
+        await book.keep(question, "lite", {"n": n}, prompt_hash="p", answered_at=AT)
+    assert len(await sqlite.list_docs(Collection.AI_ANSWERS)) == 5
+    assert await book.sweep() == 4, "at most two pages of two"
     assert len(await sqlite.list_docs(Collection.AI_ANSWERS)) == 1
-    assert await book.sweep() == 1
-    assert await sqlite.list_docs(Collection.AI_ANSWERS) == []
-    await book.keep(QUESTION, "lite", {"n": 1}, prompt_hash="p", answered_at=AT)
-    assert await book.sweep() == 0, "at most one sweep an hour"
+    assert await book.sweep() == 0, "at most one sweep each ten minutes"
 
 
 class _Snapshot:
@@ -307,6 +372,7 @@ async def test_the_firestore_store_keeps_finds_and_sweeps_answers(clock: FixedCl
     await book.keep(QUESTION, "lite", {"n": 1}, prompt_hash="p", answered_at=AT)
     stored = next(iter(collection.docs.values()))
     assert isinstance(stored["expires_at"], str), "copied beside the JSON text: it is indexed"
+    assert set(stored) == {"expires_at", DOC_FIELD}, "and nothing else is (no index per field)"
     fresh = book_on(store)  # nothing in memory: read through Firestore
     assert await fresh.peek(QUESTION, "lite") is None, "expired"
     long_lived = book_on(store)
@@ -322,8 +388,12 @@ async def test_the_firestore_store_keeps_finds_and_sweeps_answers(clock: FixedCl
 # --- what is material ---------------------------------------------------------------------
 
 
-def _planner_q(ctx: Any, policy: str = "2026.10.1") -> Question:
-    return planner_question(ctx, policy_version=policy, max_age=HOUR)
+def _planner_q(ctx: Any, policy: str = "2026.10.1", cone: str = "v1") -> Question:
+    return planner_question(ctx, cone_version=cone, policy_version=policy, max_age=HOUR)
+
+
+def _drafter_q(ctx: Any, plan: Any, policy: str = "2026.10.1", cone: str = "v1") -> Question:
+    return drafter_question(ctx, plan, cone_version=cone, policy_version=policy, max_age=HOUR)
 
 
 def _moved(ctx: Any, **flight: Any) -> Any:
@@ -343,7 +413,7 @@ def test_a_flight_that_moves_on_asks_the_same_question() -> None:
     )
     assert _planner_q(same) == _planner_q(ctx)
     plan = change_level_case()[1]
-    assert drafter_question(same, plan, max_age=HOUR) == drafter_question(ctx, plan, max_age=HOUR)
+    assert _drafter_q(same, plan) == _drafter_q(ctx, plan)
 
 
 def test_every_material_change_is_a_new_plan_question() -> None:
@@ -366,11 +436,20 @@ def test_every_material_change_is_a_new_plan_question() -> None:
     for why, other in changed.items():
         assert _planner_q(other) != base, why
     assert _planner_q(ctx, policy="2026.10.2") != base, "a new policy version"
+    assert _planner_q(ctx, cone="v2") != base, "the cone rebuilt on new winds, same id"
+
+
+def test_a_cone_rebuilt_on_new_winds_is_a_new_version() -> None:
+    cone = make_cone()
+    later = cone.model_copy(update={"created_at": cone.created_at + HOUR})
+    assert cone_version(later) == cone_version(cone), "its times alone are not material"
+    lower = cone.model_copy(update={"top_ft": cone.top_ft - 2000})
+    assert cone_version(lower) != cone_version(cone)
 
 
 def test_every_material_change_is_a_new_draft_question() -> None:
     ctx, plan = change_level_case()
-    base = drafter_question(ctx, plan, max_age=HOUR)
+    base = _drafter_q(ctx, plan)
     decision = plan.decision
     assert decision is not None
     others = {
@@ -383,8 +462,10 @@ def test_every_material_change_is_a_new_draft_question() -> None:
     }
     for why, other in others.items():
         changed = plan.model_copy(update={"decision": other})
-        assert drafter_question(ctx, changed, max_age=HOUR) != base, why
-    assert drafter_question(_moved(ctx, cone_id="CONE-x"), plan, max_age=HOUR) != base
+        assert _drafter_q(ctx, changed) != base, why
+    assert _drafter_q(_moved(ctx, cone_id="CONE-x"), plan) != base
+    assert _drafter_q(ctx, plan, cone="v2") != base, "the cone's area changed"
+    assert _drafter_q(ctx, plan, policy="2026.10.2") != base, "drafted under another policy"
 
 
 def test_the_plume_question_is_the_products_and_the_disagreements() -> None:
@@ -402,6 +483,13 @@ def test_the_plume_question_is_the_products_and_the_disagreements() -> None:
     assert plume_question(
         situation.model_copy(update={"discrepancies": [quieter]}), max_age=3 * HOUR
     ) == plume_question(disagree, max_age=3 * HOUR), "magnitude and wording move with the clock"
+    seen = SupportingEvidence(source_id="SAT-1", text="Dust RGB: ash visible to the west.")
+    with_sat = situation.model_copy(update={"supporting": [seen]})
+    assert plume_question(with_sat, max_age=3 * HOUR) != base, "new satellite evidence"
+    newer = seen.model_copy(update={"source_id": "SAT-2", "text": "Dust RGB: no ash visible."})
+    assert plume_question(
+        situation.model_copy(update={"supporting": [newer]}), max_age=3 * HOUR
+    ) != plume_question(with_sat, max_age=3 * HOUR), "a reading of newer frames"
 
 
 def make_discrepancy() -> Discrepancy:
@@ -418,24 +506,32 @@ def make_discrepancy() -> Discrepancy:
     )
 
 
+def _coordinator_q(worklist: Sequence[DutyItem], policy: str = "2026.10.1") -> Question:
+    return coordinator_question(worklist, policy_version=policy, max_age=HOUR)
+
+
 def test_the_coordinator_question_is_the_work_not_the_digest() -> None:
-    base = coordinator_question(WORKLIST, max_age=HOUR)
-    relabelled = [
-        item.model_copy(update={"label": f"{item.label} (now)", "urgency": 2}) for item in WORKLIST
-    ]
-    assert coordinator_question(relabelled, max_age=HOUR) == base
-    assert coordinator_question(list(reversed(WORKLIST)), max_age=HOUR) == base
+    base = _coordinator_q(WORKLIST)
+    relabelled = [item.model_copy(update={"label": f"{item.label} (now)"}) for item in WORKLIST]
+    assert _coordinator_q(relabelled) == base, "a label's minutes move with the clock"
+    assert _coordinator_q(list(reversed(WORKLIST))) == base
     optional = [
         item.model_copy(update={"mandatory": False}) if item.id == ASSESS.id else item
         for item in WORKLIST
     ]
-    assert coordinator_question(optional, max_age=HOUR) != base
-    assert coordinator_question(WORKLIST[:-1], max_age=HOUR) != base
+    assert _coordinator_q(optional) != base
+    assert _coordinator_q(WORKLIST[:-1]) != base
     other = [
         item.model_copy(update={"subject": "f9"}) if item.id == PLAN_LATER.id else item
         for item in WORKLIST
     ]
-    assert coordinator_question(other, max_age=HOUR) != base
+    assert _coordinator_q(other) != base
+    sooner = [
+        item.model_copy(update={"urgency": item.urgency - 1}) if item.id == PLAN_LATER.id else item
+        for item in WORKLIST
+    ]
+    assert _coordinator_q(sooner) != base, "a flight moved into a more urgent bucket"
+    assert _coordinator_q(WORKLIST, policy="2026.10.2") != base, "another operator policy"
 
 
 def test_the_other_skills_ask_by_their_inputs() -> None:
@@ -533,7 +629,7 @@ async def test_paused_with_no_good_answer_is_ai_unavailable_never_the_kept_one(
     assert paused.outcome == "MODEL_FAILED", "AI UNAVAILABLE: the failed answer is not shown"
 
     ctx_d, plan = change_level_case()
-    draft_reuse = Reuse(book_on(sqlite), drafter_question(ctx_d, plan, max_age=HOUR))
+    draft_reuse = Reuse(book_on(sqlite), _drafter_q(ctx_d, plan))
     stale = DraftText(body="CLIMB TO FL999 NOW.", cost_note="NONE.")
     await draft_reuse.keep("counting-lite", stale.model_dump(), prompt_hash="p", answered_at=AT)
     llm = Counting(refuse=True)
@@ -565,7 +661,7 @@ async def test_a_kept_draft_keeps_the_time_it_was_written(
     sqlite: SqliteStore, clock: FixedClock
 ) -> None:
     ctx, plan = change_level_case()
-    reuse = Reuse(book_on(sqlite), drafter_question(ctx, plan, max_age=HOUR))
+    reuse = Reuse(book_on(sqlite), _drafter_q(ctx, plan))
     llm = Counting()
     first = await _draft(llm, reuse)
     assert isinstance(first, Advisory)
@@ -589,7 +685,7 @@ async def test_a_kept_draft_keeps_the_time_it_was_written(
     assert sooner.drafted_at == sooner.created_at
 
     replay = Scope(AnswerScope(RunMode.REPLAY, "case-a"))
-    loop_reuse = Reuse(book_on(sqlite, replay), drafter_question(ctx, plan, max_age=HOUR))
+    loop_reuse = Reuse(book_on(sqlite, replay), _drafter_q(ctx, plan))
     clock.set(AT)
     await _draft(llm, loop_reuse)
     asked = llm.asks["DraftText"]
@@ -625,7 +721,8 @@ async def test_a_kept_plume_read_is_checked_against_the_products_now(
 
         book = runtime.answers
         assert book is not None
-        question = plume_question(situation, max_age=3 * HOUR)
+        seen = await runtime._with_satellite(situation, report)  # as the read was given it
+        question = plume_question(seen, max_age=3 * HOUR)
         bad = first.estimate.model_copy(update={"sources_used": ["SIGMET:NOWHERE:1"]})
         await book.keep(
             question,
@@ -643,61 +740,215 @@ async def test_a_kept_plume_read_is_checked_against_the_products_now(
         await runtime.aclose()
 
 
+async def test_a_kept_plume_read_is_checked_with_the_satellite_reading_it_was_given(
+    tmp_path: Path, clock: FixedClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = make_runtime(make_settings(tmp_path), FixtureSource())
+    try:
+        await run_tick(runtime, reason="manual")
+        situation = runtime.situations[SEMERU]
+        report = TickReport(started_at=AT, finished_at=AT, mode=RunMode.LIVE, reason="t")
+        reading = SupportingEvidence(source_id="SAT-demo", text="Dust RGB: ash to the west.")
+
+        async def with_satellite(s: Any, _: TickReport) -> Any:
+            return s.model_copy(update={"supporting": [reading]})
+
+        monkeypatch.setattr(runtime, "_with_satellite", with_satellite)
+        runtime.llm = llm = Counting()
+        first = await runtime._plume_read(situation, report)
+        seen = await with_satellite(situation, report)
+        cited = first.estimate.model_copy(
+            update={"sources_used": [*first.estimate.sources_used, "SAT-demo"]}
+        )
+        book = runtime.answers
+        assert book is not None
+        await book.keep(
+            plume_question(seen, max_age=3 * HOUR),
+            "counting-main",
+            first.model_copy(update={"estimate": cited}).model_dump(mode="json"),
+            prompt_hash="p",
+            answered_at=AT,
+        )
+        asked = llm.asks["PlumeEstimate"]
+        again = await runtime._plume_read(situation, report)
+        assert llm.asks["PlumeEstimate"] == asked, "it cites the reading it was given: it passes"
+        assert "SAT-demo" in again.estimate.sources_used
+
+        reading = reading.model_copy(update={"source_id": "SAT-newer", "text": "No ash seen."})
+        await runtime._plume_read(situation, report)
+        assert llm.asks["PlumeEstimate"] == asked + 1, "newer satellite evidence: asked"
+    finally:
+        await runtime.aclose()
+
+
+async def test_on_hand_work_that_needs_a_model_stays_due_and_fails_nothing(
+    tmp_path: Path, clock: FixedClock, agents: Agents
+) -> None:
+    runtime = make_runtime(make_settings(tmp_path), FixtureSource())
+    try:
+        runtime.llm = llm = Counting()
+        await run_tick(runtime, reason="manual")
+        report = TickReport(started_at=AT, finished_at=AT, mode=RunMode.LIVE, reason="t")
+        due = dict(runtime.assess_due)
+        assert SEMERU in due
+        with on_hand_only(), pytest.raises(NotOnHand):
+            await runtime.assess_volcano(SEMERU, AT, report)
+        assert runtime.assess_due == due, "the plume read is due as before"
+
+        flight = runtime.exposed[f"{GIA417}:{SEMERU}"]
+        urgency = runtime.plan_due(flight, [], AT)
+        assert urgency is not None
+        with on_hand_only(), pytest.raises(NotOnHand):
+            await runtime.plan_flight_now(flight.id, [], AT, report)
+        assert runtime.plan_due(flight, [], AT) == urgency, "the flight is due as before"
+        assert runtime.open_failures == {}, "no AI UNAVAILABLE for want of a slot"
+        assert await list_advisories(runtime.store) == []
+        assert sum(llm.asks.values()) == 0
+        assert agents.runs["planner"] == 0
+        assert llm.reserved == 0
+    finally:
+        await runtime.aclose()
+
+
+DIGEST = "- Semeru (263300): 3 exposed flight(s), 1 inside now"
+
+
+async def _coordinate(
+    book: AiAnswers,
+    executor: FakeExecutor,
+    digest: str = DIGEST,
+    worklist: list[DutyItem] = WORKLIST,
+) -> DutyRun:
+    return await run_duty_officer(
+        worklist,
+        executor,
+        Counting(),
+        digest=digest,
+        settings=Settings(_env_file=None),
+        trigger="tick",
+        replay=False,
+        reuse=book.reuse(_coordinator_q(worklist)),
+        rerun=timedelta(minutes=5),
+    )
+
+
+def _decisions(**changes: Any) -> dict[str, Any]:
+    return {
+        "delegations": [],
+        "deferrals": [],
+        "summary": "Flights first.",
+        "priorities": [],
+        "watch": [],
+        "outcome": "ACCEPTED",
+        "turns": 2,
+        **changes,
+    }
+
+
 async def test_the_coordinators_decisions_are_made_again_through_the_same_tools(
     sqlite: SqliteStore, clock: FixedClock, agents: Agents
 ) -> None:
     book = book_on(sqlite)
-    question = coordinator_question(WORKLIST, max_age=HOUR)
-
-    async def run(executor: FakeExecutor, digest: str, worklist: list[DutyItem] = WORKLIST) -> Any:
-        return await run_duty_officer(
-            worklist,
-            executor,
-            Counting(),
-            digest=digest,
-            settings=Settings(_env_file=None),
-            trigger="tick",
-            replay=False,
-            reuse=Reuse(book, coordinator_question(worklist, max_age=HOUR)),
-        )
-
-    digest = "- Semeru (263300): 3 exposed flight(s), 1 inside now"
     first_exec = FakeExecutor()
-    first = await run(first_exec, f"{digest}\n- AI budget today, lite: 40 of 450 used")
+    first = await _coordinate(book, first_exec, f"{DIGEST}\n- AI budget today, lite: 40 of 450")
     assert agents.runs["coordinator"] == 1
     assert first.outcome == "ACCEPTED"
+    assert first.decided_at == first.finished_at == AT
 
-    clock.set(AT + timedelta(minutes=10))
+    clock.set(AT + timedelta(minutes=4))
     executor = FakeExecutor()
-    again = await run(executor, f"{digest}\n- AI budget today, lite: 52 of 450 used")
+    again = await _coordinate(book, executor, f"{DIGEST}\n- AI budget today, lite: 52 of 450")
     assert agents.runs["coordinator"] == 1, "the budget lines moved; the work did not"
     assert executor.calls == first_exec.calls, "every delegation made again, by the same tools"
     assert again.outcome == "ACCEPTED"
-    assert again.turns == 0
+    assert again.turns == first.turns == 3, "the turns the model took then"
+    assert again.decided_at == AT, "decided when the model decided"
+    assert again.finished_at == AT + timedelta(minutes=4), "the delegations ran now"
     assert [d.item_id for d in again.deferred] == [d.item_id for d in first.deferred]
     assert again.brief == first.brief
 
+    other_work = [item.model_copy(update={"mandatory": True}) for item in WORKLIST]
+    await _coordinate(book, FakeExecutor(), worklist=other_work)
+    assert agents.runs["coordinator"] == 2, "other work: another question"
+
+
+class FailingPlans(FakeExecutor):
+    async def plan(self, flight_id: str) -> dict[str, Any]:
+        self.calls.append(("plan", flight_id))
+        return {"flight_id": flight_id, "status": "ai_unavailable", "summary": "AI UNAVAILABLE"}
+
+
+async def test_decisions_whose_delegations_come_out_otherwise_go_to_the_model(
+    sqlite: SqliteStore, clock: FixedClock, agents: Agents
+) -> None:
+    book = book_on(sqlite)
+    await _coordinate(book, FakeExecutor())
+    assert agents.runs["coordinator"] == 1
+
+    clock.set(AT + timedelta(minutes=2))
+    run = await _coordinate(book, FailingPlans())
+    assert agents.runs["coordinator"] == 2, "its brief was written on plans that were drafted"
+    assert book.counts[("coordinator", "rejected")] == 1
+    assert run.decided_at == run.finished_at, "the model decided now"
+    assert run.outcome == "ACCEPTED"
+
+
+async def test_a_kept_brief_or_reason_that_fails_its_checks_now_goes_to_the_model(
+    sqlite: SqliteStore, clock: FixedClock, agents: Agents
+) -> None:
+    book = book_on(sqlite)
+    question = _coordinator_q(WORKLIST)
     await book.keep(
         question,
         "counting-lite",
-        {
-            "delegations": [],
-            "deferrals": [],
-            "summary": "Handled 99 flights.",
-            "priorities": [],
-            "watch": [],
-            "outcome": "ACCEPTED",
-        },
+        _decisions(summary="Handled 99 flights."),
         prompt_hash="p",
         answered_at=AT,
     )
-    finished = await run(FakeExecutor(), digest)
-    assert agents.runs["coordinator"] == 2, "a brief that fails the checks: the model finishes"
-    assert finished.outcome == "ACCEPTED"
+    run = await _coordinate(book, FakeExecutor())
+    assert agents.runs["coordinator"] == 1, "a brief that fails the checks: the model finishes"
+    assert run.outcome == "ACCEPTED"
+    assert run.validation_errors == [], "the kept brief's problems are not this run's"
+    assert run.brief is not None
+    assert run.brief.summary == "Flights first, then the rest."
 
-    mandatory = [item.model_copy(update={"mandatory": True}) for item in WORKLIST]
-    await run(FakeExecutor(), digest, mandatory)
-    assert agents.runs["coordinator"] == 3, "other work: another question"
+    reason = {"kind": "SRA", "subject": SRA.subject, "text": "Budget low, 12 calls left."}
+    await book.keep(
+        question,
+        "counting-lite",
+        _decisions(deferrals=[reason]),
+        prompt_hash="p",
+        answered_at=AT,
+    )
+    await _coordinate(book, FakeExecutor())
+    assert agents.runs["coordinator"] == 2, "12 calls left is not in today's input"
+
+    await book.keep(question, "counting-lite", {"summary": 1}, prompt_hash="p", answered_at=AT)
+    await _coordinate(book, FakeExecutor())
+    assert agents.runs["coordinator"] == 3, "an answer that no longer reads: asked, no error"
+
+
+async def test_deferrals_are_made_again_only_until_the_policy_offers_the_work_again(
+    sqlite: SqliteStore, clock: FixedClock, agents: Agents
+) -> None:
+    book = book_on(sqlite)
+    first = await _coordinate(book, FakeExecutor())
+    assert [d.item_id for d in first.deferred] == [SRA.id]
+    clock.set(AT + timedelta(minutes=4))
+    await _coordinate(book, FakeExecutor())
+    assert agents.runs["coordinator"] == 1, "a restart within the re-offer time"
+    clock.set(AT + timedelta(minutes=5))
+    await _coordinate(book, FakeExecutor())
+    assert agents.runs["coordinator"] == 2, "deferred work offered again gets a fresh look"
+
+
+def test_a_deferral_reason_is_checked_as_the_brief_is() -> None:
+    kit = DutyToolkit.of(WORKLIST, FakeExecutor(), trace=None)
+    kit.evidence.append(DIGEST)
+    refused = kit.defer([SRA.id], "Budget low, 12 calls left.")
+    assert refused["deferred"] == []
+    assert refused["refused"][0]["error"] == "NUMBER 12 IN REASON IS NOT IN THE INPUT"
+    assert kit.defer([SRA.id], "Flights first; 3 are exposed.")["deferred"] == [SRA.id]
 
 
 # --- the AI worker: answers on hand run even while the assistant is paused ---------------
@@ -742,8 +993,33 @@ async def test_work_whose_answers_are_on_hand_runs_while_paused(paused: Any) -> 
     monkeypatch.setattr(runtime, "answered", on_hand)
     monkeypatch.setattr(runtime, "coordinator_answered", coordinator_on_hand)
     await runtime.worker.drain()
-    assert runs == [([LATER.id], "routine", False)], (
-        "run now, at no model call; a step whose answer fails its checks meets the pacing"
+    assert runs == [([LATER.id], "routine", False)], "run now, at no model call"
+    assert LATER.id in runtime.duty_offered
+
+
+async def test_on_hand_work_that_needs_a_model_after_all_waits_for_budget(paused: Any) -> None:
+    runtime, runs, monkeypatch = paused
+    book = book_on(runtime.store)
+
+    async def on_hand(*_: Any) -> bool:
+        return True
+
+    async def needs_a_model(_: Runtime, items: list[DutyItem], *args: Any, **kwargs: Any) -> None:
+        runs.append(([i.id for i in items], current_lane(), current_admitted()))
+        await book.reuse(QUESTION).recall("lite")  # no answer: inside on-hand work, it raises
+
+    monkeypatch.setattr(runtime, "answered", on_hand)
+    monkeypatch.setattr(runtime, "coordinator_answered", on_hand)
+    monkeypatch.setattr(ai_worker_module, "dispatch_duty", needs_a_model)
+    await runtime.worker.drain()
+    assert runs == [([LATER.id], "routine", False)], "tried once, not again in the same minutes"
+    assert LATER.id not in runtime.duty_offered, "not offered: it is still due"
+    assert [work.status for work in runtime.worker.queue()] == ["WAITING"]
+    assert (
+        await runtime.worker.work_once(
+            TickReport(started_at=EARLY, finished_at=EARLY, mode=RunMode.LIVE, reason="t")
+        )
+        is False
     )
 
 
@@ -803,6 +1079,65 @@ async def test_after_a_restart_the_same_picture_asks_no_model(
         assert again.drafted_at == drafts[0].drafted_at == AT, "written when it was written"
     finally:
         await second.aclose()
+
+
+async def test_an_ask_answer_is_given_again_only_on_the_same_tool_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = FixedClock(AT)
+    with use_clock(clock):
+        runtime = ask_runtime(tmp_path, Counting())
+        runtime.answers = book_on(runtime.store)
+        runtime.duty = _duty_run("Flights first.")
+        runs: list[str] = []
+
+        async def agent(rt: Any, llm: Any, toolkit: Any, run: Any, question: str, _: Any) -> None:
+            runs.append(question)
+            await toolkit.duty_brief()
+            claim = AskClaim(
+                text="The brief puts flights first.", evidence_ids=["T01"], kind="fact"
+            )
+            run.reply = AskReply(
+                answer="The brief puts flights first.",
+                claims=[claim],
+                status="answered",
+                language="en",
+            )
+
+        monkeypatch.setattr(ask_module, "_run_agent", agent)
+        try:
+            first = await answer_question(runtime, runtime.llm, "What does the brief say?")
+            assert isinstance(first, AskAnswer)
+            assert first.answered_at == first.asked_at == AT
+            clock.set(AT + timedelta(minutes=3))
+            again = await answer_question(runtime, runtime.llm, "what does the brief say")
+            assert isinstance(again, AskAnswer)
+            assert len(runs) == 1, "the same question on the same tool results"
+            assert again.answer == first.answer
+            assert again.asked_at == AT + timedelta(minutes=3)
+            assert again.answered_at == AT, "answered when the model answered"
+
+            runtime.duty = _duty_run("Plume reads first.")
+            await answer_question(runtime, runtime.llm, "What does the brief say?")
+            assert len(runs) == 2, "the brief it read changed: asked again"
+        finally:
+            await runtime.store.aclose()
+
+
+def _duty_run(summary: str) -> DutyRun:
+    return DutyRun(
+        id="DUTY-000000000001",
+        started_at=AT,
+        finished_at=AT,
+        replay=False,
+        trigger="tick",
+        worklist=[],
+        brief=DutyBrief(summary=summary, priorities=[]),
+        outcome="ACCEPTED",
+        llm_backend="gemini",
+        model_id="counting-lite",
+        prompt_hash="p",
+    )
 
 
 # --- the UI never announces any of it ------------------------------------------------------

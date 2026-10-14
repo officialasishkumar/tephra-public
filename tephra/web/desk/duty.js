@@ -127,6 +127,9 @@ function undone(run) {
 
 // The one line Decide shows (R10.4): "Coordinator (code only): 3 flights need a plan first ›". A
 // run that did not run points at Plan by hand, which holds its flights (K91).
+// When the Coordinator's decisions and brief were made (a run before the field: when it finished).
+const decidedAt = (run) => run.decided_at || run.finished_at;
+
 function oneLine(run, failed, stub) {
   const code = stub ? 'Code only · ' : '';
   // the cause is said once, in the Plan by hand group's head; this line says where the work went
@@ -137,9 +140,9 @@ function oneLine(run, failed, stub) {
   if (prios.length) {
     // One noun for every run, with the run's time, so the line does not read as two different
     // counts when an aircraft-triggered run and a tick run alternate (review 2, item 14).
-    return `${code}${plural(prios.length, 'item')} in order of urgency · run ${hhmmz(run.finished_at)}`;
+    return `${code}${plural(prios.length, 'item')} in order of urgency · run ${hhmmz(decidedAt(run))}`;
   }
-  return `${code}${plural(run.dispatches.length, 'job')} handed out · run ${hhmmz(run.finished_at)}`;
+  return `${code}${plural(run.dispatches.length, 'job')} handed out · run ${hhmmz(decidedAt(run))}`;
 }
 
 function buildCard(run) {
@@ -203,7 +206,7 @@ function buildCard(run) {
   const mandatory = run.worklist.filter((i) => i.mandatory).length;
   // The run's machine facts (model, turns, offered, trigger) sit under Technical detail (item 14).
   // a refused run made no call, so it has no turns to count
-  const meta = `${stub ? 'Code only (NO MODEL, offline stub)' : refused(run) ? `no call made · would have used ${run.model_id}` : run.model_id}${refused(run) ? '' : ` · ${plural(run.turns, 'turn')}`} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · started by code after ${run.trigger === 'adsb' ? 'new aircraft' : 'a tick'}, done ${hhmmz(run.finished_at)}${run.replay ? ' · recorded' : ''}`;
+  const meta = `${stub ? 'Code only (NO MODEL, offline stub)' : refused(run) ? `no call made · would have used ${run.model_id}` : run.model_id}${refused(run) ? '' : ` · ${plural(run.turns, 'turn')}`} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · started by code after ${run.trigger === 'adsb' ? 'new aircraft' : 'a tick'}, done ${hhmmz(decidedAt(run))}${run.replay ? ' · recorded' : ''}`;
   more.append(el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }),
     el('p', { class: 'mono tech__line dcard__meta', text: meta }),
     b && stub && b.summary ? el('p', { class: 'mono tech__line', text: machineText(b.summary) }) : null,

@@ -11,8 +11,9 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, NamedTuple
 
 from tephra.agents.answers import AiAnswers, Question, Reuse, prompt_version
 from tephra.agents.llm import LlmBackend, LlmCall, LlmPart
@@ -26,6 +27,7 @@ __all__ = [
     "NARRATIVE_MAX_CHARS",
     "PROMPT_PATH",
     "AiUnavailable",
+    "Narrated",
     "narrative_question",
     "stub_narrative",
     "validate_narrative",
@@ -146,15 +148,23 @@ def narrative_question(facts: Mapping[str, Any]) -> Question:
     return Question("sra", {"prompt": prompt_version(system), "facts": dict(facts)})
 
 
+class Narrated(NamedTuple):
+    """Checked boxes, the call that made them, and when the model wrote them."""
+
+    narrative: SraNarrative
+    call: LlmCall
+    written_at: datetime
+
+
 async def write_narrative(
     llm: LlmBackend, facts: Mapping[str, Any], *, answers: AiAnswers | None = None
-) -> tuple[SraNarrative, LlmCall]:
-    """The checked boxes and the call that made them; :class:`AiUnavailable` otherwise. With
-    ``answers``, the same model's boxes for identical facts are used when they pass the checks
-    now, and new boxes that pass are kept."""
+) -> Narrated:
+    """The checked boxes; :class:`AiUnavailable` otherwise. With ``answers``, the same model's
+    boxes for identical facts are used when they pass the checks now (keeping the time they
+    were written), and new boxes that pass are kept."""
     system = PROMPT_PATH.read_text(encoding="utf-8")
     parts = [LlmPart.of_text(json.dumps(facts, indent=1, ensure_ascii=False))]
-    reuse = Reuse(answers, narrative_question(facts)) if answers is not None else None
+    reuse = None if answers is None else answers.reuse(narrative_question(facts))
     if reuse is not None and (held := await _known_narrative(reuse, llm, facts)):
         return held
     narrative, call = await _ask(llm, system, parts, facts)
@@ -171,29 +181,30 @@ async def write_narrative(
             else f"NARRATIVE FAILED CHECKS AFTER REPAIR: {'; '.join(first_problems(problems, 3))}"
         )
         raise AiUnavailable(reason, model_id=call.model_id)
+    written_at = timeutil.now()
     if reuse is not None:
         await reuse.keep(
             call.model_id,
             narrative.model_dump(mode="json"),
             prompt_hash=call.prompt_hash,
-            answered_at=timeutil.now(),
+            answered_at=written_at,
         )
-    return narrative, call
+    return Narrated(narrative, call, written_at)
 
 
 async def _known_narrative(
     reuse: Reuse, llm: LlmBackend, facts: Mapping[str, Any]
-) -> tuple[SraNarrative, LlmCall] | None:
-    answer = await reuse.recall(llm.model_id("lite"))
-    if answer is None:
+) -> Narrated | None:
+    found = await reuse.recall_as(llm.model_id("lite"), SraNarrative)
+    if found is None:
         return None
-    narrative = SraNarrative.model_validate(answer.payload)
+    answer, narrative = found
     problems = validate_narrative(narrative, facts)
     if problems:
         reuse.rejected(problems)
         return None
     call = LlmCall(backend=llm.name, model_id=answer.model_id, prompt_hash=answer.prompt_hash)
-    return narrative, call
+    return Narrated(narrative, call, answer.shown_at(timeutil.now()))
 
 
 async def _ask(

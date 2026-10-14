@@ -32,12 +32,13 @@ import shapely
 from pydantic import BaseModel, ValidationError
 from pydantic.main import IncEx
 
-from tephra.agents.answers import AiAnswers, AnswerScope, Question, Reuse
+from tephra.agents.answers import AiAnswers, AnswerScope, NotOnHand, Question
 from tephra.agents.budget import BudgetView, budget_view
 from tephra.agents.dispatch_drafter import ai_failure, draft_advisory, drafter_question
 from tephra.agents.duty_officer import coordinator_question
 from tephra.agents.exposure_planner import (
     build_planner_context,
+    cone_version,
     plan_flight,
     planner_question,
 )
@@ -47,9 +48,9 @@ from tephra.agents.quota import QuotaLedger
 from tephra.agents.satellite_reader import (
     SatelliteReading,
     is_current,
+    kept_reading,
     plume_part,
     read_satellite,
-    recall_satellite,
     select_frames,
 )
 from tephra.ai_worker import AiWorker
@@ -195,7 +196,10 @@ from tephra.recovery.agent import recommend_recovery
 from tephra.recovery.models import Closure, Schedule
 from tephra.recovery.network import network_closures, run_lock
 from tephra.recovery.schedule import ScheduleError, load_schedule
+from tephra.regdocs.evidence import NoActiveVolcano, UnknownRegion, gather_evidence
+from tephra.regdocs.narrative import narrative_question
 from tephra.regdocs.registry import withdraw_crew_messages
+from tephra.regdocs.sra import narrative_facts
 from tephra.replay.cases import (
     ReplaySource,
     case_path,
@@ -1186,54 +1190,90 @@ class Runtime:
     # --- the models' kept answers (tephra.agents.answers) --------------------------------
 
     def _answer_scope(self) -> AnswerScope:
-        return AnswerScope(self.mode, self._replay_case_id())
+        return AnswerScope(self.mode, self._replay_case_id(), self.epoch)
 
     async def answered(self, item: DutyItem) -> bool:
         """Whether every model answer a work item needs is on hand for the question it would
-        ask now, so it costs no model call (the AI worker's look ahead; the answers are still
-        checked again when the item runs). A recovery run or an SRA always asks."""
+        ask now, so it costs no model call (the AI worker's look ahead; when the item runs, the
+        answers are checked again, and one that no longer passes sends the item back to wait,
+        :class:`~tephra.agents.answers.NotOnHand`). A recovery run always asks."""
         answers = self.answers
         if answers is None:
             return False
         if item.kind is DutyItemKind.ASSESS:
-            situation = self.situations.get(item.subject)
-            if situation is None:
-                return False
-            question = plume_question(situation, max_age=REASK_UNCHANGED)
-            return await answers.peek(question, self.llm.model_id("main")) is not None
+            return await self._plume_answered(item.subject, answers)
         if item.kind is DutyItemKind.PLAN:
-            return await self._plan_answered(item.subject)
+            return await self._plan_answered(item.subject, answers)
+        if item.kind is DutyItemKind.SRA:
+            return await self._sra_answered(item.subject, answers)
         return False
 
     async def coordinator_answered(self, items: Sequence[DutyItem]) -> bool:
         answers = self.answers
         if answers is None:
             return False
-        question = coordinator_question(items, max_age=self.duty_answer_age)
+        question = self.coordinator_question(items)
         return await answers.peek(question, self.llm.model_id("lite")) is not None
 
-    async def _plan_answered(self, flight_id: str) -> bool:
-        answers = self.answers
+    def coordinator_question(self, items: Sequence[DutyItem]) -> Question:
+        return coordinator_question(
+            items, policy_version=self.policy.version, max_age=self.duty_answer_age
+        )
+
+    async def _plume_answered(self, volcano_id: str, answers: AiAnswers) -> bool:
+        situation = self.situations.get(volcano_id)
+        seen = await self._satellite_on_hand(situation) if situation is not None else None
+        if seen is None:
+            return False
+        question = plume_question(seen, max_age=REASK_UNCHANGED)
+        return await answers.peek(question, self.llm.model_id("main")) is not None
+
+    async def _plan_answered(self, flight_id: str, answers: AiAnswers) -> bool:
         flight = self.exposed.get(flight_id)
         cone = self.cones.get(flight.volcano_id) if flight is not None else None
-        if answers is None or flight is None or cone is None:
+        if flight is None or cone is None:
             return False
         ctx = self._planner_context(flight, cone, timeutil.now())
         if ctx is None:
             return False
         model = self.llm.model_id("lite")
-        plan = await answers.peek(self._planner_question(ctx), model)
+        plan = await answers.peek(self._planner_question(ctx, cone), model)
         if plan is None:
             return False
-        held = PlannedAction.model_validate(plan.payload)
+        try:
+            held = PlannedAction.model_validate(plan.payload)
+        except ValidationError:
+            return False
         if held.decision is None:
             return False
-        question = drafter_question(ctx, held, max_age=self.plan_answer_age)
-        return await answers.peek(question, model) is not None
+        draft = await answers.peek(self._drafter_question(ctx, cone, held), model)
+        return draft is not None
 
-    def _planner_question(self, ctx: PlannerContext) -> Question:
+    async def _sra_answered(self, region: str, answers: AiAnswers) -> bool:
+        try:
+            evidence = await gather_evidence(self, region)
+        except (UnknownRegion, NoActiveVolcano):
+            return False
+        question = narrative_question(narrative_facts(evidence, self.policy))
+        return await answers.peek(question, self.llm.model_id("lite")) is not None
+
+    def _planner_question(self, ctx: PlannerContext, cone: HazardCone) -> Question:
         return planner_question(
-            ctx, policy_version=self.policy.version, max_age=self.plan_answer_age
+            ctx,
+            cone_version=cone_version(cone),
+            policy_version=self.policy.version,
+            max_age=self.plan_answer_age,
+        )
+
+    def _drafter_question(
+        self, ctx: PlannerContext, cone: HazardCone, plan: PlannedAction
+    ) -> Question:
+        return drafter_question(
+            ctx,
+            plan,
+            cone_version=cone_version(cone),
+            policy_version=self.policy.version,
+            max_age=self.plan_answer_age,
         )
 
     async def publish_live(self) -> None:
@@ -1862,7 +1902,13 @@ class Runtime:
             if self.epoch != epoch or situation is None or volcano_id not in self.assess_due:
                 return {"volcano_id": volcano_id, "error": "NO PLUME READ IS DUE"}
             del self.assess_due[volcano_id]
-        assessment = await self._plume_read(situation, report)
+        try:
+            assessment = await self._plume_read(situation, report)
+        except NotOnHand:
+            async with self.lock:  # the read waits for budget, due as it was
+                if self.epoch == epoch and volcano_id not in self.assess_due:
+                    self.assess_due[volcano_id] = situation.input_hash
+            raise
         async with self.lock:
             current = self.situations.get(volcano_id)
             if self.epoch != epoch or current is None:
@@ -1950,27 +1996,28 @@ class Runtime:
         return assessment
 
     async def _plume_read(self, situation: Situation, report: TickReport) -> PlumeAssessment:
-        """The Plume Reader's reading: the same model's reading of the same products when it
-        passes the checks now (with the satellite reading of the newest frames, when one is
-        on hand: no model is asked for it then), else a model read, kept when it passes."""
+        """The Plume Reader's reading of the products with the satellite reading of the newest
+        frames: the same model's reading of the same input when it passes the checks now, else
+        a model read, kept when it passes."""
         answers = self.answers
-        question = plume_question(situation, max_age=REASK_UNCHANGED)
-        model = self.llm.model_id("main")
-        answer = await answers.recall(question, model) if answers is not None else None
-        if answers is not None and answer is not None:
-            known, problems = reused_assessment(answer, situation, trace=self.sink)
+        if answers is None:
+            return await self._read(situation, report, call_model=True)
+        seen = await self._with_satellite(situation, report)
+        reuse = answers.reuse(plume_question(seen, max_age=REASK_UNCHANGED))
+        found = await reuse.recall_as(self.llm.model_id("main"), PlumeAssessment)
+        if found is not None:
+            answer, held = found
+            known, problems = reused_assessment(answer, held, seen, trace=self.sink)
             if known is not None:
-                await self._known_satellite(situation, answers)
                 report.assessments_run += 1
                 await self.store.put(
                     Collection.ASSESSMENTS, known.id, known.model_dump(mode="json")
                 )
                 return known
-            answers.rejected(question, problems)
-        assessment = await self._read(situation, report, call_model=True)
-        if answers is not None and assessment.outcome in ("ACCEPTED", "REPAIRED"):
-            await answers.keep(
-                question,
+            reuse.rejected(problems)
+        assessment = await self._read(seen, report, call_model=True)
+        if assessment.outcome in ("ACCEPTED", "REPAIRED"):
+            await reuse.keep(
                 assessment.model_id,
                 assessment.model_dump(mode="json"),
                 prompt_hash=assessment.prompt_hash,
@@ -1978,23 +2025,33 @@ class Runtime:
             )
         return assessment
 
-    async def _known_satellite(self, situation: Situation, answers: AiAnswers) -> None:
-        """The satellite reading of the newest frames, when the same model's is on hand."""
+    async def _satellite_on_hand(self, situation: Situation) -> Situation | None:
+        """The look ahead's :meth:`_with_satellite`: the situation with the reading of the
+        newest frames as the Plume Reader would get it, when that needs no model (the reading
+        is current, or the same model's reading of these frames is kept); else None."""
         volcano = situation.volcano
-        probe = [(frame, b"") for frame in self.live.frames.get(volcano.id, [])]
-        if is_current(self.satellite.get(volcano.id), volcano, probe):
-            return
-        reading = await recall_satellite(
-            volcano,
-            probe,
-            situation.official_layers,
-            self.llm,
-            answers,
-            replay=self.mode is RunMode.REPLAY,
-            trace=self.sink,
-        )
-        if reading is not None:
-            await self._hold_satellite(reading)
+        probe = self._frame_probe(volcano.id)
+        held = self.satellite.get(volcano.id)
+        if not is_current(held, volcano, probe):
+            if FrameProduct.DUST_RGB not in select_frames(volcano, probe):
+                return situation
+            answers = self.answers
+            if answers is None:
+                return None
+            held = await kept_reading(
+                volcano,
+                probe,
+                situation.official_layers,
+                self.llm,
+                answers,
+                replay=self.mode is RunMode.REPLAY,
+            )
+            if held is None:
+                return None
+        return _supported(situation, held, probe)
+
+    def _frame_probe(self, volcano_id: str) -> list[tuple[SatelliteFrame, bytes]]:
+        return [(frame, b"") for frame in self.live.frames.get(volcano_id, [])]
 
     async def _hold_satellite(self, reading: SatelliteReading) -> None:
         self.satellite[reading.volcano_id] = reading
@@ -2047,7 +2104,7 @@ class Runtime:
         is not repeated; its text goes to the Plume Reader as supporting evidence."""
         volcano = situation.volcano
         held = self.satellite.get(volcano.id)
-        probe = [(frame, b"") for frame in self.live.frames.get(volcano.id, [])]
+        probe = self._frame_probe(volcano.id)
         if not is_current(held, volcano, probe):
             chosen = select_frames(volcano, probe)
             pairs: list[tuple[SatelliteFrame, bytes]] = []
@@ -2079,11 +2136,7 @@ class Runtime:
                     note=held.reason,
                 )
             await self.publish_budget()
-        part = plume_part(held) if held is not None else None
-        if held is None or part is None or not is_current(held, volcano, probe):
-            return situation
-        evidence = SupportingEvidence(source_id=held.id, text=part.text or "")
-        return situation.model_copy(update={"supporting": [evidence]})
+        return _supported(situation, held, probe)
 
     def _model_call_matters(self, situation: Situation) -> bool:
         if any(
@@ -2173,6 +2226,8 @@ class Runtime:
             outcome, committed = await self._plan_and_draft(
                 flight, cone, urgency, at, report, outdated, epoch
             )
+        except NotOnHand:
+            raise  # not planned: the flight waits for budget, due as it was
         except Exception as exc:
             logger.exception("planning %s failed", flight.id)
             failed = self._plan_failures.get(flight.id)
@@ -2239,7 +2294,7 @@ class Runtime:
             self.llm,
             settings=self.settings,
             trace=self.sink,
-            reuse=Reuse(answers, self._planner_question(ctx)) if answers is not None else None,
+            reuse=None if answers is None else answers.reuse(self._planner_question(ctx, cone)),
         )
         advisory: Advisory | AiFailure | None = None
         if plan.decision is not None:
@@ -2256,9 +2311,9 @@ class Runtime:
                 feed_health=self.live.health,
                 replay_case=self.replay_case if self.mode is RunMode.REPLAY else None,
                 reuse=(
-                    Reuse(answers, drafter_question(ctx, plan, max_age=self.plan_answer_age))
-                    if answers is not None
-                    else None
+                    None
+                    if answers is None
+                    else answers.reuse(self._drafter_question(ctx, cone, plan))
                 ),
             )
         async with self.lock:
@@ -2943,6 +2998,20 @@ def _start_clock(settings: Settings, case: ReplayCase) -> tuple[datetime, dateti
 
 
 # --- quota and planning rules (pure) ----------------------------------------------------
+
+
+def _supported(
+    situation: Situation,
+    held: SatelliteReading | None,
+    probe: Sequence[tuple[SatelliteFrame, bytes]],
+) -> Situation:
+    """The situation with the reading's text as supporting evidence, when the reading is of
+    the newest frames and has text for the Plume Reader."""
+    part = plume_part(held) if held is not None else None
+    if held is None or part is None or not is_current(held, situation.volcano, probe):
+        return situation
+    evidence = SupportingEvidence(source_id=held.id, text=part.text or "")
+    return situation.model_copy(update={"supporting": [evidence]})
 
 
 def _still_current(assessment: PlumeAssessment, input_hash: str, at: datetime) -> bool:

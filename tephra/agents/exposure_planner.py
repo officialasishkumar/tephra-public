@@ -72,7 +72,7 @@ from tephra.models import (
     polygon_from_latlon,
 )
 from tephra.util import timeutil
-from tephra.util.hashing import stable_id
+from tephra.util.hashing import sha256_json, stable_id
 
 if TYPE_CHECKING:
     from google.adk.runners import InMemoryRunner
@@ -722,11 +722,14 @@ async def plan_flight(
     )
 
 
-def planner_question(ctx: PlannerContext, *, policy_version: str, max_age: timedelta) -> Question:
-    """What is material to a plan: the flight and its cone (id and version), the actions the
-    mode and the operator policy allow, how soon it enters (inside, or the policy's divert and
-    hold buckets, as the AI worker plans them), its level in 2,000 ft steps and the alternates
-    whose screen is open. A move of a few miles, a minute or a few hundred feet is not."""
+def planner_question(
+    ctx: PlannerContext, *, cone_version: str, policy_version: str, max_age: timedelta
+) -> Question:
+    """What is material to a plan: the flight and its cone (id and :func:`cone_version`), the
+    actions the mode and the operator policy allow, how soon it enters (inside, or the
+    policy's divert and hold buckets, as the AI worker plans them), its level in 2,000 ft
+    steps and the alternates whose screen is open. A move of a few miles, a minute or a few
+    hundred feet is not."""
     flight = ctx.flight
     level = present_fl(flight)
     return Question(
@@ -734,7 +737,7 @@ def planner_question(ctx: PlannerContext, *, policy_version: str, max_age: timed
         {
             "prompt": prompt_version(PROMPT_PATH.read_text(encoding="utf-8")),
             "flight": flight.id,
-            "cone": flight.cone_id,
+            "cone": [flight.cone_id, cone_version],
             "mode": ctx.plume_mode.value,
             "allowed": sorted(action.value for action in ctx.allowed_actions),
             "policy": policy_version,
@@ -744,6 +747,13 @@ def planner_question(ctx: PlannerContext, *, policy_version: str, max_age: timed
         },
         max_age,
     )
+
+
+def cone_version(cone: HazardCone) -> str:
+    """The cone's content (its area, levels and sources) apart from its times: a cone rebuilt
+    on new winds keeps its id but not its version."""
+    content = cone.model_dump(mode="json", exclude={"created_at", "valid_to"})
+    return sha256_json(content)[:16]
 
 
 def urgency_band(ctx: PlannerContext) -> int:
@@ -762,10 +772,10 @@ async def _known_plan(
     """The same model's plan for the same material question, checked again against the flight
     now (the action still allowed, the band still clear, the alternate still open, the
     reroute still computed and OK); None when there is none or it no longer passes."""
-    answer = await reuse.recall(model_id)
-    if answer is None:
+    found = await reuse.recall_as(model_id, PlannedAction)
+    if found is None:
         return None
-    held = PlannedAction.model_validate(answer.payload)
+    answer, held = found
     if held.decision is None:
         reuse.rejected(["NO DECISION"])
         return None

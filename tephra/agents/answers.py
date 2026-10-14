@@ -16,6 +16,12 @@ A reused answer keeps the time the model gave it (``answered_at``, on the run's 
 later than now) and costs no model call and no budget. Reuse is logged per skill
 (``ai_answer`` log lines); nothing in the UI announces it.
 
+A :class:`Reuse` takes the mode, case and picture epoch when the question is put: an answer is
+looked up in that scope, and an answer that comes back after a mode switch or a replay loop
+is not kept (it would be filed under the new scope). Inside :func:`on_hand_only` (AI work the
+AI worker started only because its answers were on hand) a question with no good answer raises
+:class:`NotOnHand` instead of letting the skill ask its model; the work then waits for budget.
+
 The age limit is measured on the run's clock (the replay clock in REPLAY, where a loop plays
 the same minutes again); the store keeps an answer for ``ai_answer_keep_h`` of wall-clock time
 at most (a LIVE answer only as long as its age limit), and :meth:`AiAnswers.sweep` removes
@@ -24,9 +30,13 @@ what has expired.
 
 import logging
 from collections import Counter, OrderedDict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 from typing import Any, Final, Literal, NamedTuple
+
+from pydantic import BaseModel, ValidationError
 
 from tephra.config import Settings
 from tephra.models import RunMode, TephraModel, UtcDatetime
@@ -38,9 +48,11 @@ __all__ = [
     "AiAnswer",
     "AiAnswers",
     "AnswerScope",
+    "NotOnHand",
     "Question",
     "Reuse",
     "Skill",
+    "on_hand_only",
     "prompt_version",
 ]
 
@@ -58,14 +70,36 @@ Skill = Literal[
     "handover",
     "sra",
 ]
-Outcome = Literal["hit", "miss", "expired", "rejected", "kept"]
+Outcome = Literal["hit", "miss", "expired", "rejected", "kept", "dropped", "not_on_hand"]
 
-KEY_VERSION: Final = 1
+KEY_VERSION: Final = 2
 """Raised when the key recipe or a payload shape changes: older answers are then never found."""
 MEMO_SIZE: Final = 2000
 """Answers (and known absences) held in memory, so a recurring question reads the store once."""
-SWEEP_PAGE: Final = 20
-SWEEP_EVERY: Final = timedelta(hours=1)
+SWEEP_PAGE: Final = 50
+SWEEP_PAGES: Final = 10
+"""At most this many pages a sweep, so a checkpoint never pages through a large backlog"""
+SWEEP_EVERY: Final = timedelta(minutes=10)
+
+_ON_HAND_ONLY: ContextVar[bool] = ContextVar("tephra_ai_on_hand_only", default=False)
+
+
+class NotOnHand(Exception):
+    """Work started only because its answers were on hand needs a model after all."""
+
+    def __init__(self, skill: "Skill") -> None:
+        super().__init__(f"no good {skill} answer on hand")
+        self.skill = skill
+
+
+@contextmanager
+def on_hand_only(enabled: bool = True) -> Iterator[None]:
+    """Inside: a question with no good answer raises :class:`NotOnHand`; no model is asked."""
+    token = _ON_HAND_ONLY.set(enabled)
+    try:
+        yield
+    finally:
+        _ON_HAND_ONLY.reset(token)
 
 
 class Question(NamedTuple):
@@ -81,6 +115,8 @@ class Question(NamedTuple):
 class AnswerScope(NamedTuple):
     mode: RunMode
     case_id: str | None
+    epoch: int = 0
+    """The picture's epoch (a mode switch or a replay loop starts a new one); not in the key"""
 
 
 class AiAnswer(TephraModel):
@@ -101,6 +137,11 @@ class AiAnswer(TephraModel):
     prompt_hash: str
     payload: dict[str, Any]
 
+    def age(self, now: datetime) -> timedelta:
+        """How long ago it was given, on the run's clock (a replay loop may play the minute
+        it was given in again, before or after it)."""
+        return abs(now - self.answered_at)
+
     def shown_at(self, now: datetime) -> datetime:
         """The time to show for it: when it was given, never later than ``now`` (a replay loop
         plays the minute it was given in again)."""
@@ -119,7 +160,8 @@ class AiAnswers:
         self, store: Store, settings: Settings, *, scope: Callable[[], AnswerScope]
     ) -> None:
         self._store = store
-        self._scope = scope
+        self.scope = scope
+        """The mode, case and epoch playing now"""
         self._build = settings.build_sha or "local"
         self._keep = timedelta(hours=settings.ai_answer_keep_h)
         self._memo: OrderedDict[str, AiAnswer | None] = OrderedDict()
@@ -127,27 +169,36 @@ class AiAnswers:
         self.counts: Counter[tuple[Skill, Outcome]] = Counter()
         """Outcomes per skill since the process started (logged as they happen)"""
 
-    async def recall(self, question: Question, model_id: str) -> AiAnswer | None:
+    def reuse(self, question: Question) -> "Reuse":
+        """The question, put now (in the scope playing now)."""
+        return Reuse(self, question)
+
+    async def recall(
+        self, question: Question, model_id: str, scope: AnswerScope | None = None
+    ) -> AiAnswer | None:
         """The same model's answer to this material question, while it is good; else None. A
         store error is logged and read as none: the model is then asked, as for a new question."""
-        answer = await self._read(self._key(question, model_id))
+        scope = scope or self.scope()
+        answer = await self._read(self._key(question, model_id, scope))
         if answer is None:
-            self._note(question.skill, "miss")
+            self._note(question.skill, "miss", scope)
             return None
         if not _good(answer, question):
-            self._note(question.skill, "expired")
+            self._note(question.skill, "expired", scope)
             return None
-        self._note(question.skill, "hit")
+        self._note(question.skill, "hit", scope)
         return answer
 
     async def peek(self, question: Question, model_id: str) -> AiAnswer | None:
         """As :meth:`recall`, for the AI worker's look ahead: nothing is counted or logged."""
-        answer = await self._read(self._key(question, model_id))
+        answer = await self._read(self._key(question, model_id, self.scope()))
         return answer if answer is not None and _good(answer, question) else None
 
-    def rejected(self, question: Question, problems: list[str]) -> None:
+    def rejected(
+        self, question: Question, problems: list[str], scope: AnswerScope | None = None
+    ) -> None:
         """A kept answer failed the checks against the input of the moment: the model is asked."""
-        self._note(question.skill, "rejected", "; ".join(problems[:3]))
+        self._note(question.skill, "rejected", scope or self.scope(), "; ".join(problems[:3]))
 
     async def keep(
         self,
@@ -157,18 +208,23 @@ class AiAnswers:
         *,
         prompt_hash: str,
         answered_at: datetime,
+        scope: AnswerScope | None = None,
     ) -> None:
-        """Keep an answer that passed the code's checks; a newer one replaces it."""
-        key = self._key(question, model_id)
-        scope = self._scope()
+        """Keep an answer that passed the code's checks; a newer one replaces it. ``scope`` is
+        the one the question was put in: once the picture was reset, the answer is not kept."""
+        now = self.scope()
+        if scope is not None and scope != now:
+            self._note(question.skill, "dropped", scope, "the picture was reset meanwhile")
+            return
+        key = self._key(question, model_id, now)
         wall = timeutil.SystemClock().now()
         life = self._keep
-        if scope.mode is RunMode.LIVE and question.max_age is not None:
+        if now.mode is RunMode.LIVE and question.max_age is not None:
             life = min(life, question.max_age)
         answer = AiAnswer(
             key=key,
-            mode=scope.mode,
-            case_id=scope.case_id,
+            mode=now.mode,
+            case_id=now.case_id,
             build=self._build,
             skill=question.skill,
             model_id=model_id,
@@ -185,17 +241,18 @@ class AiAnswers:
             logger.warning("keeping a %s answer failed: %s", question.skill, exc)
             return
         self._remember(key, answer)
-        self._note(question.skill, "kept")
+        self._note(question.skill, "kept", now)
 
     async def sweep(self) -> int:
-        """Delete expired answers, oldest expiry first, at most once an hour; how many went.
-        Ordered by ``expires_at`` alone, so Firestore answers it from its single-field index."""
+        """Delete expired answers, oldest expiry first, at most every ten minutes and at most
+        :data:`SWEEP_PAGES` pages a time; how many went. Ordered by ``expires_at`` alone, so
+        Firestore answers it from its single-field index."""
         wall = timeutil.SystemClock().now()
         if self._swept_at is not None and wall - self._swept_at < SWEEP_EVERY:
             return 0
         self._swept_at = wall
         removed = 0
-        while True:
+        for _ in range(SWEEP_PAGES):
             docs = await self._store.list_docs(
                 Collection.AI_ANSWERS, order_by="expires_at", descending=False, limit=SWEEP_PAGE
             )
@@ -211,10 +268,12 @@ class AiAnswers:
             logger.info("removed %d expired AI answer(s)", removed)
         return removed
 
+    def note_not_on_hand(self, skill: Skill, scope: AnswerScope) -> None:
+        self._note(skill, "not_on_hand", scope)
+
     # --- internals ------------------------------------------------------------------------
 
-    def _key(self, question: Question, model_id: str) -> str:
-        scope = self._scope()
+    def _key(self, question: Question, model_id: str, scope: AnswerScope) -> str:
         fields = [
             KEY_VERSION,
             scope.mode.value,
@@ -250,9 +309,8 @@ class AiAnswers:
         while len(self._memo) > MEMO_SIZE:
             self._memo.popitem(last=False)
 
-    def _note(self, skill: Skill, outcome: Outcome, detail: str = "") -> None:
+    def _note(self, skill: Skill, outcome: Outcome, scope: AnswerScope, detail: str = "") -> None:
         self.counts[(skill, outcome)] += 1
-        scope = self._scope()
         logger.info(
             "ai answer %s skill=%s mode=%s%s",
             outcome,
@@ -270,17 +328,40 @@ class AiAnswers:
         )
 
 
-class Reuse(NamedTuple):
-    """Where a skill looks for, and keeps, its answer to one material question."""
+class Reuse:
+    """One material question, put now: where a skill looks for, and keeps, its answer. The
+    scope (mode, case, epoch) is the one playing when the question was put."""
 
-    book: AiAnswers
-    question: Question
+    def __init__(self, book: AiAnswers, question: Question) -> None:
+        self.book = book
+        self.question = question
+        self.scope = book.scope()
 
     async def recall(self, model_id: str) -> AiAnswer | None:
-        return await self.book.recall(self.question, model_id)
+        answer = await self.book.recall(self.question, model_id, self.scope)
+        if answer is None:
+            self._not_on_hand()
+        return answer
+
+    async def recall_as[T: BaseModel](
+        self, model_id: str, schema: type[T]
+    ) -> tuple[AiAnswer, T] | None:
+        """:meth:`recall` with the payload read as the skill's answer model; an answer that
+        no longer reads (a shape changed under the same key) counts as rejected."""
+        answer = await self.recall(model_id)
+        if answer is None:
+            return None
+        try:
+            return answer, schema.model_validate(answer.payload)
+        except ValidationError as exc:
+            self.rejected([f"UNREADABLE KEPT ANSWER ({exc.error_count()} error(s))"])
+            return None
 
     def rejected(self, problems: list[str]) -> None:
-        self.book.rejected(self.question, problems)
+        """The kept answer failed the checks now: the skill asks its model (outside
+        :func:`on_hand_only`; inside it, :class:`NotOnHand`)."""
+        self.book.rejected(self.question, problems, self.scope)
+        self._not_on_hand()
 
     async def keep(
         self,
@@ -291,16 +372,25 @@ class Reuse(NamedTuple):
         answered_at: datetime,
     ) -> None:
         await self.book.keep(
-            self.question, model_id, payload, prompt_hash=prompt_hash, answered_at=answered_at
+            self.question,
+            model_id,
+            payload,
+            prompt_hash=prompt_hash,
+            answered_at=answered_at,
+            scope=self.scope,
         )
+
+    def _not_on_hand(self) -> None:
+        if _ON_HAND_ONLY.get():
+            self.book.note_not_on_hand(self.question.skill, self.scope)
+            raise NotOnHand(self.question.skill)
 
 
 def _good(answer: AiAnswer, question: Question) -> bool:
     """Not past the store's expiry, nor (on the run's clock) past the skill's age limit."""
     if answer.expires_at <= timeutil.SystemClock().now():
         return False
-    age = abs(timeutil.now() - answer.answered_at)
-    return question.max_age is None or age <= question.max_age
+    return question.max_age is None or answer.age(timeutil.now()) <= question.max_age
 
 
 def _expired(doc: Mapping[str, Any], wall: datetime) -> bool:

@@ -57,7 +57,8 @@ export function groupDispatches(run) {
 }
 
 const itemLabel = (run, id) => run.worklist.find((i) => i.id === id)?.label || id;
-const finishedAt = (run) => ms(run.finished_at);
+// when the Coordinator's decisions and brief were made (a run before the field: when it finished)
+const finishedAt = (run) => ms(run.decided_at || run.finished_at);
 
 // Lines that repeat with other flights collapse into one ("RFA1225, RFA1530 and 19 more: ...").
 function collapsedLines(lines, key, first, tone = null) {

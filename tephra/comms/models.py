@@ -232,6 +232,11 @@ class HandoverBrief(TephraModel):
     llm_backend: LlmBackendName
     model_id: str
     prompt_hash: str
+    narrative_at: UtcDatetime | None = Field(
+        default=None,
+        description="When the model wrote situation and contingencies; the same model's text "
+        "for identical facts keeps its time. None: created_at",
+    )
 
 
 class HandoverRequest(TephraModel):

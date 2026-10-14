@@ -290,7 +290,7 @@ async def read_notice(
     parts = [LlmPart.of_text(_notice_part(source))]
     p_hash = prompt_hash(system, parts)
     at = timeutil.now()
-    reuse = Reuse(answers, notice_question(source)) if answers is not None else None
+    reuse = None if answers is None else answers.reuse(notice_question(source))
     if reuse is not None and (known := await _known_reading(reuse, source, catalogue, llm, replay)):
         return known
 
@@ -333,10 +333,10 @@ def notice_question(source: str) -> Question:
 async def _known_reading(
     reuse: Reuse, source: str, catalogue: VolcanoCatalogue, llm: LlmBackend, replay: bool
 ) -> NoticeReading | None:
-    answer = await reuse.recall(llm.model_id("lite"))
-    if answer is None:
+    found = await reuse.recall_as(llm.model_id("lite"), NoticeExtraction)
+    if found is None:
         return None
-    extraction = NoticeExtraction.model_validate(answer.payload)
+    answer, extraction = found
     check = check_extraction(extraction, source, catalogue, timeutil.now())
     if check.problems:
         reuse.rejected(check.problems)

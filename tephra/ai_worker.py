@@ -23,9 +23,11 @@ is never handed to another model.
 
 Work whose model answers are all on hand (``tephra.agents.answers``: the same model's answers to
 the same material questions, the Duty Officer's for exactly that work too) costs no call, so it
-does not wait for a slot, even while the assistant is paused. Each answer is still checked again
-when the work runs; one that no longer passes asks its model under the routine pacing, which may
-refuse it (AI UNAVAILABLE).
+does not wait for a slot, even while the assistant is paused. It runs ``on_hand_only``: each
+answer is still checked again, and a step whose answer no longer passes asks no model; it
+raises ``NotOnHand``, what was not done stays due and waits for budget as before (never AI
+UNAVAILABLE for want of a slot), and the look ahead passes over those items for the policy's
+re-offer time.
 
 The worker runs only the scheduled work. Ask, voice, notices, messages, documents and a recovery
 run started from the Desk call the models directly, at the same time as the worker's jobs; every
@@ -47,6 +49,7 @@ from typing import TYPE_CHECKING, Final, Literal, NamedTuple
 
 from pydantic import ValidationError
 
+from tephra.agents.answers import NotOnHand, on_hand_only
 from tephra.agents.budget import AiWork, WorkStatus, slot_words
 from tephra.agents.llm import Tier
 from tephra.agents.quota import Lane, use_lane
@@ -112,6 +115,8 @@ class AiWorker:
         """One pass at a time, whether the loop or ``drain`` runs it"""
         self._recovery: asyncio.Task[None] | None = None
         """The recovery run going on beside the worker, if any"""
+        self._not_on_hand: dict[str, datetime] = {}
+        """item id -> when (run clock) a run on answers on hand found one no longer passing"""
 
     # --- what the rest of the runtime calls -----------------------------------------------
 
@@ -153,6 +158,7 @@ class AiWorker:
         """The picture was reset (a mode switch or a replay loop): queued work is for the old
         picture. A job running now finishes and finds the picture changed."""
         self._queue = {key: work for key, work in self._queue.items() if work.status == "RUNNING"}
+        self._not_on_hand.clear()
 
     async def restore(self) -> None:
         """The queue as the last instance left it (LIVE only: a replay starts afresh). Work
@@ -234,10 +240,10 @@ class AiWorker:
         await runtime.quota.load_all(runtime.llm.model_id(tier) for tier in ("main", "lite"))
         urgent = [item for item in fresh if item.mandatory]
         routine, waiting, later = self._admit([item for item in fresh if not item.mandatory])
-        answered = False
+        on_hand = False
         if not routine and waiting:
-            routine = await self._answered([item for item in fresh if item.id in waiting])
-            answered = bool(routine)
+            routine = await self._on_hand([item for item in fresh if item.id in waiting], at)
+            on_hand = bool(routine)
             for item in routine:
                 del waiting[item.id]
         self._sync(fresh, [*urgent, *routine, *later], waiting)
@@ -255,7 +261,7 @@ class AiWorker:
             return True
         if routine:
             await self._duty(
-                routine, "routine", drafts, at, epoch, len(waiting), report, admitted=not answered
+                routine, "routine", drafts, at, epoch, len(waiting), report, on_hand=on_hand
             )
             return True
         return False
@@ -304,17 +310,24 @@ class AiWorker:
                 later.append(item)
         return admitted, waiting, later
 
-    async def _answered(self, items: list[DutyItem]) -> list[DutyItem]:
+    async def _on_hand(self, items: list[DutyItem], at: datetime) -> list[DutyItem]:
         """Routine items waiting for budget whose model answers are all on hand, the Duty
         Officer's for this very work list too: run now, they cost no model call, even while the
         assistant is paused. At most :data:`MAX_ROUTINE_ITEMS`, most urgent first, a plan only
-        with or after its volcano's plume read. Nothing when the Duty Officer would have to be
-        asked."""
+        with or after its volcano's plume read; not an item a run on answers on hand found
+        short within the policy's re-offer time. Nothing when the Duty Officer would have to
+        be asked."""
         runtime = self._runtime
+        rerun = timedelta(minutes=runtime.policy.duty.rerun_min.value)
+        self._not_on_hand = {
+            item_id: when for item_id, when in self._not_on_hand.items() if abs(at - when) < rerun
+        }
         chosen: list[DutyItem] = []
         for item in sorted(items, key=lambda item: (item.urgency, item.label)):
             if len(chosen) >= MAX_ROUTINE_ITEMS:
                 break
+            if item.id in self._not_on_hand:
+                continue
             if (
                 item.kind is DutyItemKind.PLAN
                 and item.volcano_id in runtime.assess_due
@@ -425,16 +438,18 @@ class AiWorker:
         waiting: int,
         report: TickReport,
         *,
-        admitted: bool = True,
+        on_hand: bool = False,
     ) -> None:
-        """``admitted=False`` (a routine run whose answers are on hand): a step whose answer no
-        longer passes the checks asks the model under routine pacing, which may refuse it."""
+        """``on_hand`` (a routine run started because its answers are on hand): no model is
+        asked; when a step would have to ask one, what was not done waits for budget again."""
         runtime = self._runtime
         self._mark(items, "RUNNING")
         await self._persist()
         await runtime.publish_budget()
+        offered = True
         try:
-            with use_lane(lane, admitted=lane == "routine" and admitted):
+            admitted = lane == "routine" and not on_hand  # on hand: no call is admitted
+            with use_lane(lane, admitted=admitted), on_hand_only(on_hand):
                 await dispatch_duty(
                     runtime,
                     items,
@@ -447,10 +462,14 @@ class AiWorker:
                 )
         except DeskUnreachable:
             runtime.desk_unreachable(report)
+        except NotOnHand as exc:
+            logger.info("routine work waits for budget again: %s", exc)
+            offered = False
+            self._not_on_hand.update((item.id, at) for item in items)
         finally:
             for item in items:
                 self._queue.pop(item.id, None)
-                if runtime.epoch == epoch:  # offered, whatever came of it: no pass repeats it
+                if offered and runtime.epoch == epoch:  # offered, whatever came of it
                     runtime.duty_offered[item.id] = max(at, runtime.duty_offered.get(item.id, at))
             await self._persist()
             await runtime.publish_budget()

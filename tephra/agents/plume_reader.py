@@ -51,7 +51,7 @@ from tephra.models import (
 )
 from tephra.reconcile import evidence_state
 from tephra.util import timeutil
-from tephra.util.hashing import stable_id
+from tephra.util.hashing import sha256_text, stable_id
 
 __all__ = [
     "PROMPT_PATH",
@@ -274,9 +274,11 @@ async def _read_with_stub(
 
 def plume_question(situation: Situation, *, max_age: timedelta) -> Question:
     """What is material to a plume read: the official products by content (the situation's
-    ``input_hash``: the SIGMET, VONA and VAA texts and the split-window indicator) and the set of
-    discrepancies with their severities."""
+    ``input_hash``: the SIGMET, VONA and VAA texts and the split-window indicator), the set of
+    discrepancies with their severities, and the supporting evidence the read is given (the
+    Satellite Reader's text on the newest frames: new satellite evidence is a new question)."""
     discrepancies = sorted((item.id, item.severity.value) for item in situation.discrepancies)
+    supporting = sorted((item.source_id, sha256_text(item.text)) for item in situation.supporting)
     return Question(
         "plume_reader",
         {
@@ -284,17 +286,22 @@ def plume_question(situation: Situation, *, max_age: timedelta) -> Question:
             "volcano": situation.volcano.id,
             "products": situation.input_hash,
             "discrepancies": discrepancies,
+            "supporting": supporting,
         },
         max_age,
     )
 
 
 def reused_assessment(
-    answer: AiAnswer, situation: Situation, *, trace: TraceSink | None = None
+    answer: AiAnswer,
+    held: PlumeAssessment,
+    situation: Situation,
+    *,
+    trace: TraceSink | None = None,
 ) -> tuple[PlumeAssessment | None, list[str]]:
-    """The same model's earlier reading for the same products, checked again against the
-    situation now; its time is when it was read. ``(None, problems)`` when it no longer passes."""
-    held = PlumeAssessment.model_validate(answer.payload)
+    """The same model's earlier reading (``held``, kept as ``answer``) for the same input,
+    checked again against ``situation`` now (with its supporting evidence, as a fresh read
+    gets it); its time is when it was read. ``(None, problems)`` when it no longer passes."""
     problems = [] if held.input_hash == situation.input_hash else ["THE PRODUCTS CHANGED"]
     problems += validate_estimate(held.estimate, situation)
     if problems:

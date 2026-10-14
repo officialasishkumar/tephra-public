@@ -29,6 +29,11 @@ DOC_FIELD: Final = "tephra_doc"
 MAX_INDEXED_STRING: Final = 256
 """Longer strings (raw feed texts, advisory bodies) are never filtered on, so not copied."""
 MAX_IN_VALUES: Final = 30
+INDEXED_ONLY: Final[Mapping[str, frozenset[str]]] = {
+    Collection.AI_ANSWERS: frozenset({"expires_at"}),
+}
+"""Collections read by key and queried on a few fields only: just those fields are copied
+beside the JSON text (Firestore indexes every copied field on every write)."""
 
 
 class QueryPlan(NamedTuple):
@@ -59,11 +64,13 @@ def plan_query(where: Sequence[Where], order_by: str | None) -> QueryPlan:
     return QueryPlan(server, memory, server_order, server_limit)
 
 
-def index_fields(doc: Mapping[str, Any]) -> dict[str, Any]:
-    """Top-level scalar fields copied beside the JSON text so Firestore can query them."""
+def index_fields(doc: Mapping[str, Any], collection: str | None = None) -> dict[str, Any]:
+    """Top-level scalar fields copied beside the JSON text so Firestore can query them (for a
+    collection in :data:`INDEXED_ONLY`, only its fields)."""
+    only = INDEXED_ONLY.get(collection) if collection is not None else None
     fields: dict[str, Any] = {}
     for key, value in doc.items():
-        if key == DOC_FIELD:
+        if key == DOC_FIELD or (only is not None and key not in only):
             continue
         if isinstance(value, str) and len(value) > MAX_INDEXED_STRING:
             continue
@@ -90,7 +97,7 @@ class FirestoreStore(Store):
     # --- documents ----------------------------------------------------------------------
 
     async def put(self, collection: str, doc_id: str, doc: Mapping[str, Any]) -> None:
-        await self._ref(collection, doc_id).set(_payload(doc))
+        await self._ref(collection, doc_id).set(_payload(doc, collection))
 
     async def get(self, collection: str, doc_id: str) -> dict[str, Any] | None:
         snapshot = await self._ref(collection, doc_id).get()
@@ -151,7 +158,7 @@ class FirestoreStore(Store):
             snapshot = await ref.get(transaction=transaction)
             text = encode_doc(change(_decode(snapshot)))
             doc = decode_doc(text)
-            transaction.set(ref, {**index_fields(doc), DOC_FIELD: text})
+            transaction.set(ref, {**index_fields(doc, collection), DOC_FIELD: text})
             return doc
 
         result: dict[str, Any] = await apply(self._db.transaction())
@@ -162,7 +169,7 @@ class FirestoreStore(Store):
     ) -> bool:
         check_cas_doc(expected_version, doc)
         ref = self._ref(Collection.ADVISORIES, advisory_id)
-        payload = _payload(doc)
+        payload = _payload(doc, Collection.ADVISORIES)
 
         @self._firestore.async_transactional
         async def swap(transaction: Any) -> bool:
@@ -181,7 +188,7 @@ class FirestoreStore(Store):
 
         ref = self._ref(Collection.AUDIT, entry.id)
         try:
-            await ref.create(_payload(entry.model_dump(mode="json")))
+            await ref.create(_payload(entry.model_dump(mode="json"), Collection.AUDIT))
         except AlreadyExists:
             return
 
@@ -230,9 +237,9 @@ class FirestoreStore(Store):
         return self._db.collection(str(collection)).document(escape_doc_id(doc_id))
 
 
-def _payload(doc: Mapping[str, Any]) -> dict[str, Any]:
+def _payload(doc: Mapping[str, Any], collection: str) -> dict[str, Any]:
     text = encode_doc(doc)
-    return {**index_fields(decode_doc(text)), DOC_FIELD: text}
+    return {**index_fields(decode_doc(text), collection), DOC_FIELD: text}
 
 
 def _decode(snapshot: Any) -> dict[str, Any] | None:

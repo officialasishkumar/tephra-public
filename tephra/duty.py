@@ -14,9 +14,9 @@ from collections import Counter
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from tephra.agents.answers import Reuse
+from tephra.agents.answers import NotOnHand
 from tephra.agents.budget import BudgetView
-from tephra.agents.duty_officer import coordinator_question, run_duty_officer
+from tephra.agents.duty_officer import run_duty_officer
 from tephra.desk import audit
 from tephra.desk.approvals import SYSTEM_ACTOR
 from tephra.models import (
@@ -79,15 +79,14 @@ async def dispatch_duty(
 ) -> DutyRun:
     """One Duty Officer run over ``worklist`` (the items the AI worker admitted); ``waiting``
     routine items wait for budget and are named in the digest only as a count. A run that ends
-    after the picture was reset (a mode switch or a replay loop) changes nothing."""
+    after the picture was reset (a mode switch or a replay loop) changes nothing. Inside
+    ``on_hand_only`` a step that would have to ask a model raises ``NotOnHand``: no run is
+    stored, and what was not done is due as before."""
     executor = _RuntimeExecutor(runtime, at, report, drafts, epoch)
     budget = await runtime.budget_view()
     answers = runtime.answers
-    reuse = (
-        Reuse(answers, coordinator_question(worklist, max_age=runtime.duty_answer_age))
-        if answers is not None
-        else None
-    )
+    reuse = None if answers is None else answers.reuse(runtime.coordinator_question(worklist))
+    rerun = timedelta(minutes=runtime.policy.duty.rerun_min.value)
     duty = await run_duty_officer(
         worklist,
         executor,
@@ -98,6 +97,7 @@ async def dispatch_duty(
         replay=runtime.mode is RunMode.REPLAY,
         trace=runtime.sink,
         reuse=reuse,
+        rerun=rerun,
     )
     if runtime.epoch != epoch:
         runtime.trace(
@@ -107,7 +107,6 @@ async def dispatch_duty(
             level="warn",
         )
         return duty
-    rerun = timedelta(minutes=runtime.policy.duty.rerun_min.value)
     for item in duty.worklist:
         runtime.duty_offered[item.id] = at
     runtime.duty_offered = {
@@ -340,6 +339,9 @@ class _RuntimeExecutor:
             return {"summary": summary, "doc_id": waiting.id}
         try:
             document = await draft_sra(runtime, region)
+        except NotOnHand:
+            runtime.sra_drafted.discard((region, self._at.date()))  # due as before
+            raise
         except AiUnavailable as exc:
             return {"summary": f"SRA {region}: AI UNAVAILABLE ({exc})", "status": "ai_unavailable"}
         except (UnknownRegion, NoActiveVolcano) as exc:

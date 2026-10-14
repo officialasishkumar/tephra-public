@@ -281,7 +281,7 @@ function dutyCard(ctx) {
     };
   }
   const line = dutyLine(run);
-  const at = ms(run.finished_at);
+  const at = ms(run.decided_at || run.finished_at); // when its decisions and brief were made
   const mandatory = run.worklist.filter((i) => i.mandatory).length;
   const label = (id) => run.worklist.find((i) => i.id === id)?.label || id;
   const runSteps = [
@@ -662,7 +662,7 @@ export function flowModel(input) {
   }
   const run = input.duty || null;
   const coord = { meta: ai.kind === "paused" ? "Paused: must-do jobs come to you" : ai.kind === "off" ? "Code orders the jobs (no model)" : "Orders the jobs and hands them to skills",
-    refused: run?.outcome === "MODEL_FAILED", lastAt: run ? ms(run.finished_at) : NaN };
+    refused: run?.outcome === "MODEL_FAILED", lastAt: run ? ms(run.decided_at || run.finished_at) : NaN };
   // You decide: the Wall's own counts, this mode's work only
   const plan = newestPlan(input.recovery);
   const sra = [...new Set((input.docs || []).filter((d) => d.kind === "SRA" && d.status === "DRAFT" && d.replay === replay).map((d) => d.region_name || d.title || d.region))];

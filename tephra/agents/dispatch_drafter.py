@@ -285,9 +285,17 @@ def _template_cost_note(plan: PlannedAction) -> str:
 # --- drafting ---------------------------------------------------------------------------
 
 
-def drafter_question(ctx: PlannerContext, plan: PlannedAction, *, max_age: timedelta) -> Question:
-    """What is material to a draft: the flight, its cone, and the action with its target (the
-    level band or hold level, the alternate, the reroute option)."""
+def drafter_question(
+    ctx: PlannerContext,
+    plan: PlannedAction,
+    *,
+    cone_version: str,
+    policy_version: str,
+    max_age: timedelta,
+) -> Question:
+    """What is material to a draft: the flight, its cone (id and version), the operator
+    policy it is drafted under, and the action with its target (the level band or hold level,
+    the alternate, the reroute option)."""
     decision = plan.decision
     if decision is None:
         raise ValueError(f"plan {plan.id} has no decision to draft")
@@ -296,7 +304,8 @@ def drafter_question(ctx: PlannerContext, plan: PlannedAction, *, max_age: timed
         {
             "prompt": prompt_version(PROMPT_PATH.read_text(encoding="utf-8")),
             "flight": ctx.flight.id,
-            "cone": ctx.flight.cone_id,
+            "cone": [ctx.flight.cone_id, cone_version],
+            "policy": policy_version,
             "action": decision.action.value,
             "level_band": [decision.change_level_fl_min, decision.change_level_fl_max],
             "hold_fl": decision.hold_fl,
@@ -444,10 +453,10 @@ async def _known_draft(
 ) -> _KnownDraft | None:
     """The same model's body for the same material question, checked again against this
     flight and plan now; None when there is none or it no longer passes."""
-    answer = await reuse.recall(llm.model_id("lite"))
-    if answer is None:
+    found = await reuse.recall_as(llm.model_id("lite"), DraftText)
+    if found is None:
         return None
-    draft = DraftText.model_validate(answer.payload)
+    answer, draft = found
     problems = validate_draft(draft, ctx=ctx, plan=plan)
     if problems:
         reuse.rejected(problems)

@@ -24,8 +24,9 @@ function modelMark(modelId, backend) {
   return el('span', { class: `dmark ${stub ? 'dmark--stub' : 'dmark--ai'}`, title: stub ? 'NO MODEL: written by code templates, not a model' : `Drafted by TEPHRA Assistant (${modelId}), checked by code`, 'aria-label': stub ? 'NO MODEL' : `Drafted by TEPHRA Assistant (${modelId})` },
     icon(stub ? 'i-code' : 'ta-16', 'st'), el('span', { 'aria-hidden': 'true', text: stub ? 'NO MODEL' : 'Drafted by TEPHRA Assistant' }));
 }
-const modelTech = (modelId, backend) => (backend === 'stub' || modelId === 'stub' || !modelId ? null
-  : el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: `Parts drafted by TEPHRA Assistant: ${modelId}` })));
+// `at`: when the model wrote its parts (a document stored before the field: when it was drafted)
+const modelTech = (modelId, backend, at) => (backend === 'stub' || modelId === 'stub' || !modelId ? null
+  : el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: `Parts drafted by TEPHRA Assistant ${dayMonthHhmm(at)}: ${modelId}` })));
 
 function fieldRow(f, doc) {
   const value = f.value && String(f.value).trim()
@@ -83,7 +84,7 @@ function docHead(doc) {
       ...(doc.labels || []).filter((l) => !/^NO MODEL$/i.test(l)).map((l) => el('span', { class: `dchip ${/REPLAY/i.test(l) ? 'dchip--replay' : ''}`.trim(), text: l })),
       doc.kind === 'SRA' ? modelMark(doc.model_id, doc.llm_backend) : null),
     el('p', { class: 'dhd__meta mono', text: `${doc.id} · v${doc.version} · drafted ${dayMonthHhmm(doc.created_at)}${doc.kind === 'SRA' ? ` · policy ${doc.policy_id} v${doc.policy_version}` : ''}` }),
-    modelTech(doc.model_id, doc.llm_backend));
+    modelTech(doc.model_id, doc.llm_backend, doc.narrative_at || doc.created_at));
 }
 
 function renderSra(doc, opts) {
@@ -170,7 +171,7 @@ export function renderHandover(b, { onAck = null, ackBusy = false } = {}) {
       b.replay ? el('span', { class: 'dchip dchip--replay', text: 'REPLAY' }) : null,
       modelMark(b.model_id, b.llm_backend)),
     el('p', { class: 'dhd__meta mono', text: `${b.id} · shift ${dayMonthHhmm(b.shift_from)} to ${dayMonthHhmm(b.shift_to)} · ${b.outgoing} → ${b.incoming}` }),
-    modelTech(b.model_id, b.llm_backend),
+    modelTech(b.model_id, b.llm_backend, b.narrative_at || b.created_at),
     el('p', { class: 'fnote', text: 'Severity, traffic, decisions and every number are gathered by code. The model wrote only the situation and the contingencies.' })));
 
   root.append(hsec('S', 'Situation', el('p', { class: 'hsit', text: b.situation.text }), srcIds(b.situation.source_ids), modelMark(b.model_id, b.llm_backend)));

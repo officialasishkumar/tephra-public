@@ -60,6 +60,7 @@ from tephra.models import (
 )
 from tephra.store.base import Collection, Store, Where
 from tephra.util import timeutil
+from tephra.util.hashing import sha256_json
 
 __all__ = [
     "AiUnavailable",
@@ -167,6 +168,11 @@ class AskAnswer(AskReply):
     question: str
     flight_id: str | None = None
     asked_at: UtcDatetime
+    answered_at: UtcDatetime | None = Field(
+        default=None,
+        description="When the model gave the answer; the same model's answer to the same "
+        "question on the same tool results keeps its time. None for NO MODEL answers",
+    )
     replay: bool
     llm_backend: LlmBackendName
     model_id: str
@@ -1066,23 +1072,25 @@ async def answer_question(
     answers = runtime.answers
     age = timedelta(minutes=runtime.settings.ai_answer_ask_min)
     reuse = (
-        Reuse(answers, ask_question(runtime, question, flight_id, max_age=age))
-        if answers is not None
-        else None
+        None
+        if answers is None
+        else answers.reuse(ask_question(runtime, question, flight_id, max_age=age))
     )
-    known = await reuse.recall(model_id) if reuse is not None else None
-    if reuse is not None and known is not None:
-        held = await _known_answer(known, reuse, runtime, toolkit, question)
-        if held is not None:
-            _emit(trace, "adk", f"ANSWER {held.status.upper()}")
-            return AskAnswer(
-                **{**base, "model_id": known.model_id, "prompt_hash": known.prompt_hash},
-                **held.model_dump(),
-                id=_new_id(),
-                evidence=toolkit.evidence,
-                tool_calls=toolkit.records,
-            )
-        toolkit = AskToolkit(runtime, trace=trace)
+    known = (
+        None if reuse is None else await _known_answer(reuse, model_id, runtime, toolkit, question)
+    )
+    if known is not None:
+        answer, reply = known
+        _emit(trace, "adk", f"ANSWER {reply.status.upper()}")
+        return AskAnswer(
+            **{**base, "model_id": answer.model_id, "prompt_hash": answer.prompt_hash},
+            **reply.model_dump(),
+            id=_new_id(),
+            answered_at=answer.shown_at(timeutil.now()),
+            evidence=toolkit.evidence,
+            tool_calls=toolkit.records,
+        )
+    toolkit = AskToolkit(runtime, trace=trace)
     run = _AskRun()
     try:
         await _run_agent(runtime, llm, toolkit, run, question, flight_id)
@@ -1092,20 +1100,21 @@ async def answer_question(
         run.problems = [f"ASK AGENT ERROR: {type(exc).__name__}"]
     if run.reply is not None and not run.problems:
         _emit(trace, "adk", f"ANSWER {run.reply.status.upper()}")
+        answered_at = timeutil.now()
         if reuse is not None:
+            kept = _KeptReply(
+                reply=run.reply,
+                calls=[_KeptCall(name=r.name, args=r.args) for r in toolkit.records],
+                results=_results_hash(toolkit),
+            )
             await reuse.keep(
-                model_id,
-                {
-                    "reply": run.reply.model_dump(mode="json"),
-                    "calls": [{"name": r.name, "args": r.args} for r in toolkit.records],
-                },
-                prompt_hash=phash,
-                answered_at=timeutil.now(),
+                model_id, kept.model_dump(mode="json"), prompt_hash=phash, answered_at=answered_at
             )
         return AskAnswer(
             **base,
             **run.reply.model_dump(),
             id=_new_id(),
+            answered_at=answered_at,
             repaired=run.repaired,
             evidence=toolkit.evidence,
             tool_calls=toolkit.records,
@@ -1121,8 +1130,9 @@ def ask_question(
     runtime: AskRuntime, question: str, flight_id: str | None, *, max_age: timedelta
 ) -> Question:
     """What is material to an answer: the question (case, spacing and closing punctuation
-    aside), the flight it is asked about, and the picture's version: each active volcano's
-    products and cone, and the set of exposed flights."""
+    aside), the flight it is asked about, and the picture's version (each active volcano's
+    products and cone). What the answer's tools read is checked when it is recalled: every
+    tool it used must return the same results now."""
     normal = " ".join(question.lower().split()).rstrip("?!. ")
     volcanoes = sorted(
         [volcano_id, situation.input_hash, getattr(runtime.cones.get(volcano_id), "id", None)]
@@ -1135,31 +1145,61 @@ def ask_question(
             "question": normal,
             "flight": flight_id,
             "volcanoes": volcanoes,
-            "exposed": sorted(runtime.exposed),
         },
         max_age,
     )
 
 
+class _KeptCall(TephraModel):
+    name: str
+    args: dict[str, Any]
+
+
+class _KeptReply(TephraModel):
+    """An Ask answer as kept: the reply, the tool calls behind it and a hash of their results."""
+
+    reply: AskReply
+    calls: list[_KeptCall]
+    results: str
+
+
+def _results_hash(toolkit: "AskToolkit") -> str:
+    """Everything the tools returned, in call order (errors too)."""
+    return sha256_json(
+        [
+            [[e.tool, e.args, e.result] for e in toolkit.evidence],
+            [r.result_summary for r in toolkit.records],
+        ]
+    )
+
+
 async def _known_answer(
-    answer: AiAnswer, reuse: Reuse, runtime: AskRuntime, toolkit: AskToolkit, question: str
-) -> AskReply | None:
+    reuse: Reuse, model_id: str, runtime: AskRuntime, toolkit: AskToolkit, question: str
+) -> tuple[AiAnswer, AskReply] | None:
     """The same model's answer to the same question in the same picture, checked again: the
-    tools it used are run again now and every figure it cites must be in their results."""
-    reply = AskReply.model_validate(answer.payload["reply"])
+    tools it used are run again now, must return what they returned then, and every figure it
+    cites must be in their results."""
+    found = await reuse.recall_as(model_id, _KeptReply)
+    if found is None:
+        return None
+    answer, kept = found
     tools = {tool.__name__: tool for tool in toolkit.tools()}
-    for call in answer.payload.get("calls", []):
-        tool = tools.get(str(call.get("name")))
-        if tool is None:
-            reuse.rejected([f"UNKNOWN TOOL {call.get('name')}"])
+    for call in kept.calls:
+        tool = tools.get(call.name)
+        try:
+            if tool is None:
+                raise TypeError(f"no tool {call.name}")
+            await tool(**call.args)
+        except TypeError as exc:
+            reuse.rejected([f"TOOL CALL {call.name} NO LONGER FITS ({exc})"])
             return None
-        await tool(**dict(call.get("args") or {}))
+    problems = [] if _results_hash(toolkit) == kept.results else ["THE TOOLS' RESULTS CHANGED"]
     icaos = runtime.airports.icaos()
-    problems = validate_reply(reply, toolkit.evidence, question=question, airport_icaos=icaos)
+    problems += validate_reply(kept.reply, toolkit.evidence, question=question, airport_icaos=icaos)
     if problems:
         reuse.rejected(problems)
         return None
-    return reply
+    return answer, kept.reply
 
 
 async def store_ask(store: Store, result: AskAnswer | AskFailure, *, actor: str) -> None:

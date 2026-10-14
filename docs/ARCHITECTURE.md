@@ -330,26 +330,37 @@ flowchart TB
   within the daily cap. A model is asked only when something material changed (below). Past a
   budget a step reports `AI UNAVAILABLE` and nothing is substituted.
 - **Model answers: asked only when something material changed.** Each skill names what is
-  material to its question: the Plume reader the official products by content and the
-  discrepancy set (for at most 3 h, as the plume gate), the Satellite reader the volcano and the
-  scans, the Flight planner the cone (id and version), the allowed actions and policy version,
-  the urgency band (inside, within the divert or hold limit, later), the level in 2,000 ft steps
-  and the open alternates (1 h), the Drafter the flight, the action and its target and the cone
-  (as long as the plan), the Coordinator the work list's kinds, subjects and mandatory flags
-  without the digest's budget counts and times (30 min), the Notice reader the text, Messages the
-  template spec, Ask the question and the picture's version (10 min), the handover and the SRA
-  boxes only identical inputs. An answer that passed the code's checks is kept in `ai_answers`
-  (Firestore in production, SQLite locally) under the mode (LIVE, or REPLAY and its case), the
-  build, the model id, the skill and that material. When the same model would be asked the same
-  material question, the kept answer is checked again by the same validators against the input
-  of the moment and used only when it passes: no model call, no budget, and it works while the
-  assistant is paused (the AI worker runs such work without waiting for a slot). It keeps the
-  time the model gave it, never later than now: an advisory's "drafted" time is when its text
-  was written. Otherwise the model is asked under the usual budget and pacing, and AI
-  UNAVAILABLE stands as before. Server logs count hits and misses per skill (`ai_answer`); the
-  UI does not announce reuse. Answers expire after their skill's limit (LIVE) or 72 h, and an
-  hourly sweep deletes them. Offline, `scripts/count_model_calls.py` counts the asks one replay
-  window makes per skill with a counting stand-in for the model.
+  material to its question: the Plume reader the official products by content, the discrepancy
+  set and the satellite reading it is given (for at most 3 h, as the plume gate), the Satellite
+  reader the volcano and the scans, the Flight planner the cone (its id and a hash of its content,
+  so a cone rebuilt on new winds under the same id is a new question), the allowed actions and
+  policy version, the urgency band (inside, within the divert or hold limit, later), the level in
+  2,000 ft steps and the open alternates (1 h), the Drafter the flight, the cone (id and
+  content), the policy version, the action and its target (as long as the plan), the Coordinator
+  the policy version and the work list's kinds, subjects, mandatory flags and urgency buckets
+  without the digest's budget counts and times (30 min; its deferrals only until the policy
+  offers deferred work again, 5 min), the Notice reader the text, Messages the template spec,
+  Ask the question and the picture's version (10 min, and every tool the answer used must
+  return the same results again), the handover and the SRA boxes only identical inputs. An
+  answer that passed the code's checks is kept in `ai_answers` (Firestore in production, SQLite
+  locally) under the mode (LIVE, or REPLAY and its case), the build, the model id, the skill and
+  that material; the mode, case and picture epoch are taken when the question is put, so an
+  answer that comes back after a mode switch or a replay loop is not kept. When the same model
+  would be asked the same material question, the kept answer is checked again by the same
+  validators against the input of the moment and used only when it passes (the Coordinator's
+  delegations must also come out as they did, since its brief was written on them): no model
+  call, no budget. Work whose answers are all on hand runs even while the assistant is paused
+  or out of routine slots; it asks no model at all, and a step whose answer turns out missing or
+  failing sends what was not done back to wait for budget, never to AI UNAVAILABLE. A kept answer
+  keeps the time the model gave it, never later than now: an advisory's "drafted" time is when
+  its text was written, the Duty Officer's run shows when it decided (and its turns), a
+  document's AI parts when they were written. Otherwise the model is asked under the usual
+  budget and pacing, and AI UNAVAILABLE stands as before. Server logs count hits and misses per
+  skill (`ai_answer`); the UI does not announce reuse. Answers expire after their skill's limit
+  (LIVE) or 72 h, and a sweep at checkpoints (every ten minutes at most, a bounded number of
+  pages) deletes them; in Firestore only an answer's `expires_at` is indexed. Offline,
+  `scripts/count_model_calls.py` counts the asks one replay window makes per skill with a
+  counting stand-in for the model.
 - **Cost per advisory is not stated.** Once token totals are recorded on each plume
   assessment and planned action (a separate change), a replay can measure the tokens behind
   one advisory. Until that is measured, no cost figure is given.

@@ -28,13 +28,15 @@ import re
 import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
 from uuid import uuid4
 
+from pydantic import Field
+
 from tephra.agents.adk_runtime import ModelGuard, summarise
-from tephra.agents.answers import AiAnswer, Question, Reuse, prompt_version
+from tephra.agents.answers import Question, Reuse, prompt_version
 from tephra.agents.llm import LlmBackend, LlmPart, prompt_hash, temperature_for
 from tephra.agents.validators import clock_problems, first_problems
 from tephra.config import Settings
@@ -90,6 +92,7 @@ _ID_TOKEN: Final = re.compile(
 )
 
 Outcome = Literal["ACCEPTED", "REPAIRED", "MODEL_FAILED", "STUB"]
+OUTCOME_KEYS: Final = ("status", "outcome", "mode", "action")
 
 
 class DutyExecutor(Protocol):
@@ -125,6 +128,8 @@ class DutyToolkit:
     deferred: dict[str, str] = field(default_factory=dict)
     dispatches: list[DutyDispatch] = field(default_factory=list)
     evidence: list[str] = field(default_factory=list)
+    outcomes: list[str] = field(default_factory=list)
+    """Per dispatch, in order: how it came out (:func:`_outcome_of`)"""
     brief: DutyBrief | None = None
     brief_problems: list[str] = field(default_factory=list)
 
@@ -225,7 +230,9 @@ class DutyToolkit:
         return self._seen({**result, "pending": self._pending_view()})
 
     def defer(self, item_ids: Sequence[str], reason: str) -> dict[str, Any]:
+        """Numbers, flights and times in the reason are checked as the brief's are."""
         reason = " ".join(reason.split())[:WHY_MAX_CHARS]
+        problems = [*clock_problems(reason, "reason"), *_invented([("reason", reason)], self)]
         refused: list[dict[str, str]] = []
         accepted: list[str] = []
         for item_id in _unique(item_ids):
@@ -236,6 +243,8 @@ class DutyToolkit:
                 refused.append({"item_id": item_id, "error": "MANDATORY: DISPATCH IT THIS RUN"})
             elif not reason:
                 refused.append({"item_id": item_id, "error": "GIVE A REASON"})
+            elif problems:
+                refused.append({"item_id": item_id, "error": problems[0]})
             else:
                 self.deferred[item_id] = reason
                 accepted.append(item_id)
@@ -266,6 +275,14 @@ class DutyToolkit:
 
     # --- helpers --------------------------------------------------------------------------
 
+    def forget_decisions(self) -> None:
+        """Decisions made again that did not fit: the brief and deferrals go, the
+        delegations (done by code) stay."""
+        self.brief, self.brief_problems, self.deferred = None, [], {}
+
+    def subjects(self, dispatch: DutyDispatch) -> list[str]:
+        return [self.items[i].subject for i in dispatch.item_ids if i in self.items]
+
     def pending_for(self, kind: DutyItemKind, subject: str) -> DutyItem | None:
         return next((item for item in self.pending(kind) if item.subject == subject), None)
 
@@ -291,6 +308,7 @@ class DutyToolkit:
         self.dispatches.append(
             DutyDispatch(tool=tool, item_ids=item_ids, ok=ok, result=summary, ms=ms)
         )
+        self.outcomes.append(_outcome_of(result, ok))
         _emit(
             self.trace, "adk", f"Duty Officer -> {tool}: {summary}", level="info" if ok else "warn"
         )
@@ -376,6 +394,7 @@ class _Run:
 class Delegation(TephraModel):
     tool: str
     subjects: list[str]
+    outcome: str = Field(description="How it came out (status, outcome, mode, action)")
 
 
 class SubjectNote(TephraModel):
@@ -388,7 +407,8 @@ class SubjectNote(TephraModel):
 
 
 class DutyDecisions(TephraModel):
-    """What the Duty Officer model decided in one run, in terms of the work's subjects."""
+    """What the Duty Officer model decided in one run, in terms of the work's subjects, and
+    how each delegation came out (the brief was written on those results)."""
 
     delegations: list[Delegation]
     deferrals: list[SubjectNote]
@@ -396,16 +416,25 @@ class DutyDecisions(TephraModel):
     priorities: list[SubjectNote]
     watch: list[str]
     outcome: Literal["ACCEPTED", "REPAIRED"]
+    turns: int
 
 
-def coordinator_question(worklist: Sequence[DutyItem], *, max_age: timedelta) -> Question:
-    """What is material to a Duty Officer run: the work list's item kinds, subjects and
-    mandatory flags. The digest's budget counts, times and other lines that move on their own
-    are not."""
-    work = sorted((item.kind.value, item.subject, item.mandatory) for item in worklist)
+def coordinator_question(
+    worklist: Sequence[DutyItem], *, policy_version: str, max_age: timedelta
+) -> Question:
+    """What is material to a Duty Officer run: the operator policy and the work list's item
+    kinds, subjects, mandatory flags and urgency buckets. The digest's budget counts, times
+    and other lines that move on their own are not."""
+    work = sorted(
+        (item.kind.value, item.subject, item.mandatory, item.urgency) for item in worklist
+    )
     return Question(
         "coordinator",
-        {"prompt": prompt_version(PROMPT_PATH.read_text(encoding="utf-8")), "work": work},
+        {
+            "prompt": prompt_version(PROMPT_PATH.read_text(encoding="utf-8")),
+            "policy": policy_version,
+            "work": work,
+        },
         max_age,
     )
 
@@ -421,13 +450,17 @@ async def run_duty_officer(
     replay: bool,
     trace: TraceSink | None = None,
     reuse: Reuse | None = None,
+    rerun: timedelta | None = None,
 ) -> DutyRun:
     """One Duty Officer run over ``worklist``. It never raises for model trouble: a run with no
     valid brief is ``MODEL_FAILED``, and the caller sends undone mandatory items to the Desk.
     ``reuse`` (``coordinator_question``): the same model's decisions for the same work are made
-    again through the same tools (every specialist checks its own work again, the brief is
-    checked against this run's results); when they no longer fit, the model finishes the run.
-    Decisions that passed are kept."""
+    again through the same tools (every specialist checks its own work again; each delegation
+    must come out as it did, deferral reasons and the brief pass their checks against this
+    run's input); when they no longer fit, the model finishes the run. Deferrals are made again
+    only within ``rerun`` of the decision (the policy offers deferred work again after it, for
+    a fresh look). Decisions that passed are kept. Inside ``on_hand_only`` decisions that no
+    longer fit raise ``NotOnHand``."""
     started_at = timeutil.now()
     toolkit = DutyToolkit.of(worklist, executor, trace)
     toolkit.evidence.append(digest)
@@ -436,19 +469,27 @@ async def run_duty_officer(
     p_hash = prompt_hash(system, [LlmPart.of_text(task)])
     run = _Run()
     model_id = llm.model_id("lite")
-    known: AiAnswer | None = None
+    decided_at: datetime | None = None
     if llm.name == "stub":
         await _stub_dispatch(toolkit)
         run.outcome = "STUB"
     else:
         _emit(trace, "adk", f"Duty Officer: {len(worklist)} item(s) to dispatch ({trigger})")
-        known = await reuse.recall(model_id) if reuse is not None else None
-        if known is not None and await _make_again(toolkit, known, reuse):
-            run.outcome = DutyDecisions.model_validate(known.payload).outcome
-            model_id, p_hash = known.model_id, known.prompt_hash
-        else:
-            known = None
+        found = await reuse.recall_as(model_id, DutyDecisions) if reuse is not None else None
+        if reuse is not None and found is not None:
+            answer, decisions = found
+            deferrals_due = rerun is not None and answer.age(timeutil.now()) >= rerun
+            problems = await _make_again(toolkit, decisions, deferrals_due=deferrals_due)
+            if problems:
+                reuse.rejected(problems)
+                toolkit.forget_decisions()
+            else:
+                run.outcome, run.turns = decisions.outcome, decisions.turns
+                model_id, p_hash = answer.model_id, answer.prompt_hash
+                decided_at = answer.shown_at(timeutil.now())
+        if decided_at is None:
             task = _task_text(digest, toolkit)
+            p_hash = prompt_hash(system, [LlmPart.of_text(task)])
             try:
                 await _run_agent(toolkit, llm, run, task, settings)
             except Exception as exc:  # ADK or API failure: no substitute dispatcher
@@ -457,10 +498,12 @@ async def run_duty_officer(
         if toolkit.brief is None:
             run.outcome = "MODEL_FAILED"
     undone = toolkit.undispatched_mandatory()
+    finished_at = timeutil.now()
     duty = DutyRun(
         id=f"DUTY-{uuid4().hex[:12]}",
         started_at=started_at,
-        finished_at=timeutil.now(),
+        finished_at=finished_at,
+        decided_at=decided_at or finished_at,
         replay=replay,
         trigger=trigger,
         worklist=toolkit.worklist(),
@@ -476,8 +519,7 @@ async def run_duty_officer(
         undispatched=[item.id for item in undone],
     )
     _emit_result(trace, duty)
-    fresh = reuse is not None and known is None and not undone
-    decisions = _decisions(duty, toolkit) if fresh else None
+    decisions = _decisions(duty, toolkit) if decided_at is None and not undone else None
     if reuse is not None and decisions is not None:
         await reuse.keep(
             model_id,
@@ -500,48 +542,78 @@ def _decisions(duty: DutyRun, toolkit: DutyToolkit) -> DutyDecisions | None:
 
     return DutyDecisions(
         delegations=[
-            Delegation(tool=d.tool, subjects=[items[i].subject for i in d.item_ids if i in items])
-            for d in duty.dispatches
+            Delegation(tool=d.tool, subjects=toolkit.subjects(d), outcome=outcome)
+            for d, outcome in zip(duty.dispatches, toolkit.outcomes, strict=True)
         ],
         deferrals=[note(d.item_id, d.reason) for d in duty.deferred if d.item_id in items],
         summary=brief.summary,
         priorities=[note(p.item_id, p.why) for p in brief.priorities if p.item_id in items],
         watch=brief.watch,
         outcome=duty.outcome,
+        turns=duty.turns,
     )
 
 
-async def _make_again(toolkit: DutyToolkit, known: AiAnswer, reuse: Reuse | None) -> bool:
-    """Make the decisions' delegations and deferrals again, in their order, through the same
-    tools, and submit their brief (checked against this run's results). True when the brief
-    passed and no mandatory item is left."""
-    decisions = DutyDecisions.model_validate(known.payload)
+async def _make_again(
+    toolkit: DutyToolkit, decisions: DutyDecisions, *, deferrals_due: bool
+) -> list[str]:
+    """Make the decisions' delegations again, in their order, through the same tools, then
+    their deferrals, and submit their brief (checked against this run's input). The problems
+    that stop it: a delegation that came out otherwise, deferrals due a fresh look, a reason
+    or brief that fails its checks, mandatory work left undone. Empty: the run is done."""
     for delegation in decisions.delegations:
-        subjects = delegation.subjects
-        if delegation.tool == "assess_volcanoes":
-            await toolkit.assess_volcanoes(subjects)
-        elif delegation.tool == "plan_flights":
-            await toolkit.plan_flights(subjects)
-        elif delegation.tool == "run_recovery":
-            await toolkit.run_recovery()
-        elif delegation.tool == "draft_sra":
-            for region in subjects:
-                await toolkit.draft_sra(region)
+        before = len(toolkit.dispatches)
+        await _delegate(toolkit, delegation)
+        made = [
+            (dispatch.tool, toolkit.subjects(dispatch), outcome)
+            for dispatch, outcome in zip(
+                toolkit.dispatches[before:], toolkit.outcomes[before:], strict=True
+            )
+        ]
+        if made != [(delegation.tool, delegation.subjects, delegation.outcome)]:
+            subjects = ", ".join(delegation.subjects)
+            return [f"{delegation.tool.upper()} {subjects} CAME OUT OTHERWISE THIS RUN"]
+    if decisions.deferrals and deferrals_due:
+        return ["DEFERRED WORK IS DUE A FRESH LOOK"]
     for deferral in decisions.deferrals:
         item = toolkit.pending_for(deferral.kind, deferral.subject)
-        if item is not None:
-            toolkit.defer([item.id], deferral.text)
+        if item is None:
+            return [f"{deferral.kind.value} {deferral.subject} IS NOT OPEN"]
+        refused = toolkit.defer([item.id], deferral.text)["refused"]
+        if refused:
+            return [f"DEFERRAL OF {deferral.subject}: {refused[0]['error']}"]
     toolkit.submit_brief(
         decisions.summary,
         [toolkit.item_id_for(p.kind, p.subject) for p in decisions.priorities],
         [p.text for p in decisions.priorities],
         decisions.watch,
     )
-    if toolkit.brief is not None and not toolkit.undispatched_mandatory():
-        return True
-    if reuse is not None:
-        reuse.rejected(toolkit.brief_problems or ["MANDATORY WORK LEFT UNDONE"])
-    return False
+    if toolkit.brief is None:
+        return toolkit.brief_problems or ["THE BRIEF WAS REJECTED"]
+    if toolkit.undispatched_mandatory():
+        return ["MANDATORY WORK LEFT UNDONE"]
+    return []
+
+
+async def _delegate(toolkit: DutyToolkit, delegation: Delegation) -> None:
+    subjects = delegation.subjects
+    if delegation.tool == "assess_volcanoes":
+        await toolkit.assess_volcanoes(subjects)
+    elif delegation.tool == "plan_flights":
+        await toolkit.plan_flights(subjects)
+    elif delegation.tool == "run_recovery":
+        await toolkit.run_recovery()
+    elif delegation.tool == "draft_sra":
+        for region in subjects:
+            await toolkit.draft_sra(region)
+
+
+def _outcome_of(result: dict[str, Any], ok: bool) -> str:
+    """How a delegation came out, in the terms a brief may rest on: done or not, and the
+    result's status, plume outcome and mode, and drafted action."""
+    parts = ["ok" if ok else "failed"]
+    parts += [f"{key}={result[key]}" for key in OUTCOME_KEYS if key in result]
+    return " ".join(parts)
 
 
 async def _stub_dispatch(toolkit: DutyToolkit) -> None:
@@ -670,9 +742,19 @@ def _instruction(_: Any) -> str:
 
 def _task_text(digest: str, toolkit: DutyToolkit) -> str:
     worklist = json.dumps([_item_view(item) for item in toolkit.pending()], ensure_ascii=False)
+    done = [
+        {"tool": d.tool, "subjects": toolkit.subjects(d), "ok": d.ok, "result": d.result}
+        for d in toolkit.dispatches
+    ]
+    already = (
+        f"Already delegated this run (JSON):\n{json.dumps(done, ensure_ascii=False)}\n\n"
+        if done
+        else ""
+    )
     return (
         "The desk's picture now (written by code):\n"
         f"{digest}\n\n"
+        f"{already}"
         f"Work due (JSON):\n{worklist}\n\n"
         "Delegate the work in the order that protects flights first, defer only what can wait,"
         " then call submit_brief once."

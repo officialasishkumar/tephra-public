@@ -644,7 +644,7 @@ async def request_templates(runtime: CommsRuntime, spec: TemplateSpec) -> Templa
     parts = [text_part(json.dumps(_facts(spec), ensure_ascii=False, indent=1), "facts")]
     known = _known_codes(runtime.airports)
     answers = runtime.answers
-    reuse = Reuse(answers, templates_question(spec)) if answers is not None else None
+    reuse = None if answers is None else answers.reuse(templates_question(spec))
     if reuse is not None and (held := await _known_templates(reuse, runtime, spec, known)):
         return held
 
@@ -684,10 +684,10 @@ async def request_templates(runtime: CommsRuntime, spec: TemplateSpec) -> Templa
 async def _known_templates(
     reuse: Reuse, runtime: CommsRuntime, spec: TemplateSpec, known: frozenset[str]
 ) -> Templates | None:
-    answer = await reuse.recall(runtime.llm.model_id("lite"))
-    if answer is None:
+    found = await reuse.recall_as(runtime.llm.model_id("lite"), TemplateSet)
+    if found is None:
         return None
-    held = TemplateSet.model_validate(answer.payload)
+    answer, held = found
     problems = template_problems(held, spec, known_codes=known)
     if problems:
         reuse.rejected(problems)

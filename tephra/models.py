@@ -1888,6 +1888,12 @@ class DutyRun(TephraModel):
     undispatched: list[str] = Field(
         default_factory=list, description="Mandatory item ids left undone; each went to the Desk"
     )
+    decided_at: UtcDatetime | None = Field(
+        default=None,
+        description="When the Duty Officer model made the run's decisions and wrote its brief; "
+        "a run that made the same model's decisions for the same work again keeps their time "
+        "(never later than finished_at). None on runs stored before the field: finished_at",
+    )
     recorded_wall_at: UtcDatetime | None = Field(
         default=None,
         description="Wall-clock time the run was stored (started_at follows the REPLAY clock);"

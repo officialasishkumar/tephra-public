@@ -15,7 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from tephra.agents.answers import AiAnswers
+from tephra.agents.answers import AiAnswers, AnswerScope
 from tephra.agents.llm import LlmCall, LlmPart, prompt_hash
 from tephra.api.routes_regdocs import router
 from tephra.api.server import create_app
@@ -470,6 +470,26 @@ async def test_sra_is_filled_by_code_and_labelled_a_draft(runtime: FakeRuntime) 
         SignRole.SAFETY_MANAGER,
         SignRole.ACCOUNTABLE_EXECUTIVE,
     }
+
+
+async def test_an_sra_keeps_the_time_its_boxes_were_written(tmp_path: Path) -> None:
+    clock = FixedClock(AT)
+    with use_clock(clock):
+        llm = ScriptedLlm("gemini", [good_narrative()])
+        runtime = await make_runtime(tmp_path, llm)
+        runtime.answers = AiAnswers(
+            runtime.store, runtime.settings, scope=lambda: AnswerScope(RunMode.LIVE, None)
+        )
+        try:
+            first = await draft_sra(runtime, "java_bali")
+            assert first.narrative_at == AT
+            clock.set(AT + timedelta(minutes=10))
+            again = await draft_sra(runtime, "java_bali")
+            assert llm.calls == 1, "identical facts: the same model's boxes, checked again"
+            assert again.narrative_at == AT, "written when they were written"
+            assert again.created_at > first.created_at
+        finally:
+            await runtime.store.aclose()
 
 
 async def test_sra_leaves_what_tephra_cannot_know_blank(runtime: FakeRuntime) -> None:

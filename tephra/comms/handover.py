@@ -476,14 +476,15 @@ def handover_question(facts_text: str) -> Question:
 
 async def _narrate(
     runtime: HandoverRuntime, evidence: Sequence[Evidence], facts_text: str
-) -> tuple[Narrative, LlmCall]:
+) -> tuple[Narrative, LlmCall, datetime]:
     """One lite call and at most one repair; ``AiUnavailable`` when it cannot be checked.
-    The same model's narrative for identical inputs is used when it passes the checks now."""
+    The same model's narrative for identical inputs is used when it passes the checks now;
+    with the narrative comes the time the model wrote it."""
     system = PROMPT_PATH.read_text(encoding="utf-8")
     parts = [text_part(facts_text, "facts")]
     ids = {item.id for item in evidence}
     answers = runtime.answers
-    reuse = Reuse(answers, handover_question(facts_text)) if answers is not None else None
+    reuse = None if answers is None else answers.reuse(handover_question(facts_text))
     if reuse is not None and (held := await _known_narrative(reuse, runtime, facts_text, ids)):
         return held
 
@@ -525,23 +526,24 @@ async def _narrate(
             else f"NARRATIVE FAILED CHECKS AFTER REPAIR: {'; '.join(first_problems(problems, 3))}"
         )
         raise AiUnavailable(reason)
+    written_at = timeutil.now()
     if reuse is not None:
         await reuse.keep(
             call.model_id,
             answer.model_dump(mode="json"),
             prompt_hash=first.prompt_hash,
-            answered_at=timeutil.now(),
+            answered_at=written_at,
         )
-    return answer, first
+    return answer, first, written_at
 
 
 async def _known_narrative(
     reuse: Reuse, runtime: HandoverRuntime, facts_text: str, ids: set[str]
-) -> tuple[Narrative, LlmCall] | None:
-    answer = await reuse.recall(runtime.llm.model_id("lite"))
-    if answer is None:
+) -> tuple[Narrative, LlmCall, datetime] | None:
+    found = await reuse.recall_as(runtime.llm.model_id("lite"), Narrative)
+    if found is None:
         return None
-    narrative = Narrative.model_validate(answer.payload)
+    answer, narrative = found
     problems = narrative_problems(narrative, facts_text=facts_text, evidence_ids=ids)
     if problems:
         reuse.rejected(problems)
@@ -549,7 +551,7 @@ async def _known_narrative(
     call = LlmCall(
         backend=runtime.llm.name, model_id=answer.model_id, prompt_hash=answer.prompt_hash
     )
-    return narrative, call
+    return narrative, call, answer.shown_at(timeutil.now())
 
 
 # --- drafting ----------------------------------------------------------------------------
@@ -565,7 +567,7 @@ async def draft_handover(
     evidence = _evidence(gathered, {"feeds_stale": feeds_stale})
     facts_text = _facts_json(evidence, now=now, since=since, decisions=decisions)
     try:
-        narrative, call = await _narrate(runtime, evidence, facts_text)
+        narrative, call, written_at = await _narrate(runtime, evidence, facts_text)
     except AiUnavailable as exc:
         await _record_failure(runtime, exc.reason, actor=outgoing)
         raise
@@ -611,6 +613,7 @@ async def draft_handover(
         ],
         decisions_made=decisions,
         evidence_ids=[item.id for item in evidence],
+        narrative_at=written_at,
         llm_backend=backend,
         model_id=call.model_id,
         prompt_hash=call.prompt_hash,

@@ -9,6 +9,7 @@ accepts it and the regulator evaluates it.
 """
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any, Final
 
 from tephra.agents.llm import LlmCall
@@ -72,7 +73,9 @@ async def draft_sra(runtime: DocsRuntime, region: str, *, actor: str = SYSTEM_AC
     evidence = await gather_evidence(runtime, region)
     facts = narrative_facts(evidence, runtime.policy)
     try:
-        narrative, call = await write_narrative(runtime.llm, facts, answers=runtime.answers)
+        narrative, call, written_at = await write_narrative(
+            runtime.llm, facts, answers=runtime.answers
+        )
     except AiUnavailable as exc:
         await audit.record(
             runtime.store,
@@ -90,7 +93,15 @@ async def draft_sra(runtime: DocsRuntime, region: str, *, actor: str = SYSTEM_AC
             level="error",
         )
         raise
-    doc = build_sra(evidence, runtime.policy, runtime.policy_summary, narrative, call, facts=facts)
+    doc = build_sra(
+        evidence,
+        runtime.policy,
+        runtime.policy_summary,
+        narrative,
+        call,
+        facts=facts,
+        narrative_at=written_at,
+    )
     await record_new_doc(
         runtime.store,
         runtime.bus,
@@ -199,6 +210,7 @@ def build_sra(
     call: LlmCall,
     *,
     facts: dict[str, Any],
+    narrative_at: datetime | None = None,
 ) -> SraDraft:
     sections = [
         _status_section(evidence, policy, summary),
@@ -237,6 +249,7 @@ def build_sra(
         policy_version=policy.version,
         policy_hash=summary.policy_hash,
         llm_backend=call.backend,
+        narrative_at=narrative_at,
         model_id=call.model_id,
         prompt_hash=call.prompt_hash,
         sections=sections,
