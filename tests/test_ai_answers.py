@@ -32,6 +32,8 @@ from tephra.agents import ask as ask_module
 from tephra.agents import duty_officer as duty_officer_module
 from tephra.agents import exposure_planner as planner_module
 from tephra.agents.answers import (
+    KEY_VERSION,
+    AiAnswer,
     AiAnswers,
     AnswerScope,
     NotOnHand,
@@ -43,8 +45,8 @@ from tephra.agents.ask import AskAnswer, AskClaim, AskReply, answer_question
 from tephra.agents.dispatch_drafter import draft_advisory, drafter_question
 from tephra.agents.duty_officer import DutyToolkit, coordinator_question, run_duty_officer
 from tephra.agents.exposure_planner import (
-    cone_version,
     plan_flight,
+    plan_key,
     planner_question,
     rule_based_decision,
 )
@@ -72,6 +74,9 @@ from tephra.models import (
     LlmBackendName,
     PlannerDecision,
     Provenance,
+    RerouteKind,
+    RerouteOption,
+    RerouteStatus,
     RunMode,
     SatelliteFrame,
     SupportingEvidence,
@@ -83,7 +88,7 @@ from tephra.scheduler import run_tick
 from tephra.store.base import Collection
 from tephra.store.firestore_store import DOC_FIELD, FirestoreStore
 from tephra.store.sqlite_store import SqliteStore
-from tephra.util.timeutil import FixedClock, use_clock
+from tephra.util.timeutil import FixedClock, SystemClock, use_clock
 
 AT = datetime(2026, 10, 9, 18, 30, tzinfo=UTC)
 HOUR = timedelta(hours=1)
@@ -203,7 +208,7 @@ QUESTION = Question("flight_planner", {"flight": "f1", "cone": "CONE-1"}, HOUR)
 # --- the store: SQLite and Firestore ----------------------------------------------------
 
 
-async def test_an_answer_is_found_only_in_its_mode_case_build_and_model(
+async def test_an_answer_is_found_only_in_its_mode_case_and_model(
     sqlite: SqliteStore, clock: FixedClock
 ) -> None:
     scope = Scope()
@@ -226,7 +231,141 @@ async def test_an_answer_is_found_only_in_its_mode_case_build_and_model(
     assert live.payload == {"n": 1}, "nor a replay LIVE"
 
     new_build = book_on(sqlite, Scope(), build_sha="def456")
-    assert await new_build.recall(QUESTION, "lite") is None, "a new build asks afresh"
+    found_again = await new_build.recall(QUESTION, "lite")
+    assert found_again is not None, "a new build finds what the last one kept"
+    assert found_again.payload == {"n": 1}
+    assert found_again.build == "local", "the build it was given under stays on record"
+
+
+async def test_a_replay_answer_outlives_the_live_limit(
+    sqlite: SqliteStore, clock: FixedClock
+) -> None:
+    scope = Scope(AnswerScope(RunMode.REPLAY, "case-a"))
+    book = book_on(sqlite, scope)
+    await book.keep(QUESTION, "lite", {"n": 1}, prompt_hash="p", answered_at=AT)
+    replay = await book.recall(QUESTION, "lite")
+    assert replay is not None
+    assert replay.expires_at - replay.stored_at == timedelta(hours=2160)
+
+    scope.now = AnswerScope(RunMode.LIVE, None)
+    await book.keep(QUESTION, "lite", {"n": 2}, prompt_hash="p", answered_at=AT)
+    live = await book.recall(QUESTION, "lite")
+    assert live is not None
+    assert live.expires_at - live.stored_at == min(timedelta(hours=72), HOUR)
+    forever = Question("notice_reader", {"text": "abc"})
+    await book.keep(forever, "lite", {"n": 3}, prompt_hash="p", answered_at=AT)
+    notice = await book.recall(forever, "lite")
+    assert notice is not None
+    assert notice.expires_at - notice.stored_at == timedelta(hours=72)
+
+
+async def test_a_new_key_version_never_reads_an_old_key(
+    sqlite: SqliteStore, clock: FixedClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await book_on(sqlite).keep(QUESTION, "lite", {"n": 1}, prompt_hash="p", answered_at=AT)
+    assert await book_on(sqlite).recall(QUESTION, "lite") is not None
+    monkeypatch.setattr(answers_module, "KEY_VERSION", KEY_VERSION + 1)
+    assert await book_on(sqlite).recall(QUESTION, "lite") is None, "an older recipe: asked afresh"
+    assert len(await sqlite.list_docs(Collection.AI_ANSWERS)) == 1, "the old answer is left alone"
+
+
+# --- seeded answers (a case folder's answers/ai_answers.jsonl) ---------------------------
+
+CASE = AnswerScope(RunMode.REPLAY, "case-a")
+MODEL = "gemini-test"
+
+
+async def _lines_kept_by(
+    store: Any, *answers: tuple[Question, str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """The answers an earlier run kept, as the lines of its ``ai_answers.jsonl``."""
+    book = book_on(store, Scope(CASE))
+    for question, model_id, payload in answers:
+        await book.keep(question, model_id, payload, prompt_hash="p" * 64, answered_at=AT)
+    return await store.list_docs(Collection.AI_ANSWERS)
+
+
+async def test_seeded_answers_are_found_under_the_current_key_recipe(
+    tmp_path: Path, sqlite: SqliteStore, clock: FixedClock
+) -> None:
+    earlier = SqliteStore(tmp_path / "earlier.sqlite3", tmp_path / "earlier-blobs")
+    other = Question("drafter", {"flight": "f1", "action": "HOLD"}, HOUR)
+    lines = await _lines_kept_by(earlier, (QUESTION, MODEL, {"n": 1}), (other, MODEL, {"n": 2}))
+    await earlier.aclose()
+    assert len(lines) == 2
+    (kept,) = [line for line in lines if line["payload"] == {"n": 1}]
+
+    book = book_on(sqlite, Scope(CASE), build_sha="def456")  # a later deploy
+    assert all(book.seeded_key(line) == line["key"] for line in lines)
+    before = SystemClock().now()
+    assert await book.seed(lines) == 2
+    clock.set(AT + timedelta(minutes=30))  # the loop plays the same minutes again
+    found = await book.recall(QUESTION, MODEL)
+    assert found is not None
+    assert found.payload == {"n": 1}
+    assert found.answered_at == AT, "the time the model gave it stays"
+    assert found.stored_at == datetime.fromisoformat(kept["stored_at"]), "and when it was kept"
+    fresh = timedelta(hours=2160)
+    assert before + fresh <= found.expires_at <= SystemClock().now() + fresh, "expiry from now"
+    assert await book.recall(QUESTION, "other-model") is None
+    assert await book_on(sqlite, Scope(CASE)).recall(other, MODEL) is not None, "in the store"
+    assert await book.seed(lines) == 0, "seeded once"
+
+
+async def test_a_seeded_answer_never_overwrites_a_newer_one(
+    tmp_path: Path, sqlite: SqliteStore, clock: FixedClock
+) -> None:
+    earlier = SqliteStore(tmp_path / "earlier.sqlite3", tmp_path / "earlier-blobs")
+    lines = await _lines_kept_by(earlier, (QUESTION, MODEL, {"n": 1}))
+    await earlier.aclose()
+    book = book_on(sqlite, Scope(CASE))
+    await book.keep(QUESTION, MODEL, {"n": 2}, prompt_hash="p" * 64, answered_at=AT + HOUR)
+    assert await book.seed(lines) == 0
+    newer = await book_on(sqlite, Scope(CASE)).recall(QUESTION, MODEL)
+    assert newer is not None
+    assert newer.payload == {"n": 2}
+    assert newer.answered_at == AT + HOUR
+
+
+async def test_stub_answers_are_never_seeded(
+    tmp_path: Path, sqlite: SqliteStore, clock: FixedClock
+) -> None:
+    earlier = SqliteStore(tmp_path / "earlier.sqlite3", tmp_path / "earlier-blobs")
+    stub, none = QUESTION._replace(material={"flight": "f2"}), QUESTION._replace(material={"f": 3})
+    lines = await _lines_kept_by(
+        earlier, (QUESTION, MODEL, {"n": 1}), (stub, "stub", {"n": 2}), (none, "none", {"n": 3})
+    )
+    await earlier.aclose()
+    lines.append(
+        {**next(line for line in lines if line["model_id"] == MODEL), "llm_backend": "stub"}
+    )
+    book = book_on(sqlite, Scope(CASE))
+    assert await book.seed(lines) == 1, "the model's answer; never the stub's, nor one from none"
+    assert await book.recall(stub, "stub") is None
+    assert await book.recall(none, "none") is None
+    found = await book.recall(QUESTION, MODEL)
+    assert found is not None
+    assert found.payload == {"n": 1}
+
+
+async def test_a_seed_line_from_another_case_or_recipe_is_skipped(
+    tmp_path: Path, sqlite: SqliteStore, clock: FixedClock
+) -> None:
+    earlier = SqliteStore(tmp_path / "earlier.sqlite3", tmp_path / "earlier-blobs")
+    lines = await _lines_kept_by(earlier, (QUESTION, MODEL, {"n": 1}))
+    await earlier.aclose()
+    (line,) = lines
+    other_case = {**line, "case_id": "case-b"}
+    live = {**line, "mode": "LIVE", "case_id": None}
+    older_recipe = {**line, "key": "0" * 32}
+    missing = {k: v for k, v in line.items() if k != "fingerprint"}
+    book = book_on(sqlite, Scope(CASE))
+    assert book.seeded_key(other_case) != line["key"]
+    assert book.seeded_key(missing) is None
+    assert await book.seed([other_case, live, older_recipe, missing]) == 0
+    assert await sqlite.list_docs(Collection.AI_ANSWERS) == []
+    assert await book.seed([line]) == 1
+    assert isinstance(await book.recall(QUESTION, MODEL), AiAnswer)
 
 
 async def test_an_answer_that_comes_back_after_a_reset_is_not_kept(
@@ -419,16 +558,25 @@ def test_a_flight_that_moves_on_asks_the_same_question() -> None:
 def test_every_material_change_is_a_new_plan_question() -> None:
     ctx = planner_ctx()
     base = _planner_q(ctx)
-    closed = [
+    opened = [
         alt.model_copy(update={"check": alt.check.model_copy(update={"ok": True})})
         for alt in ctx.alternates
     ]
+    usable = RerouteOption(
+        id="RR-usable",
+        flight_id=ctx.flight.id,
+        cone_id=ctx.flight.cone_id,
+        kind=RerouteKind.REJOIN_TRACK,
+        status=RerouteStatus.OK,
+        note="LATERAL ROUTE AROUND THE BUFFERED HAZARD",
+    )
     changed = {
-        "a new cone": _moved(ctx, cone_id="CONE-other"),
         "inside now": _moved(ctx, inside_now=True, minutes_to_entry=0),
         "a later bucket": _moved(ctx, minutes_to_entry=ctx.hold_within_min + 5),
         "another 2,000 ft step": _moved(ctx, alt_baro_ft=19_000),
-        "an alternate opens": ctx.model_copy(update={"alternates": closed}),
+        "a higher hazard band": ctx.model_copy(update={"hazard_top_ft": ctx.hazard_top_ft + 2000}),
+        "an alternate opens": ctx.model_copy(update={"alternates": opened}),
+        "a usable reroute": ctx.model_copy(update={"reroutes": [usable]}),
         "fewer actions allowed": ctx.model_copy(
             update={"allowed_actions": [ActionKind.MONITOR, ActionKind.HOLD]}
         ),
@@ -436,15 +584,24 @@ def test_every_material_change_is_a_new_plan_question() -> None:
     for why, other in changed.items():
         assert _planner_q(other) != base, why
     assert _planner_q(ctx, policy="2026.10.2") != base, "a new policy version"
-    assert _planner_q(ctx, cone="v2") != base, "the cone rebuilt on new winds, same id"
+    refused = usable.model_copy(update={"status": RerouteStatus.TOO_LONG})
+    assert _planner_q(ctx.model_copy(update={"reroutes": [refused]})) == base, (
+        "a reroute that is not usable is not offered: not material"
+    )
+    assert _planner_q(_moved(ctx, cone_id="CONE-other")) == base, "a cone reissued under a new id"
+    assert _planner_q(ctx, cone="v2") == base, "the cone's version is not asked; its band is"
 
 
-def test_a_cone_rebuilt_on_new_winds_is_a_new_version() -> None:
-    cone = make_cone()
-    later = cone.model_copy(update={"created_at": cone.created_at + HOUR})
-    assert cone_version(later) == cone_version(cone), "its times alone are not material"
-    lower = cone.model_copy(update={"top_ft": cone.top_ft - 2000})
-    assert cone_version(lower) != cone_version(cone)
+def test_a_cone_rebuilt_on_new_winds_with_the_same_band_is_the_same_question() -> None:
+    ctx = planner_ctx()
+    base = _planner_q(ctx)
+    rebuilt = _moved(ctx, cone_id="CONE-rebuilt")
+    assert _planner_q(rebuilt) == base, "a new cone id with the same band asks nothing again"
+    assert plan_key(_planner_q(rebuilt)) == plan_key(base)
+    ctx_d, plan = change_level_case()
+    assert _drafter_q(_moved(ctx_d, cone_id="CONE-rebuilt"), plan) == _drafter_q(ctx_d, plan)
+    lower = ctx.model_copy(update={"hazard_top_ft": ctx.hazard_top_ft - 2000})
+    assert _planner_q(lower) != base, "a lower top is a new band: a new question"
 
 
 def test_every_material_change_is_a_new_draft_question() -> None:
@@ -463,8 +620,10 @@ def test_every_material_change_is_a_new_draft_question() -> None:
     for why, other in others.items():
         changed = plan.model_copy(update={"decision": other})
         assert _drafter_q(ctx, changed) != base, why
-    assert _drafter_q(_moved(ctx, cone_id="CONE-x"), plan) != base
-    assert _drafter_q(ctx, plan, cone="v2") != base, "the cone's area changed"
+    assert _drafter_q(_moved(ctx, cone_id="CONE-x"), plan) == base, "a reissued cone, same band"
+    assert _drafter_q(ctx, plan, cone="v2") == base, "the cone's version is not material"
+    higher = ctx.model_copy(update={"hazard_top_ft": ctx.hazard_top_ft + 2000})
+    assert _drafter_q(higher, plan) != base, "the hazard band changed"
     assert _drafter_q(ctx, plan, policy="2026.10.2") != base, "drafted under another policy"
 
 

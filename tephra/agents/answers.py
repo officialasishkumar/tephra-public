@@ -2,12 +2,13 @@
 same question.
 
 Each skill names what is material to its question, its *fingerprint*: for the Plume Reader the
-official products and the discrepancy set, for the Flight planner the cone, the allowed actions,
-the urgency and level bands and the open alternates, and so on (each skill's ``*_question``).
-An answer that passed the code's checks is kept in ``ai_answers`` under a key of the mode (LIVE,
-or REPLAY and its case), the build, the model id, the skill and that fingerprint. When the same
-model is about to be asked the same material question again within the skill's age limit, the
-kept answer is checked again, by the same validators as a fresh one, against the input of the
+official products and the discrepancy set, for the Flight planner the hazard band, the allowed
+actions, the urgency and level bands, the open alternates and the usable reroutes, and so on
+(each skill's ``*_question``). An answer that passed the code's checks is kept in ``ai_answers``
+under a key of the mode (LIVE, or REPLAY and its case), the model id, the skill and that
+fingerprint; never the build, so a deploy finds what the last one kept. When the same model is
+about to be asked the same material question again within the skill's age limit, the kept
+answer is checked again, by the same validators as a fresh one, against the input of the
 moment, and used only when it passes. Otherwise the model is asked as usual: its budget and
 pacing apply, and when it cannot be asked the step reports AI UNAVAILABLE. A kept answer is
 never shown in place of one that failed.
@@ -23,14 +24,16 @@ AI worker started only because its answers were on hand) a question with no good
 :class:`NotOnHand` instead of letting the skill ask its model; the work then waits for budget.
 
 The age limit is measured on the run's clock (the replay clock in REPLAY, where a loop plays
-the same minutes again); the store keeps an answer for ``ai_answer_keep_h`` of wall-clock time
-at most (a LIVE answer only as long as its age limit), and :meth:`AiAnswers.sweep` removes
-what has expired.
+the same minutes again); the store keeps a LIVE answer for ``ai_answer_keep_h`` of wall-clock
+time at most (and no longer than its age limit) and a REPLAY answer for
+``ai_answer_replay_keep_h`` (a replay asks the same questions every loop), and
+:meth:`AiAnswers.sweep` removes what has expired. A case folder may carry the answers an
+earlier run kept (``answers/ai_answers.jsonl``); :meth:`AiAnswers.seed` puts them in the store.
 """
 
 import logging
 from collections import Counter, OrderedDict
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timedelta
@@ -72,7 +75,7 @@ Skill = Literal[
 ]
 Outcome = Literal["hit", "miss", "expired", "rejected", "kept", "dropped", "not_on_hand"]
 
-KEY_VERSION: Final = 2
+KEY_VERSION: Final = 3
 """Raised when the key recipe or a payload shape changes: older answers are then never found."""
 MEMO_SIZE: Final = 2000
 """Answers (and known absences) held in memory, so a recurring question reads the store once."""
@@ -164,6 +167,7 @@ class AiAnswers:
         """The mode, case and epoch playing now"""
         self._build = settings.build_sha or "local"
         self._keep = timedelta(hours=settings.ai_answer_keep_h)
+        self._replay_keep = timedelta(hours=settings.ai_answer_replay_keep_h)
         self._memo: OrderedDict[str, AiAnswer | None] = OrderedDict()
         self._swept_at: datetime | None = None
         self.counts: Counter[tuple[Skill, Outcome]] = Counter()
@@ -218,7 +222,7 @@ class AiAnswers:
             return
         key = self._key(question, model_id, now)
         wall = timeutil.SystemClock().now()
-        life = self._keep
+        life = self._replay_keep if now.mode is RunMode.REPLAY else self._keep
         if now.mode is RunMode.LIVE and question.max_age is not None:
             life = min(life, question.max_age)
         answer = AiAnswer(
@@ -268,22 +272,68 @@ class AiAnswers:
             logger.info("removed %d expired AI answer(s)", removed)
         return removed
 
+    def seeded_key(self, doc: Mapping[str, Any]) -> str | None:
+        """The key a stored answer has under the recipe in force; None when a field is missing.
+        A line written under an older recipe has another key, and is never seeded."""
+        try:
+            mode, case_id, model_id, skill, fingerprint = (
+                doc["mode"],
+                doc["case_id"],
+                doc["model_id"],
+                doc["skill"],
+                doc["fingerprint"],
+            )
+        except KeyError:
+            return None
+        if not all(isinstance(v, str) for v in (mode, model_id, skill, fingerprint)):
+            return None
+        if case_id is not None and not isinstance(case_id, str):
+            return None
+        return _key_of(mode, case_id, model_id, skill, fingerprint)
+
+    async def seed(self, lines: Iterable[Mapping[str, Any]]) -> int:
+        """Answers the same model gave to the same material question on an earlier run; every
+        recall still goes through recall_as and the skill's validators.
+
+        Only REPLAY answers of the case playing, under the key recipe in force and from a real
+        model, go in; an answer already in the store is left alone (it is at least as new).
+        Each seeded answer gets a fresh expiry; the times it was given and kept at stay.
+        """
+        case_id = self.scope().case_id
+        wall = timeutil.SystemClock().now()
+        seeded = 0
+        for doc in lines:
+            if doc.get("mode") != RunMode.REPLAY.value or doc.get("case_id") != case_id:
+                continue
+            key = self.seeded_key(doc)
+            if key is None or key != doc.get("key"):
+                continue
+            if doc.get("model_id") in ("stub", "none") or doc.get("llm_backend") == "stub":
+                continue
+            try:
+                answer = AiAnswer.model_validate({**doc, "expires_at": wall + self._replay_keep})
+            except ValueError:
+                logger.warning("ignoring an unreadable seed answer %s", key)
+                continue
+            try:
+                if await self._store.get(Collection.AI_ANSWERS, key) is not None:
+                    continue
+                await self._store.put(Collection.AI_ANSWERS, key, answer.model_dump(mode="json"))
+            except Exception as exc:
+                logger.warning("seeding a %s answer failed: %s", answer.skill, exc)
+                continue
+            self._remember(key, answer)
+            seeded += 1
+        return seeded
+
     def note_not_on_hand(self, skill: Skill, scope: AnswerScope) -> None:
         self._note(skill, "not_on_hand", scope)
 
     # --- internals ------------------------------------------------------------------------
 
     def _key(self, question: Question, model_id: str, scope: AnswerScope) -> str:
-        fields = [
-            KEY_VERSION,
-            scope.mode.value,
-            scope.case_id,
-            self._build,
-            model_id,
-            question.skill,
-            sha256_json(question.material),
-        ]
-        return sha256_json(fields)[:32]
+        fingerprint = sha256_json(question.material)
+        return _key_of(scope.mode.value, scope.case_id, model_id, question.skill, fingerprint)
 
     async def _read(self, key: str) -> AiAnswer | None:
         if key in self._memo:
@@ -384,6 +434,10 @@ class Reuse:
         if _ON_HAND_ONLY.get():
             self.book.note_not_on_hand(self.question.skill, self.scope)
             raise NotOnHand(self.question.skill)
+
+
+def _key_of(mode: str, case_id: str | None, model_id: str, skill: str, fingerprint: str) -> str:
+    return sha256_json([KEY_VERSION, mode, case_id, model_id, skill, fingerprint])[:32]
 
 
 def _good(answer: AiAnswer, question: Question) -> bool:
