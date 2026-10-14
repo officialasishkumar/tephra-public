@@ -11,7 +11,7 @@ import secrets
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self, get_args
 
 from pydantic import (
     AliasChoices,
@@ -21,7 +21,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from tephra.models import (
     AdsbQueryPoint,
@@ -133,6 +133,11 @@ REGIONS: dict[str, Region] = {
 }
 
 RegionKey = Literal["java_bali", "halmahera", "kyushu"]
+
+Feature = Literal["connect", "crew", "notices", "satellite", "btd", "voice", "example", "present"]
+ALL_FEATURES: frozenset[str] = frozenset(get_args(Feature))
+HERO_FEATURES: frozenset[str] = frozenset()
+"""The demo shows the hero path and its three acts only."""
 
 
 class Settings(BaseSettings):
@@ -312,6 +317,53 @@ class Settings(BaseSettings):
     )
     tick_interval_s: int = Field(default=60, ge=10)
     region: RegionKey = "java_bali"
+    features: Annotated[frozenset[str], NoDecode] = Field(
+        default=ALL_FEATURES,
+        description=(
+            "Optional features shown in the nav, menus, legend, index and board; 'all', 'hero' "
+            "or a comma list. Hidden features keep their routes and tests; their scheduled "
+            "model work stops."
+        ),
+    )
+    ai_answer_replay_keep_h: float = Field(
+        default=2160.0,
+        gt=0,
+        description=(
+            "Wall-clock hours a REPLAY answer stays in ai_answers (a replay asks the same "
+            "question every loop)"
+        ),
+    )
+    replay_quantum_s: int = Field(
+        default=0,
+        ge=0,
+        le=300,
+        description=(
+            "REPLAY only: the replay clock seen by ticks and the worker is floored to this many "
+            "seconds (0 = exact); the Wall clock keeps seconds"
+        ),
+    )
+    cloud_region: str | None = Field(
+        default=None, description="Region shown under Runs on (deploy sets TEPHRA_CLOUD_REGION)"
+    )
+    secrets_source: Literal["secret-manager", "environment"] = Field(
+        default="environment",
+        description="Set by deploy/cloudrun.sh beside --set-secrets; never inferred",
+    )
+    visitor_access: Literal["off", "replay"] = Field(
+        default="off",
+        description="'replay': anyone may enter the Desk as a visitor while a replay plays",
+    )
+    visitor_session_ttl_h: float = Field(default=2.0, gt=0)
+    visitor_decision_cap: int = Field(default=40, ge=1)
+    visitor_ask_cap: int = Field(default=3, ge=0)
+    tick_deadline_s: int = Field(
+        default=100,
+        ge=20,
+        description=(
+            "Seconds a tick may take before it publishes what it has; under Cloud Scheduler's "
+            "120 s attempt deadline"
+        ),
+    )
     recovery_auto: bool = Field(
         default=True,
         description=(
@@ -429,6 +481,25 @@ class Settings(BaseSettings):
     @classmethod
     def _with_default_limits(cls, value: dict[str, ModelLimit]) -> dict[str, ModelLimit]:
         return {**DEFAULT_MODEL_LIMITS, **value}
+
+    @field_validator("features", mode="before")
+    @classmethod
+    def _parse_features(cls, value: Any) -> frozenset[str]:
+        if isinstance(value, frozenset):
+            names = value
+        elif isinstance(value, str):
+            text = value.strip()
+            if text == "all":
+                return ALL_FEATURES
+            if text in ("", "hero"):
+                return HERO_FEATURES
+            names = frozenset(part.strip() for part in text.split(",") if part.strip())
+        else:
+            names = frozenset(value)
+        unknown = sorted(names - ALL_FEATURES)
+        if unknown:
+            raise ValueError(f"unknown feature(s): {', '.join(unknown)}")
+        return names
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:

@@ -21,7 +21,7 @@ modules (sections 5.11 to 5.17) were built against.
 
 | Area | Files |
 |---|---|
-| architect (contract, do not edit) | `pyproject.toml`, `MODULES.md`, `CLAUDE.md`, `README.md`, `docs/ARCHITECTURE.md`, `docs/EXTENSIONS.md`, `tephra/__init__.py`, `tephra/config.py`, `tephra/models.py`, `tephra/feeds/__init__.py`, `tephra/feeds/base.py`, `tephra/store/base.py`, `tephra/util/__init__.py`, `tephra/util/timeutil.py`, `tephra/util/hashing.py`, `tephra/util/events.py`, `tephra/policy.py`, `data/policy/policy_a.json`, `tests/test_contract.py`, `tests/test_policy.py` |
+| architect (contract files) | `pyproject.toml`, `MODULES.md`, `CLAUDE.md`, `README.md`, `docs/*.md`, `docs/ARCHITECTURE.md`, `docs/EXTENSIONS.md`, `tephra/__init__.py`, `tephra/config.py`, `tephra/models.py`, `tephra/feeds/__init__.py`, `tephra/feeds/base.py`, `tephra/store/base.py`, `tephra/util/__init__.py`, `tephra/util/timeutil.py`, `tephra/util/hashing.py`, `tephra/util/events.py`, `tephra/policy.py`, `data/policy/policy_a.json`, `tests/test_contract.py`, `tests/test_policy.py` |
 | feeds-text | `tephra/feeds/sigmet.py`, `tephra/feeds/vona.py`, `tephra/feeds/vaac.py`, `tephra/feeds/taf.py`, `tests/test_feeds_text.py`, `tests/test_live_feeds_text.py`, `tests/test_vona_archive.py` |
 | feeds-geo | `tephra/feeds/adsb.py`, `tephra/feeds/winds.py`, `tephra/feeds/satellite.py`, `tephra/feeds/volcanoes.py`, `tephra/feeds/airports.py`, `data/volcanoes.json`, `data/airports.json`, `tests/test_feeds_geo.py`, `tests/test_live_feeds_geo.py` |
 | science | `tephra/science/__init__.py`, `tephra/science/hsd_segments.py`, `tephra/science/btd.py`, `tests/test_science.py` |
@@ -38,11 +38,11 @@ modules (sections 5.11 to 5.17) were built against.
 | comms | `tephra/comms/{__init__,models,messages,handover}.py`, `tephra/agents/prompts/{messages,handover}.md`, `tephra/api/routes_comms.py`, `tests/test_comms.py` |
 | regdocs | `tephra/regdocs/{__init__,models,common,runtime,evidence,narrative,sra,var,registry}.py`, `tephra/agents/prompts/sra.md`, `tephra/api/routes_regdocs.py`, `tests/test_regdocs.py` |
 | backtest | `tephra/backtest/{__init__,models,metrics,runner,report}.py`, `tephra/agents/prompts/backtest.md`, `tephra/api/routes_backtest.py`, `scripts/backtest.py`, `docs/backtest/`, `tests/test_backtest.py` |
-| web-wall | `tephra/web/index.html`, `tephra/web/wall.js`, `tephra/web/wall.css`, `tephra/web/mapui.css` (map controls, shared), `tephra/web/guide.{html,js,css}` (the guide page) |
-| web-desk | `tephra/web/desk.html`, `tephra/web/desk.js`, `tephra/web/desk.css` |
+| web-wall | `tephra/web/index.html`, `tephra/web/wall.js`, `tephra/web/wall/*.js`, `tephra/web/wall.css`, `tephra/web/data/`, `tephra/web/og.{svg,png}`, `tephra/web/mapui.css` (map controls, shared), `tephra/web/guide.{html,js,css}` (the guide page) |
+| web-desk | `tephra/web/desk.html`, `tephra/web/desk.js`, `tephra/web/desk/*.js`, `tephra/web/desk.css` |
 | connect | `tephra/desk/connections.py`, `tephra/desk/sample_feed.py`, `tephra/api/routes_connect.py`, `scripts/push_sample.py`, `tephra/web/connect.{html,js,css}`, `tephra/web/topnav.css` (the nav every page shares), `tests/test_connect.py` (airline data connections: section 5.20) |
 | crew | `tephra/geo/crew_area.py`, `tephra/desk/crew_reports.py`, `tephra/api/routes_crew.py` (crew reports of ash: section 5.19) |
-| ops-evals | `Dockerfile`, `.dockerignore`, `.gcloudignore`, `.env.example`, `deploy/_common.sh`, `deploy/cloudbuild.yaml`, `deploy/cloudrun.sh`, `deploy/ar-cleanup.json`, `scripts/live_smoke.sh`, `deploy/scheduler.sh`, `deploy/secrets.sh`, `deploy/firestore.rules`, `deploy/README.md`, `deploy/github_deploy_setup.sh`, `deploy/deploy_paths.py`, `deploy/report_interrupted.sh`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`, `scripts/record_replay.py`, `scripts/count_traffic.py`, `scripts/count_model_calls.py`, `scripts/plume_eval.py`, `scripts/make_plume_cases.py`, `scripts/free_model_check.py`, `evals/plume/README.md`, `evals/free_models/`, `data/replay/README.md`, `tests/test_scripts.py`, `tests/test_record_replay.py`, `tests/fixtures/ops_evals/` |
+| ops-evals | `Dockerfile`, `.dockerignore`, `.gcloudignore`, `.env.example`, `deploy/_common.sh`, `deploy/cloudbuild.yaml`, `deploy/cloudrun.sh`, `deploy/ar-cleanup.json`, `scripts/live_smoke.sh`, `deploy/scheduler.sh`, `deploy/secrets.sh`, `deploy/firestore.rules`, `deploy/README.md`, `deploy/github_deploy_setup.sh`, `deploy/deploy_paths.py`, `deploy/report_interrupted.sh`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`, `scripts/record_replay.py`, `scripts/count_traffic.py`, `scripts/count_model_calls.py`, `scripts/plume_eval.py`, `scripts/make_plume_cases.py`, `scripts/free_model_check.py`, `scripts/*.mjs`, `scripts/public_export.py`, `deploy/public/`, `evals/plume/README.md`, `evals/free_models/`, `data/replay/README.md`, `tests/test_scripts.py`, `tests/test_record_replay.py`, `tests/fixtures/ops_evals/` |
 
 Each module may also create test fixtures under `tests/fixtures/<module_key>/` (e.g.
 `tests/fixtures/feeds_text/`). There is **no shared `tests/conftest.py`**: each test file
@@ -160,10 +160,17 @@ proxy flights.
 
 ### 4.1 `tephra.util.timeutil`
 
-`UTC`, `ensure_utc(dt)`, `now()`, `get_clock()`, `set_clock(clock)`, `use_clock(clock)`;
-clocks `SystemClock()`, `FixedClock(at)` (`.set`, `.advance`), `ReplayClock(start, end, *,
-speed=1.0, loop=True, begin=None)` (starts at `begin`, clamped into the window, else at
-`start`; with `loop` it wraps back to `start` after `end`). Parsers:
+`UTC`, `ensure_utc(dt)`, `now()`, `now_exact()`, `get_clock()`, `set_clock(clock)`,
+`use_clock(clock)`; clocks `SystemClock()`, `FixedClock(at)` (`.set`, `.advance`),
+`ReplayClock(start, end, *, speed=1.0, loop=True, begin=None, quantum_s=0)` (starts at `begin`,
+clamped into the window, else at `start`; with `loop` it wraps back to `start` after `end`).
+With `quantum_s > 0` (`TEPHRA_REPLAY_QUANTUM_S`) the clock's `now()` is floored to that many
+seconds and the quanta are anchored to the wall clock's own boundaries (`_t0` is moved back by
+`time.time() % quantum_s`), so a tick Cloud Scheduler fires at :00 plus jitter sees the same
+replay minute on every loop and every deploy and finds its kept answers; `ReplayClock.now_exact()`
+keeps the seconds. The module-level `now_exact()` is the replay clock's exact instant, or `now()`
+on any other clock: the Wall clock, heartbeats and `SystemState.now` use it, ticks and the AI
+worker use `now()`. The `Clock` protocol is unchanged (`now()` only). Parsers:
 `parse_slash_dtg("20260923/2221Z")`, `parse_day_time("25/1800Z", ref)`,
 `parse_ddhhmm("251252", ref)`, `parse_hhmmz("1010Z", ref)`, `resolve_day(day, hour, minute,
 ref)` (hour 24 accepted), `parse_iso(str | int | float | datetime)` (naive = UTC, epoch s or
@@ -263,7 +270,10 @@ left out of `input_hash`, so a new picture alone never triggers a Plume Reader c
 `MODEL_FAILED`); `AiFailure` is then the Desk's item. `PlumeAssessment` and `PlannedAction`
 carry `input_tokens` and `output_tokens` (`int | None`): the sum over the model calls that
 reported usage, None when none did (stub, `OFFICIAL_ONLY`, a cache hit, a call that failed
-before Gemini answered); never estimated. `Advisory` has no token fields; it links to both. Feature-owned models (recovery, comms,
+before Gemini answered); never estimated. `Advisory.input_tokens` and `output_tokens` are the
+drafter's prompt and answer tokens for a fresh draft, None on a reused body (and on older
+drafts); `DutyRun.input_tokens` and `output_tokens` the same for a Duty Officer run (None until
+the coordinator reports them). Feature-owned models (recovery, comms,
 regdocs, backtest, ask, notices, satellite) live in their own modules and subclass
 `TephraModel`.
 
@@ -314,6 +324,29 @@ decision is `handled_by`, `handled_at` and `handled_note`, which code never fill
 `AiFailure.open` (a property, not stored) is true while neither is set. `AuditAction.AI_FAILURE_CLOSED`
 records code's closing, always under the system actor, with the reason as the note.
 
+Visitor, chain and demo fields (15 Oct 2026; every one optional, with today's behaviour as
+its default). `SessionRole = Literal["dispatcher", "visitor"]` beside `RunMode`;
+`SessionInfo.role` (default `dispatcher`) and `SessionInfo.sid` (the session id from the
+cookie, None on older sessions, so visitor caps are counted per session). `AuditAction`
+`VISITOR_ENTERED` (a visitor entered the Desk) and `REPLAY_RESTARTED` (the replay was started
+again from the window's start). `AuditEntry.seq`, `prev_sha256` and `sha256` (all None on the
+base model; `tephra.desk.audit`'s `ChainedAuditEntry` requires them) name the entry's place in
+the hash chain. `Advisory.plan_key` is the first 16 hex characters of the planner question's
+material hash (None on older drafts): the key a flight is planned once under (section 5.7).
+`ReplayRecord.reconstructed` (default False) marks a replay body rebuilt from the notice's
+facts (CP-05d); `url` and `fetched_at` stay the original fetch's. `CloudInfo` (`platform`
+`cloud-run` | `local`, `service` = `K_SERVICE`, `revision` = `K_REVISION`, `region` =
+`settings.cloud_region`, `store`, `scheduler` `cloud-scheduler` | `in-process`, `secrets`
+`secret-manager` | `environment` from `settings.secrets_source` and never inferred,
+`model_access` `gemini-api` | `none` for the stub, `instances` `one`) is where the service
+runs; `ChainHead` (`seq`, `sha256`, `checked_at`, `entries`, `intact`, `problems`) is the
+verified head of the audit chain (`tephra.desk.audit.verify_head`). `SystemState.features`
+(the names in `Settings.features`, for `wall/features.js`), `SystemState.cloud`
+(`CloudInfo | None`), `SystemState.audit` (`ChainHead | None`) and `SystemState.visitor_access`
+(True when a visitor may enter the Desk without a PIN while a replay plays) carry them to the
+pages. `RerouteOption.id` is `stable_id('RR', flight_id, kind, sha256 of route string and
+level)`: the same route under a new cone keeps its id.
+
 ### 4.5 `tephra.config`
 
 `Settings` (every env var; see the class), `get_settings()`, `apply_process_env(settings)`,
@@ -355,8 +388,7 @@ default 200, at least 1) caps open `GET /api/events` streams; each holds a Cloud
 slot, so it must stay below the service's `--concurrency`.
 `build_sha` (`TEPHRA_BUILD_SHA`, default unset) is the commit the image was built from: the
 Dockerfile sets it from the `BUILD_SHA` build arg (`unknown` when none is given), and
-`GET /api/state` shows it (and a new build asks every model question afresh: kept answers are
-keyed by build, 5.7).
+`GET /api/state` shows it (kept answers are not keyed by it, 5.7).
 Leave it unset locally.
 
 Model budgets (section 5.5's `agents.quota`). `ModelLimit` (`rpm`, `rpd`, `tpm: int | None`)
@@ -376,8 +408,29 @@ Model answers (5.7): `ai_answer_keep_h` (`TEPHRA_AI_ANSWER_KEEP_H`, 72) is how l
 hours, a kept answer stays in `ai_answers` at most (a LIVE answer no longer than its skill's own
 limit); `ai_answer_plan_min` (60), `ai_answer_duty_min` (30) and `ai_answer_ask_min` (10) are the
 limits, on the run's clock, of a plan and its draft, of a Duty Officer run's decisions and of an
-Ask TEPHRA answer.
+Ask TEPHRA answer. `ai_answer_replay_keep_h` (`TEPHRA_AI_ANSWER_REPLAY_KEEP_H`, 2160) is the
+wall-clock hours a REPLAY answer is kept: a replay asks the same question every loop, and the
+kept answer is what lets a loop run at no call.
 The former `TEPHRA_MODEL_RPM` and `TEPHRA_MODEL_LITE_RPM` are gone: pacing follows the table.
+
+Demo, replay minute, visitor and cloud settings (15 Oct 2026; each defaults to today's
+behaviour). `features` (`TEPHRA_FEATURES`, default `all`; `Feature`, `ALL_FEATURES`,
+`HERO_FEATURES`): the optional features the pages show (`connect`, `crew`, `notices`,
+`satellite`, `btd`, `voice`, `example`, `present`), as `all`, `hero` (none of them: the hero path
+and its three acts only; `""` means the same) or a comma list; an unknown name fails startup
+(`unknown feature(s): nope`). Hidden features keep their routes and tests; their scheduled model
+work stops. `replay_quantum_s` (`TEPHRA_REPLAY_QUANTUM_S`, default 0, 0 to 300): in REPLAY the
+clock ticks and the AI worker see is floored to this many seconds, anchored to the wall minute
+(4.1); 0 keeps the exact clock. `cloud_region` (`TEPHRA_CLOUD_REGION`, unset) is the region
+shown under Details > Runs on; `secrets_source` (`TEPHRA_SECRETS_SOURCE`, `environment` |
+`secret-manager`, default `environment`) is set by `deploy/cloudrun.sh` beside `--set-secrets`
+and never inferred. `visitor_access` (`TEPHRA_VISITOR_ACCESS`, `off` | `replay`, default `off`):
+with `replay`, anyone may enter the Desk as a visitor (no PIN) while a replay plays;
+`visitor_session_ttl_h` (`TEPHRA_VISITOR_SESSION_TTL_H`, 2), `visitor_decision_cap`
+(`TEPHRA_VISITOR_DECISION_CAP`, 40, at least 1) and `visitor_ask_cap`
+(`TEPHRA_VISITOR_ASK_CAP`, 3, 0 or more) bound a visitor session. `tick_deadline_s`
+(`TEPHRA_TICK_DEADLINE_S`, 100, at least 20) is how long a tick may take before it publishes
+what it has, under Cloud Scheduler's 120 s attempt deadline.
 
 ### 4.6 `tephra.feeds.base`
 
@@ -1863,9 +1916,9 @@ Core rules:
 - Model answers (`tephra/agents/answers.py`, collection `ai_answers`). A model is asked only
   when something material changed, in LIVE and in REPLAY. Each skill states what is material to
   its question as a `Question(skill, material, max_age)`; an answer that passed the code's checks
-  is kept as an `AiAnswer` under a key of the mode (LIVE, or REPLAY and its case), the build
-  (`TEPHRA_BUILD_SHA`, `local` when unset), the model id, the skill and the material's hash
-  (every material includes the skill's prompt version). Material per skill, and the age limit on
+  is kept as an `AiAnswer` under a key of `KEY_VERSION`, the mode (LIVE, or REPLAY and its
+  case), the model id, the skill and the material's hash (every material includes the skill's
+  prompt version; the build is not part of the key, so a deploy finds its kept answers). Material per skill, and the age limit on
   the run's clock (the replay clock in REPLAY):
 
   | Skill | Material | Age limit |
@@ -1913,7 +1966,8 @@ Core rules:
   model finishes the run. A `Reuse` takes the scope (mode, case, picture epoch) when the question
   is put: it looks the answer up there, and an answer that comes back after a mode switch or a
   replay loop is dropped, not kept. `expires_at` (wall clock) is `stored_at + ai_answer_keep_h`
-  (LIVE: no later than the age limit); `AiAnswers.sweep` (at a checkpoint, at most every ten
+  (LIVE: no later than the age limit) or `stored_at + ai_answer_replay_keep_h` for a REPLAY
+  answer (a replay asks the same question every loop); `AiAnswers.sweep` (at a checkpoint, at most every ten
   minutes and at most `SWEEP_PAGES` pages of `SWEEP_PAGE`) deletes expired answers, oldest expiry
   first, by a single-field order Firestore serves from its automatic index; in Firestore only
   `expires_at` is copied beside an answer's JSON text (`INDEXED_ONLY`). Answers read once are
@@ -1984,11 +2038,13 @@ Core rules:
 - Plume Reader images: the stored frame PNGs and the BTD PNG. Frames with product
   `TRUE_COLOR` (NICT, fetched only with `TEPHRA_NICT_FRAMES=true`) are never sent to the
   model (research/05); the Wall still shows them.
-- Planning. A flight is planned once per (cone id, urgency bucket). The buckets are inside
+- Planning. A flight is planned once per plan key and urgency bucket (`Advisory.plan_key`, the
+  first 16 hex of the planner question's material: the flight's decision inputs, not the cone
+  id). The buckets are inside
   now, entry within the policy's `divert_within_min` (15), within `hold_within_min` (30), and
   later: the same limits the rules apply (`urgency_limits_min`). A flight is planned again for a new
-  cone or a more urgent bucket; a less urgent bucket is not planned again, and an open draft
-  for the cone counts as planned at its own urgency. The new draft carries its bucket
+  plan key or a more urgent bucket; a less urgent bucket is not planned again, and an open draft
+  for the plan key counts as planned at its own urgency. The new draft carries its bucket
   (`urgency_bucket`) and is submitted with the flight's open drafts drafted at a less urgent
   bucket as `replacing`; only once it is stored are those superseded (`superseded_by` set,
   reason `ENTRY NOW IN N MIN` or `INSIDE THE CONE NOW`), so a refused or failed submit leaves
@@ -2894,7 +2950,10 @@ the AI worker's queue with its next slot, shown on the Wall and the Desk, and is
 another model. Once a routine job starts, pacing no longer applies to it: it finishes within
 the daily cap. In LIVE and REPLAY alike, a model is asked again only when something material to
 its question changed: until then the same model's answer, checked again by code against the input
-of the moment, is used at no call and no budget (section 5.7, model answers). Free-tier limits are reported, not published
+of the moment, is used at no call and no budget (section 5.7, model answers). REPLAY answers live
+`ai_answer_replay_keep_h` (90 days by default); the key is `KEY_VERSION`, mode, case, model,
+skill and the material hash (no build), so a replay loop and a deploy find the answers already
+given. Free-tier limits are reported, not published
 (research/06): about 20 requests/day for 3.8 Flash and 500 for 3.5 Flash-Lite. Over budget, or
 after a per-day 429, **every step stops and says `AI UNAVAILABLE`**; nothing falls back to code. The Plume Reader's failure leaves the cone on
 the official products alone (binding), the planner's and drafter's failures put the flight on the
@@ -2941,7 +3000,7 @@ metrics.
 | `runtime` | `state` | core bookkeeping: `mode`, `auto_replay`, `case_id` (read at startup to resume a replay), `quiet_ticks`, `planned` (`{flight_id: [cone_id, urgency]}`), `closed_airports`, `assessment_ids` (read back after a LIVE restart), `saved_at` | core (first at every checkpoint, and at every mode switch) |
 | `ai_budget` | `<quota day>/<model id>` | `ModelDay`: that model's calls per lane on that Google quota day, and whether Google closed it | `agents.quota` (one transaction per HTTP attempt, before it is sent) |
 | `ai_work` | work id (a Duty item id, or `recover`) | `AiWork`: AI work queued, running or WAITING for budget with its next slot | core (`tephra.ai_worker`, on change; restored after a LIVE restart) |
-| `ai_answers` | 32 hex (hash of mode, case, build, model, skill and material) | `AiAnswer`: a model's answer that passed the code's checks, for the same material question (`expires_at` is the sweep's field) | core (`tephra.agents.answers`; a newer answer replaces it; swept every ten minutes; in Firestore only `expires_at` is indexed) |
+| `ai_answers` | 32 hex (hash of `KEY_VERSION`, mode, case, model, skill and material; no build) | `AiAnswer`: a model's answer that passed the code's checks, for the same material question (`expires_at` is the sweep's field: `ai_answer_keep_h` in LIVE, `ai_answer_replay_keep_h` in REPLAY) | core (`tephra.agents.answers`; a newer answer replaces it; swept every ten minutes; in Firestore only `expires_at` is indexed) |
 | blobs | `frames/*.png`, `btd/*.png` | PNG bytes | core |
 
 Documents are strict JSON (`tephra.store.encode_doc`): NaN and infinities are stored as null.
@@ -3032,6 +3091,9 @@ The headers above are unchanged by compression.
 | `GET /api/docs?kind=&limit=` and `GET /api/docs/{DOC-id}` | `{docs: [DocSummary]}`; `SraDraft`, `VarDraft` or `CrewMessageDraft` |
 | `GET /api/backtest` | `BacktestScorecard` (the store's `backtest/latest`, else `docs/backtest/scorecard.json`); 404 `not_found`, 503 `unavailable` |
 | `GET /api/events` | `text/event-stream` (section 8.4); 503 `too_many_streams` while `TEPHRA_MAX_EVENT_STREAMS` streams are open |
+| `GET /api/audit/verify` | `ChainHead` `{seq, sha256, checked_at, entries, intact, problems}`: the audit chain's head as this instance last verified it (count and hash only; public); `problems` names a broken link |
+| `GET /api/advisories/{id}/chain` | the reasoning chain behind one advisory: the Coordinator run, the plume read, the plan and the draft that led to it, each with the source it leaned on, its tool calls, repair count and the code's checks; 404 `not_found` |
+| `GET /api/evals` | the published evaluation results (`docs/evals/*.json`): the backtest scorecard and the plume scorecard with its INCOMPLETE state where true; 404 `not_found` when none is published |
 
 `limit` is 1 to 200 everywhere.
 
@@ -3137,6 +3199,8 @@ never pauses. The Desk keeps its stream open while hidden: its tab title counts 
 | `POST /api/desk/advisories/{id}/reject` | `RejectRequest` `{version, reason (3-500 chars)}` | `Advisory` (REJECTED); 422 when the reason is too short |
 | `GET /api/desk/ai-failures?open_only=true&limit=50` | none | `AiFailureList`: flights the AI could not plan or draft for, in the current mode (in REPLAY, the replay run playing), newest recorded first; open means neither handled nor closed by code |
 | `POST /api/desk/ai-failures/{id}/handled` | `HandledRequest` `{note}` | `AiFailure` with `handled_by`, `handled_at`; marking twice keeps the first, and a failure code closed meanwhile is returned unchanged (no `handled_by`); 404. The Desk's "Mark several handled" sends one request per ticked flight, so each is its own audit entry |
+| `POST /api/desk/visitor` | `{name}` (2-32 characters, as `LoginRequest.name`) | 200 `SessionInfo` with `role: visitor` + `Set-Cookie`; no PIN. Only while `TEPHRA_VISITOR_ACCESS=replay` and a replay plays: 403 `visitor_off` otherwise, 409 `visitor_replay_only` in LIVE, 429 `too_many_visitors` past the open-session cap. Audit `VISITOR_ENTERED` under `visitor:<name>` |
+| `POST /api/desk/replay/restart` | none | `SystemState`: the replay starts again from its window's start (same case, same quantum); audit `REPLAY_RESTARTED`; 409 `not_replay` in LIVE, 429 `restart_too_soon` with `Retry-After` inside the restart interval |
 | `POST /api/mode` | `ModeRequest` `{mode, case_id?}` | `SystemState` after the switch. REPLAY plays `case_id` (404 `not_found` when there is no such case), else the case playing, else the newest recorded case (409 `invalid_transition` when none exists). Writes a `MODE_SWITCH` audit entry with the dispatcher as actor, beside the runtime's own entry for a switch that happens. A tick in progress is stopped, not waited for (`Runtime.switch_mode(preempt=True)`; its report is skipped with the note "stopped: a mode switch at the Desk ended this tick"): a LIVE tick can wait minutes on public feeds. |
 
 The CSRF guard (`auth.require_csrf`, 403 `forbidden`) refuses a cross-site `Sec-Fetch-Site`
@@ -3153,7 +3217,15 @@ CONTINUE or MONITOR draft of the current mode whose flight (`hex`) a crew report
 whitespace is collapsed, else 422 `reason_required` ("Crew report of ash on this route: approving
 MONITOR needs a written reason"); the reason is kept as `Advisory.decision_reason` and the audit
 note names the reports. Any other approval keeps a reason it is given. The actor recorded
-is `desk:<SessionInfo.name>`.
+is `desk:<SessionInfo.name>`, or `visitor:<SessionInfo.name>` for a visitor session.
+
+Visitor sessions (`SessionInfo.role == "visitor"`) make real, audited decisions in REPLAY only,
+capped per session (`sid`): 403 `visitor_role` on `POST /api/mode`, the sample feed,
+connections, upload and notices; 409 `visitor_replay_only` on any decision in LIVE; 429
+`visitor_cap` past `TEPHRA_VISITOR_DECISION_CAP` decisions and 429 `visitor_ask_cap` past
+`TEPHRA_VISITOR_ASK_CAP` Ask questions. The decision guard applies to every session: 409
+`rule_blocked` when the rules refuse the action (a DIVERT or REROUTE in HYPOTHESIS mode) and
+409 `cone_changed` when the situation the draft was made for has changed (Reject stays open).
 
 ### 8.6 Task endpoint
 

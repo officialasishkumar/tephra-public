@@ -106,6 +106,9 @@ class RunMode(StrEnum):
     REPLAY = "REPLAY"
 
 
+SessionRole = Literal["dispatcher", "visitor"]
+
+
 class AviationColor(StrEnum):
     GREEN = "GREEN"
     YELLOW = "YELLOW"
@@ -265,6 +268,8 @@ class AuditAction(StrEnum):
     CREW_REPORT_EXPIRED = "CREW_REPORT_EXPIRED"
     CONNECTION_CREATED = "CONNECTION_CREATED"
     CONNECTION_REVOKED = "CONNECTION_REVOKED"
+    VISITOR_ENTERED = "VISITOR_ENTERED"
+    REPLAY_RESTARTED = "REPLAY_RESTARTED"
 
 
 class FeedStatus(StrEnum):
@@ -1623,7 +1628,10 @@ class RerouteOption(TephraModel):
     one arc-minute and written in ICAO ``DDMM[NS]DDDMM[EW]`` form in ``route_string``.
     """
 
-    id: str = Field(description="stable_id('RR', flight_id, cone_id, kind)")
+    id: str = Field(
+        description="stable_id('RR', flight_id, kind, sha256 of route string and level): the "
+        "same route under a new cone keeps its id"
+    )
     flight_id: str
     cone_id: str
     kind: RerouteKind
@@ -1802,6 +1810,15 @@ class Advisory(TephraModel):
         "stored before the field: created_at then",
     )
     dedupe_key: str = Field(description="stable_id('DD', hex, volcano_id, action, target)")
+    plan_key: str | None = Field(
+        default=None,
+        description="First 16 hex of the planner question's material; None on older drafts",
+    )
+    input_tokens: int | None = Field(
+        default=None,
+        description="Drafter prompt tokens for a fresh draft; None on a reused body",
+    )
+    output_tokens: int | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -1899,6 +1916,8 @@ class DutyRun(TephraModel):
         description="Wall-clock time the run was stored (started_at follows the REPLAY clock);"
         " None only on runs stored before the field",
     )
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
     def dispatched_ids(self) -> set[str]:
         return {item_id for dispatch in self.dispatches for item_id in dispatch.item_ids}
@@ -1984,6 +2003,13 @@ class AuditEntry(TephraModel):
     model_id: str | None = None
     prompt_hash: str | None = None
     note: str | None = None
+    seq: int | None = Field(
+        default=None, description="Position in the hash chain; set by tephra.desk.audit"
+    )
+    prev_sha256: str | None = Field(
+        default=None, description="sha256 of the previous entry (GENESIS for the first)"
+    )
+    sha256: str | None = Field(default=None, description="sha256 of this entry's digest")
 
 
 # --- operations -------------------------------------------------------------------------
@@ -2088,6 +2114,11 @@ class ReplayRecord(TephraModel):
     path: str = Field(description="Relative to the case directory, POSIX separators")
     status_code: int
     content_type: str | None = None
+    reconstructed: bool = Field(
+        default=False,
+        description="The body was rebuilt from the notice's facts (CP-05d); url and fetched_at "
+        "are the original fetch's",
+    )
 
 
 class ReplayCase(TephraModel):
@@ -2573,6 +2604,33 @@ class AirlineInfo(TephraModel):
     fictional: Literal[True] = True
 
 
+class CloudInfo(TephraModel):
+    """Where this service runs, read from the environment Cloud Run sets and from settings."""
+
+    platform: Literal["cloud-run", "local"]
+    service: str | None = Field(default=None, description="K_SERVICE")
+    revision: str | None = Field(default=None, description="K_REVISION")
+    region: str | None = Field(default=None, description="settings.cloud_region")
+    store: Literal["firestore", "sqlite"]
+    scheduler: Literal["cloud-scheduler", "in-process"]
+    secrets: Literal["secret-manager", "environment"] = Field(
+        description="settings.secrets_source, never inferred"
+    )
+    model_access: Literal["gemini-api", "none"] = Field(description="'none' for the stub")
+    instances: Literal["one"] = "one"
+
+
+class ChainHead(TephraModel):
+    """The verified head of the audit chain (tephra.desk.audit.verify_head)."""
+
+    seq: int
+    sha256: str
+    checked_at: UtcDatetime
+    entries: int
+    intact: bool
+    problems: list[str] = Field(default_factory=list)
+
+
 class SystemState(TephraModel):
     mode: RunMode
     now: UtcDatetime = Field(description="Active clock (recorded time in REPLAY)")
@@ -2596,6 +2654,15 @@ class SystemState(TephraModel):
     )
     build_sha: str | None = Field(
         default=None, description="Commit the running image was built from (TEPHRA_BUILD_SHA)"
+    )
+    features: list[str] = Field(
+        default_factory=list, description="Optional features the UI shows (TEPHRA_FEATURES)"
+    )
+    cloud: CloudInfo | None = None
+    audit: ChainHead | None = None
+    visitor_access: bool = Field(
+        default=False,
+        description="A visitor may enter the Desk without a PIN while a replay plays",
     )
 
 
@@ -2624,6 +2691,10 @@ class LoginRequest(TephraModel):
 class SessionInfo(TephraModel):
     name: str
     expires_at: UtcDatetime
+    role: SessionRole = "dispatcher"
+    sid: str | None = Field(
+        default=None, description="Session id from the cookie, so caps are per session"
+    )
 
 
 class DecisionRequest(TephraModel):

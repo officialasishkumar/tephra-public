@@ -8,6 +8,7 @@ The active clock is process-global so that REPLAY mode can move "now" for every 
 once; library code calls :func:`now` instead of ``datetime.now``.
 """
 
+import math
 import re
 import time
 from collections.abc import Iterator, Mapping
@@ -31,6 +32,7 @@ __all__ = [
     "iso_times",
     "minutes_between",
     "now",
+    "now_exact",
     "parse_day_time",
     "parse_ddhhmm",
     "parse_hhmmz",
@@ -87,6 +89,11 @@ class ReplayClock:
     Starts at ``begin`` (default ``start``; clamped into the window) when constructed and
     advances at ``speed`` times wall-clock speed. With ``loop`` it wraps back to ``start``
     after ``end`` so a short recording can run all day; without it, time stops at ``end``.
+
+    With ``quantum_s`` the time :meth:`now` reports is floored to that many seconds, and the
+    quanta are anchored to the wall clock's own boundaries: a tick fired at :00 plus jitter
+    then sees the same replay minute on every loop and every deploy, so a kept answer is
+    found again instead of asked again. :meth:`now_exact` keeps the seconds for the display.
     """
 
     def __init__(
@@ -97,24 +104,41 @@ class ReplayClock:
         speed: float = 1.0,
         loop: bool = True,
         begin: datetime | None = None,
+        quantum_s: int = 0,
     ) -> None:
         if speed <= 0:
             raise ValueError("replay speed must be positive")
+        if quantum_s < 0:
+            raise ValueError("replay quantum must be zero or more seconds")
         self.start = ensure_utc(start)
         self.end = ensure_utc(end)
         if self.end < self.start:
             raise ValueError("replay end precedes start")
         self.speed = speed
         self.loop = loop
+        self.quantum_s = quantum_s
         first = min(max(ensure_utc(begin), self.start), self.end) if begin else self.start
         self._offset_s = (first - self.start).total_seconds()
         self._t0 = time.monotonic()
+        if quantum_s > 0:
+            self._t0 -= time.time() % quantum_s
 
     def now(self) -> datetime:
+        elapsed = self._elapsed_s()
+        if self.quantum_s > 0:
+            elapsed = math.floor(elapsed / self.quantum_s) * self.quantum_s
+        return self._at(elapsed)
+
+    def now_exact(self) -> datetime:
+        return self._at(self._elapsed_s())
+
+    def _elapsed_s(self) -> float:
+        return self._offset_s + (time.monotonic() - self._t0) * self.speed
+
+    def _at(self, elapsed: float) -> datetime:
         span = (self.end - self.start).total_seconds()
         if span <= 0:
             return self.start
-        elapsed = self._offset_s + (time.monotonic() - self._t0) * self.speed
         elapsed = elapsed % span if self.loop else min(elapsed, span)
         return self.start + timedelta(seconds=elapsed)
 
@@ -144,6 +168,14 @@ def use_clock(clock: Clock) -> Iterator[Clock]:
 
 def now() -> datetime:
     """Current time on the active clock (system time in LIVE, recorded time in REPLAY)."""
+    return ensure_utc(_clock.now())
+
+
+def now_exact() -> datetime:
+    """The active clock without the replay quantum: the Wall clock and heartbeats keep
+    their seconds while ticks see the floored minute."""
+    if isinstance(_clock, ReplayClock):
+        return ensure_utc(_clock.now_exact())
     return ensure_utc(_clock.now())
 
 
