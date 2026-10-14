@@ -272,10 +272,12 @@ def cloud():
     the Wall's Runs on and Track record panels reaches: the audit chain's verification and
     the evals index. GET /api/evals answers 404 until the scorecard JSON is committed; that
     is reported, not failed."""
-    if "cloud" not in state:
+    if not state.get("cloud"):
+        # The state carries cloud: null until the build that fills it; both routes below
+        # arrive with that build, so a 404 from them is reported, not failed, until then.
         report(None, "cloud", "cloud facts not exposed by this build")
         return
-    facts = state["cloud"] or {}
+    facts = state["cloud"]
     platform, revision, store_kind = facts.get("platform"), facts.get("revision"), facts.get("store")
     ok = platform == "cloud-run" and bool(revision) and store_kind == "firestore"
     report(ok, "cloud", f"platform={platform}, revision={revision}, store={store_kind}")

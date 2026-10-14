@@ -859,6 +859,16 @@ def test_smoke_skips_the_cloud_checks_when_the_build_has_no_cloud_facts() -> Non
     assert " evals: " not in out
 
 
+def test_smoke_treats_cloud_null_as_facts_not_exposed() -> None:
+    """A build whose state carries cloud: null (the field exists, nothing fills it yet) skips
+    the cloud checks the same way as a build without the field."""
+    state = {**_CLOUD_STATE, "cloud": None}
+    out = _smoke_against({"/health": [200], "/api/state": [200]}, {}, state)
+    assert _line(out, "cloud").startswith("WARN cloud: cloud facts not exposed")
+    assert " audit-verify: " not in out
+    assert " evals: " not in out
+
+
 def test_smoke_checks_cloud_run_firestore_audit_verify_and_reports_missing_evals() -> None:
     routes = {**_OK_ROUTES, "/api/audit/verify": [200], "/api/evals": [404]}
     out = _smoke_against(routes, {}, _CLOUD_STATE)
