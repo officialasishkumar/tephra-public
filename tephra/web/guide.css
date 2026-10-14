@@ -19,45 +19,29 @@ body.guide {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-3) var(--sp-6);
-  padding: var(--sp-3) var(--sp-6);
+  padding: var(--sp-2) var(--sp-6);
   background: color-mix(in srgb, var(--c-bg) 84%, transparent);
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
   border-bottom: 1px solid color-mix(in srgb, var(--c-text-1) 7%, transparent);
 }
 
-.guidebar a {
+.guidebar__nav a {
   color: var(--c-text-2);
   text-decoration: none;
   font-size: var(--fs-2);
   font-weight: var(--fw-medium);
 }
 
-.guidebar a:hover,
-.guidebar a:focus-visible {
+.guidebar__nav a:hover,
+.guidebar__nav a:focus-visible {
   color: var(--c-text-1);
-}
-
-.guidebar__brand .brand__mark {
-  color: var(--c-text-1);
-  font-weight: var(--fw-bold);
-  letter-spacing: 0.18em;
 }
 
 .guidebar__nav {
   display: flex;
   gap: var(--sp-5);
-}
-
-.guidebar__go {
   margin-left: auto;
-}
-
-.guide__honesty {
-  margin: 0;
-  padding: 6px var(--sp-6);
-  font-size: var(--fs-1);
-  color: var(--c-text-2);
 }
 
 .guide__main {
@@ -109,5 +93,6 @@ body.guide {
 
   .guide__sec {
     padding: var(--sp-4);
+    overflow-x: auto;
   }
 }

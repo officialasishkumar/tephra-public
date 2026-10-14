@@ -8445,11 +8445,7 @@ body {
   background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--c-surface-1) 96%, transparent) 18px);
 }
 
-/* the shared nav sits beside the TEPHRA mark (UI-DESIGN 7.25) */
-.dhead__row > .brand {
-  margin-right: var(--sp-4);
-}
-
+/* the shared header (UI-DESIGN 7.25): the TEPHRA mark, the nav, then the Desk's chips on the right */
 .dhead__row > .topnav {
   margin-right: auto;
 }
@@ -8459,7 +8455,7 @@ body {
     display: none;
   }
 
-  .dhead__row > .brand {
+  .dhead__row > .tn-home {
     margin-right: auto;
   }
 }

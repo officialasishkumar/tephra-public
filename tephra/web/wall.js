@@ -1184,7 +1184,7 @@ function escape(e) {
 
 const phoneMq = window.matchMedia("(max-width: 600px)");
 function placeChips() {
-  // On a phone the sticky header keeps the brand, mode, clock and Desk under the frame strip; the
+  // On a phone the sticky header keeps the TEPHRA mark, the nav, mode and clock under the frame strip; the
   // area, Assistant and data chips sit in a bar under it that scrolls away (review 1, item 13).
   const area = document.querySelector(".areapick"), ai = $("ai-chip"), feeds = $("feeds-chip"), bar = $("phone-bar");
   if (phoneMq.matches) { if (area.parentElement !== bar) bar.append(area, ai, feeds); }

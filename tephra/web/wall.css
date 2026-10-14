@@ -170,9 +170,6 @@ q { quotes: "“" "”"; }
 }
 .cmdbar > * { flex-shrink: 0; }
 .cmdbar__spacer { flex: 1 1 0; min-width: 0; }
-.brand { display: flex; align-items: baseline; gap: var(--sp-3); white-space: nowrap; }
-.brand__mark { font-size: var(--fs-5); font-weight: var(--fw-bold); letter-spacing: 0.18em; }
-.brand__sub { color: var(--c-text-3); font-size: var(--fs-2); }
 
 .mode-badge {
   display: inline-flex; align-items: center; gap: 6px;
@@ -1775,7 +1772,6 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .details-btn { min-height: 48px; padding-top: 6px !important; padding-bottom: 6px; }
 }
 @media (max-width: 1199px) {
-  .brand__sub { display: none; }
 }
 
 /* ---------------------------------------------------------------- R4.2: 1360-1599 (1440x900) */
@@ -1799,9 +1795,8 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 
 @media (max-width: 1359px) {
   html { font-size: 14px; }
-  :root { --band-h: 28px; --bar-h: 48px; --story-w: 360px; --drawer-w: 440px; --time-h: 44px; --foot-h: 28px; --story-size: 22px; --gutter: 12px; --hero-num: 56px; }
+  :root { --story-w: 360px; --drawer-w: 440px; --time-h: 44px; --foot-h: 28px; --story-size: 22px; --gutter: 12px; --hero-num: 56px; }
   .cmdbar { gap: var(--sp-2); }
-  .brand__mark { font-size: var(--fs-4); letter-spacing: 0.14em; }
   .clock__time { font-size: var(--fs-5); }
   .clock__sub { min-width: 0; }
   .honesty__short { display: inline; }
@@ -1811,6 +1806,16 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .tl__steps .seg button { padding: 0 8px; }
   .tl__history { left: 4px; right: 4px; }
   .map-pills { max-width: calc(100% - 200px); }
+}
+
+/* the shared nav takes room in the header (UI-DESIGN 7.25): below 1280 the Assistant chip keeps
+   its mark (its name stays in the label), and below 1100 the area name shortens too */
+@media (max-width: 1279px) and (min-width: 601px) {
+  .ai-chip .model-chip { display: none; }
+}
+@media (max-width: 1099px) and (min-width: 601px) {
+  .area-btn { max-width: 140px; }
+  #area-label { overflow: hidden; text-overflow: ellipsis; }
 }
 
 /* ---------------------------------------------------------------- R4.4: phone (390x844) */
@@ -1828,7 +1833,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .frame__honesty .icon { display: none; }
   .cmdbar {
     position: sticky; top: var(--frame-px); height: auto;
-    display: grid; grid-template-columns: auto auto 1fr auto; grid-template-areas: "brand mode clock desk";
+    display: grid; grid-template-columns: auto auto 1fr; grid-template-areas: "brand nav clock" "mode mode mode";
     gap: 4px 8px; padding: 6px 12px;
   }
   /* the area, AI and data chips, moved here by wall.js: under the header, not sticky (item 13) */
@@ -1840,12 +1845,11 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .phone-bar .ai-chip, .phone-bar .feeds-chip { height: 36px; flex: none; }
   /* the chip keeps its Strata state mark here: the mark, not a dot, says the state (Naming) */
   .brand { grid-area: brand; }
-  .brand__mark { font-size: 18px; letter-spacing: 0.12em; }
+  .cmdbar > .topnav { grid-area: nav; }
   .mode-badge { grid-area: mode; height: 32px; padding: 0 10px; }
   .clock { grid-area: clock; justify-self: end; }
   .clock__time { font-size: 16px; width: auto; }
   .clock__sub { display: none; }
-  .desk-link { grid-area: desk; height: 40px; }
   .areapick { grid-area: area; min-width: 0; }
   .area-btn { display: none; }
   .regions__menu { display: block; }
@@ -2078,12 +2082,3 @@ body.panel-hidden .story, body.panel-hidden .drawer { display: none; }
 .ffilter__b:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 body.is-compare .ffilter { display: none; }
 @media (max-width: 600px) { .ffilter { top: 8px; } .ffilter__b { padding: 0 9px; } }
-
-/* the link to TEPHRA Connect: Connect's own cyan-to-violet, as on its page */
-.connect-link {
-  display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: var(--radius-pill); text-decoration: none;
-  font-size: var(--fs-2); font-weight: var(--fw-semibold); color: #c9fff7;
-  background: linear-gradient(var(--c-bg), var(--c-bg)) padding-box, linear-gradient(120deg, #5eead4, #8b9bff) border-box; border: 1px solid transparent;
-}
-.connect-link:hover { color: #04121a; background: linear-gradient(120deg, #5eead4, #8b9bff); }
-@media (max-width: 1100px) { .connect-link { display: none; } }

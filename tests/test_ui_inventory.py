@@ -83,7 +83,15 @@ WALL_IDS = [
     "board-body",
     "board-live",
 ]
-WALL_CLASSES = ["desk-link", "brand", "brand__sub", "honesty__airline", "map-vignette", "map-scrim"]
+# the Desk link is in the shared nav (UI-DESIGN 7.25), kept on a narrow Wall as topnav__keep
+WALL_CLASSES = [
+    "topnav__keep",
+    "brand",
+    "brand__sub",
+    "honesty__airline",
+    "map-vignette",
+    "map-scrim",
+]
 DESK_IDS = [
     "dhead",
     "model-chip",
@@ -264,12 +272,12 @@ def test_replay_is_labelled_once_in_the_frame_strip() -> None:
     assert index.count('id="disclaimer"') == 1
     desk = (WEB / "desk.html").read_text(encoding="utf-8")
     # the Desk's strip is the same strip, the header's top row (above the brand row)
-    band = desk[desk.index('<div id="frame"') : desk.index('<div class="dhead__row"')]
+    band = desk[desk.index('<div id="frame"') : desk.index('<div class="dhead__row')]
     parts = ('role="note"', 'class="frame"', 'id="replay-bar"', 'id="disclaimer"')
     parts += ("not live", "#i-info")
     for part in parts:
         assert part in band, part
-    assert desk.index('<div id="frame"') < desk.index('<div class="dhead__row"')
+    assert desk.index('<div id="frame"') < desk.index('<div class="dhead__row')
     # its accessible name follows the mode on both pages ("Disclaimer" live)
     assert "stripLabel(" in _text([WEB / "wall" / "panels.js"])
     assert "stripLabel(" in _text([WEB / "desk.js"])

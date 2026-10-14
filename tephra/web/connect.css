@@ -37,10 +37,8 @@ button { font: inherit; color: inherit; }
 .cx-brand__mark { font-weight: var(--fw-bold); letter-spacing: 0.2em; }
 .cx-brand__sub { font-weight: var(--fw-semibold); background: var(--cx-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .cx-mode { padding: 2px 10px; border-radius: var(--radius-pill); font-size: var(--fs-1); font-weight: var(--fw-semibold); background: var(--c-replay-bg); color: var(--c-replay-ink); }
-.cx-nav { margin-left: auto; }
-.cx-me { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-2); color: var(--c-text-2); }
+.cx-me { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-2); color: var(--c-text-2); }
 .cx-me__dot { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--cx-grad); color: var(--cx-ink); font-size: var(--fs-1); font-weight: var(--fw-bold); }
-.cx-honesty { margin: 0; padding: 4px 28px; font-size: var(--fs-1); color: var(--c-text-3); }
 
 .cx-main { max-width: 1480px; margin: 0 auto; padding: var(--sp-5) 28px var(--sp-12); }
 .cx-head { margin-bottom: var(--sp-5); }
@@ -221,7 +219,7 @@ button { font: inherit; color: inherit; }
 }
 @media (max-width: 600px) {
   .cx-bar { padding: 10px 16px; gap: var(--sp-3); }
-  .cx-me, .cx-honesty { display: none; }
+  .cx-me { display: none; }
   .cx-main { padding: var(--sp-4) 16px var(--sp-12); }
   .cx-kpis { left: 10px; top: 10px; gap: 6px; }
   .cx-kpi { min-width: 0; padding: 8px 10px; }

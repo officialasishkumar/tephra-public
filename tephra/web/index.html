@@ -44,11 +44,9 @@
     </p>
   </div>
 
-  <header class="cmdbar">
-    <a class="brand" href="/" title="TEPHRA home">
-      <span class="brand__mark">TEPHRA</span>
-      <span class="brand__sub">Volcanic-ash decision desk</span>
-    </a>
+  <header class="cmdbar tn-bar">
+    <a class="tn-home brand" href="/" title="TEPHRA home">TEPHRA<span class="brand__sub sr-only"> volcanic-ash decision desk</span></a>
+    <nav class="topnav" aria-label="TEPHRA pages"><a href="/" aria-current="page">Wall</a><a class="topnav__keep" href="/desk">Desk</a><a href="/connect">Connect</a><a href="/guide">Guide</a></nav>
     <span id="mode-badge" class="mode-badge mode-badge--connecting">Connecting…</span>
     <div class="areapick">
       <button id="area-btn" class="area-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="regions">
@@ -76,10 +74,6 @@
       <svg class="st" aria-hidden="true" focusable="false"><use href="/static/icons.svg#st-stale"></use></svg>
       <span id="stale-text">Not updating</span>
     </span>
-    <a class="connect-link" href="/connect" target="_blank" rel="noopener" title="Plug your airline's data in">Connect</a>
-    <a class="desk-link" href="/desk" target="_blank" rel="noopener">
-      <span class="desk-link__long">Desk</span> <span aria-hidden="true">→</span>
-    </a>
   </header>
   <!-- phone only: the area, assistant and data chips move here, below the sticky header, and scroll away -->
   <div id="phone-bar" class="phone-bar" role="group" aria-label="Area, assistant and data"></div>

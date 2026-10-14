@@ -1,9 +1,33 @@
-/* The nav every TEPHRA page shares (UI-DESIGN 7.25): the TEPHRA mark goes home (the Wall), and
-   Wall · Desk · Connect · Guide, the page you are on filled. Link after tokens.css. */
-.topnav { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--c-text-1) 5%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-text-1) 8%, transparent); }
-.topnav a { display: inline-flex; align-items: center; min-height: 30px; padding: 0 12px; border-radius: var(--radius-pill); color: var(--c-text-2); font-size: var(--fs-2); font-weight: var(--fw-medium); text-decoration: none; white-space: nowrap; }
+/* The header every TEPHRA page shares (UI-DESIGN 7.25): a top strip, then a bar that starts the
+   same way on every page, so moving between pages nothing jumps. The TEPHRA mark (a fixed 132 px,
+   it goes home) at 24 px from the left, then the pill nav Wall · Desk · Connect · Guide with the
+   current page filled. Sizes are in px: the pages' root font sizes differ. Link after tokens.css
+   and before the page's own stylesheet; the page's own bar rules give way to these. */
+
+.tn-bar.tn-bar { padding-left: 24px; column-gap: 12px; }
+@media (min-width: 1100px) { .tn-bar.tn-bar { min-height: 56px; height: 56px; } }
+
+.tn-home {
+  flex: none; display: inline-flex; align-items: center; width: 132px; height: 32px;
+  color: var(--c-text-1); font-size: 18px; font-weight: 700; letter-spacing: 0.2em; line-height: 1;
+  text-decoration: none; white-space: nowrap;
+}
+.tn-home:hover { color: var(--c-text-1); }
+.tn-home:focus-visible { outline: var(--focus-ring); outline-offset: 4px; border-radius: 6px; }
+
+.topnav { flex: none; display: inline-flex; align-items: center; gap: 2px; margin: 0; padding: 3px; border-radius: 999px; background: color-mix(in srgb, var(--c-text-1) 5%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-text-1) 8%, transparent); }
+.topnav a { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 999px; color: var(--c-text-2); font-size: 14px; font-weight: 500; line-height: 1; text-decoration: none; white-space: nowrap; }
 .topnav a:hover { color: var(--c-text-1); background: color-mix(in srgb, var(--c-text-1) 7%, transparent); }
 .topnav a[aria-current="page"] { color: var(--c-text-ink); background: var(--c-text-1); }
 .topnav a:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
-a.brand, a.brand:hover { color: inherit; text-decoration: none; }
-@media (max-width: 760px) { .topnav a:not([aria-current="page"]):not(.topnav__keep) { display: none; } }
+
+/* the top strip on pages without the Wall's and the Desk's frame (Connect, the guide) */
+.tn-strip { display: flex; align-items: center; justify-content: flex-end; min-height: 32px; margin: 0; padding: 0 16px 0 24px; background: var(--c-surface-1); border-bottom: 1px solid var(--c-line-1); font-size: 14px; font-weight: 600; color: var(--c-text-1); }
+.tn-strip strong { font-weight: inherit; }
+
+/* below desktop the nav keeps the page you are on (and the Wall's Desk link) */
+@media (max-width: 1099px) {
+  .tn-home { width: auto; }
+  .topnav a:not([aria-current="page"]):not(.topnav__keep) { display: none; }
+}
+@media (max-width: 760px) { .tn-bar.tn-bar { padding-left: 16px; } }

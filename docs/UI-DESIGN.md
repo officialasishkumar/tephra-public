@@ -1484,10 +1484,18 @@ and the flights in it, pink stays official.
 
 ### 7.25 One product: the shared nav (14 Oct 2026, `topnav.css`)
 
-The TEPHRA mark at the top left goes home (the Wall) on every page. The Desk, Connect and the guide
-carry the same pill nav, Wall · Desk · Connect · Guide, the page you are on filled; the Wall keeps
-"Connect" and "Desk →" in its header and the guide in its footer. Below 760 px only the current
-page shows (the Desk hides it below 600 px).
+Every page starts the same way, so moving between them nothing jumps: a 32 px strip on top (the
+Wall's and the Desk's frame strip; on Connect and the guide a `.tn-strip` with the disclaimer), then
+a 56 px bar (`.tn-bar`) that opens with the TEPHRA mark (`.tn-home`, 132 px wide at 24 px from the
+left; it goes home, the Wall) and the pill nav Wall · Desk · Connect · Guide with the page you are
+on filled. The gap after the mark and the nav's sizes are in px, as the pages' root font sizes
+differ. Each page's own controls follow: the Wall's area, Assistant, data and clock (the Wall's old
+"Connect" and "Desk →" header buttons are gone, the nav has both), the Desk's chips on the right,
+Connect's clock badge, the guide's section links on the right. At 1100 px and wider the mark and the
+nav sit at the same place on all four pages (measured at 1100, 1280 and 1440). Below 1280 the Wall's
+Assistant chip shows its mark only (its name stays in the label); below 1100 the mark loses its
+fixed width, the nav shows only the page you are on (and the Wall's Desk link) and the Wall's area
+name shortens. The Desk hides the nav below 600 px.
 
 ## 8. 3D, compare, the time bar and the height filter
 
