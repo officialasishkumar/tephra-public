@@ -27,6 +27,7 @@ from tephra.util.hashing import sha256_bytes
 __all__ = [
     "MANIFEST_NAME",
     "ReplaySource",
+    "answers_path",
     "case_path",
     "cases_dir",
     "first_aircraft_at",
@@ -53,6 +54,12 @@ def case_path(data_dir: Path, case_id: str) -> Path:
     if _CASE_ID.fullmatch(case_id) is None:
         raise ValueError(f"invalid replay case id {case_id!r}")
     return cases_dir(data_dir) / case_id
+
+
+def answers_path(case_dir: Path) -> Path:
+    """The case's kept model answers (``answers/ai_answers.jsonl``), one ``AiAnswer`` a line,
+    written from the store after a run; a fresh store seeds from it on restore."""
+    return case_dir / "answers" / "ai_answers.jsonl"
 
 
 def list_cases(data_dir: Path) -> list[ReplayCase]:
@@ -141,6 +148,7 @@ def start_replay_clock(
     speed: float,
     begin: datetime | None = None,
     end: datetime | None = None,
+    quantum_s: int = 0,
 ) -> timeutil.ReplayClock:
     """Move every module's ``now()`` to the recording, from ``begin`` or its first fetch.
 
@@ -148,11 +156,14 @@ def start_replay_clock(
     (:func:`first_aircraft_at`), so a case whose positions begin hours into the recording
     does not open on an empty sky; a case with no aircraft data starts at its recording
     start. With ``end`` the clock loops over ``begin`` to ``end`` instead of the whole
-    recording; a window outside the case is refused, never clamped.
+    recording; a window outside the case is refused, never clamped. ``quantum_s`` floors the
+    time ticks see (``timeutil.ReplayClock``); the display keeps its seconds.
     """
     if end is None:
         start = case.recorded_from if begin is not None else first_aircraft_at(case)
-        clock = timeutil.ReplayClock(start, case.recorded_to, speed=speed, begin=begin)
+        clock = timeutil.ReplayClock(
+            start, case.recorded_to, speed=speed, begin=begin, quantum_s=quantum_s
+        )
     else:
         if begin is None:
             raise ValueError("a replay window needs a start as well as an end")
@@ -163,7 +174,7 @@ def start_replay_clock(
                 f"case {case.case_id} ({timeutil.to_iso(case.recorded_from)} to "
                 f"{timeutil.to_iso(case.recorded_to)})"
             )
-        clock = timeutil.ReplayClock(start, stop, speed=speed, loop=True)
+        clock = timeutil.ReplayClock(start, stop, speed=speed, loop=True, quantum_s=quantum_s)
     timeutil.set_clock(clock)
     return clock
 

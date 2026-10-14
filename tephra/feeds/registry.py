@@ -133,6 +133,8 @@ VONA_OFF_NOTE: Final = (
 )
 HSD_OFF_NOTE: Final = "raw Himawari processing is off (TEPHRA_SCIENCE=0)"
 NOT_RECORDED_NOTE: Final = "not in this replay case: no archive of this feed was recorded"
+FEATURE_OFF_NOTE: Final = "feature off"
+"""A feed whose feature is hidden (TEPHRA_FEATURES) is never polled: its routes stay."""
 WIND_CLOCK_FIELDS: Final[IncEx] = {"profiles": {"__all__": {"provenance"}}}
 """A winds poll refetches the same hours every hour; only new numbers are worth a write."""
 
@@ -208,6 +210,8 @@ def disabled_reason(
         return HSD_OFF_NOTE
     if feed is FeedId.VONA and not (settings.vona_live or replay):
         return VONA_OFF_NOTE
+    if feed is FeedId.JMA_VOLCANO and "notices" not in settings.features:
+        return FEATURE_OFF_NOTE
     if replay and recorded is not None and feed not in recorded:
         return NOT_RECORDED_NOTE
     return None

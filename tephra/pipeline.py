@@ -17,6 +17,7 @@ tick (an unread list is never taken as empty), and ``store_health`` says so on t
 """
 
 import asyncio
+import json
 import logging
 import math
 import os
@@ -26,6 +27,7 @@ from collections import deque
 from collections.abc import Awaitable, Coroutine, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any, Final, Literal, NamedTuple
 
 import shapely
@@ -202,6 +204,7 @@ from tephra.regdocs.registry import withdraw_crew_messages
 from tephra.regdocs.sra import narrative_facts
 from tephra.replay.cases import (
     ReplaySource,
+    answers_path,
     case_path,
     replay_info,
     select_case,
@@ -448,7 +451,7 @@ class Runtime:
         """``draft_count`` counts the open drafts of the mode playing (``open_drafts``), as the
         Desk lists them; None when the drafts cannot be read: an older count would be presented
         as current."""
-        at = timeutil.now()
+        at = timeutil.now_exact()
         draft_count: int | None
         try:
             draft_count = len(await self.open_drafts())
@@ -476,6 +479,8 @@ class Runtime:
             last_tick=self.last_tick,
             last_tick_wall_at=self.last_tick_wall_at,
             build_sha=self.settings.build_sha,
+            features=sorted(self.settings.features),
+            visitor_access=self.settings.visitor_access == "replay" and self.mode is RunMode.REPLAY,
         )
 
     async def wall_snapshot(self) -> WallSnapshot:
@@ -1780,9 +1785,11 @@ class Runtime:
 
         Official products come back with their original provenance, so their input hash is
         unchanged and a restart does not spend a Gemini call. Everything else refreshes on
-        the first tick. A REPLAY always starts from its recording.
+        the first tick. A REPLAY always starts from its recording, with the answers its case
+        folder keeps.
         """
         if self.mode is RunMode.REPLAY:
+            await self._seed_answers()
             return
         at = timeutil.now()
         for state in await self.store.list_feed_states():
@@ -1807,6 +1814,20 @@ class Runtime:
         await self._restore_readings()
         await self._restore_duty()
         await self.worker.restore()
+
+    async def _seed_answers(self) -> None:
+        """Answers the same model gave this case on an earlier run (``answers_path``), put in
+        the store where ``recall`` finds them; every recall still goes through the skill's
+        validators, and a newer answer already in the store is left alone."""
+        if self.replay_case is None:
+            return
+        case_id = self.replay_case.case_id
+        path = answers_path(case_path(self.settings.data_dir, case_id))
+        if not path.is_file():
+            return
+        docs = await asyncio.to_thread(_read_answer_lines, path)
+        n = await self._answer_book.seed(docs)
+        logger.info("ai_answer seed: %d answers for %s", n, case_id)
 
     async def _restore_duty(self) -> None:
         """The newest live Duty Officer run, so the Wall shows its brief after a restart."""
@@ -2101,7 +2122,10 @@ class Runtime:
         """The Satellite Reader, gated twice: it runs only when the Plume Reader is about to
         be asked about this volcano (the caller) and only when the newest frames are not the
         ones the last reading used. A reading made from the current frames, read or failed,
-        is not repeated; its text goes to the Plume Reader as supporting evidence."""
+        is not repeated; its text goes to the Plume Reader as supporting evidence. A hidden
+        satellite feature (TEPHRA_FEATURES) reads nothing: no scheduled model work."""
+        if "satellite" not in self.settings.features:
+            return situation
         volcano = situation.volcano
         held = self.satellite.get(volcano.id)
         probe = self._frame_probe(volcano.id)
@@ -2986,15 +3010,34 @@ def _start_clock(settings: Settings, case: ReplayCase) -> tuple[datetime, dateti
     The configured window (TEPHRA_REPLAY_START to TEPHRA_REPLAY_END) belongs to
     TEPHRA_REPLAY_CASE alone; another case chosen at the Desk plays its whole recording.
     """
+    speed, quantum_s = settings.replay_speed, settings.replay_quantum_s
     if settings.replay_start is None or settings.replay_end is None:
-        start_replay_clock(case, speed=settings.replay_speed, begin=settings.replay_start)
+        start_replay_clock(case, speed=speed, begin=settings.replay_start, quantum_s=quantum_s)
         return None
     if case.case_id != settings.replay_case:
-        start_replay_clock(case, speed=settings.replay_speed)
+        start_replay_clock(case, speed=speed, quantum_s=quantum_s)
         return None
     window = (settings.replay_start, settings.replay_end)
-    start_replay_clock(case, speed=settings.replay_speed, begin=window[0], end=window[1])
+    start_replay_clock(case, speed=speed, begin=window[0], end=window[1], quantum_s=quantum_s)
     return window
+
+
+def _read_answer_lines(path: Path) -> list[dict[str, Any]]:
+    """The JSON objects of a ``.jsonl`` file; a line that is not one is logged and skipped."""
+    docs: list[dict[str, Any]] = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            doc = json.loads(line)
+        except ValueError:
+            logger.warning("skipping unreadable answer line %d of %s", number, path)
+            continue
+        if isinstance(doc, dict):
+            docs.append(doc)
+        else:
+            logger.warning("skipping answer line %d of %s: not an object", number, path)
+    return docs
 
 
 # --- quota and planning rules (pure) ----------------------------------------------------
