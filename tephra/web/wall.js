@@ -1030,6 +1030,7 @@ document.addEventListener("click", (e) => {
   else if (act === "help") openGuide("read");
   else if (act === "help-map") openGuide("help-key");
   else if (act === "policy") openGuide("policy");
+  else if (act === "key") { if (t.dataset.key === "Escape") escape({ preventDefault() {} }); else runKey(t.dataset.key); }
 });
 
 // Previous / next event (R7): choose the neighbouring marker and act as if it was clicked.
@@ -1139,7 +1140,11 @@ function shortcut(e) {
   const t = e.target;
   if (t.matches?.("input, textarea, select, [contenteditable='true']")) return;
   if ($("dlg").open || $("board").open) return;
-  const k = e.key;
+  if (runKey(e.key)) e.preventDefault();
+}
+
+// One shortcut, from the keyboard or from its key in the status line; true when it was one.
+function runKey(k) {
   const regions = store.state?.regions || [];
   let handled = true;
   if (/^[1-9]$/.test(k) && regions[Number(k) - 1]) chooseRegion(regions[Number(k) - 1].key);
@@ -1159,7 +1164,7 @@ function shortcut(e) {
   else if (k === "a" || k === "A") openBoard(document.activeElement);
   else if (k === "?") openGuide("read");
   else handled = false;
-  if (handled) e.preventDefault();
+  return handled;
 }
 
 function escapeDetails() {

@@ -1497,6 +1497,19 @@ Assistant chip shows its mark only (its name stays in the label); below 1100 the
 fixed width, the nav shows only the page you are on (and the Wall's Desk link) and the Wall's area
 name shortens. The Desk hides the nav below 600 px.
 
+### 7.26 The Wall's footer is a status line (14 Oct 2026)
+
+The footer row (32 px) reads like a terminal status line. On the left: a dot for the state (green
+live, violet replay, amber when updates stopped), the address `tephra://wall/<volcano>`, then what
+the Wall shows now in short segments, all written by code: the volcano's valid official areas, the
+view (`view=2d|3d|compare`), `policy=A` (a link to the guide's policy, its id
+and version in the tooltip) and `credits` (a link to the guide's credits, the full credit string in
+the tooltip; OpenStreetMap stays on the map). The fictional-airline note is the facts' tooltip and
+stays in the strip on top. On the right: the keys, each also a button that runs it: `?` guide,
+`a` assistant, `[ ]` volcano (from 1360 px), `f` fit, `d` 3D, `s` compare, `esc` back. On a phone the
+keys are hidden and the line wraps. The flights inside and heading in are not repeated here: the
+story says them (each fact once). Privacy moved to the guide's foot (and the Desk's sign-in).
+
 ## 8. 3D, compare, the time bar and the height filter
 
 ### 8.1 3D mode (D)

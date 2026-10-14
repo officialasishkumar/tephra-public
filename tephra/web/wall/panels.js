@@ -218,20 +218,34 @@ export function renderChrome(D, store, ui) {
   fc.setAttribute("aria-label", `Data feeds: ${parts.map((p) => p.textContent).join(", ")}. Opens Details, Data feeds.`);
 
   setText($("disclaimer"), s.disclaimer || "Decision support only - fictional airline - not for operational use");
+  renderStatusLine(D, ui);
+}
+
+// The status line (UI-DESIGN 7.26): a dot for the state, the address, then what the Wall shows now
+// in short segments; the policy and credits segments are links to the guide.
+function renderStatusLine(D, ui) {
+  const s = D.state;
+  $("stl-dot").dataset.tone = document.body.classList.contains("is-stale") ? "stale" : s.mode === "REPLAY" ? "replay" : "live";
+  const vid = D.sit?.volcano_id;
+  const areas = vid ? D.official.filter((f) => f.properties.volcano_id === vid && f.properties.step === "now" && f.properties.valid).length : 0;
+  // The volcano goes in the address; the flights inside and heading in are the story's (said once).
+  const slug = D.sit ? `/${D.sit.volcano_name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}` : "";
+  setText($("stl-where"), `tephra://wall${slug}`);
+  const facts = D.sit ? [plural(areas, "official area")] : ["no ash in this area"];
+  setText($("stl-facts"), [...facts, `view=${ui.compare ? "compare" : ui.d3 ? "3d" : "2d"}`].join(" · "));
   const policy = s.policy;
   const policyBtn = $("policy-btn");
   policyBtn.hidden = !policy;
   if (policy) {
-    setText(policyBtn, `Policy ${policy.preset} (illustrative)`);
-    policyBtn.title = `${policy.policy_id} v${policy.version}: ${policy.label}. Open its values and sources.`;
+    setText(policyBtn, `policy=${policy.preset}`);
+    policyBtn.title = `${policy.policy_id} v${policy.version}: ${policy.label} (illustrative). Open its values and sources.`;
   }
   const extra = [];
   if (ui.sat !== "off") extra.push("Imagery: NASA GIBS");
   if (ui.so2) extra.push(`${ui.sat === "off" ? "Imagery: NASA GIBS · " : ""}Contains modified Copernicus Sentinel data ${new Date(D.now).getUTCFullYear()}`);
-  const attrib = [ATTRIBUTION, ...extra].join(" · ");
-  // The full credit string: on the footer link's tooltip and the guide's Credits; OSM stays on the
-  // map (R6.6).
-  $("attribution").title = attrib;
+  // The full credit string: on the credits link's tooltip and the guide's Credits; OSM stays on
+  // the map (R6.6).
+  $("attribution").title = [ATTRIBUTION, ...extra].join(" · ");
 }
 
 // The Wall's AI state (ext.js aiState), set by wall.js so this file does not import ext.js.

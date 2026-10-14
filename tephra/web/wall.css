@@ -249,19 +249,34 @@ q { quotes: "“" "”"; }
 .desk-link:hover { background: var(--c-surface-3); }
 .desk-link--small { height: 32px; }
 
-/* ---------------------------------------------------------------- footer (R3.3) */
+/* ---------------------------------------------------------------- footer: the status line (UI-DESIGN 7.26) */
 
 .honesty {
   display: flex; align-items: center; gap: var(--sp-3);
-  padding: 0 var(--gutter); min-width: 0;
+  padding: 0 var(--gutter) 0 24px; min-width: 0;
   background: var(--c-surface-1); border-top: 1px solid var(--c-line-1);
-  font-size: var(--fs-1); z-index: var(--z-sticky); white-space: nowrap;
+  font-size: 14px; z-index: var(--z-sticky); white-space: nowrap;
 }
-.honesty__airline { color: var(--c-text-2); }
-.honesty__links { display: flex; align-items: center; gap: var(--sp-3); margin-left: auto; }
-.honesty__about { display: inline-flex; align-items: center; flex: none; padding: 0; background: transparent; border: 0; color: var(--c-text-2); text-decoration: underline; text-underline-offset: 3px; min-height: min(28px, calc(var(--foot-h) - 1px)); font-size: var(--fs-1); border-radius: var(--radius-sm); }
-/* (the links fit inside the footer's row less its 1 px top border: at 1280 a 28 px link in the 28 px
-   row made the page 1 px taller than the screen, so it scrolled by 1 px) */
+.stl__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--c-ok); box-shadow: 0 0 8px color-mix(in srgb, var(--c-ok) 60%, transparent); }
+.stl__dot[data-tone="replay"] { background: var(--c-replay); box-shadow: 0 0 8px color-mix(in srgb, var(--c-replay) 60%, transparent); }
+.stl__dot[data-tone="stale"] { background: var(--c-caution); box-shadow: none; }
+.stl__where { flex: none; color: var(--c-text-1); font-weight: var(--fw-medium); }
+.stl__line { min-width: 0; margin-left: var(--sp-3); overflow: hidden; text-overflow: ellipsis; color: var(--c-text-2); }
+.stl__seg { color: var(--c-text-2); text-decoration: none; }
+.stl__seg::before { content: "·"; display: inline-block; margin-right: 0.3em; color: var(--c-text-3); }
+.stl__seg:hover { color: var(--c-text-1); text-decoration: underline; text-underline-offset: 3px; }
+.stl__keys { flex: none; display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.stl__key {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px;
+  background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--c-text-2);
+  font: inherit; text-decoration: none; cursor: pointer;
+}
+.stl__key kbd { font: inherit; font-weight: var(--fw-semibold); color: var(--c-text-1); }
+.stl__key:hover { background: color-mix(in srgb, var(--c-text-1) 7%, transparent); color: var(--c-text-1); }
+.stl__key:focus-visible, .stl__seg:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+@media (max-width: 1359px) { .stl__key--wide { display: none; } }
+/* the guide's text links (controls.js) */
+.honesty__about { display: inline-flex; align-items: center; flex: none; padding: 0; background: transparent; border: 0; color: var(--c-text-2); text-decoration: underline; text-underline-offset: 3px; min-height: 28px; font-size: var(--fs-1); border-radius: var(--radius-sm); }
 .honesty__about:hover { color: var(--c-text-1); }
 
 /* ---------------------------------------------------------------- stage grid (R3) */
@@ -387,9 +402,9 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 .sline .icon, .sline .st { width: 16px; height: 16px; margin-top: 2px; }
 .story__mark { color: var(--c-text-2); }
 .story__mark--disagree { color: var(--c-caution); }
-.sline__text { display: flex; flex-direction: column; min-width: 0; }
-.sline__sub { color: var(--c-text-2); }
-.sline__go { color: var(--c-text-3); font-size: var(--fs-4); line-height: 1; }
+.stl__text { display: flex; flex-direction: column; min-width: 0; }
+.stl__sub { color: var(--c-text-2); }
+.stl__go { color: var(--c-text-3); font-size: var(--fs-4); line-height: 1; }
 
 .story__actions { display: flex; flex-direction: column; align-items: stretch; gap: var(--sp-2); }
 .story__actions .btn-row { margin-top: 0; }
@@ -1799,8 +1814,6 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   .cmdbar { gap: var(--sp-2); }
   .clock__time { font-size: var(--fs-5); }
   .clock__sub { min-width: 0; }
-  .honesty__short { display: inline; }
-  .honesty__links { gap: var(--sp-2); }
   .timebar { gap: var(--sp-2); padding: 0 var(--sp-2); }
   .tl__progress { width: 40px; }
   .tl__steps .seg button { padding: 0 8px; }
@@ -1900,9 +1913,9 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
   body.tl-sheet .tl__label { display: inline; }
   body.tl-sheet .tl__history { position: static; flex: 1 1 100%; }
   .drawer { border: 0; }
-  .honesty { display: flex; flex-wrap: wrap; white-space: normal; padding: var(--sp-3) var(--gutter); gap: var(--sp-2); }
-  .honesty__links { margin-left: 0; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); }
-  .honesty__about { min-height: 32px; }
+  .honesty { flex-wrap: wrap; white-space: normal; padding: var(--sp-3) var(--gutter); gap: var(--sp-2); }
+  .stl__line { margin-left: 0; white-space: normal; }
+  .stl__keys { display: none; }
   .cta-sticky {
     position: fixed; left: var(--gutter); right: var(--gutter); bottom: calc(8px + env(safe-area-inset-bottom)); z-index: var(--z-banner);
     display: flex; align-items: center; justify-content: center; min-height: 48px;

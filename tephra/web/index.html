@@ -200,14 +200,24 @@
     </aside>
   </main>
 
-  <footer class="honesty">
-    <span class="honesty__airline" title="Ring of Fire Air (RFA) is a fictional airline. Its flight numbers are proxies for real aircraft (About)."><span class="honesty__short">RFA is a fictional airline.</span></span>
-    <span class="honesty__links">
-      <!-- the manual is the guide page (UI-DESIGN 7.22), in a tab of its own -->
-      <a id="attribution" class="honesty__about" href="/guide#about-credits" target="_blank" rel="noopener">Map and data credits</a>
-      <a id="policy-btn" class="honesty__about honesty__policy" href="/guide#policy" target="_blank" rel="noopener" hidden>Policy A (illustrative)</a>
-      <a id="help-btn" class="honesty__about" href="/guide#read" target="_blank" rel="noopener" aria-keyshortcuts="?">Guide</a>
-      <a class="honesty__about" href="/privacy">Privacy</a>
+  <!-- the status line (UI-DESIGN 7.26): what the Wall shows now on the left, written by panels.js,
+       and the keys on the right; each key is also a button -->
+  <footer class="honesty stl">
+    <span id="stl-dot" class="stl__dot" aria-hidden="true"></span>
+    <span id="stl-where" class="stl__where">tephra://wall</span>
+    <span class="stl__line">
+      <span id="stl-facts" class="stl__facts honesty__airline" title="Ring of Fire Air (RFA) is a fictional airline. Its flight numbers are proxies for real aircraft (About)."></span>
+      <a id="policy-btn" class="stl__seg" href="/guide#policy" target="_blank" rel="noopener" hidden></a>
+      <a id="attribution" class="stl__seg" href="/guide#about-credits" target="_blank" rel="noopener">credits</a>
+    </span>
+    <span class="stl__keys" role="group" aria-label="Keyboard shortcuts">
+      <a id="help-btn" class="stl__key" href="/guide#read" target="_blank" rel="noopener" aria-keyshortcuts="?"><kbd>?</kbd>guide</a>
+      <button type="button" class="stl__key" data-act="key" data-key="a" aria-keyshortcuts="A"><kbd>a</kbd>assistant</button>
+      <button type="button" class="stl__key stl__key--wide" data-act="key" data-key="]" aria-keyshortcuts="[ ]"><kbd>[ ]</kbd>volcano</button>
+      <button type="button" class="stl__key" data-act="key" data-key="f" aria-keyshortcuts="F"><kbd>f</kbd>fit</button>
+      <button type="button" class="stl__key" data-act="key" data-key="d" aria-keyshortcuts="D"><kbd>d</kbd>3D</button>
+      <button type="button" class="stl__key" data-act="key" data-key="s" aria-keyshortcuts="S"><kbd>s</kbd>compare</button>
+      <button type="button" class="stl__key" data-act="key" data-key="Escape" aria-keyshortcuts="Escape"><kbd>esc</kbd>back</button>
     </span>
   </footer>
 

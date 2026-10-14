@@ -80,6 +80,17 @@ body.guide {
   scroll-margin-top: 72px;
 }
 
+.guide__foot {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 0 var(--sp-4) var(--sp-8);
+  font-size: var(--fs-1);
+}
+
+.guide__foot a {
+  color: var(--c-text-2);
+}
+
 @media (max-width: 600px) {
   .guidebar {
     padding: var(--sp-3) var(--sp-4);
