@@ -181,6 +181,22 @@ def test_the_connect_api_end_to_end(client: TestClient) -> None:
     )
     assert again.status_code == 429
 
+    live = client.get("/api/connect/live").json()
+    assert [d["hex"] for d in live["dots"]] == ["8a0a1e"]
+    assert [f["per_min"] for f in live["flows"]] == [1]
+    assert live["recent"][0]["accepted"] == 1
+    old = position(observed_at=timeutil.to_iso(AT - timedelta(days=3)))
+    stamped = client.post(
+        "/api/desk/upload", json={"format": POSITIONS_FORMAT, "positions": [old], "retime": True}
+    )
+    kept_old = client.post(
+        "/api/desk/upload", json={"format": POSITIONS_FORMAT, "positions": [old], "retime": False}
+    )
+    assert stamped.json()["accepted"] == 1
+    assert kept_old.json()["accepted"] == 0
+    names = [c["name"] for c in client.get("/api/desk/connections").json()["connections"]]
+    assert names.count("Uploaded files") == 1
+
     client.post(f"/api/desk/connections/{made['id']}/revoke", json={})
     gone = client.post(
         "/api/push/positions", json=batch, headers={"Authorization": f"Bearer {key}"}

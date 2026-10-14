@@ -8444,3 +8444,22 @@ body {
 .askdrawer #panel-ask .acomposer {
   background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--c-surface-1) 96%, transparent) 18px);
 }
+
+/* the shared nav sits beside the TEPHRA mark (UI-DESIGN 7.25) */
+.dhead__row > .brand {
+  margin-right: var(--sp-4);
+}
+
+.dhead__row > .topnav {
+  margin-right: auto;
+}
+
+@media (max-width: 600px) {
+  .dhead__row > .topnav {
+    display: none;
+  }
+
+  .dhead__row > .brand {
+    margin-right: auto;
+  }
+}

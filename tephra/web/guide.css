@@ -50,8 +50,6 @@ body.guide {
 }
 
 .guidebar__go {
-  display: flex;
-  gap: var(--sp-4);
   margin-left: auto;
 }
 

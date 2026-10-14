@@ -22,6 +22,7 @@ import math
 import os
 import time
 import uuid
+from collections import deque
 from collections.abc import Awaitable, Coroutine, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -108,7 +109,9 @@ from tephra.models import (
     AviationColor,
     BtdOverlay,
     BtdResult,
+    ConnectFlow,
     Connection,
+    ConnectLive,
     CrewFlag,
     CrewPicture,
     CrewReport,
@@ -206,6 +209,9 @@ __all__ = ["Runtime", "create_runtime"]
 logger = logging.getLogger(__name__)
 
 CHECKPOINT_S: Final = 300.0
+PUSH_LOG_SIZE: Final = 400
+CONNECT_LIVE_S: Final = 60
+"""Pushes the Connect page's rates and ticker are worked out from (5 min of the sample feed)"""
 WRITER_DOC: Final = "writer"
 """``runtime/writer``: the instance that ticked last; only the serving revision gets ticks"""
 OPEN_DRAFT_LIMIT: Final = 500
@@ -309,6 +315,10 @@ class Runtime:
     sample_stop: asyncio.Event | None = field(init=False, default=None, repr=False)
     """Set to end the running sample feed; None while none runs"""
     sample_connection_id: str | None = field(init=False, default=None)
+    push_log: "deque[PushSummary]" = field(
+        init=False, default_factory=lambda: deque(maxlen=PUSH_LOG_SIZE), repr=False
+    )
+    """The newest pushes taken (no dots), for the Connect page after a reload"""
     """This picture's open failures were read back from the store (``_follow_failures``)"""
     _unexposed_since: dict[str, datetime] = field(init=False, default_factory=dict)
     """flight id -> since when an open draft's flight is seen outside every cone"""
@@ -1213,11 +1223,21 @@ class Runtime:
 
     # --- airline data connections (tephra.desk.connections) -------------------------------
 
-    async def take_push(self, connection: Connection, raw: Sequence[dict[str, Any]]) -> PushResult:
+    async def take_push(
+        self, connection: Connection, raw: Sequence[dict[str, Any]], *, retime: bool = False
+    ) -> PushResult:
         """Take one push: keep the positions that pass, check them against the ash as an
         ADS-B pass does (when no tick holds the lock; else the tick does), and say so on the
-        ``push`` event. Refused records change nothing."""
+        ``push`` event. Refused records change nothing. ``retime`` (an upload a dispatcher
+        marks as current) stamps every record with TEPHRA's clock now before the checks."""
         at = timeutil.now()
+        if retime:
+            raw = [
+                {**record, "observed_at": timeutil.to_iso(at)}
+                if isinstance(record, dict)
+                else record
+                for record in raw
+            ]
         accepted, problems = connections.checked_positions(raw, connection, at)
         for target in accepted:
             self.pushed[target.hex] = target
@@ -1231,37 +1251,65 @@ class Runtime:
         saved = await connections.save_counts(
             self.store, connection, accepted=len(accepted), rejected=len(problems), at=at
         )
-        reasons = list(dict.fromkeys(problem.reason for problem in problems))[:3]
-        self.bus.publish(
-            SseEvent.PUSH,
-            PushSummary(
-                connection_id=saved.id,
-                name=saved.name,
-                sample=saved.sample,
-                at=at,
-                accepted=len(accepted),
-                rejected=len(problems),
-                reasons=reasons,
-                dots=[
-                    PushedDot(
-                        hex=t.hex,
-                        callsign=t.callsign,
-                        lat=t.lat,
-                        lon=t.lon,
-                        alt_baro_ft=t.alt_baro_ft or 0,
-                        track_deg=t.track_deg,
-                        in_ash=t.hex in exposed,
-                    )
-                    for t in accepted[:200]
-                ],
-            ),
+        summary = PushSummary(
+            connection_id=saved.id,
+            name=saved.name,
+            sample=saved.sample,
+            at=at,
+            wall_at=timeutil.SystemClock().now(),
+            accepted=len(accepted),
+            rejected=len(problems),
+            in_ash=len(in_ash),
+            reasons=list(dict.fromkeys(problem.reason for problem in problems))[:3],
         )
+        self.push_log.appendleft(summary)
+        dots = [_pushed_dot(t, exposed) for t in accepted[:200]]
+        self.bus.publish(SseEvent.PUSH, summary.model_copy(update={"dots": dots}))
         return PushResult(
             connection_id=saved.id,
             received_at=at,
             accepted=len(accepted),
             rejected=problems,
             in_ash=in_ash,
+        )
+
+    def connect_live(self) -> ConnectLive:
+        """The Connect page's whole picture now: every pushed flight updated in the last
+        :data:`CONNECT_LIVE_S` (the analysis keeps them for ``PUSH_FRESH_S``), each connection's
+        flow over the last 5 minutes (wall clock) and the newest pushes."""
+        wall = timeutil.SystemClock().now()
+        at = timeutil.now()
+        exposed = {flight.hex for flight in self.exposed.values()}
+        dots = [
+            _pushed_dot(target, exposed)
+            for target in self.pushed.values()
+            if timeutil.age_s(target.observed_at, at) <= CONNECT_LIVE_S
+        ]
+        flows: dict[str, ConnectFlow] = {}
+        for push in self.push_log:
+            age = (wall - push.wall_at).total_seconds()
+            flow = flows.get(push.connection_id)
+            if flow is None:
+                flow = flows[push.connection_id] = ConnectFlow(
+                    connection_id=push.connection_id,
+                    name=push.name,
+                    sample=push.sample,
+                    per_min=0,
+                    spark=[0] * 20,
+                    last_push_wall_at=push.wall_at,
+                )
+            if age < 60:
+                flow.per_min += push.accepted
+            bucket = 19 - int(age // 15)
+            if 0 <= bucket < 20:
+                flow.spark[bucket] += push.accepted
+        return ConnectLive(
+            wall_at=wall,
+            sample_running=self.sample_stop is not None,
+            sample_connection_id=self.sample_connection_id,
+            flows=list(flows.values()),
+            dots=dots,
+            recent=list(self.push_log)[:14],
         )
 
     def sample_areas(self) -> list[Any]:
@@ -2891,6 +2939,18 @@ def _aircraft_features(
         )
         features.append(feature(point(target.lat, target.lon), props, feature_id=target.hex))
     return feature_collection(features)
+
+
+def _pushed_dot(target: Aircraft, exposed: set[str]) -> PushedDot:
+    return PushedDot(
+        hex=target.hex,
+        callsign=target.callsign,
+        lat=target.lat,
+        lon=target.lon,
+        alt_baro_ft=target.alt_baro_ft or 0,
+        track_deg=target.track_deg,
+        in_ash=target.hex in exposed,
+    )
 
 
 def _aircraft_label(target: Aircraft, hit: ExposedFlight | None) -> str:

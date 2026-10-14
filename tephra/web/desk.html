@@ -11,6 +11,7 @@
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/static/fonts/ibm-plex-sans-var-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/topnav.css">
   <link rel="stylesheet" href="/static/mapui.css">
   <link rel="stylesheet" href="/static/desk.css">
   <link rel="stylesheet" href="/static/doc.css">
@@ -35,7 +36,8 @@
       </p>
     </div>
     <div class="dhead__row">
-      <p class="brand"><span class="brand__mark">TEPHRA</span> <span class="brand__sub">Desk</span></p>
+      <a class="brand" href="/" title="TEPHRA home"><span class="brand__mark">TEPHRA</span> <span class="brand__sub">Desk</span></a>
+      <nav class="topnav" aria-label="TEPHRA pages"><a href="/">Wall</a><a href="/desk" aria-current="page">Desk</a><a href="/connect">Connect</a><a href="/guide">Guide</a></nav>
       <!-- One assistant chip (docs/UI-AI-QUIET.md K78, Naming): TEPHRA Assistant's state; the models,
            budget and causes are in its assistant sheet. #model-chip is its label. -->
       <button id="budget-chip" type="button" class="budget" data-tone="on" aria-haspopup="dialog" aria-label="TEPHRA Assistant, connecting">

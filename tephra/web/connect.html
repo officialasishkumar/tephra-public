@@ -5,108 +5,70 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#05080c">
-  <meta name="description" content="TEPHRA Connect: push your airline's aircraft positions into TEPHRA and see them checked against the volcanic ash live. Decision support only.">
+  <meta name="description" content="TEPHRA Connect: feed your airline's aircraft positions into TEPHRA and see them checked against the volcanic ash live. Decision support only.">
   <title>TEPHRA Connect</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/static/fonts/ibm-plex-sans-var-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/tokens.css">
-  <link rel="stylesheet" href="/static/mapui.css">
+  <link rel="stylesheet" href="/static/topnav.css">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="/static/connect.css">
   <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script type="module" src="/static/connect.js"></script>
 </head>
-<!-- TEPHRA Connect (UI-DESIGN 7.24): where an airline plugs its own data in. A live map of what
-     arrives, the sources as glowing rows, a ticker of pushes and three steps to connect. Built by
-     connect.js; every string goes in through textContent. -->
-<body class="cx">
+<!-- TEPHRA Connect (UI-DESIGN 7.24): feed your airline's positions in and watch TEPHRA check
+     them against the ash. The page starts from GET /api/connect/live (so a reload is complete),
+     then follows the `push` event. Built by connect.js; every string goes in through textContent. -->
+<body class="cx is-loading">
   <header class="cx-bar">
     <a class="cx-brand" href="/"><span class="cx-brand__mark">TEPHRA</span><span class="cx-brand__sub">Connect</span></a>
     <span id="cx-mode" class="cx-mode" hidden></span>
-    <nav class="cx-nav" aria-label="TEPHRA">
-      <a href="/">Wall</a>
-      <a href="/desk">Desk</a>
-      <a href="/guide">Guide</a>
-    </nav>
+    <nav class="topnav cx-nav" aria-label="TEPHRA pages"><a href="/">Wall</a><a href="/desk">Desk</a><a href="/connect" aria-current="page">Connect</a><a href="/guide">Guide</a></nav>
     <span id="cx-me" class="cx-me"></span>
   </header>
   <p class="cx-honesty">Decision support only - fictional airline - not for operational use</p>
 
   <main class="cx-main" id="main">
-    <section class="cx-hero" aria-label="What is arriving now">
+    <div class="cx-head">
+      <h1 class="cx-title">Feed your flights. <span>Watch them meet the ash.</span></h1>
+    </div>
+
+    <section class="cx-grid" aria-label="Live intake">
       <div class="cx-stage">
         <div id="cx-map" class="cx-map" role="region" aria-label="Map of the positions arriving now"></div>
         <div class="cx-kpis" aria-live="polite">
-          <div class="cx-kpi"><b id="k-rate">0</b><span>positions / min</span></div>
-          <div class="cx-kpi"><b id="k-live">0</b><span>flights live</span></div>
-          <div class="cx-kpi cx-kpi--ash"><b id="k-ash">0</b><span>in the ash</span></div>
+          <div class="cx-kpi"><b id="k-rate"></b><span>positions / min</span></div>
+          <div class="cx-kpi"><b id="k-live"></b><span>flights live</span></div>
+          <div class="cx-kpi cx-kpi--ash"><b id="k-ash"></b><span>in the ash</span></div>
         </div>
-        <div id="cx-empty" class="cx-empty">
+        <div id="cx-empty" class="cx-empty" hidden>
           <div class="cx-empty__orb" aria-hidden="true"></div>
-          <p class="cx-empty__t">Waiting for data</p>
-          <button id="cx-sample-hero" type="button" class="cx-btn cx-btn--glow"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-play"></use></svg><span>Start sample feed</span></button>
+          <p class="cx-empty__t">No flights arriving</p>
+          <button type="button" class="cx-btn cx-btn--glow" data-tab="sample"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-play"></use></svg><span>Try the sample feed</span></button>
         </div>
       </div>
 
-      <aside class="cx-side" aria-label="Sources">
-        <div class="cx-side__head">
-          <h1 class="cx-h">Sources</h1>
-          <button id="cx-new" type="button" class="cx-btn cx-btn--ghost"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-plus"></use></svg><span>Connect</span></button>
+      <aside class="cx-feed" aria-labelledby="cx-feed-t">
+        <h2 id="cx-feed-t" class="cx-feed__t">Feed your data</h2>
+        <div class="cx-seg" role="tablist" aria-label="How to feed">
+          <button type="button" role="tab" class="cx-seg__b" data-tab="upload" aria-selected="true"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-file"></use></svg><span>Upload</span></button>
+          <button type="button" role="tab" class="cx-seg__b" data-tab="api" aria-selected="false"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-code"></use></svg><span>API</span></button>
+          <button type="button" role="tab" class="cx-seg__b" data-tab="sample" aria-selected="false"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-play"></use></svg><span>Sample</span></button>
         </div>
-        <button id="cx-sample" type="button" class="cx-sample" aria-pressed="false">
-          <span class="cx-sample__icon" aria-hidden="true"><svg class="icon" focusable="false"><use href="/static/icons.svg#i-play"></use></svg></span>
-          <span class="cx-sample__text"><b>Sample airline feed</b><span id="cx-sample-sub">Real recorded flights, moving live</span></span>
-          <span class="cx-switch" aria-hidden="true"><i></i></span>
-        </button>
-        <p class="cx-group">Your airline</p>
-        <ul id="cx-airline" class="cx-sources"></ul>
-        <p class="cx-group">Public feeds</p>
-        <ul id="cx-public" class="cx-sources"></ul>
+        <div id="cx-panel" class="cx-panel" role="tabpanel"></div>
       </aside>
+    </section>
+
+    <section class="cx-row" aria-label="Sources">
+      <ul id="cx-flows" class="cx-flows"></ul>
+      <ul id="cx-public" class="cx-chips" aria-label="Public feeds"></ul>
     </section>
 
     <section class="cx-ticker-wrap" aria-label="Pushes arriving">
       <ol id="cx-ticker" class="cx-ticker" aria-live="off"></ol>
     </section>
-
-    <section class="cx-steps" aria-labelledby="cx-steps-h">
-      <h2 id="cx-steps-h" class="cx-h">Plug in your data</h2>
-      <ol class="cx-steps__row">
-        <li class="cx-step">
-          <span class="cx-step__n">1</span>
-          <h3 class="cx-step__t">Get the format</h3>
-          <div id="cx-record" class="cx-record" aria-label="One position, field by field"></div>
-          <div class="cx-step__acts">
-            <a class="cx-btn cx-btn--soft" href="/api/connect/sample.json" download><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-file"></use></svg><span>Sample file</span></a>
-            <a class="cx-btn cx-btn--soft" href="/api/connect/schema.json" download><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-code"></use></svg><span>JSON Schema</span></a>
-          </div>
-        </li>
-        <li class="cx-step">
-          <span class="cx-step__n">2</span>
-          <h3 class="cx-step__t">Get a key</h3>
-          <div class="cx-keyart" aria-hidden="true"><span>tph_</span><i></i><i></i><i></i><i></i><i></i><i></i></div>
-          <div class="cx-step__acts">
-            <button id="cx-new-2" type="button" class="cx-btn cx-btn--glow"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-plus"></use></svg><span>Create a connection</span></button>
-          </div>
-        </li>
-        <li class="cx-step cx-step--wide">
-          <span class="cx-step__n">3</span>
-          <h3 class="cx-step__t">Push, as often as you like</h3>
-          <div class="cx-code">
-            <div class="cx-tabs" role="tablist" aria-label="Language">
-              <button type="button" role="tab" class="cx-tab" data-lang="curl" aria-selected="true">curl</button>
-              <button type="button" role="tab" class="cx-tab" data-lang="python" aria-selected="false">Python</button>
-              <button type="button" role="tab" class="cx-tab" data-lang="js" aria-selected="false">JavaScript</button>
-              <button id="cx-copy" type="button" class="cx-copy"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-clipboard"></use></svg><span>Copy</span></button>
-            </div>
-            <pre id="cx-snippet" class="cx-pre"></pre>
-          </div>
-        </li>
-      </ol>
-    </section>
   </main>
 
   <dialog id="cx-dlg" class="cx-dlg" aria-labelledby="cx-dlg-t"></dialog>
-  <p id="cx-live" class="sr-only" aria-live="polite"></p>
 </body>
 </html>

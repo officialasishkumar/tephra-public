@@ -40,7 +40,7 @@ modules (sections 5.11 to 5.17) were built against.
 | backtest | `tephra/backtest/{__init__,models,metrics,runner,report}.py`, `tephra/agents/prompts/backtest.md`, `tephra/api/routes_backtest.py`, `scripts/backtest.py`, `docs/backtest/`, `tests/test_backtest.py` |
 | web-wall | `tephra/web/index.html`, `tephra/web/wall.js`, `tephra/web/wall.css`, `tephra/web/mapui.css` (map controls, shared), `tephra/web/guide.{html,js,css}` (the guide page) |
 | web-desk | `tephra/web/desk.html`, `tephra/web/desk.js`, `tephra/web/desk.css` |
-| connect | `tephra/desk/connections.py`, `tephra/desk/sample_feed.py`, `tephra/api/routes_connect.py`, `scripts/push_sample.py`, `tephra/web/connect.{html,js,css}`, `tests/test_connect.py` (airline data connections: section 5.20) |
+| connect | `tephra/desk/connections.py`, `tephra/desk/sample_feed.py`, `tephra/api/routes_connect.py`, `scripts/push_sample.py`, `tephra/web/connect.{html,js,css}`, `tephra/web/topnav.css` (the nav every page shares), `tests/test_connect.py` (airline data connections: section 5.20) |
 | crew | `tephra/geo/crew_area.py`, `tephra/desk/crew_reports.py`, `tephra/api/routes_crew.py` (crew reports of ash: section 5.19) |
 | ops-evals | `Dockerfile`, `.dockerignore`, `.gcloudignore`, `.env.example`, `deploy/_common.sh`, `deploy/cloudbuild.yaml`, `deploy/cloudrun.sh`, `deploy/ar-cleanup.json`, `scripts/live_smoke.sh`, `deploy/scheduler.sh`, `deploy/secrets.sh`, `deploy/firestore.rules`, `deploy/README.md`, `deploy/github_deploy_setup.sh`, `deploy/deploy_paths.py`, `deploy/report_interrupted.sh`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`, `scripts/record_replay.py`, `scripts/count_traffic.py`, `scripts/plume_eval.py`, `scripts/make_plume_cases.py`, `scripts/free_model_check.py`, `evals/plume/README.md`, `evals/free_models/`, `data/replay/README.md`, `tests/test_scripts.py`, `tests/test_record_replay.py`, `tests/fixtures/ops_evals/` |
 
@@ -2670,7 +2670,7 @@ SHA-256 stored), `find_by_key`, `list_connections`, `revoke_connection`, `save_c
 `PUSH:<connection id>:<DDHHMMZ>`; `PUSH_FRESH_S` 300). `Runtime.take_push(connection, raw)`
 keeps the positions that pass in `Runtime.pushed` (hex -> newest; cleared on a picture reset),
 runs `run_exposures` and `publish_live` when no tick holds the lock (else the next tick does),
-saves the counters, publishes `push` and returns `PushResult`. `Runtime.aircraft()` merges the
+saves the counters, keeps the summary in `Runtime.push_log` (the newest 400), publishes `push` and returns `PushResult`; `retime` stamps every record with the active clock first (uploads). `Runtime.connect_live()` builds `ConnectLive`. `Runtime.aircraft()` merges the
 ADS-B targets and the pushed positions not older than `PUSH_FRESH_S` (newest per address), so
 exposure, drafts, the Wall, the Desk and Ask all see them; `AircraftFeatureProps.data_source`
 says `AIRLINE` for them. `tephra.desk.sample_feed`: the sample feed is real airline aircraft
@@ -2836,6 +2836,8 @@ The headers above are unchanged by compression.
 | `GET /connect` | `tephra/web/connect.html`, TEPHRA Connect (UI-DESIGN 7.24) |
 | `GET /api/connect/format` | `FormatInfo` `{format, max_positions, fresh_s, push_url, schema}`: the push format `tephra.positions/1` and its JSON Schema |
 | `GET /api/connect/schema.json`, `GET /api/connect/sample.json` | Downloads (`Content-Disposition: attachment`): the JSON Schema, and an example push of 12 real recorded flights (`sample_feed`) at their recorded fixes, timed on the active clock now, accepted as it is for `PUSH_FRESH_S` |
+| `GET /api/connect/live` | `ConnectLive` `{wall_at, sample_running, sample_connection_id, flows: [ConnectFlow], dots: [PushedDot], recent: [PushSummary]}`: the pushed flights updated in the last 60 s, each connection's positions / min and 5-minute sparkline (wall clock), the newest 14 pushes; public, so a reload of the page starts complete |
+| `POST /api/desk/upload` | `Upload` (`PositionBatch` plus `retime`, default true: stamp every record with the active clock) -> `PushResult`, through the "Uploaded files" connection (made the first time); desk session, CSRF |
 | `GET /api/desk/connections` | `ConnectionList` `{connections: [ConnectionView], sample_running, sample_connection_id}` (desk session) |
 | `POST /api/desk/connections` | `{name}` -> `ConnectionView` with `key`, the only time the key is shown; audit `CONNECTION_CREATED` (desk session, CSRF) |
 | `POST /api/desk/connections/{id}/revoke` | `ConnectionView`; the key stops working at once; audit `CONNECTION_REVOKED`; stops the sample feed when it is the sample connection (desk session, CSRF) |

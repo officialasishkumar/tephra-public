@@ -21,6 +21,7 @@ from tephra.models import (
     MAX_PUSH_POSITIONS,
     POSITIONS_FORMAT,
     ConnectionView,
+    ConnectLive,
     PositionBatch,
     PushedPosition,
     PushResult,
@@ -46,6 +47,19 @@ class ConnectionList(TephraModel):
 
 class SampleFeedSwitch(TephraModel):
     on: bool
+
+
+class Upload(PositionBatch):
+    """A file a signed-in dispatcher uploads or pastes on the Connect page."""
+
+    retime: bool = Field(
+        default=True,
+        description="Stamp every record with TEPHRA's clock now (a file of the "
+        "current picture whose times are old, such as the downloaded sample)",
+    )
+
+
+UPLOAD_CONNECTION = "Uploaded files"
 
 
 class FormatInfo(TephraModel):
@@ -113,6 +127,29 @@ async def _list(runtime: Any) -> ConnectionList:
         sample_running=runtime.sample_stop is not None,
         sample_connection_id=runtime.sample_connection_id,
     )
+
+
+@router.get("/connect/live", response_model=ConnectLive)
+async def get_live(runtime: RuntimeDep) -> Response:
+    """The page's whole picture now, so a reload starts complete (the ``push`` event follows)."""
+    return _json(runtime.connect_live())
+
+
+@router.post("/desk/upload", response_model=PushResult, dependencies=[Depends(require_csrf)])
+async def upload(body: Upload, session: DeskSession, runtime: RuntimeDep) -> Response:
+    """A file uploaded or pasted on the page, taken through the "Uploaded files" connection
+    (made the first time) exactly as a push."""
+    found = [
+        c
+        for c in await connections.list_connections(runtime.store)
+        if c.name == UPLOAD_CONNECTION and not c.sample and c.revoked_at is None
+    ]
+    connection = found[0] if found else None
+    if connection is None:
+        connection, _ = await connections.create_connection(
+            runtime.store, UPLOAD_CONNECTION, actor=_actor(session)
+        )
+    return _json(await runtime.take_push(connection, body.positions, retime=body.retime))
 
 
 @router.get("/desk/connections", response_model=ConnectionList)

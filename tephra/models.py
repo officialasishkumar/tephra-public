@@ -870,10 +870,34 @@ class PushSummary(TephraModel):
     name: str
     sample: bool
     at: UtcDatetime
+    wall_at: UtcDatetime = Field(description="Wall-clock time it was taken (rates on the page)")
     accepted: int
     rejected: int
+    in_ash: int = 0
     reasons: list[str] = Field(default_factory=list, description="Up to 3 distinct reasons")
     dots: list[PushedDot] = Field(default_factory=list)
+
+
+class ConnectFlow(TephraModel):
+    """One connection's flow over the last minutes, for its row on the Connect page."""
+
+    connection_id: str
+    name: str
+    sample: bool
+    per_min: int = Field(description="Positions taken in the last 60 s (wall clock)")
+    spark: list[int] = Field(description="Positions taken per 15 s, oldest first, last 5 min")
+    last_push_wall_at: UtcDatetime | None
+
+
+class ConnectLive(TephraModel):
+    """``GET /api/connect/live``: what the Connect page shows, so a reload starts complete."""
+
+    wall_at: UtcDatetime
+    sample_running: bool
+    sample_connection_id: str | None
+    flows: list[ConnectFlow]
+    dots: list[PushedDot] = Field(description="Every pushed flight on the map now")
+    recent: list[PushSummary] = Field(description="The newest pushes, newest first, no dots")
 
 
 class WindLevel(TephraModel):

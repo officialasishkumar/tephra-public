@@ -1442,29 +1442,39 @@ The side panel (story and Details) hides with a tab on the map's left edge for t
 the same tab brings it back; kept for the session (`tephra.wall.panel`); opening Details shows it
 again; not on a phone.
 
-### 7.24 TEPHRA Connect (`/connect`, 13 Oct 2026)
+### 7.24 TEPHRA Connect (`/connect`, 13-14 Oct 2026)
 
-Where an airline plugs its own data in, shown rather than explained. Connect's own accent is
-cyan to violet (`#5eead4` to `#8b9bff`), for data arriving and nothing else; amber stays TEPHRA's
-area and the flights in it, pink stays official.
-- **The live map** (left, most of the screen): the night basemap with the ash areas and the active
-  volcanoes; each pushed flight is a plane icon on its track that glides to its new position over
-  the 5 s between pushes, with a short trail; amber when it is in or heading into the ash, ice
-  white otherwise; callsigns from zoom 5.5. It frames the traffic when it first arrives. Three
-  numbers over it: positions / min, flights live, in the ash (they bump when they change). With
-  nothing arriving: a breathing orb, "Waiting for data" and "Start sample feed".
-- **Sources** (right): the sample airline feed as a switch; "Your airline": each connection with
-  its key's last 4 characters, positions taken, a 5-minute sparkline and positions / min, glowing
-  while data flows, ✕ to revoke (confirmed in a dialog); "Public feeds": each feed's state dot,
-  age and records. "Connect" opens: name -> the key, shown once with Copy.
-- **The ticker**: one card per push sliding in (+40 positions, 12 in the ash, refused in red with
-  the reasons in its tooltip).
-- **Plug in your data**: 1 the format as field chips with real example values, "Sample file" and
-  "JSON Schema"; 2 "Create a connection"; 3 the push in curl, Python or JavaScript with the key
-  filled in once made, and Copy.
-- Signed out it is read-only: the public parts show, and "Sign in" (name and Desk PIN in a dialog)
-  unlocks connections and the sample feed. Linked from the Wall's header ("Connect") and the Desk's
-  account menu. On the Wall a pushed flight's card says "Position from the airline's own feed".
+Where an airline feeds its own data in, shown rather than explained. Connect's own accent is cyan
+to violet (`#5eead4` to `#8b9bff`), for data arriving and nothing else; amber stays TEPHRA's area
+and the flights in it, pink stays official.
+- **Headline**: "Feed your flights. Watch them meet the ash."
+- **The live map** (left): the night basemap with the ash areas and the active volcanoes; each
+  pushed flight is a plane icon on its track that glides to its new position over the 5 s between
+  pushes, with a short trail; amber when it is in or heading into the ash. It shows the flights
+  updated in the last 60 s (the analysis keeps a position for 5 min) and frames them when they
+  first arrive. Three numbers: positions / min, flights live, in the ash. Nothing arriving: a
+  breathing orb, "No flights arriving" and "Try the sample feed".
+- **Feed your data** (right), one card with three tabs. **Upload**: a drop zone for a JSON file,
+  "Use TEPHRA's clock for the times" (on by default, for a file whose times are old such as the
+  sample), "Sample file", "Paste JSON"; the answer as three numbers (taken, in the ash, refused)
+  and the refusal reasons. **API**: one position as field chips with real values, "JSON Schema",
+  "Get a key" (shown once with Copy), the push in curl, Python or JavaScript with the key filled
+  in, and "Your connections" with Revoke (confirmed). **Sample**: one big play button, real flights
+  from recorded ADS-B, its rate. Signed out, each tab asks for the name and Desk PIN in place.
+- **Sources** (under the map): each connection with a 5-minute sparkline and positions / min,
+  glowing while it flows; the public feeds as chips with a state dot and their records.
+- **Ticker**: one card per push (+40 positions, 12 in the ash, refused in red).
+- **No stale first frame**: the page starts from `GET /api/connect/live` (the flights on the map
+  now, each source's flow, the newest pushes), so a reload is complete; until it answers the
+  numbers and sources shimmer, and no number shows that is not current. The flows refresh every
+  10 s; the `push` event moves the planes and the ticker.
+
+### 7.25 One product: the shared nav (14 Oct 2026, `topnav.css`)
+
+The TEPHRA mark at the top left goes home (the Wall) on every page. The Desk, Connect and the guide
+carry the same pill nav, Wall · Desk · Connect · Guide, the page you are on filled; the Wall keeps
+"Connect" and "Desk →" in its header and the guide in its footer. Below 760 px only the current
+page shows (the Desk hides it below 600 px).
 
 ## 8. 3D, compare, the time bar and the height filter
 

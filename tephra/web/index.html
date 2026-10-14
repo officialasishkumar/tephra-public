@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="https://unpkg.com/@maplibre/maplibre-gl-compare@0.5.0/dist/maplibre-gl-compare.css">
   <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/topnav.css">
   <link rel="stylesheet" href="/static/mapui.css">
   <link rel="stylesheet" href="/static/wall.css">
   <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -44,10 +45,10 @@
   </div>
 
   <header class="cmdbar">
-    <div class="brand">
+    <a class="brand" href="/" title="TEPHRA home">
       <span class="brand__mark">TEPHRA</span>
       <span class="brand__sub">Volcanic-ash decision desk</span>
-    </div>
+    </a>
     <span id="mode-badge" class="mode-badge mode-badge--connecting">Connecting…</span>
     <div class="areapick">
       <button id="area-btn" class="area-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="regions">
