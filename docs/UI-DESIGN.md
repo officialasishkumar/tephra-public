@@ -1498,17 +1498,18 @@ name shortens. The Desk hides the nav below 600 px.
 
 ### 7.26 The Wall's footer is a status line (14 Oct 2026)
 
-The footer row (32 px) reads like a terminal status line, inverted so it reads as its own strip: a
-light bar with dark ink, the pairing of the nav's current page. On the left: a dot for the state (green
-live, violet replay, amber when updates stopped), the address `tephra://wall/<volcano>`, then what
-the Wall shows now in short segments, all written by code: the volcano's valid official areas, the
-view (`view=2d|3d|compare`), `policy=A` (a link to the guide's policy, its id
-and version in the tooltip) and `credits` (a link to the guide's credits, the full credit string in
-the tooltip; OpenStreetMap stays on the map). The fictional-airline note is the facts' tooltip and
-stays in the strip on top. On the right: the keys, each also a button that runs it: `?` guide,
-`a` assistant, `[ ]` volcano (from 1360 px), `f` fit, `d` 3D, `s` compare, `esc` back. On a phone the
-keys are hidden and the line wraps. The flights inside and heading in are not repeated here: the
-story says them (each fact once). Privacy moved to the guide's foot (and the Desk's sign-in).
+The footer row (32 px) is a status line, inverted so it reads as its own strip: a light bar with
+dark ink, the pairing of the nav's current page. It is written for a dispatcher, not a programmer:
+plain words, no addresses or `key=value`. On the left: a dot for the state (green live, violet
+replay, amber when updates stopped; its name on hover), the volcano in bold, then its official ash
+areas and the view ("Flat map", "3D view", "Side-by-side compare"), "Policy A" (a link to the
+guide's policy, its id and version in the tooltip) and "Credits" (a link to the guide's credits,
+the full credit string in the tooltip; OpenStreetMap stays on the map). The fictional-airline note
+is the facts' tooltip and stays in the strip on top. On the right: the keys, each also a button that
+runs it: ? Guide, A Assistant, [ ] Volcano (from 1360 px), F Fit map, D 3D, S Compare, Esc Back. On a
+phone the keys are hidden and the line wraps. The flights inside and heading in are not repeated
+here: the story says them (each fact once). Privacy moved to the guide's foot (and the Desk's
+sign-in).
 
 Times a reader meets first say "10:32 UTC" (`utcTime`), not "1032Z": the story card ("Updated
 10:32 UTC", its notes and the airport plan) and the time bar's clock.

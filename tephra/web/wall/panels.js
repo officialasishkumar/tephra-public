@@ -221,23 +221,25 @@ export function renderChrome(D, store, ui) {
   renderStatusLine(D, ui);
 }
 
-// The status line (UI-DESIGN 7.26): a dot for the state, the address, then what the Wall shows now
-// in short segments; the policy and credits segments are links to the guide.
+// The status line (UI-DESIGN 7.26): a dot for the state, then what the Wall shows now in plain
+// words; the policy and credits segments are links to the guide.
 function renderStatusLine(D, ui) {
   const s = D.state;
-  $("stl-dot").dataset.tone = document.body.classList.contains("is-stale") ? "stale" : s.mode === "REPLAY" ? "replay" : "live";
+  const tone = document.body.classList.contains("is-stale") ? "stale" : s.mode === "REPLAY" ? "replay" : "live";
+  $("stl-dot").dataset.tone = tone;
+  $("stl-dot").title = { stale: "Not updating", replay: "Replay", live: "Live" }[tone];
   const vid = D.sit?.volcano_id;
   const areas = vid ? D.official.filter((f) => f.properties.volcano_id === vid && f.properties.step === "now" && f.properties.valid).length : 0;
-  // The volcano goes in the address; the flights inside and heading in are the story's (said once).
-  const slug = D.sit ? `/${D.sit.volcano_name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}` : "";
-  setText($("stl-where"), `tephra://wall${slug}`);
-  const facts = D.sit ? [plural(areas, "official area")] : ["no ash in this area"];
-  setText($("stl-facts"), [...facts, `view=${ui.compare ? "compare" : ui.d3 ? "3d" : "2d"}`].join(" · "));
+  // Plain words for a dispatcher, not an address: the volcano, its official areas and the view.
+  // The flights inside and heading in are the story's (said once).
+  setText($("stl-where"), D.sit ? D.sit.volcano_name : "No ash in this area");
+  const view = ui.compare ? "Side-by-side compare" : ui.d3 ? "3D view" : "Flat map";
+  setText($("stl-facts"), [D.sit ? plural(areas, "official ash area") : null, view].filter(Boolean).join(" · "));
   const policy = s.policy;
   const policyBtn = $("policy-btn");
   policyBtn.hidden = !policy;
   if (policy) {
-    setText(policyBtn, `policy=${policy.preset}`);
+    setText(policyBtn, `Policy ${policy.preset}`);
     policyBtn.title = `${policy.policy_id} v${policy.version}: ${policy.label} (illustrative). Open its values and sources.`;
   }
   const extra = [];
