@@ -1,8 +1,13 @@
 """Desk sessions (signed cookies), the login throttle, the CSRF guard and the task token.
 
-The cookie is ``b64url(json{"n", "exp", "sid"}).b64url(hmac_sha256)`` keyed by
+The cookie is ``b64url(json{"n", "exp", "sid", "r"}).b64url(hmac_sha256)`` keyed by
 ``TEPHRA_SESSION_SECRET``. It is HttpOnly and SameSite=Strict, and every state-changing desk
 request must also be one a cross-site form cannot send (see :func:`require_csrf`).
+
+``r`` is the session's role: a dispatcher (the PIN) or a visitor (no PIN, REPLAY only, capped).
+A token signed before roles existed carries no ``r`` and verifies as a dispatcher. The guards a
+visitor meets live in :func:`require_desk`, matched on the request's method and path, so no
+feature router needs to know about roles.
 """
 
 import base64
@@ -11,10 +16,10 @@ import hmac
 import json
 import secrets
 import time
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Final
+from typing import Final, get_args
 from urllib.parse import urlsplit
 
 from fastapi import Request, Response
@@ -22,19 +27,25 @@ from pydantic import SecretStr
 
 from tephra.api import ApiError
 from tephra.config import Settings
-from tephra.models import SessionInfo
+from tephra.models import RunMode, SessionInfo, SessionRole
 from tephra.util import timeutil
 
 __all__ = [
     "COOKIE_NAME",
     "CSRF_HEADER",
+    "DISPATCHER_ONLY_PATHS",
     "TASK_HEADER",
+    "VISITOR_ASK_PATHS",
+    "VISITOR_DECISION_PATHS",
     "LoginThrottle",
+    "actor_of",
     "clear_session_cookie",
     "client_key",
+    "count_visitor_decision",
     "desk_disabled_error",
     "desk_enabled",
     "is_https",
+    "new_session_id",
     "pin_matches",
     "require_csrf",
     "require_desk",
@@ -50,6 +61,38 @@ COOKIE_NAME: Final = "tephra_desk"
 TASK_HEADER: Final = "X-Tephra-Task-Token"
 CSRF_HEADER: Final = "X-Tephra-Desk"
 MAX_TOKEN_CHARS: Final = 1024
+_ROLES: Final = frozenset(get_args(SessionRole))
+
+DISPATCHER_ONLY_PATHS: Final[tuple[tuple[str, str], ...]] = (
+    ("POST", "/api/mode"),
+    ("POST", "/api/desk/sample-feed"),
+    ("POST", "/api/desk/connections"),
+    ("POST", "/api/desk/upload"),
+    ("POST", "/api/desk/notices"),
+)
+"""Method and path prefix of what changes the server's picture: a visitor is refused (403)."""
+VISITOR_DECISION_PATHS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("POST", "/api/desk/advisories/", "/approve"),
+    ("POST", "/api/desk/advisories/", "/edit"),
+    ("POST", "/api/desk/advisories/", "/reject"),
+    ("POST", "/api/desk/recovery/", "/approve"),
+    ("POST", "/api/desk/recovery/", "/reject"),
+    ("POST", "/api/desk/messages/", "/approve"),
+    ("POST", "/api/desk/messages/", "/edit"),
+    ("POST", "/api/desk/messages/", "/reject"),
+    ("POST", "/api/desk/docs/", "/sign"),
+    ("POST", "/api/desk/handover/", "/ack"),
+)
+"""Method, path prefix and suffix of every decision a visitor's cap counts (an id sits
+between the two); a visitor may decide only while a replay plays."""
+VISITOR_ASK_PATHS: Final[tuple[tuple[str, str], ...]] = (
+    ("POST", "/api/desk/ask"),
+    ("POST", "/api/desk/ask/voice"),
+)
+"""Method and exact path of a question to Ask TEPHRA (speaking a stored answer is not one)."""
+VISITOR_ROLE_DETAIL: Final = "Visitors cannot do this; a dispatcher can."
+VISITOR_REPLAY_ONLY_DETAIL: Final = "Visitors can decide only while a replay plays."
+VISITOR_ASK_CAP_DETAIL: Final = "Visitors may ask three questions a session."
 
 
 def wall_clock_now() -> datetime:
@@ -81,12 +124,28 @@ def _filled(secret: SecretStr | None) -> bool:
 # --- signed session tokens --------------------------------------------------------------
 
 
-def sign_session(name: str, settings: Settings, *, at: datetime) -> tuple[str, datetime]:
-    """A session token for ``name`` and its expiry (whole seconds, UTC)."""
+def session_ttl_h(settings: Settings, role: SessionRole) -> float:
+    return settings.visitor_session_ttl_h if role == "visitor" else settings.desk_session_ttl_h
+
+
+def new_session_id() -> str:
+    return secrets.token_hex(8)
+
+
+def sign_session(
+    name: str,
+    settings: Settings,
+    *,
+    at: datetime,
+    role: SessionRole = "dispatcher",
+    sid: str | None = None,
+) -> tuple[str, datetime]:
+    """A session token for ``name`` and its expiry (whole seconds, UTC); ``sid`` is the
+    session id the token carries (a new one unless given)."""
     if not _filled(settings.session_secret):
         raise ValueError("TEPHRA_SESSION_SECRET is blank; refusing to sign a desk session")
-    expires_epoch = int((at + timedelta(hours=settings.desk_session_ttl_h)).timestamp())
-    claims = {"n": name, "exp": expires_epoch, "sid": secrets.token_hex(8)}
+    expires_epoch = int((at + timedelta(hours=session_ttl_h(settings, role))).timestamp())
+    claims = {"n": name, "exp": expires_epoch, "sid": sid or new_session_id(), "r": role}
     payload = _b64encode(json.dumps(claims, separators=(",", ":")).encode("utf-8"))
     token = f"{payload}.{_b64encode(_mac(payload, settings))}"
     return token, datetime.fromtimestamp(expires_epoch, UTC)
@@ -116,7 +175,17 @@ def verify_session(token: str, settings: Settings, *, at: datetime) -> SessionIn
         return None
     if expires_at <= at:
         return None
-    return SessionInfo(name=name, expires_at=expires_at)
+    role, sid = claims.get("r", "dispatcher"), claims.get("sid")
+    if role not in _ROLES or not isinstance(sid, str | None):
+        return None
+    if role == "visitor" and not sid:
+        return None  # a visitor's caps are per session id; every minted visitor has one
+    return SessionInfo(name=name, expires_at=expires_at, role=role, sid=sid or None)
+
+
+def actor_of(session: SessionInfo) -> str:
+    """The audit actor a session decides as: ``desk:<name>`` or ``visitor:<name>``."""
+    return f"{'visitor' if session.role == 'visitor' else 'desk'}:{session.name}"
 
 
 def _mac(payload: str, settings: Settings) -> bytes:
@@ -155,11 +224,18 @@ def client_key(request: Request) -> str:
     return request.client.host if request.client is not None else "unknown"
 
 
-def set_session_cookie(response: Response, token: str, settings: Settings, *, secure: bool) -> None:
+def set_session_cookie(
+    response: Response,
+    token: str,
+    settings: Settings,
+    *,
+    secure: bool,
+    role: SessionRole = "dispatcher",
+) -> None:
     response.set_cookie(
         COOKIE_NAME,
         token,
-        max_age=int(settings.desk_session_ttl_h * 3600),
+        max_age=int(session_ttl_h(settings, role) * 3600),
         path="/",
         httponly=True,
         samesite="strict",
@@ -188,14 +264,75 @@ async def require_desk_enabled(request: Request) -> None:
 
 
 async def require_desk(request: Request) -> SessionInfo:
-    """The dispatcher's session from the signed cookie; 401 without one."""
+    """The session from the signed cookie; 401 without one. A visitor's session also meets
+    the role guards here, before any route body runs: 403 ``visitor_role`` on what only a
+    dispatcher may change, 403 ``visitor_replay_only`` on a decision outside REPLAY, 429
+    ``visitor_cap`` / ``visitor_ask_cap`` once the session's caps are spent."""
     await require_desk_enabled(request)
     settings: Settings = request.app.state.settings
     token = request.cookies.get(COOKIE_NAME)
     session = verify_session(token, settings, at=wall_clock_now()) if token else None
     if session is None:
         raise ApiError(401, "unauthenticated", "Desk login required")
+    if session.role == "visitor":
+        _guard_visitor(request, session, settings)
     return session
+
+
+def _guard_visitor(request: Request, session: SessionInfo, settings: Settings) -> None:
+    method, path = request.method.upper(), request.url.path
+    if any(method == verb and _under(path, prefix) for verb, prefix in DISPATCHER_ONLY_PATHS):
+        raise ApiError(403, "visitor_role", VISITOR_ROLE_DETAIL)
+    decision = any(
+        method == verb and _under(path, prefix) and path.endswith(suffix)
+        for verb, prefix, suffix in VISITOR_DECISION_PATHS
+    )
+    asking = (method, path) in VISITOR_ASK_PATHS
+    if (decision or asking) and _mode(request) is not RunMode.REPLAY:
+        raise ApiError(403, "visitor_replay_only", VISITOR_REPLAY_ONLY_DETAIL)
+    if decision:
+        count_visitor_decision(request, session, settings)
+    if asking:
+        _count_visitor_ask(request, session, settings)
+
+
+def _mode(request: Request) -> RunMode:
+    runtime = getattr(request.app.state, "runtime", None)
+    if runtime is None:
+        raise ApiError(503, "starting", "TEPHRA is starting")
+    return runtime.mode
+
+
+def _under(path: str, prefix: str) -> bool:
+    """``prefix`` names the path itself or a parent of it (never a longer sibling)."""
+    return path == prefix or path.startswith(prefix if prefix.endswith("/") else prefix + "/")
+
+
+def _sid(session: SessionInfo) -> str:
+    assert session.sid is not None, "a visitor session always carries its id"
+    return session.sid
+
+
+def count_visitor_decision(request: Request, session: SessionInfo, settings: Settings) -> None:
+    """One more decision for the session; 429 ``visitor_cap`` at ``visitor_decision_cap``."""
+    decisions: Counter[str] = request.app.state.visitor_decisions
+    key = _sid(session)
+    if decisions[key] >= settings.visitor_decision_cap:
+        raise ApiError(
+            429,
+            "visitor_cap",
+            f"This visitor session has made its {settings.visitor_decision_cap} decisions. "
+            "Enter again to continue.",
+        )
+    decisions[key] += 1
+
+
+def _count_visitor_ask(request: Request, session: SessionInfo, settings: Settings) -> None:
+    decisions: Counter[str] = request.app.state.visitor_decisions
+    key = f"{_sid(session)}:ask"
+    if decisions[key] >= settings.visitor_ask_cap:
+        raise ApiError(429, "visitor_ask_cap", VISITOR_ASK_CAP_DETAIL)
+    decisions[key] += 1
 
 
 async def require_csrf(request: Request) -> None:

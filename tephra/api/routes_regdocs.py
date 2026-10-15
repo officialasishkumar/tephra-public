@@ -14,7 +14,7 @@ from pydantic import Field
 
 from tephra.api import ApiError
 from tephra.api.auth import require_csrf
-from tephra.api.server import DeskSession, RuntimeDep, _json
+from tephra.api.server import DeskSession, RuntimeDep, _actor, _json
 from tephra.models import TephraModel
 from tephra.regdocs.evidence import NoActiveVolcano, UnknownRegion
 from tephra.regdocs.models import DocKind, DocModel, DocSummary, SignRole, SraDraft, VarDraft
@@ -78,7 +78,7 @@ async def get_one_doc(doc_id: str, runtime: RuntimeDep) -> Response:
 @router.post("/desk/docs/sra", response_model=SraDraft, dependencies=[Depends(require_csrf)])
 async def draft_sra_route(body: SraRequest, session: DeskSession, runtime: RuntimeDep) -> Response:
     try:
-        doc = await draft_sra(runtime, body.region, actor=f"desk:{session.name}")
+        doc = await draft_sra(runtime, body.region, actor=_actor(session))
     except UnknownRegion:
         raise ApiError(404, "not_found", "No such region") from None
     except NoActiveVolcano:
@@ -93,7 +93,7 @@ async def draft_sra_route(body: SraRequest, session: DeskSession, runtime: Runti
 @router.post("/desk/docs/var", response_model=VarDraft, dependencies=[Depends(require_csrf)])
 async def draft_var_route(body: VarRequest, session: DeskSession, runtime: RuntimeDep) -> Response:
     try:
-        doc = await draft_var(runtime, body.flight_id, actor=f"desk:{session.name}")
+        doc = await draft_var(runtime, body.flight_id, actor=_actor(session))
     except FlightNotExposed:
         raise ApiError(404, "not_found", "That flight is not in the current exposure set") from None
     return _json(doc)
@@ -115,7 +115,7 @@ async def sign_route(
             doc_id,
             role=body.role,
             name=body.name,
-            actor=f"desk:{session.name}",
+            actor=_actor(session),
         )
     except DocNotFound:
         raise ApiError(404, "not_found", "No such document") from None

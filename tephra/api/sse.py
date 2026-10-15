@@ -76,7 +76,7 @@ async def event_stream(
             if event is not None and event.name == SseEvent.END_STREAMS:
                 return
             if event is None:
-                heartbeat = {"now": timeutil.to_iso(timeutil.now()), "mode": mode().value}
+                heartbeat = {"now": timeutil.to_iso(timeutil.now_exact()), "mode": mode().value}
                 yield _frame(SseEvent.HEARTBEAT.value, heartbeat, None)
             elif event.id > sent:
                 yield format_event(event)

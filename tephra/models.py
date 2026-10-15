@@ -1812,7 +1812,7 @@ class Advisory(TephraModel):
     dedupe_key: str = Field(description="stable_id('DD', hex, volcano_id, action, target)")
     plan_key: str | None = Field(
         default=None,
-        description="First 16 hex of the planner question's material; None on older drafts",
+        description="First 16 hex of the planner question's material; reserved, None today",
     )
     input_tokens: int | None = Field(
         default=None,

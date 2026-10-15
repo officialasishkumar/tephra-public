@@ -440,7 +440,7 @@ def test_csp_allows_what_maplibre_and_openfreemap_need() -> None:
     """The dark style, its TileJSON, vector and raster tiles, glyphs and sprites are all on
     tiles.openfreemap.org; MapLibre 4 runs its worker from a blob: URL."""
     directives = {part.split()[0]: part.split()[1:] for part in CONTENT_SECURITY_POLICY.split("; ")}
-    assert "https://unpkg.com" in directives["style-src"]
+    assert "https://unpkg.com/maplibre-gl@4.7.1/" in directives["style-src"]
     assert "https://tiles.openfreemap.org" in directives["connect-src"]
     assert {"data:", "blob:", "https://tiles.openfreemap.org"} <= set(directives["img-src"])
     assert "blob:" in directives["worker-src"]
@@ -484,6 +484,8 @@ def test_only_the_desk_page_may_use_the_microphone(client: TestClient) -> None:
         ("/api/desk/handover", "POST"),
         ("/api/desk/docs/sra", "POST"),
         ("/api/desk/docs/var", "POST"),
+        ("/api/advisories/{advisory_id}/chain", "GET"),
+        ("/api/evals", "GET"),
     ],
 )
 def test_the_feature_routers_are_mounted_under_api(

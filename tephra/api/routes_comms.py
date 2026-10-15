@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Response
 
 from tephra.api import ApiError
 from tephra.api.auth import require_csrf
-from tephra.api.server import DeskSession, Limit, RuntimeDep, _json
+from tephra.api.server import DeskSession, Limit, RuntimeDep, _actor, _json
 from tephra.comms import handover, messages
 from tephra.comms.models import (
     CrewPaxMessage,
@@ -44,10 +44,6 @@ class AiUnavailableBody(ErrorBody):
 def _ai_unavailable(exc: messages.AiUnavailable) -> Response:
     body = AiUnavailableBody(error="ai_unavailable", detail=str(exc), message=str(exc))
     return _json(body, 503)
-
-
-def _actor(name: str) -> str:
-    return f"desk:{name}"
 
 
 def _check_message_id(message_id: str) -> None:
@@ -89,7 +85,7 @@ async def draft_messages(
             runtime,
             advisory_id=body.advisory_id,
             recovery_id=body.recovery_id,
-            actor=_actor(session.name),
+            actor=_actor(session),
         )
     except messages.AiUnavailable as exc:
         return _ai_unavailable(exc)
@@ -135,7 +131,7 @@ async def approve_message(
             runtime.bus,
             message_id,
             expected_version=body.version,
-            actor=_actor(session.name),
+            actor=_actor(session),
         )
     )
 
@@ -156,7 +152,7 @@ async def edit_message(
             message_id,
             expected_version=body.version,
             bodies=body.bodies,
-            actor=_actor(session.name),
+            actor=_actor(session),
         )
     )
 
@@ -177,7 +173,7 @@ async def reject_message(
             message_id,
             expected_version=body.version,
             reason=body.reason,
-            actor=_actor(session.name),
+            actor=_actor(session),
         )
     )
 
@@ -228,7 +224,7 @@ async def ack_handover(handover_id: str, session: DeskSession, runtime: RuntimeD
     if _HANDOVER_ID.fullmatch(handover_id) is None:
         raise ApiError(404, "not_found", "No such handover")
     try:
-        brief = await handover.acknowledge(runtime, handover_id, actor=_actor(session.name))
+        brief = await handover.acknowledge(runtime, handover_id, actor=_actor(session))
     except handover.HandoverNotFound:
         raise ApiError(404, "not_found", "No such handover") from None
     return _json(brief)

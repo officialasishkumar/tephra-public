@@ -7,11 +7,14 @@ reach the ``outbound`` collection through ``tephra.desk.approvals``.
 """
 
 import asyncio
+import contextvars
 import json
 import logging
 import re
+import secrets
 import sys
 import time
+from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from dataclasses import dataclass
@@ -33,10 +36,12 @@ from tephra import __version__
 from tephra.api import ApiError
 from tephra.api.auth import (
     LoginThrottle,
+    actor_of,
     clear_session_cookie,
     client_key,
     desk_enabled,
     is_https,
+    new_session_id,
     pin_matches,
     require_csrf,
     require_desk,
@@ -59,6 +64,7 @@ from tephra.models import (
     AiFailureList,
     AuditAction,
     AuditList,
+    ChainHead,
     DecisionRequest,
     EditRequest,
     ErrorBody,
@@ -77,6 +83,7 @@ from tephra.models import (
     TephraModel,
     TickReport,
     TraceEvent,
+    TraceStage,
     UtcDatetime,
     WallResponse,
 )
@@ -98,7 +105,8 @@ CONTENT_SECURITY_POLICY: Final = "; ".join(
         # Scripts only from the two pinned packages (docs/UI-DESIGN.md, THIRD_PARTY.md).
         "script-src 'self' https://unpkg.com/maplibre-gl@4.7.1/"
         " https://unpkg.com/@maplibre/maplibre-gl-compare@0.5.0/",
-        "style-src 'self' https://unpkg.com",
+        "style-src 'self' https://unpkg.com/maplibre-gl@4.7.1/"
+        " https://unpkg.com/@maplibre/maplibre-gl-compare@0.5.0/",
         # Map tiles: OpenFreeMap basemap, NASA GIBS satellite context, Mapterhorn terrain; the map
         # card's freely licensed photos: Wikidata finds them, Commons checks the licence and serves.
         "img-src 'self' data: blob: https://tiles.openfreemap.org"
@@ -131,6 +139,16 @@ SECURITY_HEADERS: Final = {
 }
 STREAMS_RETRY_AFTER_S: Final = 5
 """The Wall and the Desk reopen a refused event stream after 5 s on their own."""
+VISITOR_MINTS_PER_WINDOW: Final = 10
+VISITOR_MINT_WINDOW_S: Final = 600.0
+"""Visitor sessions one client may open in ten minutes (429 ``too_many_visitors`` past it)."""
+AUDIT_VERIFY_NOTE: Final = (
+    "walked from the first entry at startup; later entries are linked as written"
+)
+CLOUD_TRACE_HEADER: Final = "x-cloud-trace-context"
+TRACEPARENT_HEADER: Final = "traceparent"
+_CLOUD_TRACE = re.compile(r"^([0-9a-fA-F]{32})(?:/(\d{1,20}))?(?:;o=([01]))?$")
+_TRACEPARENT = re.compile(r"^[0-9a-fA-F]{2}-([0-9a-fA-F]{32})-([0-9a-fA-F]{16})-([0-9a-fA-F]{2})$")
 SCHEDULER_STOP_TIMEOUT_S: Final = 10.0
 GZIP_MIN_BYTES: Final = 1024
 """Responses smaller than this go out uncompressed; gzip would not pay for itself."""
@@ -222,6 +240,34 @@ class ModeRequest(TephraModel):
     case_id: str | None = Field(default=None, pattern=_CASE_ID_PATTERN)
 
 
+class VisitorRequest(TephraModel):
+    name: str | None = Field(default=None, max_length=64)
+
+
+class AuditVerify(TephraModel):
+    """``GET /api/audit/verify``: the chain's head as this instance last verified it."""
+
+    intact: bool
+    entries: int
+    head_seq: int
+    head_sha256: str
+    checked_at: UtcDatetime
+    problems: list[str] = Field(description="The first five, when any")
+    note: str = Field(description="What the check covered")
+
+    @classmethod
+    def of(cls, head: ChainHead) -> Self:
+        return cls(
+            intact=head.intact,
+            entries=head.entries,
+            head_seq=head.seq,
+            head_sha256=head.sha256,
+            checked_at=head.checked_at,
+            problems=head.problems[:5],
+            note=AUDIT_VERIFY_NOTE,
+        )
+
+
 # --- dependencies -----------------------------------------------------------------------
 
 
@@ -263,7 +309,7 @@ def _json(
 
 
 def _actor(session: SessionInfo) -> str:
-    return f"desk:{session.name}"
+    return actor_of(session)
 
 
 def _check_advisory_id(advisory_id: str) -> None:
@@ -413,6 +459,16 @@ async def get_audit(
 ) -> Response:
     entries = await audit.list_entries(runtime.store, advisory_id=advisory_id, limit=limit)
     return _json(AuditList(entries=entries))
+
+
+@read_api.get("/audit/verify", response_model=AuditVerify)
+async def get_audit_verify(runtime: RuntimeDep) -> Response:
+    """Public: the count and hash of the audit chain's head, and whether the walk from the
+    first entry on this instance found it intact (``tephra.desk.audit``)."""
+    head = runtime.audit_head
+    if head is None:
+        raise ApiError(503, "starting", "The audit chain has not been checked yet")
+    return _json(AuditVerify.of(head))
 
 
 @read_api.get("/outbound", response_model=OutboundList)
@@ -583,10 +639,43 @@ async def login(
         )
         raise ApiError(401, "bad_pin", "Wrong PIN")
     throttle.clear(client)
-    token, expires_at = sign_session(name, settings, at=wall_clock_now())
+    sid = new_session_id()
+    token, expires_at = sign_session(name, settings, at=wall_clock_now(), sid=sid)
     await audit.record(runtime.store, actor=f"desk:{name}", action=AuditAction.LOGIN_OK)
-    response = _json(SessionInfo(name=name, expires_at=expires_at))
+    response = _json(SessionInfo(name=name, expires_at=expires_at, sid=sid))
     set_session_cookie(response, token, settings, secure=is_https(request))
+    return response
+
+
+@desk_api.post(
+    "/desk/visitor",
+    response_model=SessionInfo,
+    dependencies=[Depends(require_csrf), Depends(require_desk_enabled)],
+)
+async def enter_as_visitor(
+    body: VisitorRequest, request: Request, runtime: RuntimeDep, settings: SettingsDep
+) -> Response:
+    """A visitor session without a PIN, only while a replay plays and the server allows it.
+    Every decision it makes is audited as ``visitor:<name>`` and capped per session."""
+    if settings.visitor_access != "replay" or runtime.mode is not RunMode.REPLAY:
+        raise ApiError(503, "visitor_off", "Visitor access is switched off on this server.")
+    throttle: LoginThrottle = request.app.state.visitor_throttle
+    client = client_key(request)
+    if throttle.blocked(client):
+        raise ApiError(
+            429,
+            "too_many_visitors",
+            "Too many visitor sessions from this address; try again later",
+            headers={"Retry-After": str(throttle.retry_after_s(client))},
+        )
+    throttle.record_failure(client)  # every mint counts, not only a refused one
+    name = _desk_name(body.name) if body.name else f"Visitor-{secrets.token_hex(2)}"
+    sid = new_session_id()
+    token, expires_at = sign_session(name, settings, at=wall_clock_now(), role="visitor", sid=sid)
+    session = SessionInfo(name=name, expires_at=expires_at, role="visitor", sid=sid)
+    await audit.record(runtime.store, actor=_actor(session), action=AuditAction.VISITOR_ENTERED)
+    response = _json(session)
+    set_session_cookie(response, token, settings, secure=is_https(request), role="visitor")
     return response
 
 
@@ -623,16 +712,20 @@ async def approve_advisory(
 ) -> Response:
     _check_advisory_id(advisory_id)
     reason, note = await _crew_reason(runtime, advisory_id, body.reason)
-    advisory = await approvals.approve(
-        runtime.store,
-        runtime.bus,
-        advisory_id,
-        expected_version=body.version,
-        actor=_actor(session),
-        reason=reason,
-        note=note,
-    )
-    return _json(advisory)
+
+    async def decide(cone_id: str | None) -> Advisory:
+        return await approvals.approve(
+            runtime.store,
+            runtime.bus,
+            advisory_id,
+            expected_version=body.version,
+            actor=_actor(session),
+            reason=reason,
+            note=note,
+            current_cone_id=cone_id,
+        )
+
+    return _json(await _decide_against_now(runtime, advisory_id, decide))
 
 
 @desk_api.post(
@@ -645,17 +738,51 @@ async def edit_advisory(
 ) -> Response:
     _check_advisory_id(advisory_id)
     reason, note = await _crew_reason(runtime, advisory_id, body.reason)
-    advisory = await approvals.edit_and_approve(
-        runtime.store,
-        runtime.bus,
-        advisory_id,
-        expected_version=body.version,
-        body=body.body,
-        actor=_actor(session),
-        reason=reason,
-        note=note,
-    )
-    return _json(advisory)
+
+    async def decide(cone_id: str | None) -> Advisory:
+        return await approvals.edit_and_approve(
+            runtime.store,
+            runtime.bus,
+            advisory_id,
+            expected_version=body.version,
+            body=body.body,
+            actor=_actor(session),
+            reason=reason,
+            note=note,
+            current_cone_id=cone_id,
+        )
+
+    return _json(await _decide_against_now(runtime, advisory_id, decide))
+
+
+async def _decide_against_now(
+    runtime: Runtime, advisory_id: str, decide: Callable[[str | None], Awaitable[Advisory]]
+) -> Advisory:
+    """Queue a draft against the situation now: ``decide`` gets the id of the ash area held
+    for the draft's volcano, so a draft written for an older area is refused
+    (``cone_changed``, 409). The id is read from ``cones/<volcano_id>``, which the pipeline
+    writes on every change of its cone; None when the server cannot say (no such draft, a
+    draft of the other mode, no cone held). A refusal is one trace line on the Wall (stage
+    DESK, by code) before the handler answers; a missing draft is the decision's own 404."""
+    advisory = await approvals.get_advisory(runtime.store, advisory_id)
+    cone_id = None
+    if advisory is not None and advisory.replay == (runtime.mode is RunMode.REPLAY):
+        doc = await runtime.store.get(Collection.CONES, advisory.volcano_id)
+        held = None if doc is None else doc.get("id")
+        cone_id = held if isinstance(held, str) else None
+    try:
+        return await decide(cone_id)
+    except approvals.RuleBlocked as exc:
+        flight = advisory_id if advisory is None else advisory.proxy_flight
+        runtime.trace(
+            TraceStage.DESK,
+            "code",
+            f"{flight}: approval refused: {exc.problems[0]}",
+            level="warn",
+            volcano_id=None if advisory is None else advisory.volcano_id,
+            flight_id=None if advisory is None else advisory.flight_id,
+        )
+        raise
 
 
 async def _crew_reason(
@@ -839,6 +966,11 @@ def _install_error_handlers(app: FastAPI) -> None:
     async def advisory_not_found(_: Request, exc: approvals.AdvisoryNotFound) -> Response:
         return _json(ErrorBody(error="not_found", detail="No such advisory"), 404)
 
+    @app.exception_handler(approvals.RuleBlocked)
+    async def rule_blocked(_: Request, exc: approvals.RuleBlocked) -> Response:
+        body = ErrorBody(error=exc.code, detail=exc.problems[0], problems=exc.problems)
+        return _json(body, 409)
+
     @app.exception_handler(approvals.EditRejected)
     async def edit_rejected(_: Request, exc: approvals.EditRejected) -> Response:
         body = ErrorBody(
@@ -883,6 +1015,7 @@ class HttpGuardMiddleware:
             "x-forwarded-proto", ""
         ).lower().startswith("https")
         path: str = scope.get("path", "")
+        _request_trace.set(request_trace(request_headers))
 
         async def guarded_send(message: Message) -> None:
             nonlocal status
@@ -942,6 +1075,36 @@ def _capped(receive: Receive, limit: int) -> Receive:
     return capped_receive
 
 
+@dataclass(frozen=True, slots=True)
+class RequestTrace:
+    """The trace Cloud Run's front end stamps on a request, so every log line of the request
+    joins it in Cloud Trace. ``span_id`` is 16 hex digits; ``sampled`` is the trace flag."""
+
+    trace_id: str
+    span_id: str | None = None
+    sampled: bool = False
+
+
+_request_trace: contextvars.ContextVar[RequestTrace | None] = contextvars.ContextVar(
+    "tephra_request_trace", default=None
+)
+
+
+def request_trace(headers: Headers) -> RequestTrace | None:
+    """``X-Cloud-Trace-Context`` (``TRACE_ID/SPAN_ID;o=1``, the span decimal) first, then W3C
+    ``traceparent``; a malformed header is ignored."""
+    cloud = _CLOUD_TRACE.match(headers.get(CLOUD_TRACE_HEADER, "").strip())
+    if cloud is not None:
+        trace_id, span, flag = cloud.groups()
+        span_id = None if span is None else format(int(span) & 0xFFFFFFFFFFFFFFFF, "016x")
+        return RequestTrace(trace_id.lower(), span_id, flag == "1")
+    w3c = _TRACEPARENT.match(headers.get(TRACEPARENT_HEADER, "").strip())
+    if w3c is not None:
+        trace_id, span_id, flags = w3c.groups()
+        return RequestTrace(trace_id.lower(), span_id.lower(), bool(int(flags, 16) & 1))
+    return None
+
+
 def _log_request(scope: Scope, status: int, elapsed_s: float) -> None:
     path: str = scope.get("path", "")
     level = logging.DEBUG if path in {"/health", "/healthz"} else logging.INFO
@@ -964,8 +1127,15 @@ def _log_request(scope: Scope, status: int, elapsed_s: float) -> None:
 class JsonLogFormatter(logging.Formatter):
     """One JSON object per line, in the shape Cloud Logging reads (``severity``, ``message``).
 
-    Extra structured fields are passed as ``extra={"json_fields": {...}}``.
+    Extra structured fields are passed as ``extra={"json_fields": {...}}``. A line written
+    while a request is handled carries that request's trace: with ``project`` set, the
+    ``logging.googleapis.com/trace`` fields Cloud Logging joins to Cloud Trace; without one,
+    a plain ``trace_id``.
     """
+
+    def __init__(self, *, project: str | None = None) -> None:
+        super().__init__()
+        self.project = project
 
     def format(self, record: logging.LogRecord) -> str:
         entry: dict[str, Any] = {
@@ -977,15 +1147,30 @@ class JsonLogFormatter(logging.Formatter):
         fields = getattr(record, "json_fields", None)
         if isinstance(fields, Mapping):
             entry.update(fields)
+        entry.update(self._trace_fields(_request_trace.get()))
         if record.exc_info:
             entry["stack_trace"] = self.formatException(record.exc_info)
         return json.dumps(entry, ensure_ascii=False, default=str)
 
+    def _trace_fields(self, trace: RequestTrace | None) -> dict[str, Any]:
+        if trace is None:
+            return {}
+        if self.project is None:
+            return {"trace_id": trace.trace_id}
+        fields: dict[str, Any] = {
+            "logging.googleapis.com/trace": f"projects/{self.project}/traces/{trace.trace_id}",
+            "logging.googleapis.com/trace_sampled": trace.sampled,
+        }
+        if trace.span_id is not None:
+            fields["logging.googleapis.com/spanId"] = trace.span_id
+        return fields
 
-def configure_logging(level: str) -> None:
-    """Route every logger (uvicorn's included) through one JSON handler on stdout."""
+
+def configure_logging(level: str, *, project: str | None = None) -> None:
+    """Route every logger (uvicorn's included) through one JSON handler on stdout;
+    ``project`` (the GCP project) makes the request trace fields Cloud Logging joins."""
     handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(JsonLogFormatter())
+    handler.setFormatter(JsonLogFormatter(project=project))
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(level)
@@ -1062,10 +1247,12 @@ def _include_feature_routers(app: FastAPI) -> None:
     from tephra.api import (
         routes_ask,
         routes_backtest,
+        routes_chain,
         routes_comms,
         routes_connect,
         routes_crew,
         routes_duty,
+        routes_evals,
         routes_notices,
         routes_recovery,
         routes_regdocs,
@@ -1081,6 +1268,8 @@ def _include_feature_routers(app: FastAPI) -> None:
         routes_duty,
         routes_crew,
         routes_connect,
+        routes_chain,
+        routes_evals,
     ):
         app.include_router(module.router, prefix="/api")
 
@@ -1101,6 +1290,10 @@ def create_app(
     )
     app.state.settings = settings
     app.state.login_throttle = LoginThrottle()
+    app.state.visitor_throttle = LoginThrottle(
+        max_failures=VISITOR_MINTS_PER_WINDOW, window_s=VISITOR_MINT_WINDOW_S
+    )
+    app.state.visitor_decisions = Counter[str]()
     app.state.event_streams = StreamSlots(settings.max_event_streams)
     _install_error_handlers(app)
     # Starlette's GZip skips text/event-stream, images and woff2 by default, so the SSE stream is
