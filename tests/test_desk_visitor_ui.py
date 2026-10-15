@@ -44,13 +44,21 @@ def test_sign_in_card_offers_enter_as_a_visitor() -> None:
     assert "Your name (optional)" in html
     assert "Visitors cannot change the display or the feeds." in html
     assert "go into the public record as visitor:&lt;your name&gt;" in html
-    assert "<span>Dispatchers</span>" in html
+    # Visitor or Dispatcher: two tabs, hidden with the card until the state says visitor_access
+    tabs_tag = html.split('id="login-tabs"')[1].split(">")[0]
+    assert 'role="tablist"' in tabs_tag
+    assert "hidden" in tabs_tag
+    assert 'aria-controls="visitor-card"' in html
+    assert 'aria-controls="dispatcher-card"' in html
 
 
 def test_login_reads_visitor_access_and_posts_the_visitor_route() -> None:
     login = _read("desk/login.js")
     assert "app.state.visitor_access === true" in login
     assert "export function syncVisitorCard()" in login
+    sync = _function(login, "syncVisitorCard")
+    assert "e.tabs.hidden = !on;" in sync
+    assert "way = e.name.value ? 'dispatcher' : 'visitor';" in sync
     enter = _function(login, "enterAsVisitor")
     assert "api(PATHS.visitor, { method: 'POST', body: { name: name || null } })" in enter
     assert "code === 'visitor_off'" in enter

@@ -1,7 +1,7 @@
 // Sign-in (docs/UI-DESIGN.md 10.2): name, PIN with an on-screen PIN pad, and the states
 // wrong PIN, too many attempts (429 + Retry-After countdown), Desk switched off (503),
-// invalid name (422) and offline. The visitor card (SPEC 5.1) sits above the PIN form while
-// /api/state says visitor_access: one tap, an optional name, no PIN, REPLAY only.
+// invalid name (422) and offline. While /api/state says visitor_access, two tabs choose the way in:
+// the visitor card (SPEC 5.1: one tap, an optional name, no PIN, REPLAY only) or the PIN form.
 
 import { PATHS, api, errorCode, isSession, retryAfterS } from './api.js';
 import { byId, el, icon } from './dom.js';
@@ -24,6 +24,9 @@ const VISITOR_LABEL = 'Enter as a visitor →';
 let lockTimer = 0;
 let lockUntil = 0;
 let onSignedIn = () => {};
+// The tab chosen while visitor access is on: null until the tabs first show, then the visitor's
+// one tap unless this browser has signed in a dispatcher before.
+let way = null;
 
 const els = () => ({
   view: byId('login-view'),
@@ -38,6 +41,8 @@ const els = () => ({
   pad: byId('pin-pad'),
   title: byId('login-title'),
   visitor: byId('visitor-card'),
+  dispatcher: byId('dispatcher-card'),
+  tabs: byId('login-tabs'),
   vform: byId('visitor-form'),
   vname: byId('visitor-name'),
   vnameErr: byId('visitor-name-err'),
@@ -59,6 +64,17 @@ export function initLogin(signedIn) {
   e.pin.addEventListener('input', () => setError('pin', ''));
   e.name.addEventListener('input', () => setError('name', ''));
   e.vname.addEventListener('input', () => setError('vname', ''));
+  e.tabs.addEventListener('click', (event) => {
+    const tab = event.target.closest('[data-way]');
+    if (tab) chooseWay(tab.dataset.way, { focus: true });
+  });
+  e.tabs.addEventListener('keydown', (event) => {
+    const keys = { ArrowLeft: 'visitor', ArrowRight: 'dispatcher', Home: 'visitor', End: 'dispatcher' };
+    if (!keys[event.key]) return;
+    event.preventDefault();
+    chooseWay(keys[event.key]);
+    byId(`tab-${way}`).focus();
+  });
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'back'];
   for (const key of keys) {
     const label = key === 'clear' ? 'Clear' : key === 'back' ? null : key;
@@ -95,6 +111,7 @@ export function showLogin(message = '', { disabled = false, info = false } = {})
   e.view.hidden = false;
   e.disabled.hidden = !disabled;
   e.form.hidden = disabled;
+  e.dispatcher.querySelector('.login__hint').hidden = disabled;
   setError('name', '');
   setError('pin', '');
   setError('form', '');
@@ -106,6 +123,11 @@ export function showLogin(message = '', { disabled = false, info = false } = {})
   }
   syncVisitorCard();
   if (disabled) return;
+  focusWay();
+}
+
+function focusWay() {
+  const e = els();
   if (!e.visitor.hidden) e.vsubmit.focus();
   else (e.name.value ? e.pin : e.name).focus();
 }
@@ -114,19 +136,41 @@ export const hideLogin = () => {
   els().view.hidden = true;
 };
 
-// The visitor card shows only while the server says a visitor may enter (SystemState.visitor_access:
-// the setting is on and a replay plays); desk.js calls this on every state arrival, so the card
-// follows a display switch. With the card, the title names the whole sign-in; the "Dispatchers"
-// divider labels the PIN form.
+// The tabs show only while the server says a visitor may enter (SystemState.visitor_access: the
+// setting is on and a replay plays); desk.js calls this on every state arrival, so they follow a
+// display switch. With the tabs, the title names the whole sign-in; without them, the PIN form
+// is the only way in.
 export function syncVisitorCard() {
   const e = els();
   const on = Boolean(app.state && app.state.visitor_access === true) && e.form.hidden === false;
-  const appeared = on && e.visitor.hidden;
-  e.visitor.hidden = !on;
+  const appeared = on && e.tabs.hidden;
+  e.tabs.hidden = !on;
   e.title.textContent = on ? 'Sign in to the Desk' : 'Dispatcher sign-in';
-  // The state usually lands after the form took focus: the one-tap way in becomes the first stop
+  if (!on) {
+    e.visitor.hidden = true;
+    e.dispatcher.hidden = false;
+    e.dispatcher.setAttribute('aria-labelledby', 'login-title');
+    return;
+  }
+  if (way === null) way = e.name.value ? 'dispatcher' : 'visitor';
+  e.dispatcher.setAttribute('aria-labelledby', 'tab-dispatcher');
+  chooseWay(way);
+  // The state usually lands after the form took focus: the chosen way in becomes the first stop
   // when nothing has been typed yet.
-  if (appeared && document.activeElement === e.name && !e.name.value) e.vsubmit.focus();
+  if (appeared && document.activeElement === e.name && !e.name.value) focusWay();
+}
+
+function chooseWay(which, { focus = false } = {}) {
+  const e = els();
+  way = which;
+  for (const tab of e.tabs.querySelectorAll('[data-way]')) {
+    const on = tab.dataset.way === which;
+    tab.setAttribute('aria-selected', String(on));
+    tab.tabIndex = on ? 0 : -1;
+  }
+  e.visitor.hidden = which !== 'visitor';
+  e.dispatcher.hidden = which !== 'dispatcher';
+  if (focus) focusWay();
 }
 
 async function enterAsVisitor(event) {

@@ -796,115 +796,7 @@ a {
   font-weight: var(--fw-semibold);
 }
 
-/* --- sign-in (10.2) ------------------------------------------------------------------- */
-
-.login__card {
-  max-width: 400px;
-  margin: var(--sp-2) auto 0;
-  padding: var(--sp-6) var(--sp-5);
-  border: 1px solid var(--c-line-2);
-  border-radius: var(--radius-lg);
-  background: var(--c-surface-2);
-}
-
-.login__title {
-  font-size: var(--fs-6);
-  font-weight: var(--fw-semibold);
-  line-height: var(--lh-tight);
-}
-
-.login__title:focus {
-  outline: none;
-}
-
-.login__what {
-  margin-top: var(--sp-3);
-  padding-left: var(--sp-3);
-  border-left: 2px solid var(--c-line-input);
-  font-size: var(--fs-3);
-  line-height: var(--lh-body);
-  color: var(--c-text-1);
-}
-
-.login__hint {
-  margin-top: var(--sp-3);
-  font-size: var(--fs-2);
-  line-height: var(--lh-body);
-  color: var(--c-text-2);
-}
-
-.login__card > .panel {
-  margin-top: var(--sp-4);
-}
-
-.login__form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-4);
-  margin-top: var(--sp-5);
-}
-
-.login__fine {
-  margin-top: var(--sp-4);
-  font-size: var(--fs-1);
-  line-height: 1.45;
-  color: var(--c-text-3);
-}
-
-/* --- the visitor card (SPEC 5.1): above the PIN form while a replay plays ------------------ */
-
-.visitor {
-  margin-top: var(--sp-5);
-}
-
-.visitor__title {
-  font-size: var(--fs-4);
-  font-weight: var(--fw-semibold);
-  line-height: var(--lh-tight);
-}
-
-.visitor__what {
-  margin-top: var(--sp-2);
-  font-size: var(--fs-2);
-  line-height: var(--lh-body);
-  color: var(--c-text-2);
-  overflow-wrap: anywhere;
-}
-
-.visitor__form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-  margin-top: var(--sp-4);
-}
-
-.visitor__fine {
-  margin-top: var(--sp-2);
-  font-size: var(--fs-1);
-  line-height: 1.45;
-  color: var(--c-text-3);
-}
-
-/* "Dispatchers": a rule with the word in the middle, between the two ways in */
-.login__divider {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  margin-top: var(--sp-5);
-  font-size: var(--fs-1);
-  font-weight: var(--fw-semibold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--c-text-3);
-}
-
-.login__divider::before,
-.login__divider::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--c-line-2);
-}
+/* --- sign-in (10.2): the split view is at the end of this file -------------------------- */
 
 /* the account menu's Pages block (below 600 px the shared nav is folded away) */
 .menu__pages .menu__fine {
@@ -2748,10 +2640,6 @@ textarea.field {
     bottom: var(--sp-6);
     width: 420px;
     margin: 0;
-  }
-
-  .login__card {
-    margin-top: var(--sp-12);
   }
 }
 
@@ -8334,18 +8222,6 @@ body {
   }
 }
 
-/* --- sign-in on a computer: the card sits just under the header and fits one screen ----------- */
-@media (min-width: 600px) {
-  .login__card {
-    margin-top: var(--sp-4);
-  }
-
-  /* signed out there is no tab pill to leave room for */
-  .dmain:has(> #login-view:not([hidden])) {
-    padding-top: var(--sp-4);
-  }
-}
-
 /* --- Ask's own colour: indigo, for Ask and nothing else (UI-DESIGN 10.18) ---------------------- */
 .askbtn {
   border: 1px solid transparent;
@@ -8650,4 +8526,414 @@ body {
   min-height: 32px;
   margin-top: 0;
   font-size: var(--fs-2);
+}
+
+/* --- sign-in (10.2): what the Desk is on the left, the ways in on the right -------------------
+   One screen at 900 px and up: the page does not scroll. Below it the two panes stack, the left
+   one cut to its headline and the safety line. */
+
+.login {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.login__intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.login__lede {
+  font-size: var(--fs-7);
+  font-weight: var(--fw-semibold);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--c-text-1);
+}
+
+.login__lede em {
+  font-style: normal;
+  background: linear-gradient(100deg, var(--c-tephra-text), var(--c-official-text));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.login__art,
+.login__steps {
+  display: none;
+}
+
+.login__what {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-2);
+  line-height: var(--lh-body);
+  color: var(--c-text-2);
+}
+
+.login__what .icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--c-ok);
+}
+
+.login__fine {
+  font-size: var(--fs-2);
+}
+
+.login__fine a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--c-text-2);
+  text-decoration: none;
+}
+
+.login__fine a:hover {
+  color: var(--c-text-1);
+}
+
+.login__fine a span {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
+}
+
+.login__fine .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.login__card {
+  width: 100%;
+  max-width: 420px;
+  padding: var(--sp-5);
+  border-width: 1px;
+  border-style: solid;
+}
+
+.login__title {
+  font-size: var(--fs-6);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+}
+
+.login__title:focus {
+  outline: none;
+}
+
+.login__card > .form-msg {
+  margin-top: var(--sp-3);
+}
+
+.login__card > .panel {
+  margin-top: var(--sp-4);
+}
+
+/* Visitor or Dispatcher: a two-way switch, the chosen way lit */
+.ways {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-top: var(--sp-4);
+  padding: 4px;
+  border: 1px solid var(--c-line-1);
+  border-radius: 14px;
+  background: var(--c-surface-1);
+}
+
+.ways__tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: 44px;
+  padding: 0 var(--sp-3);
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--c-text-3);
+  font-size: var(--fs-2);
+  font-weight: var(--fw-semibold);
+  transition: background-color var(--dur-2) var(--ease-standard), color var(--dur-2) var(--ease-standard);
+}
+
+.ways__tab:hover {
+  color: var(--c-text-1);
+}
+
+.ways__tab .icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+.ways__tab[aria-selected="true"] {
+  background: var(--c-surface-3);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-text-1) 10%, transparent), 0 6px 18px -8px rgb(0 0 0 / 0.7);
+  color: var(--c-text-1);
+}
+
+.ways__tab[aria-selected="true"] .icon {
+  color: var(--c-tephra);
+}
+
+.ways__sub {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c-text-1) 8%, transparent);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-medium);
+  color: var(--c-text-3);
+  white-space: nowrap;
+}
+
+@media (max-width: 430px) {
+  .ways__sub {
+    display: none;
+  }
+}
+
+.visitor,
+.dispatcher {
+  margin-top: var(--sp-4);
+}
+
+.visitor__form,
+.login__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* a field with its icon inside, on the left */
+.ifield {
+  position: relative;
+}
+
+.ifield__icon {
+  position: absolute;
+  top: 50%;
+  left: 14px;
+  width: 18px;
+  height: 18px;
+  color: var(--c-text-3);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.ifield .field {
+  padding-left: 44px;
+}
+
+.ifield:focus-within .ifield__icon {
+  color: var(--c-text-1);
+}
+
+/* what a visitor's tap means, in two short lines */
+.lfacts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: var(--sp-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lfacts li,
+.login__hint {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  font-size: var(--fs-1);
+  line-height: 1.45;
+  color: var(--c-text-3);
+  overflow-wrap: anywhere;
+}
+
+.login__hint {
+  margin-top: var(--sp-3);
+}
+
+.lfacts .icon,
+.login__hint .icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+}
+
+.login__card .pin-key {
+  min-height: 44px;
+}
+
+.login__card .field {
+  min-height: 46px;
+}
+
+#login-submit {
+  margin-top: var(--sp-1);
+}
+
+@media (min-width: 900px) {
+  .dmain:has(> #login-view:not([hidden])) {
+    max-width: none;
+    padding: 0;
+  }
+
+  .login {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: 0;
+    height: calc(100dvh - var(--dhead-h, 57px));
+    overflow: hidden;
+  }
+
+  .login__intro {
+    justify-content: center;
+    gap: var(--sp-5);
+    padding: var(--sp-8) clamp(var(--sp-8), 6vw, 96px);
+    border-right: 1px solid color-mix(in srgb, var(--c-text-1) 7%, transparent);
+    background:
+      radial-gradient(60% 50% at 20% 85%, color-mix(in srgb, var(--c-official) 12%, transparent), transparent 70%),
+      radial-gradient(55% 45% at 75% 20%, color-mix(in srgb, var(--c-tephra) 10%, transparent), transparent 70%);
+  }
+
+  .login__lede {
+    font-size: clamp(2.25rem, 3.6vw, 3.25rem);
+  }
+
+  .login__art {
+    display: block;
+    width: 100%;
+    max-width: 380px;
+    height: auto;
+  }
+
+  .login__art-tephra {
+    fill: var(--c-tephra-soft);
+    stroke: var(--c-tephra);
+    stroke-width: 1.5;
+    stroke-dasharray: 6 5;
+  }
+
+  .login__art-official {
+    fill: var(--c-official-soft);
+    stroke: var(--c-official);
+    stroke-width: 1.5;
+  }
+
+  .login__art-route {
+    fill: none;
+    stroke: var(--c-text-2);
+    stroke-width: 1.5;
+    stroke-dasharray: 2 6;
+    stroke-linecap: round;
+  }
+
+  .login__art-ahead {
+    fill: none;
+    stroke: var(--c-tephra);
+    stroke-width: 1.5;
+    stroke-dasharray: 2 6;
+    stroke-linecap: round;
+    opacity: 0.6;
+  }
+
+  .login__art-plane {
+    color: var(--c-text-1);
+  }
+
+  .login__art-volcano {
+    fill: var(--c-text-3);
+  }
+
+  .login__steps {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
+    max-width: 440px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: none;
+  }
+
+  /* the thread through the three steps */
+  .login__steps::before {
+    content: "";
+    position: absolute;
+    top: 18px;
+    bottom: 18px;
+    left: 17px;
+    width: 1px;
+    background: linear-gradient(var(--c-line-2), color-mix(in srgb, var(--c-line-2) 20%, transparent));
+  }
+
+  .login__steps li {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    font-size: var(--fs-3);
+    line-height: 1.4;
+    color: var(--c-text-2);
+  }
+
+  .login__steps b {
+    font-weight: var(--fw-semibold);
+    color: var(--c-text-1);
+  }
+
+  .login__steps .icon {
+    flex: none;
+    box-sizing: content-box;
+    width: 18px;
+    height: 18px;
+    padding: 8px;
+    border: 1px solid var(--c-line-2);
+    border-radius: 10px;
+    background: var(--c-surface-2);
+    color: var(--c-tephra);
+  }
+
+  .login__what {
+    align-self: flex-start;
+    padding: 6px 12px 6px 10px;
+    border: 1px solid color-mix(in srgb, var(--c-ok) 30%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--c-ok) 8%, transparent);
+  }
+
+  /* Top-aligned where the taller PIN card would be centred, so the title and the tabs stay put
+     when the way in changes. */
+  .login__card {
+    align-self: start;
+    justify-self: center;
+    margin: clamp(var(--sp-6), calc((100dvh - var(--dhead-h, 57px) - var(--pin-card-h, 640px)) / 2), 200px) var(--sp-6) 0;
+    max-height: calc(100% - 2 * var(--sp-6));
+    overflow-y: auto;
+  }
+}
+
+/* A computer screen that is short: type the PIN on the keyboard, not the pad. */
+@media (min-width: 900px) and (max-height: 860px) and (hover: hover) and (pointer: fine) {
+  .login__card {
+    --pin-card-h: 440px;
+  }
+
+  .login__card .pin-pad {
+    display: none;
+  }
+}
+
+@media (min-width: 900px) and (max-height: 720px) {
+  .login__art {
+    display: none;
+  }
 }

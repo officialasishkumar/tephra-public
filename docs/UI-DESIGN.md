@@ -1673,19 +1673,32 @@ advisories · 23 flights to plan by hand · 1 airport plan · 1 document to sign
 
 ### 10.2 Sign-in
 
-Centred card (max 400): title "Dispatcher sign-in" (24), then what the Desk is, for anyone who
-arrives here first ("The Desk is where a person decides. Every advisory, message, airport plan and
-document TEPHRA drafts waits here for a dispatcher to approve, edit or reject. Nothing is sent to
-an aircraft or any real system."), hint "Your name is recorded on every
-decision. The PIN is never stored on this phone." Name field (autocomplete `username`, 2-32
-chars) and PIN (`current-password`, numeric keyboard `inputmode="numeric"`), 48 px tall, 16 px
-text, labels above, errors under the field (`aria-describedby`), button "Sign in" (primary
-neutral: `--c-text-1` fill with ink text, 48 tall, full width). Errors (11.8): bad PIN, too many
-attempts (button disabled with a countdown from the `Retry-After` header), desk disabled,
-offline. The fine print ends with "See the Wall, the public picture, with no sign-in". A deep link waiting for a session shows "Sign in to review RFA1225." above the form
-(`#login-pending`, the flight named from the public `/api/advisories`; "Sign in to review this
-advisory." until it is known). On success: focus moves to the Decide title and the hash resumes
-(10.14).
+Two panes, one screen (15 Oct 2026). At 900 px and up the view fills the height under the header
+and the page does not scroll. The left pane says what the Desk is: the headline "TEPHRA drafts. A
+person decides.", a small drawing (the official area inside TEPHRA's wider estimate, a flight
+heading in), three steps with icons ("A draft for each flight heading into ash", "You approve,
+edit or reject it", "Every decision signed in the public audit"), the safety line "Nothing reaches
+a real aircraft or system." and "See the Wall, the public picture, with no sign-in". The right
+pane is the card (max 420): title, `#login-pending`, the form message, then the ways in. Below
+900 px the panes stack and the left one keeps only the headline, the safety line and the Wall link.
+
+While `/api/state` says `visitor_access`, the title is "Sign in to the Desk" and two tabs
+(`#login-tabs`, `role="tablist"`, arrow keys move) choose Visitor ("No PIN") or Dispatcher ("PIN");
+the first choice is Visitor unless this browser has signed a dispatcher in before. Visitor: an
+optional name and "Enter as a visitor →", then two lines: the decisions are real and go into the
+public record as visitor:<your name>, and visitors cannot change the display or the feeds.
+Without visitor access the title is "Dispatcher sign-in" and only the PIN form shows.
+
+The PIN form: name (autocomplete `username`, 2-32 chars) and PIN (`current-password`, numeric
+keyboard `inputmode="numeric"`), each with its icon inside the field, labels above, errors under
+the field (`aria-describedby`), an on-screen PIN pad (hidden on a short computer screen with a
+fine pointer, where the keyboard types the PIN), button "Sign in" (primary neutral), and the hint
+"Your name goes on each decision in the public audit. The PIN is never stored." with Privacy.
+Errors (11.8): bad PIN, too many attempts (button disabled with a countdown from the `Retry-After`
+header), desk disabled, offline. A deep link waiting for a session shows "Sign in to review
+RFA1225." above the ways in (`#login-pending`, the flight named from the public
+`/api/advisories`; "Sign in to review this advisory." until it is known). On success: focus moves
+to the Decide title and the hash resumes (10.14).
 
 ### 10.3 Decide (was Queue)
 
