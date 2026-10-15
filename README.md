@@ -8,12 +8,21 @@ Gemini drafts an advisory for each; a dispatcher approves every one on a phone.
 > Decision support only. Ring of Fire Air (RFA) is a fictional airline. Nothing is sent to any real
 > system. Not for operational use.
 
-[Live demo](https://tephra-647733667799.asia-southeast1.run.app) · Video <!-- owner: paste link --> · Deck (PDF) <!-- owner: paste link --> · ![ci](https://github.com/officialasishkumar/tephra-public/actions/workflows/ci.yml/badge.svg)
+[Live demo](https://tephra-647733667799.asia-southeast1.run.app) · ![ci](https://github.com/officialasishkumar/tephra-public/actions/workflows/ci.yml/badge.svg)
 
 Built on Google Cloud: Gemini (3.8 Flash and 3.5 Flash-Lite through the Gemini API), the Agent
 Development Kit, Cloud Run, Cloud Scheduler, Firestore, Secret Manager and Artifact Registry.
 
 ## See it in 60 seconds
+
+The Wall: the official ash area (pink) inside TEPHRA's wider estimate (amber), the flights heading
+in, and the day's story in two lines. Then the Desk on a phone: a draft advisory checked line by
+line, held to approve, and its receipt in the record. These are from the stub replay (code only, no
+model); the live demo draws the same screens with Gemini's readings and drafts.
+
+| The Wall (1440) | The Desk review (390) | The receipt (390) |
+|---|---|---|
+| ![The Wall: official area inside TEPHRA's estimate, flights heading in](docs/img/wall-1440.png) | ![The Desk: a draft checked line by line with hold to approve](docs/img/desk-review-390.png) | ![The Desk: the approval receipt with the audit seq](docs/img/desk-receipt-390.png) |
 
 
 ```bash
@@ -210,8 +219,9 @@ intact. Cost today is the free tier, with the always-on instance as the one paid
   (Semeru texts): not run, because the observatory's text is not in the repo.
 - **Calls per loop** ([`docs/evals/call-counts.json`](docs/evals/call-counts.json), the stub's
   answers counted under a model's name): the cold 9-hour Krakatau window asks the Plume reader
-  30 times and the lighter skills 1,303 times; the same window played again from kept answers asks
-  2 and 247. [`docs/EVALS.md`](docs/EVALS.md) has every table.
+  29 times and the lighter skills 1,184 times; the same window played again from kept answers asks
+  the Plume reader nothing and the lighter skills 16 times, so the public demo settles inside the
+  free tier. [`docs/EVALS.md`](docs/EVALS.md) has every table.
 - **A negative result, published.** Gemma 4 31B on the free tier failed the Notice reader schema
   0 of 5 and both ADK runs (503, 500), so every step stays on Gemini.
 - **Replay cases** rebuilt from public archives ([`data/replay/README.md`](data/replay/README.md)):

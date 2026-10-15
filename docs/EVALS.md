@@ -81,15 +81,25 @@ tier.
 
 | 9-hour loop | Plume reader (main model, 18 a day) | Coordinator | Flight planner | Drafter | Lite asks |
 |---|---|---|---|---|---|
-| Loop 1, cold (`docs/evals/call-counts.json`, before the material-question change) | 30 | 299 | 615 | 388 | 1,303 (one SRA draft included) |
-| Loop 2, played again from kept answers (same file) | 2 | 48 | 50 | 149 | 247 |
-| Loop 2 with the replay minute, 30 s offset (same file) | 2 | 48 | 50 | 149 | 247: the offset changes nothing |
+| Loop 1, cold, before the material question (`docs/evals/call-counts.json`, `offset_0`) | 30 | 299 | 615 | 388 | 1,303 (one SRA draft included) |
+| Loop 2, played again from kept answers (same run) | 2 | 48 | 50 | 149 | 247 |
+| Loop 2 with the replay minute, 30 s offset (`offset_30_quantum_60`) | 2 | 48 | 50 | 149 | 247: the offset changes nothing |
+| Loop 1, cold, material question, age limit on the replay clock (`material_question_cone_keyed_planning`) | 30 | 299 | 613 | 392 | 1,305 |
+| Loops 2 and 3 of that run | 2 | 48 | 50 | 149 | 247 each: the same questions expired every loop |
+| Loop 1, cold, shipped rule (`material_question_replay_age_free`) | 29 | 276 | 588 | 319 | 1,184 |
+| Loop 2 of that run, from kept answers | 0 | 8 | 0 | 8 | 16 |
 
 The replay minute (`TEPHRA_REPLAY_QUANTUM_S=60`) makes every loop and every deploy ask at the same
-replay instants, so a kept answer matches again. The planner and drafter questions are now keyed by
-the flight's decision inputs (the hazard band, the allowed actions, the urgency band, the level, the
-alternates and the usable reroutes) rather than by the cone's id; the after-change count is added to
-`docs/evals/call-counts.json` when it is run on the merged tree.
+replay instants, so a kept answer matches again. The planner and drafter questions are keyed by the
+flight's decision inputs (the hazard band, the allowed actions, the urgency band, the level, the
+open alternates and the usable reroutes, the last by their content) rather than by the cone's id.
+Two things were measured and not shipped: planning once per material question instead of per cone
+(677 planner asks against 385 on a 12:00Z start, because the level and the nearest alternates move
+with the aircraft), and the skill age limit on the replay clock (a question asked twice in a loop
+more than the limit apart was asked of the model again in every loop: 247 lighter asks a loop that
+never settled). In REPLAY a kept answer now serves its material question at any replay-clock age;
+in LIVE the age limit stands. The cold loop needs about three days of the free lighter budget
+(450 a day); after that the demo loop asks 16 lighter calls per 9 hours.
 
 ## 5. Speed and tokens
 

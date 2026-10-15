@@ -1,8 +1,8 @@
 {
  "generated_at": "2026-10-15",
- "script": "scripts/count_model_calls.py --start 2026-09-05T10:30:00Z --minutes 540 --loops 2",
+ "script": "scripts/count_model_calls.py --start 2026-09-05T10:30:00Z --minutes 540 --quantum-s 60 (--loops 2 or 3)",
  "stand_in": "the stub's offline answers under a model's name; every ask counted per skill (no model, no network)",
- "tree": "before T02 (material planner and drafter questions); the after-T02 run is added when T02 merges",
+ "tree": "offset_0 and offset_30_quantum_60: before the material planner and drafter questions (T02); material_question_cone_keyed_planning: after them, reroute ids by content, planning still keyed by cone, the skill age limit applied on the replay clock; material_question_replay_age_free: the same tree with a kept REPLAY answer serving its question at any replay-clock age (the shipped rule)",
  "runs": {
   "offset_0": {
    "args": {
@@ -105,7 +105,94 @@
     "sra kept": 1,
     "sra miss": 1
    }
+  },
+  "material_question_cone_keyed_planning": {
+   "args": {
+    "loop_offset_s": 0,
+    "quantum_s": 60,
+    "loops": 3
+   },
+   "loops": [
+    {
+     "coordinator": 299,
+     "drafter": 392,
+     "flight_planner": 613,
+     "plume_reader": 30,
+     "sra": 1
+    },
+    {
+     "coordinator": 48,
+     "drafter": 149,
+     "flight_planner": 50,
+     "plume_reader": 2
+    },
+    {
+     "coordinator": 48,
+     "drafter": 149,
+     "flight_planner": 50,
+     "plume_reader": 2
+    }
+   ],
+   "total": {
+    "coordinator": 395,
+    "drafter": 690,
+    "flight_planner": 713,
+    "plume_reader": 34,
+    "sra": 1
+   },
+   "total_asks": 1833,
+   "answers": {
+    "coordinator expired": 110,
+    "coordinator miss": 272,
+    "drafter expired": 355,
+    "drafter miss": 314,
+    "flight_planner expired": 125,
+    "flight_planner miss": 588,
+    "plume_reader expired": 5,
+    "plume_reader miss": 29,
+    "sra miss": 1
+   },
+   "note": "Loops 2 and 3 ask the same 247 lighter questions again: AiAnswer.age is the distance on the replay clock, so a question asked twice in a loop more than its skill limit apart expired every loop. Planning by the material question instead of the cone (T18, not shipped) measured 677 planner asks on a 12:00Z start against 385 with the cone."
+  },
+  "material_question_replay_age_free": {
+   "args": {
+    "loop_offset_s": 0,
+    "quantum_s": 60,
+    "loops": 2
+   },
+   "loops": [
+    {
+     "coordinator": 276,
+     "drafter": 319,
+     "flight_planner": 588,
+     "plume_reader": 29,
+     "sra": 1
+    },
+    {
+     "coordinator": 8,
+     "drafter": 8
+    }
+   ],
+   "total": {
+    "coordinator": 284,
+    "drafter": 327,
+    "flight_planner": 588,
+    "plume_reader": 29,
+    "sra": 1
+   },
+   "total_asks": 1229,
+   "answers": {
+    "coordinator hit": 346,
+    "coordinator miss": 272,
+    "drafter hit": 1054,
+    "drafter miss": 314,
+    "flight_planner hit": 780,
+    "flight_planner miss": 588,
+    "plume_reader hit": 31,
+    "plume_reader miss": 29,
+    "sra miss": 1
+   }
   }
  },
- "note": "Loop 1 is the cold window; loop 2 plays it again from kept answers. With the replay minute (quantum 60 s) a loop started 30 s later asks at the same instants and counts exactly as the unshifted loop."
+ "note": "Loop 1 is the cold window; the next loops play it again from kept answers. With the replay minute (quantum 60 s) a loop started 30 s later asks at the same instants and counts exactly as the unshifted loop. The shipped rule: a kept REPLAY answer serves its material question at any replay-clock age, so the demo loop settles at 16 lighter asks per 9 hours."
 }
