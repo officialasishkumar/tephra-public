@@ -10,7 +10,7 @@ The user's words: "there is too much mention of AI and its failure statuses ever
 make it better".
 
 Evidence: the 104-entry inventory of AI mentions (Wall story, map, Details, Desk) built from the
-live JSON with the shots in `<scratch>/quiet-shots/` (`inv/wall-1440.png`,
+live JSON with the shots in `<scratchpad>/quiet-shots/` (`inv/wall-1440.png`,
 `inv/wall-390.png`, `dinv/*.png`, `mapinv-*.png`, `desk-*.png`; method in
 `quiet-shots/desk-inv.mjs`). The state to design against: today's free Gemini quota is used up.
 `gemini-3.5-flash-lite` (every step except the Plume Reader and speech) is closed until 0700Z, and
@@ -389,7 +389,7 @@ They are part of this change because quieting AI must not hide them.
 
 ## 7. Acceptance checklist
 
-Measured with the live JSON fixtures in `<scratch>/quiet-shots/` (the same routed
+Measured with the live JSON fixtures in `<scratchpad>/quiet-shots/` (the same routed
 files as the inventory), at 1440x900 and 390x844, before and after. An "AI mention" is a visible
 text node in the viewport, with no tap and no hover, that names AI, a model or a model id, or an
 AI helper's failure (regex `\bAI\b|gemini|model|Duty Officer|planner|failed`, checked by hand),
@@ -448,7 +448,7 @@ plus any control whose only target is AI status.
 
 ## 8. As built (2026-10-13)
 
-Shots: before `<scratch>/quiet-shots/before/`, after `.../after/` (routed live JSON;
+Shots: before `<scratchpad>/quiet-shots/before/`, after `.../after/` (routed live JSON;
 `stub-*` is the stub app). Scripts in `.../quiet-shots/cap/`.
 
 | Measure (live paused state) | Before | After |
@@ -489,7 +489,7 @@ Where the build differs from sections 3 to 6, item by item:
 
 ### 8.1 Review fixes (2026-10-13, after 8536a92)
 
-Two reviews (clutter, honesty) of the first build. Shots: `<scratch>/quiet-shots/fix/`
+Two reviews (clutter, honesty) of the first build. Shots: `<scratchpad>/quiet-shots/fix/`
 (script `fix/wall.mjs` for the Wall variants live, lane, undone, trouble, open, feederr, recdata;
 `fix/desk.mjs` for the Desk scenarios live, lane, undone, drafts).
 
@@ -688,7 +688,7 @@ Two reviews of the naming build (coverage and honesty) found these, fixed here:
 ### 8.6 Say the cause once (2026-10-13, branch `quiet-quota`)
 
 The user's words: "don't mention AI quota left or not left everywhere". Evidence: the inventory of
-every quota, budget, reset and slot mention (`<scratch>/qq-shots/inventory.md`), with
+every quota, budget, reset and slot mention (`<scratchpad>/qq-shots/inventory.md`), with
 the live paused state of 13 Oct 2026 routed into the Wall and the Desk (`qq-shots/shots.mjs`,
 `before/` and `after/` shots and `text.json`). Before this change the quota was said in the Wall
 chip and its tooltip, the story's notice title, Details › Decisions, Flights, one flight, Airport

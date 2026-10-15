@@ -264,8 +264,8 @@ Files: `tephra/comms/{__init__,models,messages,handover}.py`,
 
 ### WP6 Regulator paperwork: SRA and VAR drafts
 
-Files: `tephra/docs/{__init__,models,sra,var}.py`, `tephra/agents/prompts/sra.md`,
-`tephra/api/routes_docs.py`, tests.
+Files (as built): `tephra/regdocs/`, `tephra/agents/prompts/sra.md`,
+`tephra/api/routes_regdocs.py`, tests.
 
 - `draft_sra(runtime, region) -> SraDraft`: the sections of research/18b recommendation A,
   filled by code from TEPHRA's evidence; Gemini (lite, one call) writes only the narrative
@@ -314,16 +314,16 @@ removal of fallbacks).
 
 ### WP10 Desk UI, WP11 Wall UI
 
-Desk (`tephra/web/desk*`, `tephra/web/desk/*`): a bottom tab bar — **Queue** (advisories,
+Desk (`tephra/web/desk*`, `tephra/web/desk/*`): a bottom tab bar, as built **Decide** (advisories,
 AI failures "handle by hand" with a Mark handled sheet, message drafts, recovery plans),
 **Ask** (chat with streamed-looking answer cards, evidence chips that open the verbatim
 item, "How I answered" step strip, push-to-talk mic using MediaRecorder -> Gemini, speaker
-button that plays Gemini TTS), **Network** (recovery board: closures, scenarios compared,
-per-flight actions, approve), **Docs** (SRA, VAR, handover with read-back). Reroute shown on
+button that plays Gemini TTS), **Airports** (recovery board: closures, scenarios compared,
+per-flight actions, approve), **Paperwork** (SRA, VAR, handover with read-back). Reroute shown on
 advisory review as a mini map + route string. Notice paste sheet. AI budget chip.
 Wall (`tephra/web/index.html`, `wall.js`, `wall/*`, `wall.css`): reroute polylines with
 turn-point labels, satellite-check card with box overlay, notices with language badge and
-"verified" state, recovery board panel, Proof panel (backtest), AI activity tray (8 chips with
+"verified" state, recovery board panel, the Track record group (backtest and the plume scorecard), AI activity tray (8 chips with
 status and budget left). Both follow `docs/UI-DESIGN.md` tokens, CSP (no inline script,
 `textContent` only), keyboard and screen-reader access, phone width 360 px.
 

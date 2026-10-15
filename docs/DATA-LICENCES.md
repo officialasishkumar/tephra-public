@@ -18,9 +18,9 @@ Legend:
 
 | | What | Where | Count |
 |---|---|---|---|
-| RED | BoM FTP Darwin VAA texts. BoM's terms: "you may not supply that material to any other person". Each file ends with a BoM copyright notice | census; Semeru replay | 588 + 2 (census and its re-check), 73 (replay) |
+| RED | BoM FTP Darwin VAA texts. BoM's terms: "you may not supply that material to any other person". Each file ends with a BoM copyright notice | census | 588 + 2 (census and its re-check); 0 in the replays: the Semeru case's Darwin VAAs were rebuilt from IEM's NOAAPort relay on 10 Oct and no replay manifest names a BoM URL (section 6 re-run on 15 Oct) |
 | RED | BoM website pages and BoM's JSON endpoint | census; `tests/fixtures/darwin_vaac/` | 4 + 2 listings; 3 |
-| RED | MAGMA pages: "Copyright 2026 © All Rights Reserved. MAGMA Indonesia", no licence, robots.txt `Disallow: /`. The list pages name the observatory staff member behind each VONA | census; `tests/fixtures/magma/`; Semeru replay | 25 + 3; 7; 23 |
+| RED | MAGMA pages: "Copyright 2026 © All Rights Reserved. MAGMA Indonesia", no licence, robots.txt `Disallow: /`. The list pages name the observatory staff member behind each VONA | census; `tests/fixtures/magma/` | 25 + 3; 7; 0 in the replays: the 46 replay notice pages were rebuilt from each notice's facts with MAGMA's page chrome removed (section 6 re-run on 15 Oct) |
 | RED | One observatory staff name quoted in a research file | `research/05-feeds-verified.md`, line 114 (§3.3) | 1 line |
 | RED (recommended) | NICT Himawari tiles: "This web application and data included are not allowed for commercial uses" | `tests/fixtures/himawari/`; Java live replay | 5; 57 so far |
 | AMBER | adsb.lol data: ODbL 1.0 (attribution and share-alike). The fixtures keep airline registrations | fixtures; Java live replay | 3; 241 so far |

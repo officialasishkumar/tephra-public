@@ -36,7 +36,7 @@ used as they are:
 | CSP | `CONTENT_SECURITY_POLICY` in `tephra/api/server.py` | Already allows GIBS, Mapterhorn and the two pinned unpkg packages. |
 
 Reference renders and a working reference implementation (not product code) are in the session
-scratchpad (`…` = `<scratch>`):
+scratchpad (`…` = `<scratchpad>`):
 `…/ui/lead/ref/` (`index.html`, `wall-ref.mjs`, `wall-ref.css`, `desk.html`, `desk-ref.mjs`,
 `desk-ref.css`, saved `/api/wall` responses in `data/`). They run under the same CSP and show every
 map technique in this spec working on MapLibre 4.7.1 with real TEPHRA data. Copy ideas, not

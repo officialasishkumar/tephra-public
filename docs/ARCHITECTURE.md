@@ -23,14 +23,16 @@ nothing is substituted: no canned text, no rule-based stand-in, no template, no 
 speech. HTTP routes answer 503 `{"error": "ai_unavailable", "message": ...}`; a flight with
 no plan or draft goes to the Desk as an AI failure for a dispatcher to handle by hand. Two
 things look like fallbacks and are not. The cone is always built on the official polygons,
-which are binding whatever the model does (a failed Plume Reader means "official products
+which are binding whatever the model does (a failed Plume reader means "official products
 only", labelled, not a guess). The reroute geometry, the recovery solver, the JMA XML parser
 and the backtest metrics are the primary design of those steps. `TEPHRA_LLM=stub` is the
 offline test mode: every model step then has a deterministic answer, labelled **NO MODEL**.
 A model's earlier answer is used again only when it is the same model's answer to materially the
 same question and passes the code's checks again against the input of the moment (section 4,
-"Model answers"); when it does not, the model is asked, and when the model cannot be asked the
-step reports `AI UNAVAILABLE`: the earlier answer is never shown in its place.
+"Model answers"); the key does not include the build, so an answer survives a deploy, and
+REPLAY answers live 90 days because a replay asks the same questions every loop. When the
+kept answer does not pass, the model is asked, and when the model cannot be asked the step
+reports `AI UNAVAILABLE`: the earlier answer is never shown in its place.
 
 ## 1. The system
 
@@ -51,24 +53,25 @@ flowchart LR
   subgraph Run["Cloud Run service (one instance)"]
     POLL["Pollers and last-good cache<br/>code"]
     WORK["Work list<br/>code: plume reads, flights, closures, SRA due"]
-    DUTY["Duty Officer<br/>ADK coordinator, Flash-Lite:<br/>orders and delegates, briefs"]
+    AIW["AI worker<br/>code: budget, pacing, kept answers re-checked"]
+    DUTY["Coordinator (duty_officer.py)<br/>ADK agent, Flash-Lite:<br/>orders and delegates, briefs"]
     DISC["Discrepancy finder<br/>code"]
     BTD["Split-window BTD<br/>code"]
-    SATR["Satellite Reader<br/>Flash-Lite, images, gated"]
-    PLUME["Plume Reader<br/>Gemini 3.8 Flash, structured output"]
+    SATR["Satellite reader<br/>Flash-Lite, images, gated"]
+    PLUME["Plume reader<br/>Gemini 3.8 Flash, structured output"]
     VAL1["Plume validators<br/>code"]
     CONE["Cone builder<br/>code, shapely"]
     EXPO["Exposure and fuel<br/>code"]
     REROUTE["Reroute<br/>code: visibility graph, wind-priced"]
-    PLAN["Exposure Planner<br/>ADK agent, Flash-Lite, tools"]
-    DRAFT["Dispatch Drafter<br/>Flash-Lite, structured output"]
+    PLAN["Flight planner (exposure_planner.py)<br/>ADK agent, Flash-Lite, tools"]
+    DRAFT["Drafter (dispatch_drafter.py)<br/>Flash-Lite, structured output"]
     VAL2["Plan and draft validators<br/>code"]
     CLOSE["Airport closures<br/>code"]
-    RECOV["Recovery agent<br/>ADK, Flash-Lite, CP-SAT solver"]
+    RECOV["Recovery planner<br/>ADK, Flash-Lite, CP-SAT solver"]
     COMMS["Messages and handover<br/>Flash-Lite, code fills every fact"]
-    DOCS["SRA and VAR drafts<br/>code, one Flash-Lite narrative"]
+    DOCS["SRA and VAR drafts<br/>code; Paperwork drafter: one Flash-Lite narrative"]
     ASK["Ask TEPHRA<br/>ADK, Flash-Lite, read-only tools,<br/>Gemini voice in and out"]
-    NOTICE["Notice Reader<br/>Flash-Lite, verbatim evidence"]
+    NOTICE["Notice reader<br/>Flash-Lite, verbatim evidence"]
     BACK["Backtest<br/>code, replay cases"]
     BUS["Event bus and SSE"]
   end
@@ -90,29 +93,32 @@ flowchart LR
   BTD --> PLUME
   EXPO --> WORK
   CLOSE --> WORK
-  WORK --> DUTY
-  DUTY -->|assess_volcanoes| SATR
-  DUTY -->|assess_volcanoes| PLUME
-  DUTY -->|plan_flights| PLAN
-  DUTY -->|run_recovery| RECOV
-  DUTY -->|draft_sra| DOCS
-  DUTY -->|brief| BUS
+  WORK --> AIW --> DUTY
+  DUTY -->|"defer"| WORK
+  DUTY -->|"assess_volcanoes"| SATR
+  DUTY -->|"assess_volcanoes"| PLUME
+  DUTY -->|"plan_flights"| PLAN
+  DUTY -->|"run_recovery"| RECOV
+  DUTY -->|"draft_sra"| DOCS
+  DUTY -->|"submit_brief"| BUS
   SAT --> SATR --> PLUME
   PLUME --> VAL1 --> CONE --> EXPO --> REROUTE --> PLAN --> VAL2
   PLAN --> DRAFT --> VAL2
   CONE --> CLOSE
-  RECOV --> STORE
+  RECOV --> DESK
+  COMMS --> DESK
+  DOCS --> DESK
   DESK -->|"pasted notice"| NOTICE --> POLL
-  RECOV -->|approved| COMMS
+  RECOV -->|"approved"| COMMS
   VAL2 --> STORE
   POLL --> STORE
   STORE --> DESK
-  DESK -->|approve, edit, reject| STORE
+  DESK -->|"approve, edit, reject"| STORE
   DESK --> ASK
   DESK --> COMMS
   DESK --> DOCS
-  STORE -->|APPROVED or EDITED only| OUT
-  BACK -.->|reads replay cases| WALL
+  STORE -->|"APPROVED or EDITED only"| OUT
+  BACK -.->|"reads replay cases"| WALL
   BUS --> WALL
   BUS --> DESK
   CONE --> BUS
@@ -129,11 +135,12 @@ indicator have changed (an unchanged input is asked again at most every 3 hours)
 exposed flight in a new cone or a more urgent bucket, a changed set of RFA airports the
 hazard closes, a region newly carrying exposed flights.
 
-The **Duty Officer**, a Google ADK coordinator agent, gets that work list with a
+The **Coordinator** (`tephra/agents/duty_officer.py`), a Google ADK agent, gets that work list
+from the AI worker (code: the budget, the pacing, the kept answers re-checked) with a
 code-written digest of the picture and the day's AI budget. It decides the order and
-delegates through one tool per specialist: plume reads (Satellite Reader and Plume Reader,
+delegates through one tool per skill: plume reads (Satellite reader and Plume reader,
 after which code rebuilds the cone and the exposure, which may make new flights due), flight
-plans (Exposure Planner and Dispatch Drafter, which uses the code's lateral reroutes),
+plans (Flight planner and Drafter, which uses the code's lateral reroutes),
 network recovery and the SRA draft. It may defer optional work with a reason, and it ends
 with a brief for the dispatchers (summary, priorities, what to watch), checked by code like
 every other model output. Code holds the safety line: a volcano's plume read comes before its
@@ -151,10 +158,10 @@ pushed to the browsers over Server-Sent Events. A volcano is **active** when any
 - a valid VA SIGMET names it, or names no catalogue volcano and lies within 300 km of it
   (the nearest such vent takes it).
 
-Ask TEPHRA, the Notice Reader, and the messages and handover brief run on demand from the
-Desk. The recovery agent and the SRA drafter run when the Duty Officer dispatches them, or
-when a dispatcher presses the button. The Satellite Reader runs only within a plume read the
-Duty Officer dispatched, and only when the newest frame has changed.
+Ask, the Notice reader, and the messages and handover brief run on demand from the
+Desk. The Recovery planner and the Paperwork drafter run when the Coordinator dispatches
+them, or when a dispatcher presses the button. The Satellite reader runs only within a plume
+read the Coordinator dispatched, and only when the newest frame has changed.
 
 ## 2. Who does what at each step
 
@@ -163,23 +170,23 @@ Duty Officer dispatched, and only when the newest frame has changed.
 | 1 | Poll feeds | code | public URLs | `Sigmet`, `Vona` (MAGMA and JMA), `VaacAdvisory`, `Taf`, `Metar`, `AdsbSnapshot`, `WindProfile`, `SatelliteFrame` | Each record keeps its provenance: source id, URL, fetch time, the feed's own times, SHA-256. A failed fetch serves the last good copy, marked stale with its age (never for frames or HSD segments; an ADS-B copy older than 2 minutes counts as a failure). ADS-B, winds, frames and HSD read STALE with the reason when part of them fails. Each poll has a time budget. JMA's eruption reports (VFVO52 and VFVO56) are parsed by code into the same `Vona` shape. |
 | 2 | Split-window BTD | code | Himawari-9 B13 and B15 segments | `BtdResult` and a PNG | Only with `TEPHRA_SCIENCE=1`. An indicator, never "detection". A silent or inconclusive result never narrows anything. |
 | 3 | Find discrepancies | code | one volcano's products | `Discrepancy` list: CONFLICT, LAG, ENVELOPE, SILENCE, HEIGHT_MISMATCH, DIRECTION_MISMATCH | Deterministic, with tolerances of 2,000 ft and 45 degrees. A non-observation is never a CONFLICT. One office's SIGMETs never disagree with each other. SILENCE stays quiet while the VAAC's feed is failing or stale. |
-| 4 | Read the satellite picture | **Gemini** (`gemini-3.5-flash-lite`, images) | the newest JMA Dust RGB and B13 frames, the official areas | `SatelliteReading`: ash visible yes, no or uncertain, cloud cover, boxes | Supporting evidence only: code turns boxes into places when a frame is georeferenced (the `se3` crops, an equirectangular grid; the Mercator `jpn` crops keep pixel boxes), and the text goes to the Plume Reader under its own `SAT-` id. It never narrows anything and never sets a height. Runs only inside a plume read the Duty Officer dispatched (step 8), and only when the newest frame is not the one the last reading used. Failure is `AI UNAVAILABLE` and is stored, so the same scan is not retried. |
-| 5 | Read the plume | **Gemini** (`gemini-3.8-flash`) | raw texts, discrepancies, winds by FL, BTD stats and PNG, JMA satellite crops, the Satellite Reader's text | `PlumeEstimate`: mode, FL band, bearing sector, extent, horizon, confidence, sources used, disagreements explained | Dispatched by the Duty Officer (step 8); due only when the texts or the BTD indicator change (an unchanged input at most every 3 hours) and the call matters: a CAUTION or WARNING discrepancy, an ash VONA with no official polygon in force, or an airline aircraft within 250 NM. Code validates it and makes at most one repair call. If it still fails the outcome is `MODEL_FAILED`, `AI UNAVAILABLE`: the cone is the official products alone (they are binding), and with no official polygon nothing is drawn. NICT true-colour frames are never sent. |
+| 4 | Read the satellite picture | **Gemini** (`gemini-3.5-flash-lite`, images) | the newest JMA Dust RGB and B13 frames, the official areas | `SatelliteReading`: ash visible yes, no or uncertain, cloud cover, boxes | Supporting evidence only: code turns boxes into places when a frame is georeferenced (the `se3` crops, an equirectangular grid; the Mercator `jpn` crops keep pixel boxes), and the text goes to the Plume reader under its own `SAT-` id. It never narrows anything and never sets a height. Runs only inside a plume read the Coordinator dispatched (step 8), and only when the newest frame is not the one the last reading used. Failure is `AI UNAVAILABLE` and is stored, so the same scan is not retried. |
+| 5 | Read the plume | **Gemini** (`gemini-3.8-flash`), the **Plume reader** | raw texts each inside a `<source>` fence, discrepancies, winds by FL, BTD stats and PNG, JMA satellite crops, the Satellite reader's text | `PlumeEstimate`: mode, FL band, bearing sector, extent, horizon, confidence, sources used, disagreements explained | Dispatched by the Coordinator (step 8); due only when the texts or the BTD indicator change (an unchanged input at most every 3 hours) and the call matters: a CAUTION or WARNING discrepancy, an ash VONA with no official polygon in force, or an airline aircraft within 250 NM. Code validates it and makes at most one repair call. If it still fails the outcome is `MODEL_FAILED`, `AI UNAVAILABLE`: the cone is the official products alone (they are binding), and with no official polygon nothing is drawn. NICT true-colour frames are never sent. |
 | 6 | Build the cone | code | estimate plus every valid official polygon | `HazardCone` | Always contains every official polygon, and the vertical band includes the official band. |
 | 7 | Find exposed flights | code | cone and aircraft | `ExposedFlight` with minutes to entry and the hold fuel line | Projection holds the current track, speed and level, and tests each minute's segment, so a narrow crossing is not missed. Uses `alt_baro` and the selected altitude, never GNSS altitude. A position older than the lookahead is skipped. |
-| 8 | Dispatch the AI work | **ADK coordinator** (`gemini-3.5-flash-lite`), the **Duty Officer** | the work list code found due (plume reads, flights, closures, SRA) and a code-written digest with the AI budget | `DutyRun`: the delegations made, deferrals with reasons, and a `DutyBrief` (summary, priorities, watch) | Delegates through tools only (`assess_volcanoes`, `plan_flights`, `run_recovery`, `draft_sra`, `defer`, `submit_brief`); never writes advice itself. Code refuses a plan before its volcano's plume read and a deferral of mandatory work; the brief's numbers and flights must come from what it was shown, with no clock times. One repair turn when the brief fails or mandatory work is undone; then undone mandatory flights go to the Desk as AI failures (stage `duty_officer`) and an undone plume read leaves the official area, audited. Runs only when there is work it has not been offered for `duty.rerun_min`. |
-| 9 | Compute lateral reroutes | code | exposed flight, cone, winds, published route | `RerouteOption` per kind (REJOIN_TRACK, DIRECT_DEST) with a status, waypoints, extra NM and minutes, fuel, a route string | A visibility graph around the cone's buffered obstacle (the convex hull of each connected piece, always a superset of the hazard), priced in minutes of wind at the flight level, in a local azimuthal plane. At most 3 turn points, turns of 90 degrees or less, extra time between 1 and 30 minutes. No airways: free-route direct legs between latitude and longitude points. The destination comes from VRS standing data (callsign to airport chain) when the aircraft is on one of its legs, else the option is `NO_DEST`. None in HYPOTHESIS mode. A route that cannot be found is a status (`NO_ROUTE`, `TOO_LONG`, `NO_BENEFIT`, ...), never a guessed path. |
-| 10 | Plan per flight | **ADK agent** (`gemini-3.5-flash-lite`) with tools | `PlannerContext` (flight, hazard band, alternates screened against TAFs, reroute options, costs) | `PlannedAction`: CONTINUE, MONITOR, CHANGE_LEVEL, HOLD, DIVERT or REROUTE (choosing one of the code's routes by id), with reasoning | Once per flight, cone and urgency (inside, within 15 min, within 30 min, later: the operator policy's divert and hold times). Tools are code. The prompt states the CAP 1236 order: lateral avoidance first, then level change, then hold or diversion. Validated, with one repair. If it still fails there is no plan: the flight goes to the Desk as an AI failure. |
-| 11 | Draft the advisory | **Gemini** (`gemini-3.5-flash-lite`) | plan and context, with no clock times | `DraftText`: an ACARS-style body of 400 characters or fewer, and a cost note | Code renders the header (flight, UTC times, sources, hashes). A REROUTE body must contain the route string verbatim, and coordinates are accepted only as written in it. Validated, with one repair. If it still fails there is no draft: AI failure on the Desk. |
+| 8 | Dispatch the AI work | **ADK agent** (`gemini-3.5-flash-lite`), the **Coordinator** (`duty_officer.py`) | the work list code found due (plume reads, flights, closures, SRA) and a code-written digest with the AI budget | `DutyRun`: the delegations made, deferrals with reasons, and a `DutyBrief` (summary, priorities, watch) | Delegates through tools only (`assess_volcanoes`, `plan_flights`, `run_recovery`, `draft_sra`, `defer`, `submit_brief`); never writes advice itself. Code refuses a plan before its volcano's plume read and a deferral of mandatory work; the brief's numbers and flights must come from what it was shown, with no clock times. One repair turn when the brief fails or mandatory work is undone; then undone mandatory flights go to the Desk as AI failures (stage `duty_officer`) and an undone plume read leaves the official area, audited. Runs only when there is work it has not been offered for `duty.rerun_min`. |
+| 9 | Compute lateral reroutes | code | exposed flight, cone, winds, published route | `RerouteOption` per kind (REJOIN_TRACK, DIRECT_DEST) with a status, waypoints, extra NM and minutes, fuel, a route string | A visibility graph around the cone's buffered obstacle (the convex hull of each connected piece, always a superset of the hazard), priced in minutes of wind at the flight level, in a local azimuthal plane. At most 3 turn points, turns of 90 degrees or less, extra time between 1 and 30 minutes. No airways: free-route direct legs between latitude and longitude points. The destination comes from VRS standing data (callsign to airport chain) when the aircraft is on one of its legs, else the option is `NO_DEST`. None in HYPOTHESIS mode. A route that cannot be found is a status (`NO_ROUTE`, `TOO_LONG`, `NO_BENEFIT`, ...), never a guessed path. A reroute's id is by content (flight, kind, route string and level), so the same route under a new cone keeps its id and a kept plan that names it still passes the checks. |
+| 10 | Plan per flight | **ADK agent** (`gemini-3.5-flash-lite`) with tools, the **Flight planner** (`exposure_planner.py`) | `PlannerContext` (flight, hazard band, alternates screened against TAFs, reroute options, costs) | `PlannedAction`: CONTINUE, MONITOR, CHANGE_LEVEL, HOLD, DIVERT or REROUTE (choosing one of the code's routes by id), with reasoning | Once per flight, cone and urgency (inside, within 15 min, within 30 min, later: the operator policy's divert and hold times). Tools are code. The prompt states the CAP 1236 order: lateral avoidance first, then level change, then hold or diversion. Validated, with one repair. If it still fails there is no plan: the flight goes to the Desk as an AI failure. |
+| 11 | Draft the advisory | **Gemini** (`gemini-3.5-flash-lite`), the **Drafter** (`dispatch_drafter.py`) | plan and context, with no clock times | `DraftText`: an ACARS-style body of 400 characters or fewer, and a cost note | Code renders the header (flight, UTC times, sources, hashes). A REROUTE body must contain the route string verbatim, and coordinates are accepted only as written in it. Validated, with one repair. If it still fails there is no draft: AI failure on the Desk. |
 | 12 | Decide | **human** dispatcher on the Desk | DRAFT advisory | APPROVED, EDITED (both versions kept) or REJECTED (reason required) | Every transition is an audit entry. |
 | 13 | Queue | code | APPROVED or EDITED advisory | `OutboundMessage` in the `outbound` collection | Never an external call. |
 | 14 | Find closed airports | code | cones, official layers, TAFs and METARs, the RFA schedule's airports | `Closure` per airport with a window and code-written reason | An airport is closed while a hazard area from the surface to FL100 comes within the policy's radius (20 NM), or its TAF or METAR carries `VA`. |
-| 15 | Recover the network | **ADK agent** (`gemini-3.5-flash-lite`) around a **CP-SAT solver** | closures, the synthetic RFA schedule (30 tails, 142 flights) | `RecoveryPlan` (DRAFT): three scenarios (closure as forecast, +3 h, +6 h), per-flight keep, delay, cancel or swap, totals, a rationale | The solver minimises the policy's cost weights under turn, duty and closure constraints, and returns `NO_PLAN` rather than a greedy plan. The agent compares scenarios and recommends one; every number in its rationale must come from a tool result. Dispatched by the Duty Officer once the set of closed airports changes, or started from the Desk. A dispatcher approves or rejects. |
+| 15 | Recover the network | **ADK agent** (`gemini-3.5-flash-lite`), the **Recovery planner**, around a **CP-SAT solver** | closures, the synthetic RFA schedule (30 tails, 142 flights) | `RecoveryPlan` (DRAFT): three scenarios (closure as forecast, +3 h, +6 h), per-flight keep, delay, cancel or swap, totals, a rationale | The solver minimises the policy's cost weights under turn, duty and closure constraints, and returns `NO_PLAN` rather than a greedy plan. The agent compares scenarios and recommends one; every number in its rationale must come from a tool result. Dispatched by the Coordinator once the set of closed airports changes, or started from the Desk. A dispatcher approves or rejects. |
 | 16 | Draft messages | **Gemini** (`gemini-3.5-flash-lite`) | an approved advisory or recovery plan | `CrewPaxMessage` drafts: crew briefing, crew notice per tail, passenger notice per cancelled or delayed flight (a delay shorter than the policy's 30 minutes gets none) | The model writes one template per language with placeholders and never sees a fact; code fills flight, route, local times, delay, reason with its source ids and the PM 89/2015 wording. A validator rejects any digit outside a placeholder. Languages follow the route: Bahasa Indonesia and English, Japanese and English, or English. DRAFT until a dispatcher approves, edits or rejects; approval queues it in `outbound`. |
 | 17 | Hand over the shift | code and **Gemini** (`gemini-3.5-flash-lite`) | audit entries, open drafts, AI failures, feeds | `HandoverBrief` (WEST and I-PASS) | Code gathers every fact and sets the severity; the model writes only the situation and contingencies, each with source ids and no invented numbers. Open drafts are listed as "handed over open"; the incoming dispatcher's read-back is allowed and records which were still open. |
 | 18 | Regulator paperwork | code and **Gemini** (`gemini-3.5-flash-lite`) | the evidence of a region (SRA) or an exposed flight (VAR) | `SraDraft`, `VarDraft` | Headed `DRAFT - NOT AN APPROVED SRA - FOR HUMAN SIGN-OFF`. Code fills every table; one model call writes four short narrative boxes for the SRA. The VAR makes no model call: crew observations are never invented. Unfilled fields stay blank. Signatures are recorded per role; nothing is queued. |
-| 19 | Read a pasted notice | **Gemini** (`gemini-3.5-flash-lite`) | a notice in English, Bahasa Indonesia, Japanese or Filipino | `NoticeReading`: fields with verbatim evidence | Verified only if every claim's evidence is a verbatim substring, numbers and enums match it, the volcano is in the catalogue, and the notice states a date, a clock time and a zone word. A verified notice joins the live picture as a VONA; an unverified one stays raw text with a badge. |
-| 20 | Answer a question | **ADK agent** (`gemini-3.5-flash-lite`), Gemini speech | a typed or spoken question | `AskAnswer` with claims, each citing evidence from a read-only tool | Tools only read the runtime (including the Duty Officer's latest brief) or run what-if exposure checks that change nothing. Every number, flight and ICAO code in the answer must appear in a cited tool result. Out-of-scope questions ("is it safe") are refused. Voice in is one transcription call; voice out is the Gemini TTS model. |
+| 19 | Read a pasted notice | **Gemini** (`gemini-3.5-flash-lite`), the **Notice reader** | a notice in English, Bahasa Indonesia, Japanese or Filipino | `NoticeReading`: fields with verbatim evidence | Verified only if every claim's evidence is a verbatim substring, numbers and enums match it, the volcano is in the catalogue, and the notice states a date, a clock time and a zone word. A verified notice joins the live picture as a VONA; an unverified one stays raw text with a badge. |
+| 20 | Answer a question | **ADK agent** (`gemini-3.5-flash-lite`), Gemini speech | a typed or spoken question | `AskAnswer` with claims, each citing evidence from a read-only tool | Tools only read the runtime (including the Coordinator's latest brief) or run what-if exposure checks that change nothing. Every number, flight and ICAO code in the answer must appear in a cited tool result. Out-of-scope questions ("is it safe") are refused. Voice in is one transcription call; voice out is the Gemini TTS model. |
 | 21 | Backtest | code | the replay cases in `data/replay/` | `BacktestScorecard`: coverage, gain over the official baseline, over-warning, lead time | Replays each case on a fixed clock with the stub plume reader (arm D); arm G replays cached Gemini reads and is run by hand. The prose report is one model call, checked number by number, and absent when it fails. |
 
 With `TEPHRA_LLM=stub`, every model step has a deterministic answer for tests, labelled
@@ -200,6 +207,7 @@ answer `AI UNAVAILABLE`. Gemini 3 models run at their default temperature of 1.0
 | The model never writes a time, an id or a hash | validators reject clock times (with a zone word too, as in `1830 UTC`); `dispatch_drafter.render_header` writes them from provenance |
 | No invented places | `validators.validate_draft` (ICAO codes and waypoint-like words must come from the input; the plain-word vocabulary holds no ICAO id or place name); the planner only diverts to `data/airports.json` alternates whose TAF passes and that lie outside the cone and more than the operator policy's terminal radius (20 NM, illustrative) from it |
 | No invented numbers in the advisory | `validators.validate_draft` (every number in the body appears in the input) |
+| No invented numbers in the plume reading, and no source text can speak as the prompt | `plume_reader.validate_estimate` checks every number in the reading's prose against the source texts and the facts it was given; `plume_reader.build_parts` puts each product text inside a `<source id kind evidence age>` fence that the text may not open or close, so a notice that carries instructions is still only a notice |
 | "Not observed", a silent or inconclusive BTD, and silence never shrink the hazard or downgrade an action | `reconcile/discrepancies` (non-observations are evidence states, not CONFLICT); the plume validator (never the source leaned on, never a reason to narrow); the prompt |
 | A feed outage never reads as an empty sky or a silent VAAC | `feeds.adsb.fetch_aircraft`, `feeds.vaac` (all ten Darwin slots down) and `feeds.satellite` raise instead of answering nothing; `feeds.registry` marks a partial ADS-B or per-volcano failure STALE; SILENCE stays quiet while the VAAC feed is degraded; `pipeline` retires no draft while ADS-B positions are stale; an advisory drafted while the SIGMET or the volcano's VAAC feed is failing, stale or never polled carries `OFFICIAL PICTURE INCOMPLETE: <FEED> NOT UPDATED SINCE <DDHHMMZ or NEVER>` in its header (`reconcile/discrepancies.feed_degraded`, `dispatch_drafter.render_header`; information only, it changes no action) |
 | Dispatch advises route and level, never engine handling | `validators.validate_draft` and the Desk edit path (`desk/approvals.edit_and_approve`) reject a body with thrust, idle, autothrottle, escape-manoeuvre or descending and 180-degree turn wording; the drafter prompt says the crew's own procedures cover an encounter |
@@ -209,13 +217,13 @@ answer `AI UNAVAILABLE`. Gemini 3 models run at their default temperature of 1.0
 | Nothing leaves TEPHRA | `desk/approvals` writes only to `outbound`; `HttpSource` is GET-only |
 | Every transition is audited with inputs, model id and prompt hash | `desk/approvals` and `desk/audit` (append-only, hash-chained entries) |
 | The airline is fictional and the tool is decision support only | `config.DISCLAIMER` in every page and every advisory header |
-| Replay is always labelled | `SystemState.replay.banner`, shown as a permanent banner; `Provenance.replay`; `Advisory.replay` and `Advisory.replay_case_id`; a `REPLAY - ... - NOT LIVE` line right after the flight line of every REPLAY advisory header, naming the case and whether it was reconstructed from archives or recorded from live feeds (`dispatch_drafter.render_header`); `OutboundMessage.replay` and `replay_case_id` on every queued REPLAY advisory, and `GET /api/outbound` orders by the wall-clock `queued_wall_at`, so recorded and live rows never interleave by replay time; `detail.replay` on every trace line in REPLAY; recorded and live advisories never dedupe or supersede each other |
+| Replay is always labelled | `SystemState.replay` (the page title's `REPLAY` prefix and the Wall's "Replay clock" label); `Provenance.replay`; `Advisory.replay` and `Advisory.replay_case_id`; a `REPLAY - ... - NOT LIVE` line right after the flight line of every REPLAY advisory header, naming the case and whether it was reconstructed from archives or recorded from live feeds (`dispatch_drafter.render_header`); `OutboundMessage.replay` and `replay_case_id` on every queued REPLAY advisory, and `GET /api/outbound` orders by the wall-clock `queued_wall_at`, so recorded and live rows never interleave by replay time; `detail.replay` on every trace line in REPLAY; recorded and live advisories never dedupe or supersede each other |
 | No secrets in the repo, and Gemini only via an AI Studio key | `config.Settings` reads env vars; `apply_process_env` pins `GOOGLE_GENAI_USE_VERTEXAI` and `GOOGLE_GENAI_USE_ENTERPRISE` to FALSE; `agents/llm` uses `genai.Client(api_key=..., vertexai=False)` only |
-| Free-tier quota is respected | `Situation.input_hash` covers only the product texts and the BTD indicator; the quota gate in `pipeline` (an unchanged input is asked again at most every 3 h); per-tier daily budgets in `agents/llm`, counted per Google quota day and kept on disk, and a per-day 429 closes the tier; every new step runs on the Flash-Lite tier and none runs unconditionally each tick (satellite reading is gated by the Plume Reader call and a changed frame, recovery by a change in the closed airports, the rest on demand); `GET /api/budget` and the SSE `budget` event show the counts |
+| Free-tier quota is respected | `Situation.input_hash` covers only the product texts and the BTD indicator; the quota gate in `pipeline` (an unchanged input is asked again at most every 3 h); per-tier daily budgets in `agents/llm`, counted per Google quota day and kept on disk, and a per-day 429 closes the tier; every new step runs on the Flash-Lite tier and none runs unconditionally each tick (satellite reading is gated by the Plume reader call and a changed frame, recovery by a change in the closed airports, the rest on demand); `GET /api/budget` and the SSE `budget` event show the counts |
 | A failed model step substitutes nothing | every model step returns an explicit failure (`AI UNAVAILABLE: <reason>`): `plume_reader` (`MODEL_FAILED`, official products only), `exposure_planner` and `dispatch_drafter` (`AiFailure`, handled by hand on the Desk via `desk/failures`; one open per flight, and code closes one that no longer stands, audited under the system actor and never recorded as a dispatcher's decision), `ask`, `voice`, `notice_reader`, `satellite_reader`, `recovery/agent`, `comms/messages`, `comms/handover`, `regdocs/narrative`, `backtest/report` (HTTP 503 `ai_unavailable`, a stored failure, an audit or trace line). Voice has no stub answer and there is no browser speech |
 | A reroute never enters the hazard | `geo/reroute` routes around the convex hull of each connected piece of the cone buffered by `reroute.buffer_nm` (illustrative 20 NM): always a superset of the hazard, so a reroute can only be wider than the cone. A route is re-checked against the buffer after its turn points are rounded to one arc-minute, and `tests/test_reroute.py` property-tests that no OK route enters the unbuffered cone. No named waypoint is ever invented, and a route that cannot be found is a status, not a path. The planner may only pick a route by its id; the drafter may only write coordinates that appear in the route string |
 | Nothing a model writes carries a number or a place it was not given | `agents/validators`, `ask.validate_reply`, `comms/messages.template_problems` (no digit outside a placeholder), `comms/handover.narrative_problems`, `regdocs/narrative.validate_narrative`, `recovery/tools` (every number in the rationale comes from a tool result), `notice_reader.check_extraction` (every claim needs verbatim evidence), `backtest/report.validate_prose` |
-| Supporting evidence never narrows the hazard | the Satellite Reader and a pasted notice only add: the Plume Reader's prompt and `validate_estimate` forbid leaning on a non-observation; `satellite_reader.validate_extraction` rejects "no ash" while cloud may cover the area and any SO2 claim; an unverified notice never reaches the pipeline |
+| Supporting evidence never narrows the hazard | the Satellite reader and a pasted notice only add: the Plume reader's prompt and `validate_estimate` forbid leaning on a non-observation; `satellite_reader.validate_extraction` rejects "no ash" while cloud may cover the area and any SO2 claim; an unverified notice never reaches the pipeline |
 | Anything that would leave TEPHRA is a draft until a human decides | messages, recovery plans, SRA and VAR drafts, advisories: `desk/approvals`, `comms/messages`, `recovery/decisions`, `regdocs/registry`; each transition is an audit entry, and approved messages go only to `outbound` |
 | A recovery plan is solver output or nothing | `recovery/solver` returns `NO_PLAN` with the solver status when CP-SAT finds none; the agent only compares and recommends scenarios the solver made |
 | Only the Desk page may ask for the microphone | `api/server` sends `Permissions-Policy: microphone=(self)` on `/desk` and `microphone=()` everywhere else; the CSP gains `media-src 'self' blob:` for spoken answers and no script host |
@@ -246,11 +254,13 @@ the lower layer's top but inside that layer's lateral area counts as exposed.
 
 ```mermaid
 flowchart TB
+  GH["GitHub Actions<br/>keyless (WIF), candidate + smoke test"] -->|"deploy"| RUN
+  GH --> AR["Artifact Registry<br/>images by commit"] --> RUN
   SCHED["Cloud Scheduler<br/>every minute"] -->|"POST /tasks/tick<br/>X-Tephra-Task-Token"| RUN
   subgraph GCP["Google Cloud project (personal account)"]
     RUN["Cloud Run: tephra<br/>min 1, max 1 instance, CPU always on"]
     SM["Secret Manager<br/>GEMINI_API_KEY, TEPHRA_DESK_PIN,<br/>TEPHRA_TASK_TOKEN, TEPHRA_SESSION_SECRET"]
-    FS[("Firestore (native mode)")]
+    FS[("Firestore (native)<br/>decisions, record, kept answers, budget")]
     GCS[("Cloud Storage bucket, US region<br/>frame and BTD PNGs")]
     SM --> RUN
     RUN --> FS
@@ -276,7 +286,7 @@ flowchart TB
 - **Restarts.** A cold start restores from Firestore the official products still current
   (SIGMETs, VONAs, VAAs), feed health, the LIVE bookkeeping (planned flights, the latest plume
   assessments, the closed-airport set), the newest satellite reading per volcano, the stored
-  reroutes and the last Duty Officer run, and the replay choice: a replay picked on the Desk
+  reroutes and the last Coordinator run, and the replay choice: a replay picked on the Desk
   resumes on the same case, an automatic one while auto-replay is on and no live VA SIGMET is
   active, each from the case's start and with an audit entry. Aircraft, exposures, cones and
   the Wall are not stored; without the local scheduler the app runs one startup tick at once,
@@ -291,7 +301,9 @@ flowchart TB
 - **Request slots.** Every open event stream holds one of the instance's request slots, so
   `TEPHRA_MAX_EVENT_STREAMS` (default 200) caps open streams, and it must stay below the
   service's `--concurrency`. A refused stream gets 503 with `Retry-After: 5`, and the pages
-  reconnect by themselves.
+  reconnect by themselves. `deploy/cloudrun.sh` deploys with `--concurrency 300` and a startup
+  probe and a liveness probe on `/health`, so a revision takes traffic only once it answers and
+  an instance that stops answering is replaced.
 - **Credentials.** `deploy/cloudrun.sh` creates the runtime service account `tephra-run`
   and gives it `roles/datastore.user`, `roles/storage.objectAdmin` on the bucket, and
   `roles/secretmanager.secretAccessor` on the four secrets. Gemini uses only the AI Studio
@@ -332,19 +344,21 @@ flowchart TB
 - **Model answers: asked only when something material changed.** Each skill names what is
   material to its question: the Plume reader the official products by content, the discrepancy
   set and the satellite reading it is given (for at most 3 h, as the plume gate), the Satellite
-  reader the volcano and the scans, the Flight planner the cone (its id and a hash of its content,
-  so a cone rebuilt on new winds under the same id is a new question), the allowed actions and
-  policy version, the urgency band (inside, within the divert or hold limit, later), the level in
-  2,000 ft steps and the open alternates (1 h), the Drafter the flight, the cone (id and
-  content), the policy version, the action and its target (as long as the plan), the Coordinator
+  reader the volcano and the scans, the Flight planner the flight, the hazard band in flight
+  levels, the allowed actions and policy version, the urgency band (inside, within the divert or
+  hold limit, later), the level in 2,000 ft steps, the open alternates and the usable reroutes
+  (1 h; a cone reissued under a new id with the same band asks nothing again), the Drafter the
+  flight, the hazard band, the policy version, the action and its target (as long as the plan),
+  the Coordinator
   the policy version and the work list's kinds, subjects, mandatory flags and urgency buckets
   without the digest's budget counts and times (30 min; its deferrals only until the policy
   offers deferred work again, 5 min), the Notice reader the text, Messages the template spec,
   Ask the question and the picture's version (10 min, and every tool the answer used must
   return the same results again), the handover and the SRA boxes only identical inputs. An
   answer that passed the code's checks is kept in `ai_answers` (Firestore in production, SQLite
-  locally) under the mode (LIVE, or REPLAY and its case), the build, the model id, the skill and
-  that material; the mode, case and picture epoch are taken when the question is put, so an
+  locally) under the mode (LIVE, or REPLAY and its case), the model id, the skill and that
+  material, never the build, so a deploy keeps every answer; the mode, case and picture epoch
+  are taken when the question is put, so an
   answer that comes back after a mode switch or a replay loop is not kept. When the same model
   would be asked the same material question, the kept answer is checked again by the same
   validators against the input of the moment and used only when it passes (the Coordinator's
@@ -353,11 +367,16 @@ flowchart TB
   or out of routine slots; it asks no model at all, and a step whose answer turns out missing or
   failing sends what was not done back to wait for budget, never to AI UNAVAILABLE. A kept answer
   keeps the time the model gave it, never later than now: an advisory's "drafted" time is when
-  its text was written, the Duty Officer's run shows when it decided (and its turns), a
+  its text was written, the Coordinator's run shows when it decided (and its turns), a
   document's AI parts when they were written. Otherwise the model is asked under the usual
   budget and pacing, and AI UNAVAILABLE stands as before. Server logs count hits and misses per
-  skill (`ai_answer`); the UI does not announce reuse. Answers expire after their skill's limit
-  (LIVE) or 72 h, and a sweep at checkpoints (every ten minutes at most, a bounded number of
+  skill (`ai_answer`); the UI does not announce reuse. A flight is planned once per cone and urgency bucket
+  and again for a more urgent one; the material question keys the planner's kept answer, and a
+  LIVE restart restores the valid TAFs with the official products so the questions compare like
+  with like.
+  Answers expire after their skill's limit (LIVE, at most 72 h) or after 90 days in REPLAY
+  (`TEPHRA_AI_ANSWER_REPLAY_KEEP_H`), and a sweep at checkpoints (every ten minutes at most, a
+  bounded number of
   pages) deletes them; in Firestore only an answer's `expires_at` is indexed. Offline,
   `scripts/count_model_calls.py` counts the asks one replay window makes per skill with a
   counting stand-in for the model.
@@ -380,7 +399,7 @@ TEPHRA is decision support; the operator's own procedure stays in force without 
 | Mode | Clock | Feeds | Label |
 |---|---|---|---|
 | LIVE | system UTC | live HTTP with last-good cache | `LIVE` badge |
-| REPLAY | recorded time, advancing (and looping) from the case start, or from `TEPHRA_REPLAY_START` | recorded responses from `data/replay/<case_id>/` matched by exact URL; a feed the case did not record reads DISABLED and is not polled | permanent banner `REPLAY: recorded real feeds from <date>`, plus `replay=true` on every provenance and advisory and on every trace line |
+| REPLAY | recorded time, advancing (and looping) from the case start, or from `TEPHRA_REPLAY_START`, floored to the replay minute (`TEPHRA_REPLAY_QUANTUM_S`) for ticks and the worker | recorded responses from `data/replay/<case_id>/` matched by exact URL; a feed the case did not record reads DISABLED and is not polled | the page title's `REPLAY ·` prefix and the Wall's "Replay clock" label, plus `replay=true` on every provenance and advisory and on every trace line |
 | Auto-replay | as REPLAY | as REPLAY, plus a live SIGMET poll to detect activity | as REPLAY, with `auto` marked |
 
 Auto-replay starts only when `TEPHRA_AUTO_REPLAY=1` and, for three ticks running, no
@@ -420,7 +439,7 @@ history) says so in its manifest.
 - The RFA schedule, fleet and crews behind the recovery plans are synthetic (fixed seed, in
   `data/rfa/`). Recovery costs, minimum turn times and the passenger-notice minimum are
   illustrative policy values.
-- The hazard cone is TEPHRA's estimate with a mode and a confidence. It is never "the
+- TEPHRA's estimate (the cone, in code) carries a mode and a confidence. It is never "the
   model saw ash".
 - The BTD heat map is a code-computed indicator with known blind spots. Himawari-9 data
   come from JMA via NOAA and are processed by TEPHRA, so the map is not original JMA data.
@@ -451,7 +470,7 @@ history) says so in its manifest.
   four-part cone, 83 of 200 got no route at three, 26 at four, 3 at six). Inside the hazard
   with no clear level within the operator policy's level search (4,000 ft) and no acceptable
   alternate, the stub rules advise MONITOR and a model plan must satisfy the same validators.
-- The Satellite Reader reads JMA Dust RGB, which cannot tell ash from dust or show SO2, and
+- The Satellite reader reads JMA Dust RGB, which cannot tell ash from dust or show SO2, and
   today's frames carry no georeference, so its boxes stay pixel boxes. It is supporting
   evidence only.
 - Recovery and message drafts are on demand or on a change in the closed airports; nothing
