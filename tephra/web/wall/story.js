@@ -373,7 +373,7 @@ function noticeNode(nt) {
 function lineNode(l) {
   const mark = l.mark === "pin" ? icon("i-pin", "icon story__mark story__mark--crew") : l.mark === "disagree" ? icon("i-compare-sources", "icon story__mark story__mark--disagree") : st("st-caution", "var(--c-caution)");
   return el("li", {}, el("button", { type: "button", class: "sline", dataset: { act: "details-open", sec: l.act, focus: `story-line-${l.act}` } },
-    mark, el("span", { class: "sline__text" }, el("span", { text: l.text }), l.sub ? el("span", { class: "sline__sub", text: l.sub }) : null),
+    mark, el("span", { class: "sline__text" }, el("span", { text: l.text }), l.sub ? [" ", el("span", { class: "sline__sub", text: l.sub })] : null),
     el("span", { class: "sline__go", "aria-hidden": "true", text: "›" })));
 }
 

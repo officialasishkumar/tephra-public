@@ -198,6 +198,7 @@ class ReplayCaseSummary(TephraModel):
     notes: str | None = None
     record_count: int
     banner: str
+    synthetic: bool = False
 
     @classmethod
     def of(cls, case: ReplayCase) -> Self:
@@ -211,6 +212,7 @@ class ReplayCaseSummary(TephraModel):
             notes=case.notes,
             record_count=len(case.records),
             banner=replay_banner(case),
+            synthetic=case.synthetic,
         )
 
 

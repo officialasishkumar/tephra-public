@@ -116,7 +116,7 @@ def test_the_honesty_facts_stay_on_the_guide() -> None:
         "Decision support only",
         "Ring of Fire Air (RFA) is a fictional airline",
         "Nothing is sent to an aircraft or any real system",
-        "REPLAY plays recorded real feeds",
+        "REPLAY plays recorded real feeds, or synthetic demo data where it says so",
     ):
         assert fact in GUIDE, fact
     # the long parts fold under More, each with the id the Wall links to

@@ -126,7 +126,12 @@ def render_header(
 def _replay_line(case: ReplayCase | None) -> str:
     if case is None:
         return "REPLAY - NOT LIVE"
-    how = "RECONSTRUCTED FROM ARCHIVES" if case.reconstructed else "RECORDED FROM LIVE FEEDS"
+    if case.synthetic:
+        how = "SYNTHETIC DEMO DATA"
+    elif case.reconstructed:
+        how = "RECONSTRUCTED FROM ARCHIVES"
+    else:
+        how = "RECORDED FROM LIVE FEEDS"
     day = case.recorded_from.strftime("%d %b %Y")
     return f"REPLAY - {how} {case.case_id} ({day}) - NOT LIVE"
 

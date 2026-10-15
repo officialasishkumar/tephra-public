@@ -1,6 +1,6 @@
 # Replay cases
 
-A case is a directory `data/replay/<case_id>/` with a `manifest.json` (`tephra.models.ReplayCase`: case id, label, window, region, volcano ids, notes, and for every response its exact URL, time, sha256, status and content type) and the responses under `raw/<feed>/`. Backfilled responses are named by the start of their sha256 and stored once, however many records point at them. In REPLAY mode the Wall and the Desk show a permanent banner, "REPLAY: recorded real feeds from <date>". The Docker image carries every case with its `raw/` files, so REPLAY works on Cloud Run too.
+A case is a directory `data/replay/<case_id>/` with a `manifest.json` (`tephra.models.ReplayCase`: case id, label, window, region, volcano ids, notes, and for every response its exact URL, time, sha256, status and content type) and the responses under `raw/<feed>/`. Backfilled responses are named by the start of their sha256 and stored once, however many records point at them. In REPLAY mode the Wall and the Desk show a permanent banner, "REPLAY: recorded real feeds from <date>" (a synthetic case, `synthetic: true`, says "REPLAY: synthetic demo data, scenario dated <date>" instead). The Docker image carries every case with its `raw/` files, so REPLAY works on Cloud Run too.
 
 `ReplaySource` serves, for each exact URL, the latest response at or before the replay clock, or the earliest one when the clock is before all of them, and it checks each file's sha256. Two rules follow from that:
 
@@ -14,6 +14,7 @@ A case is a directory `data/replay/<case_id>/` with a `manifest.json` (`tephra.m
 | `anak-krakatau-20260905` | 2026-09-05 06:00 to 09-07 06:00 | Ash to FL500 closes Soekarno-Hatta; the only Krakatau VONA says "not observed" | SIGMET (rebuilt), Darwin VAA, VONA, METAR (rebuilt), winds, ADS-B (rebuilt, two spans) | 5,176, 19 MB |
 | `semeru-20260923` | 2026-09-23 12:00 to 09-27 06:00 | Every SIGMET moves the ash SE while 20 VONAs say N/NE | SIGMET, Darwin VAA, VONA, TAF, METAR, winds | 2,833, 17 MB |
 | `java-live-20261010` | 2026-10-10 05:59 to 07:29 | Live feeds over Java and Bali by day: Semeru and Anak Krakatau SIGMETs with daytime traffic | as recorded, without NICT frames | 583, 11 MB |
+| `demo-agung-20261014` | 2026-10-14 06:30 to 08:15 | **SYNTHETIC demo data**, not a recording: Agung ash closes Bali while a no-ash Tokyo VAA meets a new Sakurajima eruption | SIGMET, VONA, JMA eruption reports, Tokyo VAA, Darwin VAA, TAF, METAR, winds, ADS-B (all invented) | 1,122, 6.5 MB |
 
 Not recorded yet: Taal 2026-10-08 12:00-20:00 (Tokyo VAAC with frames), which leaves AWC's 30-day history around 7 Nov.
 
@@ -129,6 +130,34 @@ Recorded live for 90 min from 05:59Z (13:00 WIB) on 10 Oct 2026 with `live --min
 
 The ADS-B answers still carry each aircraft's registration (`r`) and database flags, and include business jets, military, police and light aircraft. `scripts/scrub_adsb.py` removes them: it drops every target whose callsign is not an airline callsign by the app's own rule, or that is flagged military (`dbFlags & 1`), and deletes `r` and `dbFlags` from the targets it keeps (`t` stays, because the type drives fuel and exposure). It rewrites each changed file's sha256 in `manifest.json` and adds a line to the manifest notes. Its default is a dry run; a person runs it with `--write` and commits the result. The original files stay in git history, so publishing this case also needs the FEED-05 history filter (a user step).
 
+## `demo-agung-20261014` (synthetic)
+
+**Synthetic demo data, made for the product demo; nothing in it was recorded or happened.** The owner asked on 16 Oct 2026 for "something like a proper JSON that I can use to give a demo of 5 to 10 minutes", with fake data allowed but "don't put fictional things": so the places are real and the events are not. `scripts/make_demo_case.py` writes it (seeded, no network; a rerun writes the same bytes). The manifest has `synthetic: true`, a label that starts `SYNTHETIC DEMO:` and notes that start `Synthetic demo data`; the banner reads "REPLAY: synthetic demo data, scenario dated 14 Oct 2026", the Wall's replay words and About say "synthetic demo data", its flight rows say "demo aircraft" where a recorded case says "real aircraft", and a draft's header reads `REPLAY - SYNTHETIC DEMO DATA`. `scripts/backtest.py` leaves it out and `run_case` refuses it (`tests/test_demo_case.py`).
+
+- **Real:** Agung, Sakurajima, Semeru and Dukono from `data/volcanoes.json`; airports from `data/airports.json`; FIRs and the offices that issue for them; airline callsigns and their usual routes from `data/routes_apac.json` (VRS standing data, CC0). Every flight follows the great circle of its callsign's usual leg, so the route lines and reroutes have a destination.
+- **Invented:** every SIGMET, VONA, JMA eruption report, Tokyo and Darwin VAA, METAR, TAF, wind profile and aircraft position. Each is stored under the URL its live poller requests, so the same parsers read it with no special case in the app. The HTML and XML pages (VONA lists, Tokyo pages, Darwin slots and backup list, JMA feed and reports) carry a comment saying they are synthetic; the JSON answers cannot, so the manifest says it for them. VONA notices have made-up MAGMA ids (99003-99008) whose detail pages are not in the case; the poller reads their list cards, as in the other cases. Aircraft hex codes are a hash of the callsign.
+- **Not in the case:** satellite frames and raw Himawari data. TEPHRA credits every frame to JMA or NICT, and an invented picture would pass for their imagery; the feed shows as "not in this replay case".
+
+The story (UTC, 14 Oct 2026):
+
+- Agung erupts at 0542Z. VONA #99007 (RED, 0552Z) puts the ash at 9,400 m moving south; WAAF SIGMET 06 (0610Z) says SFC/FL250 moving west; Darwin VAA 2026/12 (0635Z) has two layers to FL350, west and south-west. WADD's METARs report VA from 0630Z and its TAF is amended with VA at 0640Z; WADL's amended TAF has PROB30 VA. VONA #99008 (0710Z) raises the top to 11,500 m, and Darwin 2026/13 (0718Z) to FL380.
+- Sakurajima erupts at 0510Z (JMA VFVO52, Tokyo VAA 2026/791, RJJJ SIGMET Y01). Tokyo 2026/792 (0630Z) is final: "VA DISSIPATED". JMA reports a new eruption at 0652Z (11,000 ft, plume south) and RJJJ issues Y02 (0702Z, SFC/FL110 moving south) while that final VAA is in force until 0730Z.
+- Semeru (WAAF 05 and Darwin 2026/1201, the SIGMET repeating the VAA polygon) and Dukono (WAAF 04, Darwin 2026/871) carry routine low-level ash. The other Darwin slots and the older Tokyo rows hold advisories more than a day old, which the pollers read and leave out.
+
+**Demo window 07:05Z to 07:30Z**, which loops (`TEPHRA_REPLAY_START=2026-10-14T07:05:00Z`, `TEPHRA_REPLAY_END=2026-10-14T07:30:00Z`); JMA reports need `notices` in `TEPHRA_FEATURES`. What it shows (stub LLM, a tick every minute):
+
+- Four active volcanoes in three regions; every recorded feed OK; frames "not in this replay case".
+- Agung: HEIGHT_MISMATCH (VONA vs SIGMET), DIRECTION_MISMATCH (south vs west, 90 degrees), LAG and ENVELOPE; WADD closed (and WARA, WADL later), so recovery has RFA legs to re-plan. Sakurajima: two CONFLICTs (the no-ash VAA against the SIGMET and the JMA report).
+- 11 to 16 flights exposed to Agung's ash all through the window (3 to 5 inside, 2 to 5 within 15 minutes), 1 to 3 at Sakurajima; DIVERT, HOLD, CHANGE_LEVEL and REROUTE drafts. At 0718Z the new Darwin VAA lifts the top to FL380 and flights at FL370-FL380 join.
+
+Rebuild (about four minutes, no network), then look:
+
+```bash
+uv run python scripts/make_demo_case.py
+uv run python scripts/record_replay.py probe --case demo-agung-20261014 \
+    --from 2026-10-14T07:05Z --at 2026-10-14T07:05Z --at 2026-10-14T07:25Z
+```
+
 ## Kept answers (`answers/`)
 
 A case may carry `answers/ai_answers.jsonl` and `answers/answers.json`: the answers the models gave to the case's material questions on an earlier run, kept because they passed the code's checks. A REPLAY run loads them on restore and checks each again before use; the UI shows them as what they are, the model's answer at the time it was given. `answers.json` names the window (`recorded_wall_from`, `recorded_wall_to`), the build, the model ids (`models.main`, `models.lite`, and `model_ids` as stored), the prompt versions the answers were given under, and the counts per skill.
@@ -140,5 +169,6 @@ A case may carry `answers/ai_answers.jsonl` and `answers/answers.json`: the answ
 | `anak-krakatau-20260905` | none exported yet (the service fills its store from 15 Oct 2026; the export is the owner's step O-7) | none yet |
 | `semeru-20260923` | none | none |
 | `java-live-20261010` | none | none |
+| `demo-agung-20261014` | none | none |
 
 When an export lands, this table names the model ids and dates from its `answers.json`.

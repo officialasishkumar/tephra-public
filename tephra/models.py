@@ -2131,6 +2131,11 @@ class ReplayCase(TephraModel):
     region: str
     volcano_ids: list[str] = Field(default_factory=list)
     notes: str | None = None
+    synthetic: bool = Field(
+        default=False,
+        description="Invented demo data (scripts/make_demo_case.py), not a recording of real "
+        "feeds: labelled so everywhere and never scored by the backtest",
+    )
     records: list[ReplayRecord]
 
     @model_validator(mode="after")
@@ -2584,7 +2589,11 @@ class ReplayInfo(TephraModel):
     label: str
     recorded_from: UtcDatetime
     recorded_to: UtcDatetime
-    banner: str = Field(description="'REPLAY: recorded real feeds from <date>'")
+    banner: str = Field(
+        description="'REPLAY: recorded real feeds from <date>', or for a synthetic case "
+        "'REPLAY: synthetic demo data, scenario dated <date>'"
+    )
+    synthetic: bool = Field(default=False, description="The case is invented demo data")
     auto: bool = Field(description="True when switched by TEPHRA_AUTO_REPLAY")
     window_from: UtcDatetime | None = Field(
         default=None, description="Start of the looping window (TEPHRA_REPLAY_START), when set"

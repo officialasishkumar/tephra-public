@@ -681,7 +681,7 @@ export function flowModel(input) {
   const runs = events.filter((e) => e.type === "refused" || e.type === "undone");
   const region = input.region || s.region || null;
   return {
-    ready: true, replay, stub, mode: s.mode,
+    ready: true, replay, stub, mode: s.mode, demo: replay && !!s.replay?.synthetic,
     ai: { kind: ai.kind, symbol: aiSymbol(ai.kind), title: words.title, label: words.label, suffix: words.suffix, tone: words.tone }, status, sub, gate, budgetError,
     queue: waiting.map((w) => ({ label: w.label, kind: kindOf(w), skill: ownerOf(w) })),
     skills, coord, desk, runs, events, t0, t1, spanMin: Number.isFinite(t0) ? Math.max(1, Math.round((t1 - t0) / 60000)) : 0,

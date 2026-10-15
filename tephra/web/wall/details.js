@@ -15,7 +15,7 @@ import { ext, renderXPanel, recoverySummary, proofTicks, rerouteBlock, replannin
 import { has } from "./features.js";
 import { renderLayers, layersStatus } from "./controls.js";
 import { currentPlan, advisoryFacts, closuresFor } from "./story.js";
-import { planFailure, techDetail, blockPhrase, whyLink } from "./x-parts.js";
+import { planFailure, techDetail, blockPhrase, whyLink, aircraftNoun } from "./x-parts.js";
 import { dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkList, dkFacts, dkNote, dkEmpty, dkSection, dkDot, dkFromReplay } from "./dk.js";
 import { chainSection } from "./chain.js";
 
@@ -315,7 +315,7 @@ function flightDetail(D, ui, store) {
   const p = f.properties;
   const entryPill = p.exposed ? (p.inside ? dkPill("inside", "Inside TEPHRA's area now") : dkPill("tephra", `Enters in ${p.minutes_to_entry} min (estimated)`)) : dkPill("ok", "Not projected to enter TEPHRA's area");
   const kids = [
-    dkHeader({ id: "fl-head", pills: [entryPill], title: f.properties.proxy_flight, sub: `Real aircraft ${p.callsign || "with no callsign"}`, extra: clear }),
+    dkHeader({ id: "fl-head", pills: [entryPill], title: f.properties.proxy_flight, sub: `${aircraftNoun(D.state).replace(/^./, (c) => c.toUpperCase())} ${p.callsign || "with no callsign"}`, extra: clear }),
     dkTiles([
       { label: "Level", value: p.alt_baro_ft != null ? fl(p.alt_baro_ft) : "unknown", sub: p.alt_baro_ft != null ? `${Number(p.alt_baro_ft).toLocaleString("en")} ft${p.nav_altitude_mcp_ft != null ? ` · selected ${fl(p.nav_altitude_mcp_ft)}` : ""}` : null },
       { label: "Speed", value: p.gs_kt != null ? `${Math.round(p.gs_kt)} kt` : "unknown" },

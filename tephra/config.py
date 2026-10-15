@@ -44,6 +44,9 @@ DISCLAIMER = "Decision support only - fictional airline - not for operational us
 NO_MODEL_LABEL = "NO MODEL"
 REPLAY_BANNER_TEMPLATE = "REPLAY: recorded real feeds from {date}"
 """``{date}`` is ``recorded_from`` formatted as ``%d %b %Y`` (e.g. '07 Oct 2026')."""
+SYNTHETIC_BANNER_TEMPLATE = "REPLAY: synthetic demo data, scenario dated {date}"
+"""The banner of a synthetic case (``ReplayCase.synthetic``): its feeds were invented for the
+demo, so it never says "recorded"."""
 
 # --- safety constants (deliberately not configurable) -----------------------------------
 

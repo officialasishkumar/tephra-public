@@ -18,7 +18,7 @@ from typing import Final
 
 from pydantic import ValidationError
 
-from tephra.config import REPLAY_BANNER_TEMPLATE
+from tephra.config import REPLAY_BANNER_TEMPLATE, SYNTHETIC_BANNER_TEMPLATE
 from tephra.feeds.base import FetchError, FetchResult, Source, build_url
 from tephra.models import FeedId, ReplayCase, ReplayInfo, ReplayRecord
 from tephra.util import timeutil
@@ -110,7 +110,8 @@ def select_case(data_dir: Path, case_id: str | None) -> ReplayCase:
 
 
 def replay_banner(case: ReplayCase) -> str:
-    return REPLAY_BANNER_TEMPLATE.format(date=case.recorded_from.strftime("%d %b %Y"))
+    template = SYNTHETIC_BANNER_TEMPLATE if case.synthetic else REPLAY_BANNER_TEMPLATE
+    return template.format(date=case.recorded_from.strftime("%d %b %Y"))
 
 
 def replay_info(
@@ -123,6 +124,7 @@ def replay_info(
         recorded_from=case.recorded_from,
         recorded_to=case.recorded_to,
         banner=replay_banner(case),
+        synthetic=case.synthetic,
         auto=auto,
         window_from=window[0] if window else None,
         window_to=window[1] if window else None,

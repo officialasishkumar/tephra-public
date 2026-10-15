@@ -71,6 +71,7 @@ from tephra.util.events import EventBus
 
 __all__ = [
     "DEFAULT_STEP",
+    "SyntheticCase",
     "load_scorecard",
     "run_backtest",
     "run_case",
@@ -256,6 +257,18 @@ def _runtime(case: ReplayCase, settings: Settings, llm: LlmBackend, work: Path) 
     )
 
 
+class SyntheticCase(ValueError):
+    """A synthetic demo case was offered for scoring: its products are invented, so a score
+    against them would say nothing about TEPHRA's zone."""
+
+    def __init__(self, case_id: str) -> None:
+        super().__init__(
+            f"replay case {case_id} is synthetic demo data; the backtest scores only "
+            "recorded or reconstructed cases"
+        )
+        self.case_id = case_id
+
+
 async def run_case(
     case_id: str,
     *,
@@ -269,6 +282,8 @@ async def run_case(
     if arm == "D":
         settings = settings.model_copy(update={"llm": "stub"})
     case = load_case(settings.data_dir, case_id)
+    if case.synthetic:
+        raise SyntheticCase(case_id)
     times = tick_times(case, step)
     llm = _llm_for(arm, settings, max_calls)
     snapshots: list[_Snapshot] = []

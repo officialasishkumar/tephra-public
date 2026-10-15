@@ -1,0 +1,1 @@
+{"ac":[{"hex":"05c460","type":"adsb_icao","flight":"SJV565  ","t":"B738","alt_baro":34000,"alt_geom":34375,"gs":480.6,"track":240.33,"baro_rate":0,"category":"A3","lat":-0.691536,"lon":124.709604,"seen_pos":0.6,"seen":0.5,"nav_altitude_mcp":34008,"dst":238.287}],"msg":"No error","now":1791964260000,"total":1,"ctime":1791964260000,"ptime":0}

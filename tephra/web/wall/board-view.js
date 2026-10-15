@@ -454,7 +454,7 @@ export function mountFlow(dialog, { has }) {
       if (!a) return;
       const where = a.exposed ? (a.mins > 0 ? `Enters TEPHRA's area in ${a.mins} min` : "Inside TEPHRA's area") : "Outside the ash";
       showPick(a.at, a.flight ? `${a.flight} · RFA (fictional)` : a.cs || a.hex,
-        [a.flight && a.cs ? `Real aircraft ${a.cs}` : null, [a.alt != null ? fl(a.alt) : null, a.gs != null ? `${Math.round(a.gs)} kt` : null].filter(Boolean).join(" · ") || null,
+        [a.flight && a.cs ? `${M.demo ? "Demo" : "Real"} aircraft ${a.cs}` : null, [a.alt != null ? fl(a.alt) : null, a.gs != null ? `${Math.round(a.gs)} kt` : null].filter(Boolean).join(" · ") || null,
           a.from && a.to ? `${a.from} → ${a.to}` : null, where]);
     } else if (f.layer.id === "b-volcanoes") {
       const v = M.geo.volcanoes.find((x) => String(x.id) === String(f.properties.id));

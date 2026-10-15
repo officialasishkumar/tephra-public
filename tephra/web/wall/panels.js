@@ -10,7 +10,7 @@ import {
 import { actionWords, deciderName, deciderRole, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
 import { advisoryFacts } from "./story.js";
-import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, aiSymbol, replayWords, describeReplay, handPlanOf, causeTitle, blockPhrase, whyLink, machineText, MARK, ASSISTANT } from "./x-parts.js";
+import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, aiSymbol, replayWords, aircraftNoun, describeReplay, handPlanOf, causeTitle, blockPhrase, whyLink, machineText, MARK, ASSISTANT } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkEmpty, dkTech, dkSection, dkLink,
   dkWhen, dkDot, dkFromReplay, collapseRuns, runRow, timeRange, plural, dayTime, times,
@@ -363,7 +363,7 @@ function flightRow(D, f, ui, allStale = false, hand = null) {
   return dkLinkRow({
     dot: plane,
     title: entry ? [p.proxy_flight, " ", el("span", { class: "dk-entry" }, entry)] : p.proxy_flight,
-    sub: [`${lvl} · real aircraft ${p.callsign || String(p.hex || "").toUpperCase()}`, oldShown ? [" · ", el("span", { class: "dk-warn", text: oldShown })] : null, p.crew_report ? [" · ", el("span", { class: "dk-crewword" }, icon("i-pin", "icon"), "crew report on this route")] : null],
+    sub: [`${lvl} · ${aircraftNoun(D.state)} ${p.callsign || String(p.hex || "").toUpperCase()}`, oldShown ? [" · ", el("span", { class: "dk-warn", text: oldShown })] : null, p.crew_report ? [" · ", el("span", { class: "dk-crewword" }, icon("i-pin", "icon"), "crew report on this route")] : null],
     meta: handMeta || (adv ? el("span", { class: `dk-adv dk-adv--${adv.status.toLowerCase()}` }, icon(advIcon), el("span", { text: advWord })) : el("span", { class: "dk-adv", text: "No advisory yet" })),
     dataset: { flight: f.id ?? p.hex, focus: `flight-${p.hex}` },
     label: `${p.proxy_flight}, proxy for ${p.callsign || p.hex}, ${p.inside ? "inside TEPHRA's area now" : `enters in ${p.minutes_to_entry} minutes, estimated`}, ${lvl}${old ? `, ${old}` : ""}${p.crew_report ? ", crew report of ash on this route" : ""}${handRow ? `, no advisory${blockPhrase(hand.block) ? `: ${blockPhrase(hand.block)}` : ""}, plan by hand${handRow.must ? ", must do" : ""}` : adv ? `, ${advWord.toLowerCase()}` : ""}. Show this flight.`,
@@ -445,7 +445,7 @@ function crewList(D, ui) {
       const when = flag.reporter ? "reported ash" : flag.inside_now ? "inside now" : `in ${flag.minutes_to_entry} min`;
       return dkLinkRow({
         dot: icon("i-aircraft", "icon dk-plane dk-plane--crew"), title: [p.proxy_flight, " ", el("span", { class: "dk-entry", text: when })],
-        sub: [`${lvl} · real aircraft ${p.callsign || String(p.hex || "").toUpperCase()} · `, el("span", { class: "dk-crewword" }, icon("i-pin", "icon"), flag.line)],
+        sub: [`${lvl} · ${aircraftNoun(D.state)} ${p.callsign || String(p.hex || "").toUpperCase()} · `, el("span", { class: "dk-crewword" }, icon("i-pin", "icon"), flag.line)],
         dataset: { flight: f.id ?? p.hex, focus: `flight-${p.hex}` }, cls: ui?.selFlight?.hex === p.hex ? "is-picked" : null,
         label: `${p.proxy_flight}, proxy for ${p.callsign || p.hex}, ${flag.line}, ${when}, ${lvl}. Show this flight.`,
       });

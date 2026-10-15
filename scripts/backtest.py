@@ -6,7 +6,7 @@ new calls (0 by default); it needs TEPHRA_LLM=gemini and GEMINI_API_KEY. ``--rep
 lite-tier Gemini call that writes ``REPORT.md`` from the scorecard; if the model fails or its
 numbers do not match the scorecard there is no report ("AI UNAVAILABLE"), only the scorecard.
 
-    uv run python scripts/backtest.py                      # all cases in data/replay, arm D
+    uv run python scripts/backtest.py                      # every recorded case, arm D
     uv run python scripts/backtest.py --case semeru-20260923 --step-min 60
     TEPHRA_LLM=gemini GEMINI_API_KEY=... uv run python scripts/backtest.py --arm both --max-calls 40
     TEPHRA_LLM=gemini GEMINI_API_KEY=... uv run python scripts/backtest.py --report-only
@@ -31,8 +31,13 @@ DEFAULT_OUT = PROJECT_ROOT / "docs" / "backtest"
 
 
 def _case_ids(settings: Settings, wanted: list[str]) -> list[str]:
+    """The cases to score: the named ones, else every case. A synthetic demo case is never
+    scored, named or not: its products are invented."""
     known: list[ReplayCase] = sorted(list_cases(settings.data_dir), key=lambda c: c.case_id)
-    ids = [case.case_id for case in known]
+    synthetic = sorted(case.case_id for case in known if case.synthetic)
+    if named := sorted(set(wanted) & set(synthetic)):
+        raise SystemExit(f"{', '.join(named)}: synthetic demo data, never scored")
+    ids = [case.case_id for case in known if not case.synthetic]
     unknown = sorted(set(wanted) - set(ids))
     if unknown:
         raise SystemExit(f"unknown replay case(s) {', '.join(unknown)}; have {', '.join(ids)}")

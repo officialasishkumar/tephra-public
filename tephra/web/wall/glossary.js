@@ -13,7 +13,7 @@ export const GLOSSARY = [
   ["RFA proxy flight", "Ring of Fire Air (RFA) is a fictional airline. Each RFA flight number stands in for a real aircraft seen on ADS-B."],
   ["TEPHRA Assistant", "TEPHRA's AI assistant (Gemini). Its skills (Plume reader, Satellite reader, Flight planner, Drafter, Recovery planner, Notice reader, Ask) read the feeds and draft the text, in the order the Coordinator sets. Code does every number and safety rule, and a person approves everything."],
   ["Code only (NO MODEL)", "The offline test mode: no model is connected and code answers every step, labelled NO MODEL. It is not a fallback: the live site never uses it in place of a model."],
-  ["REPLAY and reconstructed", "REPLAY plays recorded real feeds and is labelled for the whole session. A reconstructed case was rebuilt after the event from archived bulletins."],
+  ["REPLAY and reconstructed", "REPLAY plays recorded real feeds and is labelled for the whole session. A reconstructed case was rebuilt after the event from archived bulletins. A synthetic demo case is invented data on real places, labelled \"synthetic demo data\"."],
   ["Affected area", "The area an official product says the ash covers."],
   ["Policy A (illustrative)", "An example operator policy: every margin, minimum and threshold TEPHRA applies, with its reason. It is not a real airline's policy."],
   ["Alert colour", "The aviation colour code a volcano observatory gives: green, yellow, orange, red (rising concern). Grey means it was not given."],

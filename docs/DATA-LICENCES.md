@@ -121,6 +121,7 @@ Legend:
 | `java-live-20261010/raw/vaac_tokyo/` | 15 | JMA PDL 1.0 | GREEN | Credit JMA |
 | `java-live-20261010/raw/winds/` | 11 | Open-Meteo, CC BY 4.0 | AMBER | Credit "Weather data by Open-Meteo.com" |
 | `java-live-20261010/manifest.json` | none yet | Ours | — | Check it once recording ends |
+| `demo-agung-20261014/**` | 1,112 | **Synthetic demo data**, ours: invented by `scripts/make_demo_case.py` on real volcanoes, airports and VRS callsign routes (CC0). No agency's product, page or image is copied; the HTML and XML pages say in a comment that they are invented. No satellite frames | GREEN | Keep it labelled synthetic (manifest `synthetic: true`, banner, About); never score or cite it as an event |
 
 ### 2.6 `tephra/web/**` (untracked)
 

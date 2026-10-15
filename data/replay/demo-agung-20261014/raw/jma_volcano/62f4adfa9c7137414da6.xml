@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SYNTHETIC DEMO DATA made by TEPHRA's scripts/make_demo_case.py for a product demo. Not issued by any agency and not a copy of any real page. -->
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/">
+  <Control>
+    <Title>噴火に関する火山観測報</Title>
+    <DateTime>2026-10-14T06:58:00Z</DateTime>
+    <Status>通常</Status>
+    <EditorialOffice>福岡管区気象台</EditorialOffice>
+    <PublishingOffice>福岡管区気象台　鹿児島地方気象台</PublishingOffice>
+  </Control>
+  <Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
+    <Title>火山名　桜島　噴火に関する火山観測報</Title>
+    <ReportDateTime>2026-10-14T15:58:00+09:00</ReportDateTime>
+    <TargetDateTime>2026-10-14T15:52:00+09:00</TargetDateTime>
+    <EventID>20261014155800_506</EventID>
+    <InfoType>発表</InfoType>
+    <Serial>1</Serial>
+    <InfoKind>噴火に関する火山観測報</InfoKind>
+    <InfoKindVersion>1.0_0</InfoKindVersion>
+    <Headline>
+      <Text>火　　山：桜島
+日　　時：2026年10月14日15時52分(140652UTC)
+現　　象：噴火</Text>
+      <Information type="噴火に関する火山観測報"><Item><Kind><Name>噴火</Name><Code>52</Code></Kind><Areas codeType="火山名"><Area><Name>桜島</Name><Code>506</Code></Area></Areas></Item></Information>
+    </Headline>
+  </Head>
+  <Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/volcanology1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
+    <VolcanoInfo type="噴火に関する火山観測報">
+      <Item>
+        <EventTime>
+          <EventDateTime significant="yyyy-mm-ddThh:mm">2026-10-14T15:52:00+09:00</EventDateTime>
+          <EventDateTimeUTC significant="yyyy-mm-ddThh:mm">2026-10-14T06:52:00Z</EventDateTimeUTC>
+        </EventTime>
+        <Kind><Name>噴火</Name><Code>52</Code></Kind>
+        <Areas codeType="火山名"><Area><Name>桜島</Name><Code>506</Code><CraterName>南岳山頂火口</CraterName></Area></Areas>
+      </Item>
+    </VolcanoInfo>
+    <VolcanoObservation>
+      <ColorPlume>
+        <jmx_eb:PlumeHeightAboveCrater type="火口上噴煙高度" unit="m" description="火口上2300m">2300</jmx_eb:PlumeHeightAboveCrater>
+        <jmx_eb:PlumeHeightAboveSeaLevel type="海抜噴煙高度" unit="FT" description="海抜11000FT">11000</jmx_eb:PlumeHeightAboveSeaLevel>
+        <jmx_eb:PlumeDirection type="噴煙の流向" unit="漢字" description="南">南</jmx_eb:PlumeDirection>
+      </ColorPlume>
+      <OtherObservation>火口：南岳山頂火口
+噴煙量：多量</OtherObservation>
+    </VolcanoObservation>
+  </Body>
+</Report>

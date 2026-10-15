@@ -298,7 +298,9 @@ of its `citations`, that every value is zero or more and the names in
 policy a draft was made under (None on drafts from before each field).
 `Advisory.replay_case_id` names the replay case a REPLAY draft was made from (None when live).
 `ReplayCase.reconstructed` (a plain property, not serialised) is True when the manifest's
-`notes` start with `Reconstructed from archives`. `OutboundMessage` carries `replay`,
+`notes` start with `Reconstructed from archives`. `ReplayCase.synthetic` (manifest field, default
+False) marks invented demo data (`scripts/make_demo_case.py`): its banner, `ReplayInfo.synthetic`,
+`ReplayCaseSummary.synthetic` and the drafter header say so, and the backtest refuses it. `OutboundMessage` carries `replay`,
 `replay_case_id`, `policy_id`, `policy_version` and `policy_hash` copied from the advisory,
 and `queued_wall_at`, the wall-clock time it was queued (`queued_at` follows the REPLAY
 clock); `queued_wall_at` is None only on records written before the field, and on approved
@@ -356,7 +358,9 @@ level)`: the same route under a new cone keeps its id.
 
 `Settings` (every env var; see the class), `get_settings()`, `apply_process_env(settings)`,
 `PROJECT_ROOT`, `REGIONS`, `RegionKey`. Product constants `AIRLINE_CODE`, `AIRLINE_NAME`,
-`DISCLAIMER`, `NO_MODEL_LABEL`, `REPLAY_BANNER_TEMPLATE`. Safety constants (not
+`DISCLAIMER`, `NO_MODEL_LABEL`, `REPLAY_BANNER_TEMPLATE`, `SYNTHETIC_BANNER_TEMPLATE`
+("REPLAY: synthetic demo data, scenario dated {date}", for a `ReplayCase.synthetic` case). Safety
+constants (not
 configurable): `MAX_PLUME_EXTENT_KM=500`, `MAX_SECTOR_WIDTH_DEG=180`, `MAX_HORIZON_H=18`,
 `FEED_CLOCK_SLACK=timedelta(minutes=5)`, `MIN_SECRET_CHARS=32`, `ADVISORY_BODY_MAX_CHARS=400`,
 `MAX_BODY_BYTES=16 KiB` (the request-body cap) and `MAX_NOTICE_BODY_BYTES=32 KiB` (a pasted notice:
@@ -1456,6 +1460,7 @@ minute than the facts' time (`created_at`), the entry line ends `AT HHMMZ` (the 
 `render_header` (code only) prints, upper case: `HEADER_TITLE`; `{proxy_flight} (ADS-B
 {callsign or NO CALLSIGN} {hex})`; for a REPLAY draft `REPLAY - RECONSTRUCTED FROM ARCHIVES
 {case_id} ({recorded_from as DD MON YYYY}) - NOT LIVE` when `replay_case.reconstructed`,
+`REPLAY - SYNTHETIC DEMO DATA {case_id} ({date}) - NOT LIVE` when `replay_case.synthetic`,
 otherwise `REPLAY - RECORDED FROM LIVE FEEDS {case_id} ({date}) - NOT LIVE`, or `REPLAY - NOT
 LIVE` when `replay` is set with no case; `VOLCANO {name}`; `ACTION` with level band, holding FL or
 alternate; for a CHANGE_LEVEL band (or a CONTINUE flight's present FL) wholly above
@@ -1606,7 +1611,7 @@ class ReplaySource(Source):
     def __init__(self, case_dir: Path, case: ReplayCase) -> None
     @property
     def case(self) -> ReplayCase
-def replay_banner(case: ReplayCase) -> str                     # REPLAY_BANNER_TEMPLATE
+def replay_banner(case: ReplayCase) -> str                     # REPLAY_ or SYNTHETIC_BANNER_TEMPLATE
 def replay_info(case: ReplayCase, *, auto: bool,
                 window: tuple[datetime, datetime] | None = None) -> ReplayInfo   # window -> window_from/to; case volcano_ids
 def start_replay_clock(case: ReplayCase, *, speed: float, begin: datetime | None = None,
@@ -2677,12 +2682,14 @@ Nothing is queued to `outbound`.
 `tephra/backtest/`
 ```python
 async def run_case(case_id, *, settings, arm="D", step=timedelta(minutes=30), max_calls=0, on_tick=None) -> CaseScore
+class SyntheticCase(ValueError)                           # run_case on a synthetic case (never scored)
 async def run_backtest(case_ids, *, settings, arms=("D",), step=..., max_calls=0) -> BacktestScorecard
 write_scorecard / load_scorecard(path); async store_scorecard(store, scorecard)   # collection backtest, doc latest
 async def build_report(scorecard, llm) -> str            # report.py; raises ReportUnavailable("AI UNAVAILABLE: ...")
 def score_tick(...) -> TickScore; lead_minutes(...); summarise(...)                # metrics.py
 ```
-Replays each case in `data/replay/` tick by tick on a fixed clock (with the automatic recovery
+Replays each recorded or reconstructed case in `data/replay/` (never a synthetic one:
+`scripts/backtest.py` leaves them out and refuses one named with `--case`) tick by tick on a fixed clock (with the automatic recovery
 off), records TEPHRA's cone and the official-only area, and scores them against the official areas
 issued later (those issued more than `FEED_CLOCK_SLACK` after the tick, so nothing leaks): coverage,
 gain over the official baseline, over-warning (1 - precision), area ratio, incremental lead time
@@ -3084,7 +3091,7 @@ The headers above are unchanged by compression.
 | `GET /api/outbound?limit=50` | `OutboundList` (newest first by `queued_wall_at`, so recorded and live rows never interleave by replay time; rows whose `queued_wall_at` is null come last; Firestore leaves out records written before the field, which lack the key) |
 | `GET /api/feeds` | `FeedList` = `{feeds: [FeedHealth]}` (ages as of now) |
 | `GET /api/policy` | `PolicyResponse` = `{policy: OperatorPolicy, policy_hash}`: the active operator policy and its `content_hash()` |
-| `GET /api/replays` | `ReplayCaseList` = `{cases: [ReplayCaseSummary]}`: each recorded case without its records (`case_id`, `label`, `recorded_from`, `recorded_to`, `region`, `volcano_ids`, `notes`, `record_count`, `banner`). Built once per app in the lifespan (`ReplayCatalogue` on `app.state.replays`: summaries, serialised bytes, strong `ETag` = quoted sha256 of the bytes); a manifest that cannot be read fails startup. Served with `Cache-Control: no-cache` and the `ETag`; a matching `If-None-Match` answers 304 with no body |
+| `GET /api/replays` | `ReplayCaseList` = `{cases: [ReplayCaseSummary]}`: each recorded case without its records (`case_id`, `label`, `recorded_from`, `recorded_to`, `region`, `volcano_ids`, `notes`, `record_count`, `banner`, `synthetic`). Built once per app in the lifespan (`ReplayCatalogue` on `app.state.replays`: summaries, serialised bytes, strong `ETag` = quoted sha256 of the bytes); a manifest that cannot be read fails startup. Served with `Cache-Control: no-cache` and the `ETag`; a matching `If-None-Match` answers 304 with no body |
 | `GET /api/routes/{origin_icao}/{dest_icao}` | FeatureCollection (`RouteFeatureProps`, `routes.route_features`): the great circle between two airports and a Point at each end, for the route of a flight picked on the Wall that is not in `WallSnapshot.routes` (the line's id is the pair in alphabetical order, whichever order is asked). Which airports a flight flies between comes only from `AircraftFeatureProps`; this answer depends only on the two positions, so it is sent with `Cache-Control: public, max-age=86400`. 404 `not_found` for a code that is not 4 capitals or digits, the same airport twice, or an airport with no known position |
 | `GET /api/airports` | FeatureCollection of the airport catalogue (`data/airports.json`, `Airport`): a Point per airport with `icao`, `iata`, `name`, `country`, `longest_runway_m` (feature id the ICAO code), for the maps to place the airports an airport plan closes. The catalogue changes only with a deploy: `Cache-Control: public, max-age=3600` |
 | `GET /connect` | `tephra/web/connect.html`, TEPHRA Connect (UI-DESIGN 7.24) |
@@ -3112,7 +3119,8 @@ The headers above are unchanged by compression.
 `limit` is 1 to 200 everywhere.
 
 `SystemState.replay` is a `ReplayInfo` (`case_id`, `label`, `recorded_from`, `recorded_to`,
-`banner`, `auto`, `window_from`, `window_to`). `window_from` and `window_to` are null unless
+`banner`, `synthetic`, `auto`, `window_from`, `window_to`). With `synthetic` the Wall's replay
+words read "Replay · synthetic demo data" and flight rows say "demo aircraft", not "real aircraft". `window_from` and `window_to` are null unless
 the replay loops over a configured window (`TEPHRA_REPLAY_START` to `TEPHRA_REPLAY_END`); the
 Wall's timeline then shows `Replay loops 1028Z-1058Z` and its progress through the loop.
 
