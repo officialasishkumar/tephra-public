@@ -9,7 +9,7 @@
 
 import { $, el, icon, ms, hhmmz } from "./util.js";
 import { frameFor } from "./ext-map.js";
-import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, causeTitle, handPlanOf, reasonClass, realWhen, machineText, machineSentences, jobsWords, pacingWords, whyLink, WHY, MARK, ASSISTANT } from "./x-parts.js";
+import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, assistantIs, causeTitle, handPlanOf, reasonClass, realWhen, machineText, machineSentences, jobsWords, pacingWords, whyLink, WHY, MARK, ASSISTANT } from "./x-parts.js";
 import { dutyDetail, dispatchedTools } from "./duty.js";
 import { HELPERS } from "./board.js";
 import { has } from "./features.js";
@@ -515,7 +515,7 @@ export function runsRows(state) {
   if (!c) return [];
   const store = c.store === "firestore" ? "Firestore" : "SQLite";
   const secrets = c.secrets === "secret-manager" ? "Secret Manager" : "Secrets from the environment";
-  const model = c.model_access === "gemini-api" ? "Gemini API" : "No model connected (NO MODEL)";
+  const model = { "gemini-api": "Gemini API", "ollama-local": "Gemma on this computer (Ollama)" }[c.model_access] || "No model connected (NO MODEL)";
   if (c.platform !== "cloud-run") {
     return [["Runs on", `This computer · ${store} · ${c.scheduler === "cloud-scheduler" ? "Cloud Scheduler" : "in-process scheduler"}`], ["Secrets", secrets], ["Model access", model]];
   }
@@ -801,7 +801,7 @@ function aiPanel(D, store) {
   const head = dkHeader({
     id: "ai-head",
     pills: [aiPill(ai)],
-    title: stub ? "Code does every step, and code templates write the text a model would." : "TEPHRA Assistant is TEPHRA's AI assistant (Gemini). Its skills can widen TEPHRA's estimate but never shrink the official area.",
+    title: stub ? "Code does every step, and code templates write the text a model would." : `${assistantIs()} Its skills can widen TEPHRA's estimate but never shrink the official area.`,
     chips: stub ? [dkChip("No model (offline stub)")] : ids.map(([k, id]) => dkChip(id, { label: k, mono: true })),
     extra: el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "board-open", focus: "ai-board" }, "aria-keyshortcuts": "A" }, icon("ta-16"), `See ${ASSISTANT} at work`)),
   });

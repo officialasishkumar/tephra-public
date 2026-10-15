@@ -34,6 +34,7 @@ import { goTab, initTabs, setBadges } from './desk/tabs.js';
 import { closeBSheet, describeReplayIn } from './desk/ui.js';
 import { loadCrewPolicy, openCrewForm, openCrewReport, renderCrewSection, setAircraft, setCrew } from './desk/crew.js';
 import { has, setFeatures } from './wall/features.js';
+import { setModelBackend } from './wall/x-parts.js';
 
 const TICK_MS = 15000;
 const SSE_OFFLINE_AFTER_MS = 10000;
@@ -62,6 +63,7 @@ function applyState(state) {
   const before = app.state;
   app.state = state;
   setFeatures(state.features);
+  setModelBackend(state.llm && state.llm.backend);
   applyFeatures();
   syncVisitorCard();
   setActiveClock(state.now);

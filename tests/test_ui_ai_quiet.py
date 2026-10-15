@@ -196,7 +196,8 @@ def test_the_disclosure_still_says_ai() -> None:
     area. The quota is said in the home's lead only, never in the chip (8.6)."""
     xparts = _read("wall/x-parts.js")
     words = _function(xparts, "aiWords")
-    assert "TEPHRA Assistant is TEPHRA's AI assistant (Gemini)." in words
+    assert "assistantIs()" in words
+    assert "TEPHRA Assistant is TEPHRA's AI assistant (${modelFamily})." in xparts
     assert "never shrink the official area" in words
     assert "quota" not in words
     assert "Google's free daily AI quota" in _function(xparts, "aiLead")

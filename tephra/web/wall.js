@@ -16,7 +16,7 @@ import { photoFor, photoFigure } from "./wall/photo.js";
 import { renderDetails, sectionOf, PANELS } from "./wall/details.js";
 import { boardModel, flowModel } from "./wall/board.js";
 import { mountFlow } from "./wall/board-view.js";
-import { describeReplay } from "./wall/x-parts.js";
+import { describeReplay, setModelBackend } from "./wall/x-parts.js";
 import { nextRetryMs, shouldReopen } from "./wall/stream.js";
 import { setFeatures, has, applyFeatureNav } from "./wall/features.js";
 
@@ -134,6 +134,7 @@ async function load() {
     const data = await res.json();
     store.state = data.state;
     setFeatures(data.state.features);
+    setModelBackend(data.state.llm?.backend);
     applyFeatureNav();
     store.snapshot = data.snapshot;
     store.advisories = data.advisories || [];
@@ -214,6 +215,7 @@ function openStream() {
   on("state", (s) => {
     store.state = s;
     setFeatures(s.features);
+    setModelBackend(s.llm?.backend);
     applyFeatureNav();
     if (s.feeds) { noteReads(s.feeds); store.feeds = s.feeds; }
     setClock(s.now);

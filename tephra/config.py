@@ -155,8 +155,29 @@ class Settings(BaseSettings):
     )
 
     # Model access. Gemini is reached only with an AI Studio key, never Vertex AI or ADC.
-    llm: Literal["gemini", "stub"] = Field(
-        default="stub", description="'stub' is deterministic and offline, labelled NO MODEL"
+    llm: Literal["gemini", "ollama", "stub"] = Field(
+        default="stub",
+        description=(
+            "'stub' is deterministic and offline, labelled NO MODEL; 'ollama' runs every model "
+            "step on a model served by Ollama on this computer (TEPHRA_MODEL and "
+            "TEPHRA_MODEL_LITE are then Ollama tags such as gemma4:e4b)"
+        ),
+    )
+    ollama_url: str = Field(
+        default="http://127.0.0.1:11434", description="Ollama's address (TEPHRA_LLM=ollama)"
+    )
+    ollama_num_ctx: int = Field(
+        default=32768,
+        ge=4096,
+        description="The local model's context window in tokens (an agent's whole conversation)",
+    )
+    ollama_think: Literal["none", "main", "all"] = Field(
+        default="main",
+        description=(
+            "Which local calls think before they answer: 'main' is the Plume reader only (a "
+            "small model fills its numbers badly without it), 'all' adds every agent turn and "
+            "draft (better answers, several times slower)"
+        ),
     )
     model: str = Field(default="gemini-3.8-flash", description="Plume Reader (multimodal)")
     model_lite: str = Field(
@@ -505,6 +526,11 @@ class Settings(BaseSettings):
     def _consistent(self) -> Self:
         if self.llm == "gemini" and self.gemini_api_key is None:
             raise ValueError("TEPHRA_LLM=gemini needs GEMINI_API_KEY (Google AI Studio key)")
+        if self.llm == "ollama" and not all(":" in m for m in (self.model, self.model_lite)):
+            raise ValueError(
+                "TEPHRA_LLM=ollama needs TEPHRA_MODEL and TEPHRA_MODEL_LITE set to Ollama tags "
+                "(name:tag, e.g. gemma4:e4b)"
+            )
         if self.ai_urgent_share + self.ai_interactive_share >= 1:
             raise ValueError(
                 "TEPHRA_AI_URGENT_SHARE + TEPHRA_AI_INTERACTIVE_SHARE must leave a share for "

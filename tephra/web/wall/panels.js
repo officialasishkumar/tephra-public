@@ -75,7 +75,7 @@ const OUTCOME = {
 // The model-checked outcomes: only these were read by a model (H1, H2).
 const MODEL_READ = new Set(["ACCEPTED", "REPAIRED"]);
 const ACTOR = {
-  code: ["i-code", "CODE"], gemini: ["i-model", "GEMINI"], adk: ["i-agent", "ADK"], stub: ["st-never", "NO MODEL"],
+  code: ["i-code", "CODE"], gemini: ["i-model", "MODEL"], adk: ["i-agent", "ADK"], stub: ["st-never", "NO MODEL"],
   human: ["i-user", "HUMAN"], system: ["i-system", "SYSTEM"],
 };
 // Plain words for values in the sources grid (R12.4). The mono codes stay as they are.

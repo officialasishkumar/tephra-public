@@ -831,7 +831,7 @@ def _assessment_view(assessment: PlumeAssessment | None) -> dict[str, Any] | Non
     return {
         "assessment_id": assessment.id,
         "outcome": assessment.outcome,
-        "ai_written": assessment.llm_backend == "gemini",
+        "ai_written": assessment.llm_backend != "stub",
         "mode": estimate.mode.value,
         "base_fl": estimate.base_fl,
         "top_fl": estimate.top_fl,

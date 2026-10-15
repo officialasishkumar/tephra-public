@@ -732,11 +732,11 @@ def _ascii_upper(text: str) -> str:
 
 
 def _actor(backend: LlmBackendName) -> TraceActor:
-    return "gemini" if backend == "gemini" else "stub"
+    return "stub" if backend == "stub" else "gemini"
 
 
 def _draft_line(plan: PlannedAction, backend: LlmBackendName) -> str:
-    label = "AI-DRAFTED" if backend == "gemini" else "NO MODEL"
+    label = "NO MODEL" if backend == "stub" else "AI-DRAFTED"
     return f"DRAFT {_action_text(plan.decision)} ({label})"
 
 

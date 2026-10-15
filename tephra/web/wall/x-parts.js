@@ -293,12 +293,18 @@ const causeList = (list) => [...new Set(list.map(causeShort))].join(". ");
 // tooltip and its label. `home` names the assistant home ("TEPHRA Assistant at work" on the Wall,
 // the assistant sheet on the Desk); `opens` what the chip opens. `narrow` (420 px and less)
 // drops the time and says the short name "Assistant" (the label and tooltip keep the full name).
+// The model behind TEPHRA Assistant, as the disclosure lines name it: Gemini, or Gemma served by
+// Ollama on the same computer (TEPHRA_LLM=ollama). Set from /api/state's llm.backend.
+let modelFamily = "Gemini";
+export const setModelBackend = (backend) => { modelFamily = backend === "ollama" ? "Gemma, on this computer" : "Gemini"; };
+export const assistantIs = () => `TEPHRA Assistant is TEPHRA's AI assistant (${modelFamily}).`;
+
 export function aiWords(s, { home = `${ASSISTANT} at work`, opens = `${ASSISTANT} at work`, narrow = false } = {}) {
   const never = "It can widen TEPHRA's estimate, never shrink the official area.";
   // one of the few places that say "AI" (disclosure, docs/UI-AI-QUIET.md Naming)
-  const is = "TEPHRA Assistant is TEPHRA's AI assistant (Gemini).";
+  const is = assistantIs();
   const label = narrow ? "Assistant" : ASSISTANT;
-  if (s.kind === "off") return { label, suffix: narrow ? "off" : "off (code only)", tone: "off", aria: `${ASSISTANT} off: no model is connected, code only. Opens ${opens}.`, title: `${ASSISTANT} off: no model is connected (NO MODEL). Code does every step, and code templates write the text. TEPHRA Assistant is TEPHRA's AI assistant (Gemini) when a model is connected. ${never}` };
+  if (s.kind === "off") return { label, suffix: narrow ? "off" : "off (code only)", tone: "off", aria: `${ASSISTANT} off: no model is connected, code only. Opens ${opens}.`, title: `${ASSISTANT} off: no model is connected (NO MODEL). Code does every step, and code templates write the text. TEPHRA Assistant is TEPHRA's AI assistant when a model is connected. ${never}` };
   if (s.kind === "paused") {
     // one neutral word, no reason and no time (8.6): the cause and the time are said once, at the
     // assistant's home, one tap from the chip

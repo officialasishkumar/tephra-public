@@ -192,11 +192,12 @@ class DutyToolkit:
 
     async def plan_flights(self, flight_ids: Sequence[str]) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
-        for flight_id in _unique(flight_ids):
-            item = self.pending_for(DutyItemKind.PLAN, flight_id)
+        for named in _unique(flight_ids):
+            item = self.plan_item(named)
             if item is None:
-                results.append({"flight_id": flight_id, "error": "NO PLAN IS DUE FOR THIS FLIGHT"})
+                results.append({"flight_id": named, "error": "NO PLAN IS DUE FOR THIS FLIGHT"})
                 continue
+            flight_id = item.subject
             if item.volcano_id and self.pending_for(DutyItemKind.ASSESS, item.volcano_id):
                 results.append(
                     {
@@ -285,6 +286,19 @@ class DutyToolkit:
 
     def pending_for(self, kind: DutyItemKind, subject: str) -> DutyItem | None:
         return next((item for item in self.pending(kind) if item.subject == subject), None)
+
+    def plan_item(self, named: str) -> DutyItem | None:
+        """The open PLAN item a flight is named by: its subject, as the prompt asks, or its
+        item id or the flight number its label opens with, which a small local model passes
+        instead. Code still checks every plan; only the name is matched here."""
+        return self.pending_for(DutyItemKind.PLAN, named) or next(
+            (
+                item
+                for item in self.pending(DutyItemKind.PLAN)
+                if named in (item.id, _plan_flight_number(item.label))
+            ),
+            None,
+        )
 
     def item_id_for(self, kind: DutyItemKind, subject: str) -> str:
         """The run's current item for a kind and subject (the newest, if one was replaced);
@@ -789,6 +803,12 @@ def _item_view(item: DutyItem) -> dict[str, Any]:
         "mandatory": item.mandatory,
         "urgency": item.urgency,
     }
+
+
+def _plan_flight_number(label: str) -> str | None:
+    """'Plan RFA6178 (Anak Krakatau): inside the area now' -> 'RFA6178'."""
+    words = label.split()
+    return words[1] if len(words) > 1 and words[0] == "Plan" else None
 
 
 def _unique(values: Iterable[str]) -> list[str]:

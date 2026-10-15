@@ -137,8 +137,8 @@ async def speak(
 
     if not text.strip() or len(text) > MAX_ANSWER_CHARS:
         raise AiUnavailable(f"TEXT TO SPEAK MUST BE 1 TO {MAX_ANSWER_CHARS} CHARACTERS")
-    if llm.name == "stub":
-        raise AiUnavailable("NO MODEL: SPEECH NEEDS GEMINI (TEPHRA_LLM=stub)")
+    if llm.name != "gemini":
+        raise AiUnavailable(f"NO MODEL: SPEECH NEEDS GEMINI (TEPHRA_LLM={llm.name})")
     refused = await llm.reserve("tts")
     if refused is not None:
         raise AiUnavailable(f"budget_exhausted: {refused}")

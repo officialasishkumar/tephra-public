@@ -1124,14 +1124,14 @@ async def _templates_for(
             raise
         runtime.trace(
             TraceStage.MESSAGES,
-            "gemini" if found[key].backend == "gemini" else "stub",
+            "stub" if found[key].backend == "stub" else "gemini",
             _templates_line(target.spec, found[key]),
         )
     return found
 
 
 def _templates_line(spec: TemplateSpec, templates: Templates) -> str:
-    label = "AI-WRITTEN" if templates.backend == "gemini" else "NO MODEL"
+    label = "NO MODEL" if templates.backend == "stub" else "AI-WRITTEN"
     what = " ".join(part for part in (spec.kind.value, spec.status) if part)
     return f"TEMPLATES {what} ({'+'.join(spec.languages)}) {label}"
 

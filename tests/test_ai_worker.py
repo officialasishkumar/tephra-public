@@ -42,6 +42,10 @@ class NamedGemini(StubBackend):
     def name(self) -> LlmBackendName:
         return "gemini"
 
+    @property
+    def metered(self) -> bool:
+        return True
+
     def model_id(self, tier: Tier) -> str:
         return {"main": MAIN, "lite": LITE, "tts": TTS}[tier]
 

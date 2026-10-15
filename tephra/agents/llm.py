@@ -1,4 +1,5 @@
-"""The one place TEPHRA talks to Gemini, plus a deterministic stand-in.
+"""The one place TEPHRA talks to Gemini, plus a deterministic stand-in (and, with
+``TEPHRA_LLM=ollama``, ``tephra.agents.ollama`` for a Gemma model on this computer).
 
 Gemini is reached only with a Google AI Studio key through ``genai.Client(api_key=...)``;
 never Vertex AI, never Application Default Credentials. Every call:
@@ -133,6 +134,11 @@ class LlmBackend(Protocol):
     @property
     def name(self) -> LlmBackendName: ...
 
+    @property
+    def metered(self) -> bool:
+        """True when calls spend a daily quota that the AI worker must pace work against."""
+        ...
+
     def model_id(self, tier: Tier) -> str: ...
 
     async def reserve(self, tier: Tier) -> str | None:
@@ -237,6 +243,10 @@ def get_llm(settings: Settings, *, quota: QuotaLedger | None = None) -> LlmBacke
     counts in memory (scripts and tests)."""
     if settings.llm == "gemini":
         return GeminiBackend(settings, quota=quota)
+    if settings.llm == "ollama":
+        from tephra.agents.ollama import OllamaBackend
+
+        return OllamaBackend(settings)
     return StubBackend()
 
 
@@ -246,6 +256,10 @@ class StubBackend:
     @property
     def name(self) -> LlmBackendName:
         return "stub"
+
+    @property
+    def metered(self) -> bool:
+        return False
 
     def model_id(self, tier: Tier) -> str:
         return "stub"
@@ -305,6 +319,10 @@ class GeminiBackend:
     @property
     def name(self) -> LlmBackendName:
         return "gemini"
+
+    @property
+    def metered(self) -> bool:
+        return True
 
     async def pace(self, tier: Tier, tokens: int = 0) -> None:
         model = self.model_id(tier)

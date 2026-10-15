@@ -574,8 +574,8 @@ async def draft_handover(
     backend = runtime.llm.name
     runtime.trace(
         TraceStage.MESSAGES,
-        "gemini" if backend == "gemini" else "stub",
-        f"HANDOVER BRIEF ({'AI-WRITTEN' if backend == 'gemini' else 'NO MODEL'})",
+        "stub" if backend == "stub" else "gemini",
+        f"HANDOVER BRIEF ({'NO MODEL' if backend == 'stub' else 'AI-WRITTEN'})",
     )
     brief = HandoverBrief(
         id="ho_" + uuid4().hex[:12],

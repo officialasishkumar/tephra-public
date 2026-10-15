@@ -58,7 +58,7 @@ Position = tuple[float, float]
 
 _AIRLINE_CALLSIGN = re.compile(r"[A-Z]{3}[0-9][0-9A-Z]{0,3}")
 
-LlmBackendName = Literal["gemini", "stub"]
+LlmBackendName = Literal["gemini", "ollama", "stub"]
 ProductKind = Literal["SIGMET", "VONA", "VAA"]
 MissingReason = Literal["NONE_SEEN", "NOT_READ", "NOT_RECORDED", "FEED_DOWN"]
 
@@ -2616,7 +2616,9 @@ class CloudInfo(TephraModel):
     secrets: Literal["secret-manager", "environment"] = Field(
         description="settings.secrets_source, never inferred"
     )
-    model_access: Literal["gemini-api", "none"] = Field(description="'none' for the stub")
+    model_access: Literal["gemini-api", "ollama-local", "none"] = Field(
+        description="'ollama-local' for a Gemma model on the same computer, 'none' for the stub"
+    )
     instances: Literal["one"] = "one"
 
 

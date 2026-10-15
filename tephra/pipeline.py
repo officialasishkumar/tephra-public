@@ -229,6 +229,8 @@ CHECKPOINT_S: Final = 300.0
 PUSH_LOG_SIZE: Final = 400
 CONNECT_LIVE_S: Final = 60
 """Pushes the Connect page's rates and ticker are worked out from (5 min of the sample feed)"""
+MODEL_ACCESS: Final = {"gemini": "gemini-api", "ollama": "ollama-local", "stub": "none"}
+"""Details > Runs on: how this process reaches its models"""
 WRITER_DOC: Final = "writer"
 """``runtime/writer``: the instance that ticked last; only the serving revision gets ticks"""
 AUDIT_HEAD_DOC: Final = "audit_head"
@@ -515,7 +517,7 @@ class Runtime:
             store=settings.store,
             scheduler="in-process" if settings.local_scheduler else "cloud-scheduler",
             secrets=settings.secrets_source,
-            model_access="gemini-api" if settings.llm == "gemini" else "none",
+            model_access=MODEL_ACCESS[settings.llm],
         )
 
     async def wall_snapshot(self) -> WallSnapshot:

@@ -277,7 +277,7 @@ class AiWorker:
         Strictly in urgency order: once an item waits for budget, every less urgent one waits
         behind it, so a small job never takes the calls a more urgent one is waiting for."""
         runtime = self._runtime
-        unpaced = runtime.llm.name == "stub" or not self.paced
+        unpaced = not runtime.llm.metered or not self.paced
         admitted: list[DutyItem] = []
         waiting: dict[str, _Wait] = {}
         later: list[DutyItem] = []
@@ -365,7 +365,7 @@ class AiWorker:
         work = self._queue.get(RECOVERY_WORK_ID)
         if work is None or work.status == "RUNNING":
             return None
-        unpaced = self._runtime.llm.name == "stub" or not self.paced
+        unpaced = not self._runtime.llm.metered or not self.paced
         wait = None if unpaced else self._wait(RECOVERY_CALLS)
         if wait is None:
             ready = work.model_copy(

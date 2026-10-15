@@ -137,6 +137,11 @@ official polygons (binding, whatever the model does); the reroute geometry, the 
 JMA XML parser and the backtest metrics are the primary design of those steps; and
 `TEPHRA_LLM=stub`, the offline test mode, gives every model step a deterministic answer labelled
 `NO MODEL` (voice transcription and speech have none: they answer `AI UNAVAILABLE`).
+`TEPHRA_LLM=ollama` (16 Oct 2026) is not a fallback either: it is a chosen backend, every model
+step on a model served by Ollama on the same computer (`TEPHRA_MODEL`/`TEPHRA_MODEL_LITE` are
+Ollama tags such as `gemma4:e4b`; `TEPHRA_OLLAMA_URL`, `TEPHRA_OLLAMA_NUM_CTX`,
+`TEPHRA_OLLAMA_THINK` `none`|`main`|`all`). Nothing switches to it on its own; its failures are
+`AI UNAVAILABLE` like Gemini's, and the pages name it (Details > Runs on, the chip's tooltip).
 
 **Logging.** `logging.getLogger(__name__)`; never log secrets, PINs, cookies or API keys;
 never log raw request bodies of desk endpoints.
@@ -338,7 +343,7 @@ facts (CP-05d); `url` and `fetched_at` stay the original fetch's. `CloudInfo` (`
 `cloud-run` | `local`, `service` = `K_SERVICE`, `revision` = `K_REVISION`, `region` =
 `settings.cloud_region`, `store`, `scheduler` `cloud-scheduler` | `in-process`, `secrets`
 `secret-manager` | `environment` from `settings.secrets_source` and never inferred,
-`model_access` `gemini-api` | `none` for the stub, `instances` `one`) is where the service
+`model_access` `gemini-api` | `ollama-local` | `none` for the stub, `instances` `one`) is where the service
 runs; `ChainHead` (`seq`, `sha256`, `checked_at`, `entries`, `intact`, `problems`) is the
 verified head of the audit chain (`tephra.desk.audit.verify_head`). `SystemState.features`
 (the names in `Settings.features`, for `wall/features.js`), `SystemState.cloud`
@@ -1051,7 +1056,9 @@ class LlmPart(TephraModel):        # kind: Literal["text","image","audio"]; text
 class LlmCall(TephraModel):        # backend, model_id, prompt_hash, latency_ms, input_tokens, output_tokens, raw_text, error: str|None, cached: bool
 class LlmBackend(Protocol):
     @property
-    def name(self) -> LlmBackendName: ...
+    def name(self) -> LlmBackendName: ...      # "gemini" | "ollama" | "stub"
+    @property
+    def metered(self) -> bool: ...             # calls spend a daily quota the AI worker paces against (Gemini only)
     def model_id(self, tier: Tier) -> str: ...
     async def reserve(self, tier: Tier) -> str | None: ...   # count one HTTP attempt on the tier's model, in the current lane; None = send, else why not
     async def exhaust(self, tier: Tier) -> None: ...         # Google reported the model's daily quota spent: close that model (only) until the quota day ends
@@ -1062,6 +1069,8 @@ class LlmBackend(Protocol):
                                        ) -> tuple[T | None, LlmCall]: ...
 class GeminiBackend: ...           # google-genai Client(api_key=..., vertexai=False).aio.models.generate_content, JSON mime + response_json_schema; .quota: QuotaLedger
 class StubBackend: ...             # returns stub(), model_id "stub", never touches the network; reserve grants, exhaust does nothing
+class OllamaBackend: ...           # tephra.agents.ollama: /api/chat with the schema as `format`; no quota, no pacing; one request at a time (LocalSlot, urgent > interactive > routine); audio refused
+class OllamaLlm(BaseLlm): ...      # the ADK model for an Ollama tag (registered for name:tag), so the agents run on the local model unchanged
 class RatePacer: ...               # rpm sends (and, with tpm, input tokens) in any 60 s, per model
 def get_llm(settings: Settings, *, quota: QuotaLedger | None = None) -> LlmBackend   # without a ledger the Gemini backend counts in memory
 def estimate_tokens(texts: Iterable[str]) -> int                 # characters / 3.5, for tokens-a-minute pacing

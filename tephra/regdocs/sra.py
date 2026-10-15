@@ -112,9 +112,9 @@ async def draft_sra(runtime: DocsRuntime, region: str, *, actor: str = SYSTEM_AC
     )
     runtime.trace(
         TraceStage.DOCS,
-        "gemini" if call.backend == "gemini" else "stub",
+        "stub" if call.backend == "stub" else "gemini",
         f"SRA DRAFT FOR {evidence.region.name.upper()}: EVIDENCE BY CODE, 4 NARRATIVE BOXES"
-        f" ({'AI-WRITTEN' if call.backend == 'gemini' else 'NO MODEL'}); NOT AN APPROVED SRA",
+        f" ({'NO MODEL' if call.backend == 'stub' else 'AI-WRITTEN'}); NOT AN APPROVED SRA",
         detail={"doc_id": doc.id},
     )
     return doc
