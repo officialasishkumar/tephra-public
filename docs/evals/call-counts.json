@@ -2,7 +2,7 @@
  "generated_at": "2026-10-15",
  "script": "scripts/count_model_calls.py --start 2026-09-05T10:30:00Z --minutes 540 --quantum-s 60 (--loops 2 or 3)",
  "stand_in": "the stub's offline answers under a model's name; every ask counted per skill (no model, no network)",
- "tree": "offset_0 and offset_30_quantum_60: before the material planner and drafter questions (T02); material_question_cone_keyed_planning: after them, reroute ids by content, planning still keyed by cone, the skill age limit applied on the replay clock; material_question_replay_age_free: the same tree with a kept REPLAY answer serving its question at any replay-clock age (the shipped rule); store_fixes_20261015: after the 15 Oct store fixes (the draft's minutes to entry in the drafter's question; a plan delegation's outcome the same whether its draft was stored this run or already open): loop 2 asks nothing.",
+ "tree": "offset_0 and offset_30_quantum_60: before the material planner and drafter questions (T02); material_question_cone_keyed_planning: after them, reroute ids by content, planning still keyed by cone, the skill age limit applied on the replay clock; material_question_replay_age_free: the same tree with a kept REPLAY answer serving its question at any replay-clock age (the shipped rule); store_fixes_20261015: after the 15 Oct store fixes (the draft's minutes to entry in the drafter's question; a plan delegation's outcome the same whether its draft was stored this run or already open): loop 2 asks nothing.; cheaper_fill_540 and cheaper_fill_180: after the 15 Oct cost changes (the planner's level keyed against the hazard band, plume reads in REPLAY only for the case's volcano), on the 9-hour window and on the 10:30-13:30Z fill window. The stand-in counts one ask per planner run either way; with the lookups in the task a real planner run is one call, two with a band check",
  "runs": {
   "offset_0": {
    "args": {
@@ -232,6 +232,93 @@
     "loop_offset_s": 0,
     "quantum_s": 60,
     "loops": 2
+   }
+  },
+  "cheaper_fill_540": {
+   "args": {
+    "loop_offset_s": 0,
+    "quantum_s": 60,
+    "loops": 2,
+    "minutes": 540
+   },
+   "loops": [
+    {
+     "coordinator": 269,
+     "drafter": 325,
+     "flight_planner": 422,
+     "plume_reader": 14,
+     "sra": 1
+    },
+    {
+     "coordinator": 2
+    }
+   ],
+   "total": {
+    "coordinator": 271,
+    "drafter": 325,
+    "flight_planner": 422,
+    "plume_reader": 14,
+    "sra": 1
+   },
+   "total_asks": 1033,
+   "answers": {
+    "coordinator hit": 323,
+    "coordinator kept": 271,
+    "coordinator miss": 268,
+    "coordinator rejected": 3,
+    "drafter hit": 1043,
+    "drafter kept": 325,
+    "drafter miss": 325,
+    "flight_planner hit": 946,
+    "flight_planner kept": 422,
+    "flight_planner miss": 422,
+    "plume_reader hit": 14,
+    "plume_reader kept": 14,
+    "plume_reader miss": 14,
+    "sra kept": 1,
+    "sra miss": 1
+   }
+  },
+  "cheaper_fill_180": {
+   "args": {
+    "loop_offset_s": 0,
+    "quantum_s": 60,
+    "loops": 2,
+    "minutes": 180
+   },
+   "loops": [
+    {
+     "coordinator": 180,
+     "drafter": 250,
+     "flight_planner": 308,
+     "plume_reader": 9,
+     "sra": 1
+    },
+    {}
+   ],
+   "total": {
+    "coordinator": 180,
+    "drafter": 250,
+    "flight_planner": 308,
+    "plume_reader": 9,
+    "sra": 1
+   },
+   "total_asks": 748,
+   "answers": {
+    "coordinator hit": 179,
+    "coordinator kept": 180,
+    "coordinator miss": 180,
+    "drafter hit": 788,
+    "drafter kept": 250,
+    "drafter miss": 250,
+    "flight_planner hit": 730,
+    "flight_planner kept": 308,
+    "flight_planner miss": 308,
+    "plume_reader hit": 9,
+    "plume_reader kept": 9,
+    "plume_reader miss": 9,
+    "sra kept": 1,
+    "sra miss": 1
    }
   }
  },

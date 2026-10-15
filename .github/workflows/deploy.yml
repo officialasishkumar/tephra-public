@@ -73,7 +73,10 @@ env:
   TEPHRA_MODE: REPLAY
   TEPHRA_REPLAY_CASE: anak-krakatau-20260905
   TEPHRA_REPLAY_START: "2026-09-05T10:30:00Z"
-  TEPHRA_REPLAY_END: "2026-09-05T19:30:00Z"
+  # 13:30Z while the answer store fills (74% of the 9-hour window's asks, the strongest
+  # moment and two reissues); keys carry no window, so every answer kept now serves the long
+  # loop too. Reopen to 18:35Z once the Wall shows drafts at every minute (RUNBOOK-private.md).
+  TEPHRA_REPLAY_END: "2026-09-05T13:30:00Z"
   TEPHRA_AUTO_REPLAY: "false"
   TEPHRA_FEATURES: "hero"
   TEPHRA_VISITOR_ACCESS: "replay"

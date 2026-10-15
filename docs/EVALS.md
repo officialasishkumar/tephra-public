@@ -89,6 +89,8 @@ tier.
 | Loop 1, cold, shipped rule (`material_question_replay_age_free`) | 29 | 276 | 588 | 319 | 1,184 |
 | Loop 2 of that run, from kept answers | 0 | 8 | 0 | 8 | 16 |
 | Loop 2 after the 15 Oct store fixes (the draft's minutes in its question; a delegation's outcome the same with its draft open) | 0 | 0 | 0 | 0 | 0 (loop 1 of that run: 29, 272, 588, 325; 1,186) |
+| Loop 1, cold, after the cost changes (level against the band; plume reads for the case's volcano) (`cheaper_fill_540`) | 14 | 269 | 422 | 325 | 1,017 + 1 SRA; loop 2: 2 |
+| The same on the 10:30-13:30Z fill window (`cheaper_fill_180`) | 9 | 180 | 308 | 250 | 738 + 1 SRA; loop 2: 0 |
 
 The replay minute (`TEPHRA_REPLAY_QUANTUM_S=60`) makes every loop and every deploy ask at the same
 replay instants, so a kept answer matches again. The planner and drafter questions are keyed by the
@@ -108,13 +110,15 @@ lists them), a Coordinator run three turns plus one per delegation, a draft one 
 window therefore costs about 5,000 lighter calls (planner 588 × 6, Coordinator 276 × ~4, drafter
 319): eleven quota days at 450 a day. On 15 Oct the day's 450 calls went in about 25 minutes of
 wall time (replay 11:17Z to 11:40Z). What would make the cold window cheaper, each an owner's
-decision: fewer planner calls per run (the facts the planner fetches with four tool calls every
-time, given in its question, or the four tools called in one turn); the planner's level keyed as
-its place against the hazard band instead of 2,000 ft steps (measured: 588 → 422 planner asks on
-this window, since climbing and descending Jakarta traffic is re-planned at every step under an
-unchanged band); a shorter replay window for the fill (10:30–13:30Z is 874 asks, 10:30–12:00Z is
-513); in REPLAY a plume read only for the case's volcano (29 → 14 main-model reads a loop) and
-none for an expiry-only product change (14 → 10).
+decision, and since 15 Oct in the code: the lookups the planner made with three tool calls every
+time are written into its task by code and an accepted plan ends the run (a plan is one call, two
+with a band check); the planner's level is keyed as its place against the hazard band, with the
+2,000 ft step only where a clear band is within the policy's reach (588 → 422 planner asks: climbing
+Jakarta traffic was re-planned at every step under an unchanged band); in REPLAY only the case's
+volcano gets a plume read (29 → 14 a loop); and the service fills on the 10:30–13:30Z window first
+(738 lighter asks, about 1,400 calls with the Coordinator's turns, three quota days) before the
+loop is reopened to 18:35Z. Not done: keeping a plume read across an expiry-only product change,
+because the kept estimate would cite a product that is no longer valid.
 
 ## 5. Speed and tokens
 

@@ -219,10 +219,11 @@ intact. Cost today is the free tier, with the always-on instance as the one paid
   (Semeru texts): not run, because the observatory's text is not in the repo.
 - **Calls per loop** ([`docs/evals/call-counts.json`](docs/evals/call-counts.json), the stub's
   answers counted under a model's name): the cold 9-hour Krakatau window asks the Plume reader
-  29 times and the lighter skills 1,184 times; the same window played again from kept answers asks
-  the Plume reader nothing and the lighter skills not at all (zero asks on the re-count after the 15 Oct store fixes; 16 before), so the public demo settles inside
-  the free tier once filled (an ask is one agent run; a planner run is about six model calls, so
-  the first fill takes days of the free budget). [`docs/EVALS.md`](docs/EVALS.md) has every table.
+  14 times and the lighter skills 1,018 times (an ask is one agent run; a planner run is one model
+  call, two with a band check, because code writes the flight, alternates and reroutes into its
+  task); the same window played again from kept answers asks the Plume reader nothing and the
+  lighter skills twice, so the public demo settles inside the free tier once filled.
+  [`docs/EVALS.md`](docs/EVALS.md) has every table.
 - **A negative result, published.** Gemma 4 31B on the free tier failed the Notice reader schema
   0 of 5 and both ADK runs (503, 500), so every step stays on Gemini.
 - **Replay cases** rebuilt from public archives ([`data/replay/README.md`](data/replay/README.md)):
