@@ -89,6 +89,8 @@ function applyState(state) {
 function applyFeatures() {
   byId('crew-report-btn').hidden = !has('crew');
   byId('paste-notice').hidden = !has('notices');
+  const connect = document.querySelector('.topnav a[href="/connect"]');
+  if (connect) connect.hidden = !has('connect');
 }
 
 // The page title, the Decide badge and Decide's count read the same number (waitingCount).

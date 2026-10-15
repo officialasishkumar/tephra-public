@@ -323,9 +323,11 @@ function fact(label, value, { page = null, slot = null } = {}) {
 function entryLine(adv) {
   const st = entryState(adv, activeNow());
   const soon = st.kind === 'due' || (st.kind === 'ahead' && st.minutes <= 10);
+  // the text was written with the entry as it stood then; the line counts from now
+  const drafted = Number.isFinite(adv.minutes_to_entry) && !adv.inside_now && adv.minutes_to_entry !== st.minutes ? ` · ${adv.minutes_to_entry} min when written` : '';
   const text = st.kind === 'inside' ? 'Inside the ash now'
-    : st.kind === 'ahead' ? `Enters in ${st.minutes} min (est.)`
-      : st.minutes ? `Entry was due ${st.minutes} min ago (est.)` : 'Entry due now (est.)';
+    : st.kind === 'ahead' ? `Enters in ${st.minutes} min (est.)${drafted}`
+      : st.minutes ? `Entry was due ${st.minutes} min ago (est.)${drafted}` : `Entry due now (est.)${drafted}`;
   return el('p', { class: `rv2__entry${soon ? ' is-soon' : ''}`, 'data-slot': 'entry' },
     icon(st.kind === 'inside' ? 'st-inside' : soon ? 'st-caution' : 'i-clock', 'st'), el('span', { text }));
 }

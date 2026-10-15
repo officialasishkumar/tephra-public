@@ -41,7 +41,7 @@ async function fillStart(state) {
   document.getElementById("start-case").replaceChildren(caseBlock(state));
   if (state?.visitor_access === true) {
     document.getElementById("try-desk").replaceChildren(
-      el("a", { href: "/desk", text: "Enter the Desk as a visitor" }), ": decide on a draft (hold to approve), then open its record line.");
+      el("a", { href: "/desk", text: "Enter the Desk as a visitor" }), ": when a draft waits, decide on it (hold to approve) and open its record line; when none waits, the Desk says why and what to do by hand.");
   }
 }
 

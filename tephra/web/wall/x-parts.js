@@ -186,7 +186,9 @@ export function realWhen(t, now, replay) {
 // assistant's home only (docs/UI-AI-QUIET.md 8.6).
 export function aiStateOf({ stub = false, budget = null, errors = [], duty = null, plan = null, replay = false, now = Date.now() }) {
   const lite = liteModel(budget);
-  const closed = !stub && lite?.closed === true;
+  // closed by a 429 for the day, or every call of the day spent: paused either way, on the Desk
+  // (which sees only the budget) as on the Wall (which also sees the runs that were refused)
+  const closed = !stub && (lite?.closed === true || (lite?.limit > 0 && lite?.remaining <= 0));
   // a statement about now, from the current budget only
   const reset = closed ? realWhen(Date.parse(budget?.resets_at || ""), now, replay) : null;
   const until = reset?.until || null;
