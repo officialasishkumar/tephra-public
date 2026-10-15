@@ -8,6 +8,8 @@
 import { el, icon } from "./wall/util.js";
 import { STYLE_URL, nightBasemap, nightColours, symbolColours } from "./wall/basemap.js";
 import { addImages } from "./wall/images.js";
+import { shouldReopen, STREAM_RETRY_MS } from "./wall/stream.js";
+import { setFeatures, applyFeatureNav } from "./wall/features.js";
 
 const $ = (id) => document.getElementById(id);
 const FEED_NAME = { sigmet: "VA SIGMETs", vaac_darwin: "Darwin VAAC", vaac_tokyo: "Tokyo VAAC", vona: "VONA", jma_volcano: "JMA notices", adsb: "ADS-B", winds: "Winds", frames: "Satellite", hsd: "Himawari raw", taf: "TAF", metar: "METAR" };
@@ -216,6 +218,9 @@ function tick(p) {
 
 function renderMe() {
   const box = $("cx-me");
+  // the empty map's call to action: the sample feed is a dispatcher's to start
+  $("cx-empty-try").hidden = !app.me;
+  $("cx-empty-lock").hidden = Boolean(app.me);
   if (!app.me) { box.replaceChildren(); return; }
   const initials = app.me.name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
   box.replaceChildren(el("span", { class: "cx-me__dot", "aria-hidden": "true", text: initials }), el("span", { text: app.me.name }));
@@ -380,9 +385,7 @@ function samplePanel() {
     el("b", { text: on ? "Sample feed running" : "Sample airline feed" }),
     el("p", { text: "Real flights fly their own tracks, with their flight plans, and crews report the ash they meet." }),
     el("div", { class: "cx-facts" },
-      el("div", {}, el("b", { text: on ? String(flow?.per_min ?? 0) : "–" }), el("span", { text: "per min" })),
-      el("div", {}, el("b", { text: "40" }), el("span", { text: "real flights" })),
-      el("div", {}, el("b", { text: "3" }), el("span", { text: "kinds of data" }))))];
+      el("div", {}, el("b", { text: on ? String(flow?.per_min ?? 0) : "–" }), el("span", { text: "per min" }))))];
   if (!app.me) kids.push(signInForm("Sign in to start it"));
   return kids;
 }
@@ -485,13 +488,17 @@ function openStream() {
   const source = new EventSource("/api/events");
   source.addEventListener("push", (e) => { try { onPush(JSON.parse(e.data)); } catch { /* a bad frame is skipped */ } });
   source.addEventListener("cones", (e) => { try { setCones(JSON.parse(e.data)); } catch { /* skipped */ } });
-  source.addEventListener("state", (e) => { try { app.state = JSON.parse(e.data); renderPublic(); } catch { /* skipped */ } });
+  source.addEventListener("state", (e) => { try { app.state = JSON.parse(e.data); setFeatures(app.state.features); applyFeatureNav(); renderPublic(); } catch { /* skipped */ } });
+  // a source the browser gave up on (an HTTP error, EventSource.CLOSED) is replaced after a wait
+  source.onerror = () => { if (shouldReopen(source.readyState)) { source.close(); setTimeout(openStream, STREAM_RETRY_MS); } };
 }
 
 async function boot() {
   $("cx-flows").replaceChildren(el("li", { class: "cx-skel" }), el("li", { class: "cx-skel" }));
   const [state, me, format, sample] = await Promise.all([call("/api/state"), call("/api/desk/me"), call("/api/connect/format"), call("/api/connect/sample.json")]);
   app.state = state.ok ? state.data : null;
+  setFeatures(app.state?.features);
+  applyFeatureNav();
   app.me = me.ok ? me.data : null;
   app.format = format.ok ? format.data : null;
   app.example = sample.ok ? sample.data : null;

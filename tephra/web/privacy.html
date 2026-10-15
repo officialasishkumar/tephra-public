@@ -3,27 +3,33 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0a1017">
   <meta name="robots" content="noindex, nofollow">
   <meta name="description" content="What TEPHRA records about the people who use it, where it is kept and what is sent to the Gemini API.">
   <title>TEPHRA privacy notice</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/static/fonts/ibm-plex-sans-var-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/tokens.css">
-  <link rel="stylesheet" href="/static/doc.css">
+  <link rel="stylesheet" href="/static/topnav.css">
+  <link rel="stylesheet" href="/static/guide.css">
+  <script type="module" src="/static/topnav.js"></script>
 </head>
-<body class="docpage">
-  <header class="docbar">
-    <p class="docbar__brand"><b>TEPHRA</b> <span>Privacy</span></p>
-    <a href="/"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-chevron-left"></use></svg><span>Back to the Wall</span></a>
+<!-- The privacy notice on the night theme with the shared header (UI-DESIGN 7.25): the same bar and
+     pill nav as every other page, no strip. Static text; topnav.js only applies the feature set
+     to the nav. -->
+<body class="guide">
+  <header class="guidebar tn-bar">
+    <a class="tn-home" href="/" title="TEPHRA home">TEPHRA</a>
+    <nav class="topnav" aria-label="TEPHRA pages"><a href="/" class="topnav__keep">Wall</a><a href="/assistant">Assistant</a><a href="/desk">Desk</a><a href="/connect">Connect</a><a href="/guide">Guide</a></nav>
   </header>
-  <p class="docdisclaimer"><strong>Decision support only - fictional airline - not for operational use</strong></p>
-  <main id="main" class="docmain docmain--measure">
+  <main id="main" class="guide__main">
+    <article class="guide__sec guide__prose">
     <h1>Privacy notice</h1>
     <p>TEPHRA is a decision-support demo for volcanic ash and airline dispatch. The airline, Ring of Fire Air, is fictional, and TEPHRA is not for operational use. This page says what TEPHRA records about the people who use it, where it is kept and what it sends to Google's Gemini API.</p>
 
     <h2>The Wall</h2>
-    <p>The Wall is public and needs no sign-in. TEPHRA keeps no account, profile or analytics for Wall visitors. The page remembers a few display choices (such as which map layers are on) in your own browser's local storage, and, for the open tab only, whether the Details panel is open. They never reach the server.</p>
+    <p>The Wall is public and needs no sign-in. TEPHRA keeps no account, profile or analytics for Wall readers. The page remembers a few display choices (such as which map layers are on) in your own browser's local storage, and, for the open tab only, whether the Details panel is open. They never reach the server.</p>
     <p>To draw the map, your browser loads files straight from other services: map tiles from OpenFreeMap and Mapterhorn, satellite tiles from NASA GIBS, and the map library from unpkg. When you open a volcano's or an airport's card, it asks Wikidata and Wikimedia Commons for a freely licensed photo. Those services see your address the way any website does.</p>
 
     <h2>The Desk sign-in and your name</h2>
@@ -42,6 +48,7 @@
       <li>What a Desk user submits: questions typed or spoken to Ask TEPHRA (the voice recording is sent for transcription and is not stored by TEPHRA), and notices pasted into the notice reader.</li>
       <li>Dispatcher names are never sent to Gemini.</li>
     </ul>
+    <p>Nothing you do on the Wall or the Guide is sent to Gemini. If you enter the Desk as a visitor, the name you type (or the one TEPHRA gives you) is written into TEPHRA's public decision record with each decision you make; use a first name or none.</p>
     <p>TEPHRA uses the Gemini API through a Google AI Studio key. On the unpaid tier, Google may use the content sent and the answers it gives to improve its products, and human reviewers may read them. Do not type or paste personal or confidential information into Ask TEPHRA or the notice reader.</p>
 
     <h2>Cookies</h2>
@@ -49,6 +56,7 @@
 
     <h2>Questions</h2>
     <p>For a question about this notice or about data TEPHRA holds, open an issue in <a href="https://github.com/officialasishkumar/tephra/issues">TEPHRA's GitHub repository</a>.</p>
+    </article>
   </main>
 </body>
 </html>

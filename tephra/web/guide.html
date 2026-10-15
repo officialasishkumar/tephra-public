@@ -5,7 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0a1017">
-  <meta name="description" content="TEPHRA guide: how to read the map, the words used, the keyboard, what TEPHRA is, its safety limits, credits and the operator policy. Decision support only.">
+  <meta name="description" content="TEPHRA: when official volcanic-ash reports disagree, Gemini proposes TEPHRA's estimate, code keeps it never smaller than the official area, and a dispatcher approves every per-flight advisory. Decision support only; fictional airline; not for operational use. The Guide.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="TEPHRA Guide">
+  <meta property="og:description" content="When official ash reports disagree, TEPHRA keeps the wider estimate, finds the flights heading in and drafts the advisory a dispatcher approves. Replay demo · fictional airline · decision support only. The Guide: start here, read the map, how it works.">
+  <meta property="og:image" content="https://tephra-647733667799.asia-southeast1.run.app/static/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
   <title>TEPHRA Guide</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/static/fonts/ibm-plex-sans-var-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -17,20 +24,50 @@
 </head>
 <!-- The guide (UI-DESIGN 7.22): everything the Wall used to explain in its Help, About and policy
      dialogs, on one page of its own, so the Wall and the Desk show the situation and not the manual.
-     Built by guide.js from the same builders (wall/controls.js, wall/policy.js). -->
+     "Start here" is static so it reads without /api/state; the case paragraph comes from
+     /static/data/cases.json (the Wall's one source) and the rest is built by guide.js from the same
+     builders the Wall used (wall/controls.js, wall/policy.js). -->
 <body class="guide">
   <header class="guidebar tn-bar">
     <a class="tn-home" href="/" title="TEPHRA home">TEPHRA</a>
     <nav class="topnav" aria-label="TEPHRA pages"><a href="/">Wall</a><a href="/assistant">Assistant</a><a href="/desk">Desk</a><a href="/connect">Connect</a><a href="/guide" aria-current="page">Guide</a></nav>
     <nav class="guidebar__nav" aria-label="Guide sections">
+      <a href="#start">Start here</a>
       <a href="#read">Read the map</a>
       <a href="#how">How it works</a>
       <a href="#about">About</a>
-      <a href="#policy">Operator policy</a>
+      <a href="#policy">Policy</a>
     </nav>
   </header>
-  <main id="guide" class="guide__main" tabindex="-1">
-    <p class="muted">Loading the guide…</p>
+  <main id="guide-main" class="guide__main" tabindex="-1">
+    <section id="start" class="guide__sec guide__start" aria-labelledby="start-h">
+      <h1 id="start-h" class="guide__title">TEPHRA: a volcanic-ash decision desk</h1>
+      <p class="guide__lead">When the official ash reports for a volcano disagree, TEPHRA shows how, proposes the cautious area, which is never smaller than the official one, finds the flights heading into it, and drafts the advisory a dispatcher approves.</p>
+
+      <h2 class="help__h">The problem it works on</h2>
+      <div id="start-case" class="guide__case"><noscript><p class="muted">Open the Wall for the case.</p></noscript></div>
+      <p>The operator must resolve those conflicts (ICAO Doc 9974). TEPHRA drafts that reconciliation for the dispatcher to check.</p>
+
+      <h2 class="help__h">How it is built</h2>
+      <p>Public feeds (SIGMET, ash advisories, observatory notices, winds, aircraft positions) → code labels every disagreement → TEPHRA Assistant's Coordinator orders the work → the Plume reader (Gemini) grades the evidence and proposes the area → code keeps it at the official floor and finds the flights and a route around it → the Flight planner and Drafter write a draft → a person approves on the Desk → every step is in the hash-chained record.</p>
+      <p>The public demo runs on Google Cloud: Cloud Run (Singapore), Cloud Scheduler, Firestore, Secret Manager, Artifact Registry; the Gemini API and the Agent Development Kit.</p>
+
+      <h2 id="try" class="help__h">Try it in three minutes</h2>
+      <ol class="guide__try">
+        <li><a href="/">Open the Wall</a>: the amber dashed line is TEPHRA's estimate and the pink area is the official one. Press F to fit the volcano.</li>
+        <li>Open Details › <a href="/#details-disagree">Where the sources disagree</a>, then <a href="/#details-estimate">TEPHRA's estimate</a> › How the Plume reader read it.</li>
+        <li>Click an amber plane: its minutes to entry, its draft advisory and its suggested route.</li>
+        <li>Press A, or open <a href="/assistant">TEPHRA Assistant at work</a>: the Coordinator handing out the day's work.</li>
+        <li id="try-desk"><a href="/desk">Open the Desk</a>: decide on a draft (hold to approve), then open its record line.</li>
+        <li>Details › <a href="/#track-record">Track record</a>: how TEPHRA's area scored against the official areas issued later. The <a href="#policy">operator policy</a> lists every margin it applied, with its reason.</li>
+      </ol>
+
+      <h2 class="help__h">What TEPHRA is and is not</h2>
+      <p>Decision support only. Ring of Fire Air is a fictional airline; its flight numbers stand in for real aircraft. Official reports are binding; TEPHRA's estimate can widen them, never shrink them. Nothing is sent to an aircraft or to any real system. REPLAY, when shown, means recorded or reconstructed real feeds. TEPHRA does not detect ash, is not a forecast, a warning or a dispatch release, and is not air traffic control.</p>
+    </section>
+    <div id="guide">
+      <p class="muted">Loading the guide…</p>
+    </div>
   </main>
   <footer class="guide__foot"><a href="/privacy">Privacy</a></footer>
 </body>

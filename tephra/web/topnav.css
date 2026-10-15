@@ -30,3 +30,10 @@
   .topnav a:not([aria-current="page"]):not(.topnav__keep) { display: none; }
 }
 @media (max-width: 760px) { .tn-bar.tn-bar { padding-left: 16px; } }
+
+/* a page link the server's feature set hides (wall/features.js applyFeatureNav) */
+.topnav a[hidden] { display: none; }
+
+/* the document page's bar (doc.css .docbar a draws bordered 44 px buttons): its pills keep the nav's look */
+.docbar .topnav a { min-height: 0; height: 30px; padding: 0 12px; border: 0; border-radius: 999px; font: 500 14px var(--font-sans); }
+.docbar .topnav a[aria-current="page"] { color: var(--c-text-ink); background: var(--c-text-1); }
