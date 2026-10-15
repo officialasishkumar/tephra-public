@@ -165,6 +165,7 @@ async function visitorContext(w, h) {
     let decided = DECISION;
     try {
       await page.waitForSelector("#sheet:not([hidden])", { timeout: 10000 });
+      await page.waitForTimeout(1000); // the sheet settles before the hold
       const holdBtn = page.locator("#sheet button.approve").first();
       const blocked = await page.locator("#sheet .hint-early", { hasText: /HYPOTHESIS|cannot be approved|Reject it/ }).count();
       if (!(await holdBtn.count()) && decided === "approve") {
@@ -174,7 +175,7 @@ async function visitorContext(w, h) {
         if (blocked) decided = "reject";
         await page.screenshot({ path: path.join(OUT, "desk-review-390x844.png") });
         await decide(page, decided);
-        const receipt = await page.locator("#sheet-receipts").innerText().catch(() => "");
+        const receipt = await page.locator("#sheet-receipts, #q-receipt").first().innerText().catch(() => "");
         if (!receipt.trim()) fail("desk receipt", "no receipt line after the decision"); else pass("desk receipt", receipt.trim().split("\n")[0]);
         await page.screenshot({ path: path.join(OUT, "desk-receipt-390x844.png") });
       }

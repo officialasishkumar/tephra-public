@@ -13,7 +13,7 @@ import { dkPill, dkChip, dkFacts, dkRow, dkList, dkNote, dkEmpty, dkTech, dkFrom
 
 // What each Coordinator (duty officer) tool reaches. Tool names are fixed by the backend toolkit.
 export const SPECIALISTS = {
-  assess_volcanoes: { name: "Satellite reader and Plume Reader", does: "reads the plume, rebuilds the area", unit: "volcano" },
+  assess_volcanoes: { name: "Satellite reader and Plume reader", does: "reads the plume, rebuilds the area", unit: "volcano" },
   plan_flights: { name: "Planner and Drafter", does: "plans and drafts per flight", unit: "flight" },
   run_recovery: { name: "Recovery planner", does: "re-plans the RFA network", unit: "network" },
   draft_sra: { name: "Safety risk assessment drafter", does: "drafts the safety risk assessment", unit: "region" },

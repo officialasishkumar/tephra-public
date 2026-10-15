@@ -65,8 +65,12 @@ function domChecks() {
   }
   const d = document.getElementById("disclaimer");
   if (d) { const r = d.getBoundingClientRect(); if (!(r.bottom > 0 && r.top < innerHeight && vis(d))) out.push("the disclaimer is not in the viewport"); }
+  // Desk: the assistant chip; at phone width fitHead's is-tight keeps the icon and state word
+  // (#budget-chip) and hides the label span (#model-chip).
   const mc = document.getElementById("model-chip");
-  if (mc && !vis(mc)) out.push("the model chip is not visible");
+  const bc = document.getElementById("budget-chip");
+  const tight = !!(mc && mc.closest(".budget")?.classList.contains("is-tight"));
+  if (mc && !vis(mc) && !(tight && bc && vis(bc))) out.push("the model chip is not visible");
   // REPLAY is said by the page: its title and the "Replay clock" label (the strip is gone).
   if (document.body.dataset.mode === "REPLAY") {
     if (!document.title.startsWith("REPLAY")) out.push(`the title does not start with REPLAY: ${document.title}`);
@@ -155,7 +159,12 @@ for (const [w, h] of [[1920, 1080], [1440, 900], [1280, 720], [390, 844]]) {
 
   // (ii) the row, then Details 150 ms later (dispatched, not waited for: the point is the speed).
   try {
-    const row = page.locator("#volcano-tabs button.vrow", { hasText: "Semeru" }).first();
+    let row = page.locator("#volcano-tabs button.vrow", { hasText: "Semeru" }).first();
+    if (!(await row.count())) {
+      // the case strip folds the volcano list to one row ("+ 3 more"): unfold it first
+      const more = page.locator("#volcano-tabs button", { hasText: /\bmore\b/i }).first();
+      if (await more.count()) { await more.click(); await page.waitForTimeout(300); row = page.locator("#volcano-tabs button.vrow", { hasText: "Semeru" }).first(); }
+    }
     if (await row.count()) {
       await row.click();
       await page.waitForTimeout(150);
@@ -233,6 +242,27 @@ for (const [w, h, list] of [[1440, 900, SECTIONS], [1280, 720, ["flights", "sour
     await tab.click();
     await page.waitForTimeout(500);
     shots.push(await shot(page, `details-${tag}-${w}-${sec}`));
+    if (sec === "decisions" && w === 1440) {
+      // "Why ›" on a draft opens the reasoning chain: four steps (SPEC T22).
+      try {
+        let why = page.locator("#flights .dk-dec__why").first();
+        if (!(await why.count()) || !(await why.isVisible())) {
+          const summary = page.locator("#flights details:not([open]) > summary").first();
+          if (await summary.count()) { await summary.click(); await page.waitForTimeout(400); why = page.locator("#flights .dk-dec__why").first(); }
+        }
+        if (await why.count()) {
+          await why.click();
+          await page.waitForTimeout(1200);
+          const steps = await page.locator("#flights .chain__step").count();
+          if (steps === 4) pass("why chain", "four steps"); else fail("why chain", `${steps} .chain__step after Why ›`);
+          shots.push(await shot(page, `details-${tag}-${w}-why`));
+        } else {
+          pass("why chain", "no draft row with Why › in this view");
+        }
+      } catch (e) {
+        fail("why chain", e.message.split("\n")[0]);
+      }
+    }
     await page.click("#details-back");
     await page.waitForTimeout(300);
   }
@@ -244,6 +274,8 @@ for (const [w, h, list] of [[1440, 900, SECTIONS], [1280, 720, ["flights", "sour
   const { ctx, page } = await wallPage(1440, 900);
   for (const [btn, name] of [["#help-btn", "help"], ["#about-btn", "about"], ["#policy-btn", "policy"]]) {
     if (!(await page.isVisible(btn))) continue;
+    // the Guide and Policy are pages now (an <a target=_blank>), screenshotted by their own checks
+    if (await page.evaluate((sel) => document.querySelector(sel)?.tagName === "A", btn)) continue;
     await page.click(btn);
     await page.waitForTimeout(800);
     shots.push(await shot(page, `dialog-${tag}-${name}`));
