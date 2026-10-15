@@ -3,8 +3,8 @@
 // Built with el(); no HTML strings.
 
 import { el, icon } from "./util.js";
-import { ATTRIBUTION } from "./panels.js";
 import { GLOSSARY, GASES_SCOPE } from "./glossary.js";
+import { has } from "./features.js";
 
 const check = (key, label, on, hint, disabled = false) =>
   el("label", { class: `opt${disabled ? " opt--locked" : ""}` },
@@ -45,7 +45,7 @@ export function renderLayers(ui, phone) {
         el("button", { type: "button", class: "chip-btn", dataset: { tool: "sat", focus: "tool-sat" }, "aria-pressed": ui.sat !== "off" ? "true" : "false", "aria-keyshortcuts": "I", title: "Next satellite picture (I)" }, "Next picture: ", el("span", { id: "sat-state", text: SAT_WORD[ui.sat] }))),
       group("Gases and indicators · context only",
         check("so2", "SO2 (TROPOMI, daily)", ui.so2, `context only · ${GASES_SCOPE}`),
-        check("btd", "Split-window BTD", ui.btd, "an indicator, not ash detection")),
+        has("btd") ? check("btd", "Split-window BTD", ui.btd, "an indicator, not ash detection") : null),
       group("View",
         el("div", { class: "seg", role: "group", "aria-label": "View" },
           el("button", { type: "button", dataset: { act: "view-2d", focus: "view-2d" }, "aria-pressed": ui.d3 ? "false" : "true", text: "2D" }),
@@ -59,9 +59,9 @@ export function renderLayers(ui, phone) {
     group("Ash areas",
       check("official", "Official ash area", true, "always on · binding", true),
       check("tephra", "TEPHRA's estimate", L.tephra, "never smaller than official"),
-      check("crew", "Crew report caution areas", true, "always on · operator policy A, not a VAA or SIGMET", true),
+      has("crew") ? check("crew", "Crew report caution areas", true, "always on · operator policy A, not a VAA or SIGMET", true) : null,
       check("rose", "Disagreement arrows", L.rose, "the directions at the vent"),
-      check("satboxes", "Satellite boxes", L.satboxes, "Read by Satellite reader · supporting only")),
+      has("satellite") ? check("satboxes", "Satellite boxes", L.satboxes, "Read by Satellite reader · supporting only") : null),
     group("Aircraft",
       check("aircraft", "Aircraft", L.aircraft),
       check("acLabels", "Other aircraft labels", L.acLabels, "from zoom 7.5"),
@@ -78,8 +78,8 @@ export function renderLayers(ui, phone) {
     el("div", { class: "dk-abouts" }, more)));
 }
 
-// Keyboard (R16). Every shortcut also has a visible control.
-export const SHORTCUTS = [
+// Keyboard (R16). Every shortcut also has a visible control; a hidden feature's key is left out.
+const SHORTCUT_ROWS = [
   ["1 2 3", "Choose an area"],
   ["[ ]", "Previous / next volcano (the area follows)"],
   ["F", "Fit the selected volcano"],
@@ -88,20 +88,25 @@ export const SHORTCUTS = [
   ["C", "Sources side by side (raw texts)"],
   ["I", "Satellite picture: off, infrared, visible, air mass"],
   ["O", "SO2 on/off"],
-  ["B", "BTD indicator on/off"],
+  ["B", "BTD indicator on/off", "btd"],
   ["L", "Details › Map layers (again: close)"],
   ["T", "Details › How TEPHRA decided"],
   ["H", "Details › Height filter"],
-  ["P", "Presentation layout for recording (keeps Details closed)"],
+  ["P", "Presentation layout for recording (keeps Details closed)", "present"],
   ["A", "TEPHRA Assistant at work: the Coordinator, the other skills and the Desk"],
-  ["?", "This help"],
+  ["?", "Open the Guide"],
   ["Esc", "Close, one step at a time: a dialog or menu, a Details section, Details, History, the picked flight, compare, 3D"],
 ];
+export const shortcuts = () => SHORTCUT_ROWS.filter(([, , feature]) => !feature || has(feature)).map(([k, a]) => [k, a]);
 
 // Help (R9.1): read the map in 3 steps, the full key, the words used here, the keyboard. On the
-// guide page (`page`) the Wall's own shortcut switch is left out.
+// guide page (`page`) the words and the keyboard fold (one tap in) and the Wall's own shortcut
+// switch is left out.
 export function helpContent(enabled, { page = false } = {}) {
   const sw = (id, cls) => icon(id, `sw ${cls}`);
+  const fold = (head, ...body) => (page
+    ? el("details", { class: "more guide__fold" }, el("summary", {}, head), ...body)
+    : [head, ...body]);
   const keyRow = (s, label, sub) => el("li", {}, s, el("span", {}, el("strong", { text: label }), sub ? el("span", { class: "key__sub", text: ` · ${sub}` }) : null));
   const codes = ["GREEN", "YELLOW", "ORANGE", "RED", "UNKNOWN"].map((c) => icon("i-eruption", "icon", `var(--c-code-${c.toLowerCase()})`));
   return el("div", { class: "help" },
@@ -109,21 +114,18 @@ export function helpContent(enabled, { page = false } = {}) {
     el("ol", { class: "help__steps" },
       el("li", {}, sw("lg-area-official", "sw--official"), el("span", { text: "Pink = the official ash area. It is binding." })),
       el("li", {}, sw("lg-area-tephra", "sw--tephra"), el("span", { text: "Amber dashes = TEPHRA's estimate. It is never smaller than the official area." })),
-      el("li", {}, sw("i-aircraft", "sw--exposed"), el("span", { text: "Amber planes = flights of RFA, our fictional airline, in or heading into it. A person approves every advisory on the Desk." }))),
+      el("li", {}, sw("i-aircraft", "sw--exposed"), el("span", { text: "Amber planes = RFA flights in or heading into it. A person approves every advisory on the Desk." }))),
     el("ul", { class: "help__list" },
       el("li", { text: "The story on the left says what is happening at the selected volcano. Details holds everything else: the sources, the timeline, how TEPHRA decided, TEPHRA Assistant and the data feeds." }),
-      el("li", { text: "TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything." }),
-      el("li", { text: "Nothing is sent to an aircraft or to any real system." }),
-      el("li", { text: "REPLAY means the data was recorded or reconstructed earlier. It is not live." }),
       el("li", { text: "Times ending in Z are UTC." })),
     el("h3", { id: "help-key", class: "help__h", text: "Full map key" }),
     el("ul", { class: "key__rows help__key" },
       keyRow(sw("lg-area-official", "sw--official"), "Official ash area", "binding"),
       keyRow(sw("lg-area-forecast", "sw--official"), "Official forecast area (+6, +12, +18 h)", "dashed"),
-      keyRow(sw("lg-area-tephra", "sw--tephra"), "TEPHRA's estimate", "never smaller than official"),
+      keyRow(sw("lg-area-tephra", "sw--tephra"), "TEPHRA's estimate", "the amber dashed line"),
       keyRow(sw("lg-area-hatch", "sw--tephra"), "Where TEPHRA widened the area", null),
       keyRow(sw("lg-area-crew", "sw--crew"), "Crew report caution area, with a pin at the report", "operator policy A, not a VAA or SIGMET, drawn beneath the official area"),
-      keyRow(sw("i-aircraft", "sw--exposed"), "RFA flight in or heading in", "RFA is a fictional airline"),
+      keyRow(sw("i-aircraft", "sw--exposed"), "RFA flight in or heading in", null),
       keyRow(sw("lg-flight-group", "sw--exposed"), "Six or more RFA flights close together", "the badge is the count, click to zoom in"),
       keyRow(sw("i-aircraft", "sw--crew"), "RFA flight on a crew report's route", "when TEPHRA's area does not reach it"),
       keyRow(sw("i-aircraft", "sw--aircraft"), "Other aircraft (not RFA)", null),
@@ -134,14 +136,14 @@ export function helpContent(enabled, { page = false } = {}) {
       keyRow(sw("lg-satbox", "sw--sat"), "Box marked on the satellite picture", "Read by Satellite reader · supporting only"),
       el("li", { class: "help__codes" }, el("span", { class: "codes" }, ...codes), el("span", { text: "Alert colour: green, yellow, orange, red. Grey: not given" }))),
     el("p", { class: "muted", text: "FIR and VAAC lines are approximate. Times ending in Z are UTC. Satellite, SO2 and BTD layers are context only, never ash detection." }),
-    el("h3", { id: "help-words", class: "help__h", text: "Words used here" }),
-    el("dl", { class: "help__glossary" }, ...GLOSSARY.flatMap(([term, meaning]) => [el("dt", { text: term }), el("dd", { text: meaning })])),
-    el("h3", { id: "help-keys", class: "help__h", text: "Keyboard" }),
-    el("table", { class: "table" },
-      el("caption", { class: "sr-only", text: "Keyboard shortcuts" }),
-      el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Key" }), el("th", { scope: "col", text: "Action" }))),
-      el("tbody", {}, ...SHORTCUTS.map(([k, a]) => el("tr", {}, el("td", {}, ...k.split(" ").map((x) => el("kbd", { text: x }))), el("td", { text: a }))))),
-    el("p", { class: "muted", text: "Shortcuts work when focus is not in a text field and no modifier key is held. Every shortcut also has a visible control. On the map: arrow keys pan, plus and minus zoom." }),
+    fold(el("h3", { id: "help-words", class: "help__h", text: "Words used here" }),
+      el("dl", { class: "help__glossary" }, ...GLOSSARY.flatMap(([term, meaning]) => [el("dt", { text: term }), el("dd", { text: meaning })]))),
+    fold(el("h3", { id: "help-keys", class: "help__h", text: "Keyboard, on the Wall" }),
+      el("table", { class: "table" },
+        el("caption", { class: "sr-only", text: "Keyboard shortcuts" }),
+        el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Key" }), el("th", { scope: "col", text: "Action" }))),
+        el("tbody", {}, ...shortcuts().map(([k, a]) => el("tr", {}, el("td", {}, ...k.split(" ").map((x) => el("kbd", { text: x }))), el("td", { text: a }))))),
+      el("p", { class: "muted", text: "Shortcuts work when focus is not in a text field and no modifier key is held. Every shortcut also has a visible control. On the map: arrow keys pan, plus and minus zoom." })),
     page ? null : el("label", { class: "opt" },
       el("input", { type: "checkbox", dataset: { act: "shortcuts-toggle" }, checked: enabled ? true : null }),
       el("span", { text: "Single-key shortcuts on" })));
@@ -159,15 +161,16 @@ const CREDITS = [
   ["MapLibre GL JS 4.7.1, maplibre-gl-compare 0.5.0", "Map rendering, swipe compare", "BSD-3-Clause, ISC"],
   ["IBM Plex Sans and Mono", "Interface type", "SIL Open Font License 1.1"],
   ["Lucide, Material Symbols", "Icons, and the aircraft glyph", "ISC / MIT, Apache License 2.0"],
+  ["Feed content", "SIGMETs, advisories and observatory notices", "Credited on each card: BMKG, Tokyo and Darwin VAAC, PVMBG; relays by NWS and IEM"],
 ];
 
 // About (R9.2): what TEPHRA is, the safety limits, the credits, the acknowledgement. On the guide
 // page (`page`) its links go to the Wall and to the guide's own sections.
-export function aboutContent(state, attribution = ATTRIBUTION, { page = false } = {}) {
+export function aboutContent(state, { page = false } = {}) {
   const replay = state?.mode === "REPLAY" ? state.replay : null;
   return el("div", { class: "about" },
     el("h3", { class: "help__h", text: "What TEPHRA is" }),
-    el("p", { text: "TEPHRA reads the official volcanic-ash reports (SIGMET, VAA, VONA), shows where they disagree, and draws an estimate of the ash area that is never smaller than the official one. Code works out which flights of a fictional airline would enter that area and drafts an advisory for each. A human dispatcher approves or rejects every advisory on the Desk." }),
+    el("p", { text: "TEPHRA reads the official volcanic-ash reports (SIGMET, VAA, VONA), shows where they disagree, and draws TEPHRA's estimate, the cautious area. Code works out which RFA flights would enter that area and drafts an advisory for each. A human dispatcher approves or rejects every advisory on the Desk." }),
     // the About disclosure (docs/UI-AI-QUIET.md 8.4): one of the few places that say "AI"
     el("p", { text: "TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything." }),
     replay ? el("p", { class: "about__replay" }, el("strong", { text: `${replay.banner} · not live. ` }), el("span", { text: `Case: ${replay.label}` })) : null,
@@ -186,7 +189,7 @@ export function aboutContent(state, attribution = ATTRIBUTION, { page = false } 
       el("caption", { class: "sr-only", text: "Credits" }),
       el("thead", {}, el("tr", {}, ...["Source", "Used for", "Credit"].map((h) => el("th", { scope: "col", text: h })))),
       el("tbody", {}, ...CREDITS.map(([a, b, c]) => el("tr", {}, el("th", { scope: "row", text: a }), el("td", { text: b }), el("td", { text: c }))))),
-    el("p", { class: "about__attrib", text: `On screen: ${attribution}` }),
+    el("p", { class: "muted" }, el("a", { href: "/static/THIRD_PARTY.md", text: "Full licence inventory" }), ": every asset and service the pages load, with its licence."),
     el("h3", { class: "help__h", text: "Acknowledgement" }),
     el("p", { text: "We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Science Data and Information System (ESDIS). Himawari-9 data: JMA via NOAA. No source endorses TEPHRA." }),
     page ? null : el("h3", { class: "help__h", text: "Operator policy" }),

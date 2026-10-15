@@ -8,6 +8,7 @@ import { SEV_RANK, regionOfVent } from "./derive.js";
 import { ext, replanning, aiState, handPlan } from "./ext.js";
 import { planFailure, draftBlock, blockPhrase, machineText, ASSISTANT } from "./x-parts.js";
 import { FEED_NAME } from "./panels.js";
+import { caseStrip, caseOf, loadCases } from "./case.js";
 
 const CODE_WORD = { RED: "Red", ORANGE: "Orange", YELLOW: "Yellow", GREEN: "Green" };
 const codeColor = (code) => `var(--c-code-${(code || "UNKNOWN").toLowerCase()})`;
@@ -148,7 +149,7 @@ function renderFailures(list) {
 // Eyebrow (R5.1): the eruption symbol and the volcano's name (the h1) on the first row with "Updated"
 // on its right; under them, muted, the area and the alert colour as a pill in words. REPLAY is
 // said by the clock, not again here.
-function eyebrow(D, sit, region, store) {
+function eyebrow(D, sit, region, caseStory) {
   const iconBox = $("eyebrow-icon");
   const rest = $("eyebrow-rest");
   const asof = $("eyebrow-asof");
@@ -162,7 +163,8 @@ function eyebrow(D, sit, region, store) {
   iconBox.replaceChildren(eruptIcon(sit.color_code));
   const regName = region ? (D.state.regions || []).find((r) => r.key === region)?.name : null;
   const code = CODE_WORD[sit.color_code] ? sit.color_code.toLowerCase() : "unknown";
-  const alert = CODE_WORD[sit.color_code] ? `${CODE_WORD[sit.color_code]} alert` : "Alert colour not given";
+  // the case's own words for the colour when it has them ("Colour code red"), else the alert
+  const alert = caseStory?.eyebrow || (CODE_WORD[sit.color_code] ? `${CODE_WORD[sit.color_code]} alert` : "Alert colour not given");
   const k = [regName, alert].join("|");
   if (rest.dataset.key !== k) {
     rest.dataset.key = k;
@@ -189,13 +191,12 @@ function storyModel(D, store, sit) {
   const handHere = hand.flights.filter((x) => x.p.volcano_id === sit.volcano_id).length;
   if (cone?.mode === "HYPOTHESIS") m.banner = "HYPOTHESIS: no valid official product. Only MONITOR or HOLD may be advised.";
 
-  // the hero: the flights in or heading into TEPHRA's area, inside now against heading in
-  const n = sit.exposed_count || 0;
+  // the hero: the flights in or heading into TEPHRA's area, inside now against heading in, from
+  // the one count the whole Wall reads (D.counts, A12)
+  const n = D.counts.exposed;
   if (n > 0) {
-    const mine = D.exposed.filter((f) => f.properties.volcano_id === sit.volcano_id);
-    const inside = mine.filter((f) => f.properties.inside).length;
-    const split = mine.length === n ? [inside ? `${inside} inside now` : null, n - inside ? `${n - inside} heading in` : null].filter(Boolean).join(" · ") : null;
-    m.hero = { count: n, words: `RFA ${n === 1 ? "flight" : "flights"} in or heading into TEPHRA's ash area`, split, show: mine.length, text: `${n} RFA ${n === 1 ? "flight" : "flights"} in or heading into TEPHRA's ash area${split ? `. ${split}` : ""}.` };
+    const split = [D.counts.inside ? `${D.counts.inside} inside now` : null, D.counts.heading ? `${D.counts.heading} heading in` : null].filter(Boolean).join(" · ");
+    m.hero = { count: n, words: `RFA ${n === 1 ? "flight" : "flights"} in or heading into TEPHRA's ash area`, split, show: n, text: `${n} RFA ${n === 1 ? "flight" : "flights"} in or heading into TEPHRA's ash area${split ? `. ${split}` : ""}.` };
   } else {
     const adsb = store.feeds.find((f) => f.feed === "adsb");
     const empty = adsb?.status === "OK" ? "Aircraft coverage here is patchy: an empty map is not an empty sky." : `Aircraft data is ${adsbWord(adsb?.status)}: an empty map is not an empty sky.`;
@@ -230,7 +231,7 @@ function storyModel(D, store, sit) {
 
   // tile 3: the advisories for this volcano's flights
   const a = advisoryFacts(D, store, sit.volcano_id);
-  if (n > 0 || a.drafts || a.decided || a.unknown) {
+  if (a.drafts || a.decided || a.unknown) {
     let fact;
     if (a.unknown) fact = { value: "?", label: "Advisories", sub: "unknown (database error)", tone: "serious" };
     else if (a.drafts > 0) {
@@ -247,7 +248,16 @@ function storyModel(D, store, sit) {
   const block = hand.block || draftBlock(ai);
   const draftsGap = n > 0 && !a.drafts && !a.decided && !a.unknown && block && ((handHere && !block.undone) || block.queued);
   const undone = hand.block?.undone && handHere;
-  if (draftsGap || undone || pf) {
+  if (draftsGap && !undone && !pf) {
+    // the assistant is the only gap: one quiet line, its state word and what is missing, and the
+    // cause one tap away (docs/UI-AI-QUIET.md 8.6); the caution box is for data a dispatcher must
+    // replace by hand (a missing airport plan, must-do flights)
+    const nf = plural(n, "flight", "flights");
+    const body = block.paused ? `${ASSISTANT} · paused · no advisory drafts for the ${nf}`
+      : block.queued ? `Waiting in line for ${ASSISTANT} · drafts for the ${nf} come next`
+        : `${block.word} · no advisory drafts for the ${nf}`;
+    m.notice = { quiet: true, title: null, body, why: { act: "ai", text: "Why ›", label: `Why: open ${ASSISTANT}` }, raw: null, text: body };
+  } else if (draftsGap || undone || pf) {
     const nf = plural(handHere, "flight", "flights");
     const parts = [];
     const noDrafts = draftsGap && !block.queued;
@@ -347,13 +357,17 @@ function factNode(f) {
 }
 
 function noticeNode(nt) {
+  const why = el("button", { type: "button", class: "link-btn notice__why", "aria-label": nt.why.label, dataset: { act: "details-open", sec: nt.why.act, focus: "story-why" }, text: nt.why.text });
+  if (nt.quiet) {
+    return el("div", { class: "notice notice--quiet" }, icon("ta-waiting", "icon notice__icon"),
+      el("p", { class: "notice__text" }, nt.body, el("span", { class: "notice__dot", "aria-hidden": "true", text: " · " }), why));
+  }
   // not a live region: in REPLAY its time left changes each minute; #announce speaks the change
   return el("div", { class: "notice" },
     icon("st-caution", "st notice__icon"),
     el("div", { class: "notice__body" },
       el("p", { class: "notice__title", text: nt.title }),
-      el("p", { class: "notice__text", title: nt.raw ? `Recorded reason: ${nt.raw}` : null }, nt.body, " ",
-        el("button", { type: "button", class: "link-btn notice__why", "aria-label": nt.why.label, dataset: { act: "details-open", sec: nt.why.act, focus: "story-why" }, text: nt.why.text }))));
+      el("p", { class: "notice__text", title: nt.raw ? `Recorded reason: ${nt.raw}` : null }, nt.body, " ", why)));
 }
 
 function lineNode(l) {
@@ -363,7 +377,7 @@ function lineNode(l) {
     el("span", { class: "sline__go", "aria-hidden": "true", text: "›" })));
 }
 
-const modelKey = (m) => JSON.stringify([m.banner, m.hero, m.facts.map((f) => [f.label, f.value, f.sub, f.tone, f.title]), m.notice && [m.notice.title, m.notice.body], m.lines]);
+const modelKey = (m) => JSON.stringify([m.banner, m.hero, m.facts.map((f) => [f.label, f.value, f.sub, f.tone, f.title]), m.notice && [m.notice.title, m.notice.body, !!m.notice.quiet], m.lines]);
 
 function renderLines(D, store, ui, sit, announce) {
   const box = $("headline");
@@ -422,13 +436,17 @@ function renderLines(D, store, ui, sit, announce) {
 function renderActions(D, store, ui, sit) {
   const box = $("story-actions");
   const kids = [];
-  let ctaHref = "/desk", ctaText = "Open the Desk", primary = false, waiting = 0;
+  let ctaHref = "/desk", ctaText = "Open the Desk →", primary = false, waiting = 0, sub = null;
   if (D && sit) {
     const a = advisoryFacts(D, store, sit.volcano_id);
     waiting = a.drafts;
     if (a.urgent) { ctaHref = `/desk#review/${encodeURIComponent(a.urgent.id)}`; ctaText = "Decide on the Desk →"; primary = true; }
-    // no drafts because the assistant did not run: the Desk holds the hand-plan work (W18)
-    else if (handPlan(D, store).flights.some((x) => x.p.volcano_id === sit.volcano_id)) { ctaText = "Decide on the Desk →"; primary = true; }
+    else {
+      // no drafts because the assistant did not run: the Desk holds the hand-plan work (W18),
+      // said under the quiet button, never as the one filled call to action
+      const byHand = handPlan(D, store).flights.filter((x) => x.p.volcano_id === sit.volcano_id).length;
+      if (byHand) sub = `${plural(byHand, "flight", "flights")} to plan by hand`;
+    }
   } else if (D && D.regionEmpty) {
     const others = (D.state.regions || []).filter((r) => D.regionCounts[r.key] > 0);
     if (others.length) {
@@ -437,7 +455,7 @@ function renderActions(D, store, ui, sit) {
     }
   }
   if (D) {
-    kids.push(el("a", { id: "cta", class: primary ? "cta" : "btn cta--quiet", href: ctaHref, target: "_blank", rel: "noopener", dataset: { focus: "cta" } }, ctaText));
+    kids.push(el("a", { id: "cta", class: primary ? "cta" : "btn cta--quiet", href: ctaHref, target: "_blank", rel: "noopener", dataset: { focus: "cta" } }, el("span", { text: ctaText }), sub ? el("span", { class: "cta__sub", text: sub }) : null));
     // the way into TEPHRA Assistant at work (UI-DESIGN 7.21) in words, beside the one main action
     kids.push(el("button", { type: "button", class: "link-btn story__board", dataset: { act: "board-open", focus: "story-board" }, "aria-keyshortcuts": "A" }, icon("ta-16"), el("span", { text: `See ${ASSISTANT} at work` })));
   }
@@ -506,7 +524,10 @@ function renderNotes(notes) {
   box.replaceChildren(...notes.map((n) => el("p", { class: "story-note" }, st("st-info", "var(--c-info)"), el("span", { text: n.text }))));
 }
 
-function renderAll(D, ui) {
+// The counts for every volcano (the KPI row) and the other volcanoes' rows. `draftsHere` is the
+// selected volcano's waiting drafts: when it carries every exposed flight and draft the row would
+// repeat the story, so it hides (A12).
+function renderAll(D, ui, draftsHere) {
   const kx = $("kpi-exposed");
   const s = D?.state;
   const active = D?.activeCount ?? 0;
@@ -528,6 +549,10 @@ function renderAll(D, ui) {
   // count is 0 is the story's notice, said once there (not again here).
   setText($("kpi-drafts"), !D ? "–" : s.draft_count === null ? "unknown (database error)" : String(s.draft_count ?? 0));
   label("kpi-drafts", D && s.draft_count === 1 ? "advisory waiting" : "advisories waiting");
+  // "0 advisories waiting" says nothing a dispatcher acts on: the KPI stays in the DOM, hidden
+  $("kpi-drafts").closest(".kpi").hidden = !!D && s.draft_count === 0;
+  // the row repeats the story when the selected volcano carries every exposed flight and draft
+  $("kpi-active").closest(".kpis").hidden = !!D?.sit && (s.exposed_count ?? 0) === D.counts.exposed && (s.draft_count ?? 0) === draftsHere;
   const ul = $("volcano-tabs");
   if (!D) { ul.replaceChildren(); return; }
   const others = D.sits.filter((x) => x.volcano_id !== D.selected);
@@ -557,7 +582,24 @@ function renderAll(D, ui) {
 
 // ------------------------------------------------------------------ entry
 
+// The strip's words arrive once, usually after the first render: the last render's arguments are
+// kept so the strip is drawn as soon as they are in, not at the next tick.
+let lastStory = null;
+loadCases(() => { if (lastStory) renderStory(...lastStory); });
+
+// The strip's node is in index.html; the section caseStrip builds is drawn into it.
+function renderCase(strip) {
+  const node = $("case-strip");
+  if (!node) return;
+  const key = strip ? strip.textContent : "";
+  if (node.dataset.key === key) return;
+  node.dataset.key = key;
+  node.hidden = !strip;
+  node.replaceChildren(...(strip ? [...strip.childNodes] : []));
+}
+
 export function renderStory(D, store, ui, { conn, extra, announce, notes = [] }) {
+  lastStory = [D, store, ui, { conn, extra, announce, notes }];
   const sit = D?.sit || null;
   renderFailures(storyFailures(D, store, conn, extra));
   const h1 = $("volcano-name");
@@ -568,14 +610,19 @@ export function renderStory(D, store, ui, { conn, extra, announce, notes = [] })
   document.body.classList.toggle("is-connecting", (!D && !extra.error) || !!D?.reading);
   // A load error shows the failure line only: no numbers and never a cached story (R5.4).
   $("verdict").classList.toggle("verdict--error", !D && !!extra.error);
-  eyebrow(D, sit, sit ? regionOfVent(D.state, D.vents.get(sit.volcano_id)) : null, store);
+  // the case's words (REPLAY, a case with an entry, the selected volcano one of the case's)
+  const replay = D?.mode === "REPLAY" ? D.state.replay : null;
+  const inCase = !!sit && !!replay && (!replay.volcano_ids?.length || replay.volcano_ids.includes(sit.volcano_id));
+  const caseStory = inCase ? caseOf(replay.case_id) : null;
+  eyebrow(D, sit, sit ? regionOfVent(D.state, D.vents.get(sit.volcano_id)) : null, caseStory);
+  renderCase(caseStrip(caseStory, { mode: D?.mode }));
   if (!D && extra.error) { $("headline").replaceChildren(); $("headline").dataset.key = ""; }
   else renderLines(D, store, ui, sit, announce);
   $("verdict").classList.toggle("verdict--hypothesis", !!sit && D.coneOf(sit.volcano_id)?.properties.mode === "HYPOTHESIS");
   renderActions(D, store, ui, sit);
   renderKey(D, ui);
   renderNotes(notes);
-  renderAll(D, ui);
+  renderAll(D, ui, sit ? advisoryFacts(D, store, sit.volcano_id).drafts : 0);
   fitStory(D, ui);
 }
 

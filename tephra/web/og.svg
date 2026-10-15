@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <!-- TEPHRA link preview, hand-drawn: a night sky, the TEPHRA mark, the official ash area (pink,
+       binding) inside TEPHRA's estimate (amber dashes, never smaller), three RFA planes. No
+       third-party pixels, no external references. scripts/make_og.sh renders og.png. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#05080c"/>
+      <stop offset="1" stop-color="#0d1621"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffb000" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#ffb000" stop-opacity="0"/>
+    </radialGradient>
+    <symbol id="plane" viewBox="0 0 24 24">
+      <path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/>
+    </symbol>
+  </defs>
+  <rect width="1200" height="630" fill="url(#sky)"/>
+  <!-- stars -->
+  <g fill="#b6c3d0" opacity="0.5">
+    <circle cx="90" cy="70" r="1.5"/><circle cx="210" cy="140" r="1"/><circle cx="330" cy="50" r="1.2"/>
+    <circle cx="520" cy="95" r="1"/><circle cx="640" cy="40" r="1.4"/><circle cx="760" cy="120" r="1"/>
+    <circle cx="1040" cy="60" r="1.3"/><circle cx="1130" cy="150" r="1"/><circle cx="960" cy="30" r="1"/>
+    <circle cx="150" cy="560" r="1"/><circle cx="1090" cy="520" r="1.2"/>
+  </g>
+  <!-- the map: the ash picture on the right -->
+  <g transform="translate(730 80)">
+    <circle cx="230" cy="230" r="240" fill="url(#glow)"/>
+    <!-- land, muted -->
+    <path d="M-40 330 C60 280 150 320 210 300 S330 330 420 300 L470 440 L-60 440 Z" fill="#0f1822" opacity="0.9"/>
+    <!-- TEPHRA's estimate: amber dashes, never smaller than the official area -->
+    <path d="M70 300 C40 220 70 130 160 90 C250 50 360 80 410 150 C460 220 430 320 360 360 C280 405 120 380 70 300 Z"
+          fill="#ffb000" fill-opacity="0.10" stroke="#ffb000" stroke-width="5" stroke-dasharray="18 12" stroke-linecap="round"/>
+    <!-- the official ash area: pink, binding -->
+    <path d="M130 290 C110 230 140 160 210 135 C280 110 350 140 370 200 C390 260 350 320 290 335 C220 352 150 345 130 290 Z"
+          fill="#ff3d8b" fill-opacity="0.26" stroke="#ff3d8b" stroke-width="5" stroke-linejoin="round"/>
+    <!-- the vent -->
+    <path d="M226 236 L244 206 L262 236 Z" fill="#ff9cc4"/>
+    <!-- three RFA planes: two inside, one heading in -->
+    <use href="#plane" x="186" y="186" width="40" height="40" fill="#ffc845" transform="rotate(35 206 206)"/>
+    <use href="#plane" x="296" y="246" width="40" height="40" fill="#ffc845" transform="rotate(-70 316 266)"/>
+    <use href="#plane" x="40" y="60" width="44" height="44" fill="#ffc845" transform="rotate(120 62 82)"/>
+    <path d="M78 98 L150 160" stroke="#ffc845" stroke-width="3" stroke-dasharray="6 8" stroke-linecap="round"/>
+  </g>
+  <!-- the TEPHRA mark, as the favicon -->
+  <g transform="translate(80 80) scale(3.2)">
+    <rect width="32" height="32" rx="6" fill="#0a1017" stroke="#2b3a4a" stroke-width="0.5"/>
+    <path d="M4 27 L13 13 H19 L28 27 Z" fill="#2b3a4a"/>
+    <path d="M13 13 L15 16 L16 14.5 L17 16 L19 13 Z" fill="#ffb000"/>
+    <circle cx="13" cy="8.5" r="3" fill="#93a3b5"/>
+    <circle cx="18" cy="7" r="3.5" fill="#b6c3d0"/>
+    <circle cx="23" cy="9" r="2.5" fill="#93a3b5"/>
+  </g>
+  <g font-family="Helvetica, Arial, sans-serif" fill="#eaf1f7">
+    <text x="210" y="150" font-size="76" font-weight="700" letter-spacing="2">TEPHRA</text>
+    <text x="80" y="268" font-size="40" font-weight="600">Volcanic-ash decision desk</text>
+    <text x="80" y="318" font-size="40" font-weight="600">for airline dispatch</text>
+    <text x="80" y="384" font-size="24" fill="#b6c3d0">Official reports stay binding.</text>
+    <text x="80" y="418" font-size="24" fill="#b6c3d0">TEPHRA's estimate is never smaller.</text>
+    <text x="80" y="452" font-size="24" fill="#b6c3d0">A dispatcher decides every advisory.</text>
+  </g>
+  <!-- the key, said once -->
+  <g font-family="Helvetica, Arial, sans-serif" font-size="20" fill="#b6c3d0">
+    <rect x="80" y="500" width="26" height="14" rx="3" fill="#ff3d8b" fill-opacity="0.26" stroke="#ff3d8b" stroke-width="3"/>
+    <text x="118" y="513">Official ash area</text>
+    <rect x="310" y="500" width="26" height="14" rx="3" fill="none" stroke="#ffb000" stroke-width="3" stroke-dasharray="6 4"/>
+    <text x="348" y="513">TEPHRA's estimate</text>
+  </g>
+  <text x="80" y="570" font-family="Helvetica, Arial, sans-serif" font-size="22" fill="#93a3b5">Replay demo · fictional airline · decision support only</text>
+</svg>

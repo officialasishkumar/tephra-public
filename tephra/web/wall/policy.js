@@ -134,7 +134,7 @@ function citeChips(ids, cites, go) {
 
 export function policyDialog(data) {
   const p = data?.policy;
-  if (!p) return dkNote("caution", "The operator policy could not be loaded. Close this and try again in a moment.", { role: "status" });
+  if (!p) return dkNote("caution", "The operator policy could not be loaded. Reload the page.", { role: "status" });
   const cites = Object.fromEntries((p.citations || []).map((c) => [c.id, c]));
   const groups = policyValues(p);
   const all = groups.flatMap((g) => g.rows);

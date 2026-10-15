@@ -11,20 +11,23 @@ import {
   sourcesSection, disagreeSection, areaSection, decisionsSection, renderFlights, renderTrace, traceLines, renderLevels,
   historySection, feedsSection, lagOf, timelineEvents, advisoryLine, actionText, estimateOutcome, dayMonth, FEED_STATUS,
 } from "./panels.js";
-import { ext, renderXPanel, recoverySummary, proofTicks, rerouteBlock, replanning, aiState, handPlan } from "./ext.js";
+import { ext, renderXPanel, recoverySummary, proofTicks, rerouteBlock, replanning, aiState, handPlan, runsStatus } from "./ext.js";
+import { has } from "./features.js";
 import { renderLayers, layersStatus } from "./controls.js";
 import { currentPlan, advisoryFacts, closuresFor } from "./story.js";
 import { planFailure, techDetail, blockPhrase, whyLink } from "./x-parts.js";
 import { dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkList, dkFacts, dkNote, dkEmpty, dkSection, dkDot, dkFromReplay } from "./dk.js";
+import { chainSection } from "./chain.js";
 
-// Section key, index group, title, host element id, the old rail panel id it stands for (R8.2).
+// Section key, index group, title, host element id, the old rail panel id it stands for (R8.2),
+// and the optional feature (wall/features.js) the section is listed under.
 export const SECTIONS = [
   { key: "sources", group: "The ash", title: "What the official reports say", host: "brief", xtab: "brief" },
   { key: "disagree", group: "The ash", title: "Where the sources disagree", host: "brief" },
   { key: "estimate", group: "The ash", title: "TEPHRA's estimate", host: "brief" },
-  { key: "sat", group: "The ash", title: "Satellite picture", host: "xpanel", xtab: "sat" },
-  { key: "notices", group: "The ash", title: "Notices", host: "xpanel", xtab: "notices" },
-  { key: "crew", group: "The ash", title: "Crew reports of ash", host: "crew" },
+  { key: "sat", group: "The ash", title: "Satellite picture", host: "xpanel", xtab: "sat", feature: "satellite" },
+  { key: "notices", group: "The ash", title: "Notices", host: "xpanel", xtab: "notices", feature: "notices" },
+  { key: "crew", group: "The ash", title: "Crew reports of ash", host: "crew", feature: "crew" },
   { key: "flights", group: "The flights", title: "Flights heading in", host: "flights" },
   { key: "decisions", group: "The flights", title: "Decisions", host: "decisions" },
   { key: "recovery", group: "The flights", title: "Airport closures", host: "xpanel", xtab: "recovery" },
@@ -33,11 +36,14 @@ export const SECTIONS = [
   { key: "trace", group: "Behind the scenes", title: "How TEPHRA decided", host: "trace" },
   { key: "ai", group: "Behind the scenes", title: "TEPHRA Assistant", host: "xpanel", xtab: "ai" },
   { key: "proof", group: "Behind the scenes", title: "Track record", host: "xpanel", xtab: "proof" },
+  { key: "runs", group: "Behind the scenes", title: "Runs on", host: "xpanel", xtab: "runs" },
   { key: "feeds", group: "Behind the scenes", title: "Data feeds", host: "feeds" },
   { key: "layers", group: "Behind the scenes", title: "Map layers, 3D and compare", host: "layers-pop" },
   // reached from the map and from lists, not from the index
   { key: "area", title: "This ash area", host: "brief", hidden: true },
   { key: "flight", title: "This flight", host: "flights", hidden: true },
+  // "Why ›" on a Decisions row (act=chain): the advisory's reasoning chain, in the flight host
+  { key: "chain", title: "Why this advice", host: "flights", hidden: true },
 ];
 const HOSTS = ["brief", "xpanel", "flights", "decisions", "trace", "levels", "layers-pop", "feeds", "history", "crew"];
 export const sectionOf = (key) => SECTIONS.find((s) => s.key === key) || null;
@@ -108,7 +114,8 @@ export function indexStatus(key, D, store, ui) {
       const list = sit ? D.exposed.filter((f) => f.properties.volcano_id === sit.volcano_id) : [];
       if (!list.length) return { text: "– · coverage is patchy" };
       const p = list[0].properties;
-      return { text: `${list.length} · first is ${p.inside ? "inside now" : `in ${p.minutes_to_entry} min`}`, tone: "tephra" };
+      // the story's one count set (derive.js D.counts) when it is there, so the hero and this row agree
+      return { text: `${D.counts ? D.counts.exposed : list.length} · first is ${p.inside ? "inside now" : `in ${p.minutes_to_entry} min`}`, tone: "tephra" };
     }
     case "decisions": {
       if (D?.state.draft_count === null) return { text: "count unknown (database error)", tone: "serious" };
@@ -167,6 +174,8 @@ export function indexStatus(key, D, store, ui) {
     }
     case "layers":
       return { text: layersStatus(ui) };
+    case "runs":
+      return { text: runsStatus(store.state) };
     default:
       return { text: "" };
   }
@@ -189,7 +198,7 @@ function renderIndex(D, store, ui) {
   const groups = [];
   const attention = [];
   for (const s of SECTIONS) {
-    if (s.hidden) continue;
+    if (s.hidden || (s.feature && !has(s.feature))) continue;
     let g = groups.find((x) => x.name === s.group);
     if (!g) { g = { name: s.group, rows: [] }; groups.push(g); }
     const stt = indexStatus(s.key, D, store, ui);
@@ -197,17 +206,21 @@ function renderIndex(D, store, ui) {
     if ((stt.tone === "serious" || stt.tone === "caution") && !stt.noAttn) attention.push([s, stt]);
   }
   const kids = [];
-  // "Needs a look": at most three rows whose status is serious or caution, serious first. The
-  // same rows stay in their groups below; this card only points at them.
+  // "Needs a look": at most three rows whose status is serious or caution, serious first. A row
+  // listed there is said once: its group below leaves it out.
+  const lifted = new Set();
   if (attention.length) {
     const top = attention.sort((a, b) => (a[1].tone === "serious" ? 0 : 1) - (b[1].tone === "serious" ? 0 : 1)).slice(0, 3);
+    for (const [s] of top) lifted.add(s.key);
     kids.push(el("div", { role: "listitem", class: "dindex__attn" },
       el("h3", { class: "dindex__attnhead" }, st("st-caution", "var(--c-caution)"), el("span", { text: "Needs a look" })),
-      el("div", { class: "dindex__card" }, ...top.map(([s, stt]) => indexRow(s, stt, { focus: `dattn-${s.key}`, id: null })))));
+      el("div", { class: "dindex__card" }, ...top.map(([s, stt]) => indexRow(s, stt, { focus: `dattn-${s.key}` })))));
   }
   for (const g of groups) {
+    const rows = g.rows.filter(([s]) => !lifted.has(s.key));
+    if (!rows.length) continue;
     kids.push(el("div", { role: "listitem", class: "dindex__group" }, el("h3", { class: "dindex__head", text: g.name })));
-    kids.push(el("div", { role: "listitem", class: "dindex__card" }, ...g.rows.map(([s, stt]) => indexRow(s, stt))));
+    kids.push(el("div", { role: "listitem", class: "dindex__card" }, ...rows.map(([s, stt]) => indexRow(s, stt))));
   }
   const key = kids.map((k) => k.textContent).join("|");
   if (box.dataset.key !== key) { box.dataset.key = key; box.replaceChildren(...kids); }
@@ -462,7 +475,8 @@ function renderSection(key, D, store, ui, conn) {
     case "disagree": if (!sit) return none("brief"); $("brief").replaceChildren(disagreeSection(D, sit, ui)); return;
     case "estimate": if (!sit) return none("brief"); $("brief").replaceChildren(areaSection(D, sit, ui)); return;
     case "area": areaDetail(D, store, ui.details.vid || D.selected); return;
-    case "sat": case "notices": case "recovery": case "proof": case "ai": renderXPanel(key, D, store); return;
+    case "sat": case "notices": case "recovery": case "proof": case "ai": case "runs": renderXPanel(key, D, store); return;
+    case "chain": chainSection(D, store, ui); return;
     case "flights": renderFlights(D, store, ui); return;
     case "crew": crewSection(D, ui); return;
     case "flight": flightDetail(D, ui, store); return;

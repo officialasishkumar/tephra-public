@@ -5,10 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="description" content="A decision-support demo for volcanic ash and airline dispatch, with a fictional airline. Not for operational use.">
+  <meta name="description" content="TEPHRA: when official volcanic-ash reports disagree, Gemini proposes TEPHRA's estimate, code keeps it never smaller than the official area, and a dispatcher approves every per-flight advisory. Decision support only; fictional airline; not for operational use.">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="TEPHRA Wall">
-  <meta property="og:description" content="A decision-support demo for volcanic ash and airline dispatch, with a fictional airline. Not for operational use.">
+  <meta property="og:title" content="TEPHRA · volcanic-ash decision desk">
+  <meta property="og:description" content="When official ash reports disagree, TEPHRA keeps the wider estimate, finds the flights heading in and drafts the advisory a dispatcher approves. Replay demo · fictional airline · decision support only.">
+  <meta property="og:image" content="https://tephra-647733667799.asia-southeast1.run.app/static/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
   <title>TEPHRA Wall</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <script src="/static/page-mode.js"></script>
@@ -77,6 +81,9 @@
           <div id="eyebrow-rest" class="eyebrow__rest"></div>
           <span id="eyebrow-asof" class="eyebrow__asof"></span>
         </div>
+        <!-- the case strip (wall/case.js, data/cases.json): what happened, where the reports
+             disagreed, what TEPHRA does; REPLAY only, for a case with an entry -->
+        <section id="case-strip" class="case" aria-label="This case" hidden></section>
         <!-- the hero, the fact tiles, one notice and the lines about the sources (wall/story.js) -->
         <div id="headline" class="story__lines"></div>
         <div id="story-actions" class="story__actions"></div>
@@ -186,24 +193,19 @@
     </aside>
   </main>
 
-  <!-- the status line (UI-DESIGN 7.26): what the Wall shows now on the left, in plain words from panels.js,
-       and the keys on the right; each key is also a button -->
+  <!-- the status line (UI-DESIGN 7.26): the volcano, the audit chain, the policy and the credits on
+       the left (panels.js), two keys on the right (the Guide lists them all); each key is a button -->
   <footer class="honesty stl">
     <span id="stl-dot" class="stl__dot" aria-hidden="true"></span>
     <span id="stl-where" class="stl__where"></span>
-    <span class="stl__line">
-      <span id="stl-facts" class="stl__facts honesty__airline" title="Ring of Fire Air (RFA) is a fictional airline. Its flight numbers are proxies for real aircraft (About)."></span>
+    <span class="stl__line honesty__airline" title="Ring of Fire Air (RFA) is a fictional airline. Its flight numbers are proxies for real aircraft (About).">
+      <span id="stl-audit" class="stl__seg stl__audit" hidden></span>
       <a id="policy-btn" class="stl__seg" href="/guide#policy" target="_blank" rel="noopener" hidden></a>
       <a id="attribution" class="stl__seg" href="/guide#about-credits" target="_blank" rel="noopener">Credits</a>
     </span>
     <span class="stl__keys" role="group" aria-label="Keyboard shortcuts">
       <a id="help-btn" class="stl__key" href="/guide#read" target="_blank" rel="noopener" aria-keyshortcuts="?"><kbd>?</kbd>Guide</a>
       <button type="button" class="stl__key" data-act="key" data-key="a" aria-keyshortcuts="A"><kbd>A</kbd>Assistant</button>
-      <button type="button" class="stl__key stl__key--wide" data-act="key" data-key="]" aria-keyshortcuts="[ ]"><kbd>[ ]</kbd>Volcano</button>
-      <button type="button" class="stl__key" data-act="key" data-key="f" aria-keyshortcuts="F"><kbd>F</kbd>Fit map</button>
-      <button type="button" class="stl__key" data-act="key" data-key="d" aria-keyshortcuts="D"><kbd>D</kbd>3D</button>
-      <button type="button" class="stl__key" data-act="key" data-key="s" aria-keyshortcuts="S"><kbd>S</kbd>Compare</button>
-      <button type="button" class="stl__key" data-act="key" data-key="Escape" aria-keyshortcuts="Escape"><kbd>Esc</kbd>Back</button>
     </span>
   </footer>
 

@@ -132,7 +132,7 @@ function helperOf(stage, reason) {
   return HELPER_KEY[stage] || String(stage || "").toLowerCase();
 }
 
-// The Plume Reader's own model (the "main" tier), when it is not the lite one.
+// The Plume reader's own model (the "main" tier), when it is not the lite one.
 const mainModel = (budget) => {
   const tier = (budget?.tiers || []).find((t) => t.tier === "main");
   return tier && tier.model_id !== liteModel(budget)?.model_id ? (budget.models || []).find((m) => m.model_id === tier.model_id) || null : null;
@@ -197,7 +197,7 @@ export function aiStateOf({ stub = false, budget = null, errors = [], duty = nul
     const key = `${helperKey}|${cls}`;
     let g = groups.get(key);
     if (!g) { g = { key, helperKey, helper: HELPER_NAME[helperKey] || helperKey, reasonClass: cls, items: [], raw: [], main: false }; groups.set(key, g); }
-    // the Plume Reader's own calls run on the main model, not on the lite model a pause is about
+    // the Plume reader's own calls run on the main model, not on the lite model a pause is about
     if (stage === "PLUME") g.main = true;
     g.items.push({ at, reason, src });
     g.raw.push(raw || reason);
@@ -210,7 +210,7 @@ export function aiStateOf({ stub = false, budget = null, errors = [], duty = nul
     const key = `recovery|${reasonClass(reason)}`;
     if (!groups.has(key)) add("recovery", reason, Date.parse(plan.created_at), reason, { plan });
   }
-  // the Plume Reader's own model out of calls today: the same cause on the Wall (which also sees
+  // the Plume reader's own model out of calls today: the same cause on the Wall (which also sees
   // its refusals in the trace) and the Desk (which sees only the budget)
   const main = stub ? null : mainModel(budget);
   if (main && (main.closed === true || (main.limit > 0 && main.remaining <= 0)) && !groups.has("plume|budget")) {
@@ -226,7 +226,7 @@ export function aiStateOf({ stub = false, budget = null, errors = [], duty = nul
   }
   const paused = !stub && (closed || (dutyReason != null && reasonClass(dutyReason) === "budget"));
   // In "paused", a lite-model budget cause is the state itself and is not counted again as
-  // trouble. Any other step that ran out of calls (the Plume Reader's own model, a lane's share)
+  // trouble. Any other step that ran out of calls (the Plume reader's own model, a lane's share)
   // is a problem of its own, in every state.
   const causes = [...groups.values()].map((g) => {
     const ts = g.items.map((x) => x.at).filter(Number.isFinite);
@@ -410,7 +410,7 @@ export function handPlanOf(D, store, ai) {
 
 const HELPER = {
   assess_volcanoes: "the Satellite reader and Plume reader", plan_flights: "the Flight planner and Drafter",
-  run_recovery: "the Recovery planner", draft_sra: "the SRA drafter",
+  run_recovery: "the Recovery planner", draft_sra: "the Paperwork drafter",
 };
 const jobs = (n) => `${n} job${Number(n) === 1 ? "" : "s"}`;
 // An action word in plain words. The ICAO word (MONITOR, HOLD...) stays under Technical detail

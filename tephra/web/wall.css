@@ -137,6 +137,8 @@ q { quotes: "“" "”"; }
   z-index: var(--z-sticky);
 }
 .cmdbar > * { flex-shrink: 0; }
+.cmdbar > .stale-chip { flex-shrink: 1; min-width: 0; }
+.stale-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .cmdbar__spacer { flex: 1 1 0; min-width: 0; }
 
 .mode-badge {
@@ -233,6 +235,7 @@ q { quotes: "“" "”"; }
 .stl__dot[data-tone="replay"] { background: color-mix(in srgb, var(--c-replay) 70%, #000); }
 .stl__dot[data-tone="stale"] { background: color-mix(in srgb, var(--c-caution) 55%, #000); }
 .stl__where { flex: none; color: var(--stl-ink); font-weight: var(--fw-semibold); }
+.stl__audit[data-tone="serious"] { color: color-mix(in srgb, var(--c-serious) 70%, #000); font-weight: var(--fw-semibold); }
 .stl__line { min-width: 0; margin-left: var(--sp-3); overflow: hidden; text-overflow: ellipsis; color: var(--stl-mute); }
 .stl__seg { color: var(--stl-mute); text-decoration: none; }
 .stl__seg::before { content: "·"; display: inline-block; margin-right: 0.3em; color: var(--stl-mute); }
@@ -319,6 +322,12 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 /* the story (UI-DESIGN 7.6, redesigned 13 Oct 2026): a hero number, up to three fact tiles, one
    notice, the lines about the sources. Grey at rest (ISA-101's high-performance HMI): colour marks
    only what is abnormal or the number to look at. */
+/* the case strip (A3): what happened, where the reports disagreed, what TEPHRA does */
+.case { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-2); line-height: 1.45; color: var(--c-text-2); }
+.case__happened { color: var(--c-text-1); }
+.case__sources { display: inline; min-height: 0; margin: 0; padding: 0; font-size: inherit; white-space: nowrap; color: var(--c-text-2); }
+.case__sources:hover { color: var(--c-text-1); }
+.case__what { color: var(--c-text-3); }
 .story__lines { display: flex; flex-direction: column; gap: var(--sp-4); font-size: var(--fs-3); line-height: 1.4; color: var(--c-text-2); }
 .story__note, .story__connecting { color: var(--c-text-2); }
 .story__hyp { display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-2) var(--sp-3); background: var(--c-hypothesis-bg); border: 1px solid var(--c-tephra); border-radius: var(--radius-md); color: var(--c-tephra-text); font-size: var(--fs-3); font-weight: var(--fw-semibold); letter-spacing: 0; line-height: 1.35; }
@@ -366,6 +375,13 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 .notice__title { font-size: var(--fs-3); font-weight: var(--fw-semibold); line-height: var(--lh-snug); color: var(--c-text-1); }
 .notice__text { font-size: var(--fs-2); line-height: 1.45; color: var(--c-text-2); }
 .notice__why { display: inline; min-height: 0; margin: 0; padding: 0; font-size: inherit; white-space: nowrap; color: var(--c-text-1); }
+/* the assistant as the only gap (A4): one muted line, the waiting mark, no caution border */
+.notice--quiet { padding: var(--sp-2) 0; background: transparent; border: 0; border-radius: 0; column-gap: var(--sp-2); }
+.notice--quiet .notice__icon { color: var(--c-text-3); }
+.notice--quiet .notice__text { color: var(--c-text-2); }
+.notice--quiet .notice__why { color: var(--c-text-2); }
+.notice--quiet .notice__why:hover { color: var(--c-text-1); }
+.notice__dot { color: var(--c-text-3); }
 
 /* the lines about the sources and crew reports: one row each, opening its Details section */
 .slines { display: flex; flex-direction: column; border-top: 1px solid var(--c-line-1); }
@@ -393,7 +409,8 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
   font-size: var(--fs-3); font-weight: var(--fw-semibold); text-decoration: none;
 }
 .cta:hover { background: var(--c-cta-hover, #ffffff); }
-.cta--quiet { min-height: var(--tap-comfort); font-size: var(--fs-3); }
+.cta--quiet { min-height: var(--tap-comfort); font-size: var(--fs-3); flex-direction: column; gap: 1px; }
+.cta__sub { font-size: var(--fs-1); font-weight: var(--fw-regular); color: var(--c-text-2); }
 .story__board { display: inline-flex; align-items: center; gap: 6px; align-self: center; min-height: 36px; margin: 0; font-size: var(--fs-2); color: var(--c-text-2); }
 .story__board .icon { width: 16px; height: 16px; }
 .story__board:hover { color: var(--c-text-1); }
@@ -533,6 +550,7 @@ body.is-stale .map-scrim { opacity: 1; }
 }
 .map-pill .link-btn { margin: 0; color: var(--c-text-1); font-weight: var(--fw-semibold); }
 .map-pill--caution { border-color: var(--c-caution); }
+.map-pill--tephra { border-color: var(--c-tephra); }
 .ctx-label__line strong { color: var(--c-caution); letter-spacing: var(--tracking-caps); font-size: var(--fs-1); }
 .ctx-label__off { width: 32px; height: 32px; }
 
@@ -603,6 +621,8 @@ body:not(.is-3d) .maplibregl-ctrl-compass { display: none !important; }
 .tl__mark--tephra { color: var(--c-tephra); }
 .tl__mark--ok { color: var(--c-ok); }
 .tl__mark--serious { color: var(--c-serious); }
+.tl__mark--group { z-index: 2; }
+.tl__count { position: absolute; top: -4px; right: -5px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--c-surface-1); border: 1px solid currentColor; font-size: var(--fs-1); font-weight: var(--fw-semibold); font-style: normal; line-height: 13px; text-align: center; }
 .tl__steps { display: flex; align-items: center; gap: var(--sp-2); }
 .tl__label { font-size: var(--fs-2); color: var(--c-text-2); }
 /* 44 px targets (R15.9): the steps drop the pill container so the buttons fill the bar's height */
@@ -1181,6 +1201,17 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 
 /* 7.14 decisions */
 .decisions { display: flex; flex-direction: column; }
+/* Details › Decisions: a row opens the draft as the Desk shows it, read-only (A10) */
+.dk-dec__header, .dk-dec__body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--fs-1); line-height: 1.45; }
+.dk-dec__header { color: var(--c-text-2); }
+.dk-dec__draft { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); background: var(--c-surface-2); border: 1px solid var(--c-line-1); border-radius: var(--radius-md); }
+.dk-dec__body { color: var(--c-text-1); }
+.dk-dec__checked { display: flex; gap: var(--sp-2); align-items: flex-start; font-size: var(--fs-1); color: var(--c-text-2); line-height: 1.45; }
+.dk-dec__checked .icon { flex: none; width: 14px; height: 14px; margin-top: 2px; color: var(--c-ok); }
+.dk-dec__decision { font-size: var(--fs-2); }
+.dk-dec__go { align-self: flex-start; margin: 0; }
+.dk-dec__links { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); }
+.dk-dec__why { margin: 0; }
 .adv--draft { color: var(--c-text-2); }
 @media (prefers-reduced-motion: no-preference) {
   .dk-dec.is-stamped { animation: stamp var(--dur-5) var(--ease-enter); }
@@ -1998,6 +2029,8 @@ body.present .details-btn { border-style: dashed; }
   .story[data-fit]:not([data-fit="0"]) .story__lines { gap: var(--sp-3); }
   /* 2+: the hero number a step smaller, still the column's largest */
   .story[data-fit="2"], .story[data-fit="3"], .story[data-fit="4"], .story[data-fit="5"], .story[data-fit="6"], .story[data-fit="7"], .story[data-fit="8"] { --hero-num: 52px; }
+  /* 3+: the case strip keeps the facts; what TEPHRA does is in the hero and the key */
+  .story[data-fit="3"] .case__what, .story[data-fit="4"] .case__what, .story[data-fit="5"] .case__what, .story[data-fit="6"] .case__what, .story[data-fit="7"] .case__what, .story[data-fit="8"] .case__what { display: none; }
   /* 4+: the tiles and the notice closer */
   .story[data-fit="4"] .fact__btn, .story[data-fit="5"] .fact__btn, .story[data-fit="6"] .fact__btn, .story[data-fit="7"] .fact__btn, .story[data-fit="8"] .fact__btn { min-height: 0; padding-top: 6px; padding-bottom: 6px; }
   .story[data-fit="4"] .notice, .story[data-fit="5"] .notice, .story[data-fit="6"] .notice, .story[data-fit="7"] .notice, .story[data-fit="8"] .notice { padding: var(--sp-2) var(--sp-3); }
@@ -2098,3 +2131,19 @@ body.panel-hidden .story, body.panel-hidden .drawer { display: none; }
 .ffilter__b:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 body.is-compare .ffilter { display: none; }
 @media (max-width: 600px) { .ffilter { top: 8px; } .ffilter__b { padding: 0 9px; } }
+
+/* ---------------------------------------------------------------- Why this advice (wall/chain.js) */
+.chain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.chain__step { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) 0; border-top: 1px solid var(--c-line-1); min-width: 0; }
+.chain__step:first-child { border-top: 0; }
+.chain__head { display: flex; gap: var(--sp-3); min-width: 0; }
+.chain__n { flex: none; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--c-surface-3); color: var(--c-text-2); font-size: var(--fs-1); font-weight: var(--fw-semibold); }
+.chain__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.chain__title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); font-size: var(--fs-2); color: var(--c-text-1); }
+.chain__line { font-size: var(--fs-2); line-height: 1.45; color: var(--c-text-1); overflow-wrap: anywhere; }
+.chain__more { border-bottom: 0; margin-left: calc(24px + var(--sp-3)); }
+.chain__more > summary { min-height: 32px; }
+.chain__lean .dk-quote { margin: 0; }
+.chain__why { color: var(--c-text-2); margin-top: var(--sp-1); }
+.chain__call { font-size: var(--fs-2); line-height: 1.45; overflow-wrap: anywhere; }
+.chain__foot, .chain__wait { margin-left: calc(24px + var(--sp-3)); font-size: var(--fs-1); color: var(--c-text-2); line-height: 1.4; }

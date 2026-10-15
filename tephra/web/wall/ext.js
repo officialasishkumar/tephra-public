@@ -12,6 +12,7 @@ import { frameFor } from "./ext-map.js";
 import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, causeTitle, handPlanOf, reasonClass, realWhen, machineText, machineSentences, jobsWords, pacingWords, whyLink, WHY, MARK, ASSISTANT } from "./x-parts.js";
 import { dutyDetail, dispatchedTools } from "./duty.js";
 import { HELPERS } from "./board.js";
+import { has } from "./features.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkMeter, meterTone, dkGroup, dkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkTech,
   dkSection, dkLink, dkFromReplay, dkWhen, timeRange, times, plural, dayTime,
@@ -20,8 +21,8 @@ import {
 // ------------------------------------------------------------------ state
 
 export const ext = {
-  notices: [], recovery: [], budget: null, backtest: null, docs: [],
-  loaded: { notices: false, recovery: false, budget: false, backtest: false, docs: false },
+  notices: [], recovery: [], budget: null, backtest: null, docs: [], evals: null,
+  loaded: { notices: false, recovery: false, budget: false, backtest: false, docs: false, evals: false },
   errors: {},
   arrivals: new Map(), // trace id -> performance.now() when it arrived on the stream
   lastSeenSat: new Map(),
@@ -44,6 +45,8 @@ export async function loadExt(onChange) {
     ["budget", "/api/budget", (d) => { ext.budget = d; }],
     ["backtest", "/api/backtest", (d) => { ext.backtest = d; }],
     ["docs", "/api/docs", (d) => { ext.docs = d.docs || []; }],
+    // the committed scorecards (docs/evals): the Plume reader's cases and the replay's speed figures
+    ["evals", "/api/evals", (d) => { ext.evals = d; }],
   ];
   await Promise.all(jobs.map(async ([key, url, set]) => {
     try { set(await getJson(url)); ext.errors[key] = null; } catch (e) { ext.errors[key] = e.message; }
@@ -425,7 +428,8 @@ const meterRow = (label, value, tone) => el("div", { class: "dk-meterrow" },
 
 function proofPanel() {
   if (!ext.loaded.backtest) return [loadingBox()];
-  if (ext.errors.backtest) return [dkNote("caution", `Track record unavailable: ${ext.errors.backtest}`, { role: "status" })];
+  // the backtest is one group of the record; the scorecard groups below it stand on their own
+  if (ext.errors.backtest) return [dkSection("proof-head", dkNote("caution", `Backtest unavailable: ${ext.errors.backtest}`, { role: "status" }), plumeScorecard(), speedAndCost())];
   const b = ext.backtest;
   const arms = Object.keys(b.overall || {});
   const ticks = proofTicks() || 0;
@@ -447,7 +451,8 @@ function proofPanel() {
       meterRow("Area TEPHRA covers of later official areas", b.overall[a].coverage_mean, "tephra"),
       meterRow("Area the official area alone covers", b.overall[a].coverage_official_mean, "official"))));
   }
-  if (!arms.includes("G")) kids.push(dkNote("info", "Baseline only: code, no model call. The Gemini Plume Reader has not been scored yet, so no improvement is claimed."));
+  if (!arms.includes("G")) kids.push(dkNote("info", "Baseline only: code, no model call. The Gemini Plume reader has not been scored yet, so no improvement is claimed."));
+  kids.push(plumeScorecard(), speedAndCost());
   const rows = b.cases.map((c) => el("tr", {},
     el("th", { scope: "row" }, el("span", { class: "x-case__name", text: c.label.split(":")[0] }), el("span", { class: "x-case__meta mono", text: `${c.case_id} · ${ARM_SHORT[c.arm] || `arm ${c.arm}`}` })),
     el("td", { class: "num", text: pct(c.summary.coverage_mean) }), el("td", { class: "num", text: pct(c.summary.coverage_official_mean) }),
@@ -462,12 +467,99 @@ function proofPanel() {
   return [dkSection("proof-head", kids)];
 }
 
+// The Plume reader's scorecard (docs/evals/plume-scorecard.json through /api/evals): the counts the
+// file holds, its own verdict as the pill, the case it missed by name, and what was not run.
+const scoreWord = (v) => (String(v || "").split(" ")[0] || "INCOMPLETE").toUpperCase();
+const SCORE_TONE = { PASS: "ok", FAIL: "serious" };
+function plumeScorecard() {
+  if (!ext.loaded.evals) return dkGroup("Plume reader scorecard", null, loadingBox());
+  const p = ext.evals?.plume;
+  if (ext.errors.evals || !p) return dkGroup("Plume reader scorecard", null, dkNote("info", `Not loaded: ${ext.errors.evals || "no scorecard file"}.`));
+  const a = p.arm_i || {};
+  const cases = Array.isArray(a.cases) ? a.cases : [];
+  const n = a.existence?.cases ?? cases.length;
+  const verdict = scoreWord(a.verdicts?.existence);
+  const withDirection = cases.filter((c) => c.direction && c.direction !== "n/a").length;
+  const missed = cases.filter((c) => c.class && c.call && (c.class === "ash" ? c.call !== "ash" : c.call === "ash")).map((c) => c.id);
+  const notRun = Array.isArray(p.incomplete) ? p.incomplete : [];
+  return dkGroup(`Plume reader on ${n} Tokyo VAAC cases`, p.model ? `${p.runs || 1} runs each` : null,
+    el("div", { class: "dk-head__pills" }, dkPill(SCORE_TONE[verdict] || "caution", verdict, a.verdicts?.existence || null)),
+    dkTiles([
+      { label: "Ash seen or not", value: `${a.existence?.correct ?? "n/a"}/${n}`, sub: "called as the official report did" },
+      { label: "Same answer every run", value: `${a.stability?.agreeing ?? "n/a"}/${a.stability?.cases ?? n}` },
+      { label: "Direction", value: `${a.direction?.detected_within_45_deg ?? "n/a"} of ${withDirection}`, sub: "within 45°" },
+      { label: "False alarms", value: String(a.existence?.quiet_high_confidence_ash ?? "n/a"), tone: a.existence?.quiet_high_confidence_ash === 0 ? "ok" : null, sub: "quiet pictures called ash" },
+    ], "Plume reader scorecard"),
+    missed.length ? dkNote("caution", `Missed: ${missed.join(", ")}.`) : null,
+    dkNote("info", [`Texts (Semeru): ${p.arm_t ? "scored" : "not run"}.`, ...notRun.map((t) => `${t}.`)]));
+}
+
+// Speed and cost on the demo replay (docs/evals/replay-metrics.json): "n/a · not measured" where
+// the file has no figure, never a guess.
+function speedAndCost() {
+  const m = ext.loaded.evals && !ext.errors.evals ? ext.evals?.replay_metrics : null;
+  const speed = m?.speed?.median_minutes;
+  const tokens = m?.tokens;
+  const notMeasured = { value: "n/a", sub: "not measured" };
+  return dkGroup("Speed and cost", null, dkTiles([
+    { label: "Speed", ...(Number.isFinite(speed) ? { value: `${speed} min`, sub: `median to a draft · ${m.speed.label || "replay clock"}` } : notMeasured) },
+    { label: "Cost", ...(tokens && typeof tokens === "object" && Number.isFinite(tokens.total) ? { value: `${tokens.total.toLocaleString("en")} tokens`, sub: tokens.label || null } : notMeasured) },
+  ], "Speed and cost"));
+}
+
+// ------------------------------------------------------------------ Runs on (Details › Behind the scenes)
+
+// Where this service runs (SystemState.cloud): code-written facts only, no model ids.
+export function runsRows(state) {
+  const c = state?.cloud;
+  if (!c) return [];
+  const store = c.store === "firestore" ? "Firestore" : "SQLite";
+  const secrets = c.secrets === "secret-manager" ? "Secret Manager" : "Secrets from the environment";
+  const model = c.model_access === "gemini-api" ? "Gemini API" : "No model connected (NO MODEL)";
+  if (c.platform !== "cloud-run") {
+    return [["Runs on", `This computer · ${store} · ${c.scheduler === "cloud-scheduler" ? "Cloud Scheduler" : "in-process scheduler"}`], ["Secrets", secrets], ["Model access", model]];
+  }
+  const build = state.build_sha ? ` · build ${String(state.build_sha).slice(0, 7)}` : "";
+  return [
+    ["Runs on", `Cloud Run · ${c.region || "region not set"}`],
+    ["Revision", `${c.revision || "unknown"}${build}`],
+    ["Record store", store],
+    ["Scheduler", c.scheduler === "cloud-scheduler" ? "Cloud Scheduler · every minute" : "In-process scheduler"],
+    ["Secrets", secrets],
+    ["Model access", model],
+    ["Writers", "One instance, one writer"],
+  ];
+}
+
+// The audit chain's state for the footer and Runs on: "intact" only when this instance walked the
+// chain and found it whole; "checking" before that walk; its problems when the walk found some.
+export function auditLine(audit) {
+  if (!audit) return { text: "Audit chain: checking", tone: "info", problems: [] };
+  if (audit.intact) return { text: `Audit chain intact · ${plural(audit.entries, "entry", "entries")}`, tone: "ok", problems: [] };
+  const problems = (audit.problems || []).filter((p) => !/not yet walked/i.test(p));
+  if (!problems.length) return { text: "Audit chain: checking", tone: "info", problems: [] };
+  return { text: `Audit chain: ${plural(problems.length, "problem")}`, tone: "serious", problems };
+}
+
+export const runsStatus = (state) => (!state ? "loading…" : !state.cloud ? "not reported" : state.cloud.platform === "cloud-run" ? `Cloud Run · ${state.cloud.region || "region not set"}` : "This computer");
+
+function runsPanel(D, store) {
+  const state = store.state;
+  const rows = runsRows(state);
+  const cloud = state?.cloud?.platform === "cloud-run";
+  const head = dkHeader({ id: "runs-head", pills: [rows.length ? dkPill(cloud ? "ok" : "info", cloud ? "Google Cloud" : "Local run") : dkPill("info", "Not reported")], title: "Where this TEPHRA runs and where it keeps its record." });
+  if (!rows.length) return [dkSection("runs-head", head, dkEmpty("This server does not say where it runs.", null))];
+  const audit = auditLine(state.audit);
+  return [dkSection("runs-head", head, dkFacts(rows), dkNote(audit.tone, audit.text, { role: "status" }), audit.problems.length ? techDetail(...audit.problems) : null)];
+}
+
 // ------------------------------------------------------------------ TEPHRA Assistant (docs/UI-DETAILS-PANELS.md 3; the AI helpers)
 
-// The skills are board.js's roster (one table for the names, shared with TEPHRA Assistant at work), plus the
-// backtest, which is code and calls no model.
-export const AGENTS = [
-  ...HELPERS.map(({ id, name, stage, does, skip, only }) => ({ id, name, stage, what: does, skip, only })),
+// The skills are board.js's roster (one table for the names, shared with TEPHRA Assistant at work),
+// less the hidden features' skills, plus the backtest, which is code and calls no model. Read when
+// drawn: the features arrive with the first state.
+export const agents = () => [
+  ...HELPERS.filter((h) => !h.feature || has(h.feature)).map(({ id, name, stage, does, skip, only }) => ({ id, name, stage, what: does, skip, only })),
   { id: "backtest", name: "Backtest", stage: null, what: "Scores TEPHRA against later official areas (code, no model)" },
 ];
 // The Coordinator (duty officer) tool that reaches each specialist.
@@ -498,7 +590,7 @@ export function agentStatus(D, store, ai) {
   const pf = planFailure(plan);
   const sra = ai.waiting.find((w) => w.kind === "SRA");
   const pending = (D?.sits || []).filter((x) => x.assessment?.outcome === "PENDING").length;
-  return AGENTS.map((a, i) => {
+  return agents().map((a, i) => {
     if (!a.stage) {
       const ok = ext.backtest && !ext.errors.backtest;
       return { ...a, i, state: ok ? "done" : "idle", count: ok ? ext.backtest.cases.length : 0, last: ok ? ext.backtest.generated_at : null, detail: ok ? `${ext.backtest.cases.length} cases scored` : "Not run yet" };
@@ -742,7 +834,7 @@ function aiPanel(D, store) {
 
 // ------------------------------------------------------------------ Details sections hosted in #xpanel
 
-export const XSECTIONS = { sat: satPanel, notices: noticesPanel, recovery: recoveryPanel, proof: proofPanel, ai: aiPanel };
+export const XSECTIONS = { sat: satPanel, notices: noticesPanel, recovery: recoveryPanel, proof: proofPanel, ai: aiPanel, runs: runsPanel };
 
 export function renderXPanel(key, D, store) {
   const panel = $("xpanel");

@@ -21,6 +21,8 @@ const ANT_STEPS = [
 // The WebGL buffer is kept only for automated screenshots (?shots=1, 7.4); it costs memory and
 // a copy per frame otherwise.
 const SHOTS = new URLSearchParams(window.location.search).get("shots") === "1";
+// the messages MapLibre 4.7 dies with inside an easing frame (see WallMap.recover)
+const MAP_CRASH = /_onEaseFrame|already running/;
 const STEP_STYLE = {
   now: { fill: 0.14, w: 2.6, dash: null, op: 1 },
   f6: { fill: 0.05, w: 2, dash: [4, 2], op: 0.9 },
@@ -380,8 +382,33 @@ export class WallMap {
     this.sent = new Map();
     this.compareSent = new Map();
     this.container = container;
+    this._recovered = false;
+    this.attachMap({ center: [111, -7.6], zoom: 5.5 });
+    const pulseNode = el("div", { class: "pulse", "aria-hidden": "true" });
+    pulseNode.addEventListener("animationend", (e) => { if (e.pseudoElement === "::after" && pulseNode.classList.contains("pulse--rose")) pulseNode.classList.add("pulse--done"); });
+    this.pulse = new window.maplibregl.Marker({ element: pulseNode, anchor: "center" });
+    this.startAnts();
+    // A crash inside MapLibre's easing frame is thrown from requestAnimationFrame, not fired as a
+    // map error: the window hears it and the map is rebuilt (onError).
+    window.addEventListener("error", (e) => { const msg = e?.error?.message || e?.message || ""; if (MAP_CRASH.test(msg)) this.onError({ error: { message: msg } }); });
+    // Resizes are settled before the map is told (120 ms): a window being dragged fires dozens, and
+    // a resize mid-easing is what crashed the map.
+    this._resizeTimer = 0;
+    new ResizeObserver(() => { clearTimeout(this._resizeTimer); this._resizeTimer = setTimeout(() => this.onResized(), 120); }).observe(container);
+  }
+
+  // The MapLibre map and everything bound to it. Called once, and again when a crash in its easing
+  // is caught (onError): the new map takes the old one's camera and the layers come back on
+  // style.load.
+  attachMap({ center, zoom }) {
+    this.loaded = false;
+    this.hoverBound = false;
+    this.sent = new Map();
+    this.btdIds = [];
+    this.gibs = { key: null, back: 0, errors: 0 };
+    const container = this.container;
     this.map = new window.maplibregl.Map({
-      container, style: STYLE_URL, center: [111, -7.6], zoom: 5.5, maxPitch: 70,
+      container, style: this.fallbackUsed ? this.fallbackSpec() : STYLE_URL, center, zoom, maxPitch: 70,
       // drag-rotate (right-drag or Ctrl + drag) tilts as well as turns; it is on only in 3D (8.1)
       attributionControl: false, dragRotate: false, pitchWithRotate: true, fadeDuration: 150,
       preserveDrawingBuffer: SHOTS, keyboard: true,
@@ -395,7 +422,8 @@ export class WallMap {
     this.nav = new window.maplibregl.NavigationControl({ showCompass: true, visualizePitch: true });
     this.map.addControl(this.nav, "bottom-right");
     const tools = $("tools");
-    if (tools) this.map.addControl({ onAdd: () => tools, onRemove: () => {} }, "bottom-right");
+    // onRemove gives the toolbar back to the container, so a rebuilt map (recover) finds it again
+    if (tools) this.map.addControl({ onAdd: () => tools, onRemove: () => container.append(tools) }, "bottom-right");
     // A flight-group marker is drawn the first time a cluster of that size shows; any other
     // missing image (a basemap sprite) is a blank pixel.
     this.map.on("styleimagemissing", (e) => {
@@ -412,15 +440,18 @@ export class WallMap {
     this.map.on("click", (e) => this.onClick(e));
     this.map.getContainer().addEventListener("click", (e) => { if (e.target.closest("[data-act='card-close']")) this.hideCard(); });
     this.styleTimer = setTimeout(() => { if (!this.loaded) this.fallbackStyle(); }, 8000);
-    const pulseNode = el("div", { class: "pulse", "aria-hidden": "true" });
-    pulseNode.addEventListener("animationend", (e) => { if (e.pseudoElement === "::after" && pulseNode.classList.contains("pulse--rose")) pulseNode.classList.add("pulse--done"); });
-    this.pulse = new window.maplibregl.Marker({ element: pulseNode, anchor: "center" });
-    this.startAnts();
-    new ResizeObserver(() => { if (this.framedOnce) this.frame({ animate: false }); }).observe(container);
+  }
+
+  onResized() {
+    if (!this.map) return;
+    if (this.map.isMoving()) this.map.stop();
+    this.map.resize();
+    if (this.framedOnce) this.frame({ animate: false });
   }
 
   onError(e) {
     const msg = e?.error?.message || "";
+    if (MAP_CRASH.test(msg)) { this.recover(); return; }
     if (e?.sourceId === "gibs" || /gibs\.earthdata/.test(msg)) { this.gibsMiss(); return; }
     if (e?.sourceId === "so2" || e?.sourceId === "dem" || e?.sourceId === "ne2_shaded") return;
     if (!this.loaded && !this.fallbackUsed) {
@@ -430,12 +461,32 @@ export class WallMap {
     }
   }
 
-  fallbackStyle() {
-    if (this.fallbackUsed) return;
-    this.fallbackUsed = true;
-    this.noText = true;
-    this.loaded = false;
-    this.map.setStyle({
+  // MapLibre 4.7 can die inside an easing frame when the container is resized or a second camera
+  // move starts mid-frame ("_onEaseFrame", "already running"). Once per page: the broken map is
+  // removed and a new one is built where it was; onStyle() re-adds the layers, then the data and
+  // the frame come back.
+  recover() {
+    if (this._recovered || !this.map) return;
+    this._recovered = true;
+    let center = null, zoom = null;
+    try { center = this.map.getCenter(); zoom = this.map.getZoom(); } catch { /* the crashed map may not answer */ }
+    this.pulse.remove();
+    this.hideCard();
+    this.compare?.remove();
+    this.compare = null;
+    this.compareMap?.remove();
+    this.compareMap = null;
+    this.compareSent.clear();
+    $("map-a")?.remove();
+    clearTimeout(this.styleTimer);
+    try { this.map.remove(); } catch { /* already broken */ }
+    this.attachMap({ center: center || [111, -7.6], zoom: zoom ?? 5.5 });
+    this.map.once("style.load", () => { if (this.D) { this.update(this.D); this.frame({ animate: false }); } });
+    this.onNote?.("map", "Map restarted after an error");
+  }
+
+  fallbackSpec() {
+    return {
       version: 8,
       sources: { land: { type: "geojson", data: "/static/data/land_apac.geojson" } },
       layers: [
@@ -443,7 +494,15 @@ export class WallMap {
         { id: "land", type: "fill", source: "land", paint: { "fill-color": this.C.land } },
         { id: "coast", type: "line", source: "land", paint: { "line-color": this.C.night.coast, "line-width": 1 } },
       ],
-    });
+    };
+  }
+
+  fallbackStyle() {
+    if (this.fallbackUsed) return;
+    this.fallbackUsed = true;
+    this.noText = true;
+    this.loaded = false;
+    this.map.setStyle(this.fallbackSpec());
     this.onNote?.("basemap", "Basemap offline: simplified coastline (Natural Earth)");
   }
 
@@ -884,6 +943,8 @@ export class WallMap {
     const phone = window.innerWidth <= 600;
     const maxZoom = phone ? 7.4 : 8.6;
     const still = !animate || reducedMotion();
+    // a camera move started while the last one eases is what crashed MapLibre's easing frame
+    if (this.map.isMoving()) this.map.stop();
     if (this.ui.d3) {
       // Fit flat, then tilt about the same centre: fitting with pitch over-pads (8.1).
       let cam = null;

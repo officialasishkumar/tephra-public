@@ -17,6 +17,8 @@ import { renderDetails, sectionOf, PANELS } from "./wall/details.js";
 import { boardModel, flowModel } from "./wall/board.js";
 import { mountFlow } from "./wall/board-view.js";
 import { describeReplay } from "./wall/x-parts.js";
+import { nextRetryMs, shouldReopen } from "./wall/stream.js";
+import { setFeatures, has, applyFeatureNav } from "./wall/features.js";
 
 const STREAM_TIMEOUT_MS = 45e3;
 // A Wall hidden this long gives its stream (a Cloud Run request slot) back until it is shown.
@@ -62,10 +64,9 @@ const ui = {
   traceScope: "volcano",
   readOpen: false,
   historyOpen: false,
-  // the map key starts open on the map from 1360 px, folded to its bar on smaller maps and under a
-  // phone's map; a choice made with its button is kept for the session
-  // the key starts folded (one "Map key" button on the map) and stays as the viewer leaves it
-  keyOpen: (() => { try { return sessionStorage.getItem("tephra.wall.key") === "open"; } catch { return false; } })(),
+  // the map key starts open on a map 1360 px wide or more and folded to its bar on smaller ones;
+  // a choice made with its button is kept for the session
+  keyOpen: (() => { try { const k = sessionStorage.getItem("tephra.wall.key"); if (k) return k === "open"; } catch { /* storage blocked */ } return window.innerWidth >= 1360; })(),
   // which flights the map shows: all, inside the ash, heading in (kept for the session)
   flightFilter: (() => { try { return sessionStorage.getItem("tephra.wall.flights") || "all"; } catch { return "all"; } })(),
   // the side panel (story and Details) hidden for the whole map, kept for the session
@@ -86,8 +87,9 @@ const ui = {
   tlCurrent: null, // title of the timeline event last chosen (R7)
   board: { open: false }, // TEPHRA Assistant at work: shown (the /assistant page)
 };
-const conn = { lostAt: null, source: null, watchdog: null, lastEventAt: 0, loaded: false, everLost: false, hiddenTimer: null, paused: false, lastTick: null };
-const extra = { error: null, basemap: null, mapError: null };
+// backoff: the wait before the next stream reopen (wall/stream.js), 0 after a good open.
+const conn = { lostAt: null, source: null, watchdog: null, lastEventAt: 0, loaded: false, everLost: false, hiddenTimer: null, paused: false, lastTick: null, backoff: 0, reopenTimer: null };
+const extra = { error: null, basemap: null, mapError: null, mapNote: null };
 const clock = { base: NaN, at: 0 };
 const seenDis = new Set();
 let D = null;
@@ -129,6 +131,8 @@ async function load() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     store.state = data.state;
+    setFeatures(data.state.features);
+    applyFeatureNav();
     store.snapshot = data.snapshot;
     store.advisories = data.advisories || [];
     store.trace = mergeTrace(data.trace || []);
@@ -140,7 +144,7 @@ async function load() {
     if (!conn.loaded) firstRegion();
     conn.loaded = true;
     renderNow();
-    if (!conn.source) openStream();
+    if (!conn.source || shouldReopen(conn.source.readyState)) openStream();
     if (!ext.started) { ext.started = true; loadExt(scheduleRender); setInterval(() => loadExt(scheduleRender), 60e3); }
   } catch (err) {
     loadRetry(err?.message || "no answer");
@@ -191,15 +195,24 @@ function openStream() {
   });
   es.onopen = () => {
     touch();
+    conn.backoff = 0;
     if (conn.lostAt) {
       conn.lostAt = null;
       announce("Live updates restored.");
       load();
     }
   };
-  es.onerror = () => { if (es.readyState !== EventSource.OPEN) streamLost(); };
+  // CLOSED (an HTTP error, a 503 while the service restarts): the browser will not retry, so the
+  // page drops the source and opens a new one after a wait. CONNECTING: the browser is retrying a
+  // network error; the page takes over with its own wait so the retries are bounded.
+  es.onerror = () => {
+    if (shouldReopen(es.readyState)) { dropStream(es); scheduleReopen(); return; }
+    if (es.readyState !== EventSource.OPEN) streamLost();
+  };
   on("state", (s) => {
     store.state = s;
+    setFeatures(s.features);
+    applyFeatureNav();
     if (s.feeds) { noteReads(s.feeds); store.feeds = s.feeds; }
     setClock(s.now);
     if (store.snapshot && Array.isArray(s.active_volcano_ids)) {
@@ -310,16 +323,31 @@ function touch() {
   conn.watchdog = setTimeout(streamLost, STREAM_TIMEOUT_MS);
 }
 
-function streamLost() {
-  if (conn.lostAt) return;
-  conn.lostAt = Number.isFinite(now()) ? now() : Date.now();
-  // EventSource retries by itself after an error; a silent stall needs a fresh connection.
-  if (conn.source && conn.source.readyState === EventSource.OPEN) {
-    conn.source.close();
-    conn.source = null;
-    setTimeout(() => { if (!conn.source && !conn.paused) openStream(); }, 3000);
+// The source is closed and forgotten; the lost banner's time is set once per outage.
+function dropStream(es) {
+  es.close();
+  if (conn.source === es) conn.source = null;
+  clearTimeout(conn.watchdog);
+  if (!conn.lostAt) {
+    conn.lostAt = Number.isFinite(now()) ? now() : Date.now();
+    renderNow();
   }
-  renderNow();
+}
+
+// A new stream after the wait, which doubles per failed try (wall/stream.js) and resets on a
+// good open; nothing opens while a hidden Wall has given its stream back.
+function scheduleReopen() {
+  clearTimeout(conn.reopenTimer);
+  conn.backoff = nextRetryMs(conn.backoff);
+  conn.reopenTimer = setTimeout(() => { conn.reopenTimer = null; if (!conn.source && !conn.paused) openStream(); }, conn.backoff);
+}
+
+// A silent stall (no event for STREAM_TIMEOUT_MS) or a browser-side retry loop: whatever the
+// source's state, it is replaced.
+function streamLost() {
+  if (conn.source) dropStream(conn.source);
+  else if (!conn.lostAt) { conn.lostAt = Number.isFinite(now()) ? now() : Date.now(); renderNow(); }
+  scheduleReopen();
 }
 
 // Hidden for HIDDEN_PAUSE_MS: close the stream quietly (no lost banner). Shown again: resync
@@ -330,6 +358,8 @@ function pauseHiddenStream() {
   if (!document.hidden || !conn.source) return;
   conn.paused = true;
   clearTimeout(conn.watchdog);
+  clearTimeout(conn.reopenTimer);
+  conn.reopenTimer = null;
   conn.source.close();
   conn.source = null;
 }
@@ -387,6 +417,7 @@ function withFocusKept(fn) {
 function storyNotes() {
   const notes = [];
   if (extra.basemap) notes.push({ text: extra.basemap });
+  if (extra.mapNote) notes.push({ text: extra.mapNote });
   // The coverage note when the story's flight line has not already said it (R5.7).
   const cov = D ? coverageNote(D, store) : null;
   if (cov && ui.layers.aircraft && (D.sit?.exposed_count || 0) > 0) notes.push({ text: cov });
@@ -476,9 +507,11 @@ function renderPills() {
 
 function renderFlightFilter() {
   if (!D) return;
+  // the one count set (derive.js D.counts) when the story supplies it, so the hero, the radios
+  // and Details agree; today's counting otherwise
   const inside = (p) => p.inside === true || p.minutes_to_entry === 0;
   const hexes = (pred) => new Set(D.exposed.filter((f) => pred(f.properties)).map((f) => f.properties.hex)).size;
-  const n = { all: D.aircraft.length, inside: hexes(inside), heading: hexes((p) => !inside(p)) };
+  const n = D.counts ? { all: D.counts.aircraft, inside: D.counts.inside, heading: D.counts.heading } : { all: D.aircraft.length, inside: hexes(inside), heading: hexes((p) => !inside(p)) };
   for (const b of document.querySelectorAll("#flight-filter [data-ff]")) {
     b.setAttribute("aria-checked", String(b.dataset.ff === ui.flightFilter));
     b.querySelector("b").textContent = String(n[b.dataset.ff]);
@@ -807,7 +840,7 @@ function openBoard() {
   ui.board.open = true;
   describeModal(dlg);
   if (!dlg.open) dlg.show();
-  flow = flow || mountFlow(dlg);
+  flow = flow || mountFlow(dlg, { has });
   flow.open();
   renderNow();
   $("board-title").focus({ preventScroll: true });
@@ -941,6 +974,13 @@ function startMap() {
     onNote: (kind, text) => {
       if (kind === "basemap") extra.basemap = text;
       if (kind === "context") { renderCtx(); renderPills(); return; }
+      if (kind === "map") {
+        // the map was rebuilt (map.js recover): a swipe compare did not survive it; the note shows
+        // for a few seconds, not for the session
+        if (ui.compare) ui.compare = false;
+        extra.mapNote = text;
+        setTimeout(() => { extra.mapNote = null; scheduleRender(); }, 8000);
+      }
       scheduleRender();
     },
   });
@@ -988,6 +1028,7 @@ document.addEventListener("click", (e) => {
   else if (act === "select" && t.dataset.vid) select(t.dataset.vid);
   else if (act === "details-open") { if ($("dlg").open) $("dlg").close(); openDetails(t.dataset.sec || null, { opener: t }); }
   else if (act === "details-sec") openDetails(t.dataset.sec, { opener: ui.details.opener, from: t.dataset.sec });
+  else if (act === "chain") openDetails("chain", { vid: t.dataset.vid || null, opener: t, from: ui.details.sec });
   else if (act === "details-index") detailsIndex();
   else if (act === "details-close") closeDetails();
   else if (act === "details-fold") {
@@ -1158,11 +1199,11 @@ function runKey(k) {
   else if (k === "c" || k === "C") { if (D?.sit) openSources(null, document.activeElement); }
   else if (k === "i" || k === "I") setSat(SAT_CYCLE[(SAT_CYCLE.indexOf(ui.sat) + 1) % SAT_CYCLE.length]);
   else if (k === "o" || k === "O") setLayer("so2", !ui.so2);
-  else if (k === "b" || k === "B") setLayer("btd", !ui.btd);
+  else if (k === "b" || k === "B") { if (!has("btd")) return false; setLayer("btd", !ui.btd); }
   else if (k === "l" || k === "L") toggleSection("layers", document.activeElement);
   else if (k === "t" || k === "T") openDetails("trace", { opener: document.activeElement });
   else if (k === "h" || k === "H") { openDetails("levels", { opener: document.activeElement }); requestAnimationFrame(() => $("levels").querySelector('[data-thumb="max"]')?.focus()); }
-  else if (k === "p" || k === "P") setPresent(!ui.present);
+  else if (k === "p" || k === "P") { if (!has("present")) return false; setPresent(!ui.present); }
   else if (k === "a" || k === "A") openBoard();
   else if (k === "?") openGuide("read");
   else handled = false;

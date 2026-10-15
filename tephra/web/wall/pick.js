@@ -4,6 +4,7 @@
 // map. Every string is code-written from the snapshot and goes in through el() (textContent).
 
 import { el, icon, fl, hhmmz, ms } from "./util.js";
+import { actionWords } from "./derive.js";
 
 const CODE_WORD = { RED: "Red", ORANGE: "Orange", YELLOW: "Yellow", GREEN: "Green", UNKNOWN: "Not given" };
 const STATUS_WORD = { DRAFT: "Advisory waiting on the Desk", APPROVED: "Advisory approved", REJECTED: "Advisory rejected", EDITED: "Advisory approved (edited)" };
@@ -31,7 +32,8 @@ export function planeCard(p, adv, closed = new Set()) {
       p.origin_icao && p.dest_icao ? { text: `${p.origin_icao} → ${p.dest_icao}${p.route_source === "PLAN" ? ` · ${p.flight_plan || "airline"} flight plan` : ""}` } : null,
       closed.has(p.dest_icao) ? { text: `Lands at ${p.dest_icao}: closed`, tone: "serious" } : closed.has(p.origin_icao) ? { text: `Departed ${p.origin_icao}: closed now`, tone: "caution" } : null,
       where,
-      adv ? { text: `${STATUS_WORD[adv.status] || adv.status}${decided}` } : null,
+      // a waiting draft says what it proposes, so the card is the glance and the Desk the decision
+      adv ? { text: `${STATUS_WORD[adv.status] || adv.status}${adv.status === "DRAFT" ? ` · ${actionWords(adv)}` : decided}` } : null,
       p.data_source === "AIRLINE" ? { text: "Position from the airline's own feed (Connect)", tone: "feed" } : null,
     ],
     action: p.proxy_flight ? { text: "Flight details ›", act: "details-open", sec: "flight" } : null,

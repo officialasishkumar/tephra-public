@@ -7,8 +7,9 @@ import {
   $, el, icon, age, band, dayMon, durMin, fl, hhmmz, utcTime, hhmmssz, idTime, hhmmBefore, ms, pad, solarHour, isNight,
   compassWord, kmBetween, safeExternalUrl, pointInGeom, dest, inBbox,
 } from "./util.js";
-import { actionWords, deciderName, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
+import { actionWords, deciderName, deciderRole, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
+import { advisoryFacts } from "./story.js";
 import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, aiSymbol, replayWords, describeReplay, handPlanOf, causeTitle, blockPhrase, whyLink, machineText, MARK, ASSISTANT } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkEmpty, dkTech, dkSection, dkLink,
@@ -187,16 +188,18 @@ export function renderChrome(D, store, ui) {
   // shown first with its state, so the bar never jumps to its real width (W5)
   chip.classList.remove("is-pending");
 
-  // Data chip: "Data: 6 working · 5 off", worst first.
+  // Data chip: "Data: all working", else worst first, "Data: 1 error · 5 working". Feeds that are
+  // off (not in this case, or switched off) are not a state of the data: Details lists them.
   const by = {};
   for (const f of store.feeds) by[f.status] = (by[f.status] || 0) + 1;
-  const words = { ERROR: ["error", "errors"], STALE: ["stale", "stale"], OK: narrow() ? ["ok", "ok"] : ["working", "working"], NEVER: ["not read", "not read"], DISABLED: ["off", "off"] };
+  const words = { ERROR: ["error", "errors"], STALE: ["stale", "stale"], OK: narrow() ? ["ok", "ok"] : ["working", "working"], NEVER: ["not read", "not read"] };
   const parts = [];
-  for (const k of ["ERROR", "STALE", "OK", "NEVER", "DISABLED"]) {
+  const allOk = !by.ERROR && !by.STALE && !by.NEVER && by.OK;
+  for (const k of ["ERROR", "STALE", "OK", "NEVER"]) {
     if (!by[k]) continue;
     const [id, color] = FEED_STATUS[k];
     const w = words[k][by[k] === 1 ? 0 : 1];
-    parts.push(el("span", { class: `feeds-chip__part feeds-chip__part--${k.toLowerCase()}` }, k === "ERROR" || k === "STALE" ? st(id, color) : null, `${by[k]} ${w}`));
+    parts.push(el("span", { class: `feeds-chip__part feeds-chip__part--${k.toLowerCase()}` }, k === "ERROR" || k === "STALE" ? st(id, color) : null, allOk ? `all ${w}` : `${by[k]} ${w}`));
   }
   const fc = $("feeds-chip");
   const fkey = parts.map((p) => p.textContent).join("|");
@@ -219,13 +222,13 @@ function renderStatusLine(D, ui) {
   const tone = document.body.classList.contains("is-stale") ? "stale" : s.mode === "REPLAY" ? "replay" : "live";
   $("stl-dot").dataset.tone = tone;
   $("stl-dot").title = { stale: "Not updating", replay: "Replay", live: "Live" }[tone];
-  const vid = D.sit?.volcano_id;
-  const areas = vid ? D.official.filter((f) => f.properties.volcano_id === vid && f.properties.step === "now" && f.properties.valid).length : 0;
-  // Plain words for a dispatcher, not an address: the volcano, its official areas and the view.
-  // The flights inside and heading in are the story's (said once).
+  // Plain words for a dispatcher, not an address: the volcano, then the audit chain, the policy
+  // and the credits. The flights, the official areas and the view are said where they are shown.
   setText($("stl-where"), D.sit ? D.sit.volcano_name : "No ash in this area");
-  const view = ui.compare ? "Side-by-side compare" : ui.d3 ? "3D view" : "Flat map";
-  setText($("stl-facts"), [D.sit ? plural(areas, "official ash area") : null, view].filter(Boolean).join(" · "));
+  const audit = $("stl-audit");
+  const chain = auditWords(s.audit);
+  audit.hidden = !chain;
+  if (chain) { setText(audit, chain.text); audit.dataset.tone = chain.tone; audit.title = chain.title; }
   const policy = s.policy;
   const policyBtn = $("policy-btn");
   policyBtn.hidden = !policy;
@@ -239,6 +242,18 @@ function renderStatusLine(D, ui) {
   // The full credit string: on the credits link's tooltip and the guide's Credits; OSM stays on
   // the map (R6.6).
   $("attribution").title = [ATTRIBUTION, ...extra].join(" · ");
+}
+
+// The audit chain's head (SystemState.audit) in one segment: "intact" only when this instance
+// walked the chain and found it whole; "checking" until the startup walk is done; else the
+// number of problems. Absent when the server exposes no head.
+export function auditWords(head) {
+  if (!head) return null;
+  const entries = Number(head.entries || 0).toLocaleString("en");
+  if (head.intact) return { tone: "ok", text: `Audit chain intact · ${entries}`, title: `${entries} audit entries, each linked to the one before by its hash; walked and found whole${head.checked_at ? ` at ${hhmmz(ms(head.checked_at))}` : ""}.` };
+  const problems = (head.problems || []).filter((p) => !/not yet walked/i.test(p));
+  if (!problems.length) return { tone: "info", text: "Audit chain: checking", title: `${entries} audit entries; the chain is being walked on this instance.` };
+  return { tone: "serious", text: `Audit chain: ${plural(problems.length, "problem")}`, title: problems.join(" · ") };
 }
 
 // The Wall's AI state (ext.js aiState), set by wall.js so this file does not import ext.js.
@@ -263,6 +278,8 @@ export function renderClock(D, conn) {
 }
 
 // Map status pills (R6.4): only while true, at most 3 (the third becomes "+n more").
+// The source id the Plume reader leaned on first, when a model's reading passed the checks.
+const leanedSource = (sit) => (sit.assessment && ["ACCEPTED", "REPAIRED"].includes(sit.assessment.outcome) ? sit.assessment.estimate?.disagreements_explained?.[0]?.which_source_we_lean_on || null : null);
 export function mapPills(D, ui, extra) {
   const pills = [];
   if (!D) return pills;
@@ -287,6 +304,10 @@ export function mapPills(D, ui, extra) {
       pills.push({ tone: "info", text: ui.steps === "all" ? "Showing every official forecast area" : `Showing the official forecast${at} (${word})`, action: "steps-now", actionText: "Back to now" });
     }
   }
+  // A widened estimate says which source the Plume reader leaned on, in code words only (A11): the
+  // reading itself stays in Details › TEPHRA's estimate with its mark
+  const lean = D.sit && D.coneOf(D.sit.volcano_id)?.properties.mode === "WIDENED" ? leanedSource(D.sit) : null;
+  if (lean) pills.push({ tone: "tephra", text: `Widened · leans on ${cardName(D.sit, lean)}`, action: "details-open", sec: "estimate", actionText: "Why ›" });
   if (extra.basemap && extra.basemapPill) pills.push({ tone: "info", text: extra.basemap });
   if (extra.airportsMissing) pills.push({ tone: "caution", text: "Airport positions did not load: closed airports are listed in Details", action: "details-open", sec: "recovery", actionText: "Show" });
   return pills;
@@ -764,6 +785,38 @@ export function areaSection(D, sit, ui) {
 }
 const untilWords = (dt) => (Number.isFinite(dt) ? (dt > 0 ? `in ${age(dt / 1000)}` : `${age(-dt / 1000)} ago`) : null);
 
+// What the viewer opened or closed in the Decisions list, by flight, kept across renders (the
+// section is rebuilt every tick, and a flight's newer draft keeps the viewer's choice); until they
+// choose, the open row is the draft the Desk would open first.
+const previewOpen = new Map();
+
+// The code's check line on every draft: exactly what validate_draft and _body_problems test
+// (tephra/agents/validators.py). No citation check exists on a draft: citations are the Plume reader's.
+export const CHECKED = "Checked by code: action allowed · every number and place from the facts · no clock time · header, sources, times and hashes by code";
+
+// One advisory as the Desk shows it, read-only (A10): the code-written header, the body with its
+// mark, the check line, the facts the body was drafted from, the decision and the way to the Desk.
+export function draftPreview(D, a) {
+  const stub = a.llm_backend === "stub" || a.model_id === "stub" || !a.model_id;
+  const mark = stub
+    ? el("span", { class: "ai-mark ai-mark--none", title: "No model wrote this: code did (the offline stub, NO MODEL)" }, icon("i-code"), el("span", { text: "Code only (NO MODEL)" }))
+    : aiMark(a.model_id, MARK.written);
+  const entry = a.inside_now ? "inside TEPHRA's ash area now" : `enters TEPHRA's ash area in ${a.minutes_to_entry} min`;
+  const policy = a.policy_id ? `${a.policy_id}${a.policy_version ? ` v${a.policy_version}` : ""}${a.policy_hash ? ` #${a.policy_hash}` : ""}` : null;
+  const draft = a.status === "DRAFT";
+  return [
+    el("pre", { class: "dk-dec__header mono", text: a.header }),
+    el("div", { class: "dk-dec__draft" }, el("pre", { class: "dk-dec__body", text: a.edited_body ?? a.body }), mark),
+    el("p", { class: "dk-dec__checked" }, icon("i-check", "icon"), el("span", { text: CHECKED })),
+    dkFacts([["Action", actionWords(a), { mono: true }], ["Entry", entry], ["Fuel", a.fuel_line || null], ["Policy", policy, { mono: true }]]),
+    el("p", { class: "dk-dec__decision" }, advisoryLine(a)),
+    // "Why ›" opens the four-step chain behind this draft (wall/chain.js) in the flight host
+    el("p", { class: "dk-dec__links" },
+      el("button", { type: "button", class: "link-btn dk-link dk-dec__why", dataset: { act: "chain", vid: a.id, focus: `chain-${a.id}` }, "aria-label": `Why: the steps behind the ${a.proxy_flight} draft`, text: "Why ›" }),
+      el("a", { class: "link-btn dk-dec__go", href: `/desk#review/${encodeURIComponent(a.id)}`, target: "_blank", rel: "noopener", text: draft ? "Decide on the Desk ›" : "Open on the Desk ›" })),
+  ];
+}
+
 // Decisions (R8.3 `decisions`): the counts first, then the list.
 export function decisionsSection(D, store, ui, target = $("decisions")) {
   const all = store.advisories.slice().sort((a, b) => ms(b.updated_at) - ms(a.updated_at));
@@ -774,20 +827,27 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
   const rej = advs.filter((a) => a.status === "REJECTED");
   const capped = all.length >= 50;
   const serverWaiting = D.state.draft_count;
+  // the draft to decide first leads the waiting list, as on the Desk; the rest newest first
+  const urgent = advisoryFacts(D, store, D.selected).urgent;
+  if (urgent) draft.sort((a, b) => (b.id === urgent.id) - (a.id === urgent.id));
   const row = (a) => {
     const fresh = ui.freshDecisions?.has(a.id);
     const status = {
       DRAFT: ["i-clock", "var(--c-text-2)"], APPROVED: ["i-approved", "var(--c-ok)"], EDITED: ["i-approved", "var(--c-ok)"], REJECTED: ["i-rejected", "var(--c-serious)"],
     }[a.status] || ["i-clock", "var(--c-text-2)"];
-    const when = a.status === "DRAFT" ? `drafted ${age((D.now - ms(a.drafted_at || a.created_at)) / 1000)} ago` : `${a.status === "REJECTED" ? "rejected" : "approved"} by ${deciderName(a)}${a.decided_at ? ` · ${hhmmz(ms(a.decided_at))}` : ""}${a.status === "EDITED" ? " · with edits" : ""}`;
-    const r = el("a", { class: `dk-row dk-row--link dk-dec${fresh ? " is-stamped" : ""}`, href: `/desk#review/${encodeURIComponent(a.id)}`, target: "_blank", rel: "noopener", dataset: { adv: a.id } },
-      el("span", { class: "dk-row__head" },
+    // the role is said on purpose: a visitor's decision is a real, audited decision in REPLAY
+    const when = a.status === "DRAFT" ? `drafted ${age((D.now - ms(a.drafted_at || a.created_at)) / 1000)} ago` : `${a.status === "REJECTED" ? "rejected" : "approved"} by ${deciderName(a)} · ${deciderRole(a)}${a.decided_at ? ` · ${hhmmz(ms(a.decided_at))}` : ""}${a.status === "EDITED" ? " · with edits" : ""}`;
+    const d = el("details", { class: `dk-row dk-dec${fresh ? " is-stamped" : ""}`, dataset: { adv: a.id, k: `dec-${a.id}` } },
+      el("summary", { class: "dk-row__head", dataset: { focus: `dk-dec-${a.id}` } },
         el("span", { class: "dk-row__dot" }, icon(status[0], "icon", status[1])),
         el("span", { class: "dk-row__main" }, el("span", { class: "dk-row__title" }, el("b", { text: a.proxy_flight }), ` · ${actionText(a)}`),
           el("span", { class: "dk-row__sub", text: `${a.volcano_name} · ${when}` }),
           a.status === "REJECTED" && a.reject_reason ? el("q", { class: "dk-row__sub dk-reason", text: a.reject_reason }) : null),
-        el("span"), el("span", { class: "dk-row__go", "aria-hidden": "true", text: "›" })));
-    return r;
+        el("span"), icon("i-chevron-right", "icon dk-row__chev")),
+      el("div", { class: "dk-row__body" }, ...draftPreview(D, a)));
+    d.open = previewOpen.has(a.flight_id) ? previewOpen.get(a.flight_id) : ui.details.vid ? ui.details.vid === a.id : a.id === urgent?.id;
+    d.addEventListener("toggle", () => previewOpen.set(a.flight_id, d.open));
+    return d;
   };
   // flights with no draft because the assistant did not run: the dispatcher's work, here (D56)
   const hand = handPlanOf(D, store, aiStateNow(D, store));
@@ -796,6 +856,7 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
   const head = dkHeader({
     id: "h-dec",
     pills: [serverWaiting === null ? dkPill("serious", "Count unknown") : waitingN ? dkPill("caution", "Waiting for a dispatcher") : handN ? dkPill("caution", "Nothing to approve") : dkPill("ok", "Nothing waiting")],
+    chips: all.length ? [dkChip("Read-only preview · decide on the Desk", { title: "Each row opens the draft as the Desk shows it. Approving and rejecting happen on the Desk." })] : [],
     title: all.length ? "Every advisory is a draft until a dispatcher decides on the Desk." : "No advisories yet. A draft appears when a flight's projected track enters TEPHRA's area.",
     sub: handN && !waitingN ? el("span", {}, hand.block.paused ? `No advisory drafts for the ${handN === 1 ? "flight" : `${handN} flights`}. ` : `No drafts: ${hand.block.undone ? "the Coordinator left its must-do flights for the Desk" : blockPhrase(hand.block)}. `,
       el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Plan by hand on the Desk ›" }), hand.block.paused || hand.block.unavailable ? [" ", whyLink("dec-why")] : null) : null,
@@ -939,6 +1000,19 @@ export function timelineEvents(D, store) {
   return out.filter((e) => Number.isFinite(e.t)).sort((a, b) => a.t - b.t);
 }
 
+// Timeline events in time order, cut into runs of one kind whose neighbours lie within `span`
+// milliseconds of each other (A13). Pure; the time bar draws a run of two or more as one mark.
+export function groupMarks(events, span) {
+  const out = [];
+  for (const e of events) {
+    const g = out[out.length - 1];
+    if (g && g[0].kind === e.kind && e.t - g[g.length - 1].t <= span) g.push(e);
+    else out.push([e]);
+  }
+  return out;
+}
+const GROUP_WORDS = { flight: "flights heading in", decision: "decisions", dis: "disagreements found", VONA: "observatory notices", SIGMET: "SIGMETs issued", VAA: "advisories issued" };
+
 export function lagOf(sit) {
   return sit?.discrepancies.find((d) => d.kind === "LAG") || null;
 }
@@ -970,7 +1044,7 @@ export function renderTimeline(D, store, ui, conn) {
       // The clock, then how far the recording has played. The recording's own span sits in the
       // tooltip and in History, not beside the 12 h axis, so two time scales never sit side by
       // side (review 2, item 12).
-      el("span", { class: "tl__window", text: `${utcTime(D.now)} · ${pctText} played`, title: `${loop ? "The replay loops over" : "Recording"} ${dayMonth(pa)} ${utcTime(pa)} to ${dayMonth(pb)} ${utcTime(pb)}` }),
+      el("span", { class: "tl__window", text: utcTime(D.now), title: `${loop ? "The replay loops over" : "Recording"} ${dayMonth(pa)} ${utcTime(pa)} to ${dayMonth(pb)} ${utcTime(pb)}` }),
       el("span", { class: "tl__progress", role: "progressbar", title: `${loop ? "The replay loops over" : "Recording"} ${dayMonth(pa)} ${hhmmz(pa)} to ${dayMonth(pb)} ${hhmmz(pb)}`, "aria-label": loop ? "Replay loop progress" : "Replay progress", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(p * 100)), "aria-valuetext": `${pctText} of the recording, ${hhmmz(pa)} to ${hhmmz(pb)}` }, bar));
     recChips = [
       `${loop ? "Replay loops" : "Recording"} ${pb - pa > 20 * 3600e3 ? `${dayMonth(pa)} ${hhmmz(pa)} – ${dayMonth(pb)} ${hhmmz(pb)}` : `${hhmmz(pa)}–${hhmmz(pb)}`}`,
@@ -994,6 +1068,17 @@ export function renderTimeline(D, store, ui, conn) {
     marks.push(b);
     return b;
   };
+  // marks of one kind within 0.9 % of the track of each other stack: one mark with a count
+  const groupMark = (g) => {
+    if (g.length === 1) return mark(g[0]);
+    const first = g[0], last = g[g.length - 1];
+    const title = `${g.length} ${GROUP_WORDS[first.kind] || `${first.kind} events`}, ${hhmmz(first.t)}–${hhmmz(last.t)}`;
+    const b = el("button", { type: "button", class: `tl__mark ${first.cls} tl__mark--group`, title, "aria-label": title, tabindex: "-1", dataset: { act: "tl-mark", kind: first.kind, focus: `tl-${marks.length}` } }, icon(first.icon, "st"), el("b", { class: "tl__count", text: String(g.length) }));
+    b.style.left = pct((first.t + last.t) / 2);
+    marks.push(b);
+    return b;
+  };
+  const grouped = (list) => groupMarks(list, 0.009 * (t1 - t0));
   const track = el("div", { class: "tl__track", role: "group", "aria-label": `Timeline ${hhmmz(t0)} to ${hhmmz(t1)}. Arrow keys move between events.` });
   const rail = el("div", { class: "tl__rail", "aria-hidden": "true" });
   track.append(rail);
@@ -1031,8 +1116,8 @@ export function renderTimeline(D, store, ui, conn) {
         bar.style.width = `${((Math.min(e.vt, t1) - Math.max(e.vf, t0)) / (t1 - t0)) * 100}%`;
         L.official.append(bar);
       }
-      L[e.lane].append(mark(e));
     }
+    for (const lane of ["official", "observer", "tephra"]) for (const g of grouped(events.filter((e) => e.lane === lane))) L[lane].append(groupMark(g));
     const hnow = el("div", { class: "tl__now tl__now--lanes", "aria-hidden": "true" });
     hnow.style.left = pct(D.now);
     L.official.append(hnow);
@@ -1060,7 +1145,7 @@ export function renderTimeline(D, store, ui, conn) {
         el("span", { class: "tl__chips" }, ...["9 h back to 3 h ahead", ...recChips].map((t) => el("span", { class: "tl__chip", text: t })))),
       lagEl, lanes);
   } else {
-    for (const e of events) track.append(mark(e));
+    for (const g of grouped(events)) track.append(groupMark(g));
   }
   if (marks.length) marks[marks.length - 1].tabIndex = 0;
 
@@ -1139,7 +1224,7 @@ function offWords(f) {
   const e = String(f.last_error || "");
   if (f.feed === "vona") return "Off: no PVMBG permission (replay only).";
   if (/not in this replay case|no archive/i.test(e)) return "Not in this recording.";
-  if (/TEPHRA_\w+=0|is off|disabled/i.test(e)) return "Switched off on this server.";
+  if (/TEPHRA_\w+=0|is off|disabled|^feature off$/i.test(e)) return "Switched off on this server.";
   if (f.status === "NEVER") return "Not polled yet.";
   return e ? "Off." : "Off.";
 }

@@ -15,17 +15,19 @@ import { collapseRuns, plural } from "./dk.js";
 
 // Every skill of TEPHRA Assistant on the Wall, in board order. `tool` is the Coordinator's tool that reaches it,
 // `kinds` the work-list kinds it does (MODULES.md 5.18), `tier` the model tier it calls,
-// `to` where its work goes ("desk": a draft a dispatcher decides on; "area": TEPHRA's estimate).
-// The Desk skills run only when a dispatcher asks.
+// `to` where its work goes ("desk": a draft a dispatcher decides on; "area": TEPHRA's estimate),
+// `feature` the optional feature (wall/features.js) the card is shown under: the board and the
+// Details roster leave the card out when the server hides that feature. The Desk skills run only
+// when a dispatcher asks.
 export const HELPERS = [
   { id: "duty", role: "lead", name: "Coordinator", does: "Orders the day's assistant work and hands it out", stage: "DUTY", tier: "lite" },
   { id: "plume", role: "team", name: "Plume reader", does: "Proposes TEPHRA's cautious area", stage: "PLUME", tool: "assess_volcanoes", kinds: ["ASSESS"], tier: "main", to: "area", when: "It runs when a volcano's reports change and the call matters" },
-  { id: "sat", role: "team", name: "Satellite reader", does: "Reads the satellite picture", stage: "SATELLITE", tool: "assess_volcanoes", kinds: ["ASSESS"], tier: "lite", to: "area", when: "It runs inside a plume read, when a new picture has come in" },
+  { id: "sat", role: "team", name: "Satellite reader", does: "Reads the satellite picture", stage: "SATELLITE", tool: "assess_volcanoes", kinds: ["ASSESS"], tier: "lite", to: "area", feature: "satellite", when: "It runs inside a plume read, when a new picture has come in" },
   { id: "planner", role: "team", name: "Flight planner", does: "Chooses an action for each flight", stage: "PLANNER", tool: "plan_flights", kinds: ["PLAN"], tier: "lite", when: "It runs for each RFA flight in or heading into an area" },
   { id: "drafter", role: "team", name: "Drafter", does: "Writes each flight's advisory", stage: "DRAFTER", tool: "plan_flights", kinds: ["PLAN"], tier: "lite", to: "desk", when: "It runs after the flight planner, for each flight" },
   { id: "recovery", role: "team", name: "Recovery planner", does: "Re-plans flights around closed airports", stage: "RECOVERY", tool: "run_recovery", kinds: ["RECOVER"], tier: "lite", to: "desk", when: "It runs when the set of airports closed by ash changes" },
   { id: "sra", role: "team", name: "Paperwork drafter", does: "Drafts the safety risk assessment", stage: "DOCS", tool: "draft_sra", kinds: ["SRA"], tier: "lite", to: "desk", when: "It runs when a region newly carries exposed flights" },
-  { id: "notice", role: "desk", name: "Notice reader", does: "Reads pasted notices", stage: "NOTICE", tier: "lite" },
+  { id: "notice", role: "desk", name: "Notice reader", does: "Reads pasted notices", stage: "NOTICE", tier: "lite", feature: "notices" },
   { id: "ask", role: "desk", name: "Ask", does: "Answers questions from the data", stage: "ASK", tier: "lite" },
   { id: "messages", role: "desk", name: "Message drafter", does: "Drafts crew and passenger messages", stage: "MESSAGES", skip: /HANDOVER/i, tier: "lite" },
   { id: "handover", role: "desk", name: "Handover drafter", does: "Writes the shift handover", stage: "MESSAGES", only: /HANDOVER/i, tier: "lite" },
@@ -65,7 +67,7 @@ function ownLines(h, trace) {
 }
 
 // The tone of one trace line, as a step: a plume read the Coordinator did not hand out is "not run"
-// (caution), not a Plume Reader failure.
+// (caution), not a Plume reader failure.
 function lineTone(h, t) {
   if (h.id === "plume" && t.stage === "DUTY") return "caution";
   if (t.level === "error") return reasonClass(t.message) === "budget" ? "caution" : "failed";

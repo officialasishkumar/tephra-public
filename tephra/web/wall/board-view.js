@@ -13,7 +13,7 @@
 // loop stops when nothing moves.
 
 import { $, el, icon, fl } from "./util.js";
-import { flowAt, foldRows, readEvent, stepEvents, hmsOf as hms, STAGGER_MS, TOOL_SKILLS } from "./board.js";
+import { flowAt, foldRows, readEvent, stepEvents, hmsOf as hms, STAGGER_MS, TOOL_SKILLS, HELPERS } from "./board.js";
 import { STYLE_URL, nightBasemap, nightColours, symbolColours } from "./basemap.js";
 import { addImages } from "./images.js";
 
@@ -32,6 +32,8 @@ const SRC = {
 };
 const FEED_TITLE = { sigmet: "VA SIGMET (AWC)", vona: "VONA (MAGMA)", jma_volcano: "JMA volcano notices", vaac_darwin: "VAA Darwin", vaac_tokyo: "VAA Tokyo", frames: "Satellite pictures", winds: "Winds (Open-Meteo)" };
 const SKILL_ROWS = ["plume", "sat", "planner", "drafter", "recovery", "sra"];
+// the optional feature each skill's card is shown under (board.js HELPERS)
+const FEATURE_OF = Object.fromEntries(HELPERS.map((h) => [h.id, h.feature || null]));
 const TOKEN_SPEED = 190; // px per second down the spine
 const MAX_P = 160, MAX_TR = 90, MAX_TK = 40;
 const SAY_EVERY_MS = 10000;
@@ -77,7 +79,10 @@ const MAP_LAYERS = [
 
 // ------------------------------------------------------------------ the board
 
-export function mountFlow(dialog) {
+// `has` is the Wall's feature predicate (wall/features.js), handed in so the view imports nothing
+// that holds the Wall's state (tests/test_wall_board.py).
+export function mountFlow(dialog, { has }) {
+  const shown = (id) => !FEATURE_OF[id] || has(FEATURE_OF[id]);
   const body = $("board-body");
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
   const RM = () => reduced.matches;
@@ -118,13 +123,14 @@ export function mountFlow(dialog) {
   const btnEx = el("button", { type: "button", class: "flow-seg__btn", "aria-pressed": "false", dataset: { flowmode: "example" }, text: "Example: working normally" });
   const exFlag = el("p", { class: "flow-exflag", hidden: true, text: "Example · illustrative, not recorded. The assistant steps it shows did not happen." });
   const helpBtn = el("button", { type: "button", class: "flow-iconbtn", "aria-label": "How this moves", title: "How this moves", dataset: { flowsheet: "help" }, text: "?" });
+  const modeSeg = el("div", { class: "flow-seg", role: "group", "aria-label": "What to show" }, btnReal, btnEx);
   const head = el("header", { class: "flow-head" },
     el("div", { class: "flow-head__brand" }, markUse,
       el("div", { class: "flow-head__titles" },
         el("h2", { id: "board-title", class: "flow-head__title", tabindex: "-1" }, el("span", { text: "TEPHRA Assistant " }), status),
         lede)),
     el("div", { class: "flow-head__right" },
-      el("div", { class: "flow-head__col" }, el("div", { class: "flow-seg", role: "group", "aria-label": "What to show" }, btnReal, btnEx), exFlag),
+      el("div", { class: "flow-head__col" }, modeSeg, exFlag),
       helpBtn));
 
   // the panel: the pipeline as a drawn spine
@@ -153,8 +159,8 @@ export function mountFlow(dialog) {
     skillList.append(li);
   }
   const onreqDot = el("span", { class: "flow-dot flow-dot--small", dataset: { a: "sk-onreq" } });
-  skillList.append(el("li", { class: "flow-skill flow-skill--onreq" }, el("span"), onreqDot,
-    el("span", { class: "flow-skill__name", text: "When you ask: Notice reader · Ask · Message drafter · Handover drafter" })));
+  const onreqName = el("span", { class: "flow-skill__name" });
+  skillList.append(el("li", { class: "flow-skill flow-skill--onreq" }, el("span"), onreqDot, onreqName));
   const heroN = el("span", { class: "flow-hero__n", text: "–" });
   const heroW = el("span", { class: "flow-hero__w" });
   const who = el("p", { class: "flow-who" });
@@ -293,6 +299,7 @@ export function mountFlow(dialog) {
     mapOff = [mr.left - d.left, mr.top - d.top];
     A = {};
     for (const n of stage.querySelectorAll("[data-a]")) {
+      if (n.closest("[hidden]")) continue; // a hidden feature's card has no place on the rails
       const r = n.getBoundingClientRect();
       A[n.dataset.a] = { x: r.left - d.left + r.width / 2, y: r.top - d.top + r.height / 2 };
     }
@@ -1097,6 +1104,12 @@ export function mountFlow(dialog) {
     setAttr(u, "href", href);
   }
   function renderStatic() {
+    // the Example segment is the `example` feature: hidden with it, and never left in Example mode
+    modeSeg.hidden = !has("example");
+    if (mode === "example" && !has("example")) mode = "real";
+    for (const [id, r] of Object.entries(skillEls)) if (r.li.hidden === shown(id)) r.li.hidden = !shown(id);
+    const onreq = HELPERS.filter((h) => h.role === "desk" && shown(h.id)).map((h) => h.name).join(" · ");
+    setText(onreqName, `When you ask: ${onreq}`);
     const ex = mode === "example";
     dialog.classList.toggle("is-example", ex);
     setAttr(btnReal, "aria-pressed", String(!ex));

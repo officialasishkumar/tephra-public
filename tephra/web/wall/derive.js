@@ -22,7 +22,10 @@ export function actionWords(a) {
     default: return a.action || "";
   }
 }
-export const deciderName = (a) => (a?.decided_by || "").replace(/^desk:/, "");
+// "desk:Mira" and "visitor:Mira" are the two actor forms the record writes; the role is shown on
+// purpose beside the name (Decisions rows), never hidden in it.
+export const deciderName = (a) => (a?.decided_by || "").replace(/^(desk|visitor):/, "");
+export const deciderRole = (a) => (/^visitor:/.test(a?.decided_by || "") ? "visitor" : "dispatcher");
 
 export const worstSeverity = (sit) => Math.max(0, ...sit.discrepancies.map((d) => SEV_RANK[d.severity] || 0));
 
@@ -302,12 +305,19 @@ export function derive(store, ui, now) {
 
   const crew = deriveCrew(snap.crew, new Set(sits.map((x) => x.volcano_id)));
 
+  // The counts the Wall says once (A12): every aircraft on the map, and the selected volcano's
+  // RFA flights in or heading in, split inside now against heading in. The hero, the flight
+  // radios, the Details index row and the board all read these, so they cannot disagree.
+  const mine = exposed.filter((f) => f.properties.volcano_id === selected);
+  const insideN = mine.filter((f) => f.properties.inside).length;
+  const counts = { aircraft: aircraft.length, exposed: mine.length, inside: insideN, heading: mine.length - insideN };
+
   return {
     state, now, mode: state.mode, sits, inRegion, regionEmpty, reading, activeCount: activeIds.length, area, selected, sit, vents, official, cones, coneOf, sectorOf,
     hasReroutes: (snap.reroutes?.features || []).length > 0,
     rerouteKeys: new Set((snap.reroutes?.features || []).map((f) => f.properties.flight_id)),
     hasSatBoxes: (snap.satellite || []).some((r) => r.boxes?.length),
-    aircraft, exposed, crewFlights, exposures: snap.exposures || { type: "FeatureCollection", features: [] },
+    aircraft, exposed, crewFlights, counts, exposures: snap.exposures || { type: "FeatureCollection", features: [] },
     routes, selRoute, hasRouteLine: routes.some((f) => f.properties.feature === "line"),
     volcanoes, rose, moveByVolcano, firsWithSigmet, advByFlight, regionCounts,
     levelAll: lvAll, hiddenOfficial, hiddenFlights, selFlight, selHiddenByLevel, stepsMissing,
