@@ -9,6 +9,7 @@ import { app } from './state.js';
 import { aiMark, fromReplayChip, openBSheet, unavailableCard } from './ui.js';
 import { deskAi, openBudget } from './budget.js';
 import { reasonClass } from '../wall/x-parts.js';
+import { has } from '../wall/features.js';
 
 const MAX_Q = 500;
 const MAX_REC_S = 30;
@@ -103,7 +104,15 @@ export function initAsk() {
   log.addEventListener('click', onLogClick);
   drawEmpty();
   drawPaused();
+  drawVoice();
   document.addEventListener('tephra:ai', drawPaused);
+  // the features arrive with the state, which redraws the chip (budget.js drawAiChip)
+  document.addEventListener('tephra:ai', drawVoice);
+}
+
+// Push-to-talk is the `voice` feature (SPEC 5.3): without it the mic is not drawn; typing stays.
+function drawVoice() {
+  if (composer) composer.mic.hidden = !has('voice');
 }
 
 function drawPaused() {
@@ -353,7 +362,7 @@ export function answerCard(a) {
     card.append(el('div', { class: 'afollow' }, a.follow_ups.map((q) => el('button', { type: 'button', class: 'asugg__btn', 'data-follow': q }, el('span', { text: q })))));
   }
   card.append(el('div', { class: 'acard__foot' },
-    el('button', { type: 'button', class: 'spk', 'data-speak': a.id, 'aria-label': 'Play the answer aloud' }, icon('i-volume'), el('span', { text: 'Listen' })),
+    has('voice') ? el('button', { type: 'button', class: 'spk', 'data-speak': a.id, 'aria-label': 'Play the answer aloud' }, icon('i-volume'), el('span', { text: 'Listen' })) : null,
     el('span', { class: 'acard__meta' },
       aiMark('Answered by TEPHRA Assistant', a.llm_backend === 'stub' ? null : a.model_id),
       el('span', { class: 'chip chip--sm', title: 'Language of the question and the answer', text: LANG_NAME[a.language] || a.language }),

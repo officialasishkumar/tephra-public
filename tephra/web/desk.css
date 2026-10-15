@@ -851,6 +851,78 @@ a {
   color: var(--c-text-3);
 }
 
+/* --- the visitor card (SPEC 5.1): above the PIN form while a replay plays ------------------ */
+
+.visitor {
+  margin-top: var(--sp-5);
+}
+
+.visitor__title {
+  font-size: var(--fs-4);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+}
+
+.visitor__what {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-2);
+  line-height: var(--lh-body);
+  color: var(--c-text-2);
+  overflow-wrap: anywhere;
+}
+
+.visitor__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+
+.visitor__fine {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-1);
+  line-height: 1.45;
+  color: var(--c-text-3);
+}
+
+/* "Dispatchers": a rule with the word in the middle, between the two ways in */
+.login__divider {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-text-3);
+}
+
+.login__divider::before,
+.login__divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--c-line-2);
+}
+
+/* the account menu's Pages block (below 600 px the shared nav is folded away) */
+.menu__pages .menu__fine {
+  padding: 0 var(--sp-2);
+}
+
+/* "Why ›" inside a sentence (the visitor empty state, the ash-area-changed refusal): the link
+   sits in the text's own line and size, not as a block under it */
+.linkbtn--inline {
+  display: inline;
+  min-height: 0;
+  margin: 0;
+  font-size: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
+  color: inherit;
+}
+
 .flabel {
   display: block;
   margin-bottom: 6px;
@@ -8361,4 +8433,221 @@ body {
   .dhead__row > .tn-home {
     margin-right: auto;
   }
+}
+
+/* "Why this advice" (review page, SPEC T21): the four-step chain wall/chain.js draws, laid out
+   like the Ask steps (a numbered dot, one line, "More" one tap in, a footer of code facts). */
+.whypage {
+  margin-top: var(--sp-3);
+}
+
+.whypage__lead {
+  margin-top: 0;
+}
+
+.chain {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chain__step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+  padding: var(--sp-3) 0;
+  border-top: var(--border-hair);
+}
+
+.chain__step:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.chain__head {
+  display: flex;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.chain__n {
+  display: inline-grid;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid var(--c-line-input);
+  border-radius: 50%;
+  background: var(--c-surface-1);
+  color: var(--c-text-2);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semibold);
+}
+
+.chain__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chain__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0;
+  font-size: var(--fs-2);
+  color: var(--c-text-1);
+}
+
+.chain__skill {
+  font-weight: var(--fw-semibold);
+}
+
+.chain__line {
+  margin: 0;
+  font-size: var(--fs-2);
+  line-height: 1.45;
+  color: var(--c-text-1);
+  overflow-wrap: anywhere;
+}
+
+.chain__more,
+.chain__foot {
+  margin-left: calc(24px + var(--sp-3));
+}
+
+.chain__foot {
+  margin-top: 0;
+  font-size: var(--fs-1);
+  line-height: 1.4;
+  color: var(--c-text-2);
+}
+
+.chain__call {
+  margin: 0;
+  font-size: var(--fs-2);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.chain__why {
+  margin-top: var(--sp-1);
+  color: var(--c-text-2);
+}
+
+.chain__lean .dk-quote {
+  margin: 0;
+}
+
+.chain__reasoning {
+  padding-top: var(--sp-2);
+  border-top: var(--border-hair);
+}
+
+/* the Wall's kit classes the chain uses (wall.css is not loaded by the Desk) */
+.dk-about > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 32px;
+  list-style: none;
+  cursor: pointer;
+  font-size: var(--fs-2);
+  font-weight: var(--fw-medium);
+  color: var(--c-text-2);
+}
+
+.dk-about > summary::-webkit-details-marker {
+  display: none;
+}
+
+.dk-about > summary:hover {
+  color: var(--c-text-1);
+}
+
+.dk-about__chev {
+  width: 16px;
+  height: 16px;
+  transition: transform var(--dur-2) var(--ease-standard);
+}
+
+.dk-about[open] .dk-about__chev {
+  transform: rotate(90deg);
+}
+
+.dk-about__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: 0 0 var(--sp-2) calc(16px + var(--sp-2));
+  font-size: var(--fs-2);
+  line-height: 1.5;
+  color: var(--c-text-2);
+}
+
+.dk-sub {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.dk-sub__title {
+  margin: 0;
+  font-size: var(--fs-2);
+  font-weight: var(--fw-semibold);
+  color: var(--c-text-1);
+}
+
+.dk-sub__titlerow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.dk-sub__note {
+  margin: 0;
+  font-size: var(--fs-1);
+  line-height: 1.4;
+  color: var(--c-text-2);
+}
+
+.dk-quote {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-left: 3px solid var(--c-tephra);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--c-surface-1);
+  font-size: var(--fs-2);
+  line-height: 1.5;
+  color: var(--c-text-1);
+  overflow-wrap: anywhere;
+}
+
+.dk-quote p {
+  margin: 0;
+}
+
+.ai-mark .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.record__why {
+  margin: var(--sp-1) 0 0;
+}
+
+.record__why .linkbtn {
+  min-height: 32px;
+  margin-top: 0;
+  font-size: var(--fs-2);
 }

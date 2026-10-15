@@ -27,6 +27,7 @@ import {
   watchOnly,
 } from './format.js';
 import { openFailures } from './failures.js';
+import { openBudget } from './budget.js';
 import { aiMark, closeBSheet, fromReplayChip, openBSheet } from './ui.js';
 import { crewFlag, crewKey } from './crew.js';
 import { KIND, draftMessages } from './messages.js';
@@ -425,9 +426,21 @@ export function renderQueue() {
         el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), el('p', { class: 'mono tech__line', text: app.listError })),
         el('button', { type: 'button', class: 'btn btn--outline', 'data-retry': '1' }, icon('i-refresh'), el('span', { text: 'Try again' }))),
     );
+  } else if (n === 0 && !openFailures().length && app.me && app.me.role === 'visitor') {
+    // A visitor with nothing to decide (SPEC T11): the replay plays on; drafts come when a flight
+    // approaches the ash and the assistant is on. "Why ›" opens the assistant sheet, the one place
+    // that says why it may be paused; the Wall shows the picture meanwhile.
+    stateBox.replaceChildren(
+      el('div', { class: 'panel panel--empty' },
+        el('p', { class: 'panel__title' }, icon('i-check', 'st'), el('span', { text: 'Nothing waits for you right now.' })),
+        el('p', {}, el('span', { text: 'The replay plays on; drafts come when a flight approaches the ash and TEPHRA Assistant is on · ' }),
+          el('button', { type: 'button', class: 'linkbtn linkbtn--inline', 'aria-label': 'Why: open the TEPHRA Assistant sheet', onclick: openBudget }, el('span', { text: 'Why ›' }))),
+        el('a', { class: 'linkbtn', href: '/' }, el('span', { text: 'See the Wall' }), icon('i-chevron-right'))),
+    );
   } else if (n === 0) {
     const last = app.lastLoadedAt === null ? '' : ` Last update ${hhmmz(app.lastLoadedAt)}.`;
-    // no "all clear" while flights wait to be planned by hand (H9)
+    // no "all clear" while flights wait to be planned by hand (H9); the hand branch holds for
+    // every role
     const hand = openFailures().length;
     stateBox.replaceChildren(
       el('div', { class: 'panel panel--empty' },

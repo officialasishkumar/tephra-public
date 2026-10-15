@@ -6,7 +6,13 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0a1017">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="description" content="TEPHRA Desk: approve, edit or reject per-flight volcanic-ash advisory drafts, ask TEPHRA, plan around closed airports, sign regulator drafts. Decision support only.">
+  <meta name="description" content="When official ash reports disagree, TEPHRA keeps the wider estimate, finds the flights heading in and drafts the advisory a dispatcher approves. Replay demo · fictional airline · decision support only. The Desk, where a person decides.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="TEPHRA Desk">
+  <meta property="og:description" content="When official ash reports disagree, TEPHRA keeps the wider estimate, finds the flights heading in and drafts the advisory a dispatcher approves. Replay demo · fictional airline · decision support only. The Desk, where a person decides.">
+  <meta property="og:image" content="https://tephra-647733667799.asia-southeast1.run.app/static/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
   <title>TEPHRA Desk</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/static/fonts/ibm-plex-sans-var-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -54,6 +60,24 @@
         <!-- what the Desk is, for anyone who arrives here first (a visitor from the live link) -->
         <p class="login__what">Every draft TEPHRA writes waits here for a person to approve, edit or reject. Nothing reaches a real aircraft or system.</p>
         <p id="login-pending" class="login__pending" hidden></p>
+        <!-- The visitor card (SPEC 5.1): one tap, no PIN, REPLAY only. Hidden until /api/state says
+             visitor_access is on (login.js syncVisitorCard), so nothing flashes before the state. -->
+        <section id="visitor-card" class="visitor" aria-labelledby="visitor-title" hidden>
+          <h2 id="visitor-title" class="visitor__title">Visitor</h2>
+          <p class="visitor__what">Decide the drafts as a visitor. No PIN. Your decisions are real, go into the public record as visitor:&lt;your name&gt;, and change what every other viewer sees.</p>
+          <form id="visitor-form" class="visitor__form" novalidate>
+            <div class="fgroup">
+              <label class="flabel" for="visitor-name">Your name (optional)</label>
+              <input id="visitor-name" class="field" name="name" type="text" autocomplete="nickname"
+                     autocapitalize="words" spellcheck="false" maxlength="32" aria-describedby="visitor-name-err">
+              <p id="visitor-name-err" class="msg msg--serious" hidden></p>
+            </div>
+            <p id="visitor-error" class="msg msg--serious form-msg" role="alert" hidden></p>
+            <button id="visitor-submit" type="submit" class="btn btn--neutral btn--block"><span>Enter as a visitor →</span></button>
+          </form>
+          <p class="visitor__fine">Visitors cannot change the display or the feeds.</p>
+          <p class="login__divider" aria-hidden="true"><span>Dispatchers</span></p>
+        </section>
         <p class="login__hint">Your name goes on each decision in the public audit. The PIN is never stored. <a href="/privacy">Privacy</a></p>
 
         <div id="login-disabled" class="panel panel--serious" role="alert" hidden>

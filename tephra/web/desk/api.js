@@ -8,10 +8,12 @@ export const PATHS = {
   events: '/api/events',
   me: '/api/desk/me',
   login: '/api/desk/login',
+  visitor: '/api/desk/visitor',
   logout: '/api/desk/logout',
   drafts: '/api/desk/advisories?status=DRAFT&limit=100',
   decide: (id, kind) => `/api/desk/advisories/${encodeURIComponent(id)}/${kind}`,
   audit: (id) => `/api/audit?advisory_id=${encodeURIComponent(id)}&limit=50`,
+  chain: (id) => `/api/advisories/${encodeURIComponent(id)}/chain`,
   replays: '/api/replays',
   mode: '/api/mode',
   budget: '/api/budget',
@@ -130,6 +132,17 @@ export function isAdvisory(v) {
     typeof v.proxy_flight === 'string' &&
     typeof v.body === 'string' &&
     typeof v.created_at === 'string'
+  );
+}
+
+// The four-step chain behind a draft (routes_chain.py): its id must be the one asked for and
+// each step is a record or null; the view renders a missing step as "not on hand".
+export function isChain(v, id) {
+  return (
+    v !== null &&
+    typeof v === 'object' &&
+    v.advisory_id === id &&
+    ['coordinator', 'plume', 'plan', 'draft'].every((k) => v[k] === null || (typeof v[k] === 'object' && v[k] !== null))
   );
 }
 

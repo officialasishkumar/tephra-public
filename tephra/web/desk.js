@@ -15,7 +15,7 @@ import {
   setActiveClock,
   setServerTime,
 } from './desk/format.js';
-import { SESSION_ENDED, hideLogin, initLogin, setPending, showLogin } from './desk/login.js';
+import { SESSION_ENDED, hideLogin, initLogin, setPending, showLogin, syncVisitorCard } from './desk/login.js';
 import { breakdownText, flashNew, openClosed, renderQueue, showAllDrafts, showAllWatching, showMostUrgent, updateTimes, waitingCount, walkOrder } from './desk/queue.js';
 import { closeSheet, onSheetClick, openSheet, receiptWords, refreshFacts, setReceipt, sheetBusy, sheetOpenFor, sheetStepBack, showStamp, syncSheet, updateSheetTimes } from './desk/review.js';
 import { app, draftList } from './desk/state.js';
@@ -33,6 +33,7 @@ import { loadNotices, onNoticeEvent, openNotice, openPaste } from './desk/notice
 import { goTab, initTabs, setBadges } from './desk/tabs.js';
 import { closeBSheet, describeReplayIn } from './desk/ui.js';
 import { loadCrewPolicy, openCrewForm, openCrewReport, renderCrewSection, setAircraft, setCrew } from './desk/crew.js';
+import { has, setFeatures } from './wall/features.js';
 
 const TICK_MS = 15000;
 const SSE_OFFLINE_AFTER_MS = 10000;
@@ -60,6 +61,9 @@ function applyState(state) {
   if (!state || typeof state !== 'object' || typeof state.mode !== 'string') return;
   const before = app.state;
   app.state = state;
+  setFeatures(state.features);
+  applyFeatures();
+  syncVisitorCard();
   setActiveClock(state.now);
   setServerTime(state.server_time);
 
@@ -77,6 +81,14 @@ function applyState(state) {
       loadCones();
     }
   }
+}
+
+// The optional features the server shows (SystemState.features, TEPHRA_FEATURES): the Desk's
+// entries for a hidden feature are hidden, their ids and code stay (SPEC 5.3). Ask's mic and the
+// account menu's Connect item consult has() where they are drawn.
+function applyFeatures() {
+  byId('crew-report-btn').hidden = !has('crew');
+  byId('paste-notice').hidden = !has('notices');
 }
 
 // The page title, the Decide badge and Decide's count read the same number (waitingCount).
@@ -611,7 +623,9 @@ async function route() {
   setPending('');
   if (r.tab) {
     clearHash();
-    goTab(r.tab, { focus: true });
+    // Ask is a drawer over any tab, not a tab: #tab/ask opens it (UI-DESIGN 10.18).
+    if (r.tab === 'ask') openAsk();
+    else goTab(r.tab, { focus: true });
     return;
   }
   if (r.crewForm || r.crew) {
@@ -710,6 +724,9 @@ function enterDesk(session, { focus = true } = {}) {
   renderQueue();
   loadDrafts().then(() => {
     if (resumeId && findAdvisory(resumeId)) selectDraft(resumeId);
+    // A visitor came to decide: the lead review opens at once, on every width (SPEC 5.1); a deep
+    // link still wins (route() below).
+    else if (session.role === 'visitor' && walkOrder()[0]) selectDraft(walkOrder()[0].id, { focus: false });
     resumeId = null;
     route();
   });
@@ -926,6 +943,8 @@ function wire() {
     draftMessages: requestMessageDrafts,
     skipTo,
     openDraft: (id) => selectDraft(id),
+    // the review reloads the list once after a cone_changed refusal (review.js decide)
+    reloadDrafts: () => loadDrafts(),
     // Sheets never stack (3): on a phone the review closes before a message sheet opens; the
     // receipt line stays on Decide. At 1100 px and up the review is a pane and stays.
     leaveReview: () => {

@@ -29,7 +29,7 @@ const SPECIALIST = {
   assess_volcanoes: ['Satellite reader + Plume reader', 'volcano'],
   plan_flights: ['Flight planner + Drafter', 'flight'],
   run_recovery: ['Recovery', 'network'],
-  draft_sra: ['SRA drafter', 'region'],
+  draft_sra: ['Paperwork drafter', 'region'],
 };
 
 let expanded = false;

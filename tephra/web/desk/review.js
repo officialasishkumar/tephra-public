@@ -2,8 +2,8 @@
 // flight, the action in plain words and the entry line; "Check before you approve", the facts code
 // computed (level, ash band, area, sources, fuel, route), each said once; "Text to approve", the
 // code-written header dim above the body that is approved; who wrote it; and one decision bar
-// (hold, or tap and confirm). The rest is one tap away on four pages inside the sheet: Sources,
-// Area, Route and Record (ids, policy, the header, history). Computed facts and model-written
+// (hold, or tap and confirm). The rest is one tap away on five pages inside the sheet: Sources,
+// Area, Route, Why this advice (the four-step chain) and Record (ids, policy, the header, history). Computed facts and model-written
 // text are never mixed in one sentence. Full screen on phones, the right pane from 1100 px.
 
 import {
@@ -14,6 +14,7 @@ import {
   REASON_MIN_CHARS,
   api,
   errorCode,
+  isChain,
   problems,
 } from './api.js';
 import { announce, append, byId, el, icon, isDesktop, isWide } from './dom.js';
@@ -37,6 +38,7 @@ import {
   isStub,
   parseTime,
   productName,
+  sessionLabel,
   sourceList,
   sourceTime,
 } from './format.js';
@@ -46,9 +48,16 @@ import { app } from './state.js';
 import { routeMap } from './route.js';
 import { aiMark, codeChip, fromReplayChip } from './ui.js';
 import { CREW_REASON_MIN, crewBox, crewKey, crewReasonNeeded } from './crew.js';
+import { openBudget } from './budget.js';
+import { chainView } from '../wall/chain.js';
 
 const GHOST_TAP_MS = 450;
 const OFFLINE_HINT = 'Reconnect to approve';
+// The server's decision guard (409, SPEC B02): a HYPOTHESIS draft outside MONITOR or HOLD is
+// refused with rule_blocked; a draft written for an older ash area with cone_changed. The page
+// shows the refusal where the decision is made and offers Reject only.
+const HYPOTHESIS_HINT = 'HYPOTHESIS allows only Keep watching or Hold: this draft cannot be approved. Reject it.';
+const CONE_CHANGED_LINE = 'The ash area changed since this draft was written. Reject it; the flight is planned again when TEPHRA Assistant is on · ';
 // A crew report of ash on the flight's route: keeping it on its route needs a written reason.
 const CREW_REASON_HINT = 'A crew reported ash on this route: write the reason above before approving.';
 const REJECT_REASONS = [
@@ -57,10 +66,18 @@ const REJECT_REASONS = [
   'Duplicate of another draft',
   'Ash data look wrong',
 ];
-const PAGES = { sources: 'Sources', area: 'Area', route: 'Route', record: 'Record' };
+const PAGES = { sources: 'Sources', area: 'Area', route: 'Route', why: 'Why this advice', record: 'Record' };
+// "Why this advice": the four skills behind a draft, in the order they ran (wall/chain.js draws
+// the chain the server assembles; a draft whose records the store no longer holds has no page).
+const WHY_SKILLS = 'Coordinator · Plume reader · Flight planner · Drafter';
+const WHY_MISSING = 'Why is not on hand for this draft.';
+const WHY_OFFLINE = "Can't load Why while offline.";
+// A chain the store did not serve is asked for again after a minute, not on every page open.
+const WHY_RETRY_MS = 60_000;
 
 // sheet: { id, seen, view, page, bar, busy, edit, editTried, reason, error, problems, conflict,
-//   confirmAt, hint, reasonTouched, stamp, crewReason, crewError, crewKey, crewForced }
+//   confirmAt, hint, reasonTouched, stamp, crewReason, crewError, crewKey, crewForced,
+//   ruleBlocked, coneChanged, reloaded, chain }
 let sheet = null;
 
 export const sheetOpenFor = () => (sheet ? sheet.id : null);
@@ -89,6 +106,12 @@ export function openSheet(adv, { focus = true } = {}) {
     crewKey: crewKey(adv),
     // set when the server asked for a reason the page had not seen a flag for yet (422)
     crewForced: false,
+    // the server's 409 refusals: the rule's words, or the ash area moved on (then one reload)
+    ruleBlocked: '',
+    coneChanged: false,
+    reloaded: false,
+    // the Why page's chain, kept for this advisory: { chain } | { missedAt } | { pending: true }
+    chain: null,
   };
   render();
   if (focus) focusTitle();
@@ -150,7 +173,11 @@ export function syncSheet() {
     return;
   }
   renderHead();
-  renderBar();
+  // A refresh during a hold (the replay's minute step, a list reload) must not replace the button
+  // under the finger: the up-event decides, and it lands on the node that was pressed. The next
+  // sync redraws the bar.
+  const bar = byId('sheet-actions');
+  if (!bar || !bar.querySelector('.approve.is-holding, .approve.is-armed')) renderBar();
   updateSheetTimes();
 }
 
@@ -397,7 +424,8 @@ function checkSection(adv) {
     fact('Area', modeChip(adv), { page: 'area' }),
     fact('Sources', el('span', { 'data-slot': 'srcsum', text: sourcesFact(adv) }), { page: 'sources' }),
     adv.fuel_line ? fact('Fuel', adv.fuel && Number.isFinite(adv.fuel.fuel_kg) ? `+${Math.round(adv.fuel.fuel_kg).toLocaleString('en-US')} kg` : adv.fuel_line) : null,
-    adv.reroute ? fact('Route', routeSummary(adv.reroute), { page: 'route' }) : null);
+    adv.reroute ? fact('Route', routeSummary(adv.reroute), { page: 'route' }) : null,
+    fact('Why', WHY_SKILLS, { page: 'why' }));
   const map = adv.reroute ? routeMap(adv.reroute, app.coneGeo.get(adv.cone_id), { mode: adv.plume_mode, small: true }) : null;
   return el('section', { id: 'why', class: 'check', 'aria-labelledby': 'check-title', 'data-key': `${level}|${ash}|${Boolean(map)}` },
     el('h2', { id: 'check-title', class: 'ghead', text: 'Check before you approve' }),
@@ -430,7 +458,7 @@ function routeSummary(r) {
 function pageView(adv, page) {
   const head = el('div', { class: 'pagehead' },
     el('h1', { id: 's-title', class: 'pagehead__title', tabindex: '-1', text: page === 'sources' ? `Sources · ${sourceList(adv).length}` : PAGES[page] }));
-  const body = { sources: sourcesPage, area: areaPage, route: routePage, record: recordPage }[page](adv);
+  const body = { sources: sourcesPage, area: areaPage, route: routePage, why: whyPage, record: recordPage }[page](adv);
   return [head, ...body];
 }
 
@@ -518,11 +546,55 @@ function routePage(adv) {
   return out;
 }
 
+// "Why this advice": the chain (GET /api/advisories/{id}/chain) drawn by wall/chain.js, fetched
+// when the page opens and kept on the sheet for this advisory. The Desk has no situation on hand,
+// so sources are named by their ids and the Plume reader's rationale is quoted under "More".
+function whyPage(adv) {
+  const host = el('div', { class: 'whypage', 'data-slot': 'chain' });
+  drawChain(host, adv);
+  return [
+    el('p', { class: 'note whypage__lead', text: `What each skill decided before the ${adv.proxy_flight} draft, and what code checked.` }),
+    host,
+  ];
+}
+
+function drawChain(host, adv) {
+  const got = sheet.chain;
+  if (got && got.chain) {
+    host.replaceChildren(chainView(got.chain, { sit: null, mode: 'desk' }));
+    return;
+  }
+  if (got && got.missedAt && Date.now() - got.missedAt < WHY_RETRY_MS) {
+    host.replaceChildren(el('p', { class: 'note whypage__empty', text: WHY_MISSING }));
+    return;
+  }
+  host.replaceChildren(el('p', { class: 'note whypage__wait', text: 'Fetching the chain…' }));
+  if (!got || !got.pending) loadChain(adv.id);
+}
+
+async function loadChain(id) {
+  sheet.chain = { pending: true };
+  const res = await api(PATHS.chain(id));
+  if (!sheet || sheet.id !== id) return;
+  const host = byId('sheet').querySelector('[data-slot="chain"]');
+  if (res.status === 0) {
+    // offline: nothing is kept, so the next open of the page asks again
+    sheet.chain = null;
+    if (host) host.replaceChildren(el('p', { class: 'note whypage__empty', text: WHY_OFFLINE }));
+    return;
+  }
+  sheet.chain = res.ok && isChain(res.data, id) ? { chain: res.data } : { missedAt: Date.now() };
+  if (host && sheet.page === 'why') drawChain(host, sheet.seen);
+}
+
 function draftedByValue(adv) {
   const out = [el('span', { class: 'v-strong', text: isStub(adv) ? 'Written by a code template (NO MODEL)' : `TEPHRA Assistant · ${adv.model_id}` })];
   out.push(fine(isStub(adv)
     ? 'Built from the official reports only. A code template wrote the text. Code writes every time, id and hash.'
     : 'Model-written body, checked by code. Times, ids and hashes are written by code.'));
+  // the four steps behind the text, one tap in (the Why page)
+  out.push(el('p', { class: 'record__why' },
+    el('button', { type: 'button', class: 'linkbtn', 'data-page': 'why', 'aria-label': `Why: ${PAGES.why} page` }, el('span', { text: 'Why ›' }))));
   const notes = (adv.validation_notes || []).filter((n) => typeof n === 'string');
   if (notes.length) {
     const careful = needsCarefulRead(adv);
@@ -867,6 +939,11 @@ function renderBar() {
     put(inner, reject,
       app.offline ? el('p', { class: 'approve__hint', id: 'approve-hint', text: OFFLINE_HINT }) : null,
       el('button', { type: 'button', class: 'btn btn--outline', 'data-go': 'review', disabled: Boolean(sheet.busy) }, el('span', { text: 'Cancel' })));
+  } else if (sheet.coneChanged) {
+    put(inner, el('p', { class: 'approve__hint hint-early', id: 'approve-hint' }, el('span', { text: CONE_CHANGED_LINE }),
+      el('button', { type: 'button', class: 'linkbtn linkbtn--inline', 'aria-label': 'Why: open the TEPHRA Assistant sheet', onclick: openBudget }, el('span', { text: 'Why ›' }))),
+    el('div', { class: 'secondary' },
+      el('button', { type: 'button', class: 'btn btn--neutral btn--primary', 'data-go': 'reject', disabled: Boolean(sheet.busy) }, el('span', { text: 'Reject…' }))));
   } else if (sheet.bar === 'confirm') {
     const edited = sheet.view === 'edit';
     const go = sheet.busy
@@ -876,12 +953,12 @@ function renderBar() {
       el('p', { id: 'confirm-q', class: 'confirm__q', tabindex: '-1' }, approveWords(adv, edited, true)),
       el('p', { id: 'confirm-entry', class: 'confirm__facts', text: confirmFacts(adv) }),
       reasonNeeded(adv) ? el('p', { class: 'confirm__facts', text: `Reason (crew report of ash on this route): ${sheet.crewReason.trim()}` }) : null,
-      el('p', { class: 'confirm__note', text: `Queued under ${app.me ? app.me.name : 'your name'} on TEPHRA's own outbound queue · nothing is sent to an aircraft.` }),
+      el('p', { class: 'confirm__note', text: `Queued under ${sessionLabel(app.me) || 'your name'} on TEPHRA's own outbound queue · nothing is sent to an aircraft.` }),
       el('div', { class: 'secondary' }, go,
         el('button', { type: 'button', class: 'btn btn--outline', 'data-confirm-back': '1', disabled: Boolean(sheet.busy) }, el('span', { text: 'Cancel' })))));
   } else {
     const edited = sheet.view === 'edit';
-    const blockedByRule = adv.plume_mode === 'HYPOTHESIS' && !['MONITOR', 'HOLD'].includes(adv.action);
+    const blockedByRule = Boolean(sheet.ruleBlocked) || (adv.plume_mode === 'HYPOTHESIS' && !['MONITOR', 'HOLD'].includes(adv.action));
     const editBad = edited && editProblem(sheet.edit);
     const editBlocks = editBad && editBad.tone === 'serious';
     const attempt = (then) => () => {
@@ -917,7 +994,8 @@ function renderBar() {
     else if (sheet.hint) hint.replaceChildren(el('span', { class: 'hint-early', text: sheet.hint }));
     else if (reasonShort(adv)) hint.replaceChildren(el('span', { class: 'hint-early', text: CREW_REASON_HINT }));
     if (blockedByRule) {
-      hint.replaceChildren(el('span', { class: 'hint-early', text: 'HYPOTHESIS allows only Keep watching or Hold: this draft cannot be approved. Reject it.' }));
+      // the page's own words, or the server's once it refused (rule_blocked carries the rule)
+      hint.replaceChildren(el('span', { class: 'hint-early', text: sheet.ruleBlocked ? `Refused by code: ${sheet.ruleBlocked}` : HYPOTHESIS_HINT }));
     }
     if (!primary.hasAttribute('aria-describedby')) primary.setAttribute('aria-describedby', 'approve-hint');
     put(inner, primary, hint, el('div', { class: 'secondary' },
@@ -1195,6 +1273,34 @@ async function decide(kind) {
     sheet.page = null;
     render();
     focusTitle();
+    return;
+  }
+  if (res.status === 409 && code === 'rule_blocked') {
+    sheet.ruleBlocked = (res.data && res.data.detail) || HYPOTHESIS_HINT;
+    sheet.bar = 'decide';
+    sheet.page = null;
+    render();
+    announce(`Refused by code: ${sheet.ruleBlocked}`);
+    return;
+  }
+  if (res.status === 409 && code === 'cone_changed') {
+    sheet.coneChanged = true;
+    if (sheet.view === 'edit') sheet.view = 'review';
+    sheet.bar = 'decide';
+    sheet.page = null;
+    render();
+    announce(CONE_CHANGED_LINE.replace(/ · $/, '.'));
+    // The list is read again once (a newer draft may have replaced this one); never in a loop.
+    if (!sheet.reloaded) {
+      sheet.reloaded = true;
+      app.hub.reloadDrafts();
+    }
+    return;
+  }
+  if (code === 'visitor_cap' || code === 'visitor_replay_only') {
+    sheet.hint = (res.data && res.data.detail) || `Not saved (HTTP ${res.status}).`;
+    sheet.bar = 'decide';
+    renderBar();
     return;
   }
   if (res.status === 422 && code === 'reason_required') {

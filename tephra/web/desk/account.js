@@ -1,12 +1,18 @@
 // Account menu (10.1, 10.9, 10.10): who is signed in and until when, the display mode switch
-// (POST /api/mode; never on the queue), the optional screen wake lock, and sign out.
+// (POST /api/mode; never on the queue), the optional screen wake lock, and sign out. A visitor
+// (SPEC 5.1) sees who they are and when the session ends, never the display switch or Connect:
+// the server refuses both (403 visitor_role). Below 600 px, where the shared nav is folded away,
+// the menu lists the other pages.
 
 import { PATHS, api, errorCode } from './api.js';
 import { byId, el, icon } from './dom.js';
-import { dayMonthHhmm, hhmmz, initials } from './format.js';
+import { dayMonthHhmm, hhmmz, initials, sessionLabel } from './format.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
 import { describeReplayIn } from './ui.js';
+import { has } from '../wall/features.js';
+
+const PAGES_BELOW_PX = 600; // desk.css hides .topnav under this width
 
 const WAKE_KEY = 'tephra.desk.wake';
 export const wakeSupported = () => 'wakeLock' in navigator;
@@ -76,7 +82,7 @@ export function setAccount(session) {
   }
   button.hidden = false;
   button.textContent = initials(session.name);
-  button.setAttribute('aria-label', `Signed in as ${session.name}. Account and display menu`);
+  button.setAttribute('aria-label', `Signed in as ${sessionLabel(session)}. Account${session.role === 'visitor' ? '' : ' and display'} menu`);
 }
 
 function displayWords() {
@@ -89,21 +95,30 @@ function displayWords() {
 function renderMenu() {
   const menu = byId('account-menu');
   const me = app.me;
+  const visitor = Boolean(me && me.role === 'visitor');
   const items = [
     el('div', { class: 'menu__block' },
-      el('p', { class: 'menu__strong', text: `Signed in as ${me ? me.name : '–'}` }),
+      el('p', { class: 'menu__strong', text: `Signed in as ${me ? sessionLabel(me) : '–'}` }),
       el('p', { class: 'menu__fine', text: me ? `Session ends ${hhmmz(me.expires_at)}` : '' })),
-    el('div', { class: 'menu__block' },
+  ];
+  if (!visitor) {
+    items.push(el('div', { class: 'menu__block' },
       el('p', { class: 'menu__strong', text: displayWords() }),
       el('p', { class: 'menu__fine', text: 'Changes what the Wall and every Desk show.' }),
-      el('button', { type: 'button', class: 'menu__item', 'data-menu': 'display' }, icon('i-replay'), el('span', { text: 'Change display…' }))),
-  ];
+      el('button', { type: 'button', class: 'menu__item', 'data-menu': 'display' }, icon('i-replay'), el('span', { text: 'Change display…' }))));
+  }
   if (wakeSupported()) {
     items.push(el('label', { class: 'menu__check' },
       el('input', { type: 'checkbox', id: 'wake-toggle', checked: app.wakeWanted }),
       el('span', { text: 'Keep the screen on while drafts wait' })));
   }
-  items.push(el('a', { class: 'menu__item', href: '/connect' }, icon('i-network'), el('span', { text: 'Connect airline data' })));
+  if (window.innerWidth < PAGES_BELOW_PX) {
+    items.push(el('div', { class: 'menu__block menu__pages' },
+      el('p', { class: 'menu__fine', text: 'Pages' }),
+      el('a', { class: 'menu__item', href: '/' }, icon('i-external-link'), el('span', { text: 'Wall' })),
+      el('a', { class: 'menu__item', href: '/guide' }, icon('i-help'), el('span', { text: 'Guide' }))));
+  }
+  if (has('connect') && !visitor) items.push(el('a', { class: 'menu__item', href: '/connect' }, icon('i-network'), el('span', { text: 'Connect airline data' })));
   items.push(el('button', { type: 'button', class: 'menu__item', 'data-menu': 'signout' }, icon('i-log-out'), el('span', { text: 'Sign out' })));
   menu.replaceChildren(...items);
 }

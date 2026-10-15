@@ -1,9 +1,11 @@
 // Sign-in (docs/UI-DESIGN.md 10.2): name, PIN with an on-screen PIN pad, and the states
 // wrong PIN, too many attempts (429 + Retry-After countdown), Desk switched off (503),
-// invalid name (422) and offline.
+// invalid name (422) and offline. The visitor card (SPEC 5.1) sits above the PIN form while
+// /api/state says visitor_access: one tap, an optional name, no PIN, REPLAY only.
 
 import { PATHS, api, errorCode, isSession, retryAfterS } from './api.js';
 import { byId, el, icon } from './dom.js';
+import { app } from './state.js';
 
 const NAME_KEY = 'tephra.desk.name';
 const NAME_RULE = /^[\p{L}\p{N} .'_-]{2,32}$/u;
@@ -15,7 +17,9 @@ const MSG = {
   pin: 'Enter the Desk PIN.',
   offline: "You're offline. Reconnect to sign in.",
   ended: 'Your session has ended. Sign in again to decide.',
+  visitorOff: 'Visitor access is switched off on this server.',
 };
+const VISITOR_LABEL = 'Enter as a visitor →';
 
 let lockTimer = 0;
 let lockUntil = 0;
@@ -32,6 +36,13 @@ const els = () => ({
   formErr: byId('login-error'),
   disabled: byId('login-disabled'),
   pad: byId('pin-pad'),
+  title: byId('login-title'),
+  visitor: byId('visitor-card'),
+  vform: byId('visitor-form'),
+  vname: byId('visitor-name'),
+  vnameErr: byId('visitor-name-err'),
+  vsubmit: byId('visitor-submit'),
+  vErr: byId('visitor-error'),
 });
 
 export function initLogin(signedIn) {
@@ -44,8 +55,10 @@ export function initLogin(signedIn) {
     // Storage can be blocked; the field simply starts empty.
   }
   e.form.addEventListener('submit', submit);
+  e.vform.addEventListener('submit', enterAsVisitor);
   e.pin.addEventListener('input', () => setError('pin', ''));
   e.name.addEventListener('input', () => setError('name', ''));
+  e.vname.addEventListener('input', () => setError('vname', ''));
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'back'];
   for (const key of keys) {
     const label = key === 'clear' ? 'Clear' : key === 'back' ? null : key;
@@ -70,7 +83,7 @@ export function initLogin(signedIn) {
 
 function setError(which, text) {
   const e = els();
-  const map = { name: [e.nameErr, e.name], pin: [e.pinErr, e.pin], form: [e.formErr, null] };
+  const map = { name: [e.nameErr, e.name], pin: [e.pinErr, e.pin], form: [e.formErr, null], vname: [e.vnameErr, e.vname], vform: [e.vErr, null] };
   const [box, field] = map[which];
   box.replaceChildren(...(text ? [icon('st-serious', 'st'), el('span', { text })] : []));
   box.hidden = !text;
@@ -85,16 +98,67 @@ export function showLogin(message = '', { disabled = false, info = false } = {})
   setError('name', '');
   setError('pin', '');
   setError('form', '');
+  setError('vname', '');
+  setError('vform', '');
   if (message) {
     setError('form', message);
     e.formErr.classList.toggle('form-msg--info', info);
   }
-  if (!disabled) (e.name.value ? e.pin : e.name).focus();
+  syncVisitorCard();
+  if (disabled) return;
+  if (!e.visitor.hidden) e.vsubmit.focus();
+  else (e.name.value ? e.pin : e.name).focus();
 }
 
 export const hideLogin = () => {
   els().view.hidden = true;
 };
+
+// The visitor card shows only while the server says a visitor may enter (SystemState.visitor_access:
+// the setting is on and a replay plays); desk.js calls this on every state arrival, so the card
+// follows a display switch. With the card, the title names the whole sign-in; the "Dispatchers"
+// divider labels the PIN form.
+export function syncVisitorCard() {
+  const e = els();
+  const on = Boolean(app.state && app.state.visitor_access === true) && e.form.hidden === false;
+  const appeared = on && e.visitor.hidden;
+  e.visitor.hidden = !on;
+  e.title.textContent = on ? 'Sign in to the Desk' : 'Dispatcher sign-in';
+  // The state usually lands after the form took focus: the one-tap way in becomes the first stop
+  // when nothing has been typed yet.
+  if (appeared && document.activeElement === e.name && !e.name.value) e.vsubmit.focus();
+}
+
+async function enterAsVisitor(event) {
+  event.preventDefault();
+  const e = els();
+  if (Date.now() < lockUntil) return;
+  const name = e.vname.value.trim().replace(/\s+/g, ' ');
+  setError('vform', '');
+  if (name && !NAME_RULE.test(name)) {
+    setError('vname', MSG.name);
+    e.vname.focus();
+    return;
+  }
+  e.vsubmit.disabled = true;
+  e.vsubmit.replaceChildren(el('span', { class: 'spinner', 'aria-hidden': 'true' }), el('span', { text: 'Entering…' }));
+  const res = await api(PATHS.visitor, { method: 'POST', body: { name: name || null } });
+  e.vsubmit.disabled = false;
+  e.vsubmit.replaceChildren(el('span', { text: VISITOR_LABEL }));
+  if (res.ok && isSession(res.data)) {
+    onSignedIn(res.data);
+    return;
+  }
+  const code = errorCode(res);
+  if (res.status === 0) setError('vform', MSG.offline);
+  else if (code === 'visitor_off') setError('vform', MSG.visitorOff);
+  else if (code === 'too_many_visitors') lock(retryAfterS(res) || 600, { visitor: true });
+  else if (code === 'desk_disabled') showLogin('', { disabled: true });
+  else if (res.status === 422) {
+    setError('vname', MSG.name);
+    e.vname.focus();
+  } else setError('vform', (res.data && res.data.detail) || `Could not enter (HTTP ${res.status}).`);
+}
 
 async function submit(event) {
   event.preventDefault();
@@ -145,11 +209,14 @@ async function submit(event) {
   } else setError('form', (res.data && res.data.detail) || `Sign-in failed (HTTP ${res.status}).`);
 }
 
-// 429: the button stays disabled and counts down from Retry-After.
-function lock(seconds) {
+// 429: the button that was used stays disabled and counts down from Retry-After; both ways in
+// are locked, since the server counts the client, not the form.
+function lock(seconds, { visitor = false } = {}) {
   const e = els();
+  const button = visitor ? e.vsubmit : e.submit;
+  const label = visitor ? VISITOR_LABEL : 'Sign in';
   lockUntil = Date.now() + seconds * 1000;
-  setError('form', MSG.locked(Math.max(1, Math.ceil(seconds / 60))));
+  setError(visitor ? 'vform' : 'form', MSG.locked(Math.max(1, Math.ceil(seconds / 60))));
   for (const key of e.pad.querySelectorAll('button')) key.disabled = true;
   e.pin.disabled = true;
   const tick = () => {
@@ -158,16 +225,18 @@ function lock(seconds) {
       window.clearInterval(lockTimer);
       lockUntil = 0;
       e.submit.disabled = false;
+      e.vsubmit.disabled = false;
       e.pin.disabled = false;
       for (const key of e.pad.querySelectorAll('button')) key.disabled = false;
-      e.submit.replaceChildren(el('span', { text: 'Sign in' }));
-      setError('form', '');
+      button.replaceChildren(el('span', { text: label }));
+      setError(visitor ? 'vform' : 'form', '');
       return;
     }
     e.submit.disabled = true;
+    e.vsubmit.disabled = true;
     const m = Math.floor(left / 60);
     const s = String(left % 60).padStart(2, '0');
-    e.submit.replaceChildren(icon('i-lock'), el('span', { text: `Try again in ${m}:${s}` }));
+    button.replaceChildren(icon('i-lock'), el('span', { text: `Try again in ${m}:${s}` }));
   };
   window.clearInterval(lockTimer);
   lockTimer = window.setInterval(tick, 1000);

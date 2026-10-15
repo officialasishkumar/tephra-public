@@ -120,6 +120,16 @@ function lanes(b) {
     pacing.length ? el('ul', { class: 'aisheet__lanes' }, pacing) : null);
 }
 
+// Where the service runs (SystemState.cloud, SPEC B07): one line, only on Cloud Run; the Wall's
+// Details > Runs on carries the rest. Nothing is said for a local run.
+function runsOn() {
+  const c = app.state && app.state.cloud;
+  if (!c || c.platform !== 'cloud-run') return null;
+  const where = c.region ? ` (${c.region})` : '';
+  const rev = c.revision ? `, revision ${c.revision}` : '';
+  return el('p', { class: 'note', text: `Runs on Cloud Run${where}${rev}` });
+}
+
 // The assistant sheet, the Desk's home for TEPHRA Assistant (K80, Naming): the mark and the calm
 // lead first, then what went wrong by cause, the work waiting for its slot, the calls per model
 // (their ids, lanes and pacing), the way to the board on the Wall and the About line.
@@ -165,7 +175,7 @@ export function openBudget() {
       : el('p', { class: 'note', text: "Today's assistant calls have not loaded yet." });
   openBSheet({
     title: ASSISTANT,
-    body: el('div', { class: 'stack aisheet' }, mark, lead, causes, queue, calls, board, foot,
+    body: el('div', { class: 'stack aisheet' }, mark, lead, causes, queue, calls, board, foot, runsOn(),
       el('p', { class: 'note', text: 'When a skill cannot run, it says so and nothing is put in its place.' }),
       el('p', { class: 'note aisheet__about', text: 'About TEPHRA Assistant: TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything.' })),
   });

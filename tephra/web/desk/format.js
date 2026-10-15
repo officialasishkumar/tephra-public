@@ -199,6 +199,10 @@ export function timeCell(adv, now) {
 export const deskName = (actor) =>
   typeof actor === 'string' && actor.startsWith('desk:') ? actor.slice(5) : actor || '';
 
+// How a session signs its decisions: a dispatcher by name, a visitor as visitor:<name>, the
+// actor the public record shows (SPEC 5.1).
+export const sessionLabel = (me) => (me && me.role === 'visitor' ? `visitor:${me.name}` : (me && me.name) || '');
+
 export const FEED_NAMES = {
   sigmet: 'VA SIGMET (AWC)',
   vona: 'VONA (MAGMA)',
