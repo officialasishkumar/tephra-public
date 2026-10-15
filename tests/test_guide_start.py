@@ -37,11 +37,13 @@ def test_the_guide_has_one_h1_and_start_here_comes_first() -> None:
     assert GUIDE.count("<h1") == 1
     assert "TEPHRA: a volcanic-ash decision desk" in GUIDE
     start = GUIDE.index('id="start"')
-    # the static block sits before the container guide.js fills, and the nav leads with it
-    assert start < GUIDE.index('<div id="guide">')
-    assert GUIDE.index('href="#start">Start here') < GUIDE.index('href="#read">Read the map')
-    # guide.js builds Read the map first, after the static block
-    assert GUIDE_JS.index('section("read", "Read the map"') < GUIDE_JS.index('section("how"')
+    # the static block, then the tour (UI-DESIGN 7.29), then Try it, then the folds guide.js fills
+    tour = GUIDE.index('id="tour-wall"')
+    assert start < tour < GUIDE.index('id="try"') < GUIDE.index('id="more"')
+    assert GUIDE.index('href="#start">Start here') < GUIDE.index('href="#read">Map key')
+    # guide.js fills Map key first, then How it works
+    read = GUIDE_JS.index('getElementById("read-body")')
+    assert read < GUIDE_JS.index('getElementById("how-body")')
 
 
 def test_the_case_paragraph_comes_from_the_wall_s_one_source() -> None:
@@ -69,6 +71,7 @@ def test_the_try_it_steps_carry_the_links() -> None:
     ):
         assert href in GUIDE, href
     assert 'id="try-desk"' in GUIDE
+    assert GUIDE.count('<li id="try-desk">') == 1
     assert "state?.visitor_access === true" in GUIDE_JS
     assert 'text: "Enter the Desk as a visitor"' in GUIDE_JS
 

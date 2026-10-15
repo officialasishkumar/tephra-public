@@ -11,6 +11,9 @@ exposure or advice logic reads them. None is current enough for navigation, and 
 | `land_apac.geojson` | Land polygons for 88°E–160°E, 20°S–42°N, simplified to 0.01° and rounded to 0.01°. Loaded when the OpenFreeMap basemap fails (offline fallback), and by TEPHRA Assistant at work, which draws its own map of the region from it (no tiles). Property `name`. | [Natural Earth](https://www.naturalearthdata.com/about/terms-of-use/) 1:50m admin 0 countries (sha256 `3e458fc036ad0a66…`), public domain. |
 | `navaids.geojson` | VOR, DME, NDB and TACAN stations from 90°E to 142°E and 15°S to 22°N, plus Kyushu. | OurAirports `navaids.csv` (sha256 `57fb332b…a8976e24cb`, fetched 2026-10-10), released to the public domain. |
 
+`guide-shots.json` is not map data: the Guide's screenshot sizes and numbered marks (percent of the
+image), written with the WebP files in `../guide/shots/` by `scripts/capture_guide_shots.mjs`.
+
 The earlier VATSIM-derived FIR file (CC BY-SA 4.0) was replaced by the AWC outlines on
 2026-10-10, so nothing here carries a share-alike condition. The conversion scripts are not
 part of the app; the steps are: decode the TopoJSON, keep the listed FIRs (or the Darwin and

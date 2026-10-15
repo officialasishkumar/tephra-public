@@ -8,7 +8,7 @@
   <meta name="description" content="TEPHRA: when official volcanic-ash reports disagree, Gemini proposes TEPHRA's estimate, code keeps it never smaller than the official area, and a dispatcher approves every per-flight advisory. Decision support only; fictional airline; not for operational use. The Guide.">
   <meta property="og:type" content="website">
   <meta property="og:title" content="TEPHRA Guide">
-  <meta property="og:description" content="When official ash reports disagree, TEPHRA keeps the wider estimate, finds the flights heading in and drafts the advisory a dispatcher approves. Replay demo · fictional airline · decision support only. The Guide: start here, read the map, how it works.">
+  <meta property="og:description" content="When official ash reports disagree, TEPHRA keeps the wider estimate, finds the flights heading in and drafts the advisory a dispatcher approves. Replay demo · fictional airline · decision support only. The Guide: a tour of each page, with numbered screenshots.">
   <meta property="og:image" content="https://tephra-647733667799.asia-southeast1.run.app/static/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="/static/guide.css">
   <script type="module" src="/static/guide.js"></script>
   <!-- every module guide.js imports, fetched at once (tests/test_modulepreload.py) -->
+  <link rel="modulepreload" href="/static/guide/shot.js">
   <link rel="modulepreload" href="/static/wall/case.js">
   <link rel="modulepreload" href="/static/wall/controls.js">
   <link rel="modulepreload" href="/static/wall/dk.js">
@@ -32,53 +33,204 @@
   <link rel="modulepreload" href="/static/wall/util.js">
   <link rel="modulepreload" href="/static/wall/x-parts.js">
 </head>
-<!-- The guide (UI-DESIGN 7.22): everything the Wall used to explain in its Help, About and policy
-     dialogs, on one page of its own, so the Wall and the Desk show the situation and not the manual.
-     "Start here" is static so it reads without /api/state; the case paragraph comes from
-     /static/data/cases.json (the Wall's one source) and the rest is built by guide.js from the same
-     builders the Wall used (wall/controls.js, wall/policy.js). -->
+<!-- The guide (UI-DESIGN 7.22, 7.29): a tour of each page, one annotated screenshot per page with a
+     numbered legend in the product's own words, then the rest folded under More. The screenshots
+     and their marks come from scripts/capture_guide_shots.mjs (tephra/web/guide/shots/,
+     data/guide-shots.json); guide/shot.js draws the marks over each image. The case comes from
+     /static/data/cases.json (the Wall's one source); Map key, How it works, About and the policy
+     are built by guide.js from the same builders the Wall used. -->
 <body class="guide">
   <header class="guidebar tn-bar">
     <a class="tn-home" href="/" title="TEPHRA home">TEPHRA</a>
     <nav class="topnav" aria-label="TEPHRA pages"><a href="/">Wall</a><a href="/assistant">Assistant</a><a href="/desk">Desk</a><a href="/connect">Connect</a><a href="/guide" aria-current="page">Guide</a></nav>
     <nav class="guidebar__nav" aria-label="Guide sections">
       <a href="#start">Start here</a>
-      <a href="#read">Read the map</a>
+      <a href="#try">Try it</a>
+      <a href="#read">Map key</a>
       <a href="#how">How it works</a>
       <a href="#about">About</a>
       <a href="#policy">Policy</a>
     </nav>
   </header>
   <main id="guide-main" class="guide__main" tabindex="-1">
-    <section id="start" class="guide__sec guide__start" aria-labelledby="start-h">
+    <section id="start" class="gintro" aria-labelledby="start-h">
       <h1 id="start-h" class="guide__title">TEPHRA: a volcanic-ash decision desk</h1>
-      <p class="guide__lead">When the official ash reports for a volcano disagree, TEPHRA shows how, proposes the cautious area, which is never smaller than the official one, finds the flights heading into it, and drafts the advisory a dispatcher approves.</p>
-
-      <h2 class="help__h">The problem it works on</h2>
+      <p class="guide__lead">When the official ash reports disagree, TEPHRA keeps the wider area, finds the flights heading in and drafts the advisory a dispatcher approves.</p>
+      <ul class="gfacts" aria-label="What TEPHRA is">
+        <li>Decision support only</li>
+        <li>Ring of Fire Air (RFA) is a fictional airline</li>
+        <li>Nothing is sent to an aircraft or any real system</li>
+        <li>REPLAY plays recorded real feeds</li>
+      </ul>
       <div id="start-case" class="guide__case"><noscript><p class="muted">Open the Wall for the case.</p></noscript></div>
-      <p>The operator must resolve those conflicts (ICAO Doc 9974). TEPHRA drafts that reconciliation for the dispatcher to check.</p>
-
-      <h2 class="help__h">How it is built</h2>
-      <p>Public feeds (SIGMET, ash advisories, observatory notices, winds, aircraft positions) → code labels every disagreement → TEPHRA Assistant's Coordinator orders the work → the Plume reader (Gemini) grades the evidence and proposes the area → code keeps it at the official floor and finds the flights and a route around it → the Flight planner and Drafter write a draft → a person approves on the Desk → every step is in the hash-chained record.</p>
-      <p>The public demo runs on Google Cloud: Cloud Run (Singapore), Cloud Scheduler, Firestore, Secret Manager, Artifact Registry; the Gemini API and the Agent Development Kit.</p>
-
-      <h2 id="try" class="help__h">Try it in three minutes</h2>
-      <ol class="guide__try">
-        <li><a href="/">Open the Wall</a>: the amber dashed line is TEPHRA's estimate and the pink area is the official one. Press F to fit the volcano.</li>
-        <li>Open Details › <a href="/#details-disagree">Where the sources disagree</a>, then <a href="/#details-estimate">TEPHRA's estimate</a> › How the Plume reader read it.</li>
-        <li>Click an amber plane: its minutes to entry, its draft advisory and its suggested route.</li>
-        <li>Press A, or open <a href="/assistant">TEPHRA Assistant at work</a>: the Coordinator handing out the day's work.</li>
-        <li id="try-desk"><a href="/desk">Open the Desk</a>: decide on a draft (hold to approve), then open its record line.</li>
-        <li>Details › <a href="/#track-record">Track record</a>: how TEPHRA's area scored against the official areas issued later. The <a href="#policy">operator policy</a> lists every margin it applied, with its reason.</li>
-      </ol>
-
-      <h2 class="help__h">What TEPHRA is and is not</h2>
-      <p>Decision support only. Ring of Fire Air is a fictional airline; its flight numbers stand in for real aircraft. Official reports are binding; TEPHRA's estimate can widen them, never shrink them. Nothing is sent to an aircraft or to any real system. REPLAY, when shown, means recorded or reconstructed real feeds. TEPHRA does not detect ash, is not a forecast, a warning or a dispatch release, and is not air traffic control.</p>
     </section>
-    <div id="guide">
-      <p class="muted">Loading the guide…</p>
-    </div>
+
+    <section id="tour-wall" class="gstep" aria-labelledby="tour-wall-h">
+      <div class="gstep__head">
+        <span class="gstep__n" aria-hidden="true">01</span>
+        <div class="gstep__words">
+          <h2 id="tour-wall-h" class="gstep__h">The Wall</h2>
+          <p class="gstep__line">The public picture: the ash, TEPHRA's estimate and the flights heading in.</p>
+        </div>
+        <a class="gstep__open" href="/">Open the Wall<svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-chevron-right"></use></svg></a>
+      </div>
+      <figure class="shot" data-shot="wall">
+        <div class="shot__frame"><div class="shot__stage">
+          <img class="shot__img" src="/static/guide/shots/wall.webp" width="1800" height="1125" decoding="async" alt="The Wall during the Anak Krakatau replay: the case and the flights on the left, the map with the official ash area and TEPHRA's estimate on the right.">
+        </div></div>
+        <ol class="shot__legend" aria-label="The numbers on the Wall">
+          <li><button type="button" class="shot__item" data-n="1"><span class="shot__num" aria-hidden="true">1</span><span class="shot__txt"><b>This case</b><span>What happened, and where the reports disagreed.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="2"><span class="shot__num" aria-hidden="true">2</span><span class="shot__txt"><b>Flights heading in</b><span>RFA flights in or heading into TEPHRA's ash area.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="3"><span class="shot__num" aria-hidden="true">3</span><span class="shot__txt"><b>TEPHRA's estimate</b><span>The amber dashed line, never smaller than the official area.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="4"><span class="shot__num" aria-hidden="true">4</span><span class="shot__txt"><b>Official ash area</b><span>Pink and binding: from the SIGMETs and advisories.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="5"><span class="shot__num" aria-hidden="true">5</span><span class="shot__txt"><b>Decide on the Desk</b><span>Every advisory waits for a person.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="6"><span class="shot__num" aria-hidden="true">6</span><span class="shot__txt"><b>TEPHRA Assistant</b><span>Its state; press A to watch it work.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="7"><span class="shot__num" aria-hidden="true">7</span><span class="shot__txt"><b>Replay clock</b><span>Recorded real feeds, played back in time.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="8"><span class="shot__num" aria-hidden="true">8</span><span class="shot__txt"><b>Details</b><span>The sources, the timeline and how TEPHRA decided.</span></span></button></li>
+        </ol>
+      </figure>
+    </section>
+
+    <section id="tour-assistant" class="gstep" aria-labelledby="tour-assistant-h">
+      <div class="gstep__head">
+        <span class="gstep__n" aria-hidden="true">02</span>
+        <div class="gstep__words">
+          <h2 id="tour-assistant-h" class="gstep__h">TEPHRA Assistant</h2>
+          <p class="gstep__line">The Coordinator hands out the day's work; each skill does one job.</p>
+        </div>
+        <a class="gstep__open" href="/assistant">Open the Assistant<svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-chevron-right"></use></svg></a>
+      </div>
+      <figure class="shot" data-shot="assistant">
+        <div class="shot__frame"><div class="shot__stage">
+          <img class="shot__img" src="/static/guide/shots/assistant.webp" width="1800" height="1125" loading="lazy" decoding="async" alt="TEPHRA Assistant at work: the feeds on a map of the area, the skills in a column on the right and the steps along the bottom.">
+        </div></div>
+        <ol class="shot__legend" aria-label="The numbers on the Assistant page">
+          <li><button type="button" class="shot__item" data-n="1"><span class="shot__num" aria-hidden="true">1</span><span class="shot__txt"><b>Its state</b><span>On, paused or off.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="2"><span class="shot__num" aria-hidden="true">2</span><span class="shot__txt"><b>The feeds</b><span>Each source where it comes from: SIGMET, VONA, advisories, winds.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="3"><span class="shot__num" aria-hidden="true">3</span><span class="shot__txt"><b>Inside TEPHRA</b><span>Code checks first, then the Coordinator orders the work.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="4"><span class="shot__num" aria-hidden="true">4</span><span class="shot__txt"><b>A skill</b><span>Plume reader, Flight planner, Drafter: each with its last run.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="5"><span class="shot__num" aria-hidden="true">5</span><span class="shot__txt"><b>You decide</b><span>The drafts waiting at the Desk.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="6"><span class="shot__num" aria-hidden="true">6</span><span class="shot__txt"><b>Every step</b><span>The newest steps, in plain words.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="7"><span class="shot__num" aria-hidden="true">7</span><span class="shot__txt"><b>Play</b><span>Plays the steps again, at the speed you pick.</span></span></button></li>
+        </ol>
+      </figure>
+    </section>
+
+    <section id="tour-desk" class="gstep" aria-labelledby="tour-desk-h">
+      <div class="gstep__head">
+        <span class="gstep__n" aria-hidden="true">03</span>
+        <div class="gstep__words">
+          <h2 id="tour-desk-h" class="gstep__h">The Desk</h2>
+          <p class="gstep__line">A dispatcher approves, edits or rejects every draft.</p>
+        </div>
+        <a class="gstep__open" href="/desk">Open the Desk<svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-chevron-right"></use></svg></a>
+      </div>
+      <figure class="shot" data-shot="desk">
+        <div class="shot__frame"><div class="shot__stage">
+          <img class="shot__img" src="/static/guide/shots/desk.webp" width="1800" height="1125" loading="lazy" decoding="async" alt="The Desk signed in: the map on the left and the Decide list on the right, the next decision first.">
+        </div></div>
+        <ol class="shot__legend" aria-label="The numbers on the Desk">
+          <li><button type="button" class="shot__item" data-n="1"><span class="shot__num" aria-hidden="true">1</span><span class="shot__txt"><b>Decide, Airports, Paperwork</b><span>The Desk's three jobs.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="2"><span class="shot__num" aria-hidden="true">2</span><span class="shot__txt"><b>Next decision</b><span>The most urgent draft, by minutes to entry.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="3"><span class="shot__num" aria-hidden="true">3</span><span class="shot__txt"><b>Who wrote it</b><span>Drafted by TEPHRA Assistant, or Code only while it is off.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="4"><span class="shot__num" aria-hidden="true">4</span><span class="shot__txt"><b>Before entry</b><span>The next flights to decide, soonest first.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="5"><span class="shot__num" aria-hidden="true">5</span><span class="shot__txt"><b>Desk map</b><span>The ash and the flights; a review shows that flight's path.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="6"><span class="shot__num" aria-hidden="true">6</span><span class="shot__txt"><b>Ask</b><span>Ask about the situation, from anywhere on the Desk.</span></span></button></li>
+        </ol>
+      </figure>
+      <figure class="shot shot--phone" data-shot="desk-phone">
+        <div class="shot__frame"><div class="shot__stage">
+          <img class="shot__img" src="/static/guide/shots/desk-phone.webp" width="780" height="2004" loading="lazy" decoding="async" alt="An advisory under review on a phone: the advice, the facts to check, the text and the approve button.">
+        </div></div>
+        <ol class="shot__legend" aria-label="The numbers on the review">
+          <li><button type="button" class="shot__item" data-n="1"><span class="shot__num" aria-hidden="true">1</span><span class="shot__txt"><b>The advice</b><span>The flight, the action and the minutes to entry.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="2"><span class="shot__num" aria-hidden="true">2</span><span class="shot__txt"><b>Check before you approve</b><span>Level, ash, area, sources, fuel and why.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="3"><span class="shot__num" aria-hidden="true">3</span><span class="shot__txt"><b>Text to approve</b><span>Its header is written by code.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="4"><span class="shot__num" aria-hidden="true">4</span><span class="shot__txt"><b>Record</b><span>Ids, policy, history and the audit line.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="5"><span class="shot__num" aria-hidden="true">5</span><span class="shot__txt"><b>Hold to approve</b><span>Hold, or tap and confirm.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="6"><span class="shot__num" aria-hidden="true">6</span><span class="shot__txt"><b>Edit or reject</b><span>Change the text first, or reject the draft.</span></span></button></li>
+        </ol>
+      </figure>
+    </section>
+
+    <section id="tour-connect" class="gstep" aria-labelledby="tour-connect-h" data-feature="connect">
+      <div class="gstep__head">
+        <span class="gstep__n" aria-hidden="true">04</span>
+        <div class="gstep__words">
+          <h2 id="tour-connect-h" class="gstep__h">Connect</h2>
+          <p class="gstep__line">Feed your flights and watch them meet the ash.</p>
+        </div>
+        <a class="gstep__open" href="/connect">Open Connect<svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-chevron-right"></use></svg></a>
+      </div>
+      <figure class="shot" data-shot="connect">
+        <div class="shot__frame"><div class="shot__stage">
+          <img class="shot__img" src="/static/guide/shots/connect.webp" width="1800" height="1125" loading="lazy" decoding="async" alt="Connect with the sample feed running: flights on the map against the ash, the live numbers and the Feed your data panel.">
+        </div></div>
+        <ol class="shot__legend" aria-label="The numbers on Connect">
+          <li><button type="button" class="shot__item" data-n="1"><span class="shot__num" aria-hidden="true">1</span><span class="shot__txt"><b>Your flights</b><span>Each position as it arrives, against the ash.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="2"><span class="shot__num" aria-hidden="true">2</span><span class="shot__txt"><b>Live numbers</b><span>Positions a minute, flights live, flights in the ash.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="3"><span class="shot__num" aria-hidden="true">3</span><span class="shot__txt"><b>Upload, API, Sample</b><span>Three ways to feed your data.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="4"><span class="shot__num" aria-hidden="true">4</span><span class="shot__txt"><b>Sample feed</b><span>Real tracks with flight plans, and crews reporting ash.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="5"><span class="shot__num" aria-hidden="true">5</span><span class="shot__txt"><b>Where your data goes</b><span>What each kind of data changed.</span></span></button></li>
+          <li><button type="button" class="shot__item" data-n="6"><span class="shot__num" aria-hidden="true">6</span><span class="shot__txt"><b>Signed in</b><span>Feeding data needs a dispatcher sign-in.</span></span></button></li>
+        </ol>
+      </figure>
+    </section>
+
+    <section id="try" class="gtry" aria-labelledby="try-h">
+      <h2 id="try-h" class="gsec__h">Try it in three minutes</h2>
+      <ol class="gtry__list">
+        <li><a href="/"><b>Open the Wall</b><span>Press F to fit the volcano</span></a></li>
+        <li><a href="/#details-disagree"><b>Where the sources disagree</b><span>In Details</span></a></li>
+        <li><a href="/#details-estimate"><b>TEPHRA's estimate</b><span>How the Plume reader read it</span></a></li>
+        <li><a href="/assistant"><b>TEPHRA Assistant at work</b><span>Press Play</span></a></li>
+        <li id="try-desk"><a href="/desk"><b>Decide on the Desk</b><span>Hold to approve, then open Record</span></a></li>
+        <li><a href="/#track-record"><b>Track record</b><span>How the estimate scored later</span></a></li>
+      </ol>
+    </section>
+
+    <section id="more" class="gmore" aria-labelledby="more-h">
+      <h2 id="more-h" class="gsec__h">More</h2>
+      <details id="read" class="gfold">
+        <summary>Map key, words and keyboard</summary>
+        <div id="read-body" class="gfold__body"></div>
+      </details>
+      <details id="how" class="gfold">
+        <summary>How it works</summary>
+        <div class="gfold__body guide__how">
+          <ol class="gflow" aria-label="From the feeds to a decision">
+            <li>Public feeds</li>
+            <li>Code labels every disagreement</li>
+            <li>The Coordinator orders the work</li>
+            <li>The Plume reader proposes the area</li>
+            <li>Code keeps the official floor and finds the flights</li>
+            <li>The Flight planner and Drafter write a draft</li>
+            <li>A person decides on the Desk</li>
+            <li>Every step goes into the hash-chained record</li>
+          </ol>
+          <p>The operator must resolve those conflicts (ICAO Doc 9974). TEPHRA drafts that reconciliation for the dispatcher to check.</p>
+          <p>The public demo runs on Google Cloud: Cloud Run (Singapore), Cloud Scheduler, Firestore, Secret Manager, Artifact Registry; the Gemini API and the Agent Development Kit.</p>
+          <div id="how-body"></div>
+        </div>
+      </details>
+      <details id="about" class="gfold">
+        <summary>About TEPHRA</summary>
+        <div id="about-body" class="gfold__body"></div>
+      </details>
+      <details id="policy" class="gfold">
+        <summary>Operator policy</summary>
+        <div id="policy-body" class="gfold__body"></div>
+      </details>
+    </section>
   </main>
   <footer class="guide__foot"><a href="/privacy">Privacy</a></footer>
+
+  <dialog id="shot-box" class="shotbox" aria-labelledby="shot-box-t">
+    <div class="shotbox__head">
+      <h2 id="shot-box-t" class="shotbox__t"></h2>
+      <button type="button" class="icon-btn shotbox__x" data-shot-close aria-label="Close the enlarged screenshot"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-x"></use></svg></button>
+    </div>
+    <div id="shot-box-body" class="shotbox__body"></div>
+  </dialog>
 </body>
 </html>

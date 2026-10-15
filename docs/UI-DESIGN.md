@@ -1563,6 +1563,17 @@ Every page lists its entry script's whole static import graph as `<link rel="mod
 (`tests/test_modulepreload.py` names a missing line), so the modules load in one round trip
 instead of one per import level.
 
+### 7.29 The Guide is a tour with numbered screenshots (16 Oct 2026)
+
+`/guide` opens with one lead sentence, the four honesty facts as chips and the case, then one step
+per page (Wall, Assistant, Desk with a phone review, Connect): a heading, one line, "Open ›", and a
+screenshot with 4-8 numbered marks beside a legend (a title of up to five words, one sentence).
+Hover or focus on a mark lights its legend item and dims the rest, and back; a click pins it and
+brings the other into view; Enlarge opens the shot in a `<dialog>` (Esc closes, focus returns).
+Badges are 24 px dots in `--c-info`; an ash-area mark is a pin on the area. Try it is six link
+cards; Map key, How it works, About and the policy fold under More with their old ids. The shots and
+`data/guide-shots.json` come from `scripts/capture_guide_shots.mjs` against the stub replay.
+
 ## 8. 3D, compare, the time bar and the height filter
 
 ### 8.1 3D mode (D)

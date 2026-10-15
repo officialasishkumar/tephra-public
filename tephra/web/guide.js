@@ -1,14 +1,17 @@
-// The guide page (UI-DESIGN 7.22): Help, About and the operator policy, built from the same builders
-// the Wall's dialogs used. Everything goes in through el() (textContent). The two reads are public
-// GETs; a policy that does not load says so in its own section. "Start here" is static markup; this
-// module fills its case paragraph from the Wall's one source (wall/case.js) and its Desk step.
+// The guide page (UI-DESIGN 7.22, 7.29): a tour of each page with annotated screenshots
+// (guide/shot.js), then Map key, How it works, About and the operator policy folded under More,
+// built from the same builders the Wall's dialogs used. Everything goes in through el()
+// (textContent). The reads are public GETs; a policy that does not load says so in its own fold.
+// "Start here" and the tour are static markup; this module fills the case paragraph from the Wall's
+// one source (wall/case.js), the Desk step and the folds, and draws the marks.
 
 import { el } from "./wall/util.js";
 import { helpContent, aboutContent } from "./wall/controls.js";
 import { policyDialog } from "./wall/policy.js";
 import { EXPLAIN } from "./wall/explain.js";
-import { setFeatures, applyFeatureNav } from "./wall/features.js";
+import { has, setFeatures, applyFeatureNav } from "./wall/features.js";
 import { caseStrip, loadCases, caseOf } from "./wall/case.js";
+import { initShots } from "./guide/shot.js";
 
 async function getJson(path) {
   try {
@@ -18,9 +21,6 @@ async function getJson(path) {
     return null;
   }
 }
-
-const section = (id, title, body) => el("section", { id, class: "guide__sec", "aria-labelledby": `${id}-h` },
-  el("h2", { id: `${id}-h`, class: "guide__h", text: title }), body);
 
 // The problem paragraph: the replaying case's strip, the same words as the Wall's. Its "Sources ›"
 // becomes a link into the Wall's Details, and its third line goes (the lead above says it). Live
@@ -41,7 +41,7 @@ async function fillStart(state) {
   document.getElementById("start-case").replaceChildren(caseBlock(state));
   if (state?.visitor_access === true) {
     document.getElementById("try-desk").replaceChildren(
-      el("a", { href: "/desk", text: "Enter the Desk as a visitor" }), ": when a draft waits, decide on it (hold to approve) and open its record line; when none waits, the Desk says why and what to do by hand.");
+      el("a", { href: "/desk" }, el("b", { text: "Enter the Desk as a visitor" }), el("span", { text: "Hold to approve, then open Record" })));
   }
 }
 
@@ -55,17 +55,19 @@ function landOnHash() {
 }
 
 async function build() {
-  const [state, policy] = await Promise.all([getJson("/api/state"), getJson("/api/policy")]);
+  const [state, policy, shots] = await Promise.all([getJson("/api/state"), getJson("/api/policy"), getJson("/static/data/guide-shots.json")]);
   setFeatures(state?.features);
   applyFeatureNav();
+  for (const part of document.querySelectorAll("[data-feature]")) part.hidden = !has(part.dataset.feature);
+  initShots(shots);
   await fillStart(state);
-  document.getElementById("guide").replaceChildren(
-    section("read", "Read the map", helpContent(false, { page: true })),
-    section("how", "How each part works", el("div", { class: "guide__how" },
-      ...EXPLAIN.flatMap(([id, title, paras]) => [el("h3", { id: `how-${id}`, class: "help__h", text: title }), ...paras.map((p) => el("p", { text: p }))]))),
-    section("about", "About TEPHRA", aboutContent(state, { page: true })),
-    section("policy", "Operator policy", policyDialog(policy)));
+  document.getElementById("read-body").replaceChildren(helpContent(false, { page: true }));
+  document.getElementById("how-body").replaceChildren(
+    ...EXPLAIN.flatMap(([id, title, paras]) => [el("h3", { id: `how-${id}`, class: "help__h", text: title }), ...paras.map((p) => el("p", { text: p }))]));
+  document.getElementById("about-body").replaceChildren(aboutContent(state, { page: true }));
+  document.getElementById("policy-body").replaceChildren(policyDialog(policy));
   landOnHash();
 }
 
+window.addEventListener("hashchange", landOnHash);
 build();
