@@ -1,0 +1,95 @@
+{
+  "title": "TEPHRA on this laptop: Agung and Sakurajima (synthetic demo data)",
+  "about": "Every model step runs on Gemma served by Ollama on this computer: no API key, no quota. The case is invented data on real places (data/replay/demo-agung-20261014), labelled so on every page. Read by scripts/demo_local.py.",
+  "ollama": { "model": "gemma4:e4b", "url": "http://127.0.0.1:11434" },
+  "port": 8080,
+  "desk_pin": "2468",
+  "env": {
+    "TEPHRA_LLM": "ollama",
+    "TEPHRA_MODEL": "gemma4:e4b",
+    "TEPHRA_MODEL_LITE": "gemma4:e4b",
+    "TEPHRA_LLM_TIMEOUT_S": "180",
+    "TEPHRA_MODE": "REPLAY",
+    "TEPHRA_REPLAY_CASE": "demo-agung-20261014",
+    "TEPHRA_REPLAY_START": "2026-10-14T07:05:00Z",
+    "TEPHRA_REPLAY_END": "2026-10-14T07:30:00Z",
+    "TEPHRA_REPLAY_SPEED": "2",
+    "TEPHRA_LOCAL_SCHEDULER": "1",
+    "TEPHRA_FEATURES": "connect,notices,crew",
+    "TEPHRA_VISITOR_ACCESS": "replay",
+    "TEPHRA_SQLITE_PATH": ".state/local-demo.sqlite3"
+  },
+  "warm_up_min": 15,
+  "beats": [
+    {
+      "at": "0:00",
+      "page": "/",
+      "do": "Open the Wall. Point at the clock: \"Replay · synthetic demo data\".",
+      "see": "Agung, Bali. Pink = official ash area. Amber dashed = TEPHRA's estimate, never smaller. Amber planes head into it.",
+      "say": "An invented eruption on a real volcano, with every kind of source TEPHRA reads."
+    },
+    {
+      "at": "0:45",
+      "page": "/",
+      "do": "Open Details › Where the sources disagree.",
+      "see": "The observatory puts the ash higher than the SIGMET, and moving south while the SIGMET says west.",
+      "say": "The official sources disagree. Code labels every difference; the airline has to reconcile them."
+    },
+    {
+      "at": "1:45",
+      "page": "/",
+      "do": "Details › TEPHRA's estimate.",
+      "see": "The Plume reader's reading, marked \"Drafted by TEPHRA Assistant\".",
+      "say": "The assistant weighs the evidence and may only widen the official area, never shrink it."
+    },
+    {
+      "at": "2:30",
+      "page": "/",
+      "do": "Click an amber plane minutes from the ash.",
+      "see": "Minutes to entry, its draft (HOLD, DIVERT, CHANGE LEVEL or REROUTE) and the route around the ash.",
+      "say": "The Flight planner chose the action; code drew the route and checked every number."
+    },
+    {
+      "at": "3:30",
+      "page": "/",
+      "do": "Area menu (top bar) › Kyushu. Open Details › Where the sources disagree.",
+      "see": "Sakurajima: Tokyo's \"ash dissipated\" advisory is still in force while JMA reports a new eruption. A CONFLICT.",
+      "say": "Japan too: JMA's eruption notice against the Tokyo advisory, flagged as a conflict."
+    },
+    {
+      "at": "4:30",
+      "page": "/assistant",
+      "do": "Press A. Press Play, then the speed button for 60x.",
+      "see": "The Coordinator hands out the work: Plume reader, Flight planner, Drafter, each step timed.",
+      "say": "That is the assistant at work, running entirely on Gemma on this laptop."
+    },
+    {
+      "at": "5:30",
+      "page": "/desk",
+      "do": "Open the Desk, sign in as Dispatcher with the PIN, open a draft and hold to approve.",
+      "see": "The draft, its reasons, \"Drafted by TEPHRA Assistant\", then the record line with its hash.",
+      "say": "A person approves every advisory, and every decision lands in a hash-chained record."
+    },
+    {
+      "at": "6:45",
+      "page": "/desk",
+      "do": "Ask: \"Which flights enter the ash in the next 15 minutes?\"",
+      "see": "The flights and their minutes, looked up from TEPHRA's own data.",
+      "say": "Ask is an agent with tools: it looks the numbers up rather than guessing them."
+    },
+    {
+      "at": "7:45",
+      "page": "/desk",
+      "do": "Open the airport recovery plan (Bali closed).",
+      "see": "Bali, Malang and Lombok closed; the re-planned flights, waiting for approval.",
+      "say": "When ash closes airports, the Recovery planner re-plans the day's flights."
+    },
+    {
+      "at": "8:45",
+      "page": "/connect",
+      "do": "Open Connect.",
+      "see": "How an airline plugs its own flights in.",
+      "say": "Decision support only: official areas stay binding, and a person decides."
+    }
+  ]
+}
