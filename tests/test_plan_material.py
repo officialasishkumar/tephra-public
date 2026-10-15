@@ -308,7 +308,7 @@ async def test_a_drafted_body_is_not_reused_across_urgency_buckets(
     assert (urgency_band(inside), urgency_band(soon)) == (0, 1)
     inside_q, soon_q = drafter_q(inside), drafter_q(soon)
     differing = {k for k in inside_q.material if inside_q.material[k] != soon_q.material[k]}
-    assert differing == {"urgency"}, "the same flight, band and action: only the urgency"
+    assert differing == {"urgency", "entry_min"}, "the same flight, band and action"
     assert inside_q.material["action"] == ActionKind.CHANGE_LEVEL.value
     assert plan_key(inside_q) != plan_key(soon_q)
     assert planner_q(inside) != planner_q(soon), "the planner's question differs the same way"
@@ -327,7 +327,7 @@ async def test_a_drafted_body_is_not_reused_across_urgency_buckets(
     assert "ENTRY 3 MIN" in drafted(second).body
 
 
-def test_the_same_urgency_bucket_keeps_the_drafter_question() -> None:
+def test_within_a_bucket_the_plan_question_holds_and_the_draft_follows_the_minutes() -> None:
     ctx, later = context(), context(reissued(make_hazard()))
     assert ctx.flight.cone_id != later.flight.cone_id
     assert urgency_band(ctx) == urgency_band(later) == 3, "40 min out: beyond the hold limit"
@@ -335,15 +335,19 @@ def test_the_same_urgency_bucket_keeps_the_drafter_question() -> None:
     assert drafter_q(later) == drafter_q(ctx)
     twelve, five = urgency_context(minutes=12), urgency_context(minutes=5)
     assert urgency_band(twelve) == urgency_band(five) == 1
-    assert drafter_q(twelve) == drafter_q(five), "the minutes within a bucket are not material"
+    assert planner_q(twelve) == planner_q(five), "to the plan, the minutes within a bucket"
+    assert drafter_q(twelve) != drafter_q(five), "to the draft, the figure its body names"
 
 
-async def test_a_kept_body_with_a_stale_minute_figure_is_asked_again(
+async def test_a_kept_body_serves_only_at_the_minute_figure_it_names(
     sqlite: SqliteStore, clock: FixedClock
 ) -> None:
+    """A body says ENTRY N MIN; the minutes are in the question, so a body with another
+    figure is never offered to the checks (which would refuse it, or let a coinciding figure
+    through), and each figure's body serves its own question again next loop."""
     twelve, five = urgency_context(minutes=12), urgency_context(minutes=5)
     question = drafter_q(twelve)
-    assert question == drafter_q(five)
+    assert question != drafter_q(five)
     answers = book(sqlite)
     llm = FakeLlm("gemini")
     first = await draft(llm, twelve, Reuse(answers, question), None)
@@ -353,8 +357,13 @@ async def test_a_kept_body_with_a_stale_minute_figure_is_asked_again(
         "BODY HAS NUMBERS NOT IN THE INPUT: 12"
     ]
     clock.set(AT + timedelta(minutes=7))
-    second = await draft(llm, five, Reuse(answers, question), None)
-    assert llm.calls == 2, "the kept body no longer passes the checks: asked again"
+    second = await draft(llm, five, Reuse(answers, drafter_q(five)), None)
+    assert llm.calls == 2, "another figure is another question: asked, the kept body untouched"
     assert "ENTRY 5 MIN" in drafted(second).body
     assert isinstance(second, Advisory)
     assert second.drafted_at == AT + timedelta(minutes=7), "a fresh body, written now"
+    assert ("drafter", "rejected") not in answers.counts
+    clock.set(AT + timedelta(minutes=14))
+    third = await draft(llm, twelve, Reuse(answers, question), None)
+    assert llm.calls == 2, "twelve minutes out again: its own body, not asked"
+    assert "ENTRY 12 MIN" in drafted(third).body

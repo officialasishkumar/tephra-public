@@ -4,14 +4,15 @@ loads as the case's seed. Offline: the stub backend through the counting stand-i
 import argparse
 import importlib.util
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 
 from tephra.agents.answers import AiAnswer
-from tephra.config import PROJECT_ROOT
+from tephra.config import PROJECT_ROOT, Settings
 from tephra.models import RunMode
 from tephra.store.base import Collection
 from tephra.store.sqlite_store import SqliteStore
@@ -124,6 +125,72 @@ def test_a_stub_dry_run_writes_a_jsonl_the_loader_reads_back(
     import asyncio
 
     asyncio.run(read_back())
+
+
+class _FirestoreLike:
+    """Lists as Firestore does for the answers: only ``expires_at`` is copied beside the JSON
+    text, so an order on any other field matches no document at all."""
+
+    def __init__(self, docs: list[dict[str, Any]]) -> None:
+        self.docs = docs
+        self.orders: list[str | None] = []
+
+    async def list_docs(
+        self,
+        collection: Any,
+        *,
+        limit: int = 100,
+        order_by: str | None = None,
+        descending: bool = True,
+    ) -> list[dict[str, Any]]:
+        self.orders.append(order_by)
+        if order_by not in (None, "expires_at"):
+            return []
+        rows = list(self.docs)
+        if order_by is not None:
+            rows.sort(key=lambda doc: doc[order_by], reverse=descending)
+        return rows[:limit]
+
+
+def _kept(n: int, stored_at: datetime) -> dict[str, Any]:
+    return AiAnswer(
+        key=f"{n:032x}",
+        mode=RunMode.REPLAY,
+        case_id="anak-krakatau-20260905",
+        build="b",
+        skill="drafter",
+        model_id="gemini-lite",
+        fingerprint="f" * 64,
+        answered_at=START,
+        stored_at=stored_at,
+        expires_at=stored_at + timedelta(days=90),
+        prompt_hash="p" * 64,
+        payload={"n": n},
+    ).model_dump(mode="json")
+
+
+def test_the_export_asks_the_store_for_no_order_firestore_cannot_serve(tmp_path: Path) -> None:
+    """Ordered by ``stored_at`` on the server, Firestore returned nothing and the production
+    export wrote an empty seed; the lines are sorted here instead."""
+    later, earlier = _kept(2, START + timedelta(hours=1)), _kept(1, START)
+    store = _FirestoreLike([later, earlier])
+    out = tmp_path / "answers"
+
+    import asyncio
+
+    summary = asyncio.run(
+        prewarm.export(
+            store, "anak-krakatau-20260905", out, Settings(_env_file=None), allow_stub=False
+        )
+    )
+
+    assert store.orders == [None], "no server order: Firestore would match no document"
+    lines = (out / "ai_answers.jsonl").read_text().splitlines()
+    assert [json.loads(line)["payload"] for line in lines] == [{"n": 1}, {"n": 2}], (
+        "sorted by the time they were kept"
+    )
+    assert summary["counts"] == {"drafter": 2}
+    assert summary["recorded_wall_from"] < summary["recorded_wall_to"]
 
 
 def test_the_export_only_path_needs_a_directory() -> None:

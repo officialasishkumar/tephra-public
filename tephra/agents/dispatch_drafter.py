@@ -301,11 +301,12 @@ def drafter_question(
 ) -> Question:
     """What is material to a draft: the flight, the operator policy it is drafted under, the
     action with its target (the level band or hold level, the alternate, the reroute option),
-    the hazard band in flight levels and the planner's urgency bucket (inside now, or the
-    policy's divert and hold buckets): a body says INSIDE NOW or ENTRY N MIN, and the checks
-    cannot tell one wording from the other, so a bucket change is a new question. The minutes
-    within a bucket are not material (a kept body with a stale figure fails the number check
-    and is asked again), and neither are the cone's id and times.
+    the hazard band in flight levels, the planner's urgency bucket (inside now, or the
+    policy's divert and hold buckets) and, while the flight approaches, the minutes to entry:
+    a body says INSIDE NOW or ENTRY N MIN, and a kept body is served only at the figure it
+    was written for (a stale figure passes the number check whenever it coincides with
+    another number of the facts, and a figure that moved was asked again every loop). The
+    cone's id and times are not material.
 
     ``cone_version`` is ignored since the material question; removed with T18."""
     decision = plan.decision
@@ -324,6 +325,7 @@ def drafter_question(
             "reroute": decision.reroute_id,
             "band": hazard_band_fl(ctx),
             "urgency": urgency_band(ctx),
+            "entry_min": None if ctx.flight.inside_now else ctx.flight.minutes_to_entry,
         },
         max_age,
     )

@@ -1878,8 +1878,12 @@ class Runtime:
         if not path.is_file():
             return
         docs = await asyncio.to_thread(_read_answer_lines, path)
+        summary = await asyncio.to_thread(_read_answer_summary, path.with_name("answers.json"))
         n = await self._answer_book.seed(docs)
         logger.info("ai_answer seed: %d answers for %s", n, case_id)
+        models = {"main": self.settings.model, "lite": self.settings.model_lite}
+        for problem in self._answer_book.seed_problems(docs, summary, models=models):
+            logger.warning("ai_answer seed: %s", problem)
 
     async def _restore_duty(self) -> None:
         """The newest live Duty Officer run, so the Wall shows its brief after a restart."""
@@ -2480,7 +2484,13 @@ class Runtime:
                 volcano_id=flight.volcano_id,
                 flight_id=flight.id,
             )
-            return {"summary": f"{flight.proxy_flight}: same advice as an open draft"}
+            # The action too: a delegation's outcome reads the same whether the draft was
+            # stored now or was already open, so a kept Coordinator decision is not refused
+            # (CAME OUT OTHERWISE) for a difference that is not the decision's.
+            return {
+                "summary": f"{flight.proxy_flight}: same advice as an open draft",
+                "action": advisory.action.value,
+            }
         reason = (
             "INSIDE THE CONE NOW"
             if flight.inside_now
@@ -3101,6 +3111,18 @@ def _start_clock(settings: Settings, case: ReplayCase) -> tuple[datetime, dateti
     window = (settings.replay_start, settings.replay_end)
     start_replay_clock(case, speed=speed, begin=window[0], end=window[1], quantum_s=quantum_s)
     return window
+
+
+def _read_answer_summary(path: Path) -> dict[str, Any] | None:
+    """The ``answers.json`` written beside a seed file; None when absent or unreadable."""
+    if not path.is_file():
+        return None
+    try:
+        summary = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        logger.warning("skipping an unreadable %s", path)
+        return None
+    return summary if isinstance(summary, dict) else None
 
 
 def _read_answer_lines(path: Path) -> list[dict[str, Any]]:

@@ -88,6 +88,7 @@ tier.
 | Loops 2 and 3 of that run | 2 | 48 | 50 | 149 | 247 each: the same questions expired every loop |
 | Loop 1, cold, shipped rule (`material_question_replay_age_free`) | 29 | 276 | 588 | 319 | 1,184 |
 | Loop 2 of that run, from kept answers | 0 | 8 | 0 | 8 | 16 |
+| Loop 2 after the 15 Oct store fixes (the draft's minutes in its question; a delegation's outcome the same with its draft open) | 0 | 0 | 0 | 0 | 0 (loop 1 of that run: 29, 272, 588, 325; 1,186) |
 
 The replay minute (`TEPHRA_REPLAY_QUANTUM_S=60`) makes every loop and every deploy ask at the same
 replay instants, so a kept answer matches again. The planner and drafter questions are keyed by the
@@ -98,8 +99,22 @@ Two things were measured and not shipped: planning once per material question in
 with the aircraft), and the skill age limit on the replay clock (a question asked twice in a loop
 more than the limit apart was asked of the model again in every loop: 247 lighter asks a loop that
 never settled). In REPLAY a kept answer now serves its material question at any replay-clock age;
-in LIVE the age limit stands. The cold loop needs about three days of the free lighter budget
-(450 a day); after that the demo loop asks 16 lighter calls per 9 hours.
+in LIVE the age limit stands.
+
+An ask is one run, not one call. The quota counts HTTP calls, and an ADK run is several: on the
+live store a Flight planner run is six model calls (`get_flight`, `list_alternates`,
+`list_reroutes`, `check_level_band`, `submit_plan`, then the answer; `GET /api/advisories/<id>/chain`
+lists them), a Coordinator run three turns plus one per delegation, a draft one call. The cold
+window therefore costs about 5,000 lighter calls (planner 588 × 6, Coordinator 276 × ~4, drafter
+319): eleven quota days at 450 a day. On 15 Oct the day's 450 calls went in about 25 minutes of
+wall time (replay 11:17Z to 11:40Z). What would make the cold window cheaper, each an owner's
+decision: fewer planner calls per run (the facts the planner fetches with four tool calls every
+time, given in its question, or the four tools called in one turn); the planner's level keyed as
+its place against the hazard band instead of 2,000 ft steps (measured: 588 → 422 planner asks on
+this window, since climbing and descending Jakarta traffic is re-planned at every step under an
+unchanged band); a shorter replay window for the fill (10:30–13:30Z is 874 asks, 10:30–12:00Z is
+513); in REPLAY a plume read only for the case's volcano (29 → 14 main-model reads a loop) and
+none for an expiry-only product change (14 → 10).
 
 ## 5. Speed and tokens
 

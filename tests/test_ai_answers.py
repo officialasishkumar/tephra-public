@@ -23,7 +23,7 @@ from test_ask import make_runtime as ask_runtime
 from test_drafter import POLICY as DRAFTER_POLICY
 from test_drafter import change_level_case, make_assessment, make_cone, make_situation
 from test_duty_officer import ASSESS, PLAN_LATER, SRA, WORKLIST, FakeExecutor
-from test_pipeline import GIA417, SEMERU, FixtureSource, make_runtime, make_settings
+from test_pipeline import GIA417, SEMERU, FixtureSource, make_draft, make_runtime, make_settings
 from test_planner import make_ctx as planner_ctx
 
 from tephra import ai_worker as ai_worker_module
@@ -43,7 +43,12 @@ from tephra.agents.answers import (
 )
 from tephra.agents.ask import AskAnswer, AskClaim, AskReply, answer_question
 from tephra.agents.dispatch_drafter import draft_advisory, drafter_question
-from tephra.agents.duty_officer import DutyToolkit, coordinator_question, run_duty_officer
+from tephra.agents.duty_officer import (
+    OUTCOME_KEYS,
+    DutyToolkit,
+    coordinator_question,
+    run_duty_officer,
+)
 from tephra.agents.exposure_planner import (
     plan_flight,
     plan_key,
@@ -327,6 +332,51 @@ async def test_a_seeded_answer_never_overwrites_a_newer_one(
     assert newer.answered_at == AT + HOUR
 
 
+async def test_the_seed_says_once_why_its_lines_would_never_be_found(
+    tmp_path: Path, sqlite: SqliteStore, clock: FixedClock
+) -> None:
+    earlier = SqliteStore(tmp_path / "earlier.sqlite3", tmp_path / "earlier-blobs")
+    lines = await _lines_kept_by(earlier, (QUESTION, MODEL, {"n": 1}))
+    await earlier.aclose()
+    book = book_on(sqlite, Scope(CASE))
+    models = {"main": "main-model", "lite": MODEL}
+    planner_prompt = answers_module.prompt_version(
+        (answers_module.PROMPTS_DIR / "planner.md").read_text(encoding="utf-8")
+    )
+    fine = {"prompt_versions": {"planner": planner_prompt, "drafter": "0" * 16}}
+    assert book.seed_problems(lines, fine, models=models) == [], (
+        "a drafter prompt that changed: no drafter answers in the file"
+    )
+    assert book.seed_problems(lines, None, models=models) == [], "no answers.json: no word"
+    changed = {"prompt_versions": {"planner": "0" * 16}}
+    (problem,) = book.seed_problems(lines, changed, models=models)
+    assert problem.startswith("the planner prompt changed since the answers were given")
+    (problem,) = book.seed_problems(lines, None, models={"main": "m", "lite": "other-lite"})
+    assert problem.startswith(f"1 answers were given by {MODEL}, which no tier runs now")
+    other_recipe = [{**line, "key": "f" * 32} for line in lines]
+    (problem,) = book.seed_problems(other_recipe, None, models=models)
+    assert problem == "1 of 1 answers were kept under another key recipe and are not used"
+
+
+async def test_a_seed_line_already_in_the_store_is_read_once_and_remembered(
+    tmp_path: Path, sqlite: SqliteStore, clock: FixedClock
+) -> None:
+    earlier = SqliteStore(tmp_path / "earlier.sqlite3", tmp_path / "earlier-blobs")
+    lines = await _lines_kept_by(earlier, (QUESTION, MODEL, {"n": 1}))
+    await earlier.aclose()
+    await book_on(sqlite, Scope(CASE)).keep(
+        QUESTION, MODEL, {"n": 2}, prompt_hash="p" * 64, answered_at=AT + HOUR
+    )
+    store = _Counting(sqlite)
+    book = book_on(store, Scope(CASE))  # a new process: nothing in memory
+    assert await book.seed(lines) == 0
+    assert store.calls["get"] == 1
+    found = await book.recall(QUESTION, MODEL)
+    assert found is not None
+    assert found.payload == {"n": 2}, "what the store holds, not the line"
+    assert store.calls["get"] == 1, "remembered at the seed: the recall read nothing"
+
+
 async def test_stub_answers_are_never_seeded(
     tmp_path: Path, sqlite: SqliteStore, clock: FixedClock
 ) -> None:
@@ -455,6 +505,48 @@ async def test_the_sweep_removes_expired_answers_a_few_pages_at_a_time(
     assert await book.sweep() == 0, "at most one sweep each ten minutes"
 
 
+class _Counting:
+    """A store that counts its reads, so a test can say what a step cost."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.calls: Counter[str] = Counter()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    async def get(self, *args: Any, **kwargs: Any) -> Any:
+        self.calls["get"] += 1
+        return await self._inner.get(*args, **kwargs)
+
+    async def list_docs(self, *args: Any, **kwargs: Any) -> Any:
+        self.calls["list_docs"] += 1
+        return await self._inner.list_docs(*args, **kwargs)
+
+
+async def test_the_sweep_reads_a_page_only_when_an_answer_can_have_expired(
+    sqlite: SqliteStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The earliest expiry the last page showed, lowered by every keep since, is the floor:
+    a store of long-lived replay answers costs no reads between expiries."""
+    monkeypatch.setattr(answers_module, "SWEEP_EVERY", timedelta(0))
+    store = _Counting(sqlite)
+    book = book_on(store, ai_answer_keep_h=1)
+    assert await book.sweep() == 0
+    assert store.calls["list_docs"] == 1, "the first sweep of a process reads a page"
+    assert await book.sweep() == 0
+    assert store.calls["list_docs"] == 1, "an empty store: nothing to sweep until a keep"
+    await book.keep(QUESTION, "lite", {"n": 1}, prompt_hash="p", answered_at=AT)
+    assert await book.sweep() == 0
+    assert store.calls["list_docs"] == 1, "kept for an hour: no page until then"
+    gone = QUESTION._replace(material={"flight": "f2"}, max_age=timedelta(0))
+    await book.keep(gone, "lite", {"n": 2}, prompt_hash="p", answered_at=AT)
+    assert await book.sweep() == 1, "expired as it was kept: the keep lowered the floor"
+    assert store.calls["list_docs"] == 2
+    assert await book.sweep() == 0
+    assert store.calls["list_docs"] == 2, "the hour-long answer is the floor again"
+
+
 class _Snapshot:
     def __init__(self, data: dict[str, Any] | None) -> None:
         self._data = data
@@ -554,13 +646,12 @@ def _moved(ctx: Any, **flight: Any) -> Any:
     return ctx.model_copy(update={"flight": ctx.flight.model_copy(update=flight)})
 
 
-def test_a_flight_that_moves_on_asks_the_same_question() -> None:
+def test_a_flight_that_moves_on_asks_the_same_question_until_its_minutes_change() -> None:
     ctx = planner_ctx()
     same = _moved(
         ctx,
         lat=ctx.flight.lat + 0.07,  # about 5 NM
         lon=ctx.flight.lon + 0.03,
-        minutes_to_entry=10,
         alt_baro_ft=17_900,
         observed_at=AT + timedelta(minutes=2),
         source_id="ADSB:other",
@@ -568,6 +659,9 @@ def test_a_flight_that_moves_on_asks_the_same_question() -> None:
     assert _planner_q(same) == _planner_q(ctx)
     plan = change_level_case()[1]
     assert _drafter_q(same, plan) == _drafter_q(ctx, plan)
+    nearer = _moved(same, minutes_to_entry=10)
+    assert _planner_q(nearer) == _planner_q(ctx), "two minutes nearer, the same bucket"
+    assert _drafter_q(nearer, plan) != _drafter_q(ctx, plan), "the body names the minutes"
 
 
 def test_every_material_change_is_a_new_plan_question() -> None:
@@ -640,6 +734,10 @@ def test_every_material_change_is_a_new_draft_question() -> None:
     higher = ctx.model_copy(update={"hazard_top_ft": ctx.hazard_top_ft + 2000})
     assert _drafter_q(higher, plan) != base, "the hazard band changed"
     assert _drafter_q(ctx, plan, policy="2026.10.2") != base, "drafted under another policy"
+    sooner = _moved(ctx, minutes_to_entry=ctx.flight.minutes_to_entry - 1)
+    assert _drafter_q(sooner, plan) != base, "a minute nearer: the body's ENTRY N MIN figure"
+    inside = _moved(ctx, inside_now=True, minutes_to_entry=0)
+    assert _drafter_q(inside, plan).material["entry_min"] is None, "INSIDE NOW names none"
 
 
 def test_the_plume_question_is_the_products_and_the_disagreements() -> None:
@@ -1044,6 +1142,63 @@ async def test_the_coordinators_decisions_are_made_again_through_the_same_tools(
     other_work = [item.model_copy(update={"mandatory": True}) for item in WORKLIST]
     await _coordinate(book, FakeExecutor(), worklist=other_work)
     assert agents.runs["coordinator"] == 2, "other work: another question"
+
+
+class OpenDraftPlans(FakeExecutor):
+    """The pipeline's plan results: a draft stored on the first ask, the same advice found
+    open on the next (``Runtime._commit_draft``)."""
+
+    async def plan(self, flight_id: str) -> dict[str, Any]:
+        first = ("plan", flight_id) not in self.calls
+        self.calls.append(("plan", flight_id))
+        if first:
+            return {
+                "summary": f"{flight_id}: DRAFT MONITOR for a dispatcher",
+                "advisory_id": "adv_000000000001",
+                "action": "MONITOR",
+            }
+        return {"summary": f"{flight_id}: same advice as an open draft", "action": "MONITOR"}
+
+
+async def test_a_decision_is_not_refused_because_its_draft_is_already_open(
+    sqlite: SqliteStore, clock: FixedClock, agents: Agents
+) -> None:
+    """Next loop the plan delegation finds the draft it made still open: the same advice is
+    the same outcome, and the kept decision serves (this cost eight Coordinator runs a
+    loop on the Krakatau window)."""
+    book = book_on(sqlite)
+    executor = OpenDraftPlans()
+    await _coordinate(book, executor)
+    assert agents.runs["coordinator"] == 1
+
+    clock.set(AT + timedelta(minutes=2))
+    again = await _coordinate(book, executor)
+    assert agents.runs["coordinator"] == 1, "the delegation came out the same"
+    assert book.counts[("coordinator", "hit")] == 1
+    assert again.outcome == "ACCEPTED"
+
+
+async def test_the_pipeline_reports_the_action_when_the_same_advice_is_already_open(
+    tmp_path: Path,
+) -> None:
+    """A draft stored and the same advice found open read the same to the Coordinator's
+    re-check: the keys ``OUTCOME_KEYS`` names agree."""
+    runtime = make_runtime(make_settings(tmp_path), FixtureSource())
+    try:
+        ctx, plan = change_level_case()
+        draft = make_draft("adv_000000000001", replay=False, flight_id=ctx.flight.id)
+        report = TickReport(started_at=AT, finished_at=AT, mode=RunMode.LIVE, reason="manual")
+        stored = await runtime._commit_draft(ctx, ctx.flight, plan, draft, 1, report, [])
+        same = draft.model_copy(update={"id": "adv_000000000002"})  # the dedupe key stays
+        found = await runtime._commit_draft(ctx, ctx.flight, plan, same, 1, report, [])
+    finally:
+        await runtime.aclose()
+    assert "advisory_id" in stored
+    assert "advisory_id" not in found
+    assert report.drafts_created == 1
+    assert {k: v for k, v in stored.items() if k in OUTCOME_KEYS} == {
+        k: v for k, v in found.items() if k in OUTCOME_KEYS
+    }
 
 
 class FailingPlans(FakeExecutor):

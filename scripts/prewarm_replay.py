@@ -197,14 +197,17 @@ def is_stub_answer(doc: dict[str, Any]) -> bool:
 async def export(
     store: Store, case_id: str, out_dir: Path, settings: Settings, *, allow_stub: bool
 ) -> dict[str, Any]:
-    docs = await store.list_docs(
-        Collection.AI_ANSWERS, limit=100_000, order_by="stored_at", descending=False
+    # No server order: Firestore returns only documents that carry the ordered field, and an
+    # answer copies nothing but expires_at beside its JSON text. Sorted here instead.
+    docs = await store.list_docs(Collection.AI_ANSWERS, limit=100_000)
+    kept = sorted(
+        (
+            doc
+            for doc in docs
+            if doc.get("mode") == RunMode.REPLAY.value and doc.get("case_id") == case_id
+        ),
+        key=lambda doc: (str(doc.get("stored_at", "")), str(doc.get("key", ""))),
     )
-    kept = [
-        doc
-        for doc in docs
-        if doc.get("mode") == RunMode.REPLAY.value and doc.get("case_id") == case_id
-    ]
     stub = [doc for doc in kept if is_stub_answer(doc)]
     if stub and not allow_stub:
         raise SystemExit(

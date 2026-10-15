@@ -1925,8 +1925,8 @@ Core rules:
   |---|---|---|
   | Plume reader | the products by content (`input_hash`), the discrepancies by id and severity, the supporting evidence (the Satellite Reader's reading of the newest frames: source id and text hash) | `REASK_UNCHANGED` (3 h) |
   | Satellite reader | the volcano, the scans read (source ids and times) | none |
-  | Flight planner | flight, cone id and `cone_version`, plume mode, allowed actions, policy version, urgency band (inside, within the divert limit, within the hold limit, later), level in 2,000 ft steps, open alternates | `ai_answer_plan_min` (60 min) |
-  | Drafter | flight, cone id and version, policy version, action and its target (band, hold FL, alternate, reroute option) | `ai_answer_plan_min` |
+  | Flight planner | flight, plume mode, allowed actions, policy version, urgency band (inside, within the divert limit, within the hold limit, later), level in 2,000 ft steps, hazard band, open alternates, usable reroutes by their content (not the cone's id or version) | `ai_answer_plan_min` (60 min) |
+  | Drafter | flight, policy version, action and its target (band, hold FL, alternate, reroute option), hazard band, urgency band and, while approaching, the minutes to entry the body names (not the cone's id or version) | `ai_answer_plan_min` |
   | Coordinator | the policy version and the work list's item kinds, subjects, mandatory flags and urgency buckets (not the digest: budget counts and other moving lines are left out) | `ai_answer_duty_min` (30 min); deferrals only within `duty.rerun_min` |
   | Notice reader | the normalised text | none |
   | Messages | the template spec (kind, status, jurisdiction, languages, placeholders: everything the model sees) | none |

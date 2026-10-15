@@ -33,10 +33,11 @@ earlier run kept (``answers/ai_answers.jsonl``); :meth:`AiAnswers.seed` puts the
 
 import logging
 from collections import Counter, OrderedDict
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Final, Literal, NamedTuple
 
 from pydantic import BaseModel, ValidationError
@@ -83,6 +84,11 @@ SWEEP_PAGE: Final = 50
 SWEEP_PAGES: Final = 10
 """At most this many pages a sweep, so a checkpoint never pages through a large backlog"""
 SWEEP_EVERY: Final = timedelta(minutes=10)
+NOTHING_TO_SWEEP: Final = datetime.max.replace(tzinfo=UTC)
+"""The sweep's floor when a page showed nothing left to expire: no read until a keep."""
+PROMPTS_DIR: Final = Path(__file__).resolve().parent / "prompts"
+_PROMPT_SKILL: Final = {"planner": "flight_planner", "duty_officer": "coordinator"}
+"""Prompt files named otherwise than the skill they instruct"""
 
 _ON_HAND_ONLY: ContextVar[bool] = ContextVar("tephra_ai_on_hand_only", default=False)
 
@@ -170,6 +176,9 @@ class AiAnswers:
         self._replay_keep = timedelta(hours=settings.ai_answer_replay_keep_h)
         self._memo: OrderedDict[str, AiAnswer | None] = OrderedDict()
         self._swept_at: datetime | None = None
+        self._next_expiry: datetime | None = None
+        """The earliest expiry the last sweep page showed, lowered by every keep since; None
+        until a page has said (a sweep then reads one)"""
         self.counts: Counter[tuple[Skill, Outcome]] = Counter()
         """Outcomes per skill since the process started (logged as they happen)"""
 
@@ -245,16 +254,26 @@ class AiAnswers:
             logger.warning("keeping a %s answer failed: %s", question.skill, exc)
             return
         self._remember(key, answer)
+        self._lower_floor(answer.expires_at)
         self._note(question.skill, "kept", now)
 
     async def sweep(self) -> int:
         """Delete expired answers, oldest expiry first, at most every ten minutes and at most
         :data:`SWEEP_PAGES` pages a time; how many went. Ordered by ``expires_at`` alone, so
-        Firestore answers it from its single-field index."""
+        Firestore answers it from its single-field index.
+
+        A page is read only when something can have expired: the earliest expiry the last
+        page showed, lowered by every answer kept since, is the floor (a store of 90-day
+        replay answers cost 50 reads every ten minutes to delete nothing). An answer another
+        process kept with an earlier expiry waits for this floor; it is never served
+        meanwhile (``_good`` refuses it)."""
         wall = timeutil.SystemClock().now()
         if self._swept_at is not None and wall - self._swept_at < SWEEP_EVERY:
             return 0
+        if self._next_expiry is not None and wall < self._next_expiry:
+            return 0
         self._swept_at = wall
+        self._next_expiry = None
         removed = 0
         for _ in range(SWEEP_PAGES):
             docs = await self._store.list_docs(
@@ -267,10 +286,16 @@ class AiAnswers:
                 self._memo.pop(key, None)
             removed += len(expired)
             if len(expired) < SWEEP_PAGE:
+                self._next_expiry = _next_expiry(docs, wall)
                 break
         if removed:
             logger.info("removed %d expired AI answer(s)", removed)
         return removed
+
+    def _lower_floor(self, expires_at: datetime) -> None:
+        """An answer kept now may expire before the floor a sweep page established."""
+        if self._next_expiry is not None and expires_at < self._next_expiry:
+            self._next_expiry = expires_at
 
     def seeded_key(self, doc: Mapping[str, Any]) -> str | None:
         """The key a stored answer has under the recipe in force; None when a field is missing.
@@ -296,7 +321,8 @@ class AiAnswers:
         recall still goes through recall_as and the skill's validators.
 
         Only REPLAY answers of the case playing, under the key recipe in force and from a real
-        model, go in; an answer already in the store is left alone (it is at least as new).
+        model, go in; an answer already in the store is left alone (it is at least as new)
+        unless it has expired.
         Each seeded answer gets a fresh expiry; the times it was given and kept at stay.
         """
         case_id = self.scope().case_id
@@ -316,15 +342,68 @@ class AiAnswers:
                 logger.warning("ignoring an unreadable seed answer %s", key)
                 continue
             try:
-                if await self._store.get(Collection.AI_ANSWERS, key) is not None:
+                existing = await self._store.get(Collection.AI_ANSWERS, key)
+                if existing is not None and not _expired(existing, wall):
+                    # Read once: remembered, the loop's first recall is served from memory.
+                    self._remember_doc(key, existing)
                     continue
                 await self._store.put(Collection.AI_ANSWERS, key, answer.model_dump(mode="json"))
             except Exception as exc:
                 logger.warning("seeding a %s answer failed: %s", answer.skill, exc)
                 continue
             self._remember(key, answer)
+            self._lower_floor(answer.expires_at)
             seeded += 1
         return seeded
+
+    def seed_problems(
+        self,
+        lines: Sequence[Mapping[str, Any]],
+        summary: Mapping[str, Any] | None,
+        *,
+        models: Mapping[str, str],
+    ) -> list[str]:
+        """Why a seed file's answers would never be found, said once at restore: lines of the
+        case kept under another key recipe, a model no tier runs now, and a prompt that
+        changed since a skill's answers were given (``answers.json`` beside the file records
+        the prompt versions). A line serves only when the same model is put its material
+        question under the same prompt."""
+        case_id = self.scope().case_id
+        ours = [
+            doc
+            for doc in lines
+            if doc.get("mode") == RunMode.REPLAY.value and doc.get("case_id") == case_id
+        ]
+        stale = sum(1 for doc in ours if self.seeded_key(doc) != doc.get("key"))
+        problems: list[str] = []
+        if stale:
+            problems.append(
+                f"{stale} of {len(ours)} answers were kept under another key recipe"
+                " and are not used"
+            )
+        given_by = Counter(str(doc.get("model_id")) for doc in ours)
+        for model_id, count in sorted(given_by.items()):
+            if model_id not in models.values():
+                problems.append(
+                    f"{count} answers were given by {model_id}, which no tier runs now"
+                    f" ({', '.join(f'{tier} {name}' for tier, name in sorted(models.items()))})"
+                    ": they will not match"
+                )
+        versions = summary.get("prompt_versions") if summary is not None else None
+        if not isinstance(versions, Mapping):
+            return problems
+        skills = {str(doc.get("skill")) for doc in ours}
+        for stem, version in sorted(versions.items()):
+            path = PROMPTS_DIR / f"{stem}.md"
+            if _PROMPT_SKILL.get(stem, stem) not in skills or not path.is_file():
+                continue
+            now = prompt_version(path.read_text(encoding="utf-8"))
+            if now != version:
+                problems.append(
+                    f"the {stem} prompt changed since the answers were given"
+                    f" ({version} now {now}): its answers will not match"
+                )
+        return problems
 
     def note_not_on_hand(self, skill: Skill, scope: AnswerScope) -> None:
         self._note(skill, "not_on_hand", scope)
@@ -344,6 +423,11 @@ class AiAnswers:
         except Exception as exc:
             logger.warning("reading a kept AI answer failed: %s", exc)
             return None
+        return self._remember_doc(key, doc)
+
+    def _remember_doc(self, key: str, doc: Mapping[str, Any] | None) -> AiAnswer | None:
+        """What the store holds under the key, remembered: an answer, or None for nothing
+        there or a document that does not read."""
         answer: AiAnswer | None = None
         if doc is not None:
             try:
@@ -458,3 +542,17 @@ def _good(answer: AiAnswer, question: Question) -> bool:
 def _expired(doc: Mapping[str, Any], wall: datetime) -> bool:
     expires = doc.get("expires_at")
     return isinstance(expires, str) and expires <= timeutil.to_iso(wall)
+
+
+def _next_expiry(docs: Iterable[Mapping[str, Any]], wall: datetime) -> datetime:
+    """The earliest expiry still ahead on a page ordered by expiry; with none, nothing is
+    left to sweep until an answer is kept."""
+    for doc in docs:
+        expires = doc.get("expires_at")
+        if not isinstance(expires, str) or _expired(doc, wall):
+            continue
+        try:
+            return timeutil.parse_iso(expires)
+        except ValueError:
+            continue
+    return NOTHING_TO_SWEEP
