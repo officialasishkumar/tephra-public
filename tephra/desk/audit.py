@@ -50,6 +50,10 @@ GENESIS_SHA256: Final = "0" * 64
 WALK_LIMIT: Final = 100_000
 """Entries one walk reads (one ``list_docs``; neither store pages)"""
 NOT_WALKED: Final = "not yet walked on this instance"
+WALK_PROBLEMS: Final = 50
+"""Problems one walk lists; the rest are counted (a fork once cascaded into thousands)"""
+CATCH_UP_LIMIT: Final = 5_000
+"""Entries read after the held head when the newest entry is not it (a rollout overlap)"""
 _locks: "weakref.WeakKeyDictionary[Store, asyncio.Lock]" = weakref.WeakKeyDictionary()
 _chains: "weakref.WeakKeyDictionary[Store, AuditChain]" = weakref.WeakKeyDictionary()
 
@@ -97,6 +101,7 @@ async def record(
 ) -> AuditEntry:
     async with _lock(store):
         previous = await _last_entry(store)
+        await _catch_up(store, chain(store), previous)
         unsigned = ChainedAuditEntry(
             id=uuid4().hex,
             at=timeutil.now(),
@@ -117,6 +122,33 @@ async def record(
         await store.append_audit(entry)
         _advance(chain(store), previous, entry)
         return entry
+
+
+async def _catch_up(store: Store, held: AuditChain, previous: ChainedAuditEntry | None) -> None:
+    """When the newest entry is not the head this process holds, another instance wrote
+    after it (a rollout overlap: the serving instance kept appending while the candidate
+    walked). Walk only what came after the head: when those entries link up to the head and
+    end at the newest, the head moves to the newest and nothing is flagged; the next append
+    then marks the overlap and asks for a full walk."""
+    head = held.head
+    if head is None or previous is None:
+        return
+    if previous.seq == head.seq and previous.sha256 == head.sha256:
+        return
+    if previous.seq <= head.seq:
+        return
+    docs = await store.query(
+        Collection.AUDIT,
+        [Where("seq", ">", head.seq)],
+        order_by="seq",
+        descending=False,
+        limit=CATCH_UP_LIMIT,
+    )
+    tail = _walk(docs, start_seq=head.seq, start_sha256=head.sha256)
+    if tail.intact and (tail.seq, tail.sha256) == (previous.seq, previous.sha256):
+        held.head = head.model_copy(
+            update={"seq": tail.seq, "sha256": tail.sha256, "entries": head.entries + tail.entries}
+        )
 
 
 def _advance(
@@ -198,32 +230,61 @@ def restore_head(store: Store, doc: Mapping[str, Any] | None) -> ChainHead | Non
     return head
 
 
-def _walk(docs: Sequence[Mapping[str, Any]]) -> ChainHead:
+def _walk(
+    docs: Sequence[Mapping[str, Any]], *, start_seq: int = 0, start_sha256: str = GENESIS_SHA256
+) -> ChainHead:
+    """Walk entries in ``seq`` order from the entry ``start_seq``/``start_sha256`` (genesis by
+    default). Two entries at one seq are a fork: both are followed, so the entry after a fork
+    links to either branch and a run of forked seqs is one problem, not one per entry after
+    it. A seq that skips ahead is named once, then the walk goes on from it. The list of
+    problems is capped (``WALK_PROBLEMS``); the count of the rest is its last line."""
     problems: list[str] = []
-    expected_prev = GENESIS_SHA256
-    seen_seq = 0
+    seen_seq = start_seq
+    branches: set[str] = {start_sha256}  # sha256 of every entry at seen_seq
+    growing: set[str] = set()  # sha256 of every entry at the seq being read
+    fork_run: tuple[int, int] | None = None
     last: ChainedAuditEntry | None = None
-    for position, doc in enumerate(docs, start=1):
+
+    def close_fork_run() -> None:
+        nonlocal fork_run
+        if fork_run is not None:
+            first, until = fork_run
+            problems.append(
+                f"fork at seq {first}" if first == until else f"fork at seq {first}-{until}"
+            )
+            fork_run = None
+
+    for doc in docs:
         try:
             entry = ChainedAuditEntry.model_validate(doc)
         except ValidationError:
             problems.append(f"entry {doc.get('id')!r} is not a chained audit entry")
-            expected_prev = ""
+            branches, growing = set(), set()
             continue
-        if entry.seq == seen_seq:
-            problems.append(f"fork at seq {entry.seq}")
-        elif entry.seq != position:
-            problems.append(f"entry {entry.id}: seq {entry.seq}, expected {position}")
-        if entry.prev_sha256 != expected_prev:
+        if entry.seq == seen_seq and last is not None:
+            fork_run = (entry.seq, entry.seq) if fork_run is None else (fork_run[0], entry.seq)
+        else:
+            if fork_run is not None and seen_seq != fork_run[1]:
+                close_fork_run()
+            if entry.seq != seen_seq + 1:
+                problems.append(f"entry {entry.id}: seq {entry.seq}, expected {seen_seq + 1}")
+            if growing:
+                branches = growing
+            growing = set()
+            seen_seq = entry.seq
+        if entry.prev_sha256 not in branches:
             problems.append(f"broken link at seq {entry.seq}")
         if entry.sha256 != entry_digest(entry):
             problems.append(f"entry {entry.id}: content does not match its hash")
-        expected_prev = entry.sha256
-        seen_seq = entry.seq
+        growing.add(entry.sha256)
         last = entry
+    close_fork_run()
+    if len(problems) > WALK_PROBLEMS:
+        rest = len(problems) - WALK_PROBLEMS
+        problems = [*problems[:WALK_PROBLEMS], f"{rest} more problems not listed"]
     return ChainHead(
-        seq=0 if last is None else last.seq,
-        sha256=GENESIS_SHA256 if last is None else last.sha256,
+        seq=start_seq if last is None else last.seq,
+        sha256=start_sha256 if last is None else last.sha256,
         checked_at=timeutil.SystemClock().now(),
         entries=len(docs),
         intact=not problems,

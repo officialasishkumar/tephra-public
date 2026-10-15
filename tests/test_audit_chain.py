@@ -229,7 +229,12 @@ async def test_an_empty_chain_has_a_genesis_head(store: CountingStore) -> None:
 # --- another writer (a rollout overlap) -----------------------------------------------------
 
 
-async def test_another_writer_marks_the_head_not_intact(tmp_path: Path) -> None:
+async def test_another_writer_that_linked_correctly_is_caught_up_silently(
+    tmp_path: Path,
+) -> None:
+    """A rollout overlap: the serving instance keeps appending while the candidate holds an
+    older head. The candidate's next append walks only what came after its head; those
+    entries link up, so the head moves on and nothing is flagged."""
     path, blobs = tmp_path / "shared.sqlite3", tmp_path / "blobs"
     serving = CountingStore(path, blobs)
     candidate = SqliteStore(path, blobs)
@@ -237,7 +242,37 @@ async def test_another_writer_marks_the_head_not_intact(tmp_path: Path) -> None:
         await append(serving, 2, note="serving")
         assert (await audit.verify_head(serving)).intact is True
 
-        await append(candidate, 1, note="candidate")
+        await append(candidate, 3, note="candidate")
+        mine = await append(serving, 1, note="serving again")
+        head = audit.chain(serving).head
+        assert head is not None
+        assert head.intact is True
+        assert head.problems == []
+        assert (head.seq, head.sha256) == (6, mine[0].sha256), "advanced from the entry written"
+        assert head.entries == 6
+        assert audit.chain(serving).rewalk is False
+        assert serving.walks == 1, "no full walk: only the three entries after the head were read"
+
+        walked = await audit.verify_head(serving)
+        assert walked.intact is True
+        assert walked.entries == 6
+    finally:
+        await candidate.aclose()
+        await serving.aclose()
+
+
+async def test_another_writer_that_forked_marks_the_head_not_intact(tmp_path: Path) -> None:
+    path, blobs = tmp_path / "shared.sqlite3", tmp_path / "blobs"
+    serving = CountingStore(path, blobs)
+    candidate = SqliteStore(path, blobs)
+    try:
+        written = await append(serving, 2, note="serving")
+        assert (await audit.verify_head(serving)).intact is True
+
+        stray = written[1].model_copy(
+            update={"id": "stray", "seq": 3, "prev_sha256": "f" * 64, "note": "a bad link"}
+        )
+        await candidate.append_audit(stray.model_copy(update={"sha256": audit.entry_digest(stray)}))
         mine = await append(serving, 1, note="serving again")
         head = audit.chain(serving).head
         assert head is not None
@@ -253,12 +288,41 @@ async def test_another_writer_marks_the_head_not_intact(tmp_path: Path) -> None:
         assert later.seq == 5
 
         walked = await audit.verify_head(serving)
-        assert walked.intact is True, "the other writer linked correctly; the chain holds"
+        assert walked.intact is False
+        assert walked.problems == ["broken link at seq 3"]
         assert walked.entries == 5
         assert audit.chain(serving).rewalk is False
     finally:
         await candidate.aclose()
         await serving.aclose()
+
+
+async def test_a_run_of_forks_is_one_problem_and_the_walk_goes_on(store: CountingStore) -> None:
+    """Two instances that appended side by side for five seqs (the live chain's history) are
+    one problem, not one per entry after them; the entry after the run links to either
+    branch, and the list is capped."""
+    written = await append(store, 3)
+    other_prev = written[2].sha256
+    for seq in range(4, 9):
+        mine = (await append(store, 1, note=f"mine {seq}"))[0]
+        assert mine.seq == seq
+        other = mine.model_copy(
+            update={"id": f"other-{seq}", "prev_sha256": other_prev, "note": f"other {seq}"}
+        )
+        other = other.model_copy(update={"sha256": audit.entry_digest(other)})
+        await store.append_audit(other)
+        other_prev = other.sha256
+    await append(store, 3, note="after the overlap")
+
+    head = await audit.verify_head(store)
+    assert head.problems == ["fork at seq 4-8"]
+    assert head.intact is False
+    assert head.entries == 16
+    assert head.seq == 11
+
+    capped = audit._walk([{"id": f"bad-{i}"} for i in range(audit.WALK_PROBLEMS + 7)])
+    assert len(capped.problems) == audit.WALK_PROBLEMS + 1
+    assert capped.problems[-1] == "7 more problems not listed"
 
 
 async def test_a_checkpoint_walks_again_only_when_marked(tmp_path: Path) -> None:
@@ -269,8 +333,11 @@ async def test_a_checkpoint_walks_again_only_when_marked(tmp_path: Path) -> None
     try:
         await runtime.restore()
         assert store.walks == 1
-        await append(store, 1, note="mine")
-        await append(other, 1, note="theirs")
+        mine = (await append(store, 1, note="mine"))[0]
+        stray = mine.model_copy(
+            update={"id": "stray", "seq": 2, "prev_sha256": "f" * 64, "note": "badly linked"}
+        )
+        await other.append_audit(stray.model_copy(update={"sha256": audit.entry_digest(stray)}))
         await append(store, 1, note="mine again")
         assert audit.chain(store).rewalk is True
         held = runtime.audit_head
@@ -281,7 +348,7 @@ async def test_a_checkpoint_walks_again_only_when_marked(tmp_path: Path) -> None
         assert store.walks == 2, "the marked re-walk ran at the checkpoint"
         head = runtime.audit_head
         assert head is not None
-        assert (head.seq, head.intact, head.problems) == (3, True, [])
+        assert (head.seq, head.intact, head.problems) == (3, False, ["broken link at seq 2"])
         persisted = await store.get(Collection.RUNTIME, AUDIT_HEAD_DOC)
         assert persisted is not None
         assert persisted == head.model_dump(mode="json")
