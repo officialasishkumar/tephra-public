@@ -425,6 +425,21 @@ async def test_an_answer_lives_as_long_as_its_question_allows(
     assert await book.recall(forever, "lite") is not None, "a notice's text never ages"
 
 
+async def test_a_replay_answer_serves_its_question_at_any_replay_age(
+    sqlite: SqliteStore, clock: FixedClock
+) -> None:
+    """A replay loop plays the same minutes again; the material question is the situation,
+    so the kept answer is good before and after the minute it was given in, however far."""
+    book = book_on(sqlite, Scope(AnswerScope(RunMode.REPLAY, "case-a")))
+    await book.keep(QUESTION, "lite", {"n": 1}, prompt_hash="p", answered_at=AT)
+    clock.set(AT + timedelta(minutes=90))
+    assert await book.recall(QUESTION, "lite") is not None, "later in the loop"
+    clock.set(AT - timedelta(minutes=90))
+    assert await book.recall(QUESTION, "lite") is not None, "the next loop, before its minute"
+    assert book.counts[("flight_planner", "hit")] == 2
+    assert ("flight_planner", "expired") not in book.counts
+
+
 async def test_the_sweep_removes_expired_answers_a_few_pages_at_a_time(
     sqlite: SqliteStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -441,9 +441,17 @@ def _key_of(mode: str, case_id: str | None, model_id: str, skill: str, fingerpri
 
 
 def _good(answer: AiAnswer, question: Question) -> bool:
-    """Not past the store's expiry, nor (on the run's clock) past the skill's age limit."""
+    """Not past the store's expiry, nor (LIVE, on the run's clock) past the skill's age limit.
+
+    A replay plays the same minutes again: the material question is the situation, so a kept
+    REPLAY answer serves the question whenever the loop asks it, before or after the minute
+    it was given in. With the age limit, a question asked twice in a loop more than the
+    limit apart was asked of the model again in every loop (247 lighter asks per loop on the
+    Krakatau window), never settling."""
     if answer.expires_at <= timeutil.SystemClock().now():
         return False
+    if answer.mode is RunMode.REPLAY:
+        return True
     return question.max_age is None or answer.age(timeutil.now()) <= question.max_age
 
 
