@@ -175,7 +175,12 @@ async function visitorContext(w, h) {
         if (blocked) decided = "reject";
         await page.screenshot({ path: path.join(OUT, "desk-review-390x844.png") });
         await decide(page, decided);
-        const receipt = await page.locator("#sheet-receipts, #q-receipt").first().innerText().catch(() => "");
+        const readReceipt = () => {
+          for (const id of ["sheet-receipts", "q-receipt"]) { const t = document.getElementById(id)?.textContent?.trim(); if (t) return t; }
+          return [...document.querySelectorAll("[class*=receipt]")].map((n) => n.textContent.trim()).find(Boolean) || "";
+        };
+        await page.waitForFunction(readReceipt, null, { timeout: 8000 }).catch(() => {});
+        const receipt = await page.evaluate(readReceipt);
         if (!receipt.trim()) fail("desk receipt", "no receipt line after the decision"); else pass("desk receipt", receipt.trim().split("\n")[0]);
         await page.screenshot({ path: path.join(OUT, "desk-receipt-390x844.png") });
       }

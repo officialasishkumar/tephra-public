@@ -245,15 +245,16 @@ for (const [w, h, list] of [[1440, 900, SECTIONS], [1280, 720, ["flights", "sour
     if (sec === "decisions" && w === 1440) {
       // "Why ›" on a draft opens the reasoning chain: four steps (SPEC T22).
       try {
-        let why = page.locator("#flights .dk-dec__why").first();
-        if (!(await why.count()) || !(await why.isVisible())) {
-          const summary = page.locator("#flights details:not([open]) > summary").first();
-          if (await summary.count()) { await summary.click(); await page.waitForTimeout(400); why = page.locator("#flights .dk-dec__why").first(); }
+        let why = page.locator("#details .dk-dec__why").first();
+        if (!(await why.count())) {
+          const summary = page.locator("#decisions details:not([open]) > summary").first();
+          if (await summary.count()) { await summary.dispatchEvent("click"); await page.waitForTimeout(400); why = page.locator("#details .dk-dec__why").first(); }
         }
         if (await why.count()) {
-          await why.click();
+          // dispatched, not clicked: the row sits under the drawer's sticky header after the scroll
+          await why.dispatchEvent("click");
           await page.waitForTimeout(1200);
-          const steps = await page.locator("#flights .chain__step").count();
+          const steps = await page.locator("#details .chain__step").count();
           if (steps === 4) pass("why chain", "four steps"); else fail("why chain", `${steps} .chain__step after Why ›`);
           shots.push(await shot(page, `details-${tag}-${w}-why`));
         } else {
