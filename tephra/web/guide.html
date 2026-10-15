@@ -21,6 +21,16 @@
   <link rel="stylesheet" href="/static/wall.css">
   <link rel="stylesheet" href="/static/guide.css">
   <script type="module" src="/static/guide.js"></script>
+  <!-- every module guide.js imports, fetched at once (tests/test_modulepreload.py) -->
+  <link rel="modulepreload" href="/static/wall/case.js">
+  <link rel="modulepreload" href="/static/wall/controls.js">
+  <link rel="modulepreload" href="/static/wall/dk.js">
+  <link rel="modulepreload" href="/static/wall/explain.js">
+  <link rel="modulepreload" href="/static/wall/features.js">
+  <link rel="modulepreload" href="/static/wall/glossary.js">
+  <link rel="modulepreload" href="/static/wall/policy.js">
+  <link rel="modulepreload" href="/static/wall/util.js">
+  <link rel="modulepreload" href="/static/wall/x-parts.js">
 </head>
 <!-- The guide (UI-DESIGN 7.22): everything the Wall used to explain in its Help, About and policy
      dialogs, on one page of its own, so the Wall and the Desk show the situation and not the manual.

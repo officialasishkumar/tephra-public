@@ -493,23 +493,29 @@ function openStream() {
   source.onerror = () => { if (shouldReopen(source.readyState)) { source.close(); setTimeout(openStream, STREAM_RETRY_MS); } };
 }
 
+// The page draws as each part arrives: the map, the tabs and the sign-in first, then the live
+// numbers. The sample file only fills the API tab's example values (it is built on request and
+// takes about two seconds), so nothing waits for it.
 async function boot() {
-  $("cx-flows").replaceChildren(el("li", { class: "cx-skel" }), el("li", { class: "cx-skel" }));
-  const [state, me, format, sample] = await Promise.all([call("/api/state"), call("/api/desk/me"), call("/api/connect/format"), call("/api/connect/sample.json")]);
+  const [state, me, format] = await Promise.all([call("/api/state"), call("/api/desk/me"), call("/api/connect/format")]);
   app.state = state.ok ? state.data : null;
   setFeatures(app.state?.features);
   applyFeatureNav();
   app.me = me.ok ? me.data : null;
   app.format = format.ok ? format.data : null;
-  app.example = sample.ok ? sample.data : null;
-  await Promise.all([loadConnections(), loadLive({ first: true })]);
-  document.body.classList.remove("is-loading");
+  if (window.maplibregl) buildMap();
+  else window.addEventListener("load", buildMap, { once: true });
   renderPublic();
   renderMe();
   renderPanel();
+  call("/api/connect/sample.json").then((sample) => {
+    app.example = sample.ok ? sample.data : null;
+    if (app.tab === "api") renderPanel();
+  });
+  await Promise.all([loadConnections(), loadLive({ first: true })]);
+  document.body.classList.remove("is-loading");
+  if (app.tab === "sample") renderPanel();
   renderKpis();
-  if (window.maplibregl) buildMap();
-  else window.addEventListener("load", buildMap, { once: true });
   openStream();
   setInterval(() => loadLive(), 10_000);
 }

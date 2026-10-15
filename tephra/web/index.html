@@ -24,6 +24,30 @@
   <link rel="stylesheet" href="/static/wall.css">
   <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script type="module" src="/static/wall.js"></script>
+  <!-- every module wall.js imports, fetched at once (tests/test_modulepreload.py) -->
+  <link rel="modulepreload" href="/static/wall/basemap.js">
+  <link rel="modulepreload" href="/static/wall/board-view.js">
+  <link rel="modulepreload" href="/static/wall/board.js">
+  <link rel="modulepreload" href="/static/wall/case.js">
+  <link rel="modulepreload" href="/static/wall/chain.js">
+  <link rel="modulepreload" href="/static/wall/controls.js">
+  <link rel="modulepreload" href="/static/wall/derive.js">
+  <link rel="modulepreload" href="/static/wall/details.js">
+  <link rel="modulepreload" href="/static/wall/dk.js">
+  <link rel="modulepreload" href="/static/wall/duty.js">
+  <link rel="modulepreload" href="/static/wall/ext-map.js">
+  <link rel="modulepreload" href="/static/wall/ext.js">
+  <link rel="modulepreload" href="/static/wall/features.js">
+  <link rel="modulepreload" href="/static/wall/glossary.js">
+  <link rel="modulepreload" href="/static/wall/images.js">
+  <link rel="modulepreload" href="/static/wall/map.js">
+  <link rel="modulepreload" href="/static/wall/panels.js">
+  <link rel="modulepreload" href="/static/wall/photo.js">
+  <link rel="modulepreload" href="/static/wall/pick.js">
+  <link rel="modulepreload" href="/static/wall/story.js">
+  <link rel="modulepreload" href="/static/wall/stream.js">
+  <link rel="modulepreload" href="/static/wall/util.js">
+  <link rel="modulepreload" href="/static/wall/x-parts.js">
 </head>
 <!-- Layout: docs/UI-REDESIGN.md R3 ("The Story"). Nothing floats over the map except its pills,
      controls and labels; everything else on the Wall is one tap away in the Details drawer. Every
@@ -194,7 +218,7 @@
   </main>
 
   <!-- the status line (UI-DESIGN 7.26): the volcano, the audit chain, the policy and the credits on
-       the left (panels.js), two keys on the right (the Guide lists them all); each key is a button -->
+       the left (panels.js), the keys on the right (the Guide lists them all); each key is a button -->
   <footer class="honesty stl">
     <span id="stl-dot" class="stl__dot" aria-hidden="true"></span>
     <span id="stl-where" class="stl__where"></span>
@@ -206,6 +230,11 @@
     <span class="stl__keys" role="group" aria-label="Keyboard shortcuts">
       <a id="help-btn" class="stl__key" href="/guide#read" target="_blank" rel="noopener" aria-keyshortcuts="?"><kbd>?</kbd>Guide</a>
       <button type="button" class="stl__key" data-act="key" data-key="a" aria-keyshortcuts="A"><kbd>A</kbd>Assistant</button>
+      <button type="button" class="stl__key stl__key--wide" data-act="key" data-key="]" aria-keyshortcuts="[ ]"><kbd>[ ]</kbd>Volcano</button>
+      <button type="button" class="stl__key" data-act="key" data-key="f" aria-keyshortcuts="F"><kbd>F</kbd>Fit map</button>
+      <button type="button" class="stl__key" data-act="key" data-key="d" aria-keyshortcuts="D"><kbd>D</kbd>3D</button>
+      <button type="button" class="stl__key" data-act="key" data-key="s" aria-keyshortcuts="S"><kbd>S</kbd>Compare</button>
+      <button type="button" class="stl__key" data-act="key" data-key="Escape" aria-keyshortcuts="Escape"><kbd>Esc</kbd>Back</button>
     </span>
   </footer>
 

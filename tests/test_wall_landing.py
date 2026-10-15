@@ -122,11 +122,19 @@ def test_the_footer_carries_the_audit_chain_once() -> None:
     assert 'id="stl-audit"' in INDEX
 
 
-def test_the_footer_keys_are_two_and_the_left_part_is_short() -> None:
+def test_the_footer_keys_are_all_there_and_the_left_part_is_short() -> None:
+    """The owner kept the full key row (15 Oct): each key is a visible button that runs it."""
     footer = INDEX[INDEX.index("<footer") : INDEX.index("</footer>")]
-    assert footer.count('class="stl__key"') == 2
-    assert "<kbd>?</kbd>Guide" in footer
-    assert "<kbd>A</kbd>Assistant" in footer
+    for key in (
+        "<kbd>?</kbd>Guide",
+        "<kbd>A</kbd>Assistant",
+        "<kbd>[ ]</kbd>Volcano",
+        "<kbd>F</kbd>Fit map",
+        "<kbd>D</kbd>3D",
+        "<kbd>S</kbd>Compare",
+        "<kbd>Esc</kbd>Back",
+    ):
+        assert key in footer, key
     status = _function(PANELS, "renderStatusLine")
     assert "Flat map" not in status
     assert "official ash area" not in status
@@ -182,5 +190,5 @@ def test_the_case_strip_sits_under_the_eyebrow_and_reads_its_colour() -> None:
     assert "caseStory?.eyebrow ||" in eyebrow
     story = _function(STORY, "renderStory")
     assert "replay.volcano_ids.includes(sit.volcano_id)" in story
-    assert "renderCase(caseStrip(caseStory, { mode: D?.mode }))" in story
+    assert "renderCase(caseStrip(caseStory, { mode: D?.mode, open: ui.caseOpen }))" in story
     assert ".case__what { display: none; }" in CSS.split('.story[data-fit="3"] .case__what', 1)[1]

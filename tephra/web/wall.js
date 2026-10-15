@@ -72,6 +72,8 @@ const ui = {
   // the side panel (story and Details) hidden for the whole map, kept for the session
   panelHidden: (() => { try { return sessionStorage.getItem("tephra.wall.panel") === "hidden"; } catch { return false; } })(),
   trustOpen: false, // the hero's note on what TEPHRA's ash area is
+  // the case strip's fold (what went wrong): closed until opened, kept for the session
+  caseOpen: (() => { try { return sessionStorage.getItem("tephra.wall.case") === "open"; } catch { return false; } })(),
   traceFilter: "all",
   historyLane: "all",
   vlistOpen: false,
@@ -1042,6 +1044,11 @@ document.addEventListener("click", (e) => {
     renderNow();
   }
   else if (act === "trust-toggle") { ui.trustOpen = !ui.trustOpen; renderNow(); }
+  else if (act === "case-toggle") {
+    ui.caseOpen = !ui.caseOpen;
+    try { sessionStorage.setItem("tephra.wall.case", ui.caseOpen ? "open" : "closed"); } catch { /* storage blocked */ }
+    renderNow();
+  }
   else if (act === "history-lane") { ui.historyLane = t.dataset.lane; renderNow(); }
   else if (act === "trace-filter") { ui.traceFilter = t.dataset.filter; renderNow(); }
   else if (act === "dk-jump") {
@@ -1258,10 +1265,11 @@ setInterval(() => { if (store.state) renderNow(); }, 15000);
 window.addEventListener("resize", () => { placeDetails(); scheduleRender(); });
 window.matchMedia("(prefers-reduced-motion: reduce)").addEventListener?.("change", () => scheduleRender());
 
-// The drawer state survives a reload in this tab, never into presentation or screenshot runs.
+// The drawer state survives a reload in this tab, never into presentation or screenshot runs, and
+// never onto the Assistant page (the Wall's drawer would cover the board).
 try {
   const saved = sessionStorage.getItem(DETAILS_KEY);
-  if (saved && saved !== "closed" && !PRESENT && !SHOTS) {
+  if (saved && saved !== "closed" && !PRESENT && !SHOTS && !ASSISTANT_PAGE) {
     ui.details = { open: true, sec: saved === "index" ? null : sectionOf(saved) ? saved : null, vid: null, from: null, opener: null };
   }
 } catch { /* storage blocked: Details starts closed */ }

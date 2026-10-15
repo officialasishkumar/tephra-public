@@ -36,6 +36,7 @@ const SKILL_ROWS = ["plume", "sat", "planner", "drafter", "recovery", "sra"];
 const FEATURE_OF = Object.fromEntries(HELPERS.map((h) => [h.id, h.feature || null]));
 const TOKEN_SPEED = 190; // px per second down the spine
 const MAX_P = 160, MAX_TR = 90, MAX_TK = 40;
+const SPEEDS = [8, 30, 60, 120]; // the speed button steps through these
 const SAY_EVERY_MS = 10000;
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -187,7 +188,8 @@ export function mountFlow(dialog, { has }) {
   const log = el("ol", { class: "flow-log", "aria-label": "Newest steps" });
   const legend = el("p", { class: "flow-legend" });
   const allSteps = el("button", { type: "button", class: "flow-link", dataset: { flowsheet: "steps" }, text: "Every step in plain words" });
-  const play = el("button", { type: "button", class: "flow-play", "aria-label": "Play back the latest steps" }, icon("i-play"));
+  const playWord = el("span", { class: "flow-play__word" });
+  const play = el("button", { type: "button", class: "flow-play", "aria-label": "Play back the latest steps" }, icon("i-play"), playWord);
   const chipWord = el("span", { class: "flow-chip__word" });
   const chipText = el("span", { class: "flow-chip__text" });
   // the labelled fast-forward over a stretch with no step: said in the player itself, never over
@@ -230,7 +232,7 @@ export function mountFlow(dialog, { has }) {
   let simT = NaN;
   let following = true; // at the live edge: new steps animate as they arrive
   let playing = false;
-  let speed = 8;
+  let speed = SPEEDS[0];
   let nextIdx = 0;
   let gen = 0;
   let stale = false;
@@ -1060,10 +1062,11 @@ export function mountFlow(dialog, { has }) {
     setText(chipText, following ? "new steps play as they come" : playing ? `playing back ${span}` : `paused in ${span}`);
     const label = following ? `Play back ${span}` : playing ? "Pause the playback" : "Play the playback";
     const ic = playing ? "i-pause" : following ? "i-replay" : "i-play";
-    if (play.dataset.icon !== ic) { play.dataset.icon = ic; play.replaceChildren(icon(ic)); }
+    if (play.dataset.icon !== ic) { play.dataset.icon = ic; play.replaceChildren(icon(ic), playWord); }
+    setText(playWord, playing ? "Pause" : "Play");
     setAttr(play, "aria-label", label);
     setAttr(play, "title", label);
-    speedBtn.hidden = RM() || following;
+    speedBtn.hidden = RM();
     setText(speedBtn, `${speed}×`);
     setAttr(speedBtn, "aria-label", `Playback speed ${speed} times`);
   }
@@ -1409,7 +1412,7 @@ export function mountFlow(dialog, { has }) {
     else if (!playing && simT >= T1) startPlayback(T0);
     else setPlaying(!playing);
   });
-  speedBtn.addEventListener("click", () => { speed = speed === 8 ? 30 : 8; renderPlayer(); });
+  speedBtn.addEventListener("click", () => { speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]; renderPlayer(); });
   mchip.addEventListener("click", () => { decide.scrollIntoView({ behavior: RM() ? "auto" : "smooth", block: "center" }); youHead.setAttribute("tabindex", "-1"); youHead.focus({ preventScroll: true }); });
   {
     let drag = false, was = false;
@@ -1454,8 +1457,6 @@ export function mountFlow(dialog, { has }) {
     if (first) {
       simT = T1;
       for (const e of events) fired.add(e.id);
-      // REPLAY: the board opens playing back the latest steps; live, it follows new steps
-      if (m.replay && events.length) { following = false; simT = T0; nextIdx = 0; playing = true; }
     }
     if (following) {
       // steps the stream did not deliver (a reload after a lost stream) are applied with no motion

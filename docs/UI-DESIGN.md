@@ -1376,10 +1376,11 @@ about 3 s. Steps in the same second are staggered 160 ms.
 
 The player. The playhead is the only source of state: seeking rebuilds the counters, log, hero and
 run bars from every event at or before it, with no motion; playing fires each later event as it is
-passed (8× or 30×; a quiet stretch runs up to 14× faster and says so in the player's own line). In
-REPLAY the board opens playing back the latest steps the Wall holds and the player carries the one
-small word "Replay" (the frame strip says REPLAY and names the recording); live, it opens at the
-newest step and a step that arrives on the
+passed (8×, 30×, 60× or 120×, one button stepping through them; a quiet stretch runs up to 14×
+faster and says so in the player's own line). The board never plays back on its own (owner, 15 Oct
+2026: the presenter starts it): in REPLAY and live it opens at the newest step, the labelled Play
+button plays back the window, and in REPLAY the player carries the one small word "Replay". A step
+that arrives on the
 stream animates at once (`flow.push` from the `trace` handler, `flow.pushRead` from `state`). The
 play button then plays back the window. Steps the stream did not deliver (a reload after a lost
 stream) are applied with no motion; while the stream is lost the board dims and says "Live updates
@@ -1514,7 +1515,8 @@ guide's policy, its id and version in the tooltip) and "Credits" (a link to the 
 the full credit string in the tooltip; OpenStreetMap stays on the map). The fictional-airline note
 is the facts' tooltip and stays in the strip on top. On the right: the keys, each also a button that
 runs it: ? Guide, A Assistant, [ ] Volcano (from 1360 px), F Fit map, D 3D, S Compare, Esc Back. On a
-phone the keys are hidden and the line wraps. The flights inside and heading in are not repeated
+phone the keys are hidden and the line wraps. (On 15 Oct the row was cut to ? and A; the owner
+asked for the whole row back the same day.) The flights inside and heading in are not repeated
 here: the story says them (each fact once). Privacy moved to the guide's foot (and the Desk's
 sign-in).
 
@@ -1543,6 +1545,23 @@ On desktop the title, the log with the player, and "Inside TEPHRA" are three gla
 map. The board's height rules count the 56 px header (1016 and 896 px), and below 780 px of height
 the panel keeps the decision and "Open the Desk" and drops the Desk's counts and the Details link.
 Below 1280 px the nav's links sit 9 px apart so the Wall's header still fits at 1100.
+
+### 7.28 The case strip folds, Connect draws at once (15 Oct 2026)
+
+The case strip (`wall/case.js`, `data/cases.json`) shows one line: what happened, with its two
+numbers. "What went wrong ⌄" (or "What TEPHRA does" for a case with no disagreement) opens where
+the reports disagreed, what TEPHRA does and "Sources ›"; it starts closed and the choice is kept
+for the session (`tephra.wall.case`). The words read as plain English: "02:00 UTC", "three days
+later", "fifty thousand feet" (a figure in words, as the video's voice-over says it).
+
+Connect has no shimmer boxes. The map, the tabs and the sign-in draw as soon as `/api/state`,
+`/api/desk/me` and `/api/connect/format` answer; the numbers show a muted dash until
+`/api/connect/live` arrives; the sample file (built on request, about 2 s) fills the API tab's
+example values when it arrives and holds nothing up.
+
+Every page lists its entry script's whole static import graph as `<link rel="modulepreload">`
+(`tests/test_modulepreload.py` names a missing line), so the modules load in one round trip
+instead of one per import level.
 
 ## 8. 3D, compare, the time bar and the height filter
 

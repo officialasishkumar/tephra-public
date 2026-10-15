@@ -1,20 +1,25 @@
-// The case strip (docs/UI-DESIGN.md 7.6, redesign A3): three lines under the eyebrow that say what
-// happened, where the reports disagreed and what TEPHRA does about it. The words come from
-// /static/data/cases.json, read once here, one entry per replay case, every number a claims-register
-// row (research/README.md). Shown only in REPLAY, for a case with an entry; silent otherwise.
+// The case strip (docs/UI-DESIGN.md 7.6, redesign A3): what happened, in one line under the eyebrow;
+// where the reports disagreed and what TEPHRA does about it fold behind one button (closed until
+// opened, kept for the session). The words come from /static/data/cases.json, read once here, one
+// entry per replay case, every number a claims-register row (research/README.md). Shown only in
+// REPLAY, for a case with an entry; silent otherwise.
 
-import { el } from "./util.js";
+import { el, icon } from "./util.js";
 
 export const WHAT = "TEPHRA shows where the reports disagree, finds the flights heading into the ash area, and drafts an advisory a dispatcher decides.";
 
 // Pure: the section for one case's story, or null when there is nothing to show.
-export function caseStrip(caseStory, { mode } = {}) {
+export function caseStrip(caseStory, { mode, open = false } = {}) {
   if (mode !== "REPLAY" || !caseStory || !caseStory.happened) return null;
+  const label = caseStory.disagreed ? "What went wrong" : "What TEPHRA does";
   return el("section", { id: "case-strip", class: "case", "aria-label": "This case" },
-    el("p", { class: "case__happened", text: caseStory.happened }),
-    caseStory.disagreed ? el("p", { class: "case__disagreed" }, el("span", { text: caseStory.disagreed }), " ",
-      el("button", { type: "button", class: "link-btn case__sources", title: caseStory.sources || null, dataset: { act: "details-open", sec: "sources", focus: "case-sources" }, text: "Sources ›" })) : null,
-    el("p", { class: "case__what", text: WHAT }));
+    el("p", { class: "case__happened" }, el("span", { text: caseStory.happened }), " ",
+      el("button", { type: "button", class: "case__toggle", "aria-expanded": open ? "true" : "false", "aria-controls": "case-more", dataset: { act: "case-toggle", focus: "case-toggle" } },
+        el("span", { text: label }), icon("i-chevron-down", "icon case__chev"))),
+    el("div", { class: "case__more", id: "case-more", hidden: !open },
+      caseStory.disagreed ? el("p", { class: "case__disagreed", text: caseStory.disagreed }) : null,
+      el("p", { class: "case__what" }, el("span", { text: WHAT }), " ",
+        el("button", { type: "button", class: "link-btn case__sources", title: caseStory.sources || null, dataset: { act: "details-open", sec: "sources", focus: "case-sources" }, text: "Sources ›" }))));
 }
 
 // The entries, read once; null until they arrive and when the read failed (the strip then stays

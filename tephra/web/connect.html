@@ -22,6 +22,12 @@
   <link rel="stylesheet" href="/static/connect.css">
   <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script type="module" src="/static/connect.js"></script>
+  <!-- every module connect.js imports, fetched at once (tests/test_modulepreload.py) -->
+  <link rel="modulepreload" href="/static/wall/basemap.js">
+  <link rel="modulepreload" href="/static/wall/features.js">
+  <link rel="modulepreload" href="/static/wall/images.js">
+  <link rel="modulepreload" href="/static/wall/stream.js">
+  <link rel="modulepreload" href="/static/wall/util.js">
 </head>
 <!-- TEPHRA Connect (UI-DESIGN 7.24): feed your airline's positions in and watch TEPHRA check
      them against the ash. The page starts from GET /api/connect/live (so a reload is complete),
@@ -43,9 +49,9 @@
       <div class="cx-stage">
         <div id="cx-map" class="cx-map" role="region" aria-label="Map of the positions arriving now"></div>
         <div class="cx-kpis" aria-live="polite">
-          <div class="cx-kpi"><b id="k-rate"></b><span>positions / min</span></div>
-          <div class="cx-kpi"><b id="k-live"></b><span>flights live</span></div>
-          <div class="cx-kpi cx-kpi--ash"><b id="k-ash"></b><span>in the ash</span></div>
+          <div class="cx-kpi"><b id="k-rate">–</b><span>positions / min</span></div>
+          <div class="cx-kpi"><b id="k-live">–</b><span>flights live</span></div>
+          <div class="cx-kpi cx-kpi--ash"><b id="k-ash">–</b><span>in the ash</span></div>
         </div>
         <div id="cx-empty" class="cx-empty" hidden>
           <div class="cx-empty__orb" aria-hidden="true"></div>

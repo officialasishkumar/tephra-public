@@ -13,6 +13,10 @@
   <link rel="stylesheet" href="/static/topnav.css">
   <link rel="stylesheet" href="/static/doc.css">
   <script type="module" src="/static/doc.js"></script>
+  <!-- every module doc.js imports, fetched at once (tests/test_modulepreload.py) -->
+  <link rel="modulepreload" href="/static/desk/docview.js">
+  <link rel="modulepreload" href="/static/desk/dom.js">
+  <link rel="modulepreload" href="/static/desk/format.js">
   <script type="module" src="/static/topnav.js"></script>
 </head>
 <body class="docpage">

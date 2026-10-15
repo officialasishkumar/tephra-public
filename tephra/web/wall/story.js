@@ -591,7 +591,7 @@ loadCases(() => { if (lastStory) renderStory(...lastStory); });
 function renderCase(strip) {
   const node = $("case-strip");
   if (!node) return;
-  const key = strip ? strip.textContent : "";
+  const key = strip ? `${strip.querySelector(".case__toggle")?.getAttribute("aria-expanded")}|${strip.textContent}` : "";
   if (node.dataset.key === key) return;
   node.dataset.key = key;
   node.hidden = !strip;
@@ -615,7 +615,7 @@ export function renderStory(D, store, ui, { conn, extra, announce, notes = [] })
   const inCase = !!sit && !!replay && (!replay.volcano_ids?.length || replay.volcano_ids.includes(sit.volcano_id));
   const caseStory = inCase ? caseOf(replay.case_id) : null;
   eyebrow(D, sit, sit ? regionOfVent(D.state, D.vents.get(sit.volcano_id)) : null, caseStory);
-  renderCase(caseStrip(caseStory, { mode: D?.mode }));
+  renderCase(caseStrip(caseStory, { mode: D?.mode, open: ui.caseOpen }));
   if (!D && extra.error) { $("headline").replaceChildren(); $("headline").dataset.key = ""; }
   else renderLines(D, store, ui, sit, announce);
   $("verdict").classList.toggle("verdict--hypothesis", !!sit && D.coneOf(sit.volcano_id)?.properties.mode === "HYPOTHESIS");

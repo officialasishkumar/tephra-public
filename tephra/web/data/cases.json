@@ -1,12 +1,12 @@
 {
   "anak-krakatau-20260905": {
     "eyebrow": "Colour code red",
-    "happened": "From 6 to 8 Sep 2026 ash from Anak Krakatau closed Jakarta's main airport and seven others; the transport ministry counted about 2,961 flights and 341,000 people affected.",
+    "happened": "6 to 8 Sep 2026: ash from Anak Krakatau closed Jakarta's main airport and seven others, affecting about 2,961 flights and 341,000 people.",
     "happened_rows": [
       1,
       2
     ],
-    "disagreed": "From 5 Sep 02:00Z the observatory's only aviation notice said \"Ash-cloud is not observed\"; before the next one, 74.5 hours later, Darwin issued 28 advisories, 24 with ash at FL500.",
+    "disagreed": "From 5 Sep 02:00 UTC the observatory's only aviation notice said \"Ash-cloud is not observed\". Before the next one, three days later, Darwin issued 28 advisories, 24 with ash up to fifty thousand feet.",
     "disagreed_rows": [
       3,
       42

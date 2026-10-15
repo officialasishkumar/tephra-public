@@ -198,12 +198,8 @@ button { font: inherit; color: inherit; }
 .cx-tick--bad { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-serious) 40%, transparent); }
 @keyframes cx-in { from { opacity: 0; transform: translateX(-24px) scale(0.96); } }
 
-/* --- loading: shimmer, never a stale number ----------------------------------------------------- */
-.is-loading .cx-kpi b, .cx-skel { position: relative; color: transparent; background: color-mix(in srgb, var(--c-text-1) 8%, transparent); border-radius: 8px; overflow: hidden; }
-.is-loading .cx-kpi b { width: 64px; -webkit-background-clip: border-box; background-clip: border-box; }
-.is-loading .cx-kpi b::after, .cx-skel::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--c-text-1) 12%, transparent), transparent); animation: cx-shimmer 1.2s infinite; }
-.cx-skel { display: inline-block; height: 52px; width: 240px; border-radius: 18px; }
-@keyframes cx-shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+/* --- loading: a quiet dash where a number will be, never a stale number --------------------------- */
+.is-loading .cx-kpi b { -webkit-text-fill-color: var(--c-text-3); }
 
 /* --- dialog ---------------------------------------------------------------------------------- */
 .cx-dlg { width: min(460px, calc(100vw - 32px)); padding: 0; border: 0; border-radius: 22px; background: var(--c-surface-1); color: var(--c-text-1); box-shadow: var(--shadow-3), 0 0 0 1px var(--cx-hair), var(--cx-glow); }
@@ -227,7 +223,7 @@ button { font: inherit; color: inherit; }
   .cx-stage { height: 380px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cx-empty__orb, .cx-sample__big.is-on, .cx-tick, .cx-kpi b.is-bump, .cx-result, .is-loading .cx-kpi b::after, .cx-skel::after { animation: none; }
+  .cx-empty__orb, .cx-sample__big.is-on, .cx-tick, .cx-kpi b.is-bump, .cx-result { animation: none; }
 }
 
 /* --- where your data goes: one card per section, what it became ------------------------------ */
