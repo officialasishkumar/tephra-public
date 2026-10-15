@@ -24,7 +24,7 @@ from tephra import pipeline as pipeline_module
 from tephra.agents.llm import get_llm
 from tephra.config import PROJECT_ROOT, Settings
 from tephra.desk import audit
-from tephra.desk.approvals import SYSTEM_ACTOR, list_advisories
+from tephra.desk.approvals import SYSTEM_ACTOR, list_advisories, submit_draft
 from tephra.desk.failures import (
     DRAFT_WAITING,
     NEWER_FAILURE,
@@ -692,6 +692,43 @@ def make_draft(
         prompt_hashes={},
         dedupe_key=f"DD-{advisory_id[-12:]}",
     )
+
+
+async def test_the_open_drafts_are_read_once_until_an_advisory_is_written(
+    runtime: Runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every worker pass, plan and publish asked the store for every open draft; one copy now
+    serves them until this process writes an advisory, or for a minute at most."""
+    reads = 0
+    real = pipeline_module._list_drafts
+
+    async def counted(store: Any) -> list[Advisory]:
+        nonlocal reads
+        reads += 1
+        return await real(store)
+
+    monkeypatch.setattr(pipeline_module, "_list_drafts", counted)
+    assert await runtime.open_drafts() == []
+    assert (await runtime.system_state()).draft_count == 0
+    assert reads == 1, "one read serves both"
+
+    created = await submit_draft(
+        runtime.store, runtime.bus, make_draft("adv_00000000000a", replay=False)
+    )
+    assert created is not None
+    assert [draft.id for draft in await runtime.open_drafts()] == ["adv_00000000000a"]
+    assert reads == 2, "the write's advisory event ended the copy"
+
+    await runtime.store.put(
+        Collection.ADVISORIES,
+        "adv_00000000000b",
+        make_draft("adv_00000000000b", replay=False, flight_id="8a0999:263300").model_dump(
+            mode="json"
+        ),
+    )
+    assert len(await runtime.open_drafts()) == 1, "a write with no event waits for the minute"
+    monkeypatch.setattr(pipeline_module, "DRAFTS_COPY_S", 0.0)
+    assert len(await runtime.open_drafts()) == 2
 
 
 def make_failure(failure_id: str, **changes: Any) -> AiFailure:

@@ -234,6 +234,10 @@ WRITER_DOC: Final = "writer"
 AUDIT_HEAD_DOC: Final = "audit_head"
 """``runtime/audit_head``: the audit chain's head as this instance last checkpointed it"""
 OPEN_DRAFT_LIMIT: Final = 500
+DRAFTS_COPY_S: Final = 60.0
+"""The open drafts read from the store at least this often (wall seconds), whatever the
+in-process writes said: a write by another instance during a rollout, or one whose advisory
+event never went out, is seen within a tick."""
 RESTORE_LIMIT: Final = 500
 VAA_RESTORE_H: Final = 30
 PLAN_RETRY_MIN: Final = (1, 5, 15)
@@ -323,6 +327,7 @@ class Runtime:
     """Counts picture resets (mode switches, replay loops): AI work that started before one is
     not committed after it"""
     _planned: dict[str, tuple[str, int]] = field(init=False, default_factory=dict)
+    _drafts_copy: "_DraftsCopy | None" = field(init=False, default=None)
     """flight id -> (cone id, the most urgent bucket it was planned in for that cone)"""
     _plan_failures: dict[str, _PlanFailure] = field(init=False, default_factory=dict)
     """flight id -> its last planning error, until it is planned or leaves the cone"""
@@ -2053,14 +2058,19 @@ class Runtime:
         if previous is not None and _still_current(previous, situation.input_hash, at):
             self.assess_due.pop(volcano.id, None)
             return previous
-        if not self._model_call_matters(situation):
+        outside_case = self._outside_replay_case(volcano.id)
+        if outside_case or not self._model_call_matters(situation):
             self.assess_due.pop(volcano.id, None)
+            why = (
+                "not this replay's volcano"
+                if outside_case
+                else "no CAUTION or WARNING discrepancy, no HYPOTHESIS case and no airline"
+                f" aircraft seen within {self.settings.adsb_radius_nm} NM"
+            )
             self.trace(
                 TraceStage.PLUME,
                 "code",
-                f"{volcano.name}: no CAUTION or WARNING discrepancy, no HYPOTHESIS case and no "
-                f"airline aircraft seen within {self.settings.adsb_radius_nm} NM; cone from "
-                "official products only",
+                f"{volcano.name}: {why}; cone from official products only",
                 volcano_id=volcano.id,
             )
             assessment = await self._read(situation, report, call_model=False)
@@ -2217,6 +2227,19 @@ class Runtime:
                 )
             await self.publish_budget()
         return _supported(situation, held, probe)
+
+    def _outside_replay_case(self, volcano_id: str) -> bool:
+        """In REPLAY the main model reads only the case's own volcanoes: the region's other
+        bulletins in the recording (Semeru, Dukono, Ibu on the Krakatau day) cost 15 of the 29
+        reads a loop against 18 a day, for cones the case is not about. Their cones are drawn
+        from the official products, as for any read that does not matter."""
+        case = self.replay_case
+        return (
+            self.mode is RunMode.REPLAY
+            and case is not None
+            and bool(case.volcano_ids)
+            and volcano_id not in case.volcano_ids
+        )
 
     def _model_call_matters(self, situation: Situation) -> bool:
         if any(
@@ -2619,14 +2642,30 @@ class Runtime:
         """Open drafts of the current mode: a replay's picture says nothing about the live
         desk's flights, nor the live picture about a replay's. Raises
         :class:`DeskUnreachable` when the store cannot be read."""
+        drafts = await self._all_open_drafts()
+        replay = self.mode is RunMode.REPLAY
+        return [draft for draft in drafts if draft.replay == replay]
+
+    async def _all_open_drafts(self) -> list[Advisory]:
+        """The open drafts of both modes, read from the store only when an advisory was written
+        in this process since the last read (every write publishes its advisory event) or the
+        copy is older than :data:`DRAFTS_COPY_S`. Every worker pass, plan and publish asked the
+        store for all of them: tens of thousands of document reads a replay loop."""
+        last = self.bus.last(SseEvent.ADVISORY)
+        written = last.id if last is not None else 0
+        wall = time.monotonic()
+        copy = self._drafts_copy
+        if copy is not None and copy.written == written and wall - copy.read_at < DRAFTS_COPY_S:
+            return list(copy.drafts)
+        self._drafts_copy = None
         try:
             drafts = await _list_drafts(self.store)
         except Exception as exc:
             logger.warning("reading the open drafts failed: %s", exc)
             self.store_failed(exc, calls="reads")
             raise DeskUnreachable(str(exc)) from exc
-        replay = self.mode is RunMode.REPLAY
-        return [draft for draft in drafts if draft.replay == replay]
+        self._drafts_copy = _DraftsCopy(tuple(drafts), written, wall)
+        return drafts
 
     def _positions_stale(self) -> bool:
         """Every position held is a last-good copy, served after its point's live fetch
@@ -2837,6 +2876,7 @@ class Runtime:
     def _reset_picture(self) -> None:
         """Nothing recorded and nothing live may mix: a mode switch starts a fresh picture."""
         self.epoch += 1
+        self._drafts_copy = None
         self.worker.clear()
         self.assess_due.clear()
         self.duty_offered.clear()
@@ -3188,6 +3228,13 @@ def _failed(failure: AiFailure) -> dict[str, Any]:
         "status": "ai_unavailable",
         "reason": failure.reason,
     }
+
+
+class _DraftsCopy(NamedTuple):
+    drafts: tuple[Advisory, ...]
+    written: int
+    """The id of the last advisory event when the drafts were read"""
+    read_at: float
 
 
 async def _list_drafts(store: Store) -> list[Advisory]:

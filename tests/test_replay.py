@@ -565,13 +565,17 @@ async def test_the_semeru_case_puts_the_vona_against_the_official_movement(
             NOT_RECORDED_NOTE,
         )
 
-    # Ibu has only INFO discrepancies and no aircraft near: the gate says why there is no
-    # model call before the stub's reading is traced.
+    # Ibu is in the recording but not the case's volcano: the gate says why there is no
+    # model call, and its cone comes from the official products only.
     ibu = [event for event in traces if event["volcano_id"] == "268030"]
     plume = [event for event in ibu if event["stage"] == "PLUME"]
-    assert {item.severity.value for item in runtime.situations["268030"].discrepancies} == {"INFO"}
+    assert runtime.replay_case is not None
+    assert "268030" not in runtime.replay_case.volcano_ids
     assert plume[0]["actor"] == "code"
-    assert plume[0]["message"].startswith("Ibu: no CAUTION or WARNING discrepancy")
+    assert plume[0]["message"] == (
+        "Ibu: not this replay's volcano; cone from official products only"
+    )
+    assert "268030" not in runtime.assess_due
 
 
 async def test_adsb_pass_leaves_a_feed_the_case_never_recorded_alone(
