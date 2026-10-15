@@ -12,6 +12,7 @@ REROUTE, which only picks one of the lateral routes ``tephra.geo.reroute`` compu
 """
 
 import asyncio
+import json
 import logging
 import time
 from collections.abc import Mapping, Sequence
@@ -731,14 +732,15 @@ def planner_question(
 ) -> Question:
     """What is material to a plan: the flight, the hazard band in flight levels, the actions
     the mode and the operator policy allow, how soon it enters (inside, or the policy's divert
-    and hold buckets, as the AI worker plans them), its level in 2,000 ft steps, the
-    alternates whose screen is open and the reroutes that are OK. The cone's id and times are
-    not: a cone reissued with the same band asks nothing again. A move of a few miles, a
-    minute or a few hundred feet is not material either.
+    and hold buckets, as the AI worker plans them), its level against the hazard band (above,
+    below or in it; the 2,000 ft step only where a clear band lies within the policy's reach,
+    ``level_material``), the alternates whose screen is open and the reroutes that are OK.
+    The cone's id and times are not: a cone reissued with the same band asks nothing again.
+    A move of a few miles, a minute or a few hundred feet is not material either, nor a climb
+    deep inside the band (a kept HOLD or level band is still checked against the level now).
 
     ``cone_version`` is ignored since the material question; removed with T18."""
     flight = ctx.flight
-    level = present_fl(flight)
     return Question(
         "flight_planner",
         {
@@ -748,7 +750,7 @@ def planner_question(
             "allowed": sorted(action.value for action in ctx.allowed_actions),
             "policy": policy_version,
             "urgency": urgency_band(ctx),
-            "level_step": None if level is None else level // LEVEL_STEP_FL,
+            "level": level_material(ctx),
             "band": hazard_band_fl(ctx),
             "alternates_open": sorted(alt.icao for alt in ctx.alternates if alt.check.ok),
             "reroutes": sorted(o.id for o in ctx.reroutes if o.status is RerouteStatus.OK),
@@ -759,6 +761,64 @@ def planner_question(
 
 def hazard_band_fl(ctx: PlannerContext) -> list[int]:
     return [ft_to_fl(ctx.hazard_base_ft), ft_to_fl(ctx.hazard_top_ft)]
+
+
+def level_regime(ctx: PlannerContext) -> str:
+    """Where the aircraft's levels (present and selected) lie against the hazard band widened
+    by the margin: ``above``, ``below`` or ``in``."""
+    low, high = ctx.flight.aircraft_band_ft
+    if low > ctx.hazard_top_ft + ctx.vertical_margin_ft:
+        return "above"
+    if high < ctx.hazard_base_ft - ctx.vertical_margin_ft:
+        return "below"
+    return "in"
+
+
+def level_material(ctx: PlannerContext) -> dict[str, Any] | None:
+    """What of the level is material to a plan: its regime, and its 2,000 ft step only where
+    a clear band could lie within the policy's reach (``level_search_ft``, plus one step for
+    the band's own width) of the present level. Deep inside the hazard band no level change
+    is on offer, and the plan does not turn on the exact level: a kept HOLD or CHANGE_LEVEL is
+    still checked against the present level (``_kept_level_problems``)."""
+    flight = ctx.flight
+    level = present_fl(flight)
+    if level is None or flight.alt_baro_ft is None:
+        return None
+    regime = level_regime(ctx)
+    step = level // LEVEL_STEP_FL
+    if regime != "in":
+        return {"regime": regime, "step": step}
+    reach = ctx.level_search_ft + LEVEL_STEP_FL * 100
+    altitude = flight.alt_baro_ft
+    near_top = altitude + reach >= ctx.hazard_top_ft + ctx.vertical_margin_ft
+    near_base = altitude - reach <= ctx.hazard_base_ft - ctx.vertical_margin_ft
+    if near_top or near_base:
+        return {"regime": regime, "step": step}
+    return {"regime": regime, "step": None}
+
+
+def _kept_level_problems(decision: PlannerDecision, ctx: PlannerContext) -> list[str]:
+    """A kept plan's level targets against the present level: a HOLD at another step, or a
+    level band farther than the policy's reach, is not this flight's answer now."""
+    altitude = ctx.flight.alt_baro_ft
+    if altitude is None:
+        return []
+    level = ft_to_fl(altitude)
+    hold = decision.hold_fl
+    held_elsewhere = hold is not None and hold // LEVEL_STEP_FL != level // LEVEL_STEP_FL
+    if decision.action is ActionKind.HOLD and held_elsewhere:
+        return [f"KEPT HOLD AT FL{hold:03d} IS NOT THE PRESENT LEVEL STEP"]
+    if decision.action is ActionKind.CHANGE_LEVEL:
+        fl_min, fl_max = decision.change_level_fl_min, decision.change_level_fl_max
+        if fl_min is not None and fl_max is not None:
+            low, high = fl_min * 100, fl_max * 100
+            gap = 0 if low <= altitude <= high else min(abs(altitude - low), abs(altitude - high))
+            if gap > ctx.level_search_ft:
+                return [
+                    f"KEPT LEVEL BAND FL{fl_min:03d}-FL{fl_max:03d} IS MORE THAN"
+                    f" {ctx.level_search_ft} FT FROM THE PRESENT LEVEL"
+                ]
+    return []
 
 
 def plan_key(question: Question) -> str:
@@ -797,7 +857,7 @@ async def _known_plan(
         reuse.rejected(["NO DECISION"])
         return None
     decision = normalise_decision(held.decision)
-    problems = validate_decision(decision, ctx)
+    problems = [*validate_decision(decision, ctx), *_kept_level_problems(decision, ctx)]
     if problems:
         reuse.rejected(problems)
         return None
@@ -1016,10 +1076,20 @@ async def _read_decision(
 
 
 def _task_text(ctx: PlannerContext) -> str:
+    """The task with what ``get_flight``, ``list_alternates`` and ``list_reroutes`` return,
+    written by code: every plan needs all three, and each lookup the model makes is a model
+    call of its own against the free daily budget (six calls a plan on the live store)."""
+    facts = {
+        "get_flight": {**flight_summary(ctx), **limits_summary(ctx)},
+        "list_alternates": alternates_summary(ctx),
+        "list_reroutes": reroutes_summary(ctx),
+    }
     return (
         f"Plan for exposed flight {ctx.flight.proxy_flight} near {ctx.volcano_name}."
-        " Read the flight, alternates and reroutes with the tools, check any level band before"
-        " proposing it, then call submit_plan exactly once."
+        " Below is what get_flight(), list_alternates() and list_reroutes() return now; do not"
+        " call them again. Check any level band with check_level_band before proposing it,"
+        " then call submit_plan exactly once.\n"
+        f"{json.dumps(facts, indent=1)}"
     )
 
 

@@ -137,6 +137,9 @@ def submit_plan(
     )
     if decision is not None:
         tool_context.state[DECISION_STATE_KEY] = decision.model_dump(mode="json")
+    if not problems:
+        # An accepted plan ends the run: no model turn to restate it (one call a plan saved).
+        tool_context.actions.skip_summarization = True
     return {"accepted": not problems, "problems": problems}
 
 

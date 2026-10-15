@@ -701,6 +701,43 @@ def test_every_material_change_is_a_new_plan_question() -> None:
     assert _planner_q(ctx, cone="v2") == base, "the cone's version is not asked; its band is"
 
 
+def _at_ft(ctx: Any, altitude: int) -> Any:
+    return _moved(ctx, alt_baro_ft=altitude, aircraft_band_ft=(altitude, altitude))
+
+
+def test_the_level_is_material_only_where_a_level_change_could_be_on_offer() -> None:
+    """Climbing traffic deep inside a SFC/FL500 band was re-planned at every 2,000 ft step
+    under an unchanged band (263 of 588 planner asks on the Krakatau window)."""
+    deep = planner_ctx().model_copy(update={"hazard_top_ft": 50_000})
+    assert _planner_q(_at_ft(deep, 20_000)) == _planner_q(_at_ft(deep, 24_000)), (
+        "deep in the band: no clear band within the policy's reach either way"
+    )
+    assert _planner_q(_at_ft(deep, 46_000)) != _planner_q(_at_ft(deep, 48_000)), (
+        "near the top: a clear band above may be in reach, the step matters"
+    )
+    low = planner_ctx()  # SFC/FL150 with a 2,000 ft margin
+    assert _planner_q(_at_ft(low, 30_000)) != _planner_q(_at_ft(low, 34_000)), "above, by step"
+    assert _planner_q(_at_ft(low, 30_000)) != _planner_q(_at_ft(low, 12_000)), "above vs in"
+
+
+def test_a_kept_plan_whose_level_target_no_longer_fits_is_not_served() -> None:
+    ctx = _at_ft(planner_ctx().model_copy(update={"hazard_top_ft": 50_000}), 24_000)
+    hold = PlannerDecision(action=ActionKind.HOLD, hold_fl=200, reasoning="x")
+    assert planner_module._kept_level_problems(hold, _at_ft(ctx, 20_000)) == []
+    assert planner_module._kept_level_problems(hold, ctx) == [
+        "KEPT HOLD AT FL200 IS NOT THE PRESENT LEVEL STEP"
+    ]
+    band = PlannerDecision(
+        action=ActionKind.CHANGE_LEVEL,
+        change_level_fl_min=180,
+        change_level_fl_max=200,
+        reasoning="x",
+    )
+    assert planner_module._kept_level_problems(band, _at_ft(ctx, 22_000)) == []
+    (problem,) = planner_module._kept_level_problems(band, _at_ft(ctx, 26_000))
+    assert problem.startswith("KEPT LEVEL BAND FL180-FL200 IS MORE THAN")
+
+
 def test_a_cone_rebuilt_on_new_winds_with_the_same_band_is_the_same_question() -> None:
     ctx = planner_ctx()
     base = _planner_q(ctx)

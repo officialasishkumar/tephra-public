@@ -223,6 +223,33 @@ async def test_adk_agent_reads_tools_and_submits_a_plan(script: list[Turn]) -> N
     assert {event.actor for event in trace} == {"adk"}
     first = _CALLS[0]
     assert str(first.config.system_instruction).startswith("# TEPHRA Exposure Planner")
+    assert len(_CALLS) == 4, "an accepted submit_plan ends the run: no turn to restate it"
+
+
+async def test_the_task_carries_the_lookups_so_a_plan_can_take_one_call(
+    script: list[Turn],
+) -> None:
+    """Every plan needs the flight, its alternates and its reroutes; written into the task by
+    code, a MONITOR or REROUTE plan is one model call instead of six."""
+    script += [
+        call(
+            "submit_plan",
+            action="MONITOR",
+            reasoning="HAZARD SFC/FL150, ENTRY IN 12 MIN. WATCH FOR THE NEXT PRODUCT.",
+        ),
+        text("never asked for"),
+    ]
+    planned, _ = await plan(GeminiStandIn())
+    assert planned.outcome == "ACCEPTED"
+    assert planned.decision.action is ActionKind.MONITOR
+    assert len(_CALLS) == 1
+    task = "".join(
+        part.text or "" for content in _CALLS[0].contents for part in content.parts or []
+    )
+    for lookup in ("get_flight", "list_alternates", "list_reroutes"):
+        assert f'"{lookup}"' in task
+    assert '"proxy_flight": "RFA' in task
+    assert '"WARR"' in task, "the alternates, with their screen"
 
 
 async def test_rejected_plan_gets_one_repair_turn(script: list[Turn]) -> None:

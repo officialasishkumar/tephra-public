@@ -1382,7 +1382,10 @@ ADK `LlmAgent` on `settings.model_lite` with FunctionTools that read the context
 `estimate_cost(action, alternate_icao=None)`, and `submit_plan(action, reasoning,
 change_level_fl_min=None, change_level_fl_max=None, hold_fl=None, alternate_icao=None,
 alternatives_considered=None)`, which validates the `PlannerDecision`, records it in
-`state[DECISION_STATE_KEY]` and answers `{accepted, problems}`. A tool that raises on the
+`state[DECISION_STATE_KEY]` and answers `{accepted, problems}`; an accepted plan ends the run
+(`skip_summarization`: no model turn restates it). The task message carries what `get_flight`,
+`list_alternates` and `list_reroutes` return, written by code, so a plan is one model call, two
+with a band check (each lookup was a call of its own). A tool that raises on the
 model's arguments answers an error to the model instead of ending the run. Tool calls become
 `ToolCallRecord`s (kept when the run fails) and are streamed to `trace` as
 `TraceStage.PLANNER`, actor `adk`. The `before_model_callback` takes every model turn from
@@ -1925,7 +1928,7 @@ Core rules:
   |---|---|---|
   | Plume reader | the products by content (`input_hash`), the discrepancies by id and severity, the supporting evidence (the Satellite Reader's reading of the newest frames: source id and text hash) | `REASK_UNCHANGED` (3 h) |
   | Satellite reader | the volcano, the scans read (source ids and times) | none |
-  | Flight planner | flight, plume mode, allowed actions, policy version, urgency band (inside, within the divert limit, within the hold limit, later), level in 2,000 ft steps, hazard band, open alternates, usable reroutes by their content (not the cone's id or version) | `ai_answer_plan_min` (60 min) |
+  | Flight planner | flight, plume mode, allowed actions, policy version, urgency band (inside, within the divert limit, within the hold limit, later), level against the hazard band (above, below or in it, with its 2,000 ft step only where a clear band lies within the policy's level search), hazard band, open alternates, usable reroutes by their content (not the cone's id or version) | `ai_answer_plan_min` (60 min) |
   | Drafter | flight, policy version, action and its target (band, hold FL, alternate, reroute option), hazard band, urgency band and, while approaching, the minutes to entry the body names (not the cone's id or version) | `ai_answer_plan_min` |
   | Coordinator | the policy version and the work list's item kinds, subjects, mandatory flags and urgency buckets (not the digest: budget counts and other moving lines are left out) | `ai_answer_duty_min` (30 min); deferrals only within `duty.rerun_min` |
   | Notice reader | the normalised text | none |
