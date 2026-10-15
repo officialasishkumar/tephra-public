@@ -140,7 +140,9 @@ JMA XML parser and the backtest metrics are the primary design of those steps; a
 `TEPHRA_LLM=ollama` (16 Oct 2026) is not a fallback either: it is a chosen backend, every model
 step on a model served by Ollama on the same computer (`TEPHRA_MODEL`/`TEPHRA_MODEL_LITE` are
 Ollama tags such as `gemma4:e4b`; `TEPHRA_OLLAMA_URL`, `TEPHRA_OLLAMA_NUM_CTX`,
-`TEPHRA_OLLAMA_THINK` `none`|`main`|`all`). Nothing switches to it on its own; its failures are
+`TEPHRA_OLLAMA_THINK` `none`|`main`|`all`, `TEPHRA_OLLAMA_PARALLEL` requests at once).
+`TEPHRA_PLAN_PARALLEL` (default 1): flights one Coordinator `plan_flights` call plans at once;
+each is committed on its own (`Runtime.plan_flight_now`), and the results keep the order asked. Nothing switches to it on its own; its failures are
 `AI UNAVAILABLE` like Gemini's, and the pages name it (Details > Runs on, the chip's tooltip).
 
 **Logging.** `logging.getLogger(__name__)`; never log secrets, PINs, cookies or API keys;

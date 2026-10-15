@@ -230,3 +230,23 @@ def test_thinking_is_for_the_plume_reader_by_default(monkeypatch: pytest.MonkeyP
     asyncio.run(ollama._chat({"options": {}}, "main"))
     asyncio.run(ollama._chat({"options": {}}, "lite"))
     assert seen == [True, False]
+
+
+def test_the_slot_takes_its_size_at_once() -> None:
+    slot = LocalSlot(size=2)
+    running = 0
+    peak = 0
+
+    async def job() -> None:
+        nonlocal running, peak
+        async with slot:
+            running += 1
+            peak = max(peak, running)
+            await asyncio.sleep(0.01)
+            running -= 1
+
+    async def run() -> None:
+        await asyncio.gather(*(job() for _ in range(5)))
+
+    asyncio.run(run())
+    assert peak == 2

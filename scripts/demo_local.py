@@ -3,6 +3,8 @@
     uv run python scripts/demo_local.py            # check Ollama, print the run sheet, start
     uv run python scripts/demo_local.py --sheet    # only print the run sheet
     uv run python scripts/demo_local.py --fresh    # start from an empty local store
+    uv run python scripts/demo_local.py --url http://spark:11434 --model gemma4:31b --parallel 4
+                                                    # the models on a bigger machine
 
 Reads data/demo/local-demo.json: the settings, the replay window and the beats to show.
 """
@@ -36,6 +38,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run the local Gemma demo of TEPHRA.")
     parser.add_argument("--sheet", action="store_true", help="print the run sheet and stop")
     parser.add_argument("--fresh", action="store_true", help="delete the local demo store first")
+    parser.add_argument("--url", help="Ollama on another machine, e.g. http://spark:11434")
+    parser.add_argument("--model", help="an Ollama tag to use instead of the plan's")
+    parser.add_argument(
+        "--parallel", type=int, help="flights planned and requests sent at once (default 1)"
+    )
     args = parser.parse_args()
 
     plan = json.loads(PLAN.read_text(encoding="utf-8"))
@@ -47,10 +54,14 @@ def main() -> int:
     env = {
         **os.environ,
         **plan["env"],
-        "TEPHRA_OLLAMA_URL": plan["ollama"]["url"],
+        "TEPHRA_OLLAMA_URL": args.url or plan["ollama"]["url"],
         "PORT": str(plan["port"]),
         "TEPHRA_DESK_PIN": os.environ.get("TEPHRA_DESK_PIN", plan["desk_pin"]),
     }
+    if args.model:
+        env["TEPHRA_MODEL"] = env["TEPHRA_MODEL_LITE"] = args.model
+    if args.parallel:
+        env["TEPHRA_OLLAMA_PARALLEL"] = env["TEPHRA_PLAN_PARALLEL"] = str(args.parallel)
     settings = Settings(
         _env_file=None,
         llm="ollama",

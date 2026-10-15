@@ -21,12 +21,28 @@ with `uv run python scripts/make_demo_case.py`.
 
 `--sheet` only prints the run sheet. The plan is `data/demo/local-demo.json`.
 
+## On a bigger machine (DGX Spark)
+
+A 16 GB Mac tops out near 30 tokens/s whatever runs in parallel (measured), so the assistant's
+queue grows and the Mac slows down. Serve the model from the Spark and run TEPHRA anywhere:
+
+```bash
+# on the Spark
+OLLAMA_HOST=0.0.0.0:11434 OLLAMA_NUM_PARALLEL=4 ollama serve
+ollama pull gemma4:31b                         # or gemma4:e4b; a bigger Gemma plans better
+# on the Mac (or ssh -L 11434:localhost:11434 spark and use http://127.0.0.1:11434)
+uv run python scripts/demo_local.py --fresh --url http://<spark>:11434 --model gemma4:31b --parallel 4
+```
+
+`--parallel 4` plans four flights at once and sends four requests at once
+(`TEPHRA_PLAN_PARALLEL`, `TEPHRA_OLLAMA_PARALLEL`).
+
 ## How it fits together
 
 ```
 demo feeds: SIGMET, Darwin + Tokyo VAA, VONA, JMA,            data/replay/demo-agung-20261014
             TAF/METAR, winds, aircraft
-        │  every replay minute (2x speed, 07:05-07:30Z, looping)
+        │  every replay minute (real time, 07:05-07:30Z, looping)
         ▼
 code: disagreements, official area, exposed flights           tephra/reconcile, tephra/geo
         │

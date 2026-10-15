@@ -174,6 +174,15 @@ class Settings(BaseSettings):
         ge=4096,
         description="The local model's context window in tokens (an agent's whole conversation)",
     )
+    ollama_parallel: int = Field(
+        default=1,
+        ge=1,
+        le=16,
+        description=(
+            "Requests sent to Ollama at once; start Ollama with OLLAMA_NUM_PARALLEL at least "
+            "this (more only helps on a machine with the memory bandwidth for it)"
+        ),
+    )
     ollama_think: Literal["none", "main", "all"] = Field(
         default="main",
         description=(
@@ -268,6 +277,12 @@ class Settings(BaseSettings):
         default=None, validation_alias=AliasChoices("GEMINI_API_KEY")
     )
     llm_timeout_s: float = Field(default=60.0, gt=0)
+    plan_parallel: int = Field(
+        default=1,
+        ge=1,
+        le=16,
+        description="Flights one Coordinator run plans at once (each is committed on its own)",
+    )
     duty_run_timeout_s: float = Field(
         default=900.0,
         gt=0,

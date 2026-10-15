@@ -132,12 +132,19 @@ class DutyToolkit:
     """Per dispatch, in order: how it came out (:func:`_outcome_of`)"""
     brief: DutyBrief | None = None
     brief_problems: list[str] = field(default_factory=list)
+    parallel: int = 1
+    """Flights ``plan_flights`` plans at once (TEPHRA_PLAN_PARALLEL)"""
 
     @classmethod
     def of(
-        cls, worklist: Iterable[DutyItem], executor: DutyExecutor, trace: TraceSink | None
+        cls,
+        worklist: Iterable[DutyItem],
+        executor: DutyExecutor,
+        trace: TraceSink | None,
+        *,
+        parallel: int = 1,
     ) -> "DutyToolkit":
-        toolkit = cls(executor=executor, trace=trace)
+        toolkit = cls(executor=executor, trace=trace, parallel=parallel)
         for item in worklist:
             toolkit.items[item.id] = item
         return toolkit
@@ -191,25 +198,38 @@ class DutyToolkit:
         return self._seen({"results": results, "pending": self._pending_view()})
 
     async def plan_flights(self, flight_ids: Sequence[str]) -> dict[str, Any]:
-        results: list[dict[str, Any]] = []
+        """Each flight is planned and committed on its own (``Runtime.plan_flight_now``), so up
+        to ``parallel`` of them run at once; the results keep the order asked."""
+        slots: list[Any] = []
+        chosen: set[str] = set()
         for named in _unique(flight_ids):
             item = self.plan_item(named)
-            if item is None:
-                results.append({"flight_id": named, "error": "NO PLAN IS DUE FOR THIS FLIGHT"})
-                continue
-            flight_id = item.subject
-            if item.volcano_id and self.pending_for(DutyItemKind.ASSESS, item.volcano_id):
-                results.append(
+            if item is None or item.id in chosen:
+                slots.append({"flight_id": named, "error": "NO PLAN IS DUE FOR THIS FLIGHT"})
+            elif item.volcano_id and self.pending_for(DutyItemKind.ASSESS, item.volcano_id):
+                slots.append(
                     {
-                        "flight_id": flight_id,
+                        "flight_id": item.subject,
                         "error": f"ASSESS VOLCANO {item.volcano_id} FIRST: ITS PLUME READ IS DUE",
                     }
                 )
-                continue
-            started = time.perf_counter()
-            result = await self.executor.plan(flight_id)
+            else:
+                chosen.add(item.id)
+                slots.append(item)
+        gate = asyncio.Semaphore(self.parallel)
+
+        async def plan(item: DutyItem) -> dict[str, Any]:
+            async with gate:
+                started = time.perf_counter()
+                result = await self.executor.plan(item.subject)
             self._dispatched("plan_flights", [item.id], result, started)
-            results.append(result)
+            return result
+
+        planned = await asyncio.gather(
+            *(plan(slot) for slot in slots if isinstance(slot, DutyItem))
+        )
+        found = iter(planned)
+        results = [next(found) if isinstance(slot, DutyItem) else slot for slot in slots]
         return self._seen({"results": results, "pending": self._pending_view()})
 
     async def run_recovery(self) -> dict[str, Any]:
@@ -476,7 +496,7 @@ async def run_duty_officer(
     a fresh look). Decisions that passed are kept. Inside ``on_hand_only`` decisions that no
     longer fit raise ``NotOnHand``."""
     started_at = timeutil.now()
-    toolkit = DutyToolkit.of(worklist, executor, trace)
+    toolkit = DutyToolkit.of(worklist, executor, trace, parallel=settings.plan_parallel)
     toolkit.evidence.append(digest)
     system = PROMPT_PATH.read_text(encoding="utf-8")
     task = _task_text(digest, toolkit)

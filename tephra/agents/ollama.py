@@ -1,4 +1,5 @@
-"""Every model step on a Gemma model served by Ollama on this computer (``TEPHRA_LLM=ollama``).
+"""Every model step on a Gemma model served by Ollama (``TEPHRA_LLM=ollama``): on this computer,
+or on a bigger machine named by ``TEPHRA_OLLAMA_URL``.
 
 Two doors to one local model:
 
@@ -9,9 +10,10 @@ Two doors to one local model:
   Recovery planner). ``TEPHRA_MODEL_LITE=gemma4:e4b`` reaches it through ADK's registry: an
   Ollama tag (``name:tag``) matches no Gemini pattern, and :data:`OLLAMA_TAG` claims it.
 
-A local model has no daily quota, so nothing is reserved or paced. It answers one request at a
-time: :class:`LocalSlot` queues the rest, a person's question (the interactive lane) and urgent
-work ahead of routine work, so the Desk's Ask is not stuck behind a backlog of flight plans.
+A local model has no daily quota, so nothing is reserved or paced. It takes
+TEPHRA_OLLAMA_PARALLEL requests at a time (1 by default): :class:`LocalSlot` queues the rest, a
+person's question (the interactive lane) and urgent work ahead of routine work, so the Desk's
+Ask is not stuck behind a backlog of flight plans.
 A failure is AI UNAVAILABLE with its reason, exactly as with Gemini; nothing stands in for it.
 """
 
@@ -49,17 +51,18 @@ _SCHEMA_DROP: Final = frozenset({"nullable", "property_ordering", "title", "exam
 
 
 class LocalSlot:
-    """One request at a time to the local model; waiting requests go in lane order, then in
-    the order they asked."""
+    """At most ``size`` requests at once to the local model (TEPHRA_OLLAMA_PARALLEL); waiting
+    requests go in lane order, then in the order they asked."""
 
-    def __init__(self) -> None:
-        self._busy = False
+    def __init__(self, size: int = 1) -> None:
+        self.size = size
+        self._running = 0
         self._queue: list[tuple[int, int, asyncio.Future[None]]] = []
         self._order = itertools.count()
 
     async def __aenter__(self) -> None:
-        if not self._busy and not self._queue:
-            self._busy = True
+        if self._running < self.size and not self._queue:
+            self._running += 1
             return
         future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         heapq.heappush(self._queue, (LANE_ORDER[current_lane()], next(self._order), future))
@@ -67,19 +70,20 @@ class LocalSlot:
             await future
         except asyncio.CancelledError:
             if future.done() and not future.cancelled():
-                self._release()  # handed the slot just as it was cancelled: pass it on
+                self._release()  # handed a slot just as it was cancelled: pass it on
             raise
 
     async def __aexit__(self, *_: object) -> None:
         self._release()
 
     def _release(self) -> None:
+        """Hand the slot to the first live waiter, or free it."""
         while self._queue:
             _, _, future = heapq.heappop(self._queue)
             if not future.done():
                 future.set_result(None)
                 return
-        self._busy = False
+        self._running -= 1
 
 
 _SLOT = LocalSlot()
@@ -98,6 +102,7 @@ def configure(settings: Settings) -> None:
     _Config.url = settings.ollama_url.rstrip("/")
     _Config.think = settings.ollama_think
     _Config.num_ctx = settings.ollama_num_ctx
+    _SLOT.size = settings.ollama_parallel
     _Config.timeout_s = settings.llm_timeout_s
 
 

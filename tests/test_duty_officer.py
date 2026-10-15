@@ -6,6 +6,7 @@ Code holds the safety line around it: plume reads before plans, no deferring man
 work, a checked brief, and mandatory work left undone sent to the Desk.
 """
 
+import asyncio
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -443,3 +444,26 @@ def test_a_last_reading_holds_the_area_only_while_it_fits_the_official_products(
     assert not _holds_while_pending(hypothesis, situation, AT + timedelta(hours=1))
     _, pending = reading(PlumeMode.OFFICIAL, outcome="PENDING")
     assert not _holds_while_pending(pending, situation, AT + timedelta(hours=1))
+
+
+def test_plan_flights_plans_up_to_parallel_at_once_and_keeps_the_order() -> None:
+    plans = [item(DutyItemKind.PLAN, f"f{n}", urgency=1) for n in range(5)]
+    running = 0
+    peak = 0
+
+    class Slow(FakeExecutor):
+        async def plan(self, flight_id: str) -> dict[str, Any]:
+            nonlocal running, peak
+            running += 1
+            peak = max(peak, running)
+            await asyncio.sleep(0.01 * (5 - int(flight_id[1:])))  # later ones finish first
+            running -= 1
+            return await super().plan(flight_id)
+
+    kit = DutyToolkit.of(plans, Slow(), trace=None, parallel=2)
+    names = ["f0", "nope", "f1", "f2", "f3", "f4", plans[0].id]  # f0 again, by its item id
+    out = asyncio.run(kit.plan_flights(names))
+    assert [r["flight_id"] for r in out["results"]] == [*names[:-1], plans[0].id]
+    assert out["results"][-1]["error"] == "NO PLAN IS DUE FOR THIS FLIGHT"
+    assert peak == 2
+    assert sorted(d.item_ids[0] for d in kit.dispatches) == sorted(p.id for p in plans)
