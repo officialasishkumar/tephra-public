@@ -54,6 +54,9 @@ WRITER_WATCH_S: Final = 60
 QUIET_TICKS: Final = 3
 """Ticks missed (Cloud Scheduler mode) before open streams are ended once."""
 BUSY_NOTE: Final = "busy: another tick is still running"
+CUT_SHORT_NOTE: Final = (
+    "tick cut short after {seconds:g} s: what it had is published; the rest waits for the next tick"
+)
 STOPPED_NOTE: Final = "stopped: a mode switch at the Desk ended this tick"
 FEED_LABELS: Final[dict[FeedId, str]] = {
     FeedId.SIGMET: "VA SIGMET",
@@ -131,15 +134,26 @@ async def _tick_steps(runtime: "Runtime", reason: str) -> TickReport:
     if runtime.mode is not mode:  # the rest of the tick runs on the other mode's clock
         report.started_at = timeutil.now()
     runtime.follow_replay_clock(report.started_at, report)
-    await _poll_phase(runtime, PRODUCT_FEEDS, report)
-    active = runtime.refresh_active(timeutil.now())
-    await _poll_phase(runtime, CONTEXT_FEEDS, report)
-    at = timeutil.now()
-    await runtime.analyse(at, report)
-    await _step(runtime, report, "exposure", runtime.update_exposures(at, report))
-    await _step(runtime, report, "crew reports", runtime.update_crew(at, report))
-    await _step(runtime, report, "network recovery", runtime.run_recovery(at, report))
-    await _step(runtime, report, "draft retirement", runtime.settle_drafts(at, report))
+    active: set[str] = set(runtime.live.active)
+    deadline_s = _deadline_s(runtime)
+    try:
+        # Everything that can wait on a feed or a solver runs under one deadline; what it
+        # has by then is published and checkpointed, and the next tick takes the rest.
+        async with asyncio.timeout(deadline_s):
+            await _poll_phase(runtime, PRODUCT_FEEDS, report)
+            active = runtime.refresh_active(timeutil.now())
+            await _poll_phase(runtime, CONTEXT_FEEDS, report)
+            at = timeutil.now()
+            await runtime.analyse(at, report)
+            await _step(runtime, report, "exposure", runtime.update_exposures(at, report))
+            await _step(runtime, report, "crew reports", runtime.update_crew(at, report))
+            await _step(runtime, report, "network recovery", runtime.run_recovery(at, report))
+            await _step(runtime, report, "draft retirement", runtime.settle_drafts(at, report))
+    except TimeoutError:
+        note = CUT_SHORT_NOTE.format(seconds=deadline_s)
+        logger.warning(note)
+        report.notes.append(note)
+        runtime.trace(TraceStage.SYSTEM, "system", note, level="warn")
     runtime.count_quiet_tick()
     report.active_volcano_ids = sorted(active)
     report.finished_at = timeutil.now()
@@ -150,6 +164,12 @@ async def _tick_steps(runtime: "Runtime", reason: str) -> TickReport:
     # The model work this tick made due runs in the AI worker, not here (ai_worker.py).
     runtime.worker.wake("tick")
     return report
+
+
+def _deadline_s(runtime: "Runtime") -> float:
+    """Seconds the tick's feed, analysis and planning work may take (``tick_deadline_s``,
+    under Cloud Scheduler's attempt deadline); a test shortens it here."""
+    return float(runtime.settings.tick_deadline_s)
 
 
 async def _step(runtime: "Runtime", report: TickReport, name: str, step: Awaitable[None]) -> None:

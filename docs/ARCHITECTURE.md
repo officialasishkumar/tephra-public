@@ -320,7 +320,9 @@ flowchart TB
   (`TEPHRA_PROJECT`, `TEPHRA_GCP_REGION`) and refuse the `default` gcloud configuration and
   any credential override. They are run by the user from a dedicated personal-account gcloud
   configuration, never by an agent. Cloud Scheduler calls the tick every minute with a 120 s
-  attempt deadline.
+  attempt deadline; the tick's feed, analysis and planning work runs under its own
+  `TEPHRA_TICK_DEADLINE_S` (100 s), and a tick cut short publishes and checkpoints what it
+  has, says so in its report and the trace, and leaves the rest to the next tick.
 
 ### Scaling path and running cost
 

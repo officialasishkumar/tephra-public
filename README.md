@@ -188,7 +188,7 @@ flowchart TB
 | Service | Role in TEPHRA |
 |---|---|
 | Cloud Run | one service in `asia-southeast1`, one instance, CPU always on: the in-process event bus feeds every browser's stream, and one pipeline is the single writer of the picture, the drafts and the record; `--concurrency 300` with startup and liveness probes on `/health` |
-| Cloud Scheduler | `POST /tasks/tick` every minute with a token, 120 s attempt deadline |
+| Cloud Scheduler | `POST /tasks/tick` every minute with a token, 120 s attempt deadline; the tick's own 100 s deadline publishes what it has and says so when a feed or a solver runs long |
 | Firestore (native mode) | advisories, decisions, the audit chain, kept model answers (with a TTL on `expires_at`), the budget ledger; the rules deny every client, only the service account reads and writes |
 | Secret Manager | `GEMINI_API_KEY`, `TEPHRA_DESK_PIN`, `TEPHRA_TASK_TOKEN`, `TEPHRA_SESSION_SECRET`, mounted as environment variables |
 | Artifact Registry | one image per commit; a cleanup policy keeps every `keep-*` tag and the five newest images |
