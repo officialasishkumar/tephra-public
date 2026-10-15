@@ -30,14 +30,17 @@ labelled REPLAY.
 
 ## 1. The problem, measured
 
-- On 6 September 2026, ash from Anak Krakatau closed Jakarta's Soekarno-Hatta airport for the first
-  time in its history, along with seven other airports <!-- row 1 -->; about 2,961 flights and
-  341,000 people were affected <!-- row 2 -->. BMKG issued 39 SIGMETs for the volcano from 4 to
-  7 September <!-- row 43 -->, and the airport's own weather reports recorded ash 69 times
-  <!-- row 41 -->. Between 01:30 and 09:30 that morning, 209 movements and 22,798 passengers were
-  affected and 170 aircraft were held on the apron <!-- row 29 -->.
-- During it, the observatory's only aviation notice said *"Ash-cloud is not observed"* <!-- row 3 -->,
-  while Darwin issued 28 advisories, 24 of them with ash to FL500 <!-- row 42 -->.
+- From 6 to 8 September 2026, ash from Anak Krakatau closed Jakarta's Soekarno-Hatta airport, its
+  first full closure, and seven other airports <!-- row 1 -->; the transport ministry counted about
+  2,961 flights and 341,000 people affected <!-- row 2 -->. BMKG issued 39 SIGMETs for the volcano
+  from 4 September to the morning of 7 September (the count may include cancellations)
+  <!-- row 43 -->, and the airport's own weather reports recorded volcanic ash 69 times, from
+  01:30 WIB on 6 September to 12:00 WIB on 7 September <!-- row 41 -->. Between 01:30 and 09:30 WIB
+  on 6 September, 209 movements and 22,798 passengers at Soekarno-Hatta were affected and 170
+  aircraft were held on the apron <!-- row 29 -->.
+- From 5 September 02:00Z until the next notice 74.5 hours later, the observatory's only aviation
+  notice (2026KRA026) said *"Ash-cloud is not observed"* <!-- row 3 -->; in that window Darwin
+  issued 28 advisories, 24 of them with ash at FL500 <!-- row 42 -->.
 - The pattern: in the 30 days to 9 October, 28 of Semeru's 92 observatory ash reports pointed where the
   official area did not reach 10 km from the vent <!-- row 4 -->; a Darwin advisory took a median
   228 minutes to reflect a new Semeru notice <!-- row 5 -->; Indonesian SIGMETs copy the Darwin
@@ -223,8 +226,9 @@ Who: the duty dispatcher of any operator flying the Ring of Fire, and the safety
 write the assessment SE-DJPU 15/2026 asks for <!-- row 26 -->. Why it matters: 341,000 people in one
 event <!-- row 2 -->; volcanoes in Indonesia, the Philippines and Japan caused 40% of recorded
 encounters and 5 of the 9 in-flight engine failures, 1953-2009 <!-- row 30 -->; the same ash gets
-different decisions: 28 of 42 international airlines kept flying into Bali in November 2024 and 14
-did not <!-- row 31 -->; Darwin issues about 16 bulletins a day <!-- row 32 -->.
+different decisions: an airport official told VIVA that 28 of 42 international airlines kept flying
+into Bali in November 2024 and 14 did not <!-- row 31 -->; Darwin issued about 16 text bulletins a
+day in 2024 and 2025 (a file count) <!-- row 32 -->.
 
 What would be measured in service: minutes from a disagreement to a reviewed per-flight decision;
 the share of exposed flights with a reviewed advisory before entry; over-warning area against the
@@ -249,12 +253,13 @@ the stub suite on every push, and a versioned operator policy file.
 Per-flight AI advisories with human approval exist (Jeppesen ForeFlight Airflow: "AI proposes a
 specific action. A human approves." <!-- row 21 -->; The Weather Company's company ash SIGMETs and
 WXAlert). AI ash detection on satellite imagery exists (Weathernews, since 2021 <!-- row 22 -->;
-NOAA/CIMSS VOLCAT). Live ash maps exist (AshMap/ash-map, Pantau Abu, FlySafe.zone). Dispatcher
-weather consoles exist (SITA eWAS, EUROCONTROL EVITA). TEPHRA does not detect ash and does not claim
-the map, the alert or the approval. What is new is the step in front of them: classifying what each
-official source observed, building the cautious union with a never-shrink floor, citing the
-evidence for every widening, and turning it into a per-flight draft a dispatcher signs, on public
-feeds, for carriers without a vendor contract.
+NOAA/CIMSS VOLCAT). Live ash maps exist (AshMap/ash-map, Pantau Abu, FlySafe.zone). Dispatch
+weather alerts exist (SITA eWAS), as do ash flight-impact and rerouting tools (EUROCONTROL EVITA,
+Europe only). TEPHRA does not detect ash and does not claim the map, the alert or the approval.
+What is new is the step in front of them: classifying what each official source observed, building
+the cautious union with a never-shrink floor, and citing the evidence for every widening, on public
+feeds, for carriers without a vendor contract. The per-flight draft and the dispatcher's signature
+are the existing pattern it feeds.
 
 ## 10. Limits, honestly
 
@@ -271,9 +276,10 @@ feeds, for carriers without a vendor contract.
   notices; MAGMA's site is not crawled <!-- row 23 -->.
 - **It does not detect ash.** Satellite pictures are context; "no signal" is never read as "no
   ash". Gases (SO2) are shown as context and not modelled.
-- **The free tier limits how often the model runs.** About 20 Plume reader calls a day
-  <!-- row 19 --> and 500 lighter calls; when the budget is spent the step says AI UNAVAILABLE and
-  nothing is substituted.
+- **The free tier limits how often the model runs.** Google reportedly allows about 20 requests a
+  day for Gemini 3.8 Flash on the free tier <!-- row 19 -->, unconfirmed; TEPHRA counts its own
+  calls against a daily budget, and when it is spent the step says AI UNAVAILABLE and nothing is
+  substituted.
 - **Replays are labelled.** The demo plays a reconstructed case; recorded answers from the same
   model are re-checked by code before they are shown again.
 - **What is fictional:** the airline, its flight numbers, its schedule, its operator policy.

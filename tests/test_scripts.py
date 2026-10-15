@@ -737,10 +737,13 @@ def test_cloudrun_says_where_the_secrets_come_from_beside_set_secrets() -> None:
 
 
 def test_deploy_files_the_export_keeps_do_not_address_a_judge() -> None:
-    """The private runbook (dropped by the export) is the one place the word may stay."""
+    """The private runbook and the export lists under deploy/public (both dropped by the
+    export; the lists name the word in order to find it) are the places the word may stay."""
     hits = []
     for path in sorted((PROJECT_ROOT / "deploy").rglob("*")):
         if not path.is_file() or path.name == "RUNBOOK-private.md" or "__pycache__" in path.parts:
+            continue
+        if path.relative_to(PROJECT_ROOT).parts[:2] == ("deploy", "public"):
             continue
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if re.search(r"\bjudg", line, re.IGNORECASE):

@@ -1,18 +1,28 @@
 {
   "anak-krakatau-20260905": {
     "eyebrow": "Colour code red",
-    "happened": "On 6 Sep 2026 ash from Anak Krakatau closed Jakarta's main airport: about 2,961 flights and 341,000 people affected.",
-    "happened_rows": [1, 2],
-    "disagreed": "The observatory's only notice said \"Ash-cloud is not observed\"; official advisories put ash up to FL500.",
-    "disagreed_rows": [3, 42],
+    "happened": "From 6 to 8 Sep 2026 ash from Anak Krakatau closed Jakarta's main airport and seven others; the transport ministry counted about 2,961 flights and 341,000 people affected.",
+    "happened_rows": [
+      1,
+      2
+    ],
+    "disagreed": "From 5 Sep 02:00Z the observatory's only aviation notice said \"Ash-cloud is not observed\"; before the next one, 74.5 hours later, Darwin issued 28 advisories, 24 with ash at FL500.",
+    "disagreed_rows": [
+      3,
+      42
+    ],
     "sources": "Transport ministry figures via ABC (rows 1-2); PVMBG VONA 2026KRA026 (row 3); Darwin VAAC advisory counts (row 42)."
   },
   "semeru-20260923": {
     "eyebrow": null,
     "happened": "In the 30 days to 9 Oct 2026, 28 of Semeru's 92 observatory ash reports pointed where the official area did not reach 10 km from the vent.",
-    "happened_rows": [4],
+    "happened_rows": [
+      4
+    ],
     "disagreed": "On 23–27 Sep every SIGMET moved the ash south-east while 20 observatory notices said north or north-east. They disagreed; TEPHRA covered both.",
-    "disagreed_rows": [6],
+    "disagreed_rows": [
+      6
+    ],
     "sources": "TEPHRA's own 30-day census (row 4); SIGMET and VONA texts (row 6)."
   },
   "java-live-20261010": {
