@@ -1574,6 +1574,21 @@ Badges are 24 px dots in `--c-info`; an ash-area mark is a pin on the area. Try 
 cards; Map key, How it works, About and the policy fold under More with their old ids. The shots and
 `data/guide-shots.json` come from `scripts/capture_guide_shots.mjs` against the stub replay.
 
+### 7.30 A skill's sheet reads at a glance (16 Oct 2026)
+
+The owner, on the old sheet: "I cannot differentiate what's going on quickly." Clicking a skill on
+the Assistant board opens, in order:
+- a state pill (Working pulses in `--c-info`, waiting and no result in caution) and what it does;
+- three counts: in line, done, not accepted;
+- the job it is working on, as a flight row;
+- the queue, most urgent first, with minutes as a pill (15 min or less, or inside, in caution);
+- the newest results, each with a badge: Done (check), Not accepted (triangle), Tool, Note.
+
+A result's badge follows what it says before its trace level: a plan the checks refused is
+"Not accepted" even when logged at info. Tool calls read as words ("Flight planner priced a
+divert: 36 min, 1,512 kg fuel"); their JSON stays under Technical detail. The model id is one small
+mono line in the footer, next to "Why ›" and "Every step ›".
+
 ## 8. 3D, compare, the time bar and the height filter
 
 ### 8.1 3D mode (D)

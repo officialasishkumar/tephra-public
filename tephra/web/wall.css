@@ -1610,6 +1610,52 @@ html[data-page="assistant"] .topnav a[href="/assistant"] { display: inline-flex;
 .flow-sheet__tm { font-family: var(--font-mono); font-size: var(--fs-1); color: var(--c-text-3); }
 .flow-sheet__state { color: var(--c-text-1); }
 .flow-sheet__fine { font-size: var(--fs-1); }
+/* one skill's sheet: state, three counts, the job it is on, the queue by urgency, the results */
+.ss-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 2px 0 16px; }
+.ss-does { font-size: var(--fs-2); color: var(--c-text-3); }
+.ss-pill { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 11px; border-radius: 999px; font-size: var(--fs-1); font-weight: var(--fw-semibold); background: color-mix(in srgb, var(--c-text-1) 7%, transparent); color: var(--c-text-2); }
+.ss-pill i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.ss-pill--info { color: var(--c-info); background: color-mix(in srgb, var(--c-info) 14%, transparent); }
+.ss-pill--info i { animation: ss-pulse 1.6s ease-in-out infinite; }
+.ss-pill--caution { color: var(--c-caution); background: var(--c-caution-bg); }
+.ss-pill--ok { color: var(--c-ok); background: var(--c-ok-bg); }
+@keyframes ss-pulse { 50% { opacity: 0.35; } }
+.ss-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+.ss-stat { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--c-text-1) 4%, transparent); box-shadow: inset 0 0 0 1px var(--c-line-1); }
+.ss-stat b { font-size: 26px; line-height: 1.1; font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; color: var(--c-text-1); }
+.ss-stat span { font-size: var(--fs-1); color: var(--c-text-3); }
+.ss-stat--ok b { color: var(--c-ok); }
+.ss-stat--caution b { color: var(--c-caution); }
+.ss-now { margin-bottom: 6px; padding: 10px 12px 4px; border-radius: 12px; background: color-mix(in srgb, var(--c-info) 9%, transparent); box-shadow: inset 3px 0 0 var(--c-info); }
+.ss-now__k { display: inline-flex; align-items: center; gap: 7px; font-size: var(--fs-1); font-weight: var(--fw-semibold); color: var(--c-info); text-transform: uppercase; letter-spacing: 0.06em; }
+.ss-now__k i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: ss-pulse 1.6s ease-in-out infinite; }
+.ss-now .ss-job { border-bottom: 0; }
+.ss-brief { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--c-text-1) 4%, transparent); font-size: var(--fs-2); line-height: 1.5; color: var(--c-text-1); }
+.ss-jobs, .ss-results { list-style: none; margin: 0; padding: 0; }
+.ss-job { display: grid; grid-template-columns: 88px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 38px; border-bottom: 1px solid color-mix(in srgb, var(--c-text-1) 5%, transparent); }
+.flow-sheet li.ss-job { color: var(--c-text-2); }
+.ss-job__flight { font-family: var(--font-mono); font-size: var(--fs-2); font-weight: var(--fw-semibold); color: var(--c-text-1); }
+.ss-job__what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-mins { padding: 2px 9px; border-radius: 999px; font-size: var(--fs-1); font-variant-numeric: tabular-nums; color: var(--c-text-2); background: color-mix(in srgb, var(--c-text-1) 6%, transparent); white-space: nowrap; }
+.ss-mins.is-soon { color: var(--c-caution); background: var(--c-caution-bg); font-weight: var(--fw-semibold); }
+.ss-result { display: grid; grid-template-columns: 64px 112px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 40px; padding: 4px 0; border-bottom: 1px solid color-mix(in srgb, var(--c-text-1) 5%, transparent); }
+.ss-result__text { color: var(--c-text-1); line-height: 1.4; }
+.ss-badge { display: inline-flex; align-items: center; gap: 5px; justify-self: start; padding: 2px 8px 2px 6px; border-radius: 999px; font-size: var(--fs-1); font-weight: var(--fw-semibold); white-space: nowrap; }
+.ss-badge .icon { width: 13px; height: 13px; }
+.ss-badge--ok { color: var(--c-ok); background: var(--c-ok-bg); }
+.ss-badge--caution { color: var(--c-caution); background: var(--c-caution-bg); }
+.ss-badge--muted { color: var(--c-text-3); background: color-mix(in srgb, var(--c-text-1) 6%, transparent); }
+.ss-count { padding: 1px 7px; border-radius: 999px; font-size: var(--fs-1); font-variant-numeric: tabular-nums; color: var(--c-text-2); background: color-mix(in srgb, var(--c-text-1) 7%, transparent); }
+.ss-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-top: 18px; }
+.ss-links { display: inline-flex; gap: 16px; }
+.ss-model { font-family: var(--font-mono); font-size: var(--fs-1); color: var(--c-text-3); }
+@media (max-width: 560px) {
+  .ss-result { grid-template-columns: 56px minmax(0, 1fr) auto; }
+  .ss-result .ss-badge { grid-column: 2; }
+  .ss-result__text { grid-column: 1 / -1; padding-bottom: 6px; }
+  .ss-job { grid-template-columns: 76px minmax(0, 1fr) auto; }
+}
+@media (prefers-reduced-motion: reduce) { .ss-pill--info i, .ss-now__k i { animation: none; } }
 
 /* desktop: the title, the log and the player sit on the same glass as "Inside TEPHRA", so every
    part reads over the moving map and the page has three calm cards (UI-DESIGN 7.27) */

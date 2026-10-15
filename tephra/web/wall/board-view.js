@@ -17,6 +17,82 @@ import { flowAt, foldRows, readEvent, stepEvents, hmsOf as hms, STAGGER_MS, TOOL
 import { STYLE_URL, nightBasemap, nightColours, symbolColours } from "./basemap.js";
 import { addImages } from "./images.js";
 
+// ---------------------------------------------------------------- one skill's sheet
+// Glance first: its state, three counts, the job it is on, then the queue by urgency and the
+// newest results, each with a word and a shape for how it went (never colour alone).
+const SHEET_TONE = { working: "info", waiting: "caution", queued: "muted", failed: "caution", notrun: "caution", done: "ok", quiet: "muted" };
+const RESULT = {
+  ok: ["ok", "i-check", "Done"], failed: ["caution", "i-alert", "No result"], caution: ["caution", "i-alert", "Not used"],
+  rejected: ["caution", "i-alert", "Not accepted"], tool: ["muted", "i-code", "Tool"], info: ["muted", "i-info", "Note"], quiet: ["muted", "i-info", "Note"],
+};
+// What a step says decides its badge before its trace level does: a plan the checks refused is
+// logged at info level, and a tool call is a step on the way, not a result.
+const REFUSED = /did not accept|failed the checks|gave no result|no result|not accepted|AI UNAVAILABLE/i;
+const TOOLISH = /^(Used the .+ tool|Flight planner (looked up|checked|priced))/;
+const resultKind = (x) => (REFUSED.test(x.text) ? "rejected" : TOOLISH.test(x.text) ? "tool" : x.tone);
+const JOB = /^Plan (\S+) \(([^)]+)\): (.+)$/;
+const plainCase = (text) => (/[a-z]/.test(text) ? text : text.charAt(0) + text.slice(1).toLowerCase());
+const jobMinutes = (where) => (/inside/i.test(where) ? 0 : Number((where.match(/in (\d+) min/) || [])[1] ?? Infinity));
+
+function jobRow(label) {
+  const m = label.match(JOB);
+  if (!m) return el("li", { class: "ss-job" }, el("span", { class: "ss-job__what", text: label }));
+  const [, flight, volcano, where] = m;
+  const min = jobMinutes(where);
+  const soon = min <= 15;
+  return el("li", { class: "ss-job" },
+    el("span", { class: "ss-job__flight", text: flight }),
+    el("span", { class: "ss-job__what", text: volcano }),
+    el("span", { class: `ss-mins${soon ? " is-soon" : ""}`, text: min === 0 ? "inside now" : Number.isFinite(min) ? `${min} min` : where }));
+}
+
+function skillSheet(card, s, skillId, paused) {
+  const kids = [];
+  const state = card?.state || (s?.jobs.length ? "waiting" : "quiet");
+  kids.push(el("div", { class: "ss-head" },
+    el("span", { class: `ss-pill ss-pill--${SHEET_TONE[state] || "muted"}` }, el("i"), card?.word || (s?.jobs.length ? "Waiting in line" : "Quiet")),
+    el("span", { class: "ss-does", text: s?.does || "" })));
+
+  const steps = card?.steps || [];
+  const nowStep = steps.find((x) => x.now && x.tone === "working");
+  const past = steps.filter((x) => !x.now);
+  const sum = (...kinds) => past.filter((x) => kinds.includes(resultKind(x))).reduce((n, x) => n + (x.count || 1), 0);
+  const inLine = s?.jobs.length || 0;
+  kids.push(el("div", { class: "ss-stats" },
+    el("div", { class: "ss-stat" }, el("b", { text: String(inLine) }), el("span", { text: "in line" })),
+    el("div", { class: "ss-stat ss-stat--ok" }, el("b", { text: String(sum("ok")) }), el("span", { text: "done" })),
+    el("div", { class: `ss-stat${sum("failed", "caution", "rejected") ? " ss-stat--caution" : ""}` }, el("b", { text: String(sum("failed", "caution", "rejected")) }), el("span", { text: "not accepted" }))));
+
+  if (nowStep) {
+    const label = nowStep.text.replace(/^Running now: /, "").replace(/ and \d+ more jobs?$/, "");
+    kids.push(el("div", { class: "ss-now" }, el("span", { class: "ss-now__k" }, el("i"), "Working on"), el("ul", { class: "ss-jobs" }, jobRow(label))));
+  }
+  if (card?.brief) kids.push(el("blockquote", { class: "ss-brief", text: card.brief.text }));
+
+  if (inLine) {
+    const jobs = [...s.jobs].sort((a, b) => jobMinutes((a.match(JOB) || [])[3] || "") - jobMinutes((b.match(JOB) || [])[3] || ""));
+    kids.push(el("h3", { text: "In line, most urgent first" }), el("ul", { class: "ss-jobs" }, ...jobs.map(jobRow)));
+  }
+
+  if (past.length) {
+    kids.push(el("h3", { text: "Newest results" }), el("ol", { class: "ss-results" }, ...past.map((x) => {
+      const [tone, ic, word] = RESULT[resultKind(x)] || RESULT.info;
+      return el("li", { class: "ss-result", title: x.source },
+        el("span", { class: "flow-sheet__tm", text: x.atText || (Number.isFinite(x.at) ? hms(x.at) : "") }),
+        el("span", { class: `ss-badge ss-badge--${tone}` }, icon(ic), word),
+        el("span", { class: "ss-result__text", text: plainCase(x.text) }),
+        x.count > 1 ? el("span", { class: "ss-count", text: `×${x.count}` }) : null);
+    })));
+  } else if (s?.last) kids.push(el("p", { text: `${s.last.text} · ${hms(s.last.at)}` }));
+
+  const links = [];
+  const stalled = card && (card.state === "notrun" || card.state === "failed" || card.state === "waiting");
+  if (stalled || (paused && inLine)) links.push(el("button", { type: "button", class: "flow-link", dataset: { act: "board-details", sec: "ai", focus: `board-why-${skillId}` }, text: "Why ›" }));
+  links.push(el("button", { type: "button", class: "flow-link", dataset: { act: "board-details", sec: "trace", focus: `board-trace-${skillId}` }, text: "Every step ›" }));
+  kids.push(el("div", { class: "ss-foot" }, el("span", { class: "ss-links" }, ...links), card?.model ? el("span", { class: "ss-model", text: card.model.text }) : null));
+  return kids;
+}
+
 const ARROWS = ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"];
 // Where each feed comes from: the office or source that issues it (lon, lat). The SIGMET beacon sits
 // on the SIGMETs in force when there are any; METAR at the airports; winds on the grid; ADS-B at
@@ -1324,21 +1400,7 @@ export function mountFlow(dialog, { has }) {
       const card = details && details.ready ? [details.duty, ...details.team].find((x) => x.id === skillId) : null;
       const s = skillId === "duty" ? (card ? { name: card.name, does: card.does, jobs: [], last: null } : null) : M.skills.find((x) => x.id === skillId);
       sheetH.textContent = s ? s.name : "Skill";
-      const kids = [el("p", { text: s?.does || "" })];
-      if (card) {
-        kids.push(el("p", { class: "flow-sheet__state", text: card.word }),
-          el("p", { text: `Newest: ${card.last.text}${Number.isFinite(card.last.at) ? ` · ${hms(card.last.at)}` : ""}` }));
-        if (card.brief) kids.push(el("p", { text: `Brief: ${card.brief.text}` }));
-        if (card.model) kids.push(el("p", { class: "flow-sheet__fine", text: card.model.text }));
-        if (card.steps.length) kids.push(el("h3", { text: "Newest steps" }), el("ol", { class: "flow-sheet__steps" }, ...card.steps.map((x) => el("li", {}, el("span", { class: "flow-sheet__tm", text: x.atText || (Number.isFinite(x.at) ? hms(x.at) : "") }), el("span", { text: `${x.text}${x.count > 1 ? ` (${x.count}×)` : ""} · ${x.source}` })))));
-      } else if (s?.last) kids.push(el("p", { text: `${s.last.text} · ${hms(s.last.at)}` }));
-      if (s?.jobs.length) kids.push(el("h3", { text: "Waiting in line" }), el("ul", {}, ...s.jobs.map((j) => el("li", { text: j }))));
-      // a skill that did not run, gave no result or waits while the assistant is paused: why is
-      // one tap away, at Details › TEPHRA Assistant (8.6)
-      const stalled = card && (card.state === "notrun" || card.state === "failed" || card.state === "waiting");
-      if (stalled || (M.ai.kind === "paused" && s?.jobs.length)) kids.push(el("button", { type: "button", class: "flow-link", dataset: { act: "board-details", sec: "ai", focus: `board-why-${skillId}` }, text: "Why: Details › TEPHRA Assistant ›" }));
-      kids.push(el("button", { type: "button", class: "flow-link", dataset: { act: "board-details", sec: "trace", focus: `board-trace-${skillId}` }, text: "Every step in How TEPHRA decided ›" }));
-      sheetBody.replaceChildren(...kids);
+      sheetBody.replaceChildren(...skillSheet(card, s, skillId, M.ai.kind === "paused"));
     } else {
       sheetH.textContent = "How this moves";
       const tb = el("tbody", {}, ...MAPROWS.map(([tone, a, b]) => { const i = el("i"); i.style.background = colOf(tone); return el("tr", {}, el("td", {}, i, a), el("td", { text: b })); }));

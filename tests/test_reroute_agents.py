@@ -220,6 +220,27 @@ def test_submit_decision_rechecks_the_route_id() -> None:
     assert any("NOT ONE OF THE LISTED" in p for p in problems)
 
 
+def test_the_weighed_actions_may_come_as_an_object() -> None:
+    """gemma4:e4b sends alternatives_considered as {"action": ..., "reasoning": ...} or keyed by
+    action; the action names are read from it and anything else is still refused."""
+    ctx = planner_ctx()
+    base: dict[str, Any] = {
+        "action": "reroute",
+        "reasoning": "LATERAL ROUTE.",
+        "change_level_fl_min": None,
+        "change_level_fl_max": None,
+        "hold_fl": None,
+        "alternate_icao": None,
+        "reroute_id": usable_id(ctx),
+    }
+    for weighed in ({"action": "HOLD", "reasoning": "too long"}, {"HOLD": "too long"}):
+        decision, problems = submit_decision(ctx, alternatives_considered=weighed, **base)
+        assert problems == []
+        assert decision is not None
+    _, problems = submit_decision(ctx, alternatives_considered={"action": "WAIT"}, **base)
+    assert problems == ["UNKNOWN ACTION WAIT IN alternatives_considered"]
+
+
 # --- ADK path ---------------------------------------------------------------------------
 
 

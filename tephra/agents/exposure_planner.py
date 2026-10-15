@@ -566,6 +566,17 @@ def _margin_text(ctx: PlannerContext) -> str:
     )
 
 
+def _considered_names(value: Any) -> list[str]:
+    """The actions a plan says it weighed. A small local model sends one as an object
+    ({"action": "HOLD", "reasoning": ...} or {"HOLD": why}); its action names are read from it,
+    and anything else is still refused by the caller."""
+    if isinstance(value, Mapping):
+        actions = {kind.value for kind in ActionKind}
+        named = [str(key) for key in value if str(key).strip().upper() in actions]
+        return named or [str(value[key]) for key in value if key == "action"]
+    return [str(name) for name in value or ()]
+
+
 def cost_summary(
     ctx: PlannerContext, action: str, alternate_icao: str | None, reroute_id: str | None = None
 ) -> dict[str, Any]:
@@ -624,7 +635,7 @@ def submit_decision(
         return None, [f"UNKNOWN ACTION {action}; USE ONE OF {[a.value for a in ActionKind]}"]
     considered: list[ActionKind] = []
     problems: list[str] = []
-    for name in alternatives_considered or ():
+    for name in _considered_names(alternatives_considered):
         try:
             considered.append(ActionKind(name.strip().upper()))
         except ValueError:
