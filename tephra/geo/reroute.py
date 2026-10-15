@@ -773,7 +773,7 @@ def _option(
     waypoints: list[Position] = [(lon, lat) for lat, lon in path[1:-1]]
     route_string = _route_string(kind, route, path)
     return RerouteOption(
-        id=_option_id(trip, kind, route_string),
+        id=_option_id(trip, kind, path, route),
         flight_id=trip.flight.id,
         cone_id=trip.cone.id,
         kind=kind,
@@ -853,10 +853,20 @@ def coordinate_text(lat: float, lon: float) -> str:
     )
 
 
-def _option_id(trip: _Trip, kind: RerouteKind, route_string: str = "") -> str:
-    """By content, not by cone: the same route at the same level under a new cone keeps its
-    id, so a kept plan that names it still passes the checks."""
-    return stable_id("RR", trip.flight.id, kind.value, sha256_text(f"{route_string}|{trip.fl}"))
+def _option_id(
+    trip: _Trip,
+    kind: RerouteKind,
+    path: Sequence[tuple[float, float]] = (),
+    route: FlightRoute | None = None,
+) -> str:
+    """By content, not by cone or position: the kind, the level, the turn points around the
+    hazard and, direct, the destination. The start is the aircraft and the rejoin point moves
+    with it every tick, so both stay out: the same way round at the same level keeps its id
+    while the flight flies on and under a reissued cone, and a kept plan that names it still
+    passes the checks."""
+    turns = " ".join(coordinate_text(lat, lon) for lat, lon in path[1:-1])
+    dest = route.dest_icao if kind is RerouteKind.DIRECT_DEST and route is not None else ""
+    return stable_id("RR", trip.flight.id, kind.value, sha256_text(f"{turns}|{dest}|{trip.fl}"))
 
 
 def _refusal(trip: _Trip, kind: RerouteKind, status: RerouteStatus, note: str) -> RerouteOption:

@@ -84,6 +84,54 @@ async def test_visitor_access_is_true_only_in_replay_with_the_setting_on(
     assert await visitor_access(RunMode.LIVE, "off") is False
 
 
+async def test_system_state_names_the_platform(
+    tmp_path: Path, clock: FixedClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def cloud(settings: Settings) -> dict[str, object]:
+        runtime = make_runtime(settings, FixtureSource())
+        try:
+            state = await runtime.system_state()
+        finally:
+            await runtime.aclose()
+        assert state.cloud is not None
+        return state.cloud.model_dump(mode="json")
+
+    monkeypatch.setenv("K_SERVICE", "tephra")
+    monkeypatch.setenv("K_REVISION", "tephra-00123-abc")
+    deployed = make_settings(
+        tmp_path / "cloud", cloud_region="asia-southeast1", secrets_source="secret-manager"
+    )
+    assert await cloud(deployed) == {
+        "platform": "cloud-run",
+        "service": "tephra",
+        "revision": "tephra-00123-abc",
+        "region": "asia-southeast1",
+        "store": "sqlite",
+        "scheduler": "cloud-scheduler",
+        "secrets": "secret-manager",
+        "model_access": "none",
+        "instances": "one",
+    }
+
+    monkeypatch.delenv("K_SERVICE")
+    monkeypatch.delenv("K_REVISION")
+    local = make_settings(tmp_path / "local", local_scheduler=True)
+    assert await cloud(local) == {
+        "platform": "local",
+        "service": None,
+        "revision": None,
+        "region": None,
+        "store": "sqlite",
+        "scheduler": "in-process",
+        "secrets": "environment",
+        "model_access": "none",
+        "instances": "one",
+    }
+
+    monkeypatch.setenv("K_SERVICE", "")
+    assert (await cloud(local))["platform"] == "local", "an empty K_SERVICE is not Cloud Run"
+
+
 # --- the replay minute ------------------------------------------------------------------
 
 

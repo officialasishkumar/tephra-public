@@ -12,14 +12,16 @@ from datetime import datetime, timedelta
 from typing import Any, Final
 from uuid import uuid4
 
-from tephra.agents.validators import technique_problems
+from tephra.agents.validators import hypothesis_body_problems, technique_problems
 from tephra.config import ADVISORY_BODY_MAX_CHARS
 from tephra.desk import audit
 from tephra.models import (
+    ALLOWED_ACTIONS,
     Advisory,
     AdvisoryStatus,
     AuditAction,
     OutboundMessage,
+    PlumeMode,
     SseEvent,
 )
 from tephra.store.base import Collection, Store, Where
@@ -31,6 +33,7 @@ __all__ = [
     "AdvisoryNotFound",
     "EditRejected",
     "InvalidTransition",
+    "RuleBlocked",
     "VersionConflict",
     "approve",
     "edit_and_approve",
@@ -71,6 +74,23 @@ class EditRejected(Exception):
     def __init__(self, problems: list[str]) -> None:
         super().__init__("; ".join(problems))
         self.problems = problems
+
+
+class RuleBlocked(Exception):
+    """A safety rule refuses the decision whoever asks: a HYPOTHESIS draft may only be
+    approved as MONITOR or HOLD, and a draft written for an older ash area is not approved.
+    Nothing is audited; the draft stays a DRAFT."""
+
+    def __init__(self, problems: list[str], *, code: str = "rule_blocked") -> None:
+        super().__init__("; ".join(problems))
+        self.code = code
+        self.problems = problems
+
+
+HYPOTHESIS_REFUSAL: Final = "HYPOTHESIS ALLOWS ONLY MONITOR OR HOLD; REJECT THIS DRAFT"
+SITUATION_CHANGED_REFUSAL: Final = (
+    "THE ASH AREA CHANGED SINCE THIS DRAFT WAS WRITTEN; A NEW PLAN IS DUE"
+)
 
 
 # --- creation ---------------------------------------------------------------------------
@@ -167,9 +187,13 @@ async def approve(
     actor: str,
     reason: str | None = None,
     note: str | None = None,
+    current_cone_id: str | None = None,
+    current_plan_key: str | None = None,
 ) -> Advisory:
     """``reason`` is the dispatcher's written reason when a rule asks for one (the caller
-    checks the rule); ``note`` goes to the audit entry."""
+    checks the rule); ``note`` goes to the audit entry. ``current_cone_id`` and
+    ``current_plan_key`` describe the situation now; a draft they no longer match is refused
+    (``RuleBlocked``), and None means the caller cannot say."""
     return await _decide(
         store,
         bus,
@@ -179,6 +203,8 @@ async def approve(
         status=AdvisoryStatus.APPROVED,
         changes={"decision_reason": reason},
         note=note,
+        current_cone_id=current_cone_id,
+        current_plan_key=current_plan_key,
     )
 
 
@@ -192,6 +218,8 @@ async def edit_and_approve(
     actor: str,
     reason: str | None = None,
     note: str | None = None,
+    current_cone_id: str | None = None,
+    current_plan_key: str | None = None,
 ) -> Advisory:
     edited = body.strip().upper()
     problems: list[str] = []
@@ -202,6 +230,11 @@ async def edit_and_approve(
             f"edited body is {len(edited)} characters; the limit is {ADVISORY_BODY_MAX_CHARS}"
         )
     problems.extend(technique_problems(edited))
+    current = await _load(store, advisory_id)
+    if current is None:
+        raise AdvisoryNotFound(advisory_id)
+    if current.plume_mode is PlumeMode.HYPOTHESIS:
+        problems.extend(hypothesis_body_problems(edited))
     if problems:
         raise EditRejected(problems)
     return await _decide(
@@ -213,6 +246,8 @@ async def edit_and_approve(
         status=AdvisoryStatus.EDITED,
         changes={"edited_body": edited, "decision_reason": reason},
         note=note,
+        current_cone_id=current_cone_id,
+        current_plan_key=current_plan_key,
     )
 
 
@@ -249,6 +284,8 @@ async def _decide(
     status: AdvisoryStatus,
     changes: Mapping[str, Any],
     note: str | None = None,
+    current_cone_id: str | None = None,
+    current_plan_key: str | None = None,
 ) -> Advisory:
     current = await _load(store, advisory_id)
     if current is None:
@@ -257,6 +294,8 @@ async def _decide(
         raise VersionConflict(current)
     if current.status is not AdvisoryStatus.DRAFT:
         raise InvalidTransition(f"advisory {advisory_id} is {current.status.value}, not DRAFT")
+    if status in _QUEUED_STATUSES:
+        _guard_queueing(current, current_cone_id=current_cone_id, current_plan_key=current_plan_key)
     at = timeutil.now()
     decided = _advance(
         current, status=status, at=at, changes={**changes, "decided_by": actor, "decided_at": at}
@@ -275,6 +314,30 @@ async def _decide(
         await _queue_outbound(store, decided, actor=actor)
     bus.publish(SseEvent.ADVISORY, decided)
     return decided
+
+
+def _guard_queueing(
+    current: Advisory, *, current_cone_id: str | None, current_plan_key: str | None
+) -> None:
+    """The safety rules a server enforces whoever clicks: only MONITOR or HOLD under
+    HYPOTHESIS, and no decision on a draft the situation has moved past. The plan key (the
+    planner's material question) outranks the cone id when both sides know it: a new cone
+    that asks the same question keeps the draft good."""
+    if (
+        current.plume_mode is PlumeMode.HYPOTHESIS
+        and current.action not in ALLOWED_ACTIONS[PlumeMode.HYPOTHESIS]
+    ):
+        raise RuleBlocked([HYPOTHESIS_REFUSAL])
+    if _situation_changed(current, current_cone_id, current_plan_key):
+        raise RuleBlocked([SITUATION_CHANGED_REFUSAL], code="cone_changed")
+
+
+def _situation_changed(
+    current: Advisory, current_cone_id: str | None, current_plan_key: str | None
+) -> bool:
+    if current.plan_key is not None and current_plan_key is not None:
+        return current.plan_key != current_plan_key
+    return current_cone_id is not None and current.cone_id != current_cone_id
 
 
 async def _queue_outbound(store: Store, advisory: Advisory, *, actor: str) -> None:

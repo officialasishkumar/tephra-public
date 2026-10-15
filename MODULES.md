@@ -332,7 +332,7 @@ cookie, None on older sessions, so visitor caps are counted per session). `Audit
 again from the window's start). `AuditEntry.seq`, `prev_sha256` and `sha256` (all None on the
 base model; `tephra.desk.audit`'s `ChainedAuditEntry` requires them) name the entry's place in
 the hash chain. `Advisory.plan_key` is the first 16 hex characters of the planner question's
-material hash (None on older drafts): the key a flight is planned once under (section 5.7).
+material hash, reserved for planning keyed by it (None today; section 5.7).
 `ReplayRecord.reconstructed` (default False) marks a replay body rebuilt from the notice's
 facts (CP-05d); `url` and `fetched_at` stay the original fetch's. `CloudInfo` (`platform`
 `cloud-run` | `local`, `service` = `K_SERVICE`, `revision` = `K_REVISION`, `region` =
@@ -2038,13 +2038,15 @@ Core rules:
 - Plume Reader images: the stored frame PNGs and the BTD PNG. Frames with product
   `TRUE_COLOR` (NICT, fetched only with `TEPHRA_NICT_FRAMES=true`) are never sent to the
   model (research/05); the Wall still shows them.
-- Planning. A flight is planned once per plan key and urgency bucket (`Advisory.plan_key`, the
-  first 16 hex of the planner question's material: the flight's decision inputs, not the cone
-  id). The buckets are inside
+- Planning. A flight is planned once per cone and urgency bucket. The buckets are inside
   now, entry within the policy's `divert_within_min` (15), within `hold_within_min` (30), and
-  later: the same limits the rules apply (`urgency_limits_min`). A flight is planned again for a new
-  plan key or a more urgent bucket; a less urgent bucket is not planned again, and an open draft
-  for the plan key counts as planned at its own urgency. The new draft carries its bucket
+  later: the same limits the rules apply (`urgency_limits_min`). A flight is planned again for a
+  new cone or a more urgent bucket; a less urgent bucket is not planned again, and an open draft
+  for the cone counts as planned at its own urgency. What the planner is asked is the material
+  question (section 5.7: band, urgency, level step, open alternates, usable reroutes, not the
+  cone id), so a cone reissued with the same band is answered from the kept answer, not the
+  model. Planning by that key instead of the cone was measured on the Krakatau recording at
+  1.75 times the planner calls (docs/evals/call-counts.json) and is not used. The new draft carries its bucket
   (`urgency_bucket`) and is submitted with the flight's open drafts drafted at a less urgent
   bucket as `replacing`; only once it is stored are those superseded (`superseded_by` set,
   reason `ENTRY NOW IN N MIN` or `INSIDE THE CONE NOW`), so a refused or failed submit leaves

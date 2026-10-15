@@ -116,6 +116,8 @@ from tephra.models import (
     AviationColor,
     BtdOverlay,
     BtdResult,
+    ChainHead,
+    CloudInfo,
     ConnectFlow,
     Connection,
     ConnectLive,
@@ -168,6 +170,7 @@ from tephra.models import (
     StoreHealth,
     SupportingEvidence,
     SystemState,
+    Taf,
     TickReport,
     TraceActor,
     TraceEvent,
@@ -228,6 +231,8 @@ CONNECT_LIVE_S: Final = 60
 """Pushes the Connect page's rates and ticker are worked out from (5 min of the sample feed)"""
 WRITER_DOC: Final = "writer"
 """``runtime/writer``: the instance that ticked last; only the serving revision gets ticks"""
+AUDIT_HEAD_DOC: Final = "audit_head"
+"""``runtime/audit_head``: the audit chain's head as this instance last checkpointed it"""
 OPEN_DRAFT_LIMIT: Final = 500
 RESTORE_LIMIT: Final = 500
 VAA_RESTORE_H: Final = 30
@@ -436,6 +441,12 @@ class Runtime:
         return self._replay_run_wall if self.mode is RunMode.REPLAY else None
 
     @property
+    def audit_head(self) -> ChainHead | None:
+        """The audit chain's head as this process holds it (``tephra.desk.audit``): None
+        before the startup walk or restore has seen the chain."""
+        return audit.chain(self.store).head
+
+    @property
     def recorded_feeds(self) -> frozenset[FeedId] | None:
         """Feeds the playing replay case holds; None when live."""
         if isinstance(self.source, ReplaySource):
@@ -480,7 +491,26 @@ class Runtime:
             last_tick_wall_at=self.last_tick_wall_at,
             build_sha=self.settings.build_sha,
             features=sorted(self.settings.features),
+            cloud=self._cloud_info(),
+            audit=self.audit_head,
             visitor_access=self.settings.visitor_access == "replay" and self.mode is RunMode.REPLAY,
+        )
+
+    def _cloud_info(self) -> CloudInfo:
+        """Where this service runs: Cloud Run's own environment names the service and
+        revision; the rest is settings, never inferred (``secrets_source`` is set by
+        ``deploy/cloudrun.sh`` beside ``--set-secrets``)."""
+        settings = self.settings
+        service = os.environ.get("K_SERVICE") or None
+        return CloudInfo(
+            platform="cloud-run" if service else "local",
+            service=service,
+            revision=os.environ.get("K_REVISION") or None,
+            region=settings.cloud_region,
+            store=settings.store,
+            scheduler="in-process" if settings.local_scheduler else "cloud-scheduler",
+            secrets=settings.secrets_source,
+            model_access="gemini-api" if settings.llm == "gemini" else "none",
         )
 
     async def wall_snapshot(self) -> WallSnapshot:
@@ -1310,6 +1340,7 @@ class Runtime:
             await self._persist_live()
         except Exception:  # a checkpoint is a cache; losing one must not fail the tick
             logger.exception("checkpoint failed; the live picture stays in memory")
+        await self._checkpoint_audit_head()
         try:
             await self._answer_book.sweep()
         except Exception as exc:  # the next sweep tries again
@@ -1784,10 +1815,13 @@ class Runtime:
         """Warm a LIVE runtime from the store after a restart.
 
         Official products come back with their original provenance, so their input hash is
-        unchanged and a restart does not spend a Gemini call. Everything else refreshes on
-        the first tick. A REPLAY always starts from its recording, with the answers its case
-        folder keeps.
+        unchanged and a restart does not spend a Gemini call; the TAFs still valid come back
+        too, so a planned flight's question (its open alternates) is the same after the
+        restart and its kept answer still matches. Everything else refreshes on the first
+        tick. A REPLAY always starts from its recording, with the answers its case folder
+        keeps. Both modes first take up the audit chain's head (``_restore_audit_head``).
         """
+        await self._restore_audit_head()
         if self.mode is RunMode.REPLAY:
             await self._seed_answers()
             return
@@ -1807,13 +1841,31 @@ class Runtime:
         vaas = await self._restore_records(
             Collection.VAAS, VaacAdvisory, Where("issued_at", ">=", timeutil.to_iso(since))
         )
+        tafs = await self._restore_records(
+            Collection.TAFS, Taf, Where("valid_to", ">=", timeutil.to_iso(at))
+        )
         self.live.sigmets = {record.provenance.source_id: record for record in sigmets}
         self.live.vonas = {record.provenance.source_id: record for record in vonas}
         self.live.vaas = {record.provenance.source_id: record for record in vaas}
+        self.live.tafs = {taf.icao: taf for taf in tafs}
         await self._restore_bookkeeping()
         await self._restore_readings()
         await self._restore_duty()
         await self.worker.restore()
+
+    async def _restore_audit_head(self) -> None:
+        """One full walk of the chain at startup, unless the head the last checkpoint
+        persisted (``runtime/audit_head``) still names the newest entry: that head is held as
+        not yet walked on this instance and the first checkpoint walks it. A head below the
+        newest entry, or none, is walked now."""
+        persisted = audit.restore_head(
+            self.store, await self.store.get(Collection.RUNTIME, AUDIT_HEAD_DOC)
+        )
+        newest = await audit.newest_entry(self.store)
+        newest_seq = 0 if newest is None else newest.seq
+        if persisted is not None and persisted.seq >= newest_seq:
+            return
+        self._trace_audit_head(await audit.verify_head(self.store))
 
     async def _seed_answers(self) -> None:
         """Answers the same model gave this case on an earlier run (``answers_path``), put in
@@ -2860,6 +2912,35 @@ class Runtime:
                 ),
             )
         await save_unsaved(self)
+
+    async def _checkpoint_audit_head(self) -> None:
+        """Walk the audit chain again when an append found another writer's entry, then
+        persist the head beside ``runtime/state`` for the next start."""
+        held = audit.chain(self.store)
+        if held.rewalk:
+            try:
+                head = await audit.verify_head(self.store)
+            except Exception as exc:  # the mark stays; the next checkpoint walks again
+                logger.warning("audit chain walk failed: %s", exc)
+                self.store_failed(exc, calls="reads")
+            else:
+                self._trace_audit_head(head)
+        if held.head is None:
+            return
+        await self._checkpoint_write(
+            Collection.RUNTIME,
+            self.store.put(Collection.RUNTIME, AUDIT_HEAD_DOC, held.head.model_dump(mode="json")),
+        )
+
+    def _trace_audit_head(self, head: ChainHead) -> None:
+        if head.intact:
+            return
+        self.trace(
+            TraceStage.SYSTEM,
+            "system",
+            f"Audit chain not intact at seq {head.seq}: {'; '.join(head.problems[:3])}",
+            level="warn",
+        )
 
     async def _checkpoint_write(self, collection: Collection, write: Awaitable[object]) -> None:
         try:

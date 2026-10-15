@@ -132,6 +132,15 @@ def reroute_of(decision: PlannerDecision, ctx: PlannerContext) -> RerouteOption 
     return next((option for option in ctx.reroutes if option.id == decision.reroute_id), None)
 
 
+def hypothesis_body_problems(upper: str) -> list[str]:
+    """Under HYPOTHESIS (no valid official product) a body may not advise a divert, a climb
+    or a descent in any inflection; the desk applies the same rule to a dispatcher's edit."""
+    return [
+        f"BODY MUST NOT ADVISE {word} WITHOUT A VALID OFFICIAL PRODUCT (HYPOTHESIS MODE)"
+        for word in dict.fromkeys(_HYPOTHESIS_FORBIDDEN.findall(upper))
+    ]
+
+
 def technique_problems(upper: str) -> list[str]:
     """The ban on engine handling and escape technique, for drafts and dispatcher edits."""
     return [TECHNIQUE_PROBLEM] if _TECHNIQUE.search(upper) else []
@@ -374,10 +383,7 @@ def _action_word_problems(upper: str, *, ctx: PlannerContext, plan: PlannedActio
     if not any(_has_phrase(upper, word) for word in words):
         problems.append(f"BODY MUST STATE THE ACTION ({' OR '.join(words)})")
     if ctx.plume_mode is PlumeMode.HYPOTHESIS:
-        problems.extend(
-            f"BODY MUST NOT ADVISE {word} WITHOUT A VALID OFFICIAL PRODUCT (HYPOTHESIS MODE)"
-            for word in dict.fromkeys(_HYPOTHESIS_FORBIDDEN.findall(upper))
-        )
+        problems.extend(hypothesis_body_problems(upper))
     match decision.action:
         case ActionKind.DIVERT if decision.alternate_icao and not _has_phrase(
             upper, decision.alternate_icao
@@ -507,6 +513,11 @@ def _number_tokens(text: str) -> set[str]:
 def _normalise(value: float) -> str:
     number = float(value)
     return str(int(number)) if number.is_integer() else f"{number:g}"
+
+
+number_tokens = _number_tokens
+"""Public names for the number rule, shared with the Plume Reader and the advisory chain."""
+normalise_number = _normalise
 
 
 def _has_phrase(upper: str, phrase: str) -> bool:
