@@ -9,14 +9,17 @@ import { $, el, icon, ms, hhmmz, age, fl, compassWord } from "./util.js";
 import { SEV_RANK, NON_OBS, actionWords, deciderName, officialLabelText, plainMove, levelIsAll, tephraLabelText, untilText, crewBand } from "./derive.js";
 import {
   sourcesSection, disagreeSection, areaSection, decisionsSection, renderFlights, renderTrace, traceLines, renderLevels,
-  historySection, feedsSection, lagOf, timelineEvents, advisoryLine, actionText, estimateOutcome, dayMonth, FEED_STATUS,
+  historySection, feedsSection, lagOf, timelineEvents, actionText, estimateOutcome, dayMonth, FEED_STATUS,
 } from "./panels.js";
 import { ext, renderXPanel, recoverySummary, proofTicks, rerouteBlock, replanning, aiState, handPlan, runsStatus } from "./ext.js";
 import { has } from "./features.js";
 import { renderLayers, layersStatus } from "./controls.js";
 import { currentPlan, advisoryFacts, closuresFor } from "./story.js";
 import { planFailure, techDetail, blockPhrase, whyLink, aircraftNoun } from "./x-parts.js";
-import { dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkList, dkFacts, dkNote, dkEmpty, dkSection, dkDot, dkFromReplay } from "./dk.js";
+import {
+  dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkList, dkFacts, dkNote, dkEmpty, dkSection, dkDot, dkFromReplay,
+  dkGlance, dkBand, dkMove, dkArrow, dkFact, dkLevelMark, dkCountdown, dkSources, dkSteps, dkLabel, dkFoot, dkQuiet,
+} from "./dk.js";
 import { chainSection } from "./chain.js";
 
 // Section key, index group, title, host element id, the old rail panel id it stands for (R8.2),
@@ -228,14 +231,14 @@ function renderIndex(D, store, ui) {
 
 // ------------------------------------------------------------------ This ash area, This flight (R8.3)
 
-const inWords = (dt) => (Number.isFinite(dt) && dt > 0 ? `in ${untilText(dt)}` : untilText(dt));
 
 function areaDetail(D, store, vid) {
   const sit = D.sits.find((s) => s.volcano_id === vid);
   const host = $("brief");
   if (!sit) { host.replaceChildren(dkSection("area-d-head", dkHeader({ id: "area-d-head", title: "This ash area" }), dkEmpty("This volcano is no longer active.", null))); return; }
   const t = officialLabelText(D, vid);
-  const kids = [dkHeader({ id: "area-d-head", pills: [t ? dkPill("ok", "Official area in force") : dkPill("caution", "No valid official area")], title: sit.volcano_name })];
+  // the official card says the area is in force; the pill is kept only for its absence
+  const kids = [dkHeader({ id: "area-d-head", pills: [t ? null : dkPill("caution", "No valid official area")], title: sit.volcano_name })];
   if (t) {
     const rawMove = (D.moveByVolcano[vid] || "").trim();
     const moves = /^NOT (STATED|GIVEN)$/i.test(rawMove) ? rawMove.toLowerCase() : plainMove(rawMove);
@@ -248,41 +251,39 @@ function areaDetail(D, store, vid) {
       if (!stepAt.has(k) || ft < stepAt.get(k)) stepAt.set(k, ft);
     }
     const steps = [...stepAt].sort((a, b) => a[1] - b[1]);
-    // Which reports, in words; their ids are under Technical detail.
-    // One VAA can draw several layers (observed, estimated): it is counted once, by its number.
-    const sigs = t.products.filter((x) => /^SIGMET\b/.test(x)).length;
-    const vaas = new Set(t.products.filter((x) => /^VAA\b/.test(x)).map((x) => x.split(" ").slice(0, 3).join(" "))).size;
-    kids.push(el("section", { class: "dk-card dk-card--official", "aria-labelledby": "area-off-h" },
-      el("h3", { class: "dk-card__title dk-card__title--official", id: "area-off-h", text: "Official ash area · binding" }),
-      dkTiles([
-        { label: "Heights", value: `${fl(t.base)}–${fl(t.top)}` },
-        { label: "Valid until", value: hhmmz(t.validTo), sub: inWords(t.validTo - D.now) },
-      ], "Official area in numbers"),
-      dkFacts([
-        ["Movement", moves || "not given"],
-        ["Drawn from", [sigs ? `${sigs} ${sigs === 1 ? "SIGMET (airspace warning)" : "SIGMETs (airspace warnings), the newest per office"}` : null, vaas ? `${vaas} ${vaas === 1 ? "VAA (ash advisory)" : "VAAs (ash advisories)"}` : null].filter(Boolean).join(" + ") || `${t.products.length} official reports`],
-        ["Issued by", [...new Set(D.official.filter((f) => f.properties.volcano_id === vid && f.properties.valid).map((f) => issuerWords(f.properties)))].join(" · ")],
-        ["Forecast steps", steps.length ? el("span", { class: "dk-chips" }, ...steps.map(([k, ft]) => dkChip(`${k} · ${hhmmz(ft)}`))) : "none in the current reports"],
-      ]),
-      el("div", { class: "dk-actions" }, ...["SIGMET", "VAA"].filter((k) => sit.cards.some((c) => c.kind === k && !c.missing)).map((k) => el("button", { type: "button", class: "btn btn--small", dataset: { act: "raw", kind: k } }, icon("i-raw-text"), `Raw text: ${k}`))),
-      techDetail(...t.products)));
+    // The reports it is drawn from, one chip each: the newest SIGMET per office, and a VAA once by
+    // its number however many layers it draws (review 2). The office's name is the chip's title.
+    const chips = [...new Set(t.products.map((x) => x.split(" ").slice(0, 3).join(" ")))].map(productChip);
+    kids.push(dkGlance({
+      tone: "official", labelId: "area-off-h", label: "Official ash area · binding", until: dkCountdown(t.validTo, D.now),
+      facts: [dkBand(t.base, t.top, "official"), dkMove(moves)],
+      kids: [
+        dkLabel("Drawn from"), dkSources(chips, "Drawn from these official reports"),
+        dkLabel("Forecast"), steps.length ? dkSteps(steps) : el("p", { class: "gl-none", text: "No forecast steps in the current reports" }),
+        dkFoot(...["SIGMET", "VAA"].filter((k) => sit.cards.some((c) => c.kind === k && !c.missing)).map((k) => dkQuiet(`${k} text`, { act: "raw", kind: k }, { label: `Raw text: ${k}` })),
+          dkQuiet("All reports ›",{ act: "details-sec", sec: "sources", focus: "area-sources" }, { iconId: null }), techDetail(...t.products)),
+      ],
+    }));
   } else {
-    kids.push(dkNote("caution", "No official area is valid for this volcano right now."));
+    kids.push(dkNote("caution", "No official area is valid for this volcano right now.", { action: el("button", { type: "button", class: "link-btn", dataset: { act: "details-sec", sec: "sources", focus: "area-sources" }, text: "What the official reports say ›" }) }));
   }
   const cone = D.coneOf(vid)?.properties;
   if (cone) {
-    kids.push(el("section", { class: "dk-card dk-card--tephra", "aria-labelledby": "area-tep-h" },
-      el("h3", { class: "dk-card__title dk-card__title--tephra", id: "area-tep-h", text: "TEPHRA's estimate · an estimate, not a forecast" }),
-      el("p", { class: "dk-card__line", text: estimateOutcome(D, sit, cone) }),
-      dkTiles([
-        { label: "Heights", value: `${fl(cone.base_ft)}–${fl(cone.top_ft)}` },
-        { label: "Valid until", value: hhmmz(ms(cone.valid_to)), sub: inWords(ms(cone.valid_to) - D.now) },
-      ], "Estimate in numbers"),
-      el("div", { class: "dk-chips" }, dkChip("Never smaller than any valid official area", { kind: "tephra" })),
-      techDetail(`mode ${cone.mode} · ${cone.label} · confidence ${Math.round((cone.confidence ?? 0) * 100)}%`)));
+    kids.push(dkGlance({
+      tone: "tephra", labelId: "area-tep-h", label: "TEPHRA's estimate · not a forecast", until: dkCountdown(ms(cone.valid_to), D.now),
+      lead: estimateOutcome(D, sit, cone),
+      facts: [dkBand(cone.base_ft, cone.top_ft, "tephra"), el("p", { class: "gl-rule" }, icon("i-check", "icon"), "Never smaller than any valid official area")],
+      kids: [dkFoot(techDetail(`mode ${cone.mode} · ${cone.label} · confidence ${Math.round((cone.confidence ?? 0) * 100)}%`))],
+    }));
   }
-  kids.push(el("p", {}, el("button", { type: "button", class: "link-btn", dataset: { act: "details-sec", sec: "sources", focus: "area-sources" }, text: "What the official reports say ›" })));
   host.replaceChildren(dkSection("area-d-head", kids));
+}
+
+// "SIGMET WAAF 06" -> a chip "WAAF 06 · SIGMET" titled "Makassar airspace office (WAAF), SIGMET".
+function productChip(label) {
+  const [kind, code = "", nr = ""] = label.split(" ");
+  const full = issuerWords({ kind, source_id: `${kind}:${code}` });
+  return { code: kind === "SIGMET" ? `${code} ${nr}`.trim() : `${code.charAt(0)}${code.slice(1).toLowerCase()} ${nr}`.trim(), kind, full, tone: "official" };
 }
 
 // The office behind a report, in words with its code kept: "Jakarta airspace (WIIF)". A code
@@ -297,6 +298,18 @@ function issuerWords(p) {
   if (p.kind === "SIGMET") return FIR_NAME[code] ? `${FIR_NAME[code]} airspace office (${code}), SIGMET` : `airspace office ${code}, SIGMET`;
   const vaac = code ? code.charAt(0) + code.slice(1).toLowerCase() : "";
   return `${vaac} ash advisory centre (VAAC), VAA`;
+}
+
+// An advisory's state as a badge: a word and a shape, never red (a rejection is a decision, not an alarm).
+function advState(a) {
+  const by = `${deciderName(a)}${a.decided_at ? ` · ${hhmmz(ms(a.decided_at))}` : ""}`;
+  return {
+    DRAFT: ["Waiting for a dispatcher", "info", "i-clock"],
+    APPROVED: [`Approved by ${by}`, "ok", "i-approved"],
+    EDITED: [`Approved with edits by ${by}`, "ok", "i-approved"],
+    REJECTED: [`Rejected by ${by}`, "muted", "i-rejected"],
+    SUPERSEDED: ["Replaced by a newer draft", "muted", "i-superseded"],
+  }[a.status] || ["Waiting for a dispatcher", "info", "i-clock"];
 }
 
 function flightDetail(D, ui, store) {
@@ -314,28 +327,32 @@ function flightDetail(D, ui, store) {
   }
   const p = f.properties;
   const entryPill = p.exposed ? (p.inside ? dkPill("inside", "Inside TEPHRA's area now") : dkPill("tephra", `Enters in ${p.minutes_to_entry} min (estimated)`)) : dkPill("ok", "Not projected to enter TEPHRA's area");
+  // Glance first: the flight and where it stands against the ash, then four facts with a shape each.
+  const route = p.origin_icao && p.dest_icao;
   const kids = [
-    dkHeader({ id: "fl-head", pills: [entryPill], title: f.properties.proxy_flight, sub: `${aircraftNoun(D.state).replace(/^./, (c) => c.toUpperCase())} ${p.callsign || "with no callsign"}`, extra: clear }),
-    dkTiles([
-      { label: "Level", value: p.alt_baro_ft != null ? fl(p.alt_baro_ft) : "unknown", sub: p.alt_baro_ft != null ? `${Number(p.alt_baro_ft).toLocaleString("en")} ft${p.nav_altitude_mcp_ft != null ? ` · selected ${fl(p.nav_altitude_mcp_ft)}` : ""}` : null },
-      { label: "Speed", value: p.gs_kt != null ? `${Math.round(p.gs_kt)} kt` : "unknown" },
-      { label: "Track", value: p.track_deg != null ? `${Math.round(p.track_deg)}° ${compassWord(p.track_deg)}` : "unknown" },
+    el("header", { class: "fl-id" },
+      el("div", { class: "fl-id__row" }, el("h3", { class: "fl-id__name mono", id: "fl-head", text: p.proxy_flight }), entryPill),
+      el("div", { class: "fl-id__sub" }, el("span", {}, `${aircraftNoun(D.state).replace(/^./, (c) => c.toUpperCase())} ${p.callsign || "with no callsign"} · `,
+        el("span", { class: p.stale ? "dk-warn" : null, text: `position ${age(p.ageS)} old` })), clear)),
+    el("div", { class: "gl-facts gl-facts--flight", role: "group", "aria-label": "This flight in numbers" },
+      dkFact({ value: p.alt_baro_ft != null ? fl(p.alt_baro_ft) : "unknown", label: "Level", lead: p.alt_baro_ft != null ? dkLevelMark(p.alt_baro_ft, p.exposed ? "tephra" : "aircraft") : null,
+        sub: p.alt_baro_ft != null ? `${Number(p.alt_baro_ft).toLocaleString("en")} ft${p.nav_altitude_mcp_ft != null ? ` · selected ${fl(p.nav_altitude_mcp_ft)}` : ""}` : null }),
+      dkFact({ value: p.track_deg != null ? compassWord(p.track_deg) : "unknown", label: p.track_deg != null ? `Track · ${Math.round(p.track_deg)}°` : "Track", lead: p.track_deg != null ? dkArrow(p.track_deg) : null }),
+      dkFact({ value: p.gs_kt != null ? `${Math.round(p.gs_kt)} kt` : "unknown", label: "Speed" }),
       // The callsign's usual route from VRS standing data (code, never guessed): not the filed plan.
-      { label: "Route", value: p.origin_icao && p.dest_icao ? `${p.origin_icao} → ${p.dest_icao}` : "Not known", sub: p.origin_icao && p.dest_icao ? (p.route_source === "PLAN" ? `the airline's flight plan${p.flight_plan ? ` (${p.flight_plan})` : ""}` : "usual route, not the filed plan") : null },
-    ], "This flight in numbers"),
-    el("p", { class: "dk-foot", text: `Position ${age(p.ageS)} old.` }),
+      dkFact({ value: route ? `${p.origin_icao} → ${p.dest_icao}` : "Not known", label: route ? (p.route_source === "PLAN" ? `The airline's flight plan${p.flight_plan ? ` (${p.flight_plan})` : ""}` : "Usual route, not the filed plan") : "Route", size: "mid" })),
   ];
   const flag = D.crew.flagByHex.get(p.hex);
   if (flag) kids.push(crewFlagBlock(D, flag));
   const adv = p.exposed ? D.advByFlight.get(`${p.hex}:${p.volcano_id}`) : null;
   if (adv) {
-    kids.push(el("section", { class: "dk-card", "aria-labelledby": "fl-adv-h" },
-      el("p", { class: "dk-tile__label", id: "fl-adv-h", text: "Drafted action" }),
-      el("p", { class: "dk-card__big", text: actionText(adv) }),
-      el("p", {}, advisoryLine(adv, false)),
+    const [state, tone, ic] = advState(adv);
+    kids.push(el("section", { class: `fl-now fl-now--${tone}`, "aria-labelledby": "fl-adv-h" },
+      el("div", { class: "gl-top" }, el("h3", { class: "gl-label", id: "fl-adv-h", text: "Drafted action" }), el("span", { class: `ss-badge ss-badge--${tone}` }, icon(ic), state)),
+      el("p", { class: "fl-now__act", text: actionText(adv) }),
       adv.decision_reason ? el("p", { class: "dk-sub__note" }, "Reason given: ", el("q", { text: adv.decision_reason })) : null,
-      techDetail(`action ${actionWords(adv)} · status ${adv.status}${adv.version != null ? ` · version ${adv.version}` : ""}`),
-      el("div", { class: "dk-actions" }, el("a", { class: "btn btn--small", href: `/desk#review/${encodeURIComponent(adv.id)}`, target: "_blank", rel: "noopener", text: adv.status === "DRAFT" ? "Open on the Desk ›" : "See it on the Desk ›" }))));
+      dkFoot(el("a", { class: "btn btn--small", href: `/desk#review/${encodeURIComponent(adv.id)}`, target: "_blank", rel: "noopener", text: adv.status === "DRAFT" ? "Open on the Desk ›" : "See it on the Desk ›" }),
+        techDetail(`action ${actionWords(adv)} · status ${adv.status}${adv.version != null ? ` · version ${adv.version}` : ""}`))));
   } else if (p.exposed) {
     // no advisory because the assistant did not run: the job, here, once (D54)
     const hand = handPlan(D, store);

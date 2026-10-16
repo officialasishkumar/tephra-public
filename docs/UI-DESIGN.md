@@ -1589,6 +1589,36 @@ A result's badge follows what it says before its trace level: a plan the checks 
 divert: 36 min, 1,512 kg fuel"); their JSON stays under Technical detail. The model id is one small
 mono line in the footer, next to "Why ›" and "Every step ›".
 
+### 7.31 Details cards read at a glance (16 Oct 2026)
+
+The owner, on "Official ash area · binding": "awful UI here as well.. i can spot a lot of these
+boxes in the website with awful UI". The Details cards follow 7.30's pattern through one glance kit
+in `wall/dk.js` (`dkGlance`, `dkBand`, `dkMove`, `dkCountdown`, `dkSources`, `dkSteps`, `dkFact`,
+`dkFoot`, `dkQuiet`; CSS `.gl-*`):
+- **This ash area, official card**: a kind label in the area's pink, validity as a countdown pill
+  (clock time in mono, time left; caution in the last hour); the band in big type beside a height bar
+  (SFC–FL600 scale, the same on every card); movement as an arrow with the direction big and the
+  speed under it ("not stated" in words, never drawn); "Drawn from" and "Issued by" become one row of
+  chips, one per report (office code and number in mono, kind word, pink dot; the office's full name
+  is the title and the screen-reader text); forecast steps as a timeline from Now; raw texts, "All
+  reports ›" and Technical detail as quiet links in a footer. The "Official area in force" pill is
+  gone: the card says it.
+- **This ash area, TEPHRA's card** and **TEPHRA's estimate**: the same card in amber; "Never smaller
+  than any valid official area" and "An estimate, not a forecast" stay.
+- **What the official reports say**: each row leads with a kind tag (SIGMET · binding, VAA ·
+  binding, VONA · supporting) in its map colour and the id in mono, then the band, an arrow and the
+  validity; the age turns caution past 6 h. The legend and the per-kind age chips are gone; the
+  summary sentence stays for screen readers. "Raw texts side by side (C)" is a quiet link; "Why TEPHRA
+  shows <volcano>" a quiet disclosure.
+- **Where the sources disagree**: the counts are said once, big (7.30's stat tiles); the pill says
+  "Needs a look". A direction row shows the official and observatory arrows in their map colours and
+  the angle between them.
+- **This flight**: the flight in big mono beside its entry pill; level on the height bar, track as an
+  arrow, speed, route; the drafted action is the one highlighted card with a state badge (never red)
+  and "Open on the Desk ›".
+
+Shapes are aria-hidden; the words beside them carry every fact. Colours come from tokens only.
+
 ## 8. 3D, compare, the time bar and the height filter
 
 ### 8.1 3D mode (D)

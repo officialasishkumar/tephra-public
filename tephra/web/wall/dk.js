@@ -6,7 +6,7 @@
 // the CSSOM (CSP: no style attributes). Every disclosure carries data-k so keepOpenDetails keeps
 // it open through a re-render, and every control a data-focus key so focus survives one.
 
-import { el, icon, hhmmz } from "./util.js";
+import { el, icon, hhmmz, fl, compassDeg } from "./util.js";
 import { techDetail } from "./x-parts.js";
 
 // The shape and colour of each status word (UI-DESIGN 3.2): never colour alone.
@@ -45,13 +45,14 @@ export function dkChip(text, { label = null, mono = false, kind = null, title = 
 // one wording on the Wall and the Desk (desk/ui.js fromReplayChip).
 export const dkFromReplay = (recordReplay, modeReplay) => (recordReplay && !modeReplay ? el("span", { class: "tag tag--replay", text: "From a replay" }) : null);
 
-// The section header: pills, one plain sentence, an optional muted line and chips.
-export function dkHeader({ id, pills = [], title, sub = null, chips = [], extra = null }) {
+// The section header: pills, one plain sentence, an optional muted line and chips. With
+// `srTitle` the sentence is for screen readers only, when the pill and the counts already say it.
+export function dkHeader({ id, pills = [], title, sub = null, chips = [], extra = null, srTitle = false }) {
   const p = pills.filter(Boolean);
   const c = chips.filter(Boolean);
   return el("header", { class: "dk-head" },
     p.length ? el("div", { class: "dk-head__pills" }, ...p) : null,
-    title ? el("p", { class: "dk-head__title", id, text: title }) : null,
+    title ? el("p", { class: srTitle ? "sr-only" : "dk-head__title", id, text: title }) : null,
     sub ? el("p", { class: "dk-head__sub" }, sub) : null,
     c.length ? el("div", { class: "dk-chips" }, ...c) : null,
     extra);
@@ -186,6 +187,103 @@ export const dkTech = techDetail;
 export const dkSection = (labelId, ...kids) => el("div", { class: "dk", role: "region", "aria-labelledby": labelId }, ...kids.flat().filter(Boolean));
 
 export const dkLink = (text, dataset) => el("button", { type: "button", class: "link-btn dk-link", dataset, text });
+
+// ------------------------------------------------------------------ the glance kit (UI-DESIGN 7.31)
+// An ash area or a flight read at a glance: a kind label with its colour and the validity as a
+// countdown pill on one line, the heights as a bar and big type, the movement as an arrow, the
+// sources as chips, the forecast steps as a timeline, and the raw material as quiet links in a
+// footer. The shapes are decoration (aria-hidden); the words beside them carry every fact.
+
+export function dkGlance({ tone, label, labelId, until = null, lead = null, facts = [], kids = [] }) {
+  const f = facts.filter(Boolean);
+  return el("section", { class: `gl gl--${tone}`, "aria-labelledby": labelId },
+    el("div", { class: "gl-top" }, el("h3", { class: "gl-kind", id: labelId }, el("i", { "aria-hidden": "true" }), label), until),
+    lead ? el("p", { class: "gl-lead", text: lead }) : null,
+    f.length ? el("div", { class: `gl-facts gl-facts--n${f.length}` }, ...f) : null,
+    ...kids.flat().filter(Boolean));
+}
+
+const SCALE_FT = 60000; // the height bar's top: FL600, the same scale on every card
+const share = (ft) => Math.max(0, Math.min(1, (ft || 0) / SCALE_FT));
+
+// "SFC–FL350" in big type beside a bar that fills that band of SFC–FL600, in the area's colour.
+export function dkBand(base, top, tone = "official") {
+  const fill = el("span", { class: "gl-gauge__fill" });
+  fill.style.bottom = `${(share(base) * 100).toFixed(1)}%`;
+  fill.style.height = `${((share(top) - share(base)) * 100).toFixed(1)}%`;
+  return el("div", { class: "gl-fact" },
+    el("span", { class: `gl-gauge gl-gauge--${tone}`, "aria-hidden": "true" }, fill),
+    el("span", { class: "gl-fact__txt" }, el("b", { class: "gl-big", text: `${fl(base)}–${fl(top)}` }), el("span", { class: "gl-k", text: "Heights" })));
+}
+
+// "moving W at 15 kt" as an arrow toward W, the direction big and the speed under it. Anything
+// else (not given, not moving) is said in words, never drawn.
+export function dkMove(words) {
+  const m = /^moving (\S+) at (\d+) kt$/.exec(words || "");
+  const deg = m ? compassDeg(m[1]) : null;
+  if (deg == null) return el("div", { class: "gl-fact" }, el("span", { class: "gl-fact__txt" }, el("b", { class: "gl-mid", text: words || "not given" }), el("span", { class: "gl-k", text: "Movement" })));
+  return el("div", { class: "gl-fact" },
+    dkArrow(deg),
+    el("span", { class: "gl-fact__txt", "aria-hidden": "true" }, el("b", { class: "gl-big", text: m[1] }), el("span", { class: "gl-k", text: `Moving · ${m[2]} kt` })),
+    el("span", { class: "sr-only", text: `Movement: ${words}` }));
+}
+
+// One fact: an optional shape (a bar, a dial), the value big or medium, a small label and a sub line.
+export function dkFact({ value, label, sub = null, lead = null, size = "big", tone = null }) {
+  return el("div", { class: `gl-fact${tone ? ` gl-fact--${tone}` : ""}` }, lead,
+    el("span", { class: "gl-fact__txt" }, el("b", { class: size === "big" ? "gl-big" : "gl-mid", text: value }), el("span", { class: "gl-k", text: label }),
+      sub ? el("span", { class: "gl-k gl-k--sub", text: sub }) : null));
+}
+
+// One level on the height bar's scale, as a mark (an aircraft's level).
+export function dkLevelMark(ft, tone = "aircraft") {
+  const mark = el("span", { class: "gl-gauge__mark" });
+  mark.style.bottom = `calc(${(share(ft) * 100).toFixed(1)}% - 2px)`;
+  return el("span", { class: `gl-gauge gl-gauge--${tone}`, "aria-hidden": "true" }, mark);
+}
+
+// An arrow in a dial, pointing the way something moves (degrees true, 0 = north).
+export function dkArrow(deg, cls = "") {
+  const arrow = icon("i-arrow-right", "icon gl-arrow");
+  arrow.style.transform = `rotate(${deg - 90}deg)`;
+  return el("span", { class: `gl-dial${cls ? ` ${cls}` : ""}`, "aria-hidden": "true" }, arrow);
+}
+
+// The validity as a pill: the clock time in mono and what is left; caution in the last hour.
+export function dkCountdown(validTo, now) {
+  const m = Math.round((validTo - now) / 60e3);
+  const left = m <= 0 ? "expiring" : m < 60 ? `${m} min left` : `${Math.floor(m / 60)} h ${m % 60} min left`;
+  return el("span", { class: `gl-until${m < 60 ? " gl-until--soon" : ""}` },
+    icon("i-clock", "icon"), el("b", { class: "mono", "aria-hidden": "true", text: hhmmz(validTo) }), el("span", { class: "gl-until__left", "aria-hidden": "true", text: left }),
+    el("span", { class: "sr-only", text: `Valid until ${hhmmz(validTo)}, ${left}` }));
+}
+
+// Source chips: the issuing office's code in mono and the kind of report, with the kind's dot
+// (official pink, observatory blue); the full name is the chip's title and its screen-reader text.
+export function dkSources(list, label) {
+  return el("ul", { class: "gl-srcs", "aria-label": label },
+    ...list.map((s) => el("li", { class: `gl-src gl-src--${s.tone || "official"}`, title: s.full || null },
+      el("i", { "aria-hidden": "true" }), el("b", { class: "mono", text: s.code }), el("span", { class: "gl-src__kind", text: s.kind }),
+      s.full ? el("span", { class: "sr-only", text: `: ${s.full}` }) : null)));
+}
+
+// Forecast steps as a timeline: now, then each step's offset over its valid time.
+export function dkSteps(steps, label = "Forecast steps") {
+  return el("ol", { class: "gl-steps", "aria-label": label },
+    el("li", { class: "gl-step gl-step--now" }, el("i", { "aria-hidden": "true" }), el("b", { text: "Now" })),
+    ...steps.map(([k, t]) => el("li", { class: "gl-step" }, el("i", { "aria-hidden": "true" }), el("b", { text: k }), el("span", { class: "mono", text: hhmmz(t) }))));
+}
+
+// A small caps label over one part of a glance card.
+export const dkLabel = (text) => el("p", { class: "gl-label", text });
+
+// The quiet footer: link buttons first, Technical detail last (it opens on its own line).
+export const dkFoot = (...kids) => {
+  const k = kids.flat().filter(Boolean);
+  return k.length ? el("div", { class: "gl-foot" }, ...k) : null;
+};
+export const dkQuiet = (text, dataset, { label = null, iconId = "i-raw-text" } = {}) =>
+  el("button", { type: "button", class: "gl-link", dataset, "aria-label": label }, iconId ? icon(iconId, "icon") : null, el("span", { text }));
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 // "5 Sep 1036Z"

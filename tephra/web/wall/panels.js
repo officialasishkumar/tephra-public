@@ -5,7 +5,7 @@
 
 import {
   $, el, icon, age, band, dayMon, durMin, fl, hhmmz, utcTime, hhmmssz, idTime, hhmmBefore, ms, pad, solarHour, isNight,
-  compassWord, kmBetween, safeExternalUrl, pointInGeom, dest, inBbox,
+  compassWord, compassDeg, kmBetween, safeExternalUrl, pointInGeom, dest, inBbox,
 } from "./util.js";
 import { actionWords, deciderName, deciderRole, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
@@ -14,6 +14,7 @@ import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, aiSymb
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkEmpty, dkTech, dkSection, dkLink,
   dkWhen, dkDot, dkFromReplay, collapseRuns, runRow, timeRange, plural, dayTime, times,
+  dkGlance, dkBand, dkFact, dkArrow, dkCountdown, dkLabel, dkFoot, dkQuiet, dkAbout,
 } from "./dk.js";
 
 // ------------------------------------------------------------------ vocabulary (section 11)
@@ -605,7 +606,16 @@ export function sourcesSection(D, sit) {
     const [tone, sid, word, long] = EVID[card.evidence] || EVID.UNKNOWN;
     const flags = rows.filter(([r]) => flagged.get(`${card.source_id}|${r}`));
     const headFlag = flagged.get(`${card.source_id}|head`);
-    const glance = [value(card, "height"), value(card, "move"), value(card, "valid")].filter((v) => v && v !== "—" && !/^not (given|stated)$/.test(v)).join(" · ");
+    // the glance values: the band in mono, the movement with its arrow, the validity
+    const given = (v) => v && v !== "—" && !/^not (given|stated)$/.test(v);
+    const [hv, mv, vv] = [value(card, "height"), value(card, "move"), value(card, "valid")];
+    const deg = /^moving /.test(mv || "") ? compassDeg(mv) : null;
+    const vals = [
+      given(hv) ? el("span", { class: "src-v mono", text: hv }) : null,
+      given(mv) ? el("span", { class: "src-v" }, deg != null ? dkArrow(deg, "gl-dial--sm") : null, deg != null ? mv.replace(/^moving /, "") : mv) : null,
+      given(vv) ? el("span", { class: "src-v", text: vv }) : null,
+    ].filter(Boolean);
+    const old = Number.isFinite(t) && D.now - t > 6 * 3600e3;
     const evidColour = tone === "seen" ? "var(--c-ok)" : tone === "est" ? "var(--c-info)" : tone === "off" ? "var(--c-off)" : "var(--c-caution)";
     let dayNight = null;
     if (observer && vent && Number.isFinite(t)) {
@@ -619,10 +629,11 @@ export function sourcesSection(D, sit) {
       key: `src-${card.kind}`,
       dot: flags.length || headFlag ? "caution" : null,
       edge: observer ? "observer" : "official",
-      title: observer ? `VONA ${hhmmz(t)}` : card.title,
-      sub: [kind, glance ? ` · ${glance}` : ""],
+      title: [el("span", { class: `src-kind src-kind--${observer ? "observer" : "official"}`, title: kind }, el("i", { "aria-hidden": "true" }), `${card.kind} · ${observer ? "supporting" : "binding"}`), " ",
+        el("span", { class: "src-id mono", text: card.title.replace(/^(SIGMET|VAA|VONA)\s+/, "").replace(`${sit.volcano_name.toUpperCase()} `, "") })],
+      sub: vals.length ? el("span", { class: "src-vals" }, ...vals) : null,
       foot: [el("span", { class: "dk-evid", title: long }, st(sid, evidColour), word), card.stale ? el("span", { class: "dk-warn", text: `Stale: last good copy ${age(card.stale_age_s)} old` }) : null, flags.length ? el("span", { class: "dk-warn", text: `${flags.length} ${flags.length === 1 ? "value disagrees" : "values disagree"}` }) : null],
-      meta: el("span", {}, el("span", { class: "mono", text: hhmmz(t) }), el("br"), el("span", { text: `${age((D.now - t) / 1000)} ago` })),
+      meta: el("span", { class: `src-age${old ? " src-age--old" : ""}` }, el("b", { class: "mono", text: hhmmz(t) }), el("span", { text: `${age((D.now - t) / 1000)} ago` })),
       body: [
         dkFacts(rows.map(([r, label]) => {
           const fl_ = flagged.get(`${card.source_id}|${r}`);
@@ -630,23 +641,18 @@ export function sourcesSection(D, sit) {
         })),
         dayNight ? el("p", { class: "dk-sub__note", text: dayNight }) : null,
         quotes.length ? el("div", { class: `dk-sub cmp-quote${observer ? " cmp-quote--observer" : ""}` }, el("p", { class: "dk-sub__title", text: "In its own words" }), ...quotes) : null,
-        el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "raw", kind: card.kind, focus: `raw-${card.kind}` }, "aria-label": `Raw text of ${card.title}` }, icon("i-raw-text"), "Raw text")),
-        dkTech(`${card.title}: ${card.source_id} · #${card.sha256_short || ""}`),
+        dkFoot(dkQuiet("Raw text", { act: "raw", kind: card.kind, focus: `raw-${card.kind}` }, { label: `Raw text of ${card.title}` }), dkTech(`${card.title}: ${card.source_id} · #${card.sha256_short || ""}`)),
       ],
     });
   };
-  const chips = order.filter((c) => !c.missing).map((c) => {
-    const t = ms(c.issued_at);
-    const old = Number.isFinite(t) && D.now - t > 6 * 3600e3;
-    return dkChip(`${c.kind} · ${age((D.now - t) / 1000)} ago`, { kind: old ? "caution" : c.kind === "VONA" ? "observer" : "official" });
-  });
   const nOfficial = official.length;
+  // Each row's kind tag says official or observatory, binding or supporting, in its map colour, so
+  // the summary sentence is for screen readers and the legend and per-kind age chips are gone.
   return dkSection("h-sources",
-    dkHeader({ id: "h-sources", pills: [nOfficial ? dkPill("ok", `${nOfficial} official ${nOfficial === 1 ? "report" : "reports"} in force`) : dkPill("caution", "No official report")], title: summary, chips }),
-    el("p", { class: "dk-legend" }, el("span", { class: "dk-swatch dk-swatch--official" }), "official report ", el("span", { class: "dk-swatch dk-swatch--observer" }), "observatory ", st("st-caution", "var(--c-caution)"), " disagrees with another source"),
+    dkHeader({ id: "h-sources", pills: [nOfficial ? dkPill("ok", `${nOfficial} official ${nOfficial === 1 ? "report" : "reports"} in force`) : dkPill("caution", "No official report")], title: summary, srTitle: true }),
     dkList(order.map(sourceRow), { first: 3, key: "src" }),
-    el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "raw", kind: "", focus: "src-side" } }, icon("i-raw-text"), "Raw texts side by side (C)")),
-    dkGroup("Why this volcano is shown", null, dkList([dkRow({ key: "src-why", dot: "info", title: `Why TEPHRA shows ${sit.volcano_name}`, sub: plural(sit.active_reasons.length, "reason"), body: el("ul", { class: "dk-bullets" }, ...sit.active_reasons.map((r) => el("li", { text: r }))) })], { key: "src-why" })));
+    dkFoot(dkQuiet("Raw texts side by side (C)", { act: "raw", kind: "", focus: "src-side" })),
+    dkAbout(`Why TEPHRA shows ${sit.volcano_name} · ${plural(sit.active_reasons.length, "reason")}`, "src-why", el("ul", { class: "dk-bullets" }, ...sit.active_reasons.map((r) => el("li", { text: r })))));
 }
 
 // Long verbatim fields stay out of the facts: quoted lines in the row body, by source kind.
@@ -675,13 +681,13 @@ export function disagreeSection(D, sit, ui) {
     key: `dis-minor-${r.key}`, dot: "info", title: r.label, badge: r.count > 1 ? times(r.count) : null, sub: r.items[0].why,
     body: [r.items.some((m) => m.detail) ? dkList(r.items.filter((m) => m.detail).map((m) => el("div", { class: "dk-line" }, el("span", { class: "dk-line__text", text: m.detail }))), { first: 3, key: `dis-minor-d-${r.key}` }) : null, dkTech(...r.items.map((m) => m.raw))],
   }));
+  // The counts are said once, big: the header's sentence is for screen readers (it read the same).
   return dkSection("h-dis",
-    dkHeader({ id: "h-dis", pills: [check.length ? dkPill(worst, `${check.length} to check`) : dkPill("ok", "Nothing to check")], title: headText }),
-    items.length || minor.length ? dkTiles([
-      { label: "To check", value: String(check.length), tone: check.length ? worst : "ok" },
-      { label: "Minor", value: String(minor.length), tone: "plain", sub: "usual, folded below" },
-    ], "Disagreements in numbers") : dkEmpty("No differences found between the reports in force.", null),
-    check.length ? dkGroup("To check", null, dkList(check.map((d) => disRow(D, sit, d, ui)), { first: 5, key: "dis-check" })) : null,
+    dkHeader({ id: "h-dis", pills: [check.length ? dkPill(worst, "Needs a look") : dkPill("ok", "Nothing to check")], title: headText, srTitle: true }),
+    items.length || minor.length ? el("div", { class: "ss-stats ss-stats--2", role: "group", "aria-label": "Disagreements in numbers" },
+      el("div", { class: `ss-stat${check.length ? ` ss-stat--${worst}` : ""}` }, el("b", { text: String(check.length) }), el("span", { text: "to check" })),
+      el("div", { class: "ss-stat" }, el("b", { text: String(minor.length) }), el("span", { text: "minor, usual" }))) : dkEmpty("No differences found between the reports in force.", null),
+    check.length ? dkList(check.map((d) => disRow(D, sit, d, ui)), { first: 5, key: "dis-check", label: "To check" }) : null,
     minor.length ? dkList(minorRows, { first: 0, key: "dis-minor", more: `Minor differences (${minor.length})` }) : null);
 }
 
@@ -695,7 +701,10 @@ function disRow(D, sit, d, ui) {
     const obsV = vals.find(([k]) => k.startsWith("VONA:"))?.[1] || "";
     const offDeg = /\b(NNE|ENE|ESE|SSE|SSW|WSW|WNW|NNW|NE|SE|SW|NW|N|E|S|W)\b/.exec(offV)?.[1] || offV;
     const obsDeg = /\b(NNE|ENE|ESE|SSE|SSW|WSW|WNW|NNW|NE|SE|SW|NW|N|E|S|W)\b/.exec(obsV)?.[1] || obsV.replace(/^moving /, "");
-    explain = el("span", { class: "dis__explain" }, "Official area moves ", el("b", { class: "off", text: offDeg }), ". Observatory reports ash moving ", el("b", { class: "obs", text: obsDeg }), `. ${Math.round(d.magnitude)}° apart.`);
+    // two arrows in their map colours, then the angle between them; the words carry the facts
+    const way = (deg, cls, who, text) => el("span", { class: `dis-way dis-way--${cls}` }, deg != null ? dkArrow(deg, "gl-dial--sm") : null, el("span", { class: "dis-way__who", text: who }), el("b", { text }));
+    explain = el("span", { class: "dis-ways" }, way(compassDeg(offDeg), "off", "Official", offDeg), way(compassDeg(obsDeg), "obs", "Observatory", obsDeg),
+      el("span", { class: "dis-ways__apart", text: `${Math.round(d.magnitude)}° apart` }));
   } else if (d.kind === "DIRECTION_MISMATCH" && d.aspect === "polygon") {
     const cone = D.coneOf(sit.volcano_id)?.properties;
     const sector = D.sectorOf(sit.volcano_id);
@@ -712,8 +721,8 @@ function disRow(D, sit, d, ui) {
   const row = dkRow({
     key: `dis-${d.id}`, dot: tone, edge: tone, title: headline, sub: explain, badge: word,
     body: [el("p", { class: "dk-sub__note", text: machineText(d.summary) }),
-      d.kind === "DIRECTION_MISMATCH" && D.rose ? el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "frame", focus: `show-${d.id}` } }, icon("i-frame"), "Show on the map")) : null,
-      dkTech(`${kind} · ${d.kind}/${d.aspect || ""} · ${d.severity} · ${d.id || ""}`)],
+      dkFoot(d.kind === "DIRECTION_MISMATCH" && D.rose ? dkQuiet("Show on the map", { act: "frame", focus: `show-${d.id}` }, { iconId: "i-frame" }) : null,
+        dkTech(`${kind} · ${d.kind}/${d.aspect || ""} · ${d.severity} · ${d.id || ""}`))],
   });
   if (ui.freshDis?.has(d.id)) row.classList.add("is-new");
   return row;
@@ -773,17 +782,18 @@ export function areaSection(D, sit, ui) {
   return dkSection("h-area",
     cone.mode === "HYPOTHESIS" ? hypothesisBanner(sit) : null,
     dkHeader({ id: "h-area", pills: [dkPill(tone, word)], title: estimateOutcome(D, sit, cone), chips: [dkChip("Never smaller than any valid official area", { kind: "tephra" }), dkChip("An estimate, not a forecast")] }),
-    dkTiles([
-      { label: "Heights", value: band(cone.base_ft, cone.top_ft) },
-      { label: "Valid until", value: hhmmz(ms(cone.valid_to)), sub: untilWords(ms(cone.valid_to) - D.now) },
-      cone.mode !== "OFFICIAL" ? { label: "Confidence", value: `${Math.round((cone.confidence ?? 0) * 100)}%`, sub: "in the widening" } : null,
-    ], "Estimate in numbers"),
-    outcome === "MODEL_FAILED" ? dkNote("caution", `Plume reader gave no result: ${machineText(a?.estimate?.uncertainty_notes || "no usable model output")}. TEPHRA shows the official area only, and nothing was put in its place.`, { role: "status" }) : null,
-    dkFacts([["Reading", el("span", {}, readBy)]]),
-    read,
-    dkTech(`Mode ${cone.mode} · label ${cone.label} · ${cone.cone_id || ""}`));
+    // the numbers at a glance: the band as a bar, the validity as a countdown, the confidence big
+    dkGlance({
+      tone: "tephra", labelId: "h-area-card", label: "TEPHRA's area", until: dkCountdown(ms(cone.valid_to), D.now),
+      facts: [dkBand(cone.base_ft, cone.top_ft, "tephra"), cone.mode !== "OFFICIAL" ? dkFact({ value: `${Math.round((cone.confidence ?? 0) * 100)}%`, label: "Confidence in the widening" }) : null],
+      kids: [
+        outcome === "MODEL_FAILED" ? dkNote("caution", `Plume reader gave no result: ${machineText(a?.estimate?.uncertainty_notes || "no usable model output")}. TEPHRA shows the official area only, and nothing was put in its place.`, { role: "status" }) : null,
+        dkLabel("Reading"), el("p", { class: "gl-by" }, el("span", {}, readBy)),
+        dkFoot(dkTech(`Mode ${cone.mode} · label ${cone.label} · ${cone.cone_id || ""}`)),
+      ],
+    }),
+    read);
 }
-const untilWords = (dt) => (Number.isFinite(dt) ? (dt > 0 ? `in ${age(dt / 1000)}` : `${age(-dt / 1000)} ago`) : null);
 
 // What the viewer opened or closed in the Decisions list, by flight, kept across renders (the
 // section is rebuilt every tick, and a flight's newer draft keeps the viewer's choice); until they
