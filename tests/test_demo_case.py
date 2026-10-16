@@ -6,11 +6,13 @@ be scored by the backtest. No network: the case plays through ``ReplaySource`` o
 """
 
 import importlib.util
+import random
 import sys
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType
+from typing import Final
 from urllib.parse import urlsplit
 
 import pytest
@@ -28,6 +30,7 @@ from tephra.feeds.volcanoes import load_volcanoes
 from tephra.feeds.vona import parse_vona_card, parse_vona_list
 from tephra.feeds.winds import parse_winds
 from tephra.models import (
+    ActionKind,
     AdsbQueryPoint,
     AdvisoryStatus,
     DiscrepancyKind,
@@ -35,6 +38,7 @@ from tephra.models import (
     FeedStatus,
     ReplayCase,
     ReplayRecord,
+    RerouteStatus,
     RunMode,
     VaacCentre,
 )
@@ -46,6 +50,7 @@ from tephra.util.timeutil import FixedClock, use_clock
 DATA_DIR = PROJECT_ROOT / "data"
 CASE = "demo-agung-20261014"
 DEMO_FROM = datetime(2026, 10, 14, 7, 5, tzinfo=UTC)
+DEMO_TO = datetime(2026, 10, 14, 7, 15, tzinfo=UTC)
 AGUNG, SAKURAJIMA = "264020", "282080"
 CASE_FEEDS = {
     FeedId.SIGMET,
@@ -204,8 +209,29 @@ def _ids(url: str) -> list[str]:
 
 # --- what the demo window shows -----------------------------------------------------------
 
+NAMED: Final = {
+    "CPA140": "REROUTE",
+    "CPA133": "CHANGE_LEVEL",
+    "GIA456": "HOLD",
+    "VOZ4134": "DIVERT",
+}
+"""The flights data/demo/local-demo.json and data/replay/README.md name, and what the code drafts
+for each at the window start."""
 
-async def test_the_window_start_shows_the_demo_situations(tmp_path: Path) -> None:
+
+def test_the_picture_holds_through_the_window() -> None:
+    """Only aircraft move in the window: no product, report or forecast changes inside it, so
+    every minute of the loop shows the same sources."""
+    changed = [
+        record
+        for record in _case().records
+        if record.feed is not FeedId.ADSB and DEMO_FROM < record.fetched_at <= DEMO_TO
+    ]
+    assert changed == []
+
+
+@pytest.mark.parametrize("minute", [0, 3])
+async def test_the_first_minutes_show_every_demo_situation(tmp_path: Path, minute: int) -> None:
     settings = Settings(
         _env_file=None,
         llm="stub",
@@ -215,12 +241,14 @@ async def test_the_window_start_shows_the_demo_situations(tmp_path: Path) -> Non
         store="sqlite",
         sqlite_path=tmp_path / "demo.sqlite3",
         cache_dir=tmp_path / "cache",
-        recovery_auto=False,
     )
+    at = DEMO_FROM + timedelta(minutes=minute)
     runtime = await create_runtime(settings)
     try:
-        with use_clock(FixedClock(DEMO_FROM)):
+        with use_clock(FixedClock(at)):
             await runtime.tick(reason="manual")
+            due = runtime.recovery_due
+            runtime.recovery_due = None  # its solve takes most of a minute; it is due, enough
             await runtime.worker.drain()  # the drafts, which the AI worker makes off the tick
             state = await runtime.system_state()
             drafts = await list_advisories(runtime.store, status=AdvisoryStatus.DRAFT, limit=200)
@@ -239,15 +267,31 @@ async def test_the_window_start_shows_the_demo_situations(tmp_path: Path) -> Non
     assert DiscrepancyKind.CONFLICT in sakurajima
     agung = {d.kind for d in runtime.situations[AGUNG].discrepancies}
     assert {DiscrepancyKind.HEIGHT_MISMATCH, DiscrepancyKind.DIRECTION_MISMATCH} <= agung
+    assert "VA" in (runtime.live.metars["WADD"].raw_text or "")
 
     exposed = list(runtime.exposed.values())
-    assert len(exposed) >= 10
-    assert any(flight.inside_now for flight in exposed)
-    assert any(0 < flight.minutes_to_entry <= 15 for flight in exposed)
-    assert {AGUNG, SAKURAJIMA} <= {flight.volcano_id for flight in exposed}
-    assert drafts
+    agung_flights = [flight for flight in exposed if flight.volcano_id == AGUNG]
+    assert len(agung_flights) >= 20
+    assert sum(flight.inside_now for flight in agung_flights) >= 2
+    assert sum(0 < flight.minutes_to_entry <= 15 for flight in agung_flights) >= 4
+    assert any(flight.volcano_id == SAKURAJIMA for flight in exposed)
+    assert due is not None
+    assert "WADD" in due.airports
+
+    actions = {draft.action for draft in drafts}
+    assert {
+        ActionKind.DIVERT,
+        ActionKind.HOLD,
+        ActionKind.CHANGE_LEVEL,
+        ActionKind.REROUTE,
+    } <= actions
     label = f"REPLAY - SYNTHETIC DEMO DATA {CASE.upper()} (14 OCT 2026) - NOT LIVE"
     assert all(label in draft.header for draft in drafts)
+    if minute == 0:
+        by_callsign = {draft.callsign: draft.action.value for draft in drafts}
+        assert {cs: by_callsign.get(cs) for cs in NAMED} == NAMED
+        reroute = runtime.reroutes[next(f.id for f in exposed if f.callsign == "CPA140")]
+        assert all(option.status is RerouteStatus.OK for option in reroute)
 
 
 # --- never scored -------------------------------------------------------------------------
@@ -284,6 +328,33 @@ def test_the_generator_writes_the_same_products_twice(tmp_path: Path) -> None:
     ]
     committed = {(r.url, r.fetched_at, r.sha256) for r in _case().records}
     assert {(r.url, r.fetched_at, r.sha256) for r in first} <= committed
+
+
+def test_the_flights_fly_real_routes_at_rule_levels_and_plain_speeds() -> None:
+    generator = _load_script("make_demo_case.py")
+    routes, _ = generator.route_table()
+    flights = generator.traffic()
+    assert len(flights) > 300
+    for flight in flights:
+        assert routes[flight.callsign] == f"{flight.origin}-{flight.dest}"
+        track = generator.initial_bearing_deg(*flight.o, *flight.d)
+        assert generator.level_ok(flight.cruise_ft // 100, track), flight.callsign
+        cruise = max(flight.legs, key=lambda leg: leg.minutes)
+        assert 180 <= cruise.gs_kt <= 580, flight.callsign
+        assert flight.legs[-1].alt_to == 0
+    assert {flight.type_icao for flight in flights if flight.callsign.startswith("JAL3")} <= {
+        "AT76",
+        "AT46",
+    }
+
+
+def test_each_hero_is_where_the_demo_needs_it() -> None:
+    """The exposure check the app runs finds each hero flight its lead from the official area."""
+    generator = _load_script("make_demo_case.py")
+    flights = generator.hero_flights(random.Random(generator.SEED))
+    for flight, hero in zip(flights, generator.HEROES, strict=True):
+        when = DEMO_FROM + timedelta(minutes=hero.at_min)
+        assert generator.lead_at(flight, hero.volcano.id, when) == hero.lead_min, flight.callsign
 
 
 def test_the_wall_words_a_synthetic_replay_as_demo_data() -> None:

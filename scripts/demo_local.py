@@ -81,10 +81,8 @@ def main() -> int:
         for path in store.parent.glob(f"{store.name}*"):
             path.unlink()
     print(f"Gemma is ready. Wall {base}/  Desk {base}/desk (PIN {env['TEPHRA_DESK_PIN']})")
-    print(
-        f"Let it run about {plan['warm_up_min']} minutes before you present: the first loop "
-        "asks Gemma everything, later loops reuse its answers."
-    )
+    warm_up = f"Let it run about {plan['warm_up_min']} minutes before you present."
+    print(warm_up, plan["warm_up_why"])
     sys.stdout.flush()  # exec replaces the process; unflushed lines would be lost
     os.execvpe("uv", ["uv", "run", "tephra"], env)
 

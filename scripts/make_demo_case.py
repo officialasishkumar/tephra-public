@@ -10,14 +10,25 @@ backtest never scores it.
 
 The story, 14 Oct 2026 (UTC):
 
-* Agung (Bali) erupts at 0542Z. The observatory's VONAs put the ash higher than the SIGMET and
-  moving south, the SIGMET moves it west and Darwin's VAAs south-west, so the sources disagree on
-  height and direction. Ash reaches Bali's airport (WADD), whose METARs and amended TAF report VA.
-  A second Darwin VAA at 0718Z raises the top from FL350 to FL380.
+* Agung (Bali) erupts at 0542Z. The observatory's VONAs put the ash higher than every official
+  product (11,500 m from its 0700Z notice) and moving south; the SIGMET moves it west and
+  Darwin's VAA south-west, so the sources disagree on height and direction. Ash reaches Bali's
+  airport (WADD), whose METARs and amended TAF report VA. Darwin's next VAA (0748Z, after the
+  demo window) raises the top from FL350 to FL380.
 * Sakurajima (Kyushu) erupts at 0510Z; Tokyo VAAC's final advisory at 0630Z says the ash has
   dissipated. JMA reports a new eruption at 0652Z and RJJJ issues a SIGMET, while Tokyo's "no
   ash" advisory is still in force: a CONFLICT.
 * Semeru (East Java) and Dukono (Halmahera) carry routine low-level SIGMETs and VAAs.
+
+The demo window, 0705Z to 0715Z, comes after the last product in it: the picture holds while
+the aircraft move, so each minute of the loop shows the same things. Flights are real airline
+callsigns on their usual legs (VRS standing data), each on the great circle between the real
+airports at a level the semicircular rule allows, climbing, cruising and descending at plain
+speeds for its class (turboprop, narrowbody, widebody) with the wind aloft in its ground speed.
+Their positions and times are invented. The flights the demo turns on ("heroes") are placed
+with the app's own exposure check against the official area, so at the window start some are
+inside, some minutes from it and some half an hour out, at the levels that make the code
+offer each action.
 
 Feeds in the case: AWC international SIGMETs, MAGMA VONA list pages, JMA's eruption reports
 (Atom feed and VFVO52 documents), Tokyo VAAC list and text pages, Darwin VAA bulletins (the ten
@@ -35,7 +46,7 @@ Usage (no network)::
 
     uv run python scripts/make_demo_case.py
     uv run python scripts/record_replay.py probe --case demo-agung-20261014 \
-        --from 2026-10-14T07:05Z --at 2026-10-14T07:05Z --at 2026-10-14T07:25Z
+        --from 2026-10-14T07:05Z --at 2026-10-14T07:05Z --at 2026-10-14T07:15Z
 """
 
 # ruff: noqa: RUF001  (JMA's Japanese text uses full-width colons and brackets)
@@ -61,18 +72,29 @@ from typing import Any, Final
 from urllib.parse import parse_qsl, urlsplit
 
 from shapely import unary_union
-from shapely.geometry import Point, Polygon
 
-from tephra.config import PROJECT_ROOT, REGIONS
+from tephra.config import PROJECT_ROOT, REGIONS, Settings
+from tephra.feeds.adsb import parse_adsb
 from tephra.feeds.airports import load_airports
+from tephra.feeds.base import FetchResult
 from tephra.feeds.jma_volcano import JMA_EQVOL_URL
 from tephra.feeds.routes import ROUTES_FILE, load_routes
-from tephra.feeds.sigmet import SIGMET_URL
-from tephra.feeds.vaac import DARWIN_BACKUP_LIST_URL, DARWIN_BULLETIN_URLS, TOKYO_LIST_URL
+from tephra.feeds.sigmet import SIGMET_URL, parse_sigmets
+from tephra.feeds.vaac import (
+    DARWIN_BACKUP_LIST_URL,
+    DARWIN_BULLETIN_URLS,
+    TOKYO_LIST_URL,
+    parse_vaa,
+)
+from tephra.feeds.volcanoes import load_volcanoes
 from tephra.feeds.vona import VONA_LIST_URL
 from tephra.feeds.winds import PRESSURE_LEVELS_HPA
+from tephra.geo.cone import geometry_to_shape, official_layers, shape_to_geometry
+from tephra.geo.exposure import find_crossings
+from tephra.geo.fuel import category_for_type
 from tephra.geo.units import distance_nm, initial_bearing_deg
-from tephra.models import FeedId, ReplayCase, ReplayRecord
+from tephra.models import AdsbQueryPoint, AircraftCategory, FeedId, ReplayCase, ReplayRecord
+from tephra.policy import load_policy
 from tephra.util import timeutil
 
 CASE_ID: Final = "demo-agung-20261014"
@@ -86,7 +108,7 @@ SEED: Final = 20261014
 START: Final = datetime(2026, 10, 14, 6, 30, tzinfo=UTC)
 END: Final = datetime(2026, 10, 14, 8, 15, tzinfo=UTC)
 DEMO_FROM: Final = datetime(2026, 10, 14, 7, 5, tzinfo=UTC)
-DEMO_TO: Final = datetime(2026, 10, 14, 7, 30, tzinfo=UTC)
+DEMO_TO: Final = datetime(2026, 10, 14, 7, 15, tzinfo=UTC)
 ADSB_STEP: Final = timedelta(seconds=30)
 CONTEXT_FEEDS: Final = (FeedId.TAF, FeedId.METAR, FeedId.WINDS, FeedId.ADSB)
 MAX_ROUNDS: Final = 6
@@ -101,19 +123,21 @@ MARK: Final = (
 NOTES: Final = (
     "Synthetic demo data, invented for TEPHRA's product demo by scripts/make_demo_case.py "
     "(seeded, no network); nothing in this case was recorded or happened. Real: the volcanoes, "
-    "airports, FIRs, callsigns and their usual routes (data/volcanoes.json, data/airports.json, "
-    "data/routes_apac.json, VRS standing data CC0). Invented: every SIGMET, VONA, JMA eruption "
-    "report, Tokyo and Darwin VAA, METAR, TAF, wind profile and aircraft position, each stored "
-    "under the URL the live poller requests so the same parsers read it. The HTML and XML pages "
-    "say so in a comment; the JSON answers cannot. Story (UTC, 14 Oct 2026): Agung erupts at "
-    "0542Z; the observatory puts the ash higher than the SIGMET and moving south while the "
-    "SIGMET says west and Darwin south-west; WADD's METARs and amended TAF report VA; Darwin's "
-    "second VAA at 0718Z raises the top to FL380. Sakurajima's Tokyo VAA closes the event at "
-    "0630Z, JMA reports a new eruption at 0652Z and RJJJ a SIGMET while that VAA is in force. "
-    "Semeru and Dukono carry routine SIGMETs and VAAs. Not in this case: satellite frames and "
-    "raw Himawari data (TEPHRA credits frames to JMA or NICT; an invented picture would pass "
-    "for theirs). Never scored by the backtest. Demo window 0705Z-0730Z (TEPHRA_REPLAY_START, "
-    "TEPHRA_REPLAY_END)."
+    "airports, FIRs, airline callsigns and their usual routes (data/volcanoes.json, "
+    "data/airports.json, data/routes_apac.json, VRS standing data CC0); each flight flies the "
+    "great circle of its callsign's leg at a semicircular-rule level. Invented: every SIGMET, "
+    "VONA, JMA eruption report, Tokyo and Darwin VAA, METAR, TAF, wind profile and aircraft "
+    "position and time, each stored under the URL the live poller requests so the same parsers "
+    "read it. The HTML and XML pages say so in a comment; the JSON answers cannot. Story (UTC, "
+    "14 Oct 2026): Agung erupts at 0542Z; the observatory puts the ash higher than every official "
+    "product (0700Z notice) and moving south while the SIGMET says west and Darwin south-west; "
+    "WADD's METARs and amended TAF report VA; Darwin's next VAA at 0748Z raises the top to "
+    "FL380. Sakurajima's Tokyo VAA closes the event at 0630Z, JMA reports a new eruption at "
+    "0652Z and RJJJ a SIGMET while that VAA is in force. Semeru and Dukono carry routine SIGMETs "
+    "and VAAs. Not in this case: satellite frames and raw Himawari data (TEPHRA credits frames "
+    "to JMA or NICT; an invented picture would pass for theirs). Never scored by the backtest. "
+    "Demo window 0705Z-0715Z (TEPHRA_REPLAY_START, TEPHRA_REPLAY_END), after the last product "
+    "in it, so every minute of the loop shows the same picture."
 )
 
 DATA_DIR: Final = PROJECT_ROOT / "data"
@@ -366,8 +390,8 @@ VONAS: Final = [
         "Ash cloud moving to south. Volcanic ash is observed to be thick.",
     ),
     VonaSpec(
-        99008, "Agung", at(14, "0710"), "Red",
-        "Eruption with volcanic ash cloud at 0702 UTC (1502 local). Best estimate of ash-cloud "
+        99008, "Agung", at(14, "0700"), "Red",
+        "Eruption with volcanic ash cloud at 0652 UTC (1452 local). Best estimate of ash-cloud "
         "top is around 36800 FT (11500 M) above sea level or 27210 FT (8503 M) above summit. May "
         "be higher than what can be observed clearly. Source of height data: ground observer. "
         "Ash cloud moving to south. Volcanic ash is observed to be thick. Ash fall is reported "
@@ -552,7 +576,7 @@ AGUNG_12: Final = VaaSpec(
 AGUNG_13: Final = VaaSpec(
     "DARWIN",
     "FVAU04 ADRM",
-    at(14, "0718"),
+    at(14, "0748"),
     AGUNG,
     "AGUNG",
     "INDONESIA",
@@ -560,8 +584,8 @@ AGUNG_13: Final = VaaSpec(
     "2026/13",
     "HIMAWARI-9, CVGHM, PIREP",
     "RED",
-    "ERUPTION AT 14/0702Z. VA TO FL380 OBS ON SATELLITE IMAGERY",
-    at(14, "0700"),
+    "ERUPTION AT 14/0652Z. VA TO FL380 OBS ON SATELLITE IMAGERY",
+    at(14, "0730"),
     agung_layers(
         38000,
         ring((-8.27, 115.56), (-8.18, 114.62), (-8.72, 114.72), (-8.88, 115.42)),
@@ -597,7 +621,7 @@ AGUNG_13: Final = VaaSpec(
             (-8.78, 115.78),
         ),
     ],
-    "NEW ERUPTION AT 0702Z. VA EXTD W AND SW ON SATELLITE IMAGERY. PILOT REPORT OF VA AT "
+    "NEW ERUPTION AT 0652Z. VA EXTD W AND SW ON SATELLITE IMAGERY. PILOT REPORT OF VA AT "
     "FL370. AIRPORT WADD AFFECTED.",
     "WILL BE ISSUED BY 20261014/1300Z",
 )
@@ -654,6 +678,7 @@ DUKONO_871: Final = VaaSpec(
     "NO LATER THAN 20261014/0955Z",
 )
 
+DARWIN_CURRENT: Final = [AGUNG_12, AGUNG_13, SEMERU_1201, DUKONO_871]
 OLD_DARWIN: Final = [
     VaaSpec(
         "DARWIN", f"FVAU{slot:02d} ADRM", issued, vent, vent.name, "INDONESIA", elev, number,
@@ -689,10 +714,9 @@ def darwin_text(spec: VaaSpec) -> bytes:
 
 def darwin_records(store: Store) -> list[ReplayRecord]:
     records: list[ReplayRecord] = []
-    current = [AGUNG_12, AGUNG_13, SEMERU_1201, DUKONO_871]
     for slot, url in enumerate(DARWIN_BULLETIN_URLS, start=1):
         heading = f"FVAU{slot:02d} ADRM"
-        held = [spec for spec in [*OLD_DARWIN, *current] if spec.heading == heading]
+        held = [spec for spec in [*OLD_DARWIN, *DARWIN_CURRENT] if spec.heading == heading]
         before = max(
             (s for s in held if s.issued + timedelta(minutes=2) <= START), key=lambda s: s.issued
         )
@@ -1253,8 +1277,7 @@ WIND_PROFILES: Final[dict[str, dict[int, tuple[int, int]]]] = {
 
 
 def winds_body(lat: float, lon: float, when: datetime) -> bytes:
-    regime = "kyushu" if lat > 20 else "north" if lat > -2 else "south"
-    profile = WIND_PROFILES[regime]
+    profile = WIND_PROFILES[regime(lat)]
     first = timeutil.floor_minutes(when, 60) - timedelta(hours=1)
     hours = [first + timedelta(hours=index) for index in range(25)]
     hourly: dict[str, list[Any]] = {"time": [h.strftime("%Y-%m-%dT%H:%M") for h in hours]}
@@ -1298,18 +1321,113 @@ def winds_fill(store: Store, url: str) -> list[ReplayRecord]:
 
 # --- aircraft ---------------------------------------------------------------------------------
 
-TYPES: Final[dict[str, Sequence[str]]] = {
-    "GIA": ("B738", "A333", "B77W"), "CTV": ("A320",), "BTK": ("A320", "A20N"),
-    "LNI": ("B739", "B738"), "AWQ": ("A320",), "AXM": ("A320", "A20N"), "SIA": ("A359", "B78X"),
-    "SJV": ("B738",), "SJY": ("B738",), "QFA": ("A332", "B738"), "JST": ("A321", "A320"),
-    "VOZ": ("B738",), "JAL": ("B738", "B763", "A359"), "ANA": ("B788", "A321", "B772"),
-    "SKY": ("B738",), "APJ": ("A320",), "JJP": ("A320",), "CPA": ("A333", "A359"),
-    "MAS": ("B738", "A333"), "TGW": ("A20N",), "AIQ": ("A320",), "IDX": ("A320",),
+FLEETS: Final[dict[str, Sequence[str]]] = {
+    # the types each airline flies on these routes (public fleet lists, rounded to the main ones)
+    "GIA": ("B738", "B738", "B738", "A333"), "CTV": ("A320", "A320", "AT76"),
+    "BTK": ("A320", "B739"), "LNI": ("B739", "B738"), "AWQ": ("A320",),
+    "AXM": ("A320", "A20N"), "SJV": ("A320",),
+    "SJY": ("B738",), "WON": ("AT72", "AT76"), "TNU": ("A320",), "PAS": ("A320",),
+    "IDX": ("A320",), "SIA": ("A359", "B78X", "B38M"), "TGW": ("A20N", "A21N", "B788"),
+    "MAS": ("B738", "A333"), "MXD": ("B738",), "QFA": ("A332", "B738"), "JST": ("A320", "A321"),
+    "VOZ": ("B738",), "AIQ": ("A320",), "JAL": ("B738", "B763", "A359"), "ANA": ("B788", "B738"),
+    "SKY": ("B738",), "APJ": ("A320",), "JJP": ("A320",), "SNJ": ("B738",), "JTA": ("B738",),
+    "CPA": ("A333", "A359"), "CAL": ("A333", "B738"), "EVA": ("A321", "B78X"),
+    "KAL": ("B77W", "A333"), "TTW": ("A320",), "CEB": ("A320", "A21N"), "PAL": ("A321",),
+    "VJC": ("A321",), "HVN": ("A321",), "CES": ("A320",), "CSN": ("A321",), "CSH": ("B738",),
+    "THA": ("B788",),
 }  # fmt: skip
-CLIMB_FPM: Final = 2200
-CLIMB_KT: Final = 290
-DESCENT_NM_PER_KFT: Final = 3.2
-DESCENT_KT: Final = 300
+JAC_TYPES: Final = ("AT76", "AT46")
+"""JAL flight numbers 3000-3999 are Japan Air Commuter's turboprop services out of Kagoshima."""
+
+Step = tuple[int, int, int]
+"""One climb or descent segment: (up to or down to ft, ft per minute, ground speed kt)."""
+
+
+@dataclass(frozen=True)
+class Performance:
+    """A plain schedule for one class of aircraft: climb and descent in segments at still-air
+    ground speeds, cruise at a true airspeed that the wind aloft adds to or takes from. Round
+    textbook numbers (250 kt below FL100, about 3 nm per 1,000 ft of descent), not type data."""
+
+    tas_kt: float
+    climb: tuple[Step, ...]
+    descent: tuple[Step, ...]
+    top_fl: int
+    emitter: str
+    """ADS-B emitter category: A2 small, A3 large, A5 heavy."""
+
+
+JET: Final = Performance(
+    452,
+    ((10000, 2500, 250), (24000, 2000, 330), (45000, 1300, 420)),
+    ((10000, 2300, 380), (3000, 1300, 240), (0, 800, 160)),
+    390,
+    "A3",
+)
+HEAVY: Final = Performance(
+    488,
+    ((10000, 2300, 250), (24000, 1800, 340), (45000, 1200, 430)),
+    ((10000, 2200, 390), (3000, 1300, 240), (0, 800, 165)),
+    410,
+    "A5",
+)
+PROP: Final = Performance(
+    275,
+    ((10000, 1500, 180), (30000, 1000, 210)),
+    ((10000, 1500, 250), (3000, 1000, 200), (0, 700, 140)),
+    250,
+    "A2",
+)
+PRESSURE_FL: Final = {850: 50, 700: 100, 600: 140, 500: 180, 400: 240, 300: 300, 250: 340,
+                      200: 390, 150: 450}  # fmt: skip
+"""The flight level each pressure level stands at in the standard atmosphere."""
+LANDED_FT: Final = 400
+"""Below this a flight is on the runway or about to be: it leaves the ADS-B answers."""
+
+
+def performance(type_icao: str) -> Performance:
+    category = category_for_type(type_icao)
+    if category is AircraftCategory.TURBOPROP:
+        return PROP
+    return HEAVY if category is AircraftCategory.WIDEBODY else JET
+
+
+def fleet(callsign: str) -> Sequence[str]:
+    number = callsign[3:]
+    if callsign.startswith("JAL") and number.isdigit() and 3000 <= int(number) < 4000:
+        return JAC_TYPES
+    return FLEETS.get(callsign[:3], ("A320", "B738"))
+
+
+def eastbound(track_deg: float) -> bool:
+    return 0 <= track_deg % 360 < 180
+
+
+def level_ok(fl: int, track_deg: float) -> bool:
+    """The ICAO semicircular rule (true track standing in for magnetic): eastbound odd
+    thousands of feet, westbound even."""
+    return fl % 10 == 0 and (fl // 10) % 2 == (1 if eastbound(track_deg) else 0)
+
+
+def cruise_levels(perf: Performance, dist_nm: float, track_deg: float) -> list[int]:
+    """Levels an airline files for a leg this long: a 300 nm hop tops out near FL230, a long
+    sector at the type's ceiling."""
+    ceiling = min(perf.top_fl, 150 + int(dist_nm / 3.5))
+    floor = max(110, ceiling - 60)
+    return [fl for fl in range(floor // 10 * 10, ceiling + 1, 10) if level_ok(fl, track_deg)]
+
+
+def regime(lat: float) -> str:
+    return "kyushu" if lat > 20 else "north" if lat > -2 else "south"
+
+
+def wind_along(lat: float, track_deg: float, fl: int) -> float:
+    """The wind's component along the track at ``fl`` (positive: a tailwind), from the same
+    profiles the winds feed serves."""
+    profile = WIND_PROFILES[regime(lat)]
+    hpa = min(profile, key=lambda level: abs(PRESSURE_FL[level] - fl))
+    from_deg, speed = profile[hpa]
+    return -speed * math.cos(math.radians(from_deg - track_deg))
 
 
 def great_circle_point(
@@ -1332,86 +1450,123 @@ def great_circle_point(
     return math.degrees(math.atan2(z, math.hypot(x, y))), math.degrees(math.atan2(y, x))
 
 
+@dataclass(frozen=True)
+class Leg:
+    """One piece of the vertical profile: from ``alt_from`` to ``alt_to`` at a steady rate."""
+
+    start_min: float
+    start_nm: float
+    minutes: float
+    alt_from: float
+    alt_to: float
+    gs_kt: float
+
+    @property
+    def nm(self) -> float:
+        return self.minutes * self.gs_kt / 60
+
+    @property
+    def rate_fpm(self) -> float:
+        return (self.alt_to - self.alt_from) / self.minutes
+
+
+def _segments(perf: Performance, cruise_ft: int) -> tuple[list[Leg], list[Leg]]:
+    """Climb and descent legs (times and distances from zero) for a cruise level."""
+    climb: list[Leg] = []
+    alt = 0
+    for to_ft, fpm, gs in perf.climb:
+        top = min(to_ft, cruise_ft)
+        if top > alt:
+            climb.append(Leg(0, 0, (top - alt) / fpm, alt, top, gs))
+            alt = top
+    descent: list[Leg] = []
+    alt = cruise_ft
+    for down_to, fpm, gs in perf.descent:
+        if down_to < alt:
+            descent.append(Leg(0, 0, (alt - down_to) / fpm, alt, down_to, gs))
+            alt = down_to
+    return climb, descent
+
+
 @dataclass
 class Flight:
+    """One airline flight on the great circle of its callsign's usual leg."""
+
     callsign: str
     origin: str
     dest: str
     o: tuple[float, float]
     d: tuple[float, float]
     cruise_ft: int
-    cruise_kt: float
     type_icao: str
+    tas_kt: float
     dep: datetime = START
     hex: str = field(init=False)
     dist_nm: float = field(init=False)
+    legs: list[Leg] = field(init=False)
 
     def __post_init__(self) -> None:
         self.hex = hashlib.sha256(f"tephra-demo:{self.callsign}".encode()).hexdigest()[:6]
         self.dist_nm = distance_nm(*self.o, *self.d)
-        climb_nm_per_ft = CLIMB_KT / 60 / CLIMB_FPM
-        descent_nm_per_ft = DESCENT_NM_PER_KFT / 1000
-        reachable = self.dist_nm / (climb_nm_per_ft + descent_nm_per_ft)
-        if reachable < self.cruise_ft:
-            self.cruise_ft = max(4000, int(reachable * 0.9) // 1000 * 1000)
-
-    @property
-    def climb_min(self) -> float:
-        return self.cruise_ft / CLIMB_FPM
-
-    @property
-    def climb_nm(self) -> float:
-        return self.climb_min * CLIMB_KT / 60
-
-    @property
-    def descent_nm(self) -> float:
-        return self.cruise_ft / 1000 * DESCENT_NM_PER_KFT
-
-    @property
-    def descent_min(self) -> float:
-        return self.descent_nm / DESCENT_KT * 60
-
-    @property
-    def cruise_min(self) -> float:
-        return (self.dist_nm - self.climb_nm - self.descent_nm) / self.cruise_kt * 60
+        perf = performance(self.type_icao)
+        while True:
+            climb, descent = _segments(perf, self.cruise_ft)
+            cruise_nm = self.dist_nm - sum(leg.nm for leg in [*climb, *descent])
+            if cruise_nm >= max(15.0, 0.1 * self.dist_nm) or self.cruise_ft <= 6000:
+                break
+            self.cruise_ft -= 2000  # the next level down in the same direction
+        middle = great_circle_point(*self.o, *self.d, 0.5)
+        track = initial_bearing_deg(*middle, *self.d)
+        cruise_gs = self.tas_kt + wind_along(middle[0], track, self.cruise_ft // 100)
+        cruise = Leg(0, 0, max(cruise_nm, 0.0) / cruise_gs * 60, self.cruise_ft, self.cruise_ft,
+                     cruise_gs)  # fmt: skip
+        self.legs = []
+        at_min = at_nm = 0.0
+        for leg in [*climb, cruise, *descent]:
+            if leg.minutes <= 0:
+                continue
+            self.legs.append(Leg(at_min, at_nm, leg.minutes, leg.alt_from, leg.alt_to, leg.gs_kt))
+            at_min += leg.minutes
+            at_nm += leg.nm
 
     @property
     def block_min(self) -> float:
-        return self.climb_min + self.cruise_min + self.descent_min
+        last = self.legs[-1]
+        return last.start_min + last.minutes
+
+    @property
+    def route_nm(self) -> float:
+        """The profile's own length; it differs from the great circle by rounding only."""
+        last = self.legs[-1]
+        return last.start_nm + last.nm
 
     def minutes_to(self, flown_nm: float) -> float:
-        if flown_nm <= self.climb_nm:
-            return flown_nm / CLIMB_KT * 60
-        cruise_end = self.dist_nm - self.descent_nm
-        if flown_nm <= cruise_end:
-            return self.climb_min + (flown_nm - self.climb_nm) / self.cruise_kt * 60
-        return self.climb_min + self.cruise_min + (flown_nm - cruise_end) / DESCENT_KT * 60
+        for leg in self.legs:
+            if flown_nm <= leg.start_nm + leg.nm:
+                return leg.start_min + (flown_nm - leg.start_nm) / leg.gs_kt * 60
+        return self.block_min
 
     def state(self, when: datetime) -> dict[str, float] | None:
         """Position, level and speeds at ``when``; None on the ground."""
         elapsed = (when - self.dep).total_seconds() / 60
-        if elapsed <= 0 or elapsed >= self.block_min:
+        leg = next(
+            (leg for leg in self.legs if leg.start_min <= elapsed < leg.start_min + leg.minutes),
+            None,
+        )
+        if leg is None:
             return None
-        if elapsed < self.climb_min:
-            flown = elapsed * CLIMB_KT / 60
-            alt, gs, rate, selected = elapsed * CLIMB_FPM, CLIMB_KT, CLIMB_FPM, self.cruise_ft
-        elif elapsed < self.climb_min + self.cruise_min:
-            flown = self.climb_nm + (elapsed - self.climb_min) * self.cruise_kt / 60
-            alt, gs, rate, selected = self.cruise_ft, self.cruise_kt, 0, self.cruise_ft
+        into = elapsed - leg.start_min
+        alt = leg.alt_from + into * leg.rate_fpm
+        if alt < LANDED_FT:
+            return None
+        flown = leg.start_nm + into * leg.gs_kt / 60
+        lat, lon = great_circle_point(*self.o, *self.d, min(1.0, flown / self.route_nm))
+        if leg.rate_fpm < 0:  # cleared down: to FL100 first, then to the approach altitude
+            selected: float | None = 10000 if alt > 11000 else 3000
         else:
-            into = elapsed - self.climb_min - self.cruise_min
-            flown = self.dist_nm - self.descent_nm + into * DESCENT_KT / 60
-            alt = self.cruise_ft * (1 - into / self.descent_min)
-            gs, rate, selected = (
-                DESCENT_KT,
-                -round(DESCENT_KT / 60 / DESCENT_NM_PER_KFT * 1000),
-                None,
-            )
-        if alt < 500:
-            return None
-        lat, lon = great_circle_point(*self.o, *self.d, min(1.0, flown / self.dist_nm))
-        track = initial_bearing_deg(lat, lon, *self.d)
-        return {"lat": lat, "lon": lon, "alt": alt, "gs": gs, "track": track, "rate": rate,
+            selected = self.cruise_ft
+        return {"lat": lat, "lon": lon, "alt": alt, "gs": leg.gs_kt,
+                "track": initial_bearing_deg(lat, lon, *self.d), "rate": leg.rate_fpm,
                 "selected": selected}  # fmt: skip
 
     def adsb_entry(self, when: datetime, rng: random.Random) -> dict[str, Any] | None:
@@ -1429,15 +1584,15 @@ class Flight:
             "alt_geom": alt + 375,
             "gs": round(state["gs"] + rng.uniform(-3, 3), 1),
             "track": round(state["track"], 2),
-            "baro_rate": int(state["rate"]),
-            "category": "A3",
+            "baro_rate": int(round(state["rate"] / 64) * 64),
+            "category": performance(self.type_icao).emitter,
             "lat": round(state["lat"], 6),
             "lon": round(state["lon"], 6),
             "seen_pos": seen,
             "seen": round(seen * 0.8, 1),
         }
         if state["selected"] is not None:
-            entry["nav_altitude_mcp"] = int(state["selected"]) + 8
+            entry["nav_altitude_mcp"] = 16 * round(state["selected"] / 16)
         return entry
 
 
@@ -1451,12 +1606,14 @@ def leg_positions(origin: str, dest: str) -> tuple[tuple[float, float], tuple[fl
     _, table = route_table()
     o = table.position(origin, airport_catalogue())
     d = table.position(dest, airport_catalogue())
-    if o is None or d is None or distance_nm(*o, *d) < 120:
+    if o is None or d is None or distance_nm(*o, *d) < 80:
         return None
     return o, d
 
 
 def make_flight(callsign: str, rng: random.Random, cruise_fl: int | None = None) -> Flight | None:
+    """The callsign's usual leg, a type its airline flies there, and a level filed by the
+    semicircular rule (``cruise_fl`` for a hero, which must keep the rule)."""
     routes, _ = route_table()
     chain = routes.get(callsign, "").split("-")
     if len(chain) != 2:
@@ -1465,28 +1622,21 @@ def make_flight(callsign: str, rng: random.Random, cruise_fl: int | None = None)
     if ends is None:
         return None
     o, d = ends
+    type_icao = rng.choice(list(fleet(callsign)))
+    perf = performance(type_icao)
+    dist = distance_nm(*o, *d)
+    if perf is PROP and dist > 450:
+        type_icao, perf = "A320", JET  # nobody flies an ATR this far
+    track = initial_bearing_deg(*o, *d)
     if cruise_fl is None:
-        dist = distance_nm(*o, *d)
-        eastbound = initial_bearing_deg(*o, *d) < 180
-        levels = (
-            ([250, 270, 290], [240, 260, 280])
-            if dist < 300
-            else ([330, 350, 370], [320, 340, 360])
-            if dist < 900
-            else ([350, 370, 390, 410], [340, 360, 380, 400])
-        )
-        cruise_fl = rng.choice(levels[0] if eastbound else levels[1])
-    types = TYPES.get(callsign[:3], ("A320", "B738"))
+        cruise_fl = rng.choice(cruise_levels(perf, dist, track))
+    elif not level_ok(cruise_fl, track):
+        raise SystemExit(f"{callsign} {chain[0]}-{chain[1]} at FL{cruise_fl} breaks the "
+                         f"semicircular rule (track {track:.0f})")  # fmt: skip
     return Flight(
-        callsign,
-        chain[0],
-        chain[1],
-        o,
-        d,
-        cruise_fl * 100,
-        rng.uniform(440, 480),
-        rng.choice(list(types)),
-    )
+        callsign, chain[0], chain[1], o, d, cruise_fl * 100, type_icao,
+        perf.tas_kt * rng.uniform(0.98, 1.02),
+    )  # fmt: skip
 
 
 @dataclass(frozen=True)
@@ -1506,9 +1656,9 @@ class Box:
 
 TRAFFIC_AREAS: Final = [
     # (box the route must cross, flights): each passes the box centre at a random time
-    (Box(104.0, -10.5, 120.0, -4.5), 140),
-    (Box(127.5, 29.5, 133.5, 34.5), 100),
-    (Box(124.5, -1.5, 130.5, 3.5), 8),
+    (Box(104.0, -10.5, 120.0, -4.5), 190),
+    (Box(127.5, 29.5, 133.5, 34.5), 120),
+    (Box(124.5, -1.5, 130.5, 3.5), 10),
 ]
 
 
@@ -1523,79 +1673,151 @@ def _crosses(flight: Flight, box: Box) -> float | None:
             continue
         gap = distance_nm(lat, lon, *centre)
         if best is None or gap < best[0]:
-            best = (gap, flight.dist_nm * index / steps)
+            best = (gap, flight.route_nm * index / steps)
     return None if best is None else best[1]
+
+
+# --- the flights the demo turns on ---------------------------------------------------------
+
+
+@cache
+def official_area(volcano_id: str) -> tuple[Any, int, int]:
+    """The union of a volcano's official layers at ``DEMO_FROM`` and its band: the area TEPHRA
+    draws with no model (OFFICIAL), read from this case's own products by the app's parsers."""
+    volcano = load_volcanoes(DATA_DIR).get(volcano_id)
+    if volcano is None:
+        raise SystemExit(f"volcano {volcano_id} is not in the catalogue")
+    issued = [
+        spec.record(DEMO_FROM)
+        for spec in SIGMETS
+        if spec.volcano.id == volcano_id and spec.issued <= DEMO_FROM
+    ]
+    sigmets = parse_sigmets(_fetched(FeedId.SIGMET, json_bytes(issued)))
+    vaas = [
+        vaa
+        for spec in [*DARWIN_CURRENT, *SAKURA_TOKYO]
+        if spec.volcano.id == volcano_id and spec.issued <= DEMO_FROM
+        if (vaa := parse_vaa(_fetched(FeedId.VAAC_DARWIN, darwin_text(spec)))) is not None
+    ]
+    layers = official_layers(volcano, sigmets, vaas, DEMO_FROM)
+    shape = unary_union([geometry_to_shape(layer.polygon, ref_lon=volcano.lon) for layer in layers])
+    base = min(layer.base_ft for layer in layers)
+    top = max(layer.top_ft for layer in layers)
+    return shape_to_geometry(shape), base, top
+
+
+def _fetched(feed: FeedId, content: bytes) -> FetchResult:
+    return FetchResult(
+        feed=feed,
+        url="",
+        status_code=200,
+        content=content,
+        content_type=None,
+        fetched_at=DEMO_FROM,
+        sha256=hashlib.sha256(content).hexdigest(),
+    )
+
+
+@cache
+def exposure_rules() -> tuple[int, int]:
+    """(lookahead minutes, vertical margin ft) as the app runs them."""
+    lookahead = Settings.model_fields["exposure_lookahead_min"].default
+    return lookahead, load_policy(DATA_DIR).exposure.vertical_margin_ft.value
+
+
+def minutes_to_area(flight: Flight, when: datetime, volcano_id: str) -> int | None:
+    """What the app's exposure check says of this flight at ``when``: minutes to entry (0
+    inside), or None when its track and level miss the area."""
+    state = flight.state(when)
+    if state is None:
+        return None
+    body = adsb_body([flight], state["lat"], state["lon"], 50, when)
+    query = AdsbQueryPoint(lat=state["lat"], lon=state["lon"], radius_nm=50)
+    aircraft = parse_adsb(_fetched(FeedId.ADSB, body), query).aircraft
+    geometry, base, top = official_area(volcano_id)
+    lookahead, margin = exposure_rules()
+    crossings = find_crossings(
+        geometry, base, top, aircraft, when, lookahead_min=lookahead, vertical_margin_ft=margin
+    )
+    return crossings[0].step if crossings else None
+
+
+def lead_at(flight: Flight, volcano_id: str, when: datetime) -> int | None:
+    """Minutes to entry at ``when``, or minus the minutes it has already been inside."""
+    step = minutes_to_area(flight, when, volcano_id)
+    if step != 0:
+        return step
+    inside = 0
+    while inside < 30:
+        earlier = when - timedelta(minutes=inside + 1)
+        if minutes_to_area(flight, earlier, volcano_id) != 0:
+            break
+        inside += 1
+    return -inside
 
 
 @dataclass(frozen=True)
 class Hero:
-    """A flight placed so that at ``DEMO_FROM`` it is ``lead_min`` minutes (along its own route)
-    from the point where it enters ``area`` within ``top_ft`` (negative: already inside)."""
+    """A flight placed so that ``at_min`` minutes into the demo window the app's own exposure
+    check finds it ``lead_min`` minutes from ``volcano``'s official area (negative: inside
+    that long). Most are placed at the window start; a few later, so that every minute of the
+    loop has flights in each situation."""
 
     origin: str
     dest: str
     prefixes: tuple[str, ...]
     cruise_fl: int
-    lead_min: float
-    area: Polygon
-    top_ft: int
+    lead_min: int
+    volcano: Vent
+    at_min: int = 0
 
-
-def _shape(points: Ring) -> Polygon:
-    return Polygon([(lon, lat) for lat, lon in points])
-
-
-def _area_of(spec: VaaSpec, *steps: int) -> Polygon:
-    """The union of a VAA's observed layers and its forecast steps ``steps`` hours ahead."""
-    layers = [] if isinstance(spec.obs, str) else list(spec.obs)
-    for hours, step in spec.forecasts:
-        if hours in steps and not isinstance(step, str):
-            layers += step
-    return unary_union([_shape(layer.area) for layer in layers])
-
-
-AGUNG_ZONE: Final = _area_of(AGUNG_12, 6)
-SAKURA_ZONE: Final = _shape(SAKURA_Y02_AREA)
 
 HEROES: Final = [
-    Hero("WIII", "WADD", ("GIA",), 340, -4, AGUNG_ZONE, 37000),
-    Hero("WSSS", "WADD", ("SIA",), 360, 5, AGUNG_ZONE, 37000),
-    Hero("YPPH", "WADD", ("QFA", "JST", "VOZ", "AWQ"), 350, 10, AGUNG_ZONE, 37000),
-    Hero("WARR", "WADD", ("AWQ", "BTK", "CTV"), 210, 16, AGUNG_ZONE, 37000),
-    Hero("WMKK", "WADD", ("AXM", "MAS"), 340, 23, AGUNG_ZONE, 37000),
-    Hero("WIII", "WADD", ("CTV", "BTK", "LNI", "AWQ"), 360, 31, AGUNG_ZONE, 37000),
-    Hero("YPDN", "WADD", ("JST", "QFA", "AWQ"), 370, 42, AGUNG_ZONE, 37000),
-    Hero("WARR", "WADD", ("BTK", "CTV", "AWQ"), 220, 38, AGUNG_ZONE, 37000),
-    Hero("WIII", "WADD", ("BTK", "LNI", "AWQ", "CTV"), 340, 47, AGUNG_ZONE, 37000),
-    Hero("YPPH", "WADD", ("AWQ", "JST", "VOZ", "QFA"), 370, 55, AGUNG_ZONE, 37000),
-    Hero("WMKK", "WADD", ("MAS", "AXM"), 360, 63, AGUNG_ZONE, 37000),
-    Hero("RJFK", "ROAH", ("ANA", "JAL", "SKY", "APJ"), 320, 3, SAKURA_ZONE, 13000),
-    Hero("ROAH", "RJFK", ("ANA", "JAL", "SKY", "APJ"), 330, 9, SAKURA_ZONE, 13000),
-    Hero("RJKA", "RJFK", ("JAL",), 210, 18, SAKURA_ZONE, 13000),
-    Hero("RJFK", "RJKA", ("JAL",), 200, 26, SAKURA_ZONE, 13000),
-    Hero("ROAH", "RJFK", ("JAL", "ANA", "SKY", "APJ"), 310, 24, SAKURA_ZONE, 13000),
-    Hero("RJFK", "ROAH", ("JAL", "ANA", "SKY", "APJ"), 300, 33, SAKURA_ZONE, 13000),
-    Hero("RJFK", "RJKB", ("JAL",), 190, 11, SAKURA_ZONE, 13000),
-    Hero("RJKI", "RJFK", ("JAL",), 200, 14, SAKURA_ZONE, 13000),
-    Hero("RORY", "RJFK", ("JAL",), 210, 20, SAKURA_ZONE, 13000),
-    Hero("ROAH", "RJFK", ("SNJ",), 300, 36, SAKURA_ZONE, 13000),
+    # Agung, official area SFC/FL350. With no model the code drafts: inside or 15 min or less
+    # and below the clear levels, DIVERT; at FL330 or above, CHANGE_LEVEL to FL370-FL390; 16 to
+    # 30 min out for closed Bali (no route to it), HOLD; past 15 min with a destination clear
+    # of the ash, REROUTE. A model weighs the same options.
+    Hero("WIII", "WADD", ("GIA",), 350, -3, AGUNG),  # descending into Bali, in the ash
+    Hero("WATT", "WIII", ("GIA", "CTV", "BTK"), 300, -2, AGUNG),  # Kupang-Jakarta, crossing it
+    Hero("YPPH", "WADD", ("QFA", "VOZ", "JST", "AWQ"), 340, 4, AGUNG),  # Perth-Bali, descending
+    Hero("WARR", "WADD", ("BTK", "CTV", "AWQ"), 210, 7, AGUNG),  # the Surabaya shuttle
+    Hero("YPPH", "VHHH", ("CPA",), 340, 9, AGUNG),  # Perth-Hong Kong overflight
+    Hero("WSSS", "WADD", ("SIA",), 370, 12, AGUNG),  # Singapore-Bali, descending
+    Hero("VHHH", "YPPH", ("CPA",), 350, 16, AGUNG),  # Hong Kong-Perth overflight
+    Hero("WIII", "WADD", ("BTK", "LNI", "CTV"), 310, 19, AGUNG),
+    Hero("WIII", "WATT", ("GIA", "CTV", "BTK"), 310, 22, AGUNG),  # Jakarta-Kupang, past Bali
+    Hero("WMKK", "WADD", ("AXM", "MAS"), 310, 26, AGUNG),
+    Hero("YPPH", "VHHH", ("CPA",), 320, 24, AGUNG),  # a lower Perth-Hong Kong: around it
+    Hero("WIII", "WADD", ("CTV", "LNI", "AWQ"), 330, 38, AGUNG),
+    # Sakurajima, RJJJ SIGMET Y02 SFC/FL110 over Kagoshima Bay, south of the airport (RJFK).
+    # Arrivals from the islands to the south meet it once cleared down, a few minutes out,
+    # so they are staggered through the window.
+    Hero("RJKA", "RJFK", ("JAL", "SKY"), 170, -2, SAKURAJIMA),  # Amami-Kagoshima, inside
+    Hero("ROAH", "RJFK", ("SNJ", "ANA"), 310, 3, SAKURAJIMA),  # Naha-Kagoshima
+    Hero("RJKN", "RJFK", ("JAL",), 170, 3, SAKURAJIMA, at_min=4),  # Tokunoshima-Kagoshima
+    Hero("RORY", "RJFK", ("JAL",), 190, 2, SAKURAJIMA, at_min=8),  # Yoron-Kagoshima
 ]
 
 
-def _entry_minutes(flight: Flight, area: Polygon, top_ft: int) -> float | None:
-    """Minutes after departure when the flight first lies in ``area`` below ``top_ft``."""
-    step = 0.25
-    elapsed = step
-    while elapsed < flight.block_min:
-        state = flight.state(flight.dep + timedelta(minutes=elapsed))
-        if (
-            state is not None
-            and state["alt"] <= top_ft
-            and area.covers(Point(state["lon"], state["lat"]))
-        ):
-            return elapsed
-        elapsed += step
-    return None
+def place_hero(flight: Flight, hero: Hero) -> None:
+    """Set the departure time so that :func:`lead_at` is the hero's lead: of the departure
+    minutes that give it, the middle one, so ADS-B timing jitter cannot tip it either way."""
+    hits = []
+    offset = 0.0
+    when = DEMO_FROM + timedelta(minutes=hero.at_min)
+    while offset < flight.block_min:
+        flight.dep = when - timedelta(minutes=offset)
+        if lead_at(flight, hero.volcano.id, when) == hero.lead_min:
+            hits.append(offset)
+        offset += 0.5
+    if not hits:
+        raise SystemExit(f"{flight.callsign} never shows {hero.lead_min} min from {hero.volcano}")
+    run = [hits[0]]  # the first run of consecutive offsets
+    for value in hits[1:]:
+        if value - run[-1] > 0.5:
+            break
+        run.append(value)
+    flight.dep = when - timedelta(minutes=run[len(run) // 2])
 
 
 def hero_flights(rng: random.Random) -> list[Flight]:
@@ -1614,10 +1836,7 @@ def hero_flights(rng: random.Random) -> list[Flight]:
         flight = make_flight(callsigns[0], rng, hero.cruise_fl)
         if flight is None:
             raise SystemExit(f"{callsigns[0]} has no usable route")
-        entry = _entry_minutes(flight, hero.area, hero.top_ft)
-        if entry is None:
-            raise SystemExit(f"{flight.callsign} never enters its area")
-        flight.dep = DEMO_FROM + timedelta(minutes=hero.lead_min - entry)
+        place_hero(flight, hero)
         used.add(flight.callsign)
         flights.append(flight)
     return flights
@@ -1643,7 +1862,7 @@ def traffic() -> list[Flight]:
         span = (END - START).total_seconds() / 60 + 40
         for flight, flown in candidates[:count]:
             # the moment it passes nearest the area's centre, anywhere from 20 min before the
-            # window to 20 min after it
+            # case to 20 min after it
             centre_at = START - timedelta(minutes=20) + timedelta(minutes=rng.uniform(0, span))
             flight.dep = centre_at - timedelta(minutes=flight.minutes_to(flown))
             taken.add(flight.callsign)

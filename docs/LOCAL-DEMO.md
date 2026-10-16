@@ -11,13 +11,17 @@ uv run python scripts/demo_local.py --fresh    # checks Ollama, prints the run s
 ```
 
 Wall http://localhost:8080 · Desk http://localhost:8080/desk (Dispatcher, PIN `2468`).
-Let it run about 15 minutes before you present: the first loop of the replay asks Gemma
-everything; later loops reuse its kept answers, so the board moves at full speed.
+Let it run about 15 minutes before you present: the replay loops a 10-minute window, the
+first loop asks Gemma everything and the second finds its kept answers, so the board moves at
+full speed. The run sheet is six beats of about 30 seconds: a 3-minute demo.
 
 The case is `demo-agung-20261014`: **synthetic demo data** on real places (Agung erupts and Bali
 closes; Sakurajima erupts while Tokyo's advisory still says the ash dissipated), with every
-source TEPHRA reads except satellite pictures. Every page says it is synthetic. Regenerate it
-with `uv run python scripts/make_demo_case.py`.
+source TEPHRA reads except satellite pictures. Real airlines fly their usual routes; their
+positions are invented. The window (07:05-07:15Z) starts after the last product, so whenever
+you start, every minute shows the disagreements, flights inside and minutes from the ash,
+drafts of every action, Bali closed with its recovery plan, and the JMA notice. Every page says
+it is synthetic. Regenerate it with `uv run python scripts/make_demo_case.py`.
 
 `--sheet` only prints the run sheet. The plan is `data/demo/local-demo.json`.
 
@@ -42,7 +46,7 @@ uv run python scripts/demo_local.py --fresh --url http://<spark>:11434 --model g
 ```
 demo feeds: SIGMET, Darwin + Tokyo VAA, VONA, JMA,            data/replay/demo-agung-20261014
             TAF/METAR, winds, aircraft
-        │  every replay minute (real time, 07:05-07:30Z, looping)
+        │  every replay minute (real time, 07:05-07:15Z, looping)
         ▼
 code: disagreements, official area, exposed flights           tephra/reconcile, tephra/geo
         │

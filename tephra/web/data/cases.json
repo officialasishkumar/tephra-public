@@ -37,7 +37,7 @@
     "eyebrow": null,
     "happened": "Synthetic demo data, invented on real places: ash from Agung closes Bali's airport while Sakurajima erupts in Kyushu. None of it happened.",
     "happened_rows": [],
-    "disagreed": "Over Bali the observatory puts the ash higher than the SIGMET and moving south, while the SIGMET says west and Darwin south-west. In Kyushu, Tokyo's last advisory says the ash has gone while JMA and the SIGMET report a new eruption.",
+    "disagreed": "Over Bali the observatory puts the ash higher than every official product and moving south, while the SIGMET says west and Darwin south-west. In Kyushu, Tokyo's last advisory says the ash has gone while JMA and the SIGMET report a new eruption.",
     "disagreed_rows": [],
     "sources": "Invented by scripts/make_demo_case.py; data/replay/README.md says what is real in it and what is not."
   }
