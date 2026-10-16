@@ -13,9 +13,67 @@
 // loop stops when nothing moves.
 
 import { $, el, icon, fl } from "./util.js";
-import { flowAt, foldRows, readEvent, stepEvents, hmsOf as hms, STAGGER_MS, TOOL_SKILLS, HELPERS } from "./board.js";
+import { flowAt, foldRows, readEvent, stepEvents, hmsOf as hms, STAGGER_MS, TOOL_SKILLS, HELPERS, FEED_KIND } from "./board.js";
 import { STYLE_URL, nightBasemap, nightColours, symbolColours } from "./basemap.js";
 import { addImages } from "./images.js";
+
+// ---------------------------------------------------------------- the Code checks sheet
+// What "N feed reads · M flight alerts" are: one card per source, one row per flagged flight.
+const SOURCE_NAME = {
+  sigmet: "SIGMET", vaac_darwin: "Darwin VAAC", vaac_tokyo: "Tokyo VAAC", vona: "VONA · MAGMA", jma_volcano: "JMA notices",
+  metar: "METAR", taf: "TAF", winds: "Winds aloft", adsb: "Aircraft", airline: "Airline feed", frames: "Satellite", hsd: "Himawari",
+};
+const KIND_NAME = { official: "Official", observer: "Observatory", aircraft: "Aircraft", weather: "Weather", satellite: "Satellite" };
+const KIND_ORDER = ["official", "observer", "aircraft", "weather", "satellite"];
+
+function checksSheet(evs, colOf) {
+  const reads = new Map();
+  const flights = new Map();
+  for (const e of evs) {
+    if (e.type === "feed" || e.type === "adsb") {
+      const feed = e.feed || "adsb";
+      const r = reads.get(feed) || { feed, kind: FEED_KIND[feed] || "weather", n: 0, at: 0 };
+      r.n += 1;
+      r.at = Math.max(r.at, e.at);
+      reads.set(feed, r);
+    } else if (e.type === "flight") {
+      const f = flights.get(e.flight) || { n: 0 };
+      flights.set(e.flight, { ...e, n: f.n + 1 });
+    }
+  }
+  const nReads = [...reads.values()].reduce((n, r) => n + r.n, 0);
+  const nAlerts = [...flights.values()].reduce((n, f) => n + f.n, 0);
+  const kids = [
+    el("div", { class: "ss-head" }, el("span", { class: "ss-pill" }, el("i"), "Code only"), el("span", { class: "ss-does", text: "Reads every source and flags flights near the ash. No model." })),
+    el("div", { class: "ss-stats ss-stats--2" },
+      el("div", { class: "ss-stat" }, el("b", { text: String(nReads) }), el("span", { text: nReads === 1 ? "feed read" : "feed reads" })),
+      el("div", { class: "ss-stat" }, el("b", { text: String(nAlerts) }), el("span", { text: `flight alerts · ${flights.size} ${flights.size === 1 ? "flight" : "flights"}` }))),
+  ];
+  const cards = [...reads.values()].sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || b.n - a.n);
+  if (cards.length) {
+    kids.push(el("h3", { text: "Sources read" }), el("ul", { class: "ck-grid" }, ...cards.map((r) => {
+      const dot = el("i", { class: "ck-dot" });
+      dot.style.background = colOf(r.kind);
+      return el("li", { class: "ck-card" },
+        el("span", { class: "ck-card__top" }, dot, el("span", { class: "ck-card__kind", text: KIND_NAME[r.kind] || r.kind })),
+        el("span", { class: "ck-card__name", text: SOURCE_NAME[r.feed] || r.feed }),
+        el("span", { class: "ck-card__foot" }, el("b", { text: String(r.n) }), el("span", { text: r.n === 1 ? "read" : "reads" }), el("span", { class: "ck-card__at", title: "Last read", text: hms(r.at) })));
+    })));
+  }
+  const rows = [...flights.values()].sort((a, b) => (a.inside ? -1 : a.mins) - (b.inside ? -1 : b.mins));
+  if (rows.length) {
+    kids.push(el("h3", { text: "Flights flagged, most urgent first" }), el("ul", { class: "ss-jobs" }, ...rows.map((f) => {
+      const soon = f.inside || f.mins <= 15;
+      return el("li", { class: "ss-job ck-flight" },
+        el("span", { class: "ss-job__flight", text: f.flight }),
+        el("span", { class: "ss-job__what", text: [f.vol, f.fl].filter(Boolean).join(" · ") }),
+        f.n > 1 ? el("span", { class: "ss-count", text: `×${f.n}` }) : el("span"),
+        el("span", { class: `ss-mins${soon ? " is-soon" : ""}`, text: f.inside ? "inside now" : `${f.mins} min` }));
+    })));
+  }
+  if (!cards.length && !rows.length) kids.push(el("p", { text: "Nothing read yet in this window." }));
+  return kids;
+}
 
 // ---------------------------------------------------------------- one skill's sheet
 // Glance first: its state, three counts, the job it is on, then the queue by urgency and the
@@ -255,7 +313,8 @@ export function mountFlow(dialog, { has }) {
   const panel = el("aside", { class: "flow-panel", "aria-label": "Inside TEPHRA" },
     el("p", { class: "flow-eyebrow", text: "Inside TEPHRA" }),
     el("div", { class: "flow-row flow-row--code" }, node("flow-node--code", "code"),
-      el("span", { class: "flow-row__txt" }, el("span", { class: "flow-row__name" }, "Code checks ", el("span", { class: "flow-tag", text: "no AI" })),
+      el("button", { type: "button", class: "flow-row__btn flow-row__txt", dataset: { flowsheet: "checks" }, "aria-label": "Code checks: what was read and which flights were flagged" },
+        el("span", { class: "flow-row__name" }, "Code checks ", el("span", { class: "flow-tag", text: "no AI" })),
         el("span", { class: "flow-row__meta flow-ctr" }, cFeeds, wFeeds, cFlights, wFlights))),
     el("div", { class: "flow-gap1" }),
     coordRow, gap2, gateRow, skillList, decide);
@@ -1401,6 +1460,9 @@ export function mountFlow(dialog, { has }) {
       const s = skillId === "duty" ? (card ? { name: card.name, does: card.does, jobs: [], last: null } : null) : M.skills.find((x) => x.id === skillId);
       sheetH.textContent = s ? s.name : "Skill";
       sheetBody.replaceChildren(...skillSheet(card, s, skillId, M.ai.kind === "paused"));
+    } else if (kind === "checks") {
+      sheetH.textContent = "Code checks";
+      sheetBody.replaceChildren(...checksSheet(events.filter((e) => e.at <= simT), colOf));
     } else {
       sheetH.textContent = "How this moves";
       const tb = el("tbody", {}, ...MAPROWS.map(([tone, a, b]) => { const i = el("i"); i.style.background = colOf(tone); return el("tr", {}, el("td", {}, i, a), el("td", { text: b })); }));
