@@ -397,3 +397,18 @@ async def test_a_draft_that_changes_the_route_is_ai_unavailable_not_patched() ->
         )
     assert isinstance(result, AiFailure)
     assert "VERBATIM" in result.reason
+
+
+def test_the_level_check_says_when_no_band_can_clear() -> None:
+    """Ash from the surface to above the highest proposed level: code says once that no band
+    can clear, so a model stops searching for one (gemma4 called the check 294 times)."""
+    from tephra.agents.exposure_planner import any_band_clears, level_band_summary
+
+    ctx = planner_ctx()
+    column = ctx.model_copy(update={"hazard_base_ft": 0, "hazard_top_ft": 50_000})
+    assert not any_band_clears(column)
+    assert (
+        "CHANGE_LEVEL IS NOT POSSIBLE" in level_band_summary(column, 200, 300)["no_band_can_clear"]
+    )
+    if any_band_clears(ctx):
+        assert "no_band_can_clear" not in level_band_summary(ctx, 200, 300)

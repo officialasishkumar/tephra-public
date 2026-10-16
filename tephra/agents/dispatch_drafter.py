@@ -8,6 +8,7 @@ no advisory: an ``AiFailure`` goes to the Desk and a dispatcher writes the messa
 """
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -505,13 +506,30 @@ async def _ask(
     ctx: PlannerContext,
     plan: PlannedAction,
 ) -> tuple[DraftText | None, LlmCall]:
-    return await llm.structured(
+    draft, call = await llm.structured(
         tier="lite",
         system=system,
         parts=parts,
         schema=DraftText,
         stub=lambda: stub_draft(ctx, plan),
     )
+    return _no_note_as_empty(draft), call
+
+
+NO_NOTE: Final = frozenset({"NULL", "NONE", "N/A", "NA", "-"})
+_NULL_WORD: Final = re.compile(r"\bnull\b", re.IGNORECASE)
+
+
+def _no_note_as_empty(draft: DraftText | None) -> DraftText | None:
+    """A cost note that is "null", or copies a null from the facts ("FUEL: NULL"), says there is
+    no cost to state: code drops it (an empty note) rather than failing the draft on the word.
+    Nothing is written in its place (gemma4 did this on 22 drafts)."""
+    if draft is None:
+        return None
+    note = draft.cost_note.strip()
+    if note.upper() in NO_NOTE or _NULL_WORD.search(note):
+        return draft.model_copy(update={"cost_note": ""})
+    return draft
 
 
 def _problems(

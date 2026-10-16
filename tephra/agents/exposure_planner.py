@@ -513,13 +513,28 @@ def level_band_summary(ctx: PlannerContext, fl_min: int, fl_max: int) -> dict[st
     if altitude is not None:
         nearest_ft = min(max(altitude, low * 100), high * 100)
         change_ft = nearest_ft - altitude
-    return {
+    summary: dict[str, Any] = {
         "band": f"FL{low:03d}-FL{high:03d}",
         "clear_of_hazard": clear,
         "hazard_with_margin": _margin_text(ctx),
         "change_from_present_ft": change_ft,
         "max_fl": ctx.max_change_level_fl,
     }
+    if not any_band_clears(ctx):
+        # said once by code, so a model does not keep searching for a band that cannot exist
+        summary["no_band_can_clear"] = (
+            f"NO BAND AT OR BELOW FL{ctx.max_change_level_fl:03d} CLEARS {_margin_text(ctx)}: "
+            "CHANGE_LEVEL IS NOT POSSIBLE. CHOOSE ANOTHER ACTION AND CALL submit_plan."
+        )
+    return summary
+
+
+def any_band_clears(ctx: PlannerContext) -> bool:
+    """Whether any level band TEPHRA may propose clears the hazard plus its margin: below it
+    (a base above the surface) or above it, at or under the highest proposed level."""
+    below = ctx.hazard_base_ft - ctx.vertical_margin_ft > 0
+    above = (ctx.hazard_top_ft + ctx.vertical_margin_ft) / 100 < ctx.max_change_level_fl
+    return below or above
 
 
 def reroutes_summary(ctx: PlannerContext) -> dict[str, Any]:

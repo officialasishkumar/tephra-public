@@ -175,7 +175,8 @@ async function signIn(page) {
   await page.goto(`${BASE}/desk`);
   // with visitor access on, the sign-in opens on the Visitor tab (3a46863): pick Dispatcher
   const tab = page.locator("#tab-dispatcher");
-  await page.waitForSelector("#login-name, #tab-dispatcher", { state: "attached" });
+  // the tabs appear once the Desk has read /api/state; until then neither pane is final
+  await page.waitForSelector("#login-name:visible, #tab-dispatcher:visible", { timeout: 15_000 });
   if (await tab.isVisible()) await tab.click();
   await page.waitForSelector("#login-name", { state: "visible" });
   await page.fill("#login-name", "Dispatcher");
