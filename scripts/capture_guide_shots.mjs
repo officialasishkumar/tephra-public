@@ -173,6 +173,10 @@ const mapReady = (page) => page.waitForFunction(() => window.__tephra?.map?.load
 
 async function signIn(page) {
   await page.goto(`${BASE}/desk`);
+  // with visitor access on, the sign-in opens on the Visitor tab (3a46863): pick Dispatcher
+  const tab = page.locator("#tab-dispatcher");
+  await page.waitForSelector("#login-name, #tab-dispatcher", { state: "attached" });
+  if (await tab.isVisible()) await tab.click();
   await page.waitForSelector("#login-name", { state: "visible" });
   await page.fill("#login-name", "Dispatcher");
   await page.fill("#login-pin", PIN);

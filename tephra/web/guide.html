@@ -48,6 +48,7 @@
       <a href="#try">Try it</a>
       <a href="#read">Map key</a>
       <a href="#how">How it works</a>
+      <a href="#run">Run it</a>
       <a href="#about">About</a>
       <a href="#policy">Policy</a>
     </nav>
@@ -62,6 +63,13 @@
         <li>Nothing is sent to an aircraft or any real system</li>
         <li>REPLAY plays recorded real feeds, or synthetic demo data where it says so</li>
       </ul>
+      <ol class="gpipe" aria-label="How TEPHRA works, in five steps">
+        <li class="gpipe__n gpipe__n--feeds"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-satellite"></use></svg><b>Public feeds</b><span>SIGMET · VAA · VONA · JMA · winds · aircraft</span></li>
+        <li class="gpipe__n gpipe__n--code"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-code"></use></svg><b>Code checks</b><span>Every disagreement, every flight at risk</span></li>
+        <li class="gpipe__n gpipe__n--ai"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg><b>TEPHRA Assistant</b><span>Reads the ash, plans each flight, drafts</span></li>
+        <li class="gpipe__n gpipe__n--desk"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-dispatcher"></use></svg><b>A person decides</b><span>Approve, edit or reject on the Desk</span></li>
+        <li class="gpipe__n gpipe__n--record"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-proof"></use></svg><b>The record</b><span>Every step, hash-chained</span></li>
+      </ol>
       <div id="start-case" class="guide__case"><noscript><p class="muted">Open the Wall for the case.</p></noscript></div>
     </section>
 
@@ -140,7 +148,7 @@
       </figure>
       <figure class="shot shot--phone" data-shot="desk-phone">
         <div class="shot__frame"><div class="shot__stage">
-          <img class="shot__img" src="/static/guide/shots/desk-phone.webp" width="780" height="2004" loading="lazy" decoding="async" alt="An advisory under review on a phone: the advice, the facts to check, the text and the approve button.">
+          <img class="shot__img" src="/static/guide/shots/desk-phone.webp" width="780" height="1872" loading="lazy" decoding="async" alt="An advisory under review on a phone: the advice, the facts to check, the text and the approve button.">
         </div></div>
         <ol class="shot__legend" aria-label="The numbers on the review">
           <li><button type="button" class="shot__item" data-n="1"><span class="shot__num" aria-hidden="true">1</span><span class="shot__txt"><b>The advice</b><span>The flight, the action and the minutes to entry.</span></span></button></li>
@@ -187,6 +195,27 @@
         <li id="try-desk"><a href="/desk"><b>Decide on the Desk</b><span>Hold to approve, then open Record</span></a></li>
         <li><a href="/#track-record"><b>Track record</b><span>How the estimate scored later</span></a></li>
       </ol>
+    </section>
+
+    <section id="run" class="grun" aria-labelledby="run-h">
+      <h2 id="run-h" class="gsec__h">Run it</h2>
+      <ul class="grun__list">
+        <li class="grun__card">
+          <span class="grun__top"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-network"></use></svg>Google Cloud</span>
+          <b>This site</b>
+          <span class="grun__line">Cloud Run, the Gemini API and the Agent Development Kit.</span>
+        </li>
+        <li class="grun__card">
+          <span class="grun__top"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-code"></use></svg>A laptop</span>
+          <b>Gemma, no key, no quota</b>
+          <span class="grun__cmd"><code>uv run python scripts/demo_local.py --fresh</code><button type="button" class="grun__copy" data-copy aria-label="Copy the command"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-clipboard"></use></svg></button></span>
+        </li>
+        <li class="grun__card">
+          <span class="grun__top"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-gauge"></use></svg>A bigger machine</span>
+          <b>A larger Gemma, four at once</b>
+          <span class="grun__cmd"><code>uv run python scripts/demo_local.py --fresh --url http://HOST:11434 --model gemma4:26b --parallel 4</code><button type="button" class="grun__copy" data-copy aria-label="Copy the command"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-clipboard"></use></svg></button></span>
+        </li>
+      </ul>
     </section>
 
     <section id="more" class="gmore" aria-labelledby="more-h">

@@ -69,5 +69,20 @@ async function build() {
   landOnHash();
 }
 
+// Run it: a command's copy button copies it and says so for a moment.
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-copy]");
+  if (!btn) return;
+  const code = btn.parentElement.querySelector("code");
+  try {
+    await navigator.clipboard.writeText(code.textContent);
+  } catch {
+    return; // no clipboard here (an http page, a refusal): the command stays selectable
+  }
+  btn.classList.add("is-done");
+  btn.setAttribute("aria-label", "Copied");
+  setTimeout(() => { btn.classList.remove("is-done"); btn.setAttribute("aria-label", "Copy the command"); }, 1600);
+});
+
 window.addEventListener("hashchange", landOnHash);
 build();
