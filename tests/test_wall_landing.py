@@ -72,6 +72,10 @@ def test_the_counts_have_one_source() -> None:
     assert "D.counts.inside" in model
     assert "D.counts.heading" in model
     assert "sit.exposed_count" not in model
+    # the story's "All volcanoes" line and the demo's slim strip read the same three numbers
+    assert "export function allCounts(D) {" in STORY
+    assert "const { active, exposed, drafts } = allCounts(D);" in _function(STORY, "renderAll")
+    assert "const { active, exposed, drafts } = allCounts(D);" in _function(STORY, "renderRail")
 
 
 def test_the_decider_keeps_a_name_and_a_role() -> None:
@@ -127,6 +131,8 @@ def test_the_footer_keys_are_all_there_and_the_left_part_is_short() -> None:
     footer = INDEX[INDEX.index("<footer") : INDEX.index("</footer>")]
     for key in (
         "<kbd>?</kbd>Guide",
+        "<kbd>W</kbd>How it works",
+        "<kbd>E</kbd>Story",
         "<kbd>A</kbd>Assistant",
         "<kbd>[ ]</kbd>Volcano",
         "<kbd>F</kbd>Fit map",

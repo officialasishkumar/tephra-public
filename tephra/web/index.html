@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="dark light">
   <meta name="robots" content="noindex, nofollow">
   <meta name="description" content="TEPHRA: when official volcanic-ash reports disagree, Gemini proposes TEPHRA's estimate, code keeps it never smaller than the official area, and a dispatcher approves every per-flight advisory. Decision support only; fictional airline; not for operational use.">
   <meta property="og:type" content="website">
@@ -15,6 +15,7 @@
   <meta name="twitter:card" content="summary_large_image">
   <title>TEPHRA Wall</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <script src="/static/theme-boot.js"></script>
   <script src="/static/page-mode.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="https://unpkg.com/@maplibre/maplibre-gl-compare@0.5.0/dist/maplibre-gl-compare.css">
@@ -22,9 +23,19 @@
   <link rel="stylesheet" href="/static/topnav.css">
   <link rel="stylesheet" href="/static/mapui.css">
   <link rel="stylesheet" href="/static/wall.css">
+  <link rel="stylesheet" href="/static/five-steps.css">
+  <link rel="stylesheet" href="/static/welcome.css">
   <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script type="module" src="/static/wall.js"></script>
   <!-- every module wall.js imports, fetched at once (tests/test_modulepreload.py) -->
+  <link rel="modulepreload" href="/static/account-nav.js">
+  <link rel="modulepreload" href="/static/five-steps.js">
+  <link rel="modulepreload" href="/static/onboard/draft.js">
+  <link rel="modulepreload" href="/static/replay-words.js">
+  <link rel="modulepreload" href="/static/theme.js">
+  <link rel="modulepreload" href="/static/wall/assist-panel.js">
+  <link rel="modulepreload" href="/static/wall/assist.js">
+  <link rel="modulepreload" href="/static/wall/welcome.js">
   <link rel="modulepreload" href="/static/wall/basemap.js">
   <link rel="modulepreload" href="/static/wall/board-view.js">
   <link rel="modulepreload" href="/static/wall/board.js">
@@ -49,19 +60,21 @@
   <link rel="modulepreload" href="/static/wall/util.js">
   <link rel="modulepreload" href="/static/wall/x-parts.js">
 </head>
-<!-- Layout: docs/UI-REDESIGN.md R3 ("The Story"). Nothing floats over the map except its pills,
-     controls and labels; everything else on the Wall is one tap away in the Details drawer. Every
-     id that tests, the Desk or wall.js rely on is kept; nodes were re-parented, not deleted (R11). -->
+<!-- Layout: SPEC v2 5.2 (the demo). The slim story strip (or the full story column), the map with its
+     time bar, and one side panel with two tabs, TEPHRA Assistant and Details (a bottom sheet at 900 px
+     and below). Nothing floats over the map except its pills, controls and labels. Every id that
+     tests, the Desk or wall.js rely on is kept; nodes were re-parented, not deleted (R11). -->
 <body class="wall" data-mode="CONNECTING">
-  <noscript><p>The TEPHRA Wall needs JavaScript.</p></noscript>
-  <a class="skip-link" href="#story">Skip to the story</a>
+  <noscript><p>The TEPHRA demo needs JavaScript.</p></noscript>
+  <a class="skip-link" href="#rail-btn" data-skip="story">Skip to the story</a>
   <a class="skip-link" href="#map">Skip to map</a>
-  <a class="skip-link" href="#details-btn">Skip to details</a>
+  <a class="skip-link" href="#assist-tab" data-skip="side">Skip to the side panel</a>
 
   <header class="cmdbar tn-bar">
     <a class="tn-home brand" href="/" title="TEPHRA home">TEPHRA<span class="brand__sub sr-only"> volcanic-ash decision desk</span></a>
-    <nav class="topnav" aria-label="TEPHRA pages"><a href="/" aria-current="page">Wall</a><a href="/assistant">Assistant</a><a class="topnav__keep" href="/desk">Desk</a><a href="/connect">Connect</a><a href="/guide">Guide</a></nav>
+    <nav class="topnav" aria-label="TEPHRA pages"><a href="/demo" aria-current="page">Demo</a><a href="/assistant">Assistant</a><a class="topnav__keep" href="/desk">Desk</a><a href="/onboard" data-feature="onboard" hidden>Onboard</a><a href="/guide">Guide</a></nav>
     <span id="mode-badge" class="mode-badge mode-badge--connecting">Connecting…</span>
+    <div class="cmdbar__spacer"></div>
     <div class="areapick">
       <button id="area-btn" class="area-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="regions">
         <span id="area-label">Area: …</span>
@@ -73,13 +86,12 @@
         <select id="region-select" aria-label="Area"></select>
       </label>
     </div>
-    <div class="cmdbar__spacer"></div>
-    <button id="ai-chip" class="ai-chip is-pending" type="button" aria-label="TEPHRA Assistant at work, connecting" aria-haspopup="dialog" aria-keyshortcuts="A">
-      <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>
-      <span id="model-chip" class="model-chip">TEPHRA Assistant</span>
-      <span class="ai-chip__fail" hidden></span>
+    <!-- shown only while a feed is stale or failing (panels.js): red is for real alarms -->
+    <button id="feeds-chip" class="feeds-chip" type="button" hidden>Data: –</button>
+    <button id="how-btn" class="tn-how" type="button" aria-haspopup="dialog" aria-controls="welcome" aria-keyshortcuts="W" aria-label="How it works">
+      <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-help"></use></svg>
+      <span class="tn-how__w" aria-hidden="true">How it works</span>
     </button>
-    <button id="feeds-chip" class="feeds-chip" type="button">Data: –</button>
     <div class="clock" role="group" aria-label="Active clock">
       <span id="clock-time" class="clock__time">--:--:--Z</span>
       <span id="clock-sub" class="clock__sub">Connecting</span>
@@ -89,11 +101,25 @@
       <span id="stale-text">Not updating</span>
     </span>
   </header>
-  <!-- phone only: the area, assistant and data chips move here, below the sticky header, and scroll away -->
-  <div id="phone-bar" class="phone-bar" role="group" aria-label="Area, assistant and data"></div>
 
   <main class="stage" id="main">
-    <section id="story" class="story" aria-labelledby="volcano-name" tabindex="-1">
+    <!-- the story, folded to a slim strip (the default): the volcano and the three numbers for all
+         volcanoes, under that scope's words (the header's area chip counts one area); one click (or
+         E) expands the full story column in its place -->
+    <aside id="rail" class="rail" aria-label="The story">
+      <button id="rail-btn" class="rail__btn" type="button" aria-expanded="false" aria-controls="story" aria-keyshortcuts="E">
+        <span class="rail__open"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-chevron-right"></use></svg><span>Story</span></span>
+        <span id="rail-vol" class="rail__vol"><span class="rail__sym"></span><b class="rail__name">Connecting…</b><span id="rail-region" class="rail__region"></span><span id="rail-code" class="rail__code" hidden></span></span>
+        <span id="rail-scope" class="rail__scope"><span class="rail__short">All</span><span class="rail__long"> volcanoes</span></span>
+        <span id="rail-exposed" class="rail__n rail__n--hero"><b>–</b><span><span class="rail__short">RFA flights</span><span class="rail__long"> in or heading in</span></span></span>
+        <span id="rail-active" class="rail__n"><b>–</b><span><span class="rail__short">volcanoes</span><span class="rail__long"> with ash</span></span></span>
+        <span id="rail-drafts" class="rail__n"><b>–</b><span><span class="rail__short">advisories</span><span class="rail__long"> waiting</span></span></span>
+        <span id="rail-at" class="rail__at"></span>
+      </button>
+    </aside>
+
+    <section id="story" class="story" aria-labelledby="volcano-name" tabindex="-1" hidden>
+      <button id="story-fold" class="link-btn story__fold" type="button" aria-expanded="true" aria-controls="story" aria-keyshortcuts="E">‹ Fold the story</button>
       <div id="fail-line" class="fail-line" hidden>
         <p id="lost-banner" class="lost-banner" role="alert" hidden></p>
         <ul id="fail-list" class="fail-line__list"></ul>
@@ -122,14 +148,11 @@
         </dl>
         <ul id="volcano-tabs" class="vlist" aria-label="Other volcanoes"></ul>
       </section>
-      <button id="details-btn" class="details-btn" type="button" aria-expanded="false" aria-controls="details" title="Sources, timeline, how TEPHRA decided, TEPHRA Assistant, data feeds">
-        <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-list"></use></svg>
-        <span class="details-btn__main">Details</span>
-      </button>
     </section>
 
     <div class="mapcol">
-      <section class="map-pane" id="map-pane" aria-label="Map">
+      <!-- the map and everything on it stay on the night palette in both themes (.night) -->
+      <section class="map-pane night" id="map-pane" aria-label="Map" tabindex="-1">
         <div id="map-wrap" class="map-wrap">
           <div id="map" class="map"></div>
         </div>
@@ -143,7 +166,7 @@
           <button type="button" role="radio" class="ffilter__b ffilter__b--heading" data-ff="heading" aria-checked="false"><i aria-hidden="true"></i><span>Heading in</span><b data-ffn="heading"></b></button>
         </div>
 
-        <!-- the map key, on the map (top left); a phone moves it under the map (wall.js) -->
+        <!-- the map key, on the map (top left) -->
         <section id="legend" class="key" aria-label="Map key"></section>
 
         <div id="compare-labels" class="compare-labels" hidden>
@@ -176,43 +199,72 @@
           </button>
         </div>
 
-        <!-- hide the side panel for the whole map, and bring it back (UI-DESIGN 4, 13 Oct 2026) -->
-        <button id="panel-toggle" class="panel-toggle" type="button" aria-expanded="true" aria-controls="story" aria-label="Hide the side panel" title="Hide the side panel">
-          <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-chevron-left"></use></svg>
-        </button>
-
         <button id="time-pill" class="time-pill" type="button" aria-haspopup="dialog" aria-controls="timeline">–</button>
       </section>
 
       <div id="timeline" class="timebar" role="group" aria-label="Time bar"></div>
     </div>
 
-    <aside id="details" class="drawer" role="region" aria-labelledby="details-title" hidden>
-      <div id="story-strip" class="story-strip"></div>
-      <div class="drawer__head">
-        <button id="details-back" class="link-btn drawer__back" type="button" data-act="details-index" hidden>‹ Details</button>
-        <h2 id="details-title" class="drawer__title" tabindex="-1">Details</h2>
-        <button id="details-fold" class="link-btn drawer__fold" type="button" data-act="details-fold" hidden>Collapse all</button>
-        <label class="drawer__switch">
-          <span class="sr-only">Volcano</span>
-          <select id="details-volcano" aria-label="Volcano"></select>
-        </label>
-        <button class="icon-btn drawer__close" type="button" data-act="details-close" aria-label="Close Details">
-          <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-x"></use></svg>
+    <!-- one side panel, two tabs: TEPHRA Assistant (selected on load) and Details; at 900 px and
+         below a bottom sheet that peeks, opens half way or fully -->
+    <aside id="side" class="side" aria-label="TEPHRA Assistant and Details">
+      <button id="side-handle" class="side__handle" type="button" aria-expanded="false" aria-controls="side" aria-label="Side panel: peeking"></button>
+      <div id="side-tabs" class="side__tabs" role="tablist" aria-label="Side panel">
+        <button id="assist-tab" class="side__tab" type="button" role="tab" aria-selected="true" aria-controls="assist" aria-keyshortcuts="A">
+          <svg class="icon side__ta" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>Assistant
         </button>
+        <button id="details-btn" class="side__tab" type="button" role="tab" aria-selected="false" aria-controls="details" tabindex="-1" title="Sources, timeline, how TEPHRA decided, TEPHRA Assistant, data feeds">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-list"></use></svg>Details
+        </button>
+        <a id="assist-page" class="btn btn--sm btn--quiet side__page" href="/assistant" title="Open TEPHRA Assistant as a page">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-external-link"></use></svg><span class="sr-only">Open TEPHRA Assistant as a page</span>
+        </a>
       </div>
-      <div id="details-body" class="drawer__body">
-        <div id="xtabs" class="dindex" role="list" aria-label="Details"></div>
-        <div id="brief" class="dsec" tabindex="-1" hidden></div>
-        <div id="xpanel" class="dsec xpanel" tabindex="-1" hidden></div>
-        <div id="flights" class="dsec" aria-label="Flights heading in" hidden></div>
-        <section id="decisions" class="dsec" aria-labelledby="h-dec" hidden></section>
-        <div id="trace" class="dsec" aria-label="How TEPHRA decided" hidden></div>
-        <div id="levels" class="dsec levels" role="group" aria-labelledby="levels-title" hidden></div>
-        <div id="layers-pop" class="dsec layers" aria-label="Map layers" hidden></div>
-        <div id="feeds" class="dsec" hidden></div>
-        <div id="history" class="dsec" hidden></div>
-        <div id="crew" class="dsec" aria-label="Crew reports of ash" hidden></div>
+
+      <!-- TEPHRA Assistant's steps (wall/assist-panel.js); the state line is panels.js renderChrome's -->
+      <section id="assist" class="assist" role="tabpanel" aria-labelledby="assist-tab">
+        <div id="ai-state" class="as-state">
+          <p class="as-state__name"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>TEPHRA Assistant</p>
+          <p class="as-state__line"><span id="model-chip" class="as-state__word">Connecting…</span></p>
+        </div>
+        <div id="assist-player" class="player" role="group" aria-label="Replay of TEPHRA Assistant's steps" hidden></div>
+        <ol id="assist-pipe" class="as-pipe" hidden></ol>
+        <div id="assist-now" class="as-now" aria-current="step" hidden></div>
+        <section id="assist-log" class="log" aria-label="Every step, newest first"></section>
+        <p id="assist-live" class="sr-only" aria-live="polite" aria-atomic="true"></p>
+      </section>
+
+      <!-- Details: the Wall's drawer as the second tab; a row opens its section in place -->
+      <section id="details" class="drawer" role="tabpanel" aria-labelledby="details-btn" hidden>
+        <div class="drawer__head">
+          <button id="details-back" class="link-btn drawer__back" type="button" data-act="details-index" hidden>‹ Details</button>
+          <h2 id="details-title" class="drawer__title" tabindex="-1">Details</h2>
+          <button id="details-fold" class="link-btn drawer__fold" type="button" data-act="details-fold" hidden>Collapse all</button>
+          <label class="drawer__switch">
+            <span class="sr-only">Volcano</span>
+            <select id="details-volcano" aria-label="Volcano"></select>
+          </label>
+        </div>
+        <div id="details-body" class="drawer__body">
+          <div id="xtabs" class="dindex" role="list" aria-label="Details"></div>
+          <div id="brief" class="dsec" tabindex="-1" hidden></div>
+          <div id="xpanel" class="dsec xpanel" tabindex="-1" hidden></div>
+          <div id="flights" class="dsec" aria-label="Flights heading in" hidden></div>
+          <section id="decisions" class="dsec" aria-labelledby="h-dec" hidden></section>
+          <div id="trace" class="dsec" aria-label="How TEPHRA decided" hidden></div>
+          <div id="levels" class="dsec levels" role="group" aria-labelledby="levels-title" hidden></div>
+          <div id="layers-pop" class="dsec layers" aria-label="Map layers" hidden></div>
+          <div id="feeds" class="dsec" hidden></div>
+          <div id="history" class="dsec" hidden></div>
+          <div id="crew" class="dsec" aria-label="Crew reports of ash" hidden></div>
+        </div>
+      </section>
+
+      <!-- the demo's one filled button: drafts are decided on the Desk -->
+      <div id="side-foot" class="side__foot">
+        <p class="side__eyebrow">You decide</p>
+        <p class="side__line">Drafts wait at the Desk for a dispatcher. Nothing leaves TEPHRA until one approves.</p>
+        <a id="side-desk" class="btn btn--primary" href="/desk" target="_blank" rel="noopener">Open the Desk <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-arrow-right"></use></svg></a>
       </div>
     </aside>
   </main>
@@ -229,6 +281,8 @@
     </span>
     <span class="stl__keys" role="group" aria-label="Keyboard shortcuts">
       <a id="help-btn" class="stl__key" href="/guide#read" target="_blank" rel="noopener" aria-keyshortcuts="?"><kbd>?</kbd>Guide</a>
+      <button type="button" class="stl__key" data-act="key" data-key="w" aria-keyshortcuts="W"><kbd>W</kbd>How it works</button>
+      <button type="button" class="stl__key" data-act="key" data-key="e" aria-keyshortcuts="E"><kbd>E</kbd>Story</button>
       <button type="button" class="stl__key" data-act="key" data-key="a" aria-keyshortcuts="A"><kbd>A</kbd>Assistant</button>
       <button type="button" class="stl__key stl__key--wide" data-act="key" data-key="]" aria-keyshortcuts="[ ]"><kbd>[ ]</kbd>Volcano</button>
       <button type="button" class="stl__key" data-act="key" data-key="f" aria-keyshortcuts="F"><kbd>F</kbd>Fit map</button>
@@ -238,11 +292,10 @@
     </span>
   </footer>
 
-  <a id="cta-sticky" class="cta-sticky" href="/desk" target="_blank" rel="noopener" hidden>Open the Desk</a>
-
   <div id="announce" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
-  <dialog id="details-sheet" class="sheet" aria-labelledby="details-title"></dialog>
+  <!-- How TEPHRA works, in five steps: opens over the demo on the first load (wall/welcome.js builds it) -->
+  <dialog id="welcome" class="welcome" aria-labelledby="welcome-title" aria-describedby="welcome-lede welcome-honest"></dialog>
 
   <dialog id="dlg" class="dlg" aria-labelledby="dlg-title">
     <div class="dlg__head">
@@ -254,7 +307,7 @@
     <div id="dlg-body" class="dlg__body"></div>
   </dialog>
 
-  <!-- TEPHRA Assistant at work (UI-DESIGN 7.21): the flow board, a full overlay over the Wall. Its
+  <!-- TEPHRA Assistant at work (UI-DESIGN 7.21): the flow board, the /assistant page. Its
        head (#board-title, #board-status, #board-lede), map, panel, log and player are built by
        wall/board-view.js into #board-body; #board-live speaks at most one line every 10 s. -->
   <dialog id="board" class="board" aria-labelledby="board-title" aria-describedby="board-lede">

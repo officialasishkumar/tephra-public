@@ -32,7 +32,6 @@ WALL_IDS = [
     "kpi-exposed",
     "kpi-active",
     "kpi-drafts",
-    "ai-chip",
     "model-chip",
     "feeds-chip",
     "clock-time",
@@ -68,10 +67,35 @@ WALL_IDS = [
     "details-title",
     "story-notes",
     "trust",
-    "details-sheet",
-    "cta-sticky",
-    "story-strip",
     "time-pill",
+    # the demo's layout (SPEC v2 3.5): the welcome dialog, the slim story strip, the side panel
+    "how-btn",
+    "welcome",
+    "rail",
+    "rail-btn",
+    "rail-vol",
+    "rail-region",
+    "rail-code",
+    "rail-scope",
+    "rail-exposed",
+    "rail-active",
+    "rail-drafts",
+    "rail-at",
+    "story-fold",
+    "side",
+    "side-tabs",
+    "assist-tab",
+    "assist-page",
+    "assist",
+    "ai-state",
+    "assist-player",
+    "assist-pipe",
+    "assist-now",
+    "assist-log",
+    "assist-live",
+    "side-foot",
+    "side-desk",
+    "side-handle",
     # AI at work (UI-DESIGN 7.21)
     "board",
     "board-title",
@@ -257,7 +281,7 @@ def test_replay_is_labelled_by_the_page_not_a_strip() -> None:
     """The top strip (REPLAY words and the disclaimer) was removed at the owner's request on
     15 Oct 2026 (UI-DESIGN 7.1). REPLAY stays in each page's title, the Wall's clock and status dot,
     and every modal's sr-only description; records do not repeat it."""
-    for page in ("index.html", "desk.html", "connect.html", "guide.html"):
+    for page in ("index.html", "desk.html", "guide.html"):
         html = (WEB / page).read_text(encoding="utf-8")
         assert 'id="frame"' not in html, page
         assert "tn-strip" not in html, page
@@ -297,7 +321,9 @@ def test_every_modal_carries_the_replay_words_for_screen_readers() -> None:
     """A modal dialog makes the strip inert, so each modal on the Wall and the Desk gets the strip's
     REPLAY words as sr-only text in its description (no visible label)."""
     wall = (WEB / "wall.js").read_text(encoding="utf-8")
-    assert wall.count("describeModal(") >= 4  # the definition, the Details sheet, the board, #dlg
+    assert wall.count("describeModal(") >= 3  # the definition, the board, #dlg
+    # the welcome dialog gets them from wall/welcome.js openWelcome (describeReplay)
+    assert "describeReplay(" in (WEB / "wall" / "welcome.js").read_text(encoding="utf-8")
     ui = (WEB / "desk" / "ui.js").read_text(encoding="utf-8")
     assert "describeReplayIn(dlg);\n  if (!dlg.open) dlg.showModal();" in ui
     account = (WEB / "desk" / "account.js").read_text(encoding="utf-8")

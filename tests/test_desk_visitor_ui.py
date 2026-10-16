@@ -70,17 +70,20 @@ def test_login_reads_visitor_access_and_posts_the_visitor_route() -> None:
 
 def test_desk_imports_features_and_hides_hidden_entries() -> None:
     desk = _read("desk.js")
-    assert "import { has, setFeatures } from './wall/features.js';" in desk
+    assert "import { applyFeatureNav, has, setFeatures } from './wall/features.js';" in desk
     assert "setFeatures(state.features);" in _function(desk, "applyState")
     features = _function(desk, "applyFeatures")
     assert "byId('crew-report-btn').hidden = !has('crew');" in features
     assert "byId('paste-notice').hidden = !has('notices');" in features
+    assert "applyFeatureNav();" in features
+    assert "/connect" not in features
     assert "syncVisitorCard();" in _function(desk, "applyState")
     ask = _read("desk/ask.js")
     assert "has('voice')" in ask
     assert "composer.mic.hidden = !has('voice');" in ask
     account = _read("desk/account.js")
     assert "has('connect') && !visitor" in account
+    assert "has('onboard') && !visitor" in account
 
 
 def test_visitor_review_opens_at_once_and_tab_ask_routes_to_the_drawer() -> None:
@@ -105,7 +108,8 @@ def test_a_visitor_menu_has_no_display_switch() -> None:
     assert "text: 'Sign out'" in menu
     # CP-06: below 600 px the menu lists the other pages
     assert "window.innerWidth < PAGES_BELOW_PX" in menu
-    assert "text: 'Wall'" in menu
+    assert "text: 'Demo'" in menu
+    assert "href: '/demo'" in menu
     assert "text: 'Guide'" in menu
     fmt = _read("desk/format.js")
     assert "`visitor:${me.name}`" in fmt
@@ -146,7 +150,7 @@ def test_visitor_empty_state_only_when_nothing_waits_by_hand() -> None:
         "Assistant is on · " in queue
     )
     assert f"text: '{WHY}'" in queue
-    assert "text: 'See the Wall'" in queue
+    assert "text: 'See the demo'" in queue
     # the hand branch (H9) stays for every role
     assert "hand ? 'No drafts to approve.' : 'Nothing waits for you.'" in queue
 

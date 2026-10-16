@@ -69,8 +69,10 @@ DISPATCHER_ONLY_PATHS: Final[tuple[tuple[str, str], ...]] = (
     ("POST", "/api/desk/connections"),
     ("POST", "/api/desk/upload"),
     ("POST", "/api/desk/notices"),
+    ("GET", "/api/desk/airlines"),
 )
-"""Method and path prefix of what changes the server's picture: a visitor is refused (403)."""
+"""Method and path prefix of what changes the server's picture, or reads an airline's private
+record: a visitor is refused (403)."""
 VISITOR_DECISION_PATHS: Final[tuple[tuple[str, str, str], ...]] = (
     ("POST", "/api/desk/advisories/", "/approve"),
     ("POST", "/api/desk/advisories/", "/edit"),
@@ -397,6 +399,10 @@ class LoginThrottle:
         if len(recent) < self._max_failures:
             return 0
         return max(1, int(recent[0] + self._window_s - self._clock()) + 1)
+
+    def remaining(self, client: str) -> int:
+        """Failures ``client`` may still make before it is blocked."""
+        return max(0, self._max_failures - len(self._recent(client)))
 
     def record_failure(self, client: str) -> None:
         failures = self._failures.get(client)

@@ -147,6 +147,7 @@ async def _tick_steps(runtime: "Runtime", reason: str) -> TickReport:
             await runtime.analyse(at, report)
             await _step(runtime, report, "exposure", runtime.update_exposures(at, report))
             await _step(runtime, report, "crew reports", runtime.update_crew(at, report))
+            await _step(runtime, report, "own airports", runtime.update_own_closures(at))
             await _step(runtime, report, "network recovery", runtime.run_recovery(at, report))
             await _step(runtime, report, "draft retirement", runtime.settle_drafts(at, report))
     except TimeoutError:

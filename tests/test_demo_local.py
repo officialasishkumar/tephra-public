@@ -27,7 +27,7 @@ def test_the_case_exists_and_says_it_is_synthetic() -> None:
 
 
 def test_every_beat_is_on_a_page_and_the_sheet_prints_it() -> None:
-    pages = {"/", "/assistant", "/desk", "/connect", "/guide"}
+    pages = {"/demo?intro=0", "/assistant", "/desk", "/guide"}
     assert {beat["page"] for beat in PLAN["beats"]} <= pages
     spec = importlib.util.spec_from_file_location("demo_local", ROOT / "scripts" / "demo_local.py")
     assert spec is not None
@@ -51,7 +51,7 @@ def test_the_run_sheet_is_a_three_minute_demo_on_a_short_loop() -> None:
     assert starts[0] == 0
     assert starts[-1] + 30 <= 180
     assert all(beat["say"].count(".") <= 1 for beat in PLAN["beats"])  # one sentence each
-    assert {"/", "/assistant", "/desk"} <= {beat["page"] for beat in PLAN["beats"]}
+    assert {"/demo?intro=0", "/assistant", "/desk"} <= {beat["page"] for beat in PLAN["beats"]}
     env = PLAN["env"]
     start = datetime.fromisoformat(env["TEPHRA_REPLAY_START"])
     end = datetime.fromisoformat(env["TEPHRA_REPLAY_END"])

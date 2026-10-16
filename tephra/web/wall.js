@@ -1,6 +1,8 @@
-// TEPHRA Wall entry point (docs/UI-REDESIGN.md, "The Story"; docs/UI-DESIGN.md). Loads GET /api/wall,
-// follows GET /api/events, keeps the store and the view state, and renders the story column
-// (wall/story.js), the map (wall/map.js), the time bar and the Details drawer (wall/details.js).
+// TEPHRA demo entry point (/demo, the Wall; docs/UI-DESIGN.md, SPEC v2 5.2). Loads GET /api/wall,
+// follows GET /api/events, keeps the store and the view state, and renders the slim story strip
+// and the story column (wall/story.js), the map (wall/map.js), the time bar and the side panel:
+// TEPHRA Assistant (wall/assist-panel.js) and Details (wall/details.js) as two tabs, a bottom sheet
+// at 900 px and below. The welcome dialog (wall/welcome.js) opens over it on the first load.
 // Feed and model text only ever reaches the page through textContent.
 
 import { $, el, ms, prefs, reducedMotion, inlineSprite, icon } from "./wall/util.js";
@@ -19,6 +21,9 @@ import { mountFlow } from "./wall/board-view.js";
 import { describeReplay, setModelBackend } from "./wall/x-parts.js";
 import { nextRetryMs, shouldReopen } from "./wall/stream.js";
 import { setFeatures, has, applyFeatureNav } from "./wall/features.js";
+import { mountAssist } from "./wall/assist-panel.js";
+import { shouldOpenWelcome, openWelcome } from "./wall/welcome.js";
+import { initAccountNav } from "./account-nav.js";
 
 const STREAM_TIMEOUT_MS = 45e3;
 // A Wall hidden this long gives its stream (a Cloud Run request slot) back until it is shown.
@@ -26,7 +31,12 @@ const HIDDEN_PAUSE_MS = 5 * 60e3;
 const TRACE_KEEP = 200;
 const SAT_CYCLE = ["off", "ir", "vis", "airmass"];
 const DEFAULT_LAYERS = { airports: true, tephra: true, rose: true, aircraft: true, paths: true, routes: true, acLabels: true, context: false, navaids: false, terrain: false, reroutes: false, satboxes: true };
-const DETAILS_KEY = "tephra.wall.details";
+// the story strip's fold and the side panel's tab, kept for the tab (sessionStorage)
+const STORY_KEY = "tephra.demo.story";
+const SIDE_KEY = "tephra.demo.side";
+// the sheet's three heights at 900 px and below (SPEC v2 5.2.4), in the handle's cycle order
+const SHEETS = ["peek", "half", "full"];
+const SHEET_WORDS = { peek: "peeking, tap to open half way", half: "half open, tap to open fully", full: "open, tap to fold" };
 // /assistant: the same page shows the TEPHRA Assistant board (page-mode.js, UI-DESIGN 7.27)
 const ASSISTANT_PAGE = document.documentElement.dataset.page === "assistant";
 // an airline push shows on the board at most this often (the sample feed pushes every few seconds)
@@ -43,10 +53,15 @@ const store = { state: null, snapshot: null, advisories: [], trace: [], feeds: [
 // DESK step yet, and the trace must show the human deciding (7.9).
 const localTrace = [];
 const params = new URLSearchParams(location.search);
-// Recording (?present=1) and automated screenshots (?shots=1) keep Details closed (R8.1).
+// read before the hash handling below replaces it: a deep link skips the welcome dialog (V20)
+const START_HASH = location.hash;
+// Recording (?present=1) and automated screenshots (?shots=1) keep the story folded, the panel on
+// TEPHRA Assistant and the welcome dialog closed (R8.1, SPEC v2 5.5).
 const PRESENT = params.get("present") === "1";
 const SHOTS = params.get("shots") === "1";
 const savedLayers = prefs.get("layers", {});
+const session = (key) => { try { return sessionStorage.getItem(key); } catch { return null; } };
+const keep = (key, value) => { try { sessionStorage.setItem(key, value); } catch { /* storage blocked */ } };
 const ui = {
   selected: null,
   autoSelect: true,
@@ -69,8 +84,10 @@ const ui = {
   keyOpen: (() => { try { const k = sessionStorage.getItem("tephra.wall.key"); if (k) return k === "open"; } catch { /* storage blocked */ } return window.innerWidth >= 1360; })(),
   // which flights the map shows: all, inside the ash, heading in (kept for the session)
   flightFilter: (() => { try { return sessionStorage.getItem("tephra.wall.flights") || "all"; } catch { return "all"; } })(),
-  // the side panel (story and Details) hidden for the whole map, kept for the session
-  panelHidden: (() => { try { return sessionStorage.getItem("tephra.wall.panel") === "hidden"; } catch { return false; } })(),
+  // the story: folded to the slim strip by default, kept for the tab
+  storyOpen: !PRESENT && !SHOTS && session(STORY_KEY) === "open",
+  // the side panel as a bottom sheet (900 px and below): peek, half or full
+  sheet: "peek",
   trustOpen: false, // the hero's note on what TEPHRA's ash area is
   // the case strip's fold (what went wrong): closed until opened, kept for the session
   caseOpen: (() => { try { return sessionStorage.getItem("tephra.wall.case") === "open"; } catch { return false; } })(),
@@ -115,7 +132,8 @@ function announce(text) {
 }
 
 const phone = () => window.innerWidth <= 600;
-const wide = () => window.innerWidth >= 1600;
+// 900 px and below: the story strip is a bar over the map and the side panel a bottom sheet
+const sheetMode = () => window.innerWidth <= 900;
 
 // ------------------------------------------------------------------ loading and the stream
 
@@ -144,9 +162,11 @@ async function load() {
     setClock(data.state.now);
     extra.error = null;
     for (const s of store.snapshot.situations || []) for (const d of s.discrepancies) seenDis.add(d.id);
-    if (!conn.loaded) firstRegion();
+    const first = !conn.loaded;
+    if (first) firstRegion();
     conn.loaded = true;
     renderNow();
+    if (first) openWelcomeOnLoad();
     if (!conn.source || shouldReopen(conn.source.readyState)) openStream();
     if (!ext.started) { ext.started = true; loadExt(scheduleRender); setInterval(() => loadExt(scheduleRender), 60e3); }
   } catch (err) {
@@ -259,12 +279,14 @@ function openStream() {
     noteTrace(t);
     // the board animates a step the moment it arrives, before the debounced render
     if (ui.board.open) flow?.push(t);
+    else updateAssist();
     setTimeout(scheduleRender, 6200);
     if (store.trace.length > TRACE_KEEP) store.trace.splice(0, store.trace.length - TRACE_KEEP);
     ui.freshTrace.add(t.id);
     setTimeout(() => ui.freshTrace.delete(t.id), 800);
   });
-  // an airline's positions arriving through Connect: a read on the board, like the public feeds
+  // an airline's positions arriving through the push API (the Desk's Data connections): a read on
+  // the board and the Assistant tab, like the public feeds
   on("push", (p) => {
     const at = ms(p.at);
     if (!p.accepted || !Number.isFinite(at) || at - lastPushShown < PUSH_SHOW_MS) return;
@@ -272,6 +294,7 @@ function openStream() {
     const read = { feed: "airline", at: p.at, n: p.accepted };
     store.feedReads.push(read);
     if (ui.board.open) flow?.pushRead(read);
+    else updateAssist();
   });
   on("advisory", (a) => {
     const i = store.advisories.findIndex((x) => x.id === a.id);
@@ -299,6 +322,7 @@ function noteReads(feeds) {
     const read = { feed: f.feed, at: f.last_success_at, n: f.record_count };
     store.feedReads.push(read);
     if (ui.board.open) flow?.pushRead(read);
+    else updateAssist();
   }
   if (store.feedReads.length > READS_KEEP) store.feedReads.splice(0, store.feedReads.length - READS_KEEP);
 }
@@ -456,11 +480,10 @@ function renderNow() {
     renderTools();
     renderCtx();
     renderDetails(D, store, ui, conn, { reroutes: () => store.snapshot?.reroutes?.features || [] });
-    if (ui.board.open) renderFlow();
+    renderSide();
+    updateAssist();
     updateFold();
-    if (dialogKind === "about") { /* static; nothing to refresh */ }
   });
-  if (phone() && ui.details.open) syncSheetTop();
   document.body.classList.toggle("is-stale", !!conn.lostAt);
   document.body.classList.toggle("is-3d", ui.d3);
   document.body.classList.toggle("history-open", ui.historyOpen);
@@ -490,6 +513,7 @@ function renderShell() {
   renderStory(null, store, ui, { conn, extra, announce });
   renderTimeline(null, store, ui, conn);
   renderTools();
+  renderSide();
 }
 
 function renderPills() {
@@ -666,11 +690,11 @@ function wireCompareHandle() {
   });
 }
 
-// Presentation layout for recording (key P or ?present=1): Details stays closed, so the story
-// and the map get the frame (14).
+// Presentation layout for recording (key P or ?present=1): the story folded and the panel on
+// TEPHRA Assistant, so the map gets the frame (14).
 function setPresent(on) {
   ui.present = on;
-  if (on) closeDetails(false);
+  if (on) { closeDetails(false); if (ui.storyOpen) setStory(false, { focus: false }); }
   renderNow();
   requestAnimationFrame(() => map?.frame({ animate: true }));
 }
@@ -686,67 +710,59 @@ function levelPreset(k) {
   renderNow();
 }
 
-// ------------------------------------------------------------------ the Details drawer (R8)
+// ------------------------------------------------------------------ the side panel: TEPHRA Assistant and Details (SPEC v2 5.2.3)
 
-function saveDetails() {
-  try { sessionStorage.setItem(DETAILS_KEY, ui.details.open ? ui.details.sec || "index" : "closed"); } catch { /* storage blocked */ }
+// Details is the side panel's second tab; `ui.details.open` says it is the selected one.
+function saveSide() {
+  keep(SIDE_KEY, ui.details.open ? "details" : "assist");
 }
 
-// The phone sheet starts under the sticky header. The header can grow after the first render, so
-// the edge is measured again on every render; a stale edge left a clipped line of header text
-// showing above the sheet.
-function syncSheetTop() {
-  const bottom = `${Math.max(0, document.querySelector(".cmdbar").getBoundingClientRect().bottom)}px`;
-  if (document.documentElement.style.getPropertyValue("--sheet-top") !== bottom) document.documentElement.style.setProperty("--sheet-top", bottom);
-}
-
-function placeDetails() {
-  const box = $("details");
-  const sheet = $("details-sheet");
-  const open = ui.details.open;
-  document.body.classList.toggle("details-open", open);
-  // phone: a full-screen sheet below the sticky header (R8.1)
-  if (phone()) {
-    syncSheetTop();
-    if (open && box.parentElement !== sheet) sheet.append(box);
-    if (open && !sheet.open) { describeModal(sheet); sheet.showModal(); }
-    if (!open && sheet.open) sheet.close();
-  } else {
-    if (box.parentElement !== $("main")) $("main").append(box);
-    if (sheet.open) sheet.close();
+// The tabs (roving tabindex), the two tabpanels and, at 900 px and below, the sheet's height.
+function renderSide() {
+  const det = ui.details.open;
+  for (const [tab, on] of [[$("assist-tab"), !det], [$("details-btn"), det]]) {
+    tab.setAttribute("aria-selected", on ? "true" : "false");
+    tab.tabIndex = on ? 0 : -1;
   }
-  if (!open && box.parentElement === sheet) $("main").append(box);
-  // the map key: on the map at 601 px and up, under the map in the phone's one column (the node
-  // is moved, not copied)
-  const legend = $("legend");
-  if (phone()) { if (legend.parentElement !== $("story")) $("story-notes").before(legend); }
-  else if (legend.parentElement !== $("map-pane")) $("map-pane").append(legend);
+  $("assist").hidden = det;
+  const side = $("side");
+  const sheet = sheetMode() ? ui.sheet : "";
+  if (side.dataset.sheet !== sheet) side.dataset.sheet = sheet;
+  const handle = $("side-handle");
+  handle.setAttribute("aria-expanded", sheet && sheet !== "peek" ? "true" : "false");
+  handle.setAttribute("aria-label", `Side panel: ${SHEET_WORDS[ui.sheet]}`);
 }
 
-function setPanel(hidden) {
-  ui.panelHidden = hidden;
-  try { sessionStorage.setItem("tephra.wall.panel", hidden ? "hidden" : "shown"); } catch { /* storage blocked */ }
-  document.body.classList.toggle("panel-hidden", hidden);
-  const b = $("panel-toggle");
-  const words = hidden ? "Show the side panel" : "Hide the side panel";
-  b.setAttribute("aria-expanded", hidden ? "false" : "true");
-  b.setAttribute("aria-label", words);
-  b.title = words;
+function setSheet(state) {
+  ui.sheet = state;
+  renderSide();
 }
 
-function openDetails(sec = null, { vid = null, opener = null, from = null } = {}) {
-  // Details live on the Wall: from the Assistant page, a Details link opens the Wall at that section
-  if (ASSISTANT_PAGE) { location.assign(`/#details-${sec || "index"}`); return; }
+// A tab chosen while the sheet only peeks opens it half way, so the tab's content shows.
+function openSheet() {
+  if (sheetMode() && ui.sheet === "peek") setSheet("half");
+}
+
+// The Assistant tab (A, its tab, "See TEPHRA Assistant at work"); `focus` moves focus to its tab.
+function showAssist({ focus = false } = {}) {
+  if (ASSISTANT_PAGE) return;
+  if (ui.details.open) closeDetails(false);
+  openSheet();
+  if (focus) $("assist-tab").focus({ preventScroll: true });
+}
+
+// `focus`: the section's heading takes focus (a row, a key, a map click); a tab keeps it (ARIA tabs).
+function openDetails(sec = null, { vid = null, opener = null, from = null, focus = true } = {}) {
+  // Details live on the demo: from the Assistant page, a Details link opens the demo at that section
+  if (ASSISTANT_PAGE) { location.assign(`/demo#details-${sec || "index"}`); return; }
   if (ui.present) return;
-  if (ui.panelHidden) setPanel(false);
   const was = ui.details.open;
   ui.details = { open: true, sec, vid, from: from || ui.details.from, opener: was ? ui.details.opener : (opener || document.activeElement) };
   if (sec && sectionOf(sec)?.xtab) ui.rail = sectionOf(sec).xtab;
-  placeDetails();
-  saveDetails();
+  openSheet();
+  saveSide();
   renderNow();
-  requestAnimationFrame(() => { $("details-body").scrollTop = 0; $("details-title").focus({ preventScroll: true }); });
-  if (!was && wide()) setTimeout(() => map?.map.resize(), 400);
+  requestAnimationFrame(() => { $("details-body").scrollTop = 0; if (focus) $("details-title").focus({ preventScroll: true }); });
 }
 
 // "Collapse all" in the drawer head shows once two or more disclosures are open in a section.
@@ -759,19 +775,17 @@ function updateFold() {
 function detailsIndex() {
   const from = ui.details.sec;
   ui.details = { ...ui.details, sec: null };
-  saveDetails();
   renderNow();
   requestAnimationFrame(() => (document.querySelector(`[data-focus="drow-${CSS.escape(from || "")}"]`) || $("details-title")).focus({ preventScroll: true }));
 }
 
+// Back to the Assistant tab; focus returns to what opened Details, or to the Details tab.
 function closeDetails(restore = true) {
   if (!ui.details.open) return;
   const back = ui.details.opener;
   ui.details = { open: false, sec: null, vid: null, from: null, opener: null };
-  placeDetails();
-  saveDetails();
+  saveSide();
   renderNow();
-  if (wide()) setTimeout(() => map?.map.resize(), 400);
   if (restore) (back && document.contains(back) && back.offsetParent !== null ? back : $("details-btn")).focus({ preventScroll: true });
 }
 
@@ -784,6 +798,52 @@ function setRail(id) {
 function toggleSection(sec, opener) {
   if (ui.details.open && ui.details.sec === sec) closeDetails();
   else openDetails(sec, { opener });
+}
+
+// ------------------------------------------------------------------ the story: slim strip or full column (SPEC v2 5.2.2)
+
+// Folded (the default), the strip keeps the volcano and the three numbers; expanded, the full
+// story column takes its place and the map narrows. Focus goes to the story's heading, and back
+// to the strip's button on folding.
+function setStory(open, { focus = true } = {}) {
+  ui.storyOpen = open;
+  keep(STORY_KEY, open ? "open" : "folded");
+  // at 900 px and below the story opens above the map: the sheet folds to its peek under it
+  if (open && sheetMode()) ui.sheet = "peek";
+  placeStory();
+  scheduleRender();
+  if (focus) (open ? $("volcano-name") : $("rail-btn")).focus({ preventScroll: true });
+  // the map's column changes width with the stage's transition; on a map narrower than 900 px the
+  // open key would cover a third of it, so it folds there, unless the viewer chose (R5.5)
+  setTimeout(() => {
+    map?.map.resize();
+    if (session("tephra.wall.key") !== null) return;
+    const want = window.innerWidth >= 1360 && $("map-pane").offsetWidth >= 900;
+    if (ui.keyOpen !== want) { ui.keyOpen = want; renderNow(); map?.frame({ animate: false }); }
+  }, reducedMotion() ? 0 : 400);
+}
+
+function placeStory() {
+  const open = ui.storyOpen;
+  $("story").hidden = !open;
+  $("rail").hidden = open;
+  $("rail-btn").setAttribute("aria-expanded", open ? "true" : "false");
+  $("story-fold").setAttribute("aria-expanded", open ? "true" : "false");
+  document.body.classList.toggle("story-open", open);
+}
+
+// ------------------------------------------------------------------ the welcome dialog (SPEC v2 5.2.1)
+
+const welcome = () => $("welcome");
+function showWelcome(opener) {
+  if (ASSISTANT_PAGE || !store.state) return;
+  openWelcome(welcome(), store.state, { opener });
+}
+
+// After the first load, unless ?intro=0, ?shots=1, ?present=1, a deep link or "Don't show this
+// again" says not to (wall/welcome.js).
+function openWelcomeOnLoad() {
+  if (!ASSISTANT_PAGE && shouldOpenWelcome(params, START_HASH)) showWelcome(null);
 }
 
 // ------------------------------------------------------------------ area menu (R3.1)
@@ -830,16 +890,25 @@ function flowInput() {
   };
 }
 
+// The side panel's Assistant tab: the board's model, kept current whether or not it is shown.
+let assist = null;
+function updateAssist() {
+  if (ASSISTANT_PAGE || !store.state) return;
+  assist = assist || mountAssist($("assist"));
+  assist.update(flowModel(flowInput()), { conn });
+}
+
 let flow = null;
 function renderFlow() {
   if (!flow || !store.state) return;
   flow.update(flowModel(flowInput()), boardModel(boardInput()), conn);
 }
 
-// The board is a page of its own (/assistant, UI-DESIGN 7.27): from the Wall, its chip, key and
-// links go there; on that page it is shown in place of the Wall, never as a dialog.
+// The board is a page of its own (/assistant, UI-DESIGN 7.27), shown in place of the demo, never as
+// a dialog. On the demo the same steps are the side panel's Assistant tab, and its "Open as a
+// page" link goes to the board.
 function openBoard() {
-  if (!ASSISTANT_PAGE) { location.assign("/assistant"); return; }
+  if (!ASSISTANT_PAGE) { showAssist({ focus: true }); return; }
   const dlg = $("board");
   ui.board.open = true;
   describeModal(dlg);
@@ -895,7 +964,6 @@ $("dlg").addEventListener("close", () => {
   dialogOpener = null;
   if (back && document.contains(back)) back.focus();
 });
-$("details-sheet").addEventListener("cancel", (e) => { e.preventDefault(); escapeDetails(); });
 
 // ------------------------------------------------------------------ map wiring
 
@@ -1007,6 +1075,15 @@ $("details-body").addEventListener("toggle", updateFold, true);
 document.addEventListener("click", (e) => {
   const skip = e.target.closest('a.skip-link[href="#map"]');
   if (skip) { e.preventDefault(); $("map-canvas")?.focus(); return; }
+  // the story and side panel skip links land on a control: the strip's button (or the story's
+  // heading when expanded) and the selected tab
+  const skipTo = e.target.closest("a.skip-link[data-skip]");
+  if (skipTo) {
+    e.preventDefault();
+    if (skipTo.dataset.skip === "story") (ui.storyOpen ? $("volcano-name") : $("rail-btn")).focus();
+    else (ui.details.open ? $("details-btn") : $("assist-tab")).focus();
+    return;
+  }
   if (!e.target.closest(".areapick")) closeAreaMenu(false);
   const t = e.target.closest("button, [data-act]");
   if (!t) return;
@@ -1019,13 +1096,17 @@ document.addEventListener("click", (e) => {
   else if (tool === "sat-toggle") setSat(ui.sat === "off" ? "ir" : "off");
   else if (tool === "layers") toggleSection("layers", t);
   else if (tool === "levels") openDetails("levels", { opener: t });
-  else if (t.id === "panel-toggle") setPanel(!ui.panelHidden);
+  else if (t.id === "rail-btn") setStory(true);
+  else if (t.id === "story-fold") setStory(false);
+  else if (t.id === "how-btn") showWelcome(t);
+  else if (t.id === "assist-tab") showAssist();
+  else if (t.id === "side-handle") { if (!handleDragged) setSheet(SHEETS[(SHEETS.indexOf(ui.sheet) + 1) % SHEETS.length]); }
   else if (t.dataset.ff) setFlightFilter(t.dataset.ff);
   else if (t.id === "area-btn") { if ($("regions").hidden) openAreaMenu(); else closeAreaMenu(); }
-  else if (t.id === "ai-chip" || act === "board-open") openBoard();
+  else if (act === "board-open") openBoard();
   else if (act === "board-details") openDetails(t.dataset.sec);
   else if (t.id === "feeds-chip") openDetails("feeds", { opener: t });
-  else if (t.id === "details-btn") { if (ui.details.open) closeDetails(); else openDetails(null, { opener: t }); }
+  else if (t.id === "details-btn") { if (ui.details.open) openSheet(); else openDetails(null, { opener: t, focus: false }); }
   else if (t.id === "time-pill") { document.body.classList.toggle("tl-sheet"); renderNow(); if (document.body.classList.contains("tl-sheet")) $("timeline").querySelector("button")?.focus(); }
   else if (t.dataset.region) { const fromMenu = !!t.closest("#regions"); chooseRegion(t.dataset.region); if (fromMenu) $("area-btn").focus(); }
   else if (t.dataset.flight) flyToFlight(t.dataset.flight);
@@ -1071,8 +1152,9 @@ document.addEventListener("click", (e) => {
   else if (act === "tl-step") { if (t.getAttribute("aria-disabled") !== "true") stepTimeline(Number(t.dataset.dir)); }
   else if (act === "flight-clear") clearFlight();
   else if (act === "crew-show") {
-    // On a phone the Details sheet covers the map: close it and bring the map into view first.
-    if (phone()) { closeDetails(false); $("map-pane").scrollIntoView({ block: "center" }); } else ui.details.vid = t.dataset.report;
+    // At 900 px and below the sheet covers the map: it folds to its peek so the report shows.
+    if (sheetMode()) setSheet("peek");
+    ui.details.vid = t.dataset.report;
     map?.flyToCrew(t.dataset.report);
     renderNow();
   }
@@ -1131,6 +1213,19 @@ document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" || e.key === "Tab") { closeAreaMenu(e.key === "Escape"); if (e.key === "Escape") e.preventDefault(); return; }
   }
   if (t.id === "area-btn" && (e.key === "ArrowDown" || e.key === "ArrowUp")) { openAreaMenu(); e.preventDefault(); return; }
+  // the side panel's tabs (ARIA tabs, roving tabindex): arrows move and select, Home and End jump
+  if (t.closest?.("#side-tabs") && t.getAttribute("role") === "tab") {
+    const tabs = [$("assist-tab"), $("details-btn")];
+    const i = tabs.indexOf(t);
+    const j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (j != null) {
+      e.preventDefault();
+      const to = tabs[(j + tabs.length) % tabs.length];
+      if (to === tabs[0]) showAssist(); else if (!ui.details.open) openDetails(null, { opener: to, focus: false });
+      to.focus();
+      return;
+    }
+  }
   if (t.matches?.(".tl__mark") && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
     const marks = [...document.querySelectorAll(".tl__mark")].sort((a, b) => parseFloat(a.style.left) - parseFloat(b.style.left));
     const i = marks.indexOf(t);
@@ -1191,7 +1286,7 @@ function shortcut(e) {
   if (!ui.shortcuts || e.ctrlKey || e.metaKey || e.altKey) return;
   const t = e.target;
   if (t.matches?.("input, textarea, select, [contenteditable='true']")) return;
-  if ($("dlg").open || $("board").open) return;
+  if ($("dlg").open || $("board").open || welcome().open) return;
   if (runKey(e.key)) e.preventDefault();
 }
 
@@ -1214,85 +1309,103 @@ function runKey(k) {
   else if (k === "h" || k === "H") { openDetails("levels", { opener: document.activeElement }); requestAnimationFrame(() => $("levels").querySelector('[data-thumb="max"]')?.focus()); }
   else if (k === "p" || k === "P") { if (!has("present")) return false; setPresent(!ui.present); }
   else if (k === "a" || k === "A") openBoard();
+  else if (k === "w" || k === "W") { if (ASSISTANT_PAGE) return false; showWelcome(document.activeElement); }
+  else if (k === "e" || k === "E") { if (ASSISTANT_PAGE) return false; setStory(!ui.storyOpen); }
   else if (k === "?") openGuide("read");
   else handled = false;
   return handled;
 }
 
-function escapeDetails() {
-  if (ui.details.sec) detailsIndex(); else closeDetails();
-}
-
-// Esc (R16): dialog or menu → section → Details index → close Details → History → the picked
-// flight → compare → 3D.
+// Esc (R16): dialog or menu → the map's card → a Details section → its index (Details stays the
+// tab) → the open sheet → History → the picked flight → compare → 3D.
 function escape(e) {
-  if ($("dlg").open || $("board").open) return; // a dialog closes itself
+  if ($("dlg").open || $("board").open || welcome().open) return; // a dialog closes itself
   if (!$("regions").hidden) { closeAreaMenu(); e.preventDefault(); return; }
   if (document.body.classList.contains("tl-sheet")) { document.body.classList.remove("tl-sheet"); renderNow(); $("time-pill").focus(); e.preventDefault(); return; }
   if (map?.hideCard()) { e.preventDefault(); return; }
-  if (ui.details.open) { escapeDetails(); e.preventDefault(); return; }
+  if (ui.details.open && ui.details.sec) { detailsIndex(); e.preventDefault(); return; }
+  if (sheetMode() && ui.sheet !== "peek") { setSheet("peek"); $("side-handle").focus({ preventScroll: true }); e.preventDefault(); return; }
   if (ui.historyOpen) { ui.historyOpen = false; renderNow(); e.preventDefault(); return; }
   if (ui.selFlight) { clearFlight(); e.preventDefault(); return; }
   if (ui.compare) { toggleCompare(false); e.preventDefault(); return; }
   if (ui.d3) { toggle3d(false); e.preventDefault(); }
 }
 
-// ------------------------------------------------------------------ phone: header, sheet, CTA (R4.4)
+// ------------------------------------------------------------------ the sheet's handle (900 px and below)
 
-const phoneMq = window.matchMedia("(max-width: 600px)");
-function placeChips() {
-  // On a phone the sticky header keeps the TEPHRA mark, the nav, mode and clock at the top; the
-  // area, Assistant and data chips sit in a bar under it that scrolls away (review 1, item 13).
-  const area = document.querySelector(".areapick"), ai = $("ai-chip"), feeds = $("feeds-chip"), bar = $("phone-bar");
-  if (phoneMq.matches) { if (area.parentElement !== bar) bar.append(area, ai, feeds); }
-  else if (area.parentElement === bar) {
-    const spacer = document.querySelector(".cmdbar__spacer");
-    spacer.before(area);
-    spacer.after(ai, feeds);
-  }
-  placeDetails();
+// A tap cycles peek, half and full; a drag on the handle moves the sheet and lets go at the
+// nearest of the three heights. The handle is a button, so the keyboard cycles it too.
+let handleDragged = false;
+{
+  const handle = $("side-handle");
+  let drag = null;
+  handle.addEventListener("pointerdown", (e) => {
+    if (!sheetMode()) return;
+    handleDragged = false;
+    drag = { y: e.clientY, h: $("side").getBoundingClientRect().height };
+    handle.setPointerCapture?.(e.pointerId);
+  });
+  handle.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const h = drag.h + (drag.y - e.clientY);
+    if (Math.abs(drag.y - e.clientY) > 6) handleDragged = true;
+    if (handleDragged) { $("side").classList.add("is-dragging"); $("side").style.setProperty("height", `${Math.max(120, h)}px`); }
+  });
+  const done = () => {
+    if (!drag) return;
+    drag = null;
+    const side = $("side");
+    if (handleDragged) {
+      const h = side.getBoundingClientRect().height;
+      const heights = SHEETS.map((k) => [k, Math.abs(h - sheetHeight(k))]);
+      heights.sort((a, b) => a[1] - b[1]);
+      side.style.removeProperty("height");
+      side.classList.remove("is-dragging");
+      setSheet(heights[0][0]);
+    }
+    // the click that follows a drag must not cycle the sheet once more
+    setTimeout(() => { handleDragged = false; }, 0);
+  };
+  handle.addEventListener("pointerup", done);
+  handle.addEventListener("pointercancel", done);
 }
-phoneMq.addEventListener?.("change", placeChips);
-placeChips();
-// The sticky call to action shows only while the story's own button is out of view.
-const io = "IntersectionObserver" in window ? new IntersectionObserver((entries) => {
-  for (const en of entries) $("cta-sticky").hidden = !phoneMq.matches || en.isIntersecting || ui.details.open;
-}) : null;
-new MutationObserver(() => { const c = $("cta"); if (c && io && c.dataset.watched !== "1") { c.dataset.watched = "1"; io.observe(c); } }).observe($("story-actions"), { childList: true });
+// The three heights, as wall.css draws them: a share of the viewport, full under the header.
+function sheetHeight(k) {
+  const vh = window.innerHeight;
+  if (k === "peek") return 0.3 * vh;
+  if (k === "half") return 0.58 * vh;
+  return vh - document.querySelector(".cmdbar").getBoundingClientRect().bottom;
+}
 
 // ------------------------------------------------------------------ clocks and start
 
 setInterval(() => { if (D) { D.now = now(); renderClock(D, conn); } }, 1000);
 setInterval(() => { if (store.state) renderNow(); }, 15000);
-window.addEventListener("resize", () => { placeDetails(); scheduleRender(); });
+window.addEventListener("resize", () => { renderSide(); scheduleRender(); });
 window.matchMedia("(prefers-reduced-motion: reduce)").addEventListener?.("change", () => scheduleRender());
 
-// The drawer state survives a reload in this tab, never into presentation or screenshot runs, and
-// never onto the Assistant page (the Wall's drawer would cover the board).
-try {
-  const saved = sessionStorage.getItem(DETAILS_KEY);
-  if (saved && saved !== "closed" && !PRESENT && !SHOTS && !ASSISTANT_PAGE) {
-    ui.details = { open: true, sec: saved === "index" ? null : sectionOf(saved) ? saved : null, vid: null, from: null, opener: null };
-  }
-} catch { /* storage blocked: Details starts closed */ }
-placeDetails();
-setPanel(ui.panelHidden);
+// The side panel's tab survives a reload in this tab, never into presentation or screenshot runs,
+// and never onto the Assistant page (the board is the page there).
+if (!PRESENT && !SHOTS && !ASSISTANT_PAGE && session(SIDE_KEY) === "details") ui.details = { open: true, sec: null, vid: null, from: null, opener: null };
+placeStory();
 renderShell();
-// Old "See TEPHRA Assistant at work" links (/#ai-at-work) go to its page; the guide's "Track
-// record ›" (/#track-record) and the board's "Details ›" (/#details-<section>) open that Details
-// section. The hash is not kept, so a reload shows the Wall.
-const hashSec = location.hash === "#track-record" ? "proof" : location.hash.match(/^#details-([a-z]+)$/)?.[1];
-if (location.hash === "#ai-at-work") location.replace("/assistant");
+// Old "See TEPHRA Assistant at work" links (#ai-at-work) go to its page; the guide's "Track
+// record ›" (#track-record) and the board's "Details ›" (#details-<section>) open that Details
+// section. The hash is not kept, so a reload shows the demo.
+const hashSec = START_HASH === "#track-record" ? "proof" : START_HASH.match(/^#details-([a-z]+)$/)?.[1];
+if (START_HASH === "#ai-at-work") location.replace("/assistant");
 else if (hashSec && !ASSISTANT_PAGE) {
   history.replaceState(history.state, "", location.pathname + location.search);
   openDetails(hashSec === "index" ? null : hashSec, { opener: $("details-btn") });
 }
 if (ASSISTANT_PAGE) {
   // the nav says which page this is (page-mode.js has already set the look)
-  document.querySelector('.topnav a[href="/"]')?.removeAttribute("aria-current");
+  document.querySelector('.topnav a[href="/demo"]')?.removeAttribute("aria-current");
   document.querySelector('.topnav a[href="/assistant"]')?.setAttribute("aria-current", "page");
   openBoard();
 }
+// signed in as an airline, the nav's Onboard link reads Workspace (account-nav.js)
+initAccountNav();
 inlineSprite().then(() => { if (store.state) renderNow(); else renderShell(); });
 // the Assistant page draws the board's own map, not the Wall's
 if (ASSISTANT_PAGE) { /* no Wall map */ }

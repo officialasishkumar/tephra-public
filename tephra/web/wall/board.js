@@ -352,6 +352,21 @@ const FEED_WORDS = {
 // A read that moved last_success_at within this of a POLL step (or a run started by new aircraft)
 // is the same read: one event, never two.
 const SAME_READ_MS = 3000;
+// Each feed's short name, for the board's Code checks sheet and the demo's assistant log.
+export const FEED_NAMES = {
+  sigmet: "SIGMET", vaac_darwin: "Darwin VAAC", vaac_tokyo: "Tokyo VAAC", vona: "VONA · MAGMA", jma_volcano: "JMA notices",
+  metar: "METAR", taf: "TAF", winds: "Winds aloft", adsb: "Aircraft", airline: "Airline feed", frames: "Satellite", hsd: "Himawari",
+};
+// A step's result: tone, icon and word (never colour alone). What a step says decides its badge
+// before its trace level does: a plan the checks refused is logged at info level, and a tool call
+// is a step on the way, not a result.
+export const RESULT = {
+  ok: ["ok", "i-check", "Done"], failed: ["caution", "i-alert", "No result"], caution: ["caution", "i-alert", "Not used"],
+  rejected: ["caution", "i-alert", "Not accepted"], tool: ["muted", "i-code", "Tool"], info: ["muted", "i-info", "Note"], quiet: ["muted", "i-info", "Note"],
+};
+export const REFUSED = /did not accept|failed the checks|gave no result|no result|not accepted|AI UNAVAILABLE/i;
+export const TOOLISH = /^(Used the .+ tool|Flight planner (looked up|checked|priced))/;
+export const resultKind = (x) => (REFUSED.test(x.text) ? "rejected" : TOOLISH.test(x.text) ? "tool" : x.tone);
 // Same-second steps are told apart on screen, 160 ms each (spec 4).
 export const STAGGER_MS = 160;
 
@@ -370,7 +385,7 @@ const plural2 = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 function feedRead(feed, n, at, id, src, raw) {
   const kind = FEED_KIND[feed] || "weather";
   if (feed === "adsb") return { id, at, type: "adsb", raw, src, text: "Aircraft positions read (adsb.lol)" };
-  // an airline's own positions, pushed through Connect: drawn as the aircraft feed is
+  // an airline's own positions, pushed to the push API (the Desk's Data connections): drawn as the aircraft feed is
   if (feed === "airline") return { id, at, type: "adsb", feed, raw, src, text: `Airline positions pushed${Number.isFinite(n) ? `: ${plural2(n, "position")}` : ""}` };
   const w = FEED_WORDS[feed];
   const text = w ? `${w[0]}${Number.isFinite(n) ? `: ${plural2(n, w[1], w[2])}` : ""}` : `${feed} read`;

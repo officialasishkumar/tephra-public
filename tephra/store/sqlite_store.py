@@ -104,6 +104,16 @@ class SqliteStore(Store):
         rows = await self._run(lambda conn: conn.execute(sql, params).fetchall())
         return [decode_doc(row[0]) for row in rows]
 
+    async def count(self, collection: str, where: Sequence[Where] = ()) -> int:
+        clauses = _where(str(collection), where)
+        if clauses is None:
+            return 0
+        sql, params = clauses
+        row = await self._run(
+            lambda conn: conn.execute(f"SELECT COUNT(*) FROM docs WHERE {sql}", params).fetchone()
+        )
+        return int(row[0])
+
     async def update(
         self,
         collection: str,
@@ -254,6 +264,24 @@ def _select(
     limit: int,
 ) -> tuple[str, list[Any]] | None:
     """SQL and parameters for a query, or None when it cannot match (an empty ``in``)."""
+    clauses = _where(collection, where)
+    if clauses is None:
+        return None
+    sql, params = clauses
+    direction = "DESC" if descending else "ASC"
+    sql = f"SELECT doc FROM docs WHERE {sql}"
+    if order_by is not None:
+        sql += f" ORDER BY json_extract(doc, ?) {direction}, id {direction}"
+        params.append(_json_path(order_by))
+    else:
+        sql += f" ORDER BY id {direction}"
+    sql += " LIMIT ?"
+    params.append(max(0, limit))
+    return sql, params
+
+
+def _where(collection: str, where: Sequence[Where]) -> tuple[str, list[Any]] | None:
+    """The WHERE clause and its parameters, or None when it cannot match (an empty ``in``)."""
     clauses = ["collection = ?"]
     params: list[Any] = [collection]
     for item in where:
@@ -271,16 +299,7 @@ def _select(
         else:
             clauses.append(f"json_extract(doc, ?) {_SQL_OPS[item.op]} ?")
             params.extend([path, _sql_value(item.value)])
-    direction = "DESC" if descending else "ASC"
-    sql = f"SELECT doc FROM docs WHERE {' AND '.join(clauses)}"
-    if order_by is not None:
-        sql += f" ORDER BY json_extract(doc, ?) {direction}, id {direction}"
-        params.append(_json_path(order_by))
-    else:
-        sql += f" ORDER BY id {direction}"
-    sql += " LIMIT ?"
-    params.append(max(0, limit))
-    return sql, params
+    return " AND ".join(clauses), params
 
 
 def _json_path(field: str) -> str:

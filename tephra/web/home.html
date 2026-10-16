@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="description" content="TEPHRA: when official volcanic-ash reports disagree, Gemini proposes TEPHRA's estimate, code keeps it never smaller than the official area, and a dispatcher approves every per-flight advisory. Decision support only; fictional airline; not for operational use.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="TEPHRA">
+  <meta property="og:description" content="When official ash reports disagree, TEPHRA keeps the wider estimate, finds the flights heading in and drafts the advisory a dispatcher approves. Replay demo · fictional airline · decision support only.">
+  <meta property="og:image" content="https://tephra-647733667799.asia-southeast1.run.app/static/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <title>TEPHRA</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <script src="/static/home-boot.js"></script>
+  <script src="/static/theme-boot.js"></script>
+  <link rel="preload" href="/static/fonts/ibm-plex-sans-var-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/topnav.css">
+  <link rel="stylesheet" href="/static/home.css">
+  <script type="module" src="/static/home.js"></script>
+  <!-- every module home.js imports, fetched at once (tests/test_modulepreload.py) -->
+  <link rel="modulepreload" href="/static/account-nav.js">
+  <link rel="modulepreload" href="/static/onboard/draft.js">
+  <link rel="modulepreload" href="/static/replay-words.js">
+  <link rel="modulepreload" href="/static/theme.js">
+  <link rel="modulepreload" href="/static/wall/features.js">
+  <link rel="modulepreload" href="/static/wall/util.js">
+</head>
+<!-- Home (SPEC-v2 5.1, DESIGN 5.1): one line on what TEPHRA is and two choices, Watch the demo
+     (focused first) and Onboard your airline (only while the server shows onboarding). The map is
+     a real frame of the replay (scripts/capture_home_map.mjs), decorative, on the night theme in
+     both themes. home.js words the choices from /api/state. -->
+<body class="home">
+  <a class="skip-link" href="#home-choices">Skip to the choices</a>
+  <header class="tn-bar home__bar">
+    <a class="tn-home" href="/" title="TEPHRA home">TEPHRA</a>
+    <nav class="topnav" aria-label="TEPHRA pages"><a href="/demo">Demo</a><a href="/assistant">Assistant</a><a href="/desk">Desk</a><a href="/onboard" data-feature="onboard" hidden>Onboard</a><a href="/guide">Guide</a></nav>
+    <span class="tn-spacer"></span>
+    <div id="tn-right" class="tn-right"></div>
+  </header>
+  <main id="main" class="home__stage">
+    <div class="home__copy">
+      <p class="home__eyebrow">Volcanic-ash decision support for airline dispatch</p>
+      <h1 id="home-line" class="home__line">TEPHRA finds the flights heading into volcanic ash and drafts the advisories <em>a dispatcher approves</em>.</h1>
+      <div id="home-choices" class="home__choices" tabindex="-1">
+        <a id="go-demo" class="go go--primary" href="/demo" autofocus aria-describedby="home-line">
+          <span class="go__ic"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-play"></use></svg></span>
+          <span class="go__words">
+            <span class="go__t">Watch the demo</span>
+            <span id="go-demo-sub" class="go__s">No sign-in</span>
+            <span id="go-demo-pills" class="go__pills"></span>
+          </span>
+          <svg class="icon go__arrow" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-arrow-right"></use></svg>
+        </a>
+        <a id="go-onboard" class="go" href="/onboard" data-feature="onboard" hidden>
+          <span class="go__ic"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-aircraft"></use></svg></span>
+          <span class="go__words">
+            <span id="go-onboard-t" class="go__t">Onboard your airline</span>
+            <span id="go-onboard-sub" class="go__s">Nine short pages, saved in your browser as you go</span>
+          </span>
+          <svg class="icon go__arrow" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-arrow-right"></use></svg>
+        </a>
+      </div>
+      <p class="home__signin" data-feature="onboard" hidden>Already onboarded? <a href="/signin">Sign in to your workspace</a></p>
+    </div>
+    <div class="home__map night" aria-hidden="true">
+      <div class="home__frame">
+        <picture>
+          <source media="(max-width: 760px)" srcset="/static/home/replay-map-phone.webp" width="780" height="400">
+          <img class="home__img" src="/static/home/replay-map.webp" width="1600" height="1000" alt="" decoding="async">
+        </picture>
+        <p id="home-count" class="home__count" hidden></p>
+        <p class="home__key"><span class="home__swatch home__swatch--official"></span>Official, binding<span class="home__swatch home__swatch--tephra"></span>TEPHRA's estimate, never smaller</p>
+        <p class="home__attrib">OpenFreeMap © OpenMapTiles · Data © OpenStreetMap contributors · Aircraft: adsb.lol</p>
+        <p id="home-cap" class="home__cap"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-replay"></use></svg><span id="home-cap-t"></span></p>
+      </div>
+    </div>
+  </main>
+  <footer class="home__foot">
+    <p class="home__honest"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-hand"></use></svg>Decision support only: a person approves every advisory, and nothing is sent to an aircraft.</p>
+    <nav class="home__links" aria-label="More about TEPHRA"><a href="/guide">Guide</a><a href="/guide#about-credits">Credits</a><a href="/privacy">Privacy</a></nav>
+  </footer>
+</body>
+</html>

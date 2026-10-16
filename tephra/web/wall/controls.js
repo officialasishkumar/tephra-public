@@ -80,6 +80,8 @@ export function renderLayers(ui, phone) {
 
 // Keyboard (R16). Every shortcut also has a visible control; a hidden feature's key is left out.
 const SHORTCUT_ROWS = [
+  ["W", "How it works: the demo's welcome, the five steps"],
+  ["E", "Expand or fold the story"],
   ["1 2 3", "Choose an area"],
   ["[ ]", "Previous / next volcano (the area follows)"],
   ["F", "Fit the selected volcano"],
@@ -93,7 +95,7 @@ const SHORTCUT_ROWS = [
   ["T", "Details › How TEPHRA decided"],
   ["H", "Details › Height filter"],
   ["P", "Presentation layout for recording (keeps Details closed)", "present"],
-  ["A", "TEPHRA Assistant at work: the Coordinator, the other skills and the Desk"],
+  ["A", "The side panel's TEPHRA Assistant tab: every step, newest first"],
   ["?", "Open the Guide"],
   ["Esc", "Close, one step at a time: a dialog or menu, a Details section, Details, History, the picked flight, compare, 3D"],
 ];
@@ -116,7 +118,7 @@ export function helpContent(enabled, { page = false } = {}) {
       el("li", {}, sw("lg-area-tephra", "sw--tephra"), el("span", { text: "Amber dashes = TEPHRA's estimate. It is never smaller than the official area." })),
       el("li", {}, sw("i-aircraft", "sw--exposed"), el("span", { text: "Amber planes = RFA flights in or heading into it. A person approves every advisory on the Desk." }))),
     el("ul", { class: "help__list" },
-      el("li", { text: "The story on the left says what is happening at the selected volcano. Details holds everything else: the sources, the timeline, how TEPHRA decided, TEPHRA Assistant and the data feeds." }),
+      el("li", { text: "The story on the left says what is happening at the selected volcano; one click expands it. The side panel shows TEPHRA Assistant's steps, and its Details tab holds everything else: the sources, the timeline, how TEPHRA decided and the data feeds." }),
       el("li", { text: "Times ending in Z are UTC." })),
     el("h3", { id: "help-key", class: "help__h", text: "Full map key" }),
     el("ul", { class: "key__rows help__key" },
@@ -183,7 +185,7 @@ export function aboutContent(state, { page = false } = {}) {
       el("li", { text: "TEPHRA's estimate is an estimate, never a forecast. The official reports are binding." }),
       el("li", { text: "Satellite and SO2 layers are context only, never ash detection." }),
       el("li", { text: GASES_SCOPE })),
-    el("p", {}, page ? el("a", { class: "honesty__about", href: "/#track-record", text: "Track record ›" }) : el("button", { type: "button", class: "honesty__about", dataset: { act: "details-open", sec: "proof" }, text: "Track record ›" }), " How TEPHRA's estimate scored against later official areas."),
+    el("p", {}, page ? el("a", { class: "honesty__about", href: "/demo#track-record", text: "Track record ›" }) : el("button", { type: "button", class: "honesty__about", dataset: { act: "details-open", sec: "proof" }, text: "Track record ›" }), " How TEPHRA's estimate scored against later official areas."),
     el("h3", { id: "about-credits", class: "help__h", tabindex: "-1", text: "Credits" }),
     el("table", { class: "table" },
       el("caption", { class: "sr-only", text: "Credits" }),

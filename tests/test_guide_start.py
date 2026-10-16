@@ -1,6 +1,6 @@
 """The Guide's "Start here" (redesign D21, D22, D28): the static block first, the dedupe of the
 Help-list copies, the Google Cloud sentence said once, the page shells (privacy, document) and the
-Connect copy. Source checks only; the page is drawn by the browser.
+tour's onboarding step (SPEC-v2 11). Source checks only; the page is drawn by the browser.
 """
 
 import re
@@ -49,7 +49,7 @@ def test_the_guide_has_one_h1_and_start_here_comes_first() -> None:
 def test_the_case_paragraph_comes_from_the_wall_s_one_source() -> None:
     assert 'import { caseStrip, loadCases, caseOf } from "./wall/case.js";' in GUIDE_JS
     assert "caseStrip(caseOf(state.replay?.case_id), { mode: state.mode })" in GUIDE_JS
-    assert '<noscript><p class="muted">Open the Wall for the case.</p></noscript>' in GUIDE
+    assert '<noscript><p class="muted">Open the demo for the case.</p></noscript>' in GUIDE
     # no static duplicate of the case's numbers on the Guide
     for digits in ("2,961", "341,000", "28 of Semeru"):
         assert digits not in GUIDE, digits
@@ -61,15 +61,19 @@ def test_the_case_paragraph_comes_from_the_wall_s_one_source() -> None:
 def test_the_try_it_steps_carry_the_links() -> None:
     assert "Try it in three minutes" in GUIDE
     for href in (
-        'href="/"',
-        'href="/#details-disagree"',
-        'href="/#details-estimate"',
+        'href="/demo"',
+        'href="/demo#details-disagree"',
+        'href="/demo#details-estimate"',
         'href="/assistant"',
         'href="/desk"',
-        'href="/#track-record"',
+        'href="/demo#track-record"',
         'href="#policy"',
     ):
         assert href in GUIDE, href
+    assert "<b>Open the demo</b><span>Press Start, then F to fit the volcano</span>" in GUIDE
+    # the Wall moved to /demo: no link on the Guide still means it by "/"
+    assert not re.search(r'href="/#', GUIDE)
+    assert '"/#details-' not in GUIDE_JS
     assert 'id="try-desk"' in GUIDE
     assert GUIDE.count('<li id="try-desk">') == 1
     assert "state?.visitor_access === true" in GUIDE_JS
@@ -119,12 +123,13 @@ def test_runs_on_google_cloud_is_said_once_in_the_web_tree_and_stays_true_locall
         assert "Built on" not in p.read_text(encoding="utf-8"), p.name
 
 
-@pytest.mark.parametrize("page", ["guide.html", "connect.html"])
+@pytest.mark.parametrize("page", ["guide.html", "home.html", "onboard.html", "workspace.html"])
 def test_the_og_tags_match_the_wall_s(page: str) -> None:
     head = _read(page).split("</head>")[0]
     wall = _read("index.html").split("</head>")[0]
     assert _meta(head, "property", "og:type") == "website"
-    assert _meta(head, "property", "og:title") in {"TEPHRA Guide", "TEPHRA Connect"}
+    title = _meta(head, "property", "og:title") or ""
+    assert title == "TEPHRA" or title.startswith("TEPHRA "), title
     desc = _meta(head, "property", "og:description")
     assert desc is not None
     assert desc.startswith(_meta(wall, "property", "og:description") or "x")
@@ -175,6 +180,8 @@ def test_privacy_is_on_the_night_theme_with_the_shared_header_and_discloses_the_
 ):
     privacy = _read("privacy.html")
     assert '<meta name="color-scheme" content="dark">' in privacy
+    assert '<html lang="en" data-theme="dark">' in privacy
+    assert "theme-boot.js" not in privacy
     assert 'class="guidebar tn-bar"' in privacy
     assert 'class="topnav" aria-label="TEPHRA pages"' in privacy
     assert "tn-strip" not in privacy
@@ -194,19 +201,63 @@ def test_the_document_page_s_bar_carries_the_pill_nav() -> None:
     assert 'href="/static/topnav.css"' in doc
     assert '<nav class="topnav" aria-label="TEPHRA pages">' in doc
     assert 'src="/static/topnav.js"' in doc
-    # the shared nav module hides Connect by the server's feature set, as the other pages do
+    assert '<html lang="en" data-theme="dark">' in doc
+    assert '<meta name="color-scheme" content="dark">' in doc
+    # the shared nav module hides Onboard by the server's feature set, as the other pages do,
+    # and swaps it for Workspace when an airline is signed in
     topnav = _read("topnav.js")
     assert "applyFeatureNav()" in topnav
+    assert "initAccountNav()" in topnav
 
 
-def test_connect_s_signed_out_cta_and_live_tiles() -> None:
-    html = _read("connect.html")
-    js = _read("connect.js")
-    assert "The sample feed needs a dispatcher sign-in" in html
-    assert 'id="cx-empty-try"' in html
-    assert '$("cx-empty-lock").hidden = Boolean(app.me);' in js
-    assert '"real flights"' not in js
-    assert '"kinds of data"' not in js
+def test_privacy_says_what_an_airline_account_keeps() -> None:
+    privacy = _read("privacy.html")
+    assert '<h2 id="accounts">Airline accounts</h2>' in privacy
+    accounts = privacy[privacy.index('id="accounts"') : privacy.index("<h2>Questions</h2>")]
+    for words in (
+        "the password as a salted scrypt hash, never the password itself",
+        "a hash of the recovery code",
+        "the dispatchers' names or initials",
+        "Google Cloud Firestore",
+        "SQLite",
+        "never public, never written into the audit trail and never sent to Gemini",
+        "Clear my answers",
+        "goes only into the zip",
+        "<code>tephra_airline</code>",
+        "HttpOnly and SameSite=Strict",
+        "12 hours",
+        "deletes it from the workspace's account menu",
+        "Signing out clears the answers and the schedule files",
+    ):
+        assert words in accounts, words
+    # the Cookies paragraph no longer says the Desk's cookie is the only one
+    assert "The only cookie is" not in privacy
+
+
+def test_the_guide_tour_folds_connect_into_onboarding() -> None:
+    assert 'id="tour-connect"' not in GUIDE
+    assert 'href="/connect"' not in GUIDE
+    step = GUIDE[GUIDE.index('id="tour-onboard"') : GUIDE.index('id="try"')]
+    assert 'data-feature="onboard" hidden' in step
+    assert '<h2 id="tour-onboard-h" class="gstep__h">Onboard your airline</h2>' in step
+    assert 'href="/onboard">Open onboarding' in step
+    assert 'href="/demo?intro=0">Open the demo' in GUIDE
+    run = GUIDE[GUIDE.index('id="run"') : GUIDE.index('id="more"')]
+    assert 'data-feature="onboard" hidden' in run
+    # the nine "what you provide" lines are said on the onboarding landing, not here
+    assert "ICAO 24-bit address" not in GUIDE
+    # a hidden part shows by the server's features, the nav by applyFeatureNav
+    assert 'document.querySelectorAll("main [data-feature]")' in GUIDE_JS
+
+
+def test_the_guide_is_light_capable_with_its_theme_control() -> None:
+    head = GUIDE.split("</head>")[0]
+    assert '<meta name="color-scheme" content="dark light">' in head
+    assert head.index('src="/static/theme-boot.js"') < head.index('href="/static/tokens.css"')
+    assert 'id="guide-theme"' in GUIDE
+    assert 'getElementById("guide-theme").replaceChildren(themeControl())' in GUIDE_JS
+    # the screenshots stay on the night theme
+    assert GUIDE.count('<div class="shot__frame night">') == GUIDE.count('class="shot__frame')
 
 
 @pytest.mark.parametrize(
@@ -217,10 +268,22 @@ def test_connect_s_signed_out_cta_and_live_tiles() -> None:
         "guide.css",
         "privacy.html",
         "doc.html",
-        "connect.html",
-        "connect.js",
         "topnav.css",
         "topnav.js",
+        "tokens.css",
+        "home.html",
+        "home.js",
+        "home.css",
+        "home-boot.js",
+        "theme-boot.js",
+        "theme.js",
+        "account-nav.js",
+        "replay-words.js",
+        "five-steps.js",
+        "five-steps.css",
+        "welcome.css",
+        "wall/welcome.js",
+        "wall/features.js",
         "wall/controls.js",
         "wall/explain.js",
         "wall/glossary.js",

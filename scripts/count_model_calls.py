@@ -121,7 +121,7 @@ def stand_in_agents(asks: Counter[str]) -> None:
 
 def runtime_for(case_id: str, settings: Settings, llm: CountingModel, work: Path) -> Runtime:
     case = load_case(settings.data_dir, case_id)
-    policy = load_policy(settings.data_dir)
+    policy = load_policy(settings.data_dir, settings.policy_file)
     runtime = Runtime(
         settings=settings,
         store=SqliteStore(work / "count.sqlite3", work / "blobs"),

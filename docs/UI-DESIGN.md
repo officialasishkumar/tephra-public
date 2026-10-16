@@ -134,7 +134,8 @@ Only hex tokens go to MapLibre. Do not pass `rgb(… / …)` strings to paint pr
 
 ### 3.1 Colour roles
 
-Neutrals (cool blue-black; the UI is dark only, `color-scheme: dark`, on both pages):
+Neutrals (cool blue-black; dark by default; Home, the demo's panels, onboarding, the workspace and
+the Guide follow a light theme too; the map, the Desk and the Assistant page stay dark):
 
 | Token | Hex | Use |
 |---|---|---|
@@ -273,6 +274,15 @@ The palette script has not been run on it yet (15).
 Status pairs under CVD that collide (always shape + word): ok vs serious 5.3 (deutan), caution vs
 tephra 8.8 (deutan with `#ffe566`; the earlier `#f5d04a` was 4.9 and was dropped), ok vs caution
 8.2.
+
+Light set (16 Oct 2026, `tokens.css`: under `prefers-color-scheme: light` unless the page is set
+dark, and under `data-theme="light"`; `.night` keeps a subtree, the map above all, on the dark
+values in both themes). WCAG 2.1 ratios as measured with the set: text-1 on bg 16.7:1; text-2 on
+white 9.4; text-3 on surface-3 5.35, on bg 5.8; the input line on white 4.2 (3 or more for
+controls); caution on caution-bg 5.7; ok on ok-bg 5.2 (an earlier `#17803f` was 4.43, so the set
+darkens it); serious 5.6; replay-text on replay-bg 6.7; official, tephra and observer text on
+white 6.9, 6.2 and 6.2; the five step tones on white 4.3 or more (non-text, 3 needed); CTA 18.3.
+The dark set is unchanged (text-3 on surface-3 6.3, replay 9.9).
 
 ### 3.4 Typography
 
@@ -785,6 +795,11 @@ area covers both" only when the cone mode is WIDENED and the sector contains the
 bearing.
 
 ## 7. Wall components
+
+Since 16 Oct 2026 the Wall is the demo at `/demo`, and its frame is 7.32: the header assistant chip
+(7.2), the Details drawer beside the story (7.19), the panel toggle, the phone page scroll with
+its sticky call to action and the Details sheet are gone. The sections below still describe the
+parts that stayed (the map, the story, every Details section, the dialogs).
 
 The Wall is built as `docs/UI-REDESIGN.md` ("The Story") describes; this section records what was
 built and where. The code is `index.html`, `wall.js` (state, stream, actions, keyboard, drawer
@@ -1452,6 +1467,9 @@ again; not on a phone.
 
 ### 7.24 TEPHRA Connect (`/connect`, 13-14 Oct 2026)
 
+Folded into Onboard on 16 Oct 2026: /connect redirects; the dispatcher tools are the Desk's Data
+connections.
+
 Where an airline feeds its own data in, shown rather than explained. Connect's own accent is cyan
 to violet (`#5eead4` to `#8b9bff`), for data arriving and nothing else; amber stays TEPHRA's area
 and the flights in it, pink stays official.
@@ -1494,7 +1512,7 @@ and the flights in it, pink stays official.
 
 Every page starts the same way, so moving between them nothing jumps: a 56 px bar at the top
 (`.tn-bar`; the 32 px strip above it was removed on 15 Oct 2026, 7.1) that opens with the TEPHRA
-mark (`.tn-home`, 132 px wide at 24 px from the left; it goes home, the Wall) and the pill nav Wall · Desk · Connect · Guide (Assistant added in 7.27) with the page you are
+mark (`.tn-home`, 132 px wide at 24 px from the left; it goes home) and the pill nav Demo · Assistant · Desk · Onboard · Guide (16 Oct 2026; Onboard only where `onboard` is on, Workspace once an airline is signed in) with the page you are
 on filled. The gap after the mark and the nav's sizes are in px, as the pages' root font sizes
 differ. Each page's own controls follow: the Wall's area, Assistant, data and clock (the Wall's old
 "Connect" and "Desk →" header buttons are gone, the nav has both), the Desk's chips on the right,
@@ -1547,6 +1565,9 @@ the panel keeps the decision and "Open the Desk" and drops the Desk's counts and
 Below 1280 px the nav's links sit 9 px apart so the Wall's header still fits at 1100.
 
 ### 7.28 The case strip folds, Connect draws at once (15 Oct 2026)
+
+Folded into Onboard on 16 Oct 2026: /connect redirects; the dispatcher tools are the Desk's Data
+connections.
 
 The case strip (`wall/case.js`, `data/cases.json`) shows one line: what happened, with its two
 numbers. "What went wrong ⌄" (or "What TEPHRA does" for a case with no disagreement) opens where
@@ -1618,6 +1639,66 @@ in `wall/dk.js` (`dkGlance`, `dkBand`, `dkMove`, `dkCountdown`, `dkSources`, `dk
   and "Open on the Desk ›".
 
 Shapes are aria-hidden; the words beside them carry every fact. Colours come from tokens only.
+
+### 7.32 Home and the demo (16 Oct 2026)
+
+The owner's structure: "a fast Home at `/`, the Wall moved to `/demo` with a welcome dialog, a slim
+story strip and the assistant in the right panel".
+
+- **Home (`/`)**: one line on what TEPHRA is and two big choices, **Watch the demo** (filled,
+  autofocus) and **Onboard your airline** (shown where `onboard` is on; "Your airline workspace"
+  once signed in), with "Already onboarded? Sign in" under them. Beside them, a real frame of the
+  replay's map, captioned with its replay time; the count over it says "Now in the replay". An old
+  link to `/` with a query string or a hash lands on `/demo` with it.
+- **Welcome dialog on `/demo`**: the five steps as numbered nodes joined by one line, from the same
+  source as the Guide's words (`five-steps.js`), then the honesty lines and **Start the demo**
+  (Enter or Esc start; "Don't show this again"; **How it works** and **W** reopen it). `?intro=0`,
+  `?shots=1`, `?present=1` and a Details, track-record or assistant hash skip it.
+- **Left**: a slim story strip (volcano, colour code, RFA flights in or heading in, volcanoes with
+  ash, advisories waiting, from the one `allCounts`); one click or **E** opens the full story.
+- **Right**: one panel with two tabs, **Assistant** (on load) and **Details** (the old drawer), and a
+  pinned foot with the one filled **Open the Desk**. The Assistant tab is the board's model in a
+  column: the state line, a replay player, the five steps with the newest one marked, the newest
+  step as a card, and every step newest first. Under 900 px the panel is a bottom sheet (peek,
+  half, full).
+- **Light theme**: the panels follow it; the map column stays on the night basemap.
+
+Honesty placements: REPLAY in the page title, the "Replay clock", the welcome dialog's pill and
+first line, the player ("Replay · TEPHRA's steps on the replayed feeds, at the replay clock",
+never a bare "paused") and every modal's screen-reader text; Home's demo tile carries "Replay" and
+"Ring of Fire Air, a fictional airline", and its map caption and count say "replay". Ring of Fire
+Air is fictional: Home's tile, the welcome dialog, the status line's tooltip. Decision support
+only, nothing sent to an aircraft: Home's footer and the welcome dialog. NO MODEL: the Assistant
+tab's state line with the stub. ILLUSTRATIVE: Details › How TEPHRA decided, beside "Operator
+policy A".
+
+### 7.33 Onboarding and the workspace (16 Oct 2026)
+
+- **Onboarding (`/onboard`)**: a landing (what you provide, in nine lines; after you submit;
+  private; not built yet), then one topic per page (Airline · Ash policy · Fleet · Network ·
+  Schedule and crews · Data feeds · People · Assistant · Review) with a step list, "Step 3 of 9 ·
+  Fleet" in words (the nine-segment bar is `aria-hidden`), Back and Next, and the answers saved in
+  the browser as they are typed. Next checks only the page it leaves. Review lists each page's
+  answers, then the account (email, password, the decision-support acknowledgement) and a
+  recovery code shown once.
+- **Sign in (`/signin`)**: one card over the dimmed night map; generic errors ("That email and
+  password don't match"), the tries left when two or fewer remain, "Use your recovery code".
+- **Workspace (`/workspace`)**: the airline name, "Airline workspace · private to your account" and
+  the status pill (Pending verification, Verified, Declined); Overview, Your answers, Data feeds
+  (the format and a dry run), Assistant (the model choice) and Setup kit (a zip made in the
+  browser). Sign out and Delete account live in the account menu.
+- **Desk**: the account menu's **Airlines to verify** (a dispatcher verifies or declines; it
+  approves no policy and publishes nothing) and **Data connections** (Connect's dispatcher tools:
+  keys, the sample feed, a file upload). Visitors see neither.
+
+Honesty placements: ILLUSTRATIVE on both Ash policy cards, Review's policy row, the kit's
+`policy.json` and inside it; Not built for live operation on the shared deploy (landing,
+workspace), Policy B (its card), recovery for the airline's network, and password reset by email
+(Review, sign in); NO MODEL on the Assistant card with no model; DRY RUN · NOTHING TAKEN IN on the
+dry run; "Pending verification" as the status pill; Private on the landing card and the workspace
+header; the airline's own TEPHRA still drafts under Ring of Fire Air numbers (landing note, kit
+card); decision support only in the footers and the Review acknowledgement; Google's unpaid tier
+may use what is sent, on the Gemini or Gemma card.
 
 ## 8. 3D, compare, the time bar and the height filter
 

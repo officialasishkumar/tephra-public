@@ -4,6 +4,7 @@
 // 0-1000 pixel boxes and the frame corners; nothing is invented here.
 
 import { fc } from "./util.js";
+import { mapTokens } from "./basemap.js";
 
 const FONT_BOLD = ["Noto Sans Bold"];
 const FONT_REG = ["Noto Sans Regular"];
@@ -11,7 +12,7 @@ const FONT_REG = ["Noto Sans Regular"];
 export const EXT_LAYERS = ["reroute-casing", "reroute-line", "reroute-wp", "reroute-wp-label", "reroute-name", "sat-frame", "sat-box-fill", "sat-box-line", "sat-box-label"];
 
 export function extTokens() {
-  const css = getComputedStyle(document.documentElement);
+  const css = mapTokens();
   const tok = (n) => css.getPropertyValue(n).trim();
   return { reroute: tok("--c-reroute"), rerouteText: tok("--c-reroute-text"), sat: tok("--c-sat"), satText: tok("--c-sat-text"), halo: tok("--map-halo") };
 }

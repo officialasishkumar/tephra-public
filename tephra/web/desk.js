@@ -33,7 +33,7 @@ import { loadNotices, onNoticeEvent, openNotice, openPaste } from './desk/notice
 import { goTab, initTabs, setBadges } from './desk/tabs.js';
 import { closeBSheet, describeReplayIn } from './desk/ui.js';
 import { loadCrewPolicy, openCrewForm, openCrewReport, renderCrewSection, setAircraft, setCrew } from './desk/crew.js';
-import { has, setFeatures } from './wall/features.js';
+import { applyFeatureNav, has, setFeatures } from './wall/features.js';
 import { setModelBackend } from './wall/x-parts.js';
 
 const TICK_MS = 15000;
@@ -87,12 +87,12 @@ function applyState(state) {
 
 // The optional features the server shows (SystemState.features, TEPHRA_FEATURES): the Desk's
 // entries for a hidden feature are hidden, their ids and code stay (SPEC 5.3). Ask's mic and the
-// account menu's Connect item consult has() where they are drawn.
+// account menu's Airlines to verify and Data connections consult has() where they are drawn; the
+// nav's Onboard link follows wall/features.js applyFeatureNav.
 function applyFeatures() {
   byId('crew-report-btn').hidden = !has('crew');
   byId('paste-notice').hidden = !has('notices');
-  const connect = document.querySelector('.topnav a[href="/connect"]');
-  if (connect) connect.hidden = !has('connect');
+  applyFeatureNav();
 }
 
 // The page title, the Decide badge and Decide's count read the same number (waitingCount).

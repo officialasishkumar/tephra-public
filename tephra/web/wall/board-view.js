@@ -13,16 +13,12 @@
 // loop stops when nothing moves.
 
 import { $, el, icon, fl } from "./util.js";
-import { flowAt, foldRows, readEvent, stepEvents, hmsOf as hms, STAGGER_MS, TOOL_SKILLS, HELPERS, FEED_KIND } from "./board.js";
+import { flowAt, foldRows, readEvent, stepEvents, hmsOf as hms, STAGGER_MS, TOOL_SKILLS, HELPERS, FEED_KIND, FEED_NAMES, RESULT, resultKind } from "./board.js";
 import { STYLE_URL, nightBasemap, nightColours, symbolColours } from "./basemap.js";
 import { addImages } from "./images.js";
 
 // ---------------------------------------------------------------- the Code checks sheet
 // What "N feed reads · M flight alerts" are: one card per source, one row per flagged flight.
-const SOURCE_NAME = {
-  sigmet: "SIGMET", vaac_darwin: "Darwin VAAC", vaac_tokyo: "Tokyo VAAC", vona: "VONA · MAGMA", jma_volcano: "JMA notices",
-  metar: "METAR", taf: "TAF", winds: "Winds aloft", adsb: "Aircraft", airline: "Airline feed", frames: "Satellite", hsd: "Himawari",
-};
 const KIND_NAME = { official: "Official", observer: "Observatory", aircraft: "Aircraft", weather: "Weather", satellite: "Satellite" };
 const KIND_ORDER = ["official", "observer", "aircraft", "weather", "satellite"];
 
@@ -56,7 +52,7 @@ function checksSheet(evs, colOf) {
       dot.style.background = colOf(r.kind);
       return el("li", { class: "ck-card" },
         el("span", { class: "ck-card__top" }, dot, el("span", { class: "ck-card__kind", text: KIND_NAME[r.kind] || r.kind })),
-        el("span", { class: "ck-card__name", text: SOURCE_NAME[r.feed] || r.feed }),
+        el("span", { class: "ck-card__name", text: FEED_NAMES[r.feed] || r.feed }),
         el("span", { class: "ck-card__foot" }, el("b", { text: String(r.n) }), el("span", { text: r.n === 1 ? "read" : "reads" }), el("span", { class: "ck-card__at", title: "Last read", text: hms(r.at) })));
     })));
   }
@@ -79,15 +75,6 @@ function checksSheet(evs, colOf) {
 // Glance first: its state, three counts, the job it is on, then the queue by urgency and the
 // newest results, each with a word and a shape for how it went (never colour alone).
 const SHEET_TONE = { working: "info", waiting: "caution", queued: "muted", failed: "caution", notrun: "caution", done: "ok", quiet: "muted" };
-const RESULT = {
-  ok: ["ok", "i-check", "Done"], failed: ["caution", "i-alert", "No result"], caution: ["caution", "i-alert", "Not used"],
-  rejected: ["caution", "i-alert", "Not accepted"], tool: ["muted", "i-code", "Tool"], info: ["muted", "i-info", "Note"], quiet: ["muted", "i-info", "Note"],
-};
-// What a step says decides its badge before its trace level does: a plan the checks refused is
-// logged at info level, and a tool call is a step on the way, not a result.
-const REFUSED = /did not accept|failed the checks|gave no result|no result|not accepted|AI UNAVAILABLE/i;
-const TOOLISH = /^(Used the .+ tool|Flight planner (looked up|checked|priced))/;
-const resultKind = (x) => (REFUSED.test(x.text) ? "rejected" : TOOLISH.test(x.text) ? "tool" : x.tone);
 const JOB = /^Plan (\S+) \(([^)]+)\): (.+)$/;
 const plainCase = (text) => (/[a-z]/.test(text) ? text : text.charAt(0) + text.slice(1).toLowerCase());
 const jobMinutes = (where) => (/inside/i.test(where) ? 0 : Number((where.match(/in (\d+) min/) || [])[1] ?? Infinity));

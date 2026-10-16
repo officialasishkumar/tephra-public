@@ -512,7 +512,7 @@ def test_a_recording_may_be_large_but_other_bodies_stay_small(client: TestClient
     assert client.post("/api/desk/ask", content=b"x" * 20_000).status_code == 413
 
 
-@pytest.mark.parametrize("path", ["/", "/desk"])
+@pytest.mark.parametrize("path", ["/", "/demo", "/desk", "/onboard", "/workspace"])
 def test_pages_are_html_with_csp(client: TestClient, path: str) -> None:
     response = client.get(path)
     assert response.status_code == 200
@@ -532,9 +532,9 @@ def test_pages_touch_the_disk_off_the_event_loop(
         return is_file(path)
 
     monkeypatch.setattr(Path, "is_file", spy)
-    for path in ("/", "/desk"):
+    for path in ("/", "/demo", "/desk"):
         assert client.get(path).status_code == 200
-    assert on_loop == [False, False]
+    assert on_loop == [False, False, False]
 
 
 def test_state_is_labelled_fictional_and_no_model(client: TestClient) -> None:
@@ -557,12 +557,19 @@ def test_the_guide_page_is_served_with_the_page_headers(client: TestClient) -> N
     assert '<script type="module" src="/static/guide.js"></script>' in response.text
 
 
-def test_the_assistant_page_is_the_wall_page(client: TestClient) -> None:
-    """/assistant serves the Wall's page; page-mode.js shows the board there (UI-DESIGN 7.27)."""
+def test_home_is_its_own_page_and_the_demo_is_the_wall_s(client: TestClient) -> None:
+    home = client.get("/")
+    assert home.status_code == 200
+    assert '<script type="module" src="/static/home.js"></script>' in home.text
+    assert '<script src="/static/page-mode.js"></script>' in client.get("/demo").text
+
+
+def test_the_assistant_page_is_the_demo_page(client: TestClient) -> None:
+    """/assistant serves the demo's page; page-mode.js shows the board there (UI-DESIGN 7.27)."""
     response = client.get("/assistant")
     assert response.status_code == 200
     assert response.headers["content-security-policy"] == CONTENT_SECURITY_POLICY
-    assert response.text == client.get("/").text
+    assert response.text == client.get("/demo").text
     assert '<script src="/static/page-mode.js"></script>' in response.text
 
 

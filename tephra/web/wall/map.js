@@ -4,7 +4,7 @@
 
 import { addExtLayers, updateExtLayers, setExtVisible } from "./ext-map.js";
 import { addImages, flightGroupImage } from "./images.js";
-import { STYLE_URL, nightBasemap, nightColours } from "./basemap.js";
+import { STYLE_URL, nightBasemap, nightColours, mapTokens } from "./basemap.js";
 import { officialLabelText, tephraLabelText, LEVEL_MAX } from "./derive.js";
 import { GASES_SCOPE_SHORT } from "./glossary.js";
 import {
@@ -56,7 +56,7 @@ export function gibsTime(nowMs, mode, back = 0) {
 export const so2Date = (nowMs, mode) => new Date(nowMs - (mode === "LIVE" ? 86400e3 : 7 * 3600e3)).toISOString().slice(0, 10);
 
 export function readTokens() {
-  const css = getComputedStyle(document.documentElement);
+  const css = mapTokens();
   const tok = (name) => css.getPropertyValue(name).trim();
   return {
     official: tok("--c-official"), officialText: tok("--c-official-text"),
@@ -912,8 +912,10 @@ export class WallMap {
   safeInsets() {
     const phone = window.innerWidth <= 600;
     if (phone) return { top: 40, bottom: 56, left: 24, right: 24 };
-    const ctrls = this.container.querySelector(".maplibregl-ctrl-bottom-right");
-    const w = ctrls ? ctrls.getBoundingClientRect().width : 0;
+    // the controls column, not the credit line beside it at the foot (a narrow map's credit spans
+    // half its width, and counting it squeezed the framed area to a sliver)
+    const ctrls = [...(this.container.querySelector(".maplibregl-ctrl-bottom-right")?.children || [])].filter((c) => !c.classList.contains("maplibregl-ctrl-attrib"));
+    const w = Math.max(0, ...ctrls.map((c) => c.getBoundingClientRect().width));
     // the map key sits on the map's top left: a framed area keeps clear of it
     const key = document.getElementById("legend");
     const kr = key && !key.hidden && this.container.closest(".map-pane")?.contains(key) ? key.getBoundingClientRect() : null;

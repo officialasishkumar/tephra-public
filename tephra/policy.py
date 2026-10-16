@@ -18,5 +18,6 @@ an affected area, but no code reads a preset, so a B file would change labels, n
 behaviour; Policy B waits for code that gates over, under and through by preset."""
 
 
-def load_policy(data_dir: Path) -> OperatorPolicy:
-    return OperatorPolicy.model_validate_json((data_dir / POLICY_FILE).read_bytes())
+def load_policy(data_dir: Path, policy_file: str | Path = POLICY_FILE) -> OperatorPolicy:
+    """``policy_file`` is relative to ``data_dir`` (``Settings.policy_file``, checked there)."""
+    return OperatorPolicy.model_validate_json((data_dir / policy_file).read_bytes())

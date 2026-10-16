@@ -1,12 +1,23 @@
-"""Feature flags on the Wall (SPEC §5.3, §6 D3): one mechanism, ``wall/features.js``, read by the
-Wall, the Guide and Connect (the Desk's own import is T11's test); every string a hidden feature
-owns sits on a line guarded by ``has("...")`` or a ``feature:`` tag, and the pinned strings stay."""
+"""Feature flags (SPEC §5.3, §6 D3; SPEC-v2 3.1): one mechanism, ``wall/features.js``, read by the
+demo, the Guide, Home, onboarding and the workspace (the Desk's own import is T11's test); a nav
+link names its feature in ``data-feature``; every string a hidden feature owns sits on a line
+guarded by ``has("...")`` or a ``feature:`` tag, and the pinned strings stay."""
 
 import re
 from pathlib import Path
 
 WEB = Path(__file__).resolve().parents[1] / "tephra" / "web"
-FEATURES = ("connect", "crew", "notices", "satellite", "btd", "voice", "example", "present")
+FEATURES = (
+    "connect",
+    "crew",
+    "notices",
+    "satellite",
+    "btd",
+    "voice",
+    "example",
+    "present",
+    "onboard",
+)
 
 # a string of a hidden feature -> (file, the feature its line must consult)
 GUARDED = {
@@ -40,12 +51,22 @@ def test_features_js_is_the_one_mechanism() -> None:
     assert "export function setFeatures(list)" in source
     assert "export const has = (name) => shown.has(name);" in source
     assert "export function applyFeatureNav(root = document)" in source
-    assert '.topnav a[href="/connect"]' in source
-    assert '!has("connect")' in source
+    assert ".topnav a[data-feature]" in source
+    assert '!has(a.dataset.feature) && a.getAttribute("aria-current") !== "page"' in source
+    assert "/connect" not in source
 
 
-def test_the_wall_guide_and_connect_read_the_server_features() -> None:
-    for rel in ("wall.js", "guide.js", "connect.js"):
+def test_the_onboard_nav_link_is_hidden_until_the_features_say_so() -> None:
+    link = '<a href="/onboard" data-feature="onboard" hidden>Onboard</a>'
+    for page in ("home.html", "guide.html", "privacy.html", "doc.html"):
+        html = _read(page)
+        assert link in html, page
+        assert 'href="/connect"' not in html, page
+        assert '<a href="/demo"' in html, page
+
+
+def test_every_page_script_reads_the_server_features() -> None:
+    for rel in ("wall.js", "guide.js", "home.js", "onboard.js", "workspace.js"):
         source = _read(rel)
         assert 'from "./wall/features.js"' in source, rel
         assert "setFeatures(" in source, rel
@@ -101,7 +122,7 @@ def test_the_pinned_strings_stay_in_source() -> None:
 
 def test_the_feature_names_match_the_contract() -> None:
     config = (WEB.parent / "config.py").read_text(encoding="utf-8")
-    names = re.search(r"Feature = Literal\[(.*?)\]", config)
+    names = re.search(r"Feature = Literal\[(.*?)\]", config, re.S)
     assert names
     assert tuple(re.findall(r'"([a-z]+)"', names.group(1))) == FEATURES
     used = set()
@@ -112,7 +133,7 @@ def test_the_feature_names_match_the_contract() -> None:
         "wall/board.js",
         "wall/board-view.js",
     )
-    for rel in (*files, "wall/ext.js", "wall/features.js"):
+    for rel in (*files, "wall/ext.js", "wall/features.js", "home.js", "guide.js"):
         used.update(re.findall(r'(?<![.\w])has\("([a-z]+)"\)', _read(rel)))
         used.update(re.findall(r'feature: "([a-z]+)"', _read(rel)))
     assert used <= set(FEATURES), used - set(FEATURES)

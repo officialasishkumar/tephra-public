@@ -60,7 +60,7 @@ def main() -> int:
     parser.add_argument(
         "--url", required=True, help="TEPHRA's address, e.g. https://tephra.example"
     )
-    parser.add_argument("--key", required=True, help="the connection key from the Connect page")
+    parser.add_argument("--key", required=True, help="the key from the Desk's Data connections")
     parser.add_argument("--every", type=float, default=5.0, help="seconds between pushes")
     parser.add_argument("--minutes", type=float, default=30.0, help="stop after this long")
     args = parser.parse_args()

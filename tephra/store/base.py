@@ -52,6 +52,8 @@ class Collection(StrEnum):
     DUTY = "duty"  # run id -> DutyRun
     CREW_REPORTS = "crew_reports"  # report id -> CrewReport (entered on the Desk)
     CONNECTIONS = "connections"  # connection id -> Connection (airline data pushed in)
+    AIRLINES = "airlines"  # airline id -> AirlineRecord (private: the airline and dispatchers)
+    AIRLINE_LOGINS = "airline_logins"  # login key -> AirlineLogin (credentials; never returned)
     OUTBOUND = "outbound"  # message id -> OutboundMessage
     AUDIT = "audit"  # entry id -> AuditEntry (append-only)
     FEED_STATE = "feed_state"  # FeedId value -> FeedHealth
@@ -110,6 +112,11 @@ class Store(Protocol):
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """All filters are ANDed. Implementations may filter or sort in memory."""
+        ...
+
+    async def count(self, collection: str, where: Sequence[Where] = ()) -> int:
+        """How many documents match (filters ANDed), counted without reading them where the
+        backend can: a capacity check must not cost a read per document."""
         ...
 
     async def update(

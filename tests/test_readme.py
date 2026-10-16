@@ -109,3 +109,12 @@ def test_readme_mermaid_labels_are_quoted() -> None:
                     problems.append(stripped)
                     break
     assert not problems, problems
+
+
+def test_the_own_tephra_limits_are_said_where_onboarding_is() -> None:
+    """An airline's own TEPHRA still drafts under Ring of Fire Air numbers, and the shared site
+    does not run a verified airline's operation: the README says both beside the offer."""
+    section = _readme().split("### Run it for your airline", 1)[1].split("**How to onboard", 1)[0]
+    flat = " ".join(section.split())
+    assert "name each flight by a Ring of Fire Air number" in flat
+    assert "live operation on the shared site is not built" in flat

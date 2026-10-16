@@ -99,7 +99,7 @@ def runtime_for(
     case_id: str, settings: Settings, store: Store, llm: Any, ledger: QuotaLedger
 ) -> Runtime:
     case = load_case(settings.data_dir, case_id)
-    policy = load_policy(settings.data_dir)
+    policy = load_policy(settings.data_dir, settings.policy_file)
     runtime = Runtime(
         settings=settings,
         store=store,

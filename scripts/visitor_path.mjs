@@ -6,12 +6,13 @@
 //   TEPHRA_FEATURES=all TEPHRA_VISITOR_ACCESS=replay uv run tephra
 //   PLAYWRIGHT_NODE_MODULES=... node scripts/visitor_path.mjs --base http://127.0.0.1:8121 --out /tmp/visitor-shots
 //
-// Steps: "/" has no console error in 5 s, a title starting with REPLAY, the "Replay clock" label,
+// Steps: "/demo?intro=0" (the demo, its welcome dialog skipped) has no console error in 5 s, a
+// title starting with REPLAY, the "Replay clock" label,
 // a painted map canvas and survives a 1440 -> 1300 resize; Details > Runs on, Track record and
 // How TEPHRA decided render without "undefined" or "NaN"; "/desk" -> "Enter as a visitor" -> the
 // review sheet with the hold button -> approve (hold) or reject (--decision reject, or when the
 // draft cannot be approved) -> the receipt; GET /api/audit?limit=1 shows seq and a visitor actor;
-// POST /api/mode as the visitor answers 403; screenshots of "/" and "/desk" at 1440x900, 1280x720
+// POST /api/mode as the visitor answers 403; screenshots of "/demo" and "/desk" at 1440x900, 1280x720
 // and 390x844 into --out. --cap also makes decisions until the visitor cap answers 429.
 // Exit 1 on any failure, 2 when the server is not a REPLAY with visitor access.
 
@@ -78,7 +79,7 @@ const SIZES = [[1440, 900], [1280, 720], [390, 844]];
   const errs = [];
   page.on("pageerror", (e) => errs.push(e.message));
   page.on("console", (m) => { if (m.type() === "error") errs.push(m.text()); });
-  await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${BASE}/demo?intro=0`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(5000);
   if (errs.length) fail("wall", `console error in the first 5 s: ${errs[0]}`); else pass("wall", "no console error in 5 s");
   const title = await page.title();
@@ -108,7 +109,7 @@ const SIZES = [[1440, 900], [1280, 720], [390, 844]];
     await page.click("#details-back");
     await page.waitForTimeout(300);
   }
-  await page.keyboard.press("Escape");
+  await page.click("#assist-tab");
   for (const [w, h] of SIZES) {
     await page.setViewportSize({ width: w, height: h });
     await page.waitForTimeout(1200);

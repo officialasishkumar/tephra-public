@@ -238,7 +238,7 @@ def _llm_for(arm: Arm, settings: Settings, max_calls: int) -> LlmBackend:
 
 
 def _runtime(case: ReplayCase, settings: Settings, llm: LlmBackend, work: Path) -> Runtime:
-    policy = load_policy(settings.data_dir)
+    policy = load_policy(settings.data_dir, settings.policy_file)
     return Runtime(
         settings=settings,
         store=SqliteStore(work / "backtest.sqlite3", work / "blobs"),

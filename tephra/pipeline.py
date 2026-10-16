@@ -60,6 +60,7 @@ from tephra.config import (
     AIRLINE_CODE,
     AIRLINE_NAME,
     DISCLAIMER,
+    MAX_HORIZON_H,
     NO_MODEL_LABEL,
     Settings,
     apply_process_env,
@@ -102,6 +103,7 @@ from tephra.feeds.volcanoes import VolcanoCatalogue, load_volcanoes
 from tephra.feeds.winds import fetch_winds
 from tephra.geo.cone import build_cone, geometry_to_shape
 from tephra.geo.exposure import find_exposed
+from tephra.geo.fleet import ALL_AIRCRAFT, FleetFilter
 from tephra.geo.reroute import coordinate_text
 from tephra.geo.units import deg_to_compass, distance_nm, ft_to_fl, haversine_km
 from tephra.models import (
@@ -143,6 +145,7 @@ from tephra.models import (
     MissingReason,
     OperatorPolicy,
     Overlays,
+    OwnFleet,
     PlanLine,
     PlannedAction,
     PlannerContext,
@@ -198,6 +201,7 @@ from tephra.reconcile.discrepancies import (
 )
 from tephra.recovery import decisions as recovery_decisions
 from tephra.recovery.agent import recommend_recovery
+from tephra.recovery.closures import find_closures
 from tephra.recovery.models import Closure, Schedule
 from tephra.recovery.network import network_closures, run_lock
 from tephra.recovery.schedule import ScheduleError, load_schedule
@@ -228,7 +232,7 @@ logger = logging.getLogger(__name__)
 CHECKPOINT_S: Final = 300.0
 PUSH_LOG_SIZE: Final = 400
 CONNECT_LIVE_S: Final = 60
-"""Pushes the Connect page's rates and ticker are worked out from (5 min of the sample feed)"""
+"""Seconds a pushed flight stays in ``GET /api/connect/live``'s dots"""
 MODEL_ACCESS: Final = {"gemini": "gemini-api", "ollama": "ollama-local", "stub": "none"}
 """Details > Runs on: how this process reaches its models"""
 WRITER_DOC: Final = "writer"
@@ -304,6 +308,8 @@ class Runtime:
     auto_replay: bool
     ledger: QuotaLedger | None = None
     """The day's model-call counts; ``create_runtime`` shares one with the Gemini backend"""
+    fleet: FleetFilter = ALL_AIRCRAFT
+    """Which aircraft enter exposure (an airline's own TEPHRA); every aircraft by default"""
     policy_summary: PolicySummary = field(init=False)
     live: LiveData = field(init=False, default_factory=LiveData)
     lock: asyncio.Lock = field(init=False, default_factory=asyncio.Lock, repr=False)
@@ -350,7 +356,7 @@ class Runtime:
     push_log: "deque[PushSummary]" = field(
         init=False, default_factory=lambda: deque(maxlen=PUSH_LOG_SIZE), repr=False
     )
-    """The newest pushes taken (no dots), for the Connect page after a reload"""
+    """The newest pushes taken (no dots), for ``GET /api/connect/live``"""
     """This picture's open failures were read back from the store (``_follow_failures``)"""
     _unexposed_since: dict[str, datetime] = field(init=False, default_factory=dict)
     """flight id -> since when an open draft's flight is seen outside every cone"""
@@ -369,6 +375,8 @@ class Runtime:
     _quiet_ticks: int = field(init=False, default=0)
     _closed_airports: frozenset[str] | None = field(init=False, default=None)
     """RFA-network airports with a closure now or in the horizon, at the last recovery run"""
+    _own_closed: frozenset[str] = field(init=False, default=frozenset())
+    """``TEPHRA_NETWORK_AIRPORTS`` with a closure now or in the horizon (``update_own_closures``)"""
     recovery_due: RecoveryDue | None = field(init=False, default=None)
     """A changed set of closed airports, waiting for the Duty Officer to dispatch recovery"""
     assess_due: dict[str, str] = field(init=False, default_factory=dict)
@@ -740,7 +748,7 @@ class Runtime:
         self.trace(TraceStage.DESK, "system", DESK_UNREACHABLE_NOTE, level="error")
 
     def _expose(self, cones: Iterable[HazardCone], at: datetime) -> dict[str, ExposedFlight]:
-        aircraft = self.aircraft()
+        aircraft = self.exposure_aircraft()
         exposed: dict[str, ExposedFlight] = {}
         for cone in cones:
             for flight in find_exposed(
@@ -922,7 +930,7 @@ class Runtime:
             at=at,
             replay=self.mode is RunMode.REPLAY,
             replay_case_id=self._replay_case_id(),
-            aircraft=self.aircraft(),
+            aircraft=self.exposure_aircraft(),
             replay_run_since=self._replay_run_wall if self.mode is RunMode.REPLAY else None,
             layers=layers,
             lookahead_min=self.settings.exposure_lookahead_min,
@@ -1372,6 +1380,13 @@ class Runtime:
                 merged[target.hex] = target
         return [merged[key] for key in sorted(merged)]
 
+    def exposure_aircraft(self) -> list[Aircraft]:
+        """The aircraft checked against the ash: every one unless the own-fleet filter is set."""
+        return [target for target in self.aircraft() if self.fleet.admits(target)]
+
+    def own_fleet(self) -> OwnFleet | None:
+        return self.fleet.own_fleet()
+
     # --- airline data connections (tephra.desk.connections) -------------------------------
 
     async def take_push(
@@ -1458,9 +1473,7 @@ class Runtime:
         try:
             entry = CrewEntry.model_validate(raw)
         except ValidationError as exc:
-            first = exc.errors()[0]
-            where = ".".join(str(part) for part in first.get("loc", ())) or "report"
-            return f"{where}: {first.get('msg', 'invalid')}"
+            return connections.refusal(exc, "report")
         key = f"{connection.id}|{entry.hex or entry.callsign}|{timeutil.to_iso(entry.observed_at)}"
         if key in self._report_keys:
             return None
@@ -1472,7 +1485,7 @@ class Runtime:
         return None
 
     def connect_live(self) -> ConnectLive:
-        """The Connect page's whole picture now: every pushed flight updated in the last
+        """``GET /api/connect/live``'s whole picture now: every pushed flight updated in the last
         :data:`CONNECT_LIVE_S` (the analysis keeps them for ``PUSH_FRESH_S``), each connection's
         flow over the last 5 minutes (wall clock) and the newest pushes."""
         wall = timeutil.SystemClock().now()
@@ -1656,8 +1669,27 @@ class Runtime:
         )
 
     def closed_now(self) -> frozenset[str]:
-        """The airports the current airport plan closes (empty before one is made)."""
-        return self._closed_airports or frozenset()
+        """The airports the current airport plan closes (empty before one is made), and the
+        airline's own airports with a closure (``TEPHRA_NETWORK_AIRPORTS``)."""
+        return (self._closed_airports or frozenset()) | self._own_closed
+
+    async def update_own_closures(self, at: datetime) -> None:
+        """Closures, now or within the horizon, of the airline's own airports, by code only.
+        Nothing is planned or asked of a model; the RFA recovery bookkeeping is untouched."""
+        own = self.settings.network_airports
+        if not own:
+            return
+        closures = find_closures(
+            [airport for airport in self.airports.all() if airport.icao in own],
+            cones=list(self.cones.values()),
+            layers=[layer for s in self.situations.values() for layer in s.official_layers],
+            tafs=self.live.tafs,
+            metars=self.live.metars,
+            at=at,
+            horizon_end=at + timedelta(hours=MAX_HORIZON_H),
+            policy=self.policy,
+        )
+        self._own_closed = frozenset(closure.icao for closure in closures)
 
     def take_plans(self, plans: Sequence[PushedFlightPlan], at: datetime) -> None:
         for plan in plans:
@@ -2067,7 +2099,8 @@ class Runtime:
                 "not this replay's volcano"
                 if outside_case
                 else "no CAUTION or WARNING discrepancy, no HYPOTHESIS case and no airline"
-                f" aircraft seen within {self.settings.adsb_radius_nm} NM"
+                f" aircraft{'' if self.fleet.everyone else ' of the own fleet'} seen within"
+                f" {self.settings.adsb_radius_nm} NM"
             )
             self.trace(
                 TraceStage.PLUME,
@@ -2256,7 +2289,7 @@ class Runtime:
         radius = self.settings.adsb_radius_nm
         return any(
             target.airline and distance_nm(vent.lat, vent.lon, target.lat, target.lon) <= radius
-            for target in self.aircraft()
+            for target in self.exposure_aircraft()
         )
 
     async def _images(self, situation: Situation) -> list[LlmPart]:
@@ -3091,7 +3124,7 @@ class Runtime:
 async def create_runtime(settings: Settings) -> Runtime:
     """Build the process-wide runtime (composition root; settings come from the caller)."""
     apply_process_env(settings)
-    policy = await asyncio.to_thread(load_policy, settings.data_dir)
+    policy = await asyncio.to_thread(load_policy, settings.data_dir, settings.policy_file)
     catalogue = await asyncio.to_thread(load_volcanoes, settings.data_dir)
     airports = await asyncio.to_thread(
         load_airports, settings.data_dir, min_runway_m=policy.alternates.min_runway_m.value
@@ -3128,6 +3161,7 @@ async def create_runtime(settings: Settings) -> Runtime:
         replay_case=replay_case,
         auto_replay=False,
         ledger=ledger,
+        fleet=FleetFilter.from_settings(settings),
     )
     runtime.replay_window = window
     await runtime.restore_crew_reports()

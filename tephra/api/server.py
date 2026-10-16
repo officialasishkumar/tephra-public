@@ -1,4 +1,5 @@
-"""The FastAPI app: Wall and Desk pages, the read API, desk decisions, SSE and the tick task.
+"""The FastAPI app: the read API, desk decisions, SSE and the tick task (the pages are
+``tephra.api.routes_pages``).
 
 Routes and JSON shapes are the contract in MODULES.md section 8. Every body is a model from
 ``tephra.models`` dumped in JSON mode; every error is an ``ErrorBody`` and never carries a
@@ -24,7 +25,7 @@ from typing import Annotated, Any, Final, Self
 
 from fastapi import APIRouter, Depends, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.datastructures import Headers, MutableHeaders
@@ -33,6 +34,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tephra import __version__
+from tephra.airline.sessions import THROTTLES as AIRLINE_THROTTLES
 from tephra.api import ApiError
 from tephra.api.auth import (
     LoginThrottle,
@@ -51,8 +53,17 @@ from tephra.api.auth import (
     sign_session,
     wall_clock_now,
 )
+from tephra.api.routes_pages import WEB_DIR
+from tephra.api.routes_pages import router as pages
 from tephra.api.sse import EventStreamResponse, StreamSlots, event_stream, parse_last_event_id
-from tephra.config import MAX_BODY_BYTES, MAX_NOTICE_BODY_BYTES, Settings, get_settings
+from tephra.config import (
+    MAX_BODY_BYTES,
+    MAX_NOTICE_BODY_BYTES,
+    MAX_ONBOARD_BODY_BYTES,
+    MAX_PUSH_BODY_BYTES,
+    Settings,
+    get_settings,
+)
 from tephra.desk import approvals, audit, failures
 from tephra.feeds.routes import route_features
 from tephra.models import (
@@ -98,7 +109,6 @@ __all__ = ["CONTENT_SECURITY_POLICY", "WEB_DIR", "configure_logging", "create_ap
 
 logger = logging.getLogger(__name__)
 
-WEB_DIR: Final = Path(__file__).resolve().parent.parent / "web"
 CONTENT_SECURITY_POLICY: Final = "; ".join(
     [
         "default-src 'self'",
@@ -130,6 +140,10 @@ DESK_PERMISSIONS_POLICY: Final = "camera=(), microphone=(self), geolocation=()"
 """Only the Desk page may ask for the microphone (push-to-talk in Ask TEPHRA)."""
 VOICE_PATH: Final = "/api/desk/ask/voice"
 NOTICE_PATH: Final = "/api/desk/notices"
+ONBOARD_PATHS: Final = frozenset({"/api/airline/accounts", "/api/airline/answers"})
+PUSH_BODY_PATHS: Final = frozenset(
+    {"/api/push/positions", "/api/desk/upload", "/api/airline/feeds/dry-run"}
+)
 SECURITY_HEADERS: Final = {
     "content-security-policy": CONTENT_SECURITY_POLICY,
     "x-content-type-options": "nosniff",
@@ -156,7 +170,6 @@ GZIP_MIN_BYTES: Final = 1024
 REASON_ACTIONS: Final = frozenset({ActionKind.CONTINUE, ActionKind.MONITOR})
 """Advice that keeps a flight on a route a crew report flags: approving it needs a reason."""
 _ADVISORY_ID = re.compile(r"adv_[0-9a-f]{12}")
-_PRINT_DOC_ID = re.compile(r"(?:DOC-|ho_)[0-9a-f]{12}")
 _FAILURE_ID = re.compile(r"AIF-[0-9a-f]{1,64}")
 _BLOB_KEY = re.compile(BLOB_KEY_PATTERN)
 _CASE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
@@ -331,67 +344,13 @@ def _desk_name(raw: str) -> str:
     return name
 
 
-# --- pages ------------------------------------------------------------------------------
+# --- health ---------------------------------------------------------------------------
 
-pages = APIRouter()
-
-
-async def _page(filename: str) -> FileResponse:
-    path = WEB_DIR / filename
-    if not await asyncio.to_thread(path.is_file):
-        raise ApiError(404, "not_found", "Page not installed")
-    return FileResponse(path, media_type="text/html; charset=utf-8")
+health = APIRouter()
 
 
-@pages.get("/", include_in_schema=False)
-async def wall_page() -> FileResponse:
-    return await _page("index.html")
-
-
-@pages.get("/assistant", include_in_schema=False)
-async def assistant_page() -> FileResponse:
-    """The TEPHRA Assistant board as a page of its own: the Wall's page, which page-mode.js
-    switches to the board."""
-    return await _page("index.html")
-
-
-@pages.get("/desk", include_in_schema=False)
-async def desk_page() -> FileResponse:
-    return await _page("desk.html")
-
-
-@pages.get("/connect", include_in_schema=False)
-async def connect_page() -> FileResponse:
-    return await _page("connect.html")
-
-
-@pages.get("/guide", include_in_schema=False)
-async def guide_page() -> FileResponse:
-    return await _page("guide.html")
-
-
-@pages.get("/privacy", include_in_schema=False)
-async def privacy_page() -> FileResponse:
-    return await _page("privacy.html")
-
-
-@pages.get("/robots.txt", include_in_schema=False)
-async def robots_txt() -> Response:
-    """The live ash desk is a demo: no search engine should index or follow it."""
-    return Response("User-agent: *\nDisallow: /\n", media_type="text/plain; charset=utf-8")
-
-
-@pages.get("/docs/{doc_id}", include_in_schema=False)
-async def doc_page(doc_id: str) -> FileResponse:
-    """The printable page for an SRA/VAR draft (DOC-...) or a shift handover (ho_...). The page
-    reads the id from the last path segment and fetches the JSON itself."""
-    if _PRINT_DOC_ID.fullmatch(doc_id) is None:
-        raise ApiError(404, "not_found", "No such document")
-    return await _page("doc.html")
-
-
-@pages.get("/health", response_model=Health)
-@pages.get("/healthz", response_model=Health)
+@health.get("/health", response_model=Health)
+@health.get("/healthz", response_model=Health)
 async def healthz(runtime: RuntimeDep) -> Response:
     """``/health`` is the one to probe on Cloud Run, whose front end answers ``/healthz``
     itself with a 404 (Google reserves URL paths ending in z); ``/healthz`` stays for local
@@ -1038,11 +997,16 @@ class HttpGuardMiddleware:
             _log_request(scope, status, time.perf_counter() - started)
 
     def _limit(self, path: str) -> int:
-        """A recording may be about a megabyte, a pasted notice a few dozen kilobytes."""
+        """A recording may be about a megabyte, a pasted notice a few dozen kilobytes, an
+        airline's answers up to 128 KiB and a push (sent, uploaded or dry-run) up to 512 KiB."""
         if path == VOICE_PATH:
             return self.upload_bytes
         if path == NOTICE_PATH:
             return MAX_NOTICE_BODY_BYTES
+        if path in ONBOARD_PATHS:
+            return MAX_ONBOARD_BODY_BYTES
+        if path in PUSH_BODY_PATHS:
+            return MAX_PUSH_BODY_BYTES
         return MAX_BODY_BYTES
 
 
@@ -1247,6 +1211,7 @@ def _include_feature_routers(app: FastAPI) -> None:
     """The feature routers import the dependencies above, so they are imported here, not at the
     top of the module (a top-level import would be circular)."""
     from tephra.api import (
+        routes_airline,
         routes_ask,
         routes_backtest,
         routes_chain,
@@ -1272,6 +1237,7 @@ def _include_feature_routers(app: FastAPI) -> None:
         routes_connect,
         routes_chain,
         routes_evals,
+        routes_airline,
     ):
         app.include_router(module.router, prefix="/api")
 
@@ -1296,6 +1262,8 @@ def create_app(
         max_failures=VISITOR_MINTS_PER_WINDOW, window_s=VISITOR_MINT_WINDOW_S
     )
     app.state.visitor_decisions = Counter[str]()
+    for name, (attempts, window_s) in AIRLINE_THROTTLES.items():
+        setattr(app.state, name, LoginThrottle(max_failures=attempts, window_s=window_s))
     app.state.event_streams = StreamSlots(settings.max_event_streams)
     _install_error_handlers(app)
     # Starlette's GZip skips text/event-stream, images and woff2 by default, so the SSE stream is
@@ -1303,6 +1271,7 @@ def create_app(
     # response, including the 413 it sends itself.
     app.add_middleware(GZipMiddleware, minimum_size=GZIP_MIN_BYTES)
     app.add_middleware(HttpGuardMiddleware, upload_bytes=settings.max_upload_bytes)
+    app.include_router(health)
     app.include_router(pages)
     app.include_router(read_api)
     app.include_router(desk_api)

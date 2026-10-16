@@ -1,4 +1,5 @@
-"""Airline data connections: the push format, keys, the Connect API and the sample feed."""
+"""Airline data connections: the push format, keys, the push API and the sample feed (the Connect
+page folded into onboarding: ``/connect`` redirects)."""
 
 import asyncio
 from dataclasses import replace
@@ -161,9 +162,8 @@ def test_the_connect_api_end_to_end(client: TestClient) -> None:
     assert "attachment" in sample.headers["content-disposition"]
     assert sample.json()["format"] == AIRLINE_FORMAT
     assert sample.json()["positions"]
-    page = client.get("/connect")
-    assert page.status_code == 200
-    assert '<script type="module" src="/static/connect.js"></script>' in page.text
+    page = client.get("/connect", follow_redirects=False)
+    assert (page.status_code, page.headers["location"]) == (307, "/onboard")
 
     assert client.get("/api/desk/connections").status_code == 401
     login = client.post("/api/desk/login", json={"name": "Ana K", "pin": PIN})

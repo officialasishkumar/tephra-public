@@ -669,7 +669,7 @@ def test_the_frame_strip_says_replay_once_with_the_case_in_its_tooltip(tmp_path:
     the same function; the case title and an automatic switch are in its tooltip and, for screen
     readers, after the visible words."""
     strip = _xparts(tmp_path)["strip"]
-    assert strip["text"] == "Replay · recorded feeds from 05 Sep 2026"
+    assert strip["text"] == "Replay · feeds rebuilt from archives, from 05 Sep 2026"
     assert strip["live"] == " · not live"
     assert strip["title"] == (
         "REPLAY: recorded real feeds from 05 Sep 2026 · not live · Anak Krakatau (reconstructed)"
@@ -861,20 +861,24 @@ def test_an_airline_push_is_a_read_of_aircraft_on_the_board(tmp_path: Path) -> N
 
 
 def test_the_assistant_is_a_page_not_a_dialog() -> None:
-    """/assistant shows the board in place of the Wall (UI-DESIGN 7.27): page-mode.js marks the
-    page before it draws, the board is shown non-modal, and from the Wall its chip, key and links
-    go to the page; every page's nav links it."""
+    """/assistant shows the board in place of the demo (UI-DESIGN 7.27): page-mode.js marks the
+    page before it draws (dark, whatever the theme), the board is shown non-modal, and on the demo
+    its key and links select the side panel's Assistant tab, whose "Open as a page" link goes to
+    the board; every page's nav links it."""
     wall = (WALL.parent / "wall.js").read_text(encoding="utf-8")
     opener = wall[wall.index("function openBoard() {") :]
     opener = opener[: opener.index("\n}\n")]
-    assert 'if (!ASSISTANT_PAGE) { location.assign("/assistant"); return; }' in opener
+    assert "if (!ASSISTANT_PAGE) { showAssist({ focus: true }); return; }" in opener
     assert "dlg.show();" in opener
     assert "showModal" not in opener
     mode = (WALL.parent / "page-mode.js").read_text(encoding="utf-8")
-    assert '=== "/assistant" ? "assistant" : "wall"' in mode
+    assert '= assistant ? "assistant" : "wall"' in mode
+    assert 'if (assistant) document.documentElement.dataset.theme = "dark";' in mode
     index = (WALL.parent / "index.html").read_text(encoding="utf-8")
     assert index.index('<script src="/static/page-mode.js"></script>') < index.index("wall.css")
-    for page in ("index.html", "desk.html", "connect.html", "guide.html"):
+    assert 'id="assist-page"' in index
+    assert 'href="/assistant"' in index
+    for page in ("index.html", "desk.html", "guide.html"):
         html = (WALL.parent / page).read_text(encoding="utf-8")
         assert '<a href="/assistant">Assistant</a>' in html, page
     assert "board-close" not in (WALL / "board-view.js").read_text(encoding="utf-8")

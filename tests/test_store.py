@@ -82,6 +82,15 @@ async def test_query_order_and_limit(store: SqliteStore) -> None:
     assert [doc["id"] for doc in listed] == ["a", "b", "c", "d"]
 
 
+async def test_count_matches_the_query(store: SqliteStore) -> None:
+    await _seed(store)
+    assert await store.count("things") == 4
+    assert await store.count("things", [Where("kind", "==", "VONA")]) == 2
+    assert await store.count("things", [Where("kind", "==", "VONA"), Where("n", ">", 2)]) == 1
+    assert await store.count("things", [Where("kind", "in", [])]) == 0
+    assert await store.count("nothing") == 0
+
+
 async def test_query_rejects_unsafe_field_names(store: SqliteStore) -> None:
     with pytest.raises(ValueError, match="field name"):
         await store.query("things", [Where("n') OR 1=1 --", "==", 1)])

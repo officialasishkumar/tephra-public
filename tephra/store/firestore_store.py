@@ -31,6 +31,8 @@ MAX_INDEXED_STRING: Final = 256
 MAX_IN_VALUES: Final = 30
 INDEXED_ONLY: Final[Mapping[str, frozenset[str]]] = {
     Collection.AI_ANSWERS: frozenset({"expires_at"}),
+    Collection.AIRLINES: frozenset({"status", "submitted_at"}),
+    Collection.AIRLINE_LOGINS: frozenset(),
 }
 """Collections read by key and queried on a few fields only: just those fields are copied
 beside the JSON text (Firestore indexes every copied field on every write)."""
@@ -144,6 +146,20 @@ class FirestoreStore(Store):
         if order_by is not None and not plan.server_order:
             docs.sort(key=lambda doc: _sort_key(doc.get(order_by), descending), reverse=descending)
         return docs[: max(0, limit)]
+
+    async def count(self, collection: str, where: Sequence[Where] = ()) -> int:
+        """A count aggregation (one read per 1,000 matches) when every filter runs on the
+        server; otherwise the documents are read and counted."""
+        plan = plan_query(where, None)
+        if plan.memory:
+            return len(await self.query(collection, where, limit=2**31 - 1))
+        query = self._db.collection(str(collection))
+        filter_type = self._firestore.FieldFilter
+        for item in plan.server:
+            value = [_plain(v) for v in item.value] if item.op == "in" else _plain(item.value)
+            query = query.where(filter=filter_type(item.field, item.op, value))
+        results = await query.count(alias="n").get()
+        return int(results[0][0].value)
 
     async def update(
         self,

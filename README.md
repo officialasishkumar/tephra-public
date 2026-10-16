@@ -31,7 +31,7 @@ TEPHRA_LLM=stub uv run pytest                        # no network, no model
 TEPHRA_LLM=stub TEPHRA_LOCAL_SCHEDULER=1 TEPHRA_DESK_PIN=1234 TEPHRA_MODE=REPLAY \
   TEPHRA_REPLAY_CASE=anak-krakatau-20260905 TEPHRA_REPLAY_START=2026-09-05T10:30:00Z \
   TEPHRA_REPLAY_END=2026-09-05T19:30:00Z uv run tephra
-# Wall http://localhost:8080/ · Desk http://localhost:8080/desk (PIN 1234) · Guide /guide
+# Demo http://localhost:8080/demo · Desk http://localhost:8080/desk (PIN 1234) · Guide /guide · Onboard /onboard
 ```
 
 The demo Desk accepts a visitor sign-in from its sign-in card; visitor decisions are real, audited and
@@ -251,9 +251,9 @@ which can feed a collaborative decision-making platform like Indonesia's I-WISH,
 
 One instance today, on purpose: the event bus behind the streams is in process, and one pipeline is
 the single writer of the picture, the drafts and the hash-chained record. For many airlines the bus
-would become a store-backed event feed any instance can stream from, one writer per region would run
-the tick, and each airline would get its own policy file under `data/policy/` and its own desk over
-the same public picture. None of this is built.
+would become a store-backed event feed any instance can stream from, and one writer per region would
+run the tick. Each airline can already run its own TEPHRA with its own fleet and policy file
+(`/onboard`); one shared service with a desk per airline over the same public picture is not built.
 
 Model cost is gated off the tick: a daily budget per model and quota day, counted in the store
 before every attempt; routine work paced through the day; answers kept by the content of their
@@ -306,20 +306,45 @@ Every setting is in [`.env.example`](.env.example). The ones that matter first:
 | `TEPHRA_MODE`, `TEPHRA_REPLAY_CASE`, `TEPHRA_REPLAY_START`, `TEPHRA_REPLAY_END`, `TEPHRA_REPLAY_QUANTUM_S` | `LIVE`, or a labelled `REPLAY` of a case under `data/replay/` looping over a window; the replay minute, so every loop asks the same questions |
 | `TEPHRA_STORE`, `TEPHRA_LOCAL_SCHEDULER` | `sqlite` with in-process ticks locally; `firestore` and Cloud Scheduler inside Cloud Run |
 | `TEPHRA_DESK_PIN`, `TEPHRA_SESSION_SECRET`, `TEPHRA_TASK_TOKEN` | the Desk sign-in, the cookie signer, the tick token (32+ characters) |
-| `TEPHRA_FEATURES` | `all`, `hero`, or a comma list of `connect, crew, notices, satellite, btd, voice, example, present`; hidden features keep their routes, their scheduled model work stops |
+| `TEPHRA_FEATURES` | `all`, `hero`, or a comma list of `connect, crew, notices, satellite, btd, voice, example, present, onboard`; hidden features keep their routes (except `onboard`, whose routes answer 404), their scheduled model work stops |
+| `TEPHRA_FLEET_PREFIXES`, `TEPHRA_FLEET_HEXES`, `TEPHRA_NETWORK_AIRPORTS`, `TEPHRA_POLICY_FILE` | an airline's own TEPHRA: only its fleet checked, its airports watched, its policy file; empty by default |
 | `TEPHRA_VISITOR_ACCESS` | `replay`: anyone may enter the Desk as a visitor while a replay plays, capped per session; `off` otherwise |
 | `TEPHRA_RECOVERY_AUTO`, `TEPHRA_VONA_LIVE` | the Recovery planner by itself when the closed airports change; live observatory polling (off: MAGMA's robots.txt disallows crawling, replays serve recorded notices) |
 
 | Path | What |
 |---|---|
-| `/`, `/assistant`, `/desk`, `/guide`, `/privacy` | the Wall; TEPHRA Assistant at work; the Desk (PIN or visitor); the manual; what the Desk records and what reaches the Gemini API |
-| `/connect`, `/docs/{id}` | airline data push (behind `TEPHRA_FEATURES`); a printable draft document |
+| `/` | the home page |
+| `/demo`, `/assistant`, `/desk`, `/guide`, `/privacy`, `/docs/{id}` | the demo (the Wall); TEPHRA Assistant at work; the Desk (PIN or visitor); the manual; what the Desk records and what reaches the Gemini API; a printable draft document |
+| `/onboard`, `/signin`, `/workspace` | airline onboarding, sign-in and the private workspace (behind `TEPHRA_FEATURES` `onboard`) |
+| `/api/push/positions`, `/api/connect/schema.json` | the airline push and its schema (keys on the Desk › Data connections) |
 | `/health`, `/api/state`, `/api/wall`, `/api/events` | liveness; the system state with `features`, `cloud` and `audit`; the Wall's picture; the event stream |
 | `/api/advisories`, `/api/advisories/{id}/chain` | the drafts; the four-step chain behind one ("Why this advice") |
 | `/api/audit`, `/api/audit/verify` | the record; the chain walked from the first entry |
 | `/api/evals`, `/api/backtest`, `/api/policy`, `/api/budget`, `/api/openapi.json` | the committed scorecards; the backtest; the operator policy; the day's budgets; the API description |
 | `/api/desk/...`, `POST /api/desk/visitor` | Desk routes (cookie session, CSRF header, optimistic versioning; [`MODULES.md`](MODULES.md) §8); the visitor sign-in |
 | `POST /tasks/tick` | the scheduler tick (`X-Tephra-Task-Token`) |
+
+### Run it for your airline
+
+Any airline can onboard at `/onboard`: nine short pages, an account and a private workspace with a
+setup kit to run its own TEPHRA on its own fleet. Its drafts still name each flight by a Ring of
+Fire Air number: advisories under the airline's own flight numbers are not built. A TEPHRA
+dispatcher verifies each airline; running a verified airline's live operation on the shared site
+is not built.
+
+**How to onboard: what you provide**
+
+1. **Airline**: name, ICAO and IATA codes, callsign prefix, State of the Operator and AOC number, main base and an operations contact.
+2. **Ash policy**: start from Policy A, which is ILLUSTRATIVE, and set your own margins, each change with its reason.
+3. **Fleet**: each aircraft's registration, type, seats, home base and ICAO 24-bit address.
+4. **Network**: the airports you fly to, and the alternates you use.
+5. **Schedule and crews**: one day's flights and your crew bases, in TEPHRA's file formats (optional).
+6. **Data feeds**: which of positions, flight plans and pilot reports you will send, in the `tephra.airline/1` format.
+7. **People**: the dispatchers who approve advisories, and their roles.
+8. **Assistant (AI model)**: Gemini or Gemma with your own Google AI Studio key, Gemma on your own computer through Ollama, or no model.
+9. **Review**: check every answer and create your account.
+
+What happens after, file by file, is in [`docs/ONBOARDING.md`](docs/ONBOARDING.md).
 
 Deployment is in [`deploy/README.md`](deploy/README.md): every push to `main` deploys through the
 gate above; the one-time setup is a person's, from a dedicated personal-account gcloud configuration.
@@ -329,7 +354,7 @@ gate above; the one-time setup is a person's, from a dedicated personal-account 
 | Path | Contents |
 |---|---|
 | `tephra/` | the application ([`MODULES.md`](MODULES.md) for the contract, [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design and safety rules) |
-| `tephra/web/` | Wall, Desk, Guide (plain HTML/CSS/JS, MapLibre GL 4.7.1, OpenFreeMap) |
+| `tephra/web/` | Home, the demo (the Wall), Desk, onboarding and the airline workspace, Guide (plain HTML/CSS/JS, MapLibre GL 4.7.1, OpenFreeMap) |
 | `data/` | volcano and airport catalogues, the operator policy, `routes_apac.json` (CC0), the synthetic RFA schedule, the replay cases |
 | `tests/`, `evals/`, `scripts/` | the stub suite, the Plume reader test protocol, recording and counting tools |
 | `deploy/`, `.github/` | Cloud Run, Scheduler, secrets, Firestore rules, the deploy and CI workflows |

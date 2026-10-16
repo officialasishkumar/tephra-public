@@ -1,0 +1,59 @@
+/* The five steps (five-steps.js): numbered nodes joined by one line that warms into each step's
+   tone. Large (welcome dialog, Guide): 56 px rings with a neutral-ink number badge, horizontal
+   from 760 px, stacked below. Small (the demo's side panel): 32 px rings and the short names.
+   Tones are UI tones (tokens.css --tone-*), never text colours. */
+
+.steps5 { margin: 0; padding: 0; list-style: none; }
+.steps5 .sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.steps5__n { --tone: var(--tone-code); position: relative; min-width: 0; }
+.steps5__n--feeds { --tone: var(--tone-feeds); }
+.steps5__n--code { --tone: var(--tone-code); }
+.steps5__n--ai { --tone: var(--tone-ai); }
+.steps5__n--desk { --tone: var(--tone-desk); }
+.steps5__n--record { --tone: var(--tone-record); }
+.steps5__node {
+  position: relative; z-index: 1; display: grid; place-items: center; box-sizing: border-box;
+  border-radius: 50%; color: var(--tone);
+}
+
+/* ------------------------------------------------------------------ large */
+.steps5--lg { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; padding-top: 4px; }
+.steps5--lg .steps5__n { display: grid; justify-items: center; align-content: start; gap: 8px; padding: 0 8px; text-align: center; }
+.steps5--lg .steps5__n + .steps5__n::before {
+  content: ""; position: absolute; top: 27px; right: calc(50% + 30px); width: calc(100% - 60px); height: 2px;
+  background: linear-gradient(90deg, var(--c-line-2), var(--tone));
+}
+.steps5--lg .steps5__node { width: 56px; height: 56px; border: 2px solid var(--tone); background: color-mix(in srgb, var(--tone) 12%, var(--c-surface-1)); }
+.steps5--lg .steps5__node .icon { width: 24px; height: 24px; }
+.steps5__num {
+  position: absolute; top: -4px; right: -6px; display: grid; place-items: center; width: 22px; height: 22px;
+  border-radius: 50%; background: var(--c-text-1); color: var(--c-bg); font: 600 12px/1 var(--font-mono);
+}
+.steps5--lg b { font-size: 15px; font-weight: 600; line-height: 1.25; color: var(--c-text-1); }
+.steps5__line { font-size: 13px; line-height: 1.4; color: var(--c-text-3); }
+.steps5--lg .is-now .steps5__node { box-shadow: 0 0 0 4px color-mix(in srgb, var(--tone) 22%, transparent); }
+
+@media (max-width: 759px) {
+  .steps5--lg { grid-template-columns: minmax(0, 1fr); gap: 14px; padding-top: 0; }
+  .steps5--lg .steps5__n { grid-template-columns: 44px minmax(0, 1fr); justify-items: start; align-items: center; gap: 2px 12px; padding: 0; text-align: left; }
+  .steps5--lg .steps5__node { grid-row: 1 / span 2; width: 44px; height: 44px; }
+  .steps5--lg .steps5__node .icon { width: 20px; height: 20px; }
+  .steps5--lg .steps5__n + .steps5__n::before {
+    top: -14px; left: 21px; right: auto; width: 2px; height: 14px;
+    background: linear-gradient(180deg, var(--c-line-2), var(--tone));
+  }
+  .steps5--lg b { align-self: end; }
+  .steps5__line { align-self: start; }
+}
+
+/* ------------------------------------------------------------------ small */
+.steps5--sm { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.steps5--sm .steps5__n { display: grid; justify-items: center; gap: 4px; font-size: 12px; line-height: 1.25; color: var(--c-text-3); text-align: center; }
+.steps5--sm .steps5__n + .steps5__n::before {
+  content: ""; position: absolute; top: 15px; right: 50%; width: 100%; height: 1px;
+  background: linear-gradient(90deg, var(--c-line-2), var(--tone));
+}
+.steps5--sm .steps5__node { width: 32px; height: 32px; border: 1.5px solid var(--tone); background: var(--c-surface-1); }
+.steps5--sm .steps5__node .icon { width: 16px; height: 16px; }
+.steps5--sm .is-now { color: var(--c-text-1); font-weight: 600; }
+.steps5--sm .is-now .steps5__node { box-shadow: 0 0 0 4px color-mix(in srgb, var(--tone) 22%, transparent); }

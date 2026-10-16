@@ -429,13 +429,13 @@ export function renderQueue() {
   } else if (n === 0 && !openFailures().length && app.me && app.me.role === 'visitor') {
     // A visitor with nothing to decide (SPEC T11): the replay plays on; drafts come when a flight
     // approaches the ash and the assistant is on. "Why ›" opens the assistant sheet, the one place
-    // that says why it may be paused; the Wall shows the picture meanwhile.
+    // that says why it may be paused; the demo shows the picture meanwhile.
     stateBox.replaceChildren(
       el('div', { class: 'panel panel--empty' },
         el('p', { class: 'panel__title' }, icon('i-check', 'st'), el('span', { text: 'Nothing waits for you right now.' })),
         el('p', {}, el('span', { text: 'The replay plays on; drafts come when a flight approaches the ash and TEPHRA Assistant is on · ' }),
           el('button', { type: 'button', class: 'linkbtn linkbtn--inline', 'aria-label': 'Why: open the TEPHRA Assistant sheet', onclick: openBudget }, el('span', { text: 'Why ›' }))),
-        el('a', { class: 'linkbtn', href: '/' }, el('span', { text: 'See the Wall' }), icon('i-chevron-right'))),
+        el('a', { class: 'linkbtn', href: '/demo' }, el('span', { text: 'See the demo' }), icon('i-chevron-right'))),
     );
   } else if (n === 0) {
     const last = app.lastLoadedAt === null ? '' : ` Last update ${hhmmz(app.lastLoadedAt)}.`;

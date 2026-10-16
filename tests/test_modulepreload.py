@@ -11,9 +11,11 @@ import pytest
 WEB = Path(__file__).resolve().parents[1] / "tephra" / "web"
 PAGES = {
     "index.html": "wall.js",
-    "desk.html": "desk.js",
-    "connect.html": "connect.js",
     "guide.html": "guide.js",
+    "desk.html": "desk.js",
+    "home.html": "home.js",
+    "onboard.html": "onboard.js",
+    "workspace.html": "workspace.js",
     "doc.html": "doc.js",
 }
 IMPORT = re.compile(

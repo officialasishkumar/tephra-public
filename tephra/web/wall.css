@@ -1,11 +1,13 @@
-/* TEPHRA Wall, "The Story" (docs/UI-REDESIGN.md R3-R8, R13-R15). Every colour, size and duration is
-   a token from tokens.css (linked first); the layout tokens below are set per width here (R4).
-   Dark only. Nothing floats over the map except its labels, status pills and controls (R3). */
+/* TEPHRA demo (/demo, the Wall; docs/UI-REDESIGN.md R3-R8, R13-R15, SPEC v2 5.2). Every colour, size
+   and duration is a token from tokens.css (linked first); the layout tokens below are set per width
+   here (R4). Light and dark (tokens.css): the map column carries .night, so the map, its pills and
+   its controls keep the night palette in both themes; /assistant is dark only (page-mode.js).
+   Nothing floats over the map except its labels, status pills and controls (R3). */
 
 :root {
   --bar-h: 56px;
-  --story-w: 460px;
-  --drawer-w: 480px;
+  /* the expanded story column; the strip and the side panel are --rail-w and --panel-w (tokens.css) */
+  --story-w: clamp(320px, 26vw, 400px);
   --time-h: 52px;
   --foot-h: 32px;
   --story-size: 28px;
@@ -106,15 +108,15 @@ q { quotes: "“" "”"; }
 
 /* Hover and press feedback (R14.1): colour changes ease over --dur-2 and presses answer within
    --dur-1; both are 0 ms under reduced motion (tokens.css). The press scale is motion. */
-.btn, .icon-btn, .link-btn, .seg button, .feeds-chip, .ai-chip, .desk-link, .tool, .area-btn, .area-menu__item,
-.chip-btn, .vrow, .dindex__row, .details-btn, .flights__row, .tl__mark, .tl__step, .tl__histbtn, .dlg__close,
+.btn, .icon-btn, .link-btn, .seg button, .feeds-chip, .desk-link, .tool, .area-btn, .area-menu__item,
+.chip-btn, .vrow, .dindex__row, .side__tab, .rail__btn, .flights__row, .tl__mark, .tl__step, .tl__histbtn, .dlg__close,
 .honesty__about, .cta, .time-pill {
   transition: background-color var(--dur-2) var(--ease-standard), color var(--dur-2) var(--ease-standard),
     border-color var(--dur-2) var(--ease-standard), box-shadow var(--dur-2) var(--ease-standard),
     transform var(--dur-1) var(--ease-standard);
 }
-.btn:active, .icon-btn:active, .seg button:active, .feeds-chip:active, .ai-chip:active, .desk-link:active, .tool:active,
-.chip-btn:active, .dlg__close:active, .vrow:active, .dindex__row:active, .details-btn:active, .area-btn:active { background-color: var(--c-line-1); }
+.btn:active, .icon-btn:active, .seg button:active, .feeds-chip:active, .desk-link:active, .tool:active,
+.chip-btn:active, .dlg__close:active, .vrow:active, .dindex__row:active, .side__tab:active, .area-btn:active { background-color: var(--c-line-1); }
 @media (prefers-reduced-motion: no-preference) {
   .btn:active, .icon-btn:active, .seg button:active, .tool:active, .chip-btn:active, .dlg__close:active, .cta:active { transform: scale(0.97); }
 }
@@ -175,25 +177,13 @@ q { quotes: "“" "”"; }
 .area-menu__item[aria-checked="true"] .area-menu__check { visibility: visible; }
 .regions__menu { display: none; }
 
-.ai-chip, .feeds-chip {
+.feeds-chip {
   display: inline-flex; align-items: center; gap: 6px;
   height: 36px; padding: 0 var(--sp-3);
   background: transparent; border: 1px solid var(--c-line-input); border-radius: var(--radius-md);
   font-size: var(--fs-2); color: var(--c-text-1); white-space: nowrap;
 }
-.ai-chip:hover, .feeds-chip:hover { background: var(--c-surface-3); }
-.ai-chip .icon { width: 16px; height: 16px; color: var(--c-text-2); }
-.model-chip { font-weight: var(--fw-medium); }
-/* TEPHRA Assistant's one state (docs/UI-AI-QUIET.md W1, Naming): the Strata mark's shape says it
-   (ta-working, ta-waiting, ta-unavailable) with the words; a waiting or troubled assistant has a
-   caution edge, never red, never a count badge. The mark replaces the old caution dot. */
-.ai-chip[data-tone="caution"] { border-color: var(--c-caution); }
-.ai-chip[data-tone="off"] { border-style: dashed; }
-.ai-chip__fail { display: inline-flex; align-items: center; color: var(--c-text-2); font-weight: var(--fw-medium); white-space: nowrap; }
-.ai-chip { min-width: 72px; }
-/* before the first data the chip keeps its place in the bar but is not drawn: it appears once,
-   at its real width, so nothing in the bar jumps (W5) */
-.ai-chip.is-pending { visibility: hidden; }
+.feeds-chip:hover { background: var(--c-surface-3); }
 .feeds-chip__cap { color: var(--c-text-2); }
 .feeds-chip__part { display: inline-flex; align-items: center; gap: 4px; }
 .feeds-chip__sep { color: var(--c-text-3); }
@@ -231,11 +221,11 @@ q { quotes: "“" "”"; }
   background: var(--stl-bg); color: var(--stl-ink);
   font-size: 14px; z-index: var(--z-sticky); white-space: nowrap;
 }
-.stl__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: color-mix(in srgb, var(--c-ok) 60%, #000); }
-.stl__dot[data-tone="replay"] { background: color-mix(in srgb, var(--c-replay) 70%, #000); }
-.stl__dot[data-tone="stale"] { background: color-mix(in srgb, var(--c-caution) 55%, #000); }
+.stl__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: color-mix(in srgb, var(--c-ok) 60%, var(--c-text-ink)); }
+.stl__dot[data-tone="replay"] { background: color-mix(in srgb, var(--c-replay) 70%, var(--c-text-ink)); }
+.stl__dot[data-tone="stale"] { background: color-mix(in srgb, var(--c-caution) 55%, var(--c-text-ink)); }
 .stl__where { flex: none; color: var(--stl-ink); font-weight: var(--fw-semibold); }
-.stl__audit[data-tone="serious"] { color: color-mix(in srgb, var(--c-serious) 70%, #000); font-weight: var(--fw-semibold); }
+.stl__audit[data-tone="serious"] { color: color-mix(in srgb, var(--c-serious) 70%, var(--c-text-ink)); font-weight: var(--fw-semibold); }
 .stl__line { min-width: 0; margin-left: var(--sp-3); overflow: hidden; text-overflow: ellipsis; color: var(--stl-mute); }
 .stl__seg { color: var(--stl-mute); text-decoration: none; }
 .stl__seg::before { content: "·"; display: inline-block; margin-right: 0.3em; color: var(--stl-mute); }
@@ -256,16 +246,16 @@ q { quotes: "“" "”"; }
 
 /* ---------------------------------------------------------------- stage grid (R3) */
 
+/* the slim story strip | the map | the side panel; the expanded story takes the strip's column */
 .stage {
   display: grid; min-height: 0; min-width: 0;
-  grid-template-columns: var(--story-w) minmax(0, 1fr) 0px;
-  grid-template-areas: "story map details";
+  grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--panel-w);
+  grid-template-areas: "story map side";
 }
+body.story-open .stage { grid-template-columns: var(--story-w) minmax(0, 1fr) var(--panel-w); }
 @media (prefers-reduced-motion: no-preference) {
   .stage { transition: grid-template-columns var(--dur-4) var(--ease-enter); }
 }
-/* 1600 px and up: the drawer pushes the map; the story stays (R8.1) */
-body.details-open .stage { grid-template-columns: var(--story-w) minmax(0, 1fr) var(--drawer-w); }
 
 /* ---------------------------------------------------------------- story column (R3.2, R5) */
 
@@ -408,14 +398,15 @@ body.is-connecting .eyebrow__name::before { content: ""; display: inline-block; 
 .story__actions { flex-wrap: wrap; }
 .story__actions > .story__note, .story__actions > .btn-row { flex: 1 1 100%; }
 /* the one filled button on the Wall (R5.3, R13.3) */
+/* the story's way to the Desk is outlined: the side panel's foot holds the demo's one filled button */
 .cta {
   display: inline-flex; align-items: center; justify-content: center;
   min-height: var(--tap-comfort); padding: 0 var(--sp-5);
-  background: var(--c-cta, var(--c-text-1)); color: var(--c-cta-ink, var(--c-text-ink));
-  border: 0; border-radius: var(--radius-md);
+  background: var(--c-surface-2); color: var(--c-text-1);
+  border: 1px solid var(--c-line-input); border-radius: var(--radius-md);
   font-size: var(--fs-3); font-weight: var(--fw-semibold); text-decoration: none;
 }
-.cta:hover { background: var(--c-cta-hover, #ffffff); }
+.cta:hover { background: var(--c-surface-3); }
 .cta--quiet { min-height: var(--tap-comfort); font-size: var(--fs-3); flex-direction: column; gap: 1px; }
 .cta__sub { font-size: var(--fs-1); font-weight: var(--fw-regular); color: var(--c-text-2); }
 .story__board { display: inline-flex; align-items: center; gap: 6px; align-self: center; min-height: 36px; margin: 0; font-size: var(--fs-2); color: var(--c-text-2); }
@@ -500,17 +491,6 @@ body.is-compare .map-pane > .key { top: 56px; }
 .vrow__go { color: var(--c-text-3); font-size: var(--fs-4); }
 .vlist__more { margin: 0; }
 
-.details-btn {
-  display: grid; grid-template-columns: 22px auto; column-gap: var(--sp-2); align-items: center;
-  width: 100%; min-height: 48px; padding: var(--sp-2) var(--sp-3);
-  background: var(--c-surface-2); border: 1px solid var(--c-line-input); border-radius: var(--radius-md);
-  color: var(--c-text-1); text-align: left; margin-top: auto;
-}
-.story > .details-btn { border-top: 1px solid var(--c-line-input); padding-top: var(--sp-2); }
-.details-btn:hover { background: var(--c-surface-3); }
-.details-btn .icon { width: 20px; height: 20px; }
-.details-btn__main { font-weight: var(--fw-semibold); font-size: var(--fs-3); }
-.details-btn[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--c-text-1); }
 
 /* ---------------------------------------------------------------- map column (R6) */
 
@@ -530,6 +510,18 @@ body.is-compare .map-pane > .key { top: 56px; }
 }
 @container mapcol (max-width: 900px) {
   .tl__progress { display: none; }
+}
+/* the story expanded beside the side panel (a 590-700 px map): the header's clock says the time and
+   the replay, so the bar's own time goes and the steps keep one row */
+/* a map too narrow for the key and the flight filter side by side: the key goes under the filter */
+@container mapcol (max-width: 700px) {
+  .mapcol .map-pane > .key { top: 56px; }
+}
+@container mapcol (max-width: 760px) {
+  .mapcol .timebar { grid-template-columns: minmax(120px, 1fr) auto auto auto; }
+  .timebar .tl__meta { display: none; }
+  .timebar .tl__steps .seg { flex-wrap: nowrap; }
+  .timebar .tl__steps .seg button { padding: 0 6px; }
 }
 .map-pane { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--map-land); }
 .map-wrap { position: absolute; inset: 0; }
@@ -619,7 +611,7 @@ body:not(.is-3d) .maplibregl-ctrl-compass { display: none !important; }
 .tl__hour { position: absolute; transform: translateX(-50%); font-family: var(--font-mono); font-size: var(--fs-1); color: var(--c-text-3); }
 .tl__now { position: absolute; top: 0; height: 24px; width: 2px; background: var(--c-text-1); transform: translateX(-1px); z-index: 2; pointer-events: none; }
 .tl__mark { position: absolute; top: 12px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; transform: translate(-50%, -50%); background: transparent; border: 0; border-radius: 50%; z-index: 1; }
-.tl__mark .st { width: 12px; height: 12px; filter: drop-shadow(0 0 1px #05070a); }
+.tl__mark .st { width: 12px; height: 12px; filter: drop-shadow(0 0 1px var(--c-bg)); }
 .tl__mark:hover { background: var(--c-surface-3); }
 .tl__mark.is-current { background: var(--c-surface-3); box-shadow: 0 0 0 2px currentColor; }
 .tl__mark--official { color: var(--c-official); }
@@ -661,29 +653,26 @@ body.history-open .maplibregl-ctrl-bottom-right, body.history-open .map-pills { 
 .tl__lane .tl__mark { top: 50%; }
 .tl__bar { position: absolute; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: var(--c-official); opacity: 0.7; }
 /* the lag bracket and the now-line span all three lanes from the first one */
-.tl__gap { position: absolute; top: 0; height: 86px; border-left: 1.5px dashed var(--c-info); border-right: 1.5px dashed var(--c-info); background: rgb(157 180 204 / 0.06); pointer-events: none; }
+.tl__gap { position: absolute; top: 0; height: 86px; border-left: 1.5px dashed var(--c-info); border-right: 1.5px dashed var(--c-info); background: color-mix(in srgb, var(--c-info) 6%, transparent); pointer-events: none; }
 .tl__now--lanes { top: 0; height: 86px; }
 
 /* ---------------------------------------------------------------- Details drawer (R8) */
 
 .drawer {
-  grid-area: details; min-width: 0; min-height: 0;
+  min-width: 0; min-height: 0;
   display: flex; flex-direction: column;
-  background: var(--c-surface-1); border-left: 1px solid var(--c-line-1); box-shadow: var(--shadow-1);
-  overflow: hidden; z-index: 2;
+  overflow: hidden;
 }
-.story-strip { display: none; }
 .drawer__head {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "title switch close";
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title switch";
   align-items: center; gap: 2px var(--sp-2); padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--c-line-1); flex: none;
 }
-.drawer__head:has(.drawer__back:not([hidden])) { grid-template-areas: "back switch close" "title fold fold"; padding-bottom: var(--sp-3); }
+.drawer__head:has(.drawer__back:not([hidden])) { grid-template-areas: "back switch" "title fold"; padding-bottom: var(--sp-3); }
 .drawer__fold { grid-area: fold; justify-self: end; align-self: center; margin: 0; padding: 0 var(--sp-2); min-height: 32px; font-size: var(--fs-1); white-space: nowrap; }
 .drawer__back { grid-area: back; justify-self: start; margin: 0; font-weight: var(--fw-semibold); white-space: nowrap; }
 .drawer__title { grid-area: title; min-width: 0; font-size: var(--fs-5); font-weight: var(--fw-semibold); line-height: 1.2; }
 .drawer__mark { width: 0.9em; height: 0.9em; margin-right: var(--sp-2); vertical-align: -0.05em; color: var(--c-text-2); }
 .drawer__switch { grid-area: switch; }
-.drawer__close { grid-area: close; }
 /* the volcano switch and the area picker: a quiet pill with its own chevron */
 .drawer__switch select, .regions__menu select {
   appearance: none; -webkit-appearance: none; height: 34px; max-width: 180px; padding: 0 34px 0 14px;
@@ -692,10 +681,14 @@ body.history-open .maplibregl-ctrl-bottom-right, body.history-open .map-pills { 
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-text-1) 10%, transparent);
   color: var(--c-text-1); font-size: var(--fs-2); font-weight: var(--fw-medium);
 }
+/* the chevron is drawn in --c-text-2 of each theme (a data URI cannot read a token) */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) :is(.drawer__switch, .regions__menu) select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2334485c' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); }
+}
+:root[data-theme="light"] :is(.drawer__switch, .regions__menu) select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2334485c' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); }
 .drawer__switch select:hover, .regions__menu select:hover { background-color: color-mix(in srgb, var(--c-text-1) 12%, transparent); }
 .drawer__switch select:focus-visible, .regions__menu select:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .drawer__switch select option, .regions__menu select option { background: var(--c-surface-2); color: var(--c-text-1); }
-.drawer__close { flex: none; }
 .drawer__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--sp-4) var(--sp-4) var(--sp-5); scrollbar-color: var(--c-line-2) transparent; font-size: var(--fs-2); }
 /* the full credit string, untruncated, at the end of the drawer (R8.3) */
 /* the index: four groups of rows, each a button with its live status in words under its title
@@ -1173,7 +1166,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 .levels__wrap { display: flex; gap: var(--sp-5); align-items: flex-start; padding: var(--sp-2) 0; }
 .levels__track { position: relative; width: 64px; margin: 12px 0 12px 52px; cursor: ns-resize; touch-action: none; flex: none; }
 .levels__rail { position: absolute; left: 50%; top: 0; bottom: 0; width: 4px; transform: translateX(-50%); background: var(--c-line-2); border-radius: 2px; }
-.levels__sel { position: absolute; left: 50%; width: 12px; transform: translateX(-50%); background: rgb(234 241 247 / 0.12); border-left: 1px solid var(--c-line-input); border-right: 1px solid var(--c-line-input); }
+.levels__sel { position: absolute; left: 50%; width: 12px; transform: translateX(-50%); background: color-mix(in srgb, var(--c-text-1) 12%, transparent); border-left: 1px solid var(--c-line-input); border-right: 1px solid var(--c-line-input); }
 .levels__band { position: absolute; width: 6px; border-radius: 2px; }
 .levels__band--official { left: 9px; background: var(--c-official); }
 .levels__band--tephra { right: 9px; width: 7px; border: 2px dashed var(--c-tephra); background: transparent; }
@@ -1406,7 +1399,7 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 .x-key[open] .x-key__chev { transform: rotate(90deg); }
 .x-key__list { display: flex; flex-direction: column; gap: 4px; padding: 2px 0 var(--sp-2); }
 .x-key__list li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; line-height: 1.3; }
-.x-key__sw { width: 22px; height: 12px; border-radius: 3px; border: 1px solid rgb(255 255 255 / 0.3); flex: none; }
+.x-key__sw { width: 22px; height: 12px; border-radius: 3px; border: 1px solid var(--c-line-2); flex: none; }
 .x-key__note { font-size: var(--fs-1); color: var(--c-text-3); }
 
 /* notices */
@@ -1473,7 +1466,9 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 html[data-page="assistant"] body.wall { grid-template-rows: var(--bar-h) minmax(0, 1fr); }
 html[data-page="assistant"] body.wall > .stage, html[data-page="assistant"] body.wall > .honesty { display: none; }
 html[data-page="assistant"] .board { position: relative; grid-row: 2; inset: auto; width: auto; height: auto; min-height: 0; z-index: auto; }
-html[data-page="assistant"] .topnav a[href="/"]:not([aria-current="page"]) { color: var(--c-text-2); background: transparent; }
+html[data-page="assistant"] .topnav a[href="/demo"]:not([aria-current="page"]) { color: var(--c-text-2); background: transparent; }
+/* the welcome dialog belongs to the demo */
+html[data-page="assistant"] .tn-how { display: none; }
 html[data-page="assistant"] .topnav a[href="/assistant"] { color: var(--c-text-ink); background: var(--c-text-1); }
 html[data-page="assistant"] .topnav a[href="/assistant"] { display: inline-flex; }
 .board__body { position: absolute; inset: 0; overflow: hidden; }
@@ -1982,33 +1977,23 @@ html[data-page="assistant"] .topnav a[href="/assistant"] { display: inline-flex;
   .vrow, .dindex__row { font-size: var(--fs-3); }
   :root { --hero-num: 72px; --hero-words: var(--fs-5); }
   .allv { gap: 4px; }
-  .details-btn { min-height: 48px; padding-top: 6px !important; padding-bottom: 6px; }
-}
-@media (max-width: 1199px) {
 }
 
 /* ---------------------------------------------------------------- R4.2: 1360-1599 (1440x900) */
 
 @media (max-width: 1599px) {
   html { font-size: 15px; }
-  :root { --story-w: 400px; --drawer-w: 480px; --time-h: 48px; --story-size: 24px; --gutter: 16px; }
+  :root { --time-h: 48px; --story-size: 24px; --gutter: 16px; }
   .clock__time { font-size: var(--fs-6); }
   .story { padding: var(--sp-4) var(--sp-4) var(--sp-3); gap: var(--sp-3); }
   .story > * + * { padding-top: var(--sp-3); }
-  /* Details takes the story column's place and widens; the map is never covered (R8.1) */
-  body.details-open .stage { grid-template-columns: var(--drawer-w) minmax(0, 1fr) 0px; }
-  body.details-open .story { display: none; }
-  body.details-open .drawer { grid-area: story; border-left: 0; border-right: 1px solid var(--c-line-1); }
-  .story-strip { display: flex; align-items: center; gap: var(--sp-2); padding: 6px var(--sp-3); border-bottom: 1px solid var(--c-line-1); background: var(--c-surface-2); font-size: var(--fs-2); flex: none; }
-  .story-strip__back { margin: 0; font-weight: var(--fw-semibold); }
-  .story-strip__text { flex: 1 1 auto; min-width: 0; color: var(--c-text-1); overflow-wrap: anywhere; }
 }
 
 /* ---------------------------------------------------------------- R4.3: 601-1359 (1280x720) */
 
 @media (max-width: 1359px) {
   html { font-size: 14px; }
-  :root { --story-w: 360px; --drawer-w: 440px; --time-h: 44px; --foot-h: 28px; --story-size: 22px; --gutter: 12px; --hero-num: 56px; }
+  :root { --time-h: 44px; --foot-h: 28px; --story-size: 22px; --gutter: 12px; --hero-num: 56px; }
   .cmdbar { gap: var(--sp-2); }
   .clock__time { font-size: var(--fs-5); }
   .clock__sub { min-width: 0; }
@@ -2019,75 +2004,43 @@ html[data-page="assistant"] .topnav a[href="/assistant"] { display: inline-flex;
   .map-pills { max-width: calc(100% - 200px); }
 }
 
-/* the shared nav takes room in the header (UI-DESIGN 7.25): below 1280 the Assistant chip keeps
-   its mark (its name stays in the label), and below 1100 the area name shortens too */
-@media (max-width: 1279px) and (min-width: 601px) {
-  .ai-chip .model-chip { display: none; }
-}
+/* the shared nav takes room in the header (UI-DESIGN 7.25): below 1100 the area name shortens */
 @media (max-width: 1099px) and (min-width: 601px) {
   .area-btn { max-width: 140px; }
   #area-label { overflow: hidden; text-overflow: ellipsis; }
 }
 
-/* ---------------------------------------------------------------- R4.4: phone (390x844) */
+/* ---------------------------------------------------------------- R4.4: phone (390x844), with SPEC v2 5.2
+   The page no longer scrolls: the header, the story strip as a bar, the map, and the side panel as
+   a bottom sheet over the map's foot (5.2.4, below). The time bar is a sheet opened from the pill. */
 
 @media (max-width: 600px) {
   html { font-size: 16px; }
-  :root { --story-w: 100%; --drawer-w: 100%; --time-h: 0px; --story-size: 20px; --gutter: 12px; --hero-num: 56px; }
-  /* the viewport scrolls (never the body), so the band and the header can stick */
-  html { height: auto; overflow-x: clip; }
-  body.wall { display: block; height: auto; overflow: visible; padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
+  :root { --time-h: 0px; --story-size: 20px; --gutter: 16px; --hero-num: 56px; }
+  /* the header in two rows: the mark, the current page, How it works and the clock; then the area */
   .cmdbar {
-    position: sticky; top: 0; height: auto;
-    display: grid; grid-template-columns: auto auto 1fr; grid-template-areas: "brand nav clock" "mode mode mode";
-    gap: 4px 8px; padding: 6px 12px;
+    height: auto;
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; grid-template-areas: "brand nav how clock" "mode area area area";
+    gap: 6px 8px; padding: 6px var(--gutter);
   }
-  /* the area, AI and data chips, moved here by wall.js: under the header, not sticky (item 13) */
-  /* the area picker keeps room for its name ("Java / Bali · 2"); when the chips need more than
-     the rest of the row, they wrap to a second row instead of squeezing the picker */
-  .phone-bar { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; padding: 8px 12px; background: var(--c-surface-1); border-bottom: 1px solid var(--c-line-1); }
-  .phone-bar > * { grid-area: auto !important; }
-  .phone-bar > .areapick { flex: 1 1 7.5rem; min-width: 7.5rem; }
-  .phone-bar .ai-chip, .phone-bar .feeds-chip { height: 36px; flex: none; }
-  /* the chip keeps its Strata state mark here: the mark, not a dot, says the state (Naming) */
   .brand { grid-area: brand; }
-  .cmdbar > .topnav { grid-area: nav; }
-  .mode-badge { grid-area: mode; height: 32px; padding: 0 10px; }
+  .cmdbar > .topnav { grid-area: nav; min-width: 0; }
+  .mode-badge { grid-area: mode; height: 36px; padding: 0 10px; }
+  .tn-how { grid-area: how; }
   .clock { grid-area: clock; justify-self: end; }
   .clock__time { font-size: 16px; width: auto; }
-  .clock__sub { display: none; }
+  .clock__sub { min-width: 0; }
   .areapick { grid-area: area; min-width: 0; }
   .area-btn { display: none; }
   .regions__menu { display: block; }
-  .regions__menu select { height: 36px; width: 100%; }
-  .ai-chip { grid-area: ai; justify-self: start; }
-  .feeds-chip { grid-area: data; justify-self: end; }
-  .ai-chip, .feeds-chip { padding: 0 var(--sp-2); }
+  .regions__menu select { height: 36px; width: 100%; max-width: none; }
+  .feeds-chip { grid-area: mode; justify-self: start; padding: 0 var(--sp-2); }
   .feeds-chip__part--ok, .feeds-chip__part--disabled, .feeds-chip__part--never, .feeds-chip__sep { display: none; }
-  /* the AI chip's one short state left room for "5 off" again (docs/UI-AI-QUIET.md W6) */
-  .feeds-chip:not(.feeds-chip--error) .feeds-chip__part--ok, .feeds-chip:not(.feeds-chip--error) .feeds-chip__part--disabled { display: inline-flex; }
-  .feeds-chip:not(.feeds-chip--error) .feeds-chip__part--ok + .feeds-chip__sep:has(+ .feeds-chip__part--disabled) { display: inline; }
   .stale-chip { grid-column: 1 / -1; }
   .cmdbar__spacer { display: none; }
-  .stage { display: flex; flex-direction: column; }
-  .story { overflow: visible; padding: var(--sp-4) var(--gutter); box-shadow: none; display: contents; }
-  .story > * { padding-left: var(--gutter); padding-right: var(--gutter); }
-  .story > .fail-line { margin: var(--sp-3) var(--gutter) 0; order: 0; }
-  .story > .verdict, .story > .fail-line[hidden] + .verdict { order: 1; padding-top: var(--sp-4); padding-bottom: var(--sp-4); background: var(--c-surface-1); }
-  .mapcol { order: 2; display: block; }
-  .story > .key { order: 3; padding: 0 !important; background: var(--c-surface-1); border-bottom: 1px solid var(--c-line-1); }
-  .story > .key .key__toggle { min-height: 44px; padding: 0 var(--gutter); }
-  .story > .key .key__rows { padding: 0 var(--gutter) var(--sp-3); }
-  /* the failure line sits on the page background above the story card: leave room under it */
-  .story > .fail-line + .verdict { padding-top: var(--sp-3); margin-top: var(--sp-3); }
-  .story > .story-notes { order: 5; }
-  .story > .allv { order: 6; }
-  .story > .details-btn { order: 7; width: calc(100% - 2 * var(--gutter)); margin: var(--sp-3) var(--gutter); }
-  .story > * + * { border-top: 1px solid var(--c-line-1); }
-  .map-pane { height: 42vh; min-height: 300px; }
   .map-pills { max-width: calc(100% - 24px); bottom: 84px; }
   .map-pill { font-size: var(--fs-1); }
-  .time-pill { display: inline-flex; align-items: center; position: absolute; left: 12px; bottom: 36px; z-index: var(--z-map-overlay); min-height: 40px; padding: 0 var(--sp-3); background: var(--c-surface-glass); border: 1px solid var(--c-line-2); border-radius: var(--radius-pill); color: var(--c-text-1); font-size: var(--fs-2); font-weight: var(--fw-semibold); }
+  .time-pill { display: inline-flex; align-items: center; position: absolute; left: 12px; bottom: 36px; z-index: var(--z-map-overlay); min-height: 44px; padding: 0 var(--sp-3); background: var(--c-surface-glass); border: 1px solid var(--c-line-2); border-radius: var(--radius-pill); color: var(--c-text-1); font-size: var(--fs-2); font-weight: var(--fw-semibold); }
   /* a short map: Fit and Layers in a row; Satellite, Compare and 3D are in Layers; pinch zooms */
   .map-ctrls { flex-direction: row; }
   .tool[data-tool="sat-toggle"], .tool[data-tool="compare"], .tool[data-tool="3d"] { display: none; }
@@ -2095,7 +2048,7 @@ html[data-page="assistant"] .topnav a[href="/assistant"] { display: inline-flex;
   .maplibregl-ctrl-zoom-in, .maplibregl-ctrl-zoom-out { display: none !important; }
   body:not(.is-3d) .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group:not(.map-ctrls) { display: none; }
   .maplibregl-ctrl-bottom-right .maplibregl-ctrl { margin-right: 8px; }
-  /* the time bar is a bottom sheet opened from the pill (R7.4) */
+  /* the time bar is a bottom sheet opened from the pill (R7.4), over the side panel */
   .timebar { display: none; }
   body.tl-sheet .timebar {
     display: flex; flex-wrap: wrap; position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-dialog);
@@ -2105,36 +2058,15 @@ html[data-page="assistant"] .topnav a[href="/assistant"] { display: inline-flex;
   body.tl-sheet .tl__track { flex: 1 1 100%; }
   body.tl-sheet .tl__label { display: inline; }
   body.tl-sheet .tl__history { position: static; flex: 1 1 100%; }
-  .drawer { border: 0; }
-  .honesty { flex-wrap: wrap; white-space: normal; padding: var(--sp-3) var(--gutter); gap: var(--sp-2); }
-  .stl__line { margin-left: 0; white-space: normal; }
-  .stl__keys { display: none; }
-  .cta-sticky {
-    position: fixed; left: var(--gutter); right: var(--gutter); bottom: calc(8px + env(safe-area-inset-bottom)); z-index: var(--z-banner);
-    display: flex; align-items: center; justify-content: center; min-height: 48px;
-    background: var(--c-cta, var(--c-text-1)); color: var(--c-cta-ink, var(--c-text-ink)); border-radius: var(--radius-md);
-    font-weight: var(--fw-semibold); text-decoration: none; box-shadow: var(--shadow-3);
-  }
-  .cta-sticky--quiet { background: var(--c-surface-3); color: var(--c-text-1); border: 1px solid var(--c-line-input); }
-  /* the sheet starts below the sticky header, which stays visible above it (R8.1) */
-  .sheet { position: fixed; inset: var(--sheet-top, 0px) 0 0 0; width: 100%; max-width: 100%; height: auto; max-height: none; margin: 0; padding: 0; border: 0; border-top: 2px solid var(--c-line-2); background: var(--c-surface-1); color: var(--c-text-1); }
-  .sheet .story-strip { display: none; }
-  /* the sheet fills everything under the header; it stays undimmed, so the
-     safety line reads at full contrast (review 2, item 15) */
-  .sheet::backdrop { background: transparent; }
-  .sheet .drawer { height: 100%; }
-  .sheet .drawer__switch select { max-width: min(220px, 56vw); width: auto; }
+  .ffilter { top: 8px; }
+  .ffilter__b { padding: 0 9px; }
   .raw-grid { grid-template-columns: 1fr; height: auto; }
   .dlg[data-kind="sources"] { height: auto; }
+  /* the Assistant page scrolls on a phone (the board's parts flow in it), under a sticky header */
+  html[data-page="assistant"] { height: auto; overflow-x: clip; }
+  html[data-page="assistant"] body.wall { display: block; height: auto; overflow: visible; }
+  html[data-page="assistant"] .cmdbar { position: sticky; top: 0; }
 }
-.cta-sticky { display: none; }
-@media (min-width: 601px) { .phone-bar { display: none; } }
-@media (max-width: 600px) { .cta-sticky:not([hidden]) { display: flex; } }
-.sheet:not([open]) { display: none; }
-
-/* ---------------------------------------------------------------- presentation layout (P, ?present=1) */
-
-body.present .details-btn { border-style: dashed; }
 
 /* ---------------------------------------------------------------- forced colours (R15.11)
    Windows High Contrast and similar modes replace every colour and drop box-shadows and
@@ -2143,10 +2075,10 @@ body.present .details-btn { border-style: dashed; }
 @media (forced-colors: active) {
   :focus-visible { outline-color: Highlight; }
   .seg button[aria-pressed="true"], .area-menu__item[aria-checked="true"], .chip-btn[aria-pressed="true"],
-  .tool[aria-expanded="true"], .details-btn[aria-expanded="true"], .tl__histbtn[aria-expanded="true"] {
+  .tool[aria-expanded="true"], .side__tab[aria-selected="true"], .tl__histbtn[aria-expanded="true"] {
     forced-color-adjust: none; background: SelectedItem; color: SelectedItemText; border-color: SelectedItem;
   }
-  .seg, .tool, .chip-btn, .vrow, .dindex__row, .map-pill, .badge, .actor, .levels__thumb, .fail-line, .details-btn, .cta, .time-pill { border: 1px solid CanvasText; }
+  .seg, .tool, .chip-btn, .vrow, .dindex__row, .map-pill, .badge, .actor, .levels__thumb, .fail-line, .side__tab, .cta, .time-pill { border: 1px solid CanvasText; }
   .cmp__cell--flag, .cmp__colhead--flag, .tl__mark.is-current { outline: 2px solid CanvasText; outline-offset: -2px; }
   .sw, .codes svg, .levels__band, .levels__tick, .levels__sel, .levels__sw, .tl__mark .st, .tl__bar, .tl__now, .tl__progress span,
   .x-key__sw, .eyebrow__icon .icon, .vrow .erupt, .ctx-scale__bar { forced-color-adjust: none; }
@@ -2163,19 +2095,6 @@ body.present .details-btn { border-style: dashed; }
 .ctx-pill__text { margin: 0; padding-top: 6px; font-size: var(--fs-2); line-height: 1.35; color: var(--c-text-1); }
 .ctx-pill__text strong { margin-right: 4px; }
 .ctx-pill .ctx-scale { grid-column: 1 / -1; width: min(360px, 100%); padding: 2px 0 0; background: none; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
-/* Details is the route to everything else (item 7): pinned to the bottom of the story column at
-   every desktop width, with a fade above it that says the column scrolls. */
-@media (min-width: 601px) {
-  .story > .details-btn { position: sticky; bottom: 0; z-index: 1; flex: none; }
-  .story { padding-bottom: 0; }
-  .story > .details-btn { margin-bottom: var(--sp-3); }
-  /* What scrolls under the pinned button fades out above it over the column's full width, and the
-     strip below it (its margin) is solid: a shadow inset from the button's edges once left the
-     corners of the box under it showing as a stray edge (story text review, item 6). */
-  .story > .details-btn::before, .story > .details-btn::after { content: ""; position: absolute; left: calc(-1 * var(--sp-4) - 1px); right: calc(-1 * var(--sp-4) - 1px); pointer-events: none; }
-  .story > .details-btn::before { bottom: calc(100% + 1px); height: 20px; background: linear-gradient(to bottom, transparent, var(--c-surface-1)); }
-  .story > .details-btn::after { top: calc(100% + 1px); height: var(--sp-3); background: var(--c-surface-1); }
-}
 
 /* ---------------------------------------------------------------- story fit (R4.1, review 2, item 4)
    wall/story.js raises data-fit one step at a time until the column stops scrolling. Each step
@@ -2193,9 +2112,7 @@ body.present .details-btn { border-style: dashed; }
   /* 4+: the tiles and the notice closer */
   .story[data-fit="4"] .fact__btn, .story[data-fit="5"] .fact__btn, .story[data-fit="6"] .fact__btn, .story[data-fit="7"] .fact__btn, .story[data-fit="8"] .fact__btn { min-height: 0; padding-top: 6px; padding-bottom: 6px; }
   .story[data-fit="4"] .notice, .story[data-fit="5"] .notice, .story[data-fit="6"] .notice, .story[data-fit="7"] .notice, .story[data-fit="8"] .notice { padding: var(--sp-2) var(--sp-3); }
-  /* 7+: the Details button on one line */
-  .story[data-fit="7"] .details-btn, .story[data-fit="8"] .details-btn { min-height: 44px; grid-template-rows: auto; }
-  .story[data-fit="7"] .details-btn .icon, .story[data-fit="8"] .details-btn .icon { grid-row: 1; }
+  /* 7+: the other volcanoes closer */
   .story[data-fit="7"] .allv { gap: 2px; }
   /* 8: the tightest rhythm (1280x720 with a long story) */
   .story[data-fit="8"] { gap: 6px; padding-top: var(--sp-2); --hero-num: 44px; }
@@ -2205,8 +2122,6 @@ body.present .details-btn { border-style: dashed; }
   .story[data-fit="8"] .allv, .story[data-fit="8"] .verdict { gap: 2px; }
   .story[data-fit="8"] > .fail-line { padding-top: 6px !important; padding-bottom: 6px !important; }
   .story[data-fit="8"] .fail-line__list { gap: 4px; }
-  /* last resort: the column scrolls, and says so with a fade above the pinned button */
-  .story:not(.story--scrolls) > .details-btn::before { display: none; }
 }
 
 /* ---------------------------------------------------------------- crew reports of ash (UI-DESIGN 5.7, 7.20)
@@ -2249,25 +2164,6 @@ body.present .details-btn { border-style: dashed; }
 .mcard__x:hover { color: var(--c-text-1); background: var(--c-surface-3); }
 .mcard__x .icon { width: 14px; height: 14px; }
 
-/* ---------------------------------------------------------------- hide the side panel
-   A tab on the map's left edge folds the story and Details away for the whole map, and brings
-   them back. Not on a phone, where the page scrolls. */
-.panel-toggle {
-  position: absolute; z-index: var(--z-map-overlay); left: 0; top: 50%; transform: translateY(-50%);
-  display: grid; place-items: center; width: 22px; height: 64px; padding: 0; border: 0; border-radius: 0 10px 10px 0;
-  background: var(--c-surface-glass); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-text-1) 9%, transparent), var(--shadow-2); color: var(--c-text-2); cursor: pointer;
-}
-.panel-toggle:hover { color: var(--c-text-1); background: var(--c-surface-3); }
-.panel-toggle:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
-.panel-toggle .icon { width: 16px; height: 16px; }
-body.panel-hidden .panel-toggle .icon { transform: rotate(180deg); }
-body.panel-hidden .stage, body.panel-hidden.details-open .stage { grid-template-columns: 0px minmax(0, 1fr) 0px; }
-body.panel-hidden .story, body.panel-hidden .drawer { display: none; }
-@media (max-width: 600px) {
-  .panel-toggle { display: none; }
-  body.panel-hidden .story { display: contents; }
-}
 
 /* ---------------------------------------------------------------- the flight filter (7.7)
    One pill at the map's top centre: All · Inside · Heading in, each with its count. */
@@ -2306,3 +2202,209 @@ body.is-compare .ffilter { display: none; }
 .chain__why { color: var(--c-text-2); margin-top: var(--sp-1); }
 .chain__call { font-size: var(--fs-2); line-height: 1.45; overflow-wrap: anywhere; }
 .chain__foot, .chain__wait { margin-left: calc(24px + var(--sp-3)); font-size: var(--fs-1); color: var(--c-text-2); line-height: 1.4; }
+
+/* ---------------------------------------------------------------- the demo's layout (SPEC v2 5.2)
+   The slim story strip (or the story column) | the map with its time bar | one side panel with two
+   tabs, TEPHRA Assistant and Details, over a pinned "You decide" foot. At 900 px and below the
+   strip is a two-line bar over the map and the side panel a bottom sheet. */
+
+/* ---- the slim story strip (5.2.2) */
+.rail { grid-area: story; display: flex; min-width: 0; min-height: 0; background: var(--c-surface-1); border-right: 1px solid var(--c-line-1); position: relative; z-index: 2; }
+.rail__btn {
+  display: flex; flex-direction: column; gap: 14px; width: 100%; min-height: 0; padding: 12px 12px 14px; overflow: hidden;
+  border: 0; background: transparent; color: var(--c-text-1); font: inherit; text-align: left;
+}
+.rail__btn:hover { background: var(--c-surface-2); }
+.rail__btn:focus-visible { outline-offset: -4px; }
+.rail__open {
+  display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px 0 4px; align-self: flex-start;
+  border: 1px solid var(--c-line-2); border-radius: var(--radius-pill); color: var(--c-text-2); font-size: var(--fs-1); font-weight: var(--fw-semibold);
+}
+.rail__open .icon { width: 16px; height: 16px; }
+.rail__vol { display: grid; gap: 4px; min-width: 0; }
+.rail__sym:empty { display: none; }
+.rail__sym .erupt { width: 22px; height: 22px; }
+.rail__name { font-size: var(--fs-3); line-height: 1.2; overflow-wrap: anywhere; }
+.rail__region { font-size: var(--fs-1); color: var(--c-text-3); }
+.rail__code { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-1); font-weight: var(--fw-semibold); color: var(--c-text-1); }
+.rail__code i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--c-code-unknown); }
+.rail__code[data-code="red"] i { background: var(--c-code-red); }
+.rail__code[data-code="orange"] i { background: var(--c-code-orange); }
+.rail__code[data-code="yellow"] i { background: var(--c-code-yellow); box-shadow: 0 0 0 1px var(--c-line-input); }
+.rail__code[data-code="green"] i { background: var(--c-code-green); }
+.rail__n { display: grid; gap: 2px; padding-top: 12px; border-top: 1px solid var(--c-line-1); }
+/* the numbers count every volcano, not the volcano named above them: the scope says so once */
+.rail__scope { padding-top: 12px; border-top: 1px solid var(--c-line-1); font-size: var(--fs-1); font-weight: var(--fw-semibold); color: var(--c-text-3); }
+.rail__scope + .rail__n { padding-top: 0; border-top: 0; margin-top: -8px; }
+.rail__n > b { font-size: 26px; font-weight: var(--fw-bold); line-height: 1; overflow-wrap: anywhere; }
+.rail__n > span { font-size: var(--fs-1); line-height: 1.3; color: var(--c-text-2); }
+.rail__n--hero > b { font-size: 40px; color: var(--c-tephra-text); letter-spacing: -0.02em; }
+.rail__at { margin-top: auto; font-size: var(--fs-1); color: var(--c-text-3); }
+.story__fold { align-self: flex-start; margin: 0; font-weight: var(--fw-semibold); }
+.story > .story__fold + * { border-top: 0; padding-top: 0; }
+
+/* ---- buttons the side panel uses */
+.btn--sm { min-height: 36px; padding: 0 var(--sp-2); }
+.btn--quiet { background: transparent; border-color: transparent; color: var(--c-text-2); }
+.btn--quiet:hover { background: var(--c-surface-3); color: var(--c-text-1); }
+.btn--primary { background: var(--c-cta); border-color: var(--c-cta); color: var(--c-cta-ink); }
+.btn--primary:hover { background: var(--c-cta-hover); border-color: var(--c-cta-hover); }
+
+/* ---- the side panel (5.2.3) */
+.side {
+  grid-area: side; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; min-height: 0;
+  background: var(--c-surface-1); border-left: 1px solid var(--c-line-1); position: relative; z-index: 2;
+}
+.side__handle { display: none; }
+.side__tabs { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 0 8px 0 12px; border-bottom: 1px solid var(--c-line-1); }
+.side__tab {
+  position: relative; display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 12px;
+  border: 0; background: transparent; color: var(--c-text-2); font: inherit; font-size: 15px; font-weight: var(--fw-semibold); white-space: nowrap;
+}
+.side__tab:hover { color: var(--c-text-1); }
+.side__tab .icon { width: 16px; height: 16px; }
+.side__tab .side__ta { color: var(--tone-ai); }
+.side__tab[aria-selected="true"] { color: var(--c-text-1); }
+.side__tab[aria-selected="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--c-text-1); }
+.side__tab:focus-visible { outline-offset: -4px; }
+.side__page { margin-left: auto; min-width: 44px; min-height: 44px; }
+.side > .assist, .side > .drawer { grid-row: 2; min-height: 0; }
+.side > .drawer { border: 0; box-shadow: none; }
+.side__foot { display: grid; gap: 8px; padding: 14px 16px 16px; border-top: 1px solid var(--c-line-1); background: var(--c-surface-2); }
+.side__eyebrow { font-size: var(--fs-1); font-weight: var(--fw-semibold); letter-spacing: 0.06em; text-transform: uppercase; color: var(--c-text-3); }
+.side__line { font-size: var(--fs-2); line-height: 1.4; color: var(--c-text-2); }
+.side__foot .btn--primary { width: 100%; min-height: 48px; font-size: 16px; }
+.side__foot .btn--primary .icon { width: 18px; height: 18px; }
+
+/* ---- the Assistant tab (5.2.5) */
+.assist { display: flex; flex-direction: column; overflow: hidden; }
+.assist > * { flex: none; }
+.assist > .log { flex: 1 1 auto; }
+.as-state { display: grid; gap: 4px; padding: 14px 16px 12px; }
+.as-state__name { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: var(--fw-semibold); }
+.as-state__name .icon { width: 16px; height: 16px; color: var(--tone-ai); }
+.as-state__line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 24px; font-size: var(--fs-2); color: var(--c-text-2); }
+.as-state__word strong { color: var(--c-text-1); font-family: var(--font-mono); letter-spacing: 0.04em; }
+.as-state[data-tone="caution"] .as-state__word { color: var(--c-caution); font-weight: var(--fw-semibold); }
+.as-state__why { margin: 0; }
+
+.player {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 2px 10px; align-items: center; margin: 0 16px 12px; padding: 8px 12px 8px 8px;
+  border: 1px solid color-mix(in srgb, var(--c-replay) 35%, var(--c-line-1)); border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--c-replay-bg) 70%, var(--c-surface-1));
+}
+.player--live { grid-template-columns: minmax(0, 1fr); padding: 8px 12px; border-color: var(--c-line-1); background: var(--c-surface-2); }
+.player--live .player__words b { color: var(--c-ok); }
+.player__btn {
+  grid-row: 1 / span 2; display: grid; place-items: center; width: 44px; height: 44px; padding: 0;
+  border: 1px solid color-mix(in srgb, var(--c-replay) 50%, transparent); border-radius: 50%; background: transparent; color: var(--c-replay-text);
+}
+.player__btn:hover { background: color-mix(in srgb, var(--c-replay) 14%, transparent); }
+.player__btn .icon { width: 18px; height: 18px; }
+.player__words { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; font-size: 13px; line-height: 1.35; color: var(--c-text-2); }
+.player__words b { color: var(--c-replay-text); font-weight: var(--fw-semibold); }
+.player__time { margin-left: auto; color: var(--c-text-1); font-size: 13px; }
+.player__track { position: relative; height: 22px; border-radius: var(--radius-sm); cursor: pointer; touch-action: none; }
+.player__track::before { content: ""; position: absolute; left: 0; right: 0; top: 10px; height: 2px; background: var(--c-line-2); }
+.player__ticks i { position: absolute; top: 7px; width: 2px; height: 8px; background: var(--c-text-3); }
+.player__ticks i.is-ai { background: var(--tone-ai); }
+.player__knob { position: absolute; top: 6px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: var(--c-replay-text); box-shadow: 0 0 0 2px var(--c-surface-1); }
+
+.assist > .as-pipe { margin: 0 16px 6px; padding-bottom: 12px; border-bottom: 1px solid var(--c-line-1); }
+/* a short desktop window keeps the log in view: the Now card's badge already names the step */
+@media (min-width: 901px) and (max-height: 760px) { .assist > .as-pipe { display: none; } }
+
+.t-feeds { --tone: var(--tone-feeds); }
+.t-code { --tone: var(--tone-code); }
+.t-ai { --tone: var(--tone-ai); }
+.t-desk { --tone: var(--tone-desk); }
+.t-record { --tone: var(--tone-record); }
+
+/* the newest step, expanded (graft 4): a 16 px sentence under its step and actor */
+.as-now { margin: 6px 16px 10px; padding: 12px 14px; border: 1px solid var(--c-line-2); border-radius: var(--radius-lg); background: var(--c-surface-2); box-shadow: inset 3px 0 0 var(--c-replay); }
+.as-now__top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: var(--fs-1); }
+.as-now__badge { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 0 10px 0 8px; border: 1px solid var(--c-line-2); border-radius: var(--radius-pill); color: var(--c-text-1); font-weight: var(--fw-semibold); }
+.as-now__badge .icon { width: 14px; height: 14px; color: var(--tone); }
+.as-now__kind { color: var(--c-text-3); font-size: var(--fs-1); }
+.as-now__time { margin-left: auto; color: var(--c-text-3); }
+.as-now__text { margin-top: 8px; font-size: 16px; line-height: 1.4; color: var(--c-text-1); overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: no-preference) {
+  .as-now.is-fresh { animation: as-edge var(--dur-4) var(--ease-standard); }
+}
+@keyframes as-edge { from { box-shadow: inset 3px 0 0 transparent; } }
+
+/* every earlier step, newest first, under sticky minute heads */
+.log { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 0 8px; scrollbar-color: var(--c-line-2) transparent; }
+.log.is-stale { opacity: 0.85; }
+.log__min { position: sticky; top: 0; z-index: 1; padding: 6px 16px; background: var(--c-surface-1); border-bottom: 1px solid var(--c-line-1); font: var(--fw-medium) 12px var(--font-mono); color: var(--c-text-3); }
+.ev { display: grid; grid-template-columns: 58px 18px minmax(0, 1fr); gap: 2px 10px; padding: 10px 16px; border-bottom: 1px solid color-mix(in srgb, var(--c-line-1) 70%, transparent); }
+.ev__t { grid-row: 1 / span 2; font: 400 12px/20px var(--font-mono); color: var(--c-text-3); }
+.ev__ic { grid-row: 1 / span 2; padding-top: 2px; color: var(--tone); }
+.ev__ic .icon { width: 16px; height: 16px; }
+.ev__who { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: var(--fs-2); font-weight: var(--fw-semibold); line-height: 20px; }
+.ev__who small { font-size: 12px; font-weight: var(--fw-regular); color: var(--c-text-3); }
+.ev__what { font-size: var(--fs-2); line-height: 1.45; color: var(--c-text-2); overflow-wrap: anywhere; }
+.ev__res { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: var(--fw-semibold); }
+.ev__res .icon { width: 12px; height: 12px; }
+.ev__res--ok { color: var(--c-ok); }
+.ev__res--caution { color: var(--c-caution); }
+.ev__res--muted { color: var(--c-text-3); }
+.log__empty { padding: 16px; font-size: var(--fs-2); color: var(--c-text-3); }
+.log__more { margin: 8px 16px; }
+
+/* a frame of the map alone, for Home's picture (scripts/capture_home_map.mjs) */
+body.shot-map { grid-template-rows: 0 minmax(0, 1fr) 0; }
+body.shot-map > .cmdbar, body.shot-map > .honesty, body.shot-map .rail, body.shot-map .story, body.shot-map .side, body.shot-map .timebar { display: none !important; }
+body.shot-map .stage { grid-template-columns: 0 minmax(0, 1fr) 0; }
+body.shot-map .mapcol { grid-template-rows: minmax(0, 1fr); }
+
+/* ---- 900 px and below: the strip as a bar over the map, the side panel as a bottom sheet (5.2.4) */
+@media (max-width: 900px) {
+  body.wall { grid-template-rows: auto minmax(0, 1fr); }
+  /* the status line is not shown on a phone (its keys are keyboard keys); its credits are in the Guide */
+  body.wall > .honesty { display: none; }
+  .stage, body.story-open .stage { position: relative; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "story" "map"; }
+  .rail { border-right: 0; border-bottom: 1px solid var(--c-line-1); }
+  .rail__btn { display: grid; grid-template-columns: repeat(4, minmax(0, auto)) minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 8px var(--gutter) 10px; }
+  .rail__open { grid-column: 6; grid-row: 1 / span 2; border: 0; padding: 0; }
+  .rail__scope { grid-row: 2; padding: 0; border-top: 0; white-space: nowrap; }
+  .rail__scope::after { content: ":"; }
+  .rail__scope + .rail__n { margin-top: 0; margin-left: -8px; }
+  .rail__open span { display: none; }
+  .rail__open .icon { width: 20px; height: 20px; }
+  .rail__vol { grid-column: 1 / 6; grid-row: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rail__name { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .rail__region, .rail__at { display: none; }
+  .rail__code { font-weight: var(--fw-medium); color: var(--c-text-2); white-space: nowrap; }
+  .rail__code::before { content: "·"; color: var(--c-text-3); }
+  .rail__n { grid-row: 2; display: flex; align-items: baseline; gap: 5px; padding: 0; border-top: 0; min-width: 0; }
+  .rail__n > b, .rail__n--hero > b { font-size: 18px; letter-spacing: 0; }
+  .rail__n > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rail__long { display: none; }
+  .rail__n + .rail__n::before { content: "·"; margin-right: 4px; color: var(--c-text-3); }
+  /* expanded, the story is a column above the map that scrolls */
+  .story { max-height: 55vh; box-shadow: var(--shadow-2); }
+  /* the map keeps the stage's height above the sheet's peek; the time bar sits on that edge */
+  .mapcol { padding-bottom: 30vh; }
+  .side {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: var(--z-panel); height: 30vh;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    border: 1px solid var(--c-line-2); border-bottom: 0; border-radius: 16px 16px 0 0; box-shadow: var(--shadow-3);
+  }
+  .side[data-sheet="half"] { height: 58vh; }
+  .side[data-sheet="full"] { height: 100%; border-radius: 0; }
+  @media (prefers-reduced-motion: no-preference) {
+    .side:not(.is-dragging) { transition: height var(--dur-3) var(--ease-standard); }
+  }
+  .side__handle { display: grid; place-items: center; grid-row: 1; width: 100%; height: 28px; padding: 0; border: 0; background: transparent; cursor: grab; touch-action: none; }
+  .side__handle::before { content: ""; width: 40px; height: 4px; border-radius: 2px; background: var(--c-line-input); }
+  .side__handle:focus-visible { outline-offset: -4px; }
+  .side__tabs { grid-row: 2; }
+  .side__tab { height: 44px; }
+  .side > .assist, .side > .drawer { grid-row: 3; }
+  .side__foot { grid-row: 4; padding: 10px var(--gutter) calc(10px + env(safe-area-inset-bottom)); }
+  .side[data-sheet="peek"] .side__eyebrow, .side[data-sheet="peek"] .side__line { display: none; }
+  .assist > .as-pipe { display: none; }
+  .as-state { padding: 10px var(--gutter) 8px; }
+  .player, .as-now { margin-left: var(--gutter); margin-right: var(--gutter); }
+}

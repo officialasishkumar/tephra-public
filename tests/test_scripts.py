@@ -723,6 +723,15 @@ def test_cloudrun_forwards_the_demo_settings_when_set() -> None:
     assert set(forwarded) <= aliases | env_names
 
 
+def test_cloudrun_keeps_a_comma_list_as_one_value() -> None:
+    """TEPHRA_FEATURES=connect,onboard: --set-env-vars is split on gcloud's ^@^ escape, not on
+    commas, and a value holding the delimiter is refused."""
+    script = _CLOUDRUN.read_text(encoding="utf-8")
+    assert 'env_list="^@^$(IFS=@; echo "${env_vars[*]}")"' in script
+    assert '--set-env-vars "$env_list"' in script
+    assert 'if [[ "$pair" == *@* ]]; then' in script
+
+
 def test_cloudrun_says_where_the_secrets_come_from_beside_set_secrets() -> None:
     script = _CLOUDRUN.read_text(encoding="utf-8")
     env_vars = _bash_array(script, "env_vars")
@@ -766,7 +775,10 @@ def test_deploy_paths_refuses_patterns_it_cannot_match() -> None:
 
 
 def _smoke_against(
-    script: dict[str, list[int]], env: dict[str, str], state: dict[str, Any] | None = None
+    script: dict[str, list[int]],
+    env: dict[str, str],
+    state: dict[str, Any] | None = None,
+    bodies: dict[str, bytes] | None = None,
 ) -> str:
     """Run scripts/live_smoke.sh --read-only against a local server answering each path with
     the listed statuses in turn (the last one repeats); return its output."""
@@ -788,6 +800,8 @@ def _smoke_against(
                 body = b'{"mode": "REPLAY"}'
             elif status == 200 and self.path == "/api/state":
                 body = state_body
+            elif status == 200:
+                body = (bodies or {}).get(self.path, b"")
             self.send_response(status)
             if status in (429, 503):
                 self.send_header("Retry-After", "1")
@@ -880,6 +894,20 @@ def test_smoke_checks_cloud_run_firestore_audit_verify_and_reports_missing_evals
     )
     assert _line(out, "audit-verify") == "PASS audit-verify: GET /api/audit/verify -> 200"
     assert _line(out, "evals").startswith("WARN evals: GET /api/evals -> 404")
+
+
+@pytest.mark.parametrize(
+    ("features", "accounts", "verdict"),
+    [(["onboard"], "true", "PASS"), (["onboard"], "false", "FAIL"), ([], "false", "PASS")],
+)
+def test_smoke_checks_that_accounts_are_on_where_onboard_is(
+    features: list[str], accounts: str, verdict: str
+) -> None:
+    routes = {**_OK_ROUTES, "/api/airline/session": [200]}
+    body = f'{{"accounts": {accounts}, "signed_in": false}}'.encode()
+    state = {"mode": "REPLAY", "build_sha": "abc", "policy": {}, "features": features}
+    out = _smoke_against(routes, {}, state, {"/api/airline/session": body})
+    assert _line(out, "airline session").startswith(f"{verdict} airline session: ")
 
 
 def test_smoke_fails_a_local_platform_a_broken_verify_and_a_broken_evals() -> None:

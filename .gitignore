@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.airline.example
 *.pem
 *.key
 service-account*.json

@@ -78,8 +78,8 @@ env:
   # loop too. Reopen to 18:35Z once the Wall shows drafts at every minute (RUNBOOK-private.md).
   TEPHRA_REPLAY_END: "2026-09-05T13:30:00Z"
   TEPHRA_AUTO_REPLAY: "false"
-  # The hero path plus Connect, which the demo shows (owner, 16 Oct 2026).
-  TEPHRA_FEATURES: "connect"
+  # The hero path, Onboard, and the Desk's Data connections (owner, 16 Oct 2026).
+  TEPHRA_FEATURES: "connect,onboard"
   TEPHRA_VISITOR_ACCESS: "replay"
   # Delete this line to refuse the replay minute (aircraft then refresh every 30 s and about
   # 100 lite calls a loop are asked again).

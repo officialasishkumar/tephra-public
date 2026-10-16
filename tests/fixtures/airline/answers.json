@@ -1,0 +1,45 @@
+{
+  "format": "tephra.onboard/2",
+  "airline": {
+    "name": "Ring of Fire Air",
+    "icao": "RFA",
+    "iata": null,
+    "callsign_prefix": "RFA",
+    "state_of_operator": "Indonesia",
+    "aoc_number": "AOC-RFA-0001",
+    "main_base": "WIII",
+    "ops_email": "ops@rfa.example",
+    "contact_name": "Duty manager"
+  },
+  "policy": {
+    "preset": "A",
+    "changes": [
+      {
+        "name": "exposure.vertical_margin_ft",
+        "value": 3000,
+        "reason": "Our SRA section 4.2 asks for a wider margin."
+      }
+    ],
+    "risk_owner": "Director of Flight Operations",
+    "sra_ref": "RFA-SRA-VA rev 3"
+  },
+  "fleet": {
+    "aircraft": [
+      {"registration": "PK-RFA", "type_icao": "A320", "seats": 180, "home_base": "WIII", "hex": "8a0412"},
+      {"registration": "PK-RFB", "type_icao": "B738", "seats": 189, "home_base": null, "hex": null},
+      {"registration": "PK-RFC", "type_icao": "AT76", "seats": 0, "home_base": "WADD", "hex": "8a0413"}
+    ],
+    "extra_prefixes": []
+  },
+  "network": {
+    "airports": [
+      {"icao": "WIII", "alternates": ["WIHH"]},
+      {"icao": "WADD", "alternates": []},
+      {"icao": "WARR", "alternates": []}
+    ]
+  },
+  "schedule": {"provided": false, "flights": 0, "tails": 0, "crews": 0, "crew_bases": []},
+  "feeds": {"positions": true, "flight_plans": false, "pilot_reports": true, "source_system": null},
+  "people": {"dispatchers": [{"name": "Ana K", "role": "approves"}, {"name": "BT", "role": "views"}]},
+  "assistant": {"provider": "ollama", "model": "gemma4:e4b", "model_lite": "gemma4:e4b"}
+}

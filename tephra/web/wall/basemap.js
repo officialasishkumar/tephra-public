@@ -80,9 +80,13 @@ export function nightBasemap(map, C, { places = true, dotAlpha = 0.3 } = {}) {
   if (!has(map, "graticule")) map.addLayer({ id: "graticule", type: "line", source: "graticule", maxzoom: 9, paint: { "line-color": C.grid, "line-width": 1 } }, has(map, "coast") ? "coast" : below);
 }
 
+// The tokens a map reads: from its night subtree when the page has one (the demo's map keeps the
+// night palette in the light theme, tokens.css .night), else from the page.
+export const mapTokens = () => getComputedStyle(document.querySelector(".night") || document.documentElement);
+
 // The colours nightBasemap needs, from the tokens (tokens.css).
 export function nightColours() {
-  const css = getComputedStyle(document.documentElement);
+  const css = mapTokens();
   const tok = (name) => css.getPropertyValue(name).trim();
   return {
     land: tok("--map-land"), water: tok("--map-water"), dot: tok("--map-dot"), coast: tok("--map-coast"),
@@ -92,7 +96,7 @@ export function nightColours() {
 
 // The colours a map's symbols need (images.js draws the volcano, plane and label images from them).
 export function symbolColours() {
-  const css = getComputedStyle(document.documentElement);
+  const css = mapTokens();
   const tok = (name) => css.getPropertyValue(name).trim();
   return {
     official: tok("--c-official"), tephra: tok("--c-tephra"), observer: tok("--c-observer"), crew: tok("--c-crew"),

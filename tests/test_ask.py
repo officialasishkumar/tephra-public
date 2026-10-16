@@ -410,6 +410,9 @@ class FakeRuntime:
     def aircraft(self) -> list[Any]:
         return merge_aircraft(self.live.adsb)
 
+    def exposure_aircraft(self) -> list[Any]:
+        return self.aircraft()
+
     def trace(self, stage: Any, actor: Any, message: str, **_: Any) -> None:
         self.traces.append(message)
 

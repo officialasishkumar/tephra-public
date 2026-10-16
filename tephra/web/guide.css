@@ -67,6 +67,11 @@ body.guide {
 }
 
 .guide__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-6);
   max-width: 1240px;
   margin: 0 auto;
   padding: 0 var(--sp-8) var(--sp-8);
@@ -132,63 +137,10 @@ body.guide {
   margin: 0;
 }
 
-/* the five steps, as a strip: what TEPHRA does before the tour shows where */
-.gpipe {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: var(--sp-3);
+/* the five steps (five-steps.js draws them; five-steps.css styles them) */
+.gpipe-host {
   margin: 0 0 var(--sp-6);
-  padding: 0;
-  list-style: none;
 }
-
-.gpipe__n {
-  --tone: var(--c-text-2);
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: var(--sp-4);
-  border: 1px solid var(--c-line-1);
-  border-top: 2px solid var(--tone);
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--c-surface-2) 80%, transparent);
-}
-
-.gpipe__n + .gpipe__n::before {
-  content: "";
-  position: absolute;
-  top: 26px;
-  left: calc(-1 * var(--sp-3));
-  width: var(--sp-3);
-  height: 2px;
-  background: var(--c-line-2);
-}
-
-.gpipe__n .icon {
-  width: 22px;
-  height: 22px;
-  margin-bottom: var(--sp-2);
-  color: var(--tone);
-}
-
-.gpipe__n b {
-  font-size: var(--fs-2);
-  font-weight: var(--fw-semibold);
-  color: var(--c-text-1);
-}
-
-.gpipe__n span {
-  font-size: var(--fs-1);
-  line-height: 1.4;
-  color: var(--c-text-3);
-}
-
-.gpipe__n--feeds { --tone: var(--c-observer); }
-.gpipe__n--code { --tone: var(--c-text-2); }
-.gpipe__n--ai { --tone: var(--c-tephra); }
-.gpipe__n--desk { --tone: var(--c-approve); }
-.gpipe__n--record { --tone: var(--c-info); }
 
 /* ---------------------------------------------------------------- the tour */
 
@@ -652,7 +604,7 @@ body.guide {
 
 .grun__list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   gap: var(--sp-3);
   margin: 0;
   padding: 0;
@@ -735,6 +687,21 @@ body.guide {
 .grun__copy.is-done { color: var(--c-text-1); background: color-mix(in srgb, var(--c-text-1) 8%, transparent); }
 .grun__copy:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .grun__copy .icon { width: 15px; height: 15px; }
+
+.grun__go {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  align-self: start;
+  min-height: 44px;
+  margin-top: auto;
+  color: var(--c-text-1);
+  font-size: var(--fs-2);
+  font-weight: var(--fw-semibold);
+  text-underline-offset: 3px;
+}
+
+.grun__go .icon { width: 16px; height: 16px; }
 
 .gfold {
   border: 1px solid var(--c-line-1);
@@ -873,14 +840,6 @@ body.guide {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .gpipe {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .gpipe__n:nth-child(4)::before {
-    display: none;
-  }
-
   .grun__list {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -937,35 +896,6 @@ body.guide {
 
   .gtry__list {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  /* the steps stack, joined top to bottom */
-  .gpipe {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--sp-2);
-  }
-
-  .gpipe__n {
-    display: grid;
-    grid-template-columns: 22px minmax(0, 1fr);
-    column-gap: var(--sp-3);
-    padding: var(--sp-3) var(--sp-4);
-    border-top-width: 1px;
-    border-left: 2px solid var(--tone);
-  }
-
-  .gpipe__n .icon {
-    grid-row: 1 / span 2;
-    margin: 2px 0 0;
-  }
-
-  .gpipe__n + .gpipe__n::before,
-  .gpipe__n:nth-child(4)::before {
-    display: block;
-    top: calc(-1 * var(--sp-2));
-    left: 26px;
-    width: 2px;
-    height: var(--sp-2);
   }
 
   .gfold > summary,

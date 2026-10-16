@@ -1,9 +1,10 @@
-/* TEPHRA design tokens, shared by the Wall (index.html) and the Desk (desk.html).
-   Link this file before the page's own stylesheet. The spec is docs/UI-DESIGN.md: every
-   colour below was checked there for WCAG AA contrast and for colour-vision deficiency
-   (Machado 2009 simulation, CIEDE2000). Change a value only together with that table.
-   Map paint colours are read from these properties at start-up (getComputedStyle), so the
-   map and the panels never drift apart. */
+/* TEPHRA design tokens, shared by every page. Link this file before the page's own stylesheet.
+   The spec is docs/UI-DESIGN.md: every colour below was checked there for WCAG AA contrast and
+   for colour-vision deficiency (Machado 2009 simulation, CIEDE2000). Change a value only
+   together with that table. Map paint colours are read from these properties at start-up
+   (getComputedStyle), so the map and the panels never drift apart; the map stays on the night
+   values in both themes, so they are read inside a .night element. The light set and .night are
+   at the end of the file. */
 
 /* IBM Plex, self-hosted (SIL OFL 1.1, fonts/OFL.txt): latin and latin-ext subsets only. */
 @font-face {
@@ -252,6 +253,31 @@
   --fs-story: 1.5rem; /* 24 px; wall.css sets 28 / 22 / 20 px per width (R4) */
   --lh-story: 1.25;
   --fs-eyebrow: var(--fs-1);
+
+  /* --- layout and themes (Home, the demo's panels, onboarding, workspace; DESIGN 3) --- */
+  --bar-h: 56px;
+  --gutter: 24px; /* 16 px at <= 760 px */
+  --rail-w: 120px; /* the demo's slim story strip */
+  --panel-w: 400px; /* the demo's right panel; 360 px under 1280 px */
+  --content-max: 1120px; /* workspace content */
+  --form-max: 760px; /* onboarding form column */
+  --fs-display: clamp(30px, 3.4vw, 40px); /* the home line, the onboarding landing title */
+  /* UI tones: icon rings and the five steps' nodes, never text */
+  --tone-feeds: var(--c-observer);
+  --tone-code: var(--c-text-2);
+  --tone-ai: var(--c-tephra);
+  --tone-desk: var(--c-approve);
+  --tone-record: var(--c-info);
+  --c-card: var(--c-surface-1);
+  --c-card-hover: var(--c-surface-2);
+}
+
+@media (max-width: 760px) {
+  :root { --gutter: 16px; }
+}
+
+@media (max-width: 1279px) {
+  :root { --panel-w: 360px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -269,6 +295,83 @@
 
 @media (prefers-contrast: more) {
   :root {
+    --c-text-2: #d3dde7;
+    --c-text-3: #b6c3d0;
+    --c-line-1: #3a4b5d;
+    --c-line-2: #5b7086;
+    --c-line-input: #8aa2bb;
+    --c-surface-glass: rgb(10 16 23 / 0.97);
+  }
+}
+
+
+/* --- the light set (DESIGN 3): Home, the demo's panels, onboarding, sign-in, workspace and the
+   Guide follow the system, or the reader's choice (theme.js writes data-theme on <html>).
+   The Desk, the Assistant page, documents and the privacy notice carry data-theme="dark", and the
+   map stays on the night basemap in both themes (.night below). Measured contrast is in
+   docs/UI-DESIGN.md 3.3. The dark values above are unchanged. --- */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --c-bg: #f3f5f8; --c-surface-1: #ffffff; --c-surface-2: #f7f9fb; --c-surface-3: #e8edf2;
+    --c-surface-glass: rgb(255 255 255 / 0.92); --c-scrim: rgb(12 20 30 / 0.55);
+    --c-line-1: #dbe2ea; --c-line-2: #c3cdd8; --c-line-input: #6b7d90;
+    --c-text-1: #0b1620; --c-text-2: #34485c; --c-text-3: #4f6274; --c-text-ink: #ffffff;
+    --c-official-text: #b0124f; --c-tephra-text: #865700; --c-observer-text: #0a6796;
+    --c-ok: #15733a; --c-ok-bg: #e5f5ea; --c-caution: #7a5c00; --c-caution-bg: #fdf5d3;
+    --c-serious: #b42318; --c-serious-bg: #fde9e7; --c-info: #46607a;
+    --c-replay: #6d3fd8; --c-replay-text: #5a2fc2; --c-replay-bg: #efe8ff;
+    --c-cta: #0b1620; --c-cta-ink: #ffffff; --c-cta-hover: #1d2c3a;
+    --tone-feeds: #0a7bb5; --tone-ai: #9a6200; --tone-desk: #147a42; --tone-record: #46607a;
+    --c-focus: #0b1620; --focus-halo: 0 0 0 4px rgb(255 255 255 / 0.95);
+    --shadow-2: 0 8px 24px rgb(15 30 45 / 0.12), 0 0 0 1px rgb(15 30 45 / 0.06);
+    --shadow-3: 0 18px 48px rgb(15 30 45 / 0.22), 0 0 0 1px rgb(15 30 45 / 0.08);
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --c-bg: #f3f5f8; --c-surface-1: #ffffff; --c-surface-2: #f7f9fb; --c-surface-3: #e8edf2;
+  --c-surface-glass: rgb(255 255 255 / 0.92); --c-scrim: rgb(12 20 30 / 0.55);
+  --c-line-1: #dbe2ea; --c-line-2: #c3cdd8; --c-line-input: #6b7d90;
+  --c-text-1: #0b1620; --c-text-2: #34485c; --c-text-3: #4f6274; --c-text-ink: #ffffff;
+  --c-official-text: #b0124f; --c-tephra-text: #865700; --c-observer-text: #0a6796;
+  --c-ok: #15733a; --c-ok-bg: #e5f5ea; --c-caution: #7a5c00; --c-caution-bg: #fdf5d3;
+  --c-serious: #b42318; --c-serious-bg: #fde9e7; --c-info: #46607a;
+  --c-replay: #6d3fd8; --c-replay-text: #5a2fc2; --c-replay-bg: #efe8ff;
+  --c-cta: #0b1620; --c-cta-ink: #ffffff; --c-cta-hover: #1d2c3a;
+  --tone-feeds: #0a7bb5; --tone-ai: #9a6200; --tone-desk: #147a42; --tone-record: #46607a;
+  --c-focus: #0b1620; --focus-halo: 0 0 0 4px rgb(255 255 255 / 0.95);
+  --shadow-2: 0 8px 24px rgb(15 30 45 / 0.12), 0 0 0 1px rgb(15 30 45 / 0.06);
+  --shadow-3: 0 18px 48px rgb(15 30 45 / 0.22), 0 0 0 1px rgb(15 30 45 / 0.08);
+}
+
+/* A subtree that stays on the night theme in both themes: the demo's map column (the map, its
+   pills, legend, tools and labels), the home map band and its frame, the sign-in backdrop. Every
+   token the light set changes, back at its dark value. */
+.night {
+  color-scheme: dark;
+  color: var(--c-text-1);
+  --c-bg: #05080c; --c-surface-1: #0a1017; --c-surface-2: #0f1720; --c-surface-3: #16212c;
+  --c-surface-glass: rgb(10 16 23 / 0.88); --c-scrim: rgb(2 4 8 / 0.72);
+  --c-line-1: #1c2834; --c-line-2: #2b3a4a; --c-line-input: #5b7086;
+  --c-text-1: #eaf1f7; --c-text-2: #b6c3d0; --c-text-3: #93a3b5; --c-text-ink: #05080c;
+  --c-official-text: #ff9cc4; --c-tephra-text: #ffc845; --c-observer-text: #7dd3fc;
+  --c-ok: #4ade80; --c-ok-bg: #0b2416; --c-caution: #ffe566; --c-caution-bg: #2a2205;
+  --c-serious: #ff7a6e; --c-serious-bg: #2d0f0c; --c-info: #9db4cc;
+  --c-replay: #b794ff; --c-replay-text: #cdb6ff; --c-replay-bg: #1c1233;
+  --c-cta: var(--c-text-1); --c-cta-ink: var(--c-text-ink); --c-cta-hover: #ffffff;
+  --tone-feeds: var(--c-observer); --tone-ai: var(--c-tephra); --tone-desk: var(--c-approve); --tone-record: var(--c-info);
+  --c-focus: #f5f9fc; --focus-halo: 0 0 0 4px rgb(5 8 12 / 0.9);
+  /* tokens built from the ones above, resolved again here so they take the night values */
+  --tone-code: var(--c-text-2); --c-card: var(--c-surface-1); --c-card-hover: var(--c-surface-2);
+  --focus-ring: 2px solid var(--c-focus); --border-hair: 1px solid var(--c-line-1); --border-control: 1px solid var(--c-line-input);
+  --shadow-2: 0 8px 24px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.04);
+  --shadow-3: 0 18px 48px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.06);
+}
+
+@media (prefers-contrast: more) {
+  .night {
     --c-text-2: #d3dde7;
     --c-text-3: #b6c3d0;
     --c-line-1: #3a4b5d;

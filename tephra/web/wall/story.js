@@ -436,10 +436,9 @@ function renderLines(D, store, ui, sit, announce) {
 function renderActions(D, store, ui, sit) {
   const box = $("story-actions");
   const kids = [];
-  let ctaHref = "/desk", ctaText = "Open the Desk →", primary = false, waiting = 0, sub = null;
+  let ctaHref = "/desk", ctaText = "Open the Desk →", primary = false, sub = null;
   if (D && sit) {
     const a = advisoryFacts(D, store, sit.volcano_id);
-    waiting = a.drafts;
     if (a.urgent) { ctaHref = `/desk#review/${encodeURIComponent(a.urgent.id)}`; ctaText = "Decide on the Desk →"; primary = true; }
     else {
       // no drafts because the assistant did not run: the Desk holds the hand-plan work (W18),
@@ -461,13 +460,6 @@ function renderActions(D, store, ui, sit) {
   }
   const key = kids.map((k) => `${k.textContent}|${k.getAttribute?.("href") || ""}`).join("§");
   if (box.dataset.key !== key) { box.dataset.key = key; box.replaceChildren(...kids); }
-  // phone sticky call to action (R4.4)
-  const sticky = $("cta-sticky");
-  if (sticky) {
-    sticky.href = ctaHref;
-    setText(sticky, primary ? (waiting ? `Decide on the Desk (${waiting}) →` : "Decide on the Desk →") : "Open the Desk");
-    sticky.classList.toggle("cta-sticky--quiet", !primary);
-  }
 }
 
 // ------------------------------------------------------------------ key (R5.5)
@@ -527,10 +519,17 @@ function renderNotes(notes) {
 // The counts for every volcano (the KPI row) and the other volcanoes' rows. `draftsHere` is the
 // selected volcano's waiting drafts: when it carries every exposed flight and draft the row would
 // repeat the story, so it hides (A12).
+// The three numbers every volcano shares, from one place: the story's "All volcanoes" line and the
+// demo's slim story strip both read them. `drafts` is null when the server could not read them.
+export function allCounts(D) {
+  const s = D?.state;
+  return { active: D?.activeCount ?? 0, exposed: s?.exposed_count ?? 0, drafts: s ? (s.draft_count === null ? null : s.draft_count ?? 0) : 0 };
+}
+
 function renderAll(D, ui, draftsHere) {
   const kx = $("kpi-exposed");
   const s = D?.state;
-  const active = D?.activeCount ?? 0;
+  const { active, exposed, drafts } = allCounts(D);
   // One sentence, comma-separated, each count with its own words, so a wrapped line never starts
   // with a stray separator or a bare dash (review 2, item 13).
   const label = (id, text) => setText($(id).nextElementSibling, text);
@@ -538,7 +537,6 @@ function renderAll(D, ui, draftsHere) {
   label("kpi-active", active === 1 ? "volcano with ash" : D && !active ? "volcano with ash reported" : "volcanoes with ash");
   // RFA is a fictional airline. At 0 the count shows a dash, never "0", "none" or "clear": the
   // feed only sees aircraft that broadcast on ADS-B (G17).
-  const exposed = s?.exposed_count ?? 0;
   setText(kx, exposed > 0 ? String(exposed) : D ? "no" : "–");
   label("kpi-exposed", exposed > 0 ? `RFA flight${exposed === 1 ? "" : "s"} in or heading in` : D ? "RFA flight seen heading in" : "RFA flights in or heading in");
   kx.closest(".kpi").title = exposed > 0
@@ -547,12 +545,12 @@ function renderAll(D, ui, draftsHere) {
   kx.setAttribute("aria-label", exposed > 0 ? String(exposed) : "0 seen. An empty map is not an empty sky");
   // null: the server could not read the drafts; an older count is not shown as current. Why a
   // count is 0 is the story's notice, said once there (not again here).
-  setText($("kpi-drafts"), !D ? "–" : s.draft_count === null ? "unknown (database error)" : String(s.draft_count ?? 0));
-  label("kpi-drafts", D && s.draft_count === 1 ? "advisory waiting" : "advisories waiting");
+  setText($("kpi-drafts"), !D ? "–" : drafts === null ? "unknown (database error)" : String(drafts));
+  label("kpi-drafts", D && drafts === 1 ? "advisory waiting" : "advisories waiting");
   // "0 advisories waiting" says nothing a dispatcher acts on: the KPI stays in the DOM, hidden
   $("kpi-drafts").closest(".kpi").hidden = !!D && s.draft_count === 0;
   // the row repeats the story when the selected volcano carries every exposed flight and draft
-  $("kpi-active").closest(".kpis").hidden = !!D?.sit && (s.exposed_count ?? 0) === D.counts.exposed && (s.draft_count ?? 0) === draftsHere;
+  $("kpi-active").closest(".kpis").hidden = !!D?.sit && exposed === D.counts.exposed && (drafts ?? 0) === draftsHere;
   const ul = $("volcano-tabs");
   if (!D) { ul.replaceChildren(); return; }
   const others = D.sits.filter((x) => x.volcano_id !== D.selected);
@@ -623,7 +621,45 @@ export function renderStory(D, store, ui, { conn, extra, announce, notes = [] })
   renderKey(D, ui);
   renderNotes(notes);
   renderAll(D, ui, sit ? advisoryFacts(D, store, sit.volcano_id).drafts : 0);
+  renderRail(D, sit, caseStory);
   fitStory(D, ui);
+}
+
+// ------------------------------------------------------------------ the slim story strip (SPEC v2 5.2.2)
+
+// One number of the strip: the count and its words, short and long (the phone bar keeps the short).
+function railNum(id, num, short, long) {
+  const node = $(id);
+  const key = `${num}|${short}|${long}`;
+  if (node.dataset.key === key) return;
+  node.dataset.key = key;
+  node.replaceChildren(el("b", { text: num }), el("span", {}, el("span", { class: "rail__short", text: short }), el("span", { class: "rail__long", text: long })));
+}
+
+// The folded story: the volcano, its area and colour code, the three numbers every volcano shares
+// (allCounts, the same as the story's "All volcanoes" line) and when TEPHRA last updated. Shown
+// while the story is folded, so the numbers are never on screen twice.
+function renderRail(D, sit, caseStory) {
+  const name = $("volcano-name").textContent;
+  const sym = $("rail-vol").querySelector(".rail__sym");
+  const symKey = sit ? sit.color_code || "UNKNOWN" : "";
+  if (sym.dataset.key !== symKey) { sym.dataset.key = symKey; sym.replaceChildren(...(sit ? [eruptIcon(sit.color_code)] : [])); }
+  setText($("rail-vol").querySelector(".rail__name"), name);
+  const region = sit ? (D.state.regions || []).find((r) => r.key === regionOfVent(D.state, D.vents.get(sit.volcano_id)))?.name || "" : "";
+  setText($("rail-region"), region);
+  const code = $("rail-code");
+  const word = sit ? caseStory?.eyebrow || (CODE_WORD[sit.color_code] ? `Colour code ${CODE_WORD[sit.color_code].toLowerCase()}` : "Colour code not given") : "";
+  code.hidden = !word;
+  code.dataset.code = sit && CODE_WORD[sit.color_code] ? sit.color_code.toLowerCase() : "unknown";
+  if (code.textContent !== word) code.replaceChildren(el("i", { "aria-hidden": "true" }), word);
+  const { active, exposed, drafts } = allCounts(D);
+  railNum("rail-exposed", !D ? "–" : exposed > 0 ? String(exposed) : "no", exposed === 1 ? "RFA flight" : "RFA flights", exposed > 0 || !D ? " in or heading in" : " seen heading in");
+  railNum("rail-active", !D ? "–" : active ? String(active) : "no", active === 1 ? "volcano" : "volcanoes", D && !active ? " with ash reported" : " with ash");
+  railNum("rail-drafts", !D ? "–" : drafts === null ? "unknown" : String(drafts), drafts === 1 ? "advisory" : "advisories", drafts === null ? " waiting (database error)" : " waiting");
+  // "0 advisories waiting" says nothing to act on, as on the story's line
+  $("rail-drafts").hidden = !!D && drafts === 0;
+  const tick = ms(D?.state?.last_tick?.finished_at);
+  setText($("rail-at"), Number.isFinite(tick) ? `Updated ${utcTime(tick)}` : "");
 }
 
 // ------------------------------------------------------------------ fit (R4.1, review 2, item 4)

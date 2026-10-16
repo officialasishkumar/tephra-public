@@ -34,7 +34,7 @@ export function planeCard(p, adv, closed = new Set()) {
       where,
       // a waiting draft says what it proposes, so the card is the glance and the Desk the decision
       adv ? { text: `${STATUS_WORD[adv.status] || adv.status}${adv.status === "DRAFT" ? ` · ${actionWords(adv)}` : decided}` } : null,
-      p.data_source === "AIRLINE" ? { text: "Position from the airline's own feed (Connect)", tone: "feed" } : null,
+      p.data_source === "AIRLINE" ? { text: "Position from the airline's own feed (airline push)", tone: "feed" } : null,
     ],
     action: p.proxy_flight ? { text: "Flight details ›", act: "details-open", sec: "flight" } : null,
   });

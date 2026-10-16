@@ -1,10 +1,11 @@
 // The Guide's annotated screenshots (docs/UI-DESIGN.md 7.29). Not part of CI.
 //
-// Run against a local TEPHRA in the stub replay with Connect shown, left running for a minute so
-// drafts exist (the Connect shot starts the sample feed, so restart the app before a second run):
-//   TEPHRA_PORT=8121 TEPHRA_LLM=stub TEPHRA_MODE=REPLAY TEPHRA_REPLAY_CASE=anak-krakatau-20260905 \
-//   TEPHRA_LOCAL_SCHEDULER=1 TEPHRA_DESK_PIN=1234 TEPHRA_FEATURES=connect uv run tephra
-//   PLAYWRIGHT_NODE_MODULES=... node scripts/capture_guide_shots.mjs --base http://127.0.0.1:8121 --pin 1234
+// Run against a local TEPHRA in the stub replay with onboarding shown, left running for a minute so
+// drafts exist (local servers on ports 8093-8096 only):
+//   TEPHRA_PORT=8093 TEPHRA_LLM=stub TEPHRA_MODE=REPLAY TEPHRA_REPLAY_CASE=anak-krakatau-20260905 \
+//   TEPHRA_LOCAL_SCHEDULER=1 TEPHRA_DESK_PIN=1234 TEPHRA_FEATURES=connect,onboard \
+//   TEPHRA_SESSION_SECRET=<43 random characters> uv run tephra
+//   PLAYWRIGHT_NODE_MODULES=... node scripts/capture_guide_shots.mjs --base http://127.0.0.1:8093 --pin 1234
 //
 // For each shot it opens the page, reads the boxes of the marks (CSS selectors; on the Wall, a
 // clear patch of each ash area found with the map's own hit test), takes the screenshot at device
@@ -24,7 +25,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) => (a.startsWith("--") ? [...acc, [a.slice(2), all[i + 1]]] : acc), []));
-const BASE = (args.base || "http://127.0.0.1:8121").replace(/\/$/, "");
+const BASE = (args.base || "http://127.0.0.1:8093").replace(/\/$/, "");
 const PIN = args.pin || "1234";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SHOT_DIR = path.join(ROOT, "tephra", "web", "guide", "shots");
@@ -41,7 +42,7 @@ const { chromium } = require("playwright");
 // Ports are shared between agents: check what is running before trusting a shot.
 const state = await (await fetch(`${BASE}/api/state`)).json();
 if (state.mode !== "REPLAY") { console.error(`expected a REPLAY, the server runs ${state.mode}`); process.exit(2); }
-if (!(state.features || []).includes("connect")) { console.error("start the server with TEPHRA_FEATURES=connect"); process.exit(2); }
+if (!(state.features || []).includes("onboard")) { console.error("start the server with TEPHRA_FEATURES=connect,onboard"); process.exit(2); }
 
 // A mark: a CSS selector (its first visible match, optionally the one whose text has `text`; with
 // `deep`, the box takes in its children, for a map label whose text overflows its dot),
@@ -49,14 +50,14 @@ if (!(state.features || []).includes("connect")) { console.error("start the serv
 // outside the official area), clear of every panel over the map.
 const MARKS = {
   wall: [
-    { sel: "#case-strip" },
-    { sel: "#headline .hero" },
+    { sel: "#rail-btn" },
+    { sel: "#rail-exposed" },
     { area: "tephra" },
     { area: "official" },
-    { sel: '#story-actions a[href^="/desk"]' },
-    { sel: "#ai-chip" },
-    { sel: ".clock" },
+    { sel: "#assist" },
+    { sel: "#clock-sub" },
     { sel: "#details-btn" },
+    { sel: "#side-desk" },
   ],
   assistant: [
     { sel: ".flow-head__brand" },
@@ -83,13 +84,12 @@ const MARKS = {
     { sel: ".approve" },
     { sel: ".actions__inner .secondary" },
   ],
-  connect: [
-    { sel: "#cx-map" },
-    { sel: ".cx-kpis" },
-    { sel: ".cx-seg" },
-    { sel: "#cx-panel" },
-    { sel: "#cx-where" },
-    { sel: "#cx-me" },
+  onboard: [
+    { sel: "section:has(#provide-h)" },
+    { sel: "#ob-start" },
+    { sel: "#ob-after" },
+    { sel: "#ob-private" },
+    { sel: "#ob-notbuilt" },
   ],
 };
 
@@ -188,8 +188,8 @@ async function signIn(page) {
 // Each shot: where it goes, its viewport, how to bring the page to the moment, the stored width.
 const SHOTS = [
   { name: "wall", vw: 1440, vh: 900, outW: 1800, go: async (page) => {
-    await page.goto(`${BASE}/?shots=1`);
-    await page.waitForSelector("#case-strip:not([hidden])");
+    await page.goto(`${BASE}/demo?intro=0&shots=1`);
+    await page.waitForSelector("#rail-btn", { state: "visible" });
     await mapReady(page);
     await settle(page, 3000);
   } },
@@ -213,14 +213,15 @@ const SHOTS = [
     await page.setViewportSize({ width: 390, height: tall });
     await settle(page, 1500);
   } },
-  // last: the sample feed changes what the other pages show
-  { name: "connect", vw: 1440, vh: 900, outW: 1800, go: async (page) => {
-    await page.goto(`${BASE}/connect`);
-    await page.click('.cx-seg__b[data-tab="sample"]');
-    await page.getByRole("button", { name: "Start the sample feed" }).click();
-    await settle(page, 20_000);
-  }, after: async (page) => {
-    await page.getByRole("button", { name: "Stop the sample feed" }).click().catch(() => console.log("connect: stop the sample feed by hand"));
+  // the onboarding landing as a first visitor sees it (no draft in this browser), the viewport as
+  // tall as the landing so its After you submit, Private and Not built cards show
+  { name: "onboard", vw: 1440, vh: 900, outW: 1800, go: async (page) => {
+    await page.goto(`${BASE}/onboard`);
+    await page.waitForSelector("#provide-h", { state: "visible" });
+    await settle(page, 1500);
+    const tall = await page.evaluate(() => Math.min(1400, document.documentElement.scrollHeight));
+    await page.setViewportSize({ width: 1440, height: tall });
+    await settle(page, 1500);
   } },
 ];
 
@@ -249,7 +250,6 @@ try {
       fs.writeFileSync(path.join(SHOT_DIR, `${shot.name}.webp`), buf);
       out[shot.name] = { w: shot.outW, h: outH, marks };
       console.log(`ok ${shot.name}: ${shot.outW}x${outH}, ${Math.round(buf.length / 1000)} kB (q ${q}), ${marks.length} marks`);
-      if (shot.after) await shot.after(page);
     } catch (err) {
       failed = true;
       console.log(`FAIL ${err.message}`);

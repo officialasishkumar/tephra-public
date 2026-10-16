@@ -10,7 +10,8 @@ import {
 import { actionWords, deciderName, deciderRole, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
 import { advisoryFacts } from "./story.js";
-import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, aiSymbol, replayWords, aircraftNoun, describeReplay, handPlanOf, causeTitle, blockPhrase, whyLink, machineText, MARK, ASSISTANT } from "./x-parts.js";
+import { stateLine } from "./assist.js";
+import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, replayWords, aircraftNoun, describeReplay, handPlanOf, causeTitle, blockPhrase, whyLink, machineText, MARK, ASSISTANT } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkEmpty, dkTech, dkSection, dkLink,
   dkWhen, dkDot, dkFromReplay, collapseRuns, runRow, timeRange, plural, dayTime, times,
@@ -171,23 +172,25 @@ export function renderChrome(D, store, ui) {
   }
   sel.value = cur || "all";
 
-  // The AI chip (R3.1, docs/UI-AI-QUIET.md W1-W3, Naming): TEPHRA Assistant's one state in words,
-  // never a count of failed steps and never red. It opens TEPHRA Assistant at work (UI-DESIGN
-  // 7.21), which leads with the same words and links to Details › TEPHRA Assistant for the model
-  // ids, budgets and causes: the one place that says why it is paused (docs/UI-AI-QUIET.md 8.6).
+  // TEPHRA Assistant's state line, at the top of the side panel's Assistant tab (SPEC v2 5.2.5,
+  // docs/UI-AI-QUIET.md W1-W3, Naming): its one state in words with a shape, never a count of
+  // failed steps and never red; NO MODEL with the offline stub. The one place on the demo that
+  // says the state; "Why ›" opens Details › TEPHRA Assistant, the one place that says why it is
+  // paused (docs/UI-AI-QUIET.md 8.6). The tooltip keeps the first-use words about the AI.
   const ai = aiStateNow(D, store);
-  const w = aiWords(ai, { home: `Details › ${ASSISTANT}`, opens: `${ASSISTANT} at work`, narrow: window.innerWidth <= 420 });
-  const chip = $("ai-chip");
-  setText($("model-chip"), w.label);
-  const suffix = chip.querySelector(".ai-chip__fail");
-  suffix.hidden = !w.suffix;
-  setText(suffix, w.suffix ? `· ${w.suffix}` : "");
-  chip.dataset.tone = w.tone;
-  chip.querySelector("use")?.setAttribute("href", `${chip.querySelector("use").getAttribute("href").split("#")[0]}#${aiSymbol(ai.kind)}`);
-  chip.title = w.title;
-  chip.setAttribute("aria-label", w.aria);
-  // shown first with its state, so the bar never jumps to its real width (W5)
-  chip.classList.remove("is-pending");
+  const w = aiWords(ai, { home: `Details › ${ASSISTANT}`, opens: `Details › ${ASSISTANT}` });
+  const line = stateLine(w, { stub: s.llm?.backend === "stub", kind: ai.kind });
+  const box = $("ai-state");
+  const lkey = `${line.tone}|${line.icon}|${line.strong}|${line.text}|${line.why}`;
+  if (box.dataset.key !== lkey) {
+    box.dataset.key = lkey;
+    box.dataset.tone = line.tone;
+    const chip = $("model-chip");
+    chip.replaceChildren(...(line.strong ? [el("strong", { text: line.strong }), ` · ${line.text}`] : [line.text]));
+    const why = line.why ? [el("button", { type: "button", class: "link-btn as-state__why", dataset: { act: "details-sec", sec: "ai", focus: "ai-why" }, text: "Why ›" })] : [];
+    box.querySelector(".as-state__line").replaceChildren(st(line.icon, `var(--c-${line.tone})`), chip, ...why);
+  }
+  box.title = w.title;
 
   // Data chip: "Data: all working", else worst first, "Data: 1 error · 5 working". Feeds that are
   // off (not in this case, or switched off) are not a state of the data: Details lists them.
@@ -211,6 +214,9 @@ export function renderChrome(D, store, ui) {
     fc.replaceChildren(...kids);
   }
   fc.classList.toggle("feeds-chip--error", !!by.ERROR);
+  // red is for real alarms: the chip shows only while a feed is stale or failing; "all working" is
+  // the Data feeds row's value in Details
+  fc.hidden = !by.ERROR && !by.STALE;
   fc.setAttribute("aria-label", `Data feeds: ${parts.map((p) => p.textContent).join(", ")}. Opens Details, Data feeds.`);
 
   renderStatusLine(D, ui);
@@ -515,10 +521,14 @@ export function renderTrace(D, store, ui, conn, target = $("trace")) {
     textOf: (t) => (t._cause ? `cause ${t._cause}` : plainLine(t.message)), timeOf: (t) => t._t, groupOf: (t) => `${t.stage}|${t.level}|${t._cause ? "" : t.actor}` });
   const seg = (label, act, key, opts) => el("div", { class: "seg", role: "group", "aria-label": label },
     ...opts.map(([v, text]) => el("button", { type: "button", "aria-pressed": (ui[key] || opts[0][0]) === v ? "true" : "false", dataset: { act, [act === "trace-scope" ? "scope" : "filter"]: v, focus: `${act}-${v}` }, text })));
+  // the operator policy the code decided under, with its ILLUSTRATIVE label (never removed)
+  const policy = D.state.policy;
   const head = dkHeader({
     id: "trace-head",
     pills: [conn.lostAt ? dkPill("caution", `Paused at ${hhmmz(conn.lostAt)}`) : dkPill("info", "Updating", "New steps appear here as they happen")],
     title: `${plural(lines.length, "step")}, newest first. Repeats are grouped.`,
+    chips: policy ? [dkChip(`Operator policy ${policy.preset}`, { title: `${policy.policy_id} v${policy.version}: ${policy.label}` }),
+      dkChip("ILLUSTRATIVE", { kind: "illustrative", title: "The policy's values are illustrative, not an airline's approved policy" })] : [],
   });
   const tiles = dkTiles([
     { label: "Steps", value: lines.length.toLocaleString("en"), sub: ui.traceScope === "all" ? "every volcano" : "this volcano and general" },

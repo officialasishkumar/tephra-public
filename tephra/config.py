@@ -7,6 +7,7 @@ so tests can pass ``Settings(_env_file=None, ...)`` explicitly.
 
 import math
 import os
+import re
 import secrets
 from datetime import datetime, timedelta
 from functools import lru_cache
@@ -65,6 +66,11 @@ MAX_BODY_BYTES = 16 * 1024
 """Desk bodies are a PIN, a reason or a 400-character advisory; nothing needs more."""
 MAX_NOTICE_BODY_BYTES = 32 * 1024
 """A pasted notice is up to 6,000 characters, and Japanese text takes three bytes each."""
+MAX_ONBOARD_BODY_BYTES = 128 * 1024
+"""An airline's onboarding answers: 1,000 aircraft rows are about 90 KB of JSON."""
+MAX_PUSH_BODY_BYTES = 512 * 1024
+"""A push of up to 1,000 positions (about 220 KB): the push itself, the Desk's upload and the
+workspace's dry run take the same, so a file the dry run accepts is never refused as too large."""
 
 MOVED_TO_POLICY: dict[str, str] = {
     "TEPHRA_VERTICAL_MARGIN_FT": "vertical_margin_ft",
@@ -137,7 +143,13 @@ REGIONS: dict[str, Region] = {
 
 RegionKey = Literal["java_bali", "halmahera", "kyushu"]
 
-Feature = Literal["connect", "crew", "notices", "satellite", "btd", "voice", "example", "present"]
+_PREFIX = re.compile(r"[A-Z]{3}")
+_HEX = re.compile(r"[0-9a-f]{6}")
+_AIRPORT = re.compile(r"[A-Z]{4}")
+
+Feature = Literal[
+    "connect", "crew", "notices", "satellite", "btd", "voice", "example", "present", "onboard"
+]
 ALL_FEATURES: frozenset[str] = frozenset(get_args(Feature))
 HERO_FEATURES: frozenset[str] = frozenset()
 """The demo shows the hero path and its three acts only."""
@@ -360,8 +372,8 @@ class Settings(BaseSettings):
         default=ALL_FEATURES,
         description=(
             "Optional features shown in the nav, menus, legend, index and board; 'all', 'hero' "
-            "or a comma list. Hidden features keep their routes and tests; their scheduled "
-            "model work stops."
+            "or a comma list. Hidden features keep their routes and tests (except onboard, "
+            "whose routes answer 404); their scheduled model work stops."
         ),
     )
     ai_answer_replay_keep_h: float = Field(
@@ -495,6 +507,32 @@ class Settings(BaseSettings):
             "this below the service's --concurrency"
         ),
     )
+    airline_session_ttl_h: float = Field(
+        default=12.0, gt=0, le=72, description="Hours an airline workspace sign-in lasts"
+    )
+    fleet_prefixes: Annotated[frozenset[str], NoDecode] = Field(
+        default=frozenset(),
+        description=(
+            "Own-fleet filter: callsign prefixes (ICAO 3 letters, comma list); with "
+            "fleet_hexes empty too, every airline-style aircraft is checked (the default)"
+        ),
+    )
+    fleet_hexes: Annotated[frozenset[str], NoDecode] = Field(
+        default=frozenset(),
+        description="Own-fleet filter: ICAO 24-bit addresses (6 hex digits, comma list)",
+    )
+    network_airports: Annotated[frozenset[str], NoDecode] = Field(
+        default=frozenset(),
+        description=(
+            "The airline's own airports (ICAO 4 letters, comma list) checked for closure by "
+            "code every tick; empty: only recovery's RFA network airports (the default)"
+        ),
+    )
+    policy_file: str = Field(
+        default="policy/policy_a.json",
+        pattern=r"^policy/[a-z0-9_-]{1,40}\.json$",
+        description="The operator policy file, relative to TEPHRA_DATA_DIR",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -539,6 +577,21 @@ class Settings(BaseSettings):
         if unknown:
             raise ValueError(f"unknown feature(s): {', '.join(unknown)}")
         return names
+
+    @field_validator("fleet_prefixes", mode="before")
+    @classmethod
+    def _parse_prefixes(cls, value: Any) -> frozenset[str]:
+        return _code_list(value, _PREFIX, upper=True, what="fleet prefix")
+
+    @field_validator("fleet_hexes", mode="before")
+    @classmethod
+    def _parse_hexes(cls, value: Any) -> frozenset[str]:
+        return _code_list(value, _HEX, upper=False, what="fleet hex")
+
+    @field_validator("network_airports", mode="before")
+    @classmethod
+    def _parse_airports(cls, value: Any) -> frozenset[str]:
+        return _code_list(value, _AIRPORT, upper=True, what="network airport")
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
@@ -648,6 +701,15 @@ class Settings(BaseSettings):
 
     def stale_after_s(self, feed: FeedId) -> int:
         return int(self.cadence_s(feed) * self.stale_factor)
+
+
+def _code_list(value: Any, pattern: re.Pattern[str], *, upper: bool, what: str) -> frozenset[str]:
+    """A comma or whitespace separated list of codes; a bad entry stops startup, named."""
+    parts = value.replace(",", " ").split() if isinstance(value, str) else list(value)
+    codes = frozenset(part.strip().upper() if upper else part.strip().lower() for part in parts)
+    if bad := sorted(code for code in codes if pattern.fullmatch(code) is None):
+        raise ValueError(f"invalid {what}: {', '.join(bad)}")
+    return codes
 
 
 def apply_process_env(settings: Settings) -> None:

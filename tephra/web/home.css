@@ -1,0 +1,170 @@
+/* Home (home.html; DESIGN 5.1, mockups home.html and home-light.html): a 56 px header, the stage
+   (the copy column, then the map) and a footer line. Dark: the night map bleeds to the right edge
+   under a gradient into the page. Light: the map sits in a framed night panel with its key and
+   the live count. Phones (<= 760 px): the map is a 200 px band on top, the copy below. */
+
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--c-bg); -webkit-text-size-adjust: 100%; }
+body.home {
+  display: grid; grid-template-rows: var(--bar-h) minmax(0, 1fr) auto; min-height: 100vh; min-height: 100dvh; margin: 0;
+  background: var(--c-bg); color: var(--c-text-1); font: 400 16px/1.5 var(--font-sans); font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased; overflow-x: hidden;
+}
+.home p, .home h1 { margin: 0; }
+.home a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.home :focus-visible { outline: var(--focus-ring); outline-offset: 2px; box-shadow: var(--focus-halo); }
+.home .icon { width: 18px; height: 18px; flex: none; }
+.home [hidden] { display: none !important; }
+
+.skip-link {
+  position: absolute; left: 16px; top: -80px; z-index: var(--z-skip); padding: 10px 14px;
+  border-radius: var(--radius-md); background: var(--c-cta); color: var(--c-cta-ink); font-weight: 600; text-decoration: none;
+}
+.skip-link:focus { top: 8px; }
+
+.home__bar { display: flex; align-items: center; gap: 12px; height: var(--bar-h); padding: 0 var(--gutter) 0 24px; border-bottom: 1px solid var(--c-line-1); background: var(--c-bg); }
+
+/* ---------------------------------------------------------------- the stage */
+.home__stage { position: relative; display: grid; grid-template-columns: minmax(0, 600px) minmax(0, 1fr); align-items: center; min-height: 0; overflow: hidden; }
+.home__copy { position: relative; z-index: 1; display: grid; gap: var(--sp-6); align-content: center; padding: var(--sp-12) var(--gutter) var(--sp-12) 64px; }
+.home__eyebrow { font-size: 12px; font-weight: 600; letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-text-3); }
+.home__line { max-width: 28ch; font-size: var(--fs-display); font-weight: 600; line-height: 1.2; letter-spacing: -0.01em; text-wrap: balance; }
+.home__line em { font-style: normal; color: var(--c-tephra-text); }
+.home__choices { display: grid; gap: var(--sp-3); max-width: 480px; }
+.home__choices:focus { outline: none; }
+
+.go {
+  display: grid; grid-template-columns: 48px minmax(0, 1fr) 20px; align-items: center; gap: 16px; min-height: 84px; padding: 14px 20px 14px 16px;
+  border: 1px solid var(--c-line-input); border-radius: var(--radius-lg); background: var(--c-surface-glass); color: var(--c-text-1); text-decoration: none;
+  transition: border-color var(--dur-2) var(--ease-standard), background var(--dur-2) var(--ease-standard);
+}
+.home .go { color: var(--c-text-1); text-decoration: none; }
+.go:hover { border-color: var(--c-text-2); background: var(--c-surface-2); }
+.go:focus-visible { outline-offset: 3px; }
+.go__ic { display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid var(--c-line-2); border-radius: 50%; }
+.home .go__ic .icon { width: 22px; height: 22px; }
+.go__words { display: grid; min-width: 0; }
+.go__t { font-size: 20px; font-weight: 600; line-height: 1.2; }
+.go__s { margin-top: 4px; font-size: 14px; line-height: 1.4; color: var(--c-text-2); overflow-wrap: anywhere; }
+.home .go__arrow { width: 20px; height: 20px; transition: transform var(--dur-2) var(--ease-standard); }
+.go:hover .go__arrow { transform: translateX(4px); }
+.go__pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.go__pills:empty { display: none; }
+.go__pill {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 2px 8px; border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: var(--radius-pill); font-size: 12px; font-weight: 500; line-height: 1.2;
+}
+.home .go__pill .icon { width: 14px; height: 14px; }
+/* the replay pill carries its own violet pair, readable on the filled tile in both themes */
+.go__pill--replay { border-color: color-mix(in srgb, var(--c-replay) 55%, transparent); background: var(--c-replay-bg); color: var(--c-replay-text); font-weight: 600; }
+
+.go--primary { border-color: var(--c-cta); background: var(--c-cta); }
+.home .go--primary { color: var(--c-cta-ink); }
+.go--primary:hover { border-color: var(--c-cta-hover); background: var(--c-cta-hover); }
+.go--primary .go__s { color: color-mix(in srgb, var(--c-cta-ink) 78%, transparent); }
+.go--primary .go__ic { border-color: color-mix(in srgb, var(--c-cta-ink) 30%, transparent); background: color-mix(in srgb, var(--c-cta-ink) 8%, transparent); }
+
+.home__signin { font-size: 15px; color: var(--c-text-2); }
+.home .home__signin a { color: var(--c-text-1); font-weight: 600; }
+
+/* ---------------------------------------------------------------- the map (dark: it bleeds) */
+.home__map { position: absolute; inset: 0 0 0 clamp(320px, 34vw, 520px); z-index: 0; background: var(--map-water); }
+.home__map::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, var(--c-bg) 0, color-mix(in srgb, var(--c-bg) 60%, transparent) 18%, transparent 46%); pointer-events: none; }
+.home__frame { position: relative; height: 100%; overflow: hidden; }
+.home__frame picture { display: block; height: 100%; }
+.home__img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.home__cap {
+  position: absolute; right: var(--gutter); bottom: 16px; z-index: 2; display: inline-flex; align-items: center; gap: 8px;
+  max-width: calc(100% - 2 * var(--gutter)); min-height: 28px; padding: 4px 10px; border: 1px solid color-mix(in srgb, var(--c-replay) 55%, transparent);
+  border-radius: var(--radius-pill); background: var(--c-replay-bg); color: var(--c-replay-text); font-size: 13px; font-weight: 500; line-height: 1.3;
+}
+.home .home__cap .icon { width: 16px; height: 16px; }
+.home__count {
+  position: absolute; right: var(--gutter); bottom: 60px; z-index: 2; display: grid; grid-template-columns: auto minmax(0, auto); align-items: center; gap: 2px 10px;
+  max-width: calc(100% - 2 * var(--gutter)); padding: 10px 14px; border: 1px solid var(--c-line-2); border-radius: var(--radius-lg); background: rgb(10 16 23 / 0.9);
+}
+.home__count-now { grid-column: 1 / -1; font-size: 12px; font-weight: 600; letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-replay-text); }
+.home__count b { font-size: 28px; line-height: 1; color: var(--c-tephra-text); }
+.home__count span:last-child { max-width: 14ch; font-size: 13px; line-height: 1.3; color: var(--c-text-2); }
+.home__key { display: none; }
+/* the picture's sources, as the demo's map credits them (wall/panels.js ATTRIBUTION) */
+.home__attrib {
+  position: absolute; top: 12px; right: var(--gutter); z-index: 2; max-width: min(46ch, 55%); padding: 3px 8px;
+  border-radius: var(--radius-sm); background: rgb(5 8 12 / 0.7); font-size: 12px; line-height: 1.35; color: var(--c-text-3); text-align: right;
+}
+
+/* ---------------------------------------------------------------- the footer */
+.home__foot {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; min-height: 48px; padding: 0 var(--gutter) 0 64px;
+  border-top: 1px solid var(--c-line-1); font-size: 13px; color: var(--c-text-3);
+}
+.home__honest { display: inline-flex; align-items: center; gap: 8px; padding: 8px 0; color: var(--c-text-2); }
+.home .home__honest .icon { width: 16px; height: 16px; }
+.home__links { display: flex; gap: 16px; margin-left: auto; }
+.home .home__links a { display: inline-flex; align-items: center; min-height: 44px; color: var(--c-text-2); }
+.home .home__links a:hover { color: var(--c-text-1); }
+
+@media (max-width: 1099px) {
+  .home__copy { padding-left: var(--gutter); }
+  .home__foot { padding-left: var(--gutter); }
+}
+
+/* ---------------------------------------------------------------- the light theme: a framed panel */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .home__map { position: relative; inset: auto; align-self: center; padding: var(--sp-12) var(--gutter) var(--sp-12) 0; background: none; }
+  :root:not([data-theme="dark"]) .home__map::after { display: none; }
+  :root:not([data-theme="dark"]) .home__frame { height: auto; aspect-ratio: 16 / 10; border: 1px solid var(--c-line-2); border-radius: var(--radius-lg); background: var(--map-water); box-shadow: var(--shadow-2); }
+  :root:not([data-theme="dark"]) .home__count { left: 16px; right: auto; bottom: 16px; }
+  :root:not([data-theme="dark"]) .home__cap { right: 16px; }
+  :root:not([data-theme="dark"]) .home__attrib { right: 16px; top: 16px; max-width: calc(50% - 24px); }
+  :root:not([data-theme="dark"]) .home__key { position: absolute; left: 16px; top: 16px; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; max-width: calc(50% - 24px); padding: 6px 10px; border-radius: var(--radius-md); background: var(--c-surface-glass); font-size: 12px; color: var(--c-text-2); }
+}
+:root[data-theme="light"] .home__map { position: relative; inset: auto; align-self: center; padding: var(--sp-12) var(--gutter) var(--sp-12) 0; background: none; }
+:root[data-theme="light"] .home__map::after { display: none; }
+:root[data-theme="light"] .home__frame { height: auto; aspect-ratio: 16 / 10; border: 1px solid var(--c-line-2); border-radius: var(--radius-lg); background: var(--map-water); box-shadow: var(--shadow-2); }
+:root[data-theme="light"] .home__count { left: 16px; right: auto; bottom: 16px; }
+:root[data-theme="light"] .home__cap { right: 16px; }
+:root[data-theme="light"] .home__attrib { right: 16px; top: 16px; max-width: calc(50% - 24px); }
+:root[data-theme="light"] .home__key { position: absolute; left: 16px; top: 16px; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; max-width: calc(50% - 24px); padding: 6px 10px; border-radius: var(--radius-md); background: var(--c-surface-glass); font-size: 12px; color: var(--c-text-2); }
+.home__swatch { display: inline-block; width: 14px; height: 10px; border-radius: 2px; }
+.home__swatch--official { border: 2px solid var(--c-official); background: var(--c-official-soft); }
+.home__swatch--tephra { margin-left: 6px; border: 2px dashed var(--c-tephra); }
+
+/* ---------------------------------------------------------------- phones: the map band on top */
+@media (max-width: 760px) {
+  .home__stage { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; align-items: start; align-content: start; }
+  .home__map, :root[data-theme="light"] .home__map { position: relative; inset: auto; grid-row: 1; height: 200px; padding: 0; }
+  .home__map::after { background: linear-gradient(180deg, transparent 55%, var(--c-bg) 100%); }
+  .home__copy { grid-row: 2; gap: var(--sp-5); padding: var(--sp-5) var(--gutter) var(--sp-8); }
+  .home__line { font-size: 26px; }
+  .go { gap: 12px; min-height: 76px; padding: 12px 14px; }
+  .go__t { font-size: 18px; }
+  /* the band is 200 px: the live count is said by the demo tile's words, the picture keeps its cap */
+  .home__count { display: none; }
+  .home__cap { right: var(--gutter); bottom: 12px; font-size: 12px; }
+  .home__attrib { top: 8px; padding: 2px 6px; }
+  .home__foot { gap: 0 16px; padding: 8px var(--gutter); }
+  .home__links { margin-left: 0; }
+  :root[data-theme="light"] .home__map { margin: 16px var(--gutter) 0; }
+  :root[data-theme="light"] .home__frame { height: 200px; aspect-ratio: auto; }
+  :root[data-theme="light"] .home__key { display: none; }
+/* the picture's sources, as the demo's map credits them (wall/panels.js ATTRIBUTION) */
+.home__attrib {
+  position: absolute; top: 12px; right: var(--gutter); z-index: 2; max-width: min(46ch, 55%); padding: 3px 8px;
+  border-radius: var(--radius-sm); background: rgb(5 8 12 / 0.7); font-size: 12px; line-height: 1.35; color: var(--c-text-3); text-align: right;
+}
+  :root[data-theme="light"] .home__cap { right: 12px; }
+  :root[data-theme="light"] .home__attrib { top: 8px; right: 12px; max-width: 70%; }
+}
+@media (max-width: 760px) and (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .home__map { position: relative; inset: auto; height: 200px; margin: 16px var(--gutter) 0; padding: 0; }
+  :root:not([data-theme="dark"]) .home__frame { height: 200px; aspect-ratio: auto; }
+  :root:not([data-theme="dark"]) .home__key { display: none; }
+/* the picture's sources, as the demo's map credits them (wall/panels.js ATTRIBUTION) */
+.home__attrib {
+  position: absolute; top: 12px; right: var(--gutter); z-index: 2; max-width: min(46ch, 55%); padding: 3px 8px;
+  border-radius: var(--radius-sm); background: rgb(5 8 12 / 0.7); font-size: 12px; line-height: 1.35; color: var(--c-text-3); text-align: right;
+}
+  :root:not([data-theme="dark"]) .home__cap { right: 12px; }
+  :root:not([data-theme="dark"]) .home__attrib { top: 8px; right: 12px; max-width: 70%; }
+}

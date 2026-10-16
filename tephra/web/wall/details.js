@@ -1,9 +1,9 @@
-// The Details drawer (docs/UI-REDESIGN.md R8): everything on the Wall that is not the story, one
-// tap away. It opens on a plain index of four groups; every row shows its live count or failure
-// in words. A section opens summary first; long tables sit behind "Show all" disclosures. The
-// section builders are the Wall's existing ones (panels.js, ext.js), re-parented here.
-// Placement by width: a pushing column at 1600 px and up, the story column's place from 601 to
-// 1599 px, a full-screen sheet at 600 px and below. Feed text goes in with textContent (el()).
+// Details (docs/UI-REDESIGN.md R8): everything on the demo that is not the story, one tap away, as
+// the Details tab of the side panel beside TEPHRA Assistant (SPEC v2 5.2.3; a bottom sheet at 900 px
+// and below). It opens on a plain index of four groups; every row shows its live count or failure
+// in words. A section opens summary first, in place, with "‹ Details" back; long tables sit behind
+// "Show all" disclosures. The section builders are the Wall's existing ones (panels.js, ext.js).
+// Feed text goes in with textContent (el()).
 
 import { $, el, icon, ms, hhmmz, age, fl, compassWord } from "./util.js";
 import { SEV_RANK, NON_OBS, actionWords, deciderName, officialLabelText, plainMove, levelIsAll, tephraLabelText, untilText, crewBand } from "./derive.js";
@@ -14,7 +14,7 @@ import {
 import { ext, renderXPanel, recoverySummary, proofTicks, rerouteBlock, replanning, aiState, handPlan, runsStatus } from "./ext.js";
 import { has } from "./features.js";
 import { renderLayers, layersStatus } from "./controls.js";
-import { currentPlan, advisoryFacts, closuresFor } from "./story.js";
+import { currentPlan, closuresFor } from "./story.js";
 import { planFailure, techDetail, blockPhrase, whyLink, aircraftNoun } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkList, dkFacts, dkNote, dkEmpty, dkSection, dkDot, dkFromReplay,
@@ -410,7 +410,7 @@ function crewRow(D, v, picked) {
     ["Position", `${latLon(r)} · ${r.position_basis === "ADSB_FIX" ? `ADS-B fix at ${hhmmz(ms(r.position_observed_at))}` : "typed by dispatcher"}`],
     ["Near", v.place_text],
     ["Entered", String(r.entered_by || "").startsWith("connect:")
-      ? `pushed by ${String(r.entered_by).slice(8)} at ${hhmmz(ms(r.created_at))} (Connect)`
+      ? `pushed by ${String(r.entered_by).slice(8)} at ${hhmmz(ms(r.created_at))} (airline push)`
       : `${String(r.entered_by || "").replace(/^desk:/, "")} at ${hhmmz(ms(r.created_at))} on the Desk`],
     ["Remarks", r.remarks ? el("q", { text: r.remarks }) : null],
   ]);
@@ -507,25 +507,6 @@ function renderSection(key, D, store, ui, conn) {
   }
 }
 
-function renderStrip(D, store) {
-  const box = $("story-strip");
-  if (!D) { box.replaceChildren(); return; }
-  const sit = D.sit;
-  const parts = [];
-  if (sit) {
-    const n = sit.exposed_count || 0;
-    const a = advisoryFacts(D, store, sit.volcano_id);
-    parts.push(sit.volcano_name, n ? plural(n, "flight", "flights") : "no flights seen", `${a.partial ? "at least " : ""}${a.drafts} waiting`);
-  } else parts.push(D.area?.name || "No volcano selected");
-  const key = parts.join("|");
-  if (box.dataset.key === key) return;
-  box.dataset.key = key;
-  box.replaceChildren(
-    el("button", { type: "button", class: "link-btn story-strip__back", dataset: { act: "details-close", focus: "strip-back" }, text: "‹ Story" }),
-    el("span", { class: "story-strip__text", text: parts.join(" · ") }),
-    el("a", { class: "desk-link desk-link--small", href: "/desk", target: "_blank", rel: "noopener", text: "Desk →" }));
-}
-
 function renderSwitcher(D, ui) {
   const sel = $("details-volcano");
   if (!D) return;
@@ -543,8 +524,8 @@ export function renderDetails(D, store, ui, conn, extras = {}) {
   if (extras.reroutes) store_reroutes = extras.reroutes;
   const box = $("details");
   const open = ui.details.open;
+  // the Details tabpanel: shown while its tab is selected (wall.js selects the tab)
   box.hidden = !open;
-  $("details-btn").setAttribute("aria-expanded", open ? "true" : "false");
   if (!open) return;
   const sec = ui.details.sec ? sectionOf(ui.details.sec) : null;
   $("details-back").hidden = !sec;
@@ -553,8 +534,9 @@ export function renderDetails(D, store, ui, conn, extras = {}) {
   // TEPHRA Assistant's section carries its mark (Strata, ta-16) beside the name (Naming)
   const tk = `${sec?.key || ""}|${t}`;
   if (title.dataset.k !== tk) { title.dataset.k = tk; title.replaceChildren(...(sec?.key === "ai" ? [icon("ta-16", "icon drawer__mark"), t] : [t])); }
+  // on the index the tab already says "Details": the heading stays for screen readers and focus
+  title.classList.toggle("sr-only", !sec);
   renderSwitcher(D, ui);
-  renderStrip(D, store);
   $("xtabs").hidden = !!sec;
   if (!sec) renderIndex(D, store, ui);
   for (const h of HOSTS) {

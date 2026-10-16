@@ -27,21 +27,21 @@
   "beats": [
     {
       "at": "0:00",
-      "page": "/",
-      "do": "Open the Wall on Agung. Click \"The sources disagree on where the ash is heading, 90° apart\".",
+      "page": "/demo?intro=0",
+      "do": "Open the demo on Agung. Click \"The sources disagree on where the ash is heading, 90° apart\".",
       "see": "About 110 aircraft over Java and Bali, 20-odd RFA flights in or heading into the ash, Bali's airport closed. Where the sources disagree: 4 to check, two on height (the observatory puts the ash above the official band) and two on direction (official area moves W, observatory reports S).",
       "say": "Three sources, three different answers on height and direction: TEPHRA's code finds every disagreement before anyone has to."
     },
     {
       "at": "0:30",
-      "page": "/",
+      "page": "/demo?intro=0",
       "do": "Details › TEPHRA's estimate.",
       "see": "The amber dashed area around the pink official one, with the Plume reader's reasons and \"Drafted by TEPHRA Assistant\".",
       "say": "The assistant weighs that evidence and may only widen the official area, never shrink it."
     },
     {
       "at": "1:00",
-      "page": "/",
+      "page": "/demo?intro=0",
       "do": "Story › Show them, then RFA7601 (demo aircraft CPA140, Perth to Hong Kong at FL320).",
       "see": "This flight: enters in about 20 min, drafted action \"Reroute around the ash\", and the suggested reroute (a few NM and minutes extra) drawn on the map. The list also has flights drafted to hold, change level and divert.",
       "say": "The Flight planner picked the action; code drew the route around the ash and checked every number."
@@ -62,7 +62,7 @@
     },
     {
       "at": "2:30",
-      "page": "/",
+      "page": "/demo?intro=0",
       "do": "Area menu (top bar) › Kyushu. Click \"A no-ash VAA was in force when another report saw ash after it\".",
       "see": "Sakurajima: Tokyo's last advisory says the ash has gone while JMA's eruption report and the SIGMET see ash, a CONFLICT; a Kagoshima arrival is inside the SIGMET area and more are on the way.",
       "say": "Japan too: JMA's notice against Tokyo's advisory is flagged; official areas stay binding and a person decides."

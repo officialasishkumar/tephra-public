@@ -39,7 +39,7 @@ def _items(name: str) -> list[tuple[int, str, str]]:
 
 
 def test_the_guide_tours_each_page() -> None:
-    assert list(FIGURES) == ["wall", "assistant", "desk", "desk-phone", "connect"]
+    assert list(FIGURES) == ["wall", "assistant", "desk", "desk-phone", "onboard"]
     assert set(SHOTS) == set(FIGURES), "guide-shots.json and the guide name the same shots"
     on_disk = {p.stem for p in SHOT_DIR.glob("*.webp")}
     assert on_disk == set(FIGURES), "no screenshot file without its figure, nor the reverse"

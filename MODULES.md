@@ -40,7 +40,9 @@ modules (sections 5.11 to 5.17) were built against.
 | backtest | `tephra/backtest/{__init__,models,metrics,runner,report}.py`, `tephra/agents/prompts/backtest.md`, `tephra/api/routes_backtest.py`, `scripts/backtest.py`, `docs/backtest/`, `tests/test_backtest.py` |
 | web-wall | `tephra/web/index.html`, `tephra/web/wall.js`, `tephra/web/wall/*.js`, `tephra/web/wall.css`, `tephra/web/data/`, `tephra/web/og.{svg,png}`, `tephra/web/mapui.css` (map controls, shared), `tephra/web/guide.{html,js,css}` (the guide page) |
 | web-desk | `tephra/web/desk.html`, `tephra/web/desk.js`, `tephra/web/desk/*.js`, `tephra/web/desk.css` |
-| connect | `tephra/desk/connections.py`, `tephra/desk/sample_feed.py`, `tephra/api/routes_connect.py`, `scripts/push_sample.py`, `tephra/web/connect.{html,js,css}`, `tephra/web/topnav.css` (the nav every page shares), `tests/test_connect.py` (airline data connections: section 5.20) |
+| connect | `tephra/desk/connections.py`, `tephra/desk/sample_feed.py`, `tephra/api/routes_connect.py`, `scripts/push_sample.py`, `tephra/web/desk/connections.js` (the Desk's Data connections), `tests/test_connect.py`, `tests/test_dry_run.py` (airline data connections: section 5.20; the Connect page was folded into onboarding on 16 Oct 2026) |
+| airline | `tephra/airline/{__init__,models,passwords,sessions,accounts,policy_check}.py`, `tephra/api/routes_airline.py`, `tephra/geo/fleet.py`, `tephra/web/kit/push.py`, `.env.airline.example`, `docs/ONBOARDING.md`, `tests/test_airline_api.py`, `tests/test_airline_sessions.py`, `tests/test_fleet_filter.py`, `tests/test_policy_file.py`, `tests/test_push_tool.py`, `tests/fixtures/airline/` (airline onboarding, accounts and an airline's own TEPHRA: section 5.21) |
+| pages | `tephra/api/routes_pages.py`, `tephra/web/{home,onboard,workspace,privacy,doc}.html`, `tephra/web/home.{js,css}`, `tephra/web/home-boot.js`, `tephra/web/home/`, `tephra/web/onboard.js`, `tephra/web/onboard/*.js`, `tephra/web/workspace.js`, `tephra/web/workspace/*.js`, `tephra/web/product.css`, `tephra/web/five-steps.{js,css}`, `tephra/web/welcome.css`, `tephra/web/account-nav.js`, `tephra/web/theme-boot.js`, `tephra/web/theme.js`, `tephra/web/replay-words.js`, `tephra/web/tokens.css`, `tephra/web/topnav.{css,js}` (the nav every page shares) (section 8.1) |
 | crew | `tephra/geo/crew_area.py`, `tephra/desk/crew_reports.py`, `tephra/api/routes_crew.py` (crew reports of ash: section 5.19) |
 | ops-evals | `Dockerfile`, `.dockerignore`, `.gcloudignore`, `.env.example`, `deploy/_common.sh`, `deploy/cloudbuild.yaml`, `deploy/cloudrun.sh`, `deploy/ar-cleanup.json`, `scripts/live_smoke.sh`, `deploy/scheduler.sh`, `deploy/secrets.sh`, `deploy/firestore.rules`, `deploy/README.md`, `deploy/github_deploy_setup.sh`, `deploy/deploy_paths.py`, `deploy/report_interrupted.sh`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`, `scripts/record_replay.py`, `scripts/count_traffic.py`, `scripts/count_model_calls.py`, `scripts/plume_eval.py`, `scripts/make_plume_cases.py`, `scripts/free_model_check.py`, `scripts/*.mjs`, `scripts/public_export.py`, `deploy/public/`, `evals/plume/README.md`, `evals/free_models/`, `data/replay/README.md`, `tests/test_scripts.py`, `tests/test_record_replay.py`, `tests/fixtures/ops_evals/` |
 
@@ -59,14 +61,15 @@ Import only from a lower layer (or from your own files in the same layer).
 | L1 | `tephra.feeds.base`, `tephra.store.base`, `tephra.geo.*` (`geo.reroute` included) |
 | L2 | `tephra.feeds.{sigmet,vona,vaac,taf,adsb,winds,satellite,volcanoes,airports,routes,jma_volcano}`, `tephra.science.*` |
 | L3 | `tephra.reconcile.*`, `tephra.agents.{quota,llm,schemas,budget,answers}` (`quota` and `answers` import `tephra.store.base` only) |
-| L4 | `tephra.agents.{adk_runtime,plume_reader,validators,exposure_planner,dispatch_drafter,adk_app,satellite_reader,notice_reader,ask,voice,duty_officer}`, `tephra.recovery.{models,schedule,closures,solver,tools,agent,network}` |
+| L4 | `tephra.agents.{adk_runtime,plume_reader,validators,exposure_planner,dispatch_drafter,adk_app,satellite_reader,notice_reader,ask,voice,duty_officer}`, `tephra.recovery.{models,schedule,closures,solver,tools,agent,network}`, `tephra.airline.{models,passwords,policy_check,accounts}` (they import `tephra.models`, `tephra.store.base` and `tephra.util` only; `desk.connections` reads the dry-run models) |
 | L5 | `tephra.store.{sqlite_store,firestore_store}` and `tephra.store` (the factory), `tephra.desk.*`, `tephra.replay.*`, `tephra.recovery.decisions`, `tephra.comms.*`, `tephra.regdocs.*` |
 | L6 | `tephra.feeds.registry`, `tephra.duty`, `tephra.ai_worker`, `tephra.pipeline`, `tephra.scheduler` (`tephra.duty` reaches the runtime only through its methods and names `Runtime` for type checking only) |
-| L7 | `tephra.api.*`, `tephra.main`, `tephra.backtest.*` (the runner builds a `Runtime`) |
+| L7 | `tephra.api.*`, `tephra.airline.sessions` (the cookie and its FastAPI dependencies, beside `tephra.api.auth`), `tephra.main`, `tephra.backtest.*` (the runner builds a `Runtime`) |
 
 The feature route modules (`tephra.api.routes_*`) import `DeskSession`, `RuntimeDep` and `_json`
 from `tephra.api.server`, so `create_app` imports them inside `_include_feature_routers`, never at
-the top of `server.py`. The library modules above take the runtime as a Protocol
+the top of `server.py`. `tephra.api.routes_pages` and `tephra.airline.sessions` never import
+`tephra.api.server` (the server imports both at its top). The library modules above take the runtime as a Protocol
 (`AskRuntime`, `CommsRuntime`, `HandoverRuntime`, `DocsRuntime`, `NetworkRuntime`) instead of
 importing `tephra.pipeline`.
 
@@ -354,7 +357,10 @@ verified head of the audit chain (`tephra.desk.audit.verify_head`). `SystemState
 (`CloudInfo | None`), `SystemState.audit` (`ChainHead | None`) and `SystemState.visitor_access`
 (True when a visitor may enter the Desk without a PIN while a replay plays) carry them to the
 pages. `RerouteOption.id` is `stable_id('RR', flight_id, kind, sha256 of route string and
-level)`: the same route under a new cone keeps its id.
+level)`: the same route under a new cone keeps its id. `PUSH_SOURCE_PREFIX` (`"PUSH:"`) starts the
+`Aircraft.source_id` of every pushed position. `OwnFleet` (`prefixes`, `hex_count`) and
+`FleetResponse` (`own_fleet: OwnFleet | None`) are `GET /api/fleet`; `SystemState` does not carry
+them, so `/api/state` is unchanged.
 
 ### 4.5 `tephra.config`
 
@@ -365,8 +371,12 @@ level)`: the same route under a new cone keeps its id.
 constants (not
 configurable): `MAX_PLUME_EXTENT_KM=500`, `MAX_SECTOR_WIDTH_DEG=180`, `MAX_HORIZON_H=18`,
 `FEED_CLOCK_SLACK=timedelta(minutes=5)`, `MIN_SECRET_CHARS=32`, `ADVISORY_BODY_MAX_CHARS=400`,
-`MAX_BODY_BYTES=16 KiB` (the request-body cap) and `MAX_NOTICE_BODY_BYTES=32 KiB` (a pasted notice:
-up to 6,000 characters, three bytes each in Japanese).
+`MAX_BODY_BYTES=16 KiB` (the request-body cap), `MAX_NOTICE_BODY_BYTES=32 KiB` (a pasted notice:
+up to 6,000 characters, three bytes each in Japanese), `MAX_ONBOARD_BODY_BYTES=128 KiB` (an
+airline's answers: `POST /api/airline/accounts`, `PUT /api/airline/answers`) and
+`MAX_PUSH_BODY_BYTES=512 KiB` (a push of up to 1,000 records: `POST /api/push/positions`,
+`POST /api/desk/upload` and `POST /api/airline/feeds/dry-run`, so a file the dry run accepts is
+never refused as too large).
 Operator values (margins, buffers, minima, thresholds) are not here: they live in the policy
 file (section 4.8). `MOVED_TO_POLICY` names the former settings `TEPHRA_VERTICAL_MARGIN_FT`
 and `TEPHRA_ALTERNATE_SEARCH_NM`; `Settings` refuses to start while either is set in the
@@ -427,10 +437,22 @@ The former `TEPHRA_MODEL_RPM` and `TEPHRA_MODEL_LITE_RPM` are gone: pacing follo
 Demo, replay minute, visitor and cloud settings (15 Oct 2026; each defaults to today's
 behaviour). `features` (`TEPHRA_FEATURES`, default `all`; `Feature`, `ALL_FEATURES`,
 `HERO_FEATURES`): the optional features the pages show (`connect`, `crew`, `notices`,
-`satellite`, `btd`, `voice`, `example`, `present`), as `all`, `hero` (none of them: the hero path
-and its three acts only; `""` means the same) or a comma list; an unknown name fails startup
-(`unknown feature(s): nope`). Hidden features keep their routes and tests; their scheduled model
-work stops. `replay_quantum_s` (`TEPHRA_REPLAY_QUANTUM_S`, default 0, 0 to 300): in REPLAY the
+`satellite`, `btd`, `voice`, `example`, `present`, `onboard`), as `all`, `hero` (none of them: the
+hero path and its three acts only; `""` means the same) or a comma list; an unknown name fails
+startup (`unknown feature(s): nope`). Hidden features keep their routes and tests; their scheduled
+model work stops. `onboard` is the exception: hidden, its routes answer 404 `feature_off`
+(accounts and personal data must not be reachable on an instance that does not show them).
+`connect` now means the Desk's Data connections (the Connect page was folded into onboarding).
+
+Airline settings (16 Oct 2026; empty or default, so the demo is unchanged; section 5.21):
+`airline_session_ttl_h` (`TEPHRA_AIRLINE_SESSION_TTL_H`, 12, above 0 and at most 72), the
+workspace cookie's life. `fleet_prefixes` (`TEPHRA_FLEET_PREFIXES`) and `fleet_hexes`
+(`TEPHRA_FLEET_HEXES`): the own-fleet filter, comma or space separated, prefixes `^[A-Z]{3}$`
+upper-cased and hexes `^[0-9a-f]{6}$` lower-cased; `network_airports` (`TEPHRA_NETWORK_AIRPORTS`,
+`^[A-Z]{4}$`, upper-cased): the airline's own airports checked for closure every tick. A bad entry
+fails startup naming it (`invalid fleet prefix: GI`). `policy_file` (`TEPHRA_POLICY_FILE`, default
+`policy/policy_a.json`, pattern `^policy/[a-z0-9_-]{1,40}\.json$`, relative to `data_dir`) is the
+operator policy file `create_runtime` loads. `replay_quantum_s` (`TEPHRA_REPLAY_QUANTUM_S`, default 0, 0 to 300): in REPLAY the
 clock ticks and the AI worker see is floored to this many seconds, anchored to the wall minute
 (4.1); 0 keeps the exact clock. `cloud_region` (`TEPHRA_CLOUD_REGION`, unset) is the region
 shown under Details > Runs on; `secrets_source` (`TEPHRA_SECRETS_SOURCE`, `environment` |
@@ -467,10 +489,14 @@ key order.
 
 ### 4.7 `tephra.store.base`
 
-`Collection` (names and document ids in section 7), `Where(field, op, value)`, `WhereOp`,
+`Collection` (names and document ids in section 7; `AIRLINES` and `AIRLINE_LOGINS` hold airline
+accounts, private to the airline and this site's dispatchers), `Where(field, op, value)`, `WhereOp`,
 `BLOB_KEY_PATTERN`, `escape_doc_id`/`unescape_doc_id`, and the `Store` protocol:
-`put`, `get`, `delete`, `list_docs`, `query`, `update`, `compare_and_set_advisory`, `append_audit`,
-`get_feed_state`, `put_feed_state`, `list_feed_states`, `put_blob`, `get_blob`, `aclose`.
+`put`, `get`, `delete`, `list_docs`, `query`, `count`, `update`, `compare_and_set_advisory`,
+`append_audit`, `get_feed_state`, `put_feed_state`, `list_feed_states`, `put_blob`, `get_blob`,
+`aclose`. `count(collection, where=())` counts matching documents without reading them where the
+backend can (SQLite `COUNT(*)`; a Firestore count aggregation, one read per 1,000 matches, when
+every filter runs on the server); the airline capacity checks use it.
 `update(collection, doc_id, change)` atomically replaces a document with `change(stored)` (None
 when missing) and returns what it wrote: a SQLite `BEGIN IMMEDIATE` transaction, a Firestore
 transaction (which may call `change` again on contention, so it has no side effects). An
@@ -483,7 +509,7 @@ exposures and the Wall are no longer stored and rebuild on the first tick after 
 
 ```python
 POLICY_FILE: Final = Path("policy") / "policy_a.json"       # relative to Settings.data_dir
-def load_policy(data_dir: Path) -> OperatorPolicy
+def load_policy(data_dir: Path, policy_file: str | Path = POLICY_FILE) -> OperatorPolicy   # Settings.policy_file
 ```
 The operator policy holds every margin, buffer, minimum and threshold the code applies on
 the operator's behalf, each with its unit, a `source` saying why it has that value, and
@@ -1535,7 +1561,8 @@ FirestoreStore(Store)`, constructor `(project: str, database: str, bucket: str)`
 `google.cloud.firestore.AsyncClient` and Cloud Storage for blobs (runs only inside Cloud Run
 with its service account); each document is stored as its JSON text in the field
 `tephra_doc` beside copies of its short top-level scalar fields (for a collection in
-`INDEXED_ONLY`, `ai_answers`, only those fields: `expires_at`); equality filters (and one
+`INDEXED_ONLY` only those fields: `expires_at` for `ai_answers`, `status` and `submitted_at` for
+`airlines`, none for `airline_logins`, so no email, hash or answer is copied); equality filters (and one
 `in`) run on the server and the rest in memory, so no composite index is needed; CAS in a
 Firestore transaction; ids escaped with `escape_doc_id`. Both write documents with
 `encode_doc`.
@@ -1724,6 +1751,7 @@ class Runtime:
     catalogue: VolcanoCatalogue; airports: AirportCatalogue; routes: RouteTable; policy: OperatorPolicy
     mode: RunMode; replay_case: ReplayCase | None; auto_replay: bool
     ledger: QuotaLedger | None = None                             # create_runtime shares one with the Gemini backend; made when None
+    fleet: FleetFilter = ALL_AIRCRAFT                             # tephra.geo.fleet: which aircraft enter exposure (create_runtime: from settings)
     policy_summary: PolicySummary; live: LiveData; lock: asyncio.Lock; tick_running: bool   # set by the runtime
     worker: AiWorker                                              # tephra.ai_worker: the model work, off the tick
     epoch: int                                                    # +1 at every picture reset (mode switch, replay loop)
@@ -1770,6 +1798,10 @@ class Runtime:
     async def enter_crew_report(self, entry: CrewEntry, *, actor: str) -> CrewReportView   # raises CrewReportRefused
     async def withdraw_crew_report(self, report_id: str, *, reason: str, actor: str) -> CrewReportView
     async def run_recovery(self, at: datetime, report: TickReport) -> None   # queues RECOVER work when the closed airports change
+    def exposure_aircraft(self) -> list[Aircraft]                # aircraft() the fleet filter admits: _expose, crew_picture, Ask's what-if
+    def own_fleet(self) -> OwnFleet | None                       # GET /api/fleet; None when every aircraft is checked
+    async def update_own_closures(self, at: datetime) -> None    # TEPHRA_NETWORK_AIRPORTS closures, by code (a tick step before network recovery)
+    def closed_now(self) -> frozenset[str]                       # the airport plan's closed airports, and the airline's own closed ones
     async def update_exposures(self, at: datetime, report: TickReport) -> None
     async def settle_drafts(self, at: datetime, report: TickReport) -> None  # draft retirement
     async def run_exposures(self, at: datetime, report: TickReport) -> None  # an ADS-B pass: the two above, then worker.wake("adsb")
@@ -2051,6 +2083,17 @@ Core rules:
   stores the draft and publishes SSE `recovery`. A change
   to the empty set is recorded and makes no plan. A deferred recovery stays queued and is
   offered again after `duty.rerun_min`. `TEPHRA_RECOVERY_AUTO=false` turns it off. The schedule is read once a day.
+- An airline's own airports. With `TEPHRA_NETWORK_AIRPORTS` set, the tick step "own airports"
+  (`update_own_closures`, before network recovery) runs `recovery.closures.find_closures` over
+  those catalogue airports as `network_closures` does, by code only, and keeps the closed ones
+  apart from the recovery bookkeeping (`closed_airports` and `recovery_due` are untouched);
+  `closed_now()` is the union, so a pushed flight plan to or from one is a `closed_hits` entry.
+  Empty (the default): nothing runs and every answer is as before.
+- An airline's own fleet. `Runtime.fleet` (`FleetFilter(prefixes, hexes)` from
+  `TEPHRA_FLEET_PREFIXES` and `TEPHRA_FLEET_HEXES`) admits a pushed position always, a listed
+  address, and an airline-style callsign starting with a listed prefix; empty, it admits every
+  aircraft. Only exposure, the crew-report flags and Ask's what-if read `exposure_aircraft()`;
+  `aircraft()` (the map, pushes, crew-report lookups) is unchanged, and no validator changes.
 - Budget. `publish`, the AI worker and the satellite and recovery steps publish SSE `budget`
   (`Runtime.budget_view`: the ledger's counts per model and the worker's queue); `GET
   /api/budget` serves the same.
@@ -2202,7 +2245,7 @@ Console script `tephra`.
 `tephra/api/server.py`
 ```python
 CONTENT_SECURITY_POLICY: Final = "; ".join([...])   # the policy in section 8.1
-WEB_DIR: Final = Path(__file__).resolve().parent.parent / "web"
+WEB_DIR                                             # imported from tephra.api.routes_pages, re-exported
 type RuntimeFactory = Callable[[Settings], Awaitable[Runtime]]
 def create_app(settings: Settings | None = None, *, runtime_factory: RuntimeFactory | None = None) -> FastAPI
 def configure_logging(level: str) -> None    # one JSON object per line on stdout (Cloud Logging shape)
@@ -2215,14 +2258,19 @@ to a minute for Cloud Scheduler (an overlapping scheduler tick skips itself; the
 does not claim `runtime/writer`, since it may run before traffic reaches the revision). On
 shutdown it cancels the watchdog, stops the loop or that tick (waiting up to 10 s) and closes
 the runtime. Until the runtime exists, routes that need
-it answer 503 `starting`. `create_app` mounts the feature routers (`routes_ask`,
-`routes_notices`, `routes_recovery`, `routes_comms`, `routes_regdocs`, `routes_backtest`,
-`routes_duty`, `routes_crew`) under
-`/api` through `_include_feature_routers`, which imports them at call time. A pure ASGI
-middleware adds the security headers (section 8.1, with `microphone=(self)` on `/desk` alone) to
-every response, caps request bodies whether or not they carry `Content-Length` (413
-`too_large`): 16 KiB, 32 KiB for `POST /api/desk/notices`, `settings.max_upload_bytes` for
-`POST /api/desk/ask/voice`; and writes one access-log line per request. The OpenAPI document is at
+it answer 503 `starting`. The pages and their redirects are `tephra.api.routes_pages.router`
+(section 8.1); `server.py` keeps `/health` and `/healthz`. `create_app` mounts the feature routers
+(`routes_ask`, `routes_notices`, `routes_recovery`, `routes_comms`, `routes_regdocs`,
+`routes_backtest`, `routes_duty`, `routes_crew`, `routes_connect`, `routes_chain`, `routes_evals`,
+`routes_airline`) under
+`/api` through `_include_feature_routers`, which imports them at call time, and puts one
+`LoginThrottle` per row of `tephra.airline.sessions.THROTTLES` on `app.state` (section 5.21). A
+pure ASGI middleware adds the security headers (section 8.1, with `microphone=(self)` on `/desk`
+alone) to every response, caps request bodies whether or not they carry `Content-Length` (413
+`too_large`): 16 KiB, 32 KiB for `POST /api/desk/notices`, 128 KiB for
+`POST /api/airline/accounts` and `PUT /api/airline/answers`, 512 KiB for
+`POST /api/push/positions`, `POST /api/desk/upload` and `POST /api/airline/feeds/dry-run`, `settings.max_upload_bytes` for `POST /api/desk/ask/voice`;
+and writes one access-log line per request. The OpenAPI document is at
 `/api/openapi.json`; there is no docs UI. Routes and shapes: section 8.
 
 `tephra/api/auth.py`
@@ -2241,6 +2289,9 @@ async def require_task_token(request: Request) -> None           # 403 unless he
 class LoginThrottle:                                             # 5 failures per client key per 10 min -> 429
     def __init__(self, *, max_failures: int = 5, window_s: float = 600.0,
                  max_clients: int = 10_000, clock: Callable[[], float] = time.monotonic) -> None
+    def blocked(self, client: str) -> bool; def retry_after_s(self, client: str) -> int
+    def remaining(self, client: str) -> int; def record_failure(self, client: str) -> None
+DISPATCHER_ONLY_PATHS                                            # method and path prefixes a visitor is refused (403)
 ```
 Cookie value `b64url(json{"n": name, "exp": epoch_s, "sid": hex}).b64url(hmac_sha256)` keyed
 by `settings.session_secret`; `HttpOnly; SameSite=Strict; Path=/; Max-Age=ttl`; `Secure`
@@ -2292,7 +2343,16 @@ inline event handlers (CSP in section 8.1), no `innerHTML` with feed or model te
 `textContent`). Both pages reopen a closed event stream themselves and then reload what
 they show (section 8.4).
 
-Wall (`/`, `index.html` + `wall.js` + `wall.css`): fetch `GET /api/wall`, then subscribe to
+Home (`/`, `home.html` + `home.js` + `home.css`; `home-boot.js` sends an old `/#...` link on to
+`/demo`) shows the two choices and a captured replay frame. The demo's frame (docs/UI-DESIGN.md 7.32):
+`wall/welcome.js` (the welcome dialog, its five steps from `five-steps.js`), `wall/assist.js` (pure:
+`stageOf`, `rowView`, `visibleRows`, `minuteGroups`, `playerWords`, `stateLine`, `trackTicks`,
+`newestAt`) and `wall/assist-panel.js` (`mountAssist(host)` -> `{ update(M, { conn }) }`, the
+Assistant tab); `wall/board.js` exports `FEED_NAMES`, `RESULT`, `REFUSED`, `TOOLISH`, `resultKind`,
+`wall/basemap.js` `mapTokens` (the map reads its tokens inside `.night`, so the light theme never
+repaints it) and `wall/story.js` `allCounts` (the strip's and the story's one count).
+
+Wall (`/demo`, `index.html` + `wall.js` + `wall.css`): fetch `GET /api/wall`, then subscribe to
 `GET /api/events` and replace sections per section 8.4. Layers: volcanoes by colour code;
 official polygons with expiry countdown (`valid_to`); cone (dashed outline, label =
 `label`); optional BTD image source using `corners`; aircraft arrows rotated by
@@ -2925,18 +2985,100 @@ The first section, in detail: `tephra.desk.connections`: `create_connection(stor
 sample=False) -> (Connection, key)` (key `tph_` + 32 url-safe characters, shown once, only its
 SHA-256 stored), `find_by_key`, `list_connections`, `revoke_connection`, `save_counts`,
 `checked_positions(raw, connection, at) -> (list[Aircraft], list[PushProblem])` (source id
-`PUSH:<connection id>:<DDHHMMZ>`; `PUSH_FRESH_S` 300). `Runtime.take_push(connection, raw)`
+`PUSH_SOURCE_PREFIX` + `<connection id>:<DDHHMMZ>`; `PUSH_FRESH_S` 300; one record's check is
+`_check_position`, shared with the dry run), `checked_plans(raw)`, and
+`dry_run(raw: dict, at) -> DryRunResult` (the workspace's dry run: `PositionBatch` first, else
+`NotAPush` with the first error; then each position and plan through the push's own checks, pilot
+reports for shape only (`CrewEntry`), with the push's reason texts except the clock words, "of the
+current time" for "of TEPHRA's clock"; the route passes the wall clock; an accepted position
+without an airline-style callsign carries `NOT_CHECKED_NOTE`, since exposure skips it; pure: no
+store, no runtime, no bus). `Runtime.take_push(connection, raw)`
 keeps the positions that pass in `Runtime.pushed` (hex -> newest; cleared on a picture reset),
 runs `run_exposures` and `publish_live` when no tick holds the lock (else the next tick does),
 saves the counters, keeps the summary in `Runtime.push_log` (the newest 400), publishes `push` and returns `PushResult`; `retime` stamps every record with the active clock first (uploads). `Runtime.connect_live()` builds `ConnectLive`. `Runtime.aircraft()` merges the
-ADS-B targets and the pushed positions not older than `PUSH_FRESH_S` (newest per address), so
-exposure, drafts, the Wall, the Desk and Ask all see them; `AircraftFeatureProps.data_source`
+ADS-B targets and the pushed positions not older than `PUSH_FRESH_S` (newest per address), and
+`Runtime.exposure_aircraft()` keeps those the own-fleet filter admits (every one by default, and a
+pushed position always), so exposure, drafts, the Wall, the Desk and Ask all see them; `AircraftFeatureProps.data_source`
 says `AIRLINE` for them. `tephra.desk.sample_feed`: the sample feed is real airline aircraft
 (address, callsign, type, position, level, speed, track) from the replay cases' recorded ADS-B;
 each is moved along its own track at its own speed from its recorded fix (a 900 km leg, then
 again) and pushed every 5 s through `take_push`, flights whose leg crosses an ash area first;
 `Runtime.start_sample_feed(*, actor)`, `stop_sample_feed()`; it stops itself after an hour.
 `scripts/push_sample.py` does the same from any computer with a key (standard library only).
+
+### 5.21 Airline onboarding and accounts (airline)
+
+An airline onboards at `/onboard` (nine pages, `docs/ONBOARDING.md`), creates an account and gets
+a private workspace with a setup kit to run its own TEPHRA. Nothing here reaches the shared
+picture: no route publishes an event, writes the audit trail or changes `/api/state`,
+`/api/wall`, `/api/advisories`, `/api/outbound`, `/api/connect/live` or the aircraft.
+
+`tephra/airline/models.py`: the answers `AirlineAnswers` (`format: "tephra.onboard/2"`;
+`AirlineIdentity`, `AshPolicy` with `PolicyChange`s, `Fleet` of `FleetAircraft`, `Network` of
+`NetworkAirport`, `ScheduleSummary` (counts only), `Feeds`, `People` of `Dispatcher`,
+`AssistantChoice` (`gemini` | `ollama` | `none`, model names only)); unknown keys refused,
+strings stripped, codes upper-cased (hexes lower-cased), every list capped, one check refusing
+control characters in every text; no field holds a key, PIN, secret, token, password, address
+or file. Stored: `AirlineRecord` (`AL-<12 hex>`, `version`, `status` pending | verified |
+declined, `login_key`, `email`, `answers`, `submitted_at`, `updated_at` (wall clock),
+`decided_at`, `decline_reason`, `flags`, `history: [HistoryEntry]`) and `AirlineLogin` (`login_key`,
+`airline_id`, `email`, `password` as `scrypt$N$r$p$<salt>$<hash>`, `recovery_sha256`,
+`session_version`). Views: `AirlineView` (never the login key, flags or history),
+`AccountCreated` (+ `recovery_code`, in that answer only), `RecoveryCode`, `AirlineSessionView`,
+`AirlineDeskRow`, `AirlineDeskView` (+ `answers`, `history`, `history_ok`, `history_broken_at`),
+`AirlineList`, `DryRunResult` (`DryRunSection` counts, `rejected: [PushProblem]`,
+`accepted: [DryRunRecord]`). Bodies: `AccountCreate` (`answers`, `email`, `password` 12-128 and
+not the email, `acknowledge: true`, `website` honeypot, empty), `SignIn`, `Recover`,
+`AnswersUpdate`, `AssistantUpdate`, `DeleteAccount`, `VerifyAirline`, `DeclineAirline`,
+`DeleteAirline`; passwords are NFC-normalised, never stripped.
+
+`tephra/airline/passwords.py` (standard library): `hash_password` (scrypt N=2^14, r=8, p=5, 16
+random salt bytes, 64 MiB `maxmem`), `password_matches` (parameters read from the stored string,
+`hmac.compare_digest`), `dummy_check` (an unknown email costs one scrypt too), `hashed` and
+`check_password` (in a worker thread, at most two at once per event loop), `new_recovery_code`
+(16 of `RECOVERY_ALPHABET`, `XXXX-XXXX-XXXX-XXXX`), `normalise_code`, `code_sha256`,
+`codes_match`.
+
+`tephra/airline/sessions.py`: the cookie `tephra_airline` =
+`b64url(json{"a", "k", "v", "exp", "c", "n"}).b64url(HMAC-SHA256(key, payload))` with
+`key = HMAC-SHA256(session secret, "tephra airline session v1")`, so it and the Desk's cookie never
+verify as each other; HttpOnly, SameSite=Strict, `Secure` over https, `airline_session_ttl_h`.
+`AirlineClaims`, `sign_claims(claims, settings, *, at)`, `verify_claims`, `read_claims(request)`
+(signature and wall-clock expiry only, no store read; the nav and the `/connect` redirect),
+`accounts_enabled(settings)` (`onboard` on and the secret not blank), FastAPI dependencies
+`require_onboard` (404 `feature_off`), `require_accounts` (+ 503 `accounts_off`) and
+`require_airline` (+ the stored login and record, the cookie's `v` equal to `session_version`;
+401 `unauthenticated` otherwise), `client_key_64` (the throttles' client, an IPv6 address cut to
+its /64) and `THROTTLES` (the `app.state` throttles: signup attempts 10/h and accepted signups 3/day
+per client, 30/day for the site, sign-in 5 per 15 min per client and 10 per email (a success
+clears only that email's count, never the client's), recovery 5/h per email, dry runs 30/h and
+saves of answers or the assistant 60/day per airline; in process memory, empty after a restart).
+
+`tephra/airline/accounts.py`: `login_key(email)`, `create_account` (the record first through
+`store.update` refusing an existing id, then the login refusing an existing key: a lost race on
+the email deletes the record and raises `EmailTaken`), `onboarding_full` (200 pending or 1,000
+logins, both by `store.count`, so no record is read), `pending_count` (`store.count`), `list_airlines`, `get_record`, `get_login`, `update_answers` (pending
+only, else `AnswersLocked`), `update_assistant` (every status), `set_password` (a recovery: new
+hash and code, `session_version` + 1), `end_sessions` (sign-out: `session_version` + 1 when the
+cookie's version is current), `delete_account` (both documents), `decide` (verify or
+decline a pending airline, else `NotPending`), `desk_delete` (a declined airline only, else
+`NotDeclined`), `reviewer_flags` (code-computed hints for the Desk, never blocking) and
+`verify_history`. Every change checks `version` inside the `store.update` change
+(`VersionConflict`) and appends a `HistoryEntry` to the record's own hash-linked history (actor
+`airline` or `desk:<name>`); never the public audit trail, which would list airlines publicly. An
+airline's change of the same kind as the last entry, or any once the history holds `MAX_HISTORY`
+(100) entries, replaces that last entry, so edits never grow a record without bound.
+
+`tephra/airline/policy_check.py`: `EDITABLE` (every `named_values()` key outside `recovery.`, plus
+`recovery.airport_closure_radius_nm`) and `apply_changes(policy, changes) -> OperatorPolicy`
+(`PolicyRefused` when the changed policy breaks the file's own rules).
+
+An airline's own TEPHRA (the setup kit): `TEPHRA_FLEET_PREFIXES`, `TEPHRA_FLEET_HEXES`
+(`tephra/geo/fleet.py` `FleetFilter`, `ALL_AIRCRAFT`), `TEPHRA_NETWORK_AIRPORTS` and
+`TEPHRA_POLICY_FILE` (section 4.5, 5.7); `tephra/web/kit/push.py`, the kit's push tool (standard
+library only; flight plans from `flights.json` for a date, positions from CSV or JSON, nothing
+guessed, `--stamp-now` only for a file written in the last minute, batches of 1,000 at least 1.1 s
+apart, `--dry-run`).
 
 ## 6. Quota and model use
 
@@ -3007,6 +3149,8 @@ metrics.
 | `duty` | run id | `DutyRun` | duty (`tephra.duty.dispatch_duty`, run by the AI worker) |
 | `crew_reports` | `CR-<12 hex>` | `CrewReport` (both modes; withdrawn and expired ones kept) | crew (`tephra.desk.crew_reports`, through `Runtime.enter_crew_report`, `withdraw_crew_report`, `update_crew`) |
 | `connections` | `CN-<10 hex>` | `Connection` (the key's SHA-256 only, never the key; revoked ones kept) | connect (`tephra.desk.connections`) |
+| `airlines` | `AL-<12 hex>` | `AirlineRecord` (status, the answers, reviewer flags, the private hash-linked history; CAS on `version`). Private: the airline and this site's dispatchers; never public, never in the audit trail; in Firestore only `status` and `submitted_at` are indexed | airline (`tephra.airline.accounts`) |
+| `airline_logins` | sha256 of `"tephra.airline/1\|" + email` | `AirlineLogin` (credentials: the scrypt string, the recovery code's SHA-256, `session_version`); never returned by any route; nothing indexed | airline (`tephra.airline.accounts`) |
 | `reroutes` | `RerouteOption` id | `RerouteOption` (every option of a planned flight) | core |
 | `sat_readings` | reading id (`SAT-...`) | `SatelliteReading` | core |
 | `notices` | `NOTICE-<sha12>` | `NoticeReading` | `routes_notices` |
@@ -3056,8 +3200,12 @@ request input.
 
 | Method, path | Response |
 |---|---|
-| `GET /` | `tephra/web/index.html` |
+| `GET /` | `tephra/web/home.html`, Home (UI-DESIGN 7.32); with a query string, 307 to `/demo?<the same query>` (`home-boot.js` sends a hash on to `/demo` too) |
+| `GET /demo` | `tephra/web/index.html`, the demo (the Wall) |
 | `GET /assistant` | `tephra/web/index.html` again: `page-mode.js` marks it `data-page="assistant"` and `wall.js` shows the TEPHRA Assistant board in place of the Wall (UI-DESIGN 7.27) |
+| `GET /onboard`, `GET /onboard/{page}` | `tephra/web/onboard.html` for `airline, policy, fleet, network, schedule, feeds, people, assistant, review, done`; else 404 (UI-DESIGN 7.33) |
+| `GET /signin`, `GET /signin/recover`, `GET /workspace`, `GET /workspace/{section}` | `tephra/web/workspace.html` for `answers, feeds, assistant, kit`; else 404 |
+| `GET /connect` | 307 to `/workspace/feeds` with a valid airline cookie, else to `/onboard` |
 | `GET /desk` | `tephra/web/desk.html` |
 | `GET /privacy` | `tephra/web/privacy.html`, the privacy notice (linked from the guide's foot, the Desk sign-in and README) |
 | `GET /guide` | `tephra/web/guide.html`, the guide: how to read the map, the words used, the keyboard, About and credits, and the operator policy (linked from the Wall footer, `?` and the map key) |
@@ -3096,7 +3244,8 @@ The headers above are unchanged by compression.
 | `GET /api/replays` | `ReplayCaseList` = `{cases: [ReplayCaseSummary]}`: each recorded case without its records (`case_id`, `label`, `recorded_from`, `recorded_to`, `region`, `volcano_ids`, `notes`, `record_count`, `banner`, `synthetic`). Built once per app in the lifespan (`ReplayCatalogue` on `app.state.replays`: summaries, serialised bytes, strong `ETag` = quoted sha256 of the bytes); a manifest that cannot be read fails startup. Served with `Cache-Control: no-cache` and the `ETag`; a matching `If-None-Match` answers 304 with no body |
 | `GET /api/routes/{origin_icao}/{dest_icao}` | FeatureCollection (`RouteFeatureProps`, `routes.route_features`): the great circle between two airports and a Point at each end, for the route of a flight picked on the Wall that is not in `WallSnapshot.routes` (the line's id is the pair in alphabetical order, whichever order is asked). Which airports a flight flies between comes only from `AircraftFeatureProps`; this answer depends only on the two positions, so it is sent with `Cache-Control: public, max-age=86400`. 404 `not_found` for a code that is not 4 capitals or digits, the same airport twice, or an airport with no known position |
 | `GET /api/airports` | FeatureCollection of the airport catalogue (`data/airports.json`, `Airport`): a Point per airport with `icao`, `iata`, `name`, `country`, `longest_runway_m` (feature id the ICAO code), for the maps to place the airports an airport plan closes. The catalogue changes only with a deploy: `Cache-Control: public, max-age=3600` |
-| `GET /connect` | `tephra/web/connect.html`, TEPHRA Connect (UI-DESIGN 7.24) |
+| `GET /api/fleet` | `FleetResponse` `{own_fleet: null \| {prefixes, hex_count}}`: the own-fleet filter this TEPHRA runs with; never the addresses (always on) |
+| `GET /api/airline/session` | `AirlineSessionView` `{accounts, signed_in, icao, name}` from the airline cookie alone (no store read); `accounts` false when `onboard` is off or the session secret is blank; never an error |
 | `GET /api/connect/format` | `FormatInfo` `{format, max_positions, fresh_s, push_url, schema}`: the push format `tephra.positions/1` and its JSON Schema |
 | `GET /api/connect/schema.json`, `GET /api/connect/sample.json` | Downloads (`Content-Disposition: attachment`): the JSON Schema, and an example push of 12 real recorded flights (`sample_feed`) at their recorded fixes, timed on the active clock now, accepted as it is for `PUSH_FRESH_S` |
 | `GET /api/connect/live` | `ConnectLive` `{wall_at, sample_running, sample_connection_id, flows: [ConnectFlow], dots: [PushedDot], recent: [PushSummary]}`: the pushed flights updated in the last 60 s, each connection's positions / min and 5-minute sparkline (wall clock), the newest 14 pushes; public, so a reload of the page starts complete |
@@ -3192,7 +3341,7 @@ Wall resyncs from `/api/wall` and the Desk reloads its list when the stream reop
 | `budget` | `BudgetView` | replace the AI budget chip |
 | `duty` | `DutyRun` | replace the Duty Officer panel and the Desk's brief card |
 | `crew` | `CrewPicture` | replace the crew report areas, their list and the flags (Wall and Desk) |
-| `push` | `PushSummary` | the Connect page: a push taken (its connection, counts, up to 3 refusal reasons, the positions as dots with `in_ash`) |
+| `push` | `PushSummary` | the Desk's Data connections and the board: a push taken (its connection, counts, up to 3 refusal reasons, the positions as dots with `in_ash`) |
 | `heartbeat` | `{"now": iso, "mode": "LIVE"}` (no `id`) | update clock |
 
 Core publishes `state`, `volcanoes`, `situation`, `official`, `cones`, `exposures`,
@@ -3245,7 +3394,8 @@ is `desk:<SessionInfo.name>`, or `visitor:<SessionInfo.name>` for a visitor sess
 
 Visitor sessions (`SessionInfo.role == "visitor"`) make real, audited decisions in REPLAY only,
 capped per session (`sid`): 403 `visitor_role` on `POST /api/mode`, the sample feed,
-connections, upload and notices; 409 `visitor_replay_only` on any decision in LIVE; 429
+connections, upload, notices and every `/api/desk/airlines` route (GET too: an airline's record
+is private); 409 `visitor_replay_only` on any decision in LIVE; 429
 `visitor_cap` past `TEPHRA_VISITOR_DECISION_CAP` decisions and 429 `visitor_ask_cap` past
 `TEPHRA_VISITOR_ASK_CAP` Ask questions. The decision guard applies to every session: 409
 `rule_blocked` when the rules refuse the action (a DIVERT or REROUTE in HYPOTHESIS mode) and
@@ -3288,3 +3438,29 @@ failure is HTTP 503 `{"error": "ai_unavailable", "message": "AI UNAVAILABLE: <re
 | `POST /api/desk/crew-reports` | `CrewEntry` `{hex \| callsign, cues: [ASH_SEEN, SULPHUR_SMELL, HAZE, ST_ELMOS_FIRE, ENGINE, NO_ASH_SEEN], level_from_fl, level_to_fl?, observed_at, lat?, lon?, remarks? (300)}` | `CrewReportView`; 422 `validation_failed` with every problem (section 5.19); writes `CREW_REPORT_ENTERED`, publishes `crew` and `aircraft` |
 | `POST /api/desk/crew-reports/{CR-id}/withdraw` | `{reason (3-500 chars)}` | `CrewReportView` (WITHDRAWN); 404; 409 `invalid_transition` when already withdrawn; writes `CREW_REPORT_WITHDRAWN` and withdraws every message drafted from it (`DOC_WITHDRAWN`) |
 | `POST /api/desk/crew-reports/{CR-id}/message` | none (send `X-Tephra-Desk: 1`) | `CrewMessageDraft` (the message to the weather office and the VAAC, section 5.16; nothing is sent); 404; 409 `invalid_transition` (not an ASH report, withdrawn, or not in the current picture) |
+
+Airline routes (`tephra/api/routes_airline.py`, section 5.21). Every `/api/airline/*` and
+`/api/desk/airlines*` route answers 404 `feature_off` while `onboard` is hidden, and
+`/api/airline/*` but `session` 503 `accounts_off` without a session secret. Every POST and PUT
+has the CSRF guard. Errors never repeat input; the 422 body is the app's `validation_failed` shape
+(`problems`: "dotted.location: message"), route checks included.
+
+| Method, path | Request | Response |
+|---|---|---|
+| `POST /api/airline/accounts` | `AccountCreate` (read by the route, after the attempt throttle) | 201 `AccountCreated` + `Set-Cookie`; 409 `email_taken`; 422 `validation_failed` (the answers, a policy value an airline cannot change or that breaks the policy's rules, the honeypot); 429 `too_many_requests` + `Retry-After`; 503 `onboarding_full`; 413 over 128 KiB |
+| `POST /api/airline/sign-in` | `SignIn` `{email, password}` | 200 `AirlineSessionView` + `Set-Cookie`; 401 `bad_credentials` with `X-Tephra-Tries-Left` (the same for an unknown email); 429 `too_many_attempts` + `Retry-After` |
+| `POST /api/airline/recover` | `Recover` `{email, recovery_code, new_password}` | 200 `RecoveryCode` (a new code) + `Set-Cookie`; 401 `bad_credentials`; 422; 429 |
+| `POST /api/airline/sign-out` | `{}` | 204, cookie cleared and the session ended on the server (every browser of this account signs in again) |
+| `GET /api/airline/me` | none (airline cookie) | `AirlineView`; 401 `unauthenticated` |
+| `PUT /api/airline/answers` | `AnswersUpdate` `{version, answers}` | `AirlineView` (+ `Set-Cookie` when the name or ICAO changed); 403 `answers_locked`; 409 `version_conflict`; 422; 429 `too_many_requests` past 60 saves a day |
+| `PUT /api/airline/assistant` | `AssistantUpdate` `{version, assistant}` | `AirlineView` (every status); 409; 422; 429 (the same 60 saves a day) |
+| `POST /api/airline/delete` | `DeleteAccount` `{password}` | 204, both documents deleted, cookie cleared; 401 `bad_credentials`; 429 |
+| `POST /api/airline/feeds/dry-run` | a `tephra.airline/1` or `tephra.positions/1` push, as the file has it | `DryRunResult` (checked against the wall clock; nothing taken in); 422 `not_a_push`; 413 over 512 KiB; 429 `too_many_requests` past 30 an hour |
+| `GET /api/desk/airlines?status=pending\|verified\|declined\|all&limit=1..200` | dispatcher session | `AirlineList`, newest `submitted_at` first (default pending, 50) |
+| `GET /api/desk/airlines/summary` | dispatcher session | `{pending}` |
+| `GET /api/desk/airlines/{AL-id}` | dispatcher session | `AirlineDeskView`; 404 `not_found` |
+| `POST /api/desk/airlines/{AL-id}/verify` | `VerifyAirline` `{version, note?}` | `AirlineDeskView`; 409 `version_conflict`; 422 `not_pending` |
+| `POST /api/desk/airlines/{AL-id}/decline` | `DeclineAirline` `{version, reason (3-500)}` | `AirlineDeskView`; 409; 422 `not_pending` |
+| `POST /api/desk/airlines/{AL-id}/delete` | `DeleteAirline` `{version}` | 204, the record and its login deleted; 409; 422 `not_declined` |
+
+A visitor session is refused (403 `visitor_role`) on every `/api/desk/airlines` route.

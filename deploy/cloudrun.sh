@@ -36,7 +36,8 @@ FORWARDED=(TEPHRA_MODE TEPHRA_REPLAY_CASE TEPHRA_REPLAY_START TEPHRA_REPLAY_END 
   TEPHRA_AUTO_REPLAY TEPHRA_REGION TEPHRA_MODEL TEPHRA_MODEL_LITE
   TEPHRA_MODEL_DAILY_BUDGET TEPHRA_MODEL_LITE_DAILY_BUDGET
   TEPHRA_FEATURES TEPHRA_VISITOR_ACCESS TEPHRA_REPLAY_QUANTUM_S TEPHRA_RECOVERY_AUTO
-  TEPHRA_CLOUD_REGION TEPHRA_AI_INTERACTIVE_SHARE TEPHRA_AI_ANSWER_REPLAY_KEEP_H)
+  TEPHRA_CLOUD_REGION TEPHRA_AI_INTERACTIVE_SHARE TEPHRA_AI_ANSWER_REPLAY_KEEP_H
+  TEPHRA_FLEET_PREFIXES TEPHRA_FLEET_HEXES TEPHRA_NETWORK_AIRPORTS TEPHRA_POLICY_FILE)
 KEEP_TAG="${TEPHRA_KEEP_TAG:-}"
 # --- B21 (optional): pin secret versions ------------------------------------------------
 # TEPHRA_SECRET_VERSIONS="GEMINI_API_KEY=3,TEPHRA_DESK_PIN=2" mounts those versions instead
@@ -160,13 +161,14 @@ for name in "${FORWARDED[@]}"; do
   fi
 done
 for pair in "${env_vars[@]}"; do
-  # gcloud splits --set-env-vars on commas.
-  if [[ "$pair" == *,* ]]; then
-    echo "Refusing: '$pair' contains a comma, which --set-env-vars would split." >&2
+  # --set-env-vars is split on "@" (gcloud's ^@^ escape, gcloud topic escaping), so a comma
+  # list such as TEPHRA_FEATURES=connect,onboard stays one value.
+  if [[ "$pair" == *@* ]]; then
+    echo "Refusing: '$pair' contains '@', which --set-env-vars would split." >&2
     exit 1
   fi
 done
-env_list="$(IFS=,; echo "${env_vars[*]}")"
+env_list="^@^$(IFS=@; echo "${env_vars[*]}")"
 
 echo "Commit $SHA, hosting $HOSTING, max 1 instance, $MEMORY, as $RUN_SA"
 echo "Environment:"

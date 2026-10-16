@@ -122,7 +122,7 @@ def test_deploy_env_is_the_demo_configuration() -> None:
     env = _load(DEPLOY_FILE)["env"]
     assert env["TEPHRA_MODE"] == "REPLAY"
     assert env["TEPHRA_REPLAY_CASE"] == "anak-krakatau-20260905"
-    assert env["TEPHRA_FEATURES"] == "connect"
+    assert env["TEPHRA_FEATURES"] == "connect,onboard"
     assert env["TEPHRA_VISITOR_ACCESS"] == "replay"
     assert env["TEPHRA_REPLAY_QUANTUM_S"] == "60"
     assert env["TEPHRA_RECOVERY_AUTO"] == "false"

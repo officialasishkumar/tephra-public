@@ -761,7 +761,7 @@ class AskToolkit:
 
     def _what_if(self, cone: HazardCone, changed: HazardCone, assumed: dict[str, Any]) -> _Built:
         settings, policy = self._rt.settings, self._rt.policy
-        aircraft = self._rt.aircraft()
+        aircraft = self._rt.exposure_aircraft()
         at = timeutil.now()
 
         def exposed_by(shape: HazardCone) -> dict[str, ExposedFlight]:

@@ -1,4 +1,4 @@
-"""Airline data connections (the Connect page, ``/connect``).
+"""Airline data connections (the Desk's Data connections; ``/connect`` redirects to onboarding).
 
 ``router`` is mounted under ``/api`` by the app factory. The format, its JSON Schema and an
 example are public GETs. Connections are made, listed and revoked with a desk session; the
@@ -55,7 +55,7 @@ class SampleFeedSwitch(TephraModel):
 
 
 class Upload(PositionBatch):
-    """A file a signed-in dispatcher uploads or pastes on the Connect page."""
+    """A file a signed-in dispatcher uploads or pastes in the Desk's Data connections."""
 
     retime: bool = Field(
         default=True,
@@ -146,7 +146,7 @@ async def _list(runtime: Any) -> ConnectionList:
 
 @router.get("/connect/live", response_model=ConnectLive)
 async def get_live(runtime: RuntimeDep) -> Response:
-    """The page's whole picture now, so a reload starts complete (the ``push`` event follows)."""
+    """Every pushed flight and flow now, so a reader starts whole (the ``push`` event follows)."""
     return _json(runtime.connect_live())
 
 

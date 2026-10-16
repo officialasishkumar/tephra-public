@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -24,9 +24,11 @@
   <script type="module" src="/static/desk.js"></script>
   <!-- every module desk.js imports, fetched at once (tests/test_modulepreload.py) -->
   <link rel="modulepreload" href="/static/desk/account.js">
+  <link rel="modulepreload" href="/static/desk/airlines.js">
   <link rel="modulepreload" href="/static/desk/api.js">
   <link rel="modulepreload" href="/static/desk/ask.js">
   <link rel="modulepreload" href="/static/desk/budget.js">
+  <link rel="modulepreload" href="/static/desk/connections.js">
   <link rel="modulepreload" href="/static/desk/crew.js">
   <link rel="modulepreload" href="/static/desk/docs.js">
   <link rel="modulepreload" href="/static/desk/docview.js">
@@ -48,12 +50,16 @@
   <link rel="modulepreload" href="/static/desk/tabs.js">
   <link rel="modulepreload" href="/static/desk/toast.js">
   <link rel="modulepreload" href="/static/desk/ui.js">
+  <link rel="modulepreload" href="/static/onboard/form.js">
+  <link rel="modulepreload" href="/static/onboard/pages.js">
+  <link rel="modulepreload" href="/static/onboard/review.js">
   <link rel="modulepreload" href="/static/wall/basemap.js">
   <link rel="modulepreload" href="/static/wall/chain.js">
   <link rel="modulepreload" href="/static/wall/derive.js">
   <link rel="modulepreload" href="/static/wall/dk.js">
   <link rel="modulepreload" href="/static/wall/features.js">
   <link rel="modulepreload" href="/static/wall/images.js">
+  <link rel="modulepreload" href="/static/wall/policy.js">
   <link rel="modulepreload" href="/static/wall/util.js">
   <link rel="modulepreload" href="/static/wall/x-parts.js">
 </head>
@@ -63,7 +69,7 @@
   <header id="dhead" class="dhead">
     <div class="dhead__row tn-bar">
       <a class="tn-home" href="/" title="TEPHRA home">TEPHRA</a>
-      <nav class="topnav" aria-label="TEPHRA pages"><a href="/">Wall</a><a href="/assistant">Assistant</a><a href="/desk" aria-current="page">Desk</a><a href="/connect">Connect</a><a href="/guide">Guide</a></nav>
+      <nav class="topnav" aria-label="TEPHRA pages"><a href="/demo">Demo</a><a href="/assistant">Assistant</a><a href="/desk" aria-current="page">Desk</a><a href="/onboard" data-feature="onboard" hidden>Onboard</a><a href="/guide">Guide</a></nav>
       <!-- One assistant chip (docs/UI-AI-QUIET.md K78, Naming): TEPHRA Assistant's state; the models,
            budget and causes are in its assistant sheet. #model-chip is its label. -->
       <button id="budget-chip" type="button" class="budget" data-tone="on" aria-haspopup="dialog" aria-label="TEPHRA Assistant, connecting">
@@ -110,7 +116,7 @@
         </ol>
         <!-- what the Desk is not, for anyone who arrives here first (a visitor from the live link) -->
         <p class="login__what"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-lock"></use></svg><span>Nothing reaches a real aircraft or system.</span></p>
-        <p class="login__fine"><a href="/"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-arrow-right"></use></svg><span>See the Wall, the public picture, with no sign-in</span></a></p>
+        <p class="login__fine"><a href="/demo"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-arrow-right"></use></svg><span>See the demo, the public picture, with no sign-in</span></a></p>
       </div>
 
       <div class="login__card">
@@ -159,7 +165,7 @@
               <span>Desk switched off</span>
             </p>
             <p>The Desk is switched off on this server (no Desk PIN is set).</p>
-            <p class="fine">The Wall still works. An operator sets the Desk PIN and session secret to turn it on.</p>
+            <p class="fine">The demo still works. An operator sets the Desk PIN and session secret to turn it on.</p>
           </div>
 
           <form id="login-form" class="login__form" novalidate>

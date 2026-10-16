@@ -1,5 +1,5 @@
 """The map survives a resize and the stream reopens (SPEC T09 A1, A2/B04): source checks on
-``wall/map.js``, ``wall.js`` and ``connect.js``. MapLibre 4.7 died inside an easing frame when a
+``wall/map.js`` and ``wall.js``. MapLibre 4.7 died inside an easing frame when a
 camera move started while another eased or the container resized mid-frame, and an EventSource
 closed by an HTTP error was never reopened."""
 
@@ -86,15 +86,6 @@ def test_the_wall_reopens_a_closed_stream_and_backs_off() -> None:
     assert "conn.backoff = 0" in _method(wall, "openStream").split("es.onerror")[0]
     load = _method(wall, "load")
     assert "if (!conn.source || shouldReopen(conn.source.readyState)) openStream();" in load
-
-
-def test_connect_reopens_a_closed_stream_after_five_seconds() -> None:
-    connect = _read("connect.js")
-    assert 'from "./wall/stream.js"' in connect
-    stream = _method(connect, "openStream")
-    assert "source.onerror" in stream
-    assert "shouldReopen(source.readyState)" in stream
-    assert "setTimeout(openStream, STREAM_RETRY_MS)" in stream
 
 
 def test_the_streams_only_reopen_on_the_closed_state() -> None:

@@ -1,0 +1,46 @@
+{
+  "v": 2,
+  "saved_at": "2026-10-16T10:40:00.000Z",
+  "seen": ["airline", "policy", "fleet", "network", "schedule", "feeds", "people", "assistant", "review"],
+  "at": "review",
+  "values": {
+    "airline": {
+      "name": "Ring of Fire Air",
+      "icao": "rfa",
+      "iata": "",
+      "callsign_prefix": "RFA",
+      "callsign_touched": false,
+      "state_of_operator": "Indonesia",
+      "aoc_number": "AOC-121-RFA",
+      "main_base": "wiii",
+      "ops_email": "Ops@RFA.example",
+      "contact_name": "Duty manager"
+    },
+    "policy": {
+      "preset": "A",
+      "changes": {
+        "exposure.vertical_margin_ft": { "value": "3000", "base": 2000, "unit": "ft", "reason": "SRA 4.2: wider vertical margin near ash." },
+        "reroute.buffer_nm": { "value": "20", "base": 20, "unit": "NM", "reason": "" }
+      },
+      "risk_owner": "Director of Flight Operations",
+      "sra_ref": "RFA-SRA-VA-01 rev 3"
+    },
+    "fleet": {
+      "aircraft": [
+        { "registration": "pk-rfa", "type_icao": "a320", "seats": "180", "home_base": "WIII", "hex": "8A 04 12" },
+        { "registration": "PK-RFB", "type_icao": "A320", "seats": "180", "home_base": "", "hex": "8a0413" },
+        { "registration": "PK-RFC", "type_icao": "B738", "seats": "189", "home_base": "WARR", "hex": "" },
+        { "registration": "PK-RFF", "type_icao": "B738", "seats": "0", "home_base": "", "hex": "8a0415" }
+      ],
+      "extra_prefixes": ["RFX"]
+    },
+    "network": {
+      "airports": ["WARR", "WADD", "WIII"],
+      "alternates": { "WIII": ["WIHH"], "WARR": ["WADD", "WIII"] }
+    },
+    "schedule": { "skipped": false, "summary": { "flights": 2, "tails": 2, "crews": 1, "crew_bases": ["WIII"] } },
+    "feeds": { "positions": true, "flight_plans": false, "pilot_reports": true, "source_system": "Our flight-following system" },
+    "people": { "dispatchers": [{ "name": "AK", "role": "approves" }, { "name": "Night desk", "role": "views" }] },
+    "assistant": { "provider": "ollama", "model": "gemma4:e4b", "model_lite": "gemma4:e4b" }
+  }
+}

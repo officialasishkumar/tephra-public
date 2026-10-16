@@ -777,6 +777,8 @@ AIRLINE_FORMAT: Final = "tephra.airline/1"
 MAX_PUSH_POSITIONS: Final = 1000
 MAX_PUSH_PLANS: Final = 1000
 MAX_PUSH_REPORTS: Final = 20
+PUSH_SOURCE_PREFIX: Final = "PUSH:"
+"""``Aircraft.source_id`` of a pushed position: ``PUSH:<connection id>:<DDHHMMZ>``"""
 
 
 class PushedPosition(TephraModel):
@@ -893,7 +895,8 @@ class Connection(TephraModel):
 
 
 class ConnectionView(TephraModel):
-    """A connection as the Connect page shows it; ``key`` only in the answer that created it."""
+    """A connection as the Desk's Data connections shows it; ``key`` only in the answer that
+    created it."""
 
     id: str
     name: str
@@ -921,7 +924,7 @@ class PushedDot(TephraModel):
 
 
 class PushSummary(TephraModel):
-    """The ``push`` event: what one push brought, for the Connect page."""
+    """The ``push`` event: what one push brought, for the board and ``GET /api/connect/live``."""
 
     connection_id: str
     name: str
@@ -939,7 +942,7 @@ class PushSummary(TephraModel):
 
 
 class ConnectFlow(TephraModel):
-    """One connection's flow over the last minutes, for its row on the Connect page."""
+    """One connection's flow over the last minutes (``GET /api/connect/live``)."""
 
     connection_id: str
     name: str
@@ -950,7 +953,7 @@ class ConnectFlow(TephraModel):
 
 
 class PlanLine(TephraModel):
-    """A pushed flight plan as the Connect page draws it: origin to destination."""
+    """A pushed flight plan as a line from origin to destination (``GET /api/connect/live``)."""
 
     flight: str
     origin_icao: str
@@ -960,7 +963,8 @@ class PlanLine(TephraModel):
 
 
 class ConnectLive(TephraModel):
-    """``GET /api/connect/live``: what the Connect page shows, so a reload starts complete."""
+    """``GET /api/connect/live``: every pushed flight and each connection's flow now, whole, so
+    a reader that reloads starts complete."""
 
     wall_at: UtcDatetime
     sample_running: bool
@@ -2419,7 +2423,8 @@ class AircraftFeatureProps(TephraModel):
     dest_icao: str | None = None
     label: str = Field(description="e.g. 'RFA4821 FL350' or 'RFA4821 FL350 +14 MIN'")
     data_source: Literal["ADSB", "AIRLINE"] = Field(
-        default="ADSB", description="AIRLINE: pushed by an airline connection (Connect page)"
+        default="ADSB",
+        description="AIRLINE: pushed by an airline connection (the Desk's Data connections)",
     )
     route_source: Literal["VRS", "PLAN"] | None = Field(
         default=None, description="Where origin and destination come from: PLAN is the airline's"
@@ -2692,6 +2697,20 @@ class PolicyResponse(TephraModel):
 
     policy: OperatorPolicy
     policy_hash: str
+
+
+class OwnFleet(TephraModel):
+    """The own-fleet filter an airline's TEPHRA runs with (``TEPHRA_FLEET_PREFIXES`` and
+    ``TEPHRA_FLEET_HEXES``); the addresses themselves are never listed."""
+
+    prefixes: list[str]
+    hex_count: int
+
+
+class FleetResponse(TephraModel):
+    """``GET /api/fleet``: null when every aircraft is checked (the demo)."""
+
+    own_fleet: OwnFleet | None
 
 
 class LoginRequest(TephraModel):

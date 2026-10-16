@@ -1,8 +1,10 @@
 /* The header every TEPHRA page shares (UI-DESIGN 7.25): a bar at the top that starts the same way
    on every page, so moving between pages nothing jumps. The TEPHRA mark (a fixed 132 px,
-   it goes home) at 24 px from the left, then the pill nav Wall · Assistant · Desk · Connect · Guide
-   with the current page filled. Sizes are in px: the pages' root font sizes differ. Link after tokens.css
-   and before the page's own stylesheet; the page's own bar rules give way to these. */
+   it goes home) at 24 px from the left, then the pill nav Demo · Assistant · Desk · Onboard · Guide
+   with the current page filled (Onboard only while the server shows it), and on the right the
+   airline's Sign in or account menu (account-nav.js) and the demo's How it works. Sizes are in px:
+   the pages' root font sizes differ. Link after tokens.css and before the page's own stylesheet;
+   the page's own bar rules give way to these. */
 
 .tn-bar.tn-bar { padding-left: 24px; column-gap: 12px; }
 @media (min-width: 1100px) { .tn-bar.tn-bar { min-height: 56px; height: 56px; } }
@@ -22,12 +24,14 @@
 .topnav a:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 
 
-/* 1100-1279: five links and the Wall's chips share the bar, so the links sit closer */
+/* 1100-1279: five links and the demo's chips share the bar, so the links sit closer */
 @media (max-width: 1279px) { .topnav a { padding: 0 9px; } }
-/* below desktop the nav keeps the page you are on (and the Wall's Desk link) */
+/* below desktop the nav keeps the page you are on (and the demo's Desk link); a page that is in
+   none of the links (Home, Sign in) shows no empty pill group */
 @media (max-width: 1099px) {
   .tn-home { width: auto; }
   .topnav a:not([aria-current="page"]):not(.topnav__keep) { display: none; }
+  .topnav:not(:has(a[aria-current="page"])) { display: none; }
 }
 @media (max-width: 760px) { .tn-bar.tn-bar { padding-left: 16px; } }
 
@@ -37,3 +41,60 @@
 /* the document page's bar (doc.css .docbar a draws bordered 44 px buttons): its pills keep the nav's look */
 .docbar .topnav a { min-height: 0; height: 30px; padding: 0 12px; border: 0; border-radius: 999px; font: 500 14px var(--font-sans); }
 .docbar .topnav a[aria-current="page"] { color: var(--c-text-ink); background: var(--c-text-1); }
+
+/* ---------------------------------------------------------------- the right side */
+.tn-spacer { flex: 1 1 auto; min-width: 0; }
+.tn-right { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+.tn-signin, .tn-how {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px;
+  border: 0; border-radius: var(--radius-md); background: transparent; color: var(--c-text-2);
+  font: 500 14px/1 var(--font-sans); text-decoration: none; white-space: nowrap; cursor: pointer;
+}
+.tn-signin .icon, .tn-how .icon { width: 18px; height: 18px; flex: none; }
+.tn-signin:hover, .tn-how:hover { color: var(--c-text-1); background: var(--c-surface-2); }
+.tn-signin:focus-visible, .tn-how:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+/* the demo's How it works keeps its icon and its aria-label under 1100 px */
+@media (max-width: 1099px) {
+  .tn-how { padding: 0 10px; }
+  .tn-how .tn-how__w { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
+
+.tn-account-wrap { position: relative; min-width: 0; }
+.tn-account {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; max-width: 100%; padding: 0 12px 0 8px;
+  border: 1px solid var(--c-line-2); border-radius: var(--radius-pill); background: transparent; color: var(--c-text-1);
+  font: 500 14px/1 var(--font-sans); cursor: pointer;
+}
+.tn-account:hover { background: var(--c-surface-2); }
+.tn-account:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+.tn-account__code {
+  display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 50%;
+  background: var(--c-surface-3); font: 600 12px/1 var(--font-mono); letter-spacing: 0.02em;
+}
+.tn-account__name { min-width: 0; max-width: 18ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 480px) { .tn-account__name { max-width: 10ch; } }
+
+.tn-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: var(--z-popover); display: grid; gap: 2px;
+  box-sizing: border-box; width: max-content; min-width: 220px; max-width: calc(100vw - 32px); padding: 6px;
+  border: 1px solid var(--c-line-2); border-radius: var(--radius-lg); background: var(--c-surface-1); box-shadow: var(--shadow-2);
+}
+.tn-menu[hidden] { display: none; }
+.tn-menu__item {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 12px;
+  border: 0; border-radius: var(--radius-md); background: transparent; color: var(--c-text-1);
+  font: 500 14px/1.2 var(--font-sans); text-align: left; text-decoration: none; cursor: pointer;
+}
+.tn-menu__item .icon { width: 18px; height: 18px; flex: none; color: var(--c-text-2); }
+.tn-menu__item:hover, .tn-menu__item:focus-visible { background: var(--c-surface-2); }
+.tn-menu__item:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.tn-menu__item--danger, .tn-menu__item--danger .icon { color: var(--c-serious); }
+.tn-menu__theme { padding: 6px 12px 8px; border-block: 1px solid var(--c-line-1); }
+
+/* the theme control (theme.js): three radios in one row */
+.theme-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font: 400 14px/1.2 var(--font-sans); color: var(--c-text-2); }
+.theme-pick__label { margin-right: 4px; font-size: 12px; font-weight: 600; letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-text-3); }
+.theme-pick__opt { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; cursor: pointer; }
+.theme-pick__opt input { width: 18px; height: 18px; margin: 0; accent-color: var(--c-text-1); }
+.theme-pick__opt input:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }

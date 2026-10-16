@@ -1,8 +1,9 @@
 // Account menu (10.1, 10.9, 10.10): who is signed in and until when, the display mode switch
-// (POST /api/mode; never on the queue), the optional screen wake lock, and sign out. A visitor
-// (SPEC 5.1) sees who they are and when the session ends, never the display switch or Connect:
-// the server refuses both (403 visitor_role). Below 600 px, where the shared nav is folded away,
-// the menu lists the other pages.
+// (POST /api/mode; never on the queue), the optional screen wake lock, Airlines to verify and Data
+// connections (SPEC-v2 7.8), and sign out. A visitor (SPEC 5.1) sees who they are and when the
+// session ends, never the display switch, the airlines or the connections: the server refuses
+// them (403 visitor_role). Below 600 px, where the shared nav is folded away, the menu lists the
+// other pages.
 
 import { PATHS, api, errorCode } from './api.js';
 import { byId, el, icon } from './dom.js';
@@ -11,6 +12,8 @@ import { app } from './state.js';
 import { toast } from './toast.js';
 import { describeReplayIn } from './ui.js';
 import { has } from '../wall/features.js';
+import { airlinesWaiting, openAirlines } from './airlines.js';
+import { openConnections } from './connections.js';
 
 const PAGES_BELOW_PX = 600; // desk.css hides .topnav under this width
 
@@ -55,6 +58,12 @@ export function initAccount({ onSignOut, onWakeChange }) {
     } else if (t.dataset.menu === 'display') {
       close();
       openDisplayDialog();
+    } else if (t.dataset.menu === 'airlines') {
+      close();
+      openAirlines();
+    } else if (t.dataset.menu === 'connections') {
+      close();
+      openConnections();
     }
   });
   menu.addEventListener('change', (event) => {
@@ -104,7 +113,7 @@ function renderMenu() {
   if (!visitor) {
     items.push(el('div', { class: 'menu__block' },
       el('p', { class: 'menu__strong', text: displayWords() }),
-      el('p', { class: 'menu__fine', text: 'Changes what the Wall and every Desk show.' }),
+      el('p', { class: 'menu__fine', text: 'Changes what the demo and every Desk show.' }),
       el('button', { type: 'button', class: 'menu__item', 'data-menu': 'display' }, icon('i-replay'), el('span', { text: 'Change display…' }))));
   }
   if (wakeSupported()) {
@@ -115,10 +124,17 @@ function renderMenu() {
   if (window.innerWidth < PAGES_BELOW_PX) {
     items.push(el('div', { class: 'menu__block menu__pages' },
       el('p', { class: 'menu__fine', text: 'Pages' }),
-      el('a', { class: 'menu__item', href: '/' }, icon('i-external-link'), el('span', { text: 'Wall' })),
+      el('a', { class: 'menu__item', href: '/demo' }, icon('i-external-link'), el('span', { text: 'Demo' })),
       el('a', { class: 'menu__item', href: '/guide' }, icon('i-help'), el('span', { text: 'Guide' }))));
   }
-  if (has('connect') && !visitor) items.push(el('a', { class: 'menu__item', href: '/connect' }, icon('i-network'), el('span', { text: 'Connect airline data' })));
+  if (has('onboard') && !visitor) {
+    const count = el('span', { class: 'menu__count' });
+    items.push(el('button', { type: 'button', class: 'menu__item', 'data-menu': 'airlines' }, icon('i-inbox'), el('span', { text: 'Airlines to verify' }), count));
+    airlinesWaiting().then((n) => {
+      if (n != null) count.textContent = ` · ${n}`;
+    });
+  }
+  if (has('connect') && !visitor) items.push(el('button', { type: 'button', class: 'menu__item', 'data-menu': 'connections' }, icon('i-network'), el('span', { text: 'Data connections' })));
   items.push(el('button', { type: 'button', class: 'menu__item', 'data-menu': 'signout' }, icon('i-log-out'), el('span', { text: 'Sign out' })));
   menu.replaceChildren(...items);
 }

@@ -1,4 +1,4 @@
-// The Wall's and Connect's event stream, the part with no DOM (tests/test_wall_stream.py runs it
+// The Wall's event stream, the part with no DOM (tests/test_wall_stream.py runs it
 // under Node). A browser's EventSource retries by itself after a network error but stays CLOSED
 // after an HTTP error (a 503 while the service restarts): the page must open a new one. The wait
 // between tries doubles from 5 s to a minute, and the first try after a good open is 5 s again.

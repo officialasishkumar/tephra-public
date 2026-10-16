@@ -44,6 +44,8 @@ def _page_files() -> list[Path]:
         *web.glob("*.js"),
         *(web / "wall").glob("*.js"),
         *(web / "desk").glob("*.js"),
+        *(web / "onboard").glob("*.js"),
+        *(web / "workspace").glob("*.js"),
     ]
 
 

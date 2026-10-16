@@ -6,8 +6,9 @@
 //   TEPHRA_REPLAY_START=2026-09-05T10:30:00Z TEPHRA_REPLAY_END=2026-09-05T19:30:00Z uv run tephra
 //   node scripts/ui_check.mjs --base http://127.0.0.1:8121 --mode REPLAY --case anak-krakatau-20260905 --out /tmp/ui-shots
 //
-// Options: --features hero|all asserts what the server's feature set shows (the Connect link is
-// hidden under hero); --tour also walks /?tour=1 (six shots) when the tour is shipped.
+// Options: --features hero|all asserts what the server's feature set shows (the Onboard link is
+// hidden under hero); --tour also walks /demo?tour=1 (six shots) when the tour is shipped. The demo
+// opens with ?intro=0, so its welcome dialog does not cover the checks.
 //
 // Playwright comes from a scratch node_modules outside this repository (npm i playwright@1.64.0
 // there): PLAYWRIGHT_NODE_MODULES names that folder and is required. It drives the system Chrome
@@ -77,7 +78,7 @@ function domChecks() {
     if (!document.body.textContent.includes("Replay clock")) out.push("no \"Replay clock\" label on the page");
   }
   const legend = document.getElementById("legend");
-  if (legend && legend.querySelector("li") && !vis(legend) && !document.querySelector("#details-sheet[open]")) out.push("the key is not visible");
+  if (legend && legend.querySelector("li") && !vis(legend)) out.push("the key is not visible");
   return out.slice(0, 12);
 }
 
@@ -117,7 +118,7 @@ async function wallPage(w, h, query = "") {
   const errs = [];
   page.on("pageerror", (e) => errs.push(e.message));
   page.on("console", (m) => { if (m.type() === "error") errs.push(m.text()); });
-  await page.goto(`${BASE}/${query}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${BASE}/demo?intro=0${query.replace(/^\?/, "&")}`, { waitUntil: "domcontentloaded" });
   try { await page.waitForSelector('body[data-map-ready="true"]', { timeout: 20000 }); } catch { fail(`wall ${w}x${h}`, "the map never reported ready"); }
   await page.waitForTimeout(1500);
   return { ctx, page, errs };
@@ -158,7 +159,9 @@ for (const [w, h] of [[1920, 1080], [1440, 900], [1280, 720], [390, 844]]) {
   shots.push(await shot(page, `repro-${tag}-resize`, "map resize"));
 
   // (ii) the row, then Details 150 ms later (dispatched, not waited for: the point is the speed).
+  // The volcano rows are in the story, folded to its strip by default: it is expanded first.
   try {
+    if (await page.locator("#story").isHidden()) { await page.click("#rail-btn"); await page.waitForTimeout(600); }
     let row = page.locator("#volcano-tabs button.vrow", { hasText: "Semeru" }).first();
     if (!(await row.count())) {
       // the case strip folds the volcano list to one row ("+ 3 more"): unfold it first
@@ -213,7 +216,7 @@ for (const [w, h] of [[1920, 1080], [1440, 900], [1280, 720], [390, 844]]) {
     if (broken === 0) { broken++; await route.fulfill({ status: 503, body: "" }); return; }
     await route.continue();
   });
-  await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${BASE}/demo?intro=0`, { waitUntil: "domcontentloaded" });
   try {
     await page.waitForFunction(() => { const b = document.getElementById("lost-banner"); return b && !b.hidden && b.textContent.trim(); }, null, { timeout: 10000 });
     pass("stream 503", `lost banner: ${await page.locator("#lost-banner").textContent()}`);
@@ -286,15 +289,15 @@ for (const [w, h, list] of [[1440, 900, SECTIONS], [1280, 720, ["flights", "sour
   await ctx.close();
 }
 
-// Features (CP-01): under hero the nav has no Connect link; under all it has one.
+// Features (CP-01): under hero the nav has no Onboard link; under all it has one.
 if (FEATURES) {
   const { ctx, page } = await wallPage(1440, 900);
-  const connect = await page.evaluate(() => { const a = document.querySelector('.topnav a[href="/connect"]'); return a ? !a.hidden && a.offsetParent !== null : false; });
+  const onboard = await page.evaluate(() => { const a = document.querySelector('.topnav a[data-feature="onboard"]'); return a ? !a.hidden && a.offsetParent !== null : false; });
   const served = Array.isArray(state.features) ? state.features : [];
-  if (FEATURES === "hero" && connect) fail("features hero", "the Connect link is shown");
-  if (FEATURES === "all" && !connect) fail("features all", "the Connect link is hidden");
-  if (FEATURES === "hero" && served.includes("connect")) fail("features hero", `the server serves ${served.join(",")}`);
-  pass(`features ${FEATURES}`, `Connect link ${connect ? "shown" : "hidden"}; server features ${served.join(",") || "(none reported)"}`);
+  if (FEATURES === "hero" && onboard) fail("features hero", "the Onboard link is shown");
+  if (FEATURES === "all" && !onboard) fail("features all", "the Onboard link is hidden");
+  if (FEATURES === "hero" && served.includes("onboard")) fail("features hero", `the server serves ${served.join(",")}`);
+  pass(`features ${FEATURES}`, `Onboard link ${onboard ? "shown" : "hidden"}; server features ${served.join(",") || "(none reported)"}`);
   await ctx.close();
 }
 

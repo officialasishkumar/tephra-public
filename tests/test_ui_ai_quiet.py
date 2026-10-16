@@ -48,8 +48,9 @@ def test_ai_builders_use_no_red_and_no_alert() -> None:
 
 
 def test_ai_chip_text_carries_no_model_id() -> None:
+    # the demo's state line (the side panel's Assistant tab) took the Wall's header chip's place
     panels = _read("wall/panels.js")
-    chip = panels[panels.index("// The AI chip (R3.1") : panels.index("// Data chip:")]
+    chip = panels[panels.index("// TEPHRA Assistant's state line") : panels.index("// Data chip:")]
     assert "llm?.label" not in chip
     assert "model_id" not in chip
     budget = _function(_read("desk/budget.js"), "drawAiChip")
@@ -243,6 +244,8 @@ MAIN_VIEW_SOURCES = (
     "wall/details.js",
     "wall/board.js",
     "wall/board-view.js",
+    "wall/assist.js",
+    "wall/assist-panel.js",
     "wall/derive.js",
     "wall/map.js",
     "wall/ext-map.js",

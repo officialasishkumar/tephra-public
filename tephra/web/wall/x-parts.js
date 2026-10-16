@@ -30,16 +30,21 @@ export const aiSymbol = (kind) => (kind === "on" ? "ta-working" : kind === "paus
 
 // The REPLAY words: "Replay · recorded feeds from 05 Sep 2026" then " · not live"; the case title,
 // and whether the switch was automatic, for a tooltip. The date is the recording's first day (UTC),
-// as the server's banner words it. A synthetic case (invented demo data) never says "recorded":
-// "Replay · synthetic demo data".
+// as the server's banner words it. A case rebuilt from archives (its label ends "(reconstructed)")
+// says so, as the welcome dialog does: "Replay · feeds rebuilt from archives, from 05 Sep 2026". A
+// synthetic case (invented demo data) never says "recorded": "Replay · synthetic demo data".
 const MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 export function replayWords(replay) {
   const t = Date.parse(replay?.recorded_from || "");
   const d = Number.isFinite(t) ? new Date(t) : null;
   const day = d ? `${String(d.getUTCDate()).padStart(2, "0")} ${MON3[d.getUTCMonth()]} ${d.getUTCFullYear()}` : null;
   const auto = replay?.auto ? "switched automatically: no live activity" : null;
+  // the label marks a case rebuilt from archives, read as replay-words.js isReconstructed reads it
+  // (the Desk does not load that module)
+  const rebuilt = /\(reconstructed\)/.test(String(replay?.label || ""));
+  const feeds = rebuilt ? "feeds rebuilt from archives" : "recorded feeds";
   return {
-    text: replay?.synthetic ? "Replay · synthetic demo data" : day ? `Replay · recorded feeds from ${day}` : "Replay · recorded feeds",
+    text: replay?.synthetic ? "Replay · synthetic demo data" : `Replay · ${feeds}${day ? `${rebuilt ? "," : ""} from ${day}` : ""}`,
     live: " · not live",
     title: [replay?.banner, "not live", replay?.label, auto].filter(Boolean).join(" · "),
     // for screen readers, after the visible words: the tooltip is not read on touch screens

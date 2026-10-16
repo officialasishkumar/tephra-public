@@ -339,6 +339,16 @@ def events():
     report(False, "events", "no event within 30 s")
 
 
+def airline_session():
+    """Read-only: with onboard on, the deploy's session secret reached the service."""
+    body = get_json("/api/airline/session")
+    accounts = body.get("accounts")
+    if "onboard" in state.get("features", []):
+        report(accounts is True, "airline session", f"accounts={accounts} (onboard is on)")
+    else:
+        report(accounts is False, "airline session", f"accounts={accounts} (onboard is off)")
+
+
 def tick_refused():
     if READ_ONLY:
         report(None, "tick-auth", "skipped in --read-only (never POST to a candidate)")
@@ -359,7 +369,10 @@ if state:
 else:
     report(False, "state checks", "skipped: GET /api/state failed")
 check("page /", lambda: page("/"))
+check("page /demo", lambda: page("/demo"))
+check("page /onboard", lambda: page("/onboard"))
 check("page /desk", lambda: page("/desk"))
+check("airline session", airline_session)
 check("events", events)
 check("tick-auth", tick_refused)
 waited = f"; waited out 429/503 for {retry_waited:.0f} s in {retried_checks} check(s)" if retried_checks else ""
