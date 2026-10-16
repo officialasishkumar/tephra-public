@@ -326,11 +326,10 @@ Every setting is in [`.env.example`](.env.example). The ones that matter first:
 
 ### Run it for your airline
 
-Any airline can onboard at `/onboard`: nine short pages, an account and a private workspace with a
-setup kit to run its own TEPHRA on its own fleet. Its drafts still name each flight by a Ring of
-Fire Air number: advisories under the airline's own flight numbers are not built. A TEPHRA
-dispatcher verifies each airline; running a verified airline's live operation on the shared site
-is not built.
+Any airline can onboard at `/onboard`: an account first, then nine short pages, then a private
+workspace with a setup kit to run its own TEPHRA on its own fleet, where each flight goes by the
+airline's own callsign, flight number or registration. A TEPHRA dispatcher verifies each airline;
+running a verified airline's live operation on the shared site is not built.
 
 **How to onboard: what you provide**
 
@@ -342,7 +341,7 @@ is not built.
 6. **Data feeds**: which of positions, flight plans and pilot reports you will send, in the `tephra.airline/1` format.
 7. **People**: the dispatchers who approve advisories, and their roles.
 8. **Assistant (AI model)**: Gemini or Gemma with your own Google AI Studio key, Gemma on your own computer through Ollama, or no model.
-9. **Review**: check every answer and create your account.
+9. **Review**: check every answer and submit it for verification.
 
 What happens after, file by file, is in [`docs/ONBOARDING.md`](docs/ONBOARDING.md).
 

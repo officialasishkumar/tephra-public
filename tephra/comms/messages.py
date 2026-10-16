@@ -40,7 +40,7 @@ from tephra.comms.models import (
     RecoveryClosure,
     RecoveryInput,
 )
-from tephra.config import AIRLINE_NAME
+from tephra.config import Airline
 from tephra.desk import audit
 from tephra.desk.approvals import SYSTEM_ACTOR
 from tephra.feeds.airports import AirportCatalogue
@@ -178,6 +178,11 @@ class CommsRuntime(Protocol):
 
     @property
     def mode(self) -> RunMode: ...
+
+    @property
+    def airline(self) -> Airline:
+        """Who the drafts speak for: the demo's fictional airline or the airline's own."""
+        ...
 
     def trace(
         self,
@@ -597,9 +602,10 @@ class Templates:
     prompt_hash: str
 
 
-def _facts(spec: TemplateSpec) -> dict[str, Any]:
+def _facts(spec: TemplateSpec, airline: Airline) -> dict[str, Any]:
     return {
-        "airline": f"{AIRLINE_NAME} (fictional)",
+        # "Ring of Fire Air (fictional)" in the demo; an airline's own TEPHRA: its own name
+        "airline": airline.label,
         "message": spec.kind.value,
         "status": spec.status,
         "jurisdiction": spec.jurisdiction.value if spec.jurisdiction is not None else None,
@@ -628,12 +634,12 @@ def _repair_text(
     )
 
 
-def templates_question(spec: TemplateSpec) -> Question:
+def templates_question(spec: TemplateSpec, airline: Airline) -> Question:
     """What is material to a set of templates: everything the model is given, which is the
     template spec (kind, status, jurisdiction, languages and placeholders), never a flight's
     or an advisory's own values (code fills those in)."""
     system = PROMPT_PATH.read_text(encoding="utf-8")
-    return Question("messages", {"prompt": prompt_version(system), "spec": _facts(spec)})
+    return Question("messages", {"prompt": prompt_version(system), "spec": _facts(spec, airline)})
 
 
 async def request_templates(runtime: CommsRuntime, spec: TemplateSpec) -> Templates:
@@ -641,10 +647,12 @@ async def request_templates(runtime: CommsRuntime, spec: TemplateSpec) -> Templa
     The same model's templates for the same spec are used when they pass the checks now; new
     ones that pass are kept."""
     system = PROMPT_PATH.read_text(encoding="utf-8")
-    parts = [text_part(json.dumps(_facts(spec), ensure_ascii=False, indent=1), "facts")]
+    parts = [
+        text_part(json.dumps(_facts(spec, runtime.airline), ensure_ascii=False, indent=1), "facts")
+    ]
     known = _known_codes(runtime.airports)
     answers = runtime.answers
-    reuse = None if answers is None else answers.reuse(templates_question(spec))
+    reuse = None if answers is None else answers.reuse(templates_question(spec, runtime.airline))
     if reuse is not None and (held := await _known_templates(reuse, runtime, spec, known)):
         return held
 
@@ -1250,8 +1258,15 @@ async def list_messages(
 
 
 async def approve(
-    store: Store, bus: EventBus, message_id: str, *, expected_version: int, actor: str
+    store: Store,
+    bus: EventBus,
+    message_id: str,
+    *,
+    expected_version: int,
+    actor: str,
+    airline: Airline,
 ) -> CrewPaxMessage:
+    """``airline``: who the outbound copy speaks for (``Runtime.airline``)."""
     return await _decide(
         store,
         bus,
@@ -1260,6 +1275,7 @@ async def approve(
         actor=actor,
         status=MessageStatus.APPROVED,
         changes={},
+        airline=airline,
     )
 
 
@@ -1271,6 +1287,7 @@ async def edit_and_approve(
     expected_version: int,
     bodies: Mapping[Language, str],
     actor: str,
+    airline: Airline,
 ) -> CrewPaxMessage:
     current = await get_message(store, message_id)
     if current is None:
@@ -1287,6 +1304,7 @@ async def edit_and_approve(
         actor=actor,
         status=MessageStatus.EDITED,
         changes={"edited_bodies": edited},
+        airline=airline,
     )
 
 
@@ -1325,6 +1343,7 @@ async def reject(
         actor=actor,
         status=MessageStatus.REJECTED,
         changes={"reject_reason": cleaned},
+        airline=None,
     )
 
 
@@ -1337,7 +1356,10 @@ async def _decide(
     actor: str,
     status: MessageStatus,
     changes: Mapping[str, Any],
+    airline: Airline | None,
 ) -> CrewPaxMessage:
+    """``airline``: who an approved message's outbound copy speaks for; None only for a
+    rejection, which queues nothing."""
     async with decision_lock(store):
         current = await get_message(store, message_id)
         if current is None:
@@ -1371,12 +1393,16 @@ async def _decide(
         note=decided.reject_reason,
     )
     if decided.status in _QUEUED:
-        await _queue_outbound(store, decided, actor=actor)
+        if airline is None:
+            raise ValueError("an approved message needs the airline it speaks for")
+        await _queue_outbound(store, decided, actor=actor, airline=airline)
     bus.publish(SseEvent.MESSAGE, decided)
     return decided
 
 
-async def _queue_outbound(store: Store, message: CrewPaxMessage, *, actor: str) -> None:
+async def _queue_outbound(
+    store: Store, message: CrewPaxMessage, *, actor: str, airline: Airline
+) -> None:
     queued = OutboundMessage(
         id=uuid4().hex,
         advisory_id=message.id,
@@ -1385,7 +1411,7 @@ async def _queue_outbound(store: Store, message: CrewPaxMessage, *, actor: str) 
         proxy_flight=message.flight_no or message.tail or "",
         status=AdvisoryStatus(message.status.value),
         approved_by=actor,
-        text=outbound_text(message, actor=actor),
+        text=outbound_text(message, actor=actor, airline=airline),
     )
     await store.put(Collection.OUTBOUND, queued.id, queued.model_dump(mode="json"))
     await audit.record(
@@ -1405,10 +1431,12 @@ async def _queue_outbound(store: Store, message: CrewPaxMessage, *, actor: str) 
     )
 
 
-def outbound_text(message: CrewPaxMessage, *, actor: str) -> str:
+def outbound_text(message: CrewPaxMessage, *, actor: str, airline: Airline) -> str:
+    """The demo's 'RING OF FIRE AIR (FICTIONAL) CREW BRIEFING - NOT FOR OPERATIONAL USE'; an
+    airline's own TEPHRA names the airline and never calls it fictional."""
     kind = message.kind.value.replace("_", " ")
     blocks = [
-        f"{AIRLINE_NAME.upper()} (FICTIONAL) {kind} - NOT FOR OPERATIONAL USE",
+        f"{airline.label.upper()} {kind} - NOT FOR OPERATIONAL USE",
         *(f"[{language.upper()}]\n{body}" for language, body in message.final_bodies.items()),
         f"MESSAGE {message.id} VERSION {message.version} APPROVED BY {actor}"
         f" {timeutil.to_iso(message.decided_at or message.updated_at)}",

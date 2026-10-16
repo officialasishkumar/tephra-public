@@ -40,6 +40,7 @@ from tephra.config import (
     DISCLAIMER,
     NO_MODEL_LABEL,
     PROJECT_ROOT,
+    Airline,
     Settings,
 )
 from tephra.feeds.airports import AirportCatalogue, load_airports
@@ -111,6 +112,10 @@ class FakeRuntime:
             PROJECT_ROOT / "data", min_runway_m=POLICY.alternates.min_runway_m.value
         )
     )
+
+    @property
+    def airline(self) -> Airline:
+        return self.settings.airline
 
     async def tick(self, *, reason: str = "scheduler") -> TickReport:
         if self.fail_tick:

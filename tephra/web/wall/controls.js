@@ -2,7 +2,7 @@
 // the Help dialog (read the map, the full key, the words used, the keyboard) and the About dialog.
 // Built with el(); no HTML strings.
 
-import { el, icon } from "./util.js";
+import { el, icon, airline } from "./util.js";
 import { GLOSSARY, GASES_SCOPE } from "./glossary.js";
 import { has } from "./features.js";
 
@@ -66,7 +66,7 @@ export function renderLayers(ui, phone) {
       check("aircraft", "Aircraft", L.aircraft),
       check("acLabels", "Other aircraft labels", L.acLabels, "from zoom 7.5"),
       check("paths", "Flight paths into the area", L.paths),
-      check("routes", "Flight routes", L.routes, "origin to destination · RFA flights heading in, and the picked one"),
+      check("routes", "Flight routes", L.routes, `origin to destination · ${airline().code} flights heading in, and the picked one`),
       check("reroutes", "Suggested reroutes", L.reroutes, "computed by code around TEPHRA's estimate")),
     group("Airports",
       check("airports", "Airports", L.airports, "the ones the airport plan closes are ringed red, with their closure radius")),
@@ -111,12 +111,13 @@ export function helpContent(enabled, { page = false } = {}) {
     : [head, ...body]);
   const keyRow = (s, label, sub) => el("li", {}, s, el("span", {}, el("strong", { text: label }), sub ? el("span", { class: "key__sub", text: ` · ${sub}` }) : null));
   const codes = ["GREEN", "YELLOW", "ORANGE", "RED", "UNKNOWN"].map((c) => icon("i-eruption", "icon", `var(--c-code-${c.toLowerCase()})`));
+  const { code } = airline();
   return el("div", { class: "help" },
     el("h3", { id: "help-read", class: "help__h", tabindex: "-1", text: "Read the map in 3 steps" }),
     el("ol", { class: "help__steps" },
       el("li", {}, sw("lg-area-official", "sw--official"), el("span", { text: "Pink = the official ash area. It is binding." })),
       el("li", {}, sw("lg-area-tephra", "sw--tephra"), el("span", { text: "Amber dashes = TEPHRA's estimate. It is never smaller than the official area." })),
-      el("li", {}, sw("i-aircraft", "sw--exposed"), el("span", { text: "Amber planes = RFA flights in or heading into it. A person approves every advisory on the Desk." }))),
+      el("li", {}, sw("i-aircraft", "sw--exposed"), el("span", { text: `Amber planes = ${code} flights in or heading into it. A person approves every advisory on the Desk.` }))),
     el("ul", { class: "help__list" },
       el("li", { text: "The story on the left says what is happening at the selected volcano; one click expands it. The side panel shows TEPHRA Assistant's steps, and its Details tab holds everything else: the sources, the timeline, how TEPHRA decided and the data feeds." }),
       el("li", { text: "Times ending in Z are UTC." })),
@@ -127,10 +128,10 @@ export function helpContent(enabled, { page = false } = {}) {
       keyRow(sw("lg-area-tephra", "sw--tephra"), "TEPHRA's estimate", "the amber dashed line"),
       keyRow(sw("lg-area-hatch", "sw--tephra"), "Where TEPHRA widened the area", null),
       keyRow(sw("lg-area-crew", "sw--crew"), "Crew report caution area, with a pin at the report", "operator policy A, not a VAA or SIGMET, drawn beneath the official area"),
-      keyRow(sw("i-aircraft", "sw--exposed"), "RFA flight in or heading in", null),
-      keyRow(sw("lg-flight-group", "sw--exposed"), "Six or more RFA flights close together", "the badge is the count, click to zoom in"),
-      keyRow(sw("i-aircraft", "sw--crew"), "RFA flight on a crew report's route", "when TEPHRA's area does not reach it"),
-      keyRow(sw("i-aircraft", "sw--aircraft"), "Other aircraft (not RFA)", null),
+      keyRow(sw("i-aircraft", "sw--exposed"), `${code} flight in or heading in`, null),
+      keyRow(sw("lg-flight-group", "sw--exposed"), `Six or more ${code} flights close together`, "the badge is the count, click to zoom in"),
+      keyRow(sw("i-aircraft", "sw--crew"), `${code} flight on a crew report's route`, "when TEPHRA's area does not reach it"),
+      keyRow(sw("i-aircraft", "sw--aircraft"), `Other aircraft (not ${code})`, null),
       keyRow(sw("lg-route", "sw--route"), "Route (origin to destination)", "the callsign's usual route (VRS standing data), not the filed flight plan. The small tags at its ends are the airport codes"),
       keyRow(sw("lg-reroute", "sw--reroute"), "Suggested reroute", null),
       keyRow(sw("lg-arrow-official", "sw--official"), "Official movement", null),
@@ -170,16 +171,18 @@ const CREDITS = [
 // page (`page`) its links go to the Wall and to the guide's own sections.
 export function aboutContent(state, { page = false } = {}) {
   const replay = state?.mode === "REPLAY" ? state.replay : null;
+  const own = state?.airline?.fictional === false ? state.airline : null;
+  const code = own ? own.code : "RFA";
   return el("div", { class: "about" },
     el("h3", { class: "help__h", text: "What TEPHRA is" }),
-    el("p", { text: "TEPHRA reads the official volcanic-ash reports (SIGMET, VAA, VONA), shows where they disagree, and draws TEPHRA's estimate, the cautious area. Code works out which RFA flights would enter that area and drafts an advisory for each. A human dispatcher approves or rejects every advisory on the Desk." }),
+    el("p", { text: `TEPHRA reads the official volcanic-ash reports (SIGMET, VAA, VONA), shows where they disagree, and draws TEPHRA's estimate, the cautious area. Code works out which ${code} flights would enter that area and drafts an advisory for each. A human dispatcher approves or rejects every advisory on the Desk.` }),
     // the About disclosure (docs/UI-AI-QUIET.md 8.4): one of the few places that say "AI"
     el("p", { text: "TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything." }),
     replay ? el("p", { class: "about__replay" }, el("strong", { text: `${replay.banner} · not live. ` }), el("span", { text: `Case: ${replay.label}` })) : null,
     el("h3", { class: "help__h", text: "Safety limits" }),
     el("ul", { class: "about__list" },
       el("li", { text: "Decision support only. Not for operational use." }),
-      el("li", { text: replay?.synthetic ? "Ring of Fire Air (RFA) is a fictional airline. In this demo replay its flight numbers stand for invented aircraft." : "Ring of Fire Air (RFA) is a fictional airline. RFA flight numbers are proxies for real aircraft." }),
+      el("li", { text: own ? `This TEPHRA checks only ${own.name}'s own flights (${own.code}), each named by its callsign, schedule or registration.` : replay?.synthetic ? "Ring of Fire Air (RFA) is a fictional airline. In this demo replay its flight numbers stand for invented aircraft." : "Ring of Fire Air (RFA) is a fictional airline. RFA flight numbers are proxies for real aircraft." }),
       el("li", { text: "Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system." }),
       el("li", { text: replay?.synthetic ? "This REPLAY is synthetic demo data: real volcanoes, airports and routes, with invented reports, weather and aircraft. Nothing in it happened. It is labelled as such for the whole session." : "REPLAY shows recorded real feeds, labelled as such for the whole session." }),
       el("li", { text: "TEPHRA's estimate is an estimate, never a forecast. The official reports are binding." }),

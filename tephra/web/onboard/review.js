@@ -1,6 +1,7 @@
 // The Review accordion (onboarding page 9 and the workspace's Your answers): one row per page
 // with its one-line summary and its state in a word and a shape, opening to the answers and an
-// Edit link; and the account form that ends onboarding. Every answer goes in through el().
+// Edit link; the sign-up fields that start onboarding; and the recovery code, shown once. Every
+// answer goes in through el().
 
 import { el, icon } from "../wall/util.js";
 import { formatValue } from "../wall/policy.js";
@@ -73,8 +74,8 @@ export function answerRows(page, answers, { named = {}, labels = {} } = {}) {
   }
 }
 
-// rows: one per page 1-8. opts: { named, labels, problems: {page: n}, editHref(page) -> string|null,
-// onEdit(page, event) }
+// rows: one per page 1-8. opts: { named, labels, problems: {page: n}, unseen: Set of pages never
+// opened (their answers are the defaults), editHref(page) -> string|null, onEdit(page, event) }
 export function reviewList(answers, opts = {}) {
   const box = el("div", { class: "rv" });
   for (const key of ANSWER_PAGES) {
@@ -83,9 +84,13 @@ export function reviewList(answers, opts = {}) {
     // An optional page left out ("Skip for now" on Schedule and crews) is not "Complete": its
     // summary says "Not given", and the state that it may stay so.
     const skipped = key === "schedule" && !answers?.schedule?.provided;
+    // a page never opened holds the defaults: said so, never "Complete"
+    const unseen = opts.unseen?.has(key);
     const state = n
       ? el("span", { class: "status status--caution" }, icon("st-caution"), el("span", { text: n === 1 ? "1 thing to check" : `${n} things to check` }))
-      : skipped
+      : unseen
+        ? el("span", { class: "status status--quiet" }, el("span", { text: "Not opened · default" }))
+        : skipped
         ? el("span", { class: "status status--quiet" }, el("span", { text: "Optional" }))
         : el("span", { class: "status status--ok" }, icon("i-check"), el("span", { text: "Complete" }));
     const href = opts.editHref ? opts.editHref(key) : null;
@@ -102,44 +107,35 @@ export function reviewList(answers, opts = {}) {
   return box;
 }
 
-// The account section of page 9. Returns { node, values(), setDisabled(on), fields }.
-export function accountForm({ accountsOn }) {
-  const email = input({ type: "email", autocomplete: "username", inputmode: "email", spellcheck: "false", autocapitalize: "off" });
+// The sign-up fields on the onboarding landing (the account comes first). Returns { node,
+// values(), clearSecrets() }.
+export function accountFields({ accountsOn }) {
+  const email = input({ type: "email", autocomplete: "username", inputmode: "email", spellcheck: "false", autocapitalize: "off", maxlength: 254 });
   const pw = passwordInput({ id: "acct-password", autocomplete: "new-password" });
-  const pw2 = passwordInput({ id: "acct-password2", autocomplete: "new-password" });
   const ack = el("input", { type: "checkbox", id: "acct-ack", "aria-describedby": "acct-ack-err" });
   const honeypot = el("input", { type: "text", name: "website", tabindex: "-1", autocomplete: "off", value: "" });
-  const node = el("section", { class: "section", "aria-labelledby": "acct-h" },
-    el("h2", { id: "acct-h", text: "Create your account" }),
+  const node = el("div", { class: "signup__fields" },
     accountsOn ? null : note("caution", null, "Airline accounts are off on this server: TEPHRA_SESSION_SECRET is not set.", { role: "status" }),
-    field({ id: "acct-email", label: "Email", hint: "You sign in with it. It can be the operations email.", control: email }),
-    el("div", { class: "row2" },
-      field({ id: "acct-password", label: "Password", hint: "12 characters or more", control: pw.control, slot: pw.wrap(pw.control) }),
-      field({ id: "acct-password2", label: "Password again", control: pw2.control, slot: pw2.wrap(pw2.control) })),
+    field({ id: "acct-email", label: "Work email", hint: "You sign in with it.", control: email }),
+    field({ id: "acct-password", label: "Password", hint: "12 characters or more", control: pw.control, slot: pw.wrap(pw.control) }),
     el("div", { class: "field" },
       el("label", { class: "check" }, ack, el("span", { text: "I understand TEPHRA is decision support only: a person decides, and nothing is sent to an aircraft." })),
       el("p", { id: "acct-ack-err", class: "err", hidden: true })),
-    el("div", { class: "hp", "aria-hidden": "true" }, el("label", {}, "Leave this empty", honeypot)),
-    note("info", null, el("span", {}, "Next you get a ", el("b", { text: "recovery code, shown once" }), ". Keep it: password reset by email is not built, so the code is how you get back in.")));
+    el("div", { class: "hp", "aria-hidden": "true" }, el("label", {}, "Leave this empty", honeypot)));
   return {
     node,
-    fields: { email, password: pw.control, password2: pw2.control, ack },
-    values: () => ({ email: email.value.trim().toLowerCase(), password: pw.control.value, password2: pw2.control.value, ack: ack.checked, website: honeypot.value }),
+    values: () => ({ email: email.value.trim().toLowerCase(), password: pw.control.value, ack: ack.checked, website: honeypot.value }),
     clearSecrets: () => {
       pw.control.value = "";
-      pw2.control.value = "";
     },
   };
 }
 
-export const passwordAside = () => el("aside", { class: "card aside-card", "aria-labelledby": "pw-aside-h" },
-  el("h2", { id: "pw-aside-h" }, icon("i-lock"), el("span", { text: "How your password is kept" })),
-  el("p", { text: "A salted scrypt hash: TEPHRA never stores the password itself. After 5 wrong tries, sign-in waits 15 minutes." }));
-
 // The recovery code, shown once (after the account is made, and after a recovery sets a new
 // password). `r`: { code, email, icao }. The code lives in a module variable of the caller, never
-// in storage.
-export function recoveryCard(r, { lead, oldGone = false, submitted = true }) {
+// in storage. `next`: where the button goes once the code is saved, its words, and `go` when the
+// page moves there itself (onboarding keeps the account's answers in memory on the way).
+export function recoveryCard(r, { lead, oldGone = false, next = { href: "/workspace", text: "Open my workspace" }, extra = null }) {
   const copy = el("button", { type: "button", class: "btn btn--secondary btn--sm" }, icon("i-clipboard"), el("span", { text: "Copy" }));
   copy.addEventListener("click", async () => {
     try {
@@ -167,7 +163,7 @@ export function recoveryCard(r, { lead, oldGone = false, submitted = true }) {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
   const saved = el("input", { type: "checkbox", id: "rc-saved" });
-  const open = el("a", { class: "btn btn--primary btn--block", href: "/workspace", "aria-disabled": "true", "aria-describedby": "rc-saved-why" }, el("span", { text: "Open my workspace" }), icon("i-arrow-right"));
+  const open = el("a", { class: "btn btn--primary btn--block", href: next.href, "aria-disabled": "true", "aria-describedby": "rc-saved-why", dataset: next.go ? { go: "" } : null }, el("span", { text: next.text }), icon("i-arrow-right"));
   const why = el("p", { id: "rc-saved-why", class: "hint", text: "Tick the box above first." });
   open.addEventListener("click", (e) => {
     if (!saved.checked) {
@@ -181,11 +177,10 @@ export function recoveryCard(r, { lead, oldGone = false, submitted = true }) {
   });
   return el("div", { class: "auth__stage" }, el("div", { class: "auth__backdrop night", "aria-hidden": "true" }),
     el("section", { class: "card authcard auth__card", "aria-labelledby": "rc-h" },
-      submitted ? el("p", { class: "status status--caution" }, icon("i-clock"), el("span", { text: "Submitted · pending verification" })) : null,
       el("h1", { id: "rc-h", class: "h2", text: "Save your recovery code" }),
       el("p", { class: "body2", text: lead }),
       oldGone ? el("p", { class: "body2", text: "Your old code no longer works." }) : null,
       el("div", { class: "recov" }, el("code", { id: "rc-code", "aria-label": "Recovery code", text: r.code }), el("div", { class: "recov__act" }, copy, dl)),
       el("label", { class: "check" }, saved, el("span", { text: "I have saved my recovery code" })),
-      open, why));
+      open, why, extra));
 }

@@ -89,6 +89,7 @@ body.product {
 .badge--caution { background: var(--c-caution-bg); color: var(--c-caution); border-color: color-mix(in srgb, var(--c-caution) 45%, transparent); }
 .badge--ok { background: var(--c-ok-bg); color: var(--c-ok); border-color: color-mix(in srgb, var(--c-ok) 45%, transparent); }
 .badge--serious { background: var(--c-serious-bg); color: var(--c-serious); border-color: color-mix(in srgb, var(--c-serious) 45%, transparent); }
+.badge--draft { background: var(--c-surface-3); color: var(--c-text-2); border-color: var(--c-line-2); }
 .status { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-2); font-weight: 600; }
 .status .icon { width: 16px; height: 16px; }
 .status--ok { color: var(--c-ok); }
@@ -235,7 +236,8 @@ details[open] > summary .chev { transform: rotate(180deg); }
 .ob__step b { color: var(--c-text-1); }
 .ob__saved { display: inline-flex; gap: 6px; align-items: center; min-height: 20px; font-size: 13px; color: var(--c-text-3); }
 .ob__saved .icon { width: 16px; height: 16px; color: var(--c-ok); }
-.ob__saved[data-state="blocked"] .icon { color: var(--c-caution); }
+.ob__saved[data-state="failed"] { color: var(--c-caution); }
+.ob__saved[data-state="failed"] .icon { color: var(--c-caution); }
 .ob__bar { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 4px; }
 .ob__bar i { height: 4px; border-radius: 2px; background: var(--c-line-2); }
 .ob__bar i.is-done { background: var(--c-text-2); }
@@ -282,6 +284,7 @@ details[open] > summary .chev { transform: rotate(180deg); }
   background: var(--c-surface-glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
 }
 .actions__mid { flex: 1; min-width: 0; font-size: 13px; color: var(--c-text-3); }
+.actions__mid--bad { color: var(--c-caution); font-weight: 500; }
 .actions .btn--primary { min-width: 200px; margin-left: auto; }
 .actions__mid + .btn--primary { margin-left: 0; }
 html:has(.ob-shell[data-view="page"]) { scroll-padding-bottom: 96px; scroll-padding-top: 72px; }
@@ -357,23 +360,28 @@ html:has(.ob-shell[data-view="page"]) { scroll-padding-bottom: 96px; scroll-padd
 .rv__body dd { color: var(--c-text-1); overflow-wrap: anywhere; }
 .rv__edit { justify-self: start; font-size: var(--fs-2); font-weight: 600; min-height: var(--tap-min); display: inline-flex; align-items: center; }
 
-/* ================================================================== ONBOARDING: the landing (product) */
-.ostart { max-width: var(--content-max); margin: 0 auto; padding: 48px var(--gutter) 48px; display: grid; gap: 40px; }
-.ostart__head { display: grid; gap: 14px; max-width: 720px; }
+/* ================================================================== ONBOARDING: the landing (product)
+   The account first: the title, then the sign-up card, in the first column on a wide screen (so
+   what is seen first is what is read first) and first on a phone, then the compact list of what an
+   airline provides, then the one Not built line. */
+.ostart {
+  max-width: var(--content-max); margin: 0 auto; padding: 48px var(--gutter) 48px; display: grid;
+  grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 28px 56px; align-items: start;
+}
+.ostart__head { grid-column: 1 / -1; display: grid; gap: 10px; max-width: 720px; }
 .ostart__head .h1 { font-size: var(--fs-display); }
-.ostart__cta { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; margin-top: 8px; }
-.provide .h2 { margin-bottom: 14px; }
-.provide__list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.provide__i { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 12px; padding: 16px; }
-.provide__ic { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: var(--c-surface-3); color: var(--c-text-1); }
-.provide__i b { display: block; font-size: var(--fs-3); font-weight: 600; }
+.signup { grid-column: 1; grid-row: 2 / span 2; display: grid; gap: 16px; padding: 24px; position: sticky; top: calc(var(--bar-h) + 16px); }
+.signup__fields { display: grid; gap: 16px; }
+.provide { grid-column: 2; grid-row: 2; }
+.provide .h3 { margin-bottom: 8px; }
+.provide__list { display: grid; grid-template-columns: minmax(0, 1fr); border-top: 1px solid var(--c-line-1); }
+.provide__i { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--c-line-1); }
+.provide__ic { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--c-surface-3); color: var(--c-text-1); }
+.provide__ic .icon { width: 16px; height: 16px; }
+.provide__i p { font-size: var(--fs-2); line-height: 1.5; color: var(--c-text-2); overflow-wrap: anywhere; }
+.provide__i b { font-weight: 600; color: var(--c-text-1); }
 .provide__n { margin-right: 6px; color: var(--c-text-3); font-weight: 500; }
-.provide__i p { margin-top: 4px; font-size: var(--fs-2); line-height: 1.45; color: var(--c-text-2); overflow-wrap: anywhere; }
-.get { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.get .card { display: grid; gap: 10px; align-content: start; padding: 20px; }
-.next3 { display: grid; gap: 10px; }
-.next3 b { display: flex; align-items: flex-start; gap: 10px; font-size: var(--fs-2); font-weight: 500; color: var(--c-text-1); }
-.next3 i { display: grid; place-items: center; flex: none; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--c-line-2); font: 600 12px var(--font-sans); font-style: normal; color: var(--c-text-2); }
+.ostart__note { grid-column: 2; }
 
 /* ================================================================== SIGN IN, RECOVERY CODE */
 .narrow { width: 100%; max-width: 480px; margin: 0 auto; padding: 56px var(--gutter) 48px; }
@@ -422,6 +430,8 @@ html:has(.ob-shell[data-view="page"]) { scroll-padding-bottom: 96px; scroll-padd
 .pending--verified > .icon { color: var(--c-ok); }
 .pending--declined { border-color: color-mix(in srgb, var(--c-serious) 45%, var(--c-line-1)); }
 .pending--declined > .icon { color: var(--c-serious); }
+.pending--draft > .icon { color: var(--c-text-2); }
+.pending__go { margin-top: 14px; }
 .pending h2 { font-size: var(--fs-3); font-weight: 600; }
 .pending p { margin-top: 4px; font-size: var(--fs-2); line-height: 1.5; color: var(--c-text-2); }
 .track { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 14px; }
@@ -494,8 +504,10 @@ html:has(.ob-shell[data-view="page"]) { scroll-padding-bottom: 96px; scroll-padd
   .ob__aside { grid-column: 2; padding: 0 0 24px; }
   .kitsofar { position: static; }
 }
-@media (max-width: 1099px) {
-  .provide__list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 900px) {
+  .ostart { grid-template-columns: minmax(0, 1fr); }
+  .signup, .provide, .ostart__note { grid-column: 1; grid-row: auto; }
+  .signup { position: static; }
 }
 @media (max-width: 1000px) {
   .ws { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px var(--gutter) 40px; }
@@ -534,13 +546,16 @@ html:has(.ob-shell[data-view="page"]) { scroll-padding-bottom: 96px; scroll-padd
 @media (max-width: 760px) {
   .product .tn-bar { padding-left: 16px; }
   .h1 { font-size: 26px; }
-  .row2, .row3, .get, .provide__list { grid-template-columns: minmax(0, 1fr); }
-  .actions { gap: 8px; }
+  .row2, .row3 { grid-template-columns: minmax(0, 1fr); }
+  .actions { gap: 8px; flex-wrap: wrap; }
   .actions__mid { display: none; }
+  /* a save that failed is said where Next is, on its own line above the buttons */
+  .actions__mid--bad { display: block; flex: 1 1 100%; order: -1; }
   .actions .btn { flex: 1 1 0; min-width: 0; padding: 0 10px; white-space: normal; text-align: center; }
   .actions .btn--primary { flex: 2 1 0; min-width: 0; }
   .actions .btn--quiet { flex: 1 1 0; }
-  .ostart { padding: 28px var(--gutter) 40px; gap: 32px; }
+  .ostart { padding: 28px var(--gutter) 40px; gap: 24px; }
+  .signup { padding: 20px 16px; }
   .narrow { padding-top: 28px; }
   .authcard { padding: 20px 16px; }
   .auth__stage { align-content: start; padding: 24px var(--gutter); min-height: 0; }
@@ -567,3 +582,7 @@ html:has(.ob-shell[data-view="page"]) { scroll-padding-bottom: 96px; scroll-padd
 @media (prefers-reduced-motion: reduce) {
   .product *, .product *::before, .product *::after { transition: none !important; animation: none !important; }
 }
+
+/* the recovery code page: answers an earlier version kept in this browser, offered, never moved in */
+.legacy { display: grid; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--c-line-1); }
+.legacy__act { display: flex; flex-wrap: wrap; gap: 8px; }

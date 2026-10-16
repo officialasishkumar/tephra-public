@@ -225,7 +225,8 @@ GeoJSON `GeoPoint`, `GeoLineString`, `GeoPolygon`, `GeoMultiPolygon`, `Geometry`
 `make_source_id`, `Provenance`, `SourceRef.from_provenance`; catalogues `Volcano`,
 `VolcanoFile`, `Airport`, `AirportFile`, `AdsbQueryPoint`, `Region`; feed records `Sigmet`
 (`is_valid`), `Vona` (`is_recent`), `VaLayer`, `VaacStep`, `VaacAdvisory` (`valid_until`,
-`is_current`), `TafPeriod`, `Taf`, `Metar`, `Aircraft` (`proxy_flight`, `airline`),
+`is_current`), `TafPeriod`, `Taf`, `Metar`, `Aircraft` (`proxy_flight`, `airline`, `own_named`,
+`named(flight)`: a copy named by an airline's own TEPHRA, never serialised),
 `is_airline_callsign`, `AdsbSnapshot`, `WindLevel` (`toward_deg`), `WindProfile`,
 `WindForecast`, `SatelliteFrame`, `BtdResult`; reasoning `Discrepancy`, `OfficialLayer`
 (`is_valid`, `to_feature`), `Situation` (`provenances`, `source_ids`, `official_valid_now`,
@@ -373,7 +374,8 @@ configurable): `MAX_PLUME_EXTENT_KM=500`, `MAX_SECTOR_WIDTH_DEG=180`, `MAX_HORIZ
 `FEED_CLOCK_SLACK=timedelta(minutes=5)`, `MIN_SECRET_CHARS=32`, `ADVISORY_BODY_MAX_CHARS=400`,
 `MAX_BODY_BYTES=16 KiB` (the request-body cap), `MAX_NOTICE_BODY_BYTES=32 KiB` (a pasted notice:
 up to 6,000 characters, three bytes each in Japanese), `MAX_ONBOARD_BODY_BYTES=128 KiB` (an
-airline's answers: `POST /api/airline/accounts`, `PUT /api/airline/answers`) and
+airline's answers: `POST /api/airline/accounts`, `PUT /api/airline/answers`,
+`PUT /api/airline/draft`, `POST /api/airline/submit`) and
 `MAX_PUSH_BODY_BYTES=512 KiB` (a push of up to 1,000 records: `POST /api/push/positions`,
 `POST /api/desk/upload` and `POST /api/airline/feeds/dry-run`, so a file the dry run accepts is
 never refused as too large).
@@ -452,7 +454,19 @@ upper-cased and hexes `^[0-9a-f]{6}$` lower-cased; `network_airports` (`TEPHRA_N
 `^[A-Z]{4}$`, upper-cased): the airline's own airports checked for closure every tick. A bad entry
 fails startup naming it (`invalid fleet prefix: GI`). `policy_file` (`TEPHRA_POLICY_FILE`, default
 `policy/policy_a.json`, pattern `^policy/[a-z0-9_-]{1,40}\.json$`, relative to `data_dir`) is the
-operator policy file `create_runtime` loads. `replay_quantum_s` (`TEPHRA_REPLAY_QUANTUM_S`, default 0, 0 to 300): in REPLAY the
+operator policy file `create_runtime` loads. The airline's identity in its own TEPHRA (16 Oct
+2026, OWNFLIGHTS): `airline_name` (`TEPHRA_AIRLINE_NAME`, 2-120 characters, no control
+characters), `airline_icao` (`^[A-Z]{3}$`), `airline_iata` (`^[A-Z0-9]{2}$`), `airline_schedule`
+and `airline_fleet` (the kit's `flights.json` and `fleet.json`, `^airline/[a-z0-9_-]{1,40}\.json$`
+relative to `data_dir`). Any of them without an own fleet fails startup; `Settings.airline` is
+`DEMO_AIRLINE` (`Airline(code="RFA", name="Ring of Fire Air", fictional=True)`) while no own fleet
+is set, else the configured `Airline` (`label`, `disclaimer` = `OWN_DISCLAIMER` "Decision support
+only - not for operational use", `operator`), and raises when an own fleet lacks the name or ICAO
+(`create_runtime` and `create_app` read it, so such a TEPHRA does not start). `SystemState.airline`
+(`AirlineInfo.fictional` is now `bool`) and `disclaimer` follow it; the advisory header
+(`dispatch_drafter.header_title(airline)`), the drafter's facts, the VAR, SRA and crew-message
+labels and operator lines say the configured name, and the fictional labels only for the demo.
+`replay_quantum_s` (`TEPHRA_REPLAY_QUANTUM_S`, default 0, 0 to 300): in REPLAY the
 clock ticks and the AI worker see is floored to this many seconds, anchored to the wall minute
 (4.1); 0 keeps the exact clock. `cloud_region` (`TEPHRA_CLOUD_REGION`, unset) is the region
 shown under Details > Runs on; `secrets_source` (`TEPHRA_SECRETS_SOURCE`, `environment` |
@@ -2268,7 +2282,8 @@ it answer 503 `starting`. The pages and their redirects are `tephra.api.routes_p
 pure ASGI middleware adds the security headers (section 8.1, with `microphone=(self)` on `/desk`
 alone) to every response, caps request bodies whether or not they carry `Content-Length` (413
 `too_large`): 16 KiB, 32 KiB for `POST /api/desk/notices`, 128 KiB for
-`POST /api/airline/accounts` and `PUT /api/airline/answers`, 512 KiB for
+`POST /api/airline/accounts`, `PUT /api/airline/answers`, `PUT /api/airline/draft` and
+`POST /api/airline/submit`, 512 KiB for
 `POST /api/push/positions`, `POST /api/desk/upload` and `POST /api/airline/feeds/dry-run`, `settings.max_upload_bytes` for `POST /api/desk/ask/voice`;
 and writes one access-log line per request. The OpenAPI document is at
 `/api/openapi.json`; there is no docs UI. Routes and shapes: section 8.
@@ -2344,12 +2359,32 @@ inline event handlers (CSP in section 8.1), no `innerHTML` with feed or model te
 they show (section 8.4).
 
 Home (`/`, `home.html` + `home.js` + `home.css`; `home-boot.js` sends an old `/#...` link on to
-`/demo`) shows the two choices and a captured replay frame. The demo's frame (docs/UI-DESIGN.md 7.32):
+`/demo`) shows the two choices over a volcanic sky (`home/ash.js`, faint ash drawn on a canvas, no
+data) beside a picture of the five steps (`home/how.js`, from `FIVE_STEPS`, ending at a card marked
+Example); under 1024 px the picture gives way to the small five-steps strip. The demo's frame (docs/UI-DESIGN.md 7.32):
 `wall/welcome.js` (the welcome dialog, its five steps from `five-steps.js`), `wall/assist.js` (pure:
-`stageOf`, `rowView`, `visibleRows`, `minuteGroups`, `playerWords`, `stateLine`, `trackTicks`,
-`newestAt`) and `wall/assist-panel.js` (`mountAssist(host)` -> `{ update(M, { conn }) }`, the
-Assistant tab); `wall/board.js` exports `FEED_NAMES`, `RESULT`, `REFUSED`, `TOOLISH`, `resultKind`,
-`wall/basemap.js` `mapTokens` (the map reads its tokens inside `.night`, so the light theme never
+`stageOf`, `rowView`, `visibleRows`, `minuteGroups`, `playerWords` (modes include `"catchup"`;
+following reads "following the replay clock"), `stateLine`, `trackTicks`, `newestAt`, and the
+arrival catch-up: `lastChain(M)` (the newest full chain of recorded steps the page holds: feed
+reads, code checks, Coordinator, each skill, drafts at the Desk or must-do passed to a person),
+`beatMs(n, rm)`, `chainNote(chain)`, `eventsShown(M, chain, played)` (the steps up to the chain
+that are not its beats, then the beats played in play order), `rowsOf(events)`,
+`catchupSkills(M, chain, i)` (each skill row's state at beat `i`: last, in line, running, done, no
+result), `sayBeat(b)` ("Replay, catching up: ..."), `CATCHUP_MS`; the mode `"waiting"` reads
+"about to catch up") and `wall/assist-panel.js` (`mountAssist(host, { has, mapView, sheet, blocked,
+noCatchup })` -> `{ update(M, { conn }), poke() }`, the Assistant tab: state line, the Inside
+TEPHRA diagram, then What happened; on arrival in REPLAY it plays `lastChain` in about 16 s with
+pulses from each feed's place on the map, then follows the replay clock; it waits, and holds between
+beats, while the tab is hidden, a dialog is open or the phone sheet peeks, and scrolls each beat's
+row into view; no request, no model call, nothing written); `wall/board-view.js` also exports
+`mountInside({ has, side })` (its `renderStatic(M, ex, cu)` takes the catch-up's skill states and
+`renderDecide(M, {..., note})` the beat's words for You decide),
+`drawInside(c, A, M, opts)`, `insideColours()` and `SRC` (the one Inside TEPHRA renderer for
+`/assistant` and the demo's Assistant tab); `wall/board.js` exports `FEED_NAMES`, `RESULT`, `REFUSED`, `TOOLISH`, `resultKind`,
+`wall/util.js` `setAirline(state.airline)` / `airline()` (the Wall, the Guide's key and About say
+the flights' airline by `state.airline.code`; `FLIGHT_NAME`, the RegExp source of a flight's name in
+a trace line: an RFA number, or in an own TEPHRA a callsign, flight number or registration and "fictional" only when `state.airline.fictional`;
+the Desk reads `app.state.airline` the same way), `wall/basemap.js` `mapTokens` (the map reads its tokens inside `.night`, so the light theme never
 repaints it) and `wall/story.js` `allCounts` (the strip's and the story's one count).
 
 Wall (`/demo`, `index.html` + `wall.js` + `wall.css`): fetch `GET /api/wall`, then subscribe to
@@ -2659,13 +2694,20 @@ HTTP in section 8.7; SSE `recovery` carries the full plan (about 60 KB).
 ```python
 async def draft_messages(runtime: CommsRuntime, *, advisory_id: str | None = None,
                          recovery_id: str | None = None, actor: str) -> list[CrewPaxMessage]
-async def approve / reject(store, bus, message_id, *, expected_version, ..., actor)
-async def edit_and_approve(store, bus, message_id, *, expected_version, bodies, actor)
+async def approve(store, bus, message_id, *, expected_version, actor, airline: Airline)
+async def reject(store, bus, message_id, *, expected_version, reason, actor)
+async def edit_and_approve(store, bus, message_id, *, expected_version, bodies, actor, airline: Airline)
+def outbound_text(message, *, actor, airline: Airline) -> str
 def passenger_targets(plan: RecoveryInput, airports, policy: OperatorPolicy) -> list[Target]
 def languages_for(origin: Airport, dest: Airport) -> list[Language]
 def template_problems(templates, spec, *, known_codes) -> list[str]
-def templates_question(spec: TemplateSpec) -> Question   # section 5.7, model answers
+def templates_question(spec: TemplateSpec, airline: Airline) -> Question   # section 5.7, model answers
 ```
+`CommsRuntime.airline` (`Runtime.airline`, `Settings.airline`) is who the messages speak for: the
+templates' facts give `airline.label` ("Ring of Fire Air (fictional)" in the demo, the airline's own
+name in its own TEPHRA), and an approved message's outbound copy starts `<LABEL> <KIND> - NOT FOR
+OPERATIONAL USE` ("RING OF FIRE AIR (FICTIONAL) CREW BRIEFING - ..." in the demo); the routes pass
+`runtime.airline` to `approve` and `edit_and_approve`.
 `CommsRuntime.answers` (`AiAnswers | None`): templates for the same spec from the same model are
 used when `template_problems` passes now (no call); new ones that pass are kept. A message's
 `created_at` is when code filled and stored it.
@@ -2694,7 +2736,10 @@ now. The facts carry no dispatcher names. The brief lists the advisory, message 
 drafts open at that moment in `handed_over_open` (and as `actions_open` lines starting `HANDED
 OVER OPEN:`); `acknowledge` is allowed while drafts are open and records the ones still open in
 `receiver_ack.open_drafts` and the `HANDOVER_ACKED` audit entry; a second read-back keeps the
-first. `HandoverBrief` is stored in `docs` with `doc_type = "handover"` (ids `ho_<12 hex>`).
+first. `HandoverBrief` is stored in `docs` with `doc_type = "handover"` (ids `ho_<12 hex>`). Its facts
+name `runtime.airline.label`, and `fictional_airline` (default true: briefs stored before the field
+were the demo's) is false in an airline's own TEPHRA, where the banner drops "FICTIONAL AIRLINE"
+(desk/docview.js) and the document page's footer drops its fictional-airline clause (doc.js).
 
 ### 5.16 regdocs
 
@@ -3008,8 +3053,9 @@ again) and pushed every 5 s through `take_push`, flights whose leg crosses an as
 
 ### 5.21 Airline onboarding and accounts (airline)
 
-An airline onboards at `/onboard` (nine pages, `docs/ONBOARDING.md`), creates an account and gets
-a private workspace with a setup kit to run its own TEPHRA. Nothing here reaches the shared
+An airline creates its account first at `/onboard`, fills the nine pages (`docs/ONBOARDING.md`),
+each saved to the account as a draft, submits them for verification and gets a private workspace
+with a setup kit to run its own TEPHRA. Nothing here reaches the shared
 picture: no route publishes an event, writes the audit trail or changes `/api/state`,
 `/api/wall`, `/api/advisories`, `/api/outbound`, `/api/connect/live` or the aircraft.
 
@@ -3019,16 +3065,26 @@ picture: no route publishes an event, writes the audit trail or changes `/api/st
 `AssistantChoice` (`gemini` | `ollama` | `none`, model names only)); unknown keys refused,
 strings stripped, codes upper-cased (hexes lower-cased), every list capped, one check refusing
 control characters in every text; no field holds a key, PIN, secret, token, password, address
-or file. Stored: `AirlineRecord` (`AL-<12 hex>`, `version`, `status` pending | verified |
-declined, `login_key`, `email`, `answers`, `submitted_at`, `updated_at` (wall clock),
+or file. The pages as typed: `OnboardDraft` (`at`, `seen` (pages opened), `values:
+DraftValues`, every key and size bounded, unknown keys refused, control characters turned into
+spaces; checked for shape only, the rules run on each page and again on submit). Stored:
+`AirlineRecord` (`AL-<12 hex>`, `version`, `status` (`AirlineStatus`) draft | pending | verified |
+declined (`STATUS_LABEL["draft"]` = "Not submitted"; `DeskStatus` the last three), `login_key`,
+`email`, `answers` (null while a draft), `draft: OnboardDraft | None` (null once submitted),
+`created_at` (null on records made before drafts), `submitted_at` (null while a draft),
+`updated_at` (wall clock),
 `decided_at`, `decline_reason`, `flags`, `history: [HistoryEntry]`) and `AirlineLogin` (`login_key`,
 `airline_id`, `email`, `password` as `scrypt$N$r$p$<salt>$<hash>`, `recovery_sha256`,
-`session_version`). Views: `AirlineView` (never the login key, flags or history),
-`AccountCreated` (+ `recovery_code`, in that answer only), `RecoveryCode`, `AirlineSessionView`,
+`session_version`). Records without `draft` or `created_at` keep their status. `HistoryAction`
+includes `submitted`. Views: `AirlineView` (+ `draft`; `answers` and `submitted_at` nullable;
+never the login key, flags or history),
+`AccountCreated` (+ `recovery_code`, in that answer only), `RecoveryCode`, `AirlineSessionView`
+(+ `status`, in sign-in's answer only; the cookie-only read leaves it null),
 `AirlineDeskRow`, `AirlineDeskView` (+ `answers`, `history`, `history_ok`, `history_broken_at`),
 `AirlineList`, `DryRunResult` (`DryRunSection` counts, `rejected: [PushProblem]`,
-`accepted: [DryRunRecord]`). Bodies: `AccountCreate` (`answers`, `email`, `password` 12-128 and
-not the email, `acknowledge: true`, `website` honeypot, empty), `SignIn`, `Recover`,
+`accepted: [DryRunRecord]`). Bodies: `AccountCreate` (`email`, `password` 12-128 and not the
+email, `acknowledge: true`, `website` honeypot, empty; no answers), `DraftUpdate` (`version`,
+`draft: OnboardDraft`), `Submit` (`version`, `answers: AirlineAnswers`), `SignIn`, `Recover`,
 `AnswersUpdate`, `AssistantUpdate`, `DeleteAccount`, `VerifyAirline`, `DeclineAirline`,
 `DeleteAirline`; passwords are NFC-normalised, never stripped.
 
@@ -3040,7 +3096,8 @@ random salt bytes, 64 MiB `maxmem`), `password_matches` (parameters read from th
 `codes_match`.
 
 `tephra/airline/sessions.py`: the cookie `tephra_airline` =
-`b64url(json{"a", "k", "v", "exp", "c", "n"}).b64url(HMAC-SHA256(key, payload))` with
+`b64url(json{"a", "k", "v", "exp", "c", "n"}).b64url(HMAC-SHA256(key, payload))` (a draft's
+`c` (ICAO) and `n` (name) are empty until submit, and its session view's `icao` and `name` null) with
 `key = HMAC-SHA256(session secret, "tephra airline session v1")`, so it and the Desk's cookie never
 verify as each other; HttpOnly, SameSite=Strict, `Secure` over https, `airline_session_ttl_h`.
 `AirlineClaims`, `sign_claims(claims, settings, *, at)`, `verify_claims`, `read_claims(request)`
@@ -3050,15 +3107,26 @@ verify as each other; HttpOnly, SameSite=Strict, `Secure` over https, `airline_s
 `require_airline` (+ the stored login and record, the cookie's `v` equal to `session_version`;
 401 `unauthenticated` otherwise), `client_key_64` (the throttles' client, an IPv6 address cut to
 its /64) and `THROTTLES` (the `app.state` throttles: signup attempts 10/h and accepted signups 3/day
-per client, 30/day for the site, sign-in 5 per 15 min per client and 10 per email (a success
-clears only that email's count, never the client's), recovery 5/h per email, dry runs 30/h and
-saves of answers or the assistant 60/day per airline; in process memory, empty after a restart).
+per client (a 409 `email_taken` counts as one), 30/day for the site, sign-in 5 per 15 min per
+client and 10 per email (a success clears only that email's count, never the client's), recovery
+5/h per email, dry runs 30/h, saves of the draft, the answers or the assistant (`airline_writes`)
+100/day per airline and 3,000/day for the site (`airline_writes_all`), and signed-in requests
+(`require_airline`, counted before its two store reads) 60 per 5 min per client and 5,000/day for
+the site (`airline_requests`, `airline_requests_all`); in process memory, empty after a restart).
 
 `tephra/airline/accounts.py`: `login_key(email)`, `create_account` (the record first through
 `store.update` refusing an existing id, then the login refusing an existing key: a lost race on
-the email deletes the record and raises `EmailTaken`), `onboarding_full` (200 pending or 1,000
-logins, both by `store.count`, so no record is read), `pending_count` (`store.count`), `list_airlines`, `get_record`, `get_login`, `update_answers` (pending
-only, else `AnswersLocked`), `update_assistant` (every status), `set_password` (a recovery: new
+the email deletes the record and raises `EmailTaken`; the record starts as a draft),
+`onboarding_full` (`MAX_DRAFTS` 300 drafts, `MAX_PENDING` 200 pending, or `MAX_STORED` 1,000
+logins, every account whatever its status, all by `store.count`, so no record is read),
+`purge_stale_drafts(store, *, now)` (each draft not saved for `DRAFT_DAYS` 7 days is deleted, its
+login first when the login is its own; reads every draft, so `POST /api/airline/accounts` runs it
+at most hourly per process before the caps are counted),
+`submissions_full` (200 pending), `pending_count` (`store.count`), `list_airlines` (never a
+draft; "all" asks the store for no filter, ordered by `submitted_at` and limited on the server,
+and drops the drafts, whose null `submitted_at` sorts last), `get_record`, `get_login`, `save_draft` (a draft only, else `AlreadySubmitted`), `submit`
+(a draft only: status pending, `submitted_at`, reviewer flags, `draft` null, history `submitted`),
+`update_answers` (pending only, else `AnswersLocked`), `update_assistant` (every status but a draft, which sets it on its Assistant page), `set_password` (a recovery: new
 hash and code, `session_version` + 1), `end_sessions` (sign-out: `session_version` + 1 when the
 cookie's version is current), `delete_account` (both documents), `decide` (verify or
 decline a pending airline, else `NotPending`), `desk_delete` (a declined airline only, else
@@ -3074,8 +3142,21 @@ airline's change of the same kind as the last entry, or any once the history hol
 (`PolicyRefused` when the changed policy breaks the file's own rules).
 
 An airline's own TEPHRA (the setup kit): `TEPHRA_FLEET_PREFIXES`, `TEPHRA_FLEET_HEXES`
-(`tephra/geo/fleet.py` `FleetFilter`, `ALL_AIRCRAFT`), `TEPHRA_NETWORK_AIRPORTS` and
-`TEPHRA_POLICY_FILE` (section 4.5, 5.7); `tephra/web/kit/push.py`, the kit's push tool (standard
+(`tephra/geo/fleet.py` `FleetFilter`, `ALL_AIRCRAFT`), `TEPHRA_NETWORK_AIRPORTS`,
+`TEPHRA_POLICY_FILE` and the airline settings (section 4.5, 5.7). Own flight names:
+`FleetFilter(prefixes, hexes, icao, schedule: OwnSchedule)`, `from_settings` reads the schedule
+and fleet files (`ScheduleError` stops startup; the kit's unfilled `flights.json` is an empty
+schedule). `Runtime.aircraft()` returns each aircraft `FleetFilter.named(aircraft, at, plans)`
+when an own fleet is set, so `Aircraft.proxy_flight` (and every draft, Desk row, Wall label,
+crew report, VAR and audit entry built from it) is `flight_name`: for an own aircraft the
+callsign when it is airline-style with a listed prefix or the ICAO designator, else the flight
+number of its held pushed plan flying now, else `OwnSchedule.flight_at` (a `flights.json` row of
+its registration (from `fleet.json` by hex) or its callsign, departed and at most one block time
+past its arrival; latest departure wins; two at one minute name nothing), else the registration,
+else the callsign or address; another airline's aircraft goes by its callsign or address. Never
+an RFA number. `Runtime.flight_name(hex)` names an untracked flight the same way for crew fixes
+and reports (`crew_reports.check_entry` and `build_report` take `proxy_flight`). With no own
+fleet nothing changes (RFA numbers; `tests/test_own_flights.py`); `tephra/web/kit/push.py`, the kit's push tool (standard
 library only; flight plans from `flights.json` for a date, positions from CSV or JSON, nothing
 guessed, `--stamp-now` only for a file written in the last minute, batches of 1,000 at least 1.1 s
 apart, `--dry-run`).
@@ -3235,7 +3316,7 @@ The headers above are unchanged by compression.
 | Method, path | Response model |
 |---|---|
 | `GET /api/state` | `SystemState` (`store`: `StoreHealth`; `draft_count` null when the drafts could not be read); besides the picture's counts it carries `server_time` (wall clock), `last_tick_wall_at` (wall-clock end of this process's last tick, `null` until its first) and `build_sha` (`TEPHRA_BUILD_SHA`), which `scripts/live_smoke.sh` checks. `/healthz` stays exactly `{ok, mode}` |
-| `GET /api/wall` | `WallResponse` = `{state: SystemState, snapshot: WallSnapshot, advisories: [Advisory] (every open draft of the mode playing, newest first, then that mode's newest other advisories, 50 in all unless the drafts alone are more: in REPLAY `created_at` follows a clock that loops, so the store's newest 50 could hide this run's drafts), trace: [TraceEvent] (last 100, oldest first)}` |
+| `GET /api/wall` | `WallResponse` = `{state: SystemState, snapshot: WallSnapshot, advisories: [Advisory] (every open draft of the mode playing, newest first, then that mode's newest other advisories, 50 in all unless the drafts alone are more: in REPLAY `created_at` follows a clock that loops, so the store's newest 50 could hide this run's drafts), trace: [TraceEvent] (last 200, all the bus keeps, oldest first)}` |
 | `GET /api/advisories?status=DRAFT&limit=50` | `AdvisoryList` (newest first; every status when `status` is absent) |
 | `GET /api/audit?advisory_id=...&limit=100` | `AuditList` (newest first; `advisory_id` must match `adv_[0-9a-f]{12}`) |
 | `GET /api/outbound?limit=50` | `OutboundList` (newest first by `queued_wall_at`, so recorded and live rows never interleave by replay time; rows whose `queued_wall_at` is null come last; Firestore leaves out records written before the field, which lack the key) |
@@ -3245,7 +3326,7 @@ The headers above are unchanged by compression.
 | `GET /api/routes/{origin_icao}/{dest_icao}` | FeatureCollection (`RouteFeatureProps`, `routes.route_features`): the great circle between two airports and a Point at each end, for the route of a flight picked on the Wall that is not in `WallSnapshot.routes` (the line's id is the pair in alphabetical order, whichever order is asked). Which airports a flight flies between comes only from `AircraftFeatureProps`; this answer depends only on the two positions, so it is sent with `Cache-Control: public, max-age=86400`. 404 `not_found` for a code that is not 4 capitals or digits, the same airport twice, or an airport with no known position |
 | `GET /api/airports` | FeatureCollection of the airport catalogue (`data/airports.json`, `Airport`): a Point per airport with `icao`, `iata`, `name`, `country`, `longest_runway_m` (feature id the ICAO code), for the maps to place the airports an airport plan closes. The catalogue changes only with a deploy: `Cache-Control: public, max-age=3600` |
 | `GET /api/fleet` | `FleetResponse` `{own_fleet: null \| {prefixes, hex_count}}`: the own-fleet filter this TEPHRA runs with; never the addresses (always on) |
-| `GET /api/airline/session` | `AirlineSessionView` `{accounts, signed_in, icao, name}` from the airline cookie alone (no store read); `accounts` false when `onboard` is off or the session secret is blank; never an error |
+| `GET /api/airline/session` | `AirlineSessionView` `{accounts, signed_in, icao, name, status}` (`status` null here) from the airline cookie alone (no store read); `accounts` false when `onboard` is off or the session secret is blank; never an error |
 | `GET /api/connect/format` | `FormatInfo` `{format, max_positions, fresh_s, push_url, schema}`: the push format `tephra.positions/1` and its JSON Schema |
 | `GET /api/connect/schema.json`, `GET /api/connect/sample.json` | Downloads (`Content-Disposition: attachment`): the JSON Schema, and an example push of 12 real recorded flights (`sample_feed`) at their recorded fixes, timed on the active clock now, accepted as it is for `PUSH_FRESH_S` |
 | `GET /api/connect/live` | `ConnectLive` `{wall_at, sample_running, sample_connection_id, flows: [ConnectFlow], dots: [PushedDot], recent: [PushSummary]}`: the pushed flights updated in the last 60 s, each connection's positions / min and 5-minute sparkline (wall clock), the newest 14 pushes; public, so a reload of the page starts complete |
@@ -3447,16 +3528,18 @@ has the CSRF guard. Errors never repeat input; the 422 body is the app's `valida
 
 | Method, path | Request | Response |
 |---|---|---|
-| `POST /api/airline/accounts` | `AccountCreate` (read by the route, after the attempt throttle) | 201 `AccountCreated` + `Set-Cookie`; 409 `email_taken`; 422 `validation_failed` (the answers, a policy value an airline cannot change or that breaks the policy's rules, the honeypot); 429 `too_many_requests` + `Retry-After`; 503 `onboarding_full`; 413 over 128 KiB |
+| `POST /api/airline/accounts` | `AccountCreate` `{email, password, acknowledge, website}` (read by the route, after the attempt throttle) | 201 `AccountCreated` + `Set-Cookie`, the record a draft; 409 `email_taken`; 422 `validation_failed` (the honeypot among them); 429 `too_many_requests` + `Retry-After`; 503 `onboarding_full`; 413 over 128 KiB |
+| `PUT /api/airline/draft` | `DraftUpdate` `{version, draft: {at, seen, values}}` | `AirlineView`; 409 `version_conflict`; 409 `already_submitted` once submitted; 422; 429 past 300 saves a day; 413 over 128 KiB |
+| `POST /api/airline/submit` | `Submit` `{version, answers: AirlineAnswers}` | `AirlineView` + `Set-Cookie` (signed again with the ICAO and name); 409 `version_conflict` / `already_submitted`; 422 (the answers, a policy value an airline cannot change or that breaks the policy's rules); 503 `onboarding_full` when 200 airlines are pending; 429; 413 over 128 KiB |
 | `POST /api/airline/sign-in` | `SignIn` `{email, password}` | 200 `AirlineSessionView` + `Set-Cookie`; 401 `bad_credentials` with `X-Tephra-Tries-Left` (the same for an unknown email); 429 `too_many_attempts` + `Retry-After` |
 | `POST /api/airline/recover` | `Recover` `{email, recovery_code, new_password}` | 200 `RecoveryCode` (a new code) + `Set-Cookie`; 401 `bad_credentials`; 422; 429 |
 | `POST /api/airline/sign-out` | `{}` | 204, cookie cleared and the session ended on the server (every browser of this account signs in again) |
 | `GET /api/airline/me` | none (airline cookie) | `AirlineView`; 401 `unauthenticated` |
-| `PUT /api/airline/answers` | `AnswersUpdate` `{version, answers}` | `AirlineView` (+ `Set-Cookie` when the name or ICAO changed); 403 `answers_locked`; 409 `version_conflict`; 422; 429 `too_many_requests` past 60 saves a day |
-| `PUT /api/airline/assistant` | `AssistantUpdate` `{version, assistant}` | `AirlineView` (every status); 409; 422; 429 (the same 60 saves a day) |
+| `PUT /api/airline/answers` | `AnswersUpdate` `{version, answers}` | `AirlineView` (+ `Set-Cookie` when the name or ICAO changed); 403 `answers_locked` ("Submit your onboarding first." for a draft); 409 `version_conflict`; 422; 429 `too_many_requests` past 300 saves a day |
+| `PUT /api/airline/assistant` | `AssistantUpdate` `{version, assistant}` | `AirlineView` (every status but draft: 403 `answers_locked`); 409; 422; 429 (the same 300 saves a day) |
 | `POST /api/airline/delete` | `DeleteAccount` `{password}` | 204, both documents deleted, cookie cleared; 401 `bad_credentials`; 429 |
 | `POST /api/airline/feeds/dry-run` | a `tephra.airline/1` or `tephra.positions/1` push, as the file has it | `DryRunResult` (checked against the wall clock; nothing taken in); 422 `not_a_push`; 413 over 512 KiB; 429 `too_many_requests` past 30 an hour |
-| `GET /api/desk/airlines?status=pending\|verified\|declined\|all&limit=1..200` | dispatcher session | `AirlineList`, newest `submitted_at` first (default pending, 50) |
+| `GET /api/desk/airlines?status=pending\|verified\|declined\|all&limit=1..200` | dispatcher session | `AirlineList`, newest `submitted_at` first (default pending, 50); `all` is pending, verified and declined: a draft is never listed, and a draft's id answers 404 on every Desk route |
 | `GET /api/desk/airlines/summary` | dispatcher session | `{pending}` |
 | `GET /api/desk/airlines/{AL-id}` | dispatcher session | `AirlineDeskView`; 404 `not_found` |
 | `POST /api/desk/airlines/{AL-id}/verify` | `VerifyAirline` `{version, note?}` | `AirlineDeskView`; 409 `version_conflict`; 422 `not_pending` |

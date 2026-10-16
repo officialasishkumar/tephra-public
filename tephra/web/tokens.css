@@ -347,7 +347,7 @@
 }
 
 /* A subtree that stays on the night theme in both themes: the demo's map column (the map, its
-   pills, legend, tools and labels), the home map band and its frame, the sign-in backdrop. Every
+   pills, legend, tools and labels) and the sign-in backdrop. Every
    token the light set changes, back at its dark value. */
 .night {
   color-scheme: dark;

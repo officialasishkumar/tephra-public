@@ -53,7 +53,7 @@ page string.
 
 | On screen (canonical) | In the code | What it is |
 |---|---|---|
-| Onboard your airline | `/onboard`, `tephra/airline/` | Nine short pages that end in an airline account. Behind `TEPHRA_FEATURES` `onboard`. |
+| Onboard your airline | `/onboard`, `tephra/airline/` | An airline account first, then nine short pages, then Submit for verification. Behind `TEPHRA_FEATURES` `onboard`. |
 | Pending verification | `AirlineRecord.status` `pending` | The airline's status until a TEPHRA dispatcher verifies or declines it on the Desk (Airlines to verify). Verified means a person checked who the operator is; it approves no policy and no use of TEPHRA. |
 | Airline workspace | `/workspace` | The airline's private pages after sign-in: its answers, Data feeds, its assistant's model and the setup kit. Never listed publicly, never on the demo's map or the Desk's picture. |
 | Setup kit | `workspace/kit.js`, `tephra/web/kit/push.py` | The zip the workspace makes in the browser to run the airline's own TEPHRA: `airline.env`, `policy.json` (ILLUSTRATIVE), fleet, schedule and network files, `push.py` and a checklist. |

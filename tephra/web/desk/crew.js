@@ -397,9 +397,10 @@ export function openCrewForm({ hex = null } = {}) {
   const setMsg = (key, text) => msgs[key].replaceChildren(...(text ? [errLine(text)] : []));
 
   // Flight: a tracked RFA flight, or a typed airline callsign.
+  const code = app.state?.airline?.code || 'RFA';
   const tracked = [...app.aircraft].sort((a, b) => String(a.proxy_flight).localeCompare(String(b.proxy_flight)));
   const flightSel = el('select', { id: 'crew-flight', class: 'field field--select', 'aria-describedby': 'crew-flight-msg' },
-    el('option', { value: '', text: tracked.length ? 'Choose a tracked RFA flight' : 'No RFA flight is tracked right now' }),
+    el('option', { value: '', text: tracked.length ? `Choose a tracked ${code} flight` : `No ${code} flight is tracked right now` }),
     tracked.map((p) => el('option', { value: p.hex, selected: p.hex === f.flight ? true : null,
       text: `${p.proxy_flight} · ${p.callsign}${p.alt_baro_ft != null ? ` · ${fl(p.alt_baro_ft / 100)}` : ''}` })),
     el('option', { value: '__typed', text: 'Another flight: type its callsign' }));

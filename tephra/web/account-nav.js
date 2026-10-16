@@ -33,6 +33,22 @@ function swapNav() {
   }
 }
 
+// A draft's cookie holds no name or code (they are set on submit): the workspace hands in the ones
+// typed on page 1, so the button and the page header name the airline alike.
+let WHO = null;
+function applyWho(button, session) {
+  const icao = WHO?.icao || session?.icao || "";
+  const code = button.querySelector(".tn-account__code");
+  code.textContent = icao;
+  code.hidden = !icao;
+  button.querySelector(".tn-account__name").textContent = WHO?.name || session?.name || icao || "Your airline";
+}
+export function showAccountWho(who) {
+  WHO = who && (who.icao || who.name) ? { icao: who.icao || "", name: who.name || "" } : null;
+  const button = document.getElementById("tn-account");
+  if (button) applyWho(button, null);
+}
+
 const signInLink = () => el("a", { id: "tn-signin", class: "tn-signin", href: "/signin" }, icon("i-user"), "Sign in");
 
 // The menu: arrow keys move between its items, Esc closes it and gives focus back to the button,
@@ -42,8 +58,9 @@ const signInLink = () => el("a", { id: "tn-signin", class: "tn-signin", href: "/
 let dropOutsideClick = null;
 function accountMenu(session, items) {
   const button = el("button", { type: "button", id: "tn-account", class: "tn-account", "aria-haspopup": "menu", "aria-expanded": "false", "aria-controls": "tn-account-menu" },
-    el("span", { class: "tn-account__code", "aria-hidden": "true", text: session.icao || "" }),
-    el("span", { class: "tn-account__name", text: session.name || session.icao || "Your airline" }));
+    el("span", { class: "tn-account__code", "aria-hidden": "true" }),
+    el("span", { class: "tn-account__name" }));
+  applyWho(button, session);
   const menu = el("div", { id: "tn-account-menu", class: "tn-menu", role: "menu", "aria-label": "Your airline account", hidden: true },
     el("a", { class: "tn-menu__item", role: "menuitem", href: "/workspace" }, icon("i-list"), "Workspace"),
     el("div", { class: "tn-menu__theme", role: "group", "aria-label": "Theme" }, themeControl()),

@@ -12,13 +12,14 @@ import secrets
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Any, Literal, Self, get_args
+from typing import Annotated, Any, Final, Literal, Self, get_args
 
 from pydantic import (
     AliasChoices,
     Field,
     PositiveInt,
     SecretStr,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -42,6 +43,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 AIRLINE_CODE = "RFA"
 AIRLINE_NAME = "Ring of Fire Air"
 DISCLAIMER = "Decision support only - fictional airline - not for operational use"
+OWN_DISCLAIMER = "Decision support only - not for operational use"
+"""An airline's own TEPHRA: its airline is real, and the rest of the disclaimer holds."""
 NO_MODEL_LABEL = "NO MODEL"
 REPLAY_BANNER_TEMPLATE = "REPLAY: recorded real feeds from {date}"
 """``{date}`` is ``recorded_from`` formatted as ``%d %b %Y`` (e.g. '07 Oct 2026')."""
@@ -153,6 +156,37 @@ Feature = Literal[
 ALL_FEATURES: frozenset[str] = frozenset(get_args(Feature))
 HERO_FEATURES: frozenset[str] = frozenset()
 """The demo shows the hero path and its three acts only."""
+
+
+class Airline(TephraModel):
+    """Who the drafts and documents speak for: the fictional demo airline, or the airline that
+    runs its own TEPHRA (``Settings.airline``)."""
+
+    code: str = Field(description="ICAO designator; RFA for the demo")
+    name: str
+    iata: str | None = None
+    fictional: bool
+
+    @property
+    def label(self) -> str:
+        """'Ring of Fire Air (fictional)' or the airline's own name."""
+        return f"{self.name} (fictional)" if self.fictional else self.name
+
+    @property
+    def disclaimer(self) -> str:
+        return DISCLAIMER if self.fictional else OWN_DISCLAIMER
+
+    @property
+    def operator(self) -> str:
+        """The operator line of a document: 'Ring of Fire Air (fictional)' or 'Name (ICAO
+        RFB, IATA RB)'."""
+        if self.fictional:
+            return self.label
+        codes = f"ICAO {self.code}" + (f", IATA {self.iata}" if self.iata else "")
+        return f"{self.name} ({codes})"
+
+
+DEMO_AIRLINE: Final = Airline(code=AIRLINE_CODE, name=AIRLINE_NAME, fictional=True)
 
 
 class Settings(BaseSettings):
@@ -533,6 +567,40 @@ class Settings(BaseSettings):
         pattern=r"^policy/[a-z0-9_-]{1,40}\.json$",
         description="The operator policy file, relative to TEPHRA_DATA_DIR",
     )
+    airline_name: str | None = Field(
+        default=None,
+        min_length=2,
+        max_length=120,
+        pattern=r"^[^\x00-\x1f\x7f]+$",
+        description=(
+            "An airline's own TEPHRA: the airline's name, said in drafts and documents in "
+            "place of the fictional Ring of Fire Air (needs the own fleet)"
+        ),
+    )
+    airline_icao: str | None = Field(
+        default=None,
+        pattern=r"^[A-Z]{3}$",
+        description="An airline's own TEPHRA: its ICAO designator; its own callsigns too",
+    )
+    airline_iata: str | None = Field(
+        default=None, pattern=r"^[A-Z0-9]{2}$", description="An airline's own TEPHRA: IATA code"
+    )
+    airline_schedule: str | None = Field(
+        default=None,
+        pattern=r"^airline/[a-z0-9_-]{1,40}\.json$",
+        description=(
+            "An airline's own TEPHRA: its flights.json (the kit's format), relative to "
+            "TEPHRA_DATA_DIR; names a fleet aircraft by its scheduled flight"
+        ),
+    )
+    airline_fleet: str | None = Field(
+        default=None,
+        pattern=r"^airline/[a-z0-9_-]{1,40}\.json$",
+        description=(
+            "An airline's own TEPHRA: its fleet.json (registrations and addresses), relative "
+            "to TEPHRA_DATA_DIR; ties an aircraft to its schedule and registration"
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -593,6 +661,23 @@ class Settings(BaseSettings):
     def _parse_airports(cls, value: Any) -> frozenset[str]:
         return _code_list(value, _AIRPORT, upper=True, what="network airport")
 
+    @field_validator("airline_name", mode="before")
+    @classmethod
+    def _tidy_name(cls, value: Any) -> Any:
+        return (value.strip() or None) if isinstance(value, str) else value
+
+    @field_validator(
+        "airline_icao", "airline_iata", "airline_schedule", "airline_fleet", mode="before"
+    )
+    @classmethod
+    def _tidy_code(cls, value: Any, info: ValidationInfo) -> Any:
+        if not isinstance(value, str):
+            return value
+        value = value.strip()
+        return (
+            value.upper() if info.field_name in ("airline_icao", "airline_iata") else value
+        ) or None
+
     @model_validator(mode="after")
     def _consistent(self) -> Self:
         if self.llm == "gemini" and self.gemini_api_key is None:
@@ -615,6 +700,7 @@ class Settings(BaseSettings):
                     "generate one with secrets.token_urlsafe(32)"
                 )
         self._check_replay_window()
+        self._check_own_airline()
         if self.store == "firestore" and not (self.gcp_project and self.gcs_bucket):
             raise ValueError(
                 "TEPHRA_STORE=firestore needs TEPHRA_GCP_PROJECT and TEPHRA_GCS_BUCKET"
@@ -635,6 +721,43 @@ class Settings(BaseSettings):
             raise ValueError("TEPHRA_REPLAY_START must carry a UTC offset (e.g. ...Z)")
         if self.replay_end <= self.replay_start:
             raise ValueError("TEPHRA_REPLAY_END must be after TEPHRA_REPLAY_START")
+
+    def _check_own_airline(self) -> None:
+        """The airline settings belong to an airline's own TEPHRA; without an own fleet they
+        would label the fictional demo airline's drafts with a real airline's name."""
+        own = [
+            f"TEPHRA_{name.upper()}"
+            for name in (
+                "airline_name",
+                "airline_icao",
+                "airline_iata",
+                "airline_schedule",
+                "airline_fleet",
+            )
+            if getattr(self, name) is not None
+        ]
+        if own and not (self.fleet_prefixes or self.fleet_hexes):
+            raise ValueError(
+                f"{', '.join(own)}: only for an airline's own TEPHRA; set TEPHRA_FLEET_PREFIXES"
+                " or TEPHRA_FLEET_HEXES too"
+            )
+
+    @property
+    def airline(self) -> Airline:
+        """The demo's fictional airline while no own fleet is set; else the airline whose
+        fleet it is. An own fleet without TEPHRA_AIRLINE_NAME and TEPHRA_AIRLINE_ICAO raises:
+        its drafts would otherwise speak for the fictional airline (create_runtime and
+        create_app read this at startup)."""
+        if not (self.fleet_prefixes or self.fleet_hexes):
+            return DEMO_AIRLINE
+        if self.airline_name is None or self.airline_icao is None:
+            raise ValueError(
+                "an airline's own TEPHRA (TEPHRA_FLEET_PREFIXES or TEPHRA_FLEET_HEXES) needs "
+                "TEPHRA_AIRLINE_NAME and TEPHRA_AIRLINE_ICAO: its drafts name the airline"
+            )
+        return Airline(
+            code=self.airline_icao, name=self.airline_name, iata=self.airline_iata, fictional=False
+        )
 
     def unlimited_models(self) -> list[str]:
         """Configured models with no free-tier limits row: TEPHRA never calls them (their

@@ -28,6 +28,18 @@ export async function inlineSprite() {
 
 export const $ = (id) => document.getElementById(id);
 
+// The airline whose flights TEPHRA checks (`state.airline`): the demo's fictional Ring of Fire Air,
+// or the airline running its own TEPHRA, whose pages name it by its code and never call it
+// fictional. Set from /api/state by each page that reads it.
+let AIRLINE = { code: "RFA", name: "Ring of Fire Air", fictional: true };
+export function setAirline(a) {
+  if (a?.code) AIRLINE = { code: a.code, name: a.name || a.code, fictional: a.fictional !== false };
+}
+export const airline = () => AIRLINE;
+// A flight's name in a trace line: an RFA number in the demo; in an airline's own TEPHRA a
+// callsign, a flight number or a registration (RFB401, RB555, PK-RFX). A RegExp source.
+export const FLIGHT_NAME = "[A-Z0-9][A-Z0-9-]{1,11}";
+
 // el("div", { class: "x", text: "y", "aria-label": "z" }, child, "text", [more])
 export function el(tag, attrs = {}, ...kids) {
   const node = document.createElement(tag);

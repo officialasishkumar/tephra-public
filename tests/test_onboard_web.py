@@ -1,7 +1,8 @@
 """Static checks of the onboarding, sign-in and workspace pages (SPEC-v2 §6, §7): the shared nav
 with Onboard current, the landmarks every page needs, no inline script or style (CSP), text only
 through textContent, one file that touches the browser's storage, a Gemini key that has no field
-name and reaches no request, and the honesty labels these pages say.
+name and reaches no request, the honesty labels these pages say, and the account first: sign-up
+on the landing, answers saved to the account, Review submits, the kit only once submitted.
 """
 
 import re
@@ -10,9 +11,9 @@ from pathlib import Path
 WEB = Path(__file__).resolve().parents[1] / "tephra" / "web"
 PAGES = ("onboard.html", "workspace.html")
 NAV = (
-    '<nav class="topnav" aria-label="TEPHRA pages"><a href="/demo">Demo</a><a href="/assistant">'
-    'Assistant</a><a href="/desk">Desk</a><a href="/onboard" data-feature="onboard" '
-    'aria-current="page">Onboard</a><a href="/guide">Guide</a></nav>'
+    '<nav class="topnav" aria-label="TEPHRA pages"><a href="/demo">Demo</a><a href="/desk">Desk</a>'
+    '<a href="/onboard" data-feature="onboard" aria-current="page">Onboard</a>'
+    '<a href="/guide">Guide</a></nav>'
 )
 SOURCES = [
     WEB / "onboard.js",
@@ -116,28 +117,68 @@ def test_the_honesty_labels_these_pages_say() -> None:
         "DRY RUN · NOTHING TAKEN IN",
         "Pending verification",
         "is not built",
-        "a Ring of Fire Air number",
         "nothing is sent to an aircraft",
         "Password reset by email is not built",
         "private to your account",
         "may be used to improve Google's products",
     ):
         assert label in text, label
-    landing = _read("onboard.js").split("function landing()")[1]
-    assert "How to onboard: what you provide" in landing
-    assert "Running your live operation on this shared TEPHRA is not built" in landing
+    code = _read("onboard.js")
+    provide = code.split("function provideList()")[1].split("\nfunction ")[0]
+    assert "How to onboard: what you provide" in provide
+    landing = code.split("function landing()")[1].split("\nfunction ")[0]
+    assert 'el("b", { text: "Not built yet. " }), NOT_BUILT' in landing
+    assert 'el("b", { text: "Not built yet. " }), NOT_BUILT' in _read("workspace/overview.js")
+    assert (
+        'export const NOT_BUILT = "This shared site runs the demo only. To check your own flights, '
+        'run your own TEPHRA with the setup kit.";' in _read("onboard/pages.js")
+    )
+    assert "Running your live operation on this shared TEPHRA" not in text
+    # own flight numbers work in an airline's own TEPHRA (OWNFLIGHTS, 16 Oct 2026): no page says
+    # its drafts use Ring of Fire Air numbers any more
+    assert "Ring of Fire Air number" not in text
+    assert "RFA number" not in text
 
 
 def test_the_landing_says_who_reads_the_answers_once() -> None:
-    """The Desk's review list shows every answer to this site's dispatchers: the landing says so
-    in its Private card and never claims nothing reaches the Desk."""
-    landing = _read("onboard.js").split("function landing()")[1].split("\nfunction ")[0]
-    assert "this site's TEPHRA dispatchers, who verify your airline, read your answers" in landing
-    assert "reaches the demo, the map or the Desk" not in landing
-    assert landing.count("the Desk's picture") == 1
+    """The Desk's review list shows every submitted answer to this site's dispatchers: the
+    sign-up card says so once and never claims nothing reaches the Desk."""
+    card = _read("onboard.js").split("function signupCard()")[1].split("\nfunction ")[0]
+    assert "this site's TEPHRA dispatchers, who verify your airline, read your answers" in card
+    assert "reaches the demo, the map or the Desk" not in card
+    assert _read("onboard.js").count("the Desk's picture") == 1
 
 
-def test_a_signed_in_airline_is_sent_to_its_workspace_not_a_second_draft() -> None:
+def test_the_account_comes_first_and_no_answer_is_kept_in_the_browser() -> None:
+    """The owner (16 Oct 2026): "whats the need of writing this, first sign up"."""
+    code = _read("onboard.js")
+    landing = code.split("function landing()")[1].split("\nfunction ")[0]
+    assert landing.index("side,") < landing.index("provideList()")
+    card = code.split("function signupCard()")[1].split("\nfunction ")[0]
+    assert '"Create account"' in card
+    assert '"Already have an account? "' in card
+    assert '"Work email"' in _read("onboard/review.js")
+    assert '"Submit for verification"' in code
+    assert "Create account and submit" not in code
+    for gone in (
+        "Nine short pages",
+        "saved in this browser",
+        "Saved in this browser",
+        "Clear my answers",
+        "Answers stay in this browser",
+    ):
+        for path in [*SOURCES, WEB / "privacy.html"]:
+            assert gone.lower() not in path.read_text(encoding="utf-8").lower(), (gone, path.name)
+    # every page saves to the account on Next and Back, with the small Saved mark
+    assert "PATHS.draft" in code
+    assert 'text: "Saved"' in code
+    assert "What you typed stays on this page." in code
+    assert '"Back and Next save your answers to your account."' in code
+    privacy = _read("privacy.html")
+    assert "from sign-up on, the onboarding answers with the account" in privacy
+
+
+def test_a_signed_in_airline_is_sent_to_its_workspace_not_a_second_account() -> None:
     code = _read("onboard.js")
     landing = code.split("function landing()")[1].split("\nfunction ")[0]
     assert "S.account?.signedIn" in landing
@@ -145,8 +186,21 @@ def test_a_signed_in_airline_is_sent_to_its_workspace_not_a_second_draft() -> No
     assert "You are signed in as" in landing
     render = code.split("async function render(")[1].split("\n}\n")[0]
     assert "S.account = await initAccountNav(" in render
-    assert 'r.view === "page" && !r.edit && S.account?.signedIn' in render
     assert 'location.replace("/workspace/answers")' in render
+    # a draft resumes at its first unfinished page; signed out, the pages go to the landing
+    assert "firstUnfinished(S.draft, ctxFor)" in render
+    assert 'redirect("/onboard"' in render
+    assert 'res.data?.status === "draft" && !next ? "/onboard"' in _read("workspace/signin.js")
+
+
+def test_a_drafts_workspace_continues_onboarding_and_has_no_kit_yet() -> None:
+    overview = _read("workspace/overview.js")
+    body = overview.split("export function renderOverview(main, view) {")[1]
+    assert body.index('if (view.status === "draft")') < body.index("kitCard(view)")
+    assert "Continue onboarding · step ${page.n} of 9" in overview
+    workspace = _read("workspace.js")
+    assert 'view.status === "draft" ? SECTIONS.slice(0, 1) : SECTIONS' in workspace
+    assert 'if (view.status === "draft" && section)' in workspace
 
 
 def test_no_forbidden_words_and_no_retired_connect_page() -> None:
@@ -175,7 +229,6 @@ def test_review_problems_on_the_page_link_to_their_fields() -> None:
     assert "href: `#${p.id}`" in link
     assert "e.preventDefault()" in link  # a hash change would re-render the page
     assert "getElementById(p.id)?.focus()" in link
-    assert '({ page: "review", id, text: `Your account: ${msg}` })' in code
 
 
 def test_the_fleet_table_says_which_columns_are_optional_and_no_repo_paths() -> None:

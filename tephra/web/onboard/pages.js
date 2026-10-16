@@ -1,8 +1,8 @@
 // The nine onboarding pages without the DOM: their names and copy, the rules each answer must
 // meet (the same rules and words as tephra.airline.models.AirlineAnswers, so the browser and the
-// server refuse the same things), the browser draft <-> AirlineAnswers mapping, the one-line
-// summaries the Review and the workspace show, and the readers for the fleet and schedule files
-// (read in the browser; nothing is uploaded). Pure: Node runs it in tests/test_onboard_js.py.
+// server refuse the same things), the draft <-> AirlineAnswers mapping, where a draft resumes, the
+// one-line summaries the Review and the workspace show, and the readers for the fleet and schedule
+// files (read in the browser; nothing is uploaded). Pure: Node runs it in tests/test_onboard_js.py.
 
 export const ONBOARD_FORMAT = "tephra.onboard/2";
 
@@ -15,7 +15,7 @@ export const PAGES = [
   { key: "feeds", n: 6, name: "Data feeds", h1: "Your data feeds", why: "Your TEPHRA reads the public ash feeds and ADS-B by itself. These add what only you have." },
   { key: "people", n: 7, name: "People", h1: "Your people", why: "The dispatchers who will approve advisories in your TEPHRA." },
   { key: "assistant", n: 8, name: "Assistant (AI model)", h1: "Your assistant's model", why: "TEPHRA Assistant reads the ash, plans each flight and drafts. Choose where its model runs." },
-  { key: "review", n: 9, name: "Review", h1: "Review and create your account", why: "Check each page, then create the account that keeps them. A TEPHRA dispatcher verifies your airline next." },
+  { key: "review", n: 9, name: "Review", h1: "Review and submit", why: "Check each page, then submit your answers. A TEPHRA dispatcher verifies your airline next." },
 ];
 export const PAGE_KEYS = PAGES.map((p) => p.key);
 export const ANSWER_PAGES = PAGE_KEYS.slice(0, 8);
@@ -32,8 +32,11 @@ export const PROVIDE = [
   { key: "feeds", icon: "i-network", name: "Data feeds", text: "which of positions, flight plans and pilot reports you will send, in the ", code: "tephra.airline/1", after: " format." },
   { key: "people", icon: "i-dispatcher", name: "People", text: "the dispatchers who approve advisories, and their roles." },
   { key: "assistant", icon: "ta-16", name: "Assistant (AI model)", text: "Gemini or Gemma with your own Google AI Studio key, Gemma on your own computer through Ollama, or no model." },
-  { key: "review", icon: "i-check", name: "Review", text: "check every answer and create your account." },
+  { key: "review", icon: "i-check", name: "Review", text: "check every answer and submit it for verification." },
 ];
+
+// The one "Not built" line the landing and the workspace say.
+export const NOT_BUILT = "This shared site runs the demo only. To check your own flights, run your own TEPHRA with the setup kit.";
 
 // TEPHRA's free-tier table (tephra/config.py DEFAULT_MODEL_LIMITS); a test keeps the two equal.
 export const FREE_TIER_MODELS = ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-flash-lite-tts", "gemma-4-31b-it", "gemma-4-26b-a4b-it"];
@@ -278,6 +281,14 @@ export function cautionsOf(key, values, ctx = {}) {
 }
 
 export const inBox = (b, [lon, lat]) => Boolean(b) && lat >= b.south && lat <= b.north && lon >= b.west && lon <= b.east;
+
+// Where a draft resumes: the first answer page not opened yet or with a problem, else Review.
+// `ctxFor(key)` gives each page's checking context, as checkPage takes it.
+export function firstUnfinished(draft, ctxFor = () => ({})) {
+  const seen = draft?.seen || [];
+  const values = { ...emptyValues(), ...(draft?.values || {}) };
+  return ANSWER_PAGES.find((key) => !seen.includes(key) || checkPage(key, values, ctxFor(key)).length) || "review";
+}
 
 // --- draft <-> AirlineAnswers -----------------------------------------------------------------------
 

@@ -85,10 +85,10 @@ const MARKS = {
     { sel: ".actions__inner .secondary" },
   ],
   onboard: [
+    { sel: "#su-form" },
+    { sel: "#ob-signup a[href='/signin']" },
+    { sel: "#ob-signup .hint" },
     { sel: "section:has(#provide-h)" },
-    { sel: "#ob-start" },
-    { sel: "#ob-after" },
-    { sel: "#ob-private" },
     { sel: "#ob-notbuilt" },
   ],
 };
@@ -213,8 +213,8 @@ const SHOTS = [
     await page.setViewportSize({ width: 390, height: tall });
     await settle(page, 1500);
   } },
-  // the onboarding landing as a first visitor sees it (no draft in this browser), the viewport as
-  // tall as the landing so its After you submit, Private and Not built cards show
+  // the onboarding landing as a first visitor sees it (signed out), the viewport as tall as the
+  // landing so its sign-up card, what you provide and the Not built line show
   { name: "onboard", vw: 1440, vh: 900, outW: 1800, go: async (page) => {
     await page.goto(`${BASE}/onboard`);
     await page.waitForSelector("#provide-h", { state: "visible" });

@@ -43,9 +43,10 @@ IDS = [
     "assist",
     "ai-state",
     "model-chip",
+    "assist-inside",
+    "assist-what-h",
     "assist-player",
-    "assist-pipe",
-    "assist-now",
+    "assist-note",
     "assist-log",
     "assist-live",
     "details",
@@ -69,7 +70,18 @@ IDS = [
     "side-desk",
     "side-handle",
 ]
-GONE = ["ai-chip", "details-sheet", "cta-sticky", "panel-toggle", "phone-bar", "story-strip"]
+# the Assistant tab's small five-step row and its "Now" card went on 16 Oct 2026: the Inside TEPHRA
+# diagram shows where the newest step is and what it did
+GONE = [
+    "ai-chip",
+    "details-sheet",
+    "cta-sticky",
+    "panel-toggle",
+    "phone-bar",
+    "story-strip",
+    "assist-pipe",
+    "assist-now",
+]
 
 
 def _tag(ident: str) -> str:
@@ -90,13 +102,18 @@ def test_the_old_second_panels_are_gone(ident: str) -> None:
 
 
 def test_the_nav_is_the_shared_one_with_demo_current() -> None:
+    """The owner (16 Oct 2026): Assistant leaves the top nav; /assistant is reached from the side
+    panel's pop-out icon (#assist-page) and the Guide."""
     nav = (
         '<nav class="topnav" aria-label="TEPHRA pages"><a href="/demo" aria-current="page">Demo</a>'
-        '<a href="/assistant">Assistant</a><a class="topnav__keep" href="/desk">Desk</a>'
+        '<a class="topnav__keep" href="/desk">Desk</a>'
         '<a href="/onboard" data-feature="onboard" hidden>Onboard</a>'
         '<a href="/guide">Guide</a></nav>'
     )
     assert nav in INDEX
+    assert 'href="/assistant">Assistant</a>' not in INDEX
+    assert '.topnav a[href="/assistant"]' not in WALL
+    assert '.topnav a[href="/assistant"]' not in CSS
     assert 'href="/connect"' not in INDEX
     assert '.topnav a[href="/demo"]' in WALL
     assert '.topnav a[href="/"]' not in WALL
@@ -150,6 +167,12 @@ def test_the_demo_has_one_filled_button_and_it_opens_the_desk() -> None:
         "Drafts wait at the Desk for a dispatcher. Nothing leaves TEPHRA until one approves."
         in foot
     )
+    # under the Assistant tab the diagram's You decide says the foot's words: the foot keeps only
+    # its button there, and the diagram draws no second Desk button (board-view.js mountInside)
+    assert 'side.classList.toggle("is-assist", !det);' in WALL
+    assert ".side.is-assist .side__eyebrow, .side.is-assist .side__line { display: none; }" in CSS
+    view = (WEB / "wall" / "board-view.js").read_text(encoding="utf-8")
+    assert "...(side ? [] : [factsCap, facts," in view
     # the story's call to action is drawn outlined (the logic and its tests stay)
     cta = CSS[CSS.index("\n.cta {") : CSS.index(".cta:hover")]
     assert "border: 1px solid var(--c-line-input)" in cta
@@ -242,9 +265,51 @@ def test_assistant_tab_text_goes_in_as_text() -> None:
         assert "innerHTML" not in source, name
         assert "insertAdjacentHTML" not in source, name
     panel = (WEB / "wall" / "assist-panel.js").read_text(encoding="utf-8")
-    assert 'import { stepsList, setCurrentStep, FIVE_STEPS } from "../five-steps.js";' in panel
+    assert 'import { mountInside, drawInside, insideColours, SRC } from "./board-view.js";' in panel
+    assert "mountInside({ has, side: true })" in panel
     assert "No steps yet in this window." in panel
     assert "SAY_EVERY_MS = 10000" in panel
+
+
+def test_the_assistant_tab_is_the_state_the_diagram_then_what_happened() -> None:
+    """The owner (16 Oct 2026): the /assistant page's Inside TEPHRA panel in the demo's right
+    panel, under the state line, then What happened: the step log, folded to its newest rows with
+    "Show all". The player ("Replay · ...") sits above the diagram, so the catch-up's label shows
+    on a 1366x768 or 1280x720 laptop too (batch 2 UX finding 1); it is held at the top of the tab
+    while the catch-up plays."""
+    start = INDEX.index('<section id="assist" ')
+    tab = INDEX[start : INDEX.index('id="details"', start)]
+    ids = ("ai-state", "assist-player", "assist-note", "assist-inside", "assist-what-h")
+    order = [tab.index(f'id="{i}"') for i in (*ids, "assist-log")]
+    assert order == sorted(order)
+    assert ".player.is-catchup { position: sticky; top: 0;" in CSS
+    assert "@media (min-width: 901px) and (max-height: 860px) {" in CSS
+    assert "What happened" in tab
+    panel = (WEB / "wall" / "assist-panel.js").read_text(encoding="utf-8")
+    assert "const FOLDED_ROWS = 3;" in panel
+    assert "`Show all (${rows.length})`" in panel
+    assert '"Replay again"' in panel
+    # one column on every width (the rail runs through each skill), first in the tab on a phone
+    assert "order: 0; width: auto;" in CSS
+    assert ".side .flow-panel--side .flow-skills { display: block; }" in CSS
+
+
+def test_the_catch_up_waits_for_the_welcome_and_skips_screenshots() -> None:
+    assert 'blocked: () => welcome().open || $("dlg").open,' in WALL
+    assert "noCatchup: SHOTS," in WALL
+    assert (
+        'welcome().addEventListener("close", () => requestAnimationFrame(() => assist?.poke()));'
+        in WALL
+    )
+
+
+def test_the_pulses_never_take_a_click_and_hide_in_forced_colours() -> None:
+    rule = CSS[CSS.index(".as-flow {") :].split("\n", 1)[0]
+    assert "position: fixed" in rule
+    assert "pointer-events: none" in rule
+    assert '"aria-hidden": "true"' in (WEB / "wall" / "assist-panel.js").read_text(encoding="utf-8")
+    forced = CSS[CSS.index("@media (forced-colors: active) {\n  .as-flow") :]
+    assert ".as-flow { display: none; }" in forced.split("}", 2)[0] + "}"
 
 
 def test_the_strip_says_its_numbers_count_every_volcano() -> None:
@@ -255,3 +320,23 @@ def test_the_strip_says_its_numbers_count_every_volcano() -> None:
     order = [INDEX.index(f'id="{i}"') for i in ("rail-vol", "rail-scope", "rail-exposed")]
     assert order == sorted(order)
     assert "const { active, exposed, drafts } = allCounts(D);" in STORY
+
+
+def test_the_catch_up_plays_only_where_it_is_seen() -> None:
+    """Batch 2 (UX 2, 9; honesty 6): on a phone the catch-up waits while the sheet only peeks
+    and starts when it opens; it holds between beats while the tab is hidden, a dialog covers it
+    or the sheet folds, and goes on when the tab shows again."""
+    panel = (WEB / "wall" / "assist-panel.js").read_text(encoding="utf-8")
+    assert 'const unseen = () => !shown() || blocked() || sheet() === "peek";' in panel
+    assert "if (unseen()) { CU.held = true; return; }" in panel
+    assert 'if (CU.state === "playing" && CU.held && !CU.timer && !unseen()) nextBeat();' in panel
+    start = WALL.index("function setSheet(state) {")
+    assert "requestAnimationFrame(() => assist?.poke());" in WALL[start : start + 200]
+
+
+def test_you_decide_keeps_nothing_leaves_tephra_under_the_assistant_tab() -> None:
+    """The foot's line is hidden under the Assistant tab (wall.css is-assist), so the diagram's
+    You decide says it: an honesty label is never removed (batch 2 honesty finding 4)."""
+    view = (WEB / "wall" / "board-view.js").read_text(encoding="utf-8")
+    assert '"Nothing leaves TEPHRA until a dispatcher approves."' in view
+    assert ".side.is-assist .side__eyebrow, .side.is-assist .side__line { display: none; }" in CSS

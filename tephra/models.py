@@ -31,6 +31,7 @@ from pydantic import (
     ConfigDict,
     Field,
     PlainSerializer,
+    PrivateAttr,
     ValidationInfo,
     computed_field,
     field_validator,
@@ -743,11 +744,26 @@ class Aircraft(TephraModel):
     seen_pos_s: float | None = None
     observed_at: UtcDatetime = Field(description="Response time minus seen_pos")
     source_id: str = Field(description="source_id of the AdsbSnapshot it came from")
+    _own_flight: str | None = PrivateAttr(default=None)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def proxy_flight(self) -> str:
-        return proxy_flight_number(self.hex)
+        """The name every draft, row and label gives the flight: the fictional airline's RFA
+        number in the demo, the airline's own name for it in an airline's own TEPHRA."""
+        return self._own_flight or proxy_flight_number(self.hex)
+
+    @property
+    def own_named(self) -> bool:
+        """Named by an airline's own TEPHRA (:meth:`named`), not by an RFA number."""
+        return self._own_flight is not None
+
+    def named(self, flight: str) -> Self:
+        """A copy named ``flight`` (``Runtime.aircraft`` in an airline's own TEPHRA, from
+        ``FleetFilter.flight_name``); never serialised, so stored snapshots are unchanged."""
+        copy = self.model_copy()
+        copy._own_flight = flight
+        return copy
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -2613,9 +2629,11 @@ class ReplayInfo(TephraModel):
 
 
 class AirlineInfo(TephraModel):
+    """The demo's fictional airline, or the airline running its own TEPHRA (Settings.airline)."""
+
     code: str
     name: str
-    fictional: Literal[True] = True
+    fictional: bool = True
 
 
 class CloudInfo(TephraModel):

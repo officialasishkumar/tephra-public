@@ -6,7 +6,7 @@
 // the welcome dialog's source too), the case paragraph from the demo's one source (wall/case.js),
 // the Desk step and the folds, the theme control in the foot, and draws the marks.
 
-import { el } from "./wall/util.js";
+import { el, setAirline } from "./wall/util.js";
 import { helpContent, aboutContent } from "./wall/controls.js";
 import { policyDialog } from "./wall/policy.js";
 import { EXPLAIN } from "./wall/explain.js";
@@ -61,6 +61,7 @@ function landOnHash() {
 async function build() {
   const [state, policy, shots] = await Promise.all([getJson("/api/state"), getJson("/api/policy"), getJson("/static/data/guide-shots.json")]);
   setFeatures(state?.features);
+  setAirline(state?.airline);
   applyFeatureNav();
   for (const part of document.querySelectorAll("main [data-feature]")) part.hidden = !has(part.dataset.feature);
   initAccountNav();

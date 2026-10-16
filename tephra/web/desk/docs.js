@@ -190,7 +190,7 @@ export function renderDocs() {
   if (active && panel.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) && !hoBusy) return;
   const head = el('div', { class: 'phead' },
     el('h1', { id: 'docs-title', class: 'phead__title', tabindex: '-1', text: 'Paperwork' }),
-    el('p', { class: 'phead__tags' }, el('span', { class: 'chip chip--fict' }, icon('i-info', 'st'), el('span', { text: 'DRAFT · not an approved document · fictional airline' }))));
+    el('p', { class: 'phead__tags' }, el('span', { class: 'chip chip--fict' }, icon('i-info', 'st'), el('span', { text: app.state?.airline?.fictional === false ? 'DRAFT · not an approved document' : 'DRAFT · not an approved document · fictional airline' }))));
   const parts = [head];
 
   // Primary: what waits for a person (drafts to sign, a handover to read back).

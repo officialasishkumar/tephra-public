@@ -56,10 +56,17 @@ THROTTLES: Final[dict[str, tuple[int, float]]] = {
     "airline_login_email": (10, 900.0),
     "airline_recover_email": (5, 3600.0),
     "airline_dry_runs": (30, 3600.0),
-    "airline_writes": (60, 86400.0),
+    "airline_writes": (100, 86400.0),
+    "airline_writes_all": (3000, 86400.0),
+    "airline_requests": (60, 300.0),
+    "airline_requests_all": (5000, 86400.0),
 }
 """``app.state`` name -> (tries, window in seconds). In process memory, which holds because
-Cloud Run runs one instance; every count starts again after a deploy or restart."""
+Cloud Run runs one instance; every count starts again after a deploy or restart. The writes
+(saves of the draft, the answers or the assistant) are bounded per airline and for the whole
+site, and every signed-in request (two store reads before anything else) per address and for
+the whole site, so a cookie that costs only an email and a password cannot spend the store's
+free daily reads or writes, which the shared site's audit trail needs too."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,13 +116,14 @@ def _b64decode(text: str) -> bytes:
 
 
 def claims_of(record: AirlineRecord, login: AirlineLogin) -> AirlineClaims:
-    airline = record.answers.airline
+    """A draft has no checked ICAO or name yet: both are empty until it submits."""
+    airline = None if record.answers is None else record.answers.airline
     return AirlineClaims(
         airline_id=record.id,
         login_key=login.login_key,
         version=login.session_version,
-        icao=airline.icao,
-        name=airline.name[:NAME_CHARS],
+        icao="" if airline is None else airline.icao,
+        name="" if airline is None else airline.name[:NAME_CHARS],
     )
 
 
@@ -155,7 +163,7 @@ def _claims(body: Any, at: datetime) -> AirlineClaims | None:
         return None
     texts = [body.get(key) for key in ("a", "k", "c", "n")]
     version, expires = body.get("v"), body.get("exp")
-    if not all(isinstance(text, str) and text for text in texts):
+    if not all(isinstance(text, str) for text in texts) or not (texts[0] and texts[1]):
         return None
     if type(version) is not int or type(expires) is not int:
         return None
@@ -237,11 +245,13 @@ def _store(request: Request) -> Store:
 
 async def require_airline(request: Request) -> AirlineContext:
     """The signed-in airline: the cookie checked against the stored login and record. A
-    recovery or deletion bumps or removes the login, which signs every other browser out."""
+    recovery or deletion bumps or removes the login, which signs every other browser out.
+    The request throttles come before the two store reads, so a refused request costs none."""
     await require_accounts(request)
     claims = read_claims(request)
     if claims is None:
         raise _unauthenticated()
+    _count_request(request)
     store = _store(request)
     login_doc = await store.get(Collection.AIRLINE_LOGINS, claims.login_key)
     record_doc = await store.get(Collection.AIRLINES, claims.airline_id)
@@ -255,6 +265,22 @@ async def require_airline(request: Request) -> AirlineContext:
     if login.session_version != claims.version or login.airline_id != record.id:
         raise _unauthenticated()
     return AirlineContext(record=record, login=login, claims=claims)
+
+
+def _count_request(request: Request) -> None:
+    state = request.app.state
+    client = client_key_64(request)
+    gates = [(state.airline_requests, client), (state.airline_requests_all, "site")]
+    waits = [gate.retry_after_s(key) for gate, key in gates if gate.blocked(key)]
+    if waits:
+        raise ApiError(
+            429,
+            "too_many_requests",
+            "Too many requests; try again later",
+            headers={"Retry-After": str(max(waits))},
+        )
+    for gate, key in gates:
+        gate.record_failure(key)
 
 
 def _unauthenticated() -> ApiError:

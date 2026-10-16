@@ -1,10 +1,11 @@
-/* The demo's welcome dialog (wall/welcome.js; DESIGN 5.2): a modal of at most 920 px with the five
-   steps, the honesty lines and a pinned footer, so Start always shows. Up to 900 px it is a bottom
-   sheet with the footer stacked. Every rule is scoped to .welcome: the dialog sits on the demo's
-   page next to wall.css. */
+/* The demo's welcome dialog (wall/welcome.js; DESIGN 5.2): a card of at most 760 px read at a
+   glance: the title, the five steps by name, one quiet honesty line and a pinned footer, so Start
+   always shows. Up to 900 px it is a bottom sheet with Start full width under the checkbox, in
+   source order, so Tab meets them as they are seen. Every rule is scoped to
+   .welcome: the dialog sits on the demo's page next to wall.css. */
 
 .welcome {
-  box-sizing: border-box; width: min(920px, calc(100vw - 48px)); max-width: none; max-height: calc(100dvh - 48px);
+  box-sizing: border-box; width: min(760px, calc(100vw - 48px)); max-width: none; max-height: calc(100dvh - 48px);
   margin: auto; padding: 0; overflow: hidden;
   border: 1px solid var(--c-line-2); border-radius: var(--radius-xl);
   background: var(--c-surface-1); color: var(--c-text-1); box-shadow: var(--shadow-3);
@@ -22,39 +23,29 @@
 .welcome .icon--16 { width: 16px; height: 16px; }
 .welcome :focus-visible { outline: var(--focus-ring); outline-offset: 2px; box-shadow: var(--focus-halo); }
 
-.welcome__body { display: grid; gap: var(--sp-6); min-height: 0; overflow: auto; padding: 28px 32px 24px; }
-.welcome__head { display: grid; gap: 6px; }
-.welcome__eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 13px; font-weight: 500; color: var(--c-text-2); }
+.welcome__body { display: grid; gap: 28px; min-height: 0; overflow: auto; padding: 28px 32px; }
+.welcome__head { display: grid; gap: 12px; justify-items: start; }
+.welcome__eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--c-text-2); }
 .welcome__pill {
   display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
   border: 1px solid color-mix(in srgb, var(--c-replay) 55%, transparent); border-radius: var(--radius-pill);
   background: var(--c-replay-bg); color: var(--c-replay-text); font-size: 13px; font-weight: 600; white-space: nowrap;
 }
 .welcome__pill--live { border-color: var(--c-line-2); background: transparent; color: var(--c-text-1); }
-.welcome__head h2 { font-size: 26px; line-height: 1.2; font-weight: 600; letter-spacing: -0.01em; }
-.welcome #welcome-lede { font-size: 15px; line-height: 1.5; color: var(--c-text-2); }
-.welcome__phone { display: none; }
+.welcome__head h2 { font-size: 26px; line-height: 1.2; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
 
-.welcome .honest-list { display: grid; border: 1px solid var(--c-line-2); border-radius: var(--radius-lg); background: var(--c-surface-2); }
-.welcome .honest-list li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 12px; padding: 12px 16px; font-size: 14px; line-height: 1.5; color: var(--c-text-2); }
-.welcome .honest-list li + li { border-top: 1px solid var(--c-line-1); }
-.welcome .honest-list b { color: var(--c-text-1); }
-.welcome .honest-list .icon { margin-top: 1px; color: var(--c-text-2); }
-.welcome .honest-list__replay .icon { color: var(--c-replay); }
-.welcome .honest-list__replay b { color: var(--c-replay-text); }
+/* the one honesty line: three short facts, each with its icon, quiet under the steps */
+.welcome__facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 20px; font-size: 13px; line-height: 1.4; color: var(--c-text-2); }
+.welcome__fact { display: inline-flex; align-items: center; gap: 6px; }
+.welcome__fact .icon { color: var(--c-text-3); }
+.welcome__fact--replay .icon { color: var(--c-replay); }
 
 .welcome__foot {
   flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 16px 32px;
   border-top: 1px solid var(--c-line-1); background: var(--c-surface-2);
 }
-.welcome .check { display: inline-flex; align-items: center; gap: 10px; min-height: var(--tap-min); font-size: 14px; color: var(--c-text-2); cursor: pointer; }
-.welcome .check input { width: 20px; height: 20px; margin: 0; accent-color: var(--c-text-1); flex: none; }
-.welcome__keys { font-size: 13px; color: var(--c-text-3); }
-.welcome kbd {
-  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px;
-  border: 1px solid var(--c-line-2); border-bottom-width: 2px; border-radius: var(--radius-sm);
-  font: 500 12px var(--font-mono); color: var(--c-text-2);
-}
+.welcome .check { display: inline-flex; align-items: center; gap: 8px; min-height: var(--tap-min); font-size: 13px; color: var(--c-text-3); cursor: pointer; }
+.welcome .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--c-text-1); flex: none; }
 .welcome .btn--primary {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; margin-left: auto; padding: 0 22px;
   border: 1px solid var(--c-cta); border-radius: var(--radius-md); background: var(--c-cta); color: var(--c-cta-ink);
@@ -67,11 +58,10 @@
   .welcome {
     width: 100%; max-height: 92dvh; margin: auto 0 0; border-bottom: 0; border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   }
-  .welcome__body { gap: var(--sp-5); padding: 20px 16px 16px; }
+  .welcome__body { gap: 20px; padding: 20px 16px; }
+  .welcome__head { gap: 10px; }
   .welcome__head h2 { font-size: 22px; }
-  .welcome__wide { display: none; }
-  .welcome__phone { display: inline; }
-  .welcome__foot { gap: 4px; padding: 12px 16px calc(16px + env(safe-area-inset-bottom)); }
-  .welcome .btn--primary { order: -1; width: 100%; margin: 0; }
-  .welcome__keys { display: none; }
+  .welcome__facts { justify-content: flex-start; gap: 6px 16px; }
+  .welcome__foot { justify-content: center; gap: 4px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+  .welcome .btn--primary { width: 100%; margin: 0; }
 }

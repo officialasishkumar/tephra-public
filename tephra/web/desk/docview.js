@@ -105,7 +105,8 @@ function renderSra(doc, opts) {
 
 function renderVar(doc, opts) {
   const root = el('article', { class: 'docv', 'aria-labelledby': 'doc-title' }, docHead(doc));
-  root.append(el('p', { class: 'fnote', text: 'The aircraft is an ADS-B proxy flight of the fictional airline, never a real operator\'s flight.' }));
+  // the demo's documents carry the fictional-airline label (regdocs/common.py); an airline's own do not
+  if ((doc.labels || []).some((l) => /FICTIONAL/.test(l))) root.append(el('p', { class: 'fnote', text: 'The aircraft is an ADS-B proxy flight of the fictional airline, never a real operator\'s flight.' }));
   root.append(el('section', { class: 'dsec' }, el('h2', { class: 'dsec__t', text: 'Report header' }), fieldList(doc.header_fields, doc)));
   const group = (name, title) => {
     const items = doc.items.filter((i) => i.group === name).sort((a, b) => a.number - b.number);
@@ -164,7 +165,8 @@ export function renderHandover(b, { onAck = null, ackBusy = false } = {}) {
   const [shape, word] = SEVERITY[b.severity] || SEVERITY.watch;
   const root = el('article', { class: 'docv hov', 'aria-labelledby': 'doc-title' });
   root.append(el('header', { class: 'dhd' },
-    el('p', { class: 'dhd__banner', role: 'note', text: 'DRAFT HANDOVER BRIEF - DECISION SUPPORT ONLY - FICTIONAL AIRLINE' }),
+    // the demo's brief says the airline is fictional; an airline's own TEPHRA's does not (b.fictional_airline)
+    el('p', { class: 'dhd__banner', role: 'note', text: `DRAFT HANDOVER BRIEF - DECISION SUPPORT ONLY${b.fictional_airline === false ? '' : ' - FICTIONAL AIRLINE'}` }),
     el('h1', { class: 'dhd__title', id: 'doc-title', tabindex: '-1', text: 'Shift handover' }),
     el('p', { class: 'dhd__chips' },
       el('span', { class: `sev sev--${b.severity}` }, icon(shape, 'st'), el('span', { text: `Illness severity: ${word}` })),

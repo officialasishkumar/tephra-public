@@ -101,6 +101,15 @@ export function envLines(answers, extra = {}) {
     if (own.length) lines.push(`TEPHRA_NETWORK_AIRPORTS=${own.join(",")}`);
   }
   lines.push("TEPHRA_POLICY_FILE=policy/airline.json");
+  // Who the drafts name: the airline itself, and each flight by its callsign, its flight in
+  // flights.json or its registration (an own fleet needs the name and the ICAO to start).
+  lines.push(
+    ...(a.name ? [`TEPHRA_AIRLINE_NAME=${JSON.stringify(a.name)}`] : []),
+    ...(a.icao ? [`TEPHRA_AIRLINE_ICAO=${a.icao}`] : []),
+    ...(a.iata ? [`TEPHRA_AIRLINE_IATA=${a.iata}`] : []),
+    "TEPHRA_AIRLINE_SCHEDULE=airline/flights.json",
+    "TEPHRA_AIRLINE_FLEET=airline/fleet.json",
+  );
   const m = answers?.assistant || {};
   if (m.provider) lines.push("# --- model ---");
   if (m.provider === "gemini") {
@@ -173,9 +182,9 @@ export function checklist(answers, { date, icao, haveKey = false, haveSchedule =
     "",
     `Made in the workspace on ${date}. Decision support only: a person approves every advisory, and nothing is sent to an aircraft.`,
     "",
-    `- [ ] **1. What this is.** A private TEPHRA for ${a.name}, which checks only your fleet and the aircraft you push. Not built: one shared service for many airlines; advisories under your own flight numbers (drafts name each flight by an RFA number of the fictional Ring of Fire Air, and your own flight numbers and callsigns never appear in a draft's text); Policy B; recovery re-planning for your network; a sign-in for the map page.`,
+    `- [ ] **1. What this is.** A private TEPHRA for ${a.name}, which checks only your fleet and the aircraft you push. Each flight is named by your callsign, else the flight number of a flight plan you pushed that is flying now, else its flight in flights.json, else its registration. Not built: one shared service for many airlines; Policy B; recovery re-planning for your network; a sign-in for the map page.`,
     `- [ ] **2. Get TEPHRA.** Clone ${REPO}, then run \`uv sync\` in it (or build its Docker image).`,
-    `- [ ] **3. Put the kit in place.** In the TEPHRA folder: \`cp ${dir}/airline.env .env\` and \`cp ${dir}/policy.json data/policy/airline.json\`.`,
+    `- [ ] **3. Put the kit in place.** In the TEPHRA folder: \`cp ${dir}/airline.env .env\`, \`cp ${dir}/policy.json data/policy/airline.json\`, and \`mkdir -p data/airline && cp ${dir}/flights.json ${dir}/fleet.json data/airline/\`.`,
     `- [ ] **4. The model.** ${modelStep(answers.assistant, haveKey)}`,
     "- [ ] **5. Start it.** `uv run tephra`, then open http://localhost:8080/demo for the map and http://localhost:8080/desk for the Desk with your Desk PIN (in `.env`). The map page and its read API have no sign-in: keep TEPHRA on your own network or put your own access control in front of it.",
     "- [ ] **6. Make a push key.** Desk › account menu › Data connections › New connection. The key is shown once.",
@@ -316,7 +325,6 @@ export function kitCard(view, { keyField = null, extra = null } = {}) {
       icon(f.icon),
       el("span", { class: "files__names" }, ...f.names.flatMap((n, i) => [i ? el("span", { class: "files__sep", "aria-hidden": "true", text: " · " }) : null, el("code", { text: n })])),
       f.chip ? el("span", { class: "chip chip--illus", text: f.chip }) : el("span", { class: "files__what", text: f.what })))),
-    el("p", { class: "body2", text: "It checks only your fleet; its drafts still name each flight by a Ring of Fire Air number." }),
     el("p", { class: "body2", text: haveFiles(local) ? "Your schedule files are in this browser and go into the kit." : "Your schedule files are not in this browser: the kit holds empty flights.json and crews.json to fill." }),
     gemini && !keyField ? el("p", { class: "body2" }, "Add your Gemini key on the ", el("a", { class: "link", href: "/workspace/kit", text: "Setup kit page" }), ", or paste it into airline.env later.") : null,
     extra,

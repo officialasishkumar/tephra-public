@@ -1,67 +1,135 @@
-// Onboarding (SPEC-v2 §6): the landing at /onboard, nine pages at /onboard/<page> (one topic per
-// page, saved in this browser as you go), the account at the end and the recovery code at
-// /onboard/done. Signed in while the airline is pending, /onboard/<page>?edit=1 edits the stored
-// answers instead. Pages move with the history API; focus goes to each page's h1. Every string
-// goes in through el() (textContent).
+// Onboarding (SPEC-v2 §6, account first since 16 Oct 2026): the landing at /onboard with the
+// sign-up form, the recovery code at /onboard/done, then nine pages at /onboard/<page>, one topic
+// each, saved to the account on every Next and Back (PUT /api/airline/draft) until Review submits
+// them for verification. Signing in again resumes at the first page not finished. Signed in while
+// the airline is pending, /onboard/<page>?edit=1 edits the stored answers instead. Pages move with
+// the history API; focus goes to each page's h1. Every string goes in through el() (textContent).
 
 import { $, el, icon, inlineSprite } from "./wall/util.js";
 import { applyFeatureNav, has, setFeatures } from "./wall/features.js";
 import { formatValue, policyValues } from "./wall/policy.js";
-import { initAccountNav } from "./account-nav.js";
+import { initAccountNav, showAccountWho } from "./account-nav.js";
 import {
-  ANSWER_PAGES, DEFAULT_OLLAMA_URL, airportCode, checkedValues, FLEET_FILE_MAX_BYTES, KEY_POLICY_VALUES, PAGES, PAGE_KEYS, PROVIDE, SCHEDULE_FILE_MAX_BYTES,
-  cautionsOf, checkPage, checkSchedule, emptyValues, fileLine, fromAnswers, hexOf, isEditablePolicyValue, mapServerProblem,
+  ANSWER_PAGES, DEFAULT_OLLAMA_URL, airportCode, checkedValues, FLEET_FILE_MAX_BYTES, KEY_POLICY_VALUES, NOT_BUILT, PAGES, PAGE_KEYS, PROVIDE, SCHEDULE_FILE_MAX_BYTES,
+  cautionsOf, checkPage, checkSchedule, emptyValues, fileLine, firstUnfinished, fromAnswers, hexOf, isEditablePolicyValue, mapServerProblem,
   pageOf, parseFleetFile, ruleMessage, toAnswers, upper,
 } from "./onboard/pages.js";
 import { caret, choiceCards, chipsInput, fid, field, illus, input, listError, notBuilt, note, section, segmented, setError, setListError } from "./onboard/form.js";
-import { clearDraft, clearOnboardStorage, draftSaver, loadDraft, loadLocal } from "./onboard/draft.js";
-import { accountForm, passwordAside, recoveryCard, reviewList } from "./onboard/review.js";
+import { dropLegacyDraft, loadLegacyDraft, loadLocal, saveLocal } from "./onboard/draft.js";
+import { accountFields, recoveryCard, reviewList } from "./onboard/review.js";
 import { COUNTRIES } from "./onboard/countries.js";
 import { envLines } from "./workspace/kit.js";
 import { modelChoice } from "./workspace/assistant.js";
-import { ACCOUNTS_OFF, ONBOARD_OFF, PATHS, call, errorCode, minutesWords, problemsOf, retryMinutes } from "./workspace/api.js";
+import { ACCOUNTS_OFF, ONBOARD_OFF, PATHS, call, errorCode, problemsOf, waitWords } from "./workspace/api.js";
 
 const MAX_BODY_BYTES = 128 * 1024;
+const KEEPALIVE_MAX_BYTES = 60 * 1024;
 const ROWS_STEP = 50;
 const WIDE = window.matchMedia("(min-width: 1280px)");
-const blankDraft = () => ({ v: 2, seen: [], at: null, values: emptyValues() });
+const blankDraft = () => ({ seen: [], at: null, values: emptyValues() });
+const draftOf = (d) => ({ seen: Array.isArray(d?.seen) ? [...d.seen] : [], at: d?.at || null, values: { ...emptyValues(), ...(d?.values || {}) } });
 // replaceChildren prints a null slot as "null": the optional parts are dropped first.
 const put = (node, ...kids) => node.replaceChildren(...kids.flat().filter((k) => k != null && k !== false));
 
 const S = {
   state: null, accounts: false, policy: null, named: {}, labels: {}, airports: new Map(), known: null, positions: null,
   draft: blankDraft(), local: { ollama_url: null, files: {} },
-  edit: null, saved: null, flagged: new Set(), leaveAnyway: null, anywayFor: null, server: {}, recovery: null, envBefore: null,
-  fleetShown: ROWS_STEP, fleetTab: "type", navMode: null, account: null,
+  edit: null, me: null, dirty: false, saving: false, flagged: new Set(), leaveAnyway: null, anywayFor: null, server: {}, recovery: null, envBefore: null,
+  fleetShown: ROWS_STEP, fleetTab: "type", navMode: null, account: null, legacy: null,
 };
 
 const V = () => S.draft.values;
 const ctxFor = (key) => ({ named: S.named, ollamaUrl: S.local.ollama_url ?? DEFAULT_OLLAMA_URL, schedule: key === "schedule" ? scheduleCheck() : null });
 
-// --- saving -----------------------------------------------------------------------------------------
+// --- saving to the account -------------------------------------------------------------------------
 
-const SAVED_WORDS = {
-  ok: ["i-check", "Saved in this browser"],
-  quota: ["i-check", "Saved in this browser · not your schedule files (too large)"],
-  blocked: ["st-caution", "Not saved: this browser blocks storage"],
-};
-
-// The status line changes only when the saved state changes (a status region re-reads what is
-// written into it).
+// The small mark in the progress row: "Saved" once the page is in the account, "Not saved" when the
+// last save failed (the reason is said in the bar where Next is). Nothing while there are changes
+// not saved yet.
 function setSaved(state) {
-  if (S.edit || state === S.saved) return;
-  S.saved = state;
-  const [shape, words] = SAVED_WORDS[state];
-  $("ob-saved").replaceChildren(icon(shape), el("span", { text: words }));
-  $("ob-saved").dataset.state = state;
+  const mark = $("ob-saved");
+  if (S.edit || !mark || mark.dataset.state === state) return;
+  mark.dataset.state = state;
+  mark.replaceChildren(...(state === "ok" ? [icon("i-check"), el("span", { text: "Saved" })] : state === "failed" ? [icon("st-caution"), el("span", { text: "Not saved" })] : []));
 }
-
-const saver = draftSaver(setSaved);
 
 function changed() {
   if (S.edit) return;
-  saver.schedule(S.draft, S.local);
+  S.dirty = true;
+  setSaved("");
   drawAside();
+}
+
+const keepLocal = () => saveLocal(S.local);
+
+const draftBody = () => JSON.stringify({ version: S.me.version, draft: { at: S.draft.at, seen: S.draft.seen, values: S.draft.values } });
+
+// Words for a save the server did not take; the typed values stay on the page either way.
+function notSavedWords(res) {
+  const stays = "What you typed stays on this page.";
+  if (res.status === 0) return `Not saved: you're offline. ${stays}`;
+  if (res.status === 429) return `Not saved: too many saves today. ${stays} Try again in about ${waitWords(res)}.`;
+  if (res.status === 409) return `Not saved: your answers changed in another tab. Reload to see them.`;
+  if (res.status === 413) return `Not saved: your answers are larger than 128 KB. ${stays}`;
+  return `Not saved (HTTP ${res.status}). ${stays}`;
+}
+
+// One save at a time; true when the account holds the page as it is now.
+async function saveDraft() {
+  if (S.saving) return false;
+  const raw = draftBody();
+  if (new TextEncoder().encode(raw).length > MAX_BODY_BYTES) {
+    sayNotSaved({ status: 413 });
+    return false;
+  }
+  S.saving = true;
+  const res = await call(PATHS.draft, { method: "PUT", raw });
+  S.saving = false;
+  if (res.ok && res.data) {
+    S.me = res.data;
+    S.dirty = false;
+    dropLegacyDraft();
+    setSaved("ok");
+    return true;
+  }
+  if (res.status === 401) {
+    location.assign("/signin");
+    return false;
+  }
+  if (res.status === 409 && errorCode(res) === "already_submitted") {
+    location.assign("/workspace");
+    return false;
+  }
+  sayNotSaved(res);
+  return false;
+}
+
+function sayNotSaved(res) {
+  const words = notSavedWords(res);
+  setSaved("failed");
+  const mid = $("ob-actions")?.querySelector(".actions__mid");
+  if (mid) {
+    mid.textContent = words;
+    mid.classList.add("actions__mid--bad");
+  }
+  announce(words);
+}
+
+// Back, Next and the step list: the account takes the page first; a failed save stays here.
+async function saveAndGo(path) {
+  const key = path.split("?")[0].replace(/\/+$/, "").split("/")[2] || "";
+  if (PAGE_KEYS.includes(key)) S.draft.at = key;
+  if (await saveDraft()) {
+    if (path.startsWith("/onboard/")) go(path);
+    else location.assign(path);
+  }
+}
+
+// A page closed with changes not saved: one last save the browser finishes on its own.
+function saveOnLeave() {
+  if (!S.me || S.me.status !== "draft" || S.edit || !S.dirty) return;
+  const raw = draftBody();
+  if (new TextEncoder().encode(raw).length <= KEEPALIVE_MAX_BYTES) call(PATHS.draft, { method: "PUT", raw, keepalive: true });
 }
 
 // --- loading ----------------------------------------------------------------------------------------
@@ -155,7 +223,8 @@ function stepList(states) {
         st === "done" ? el("span", { class: "sr-only", text: " (done)" }) : null,
         st === "warn" ? el("span", { class: "flag", text: n === 1 ? "1 thing to check" : `${n} things to check` }) : null),
     ];
-    const reachable = S.edit || st === "now" || S.draft.seen.includes(p.key);
+    // on Review every page is one tap away, opened or not (Review lists them all)
+    const reachable = S.edit || st === "now" || S.draft.seen.includes(p.key) || states.review === "now";
     return el("li", { class: `is-${st}` }, reachable
       ? el("a", { href: pageHref(p.key), "aria-current": st === "now" ? "step" : null, dataset: { go: p.key } }, ...inner)
       : el("span", { class: "steps__plain" }, ...inner));
@@ -165,12 +234,8 @@ function stepList(states) {
 function drawSteps(current) {
   const states = Object.fromEntries(PAGES.map((p) => [p.key, stepState(p.key, current)]));
   const done = Object.values(states).filter((s) => s === "done").length;
-  const foot = S.edit
-    ? el("div", { class: "steps__foot" }, el("p", { text: "Changes are saved to your workspace with Save changes." }))
-    : el("div", { class: "steps__foot" },
-      el("p", { text: "Answers stay in this browser until you create your account on Review." }),
-      el("button", { type: "button", class: "linkbtn", dataset: { act: "clear" }, text: "Clear my answers" }));
-  $("ob-steps").replaceChildren(
+  const foot = S.edit ? el("div", { class: "steps__foot" }, el("p", { text: "Changes are saved to your workspace with Save changes." })) : null;
+  put($("ob-steps"),
     el("h2", { class: "eyebrow steps__h", text: S.edit ? "Edit your answers" : "Onboard your airline" }),
     el("details", { class: "steps__phone" }, el("summary", {}, el("span", { text: `All pages · ${done} of ${S.edit ? 8 : 9} done` }), caret()), stepList(states)),
     el("div", { class: "steps__wide" }, stepList(states)),
@@ -202,7 +267,7 @@ function drawAside() {
 function aside() {
   const details = el("details", { class: "card aside-card kitsofar", open: WIDE.matches || null },
     el("summary", {}, icon("i-file"), el("span", { text: "Your setup kit so far" }), caret()),
-    el("p", { text: "The airline.env lines your answers add. The kit is made in your workspace after you create your account; its secrets are made when you download it." }),
+    el("p", { text: "The airline.env lines your answers add. The kit is made in your workspace once you submit; its secrets are made when you download it." }),
     el("pre", { id: "ob-aside-code", class: "code", tabindex: "0", "aria-label": "airline.env so far" }));
   WIDE.onchange = () => {
     details.open = WIDE.matches || details.open;
@@ -648,6 +713,7 @@ function schedulePage() {
         remove.addEventListener("click", () => {
           const { [k]: _gone, ...rest } = S.local.files;
           S.local.files = rest;
+          keepLocal();
           changed();
           draw();
           announce(`${k}.json removed.`);
@@ -675,7 +741,9 @@ function schedulePage() {
         return;
       }
       S.local.files = { ...S.local.files, [k]: await one.text() };
+      const kept = keepLocal();
       draw();
+      if (kept !== "ok") out.prepend(note("caution", null, `This browser could not keep ${k}.json for your setup kit: add it again on the kit page before you download.`));
       announce(`${k}.json read.`);
     });
     return el("div", { class: "drop" },
@@ -726,7 +794,7 @@ function feedsPage() {
     section("The format", "s-format",
       el("p", {}, "One JSON push in the ", el("code", { text: "tephra.airline/1" }), " format, with any of three sections. ", el("a", { class: "link", href: PATHS.schema, download: "", text: "Schema (JSON)" })),
       el("p", { text: "Your setup kit's push.py sends it, and stamps observed_at at send time for positions measured just then." }),
-      el("p", { text: "After you create your account, try a file in the dry run in your workspace." })),
+      el("p", { text: "Once you submit, try a file in the dry run in your workspace." })),
   ];
 }
 
@@ -792,7 +860,7 @@ function peoplePage() {
 
 function assistantPage() {
   const choice = modelChoice(V().assistant, {
-    ollama: S.edit ? null : { get: () => S.local.ollama_url ?? DEFAULT_OLLAMA_URL, set: (v) => { S.local.ollama_url = v; } },
+    ollama: S.edit ? null : { get: () => S.local.ollama_url ?? DEFAULT_OLLAMA_URL, set: (v) => { S.local.ollama_url = v; keepLocal(); } },
     onChange: () => {
       delete S.server.assistant;
       changed();
@@ -803,8 +871,6 @@ function assistantPage() {
 }
 
 // --- page 9 · Review -------------------------------------------------------------------------------
-
-let acct = null;
 
 function allProblems() {
   const out = [];
@@ -818,12 +884,10 @@ function allProblems() {
 
 function reviewPage() {
   const answers = toAnswers(S.draft);
-  acct = accountForm({ accountsOn: S.accounts });
   return [
     el("div", { id: "ob-errors", class: "ob-errors", role: "alert", tabindex: "-1", hidden: true }),
-    reviewList(answers, { named: S.named, labels: S.labels, problems: Object.fromEntries(ANSWER_PAGES.map((k) => [k, problemCount(k)])), editHref: (k) => `/onboard/${k}` }),
-    acct.node,
-    passwordAside(),
+    reviewList(answers, { named: S.named, labels: S.labels, problems: Object.fromEntries(ANSWER_PAGES.map((k) => [k, problemCount(k)])), unseen: new Set(ANSWER_PAGES.filter((k) => !S.draft.seen.includes(k))), editHref: (k) => `/onboard/${k}` }),
+    note("info", null, "After you submit, your airline is pending verification until a TEPHRA dispatcher verifies it, and your setup kit is ready in your workspace at once. You can still change your answers while it is pending."),
   ];
 }
 
@@ -846,7 +910,7 @@ function errorSummary(items, extra = null) {
   const box = $("ob-errors");
   const n = items.length;
   put(box,
-    el("p", { class: "ob-errors__h" }, icon("st-caution"), el("b", { text: n ? `Fix ${n === 1 ? "1 thing" : `${n} things`} before you create your account` : "Your account was not created" })),
+    el("p", { class: "ob-errors__h" }, icon("st-caution"), el("b", { text: n ? `Fix ${n === 1 ? "1 thing" : `${n} things`} before you submit` : "Not submitted" })),
     n ? el("ul", {}, ...items.slice(0, 12).map((p) => el("li", {}, problemLink(p)))) : null,
     n > 12 ? el("p", { class: "hint", text: `And ${n - 12} more.` }) : null,
     extra);
@@ -854,60 +918,40 @@ function errorSummary(items, extra = null) {
   box.focus();
 }
 
-function accountProblems(v) {
-  const out = [];
-  const e = ruleMessage("acct.email", v.email);
-  if (e) out.push(["acct-email", e]);
-  const p = ruleMessage("acct.password", v.password);
-  if (p) out.push(["acct-password", p]);
-  else if (v.password.trim().toLowerCase() === v.email) out.push(["acct-password", "The password must not be your email."]);
-  else if (v.password2 !== v.password) out.push(["acct-password2", "The two passwords differ."]);
-  if (!v.ack) out.push(["acct-ack", "Tick this to go on."]);
-  return out;
-}
-
-function createWords(res) {
+function submitWords(res) {
   const code = errorCode(res);
-  if (res.status === 409 && code === "email_taken") return el("p", {}, "An account with this email exists. ", el("a", { class: "link", href: "/signin", text: "Sign in instead." }));
-  if (res.status === 429) return el("p", { text: `Too many tries from this address. Try again in about ${minutesWords(retryMinutes(res))}. Your answers are saved in this browser.` });
-  if (res.status === 503 && code === "onboarding_full") return el("p", { text: "New airlines are paused on this server for now. Your answers are saved in this browser." });
-  if (code === "accounts_off") return el("p", { text: ACCOUNTS_OFF });
-  if (code === "feature_off") return el("p", { text: ONBOARD_OFF });
-  if (res.status === 413) return el("p", { text: "Your answers are too large to send (more than 128 KB)." });
-  if (res.status === 0) return el("p", { text: "You're offline. Your answers are saved in this browser." });
-  return el("p", { text: `Your account was not created (HTTP ${res.status}). Your answers are saved in this browser.` });
+  if (res.status === 429) return `Too many saves today. Try again in about ${waitWords(res)}.`;
+  if (res.status === 503 && code === "onboarding_full") return "New airlines are paused on this server for now. Your answers stay in your account: submit again later.";
+  if (res.status === 409) return "Your answers changed in another tab. Reload to see them.";
+  if (res.status === 413) return "Your answers are too large to send (more than 128 KB).";
+  if (res.status === 0) return "You're offline. Nothing was submitted.";
+  return `Nothing was submitted (HTTP ${res.status}).`;
 }
 
-async function createAccount(button) {
-  const v = acct.values();
-  for (const id of ["acct-email", "acct-password", "acct-password2", "acct-ack"]) setError($(id), null);
-  const pageProblems = allProblems();
-  const own = accountProblems(v);
-  for (const [id, msg] of own) setError($(id), msg);
-  if (pageProblems.length || own.length) {
-    errorSummary([...pageProblems, ...own.map(([id, msg]) => ({ page: "review", id, text: `Your account: ${msg}` }))]);
+async function submitAnswers(button) {
+  const problems = allProblems();
+  if (problems.length) {
+    errorSummary(problems);
     return;
   }
   const answers = toAnswers(S.draft);
-  const body = JSON.stringify({ answers, email: v.email, password: v.password, acknowledge: true, website: v.website });
-  if (new TextEncoder().encode(body).length > MAX_BODY_BYTES) {
-    errorSummary([], el("p", { text: "Your answers are too large to send (more than 128 KB)." }));
+  const raw = JSON.stringify({ version: S.me.version, answers });
+  if (new TextEncoder().encode(raw).length > MAX_BODY_BYTES) {
+    errorSummary([], el("p", { text: submitWords({ status: 413 }) }));
     return;
   }
   const words = button.querySelector("span");
   button.disabled = true;
-  words.textContent = "Creating…";
-  const res = await call(PATHS.accounts, { method: "POST", raw: body });
+  words.textContent = "Submitting…";
+  const res = await call(PATHS.submit, { method: "POST", raw });
   button.disabled = false;
-  words.textContent = "Create account and submit";
-  if (res.ok && typeof res.data?.recovery_code === "string") {
-    acct.clearSecrets();
-    S.recovery = { code: res.data.recovery_code, email: v.email, icao: answers.airline.icao };
-    saver.flush();
-    clearDraft();
-    S.draft = blankDraft();
-    S.navMode = null;
-    go("/onboard/done");
+  words.textContent = "Submit for verification";
+  if (res.ok || (res.status === 409 && errorCode(res) === "already_submitted")) {
+    location.assign("/workspace");
+    return;
+  }
+  if (res.status === 401) {
+    location.assign("/signin");
     return;
   }
   if (res.status === 422 && errorCode(res) === "validation_failed") {
@@ -918,7 +962,7 @@ async function createAccount(button) {
     drawSteps("review");
     return;
   }
-  errorSummary([], createWords(res));
+  errorSummary([], el("p", { text: submitWords(res) }));
 }
 
 // --- one page --------------------------------------------------------------------------------------
@@ -936,21 +980,22 @@ function actionBar(key) {
     return;
   }
   const back = i === 0
-    ? el("a", { class: "btn btn--secondary", href: "/onboard", dataset: { go: "" }, text: "‹ Overview" })
+    ? el("a", { class: "btn btn--secondary", href: "/workspace", dataset: { go: "" }, text: "‹ Workspace" })
     : el("a", { class: "btn btn--secondary", href: `/onboard/${PAGE_KEYS[i - 1]}`, dataset: { go: PAGE_KEYS[i - 1] }, text: "‹ Back" });
-  const words = key === "review" ? "Create account and submit" : S.leaveAnyway === key ? "Next anyway ›" : `Next: ${pageOf(PAGE_KEYS[i + 1]).name} ›`;
-  const next = el("button", { type: "submit", form: "ob-form", class: "btn btn--primary", disabled: key === "review" && !S.accounts ? true : null }, el("span", { text: words }));
+  const words = key === "review" ? "Submit for verification" : S.leaveAnyway === key ? "Next anyway ›" : `Next: ${pageOf(PAGE_KEYS[i + 1]).name} ›`;
+  const next = el("button", { type: "submit", form: "ob-form", class: "btn btn--primary" }, el("span", { text: words }));
   const skip = key === "schedule" ? el("button", { type: "button", class: "btn btn--quiet", dataset: { act: "skip" }, text: "Skip for now" }) : null;
-  put(bar, back, el("p", { class: "actions__mid", text: "Back and Next keep what you typed." }), skip, next);
+  put(bar, back, el("p", { class: "actions__mid", text: key === "review" ? "" : "Back and Next save your answers to your account." }), skip, next);
 }
 
 function renderPage(key) {
   const page = pageOf(key);
   document.title = `${page.name} · Onboard · TEPHRA`;
+  // Where the airline is goes to the account with the page's next save; the values are what
+  // the Saved mark speaks for.
   if (!S.edit) {
     if (!S.draft.seen.includes(key)) S.draft.seen.push(key);
     S.draft.at = key;
-    saver.schedule(S.draft, S.local);
   }
   if (S.leaveAnyway !== key) S.leaveAnyway = null;
   const form = el("form", { id: "ob-form", class: "form", novalidate: true },
@@ -958,7 +1003,7 @@ function renderPage(key) {
     ...BUILDERS[key]());
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    if (key === "review") createAccount(e.submitter || $("ob-actions").querySelector(".btn--primary"));
+    if (key === "review") submitAnswers(e.submitter || $("ob-actions").querySelector(".btn--primary"));
     else if (S.edit) saveEdit(key);
     else next(key);
   });
@@ -970,6 +1015,7 @@ function renderPage(key) {
   drawAside();
   drawSteps(key);
   actionBar(key);
+  setSaved(S.dirty ? "" : "ok");
   if (S.flagged.has(key) || S.server[key]) showProblems(key);
 }
 
@@ -987,9 +1033,8 @@ function next(key) {
     return;
   }
   if (!problems.length) S.flagged.delete(key);
-  S.leaveAnyway = null;
-  saver.flush();
-  go(`/onboard/${PAGE_KEYS[PAGE_KEYS.indexOf(key) + 1]}`);
+  // "Next anyway" stays offered until the save goes through (the next page clears it).
+  saveAndGo(`/onboard/${PAGE_KEYS[PAGE_KEYS.indexOf(key) + 1]}`);
 }
 
 async function saveEdit(key) {
@@ -1022,60 +1067,155 @@ async function saveEdit(key) {
   }
 }
 
-// --- the landing -----------------------------------------------------------------------------------
+// --- the landing: the account first --------------------------------------------------------------
+
+function provideList() {
+  return el("section", { class: "provide", "aria-labelledby": "provide-h" },
+    el("h2", { id: "provide-h", class: "h3", text: "How to onboard: what you provide" }),
+    el("ol", { class: "provide__list" }, ...PROVIDE.map((p, i) => el("li", { class: "provide__i" },
+      el("span", { class: "provide__ic", "aria-hidden": "true" }, icon(p.icon)),
+      el("p", {},
+        el("b", {}, el("span", { class: "provide__n", text: String(i + 1) }), p.name),
+        ` ${p.text.charAt(0).toUpperCase()}${p.text.slice(1)}`, p.code ? el("code", { text: p.code }) : null, p.after || null)))));
+}
+
+function signupWords(res) {
+  const code = errorCode(res);
+  if (res.status === 409 && code === "email_taken") return el("p", {}, "An account with this email exists. ", el("a", { class: "link", href: "/signin", text: "Sign in instead." }));
+  if (res.status === 429) return el("p", { text: `Too many tries from this address. Try again in about ${waitWords(res)}.` });
+  if (res.status === 503 && code === "onboarding_full") return el("p", { text: "New airlines are paused on this server for now." });
+  if (code === "accounts_off") return el("p", { text: ACCOUNTS_OFF });
+  if (code === "feature_off") return el("p", { text: ONBOARD_OFF });
+  if (res.status === 422) return el("p", { text: "Check the email and the password: the server refused them." });
+  if (res.status === 0) return el("p", { text: "You're offline. No account was created." });
+  return el("p", { text: `No account was created (HTTP ${res.status}).` });
+}
+
+function accountProblems(v) {
+  const out = [];
+  const e = ruleMessage("acct.email", v.email);
+  if (e) out.push(["acct-email", e]);
+  const p = ruleMessage("acct.password", v.password);
+  if (p) out.push(["acct-password", p]);
+  else if (v.password.trim().toLowerCase() === v.email) out.push(["acct-password", "The password must not be your email."]);
+  if (!v.ack) out.push(["acct-ack", "Tick this to go on."]);
+  return out;
+}
+
+async function createAccount(fields, button, box) {
+  const v = fields.values();
+  for (const id of ["acct-email", "acct-password", "acct-ack"]) setError($(id), null);
+  box.hidden = true;
+  const problems = accountProblems(v);
+  for (const [id, msg] of problems) setError($(id), msg);
+  if (problems.length) {
+    $(problems[0][0]).focus();
+    return;
+  }
+  const words = button.querySelector("span");
+  button.disabled = true;
+  words.textContent = "Creating…";
+  const res = await call(PATHS.accounts, { method: "POST", body: { email: v.email, password: v.password, acknowledge: true, website: v.website } });
+  button.disabled = false;
+  words.textContent = "Create account";
+  if (res.ok && typeof res.data?.recovery_code === "string" && res.data.airline) {
+    fields.clearSecrets();
+    S.recovery = { code: res.data.recovery_code, email: v.email, icao: null };
+    S.me = res.data.airline;
+    S.draft = draftOf(S.me.draft);
+    S.dirty = false;
+    // Answers an earlier version of these pages kept in this browser are offered, never moved in
+    // unasked: on a shared computer they may be another airline's (done() asks).
+    S.legacy = loadLegacyDraft();
+    S.navMode = null;
+    go("/onboard/done");
+    return;
+  }
+  put(box, el("p", { class: "ob-errors__h" }, icon("st-caution"), el("b", { text: "No account was created" })), signupWords(res));
+  box.hidden = false;
+  box.focus();
+}
+
+function signupCard() {
+  const fields = accountFields({ accountsOn: S.accounts });
+  const box = el("div", { id: "su-errors", class: "ob-errors", role: "alert", tabindex: "-1", hidden: true });
+  const button = el("button", { type: "submit", class: "btn btn--primary btn--block", disabled: S.accounts ? null : true }, el("span", { text: "Create account" }));
+  const form = el("form", { id: "su-form", class: "authform", novalidate: true }, fields.node, box, button);
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    createAccount(fields, button, box);
+  });
+  return el("section", { id: "ob-signup", class: "card signup", "aria-labelledby": "su-h" },
+    el("h2", { id: "su-h", class: "h2", text: "Create your account" }),
+    form,
+    el("p", { class: "body2" }, "Already have an account? ", el("a", { class: "link", href: "/signin", text: "Sign in" })),
+    el("p", { class: "hint", text: "Only you and this site's TEPHRA dispatchers, who verify your airline, read your answers. Nothing you enter appears on the demo's map or the Desk's picture." }));
+}
 
 function landing() {
   document.title = "Onboard your airline · TEPHRA";
-  const saved = loadDraft();
-  const at = saved?.at ? pageOf(saved.at) : null;
   const me = S.account?.signedIn ? S.account : null;
-  // Signed in, the airline is onboarded already: its workspace, never a second draft.
-  const cta = me
-    ? [el("a", { id: "ob-start", class: "btn btn--primary btn--lg", href: "/workspace" }, el("span", { text: "Open your workspace" }), icon("i-arrow-right")),
-      el("p", { class: "body2", text: `You are signed in as ${[me.icao, me.name].filter(Boolean).join(" · ")}.` })]
-    : [el("a", { id: "ob-start", class: "btn btn--primary btn--lg", href: `/onboard/${at ? at.key : "airline"}`, dataset: { go: at ? at.key : "airline" } },
-      el("span", { text: at ? `Continue where you left off (page ${at.n} of 9)` : "Start with your airline" }), icon("i-arrow-right")),
-    at ? el("button", { type: "button", class: "btn btn--quiet", dataset: { act: "startover" }, text: "Start over" }) : null,
-    el("p", { class: "body2" }, "Already onboarded? ", el("a", { class: "link", href: "/signin", text: "Sign in" }))];
+  // Signed in, the airline has submitted already: its workspace, never a second account.
+  const side = me
+    ? el("section", { id: "ob-signup", class: "card signup", "aria-labelledby": "su-h" },
+      el("h2", { id: "su-h", class: "h2", text: "Your answers are submitted" }),
+      el("p", { class: "body2", text: `You are signed in as ${[me.icao, me.name].filter(Boolean).join(" · ")}. Your workspace says where verification stands.` }),
+      el("a", { id: "ob-start", class: "btn btn--primary btn--block", href: "/workspace" }, el("span", { text: "Open your workspace" }), icon("i-arrow-right")))
+    : signupCard();
   $("main").replaceChildren(el("div", { class: "ostart" },
     el("div", { class: "ostart__head" },
       el("p", { class: "eyebrow", text: "Onboard your airline" }),
-      el("h1", { class: "h1", text: "Set TEPHRA up for your airline, one topic per page." }),
-      el("p", { class: "lead", text: "Nine short pages. Your answers are saved in this browser as you go and leave it only when you create your account on the last page." }),
-      el("div", { class: "ostart__cta" }, ...cta.filter(Boolean))),
-    el("section", { class: "provide", "aria-labelledby": "provide-h" },
-      el("h2", { id: "provide-h", class: "h2", text: "How to onboard: what you provide" }),
-      el("ol", { class: "provide__list" }, ...PROVIDE.map((p, i) => el("li", { class: "card provide__i" },
-        el("span", { class: "provide__ic", "aria-hidden": "true" }, icon(p.icon)),
-        el("div", {},
-          el("b", {}, el("span", { class: "provide__n", text: String(i + 1) }), p.name),
-          el("p", {}, `${p.text.charAt(0).toUpperCase()}${p.text.slice(1)}`, p.code ? el("code", { text: p.code }) : null, p.after || null)))))),
-    el("div", { class: "get" },
-      el("section", { id: "ob-after", class: "card", "aria-labelledby": "after-h" },
-        el("h2", { id: "after-h", class: "h3" }, icon("i-clock"), el("span", { text: "After you submit" })),
-        el("ol", { class: "next3" },
-          el("li", {}, el("b", {}, el("i", { "aria-hidden": "true", text: "1" }), el("span", { text: "A recovery code, shown once." }))),
-          el("li", {}, el("b", {}, el("i", { "aria-hidden": "true", text: "2" }), el("span", { text: "Pending verification until a TEPHRA dispatcher verifies your airline." }))),
-          el("li", {}, el("b", {}, el("i", { "aria-hidden": "true", text: "3" }), el("span", { text: "Your setup kit, ready at once in your workspace." }))))),
-      el("section", { id: "ob-private", class: "card", "aria-labelledby": "private-h" },
-        el("h2", { id: "private-h", class: "h3" }, icon("i-lock"), el("span", { text: "Private" })),
-        el("p", { class: "body2", text: "Only you and this site's TEPHRA dispatchers, who verify your airline, read your answers. Your workspace is never listed publicly, and nothing you enter appears on the demo's map or the Desk's picture." }))),
-    el("div", { id: "ob-notbuilt", class: "note note--notbuilt", role: "note" }, icon("i-info"),
-      el("p", {}, el("b", { text: "Not built yet. " }), "Running your live operation on this shared TEPHRA is not built, so no advisory is drafted under your airline's name here. Your own TEPHRA from the setup kit checks your fleet, but its drafts still name each flight by a Ring of Fire Air number."))));
+      el("h1", { class: "h1", text: "Set TEPHRA up for your airline" })),
+    side,
+    provideList(),
+    el("div", { id: "ob-notbuilt", class: "note note--notbuilt ostart__note", role: "note" }, icon("i-info"),
+      el("p", {}, el("b", { text: "Not built yet. " }), NOT_BUILT))));
 }
 
 // --- done and off ----------------------------------------------------------------------------------
 
 function done() {
   document.title = "Recovery code · Onboard · TEPHRA";
-  if (S.recovery) {
-    $("main").replaceChildren(recoveryCard(S.recovery, { lead: "It is shown once. With it you can get back into your workspace if you forget your password; reset by email is not built." }));
-    return;
-  }
-  $("main").replaceChildren(el("div", { class: "narrow" }, el("section", { class: "card authcard" },
-    el("h1", { class: "h2", text: "Your recovery code was shown once" }),
-    el("p", { class: "body2", text: "Your recovery code was shown once, when you created your account. If you did not save it, sign in with your password and keep it safe." }),
-    el("a", { class: "btn btn--primary btn--block", href: "/workspace" }, el("span", { text: "Open my workspace" }), icon("i-arrow-right")))));
+  const key = firstUnfinished(S.draft, ctxFor);
+  $("main").replaceChildren(recoveryCard(S.recovery, {
+    lead: "It is shown once. With it you can get back into your account if you forget your password; reset by email is not built.",
+    next: { href: `/onboard/${key}`, text: `Continue: ${pageOf(key).name}`, go: true },
+    extra: S.legacy ? legacyOffer() : null,
+  }));
+}
+
+// Answers an earlier version of these pages kept in this browser: the new account takes them only
+// when asked; Discard removes them from the browser.
+function legacyOffer() {
+  const when = S.legacy?.at ? new Date(S.legacy.at) : null;
+  const dated = when && !Number.isNaN(when.getTime()) ? ` (from ${when.toISOString().slice(0, 10)})` : "";
+  const use = el("button", { type: "button", class: "btn btn--secondary btn--sm" }, el("span", { text: "Use them" }));
+  const drop = el("button", { type: "button", class: "btn btn--quiet btn--sm" }, el("span", { text: "Discard" }));
+  const said = el("p", { class: "body2", role: "status" });
+  const box = el("div", { id: "ob-legacy", class: "legacy", role: "group", "aria-labelledby": "lg-h" },
+    el("p", { id: "lg-h", class: "body2" }, el("b", { text: `Answers from an earlier visit are in this browser${dated}.` }), " On a shared computer they may be another airline's."),
+    el("div", { class: "legacy__act" }, use, drop), said);
+  const settle = (words) => {
+    S.legacy = null;
+    box.querySelector(".legacy__act").remove();
+    said.textContent = words;
+    const next = $("main").querySelector(".auth__card a.btn--primary");
+    const key = firstUnfinished(S.draft, ctxFor);
+    if (next) { next.href = `/onboard/${key}`; next.querySelector("span").textContent = `Continue: ${pageOf(key).name}`; }
+  };
+  use.addEventListener("click", async () => {
+    use.disabled = drop.disabled = true;
+    S.draft = draftOf(S.legacy);
+    S.dirty = true;
+    const ok = await saveDraft();
+    if (ok) settle("The answers from your earlier visit are now in your account.");
+    else use.disabled = drop.disabled = false;
+  });
+  drop.addEventListener("click", () => {
+    dropLegacyDraft();
+    settle("Discarded: they are no longer in this browser.");
+  });
+  return box;
 }
 
 function offCard(words) {
@@ -1087,6 +1227,23 @@ function offCard(words) {
 
 // --- render ----------------------------------------------------------------------------------------
 
+// The signed-in airline's record, read once per page load (null when signed out or the session
+// has ended). A draft's pages come from it.
+async function loadMe() {
+  if (S.me || !S.account?.signedIn) return S.me;
+  const res = await call(PATHS.me);
+  if (res.ok && res.data) {
+    S.me = res.data;
+    if (S.me.status === "draft") S.draft = draftOf(S.me.draft);
+  }
+  return S.me;
+}
+
+function redirect(path, opts) {
+  history.replaceState(null, "", path);
+  return render(opts);
+}
+
 async function render({ keepFocus = false } = {}) {
   const r = route();
   if (S.state && !has("onboard")) {
@@ -1095,32 +1252,46 @@ async function render({ keepFocus = false } = {}) {
     focusHeading();
     return;
   }
-  if (r.view === "page" && r.edit && !S.edit) {
-    const me = await call(PATHS.me);
-    if (me.status === 401) {
-      location.replace(`/signin?next=${encodeURIComponent(`${location.pathname}?edit=1`)}`);
-      return;
-    }
-    if (!me.ok || !me.data?.editable) {
-      location.replace("/workspace/answers");
-      return;
-    }
-    S.edit = me.data;
-    S.draft = { v: 2, seen: [...ANSWER_PAGES], at: null, values: fromAnswers(me.data.answers, S.named) };
-  } else if (r.view === "page" && !r.edit && S.edit) {
-    S.edit = null;
-    S.draft = loadDraft() || blankDraft();
-  }
-  frame(r.view);
   const navMode = r.view === "landing" ? "landing" : "page";
   if (navMode !== S.navMode) {
     S.navMode = navMode;
     S.account = await initAccountNav({ right: $("tn-right"), signin: navMode !== "landing" });
   }
-  if (r.view === "page" && !r.edit && S.account?.signedIn) {
-    location.replace("/workspace/answers");
+  const me = await loadMe();
+  const draft = me?.status === "draft";
+  // a draft's cookie names no airline: the account button says what page 1 holds, as the workspace does
+  if (draft) showAccountWho({ icao: (V().airline?.icao || "").trim().toUpperCase(), name: (V().airline?.name || "").trim() });
+  if (r.view === "page" && r.edit) {
+    if (!me) {
+      location.replace(`/signin?next=${encodeURIComponent(`${location.pathname}?edit=1`)}`);
+      return;
+    }
+    if (!me.editable) {
+      location.replace("/workspace/answers");
+      return;
+    }
+    if (!S.edit) {
+      S.edit = me;
+      S.draft = { seen: [...ANSWER_PAGES], at: null, values: fromAnswers(me.answers, S.named) };
+    }
+  } else if (S.edit) {
+    S.edit = null;
+  }
+  // Pages need the account; a submitted airline edits from its workspace; a draft resumes.
+  if (r.view === "page" && !r.edit && !draft) {
+    if (me) location.replace("/workspace/answers");
+    else await redirect("/onboard", { keepFocus });
     return;
   }
+  if (draft && (r.view === "landing" || (r.view === "done" && !S.recovery))) {
+    await redirect(`/onboard/${firstUnfinished(S.draft, ctxFor)}`, { keepFocus });
+    return;
+  }
+  if (r.view === "done" && !S.recovery) {
+    await redirect(me ? "/workspace" : "/onboard", { keepFocus });
+    return;
+  }
+  frame(r.view);
   if (r.view === "landing") landing();
   else if (r.view === "done") done();
   else renderPage(r.key);
@@ -1146,60 +1317,34 @@ const TEMPLATES = {
   "tpl-crews": ["crews.json", `${JSON.stringify({ crews: [] }, null, 2)}\n`],
 };
 
-function confirmClear(title) {
-  const dlg = $("ob-dlg");
-  const cancel = el("button", { type: "button", class: "btn btn--secondary", text: "Cancel" });
-  const clear = el("button", { type: "button", class: "btn btn--primary", text: "Clear answers" });
-  cancel.addEventListener("click", () => dlg.close());
-  clear.addEventListener("click", () => {
-    saver.flush();
-    clearOnboardStorage();
-    S.draft = blankDraft();
-    S.local = { ollama_url: null, files: {} };
-    S.flagged.clear();
-    S.server = {};
-    S.saved = null;
-    $("ob-saved").replaceChildren();
-    dlg.close();
-    go("/onboard");
-    announce("Your answers in this browser are cleared.");
-  });
-  dlg.replaceChildren(el("h2", { id: "ob-dlg-h", class: "h2", text: title }), el("p", { class: "body2", text: "Your answers in this browser are cleared." }), el("div", { class: "pdlg__acts" }, cancel, clear));
-  dlg.setAttribute("aria-labelledby", "ob-dlg-h");
-  dlg.showModal();
-  cancel.focus();
-}
-
 document.addEventListener("click", (e) => {
   const t = e.target.closest("a[data-go], [data-act]");
-  if (!t) return;
+  if (!t || e.defaultPrevented) return;
   if (t.tagName === "A" && t.dataset.go !== undefined) {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
     e.preventDefault();
-    go(t.getAttribute("href"));
+    const href = t.getAttribute("href");
+    if (document.body.dataset.view === "page" && !S.edit) saveAndGo(href);
+    else go(href);
     return;
   }
   const act = t.dataset.act;
-  if (act === "clear") confirmClear("Clear your answers?");
-  else if (act === "startover") confirmClear("Start over?");
-  else if (act === "skip") {
+  if (act === "skip") {
     V().schedule = { skipped: true, summary: null };
     S.local.files = {};
+    keepLocal();
     S.flagged.delete("schedule");
     S.leaveAnyway = null;
     changed();
-    saver.flush();
-    go("/onboard/feeds");
+    saveAndGo("/onboard/feeds");
   } else if (TEMPLATES[act]) download(...TEMPLATES[act]);
 });
 
 window.addEventListener("popstate", () => render());
-window.addEventListener("pagehide", () => saver.flush());
+window.addEventListener("pagehide", saveOnLeave);
 
 async function boot() {
   inlineSprite();
-  const saved = loadDraft();
-  if (saved) S.draft = { v: 2, seen: saved.seen, at: saved.at || null, values: { ...emptyValues(), ...saved.values } };
   S.local = loadLocal();
   await loadContext();
   await render();

@@ -3,7 +3,7 @@
 // (who, where, what it means here) and one link to the full Details section. The card follows the
 // map. Every string is code-written from the snapshot and goes in through el() (textContent).
 
-import { el, icon, fl, hhmmz, ms } from "./util.js";
+import { el, icon, fl, hhmmz, ms, airline } from "./util.js";
 import { actionWords } from "./derive.js";
 
 const CODE_WORD = { RED: "Red", ORANGE: "Orange", YELLOW: "Yellow", GREEN: "Green", UNKNOWN: "Not given" };
@@ -26,7 +26,7 @@ export function planeCard(p, adv, closed = new Set()) {
   const decided = adv && adv.decided_at ? ` ${hhmmz(ms(adv.decided_at))}` : "";
   return card({
     title: p.proxy_flight || p.callsign || p.hex,
-    sub: p.proxy_flight ? [p.callsign, p.type_icao].filter(Boolean).join(" · ") : "Not an RFA flight",
+    sub: p.proxy_flight ? [p.callsign, p.type_icao].filter(Boolean).join(" · ") : airline().fictional ? "Not an RFA flight" : `Other aircraft (not ${airline().code})`,
     lines: [
       { text: [p.alt_baro_ft != null ? fl(p.alt_baro_ft) : null, p.gs_kt != null ? `${Math.round(p.gs_kt)} kt` : null].filter(Boolean).join(" · ") || "Level not reported" },
       p.origin_icao && p.dest_icao ? { text: `${p.origin_icao} → ${p.dest_icao}${p.route_source === "PLAN" ? ` · ${p.flight_plan || "airline"} flight plan` : ""}` } : null,
@@ -48,7 +48,7 @@ export function volcanoCard(p, band, n) {
     sub: `Alert colour: ${CODE_WORD[p.color_code] || "Not given"}`,
     lines: [
       band ? { text: band.base > 0 ? `Ash ${fl(band.base)}–${fl(band.top)} in the official reports` : `Ash up to ${fl(band.top)} in the official reports` } : { text: "No official ash area now" },
-      p.active ? { text: n ? `${n} RFA ${n === 1 ? "flight" : "flights"} in or heading in` : "No RFA flight in or heading in", tone: n ? "caution" : null } : null,
+      p.active ? { text: n ? `${n} ${airline().code} ${n === 1 ? "flight" : "flights"} in or heading in` : `No ${airline().code} flight in or heading in`, tone: n ? "caution" : null } : null,
     ],
     action: p.active ? { text: "This ash area ›", act: "details-open", sec: "area" } : null,
   });

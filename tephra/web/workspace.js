@@ -1,12 +1,13 @@
-// The airline's side after onboarding (SPEC-v2 §7): sign in at /signin (and /signin/recover), then
-// the private workspace at /workspace and /workspace/<section>: Overview, Your answers, Data feeds,
-// Assistant and Setup kit. Signed out, a workspace address goes to sign in with ?next= kept (only
-// workspace and edit paths are followed). Sections move with the history API. Every string goes
-// in through el() (textContent).
+// The airline's side (SPEC-v2 §7): sign in at /signin (and /signin/recover), then the private
+// workspace at /workspace and /workspace/<section>: Overview, Your answers, Data feeds, Assistant
+// and Setup kit. An airline still onboarding (a draft) has the Overview alone, which sends it back
+// to its pages; the rest, the setup kit with it, comes once it submits. Signed out, a workspace
+// address goes to sign in with ?next= kept (only workspace and edit paths are followed). Sections
+// move with the history API. Every string goes in through el() (textContent).
 
 import { $, el, icon, inlineSprite } from "./wall/util.js";
 import { applyFeatureNav, has, setFeatures } from "./wall/features.js";
-import { initAccountNav } from "./account-nav.js";
+import { initAccountNav, showAccountWho } from "./account-nav.js";
 import { safeNext } from "./onboard/pages.js";
 import { clearOnboardStorage } from "./onboard/draft.js";
 import { reviewList } from "./onboard/review.js";
@@ -26,6 +27,7 @@ const SECTIONS = [
   ["kit", "Setup kit", "i-file"],
 ];
 const PILL = {
+  draft: ["badge--draft", "i-pencil"],
   pending: ["badge--caution", "i-clock"],
   verified: ["badge--ok", "i-check"],
   declined: ["badge--serious", "st-serious"],
@@ -107,8 +109,12 @@ function openDelete() {
 
 // --- the workspace frame ----------------------------------------------------------------------------
 
+// A draft's name and ICAO are as typed on page 1 until it submits; none typed, "Your airline".
+const identity = (view) => (view.answers ? view.answers.airline : { name: view.draft?.values?.airline?.name?.trim() || "Your airline", icao: view.draft?.values?.airline?.icao?.trim().toUpperCase() || "" });
+
 function header(view) {
-  const a = view.answers.airline;
+  const a = identity(view);
+  showAccountWho(a.name === "Your airline" ? { icao: a.icao } : a);
   const [cls, shape] = PILL[view.status] || PILL.pending;
   const reason = view.status === "declined" ? view.steps.find((s) => s.kind === "declined")?.reason : null;
   return el("header", { class: "ws__head" },
@@ -120,8 +126,9 @@ function header(view) {
 }
 
 function sectionNav(section, view) {
+  const shown = view.status === "draft" ? SECTIONS.slice(0, 1) : SECTIONS;
   return el("nav", { class: "ws__nav", "aria-label": "Workspace" },
-    ...SECTIONS.map(([key, label, ic]) => el("a", { href: `/workspace${key ? `/${key}` : ""}`, "aria-current": key === section ? "page" : null, dataset: { go: "" } }, icon(ic), el("span", { text: label }))),
+    ...shown.map(([key, label, ic]) => el("a", { href: `/workspace${key ? `/${key}` : ""}`, "aria-current": key === section ? "page" : null, dataset: { go: "" } }, icon(ic), el("span", { text: label }))),
     el("hr"),
     el("p", { class: "ws__who", text: `Signed in as ${view.email}` }));
 }
@@ -165,8 +172,13 @@ async function workspace(section) {
   }
   S.view = me.data;
   const view = S.view;
+  if (view.status === "draft" && section) {
+    history.replaceState(null, "", "/workspace");
+    await workspace("");
+    return;
+  }
   const label = SECTIONS.find(([k]) => k === section)[1];
-  document.title = `${section ? `${label} · ` : ""}Workspace · ${view.answers.airline.icao} · TEPHRA`;
+  document.title = `${section ? `${label} · ` : ""}Workspace · ${[identity(view).icao, "TEPHRA"].filter(Boolean).join(" · ")}`;
   const content = el("div", { class: "ws__main" }, header(view));
   $("main").replaceChildren(el("div", { class: "ws" }, sectionNav(section, view), content));
   if (section === "") renderOverview(content, view);

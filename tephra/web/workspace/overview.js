@@ -1,9 +1,10 @@
-// The workspace overview (/workspace): verification first (what the status pill means, once),
-// then the setup kit, the answers, the data feeds, the assistant and the people, and the one
-// "Not built yet" note. Every value goes in through el().
+// The workspace overview (/workspace): an airline still onboarding sees where it left off and goes
+// back to its pages; once submitted, verification first (what the status pill means, once), then
+// the setup kit, the answers, the data feeds, the assistant and the people. Both end with the one
+// "Not built yet" line. Every value goes in through el().
 
 import { el, icon } from "../wall/util.js";
-import { ANSWER_PAGES, PROVIDER_WORDS, checkPage, fromAnswers, pageOf } from "../onboard/pages.js";
+import { ANSWER_PAGES, NOT_BUILT, PROVIDER_WORDS, checkPage, emptyValues, firstUnfinished, fromAnswers, pageOf } from "../onboard/pages.js";
 import { kitCard } from "./kit.js";
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -52,7 +53,26 @@ function completeness(answers) {
   return { done: 9 - open.length, first: open[0] ? `${pageOf(open[0].key).name}: ${open[0].problems[0].message}` : null };
 }
 
+const notBuilt = () => el("div", { class: "note note--notbuilt", role: "note" }, icon("i-info"),
+  el("p", {}, el("b", { text: "Not built yet. " }), NOT_BUILT));
+
+// A draft: the page to go back to, counted as onboarding counts it (Review is page 9).
+function continueCard(view) {
+  const key = firstUnfinished({ ...view.draft, values: { ...emptyValues(), ...(view.draft?.values || {}) } });
+  const page = pageOf(key);
+  return el("section", { class: "card pending pending--draft", "aria-labelledby": "vf-h" },
+    icon("i-pencil"),
+    el("div", {},
+      el("h2", { id: "vf-h", text: `Continue onboarding · step ${page.n} of 9` }),
+      el("p", { text: "Your answers are saved to your account. Submit them on Review: a TEPHRA dispatcher then verifies your airline, and your setup kit is ready here." }),
+      el("a", { class: "btn btn--primary pending__go", href: `/onboard/${key}` }, el("span", { text: `Continue: ${page.name}` }), icon("i-arrow-right"))));
+}
+
 export function renderOverview(main, view) {
+  if (view.status === "draft") {
+    main.append(continueCard(view), notBuilt());
+    return;
+  }
   const a = view.answers;
   const c = completeness(a);
   const meter = el("div", { class: "meter" }, el("span", { class: "meter__bar", "aria-hidden": "true" }, ...Array.from({ length: 9 }, (_, i) => el("i", { class: i < c.done ? "on" : null }))), el("span", { text: `${c.done} of 9 pages` }));
@@ -79,6 +99,5 @@ export function renderOverview(main, view) {
         el("div", { class: "wcard__foot" }, el("a", { class: "btn btn--secondary btn--sm", href: "/workspace/assistant", dataset: { go: "" }, text: "Change" }))),
       card("ov-people", "i-dispatcher", "People",
         el("p", { text: `${approvers} ${approvers === 1 ? "dispatcher" : "dispatchers"} will approve advisories in your TEPHRA. Their names never go to a model.` }))),
-    el("div", { class: "note note--notbuilt", role: "note" }, icon("i-info"),
-      el("p", {}, el("b", { text: "Not built yet. " }), "Running your live operation on this shared TEPHRA is not built. Pushes from your account, and advisories under your airline's name, never appear here.")));
+    notBuilt());
 }

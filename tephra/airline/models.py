@@ -8,13 +8,21 @@ Validator messages never repeat the input (the app's 422 body copies them as wri
 
 import re
 import unicodedata
-from typing import Any, Final, Literal, Self
+from typing import Annotated, Any, Final, Literal, Self
 
-from pydantic import ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from tephra.models import PushProblem, TephraModel, UtcDatetime
 
 __all__ = [
+    "DESK_STATUSES",
     "EMAIL",
     "ONBOARD_FORMAT",
     "STATUS_LABEL",
@@ -37,7 +45,10 @@ __all__ = [
     "DeclineAirline",
     "DeleteAccount",
     "DeleteAirline",
+    "DeskStatus",
     "Dispatcher",
+    "DraftUpdate",
+    "DraftValues",
     "DryRunRecord",
     "DryRunResult",
     "DryRunSection",
@@ -48,6 +59,7 @@ __all__ = [
     "HistoryEntry",
     "Network",
     "NetworkAirport",
+    "OnboardDraft",
     "People",
     "PolicyChange",
     "Recover",
@@ -55,6 +67,7 @@ __all__ = [
     "ScheduleSummary",
     "SignIn",
     "StatusStep",
+    "Submit",
     "VerifyAirline",
 ]
 
@@ -67,8 +80,15 @@ _AI_STUDIO_MODEL = re.compile(r"^(gemini|gemma)-[a-z0-9.-]{1,60}$")
 _OLLAMA_TAG = re.compile(r"^[a-z0-9._-]{1,60}:[a-z0-9._-]{1,40}$")
 _BIDI_CONTROLS: Final = frozenset("‪‫‬‭‮⁦⁧⁨⁩")
 
-AirlineStatus = Literal["pending", "verified", "declined"]
+AirlineStatus = Literal["draft", "pending", "verified", "declined"]
+DeskStatus = Literal["pending", "verified", "declined"]
+"""What the Desk sees: a draft is the airline's own until it submits."""
+DESK_STATUSES: Final[tuple[DeskStatus, ...]] = ("pending", "verified", "declined")
+PageKey = Literal[
+    "airline", "policy", "fleet", "network", "schedule", "feeds", "people", "assistant", "review"
+]
 STATUS_LABEL: Final[dict[str, str]] = {
+    "draft": "Not submitted",
     "pending": "Pending verification",
     "verified": "Verified",
     "declined": "Declined",
@@ -150,6 +170,16 @@ class AirlineIdentity(_Form):
     @classmethod
     def _tidy_email(cls, value: object) -> object:
         return value.strip().lower() if isinstance(value, str) else value
+
+    @field_validator("name")
+    @classmethod
+    def _no_variable(cls, value: str) -> str:
+        """The setup kit writes the name into airline.env, whose loader (python-dotenv) expands
+        ``${VAR}`` in any quoting: a name holding one would print another setting, such as
+        the session secret, in every advisory header."""
+        if "${" in value:
+            raise ValueError("must not contain ${")
+        return value
 
 
 class PolicyChange(_Form):
@@ -361,9 +391,154 @@ class AirlineAnswers(_Form):
         return self
 
 
+# --- the draft: the pages as typed, before the airline submits -------------------------------
+
+
+def _clean_text(value: object) -> object:
+    """A draft keeps what was typed, each control character as a space (the page refuses one
+    as typed, and submit refuses it, so a save never fails over it). Numbers typed into a text box
+    arrive as numbers from a file reader and are kept as text."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float):
+        value = str(value)
+    if isinstance(value, str):
+        return "".join(" " if _has_control(ch) else ch for ch in value)
+    return value
+
+
+_Text = Annotated[str, BeforeValidator(_clean_text), Field(max_length=320)] | None
+_Code = Annotated[str, BeforeValidator(_clean_text), Field(max_length=16)]
+
+
+class _DraftPart(TephraModel):
+    """Every key the onboarding pages write, nothing else, each value bounded; nothing is
+    required (a page not reached yet is empty)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class DraftAirline(_DraftPart):
+    name: _Text = None
+    icao: _Text = None
+    iata: _Text = None
+    callsign_prefix: _Text = None
+    callsign_touched: bool = False
+    state_of_operator: _Text = None
+    aoc_number: _Text = None
+    main_base: _Text = None
+    ops_email: _Text = None
+    contact_name: _Text = None
+
+
+class DraftChange(_DraftPart):
+    value: _Text = None
+    reason: _Text = None
+    base: float | None = None
+    unit: _Text = None
+
+
+class DraftPolicy(_DraftPart):
+    preset: Literal["A"] = "A"
+    changes: dict[Annotated[str, Field(max_length=60)], DraftChange] = Field(
+        default_factory=dict, max_length=64
+    )
+    risk_owner: _Text = None
+    sra_ref: _Text = None
+
+
+class DraftAircraft(_DraftPart):
+    registration: _Text = None
+    type_icao: _Text = None
+    seats: _Text = None
+    home_base: _Text = None
+    hex: _Text = None
+
+
+class DraftFleet(_DraftPart):
+    aircraft: list[DraftAircraft] = Field(default_factory=list, max_length=1000)
+    extra_prefixes: list[_Code] = Field(default_factory=list, max_length=8)
+
+
+class DraftNetwork(_DraftPart):
+    airports: list[_Code] = Field(default_factory=list, max_length=200)
+    alternates: dict[_Code, list[_Code]] = Field(default_factory=dict, max_length=201)
+
+    @field_validator("alternates", mode="after")
+    @classmethod
+    def _few_alternates(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        if any(len(codes) > 8 for codes in value.values()):
+            raise ValueError("at most 8 alternates an airport")
+        return value
+
+
+class DraftSummary(_DraftPart):
+    flights: int = Field(default=0, ge=0, le=20_000)
+    tails: int = Field(default=0, ge=0, le=5_000)
+    crews: int = Field(default=0, ge=0, le=5_000)
+    crew_bases: list[_Code] = Field(default_factory=list, max_length=50)
+
+
+class DraftSchedule(_DraftPart):
+    skipped: bool = False
+    summary: DraftSummary | None = None
+
+
+class DraftFeeds(_DraftPart):
+    positions: bool = False
+    flight_plans: bool = False
+    pilot_reports: bool = False
+    source_system: _Text = None
+
+
+class DraftDispatcher(_DraftPart):
+    name: _Text = None
+    role: Literal["approves", "views"] | None = None
+
+
+class DraftPeople(_DraftPart):
+    dispatchers: list[DraftDispatcher] = Field(default_factory=list, max_length=60)
+
+
+class DraftAssistant(_DraftPart):
+    provider: AssistantProvider | None = None
+    model: _Text = None
+    model_lite: _Text = None
+
+
+class DraftValues(_DraftPart):
+    """The onboarding pages' values as typed (``onboard/pages.js`` ``emptyValues``), checked
+    for shape and size only: the rules are checked on each page and again on submit."""
+
+    airline: DraftAirline = Field(default_factory=DraftAirline)
+    policy: DraftPolicy = Field(default_factory=DraftPolicy)
+    fleet: DraftFleet = Field(default_factory=DraftFleet)
+    network: DraftNetwork = Field(default_factory=DraftNetwork)
+    schedule: DraftSchedule = Field(default_factory=DraftSchedule)
+    feeds: DraftFeeds = Field(default_factory=DraftFeeds)
+    people: DraftPeople = Field(default_factory=DraftPeople)
+    assistant: DraftAssistant = Field(default_factory=DraftAssistant)
+
+
+class OnboardDraft(_DraftPart):
+    """Where the airline is in onboarding: the page it is on, the pages it has opened and the
+    values. Private to the account, like the answers."""
+
+    at: PageKey | None = None
+    seen: list[PageKey] = Field(default_factory=list, max_length=9)
+    values: DraftValues = Field(default_factory=DraftValues)
+
+    @field_validator("seen", mode="after")
+    @classmethod
+    def _each_page_once(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(value))
+
+
 # --- stored documents -------------------------------------------------------------------
 
-HistoryAction = Literal["created", "answers_changed", "assistant_changed", "verified", "declined"]
+HistoryAction = Literal[
+    "created", "answers_changed", "assistant_changed", "submitted", "verified", "declined"
+]
 
 
 class HistoryEntry(TephraModel):
@@ -380,16 +555,35 @@ class HistoryEntry(TephraModel):
 
 
 class AirlineRecord(TephraModel):
-    """Collection ``airlines``, id = ``id``. Compare-and-set on ``version``."""
+    """Collection ``airlines``, id = ``id``. Compare-and-set on ``version``. A ``draft`` has
+    its pages as typed and no answers; submitting checks them into ``answers`` and the draft
+    goes. A record stored before drafts existed has answers, a status and no draft."""
 
     id: str = Field(pattern=r"^AL-[0-9a-f]{12}$")
     version: int = Field(ge=1)
     status: AirlineStatus
     login_key: str = Field(pattern=r"^[0-9a-f]{64}$")
     email: str
-    answers: AirlineAnswers
-    submitted_at: UtcDatetime
+    answers: AirlineAnswers | None = None
+    draft: OnboardDraft | None = None
+    created_at: UtcDatetime | None = Field(default=None, description="None before drafts")
+    submitted_at: UtcDatetime | None = None
     updated_at: UtcDatetime
+
+    @model_validator(mode="after")
+    def _answers_once_submitted(self) -> Self:
+        if self.status != "draft" and self.answers is None:
+            raise ValueError("a submitted airline has its answers")
+        if self.status != "draft" and self.submitted_at is None:
+            raise ValueError("a submitted airline has its submitted_at")
+        return self
+
+    def submitted(self) -> AirlineAnswers:
+        """The answers of a submitted airline (never a draft's)."""
+        if self.answers is None:
+            raise ValueError(f"airline {self.id} has not submitted")
+        return self.answers
+
     decided_at: UtcDatetime | None = None
     decline_reason: str | None = Field(default=None, max_length=500)
     flags: list[str] = Field(default_factory=list, description="Reviewer hints, Desk only")
@@ -419,23 +613,27 @@ class StatusStep(TephraModel):
 
 
 class AirlineView(TephraModel):
-    """``GET /api/airline/me``: never the login key, the reviewer flags or the history."""
+    """``GET /api/airline/me``: never the login key, the reviewer flags or the history. A
+    draft has ``draft`` and no answers; a submitted airline has answers and no draft."""
 
     id: str
     version: int
     status: AirlineStatus
     status_label: str
     email: str
-    answers: AirlineAnswers
-    submitted_at: UtcDatetime
+    answers: AirlineAnswers | None
+    draft: OnboardDraft | None
+    submitted_at: UtcDatetime | None
     updated_at: UtcDatetime
     steps: list[StatusStep]
-    editable: bool
+    editable: bool = Field(description="The answers can be changed (pending only)")
 
     @classmethod
     def of(cls, record: AirlineRecord) -> Self:
-        steps = [StatusStep(kind="submitted", at=record.submitted_at)]
-        if record.status != "pending" and record.decided_at is not None:
+        steps: list[StatusStep] = []
+        if record.submitted_at is not None and record.status != "draft":
+            steps.append(StatusStep(kind="submitted", at=record.submitted_at))
+        if record.status in ("verified", "declined") and record.decided_at is not None:
             steps.append(
                 StatusStep(kind=record.status, at=record.decided_at, reason=record.decline_reason)
             )
@@ -446,6 +644,7 @@ class AirlineView(TephraModel):
             status_label=STATUS_LABEL[record.status],
             email=record.email,
             answers=record.answers,
+            draft=record.draft if record.status == "draft" else None,
             submitted_at=record.submitted_at,
             updated_at=record.updated_at,
             steps=steps,
@@ -463,18 +662,22 @@ class RecoveryCode(TephraModel):
 
 
 class AirlineSessionView(TephraModel):
-    """``GET /api/airline/session``: from the cookie alone, no store read."""
+    """``GET /api/airline/session``: from the cookie alone, no store read (a draft's ICAO and
+    name are None). Sign-in answers with the same shape and the record's ``status``."""
 
     accounts: bool = Field(description="onboard is on and the session secret is set")
     signed_in: bool
     icao: str | None = None
     name: str | None = None
+    status: AirlineStatus | None = Field(default=None, description="Sign-in's answer only")
 
 
 class AirlineDeskRow(TephraModel):
+    """A submitted airline: the Desk never reads a draft."""
+
     id: str
     version: int
-    status: AirlineStatus
+    status: DeskStatus
     status_label: str
     name: str
     icao: str
@@ -482,14 +685,15 @@ class AirlineDeskRow(TephraModel):
     aoc_number: str | None
     ops_email: str
     email: str
-    submitted_at: UtcDatetime
+    submitted_at: UtcDatetime | None
     aircraft: int
     airports: int
     flags: list[str]
 
     @classmethod
     def of(cls, record: AirlineRecord) -> Self:
-        airline = record.answers.airline
+        answers = record.submitted()
+        airline = answers.airline
         return cls(
             id=record.id,
             version=record.version,
@@ -502,8 +706,8 @@ class AirlineDeskRow(TephraModel):
             ops_email=airline.ops_email,
             email=record.email,
             submitted_at=record.submitted_at,
-            aircraft=len(record.answers.fleet.aircraft),
-            airports=len(record.answers.network.airports),
+            aircraft=len(answers.fleet.aircraft),
+            airports=len(answers.network.airports),
             flags=record.flags,
         )
 
@@ -565,7 +769,8 @@ class _Credentials(TephraModel):
 
 
 class AccountCreate(_Credentials):
-    answers: AirlineAnswers
+    """The account comes first: its onboarding pages are a draft until the airline submits."""
+
     email: str = Field(max_length=254, pattern=EMAIL)
     password: str = Field(min_length=12, max_length=128)
     acknowledge: Literal[True] = Field(description="Decision support only; a person decides")
@@ -594,6 +799,20 @@ class DeleteAccount(_Credentials):
 
 
 class AnswersUpdate(_Form):
+    version: int = Field(ge=1)
+    answers: AirlineAnswers
+
+
+class DraftUpdate(TephraModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1)
+    draft: OnboardDraft
+
+
+class Submit(_Form):
+    """Review's Submit for verification: the pages' answers, checked as a whole."""
+
     version: int = Field(ge=1)
     answers: AirlineAnswers
 

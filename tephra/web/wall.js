@@ -5,7 +5,7 @@
 // at 900 px and below. The welcome dialog (wall/welcome.js) opens over it on the first load.
 // Feed and model text only ever reaches the page through textContent.
 
-import { $, el, ms, prefs, reducedMotion, inlineSprite, icon } from "./wall/util.js";
+import { $, el, ms, prefs, reducedMotion, inlineSprite, icon, setAirline } from "./wall/util.js";
 import { derive, actionWords, deciderName, LEVEL_MAX, levelFromFrac, regionOfVent, sortSituations } from "./wall/derive.js";
 import { WallMap, readTokens, SAT } from "./wall/map.js";
 import {
@@ -145,6 +145,15 @@ function reloadExtSoon() {
   extTimer = setTimeout(() => loadExt(scheduleRender), 2000);
 }
 
+// An airline's own TEPHRA names its own airline; the demo's static words say Ring of Fire Air is
+// fictional (index.html).
+function airlineWords(a) {
+  setAirline(a);
+  if (!a || a.fictional !== false) return;
+  const line = document.querySelector(".honesty__airline");
+  if (line) line.title = `TEPHRA checks only ${a.name}'s own flights (${a.code}). Decision support only.`;
+}
+
 async function load() {
   try {
     const res = await fetch("/api/wall", { headers: { Accept: "application/json" }, cache: "no-store" });
@@ -153,6 +162,7 @@ async function load() {
     store.state = data.state;
     setFeatures(data.state.features);
     setModelBackend(data.state.llm?.backend);
+    airlineWords(data.state.airline);
     applyFeatureNav();
     store.snapshot = data.snapshot;
     store.advisories = data.advisories || [];
@@ -236,6 +246,7 @@ function openStream() {
     store.state = s;
     setFeatures(s.features);
     setModelBackend(s.llm?.backend);
+    airlineWords(s.airline);
     applyFeatureNav();
     if (s.feeds) { noteReads(s.feeds); store.feeds = s.feeds; }
     setClock(s.now);
@@ -726,6 +737,9 @@ function renderSide() {
   }
   $("assist").hidden = det;
   const side = $("side");
+  // under the Assistant tab the diagram's You decide says the foot's words (its rule line included):
+  // the foot keeps its button
+  side.classList.toggle("is-assist", !det);
   const sheet = sheetMode() ? ui.sheet : "";
   if (side.dataset.sheet !== sheet) side.dataset.sheet = sheet;
   const handle = $("side-handle");
@@ -733,9 +747,12 @@ function renderSide() {
   handle.setAttribute("aria-label", `Side panel: ${SHEET_WORDS[ui.sheet]}`);
 }
 
+// The sheet's height changed: the Assistant tab's catch-up waits while the sheet only peeks, and
+// starts (or goes on) once it opens.
 function setSheet(state) {
   ui.sheet = state;
   renderSide();
+  requestAnimationFrame(() => assist?.poke());
 }
 
 // A tab chosen while the sheet only peeks opens it half way, so the tab's content shows.
@@ -749,6 +766,7 @@ function showAssist({ focus = false } = {}) {
   if (ui.details.open) closeDetails(false);
   openSheet();
   if (focus) $("assist-tab").focus({ preventScroll: true });
+  requestAnimationFrame(() => assist?.poke());
 }
 
 // `focus`: the section's heading takes focus (a row, a key, a map click); a tab keeps it (ARIA tabs).
@@ -890,11 +908,23 @@ function flowInput() {
   };
 }
 
-// The side panel's Assistant tab: the board's model, kept current whether or not it is shown.
+// The side panel's Assistant tab: the board's model, kept current whether or not it is shown. Its
+// catch-up's pulses start on the Wall's map (mapView) and wait for the welcome dialog; automated
+// screenshots (?shots=1) skip the catch-up and show the steps at the replay clock.
 let assist = null;
 function updateAssist() {
   if (ASSISTANT_PAGE || !store.state) return;
-  assist = assist || mountAssist($("assist"));
+  assist = assist || mountAssist($("assist"), {
+    has,
+    mapView: () => {
+      const m = map?.map;
+      if (!m || !m.getCanvas().width) return null;
+      return { rect: $("map").getBoundingClientRect(), project: (ll) => { const p = m.project(ll); return [p.x, p.y]; } };
+    },
+    sheet: () => (sheetMode() ? ui.sheet : ""),
+    blocked: () => welcome().open || $("dlg").open,
+    noCatchup: SHOTS,
+  });
   assist.update(flowModel(flowInput()), { conn });
 }
 
@@ -964,6 +994,8 @@ $("dlg").addEventListener("close", () => {
   dialogOpener = null;
   if (back && document.contains(back)) back.focus();
 });
+// the Assistant tab's catch-up waits for the welcome dialog to close
+welcome().addEventListener("close", () => requestAnimationFrame(() => assist?.poke()));
 
 // ------------------------------------------------------------------ map wiring
 
@@ -1399,9 +1431,8 @@ else if (hashSec && !ASSISTANT_PAGE) {
   openDetails(hashSec === "index" ? null : hashSec, { opener: $("details-btn") });
 }
 if (ASSISTANT_PAGE) {
-  // the nav says which page this is (page-mode.js has already set the look)
+  // the nav names no page here: /assistant is reached from the side panel's icon and the Guide
   document.querySelector('.topnav a[href="/demo"]')?.removeAttribute("aria-current");
-  document.querySelector('.topnav a[href="/assistant"]')?.setAttribute("aria-current", "page");
   openBoard();
 }
 // signed in as an airline, the nav's Onboard link reads Workspace (account-nav.js)

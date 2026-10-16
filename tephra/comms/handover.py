@@ -47,6 +47,7 @@ from tephra.comms.models import (
     TrafficRow,
     WeatherAsh,
 )
+from tephra.config import Airline
 from tephra.desk import audit
 from tephra.desk.approvals import SYSTEM_ACTOR, list_advisories
 from tephra.desk.failures import list_failures
@@ -404,9 +405,10 @@ def _facts_json(
     now: datetime,
     since: datetime,
     decisions: Sequence[DecisionMade],
+    airline: Airline,
 ) -> str:
     facts = {
-        "airline": "Ring of Fire Air (fictional)",
+        "airline": airline.label,
         "as_of": timeutil.ddhhmmz(now),
         "shift_from": timeutil.ddhhmmz(since),
         "evidence": [{"id": item.id, "text": item.text} for item in evidence],
@@ -565,7 +567,9 @@ async def draft_handover(
     feeds_stale = _stale_feeds(gathered.feeds)
     decisions = _decisions(gathered)
     evidence = _evidence(gathered, {"feeds_stale": feeds_stale})
-    facts_text = _facts_json(evidence, now=now, since=since, decisions=decisions)
+    facts_text = _facts_json(
+        evidence, now=now, since=since, decisions=decisions, airline=runtime.airline
+    )
     try:
         narrative, call, written_at = await _narrate(runtime, evidence, facts_text)
     except AiUnavailable as exc:
@@ -581,6 +585,7 @@ async def draft_handover(
         id="ho_" + uuid4().hex[:12],
         created_at=now,
         replay=runtime.mode is RunMode.REPLAY,
+        fictional_airline=runtime.airline.fictional,
         shift_from=since,
         shift_to=now,
         outgoing=outgoing,

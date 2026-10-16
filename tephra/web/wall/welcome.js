@@ -1,7 +1,9 @@
-// The demo's welcome dialog (DESIGN 5.2, SPEC-v2 5.2.1): how TEPHRA works in five steps, then the
-// honesty lines (what is playing, the fictional airline, decision support only), then Start. It
+// The demo's welcome dialog (DESIGN 5.2, SPEC-v2 5.2.1), a card read at a glance: what plays, one
+// title, the five steps by name, one quiet line of honesty facts (where the feeds come from, the
+// fictional airline, a person approves) and Start. The full sentences are its screen-reader
+// description; the status line and About say them on the page. It
 // opens on a fresh visit unless the link skips it (?intro=0, a screenshot or recording run, or a
-// deep link into Details) or the reader ticked "Don't show this again". wall.js opens it, and
+// deep link into Details) or the reader ticked "Don't show again". wall.js opens it, and
 // reopens it from How it works and the W key. Words come from the state, through textContent.
 
 import { el, icon } from "./util.js";
@@ -25,11 +27,12 @@ export function shouldOpenWelcome(params, hash = "") {
 }
 
 const SUPPORT = { lead: "Decision support only.", text: "A person approves every advisory, and nothing is sent to an aircraft." };
-const LEDE = {
-  recorded: "You will watch these five steps run on a real eruption, step by step,",
-  reconstructed: "You will watch these five steps run on a real eruption, step by step,",
-  synthetic: "You will watch these five steps run on invented demo data, step by step,",
-  live: "You will watch these five steps run on today's public feeds,",
+// the short words on the card's one honesty line, by what plays
+const SOURCE = {
+  recorded: "Recorded feeds",
+  reconstructed: "Rebuilt from archives",
+  synthetic: "Invented demo data",
+  live: "Feeds as they arrive",
 };
 const KEEP_CLOCK = "The replay clock shows that day's time, not now.";
 
@@ -43,32 +46,45 @@ function replayLine(kind, v, day) {
 
 function eyebrowOf(kind, state, v, day) {
   if (kind === "live") return state.region?.name || null;
-  if (kind === "synthetic") return ["Invented demo data", day].filter(Boolean).join(" · ");
   return [v, day].filter(Boolean).join(" · ") || null;
+}
+
+function titleOf(kind, v) {
+  if (kind === "live") return "Watch TEPHRA work today's feeds";
+  if (kind === "synthetic") return "Watch TEPHRA work a demo eruption";
+  if (kind) return v ? "Watch TEPHRA work a real eruption" : "Watch TEPHRA work a recorded day";
+  return "Watch TEPHRA work";
 }
 
 // Pure: every word the dialog shows for a state. `replay` is null without a state (nothing is said
 // about what plays until the server has answered).
 export function welcomeWords(state) {
   const kind = replayKind(state);
+  // an airline's own TEPHRA (state.airline.fictional false) names its own airline
+  const own = state?.airline?.fictional === false ? state.airline : null;
   const v = kind === "recorded" || kind === "reconstructed" ? volcanoOf(state.replay) : null;
   const day = kind && kind !== "live" ? replayDay(state.replay) : null;
-  const lede = LEDE[kind] || "You will watch these five steps run, step by step,";
   return {
     pill: kind === "live" ? "Live" : kind ? "Replay" : null,
     eyebrow: kind ? eyebrowOf(kind, state, v, day) : null,
-    lede: `${lede} in the panel on the right.`,
-    lede_phone: `${lede} in the panel below.`,
+    title: titleOf(kind, v),
+    // the card's one honesty line: a few words each, the full sentences below for a screen reader
+    facts: [
+      kind && { icon: kind === "live" ? "i-live" : "i-replay", text: SOURCE[kind], replay: true },
+      own ? { icon: "i-aircraft", text: `Only ${own.code} flights are checked` } : { icon: "i-aircraft", text: "RFA is a fictional airline" },
+      { icon: "i-hand", text: "A person approves every advisory" },
+    ].filter(Boolean),
     replay: kind ? replayLine(kind, v, day) : null,
-    airline: { lead: "Ring of Fire Air (RFA) is a fictional airline.", text: `Its flight numbers stand in for ${aircraftNoun(state)}.` },
+    airline: own
+      ? { lead: `This TEPHRA checks only ${own.name}'s own flights (${own.code}).`, text: "Each is named by its callsign, schedule or registration." }
+      : { lead: "Ring of Fire Air (RFA) is a fictional airline.", text: `Its flight numbers stand in for ${aircraftNoun(state)}.` },
     support: SUPPORT,
   };
 }
 
-const honestItem = (iconId, words, cls = null) =>
-  el("li", { class: cls }, icon(iconId), el("span", {}, el("b", { text: words.lead }), ` ${words.text}`));
+const sentence = (words) => words && `${words.lead} ${words.text}`;
 
-function content(state) {
+export function welcomeContent(state) {
   const w = welcomeWords(state);
   const live = state?.mode === "LIVE";
   const eyebrow = w.pill && el("p", { class: "welcome__eyebrow" },
@@ -77,18 +93,13 @@ function content(state) {
   const body = el("div", { class: "welcome__body" },
     el("div", { class: "welcome__head" },
       eyebrow,
-      el("h2", { id: "welcome-title", text: "How TEPHRA works, in five steps" }),
-      el("p", { id: "welcome-lede" },
-        el("span", { class: "welcome__wide", text: w.lede }),
-        el("span", { class: "welcome__phone", text: w.lede_phone }))),
-    stepsList({ size: "lg" }),
-    el("ul", { id: "welcome-honest", class: "honest-list", "aria-label": "Before you start" },
-      w.replay && honestItem(live ? "i-live" : "i-replay", w.replay, "honest-list__replay"),
-      honestItem("i-aircraft", w.airline),
-      honestItem("i-hand", w.support)));
+      el("h2", { id: "welcome-title", text: w.title })),
+    stepsList({ size: "lg", lines: false }),
+    el("p", { class: "welcome__facts", "aria-hidden": "true" },
+      w.facts.map((f) => el("span", { class: f.replay ? "welcome__fact welcome__fact--replay" : "welcome__fact" }, icon(f.icon, "icon icon--16"), f.text))),
+    el("p", { id: "welcome-more", class: "sr-only", text: [w.replay, w.airline, w.support].map(sentence).filter(Boolean).join(" ") }));
   const foot = el("div", { class: "welcome__foot" },
-    el("label", { class: "check" }, el("input", { type: "checkbox", id: "welcome-skip" }), "Don't show this again"),
-    el("p", { class: "welcome__keys" }, el("kbd", { text: "Enter" }), " or ", el("kbd", { text: "Esc" }), " starts · reopen from How it works"),
+    el("label", { class: "check" }, el("input", { type: "checkbox", id: "welcome-skip" }), "Don't show again"),
     el("button", { type: "button", id: "welcome-start", class: "btn btn--primary", autofocus: true }, "Start the demo", icon("i-arrow-right")));
   return [body, foot];
 }
@@ -117,8 +128,8 @@ function wire(dialog) {
   dialog.dataset.wired = "1";
   dialog.addEventListener("cancel", (e) => { e.preventDefault(); start(dialog); });
   dialog.addEventListener("keydown", (e) => {
-    // Enter starts from anywhere in the dialog, the "Don't show this again" box included (Space
-    // ticks it), as its footer says.
+    // Enter starts from anywhere in the dialog, the "Don't show again" box included (Space ticks
+    // it); Esc starts too (the cancel event). How it works and the W key reopen it.
     if (e.key !== "Enter" || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     e.preventDefault();
     start(dialog);
@@ -129,7 +140,7 @@ function wire(dialog) {
 export function openWelcome(dialog, state, { opener = null, onClose = () => {} } = {}) {
   if (!dialog || dialog.open) return;
   wire(dialog);
-  dialog.replaceChildren(...content(state));
+  dialog.replaceChildren(...welcomeContent(state));
   describeReplay(dialog, state?.mode === "REPLAY" ? replayWords(state.replay).text : "");
   open.set(dialog, { opener, onClose });
   dialog.showModal();

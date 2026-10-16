@@ -19,7 +19,7 @@ or the counting stand-in) are never exported unless ``--allow-stub-export`` (tes
 gcloud context; agents never run it).
 
     TEPHRA_LLM=gemini GEMINI_API_KEY=... uv run python scripts/prewarm_replay.py \\
-        --case anak-krakatau-20260905 --start 2026-09-05T10:30:00Z --minutes 540 --loops 2 \\
+        --case anak-krakatau-20260905 --start 2026-09-05T10:25:00Z --minutes 545 --loops 2 \\
         --quantum-s 60 --store .state/prewarm-anak-krakatau-20260905.sqlite3 \\
         --export data/replay/anak-krakatau-20260905/answers --service-budget-paused
     TEPHRA_STORE=firestore TEPHRA_GCP_PROJECT=... TEPHRA_GCS_BUCKET=... uv run python \\

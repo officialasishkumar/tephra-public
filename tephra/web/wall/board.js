@@ -9,7 +9,7 @@
 // budgets, per-model counts and slot times are said once, at Details › TEPHRA Assistant
 // (docs/UI-AI-QUIET.md 8.6 "Say the cause once").
 
-import { ms } from "./util.js";
+import { ms, FLIGHT_NAME } from "./util.js";
 import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiSymbol, causeShort, reasonClass, WHY, ASSISTANT } from "./x-parts.js";
 import { collapseRuns, plural } from "./dk.js";
 
@@ -23,7 +23,7 @@ export const HELPERS = [
   { id: "duty", role: "lead", name: "Coordinator", does: "Orders the day's assistant work and hands it out", stage: "DUTY", tier: "lite" },
   { id: "plume", role: "team", name: "Plume reader", does: "Proposes TEPHRA's cautious area", stage: "PLUME", tool: "assess_volcanoes", kinds: ["ASSESS"], tier: "main", to: "area", when: "It runs when a volcano's reports change and the call matters" },
   { id: "sat", role: "team", name: "Satellite reader", does: "Reads the satellite picture", stage: "SATELLITE", tool: "assess_volcanoes", kinds: ["ASSESS"], tier: "lite", to: "area", feature: "satellite", when: "It runs inside a plume read, when a new picture has come in" },
-  { id: "planner", role: "team", name: "Flight planner", does: "Chooses an action for each flight", stage: "PLANNER", tool: "plan_flights", kinds: ["PLAN"], tier: "lite", when: "It runs for each RFA flight in or heading into an area" },
+  { id: "planner", role: "team", name: "Flight planner", does: "Chooses an action for each flight", stage: "PLANNER", tool: "plan_flights", kinds: ["PLAN"], tier: "lite", when: "It runs for each of the airline's flights in or heading into an area" },
   { id: "drafter", role: "team", name: "Drafter", does: "Writes each flight's advisory", stage: "DRAFTER", tool: "plan_flights", kinds: ["PLAN"], tier: "lite", to: "desk", when: "It runs after the flight planner, for each flight" },
   { id: "recovery", role: "team", name: "Recovery planner", does: "Re-plans flights around closed airports", stage: "RECOVERY", tool: "run_recovery", kinds: ["RECOVER"], tier: "lite", to: "desk", when: "It runs when the set of airports closed by ash changes" },
   { id: "sra", role: "team", name: "Paperwork drafter", does: "Drafts the safety risk assessment", stage: "DOCS", tool: "draft_sra", kinds: ["SRA"], tier: "lite", to: "desk", when: "It runs when a region newly carries exposed flights" },
@@ -376,8 +376,10 @@ const DUTY_REFUSED = /^Duty Officer AI UNAVAILABLE \((.+)\); (\d+) delegation\(s
 const DUTY_HANDOFF = /^Duty Officer -> (\w+):/;
 const DUTY_BRIEF = /^Duty Officer brief: (\d+) delegation\(s\)/;
 const DUTY_UNDONE = /^Duty Officer left (\d+) mandatory item\(s\) undone: to the Desk$/;
-const EXPOSURE = /^(RFA\d+) \(([^)]*)\) (is inside|enters) the (.+?) cone(?: in (\d+) min)? at (FL\d{3})/;
-const DESK_DRAFT = /^(RFA\d+): DRAFT (\w+(?: LEVEL)?) (?:waiting for|for) a dispatcher$/;
+// A flight's name is the demo's RFA number, or in an airline's own TEPHRA its callsign, flight
+// number or registration (geo/fleet.py flight_name): FLIGHT_NAME matches every one of them.
+const EXPOSURE = new RegExp(`^(${FLIGHT_NAME}) \\(([^)]*)\\) (is inside|enters) the (.+?) cone(?: in (\\d+) min)? at (FL\\d{3})`);
+const DESK_DRAFT = new RegExp(`^(${FLIGHT_NAME}): DRAFT (\\w+(?: LEVEL)?) (?:waiting for|for) a dispatcher$`);
 const PLUME_READ = /^Plume Reader (accepted|repaired): /;
 
 const plural2 = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;

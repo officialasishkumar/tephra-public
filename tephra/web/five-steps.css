@@ -1,6 +1,6 @@
 /* The five steps (five-steps.js): numbered nodes joined by one line that warms into each step's
    tone. Large (welcome dialog, Guide): 56 px rings with a neutral-ink number badge, horizontal
-   from 760 px, stacked below. Small (the demo's side panel): 32 px rings and the short names.
+   from 760 px, stacked below; names only (the welcome dialog) stays one row on a phone. Small (the demo's side panel, Home's narrow-screen strip): 32 px rings and the short names.
    Tones are UI tones (tokens.css --tone-*), never text colours. */
 
 .steps5 { margin: 0; padding: 0; list-style: none; }
@@ -44,6 +44,19 @@
   }
   .steps5--lg b { align-self: end; }
   .steps5__line { align-self: start; }
+}
+
+/* ------------------------------------------- large, names only (welcome) */
+/* One row at every width: below 760 px the 44 px rings stay side by side and the names wrap. */
+@media (max-width: 759px) {
+  .steps5--lg.steps5--names { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; padding-top: 4px; }
+  .steps5--lg.steps5--names .steps5__n { grid-template-columns: none; justify-items: center; align-items: start; gap: 6px; padding: 0 2px; text-align: center; }
+  .steps5--lg.steps5--names .steps5__node { grid-row: auto; }
+  .steps5--lg.steps5--names .steps5__n + .steps5__n::before {
+    top: 21px; left: auto; right: calc(50% + 24px); width: calc(100% - 48px); height: 2px;
+    background: linear-gradient(90deg, var(--c-line-2), var(--tone));
+  }
+  .steps5--lg.steps5--names b { align-self: start; font-size: 13px; }
 }
 
 /* ------------------------------------------------------------------ small */

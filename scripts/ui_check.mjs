@@ -3,7 +3,7 @@
 // Run against a local TEPHRA (stub model) in each mode, for example:
 //   TEPHRA_PORT=8121 TEPHRA_LLM=stub TEPHRA_LOCAL_SCHEDULER=1 TEPHRA_DESK_PIN=1234 \
 //   TEPHRA_MODE=REPLAY TEPHRA_REPLAY_CASE=anak-krakatau-20260905 \
-//   TEPHRA_REPLAY_START=2026-09-05T10:30:00Z TEPHRA_REPLAY_END=2026-09-05T19:30:00Z uv run tephra
+//   TEPHRA_REPLAY_START=2026-09-05T10:25:00Z TEPHRA_REPLAY_END=2026-09-05T19:30:00Z uv run tephra
 //   node scripts/ui_check.mjs --base http://127.0.0.1:8121 --mode REPLAY --case anak-krakatau-20260905 --out /tmp/ui-shots
 //
 // Options: --features hero|all asserts what the server's feature set shows (the Onboard link is

@@ -21,7 +21,7 @@
 <body class="guide">
   <header class="guidebar tn-bar">
     <a class="tn-home" href="/" title="TEPHRA home">TEPHRA</a>
-    <nav class="topnav" aria-label="TEPHRA pages"><a href="/demo" class="topnav__keep">Demo</a><a href="/assistant">Assistant</a><a href="/desk">Desk</a><a href="/onboard" data-feature="onboard" hidden>Onboard</a><a href="/guide">Guide</a></nav>
+    <nav class="topnav" aria-label="TEPHRA pages"><a href="/demo" class="topnav__keep">Demo</a><a href="/desk">Desk</a><a href="/onboard" data-feature="onboard" hidden>Onboard</a><a href="/guide">Guide</a></nav>
   </header>
   <main id="main" class="guide__main">
     <article class="guide__sec guide__prose">
@@ -55,11 +55,11 @@
     <p>The Desk session cookie, <code>tephra_desk</code>, is set when you sign in to the Desk, holds your name and its expiry, is signed by the server and is removed when you sign out. An airline account has its own cookie, described under <a href="#accounts">Airline accounts</a>. There are no analytics or advertising cookies. The Desk also keeps two things in your browser's own storage: whether to keep the screen awake, and, for the open tab only, the incoming dispatcher's name typed on the handover form. They stay in your browser. The name reaches the server only when you create the handover.</p>
 
     <h2 id="accounts">Airline accounts</h2>
-    <p>An airline that onboards creates an account on the last onboarding page. TEPHRA stores the account email; the password as a salted scrypt hash, never the password itself; a hash of the recovery code; and the onboarding answers, including the operations email, the contact name and the dispatchers' names or initials. On the live site they are kept in Google Cloud Firestore, and in a SQLite file when TEPHRA runs on a laptop.</p>
-    <p>The airline reads them when signed in, and this site's signed-in dispatchers read them to verify the airline. They are never public, never written into the audit trail and never sent to Gemini.</p>
-    <p>Your browser keeps the onboarding draft in its own storage until you create the account or choose Clear my answers, and the schedule files you add until you clear them. Signing out clears the answers and the schedule files this browser kept. A Gemini key typed into the setup kit card stays in that tab and goes only into the zip the tab makes.</p>
-    <p>The cookie <code>tephra_airline</code> holds the signed-in airline's id, code and name, a hash of the account email and its expiry. It is HttpOnly and SameSite=Strict, is signed by the server and lasts 12 hours.</p>
-    <p>An account is kept until the airline deletes it from the workspace's account menu, or a dispatcher deletes a declined airline's record. Nothing expires it.</p>
+    <p>An airline that onboards creates its account first, on the onboarding page. TEPHRA stores the account email; the password as a salted scrypt hash, never the password itself; a hash of the recovery code; and, from sign-up on, the onboarding answers with the account, saved each time you go to the next or the previous page, open another step, or leave the page, including the operations email, the contact name and the dispatchers' names or initials. On the live site they are kept in Google Cloud Firestore, and in a SQLite file when TEPHRA runs on a laptop.</p>
+    <p>The airline reads them when signed in. This site's signed-in dispatchers read them to verify the airline once it submits them on the last page; answers not submitted are not shown to them. They are never public, never written into the audit trail and never sent to Gemini.</p>
+    <p>The schedule files you add, and an Ollama address, stay in your browser's own storage for your setup kit and are never sent to the server; signing out clears them. A Gemini key typed into the setup kit card stays in that tab and goes only into the zip the tab makes.</p>
+    <p>The cookie <code>tephra_airline</code> holds the signed-in airline's id, code and name (empty until the answers are submitted), a hash of the account email and its expiry. It is HttpOnly and SameSite=Strict, is signed by the server and lasts 12 hours.</p>
+    <p>An account whose answers were never submitted is deleted, with its answers, once seven days pass without a save (at the next sign-up on this site). A submitted account is kept until the airline deletes it from the workspace's account menu, or a dispatcher deletes a declined airline's record.</p>
 
     <h2>Questions</h2>
     <p>For a question about this notice or about data TEPHRA holds, open an issue in <a href="https://github.com/officialasishkumar/tephra/issues">TEPHRA's GitHub repository</a>.</p>

@@ -140,7 +140,9 @@ DESK_PERMISSIONS_POLICY: Final = "camera=(), microphone=(self), geolocation=()"
 """Only the Desk page may ask for the microphone (push-to-talk in Ask TEPHRA)."""
 VOICE_PATH: Final = "/api/desk/ask/voice"
 NOTICE_PATH: Final = "/api/desk/notices"
-ONBOARD_PATHS: Final = frozenset({"/api/airline/accounts", "/api/airline/answers"})
+ONBOARD_PATHS: Final = frozenset(
+    {"/api/airline/accounts", "/api/airline/answers", "/api/airline/draft", "/api/airline/submit"}
+)
 PUSH_BODY_PATHS: Final = frozenset(
     {"/api/push/positions", "/api/desk/upload", "/api/airline/feeds/dry-run"}
 )
@@ -369,6 +371,9 @@ async def get_state(runtime: RuntimeDep) -> Response:
 
 
 WALL_ADVISORIES: Final = 50
+WALL_TRACE: Final = 200
+"""The trace steps GET /api/wall sends: all the bus keeps per event (EventBus's history) and the
+Wall's own TRACE_KEEP."""
 
 
 async def _wall_advisories(runtime: Runtime) -> list[Advisory]:
@@ -397,9 +402,11 @@ async def get_wall(runtime: RuntimeDep) -> Response:
         runtime.wall_snapshot(),
         _wall_advisories(runtime),
     )
+    # every trace step the bus keeps (one stub run alone writes about 100): the demo's catch-up
+    # plays the newest whole chain of steps, from a feed read to You decide
     trace = [
         TraceEvent.model_validate(event.data)
-        for event in runtime.bus.recent(SseEvent.TRACE, limit=100)
+        for event in runtime.bus.recent(SseEvent.TRACE, limit=WALL_TRACE)
     ]
     return _json(WallResponse(state=state, snapshot=snapshot, advisories=advisories, trace=trace))
 
@@ -1250,7 +1257,8 @@ def create_app(
     app = FastAPI(
         title="TEPHRA",
         version=__version__,
-        description="Volcanic-ash decision desk. Decision support only; the airline is fictional.",
+        description="Volcanic-ash decision desk. Decision support only"
+        + ("; the airline is fictional." if settings.airline.fictional else "."),
         lifespan=_lifespan(settings, runtime_factory or create_runtime),
         docs_url=None,
         redoc_url=None,

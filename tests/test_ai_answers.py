@@ -61,7 +61,7 @@ from tephra.agents.plume_reader import plume_question
 from tephra.agents.quota import QuotaLedger, current_admitted, current_lane
 from tephra.agents.satellite_reader import satellite_question
 from tephra.comms.messages import crew_notice_spec, templates_question
-from tephra.config import PROJECT_ROOT, Settings
+from tephra.config import DEMO_AIRLINE, PROJECT_ROOT, Settings
 from tephra.desk.approvals import list_advisories
 from tephra.models import (
     ActionKind,
@@ -850,8 +850,8 @@ def test_the_coordinator_question_is_the_work_not_the_digest() -> None:
 def test_the_other_skills_ask_by_their_inputs() -> None:
     assert notice_question("ERUPTION AT SEMERU") == notice_question("ERUPTION AT SEMERU")
     assert notice_question("ERUPTION AT SEMERU") != notice_question("ERUPTION AT IBU")
-    assert templates_question(crew_notice_spec(("en",))) != templates_question(
-        crew_notice_spec(("en", "id"))
+    assert templates_question(crew_notice_spec(("en",)), DEMO_AIRLINE) != templates_question(
+        crew_notice_spec(("en", "id")), DEMO_AIRLINE
     )
     volcano = make_situation().volcano
     frame = _frame(AT)

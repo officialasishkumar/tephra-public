@@ -1469,8 +1469,6 @@ html[data-page="assistant"] .board { position: relative; grid-row: 2; inset: aut
 html[data-page="assistant"] .topnav a[href="/demo"]:not([aria-current="page"]) { color: var(--c-text-2); background: transparent; }
 /* the welcome dialog belongs to the demo */
 html[data-page="assistant"] .tn-how { display: none; }
-html[data-page="assistant"] .topnav a[href="/assistant"] { color: var(--c-text-ink); background: var(--c-text-1); }
-html[data-page="assistant"] .topnav a[href="/assistant"] { display: inline-flex; }
 .board__body { position: absolute; inset: 0; overflow: hidden; }
 .board.is-stale .flow-stage { opacity: 0.7; }
 .flow-stage { position: relative; width: 100%; height: 100%; }
@@ -1578,7 +1576,7 @@ html[data-page="assistant"] .topnav a[href="/assistant"] { display: inline-flex;
 .flow-node > * { position: relative; }
 .flow-node--code::after { content: ""; position: relative; width: 8px; height: 8px; border-radius: 2px; background: var(--c-info); }
 .flow-node__mark { width: 16px; height: 16px; color: var(--c-info); }
-.board[data-ai="on"] .flow-node__mark { color: var(--c-text-1); }
+.board[data-ai="on"] .flow-node__mark, .assist[data-ai="on"] .flow-node__mark { color: var(--c-text-1); }
 .flow-node--you::before { background: var(--c-caution-bg); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-caution) 50%, transparent); }
 .flow-node--you::after { content: ""; position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--c-caution); }
 .flow-you:not(.is-must) .flow-node--you::before { background: var(--c-surface-2); box-shadow: 0 0 0 1px var(--c-line-2); }
@@ -2276,10 +2274,12 @@ body.is-compare .ffilter { display: none; }
 .side__foot .btn--primary { width: 100%; min-height: 48px; font-size: 16px; }
 .side__foot .btn--primary .icon { width: 18px; height: 18px; }
 
-/* ---- the Assistant tab (5.2.5) */
-.assist { display: flex; flex-direction: column; overflow: hidden; }
+/* ---- the Assistant tab (5.2.5): the state line, the Inside TEPHRA diagram, What happened; the
+   whole tab scrolls, so the diagram's rails canvas scrolls with it */
+.assist { display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--c-line-2) transparent; }
 .assist > * { flex: none; }
-.assist > .log { flex: 1 1 auto; }
+/* under the Assistant tab the diagram's You decide says the foot's words: the foot keeps its button */
+.side.is-assist .side__eyebrow, .side.is-assist .side__line { display: none; }
 .as-state { display: grid; gap: 4px; padding: 14px 16px 12px; }
 .as-state__name { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: var(--fw-semibold); }
 .as-state__name .icon { width: 16px; height: 16px; color: var(--tone-ai); }
@@ -2310,9 +2310,16 @@ body.is-compare .ffilter { display: none; }
 .player__ticks i.is-ai { background: var(--tone-ai); }
 .player__knob { position: absolute; top: 6px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: var(--c-replay-text); box-shadow: 0 0 0 2px var(--c-surface-1); }
 
-.assist > .as-pipe { margin: 0 16px 6px; padding-bottom: 12px; border-bottom: 1px solid var(--c-line-1); }
-/* a short desktop window keeps the log in view: the Now card's badge already names the step */
-@media (min-width: 901px) and (max-height: 760px) { .assist > .as-pipe { display: none; } }
+/* the player's words read "Replay · <what it does>"; during the catch-up the step playing under
+   them, the player held at the top of the tab while the tab scrolls to the step; "Replay again"
+   under them after */
+.player.is-catchup { position: sticky; top: 0; z-index: 3; background-color: var(--c-surface-1); background-image: linear-gradient(color-mix(in srgb, var(--c-replay-bg) 70%, var(--c-surface-1)), color-mix(in srgb, var(--c-replay-bg) 70%, var(--c-surface-1))); box-shadow: 0 6px 12px -8px rgb(0 0 0 / 0.45); }
+.player__beat { grid-column: 2; margin: 0; font-size: 13px; line-height: 1.35; color: var(--c-text-1); overflow-wrap: anywhere; }
+.player__beat[hidden] { display: none; }
+.player__sep { color: var(--c-text-3); }
+.player__again { grid-column: 2; justify-self: start; min-height: 28px; font-size: 13px; }
+.player__again[hidden] { display: none; }
+.player.is-catchup .player__words b, .player.is-catchup .player__text { color: var(--c-replay-text); }
 
 .t-feeds { --tone: var(--tone-feeds); }
 .t-code { --tone: var(--tone-code); }
@@ -2320,21 +2327,15 @@ body.is-compare .ffilter { display: none; }
 .t-desk { --tone: var(--tone-desk); }
 .t-record { --tone: var(--tone-record); }
 
-/* the newest step, expanded (graft 4): a 16 px sentence under its step and actor */
-.as-now { margin: 6px 16px 10px; padding: 12px 14px; border: 1px solid var(--c-line-2); border-radius: var(--radius-lg); background: var(--c-surface-2); box-shadow: inset 3px 0 0 var(--c-replay); }
-.as-now__top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: var(--fs-1); }
-.as-now__badge { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 0 10px 0 8px; border: 1px solid var(--c-line-2); border-radius: var(--radius-pill); color: var(--c-text-1); font-weight: var(--fw-semibold); }
-.as-now__badge .icon { width: 14px; height: 14px; color: var(--tone); }
-.as-now__kind { color: var(--c-text-3); font-size: var(--fs-1); }
-.as-now__time { margin-left: auto; color: var(--c-text-3); }
-.as-now__text { margin-top: 8px; font-size: 16px; line-height: 1.4; color: var(--c-text-1); overflow-wrap: anywhere; }
-@media (prefers-reduced-motion: no-preference) {
-  .as-now.is-fresh { animation: as-edge var(--dur-4) var(--ease-standard); }
-}
-@keyframes as-edge { from { box-shadow: inset 3px 0 0 transparent; } }
 
-/* every earlier step, newest first, under sticky minute heads */
-.log { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 0 8px; scrollbar-color: var(--c-line-2) transparent; }
+/* What happened: the newest steps first, under sticky minute heads */
+.as-what { padding-top: 12px; border-top: 1px solid var(--c-line-1); }
+.as-what__h + .log { margin-top: -2px; }
+.as-what__h { margin: 0 16px 10px; font-size: var(--fs-1); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-text-3); }
+.as-note { margin: -4px 16px 10px; font-size: var(--fs-1); line-height: 1.4; color: var(--c-text-2); }
+
+.as-note[hidden] { display: none; }
+.log { padding: 0 0 8px; }
 .log.is-stale { opacity: 0.85; }
 .log__min { position: sticky; top: 0; z-index: 1; padding: 6px 16px; background: var(--c-surface-1); border-bottom: 1px solid var(--c-line-1); font: var(--fw-medium) 12px var(--font-mono); color: var(--c-text-3); }
 .ev { display: grid; grid-template-columns: 58px 18px minmax(0, 1fr); gap: 2px 10px; padding: 10px 16px; border-bottom: 1px solid color-mix(in srgb, var(--c-line-1) 70%, transparent); }
@@ -2352,7 +2353,7 @@ body.is-compare .ffilter { display: none; }
 .log__empty { padding: 16px; font-size: var(--fs-2); color: var(--c-text-3); }
 .log__more { margin: 8px 16px; }
 
-/* a frame of the map alone, for Home's picture (scripts/capture_home_map.mjs) */
+/* a frame of the map alone, for the sign-in backdrop (product.css .auth__backdrop; scripts/capture_signin_backdrop.mjs) */
 body.shot-map { grid-template-rows: 0 minmax(0, 1fr) 0; }
 body.shot-map > .cmdbar, body.shot-map > .honesty, body.shot-map .rail, body.shot-map .story, body.shot-map .side, body.shot-map .timebar { display: none !important; }
 body.shot-map .stage { grid-template-columns: 0 minmax(0, 1fr) 0; }
@@ -2404,7 +2405,74 @@ body.shot-map .mapcol { grid-template-rows: minmax(0, 1fr); }
   .side > .assist, .side > .drawer { grid-row: 3; }
   .side__foot { grid-row: 4; padding: 10px var(--gutter) calc(10px + env(safe-area-inset-bottom)); }
   .side[data-sheet="peek"] .side__eyebrow, .side[data-sheet="peek"] .side__line { display: none; }
-  .assist > .as-pipe { display: none; }
   .as-state { padding: 10px var(--gutter) 8px; }
-  .player, .as-now { margin-left: var(--gutter); margin-right: var(--gutter); }
+  .player { margin-left: var(--gutter); margin-right: var(--gutter); }
+  .as-what__h, .as-note { margin-left: var(--gutter); margin-right: var(--gutter); }
+}
+
+/* ---- Inside TEPHRA in the Assistant tab: the /assistant board's diagram (board-view.js
+   mountInside) on the panel's own surface, its spine on a rails canvas over it; the row of the step
+   the catch-up plays is ringed. One column on every width, so the rail runs through each skill. */
+.side .flow-panel--side {
+  position: relative; inset: auto; z-index: auto; order: 0; width: auto; margin: 0; padding: 4px 16px 16px 12px;
+  overflow: visible; background: none; border-radius: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+.side .flow-panel--side .flow-rails--side { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+.side .flow-panel--side .flow-eyebrow { margin: 0 0 6px 2px; }
+.side .flow-panel--side .flow-gap1 { height: 6px; }
+.side .flow-panel--side .flow-gap2 { height: 28px; }
+.side .flow-panel--side .flow-row { min-height: 34px; }
+.side .flow-panel--side .flow-row--gate { min-height: 40px; }
+.side .flow-panel--side .flow-skills { display: block; }
+.side .flow-panel--side .flow-skill { grid-template-columns: 24px 26px minmax(0, 1fr); column-gap: 10px; min-height: 30px; }
+.side .flow-panel--side .flow-skill__btn { flex-direction: row; align-items: center; gap: var(--sp-3); min-height: 30px; padding: 0 8px; }
+.side .flow-panel--side .flow-row--coord .flow-row__meta { display: block; }
+.side .flow-panel--side .flow-you { margin-top: 0; padding-top: 10px; }
+.side .flow-panel--side .flow-hero { margin: 6px 0 2px 36px; }
+.side .flow-panel--side .flow-hero__n { font-size: var(--fs-7); }
+.side .flow-panel--side .flow-who { margin-bottom: 4px; }
+.side .flow-panel--side .flow-runs { margin-bottom: 4px; }
+.side .flow-panel--side .flow-runs__bars { height: 18px; }
+.side .flow-panel--side :is(.flow-row, .flow-skill, .flow-you) { border-radius: 8px; transition: background-color var(--dur-3) var(--ease-standard), box-shadow var(--dur-3) var(--ease-standard); }
+.side .flow-panel--side .is-step { background: color-mix(in srgb, var(--c-replay) 13%, transparent); box-shadow: inset 2px 0 0 var(--c-replay); }
+.side .flow-panel--side .is-step .flow-node::before { box-shadow: 0 0 0 2px var(--c-replay-text); }
+.side .flow-panel--side .flow-skill.is-step .flow-dot { background: var(--c-text-1); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-replay) 40%, transparent); }
+.side .flow-panel--side .flow-skill.is-step .flow-skill__name { color: var(--c-text-1); }
+.side .flow-panel--side .flow-skill.is-running .flow-skill__state { color: var(--c-replay-text); }
+.side .flow-panel--side .flow-who--rule { margin-top: -2px; color: var(--c-text-2); }
+@media (prefers-reduced-motion: no-preference) {
+  .side .flow-panel--side .is-hit .flow-node::before, .side .flow-panel--side .flow-skill.is-hit .flow-dot { animation: as-hit 700ms var(--ease-standard); }
+}
+@keyframes as-hit { 0% { box-shadow: 0 0 0 0 var(--c-replay-text); } 40% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--c-replay) 35%, transparent); } 100% { box-shadow: 0 0 0 2px var(--c-replay-text); } }
+@media (prefers-reduced-motion: reduce) {
+  .side .flow-panel--side :is(.flow-row, .flow-skill, .flow-you) { transition: none; }
+}
+
+/* a laptop's short window: the diagram tightens so You decide stays in view under the player */
+@media (min-width: 901px) and (max-height: 860px) {
+  .as-state { padding-top: 10px; padding-bottom: 8px; }
+  .player { margin-bottom: 8px; padding-top: 6px; padding-bottom: 6px; }
+  .side .flow-panel--side .flow-gap2 { height: 18px; }
+  .side .flow-panel--side .flow-row { min-height: 30px; }
+  .side .flow-panel--side .flow-skill, .side .flow-panel--side .flow-skill__btn { min-height: 26px; }
+  .side .flow-panel--side .flow-you { padding-top: 6px; }
+  .side .flow-panel--side .flow-hero { margin-top: 2px; }
+}
+/* the catch-up's pulses: one overlay over the page that never takes a click (dialogs sit above it
+   in the top layer); a trail and a dot from a feed's place on the map into Code checks, then down
+   the diagram */
+.as-flow { position: fixed; inset: 0; z-index: var(--z-popover); pointer-events: none; overflow: hidden; }
+.as-flow__svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.as-flow__trail { fill: none; stroke: var(--c); stroke-width: 2; stroke-linecap: round; opacity: 0.75; }
+.as-flow__dot { fill: var(--c); filter: drop-shadow(0 0 5px var(--c)); }
+.as-flow__dot.is-in { opacity: 0; transition: opacity 300ms; }
+.as-flow__ring { fill: none; stroke: var(--c); stroke-width: 2; transform-box: fill-box; transform-origin: center; animation: as-ring 1100ms var(--ease-standard) forwards; }
+@keyframes as-ring { from { transform: scale(1); opacity: 0.9; } to { transform: scale(5); opacity: 0; } }
+.as-flow__lab {
+  position: absolute; transform: translate(-50%, calc(-100% - 12px)); padding: 2px 8px; border-radius: var(--radius-pill);
+  background: var(--c-surface-2); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 60%, transparent), var(--shadow-2);
+  color: var(--c-text-1); font-size: 12px; font-weight: var(--fw-semibold); white-space: nowrap; transition: opacity 300ms;
+}
+@media (forced-colors: active) {
+  .as-flow { display: none; }
 }

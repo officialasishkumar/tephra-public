@@ -107,7 +107,8 @@ def test_about_keeps_its_honesty_lines() -> None:
     assert "Nothing is sent" in CONTROLS
     assert "Ring of Fire Air (RFA) is a fictional airline." in CONTROLS
     # the RFA subs in Help went (the glossary row and About say it)
-    assert '"RFA flight in or heading in", null' in CONTROLS
+    # (the key names the airline's code: RFA in the demo, an airline's own in its own TEPHRA)
+    assert "`${code} flight in or heading in`, null" in CONTROLS
     assert "our fictional airline" not in CONTROLS
 
 
@@ -221,13 +222,14 @@ def test_privacy_says_what_an_airline_account_keeps() -> None:
         "Google Cloud Firestore",
         "SQLite",
         "never public, never written into the audit trail and never sent to Gemini",
-        "Clear my answers",
+        "from sign-up on, the onboarding answers with the account",
+        "answers not submitted are not shown to them",
         "goes only into the zip",
         "<code>tephra_airline</code>",
         "HttpOnly and SameSite=Strict",
         "12 hours",
         "deletes it from the workspace's account menu",
-        "Signing out clears the answers and the schedule files",
+        "signing out clears them",
     ):
         assert words in accounts, words
     # the Cookies paragraph no longer says the Desk's cookie is the only one

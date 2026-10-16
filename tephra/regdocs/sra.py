@@ -13,7 +13,6 @@ from datetime import datetime
 from typing import Any, Final
 
 from tephra.agents.llm import LlmCall
-from tephra.config import AIRLINE_NAME
 from tephra.desk import audit
 from tephra.desk.approvals import SYSTEM_ACTOR
 from tephra.geo.units import ft_to_fl
@@ -21,6 +20,7 @@ from tephra.models import (
     ActionKind,
     Advisory,
     AdvisoryStatus,
+    AirlineInfo,
     AuditAction,
     ExposedFlight,
     OperatorPolicy,
@@ -139,7 +139,7 @@ def narrative_facts(evidence: Evidence, policy: OperatorPolicy) -> dict[str, Any
         for item in view.situation.discrepancies
     ]
     return {
-        "airline": f"{AIRLINE_NAME} (fictional)",
+        "airline": _airline_label(evidence.state.airline),
         "region": evidence.region.name,
         "run_mode": "REPLAY" if evidence.replay else "LIVE",
         "counts": {
@@ -222,7 +222,7 @@ def build_sra(
         _mitigation_section(evidence, narrative),
         _watch_section(evidence),
         _reporting_section(evidence),
-        _assumptions_section(),
+        _assumptions_section(evidence.state.airline),
         _signoff_section(evidence),
     ]
     if any(view.situation.volcano.country == "Indonesia" for view in evidence.volcanoes):
@@ -288,19 +288,35 @@ def _status_section(
     )
 
 
+def _airline_label(airline: AirlineInfo) -> str:
+    return f"{airline.name} (fictional)" if airline.fictional else airline.name
+
+
+def _operator(airline: AirlineInfo) -> str:
+    if airline.fictional:
+        return f"{airline.name} (fictional airline)"
+    return f"{airline.name} (ICAO {airline.code})"
+
+
 def _scope_section(evidence: Evidence) -> SraSection:
+    airline = evidence.state.airline
     region = evidence.region
     box = region.bbox
     types = ", ".join(f"{name} x{count}" for name, count in evidence.aircraft_types)
     fields = [
-        DocField.code("operator", "Operator", f"{AIRLINE_NAME} (fictional airline)"),
+        DocField.code("operator", "Operator", _operator(airline)),
         DocField.to_complete("aoc", "Air operator certificate number", note=_NOT_FILLED),
         DocField.code(
             "types",
             "Aircraft types seen",
             types or "none seen in the region on ADS-B",
-            note="ADS-B proxies of the fictional airline in the region now;"
-            " its fleet is not modelled.",
+            note=(
+                "ADS-B proxies of the fictional airline in the region now;"
+                " its fleet is not modelled."
+                if airline.fictional
+                else "Airline-style aircraft of every operator in the region now (ADS-B and"
+                " the airline's pushes); the airline's fleet list is not read here."
+            ),
         ),
         DocField.to_complete("engines", "Engine types", note=_NOT_FILLED),
         DocField.to_complete("fleet", "Number of aircraft", note=_NOT_FILLED),
@@ -789,7 +805,7 @@ def _reporting_section(evidence: Evidence) -> SraSection:
     )
 
 
-def _assumptions_section() -> SraSection:
+def _assumptions_section(airline: AirlineInfo) -> SraSection:
     return SraSection(
         number=9,
         key="assumptions",
@@ -804,8 +820,13 @@ def _assumptions_section() -> SraSection:
             DocField.code(
                 "traffic",
                 "Traffic",
-                "Flights are ADS-B proxies of a fictional airline, and their tracks are"
-                " extrapolated in a straight line. Routes and schedules are not known.",
+                (
+                    "Flights are ADS-B proxies of a fictional airline, and their tracks are"
+                    " extrapolated in a straight line. Routes and schedules are not known."
+                    if airline.fictional
+                    else f"Flights are {airline.name}'s aircraft as ADS-B and the airline's"
+                    " pushes show them, and their tracks are extrapolated in a straight line."
+                ),
             ),
             DocField.code(
                 "hazard",

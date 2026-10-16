@@ -6,6 +6,7 @@ Dockerfile COPY source."""
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -122,6 +123,13 @@ def test_deploy_env_is_the_demo_configuration() -> None:
     env = _load(DEPLOY_FILE)["env"]
     assert env["TEPHRA_MODE"] == "REPLAY"
     assert env["TEPHRA_REPLAY_CASE"] == "anak-krakatau-20260905"
+    # 10:25Z, five minutes before the 10:30Z products arrive (owner, 16 Oct 2026), inside the
+    # case's reconstructed ADS-B (10:00Z-19:30Z), and before the end of the window
+    start = datetime.fromisoformat(env["TEPHRA_REPLAY_START"])
+    end = datetime.fromisoformat(env["TEPHRA_REPLAY_END"])
+    assert start == datetime(2026, 9, 5, 10, 25, tzinfo=UTC)
+    assert datetime(2026, 9, 5, 10, 0, tzinfo=UTC) <= start < end
+    assert end <= datetime(2026, 9, 5, 19, 30, tzinfo=UTC)
     assert env["TEPHRA_FEATURES"] == "connect,onboard"
     assert env["TEPHRA_VISITOR_ACCESS"] == "replay"
     assert env["TEPHRA_REPLAY_QUANTUM_S"] == "60"

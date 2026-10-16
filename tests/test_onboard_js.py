@@ -409,3 +409,47 @@ def test_the_kit_preview_takes_only_values_the_kit_would(tmp_path: Path) -> None
     assert checked["airline"]["callsign_prefix"] == ""
     assert checked["airline"]["name"] == values["airline"]["name"]
     assert values["fleet"]["aircraft"][1]["hex"] == "8a01zz"  # the draft itself is unchanged
+
+
+def test_the_pages_values_are_the_draft_the_server_keeps(tmp_path: Path) -> None:
+    """What the pages hold (a filled-in draft, and stored answers read back for editing) is a
+    draft ``PUT /api/airline/draft`` takes as it is: no key the server refuses."""
+    from tephra.airline.models import OnboardDraft
+
+    fixture = json.loads((ROOT / "tests" / "fixtures" / "airline" / "answers.json").read_text())
+    back, empty = _run(tmp_path, [["fromAnswers", fixture, {}], ["emptyValues"]])
+    for values in (DRAFT["values"], back, empty):
+        kept = OnboardDraft.model_validate({"at": "fleet", "seen": ["airline"], "values": values})
+        assert kept.values.airline.name in {"Ring of Fire Air", None}
+    assert (
+        OnboardDraft.model_validate({k: DRAFT[k] for k in ("at", "seen", "values")})
+        .values.fleet.aircraft[0]
+        .hex
+        == "8A 04 12"
+    )
+
+
+def test_a_draft_resumes_at_its_first_unfinished_page(tmp_path: Path) -> None:
+    done = {"seen": list(DRAFT["seen"]), "values": DRAFT["values"]}
+    three = {"seen": ["airline", "policy", "fleet", "network"], "values": DRAFT["values"]}
+    empty_network = {
+        "seen": ["airline", "policy", "fleet", "network", "schedule"],
+        "values": {**DRAFT["values"], "network": {"airports": [], "alternates": {}}},
+    }
+    bad_name = {
+        "seen": list(DRAFT["seen"]),
+        "values": {**DRAFT["values"], "airline": {**DRAFT["values"]["airline"], "name": "R"}},
+    }
+    out = _run(
+        tmp_path,
+        [
+            ["firstUnfinished", {"seen": [], "values": _values()}],
+            ["firstUnfinished", done],
+            ["firstUnfinished", three],
+            ["firstUnfinished", bad_name],
+            ["firstUnfinished", None],
+        ],
+    )
+    assert out == ["airline", "review", "schedule", "airline", "airline"]
+    # the main base counts as the network's first airport: emptying the list keeps it
+    assert _one(tmp_path, "firstUnfinished", empty_network) == "feeds"

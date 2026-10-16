@@ -112,9 +112,13 @@ def test_readme_mermaid_labels_are_quoted() -> None:
 
 
 def test_the_own_tephra_limits_are_said_where_onboarding_is() -> None:
-    """An airline's own TEPHRA still drafts under Ring of Fire Air numbers, and the shared site
-    does not run a verified airline's operation: the README says both beside the offer."""
+    """The account comes first, an airline's own TEPHRA names its flights by its own callsign,
+    flight number or registration (geo/fleet.py flight_name), and the shared site does not run a
+    verified airline's operation: the README says so beside the offer, and no longer says the
+    own TEPHRA drafts under Ring of Fire Air numbers (batch 2 honesty finding 3)."""
     section = _readme().split("### Run it for your airline", 1)[1].split("**How to onboard", 1)[0]
     flat = " ".join(section.split())
-    assert "name each flight by a Ring of Fire Air number" in flat
+    assert "an account first, then nine short pages" in flat
+    assert "own callsign, flight number or registration" in flat
     assert "live operation on the shared site is not built" in flat
+    assert "Ring of Fire Air number" not in flat

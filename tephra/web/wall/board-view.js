@@ -1,6 +1,6 @@
 // "TEPHRA Assistant at work" (docs/UI-DESIGN.md 7.21, 7.27): the flow board, the page /assistant
 // (the Wall's page with <dialog id="board"> shown in place of the Wall, never modal), reached from
-// the nav, the assistant chip, the story, A or /#ai-at-work. A live map of the region (MapLibre on
+// the demo side panel's pop-out icon, the Guide or /#ai-at-work. A live map of the region (MapLibre on
 // the night basemap: drag, zoom, click a plane, a volcano, an ash area or a feed for what it is) with the snapshot's real ash areas, volcanoes,
 // airports and aircraft, a beacon where each feed comes from, and one glass panel, "Inside TEPHRA": Code checks,
 // the Coordinator, the model gate with its waiting jobs, the six skills and "You decide". Work moves
@@ -12,7 +12,7 @@
 // something moves. Effects read map positions every frame, so they follow the map as it pans. The
 // loop stops when nothing moves.
 
-import { $, el, icon, fl } from "./util.js";
+import { $, el, icon, fl, airline } from "./util.js";
 import { flowAt, foldRows, readEvent, stepEvents, hmsOf as hms, STAGGER_MS, TOOL_SKILLS, HELPERS, FEED_KIND, FEED_NAMES, RESULT, resultKind } from "./board.js";
 import { STYLE_URL, nightBasemap, nightColours, symbolColours } from "./basemap.js";
 import { addImages } from "./images.js";
@@ -141,8 +141,8 @@ function skillSheet(card, s, skillId, paused) {
 const ARROWS = ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"];
 // Where each feed comes from: the office or source that issues it (lon, lat). The SIGMET beacon sits
 // on the SIGMETs in force when there are any; METAR at the airports; winds on the grid; ADS-B at
-// every aircraft.
-const SRC = {
+// every aircraft. The demo's catch-up starts its pulses at the same places (assist-panel.js).
+export const SRC = {
   sigmet: { name: "VA SIGMET", sub: "areas in force", at: null },
   vona: { name: "VONA", sub: "MAGMA, Bandung", at: [107.63, -6.92] },
   jma_volcano: { name: "JMA notices", sub: "Tokyo", at: [139.76, 35.69] },
@@ -199,24 +199,326 @@ const MAP_LAYERS = [
   ["coverage", "Aircraft feed coverage", ["b-adsb"]],
 ];
 
-// ------------------------------------------------------------------ the board
+// ------------------------------------------------------------------ Inside TEPHRA (one renderer)
+// The pipeline as a drawn spine, the one diagram the /assistant board's glass panel and the demo's
+// Assistant tab both draw (wall/assist-panel.js): Code checks (no AI, its feed reads and flight
+// alerts), the Coordinator, the model gate with the jobs waiting in line, each skill with its state,
+// "When you ask" and You decide (the count, its reason, the run bars). mountInside builds it once;
+// its caller hands it the model, the events up to its playhead and whether Example is on. The spine
+// and the gate are drawn by drawInside on the caller's rails canvas, from the anchors measure()
+// reads. `side`: the demo's tab, where a row opens its Details section (the board opens its own
+// sheets), the Desk's button is the panel's pinned foot (the demo's one filled button), and the
+// Desk's other counts stay on the Desk.
 
-// `has` is the Wall's feature predicate (wall/features.js), handed in so the view imports nothing
-// that holds the Wall's state (tests/test_wall_board.py).
-export function mountFlow(dialog, { has }) {
-  const shown = (id) => !FEATURE_OF[id] || has(FEATURE_OF[id]);
-  const body = $("board-body");
-  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const RM = () => reduced.matches;
+// the colours the canvases draw with, read from the page's tokens (tokens.css)
+export function insideColours() {
   const css = getComputedStyle(document.documentElement);
   const tok = (name, fb) => (css.getPropertyValue(name) || "").trim() || fb;
-  const C = {
+  return {
     official: tok("--c-official", "#ff3d8b"), officialText: tok("--c-official-text", "#ff9cc4"), observer: tok("--c-observer", "#38bdf8"),
     weather: tok("--c-info", "#9db4cc"), aircraft: tok("--c-aircraft", "#aab4be"), satellite: tok("--c-info", "#9db4cc"),
     job: tok("--c-text-1", "#eaf1f7"), must: tok("--c-caution", "#ffe566"), tephra: tok("--c-tephra", "#ffb000"), info: tok("--c-info", "#9db4cc"),
     text2: tok("--c-text-2", "#b6c3d0"), text3: tok("--c-text-3", "#93a3b5"), line2: tok("--c-line-2", "#2b3a4a"), muted: tok("--c-text-3", "#93a3b5"),
     bg: tok("--c-bg", "#05080c"), s1: tok("--c-surface-1", "#0a1017"), s2: tok("--c-surface-2", "#0f1720"),
   };
+}
+
+function setMark(useHost, sym) {
+  const u = useHost.querySelector("use");
+  const href = `${u.getAttribute("href").split("#")[0]}#${sym}`;
+  setAttr(u, "href", href);
+}
+
+export function mountInside({ has, side = false }) {
+  const shown = (id) => !FEATURE_OF[id] || has(FEATURE_OF[id]);
+  // a row's action: the board opens its sheet; the demo's tab opens the Details section
+  const rowAct = (sheet) => (side ? { act: "board-details", sec: sheet === "checks" ? "feeds" : "ai" } : sheet === "checks" ? { flowsheet: "checks" } : { flowskill: sheet });
+  const node = (cls, a, kid = null) => el("span", { class: `flow-node ${cls}`, dataset: { a } }, kid);
+  const cFeeds = el("b", { text: "0" }), cFlights = el("b", { text: "0" });
+  const wFeeds = el("span", { text: " feed reads · " }), wFlights = el("span", { text: " flight alerts" });
+  const coordMark = icon("ta-waiting", "flow-node__mark");
+  const coordMeta = el("span", { class: "flow-row__meta" });
+  const coordRight = el("span", { class: "flow-row__right" });
+  const coordBtn = el("button", { type: "button", class: "flow-row__btn", dataset: rowAct("duty") }, el("span", { class: "flow-row__name", text: "Coordinator" }), coordMeta);
+  const coordRow = el("div", { class: "flow-row flow-row--coord" }, node("flow-node--coord", "coord", coordMark), coordBtn, coordRight);
+  const gap2 = el("div", { class: "flow-gap2" });
+  const gateBar = el("span", { class: "flow-gatebar", dataset: { a: "gate" } });
+  const gateName = el("span", { class: "flow-row__name" });
+  const gateMeta = el("span", { class: "flow-row__meta" });
+  const gateRow = el("div", { class: "flow-row flow-row--gate" }, el("span"), gateBar, el("span", { class: "flow-row__txt" }, gateName, gateMeta));
+  const skillList = el("ul", { class: "flow-skills", "aria-label": "Skills" });
+  const skillEls = {};
+  for (const id of SKILL_ROWS) {
+    const dot = el("span", { class: "flow-dot", dataset: { a: `sk-${id}` } });
+    const name = el("span", { class: "flow-skill__name" });
+    const state = el("span", { class: "flow-skill__state" });
+    const btn = el("button", { type: "button", class: "flow-skill__btn", dataset: rowAct(id) }, name, state);
+    const li = el("li", { class: "flow-skill" }, el("span"), dot, btn);
+    skillEls[id] = { li, dot, name, state, btn };
+    skillList.append(li);
+  }
+  const onreqDot = el("span", { class: "flow-dot flow-dot--small", dataset: { a: "sk-onreq" } });
+  const onreqName = el("span", { class: "flow-skill__name" });
+  skillList.append(el("li", { class: "flow-skill flow-skill--onreq" }, el("span"), onreqDot, onreqName));
+  const heroN = el("span", { class: "flow-hero__n", text: "–" });
+  const heroW = el("span", { class: "flow-hero__w" });
+  const who = el("p", { class: "flow-who" });
+  const runsCap = el("span");
+  const runsBars = el("div", { class: "flow-runs__bars", "aria-hidden": "true" });
+  const runsBox = el("div", { class: "flow-runs" }, el("p", { class: "flow-runs__cap" }, el("span", { text: "Must-do passed to you, each run" }), runsCap), runsBars);
+  const facts = el("ul", { class: "flow-facts" });
+  const factsCap = el("p", { class: "flow-facts__cap", text: "At the Desk now" });
+  const youId = side ? "assist-you" : "flow-you";
+  const youHead = el("h3", { id: youId, class: "flow-you__eyebrow", text: "You decide" });
+  const decide = el("section", { class: "flow-you", "aria-labelledby": youId },
+    el("div", { class: "flow-you__head" }, node("flow-node--you", "you"), youHead),
+    el("p", { class: "flow-hero" }, heroN, heroW), who,
+    // the demo's tab hides the foot's line, so You decide keeps its rule (never removed)
+    side ? el("p", { class: "flow-who flow-who--rule", text: "Nothing leaves TEPHRA until a dispatcher approves." }) : null,
+    runsBox,
+    ...(side ? [] : [factsCap, facts,
+      el("a", { class: "flow-cta", href: "/desk", dataset: { focus: "board-desk" } }, el("span", { text: "Open the Desk" }), el("span", { "aria-hidden": "true", text: "→" })),
+      el("button", { type: "button", class: "flow-link", dataset: { act: "board-details", sec: "ai", focus: "board-ai-home" }, text: "Details › TEPHRA Assistant ›" })]));
+  const codeRow = el("div", { class: "flow-row flow-row--code" }, node("flow-node--code", "code"),
+    el("button", { type: "button", class: "flow-row__btn flow-row__txt", dataset: rowAct("checks"), "aria-label": side ? "Code checks: what was read and which flights were flagged. Details › Data feeds" : "Code checks: what was read and which flights were flagged" },
+      el("span", { class: "flow-row__name" }, "Code checks ", el("span", { class: "flow-tag", text: "no AI" })),
+      el("span", { class: "flow-row__meta flow-ctr" }, cFeeds, wFeeds, cFlights, wFlights)));
+  const panel = el(side ? "section" : "aside", { class: `flow-panel${side ? " flow-panel--side" : ""}`, "aria-label": "Inside TEPHRA" },
+    el("p", { class: "flow-eyebrow", text: "Inside TEPHRA" }),
+    codeRow, el("div", { class: "flow-gap1" }),
+    coordRow, gap2, gateRow, skillList, decide);
+  // the rows a step lights: each node's row (the catch-up's highlight, wall/assist-panel.js)
+  const rowOf = { code: codeRow, coord: coordRow, gate: gateRow, you: decide, "sk-onreq": onreqDot.parentElement };
+  for (const id of SKILL_ROWS) rowOf[`sk-${id}`] = skillEls[id].li;
+
+  // the words: the state now (the model's), the same in Real and Example except where Example says so.
+  // `cu`: the demo's catch-up (assist.js catchupSkills), each skill's row as of the beat playing
+  function renderStatic(M, ex, cu = null) {
+    for (const [id, r] of Object.entries(skillEls)) if (r.li.hidden === shown(id)) r.li.hidden = !shown(id);
+    const onreq = HELPERS.filter((h) => h.role === "desk" && shown(h.id)).map((h) => h.name).join(" · ");
+    setText(onreqName, `When you ask: ${onreq}`);
+    setMark(coordMark, ex ? "ta-working" : M.ai.symbol);
+    setText(gateName, ex ? "AI model · open" : M.gate.name);
+    setText(gateMeta, ex ? "Example: open, jobs go straight through" : M.gate.meta);
+    // what waits and where the cause is; why the assistant is paused is said at its home (8.6)
+    setAttr(gateRow, "title", ex || (!M.queue.length && !M.gate.title) ? null : [M.queue.length ? `Waiting in line:\n${M.queue.map((w) => `• ${w.label}`).join("\n")}` : null, M.gate.title || null].filter(Boolean).join("\n"));
+    setText(coordMeta, ex ? "Orders the jobs and hands them to skills" : M.coord.meta);
+    const more = side ? "Details › TEPHRA Assistant" : "Details";
+    setAttr(coordBtn, "aria-label", `Coordinator: ${ex ? "orders the jobs and hands them to skills (example)" : M.coord.meta}. ${more}`);
+    for (const s of M.skills) {
+      const r = skillEls[s.id];
+      if (!r) continue;
+      setText(r.name, s.name);
+      if (cu && !ex) { catchupRow(r, s, cu[s.id], more); continue; }
+      r.li.classList.remove("is-running");
+      const inLine = !ex && s.inLine;
+      const failed = !ex && s.last?.failed;
+      const stateKey = inLine ? `in:${s.inLine}` : failed ? "failed" : ex ? "ex" : s.last ? `last:${s.last.at}` : "idle";
+      if (r.state.dataset.k !== stateKey) {
+        r.state.dataset.k = stateKey;
+        r.state.replaceChildren(...(inLine ? [el("i", { class: "flow-ring" }), `${s.inLine} in line`] : failed ? ["no result"] : ex ? [] : [s.last ? `last ${hms(s.last.at)}` : "idle"]));
+      }
+      r.li.classList.toggle("is-idle", !inLine && !failed && !ex && !s.last);
+      r.dot.classList.toggle("is-wait", Boolean(inLine));
+      setAttr(r.btn, "aria-label", `${s.name}: ${inLine ? `${s.inLine} ${s.inLine === 1 ? "job waits" : "jobs wait"} in line` : failed ? "its newest step gave no result" : s.last ? `newest step ${hms(s.last.at)}` : "nothing in the newest steps"}. ${more}`);
+      setAttr(r.btn, "title", [s.does, s.last ? `${s.last.text} · ${hms(s.last.at)}` : null, inLine ? `In line: ${s.jobs.join("; ")}` : null].filter(Boolean).join("\n"));
+    }
+  }
+
+  // one skill's row in the catch-up: the state the recorded steps give it at the beat playing
+  function catchupRow(r, s, c, more) {
+    const st = c?.state || "idle";
+    const stateKey = `cu:${st}:${c?.at ?? ""}:${c?.n ?? ""}`;
+    if (r.state.dataset.k !== stateKey) {
+      r.state.dataset.k = stateKey;
+      const words = { inline: `${c?.n} in line`, running: "running", done: `done ${hms(c?.at)}`, noresult: "no result", last: `last ${hms(c?.at)}`, idle: "idle" }[st];
+      r.state.replaceChildren(...(st === "inline" || st === "running" ? [el("i", { class: "flow-ring" }), words] : [words]));
+    }
+    r.li.classList.toggle("is-idle", st === "idle");
+    r.li.classList.toggle("is-running", st === "running");
+    r.dot.classList.toggle("is-wait", st === "inline");
+    const said = { inline: `${c?.n} ${c?.n === 1 ? "job waits" : "jobs wait"} in line`, running: "running", done: `done at ${hms(c?.at)}`, noresult: "its step gave no result", last: `newest step ${hms(c?.at)}`, idle: "nothing in the steps before" }[st];
+    setAttr(r.btn, "aria-label", `${s.name}, replay catching up: ${said}. ${more}`);
+  }
+
+  // the counters at a playhead: every event at or before `t`
+  function renderCounters(events, t) {
+    const S = flowAt(events, t);
+    setText(cFeeds, S.feeds); setText(wFeeds, S.feeds === 1 ? " feed read · " : " feed reads · ");
+    setText(cFlights, S.flights); setText(wFlights, S.flights === 1 ? " flight alert" : " flight alerts");
+    // a run the model refused called no model: it is "not run", never "last run" (Q4)
+    setText(coordRight, S.coordAt ? `${S.coordRefused ? "not run" : "last run"} ${hms(S.coordAt)}` : "");
+  }
+
+  // the hero: M of the newest refused run at the playhead (tokens still on their way do not count
+  // until they land), or, while the assistant works, the drafts that wait at the Desk now. Returns
+  // what it said, for the board's chip.
+  function renderDecide(M, { ex = false, events, t, pending = new Set(), exState = null, bump = false, rm = false, note = null }) {
+    const D = M.desk;
+    const done = events.filter((e) => e.at <= t && !pending.has(e.id));
+    const S = flowAt(done, t);
+    const mustMode = !ex && (S.must != null || M.ai.kind === "paused");
+    let n, words;
+    if (ex) { n = exState?.run ? exState.drafts : null; words = n === 1 ? "advisory draft to approve (example)" : "advisory drafts to approve (example)"; }
+    else if (mustMode) { n = S.must; words = n === 1 ? "must-do flight to plan by hand" : "must-do flights to plan by hand"; }
+    else { n = D.drafts; words = n === 1 ? "advisory waits for you" : "advisories wait for you"; }
+    const before = heroN.textContent;
+    setText(heroN, n == null ? "–" : String(n));
+    heroN.classList.toggle("is-none", n == null);
+    setText(heroW, words);
+    if (bump && (before !== heroN.textContent || note) && !rm) { heroN.classList.add("is-bump"); window.setTimeout(() => heroN.classList.remove("is-bump"), 320); }
+    decide.classList.toggle("is-must", mustMode);
+    setText(who, note || (ex ? (exState?.run ? `Illustrative: one draft per flight of the example run at ${hms(exState.runAt)}.` : "Illustrative: no run in this window yet.")
+      : mustMode ? (S.mustAt == null ? "Waiting for the first run in this window." : `Passed straight to you by code · run ${hms(S.mustAt)}`)
+        : n == null ? "Advisory count unknown (database error)." : "Drafts wait at the Desk for a dispatcher."));
+    // run bars: one per refused run in the window, lit up to the playhead
+    const runs = M.runs.filter((e) => e.type === "refused");
+    runsBox.hidden = ex || !runs.length;
+    const max = Math.max(1, ...runs.map((r) => r.n));
+    const doneIds = new Set(done.map((e) => e.id));
+    const lit = runs.filter((r) => doneIds.has(r.id)).length;
+    if (runsBars.childElementCount !== runs.length) runsBars.replaceChildren(...runs.map(() => el("i")));
+    runs.forEach((r, i) => {
+      const b = runsBars.children[i];
+      const on = i < lit;
+      const cls = on ? (bump && i === lit - 1 ? "is-new" : "is-on") : "is-ghost";
+      if (b.className !== cls) b.className = cls;
+      const h = on ? `${Math.max(3, (r.n / max) * 26)}px` : "2px";
+      if (b.style.height !== h) b.style.height = h;
+      setAttr(b, "title", `${hms(r.at)}: ${plural(r.n, "must-do flight")} passed to you`);
+    });
+    setText(runsCap, lit ? `${lit} of ${runs.length} runs` : `${runs.length} runs in this window`);
+    // the other work at the Desk, now (the Wall's own counts, not the playhead). The hero already
+    // says the must-do count, so the facts do not say a second one. The demo's tab leaves them to
+    // the Desk.
+    const rows = [];
+    if (!ex && !side) {
+      const hp = D.handPlan;
+      if (hp && hp.n) rows.push(["Flights to plan by hand", mustMode ? String(hp.n) : `${hp.n}${hp.must ? ` · ${hp.must} must do` : ""}`]);
+      if (D.sra.n) rows.push(["SRA to sign", `${D.sra.n}${D.sra.names[0] ? ` · ${D.sra.names[0]}` : ""}`]);
+      if (D.plan) rows.push(["Airport plan", D.plan === "by hand" ? "By hand" : "Waits for approval", D.planNote]);
+      if (mustMode) rows.push(["Advisories to approve", D.drafts == null ? "unknown" : D.drafts ? String(D.drafts) : "None"]);
+    }
+    const factsKey = JSON.stringify(rows);
+    if (facts.dataset.k !== factsKey) {
+      facts.dataset.k = factsKey;
+      facts.replaceChildren(...rows.map(([k, v, tt]) => el("li", { title: tt || null }, el("span", { text: k }), el("b", { text: v }))));
+    }
+    factsCap.hidden = facts.hidden = !rows.length;
+    return { n, mustMode };
+  }
+
+  // Every node's centre relative to `origin` (a DOMRect), and the spine's and gate's points.
+  function measure(origin, M) {
+    const A = {};
+    for (const n of panel.querySelectorAll("[data-a]")) {
+      if (n.closest("[hidden]")) continue; // a hidden feature's card has no place on the rails
+      const r = n.getBoundingClientRect();
+      A[n.dataset.a] = { x: r.left - origin.left + r.width / 2, y: r.top - origin.top + r.height / 2 };
+    }
+    if (!A.code || !A.you || !A.gate) return A;
+    const sp = A.code.x, rail = A.gate.x;
+    A.spine = sp; A.rail = rail;
+    A.railTop = { x: rail, y: A.coord.y + 26 };
+    const lastSkill = A["sk-sra"] || A.gate;
+    A.railEnd = { x: rail, y: lastSkill.y + 8 };
+    A.merge = { x: sp, y: A.you.y - 30 };
+    const n = M && !M.gate.open ? Math.min(6, M.queue.length) : 0;
+    A.gateIn = { x: rail, y: A.gate.y - 13 - n * 11 };
+    A.gateOut = { x: rail, y: A.gate.y + 12 };
+    A.spineGate = { x: sp, y: A.gate.y + 6 };
+    return A;
+  }
+
+  // The jobs waiting at a closed gate stack upward from it; the gap above the gate grows so the stack
+  // (and a token knocking on top of it) never reaches the Coordinator's words. `remeasure` measures
+  // again (the caller's anchors), `origin` is the caller's frame.
+  let gapFor = -1;
+  function fitGate(M, remeasure, origin) {
+    const k = M && !M.gate.open ? Math.min(6, M.queue.length) : 0;
+    if (k !== gapFor) { gapFor = k; gap2.style.height = ""; }
+    let A = remeasure();
+    if (!A.gate || !k) return A;
+    const coordBottom = coordRow.getBoundingClientRect().bottom - origin().top;
+    const top = A.gate.y - 13 - k * 11 - 8;
+    if (top < coordBottom + 4) {
+      gap2.style.height = `${gap2.getBoundingClientRect().height + (coordBottom + 4 - top)}px`;
+      A = remeasure();
+    }
+    return A;
+  }
+
+  function lightSkill(id) {
+    const d = skillEls[id]?.dot;
+    if (!d) return;
+    d.classList.add("is-lit");
+    window.setTimeout(() => d.classList.remove("is-lit"), 700);
+  }
+
+  return { panel, decide, youHead, skillEls, onreqDot, rowOf, renderStatic, renderCounters, renderDecide, measure, fitGate, lightSkill };
+}
+
+function railCurve(c, p, q, noMove) {
+  const dy = q[1] - p[1];
+  if (!noMove) c.moveTo(p[0], p[1]);
+  c.bezierCurveTo(p[0], p[1] + dy * 0.55, q[0], q[1] - dy * 0.55, q[0], q[1]);
+}
+
+// The spine and the gate on a rails canvas: code -> Coordinator -> the code lane down to you
+// (caution toward you while must-do work goes that way); the AI lane through the gate and the
+// skills (dashed with no model: the skills are code templates); the jobs waiting in line parked in
+// front of a closed gate. `open` is the gate as drawn now.
+export function drawInside(c, A, M, { C, ex = false, open, VW, VH, DPR }) {
+  c.setTransform(DPR, 0, 0, DPR, 0, 0);
+  c.clearRect(0, 0, VW, VH);
+  if (!A.code || !A.you || !A.gate || !M) return;
+  const sp = A.spine, code = A.code, coord = A.coord, you = A.you;
+  c.lineCap = "round";
+  const toYou = !ex && (M.ai.kind === "paused" || M.desk.must > 0);
+  const grd = c.createLinearGradient(0, code.y, 0, you.y);
+  grd.addColorStop(0, rgba(C.info, 0.45)); grd.addColorStop(0.4, rgba(C.info, 0.32));
+  grd.addColorStop(1, toYou ? rgba(C.must, 0.45) : rgba(C.info, 0.3));
+  c.strokeStyle = grd; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(sp, code.y + 13); c.lineTo(sp, coord.y - 13); c.moveTo(sp, coord.y + 13); c.lineTo(sp, you.y - 13); c.stroke();
+  const nomodel = !ex && M.gate.kind === "nomodel";
+  c.strokeStyle = open && !nomodel ? rgba(C.job, 0.36) : rgba(C.info, 0.26); c.lineWidth = 1.5;
+  if (nomodel) c.setLineDash([4, 4]);
+  c.beginPath();
+  railCurve(c, [sp, coord.y + 8], [A.rail, A.gateIn.y]); c.lineTo(A.rail, A.gate.y);
+  c.moveTo(A.rail, A.gateOut.y); c.lineTo(A.rail, A.railEnd.y);
+  railCurve(c, [A.rail, A.railEnd.y], [sp, A.merge.y], true);
+  c.stroke();
+  c.setLineDash([]);
+  const g = A.gate;
+  if (!ex && !M.gate.open) {
+    // the jobs waiting in line, parked in front of the gate (budget.waiting, now)
+    M.queue.slice(0, 6).forEach((w, i) => {
+      const y = g.y - 11 - i * 11;
+      c.fillStyle = C.s1; c.beginPath(); c.arc(g.x, y, 4.6, 0, 7); c.fill();
+      c.strokeStyle = C.info; c.lineWidth = 1.5; c.beginPath(); c.arc(g.x, y, 4.2, 0, 7); c.stroke();
+    });
+  }
+  if (!open) {
+    c.strokeStyle = C.info; c.lineWidth = 3;
+    c.beginPath(); c.moveTo(g.x - 11, g.y); c.lineTo(g.x + 11, g.y); c.stroke();
+  } else {
+    // open: the bar split in two (dashed: no model, the skills are code templates)
+    c.strokeStyle = nomodel ? rgba(C.info, 0.6) : rgba(C.job, 0.5); c.lineWidth = 2;
+    if (nomodel) c.setLineDash([2, 2]);
+    c.beginPath(); c.moveTo(g.x - 11, g.y); c.lineTo(g.x - 5, g.y); c.moveTo(g.x + 5, g.y); c.lineTo(g.x + 11, g.y); c.stroke();
+    c.setLineDash([]);
+  }
+}
+
+// ------------------------------------------------------------------ the board
+
+// `has` is the Wall's feature predicate (wall/features.js), handed in so the view imports nothing
+// that holds the Wall's state (tests/test_wall_board.py).
+export function mountFlow(dialog, { has }) {
+  const body = $("board-body");
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const RM = () => reduced.matches;
+  const C = insideColours();
   const colOf = (tone) => C[tone] || C.text3;
 
   // ---------------------------------------------------------------- DOM, built once
@@ -255,56 +557,9 @@ export function mountFlow(dialog, { has }) {
       el("div", { class: "flow-head__col" }, modeSeg, exFlag),
       helpBtn));
 
-  // the panel: the pipeline as a drawn spine
-  const node = (cls, a, kid = null) => el("span", { class: `flow-node ${cls}`, dataset: { a } }, kid);
-  const cFeeds = el("b", { text: "0" }), cFlights = el("b", { text: "0" });
-  const wFeeds = el("span", { text: " feed reads · " }), wFlights = el("span", { text: " flight alerts" });
-  const coordMark = icon("ta-waiting", "flow-node__mark");
-  const coordMeta = el("span", { class: "flow-row__meta" });
-  const coordRight = el("span", { class: "flow-row__right" });
-  const coordBtn = el("button", { type: "button", class: "flow-row__btn", dataset: { flowskill: "duty" } }, el("span", { class: "flow-row__name", text: "Coordinator" }), coordMeta);
-  const coordRow = el("div", { class: "flow-row flow-row--coord" }, node("flow-node--coord", "coord", coordMark), coordBtn, coordRight);
-  const gap2 = el("div", { class: "flow-gap2" });
-  const gateBar = el("span", { class: "flow-gatebar", dataset: { a: "gate" } });
-  const gateName = el("span", { class: "flow-row__name" });
-  const gateMeta = el("span", { class: "flow-row__meta" });
-  const gateRow = el("div", { class: "flow-row flow-row--gate" }, el("span"), gateBar, el("span", { class: "flow-row__txt" }, gateName, gateMeta));
-  const skillList = el("ul", { class: "flow-skills", "aria-label": "Skills" });
-  const skillEls = {};
-  for (const id of SKILL_ROWS) {
-    const dot = el("span", { class: "flow-dot", dataset: { a: `sk-${id}` } });
-    const name = el("span", { class: "flow-skill__name" });
-    const state = el("span", { class: "flow-skill__state" });
-    const btn = el("button", { type: "button", class: "flow-skill__btn", dataset: { flowskill: id } }, name, state);
-    const li = el("li", { class: "flow-skill" }, el("span"), dot, btn);
-    skillEls[id] = { li, dot, name, state, btn };
-    skillList.append(li);
-  }
-  const onreqDot = el("span", { class: "flow-dot flow-dot--small", dataset: { a: "sk-onreq" } });
-  const onreqName = el("span", { class: "flow-skill__name" });
-  skillList.append(el("li", { class: "flow-skill flow-skill--onreq" }, el("span"), onreqDot, onreqName));
-  const heroN = el("span", { class: "flow-hero__n", text: "–" });
-  const heroW = el("span", { class: "flow-hero__w" });
-  const who = el("p", { class: "flow-who" });
-  const runsCap = el("span");
-  const runsBars = el("div", { class: "flow-runs__bars", "aria-hidden": "true" });
-  const runsBox = el("div", { class: "flow-runs" }, el("p", { class: "flow-runs__cap" }, el("span", { text: "Must-do passed to you, each run" }), runsCap), runsBars);
-  const facts = el("ul", { class: "flow-facts" });
-  const factsCap = el("p", { class: "flow-facts__cap", text: "At the Desk now" });
-  const youHead = el("h3", { id: "flow-you", class: "flow-you__eyebrow", text: "You decide" });
-  const decide = el("section", { class: "flow-you", "aria-labelledby": "flow-you" },
-    el("div", { class: "flow-you__head" }, node("flow-node--you", "you"), youHead),
-    el("p", { class: "flow-hero" }, heroN, heroW), who, runsBox, factsCap, facts,
-    el("a", { class: "flow-cta", href: "/desk", dataset: { focus: "board-desk" } }, el("span", { text: "Open the Desk" }), el("span", { "aria-hidden": "true", text: "→" })),
-    el("button", { type: "button", class: "flow-link", dataset: { act: "board-details", sec: "ai", focus: "board-ai-home" }, text: "Details › TEPHRA Assistant ›" }));
-  const panel = el("aside", { class: "flow-panel", "aria-label": "Inside TEPHRA" },
-    el("p", { class: "flow-eyebrow", text: "Inside TEPHRA" }),
-    el("div", { class: "flow-row flow-row--code" }, node("flow-node--code", "code"),
-      el("button", { type: "button", class: "flow-row__btn flow-row__txt", dataset: { flowsheet: "checks" }, "aria-label": "Code checks: what was read and which flights were flagged" },
-        el("span", { class: "flow-row__name" }, "Code checks ", el("span", { class: "flow-tag", text: "no AI" })),
-        el("span", { class: "flow-row__meta flow-ctr" }, cFeeds, wFeeds, cFlights, wFlights))),
-    el("div", { class: "flow-gap1" }),
-    coordRow, gap2, gateRow, skillList, decide);
+  // the panel: Inside TEPHRA, the one renderer the demo's Assistant tab draws too
+  const I = mountInside({ has });
+  const { panel, decide, youHead, skillEls, onreqDot } = I;
 
   // the dock: the log, the legend, the player
   const log = el("ol", { class: "flow-log", "aria-label": "Newest steps" });
@@ -391,21 +646,9 @@ export function mountFlow(dialog, { has }) {
     drawTrack();
   }
 
-  // The jobs waiting at a closed gate stack upward from it; the gap above the gate grows so the stack
-  // (and a token knocking on top of it) never reaches the Coordinator's words.
-  let gapFor = -1;
+  // the jobs waiting at a closed gate push the skills down (mountInside's fitGate)
   function fitGate() {
-    const k = M && !M.gate.open ? Math.min(6, M.queue.length) : 0;
-    if (k !== gapFor) { gapFor = k; gap2.style.height = ""; }
-    measure();
-    if (!A.gate || !k) { drawRails(); return; }
-    const d = dialogRect();
-    const coordBottom = coordRow.getBoundingClientRect().bottom - d.top;
-    const top = A.gate.y - 13 - k * 11 - 8;
-    if (top < coordBottom + 4) {
-      gap2.style.height = `${gap2.getBoundingClientRect().height + (coordBottom + 4 - top)}px`;
-      measure();
-    }
+    I.fitGate(M, () => { measure(); return A; }, dialogRect);
     drawRails();
   }
 
@@ -421,23 +664,7 @@ export function mountFlow(dialog, { has }) {
     const d = dialogRect();
     const mr = mapWrap.getBoundingClientRect();
     mapOff = [mr.left - d.left, mr.top - d.top];
-    A = {};
-    for (const n of stage.querySelectorAll("[data-a]")) {
-      if (n.closest("[hidden]")) continue; // a hidden feature's card has no place on the rails
-      const r = n.getBoundingClientRect();
-      A[n.dataset.a] = { x: r.left - d.left + r.width / 2, y: r.top - d.top + r.height / 2 };
-    }
-    if (!A.code || !A.you || !A.gate) return;
-    const sp = A.code.x, rail = A.gate.x;
-    A.spine = sp; A.rail = rail;
-    A.railTop = { x: rail, y: A.coord.y + 26 };
-    const lastSkill = A["sk-sra"] || A.gate;
-    A.railEnd = { x: rail, y: lastSkill.y + 8 };
-    A.merge = { x: sp, y: A.you.y - 30 };
-    const n = M && !M.gate.open ? Math.min(6, M.queue.length) : 0;
-    A.gateIn = { x: rail, y: A.gate.y - 13 - n * 11 };
-    A.gateOut = { x: rail, y: A.gate.y + 12 };
-    A.spineGate = { x: sp, y: A.gate.y + 6 };
+    A = I.measure(d, M);
   }
 
   function ptOf(ref) {
@@ -575,7 +802,7 @@ export function mountFlow(dialog, { has }) {
       const a = M.geo.aircraft.find((x) => x.hex === f.properties.hex);
       if (!a) return;
       const where = a.exposed ? (a.mins > 0 ? `Enters TEPHRA's area in ${a.mins} min` : "Inside TEPHRA's area") : "Outside the ash";
-      showPick(a.at, a.flight ? `${a.flight} · RFA (fictional)` : a.cs || a.hex,
+      showPick(a.at, a.flight ? `${a.flight} · ${airline().fictional ? "RFA (fictional)" : airline().code}` : a.cs || a.hex,
         [a.flight && a.cs ? `${M.demo ? "Demo" : "Real"} aircraft ${a.cs}` : null, [a.alt != null ? fl(a.alt) : null, a.gs != null ? `${Math.round(a.gs)} kt` : null].filter(Boolean).join(" · ") || null,
           a.from && a.to ? `${a.from} → ${a.to}` : null, where]);
     } else if (f.layer.id === "b-volcanoes") {
@@ -741,12 +968,7 @@ export function mountFlow(dialog, { has }) {
     TK.push(t);
     return t;
   }
-  function litSkill(id) {
-    const d = skillEls[id]?.dot;
-    if (!d) return;
-    d.classList.add("is-lit");
-    window.setTimeout(() => d.classList.remove("is-lit"), 700);
-  }
+  const litSkill = (id) => I.lightSkill(id);
 
   function visibleAircraft() {
     if (!proj) return [];
@@ -928,56 +1150,7 @@ export function mountFlow(dialog, { has }) {
   // open in Example (illustrative)
   const gateOpen = () => mode === "example" || M.gate.open || performance.now() < gateOpenUntil;
   function drawRails() {
-    const c = rctx;
-    c.setTransform(DPR, 0, 0, DPR, 0, 0);
-    c.clearRect(0, 0, VW, VH);
-    if (!A.code || !A.you || !A.gate || !M) return;
-    const ex = mode === "example";
-    const sp = A.spine, code = A.code, coord = A.coord, you = A.you;
-    c.lineCap = "round";
-    // the spine: code -> Coordinator -> the code lane down to you (caution toward you while must-do
-    // work goes that way)
-    const toYou = !ex && (M.ai.kind === "paused" || M.desk.must > 0);
-    const grd = c.createLinearGradient(0, code.y, 0, you.y);
-    grd.addColorStop(0, rgba(C.info, 0.45)); grd.addColorStop(0.4, rgba(C.info, 0.32));
-    grd.addColorStop(1, toYou ? rgba(C.must, 0.45) : rgba(C.info, 0.3));
-    c.strokeStyle = grd; c.lineWidth = 1.5;
-    c.beginPath(); c.moveTo(sp, code.y + 13); c.lineTo(sp, coord.y - 13); c.moveTo(sp, coord.y + 13); c.lineTo(sp, you.y - 13); c.stroke();
-    // the AI lane: Coordinator -> gate -> skills -> merge; with no model, the code templates' lane (dashed)
-    const nomodel = !ex && M.gate.kind === "nomodel";
-    const open = gateOpen();
-    c.strokeStyle = open && !nomodel ? rgba(C.job, 0.36) : rgba(C.info, 0.26); c.lineWidth = 1.5;
-    if (nomodel) c.setLineDash([4, 4]);
-    c.beginPath();
-    curve(c, [sp, coord.y + 8], [A.rail, A.gateIn.y]); c.lineTo(A.rail, A.gate.y);
-    c.moveTo(A.rail, A.gateOut.y); c.lineTo(A.rail, A.railEnd.y);
-    curve(c, [A.rail, A.railEnd.y], [sp, A.merge.y], true);
-    c.stroke();
-    c.setLineDash([]);
-    const g = A.gate;
-    if (!ex && !M.gate.open) {
-      // the jobs waiting in line, parked in front of the gate (budget.waiting, now)
-      M.queue.slice(0, 6).forEach((w, i) => {
-        const y = g.y - 11 - i * 11;
-        c.fillStyle = C.s1; c.beginPath(); c.arc(g.x, y, 4.6, 0, 7); c.fill();
-        c.strokeStyle = C.info; c.lineWidth = 1.5; c.beginPath(); c.arc(g.x, y, 4.2, 0, 7); c.stroke();
-      });
-    }
-    if (!open) {
-      c.strokeStyle = C.info; c.lineWidth = 3;
-      c.beginPath(); c.moveTo(g.x - 11, g.y); c.lineTo(g.x + 11, g.y); c.stroke();
-    } else {
-      // open: the bar split in two (dashed: no model, the skills are code templates)
-      c.strokeStyle = nomodel ? rgba(C.info, 0.6) : rgba(C.job, 0.5); c.lineWidth = 2;
-      if (nomodel) c.setLineDash([2, 2]);
-      c.beginPath(); c.moveTo(g.x - 11, g.y); c.lineTo(g.x - 5, g.y); c.moveTo(g.x + 5, g.y); c.lineTo(g.x + 11, g.y); c.stroke();
-      c.setLineDash([]);
-    }
-  }
-  function curve(c, p, q, noMove) {
-    const dy = q[1] - p[1];
-    if (!noMove) c.moveTo(p[0], p[1]);
-    c.bezierCurveTo(p[0], p[1] + dy * 0.55, q[0], q[1] - dy * 0.55, q[0], q[1]);
+    drawInside(rctx, A, M, { C, ex: mode === "example", open: M ? gateOpen() : false, VW, VH, DPR });
   }
 
   function drawHL(h) {
@@ -1223,26 +1396,18 @@ export function mountFlow(dialog, { has }) {
 
   // ---------------------------------------------------------------- words
   let legendFor = "";
-  function setMark(useHost, sym) {
-    const u = useHost.querySelector("use");
-    const href = `${u.getAttribute("href").split("#")[0]}#${sym}`;
-    setAttr(u, "href", href);
-  }
   function renderStatic() {
     // the Example segment is the `example` feature: hidden with it, and never left in Example mode
     modeSeg.hidden = !has("example");
     if (mode === "example" && !has("example")) mode = "real";
-    for (const [id, r] of Object.entries(skillEls)) if (r.li.hidden === shown(id)) r.li.hidden = !shown(id);
-    const onreq = HELPERS.filter((h) => h.role === "desk" && shown(h.id)).map((h) => h.name).join(" · ");
-    setText(onreqName, `When you ask: ${onreq}`);
     const ex = mode === "example";
+    I.renderStatic(M, ex);
     dialog.classList.toggle("is-example", ex);
     setAttr(btnReal, "aria-pressed", String(!ex));
     setAttr(btnEx, "aria-pressed", String(ex));
     exFlag.hidden = !ex;
     const sym = ex ? "ta-working" : M.ai.symbol;
     setMark(markUse, sym);
-    setMark(coordMark, sym);
     if (dialog.dataset.ai !== (ex ? "on" : M.ai.kind)) dialog.dataset.ai = ex ? "on" : M.ai.kind;
     if (dialog.dataset.mode !== M.mode) dialog.dataset.mode = M.mode;
     setText(status, `· ${ex ? "working (example)" : M.status}`);
@@ -1250,28 +1415,6 @@ export function mountFlow(dialog, { has }) {
     setText(ledeText, ex ? "An example of a normal run on the same recorded inputs: the Coordinator hands each job to a skill, and every draft waits for you." : M.sub);
     const why = !ex && (M.ai.kind === "paused" || M.ai.kind === "trouble");
     if (whyBtn.hidden === why) whyBtn.hidden = !why;
-    setText(gateName, ex ? "AI model · open" : M.gate.name);
-    setText(gateMeta, ex ? "Example: open, jobs go straight through" : M.gate.meta);
-    // what waits and where the cause is; why the assistant is paused is said at its home (8.6)
-    setAttr(gateRow, "title", ex || (!M.queue.length && !M.gate.title) ? null : [M.queue.length ? `Waiting in line:\n${M.queue.map((w) => `• ${w.label}`).join("\n")}` : null, M.gate.title || null].filter(Boolean).join("\n"));
-    setText(coordMeta, ex ? "Orders the jobs and hands them to skills" : M.coord.meta);
-    setAttr(coordBtn, "aria-label", `Coordinator: ${ex ? "orders the jobs and hands them to skills (example)" : M.coord.meta}. Details`);
-    for (const s of M.skills) {
-      const r = skillEls[s.id];
-      if (!r) continue;
-      setText(r.name, s.name);
-      const inLine = !ex && s.inLine;
-      const failed = !ex && s.last?.failed;
-      const stateKey = inLine ? `in:${s.inLine}` : failed ? "failed" : ex ? "ex" : s.last ? `last:${s.last.at}` : "idle";
-      if (r.state.dataset.k !== stateKey) {
-        r.state.dataset.k = stateKey;
-        r.state.replaceChildren(...(inLine ? [el("i", { class: "flow-ring" }), `${s.inLine} in line`] : failed ? ["no result"] : ex ? [] : [s.last ? `last ${hms(s.last.at)}` : "idle"]));
-      }
-      r.li.classList.toggle("is-idle", !inLine && !failed && !ex && !s.last);
-      r.dot.classList.toggle("is-wait", Boolean(inLine));
-      setAttr(r.btn, "aria-label", `${s.name}: ${inLine ? `${s.inLine} ${s.inLine === 1 ? "job waits" : "jobs wait"} in line` : failed ? "its newest step gave no result" : s.last ? `newest step ${hms(s.last.at)}` : "nothing in the newest steps"}. Details`);
-      setAttr(r.btn, "title", [s.does, s.last ? `${s.last.text} · ${hms(s.last.at)}` : null, inLine ? `In line: ${s.jobs.join("; ")}` : null].filter(Boolean).join("\n"));
-    }
     if (legendFor !== mode) {
       legendFor = mode;
       const sw = (tone, word, hollow = false) => el("span", {}, (() => { const i = el("i", { class: hollow ? "is-hollow" : null }); if (hollow) i.style.color = colOf(tone); else i.style.background = colOf(tone); return i; })(), word);
@@ -1284,67 +1427,14 @@ export function mountFlow(dialog, { has }) {
   }
 
   function renderCounters() {
-    const S = flowAt(events, simT);
-    setText(cFeeds, S.feeds); setText(wFeeds, S.feeds === 1 ? " feed read · " : " feed reads · ");
-    setText(cFlights, S.flights); setText(wFlights, S.flights === 1 ? " flight alert" : " flight alerts");
-    // a run the model refused called no model: it is "not run", never "last run" (Q4)
-    setText(coordRight, S.coordAt ? `${S.coordRefused ? "not run" : "last run"} ${hms(S.coordAt)}` : "");
+    I.renderCounters(events, simT);
   }
 
-  // the hero: M of the newest refused run at the playhead (tokens still on their way do not count
-  // until they land), or, while the assistant works, the drafts that wait at the Desk now
+  // the hero, its reason and the run bars (mountInside), and the bar's chip that says the same
   function renderDecide(bump) {
     if (!M) return;
     const ex = mode === "example";
-    const D = M.desk;
-    const done = events.filter((e) => e.at <= simT && !pendingLand.has(e.id));
-    const S = flowAt(done, simT);
-    const mustMode = !ex && (S.must != null || M.ai.kind === "paused");
-    let n, words;
-    if (ex) { n = exState.run ? exState.drafts : null; words = n === 1 ? "advisory draft to approve (example)" : "advisory drafts to approve (example)"; }
-    else if (mustMode) { n = S.must; words = n === 1 ? "must-do flight to plan by hand" : "must-do flights to plan by hand"; }
-    else { n = D.drafts; words = n === 1 ? "advisory waits for you" : "advisories wait for you"; }
-    const before = heroN.textContent;
-    setText(heroN, n == null ? "–" : String(n));
-    heroN.classList.toggle("is-none", n == null);
-    setText(heroW, words);
-    if (bump && before !== heroN.textContent && !RM()) { heroN.classList.add("is-bump"); window.setTimeout(() => heroN.classList.remove("is-bump"), 320); }
-    decide.classList.toggle("is-must", mustMode);
-    setText(who, ex ? (exState.run ? `Illustrative: one draft per flight of the example run at ${hms(exState.runAt)}.` : "Illustrative: no run in this window yet.")
-      : mustMode ? (S.mustAt == null ? "Waiting for the first run in this window." : `Passed straight to you by code · run ${hms(S.mustAt)}`)
-        : n == null ? "Advisory count unknown (database error)." : "Drafts wait at the Desk for a dispatcher.");
-    // run bars: one per refused run in the window, lit up to the playhead
-    const runs = M.runs.filter((e) => e.type === "refused");
-    runsBox.hidden = ex || !runs.length;
-    const max = Math.max(1, ...runs.map((r) => r.n));
-    const lit = runs.filter((r) => r.at <= simT && !pendingLand.has(r.id)).length;
-    if (runsBars.childElementCount !== runs.length) runsBars.replaceChildren(...runs.map(() => el("i")));
-    runs.forEach((r, i) => {
-      const b = runsBars.children[i];
-      const on = i < lit;
-      const cls = on ? (bump && i === lit - 1 ? "is-new" : "is-on") : "is-ghost";
-      if (b.className !== cls) b.className = cls;
-      const h = on ? `${Math.max(3, (r.n / max) * 26)}px` : "2px";
-      if (b.style.height !== h) b.style.height = h;
-      setAttr(b, "title", `${hms(r.at)}: ${plural(r.n, "must-do flight")} passed to you`);
-    });
-    setText(runsCap, lit ? `${lit} of ${runs.length} runs` : `${runs.length} runs in this window`);
-    // the other work at the Desk, now (the Wall's own counts, not the playhead). The hero already
-    // says the must-do count, so the facts do not say a second one.
-    const rows = [];
-    if (!ex) {
-      const hp = D.handPlan;
-      if (hp && hp.n) rows.push(["Flights to plan by hand", mustMode ? String(hp.n) : `${hp.n}${hp.must ? ` · ${hp.must} must do` : ""}`]);
-      if (D.sra.n) rows.push(["SRA to sign", `${D.sra.n}${D.sra.names[0] ? ` · ${D.sra.names[0]}` : ""}`]);
-      if (D.plan) rows.push(["Airport plan", D.plan === "by hand" ? "By hand" : "Waits for approval", D.planNote]);
-      if (mustMode) rows.push(["Advisories to approve", D.drafts == null ? "unknown" : D.drafts ? String(D.drafts) : "None"]);
-    }
-    const factsKey = JSON.stringify(rows);
-    if (facts.dataset.k !== factsKey) {
-      facts.dataset.k = factsKey;
-      facts.replaceChildren(...rows.map(([k, v, t]) => el("li", { title: t || null }, el("span", { text: k }), el("b", { text: v }))));
-    }
-    factsCap.hidden = facts.hidden = !rows.length;
+    const { n, mustMode } = I.renderDecide(M, { ex, events, t: simT, pending: pendingLand, exState, bump, rm: RM() });
     mchip.classList.toggle("is-must", mustMode);
     const shown = n == null ? "–" : String(n);
     setText(mchip, ex ? `${shown} drafts (example)` : mustMode ? `${shown} must-do` : `${shown} to approve`);

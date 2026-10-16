@@ -1,5 +1,7 @@
 """Airline onboarding accounts, the private workspace's API, the Desk's airline review and the
-own-fleet read (``GET /api/fleet``).
+own-fleet read (``GET /api/fleet``). The account comes first: its onboarding pages are a draft
+saved on each Next and Back (``PUT /api/airline/draft``) until Review submits them
+(``POST /api/airline/submit``); the Desk never sees a draft.
 
 ``router`` is mounted under ``/api`` by the app factory. Every ``/api/airline/*`` and
 ``/api/desk/airlines*`` route answers 404 ``feature_off`` unless ``onboard`` is in
@@ -14,6 +16,7 @@ import json
 import logging
 import re
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Annotated, Any, Final, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -31,17 +34,19 @@ from tephra.airline.models import (
     AirlineLogin,
     AirlineRecord,
     AirlineSessionView,
-    AirlineStatus,
     AirlineView,
     AnswersUpdate,
     AssistantUpdate,
     DeclineAirline,
     DeleteAccount,
     DeleteAirline,
+    DeskStatus,
+    DraftUpdate,
     DryRunResult,
     Recover,
     RecoveryCode,
     SignIn,
+    Submit,
     VerifyAirline,
 )
 from tephra.airline.policy_check import EDITABLE, PolicyRefused, apply_changes
@@ -72,6 +77,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 SITE: Final = "site"
+PURGE_EVERY_S: Final = 3600.0
 TRIES_HEADER: Final = "X-Tephra-Tries-Left"
 _AIRLINE_ID: Final = re.compile(r"AL-[0-9a-f]{12}")
 
@@ -175,15 +181,27 @@ def _record_failure(request: Request, client: str, key: str, email_throttle: str
 
 
 def _count_write(request: Request, airline_id: str) -> None:
-    """Every save is a store write: one airline's saves are bounded so they cannot use up the
-    store's daily free writes for the whole site."""
+    """Every save is a store write: one airline's saves, and all airlines' together, are
+    bounded so they cannot use up the store's daily free writes for the whole site."""
     _refuse_if_blocked(
         request,
-        [("airline_writes", airline_id)],
+        [("airline_writes", airline_id), ("airline_writes_all", SITE)],
         "too_many_requests",
         "Too many saves today",
     )
     _throttle(request, "airline_writes").record_failure(airline_id)
+    _throttle(request, "airline_writes_all").record_failure(SITE)
+
+
+async def _purge_now_and_then(request: Request, runtime: Any) -> None:
+    """Stale drafts go (accounts.purge_stale_drafts) at most once per PURGE_EVERY_S in this
+    process, on the way to a new account: reading every draft is not for every request."""
+    now = wall_clock_now()
+    last: datetime | None = getattr(request.app.state, "airline_purged_at", None)
+    if last is not None and (now - last).total_seconds() < PURGE_EVERY_S:
+        return
+    request.app.state.airline_purged_at = now
+    await accounts.purge_stale_drafts(runtime.store, now=now)
 
 
 def _view(
@@ -212,8 +230,8 @@ async def get_session(request: Request, settings: SettingsDep) -> Response:
         AirlineSessionView(
             accounts=accounts_enabled(settings),
             signed_in=claims is not None,
-            icao=None if claims is None else claims.icao,
-            name=None if claims is None else claims.name,
+            icao=None if claims is None else claims.icao or None,
+            name=None if claims is None else claims.name or None,
         )
     )
 
@@ -226,9 +244,10 @@ async def get_session(request: Request, settings: SettingsDep) -> Response:
     dependencies=Accounts,
 )
 async def create_account(request: Request, runtime: RuntimeDep) -> Response:
-    """Cheapest first: the attempt throttle, the answers, the accepted-signup throttles, the
-    caps, then the hash and the two writes. The body is read here, not by FastAPI, so a flood
-    of invalid bodies meets the throttle before any validation."""
+    """The account first, its onboarding a draft. Cheapest first: the attempt throttle, the
+    body, the accepted-signup throttles, the caps, then the hash and the two writes. The body
+    is read here, not by FastAPI, so a flood of invalid bodies meets the throttle before any
+    validation."""
     client = client_key_64(request)
     _refuse_if_blocked(
         request,
@@ -241,13 +260,13 @@ async def create_account(request: Request, runtime: RuntimeDep) -> Response:
         body = AccountCreate.model_validate(await _json_body(request))
     except ValidationError as exc:
         raise _invalid(_problems(exc)) from None
-    _check_policy(body.answers, runtime)
     _refuse_if_blocked(
         request,
         [("airline_signups", client), ("airline_signups_all", SITE)],
         "too_many_requests",
         "Too many new airlines from this address or on this server today",
     )
+    await _purge_now_and_then(request, runtime)
     if await accounts.onboarding_full(runtime.store):
         raise ApiError(503, "onboarding_full", "New airlines are paused on this server")
     password_hash = await passwords.hashed(body.password)
@@ -255,14 +274,15 @@ async def create_account(request: Request, runtime: RuntimeDep) -> Response:
     try:
         record, login = await accounts.create_account(
             runtime.store,
-            answers=body.answers,
             email=body.email,
             password_hash=password_hash,
             recovery_sha256=passwords.code_sha256(code),
-            flags=await _flags(request, runtime, body.answers, body.email),
             at=wall_clock_now(),
         )
     except accounts.EmailTaken:
+        # counted like an account made: asking whether an email has an account costs this
+        # address one of its sign-ups a day (not the site's, which a prober would use up)
+        _throttle(request, "airline_signups").record_failure(client)
         raise ApiError(
             409, "email_taken", "An account with this email exists. Sign in instead."
         ) from None
@@ -298,7 +318,13 @@ async def sign_in(body: SignIn, request: Request, runtime: RuntimeDep) -> Respon
     _throttle(request, "airline_login_email").clear(key)
     record = await _record_of(runtime, login.airline_id)
     claims = claims_of(record, login)
-    view = AirlineSessionView(accounts=True, signed_in=True, icao=claims.icao, name=claims.name)
+    view = AirlineSessionView(
+        accounts=True,
+        signed_in=True,
+        icao=claims.icao or None,
+        name=claims.name or None,
+        status=record.status,
+    )
     return _view(view, request, record, login)
 
 
@@ -360,6 +386,65 @@ async def get_me(airline: Airline) -> Response:
     return _json(AirlineView.of(airline.record))
 
 
+@router.put("/airline/draft", response_model=AirlineView, dependencies=[Depends(require_csrf)])
+async def put_draft(
+    body: DraftUpdate, request: Request, airline: Airline, runtime: RuntimeDep
+) -> Response:
+    """A page's Next or Back while the airline has not submitted: the pages as typed."""
+    _count_write(request, airline.record.id)
+    try:
+        record = await accounts.save_draft(
+            runtime.store,
+            airline.record.id,
+            version=body.version,
+            draft=body.draft,
+            at=wall_clock_now(),
+        )
+    except accounts.VersionConflict:
+        raise _version_conflict() from None
+    except accounts.AlreadySubmitted as exc:
+        raise _already_submitted(exc.status) from None
+    return _json(AirlineView.of(record))
+
+
+@router.post("/airline/submit", response_model=AirlineView, dependencies=[Depends(require_csrf)])
+async def submit(body: Submit, request: Request, airline: Airline, runtime: RuntimeDep) -> Response:
+    """Review's Submit for verification: the answers checked as a whole, then pending. The
+    cookie is signed again with the airline's ICAO and name."""
+    _count_write(request, airline.record.id)
+    _check_policy(body.answers, runtime)
+    if await accounts.submissions_full(runtime.store):
+        raise ApiError(503, "onboarding_full", "New airlines are paused on this server")
+    try:
+        record = await accounts.submit(
+            runtime.store,
+            airline.record.id,
+            version=body.version,
+            answers=body.answers,
+            flags=await _flags(request, runtime, body.answers, airline.record.email),
+            at=wall_clock_now(),
+        )
+    except accounts.VersionConflict:
+        raise _version_conflict() from None
+    except accounts.AlreadySubmitted as exc:
+        raise _already_submitted(exc.status) from None
+    return _view(AirlineView.of(record), request, record, airline.login)
+
+
+def _already_submitted(status: str) -> ApiError:
+    return ApiError(409, "already_submitted", f"This airline was submitted and is {status}")
+
+
+def _locked(status: str) -> ApiError:
+    if status == "draft":
+        return ApiError(403, "answers_locked", "Submit your onboarding first.")
+    return ApiError(
+        403,
+        "answers_locked",
+        f"Your answers are kept as {status}. Ask a TEPHRA dispatcher to change them.",
+    )
+
+
 @router.put("/airline/answers", response_model=AirlineView, dependencies=[Depends(require_csrf)])
 async def put_answers(
     body: AnswersUpdate, request: Request, airline: Airline, runtime: RuntimeDep
@@ -379,11 +464,7 @@ async def put_answers(
     except accounts.VersionConflict:
         raise _version_conflict() from None
     except accounts.AnswersLocked as exc:
-        raise ApiError(
-            403,
-            "answers_locked",
-            f"Your answers are kept as {exc.status}. Ask a TEPHRA dispatcher to change them.",
-        ) from None
+        raise _locked(exc.status) from None
     claims = claims_of(record, airline.login)
     if (claims.icao, claims.name) == (airline.claims.icao, airline.claims.name):
         return _json(AirlineView.of(record))
@@ -394,7 +475,8 @@ async def put_answers(
 async def put_assistant(
     body: AssistantUpdate, request: Request, airline: Airline, runtime: RuntimeDep
 ) -> Response:
-    """Allowed in every status: the choice goes only into the airline's own setup kit."""
+    """Allowed once submitted, in every status: the choice goes only into the airline's own
+    setup kit."""
     _count_write(request, airline.record.id)
     try:
         record = await accounts.update_assistant(
@@ -406,6 +488,8 @@ async def put_assistant(
         )
     except accounts.VersionConflict:
         raise _version_conflict() from None
+    except accounts.AnswersLocked as exc:
+        raise _locked(exc.status) from None
     return _json(AirlineView.of(record))
 
 
@@ -479,19 +563,23 @@ Dispatcher = Annotated[SessionInfo, Depends(require_dispatcher)]
 
 
 async def _desk_record(runtime: Runtime, airline_id: str) -> AirlineRecord:
+    """A submitted airline: a draft is the airline's own, and answers 404 like a missing one."""
     if _AIRLINE_ID.fullmatch(airline_id) is None:
         raise ApiError(404, "not_found", "No such airline")
     try:
-        return await accounts.get_record(runtime.store, airline_id)
+        record = await accounts.get_record(runtime.store, airline_id)
     except accounts.AirlineNotFound:
         raise ApiError(404, "not_found", "No such airline") from None
+    if record.status == "draft":
+        raise ApiError(404, "not_found", "No such airline")
+    return record
 
 
 def _desk_view(record: AirlineRecord) -> AirlineDeskView:
     broken = accounts.verify_history(record.history)
     return AirlineDeskView(
         **AirlineDeskRow.of(record).model_dump(),
-        answers=record.answers,
+        answers=record.submitted(),
         history=record.history,
         history_ok=broken is None,
         history_broken_at=broken,
@@ -502,7 +590,7 @@ def _desk_view(record: AirlineRecord) -> AirlineDeskView:
 async def list_airlines(
     session: Dispatcher,
     runtime: RuntimeDep,
-    status: AirlineStatus | Literal["all"] = "pending",
+    status: DeskStatus | Literal["all"] = "pending",
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> Response:
     records = await accounts.list_airlines(runtime.store, status, limit)

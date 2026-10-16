@@ -202,6 +202,10 @@ def test_gemini_env_parses_and_the_key_is_only_in_airline_env(
     assert s.recovery_auto is False
     assert s.mode.value == "LIVE"
     assert s.visitor_access == "off"
+    assert s.airline_name == "Ring of Fire Air"
+    assert s.airline_icao == "RFA"
+    assert s.airline_schedule == "airline/flights.json"
+    assert s.airline.fictional is False
     others = [f["text"] for f in kit["gemini"]["files"] if not f["path"].endswith("airline.env")]
     assert not any("AIza-test-key-123" in t for t in others)
     assert env.startswith(
@@ -298,7 +302,16 @@ def test_checklist_has_eight_steps_and_the_honesty_lines(kit: dict[str, Any]) ->
     check = _file(kit, "gemini", "CHECKLIST.md")
     steps = [line for line in check.splitlines() if line.startswith("- [ ] **")]
     assert len(steps) == 8
-    assert "drafts name each flight by an RFA number of the fictional Ring of Fire Air" in steps[0]
+    assert (
+        "Each flight is named by your callsign, else the flight number of a flight plan you "
+        "pushed that is flying now, else its flight in flights.json, else its registration."
+        in steps[0]
+    )
+    assert "RFA number" not in check
+    assert (
+        "mkdir -p data/airline && cp tephra-kit-rfa/flights.json tephra-kit-rfa/fleet.json "
+        "data/airline/" in check
+    )
     assert "Policy B" in steps[0]
     assert "recovery re-planning for your network" in steps[0]
     assert "cp tephra-kit-rfa/airline.env .env" in check

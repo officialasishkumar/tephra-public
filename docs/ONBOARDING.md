@@ -1,9 +1,12 @@
 # Onboard your airline
 
 TEPHRA's demo runs on Ring of Fire Air (RFA), a fictional airline. Any real airline can onboard at
-`/onboard`: nine short pages, one topic per page, then an account and a private workspace with a
-setup kit to run its own TEPHRA on its own fleet. The answers stay in the browser while the airline
-types them and leave it only when the account is created on the last page.
+`/onboard`: the account first (a work email and a password, on the same page as the list below),
+then nine short pages, one topic per page, and a private workspace with a setup kit to run its own
+TEPHRA on its own fleet. Each page is saved to the account on Next, on Back, on a step in the list
+and when you leave the page; signing in again
+resumes at the first page not finished. Review's **Submit for verification** sends the answers to
+this site's dispatchers.
 
 What onboarding is not: there is no live operation on the shared site. Nothing an airline enters
 reaches the demo's map or the Desk's picture, no advisory is drafted under its name, and pushes
@@ -24,9 +27,16 @@ show it (an airline's own TEPHRA, for one) holds no accounts.
 6. **Data feeds**: which of positions, flight plans and pilot reports you will send, in the `tephra.airline/1` format.
 7. **People**: the dispatchers who approve advisories, and their roles.
 8. **Assistant (AI model)**: Gemini or Gemma with your own Google AI Studio key, Gemma on your own computer through Ollama, or no model.
-9. **Review**: check every answer and create your account.
+9. **Review**: check every answer and submit it for verification.
 
-The server checks the answers again (`tephra/airline/models.py`, format `tephra.onboard/2`): codes
+Until Review submits them the pages are a **draft** in the account (`PUT /api/airline/draft`): kept
+as typed, checked for shape and size only (every key a page writes and nothing else, each value
+bounded, a control character kept as a space). A page with a problem says so and offers "Next
+anyway"; Submit refuses until every page passes. A save the server does not take (offline, too
+many saves, another tab) is said in the bar where Next is, and what was typed stays on the page.
+
+On Submit (`POST /api/airline/submit`) the server checks the answers again
+(`tephra/airline/models.py`, format `tephra.onboard/2`): codes
 by pattern, every list capped, registrations and aircraft addresses once each, at least one
 dispatcher who approves, and every policy change named, within the values an airline may change
 and with the policy file's own rules still met (no zero that switches a check off, divert time not
@@ -50,19 +60,31 @@ a password, an address or a file: the schedule files stay in the browser and go 
   The limits live in the server's memory and start again after a deploy or restart.
 - **Known and accepted.** Signing up with an email that already has an account says so ("An account
   with this email exists. Sign in instead."): with no email check (not built) there is nothing to
-  hide it behind. Sign-in and recovery never say whether an email has an account.
-- **Full.** With 200 airlines pending or 1,000 stored, new airlines are paused (`onboarding_full`).
+  hide it behind, so each such answer counts as one of the address's three sign-ups a day. Sign-in
+  and recovery never say whether an email has an account.
+- **Saves.** Each save is one store write; an account may make 100 a day (enough for a walk through
+  the pages with many edits), and all accounts together 3,000. Every signed-in request reads the
+  store twice, so one address may make 60 in five minutes and the site 5,000 a day. Edits fold into
+  the record's last history entry, so the history never holds more than 100 entries.
+- **Not submitted.** An account whose answers were never submitted is deleted, login first, once
+  seven days pass without a save (checked at most hourly, at a sign-up), so its email can sign up
+  again and junk drafts cannot fill the cap below.
+- **Full.** With 300 accounts still onboarding, 200 airlines pending or 1,000 accounts in all,
+  new accounts are paused (`onboarding_full`); with 200 pending, Submit waits too. Counted by the
+  store without reading a record.
 - **The cookie.** `tephra_airline`: HttpOnly, SameSite=Strict, 12 hours (`TEPHRA_AIRLINE_SESSION_TTL_H`),
   signed with the session secret under its own label, so a Desk cookie never opens a workspace and
   the reverse. Accounts need `TEPHRA_SESSION_SECRET` (`accounts_off` without it).
-- **Deleting the account.** Account menu › Delete account…, with the password: the record and the
-  login are deleted, and so are the onboarding answers and schedule files this browser kept.
-  Signing out clears those too.
+- **Deleting the account.** Account menu › Delete account…, with the password, at any point (a
+  draft too): the record and the login are deleted, and so are the schedule files this browser
+  kept. Signing out clears those too.
 
 ## Verification
 
-A new airline is **Pending verification** until a TEPHRA dispatcher opens it on the Desk (account
-menu › Airlines to verify) and verifies or declines it. Verifying records that a person checked
+A submitted airline is **Pending verification** until a TEPHRA dispatcher opens it on the Desk
+(account menu › Airlines to verify) and verifies or declines it. An account still onboarding
+(**Not submitted**) is never listed there and answers 404 on every Desk route: its answers are its
+own until it submits. Verifying records that a person checked
 who the operator is (for example its designator, its AOC and the email domain). It does not approve
 its policy or its use of TEPHRA, publishes nothing and changes no picture. Declining needs a
 reason, which the airline sees.
@@ -85,8 +107,11 @@ Sign in at `/signin`. The workspace (`/workspace`) is private: only the airline 
 TEPHRA dispatchers, who verify it, read its answers; it is never listed publicly, never on the
 demo's map or the Desk's picture.
 
-- **Overview**: the verification status, the setup kit, the answers, the data feeds, the assistant
-  and the people, then once: running your live operation on this shared TEPHRA is not built.
+- **Overview**: still onboarding, "Continue onboarding · step n of 9" and the page to go back to,
+  and nothing else (the other sections and the setup kit come once the answers are submitted).
+  Submitted: the verification status, the setup kit, the answers, the data feeds, the assistant and
+  the people. Both end with one line: this shared site runs the demo only; to check your own
+  flights, run your own TEPHRA with the setup kit.
 - **Your answers**: each page's answers, editable while pending.
 - **Data feeds**: the `tephra.airline/1` format and its schema (`/api/connect/schema.json`), and a
   **dry run** (DRY RUN · NOTHING TAKEN IN): a file is checked record by record exactly as a push
@@ -123,7 +148,9 @@ live ash feeds cover only those), `TEPHRA_FEATURES=connect` (`,crew` when pilot 
 `TEPHRA_VISITOR_ACCESS=off`, `TEPHRA_RECOVERY_AUTO=false` (recovery re-planning for the airline's
 network is not built), `TEPHRA_VONA_LIVE=false`, `TEPHRA_STORE=sqlite`, `TEPHRA_LOCAL_SCHEDULER=true`,
 the three secrets, the own-fleet and own-airport lists, `TEPHRA_POLICY_FILE=policy/airline.json`,
-then the model lines of the provider chosen (`TEPHRA_LLM=stub` is labelled NO MODEL).
+the airline's identity for its drafts (`TEPHRA_AIRLINE_NAME`, `TEPHRA_AIRLINE_ICAO`, the IATA code
+when given, and `TEPHRA_AIRLINE_SCHEDULE` / `TEPHRA_AIRLINE_FLEET` pointing at the kit's
+flights.json and fleet.json under `data/airline/`), then the model lines of the provider chosen (`TEPHRA_LLM=stub` is labelled NO MODEL).
 
 `push.py`:
 
@@ -143,13 +170,14 @@ second apart. `--dry-run` prints the batches and sends nothing.
 ## Run your own TEPHRA
 
 1. **What this is**: a private TEPHRA for the airline, which checks only its fleet and the
-   aircraft it pushes. Not built: one shared service for many airlines; advisories under the
-   airline's own flight numbers (drafts name each flight by an RFA number of the fictional Ring of
-   Fire Air, and the airline's flight numbers and callsigns never appear in a draft's text);
-   Policy B; recovery re-planning for its network; a sign-in for the map page.
+   aircraft it pushes. Each flight is named by the airline's callsign, else the flight number of
+   a pushed flight plan that is flying now, else its flight in flights.json, else its
+   registration. Not built: one shared service for many airlines; Policy B;
+   recovery re-planning for its network; a sign-in for the map page.
 2. **Get TEPHRA**: clone the repository, then `uv sync` (or Docker).
-3. **Put the kit in place**: `cp tephra-kit-<icao>/airline.env .env` and
-   `cp tephra-kit-<icao>/policy.json data/policy/airline.json`.
+3. **Put the kit in place**: `cp tephra-kit-<icao>/airline.env .env`,
+   `cp tephra-kit-<icao>/policy.json data/policy/airline.json`, and
+   `mkdir -p data/airline && cp tephra-kit-<icao>/flights.json tephra-kit-<icao>/fleet.json data/airline/`.
 4. **The model**: Gemini or Gemma on AI Studio: paste the airline's own key after `GEMINI_API_KEY=`.
    When its free daily limit is spent the assistant says AI UNAVAILABLE and plans nothing in its
    place; a model with no row in TEPHRA's free-tier table is never called until one is added with
@@ -184,22 +212,21 @@ official area stays binding, and other aircraft stay on the map.
 ## Privacy
 
 What is stored: the account email; the password as a salted scrypt hash, never the password; a
-hash of the recovery code; the onboarding answers, including the operations email, the contact
-name and the dispatchers' names or initials. Where: Firestore on the live site (`airlines`,
-`airline_logins`), SQLite locally. Who reads it: the airline when signed in, and this site's
-signed-in dispatchers, to verify it. It is never public, never in the audit trail and never sent
-to Gemini. The browser keeps the onboarding draft and the schedule files in its own storage until
-"Clear my answers", sign-out or deleting the account. A Gemini key typed on the Setup kit page
+hash of the recovery code; from sign-up on, the onboarding answers with the account, including the
+operations email, the contact name and the dispatchers' names or initials. Where: Firestore on the
+live site (`airlines`, `airline_logins`), SQLite locally. Who reads it: the airline when signed in,
+and this site's signed-in dispatchers once the airline submits, to verify it. It is never public,
+never in the audit trail and never sent to Gemini. The browser keeps only the schedule files and
+an Ollama address, for the setup kit, until sign-out or deleting the account. A Gemini key typed on the Setup kit page
 stays in that tab and goes only into the zip. Records are kept until the airline deletes its
 account, or a dispatcher deletes a declined airline's record; nothing expires them. The site's
 privacy page says the same (`/privacy#accounts`).
 
 ## Not built
 
-- Running a verified airline's live operation on this shared TEPHRA: pushes from airline accounts
-  and advisories under an airline's name never appear on the demo or the Desk.
-- Advisories under the airline's own flight numbers: its own TEPHRA still drafts under Ring of
-  Fire Air numbers.
+- Running an airline's live operation on this shared site: it runs the demo only. Pushes from
+  airline accounts and advisories under an airline's name never appear on the demo or the Desk;
+  to check its own flights an airline runs its own TEPHRA with the setup kit.
 - One shared service with a desk per airline over the same public picture.
 - Policy B (through, under or over the ash): no code applies a Policy B preset.
 - Recovery re-planning for the airline's network.
@@ -208,10 +235,11 @@ privacy page says the same (`/privacy#accounts`).
 
 ## FAQ
 
-**Why do drafts still say Ring of Fire Air?** TEPHRA names every flight in a draft by an RFA
-number of the fictional airline, and its checks refuse a draft that names the aircraft's own
-callsign. That holds in an airline's own TEPHRA too; drafts under the airline's own numbers are
-not built.
+**What do my own TEPHRA's drafts call my flights?** Your own TEPHRA names each flight of your
+fleet by its callsign when it is one of yours, else by the flight number of a flight plan you pushed
+that is flying now, else by its flight in your flights.json (matched by registration and time), else
+by its registration. Its airline.env names your airline
+(`TEPHRA_AIRLINE_NAME`, `TEPHRA_AIRLINE_ICAO`), which it needs to start.
 
 **Where does my Gemini key go?** Only into the zip made on the Setup kit page, in that browser tab.
 The field has no name and sits outside any form, so no request carries it; TEPHRA never receives or

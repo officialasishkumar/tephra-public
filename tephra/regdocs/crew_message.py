@@ -11,7 +11,7 @@ The message names the nearest catalogued volcano only as a distance, never as th
 from datetime import datetime
 from typing import Final
 
-from tephra.config import AIRLINE_NAME
+from tephra.config import Airline
 from tephra.desk.approvals import SYSTEM_ACTOR
 from tephra.models import (
     CREW_AREA_LABEL,
@@ -57,6 +57,7 @@ async def draft_crew_message(
     if report.kind is not CrewReportKind.ASH or report.area is None or report.withdrawn_at:
         raise NotAnAshReport(report.id)
     state = await runtime.system_state()
+    airline = runtime.settings.airline
     created = timeutil.now()
     facts_in: dict[str, object] = {
         "crew_report_id": report.id,
@@ -72,7 +73,7 @@ async def draft_crew_message(
     against = _against(view, created)
     body = "\n".join(
         [
-            f"{_who(report)} reported {_cues(report)} at"
+            f"{_who(report, airline)} reported {_cues(report)} at"
             f" {format_position(report.lat, report.lon)}, {_level(report)}, at"
             f" {timeutil.hhmmz(report.observed_at)}.",
             _basis(report),
@@ -80,7 +81,7 @@ async def draft_crew_message(
             _near(report, runtime.settings.active_radius_km),
             *([f"Crew remarks as entered: {report.remarks}"] if report.remarks else []),
             "Please take this report into account in the next VA advisory and VA SIGMET.",
-            f"{AIRLINE_NAME} dispatch (fictional airline; decision support only).",
+            _signed(airline),
         ]
     )
     area = report.area
@@ -89,7 +90,7 @@ async def draft_crew_message(
         header=VAR_HEADER,
         labels=[
             "CREW REPORT ENTERED BY A DISPATCHER - NOT FROM A FEED",
-            _flight_label(report),
+            *([label] if (label := _flight_label(report, airline)) else []),
             *document_labels(state, backend=None),
         ],
         created_at=created,
@@ -108,7 +109,11 @@ async def draft_crew_message(
                 note="Verify the address against the AIP before use.",
             ),
             DocField.code("to_vaac", "To", centre),
-            DocField.code("from", "From", f"{AIRLINE_NAME} dispatch (fictional)"),
+            DocField.code(
+                "from",
+                "From",
+                f"{airline.name} dispatch" + (" (fictional)" if airline.fictional else ""),
+            ),
         ],
         subject=DocField.code("subject", "Subject", subject),
         body=body,
@@ -174,15 +179,27 @@ def _against(view: CrewReportView, at: datetime) -> str:
     return f"At {when}, no valid VA SIGMET or VA advisory area meets it, sideways or in height."
 
 
-def _who(report: CrewReport) -> str:
+def _signed(airline: Airline) -> str:
+    if airline.fictional:
+        return f"{airline.name} dispatch (fictional airline; decision support only)."
+    return f"{airline.name} dispatch (decision support only)."
+
+
+def _who(report: CrewReport, airline: Airline) -> str:
     if report.proxy_flight is not None:
         seen = f" for ADS-B callsign {report.callsign}" if report.callsign else ""
+        if not airline.fictional:
+            return f"{report.proxy_flight} ({airline.name} flight{seen})"
         return f"{report.proxy_flight} (proxy flight of the fictional airline{seen})"
     return f"Callsign {report.callsign} (typed by the dispatcher; not tracked by TEPHRA)"
 
 
-def _flight_label(report: CrewReport) -> str:
+def _flight_label(report: CrewReport, airline: Airline) -> str | None:
+    """The fictional airline's proxy flight is labelled not real; an airline's own flight
+    needs no label."""
     if report.proxy_flight is not None:
+        if not airline.fictional:
+            return None
         return f"{report.proxy_flight}: PROXY FLIGHT OF A FICTIONAL AIRLINE - NOT A REAL FLIGHT"
     return f"CALLSIGN {report.callsign} TYPED BY A DISPATCHER - NOT TRACKED BY TEPHRA"
 

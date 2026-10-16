@@ -1,7 +1,7 @@
-/* Home (home.html; DESIGN 5.1, mockups home.html and home-light.html): a 56 px header, the stage
-   (the copy column, then the map) and a footer line. Dark: the night map bleeds to the right edge
-   under a gradient into the page. Light: the map sits in a framed night panel with its key and
-   the live count. Phones (<= 760 px): the map is a 200 px band on top, the copy below. */
+/* Home (home.html; DESIGN 5.1): a 56 px header, the stage (the copy column, then the picture of
+   the five steps, home/how.js) and a footer line, over a volcanic sky: a token gradient with
+   faint drifting ash (home/ash.js). Neither carries data. Under 1024 px one column, the steps a
+   strip under the line (five-steps.css, small). Light: a pale ash sky with the same tokens. */
 
 *, *::before, *::after { box-sizing: border-box; }
 html { background: var(--c-bg); -webkit-text-size-adjust: 100%; }
@@ -22,10 +22,23 @@ body.home {
 }
 .skip-link:focus { top: 8px; }
 
-.home__bar { display: flex; align-items: center; gap: 12px; height: var(--bar-h); padding: 0 var(--gutter) 0 24px; border-bottom: 1px solid var(--c-line-1); background: var(--c-bg); }
+.home__bar { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; height: var(--bar-h); padding: 0 var(--gutter) 0 24px; border-bottom: 1px solid var(--c-line-1); background: color-mix(in srgb, var(--c-bg) 72%, transparent); }
+
+/* ---------------------------------------------------------------- the sky (no data) */
+/* A cool haze high on the left, an ember glow low on the right, ash specks of --home-ash. */
+.home__sky {
+  --home-ash: var(--c-text-2);
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(60% 55% at 84% 96%, color-mix(in srgb, var(--c-tephra) 13%, transparent) 0, transparent 72%),
+    radial-gradient(45% 40% at 96% 70%, color-mix(in srgb, var(--c-official) 5%, transparent) 0, transparent 70%),
+    radial-gradient(70% 55% at 4% 0%, color-mix(in srgb, var(--c-observer) 6%, transparent) 0, transparent 70%),
+    linear-gradient(180deg, var(--c-surface-1) 0%, var(--c-bg) 60%);
+}
+.home__ash { display: block; width: 100%; height: 100%; opacity: 0.55; }
 
 /* ---------------------------------------------------------------- the stage */
-.home__stage { position: relative; display: grid; grid-template-columns: minmax(0, 600px) minmax(0, 1fr); align-items: center; min-height: 0; overflow: hidden; }
+.home__stage { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 600px) minmax(0, 1fr); align-items: center; min-height: 0; overflow: hidden; }
 .home__copy { position: relative; z-index: 1; display: grid; gap: var(--sp-6); align-content: center; padding: var(--sp-12) var(--gutter) var(--sp-12) 64px; }
 .home__eyebrow { font-size: 12px; font-weight: 600; letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-text-3); }
 .home__line { max-width: 28ch; font-size: var(--fs-display); font-weight: 600; line-height: 1.2; letter-spacing: -0.01em; text-wrap: balance; }
@@ -45,57 +58,125 @@ body.home {
 .home .go__ic .icon { width: 22px; height: 22px; }
 .go__words { display: grid; min-width: 0; }
 .go__t { font-size: 20px; font-weight: 600; line-height: 1.2; }
-.go__s { margin-top: 4px; font-size: 14px; line-height: 1.4; color: var(--c-text-2); overflow-wrap: anywhere; }
 .home .go__arrow { width: 20px; height: 20px; transition: transform var(--dur-2) var(--ease-standard); }
 .go:hover .go__arrow { transform: translateX(4px); }
-.go__pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.go__pills:empty { display: none; }
-.go__pill {
-  display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 2px 8px; border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
-  border-radius: var(--radius-pill); font-size: 12px; font-weight: 500; line-height: 1.2;
-}
-.home .go__pill .icon { width: 14px; height: 14px; }
-/* the replay pill carries its own violet pair, readable on the filled tile in both themes */
-.go__pill--replay { border-color: color-mix(in srgb, var(--c-replay) 55%, transparent); background: var(--c-replay-bg); color: var(--c-replay-text); font-weight: 600; }
 
 .go--primary { border-color: var(--c-cta); background: var(--c-cta); }
 .home .go--primary { color: var(--c-cta-ink); }
 .go--primary:hover { border-color: var(--c-cta-hover); background: var(--c-cta-hover); }
-.go--primary .go__s { color: color-mix(in srgb, var(--c-cta-ink) 78%, transparent); }
 .go--primary .go__ic { border-color: color-mix(in srgb, var(--c-cta-ink) 30%, transparent); background: color-mix(in srgb, var(--c-cta-ink) 8%, transparent); }
 
 .home__signin { font-size: 15px; color: var(--c-text-2); }
 .home .home__signin a { color: var(--c-text-1); font-weight: 600; }
 
-/* ---------------------------------------------------------------- the map (dark: it bleeds) */
-.home__map { position: absolute; inset: 0 0 0 clamp(320px, 34vw, 520px); z-index: 0; background: var(--map-water); }
-.home__map::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, var(--c-bg) 0, color-mix(in srgb, var(--c-bg) 60%, transparent) 18%, transparent 46%); pointer-events: none; }
-.home__frame { position: relative; height: 100%; overflow: hidden; }
-.home__frame picture { display: block; height: 100%; }
-.home__img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.home__cap {
-  position: absolute; right: var(--gutter); bottom: 16px; z-index: 2; display: inline-flex; align-items: center; gap: 8px;
-  max-width: calc(100% - 2 * var(--gutter)); min-height: 28px; padding: 4px 10px; border: 1px solid color-mix(in srgb, var(--c-replay) 55%, transparent);
-  border-radius: var(--radius-pill); background: var(--c-replay-bg); color: var(--c-replay-text); font-size: 13px; font-weight: 500; line-height: 1.3;
+/* ---------------------------------------------------------------- the five steps, a picture */
+/* home/how.js places each ring at --x/--y of a 520 x 600 box and sets --at, the share of the
+   cycle at which the pulse reaches it. One pulse travels the first 60 % of each cycle; each ring
+   glows as it passes, then the card's Approve shape and its record row answer. */
+.home__how {
+  --cycle: 10s;
+  position: relative; justify-self: center; align-self: center;
+  width: min(520px, calc(100% - 64px), calc((100dvh - var(--bar-h) - 160px) * 520 / 600)); aspect-ratio: 520 / 600;
+  margin: var(--sp-8) var(--gutter) var(--sp-8) 0; pointer-events: none; user-select: none;
 }
-.home .home__cap .icon { width: 16px; height: 16px; }
-.home__count {
-  position: absolute; right: var(--gutter); bottom: 60px; z-index: 2; display: grid; grid-template-columns: auto minmax(0, auto); align-items: center; gap: 2px 10px;
-  max-width: calc(100% - 2 * var(--gutter)); padding: 10px 14px; border: 1px solid var(--c-line-2); border-radius: var(--radius-lg); background: rgb(10 16 23 / 0.9);
+.how__wire { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.how__path { fill: none; stroke: url(#how-grad); stroke-width: 2.5; stroke-linecap: round; opacity: 0.75; }
+.how__stop--feeds { stop-color: var(--tone-feeds); }
+.how__stop--code { stop-color: var(--tone-code); }
+.how__stop--ai { stop-color: var(--tone-ai); }
+.how__stop--desk { stop-color: var(--tone-desk); }
+.how__pulse {
+  fill: none; stroke: var(--c-tephra); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 5 200; stroke-dashoffset: 5; opacity: 0;
+  filter: drop-shadow(0 0 5px var(--c-tephra)); animation: how-pulse var(--cycle) linear infinite;
 }
-.home__count-now { grid-column: 1 / -1; font-size: 12px; font-weight: 600; letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-replay-text); }
-.home__count b { font-size: 28px; line-height: 1; color: var(--c-tephra-text); }
-.home__count span:last-child { max-width: 14ch; font-size: 13px; line-height: 1.3; color: var(--c-text-2); }
-.home__key { display: none; }
-/* the picture's sources, as the demo's map credits them (wall/panels.js ATTRIBUTION) */
-.home__attrib {
-  position: absolute; top: 12px; right: var(--gutter); z-index: 2; max-width: min(46ch, 55%); padding: 3px 8px;
-  border-radius: var(--radius-sm); background: rgb(5 8 12 / 0.7); font-size: 12px; line-height: 1.35; color: var(--c-text-3); text-align: right;
+@keyframes how-pulse {
+  0% { stroke-dashoffset: 5; opacity: 0; }
+  3% { opacity: 1; }
+  60% { stroke-dashoffset: -95; opacity: 1; }
+  66%, 100% { stroke-dashoffset: -95; opacity: 0; }
+}
+
+.how__n { position: absolute; left: var(--x); top: var(--y); display: flex; align-items: center; gap: 14px; transform: translate(-26px, -50%); }
+.how__ring {
+  --tone: var(--tone-code);
+  position: relative; display: grid; place-items: center; flex: none; width: 52px; height: 52px; border: 2px solid var(--tone); border-radius: 50%;
+  background: color-mix(in srgb, var(--tone) 14%, var(--c-surface-1)); color: var(--tone);
+}
+.home .how__ring .icon { width: 24px; height: 24px; }
+.how__ring--feeds { --tone: var(--tone-feeds); }
+.how__ring--code { --tone: var(--tone-code); }
+.how__ring--ai { --tone: var(--tone-ai); }
+.how__ring--desk { --tone: var(--tone-desk); }
+.how__ring--record { --tone: var(--tone-record); }
+.how__ring::after, .how__approve::after {
+  content: ""; position: absolute; inset: -2px; border: 2px solid var(--tone); border-radius: inherit; opacity: 0;
+  animation: how-ring var(--cycle) var(--ease-enter) calc(var(--cycle) * var(--at)) infinite;
+}
+@keyframes how-ring {
+  0% { opacity: 0.9; transform: scale(1); }
+  14%, 100% { opacity: 0; transform: scale(1.45); }
+}
+.how__name { font-size: 16px; font-weight: 600; line-height: 1.25; color: var(--c-text-1); white-space: nowrap; }
+
+/* the example card: its left edge runs through A person decides, 36 px below its top */
+.how__card {
+  position: absolute; left: var(--x); top: calc(var(--y) - 36px); right: 0; display: grid; gap: 14px; padding: 20px 18px 16px 42px;
+  border: 1px solid var(--c-line-2); border-radius: var(--radius-lg); background: var(--c-surface-glass); box-shadow: var(--shadow-2);
+}
+.how__head { display: flex; align-items: center; min-height: 32px; }
+/* the Example tag sits on the card's top edge, so it never wraps under the name */
+.how__tag {
+  position: absolute; top: 0; right: 16px; transform: translateY(-50%);
+  padding: 2px 8px; border: 1px dashed var(--c-line-input); border-radius: var(--radius-pill); background: var(--c-surface-1);
+  font-size: 11px; font-weight: 600; letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-text-2);
+}
+.how__bars { display: grid; gap: 8px; }
+.how__bar { width: 92%; height: 8px; border-radius: 4px; background: var(--c-line-2); }
+.how__bar--ash { width: 68%; background: color-mix(in srgb, var(--c-tephra) 40%, var(--c-line-2)); }
+.how__bar:last-child { width: 50%; }
+.how__approve {
+  --tone: var(--c-approve);
+  position: relative; justify-self: start; display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 16px 0 12px;
+  border-radius: var(--radius-md); background: var(--c-approve); color: var(--c-approve-ink); font-size: 14px; font-weight: 600;
+}
+/* the Approve shape answers with a soft, blurred glow, not a hard outline that could read as focus */
+.how__approve::after {
+  inset: 0; border: 0; box-shadow: 0 0 18px 3px color-mix(in srgb, var(--tone) 45%, transparent);
+  animation-name: how-glow; animation-delay: calc(var(--cycle) * (var(--at) + 0.03));
+}
+@keyframes how-glow {
+  0% { opacity: 0; }
+  5% { opacity: 0.85; }
+  20%, 100% { opacity: 0; }
+}
+.home .how__approve .icon { width: 16px; height: 16px; }
+.how__foot { display: flex; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid var(--c-line-1); }
+.how__ring--sm { width: 28px; height: 28px; border-width: 1.5px; }
+.home .how__ring--sm .icon { width: 15px; height: 15px; }
+.how__foot .how__ring::after { animation-delay: calc(var(--cycle) * (var(--at) + 0.1)); }
+.how__name--sm { font-size: 14px; font-weight: 500; color: var(--c-text-2); }
+
+/* ---------------------------------------------------------------- the five steps, a strip */
+.home__strip { display: none; }
+.home__strip .steps5__node::after {
+  content: ""; position: absolute; inset: -2px; border: 1.5px solid var(--tone); border-radius: 50%; opacity: 0;
+  animation: how-ring 10s var(--ease-enter) infinite;
+}
+.home__strip .steps5__n:nth-child(2) .steps5__node::after { animation-delay: 1.2s; }
+.home__strip .steps5__n:nth-child(3) .steps5__node::after { animation-delay: 2.4s; }
+.home__strip .steps5__n:nth-child(4) .steps5__node::after { animation-delay: 3.6s; }
+.home__strip .steps5__n:nth-child(5) .steps5__node::after { animation-delay: 4.8s; }
+
+/* nothing travels under reduced motion, nor while the tab is hidden (home.js) */
+.home.is-paused *, .home.is-paused *::after { animation-play-state: paused !important; }
+@media (prefers-reduced-motion: reduce) {
+  .how__pulse { display: none; }
+  .how__ring::after, .how__approve::after, .home__strip .steps5__node::after { animation: none; }
 }
 
 /* ---------------------------------------------------------------- the footer */
 .home__foot {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; min-height: 48px; padding: 0 var(--gutter) 0 64px;
+  position: relative; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; min-height: 48px; padding: 0 var(--gutter) 0 64px;
   border-top: 1px solid var(--c-line-1); font-size: 13px; color: var(--c-text-3);
 }
 .home__honest { display: inline-flex; align-items: center; gap: 8px; padding: 8px 0; color: var(--c-text-2); }
@@ -109,62 +190,39 @@ body.home {
   .home__foot { padding-left: var(--gutter); }
 }
 
-/* ---------------------------------------------------------------- the light theme: a framed panel */
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) .home__map { position: relative; inset: auto; align-self: center; padding: var(--sp-12) var(--gutter) var(--sp-12) 0; background: none; }
-  :root:not([data-theme="dark"]) .home__map::after { display: none; }
-  :root:not([data-theme="dark"]) .home__frame { height: auto; aspect-ratio: 16 / 10; border: 1px solid var(--c-line-2); border-radius: var(--radius-lg); background: var(--map-water); box-shadow: var(--shadow-2); }
-  :root:not([data-theme="dark"]) .home__count { left: 16px; right: auto; bottom: 16px; }
-  :root:not([data-theme="dark"]) .home__cap { right: 16px; }
-  :root:not([data-theme="dark"]) .home__attrib { right: 16px; top: 16px; max-width: calc(50% - 24px); }
-  :root:not([data-theme="dark"]) .home__key { position: absolute; left: 16px; top: 16px; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; max-width: calc(50% - 24px); padding: 6px 10px; border-radius: var(--radius-md); background: var(--c-surface-glass); font-size: 12px; color: var(--c-text-2); }
+/* ---------------------------------------------------------------- narrow: one column, the strip */
+@media (max-width: 1023px) {
+  .home__stage { grid-template-columns: minmax(0, 1fr); align-items: start; align-content: start; }
+  .home__how { display: none; }
+  .home__strip { display: block; max-width: 480px; }
 }
-:root[data-theme="light"] .home__map { position: relative; inset: auto; align-self: center; padding: var(--sp-12) var(--gutter) var(--sp-12) 0; background: none; }
-:root[data-theme="light"] .home__map::after { display: none; }
-:root[data-theme="light"] .home__frame { height: auto; aspect-ratio: 16 / 10; border: 1px solid var(--c-line-2); border-radius: var(--radius-lg); background: var(--map-water); box-shadow: var(--shadow-2); }
-:root[data-theme="light"] .home__count { left: 16px; right: auto; bottom: 16px; }
-:root[data-theme="light"] .home__cap { right: 16px; }
-:root[data-theme="light"] .home__attrib { right: 16px; top: 16px; max-width: calc(50% - 24px); }
-:root[data-theme="light"] .home__key { position: absolute; left: 16px; top: 16px; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; max-width: calc(50% - 24px); padding: 6px 10px; border-radius: var(--radius-md); background: var(--c-surface-glass); font-size: 12px; color: var(--c-text-2); }
-.home__swatch { display: inline-block; width: 14px; height: 10px; border-radius: 2px; }
-.home__swatch--official { border: 2px solid var(--c-official); background: var(--c-official-soft); }
-.home__swatch--tephra { margin-left: 6px; border: 2px dashed var(--c-tephra); }
 
-/* ---------------------------------------------------------------- phones: the map band on top */
+/* ---------------------------------------------------------------- the light theme: a pale ash sky */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .home__sky {
+    --home-ash: var(--c-text-3);
+    background:
+      radial-gradient(60% 55% at 84% 96%, color-mix(in srgb, var(--c-tephra) 12%, transparent) 0, transparent 72%),
+      radial-gradient(70% 55% at 4% 0%, color-mix(in srgb, var(--c-observer) 7%, transparent) 0, transparent 70%),
+      linear-gradient(180deg, var(--c-surface-3) 0%, var(--c-bg) 55%);
+  }
+  :root:not([data-theme="dark"]) .home__ash { opacity: 0.4; }
+}
+:root[data-theme="light"] .home__sky {
+  --home-ash: var(--c-text-3);
+  background:
+    radial-gradient(60% 55% at 84% 96%, color-mix(in srgb, var(--c-tephra) 12%, transparent) 0, transparent 72%),
+    radial-gradient(70% 55% at 4% 0%, color-mix(in srgb, var(--c-observer) 7%, transparent) 0, transparent 70%),
+    linear-gradient(180deg, var(--c-surface-3) 0%, var(--c-bg) 55%);
+}
+:root[data-theme="light"] .home__ash { opacity: 0.4; }
+
+/* ---------------------------------------------------------------- phones */
 @media (max-width: 760px) {
-  .home__stage { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; align-items: start; align-content: start; }
-  .home__map, :root[data-theme="light"] .home__map { position: relative; inset: auto; grid-row: 1; height: 200px; padding: 0; }
-  .home__map::after { background: linear-gradient(180deg, transparent 55%, var(--c-bg) 100%); }
-  .home__copy { grid-row: 2; gap: var(--sp-5); padding: var(--sp-5) var(--gutter) var(--sp-8); }
+  .home__copy { gap: var(--sp-5); padding: var(--sp-6) var(--gutter) var(--sp-8); }
   .home__line { font-size: 26px; }
   .go { gap: 12px; min-height: 76px; padding: 12px 14px; }
   .go__t { font-size: 18px; }
-  /* the band is 200 px: the live count is said by the demo tile's words, the picture keeps its cap */
-  .home__count { display: none; }
-  .home__cap { right: var(--gutter); bottom: 12px; font-size: 12px; }
-  .home__attrib { top: 8px; padding: 2px 6px; }
   .home__foot { gap: 0 16px; padding: 8px var(--gutter); }
   .home__links { margin-left: 0; }
-  :root[data-theme="light"] .home__map { margin: 16px var(--gutter) 0; }
-  :root[data-theme="light"] .home__frame { height: 200px; aspect-ratio: auto; }
-  :root[data-theme="light"] .home__key { display: none; }
-/* the picture's sources, as the demo's map credits them (wall/panels.js ATTRIBUTION) */
-.home__attrib {
-  position: absolute; top: 12px; right: var(--gutter); z-index: 2; max-width: min(46ch, 55%); padding: 3px 8px;
-  border-radius: var(--radius-sm); background: rgb(5 8 12 / 0.7); font-size: 12px; line-height: 1.35; color: var(--c-text-3); text-align: right;
-}
-  :root[data-theme="light"] .home__cap { right: 12px; }
-  :root[data-theme="light"] .home__attrib { top: 8px; right: 12px; max-width: 70%; }
-}
-@media (max-width: 760px) and (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) .home__map { position: relative; inset: auto; height: 200px; margin: 16px var(--gutter) 0; padding: 0; }
-  :root:not([data-theme="dark"]) .home__frame { height: 200px; aspect-ratio: auto; }
-  :root:not([data-theme="dark"]) .home__key { display: none; }
-/* the picture's sources, as the demo's map credits them (wall/panels.js ATTRIBUTION) */
-.home__attrib {
-  position: absolute; top: 12px; right: var(--gutter); z-index: 2; max-width: min(46ch, 55%); padding: 3px 8px;
-  border-radius: var(--radius-sm); background: rgb(5 8 12 / 0.7); font-size: 12px; line-height: 1.35; color: var(--c-text-3); text-align: right;
-}
-  :root:not([data-theme="dark"]) .home__cap { right: 12px; }
-  :root:not([data-theme="dark"]) .home__attrib { top: 8px; right: 12px; max-width: 70%; }
 }

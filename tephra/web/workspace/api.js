@@ -2,9 +2,10 @@
 // server's CSRF check asks for, and the error words every view shares. A network failure
 // resolves to { status: 0 } so a caller never sees an exception.
 
-export async function call(path, { method = "GET", body, raw = null, signal } = {}) {
+// `keepalive` lets a save finish while the page closes (the browser caps such a body at 64 KB).
+export async function call(path, { method = "GET", body, raw = null, signal, keepalive = false } = {}) {
   const headers = { Accept: "application/json", "X-Tephra-Desk": "1" };
-  const init = { method, headers, credentials: "same-origin", cache: "no-store", signal };
+  const init = { method, headers, credentials: "same-origin", cache: "no-store", signal, keepalive };
   if (raw !== null) {
     headers["Content-Type"] = "application/json";
     init.body = raw;
@@ -47,6 +48,13 @@ export function retryMinutes(res) {
   return Number.isFinite(s) && s > 0 ? Math.max(1, Math.ceil(s / 60)) : 1;
 }
 export const minutesWords = (n) => `${n} ${n === 1 ? "minute" : "minutes"}`;
+// A daily limit's wait reads in hours once it is past an hour and a half.
+export function waitWords(res) {
+  const m = retryMinutes(res);
+  if (m <= 90) return minutesWords(m);
+  const h = Math.round(m / 60);
+  return `${h} ${h === 1 ? "hour" : "hours"}`;
+}
 
 export const ACCOUNTS_OFF = "Airline accounts are off on this server: TEPHRA_SESSION_SECRET is not set.";
 export const ONBOARD_OFF = "Onboarding is off on this server.";
@@ -74,6 +82,8 @@ export const PATHS = {
   signOut: "/api/airline/sign-out",
   me: "/api/airline/me",
   answers: "/api/airline/answers",
+  draft: "/api/airline/draft",
+  submit: "/api/airline/submit",
   assistant: "/api/airline/assistant",
   remove: "/api/airline/delete",
   dryRun: "/api/airline/feeds/dry-run",

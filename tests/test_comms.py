@@ -32,7 +32,7 @@ from tephra.comms.models import (
     RecoveryClosure,
     RecoveryInput,
 )
-from tephra.config import PROJECT_ROOT, Settings
+from tephra.config import DEMO_AIRLINE, PROJECT_ROOT, Airline, Settings
 from tephra.desk import approvals, audit
 from tephra.feeds.airports import AirportCatalogue, load_airports
 from tephra.models import (
@@ -177,6 +177,7 @@ class FakeRuntime:
     airports: AirportCatalogue = AIRPORTS
     policy: OperatorPolicy = POLICY
     mode: RunMode = RunMode.LIVE
+    airline: Airline = field(default_factory=lambda: DEMO_AIRLINE)
     situations: dict[str, Situation] = field(default_factory=dict)
     traces: list[TraceEvent] = field(default_factory=list)
     answers: AiAnswers | None = None
@@ -500,7 +501,7 @@ def test_the_answer_needs_exactly_the_requested_languages() -> None:
 
 
 def test_the_model_is_given_placeholder_names_and_meanings_never_values() -> None:
-    facts = messages._facts(spec_of())
+    facts = messages._facts(spec_of(), DEMO_AIRLINE)
     assert set(facts["required_placeholders"]) == set(spec_of().required)
     assert facts["languages"] == ["id", "en"]
     assert "RFA101" not in json.dumps(facts)
@@ -830,7 +831,7 @@ async def draft_one(store: Store) -> tuple[FakeRuntime, CrewPaxMessage]:
 async def test_approval_queues_the_message_on_the_outbound_collection(store: Store) -> None:
     runtime, draft = await draft_one(store)
     decided = await messages.approve(
-        store, runtime.bus, draft.id, expected_version=1, actor="desk:Bo L"
+        store, runtime.bus, draft.id, expected_version=1, actor="desk:Bo L", airline=DEMO_AIRLINE
     )
     assert decided.status is MessageStatus.APPROVED
     assert decided.version == 2
@@ -859,6 +860,7 @@ async def test_an_edit_replaces_only_the_named_language(store: Store) -> None:
         expected_version=1,
         bodies={"en": "  Flight RFA101 now leaves later.  "},
         actor=ACTOR,
+        airline=DEMO_AIRLINE,
     )
     assert decided.status is MessageStatus.EDITED
     assert body_of(decided, "en") == "Flight RFA101 now leaves later."
@@ -883,6 +885,7 @@ async def test_a_bad_edit_is_rejected(store: Store, bodies: dict[str, str], need
             expected_version=1,
             bodies=bodies,
             actor=ACTOR,  # type: ignore[arg-type]
+            airline=DEMO_AIRLINE,
         )
     assert needle in raised.value.problems[0]
     assert (await messages.get_message(store, draft.id)).status is MessageStatus.DRAFT  # type: ignore[union-attr]
@@ -905,14 +908,25 @@ async def test_reject_needs_a_reason_and_queues_nothing(store: Store) -> None:
 async def test_a_stale_version_conflicts_and_a_decided_message_never_moves(store: Store) -> None:
     runtime, draft = await draft_one(store)
     with pytest.raises(messages.VersionConflict) as conflict:
-        await messages.approve(store, runtime.bus, draft.id, expected_version=7, actor=ACTOR)
+        await messages.approve(
+            store, runtime.bus, draft.id, expected_version=7, actor=ACTOR, airline=DEMO_AIRLINE
+        )
     assert conflict.value.current.version == 1
-    await messages.approve(store, runtime.bus, draft.id, expected_version=1, actor=ACTOR)
+    await messages.approve(
+        store, runtime.bus, draft.id, expected_version=1, actor=ACTOR, airline=DEMO_AIRLINE
+    )
     with pytest.raises(messages.InvalidTransition):
-        await messages.approve(store, runtime.bus, draft.id, expected_version=2, actor=ACTOR)
+        await messages.approve(
+            store, runtime.bus, draft.id, expected_version=2, actor=ACTOR, airline=DEMO_AIRLINE
+        )
     with pytest.raises(messages.MessageNotFound):
         await messages.approve(
-            store, runtime.bus, "msg_000000000000", expected_version=1, actor=ACTOR
+            store,
+            runtime.bus,
+            "msg_000000000000",
+            expected_version=1,
+            actor=ACTOR,
+            airline=DEMO_AIRLINE,
         )
     assert len(await store.list_docs(Collection.OUTBOUND)) == 1
 
@@ -922,8 +936,12 @@ async def test_two_dispatchers_cannot_both_decide(store: Store) -> None:
 
     runtime, draft = await draft_one(store)
     results = await asyncio.gather(
-        messages.approve(store, runtime.bus, draft.id, expected_version=1, actor="desk:A"),
-        messages.approve(store, runtime.bus, draft.id, expected_version=1, actor="desk:B"),
+        messages.approve(
+            store, runtime.bus, draft.id, expected_version=1, actor="desk:A", airline=DEMO_AIRLINE
+        ),
+        messages.approve(
+            store, runtime.bus, draft.id, expected_version=1, actor="desk:B", airline=DEMO_AIRLINE
+        ),
         return_exceptions=True,
     )
     assert sum(isinstance(r, CrewPaxMessage) for r in results) == 1
@@ -933,7 +951,9 @@ async def test_two_dispatchers_cannot_both_decide(store: Store) -> None:
 
 async def test_list_messages_filters_by_status_and_mode(store: Store) -> None:
     runtime, draft = await draft_one(store)
-    await messages.approve(store, runtime.bus, draft.id, expected_version=1, actor=ACTOR)
+    await messages.approve(
+        store, runtime.bus, draft.id, expected_version=1, actor=ACTOR, airline=DEMO_AIRLINE
+    )
     drafts = await messages.list_messages(store, status=MessageStatus.DRAFT, replay=False)
     approved = await messages.list_messages(store, status=MessageStatus.APPROVED)
     assert draft.id not in {m.id for m in drafts}
@@ -1467,3 +1487,80 @@ async def test_the_doc_event_of_a_brief_is_a_doc_summary(store: Store) -> None:
     assert "situation" not in drafted.data  # the summary never carries the document
     assert DocSummary.model_validate(read_back.data).status is DocStatus.ACKNOWLEDGED
     assert acked.receiver_ack.read_back_by == "desk:Bo L"
+
+
+# --- an airline's own TEPHRA (batch 2 honesty finding 2) ----------------------------------
+
+OWN_AIRLINE = Airline(code="RFB", name="Ring of Fire Charter", iata="RB", fictional=False)
+
+
+class RecordingStub(CountingStub):
+    """The offline stub, keeping the text parts it was given."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.texts: list[str] = []
+
+    async def structured[T: BaseModel](  # type: ignore[override]
+        self,
+        *,
+        tier: str,
+        system: str,
+        parts: Sequence[LlmPart],
+        schema: type[T],
+        stub: Callable[[], T],
+        temperature: float | None = None,
+    ) -> tuple[T | None, LlmCall]:
+        self.texts.extend(part.text or "" for part in parts)
+        return await super().structured(
+            tier=tier,
+            system=system,
+            parts=parts,
+            schema=schema,
+            stub=stub,
+            temperature=temperature,
+        )
+
+
+def _airline_facts(texts: list[str]) -> list[str]:
+    return [json.loads(t)["airline"] for t in texts if t.startswith("{") and '"airline"' in t]
+
+
+async def test_an_approved_message_s_outbound_copy_names_the_airline_it_speaks_for(
+    store: Store,
+) -> None:
+    """The demo's outbound header calls Ring of Fire Air fictional; an airline's own TEPHRA names
+    its airline and never calls it fictional."""
+    runtime, draft = await draft_one(store)
+    await messages.approve(
+        store, runtime.bus, draft.id, expected_version=1, actor=ACTOR, airline=OWN_AIRLINE
+    )
+    (doc,) = await store.list_docs(Collection.OUTBOUND)
+    header = doc["text"].split("\n", 1)[0]
+    assert header.startswith("RING OF FIRE CHARTER ")
+    assert header.endswith(" - NOT FOR OPERATIONAL USE")
+    assert "FICTIONAL" not in header
+    assert messages.outbound_text(draft, actor=ACTOR, airline=DEMO_AIRLINE).startswith(
+        "RING OF FIRE AIR (FICTIONAL) "
+    )
+
+
+async def test_the_template_and_handover_facts_name_the_airline(store: Store) -> None:
+    """The model is told who the drafts speak for: the demo's facts are unchanged (so are their
+    prompt hashes), an airline's own TEPHRA gives its own name."""
+    spec = messages.crew_briefing_spec()
+    assert messages._facts(spec, DEMO_AIRLINE)["airline"] == "Ring of Fire Air (fictional)"
+    assert messages._facts(spec, OWN_AIRLINE)["airline"] == "Ring of Fire Charter"
+    assert messages.templates_question(spec, DEMO_AIRLINE) != messages.templates_question(
+        spec, OWN_AIRLINE
+    )
+    await seed_shift(store)
+    llm = RecordingStub()
+    own = FakeRuntime(store=store, llm=llm, airline=OWN_AIRLINE)
+    own.situations["263300"] = situation()
+    brief = await handover.draft_handover(own, SINCE, "Ana K", "Bo L")
+    assert brief.fictional_airline is False
+    assert _airline_facts(llm.texts) == ["Ring of Fire Charter"]
+    demo = await runtime_for(store)
+    demo.situations["263300"] = situation()
+    assert (await handover.draft_handover(demo, SINCE, "Ana K", "Bo L")).fictional_airline is True

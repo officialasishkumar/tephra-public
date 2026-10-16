@@ -3,7 +3,7 @@
 // from fields and goes in with textContent; a missing field drops its line and is never guessed.
 // The story is about the selected volcano; the "All volcanoes" line carries the global counts.
 
-import { $, el, icon, utcTime, ms, fl, kmBetween, reducedMotion } from "./util.js";
+import { $, el, icon, utcTime, ms, fl, kmBetween, reducedMotion, airline } from "./util.js";
 import { SEV_RANK, regionOfVent } from "./derive.js";
 import { ext, replanning, aiState, handPlan } from "./ext.js";
 import { planFailure, draftBlock, blockPhrase, machineText, ASSISTANT } from "./x-parts.js";
@@ -196,11 +196,11 @@ function storyModel(D, store, sit) {
   const n = D.counts.exposed;
   if (n > 0) {
     const split = [D.counts.inside ? `${D.counts.inside} inside now` : null, D.counts.heading ? `${D.counts.heading} heading in` : null].filter(Boolean).join(" · ");
-    m.hero = { count: n, words: `RFA ${n === 1 ? "flight" : "flights"} in or heading into TEPHRA's ash area`, split, show: n, text: `${n} RFA ${n === 1 ? "flight" : "flights"} in or heading into TEPHRA's ash area${split ? `. ${split}` : ""}.` };
+    m.hero = { count: n, words: `${airline().code} ${n === 1 ? "flight" : "flights"} in or heading into TEPHRA's ash area`, split, show: n, text: `${n} ${airline().code} ${n === 1 ? "flight" : "flights"} in or heading into TEPHRA's ash area${split ? `. ${split}` : ""}.` };
   } else {
     const adsb = store.feeds.find((f) => f.feed === "adsb");
     const empty = adsb?.status === "OK" ? "Aircraft coverage here is patchy: an empty map is not an empty sky." : `Aircraft data is ${adsbWord(adsb?.status)}: an empty map is not an empty sky.`;
-    m.hero = { count: null, words: "No RFA flight is seen heading into TEPHRA's ash area right now.", split: empty, text: "No RFA flight is seen heading into TEPHRA's ash area right now." };
+    m.hero = { count: null, words: `No ${airline().code} flight is seen heading into TEPHRA's ash area right now.`, split: empty, text: `No ${airline().code} flight is seen heading into TEPHRA's ash area right now.` };
   }
 
   // tile 1: the ash's height in the official reports
@@ -316,7 +316,7 @@ export function crewLines(D, sit) {
   const outside = mine.some((v) => v.discrepancy);
   const what = `${mine.length === 1 ? "Crew report" : `${mine.length} crew reports`} of ash${outside ? " outside the official area" : ""}`;
   // the flight numbers are one tap away (the line opens Details), so the line stays short
-  const text = flagged.length ? `${what}: ${plural(flagged.length, "RFA flight", "RFA flights")} on ${mine.length === 1 ? "its" : "their"} route.` : `${what}, ${mine[0].age_text}.`;
+  const text = flagged.length ? `${what}: ${plural(flagged.length, `${airline().code} flight`, `${airline().code} flights`)} on ${mine.length === 1 ? "its" : "their"} route.` : `${what}, ${mine[0].age_text}.`;
   return [{ text, mark: outside ? "caution" : "pin", act: "crew" }];
 }
 
@@ -474,11 +474,11 @@ export function keyRows(D, ui) {
   if (D.official.some((f) => f.properties.show)) rows.push([sw("lg-area-official", "sw--official"), "Official ash area", "binding"]);
   if (ui.layers.tephra && D.cones.length) rows.push([sw("lg-area-tephra", "sw--tephra"), "TEPHRA's estimate", "never smaller than official"]);
   if (D.crew.drawn.length) rows.push([sw("lg-area-crew", "sw--crew"), "Crew report area", null]);
-  if (ui.layers.aircraft && D.exposed.length) rows.push([sw("i-aircraft", "sw--exposed"), "RFA flight in or heading in", null]);
-  if (ui.layers.aircraft && D.exposed.length >= 6) rows.push([sw("lg-flight-group", "sw--exposed"), "RFA flights close together", "click to zoom in"]);
+  if (ui.layers.aircraft && D.exposed.length) rows.push([sw("i-aircraft", "sw--exposed"), `${airline().code} flight in or heading in`, null]);
+  if (ui.layers.aircraft && D.exposed.length >= 6) rows.push([sw("lg-flight-group", "sw--exposed"), `${airline().code} flights close together`, "click to zoom in"]);
   const step = D.official.find((f) => f.properties.show && f.properties.step !== "now");
   if (step) rows.push([sw("lg-area-forecast", "sw--official"), `Official forecast area (${step.properties.layer.replace("FCST+", "+").replace("H", " h")})`, null]);
-  if (ui.layers.aircraft && D.aircraft.some((f) => !f.properties.exposed)) rows.push([sw("i-aircraft", "sw--aircraft"), "Other aircraft (not RFA)", null]);
+  if (ui.layers.aircraft && D.aircraft.some((f) => !f.properties.exposed)) rows.push([sw("i-aircraft", "sw--aircraft"), `Other aircraft (not ${airline().code})`, null]);
   if (ui.layers.routes && D.hasRouteLine) rows.push([sw("lg-route", "sw--route"), "Route (origin to destination)", "airport codes at the ends"]);
   if (ui.layers.airports && currentPlan()?.closures.length) rows.push([sw("i-airport", "sw--closed"), "Closed airport", "dashed: its closure radius"]);
   const pickedReroute = !!D.selFlight && D.rerouteKeys?.has(`${D.selFlight.properties.hex}:${D.selFlight.properties.volcano_id}`);
@@ -538,10 +538,13 @@ function renderAll(D, ui, draftsHere) {
   // RFA is a fictional airline. At 0 the count shows a dash, never "0", "none" or "clear": the
   // feed only sees aircraft that broadcast on ADS-B (G17).
   setText(kx, exposed > 0 ? String(exposed) : D ? "no" : "–");
-  label("kpi-exposed", exposed > 0 ? `RFA flight${exposed === 1 ? "" : "s"} in or heading in` : D ? "RFA flight seen heading in" : "RFA flights in or heading in");
+  const { code, fictional } = airline();
+  const who = fictional ? `${code} (fictional)` : code;
+  label("kpi-exposed", exposed > 0 ? `${code} flight${exposed === 1 ? "" : "s"} in or heading in` : D ? `${code} flight seen heading in` : `${code} flights in or heading in`);
+  setText(kx.closest(".kpi").querySelector("dt"), `${who} flights in or heading in`);
   kx.closest(".kpi").title = exposed > 0
-    ? `${exposed} RFA (fictional) flight${exposed === 1 ? "" : "s"} in or heading into TEPHRA's estimated area, all volcanoes.`
-    : "No RFA (fictional) flight seen heading in. Receiver coverage is patchy: an empty map is not an empty sky.";
+    ? `${exposed} ${who} flight${exposed === 1 ? "" : "s"} in or heading into TEPHRA's estimated area, all volcanoes.`
+    : `No ${who} flight seen heading in. Receiver coverage is patchy: an empty map is not an empty sky.`;
   kx.setAttribute("aria-label", exposed > 0 ? String(exposed) : "0 seen. An empty map is not an empty sky");
   // null: the server could not read the drafts; an older count is not shown as current. Why a
   // count is 0 is the story's notice, said once there (not again here).
@@ -653,7 +656,7 @@ function renderRail(D, sit, caseStory) {
   code.dataset.code = sit && CODE_WORD[sit.color_code] ? sit.color_code.toLowerCase() : "unknown";
   if (code.textContent !== word) code.replaceChildren(el("i", { "aria-hidden": "true" }), word);
   const { active, exposed, drafts } = allCounts(D);
-  railNum("rail-exposed", !D ? "–" : exposed > 0 ? String(exposed) : "no", exposed === 1 ? "RFA flight" : "RFA flights", exposed > 0 || !D ? " in or heading in" : " seen heading in");
+  railNum("rail-exposed", !D ? "–" : exposed > 0 ? String(exposed) : "no", `${airline().code} ${exposed === 1 ? "flight" : "flights"}`, exposed > 0 || !D ? " in or heading in" : " seen heading in");
   railNum("rail-active", !D ? "–" : active ? String(active) : "no", active === 1 ? "volcano" : "volcanoes", D && !active ? " with ash reported" : " with ash");
   railNum("rail-drafts", !D ? "–" : drafts === null ? "unknown" : String(drafts), drafts === 1 ? "advisory" : "advisories", drafts === null ? " waiting (database error)" : " waiting");
   // "0 advisories waiting" says nothing to act on, as on the story's line

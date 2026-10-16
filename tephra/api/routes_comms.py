@@ -132,6 +132,7 @@ async def approve_message(
             message_id,
             expected_version=body.version,
             actor=_actor(session),
+            airline=runtime.airline,
         )
     )
 
@@ -153,6 +154,7 @@ async def edit_message(
             expected_version=body.version,
             bodies=body.bodies,
             actor=_actor(session),
+            airline=runtime.airline,
         )
     )
 

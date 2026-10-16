@@ -11,29 +11,35 @@ or publishes an event: an airline is never part of the shared picture.
 import hashlib
 import secrets
 from collections.abc import Callable, Iterable, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Final, Literal
 
 from pydantic import ValidationError
 
 from tephra.airline.models import (
+    DESK_STATUSES,
     AirlineAnswers,
     AirlineLogin,
     AirlineRecord,
     AirlineStatus,
     AssistantChoice,
+    DeskStatus,
     HistoryAction,
     HistoryEntry,
+    OnboardDraft,
 )
 from tephra.store.base import Collection, Store, Where
 from tephra.util.hashing import sha256_json
 
 __all__ = [
+    "DRAFT_DAYS",
+    "MAX_DRAFTS",
     "MAX_HISTORY",
     "MAX_PENDING",
     "MAX_STORED",
     "PUBLIC_MAIL_DOMAINS",
     "AirlineNotFound",
+    "AlreadySubmitted",
     "AnswersLocked",
     "EmailTaken",
     "NotDeclined",
@@ -50,8 +56,12 @@ __all__ = [
     "login_key",
     "onboarding_full",
     "pending_count",
+    "purge_stale_drafts",
     "reviewer_flags",
+    "save_draft",
     "set_password",
+    "submissions_full",
+    "submit",
     "update_answers",
     "update_assistant",
     "verify_history",
@@ -59,6 +69,10 @@ __all__ = [
 
 MAX_HISTORY: Final = 100
 MAX_PENDING: Final = 200
+MAX_DRAFTS: Final = 300
+DRAFT_DAYS: Final = 7
+"""An onboarding never submitted is deleted, with its login, once this many days pass without a
+save (purge_stale_drafts): junk drafts cannot hold the draft cap or an email address for good."""
 MAX_STORED: Final = 1000
 PUBLIC_MAIL_DOMAINS: Final = frozenset(
     {"gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com", "proton.me"}
@@ -87,6 +101,12 @@ class AnswersLocked(Exception):
 
 class NotPending(Exception):
     pass
+
+
+class AlreadySubmitted(Exception):
+    def __init__(self, status: AirlineStatus) -> None:
+        super().__init__(status)
+        self.status = status
 
 
 class NotDeclined(Exception):
@@ -212,21 +232,33 @@ async def get_login(store: Store, key: str) -> AirlineLogin | None:
 
 
 async def onboarding_full(store: Store) -> bool:
-    """200 airlines pending, or 1,000 stored (one login each). Counted by the store, so no
-    record is read."""
-    if await pending_count(store) >= MAX_PENDING:
+    """No new account: 300 drafts, 200 airlines pending, or 1,000 accounts stored (one login
+    each, whatever the status, drafts included). Counted by the store, so no record is read."""
+    if await _count(store, "draft") >= MAX_DRAFTS or await submissions_full(store):
         return True
     return await store.count(Collection.AIRLINE_LOGINS) >= MAX_STORED
 
 
+async def submissions_full(store: Store) -> bool:
+    """200 airlines wait for a dispatcher: a draft is not submitted until one is decided."""
+    return await pending_count(store) >= MAX_PENDING
+
+
 async def pending_count(store: Store) -> int:
-    return await store.count(Collection.AIRLINES, [Where("status", "==", "pending")])
+    return await _count(store, "pending")
+
+
+async def _count(store: Store, status: AirlineStatus) -> int:
+    return await store.count(Collection.AIRLINES, [Where("status", "==", status)])
 
 
 async def list_airlines(
-    store: Store, status: AirlineStatus | Literal["all"], limit: int
+    store: Store, status: DeskStatus | Literal["all"], limit: int
 ) -> list[AirlineRecord]:
-    """Newest ``submitted_at`` first."""
+    """Submitted airlines, newest ``submitted_at`` first: a draft is never listed. "all" has no
+    filter, so Firestore orders and limits it (a filter with an order runs in memory and would
+    read every record); a draft's ``submitted_at`` is null, which sorts last newest-first, so
+    the drafts dropped here are only ever the tail."""
     where = [] if status == "all" else [Where("status", "==", status)]
     docs = await store.query(
         Collection.AIRLINES, where, order_by="submitted_at", descending=True, limit=limit
@@ -234,10 +266,45 @@ async def list_airlines(
     records: list[AirlineRecord] = []
     for doc in docs:
         try:
-            records.append(AirlineRecord.model_validate(doc))
+            record = AirlineRecord.model_validate(doc)
         except ValidationError:
             continue
+        if record.status in DESK_STATUSES:
+            records.append(record)
     return records
+
+
+async def purge_stale_drafts(store: Store, *, now: datetime) -> int:
+    """Delete each draft not saved for ``DRAFT_DAYS``, login first (its email is free again).
+    The store answers ``status == draft`` on the server (at most ``MAX_DRAFTS`` records, so the
+    caller runs this now and then, not on every request); each record is read again just before
+    it goes, so a draft saved meanwhile stays. Returns how many went."""
+    cutoff = now - timedelta(days=DRAFT_DAYS)
+    docs = await store.query(
+        Collection.AIRLINES, [Where("status", "==", "draft")], limit=MAX_DRAFTS * 2
+    )
+    gone = 0
+    for doc in docs:
+        try:
+            record = AirlineRecord.model_validate(doc)
+        except ValidationError:
+            continue
+        if record.updated_at >= cutoff:
+            continue
+        try:
+            current = await get_record(store, record.id)
+        except (AirlineNotFound, ValidationError):
+            continue
+        if current.status != "draft" or current.updated_at >= cutoff:
+            continue
+        # the login only when it is this record's (a record left by a failed sign-up has none,
+        # and its email may belong to a newer account by now)
+        login = await get_login(store, current.login_key)
+        if login is not None and login.airline_id == current.id:
+            await store.delete(Collection.AIRLINE_LOGINS, current.login_key)
+        await store.delete(Collection.AIRLINES, current.id)
+        gone += 1
+    return gone
 
 
 # --- the airline's own changes ----------------------------------------------------------
@@ -246,17 +313,15 @@ async def list_airlines(
 async def create_account(
     store: Store,
     *,
-    answers: AirlineAnswers,
     email: str,
     password_hash: str,
     recovery_sha256: str,
-    flags: list[str],
     at: datetime,
 ) -> tuple[AirlineRecord, AirlineLogin]:
-    """The record first, then the login: a lost race on the email deletes the record just
+    """A draft record first, then the login: a lost race on the email deletes the record just
     written (login first could leave a login with no record, the email taken for good)."""
     key = login_key(email)
-    record = await _write_new_record(store, answers, email, key, flags, at)
+    record = await _write_new_record(store, email, key, at)
     login = AirlineLogin(
         login_key=key,
         airline_id=record.id,
@@ -281,27 +346,19 @@ async def create_account(
     return record, login
 
 
-async def _write_new_record(
-    store: Store,
-    answers: AirlineAnswers,
-    email: str,
-    key: str,
-    flags: list[str],
-    at: datetime,
-) -> AirlineRecord:
-    """A new record under a new id; an id drawn twice retries once with another."""
+async def _write_new_record(store: Store, email: str, key: str, at: datetime) -> AirlineRecord:
+    """A new draft under a new id; an id drawn twice retries once with another."""
 
     def fresh() -> AirlineRecord:
         return AirlineRecord(
             id=_new_id(),
             version=1,
-            status="pending",
+            status="draft",
             login_key=key,
             email=email,
-            answers=answers,
-            submitted_at=at,
+            draft=OnboardDraft(),
+            created_at=at,
             updated_at=at,
-            flags=flags,
             history=[_entry([], at=at, actor="airline", action="created")],
         )
 
@@ -370,12 +427,60 @@ async def update_answers(
     return await _apply(store, airline_id, version, edit)
 
 
+async def save_draft(
+    store: Store, airline_id: str, *, version: int, draft: OnboardDraft, at: datetime
+) -> AirlineRecord:
+    """A page's Next or Back: the draft as typed, only while it is a draft."""
+
+    def edit(record: AirlineRecord) -> AirlineRecord:
+        if record.status != "draft":
+            raise AlreadySubmitted(record.status)
+        history = _with_own_change(record.history, at=at, action="answers_changed")
+        return record.model_copy(update={"draft": draft, "updated_at": at, "history": history})
+
+    return await _apply(store, airline_id, version, edit)
+
+
+async def submit(
+    store: Store,
+    airline_id: str,
+    *,
+    version: int,
+    answers: AirlineAnswers,
+    flags: list[str],
+    at: datetime,
+) -> AirlineRecord:
+    """Review's Submit for verification: the checked answers replace the draft, and the
+    airline waits for a dispatcher."""
+
+    def edit(record: AirlineRecord) -> AirlineRecord:
+        if record.status != "draft":
+            raise AlreadySubmitted(record.status)
+        entry = _entry(record.history, at=at, actor="airline", action="submitted")
+        return record.model_copy(
+            update={
+                "status": "pending",
+                "answers": answers,
+                "draft": None,
+                "flags": flags,
+                "submitted_at": at,
+                "updated_at": at,
+                "history": [*record.history, entry],
+            }
+        )
+
+    return await _apply(store, airline_id, version, edit)
+
+
 async def update_assistant(
     store: Store, airline_id: str, *, version: int, assistant: AssistantChoice, at: datetime
 ) -> AirlineRecord:
-    """The model choice may change in every status: it goes only into the airline's kit."""
+    """The model choice may change in every submitted status: it goes only into the airline's
+    kit (a draft sets it on its Assistant page)."""
 
     def edit(record: AirlineRecord) -> AirlineRecord:
+        if record.answers is None:
+            raise AnswersLocked(record.status)
         history = _with_own_change(record.history, at=at, action="assistant_changed")
         answers = record.answers.model_copy(update={"assistant": assistant})
         return record.model_copy(update={"answers": answers, "updated_at": at, "history": history})

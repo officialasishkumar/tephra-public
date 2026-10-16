@@ -147,8 +147,10 @@ async def test_with_a_fleet_set_only_it_and_its_pushes_are_checked(runtime: Runt
     assert result.in_ash == [PUSHED_HEX]
     assert {flight.hex for flight in runtime.exposed.values()} == {PUSHED_HEX}
     assert [d.hex for d in drafts] == [PUSHED_HEX]
-    assert drafts[0].proxy_flight.startswith("RFA")
-    assert "RFB6711" not in drafts[0].body
+    # an own TEPHRA never names a flight by an RFA number: a pushed position with no schedule
+    # or registration goes by its callsign (tests/test_own_flights.py has the full order)
+    assert drafts[0].proxy_flight == "RFB6711"
+    assert "RFB6711" in drafts[0].body
     assert runtime.own_fleet() == OwnFleet(prefixes=["RFA"], hex_count=0)
 
 
@@ -171,7 +173,13 @@ def test_the_fleet_route_says_the_filter_and_the_state_does_not(
     with use_clock(FixedClock(AT)):
         unset, state = answers(make_settings(tmp_path))
         filtered, _ = answers(
-            make_settings(tmp_path, fleet_prefixes="RFA,RFB", fleet_hexes="8a0412,8a0413")
+            make_settings(
+                tmp_path,
+                fleet_prefixes="RFA,RFB",
+                fleet_hexes="8a0412,8a0413",
+                airline_name="Ring of Fire Air",
+                airline_icao="RFB",
+            )
         )
 
     assert unset == {"own_fleet": None}

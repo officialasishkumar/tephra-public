@@ -57,11 +57,9 @@ from tephra.agents.satellite_reader import (
 )
 from tephra.ai_worker import AiWorker
 from tephra.config import (
-    AIRLINE_CODE,
-    AIRLINE_NAME,
-    DISCLAIMER,
     MAX_HORIZON_H,
     NO_MODEL_LABEL,
+    Airline,
     Settings,
     apply_process_env,
 )
@@ -492,8 +490,10 @@ class Runtime:
             server_time=timeutil.SystemClock().now(),
             replay=replay,
             llm=self._llm_info(),
-            airline=AirlineInfo(code=AIRLINE_CODE, name=AIRLINE_NAME),
-            disclaimer=DISCLAIMER,
+            airline=AirlineInfo(
+                code=self.airline.code, name=self.airline.name, fictional=self.airline.fictional
+            ),
+            disclaimer=self.airline.disclaimer,
             region=self.settings.region_preset,
             regions=self.settings.regions,
             feeds=health_view(self.live.health, at, self.settings),
@@ -1033,12 +1033,12 @@ class Runtime:
         )
         within = timedelta(seconds=self.settings.stale_after_s(FeedId.ADSB))
         fix = crew_reports.find_fix(hex_id, at, self.aircraft(), self.fixes, within=within)
-        name = (proxy_flight_number(hex_id) if hex_id else flight_callsign) or "the flight"
+        name = (self.flight_name(hex_id) if hex_id else flight_callsign) or "the flight"
         if fix is None:
             return FixLookup(
                 found=False,
                 hex=hex_id,
-                proxy_flight=proxy_flight_number(hex_id) if hex_id else None,
+                proxy_flight=self.flight_name(hex_id) if hex_id else None,
                 callsign=flight_callsign,
                 note=f"No ADS-B fix of {name} within {round(within.total_seconds())} s of"
                 f" {timeutil.hhmmz(at)}: type the position the crew reported",
@@ -1046,7 +1046,7 @@ class Runtime:
         return FixLookup(
             found=True,
             hex=fix.hex,
-            proxy_flight=proxy_flight_number(fix.hex),
+            proxy_flight=self.flight_name(fix.hex),
             callsign=fix.callsign,
             lat=fix.lat,
             lon=fix.lon,
@@ -1065,10 +1065,12 @@ class Runtime:
         fix = crew_reports.find_fix(
             flight[0], entry.observed_at, self.aircraft(), self.fixes, within=within
         )
+        name = self.flight_name(flight[0]) if flight[0] else None
         checked = crew_reports.check_entry(
             entry,
             at=at,
             flight=flight,
+            proxy_flight=name,
             fix=fix,
             fix_within=within,
             policy=self.policy.crew_reports,
@@ -1083,6 +1085,7 @@ class Runtime:
             at=at,
             replay_case_id=self._replay_case_id(),
             flight=flight,
+            proxy_flight=name,
             fix=fix,
             volcano=volcano,
             winds=winds,
@@ -1378,7 +1381,32 @@ class Runtime:
             held = merged.get(target.hex)
             if held is None or target.observed_at >= held.observed_at:
                 merged[target.hex] = target
-        return [merged[key] for key in sorted(merged)]
+        if self.fleet.everyone:
+            return [merged[key] for key in sorted(merged)]
+        return [self._named(merged[key], at) for key in sorted(merged)]
+
+    def _named(self, target: Aircraft, at: datetime) -> Aircraft:
+        plan = self.plan_for(target)
+        return self.fleet.named(target, at, [plan] if plan is not None else [])
+
+    @property
+    def airline(self) -> Airline:
+        """Who the drafts speak for (``Settings.airline``)."""
+        return self.settings.airline
+
+    def flight_name(self, hex_id: str) -> str:
+        """The name of the flight of ``hex_id``, as ``Aircraft.proxy_flight`` gives it: the
+        RFA number in the demo; in an airline's own TEPHRA its own name, from the tracked
+        aircraft, else from the callsign of its newest kept fix."""
+        if self.fleet.everyone:
+            return proxy_flight_number(hex_id)
+        tracked = next((t for t in self.aircraft() if t.hex == hex_id), None)
+        if tracked is not None:
+            return tracked.proxy_flight
+        fixes = self.fixes.fixes(hex_id)
+        callsign = fixes[-1].callsign if fixes else None
+        own = self.fleet.admits_flight(hex_id, callsign)
+        return self.fleet.flight_name(hex_id, callsign, timeutil.now(), own=own)
 
     def exposure_aircraft(self) -> list[Aircraft]:
         """The aircraft checked against the ash: every one unless the own-fleet filter is set."""
@@ -3124,6 +3152,8 @@ class Runtime:
 async def create_runtime(settings: Settings) -> Runtime:
     """Build the process-wide runtime (composition root; settings come from the caller)."""
     apply_process_env(settings)
+    settings.airline  # noqa: B018  # an own fleet without the airline's name stops startup here
+    fleet = await asyncio.to_thread(FleetFilter.from_settings, settings)
     policy = await asyncio.to_thread(load_policy, settings.data_dir, settings.policy_file)
     catalogue = await asyncio.to_thread(load_volcanoes, settings.data_dir)
     airports = await asyncio.to_thread(
@@ -3161,7 +3191,7 @@ async def create_runtime(settings: Settings) -> Runtime:
         replay_case=replay_case,
         auto_replay=False,
         ledger=ledger,
-        fleet=FleetFilter.from_settings(settings),
+        fleet=fleet,
     )
     runtime.replay_window = window
     await runtime.restore_crew_reports()
@@ -3465,7 +3495,8 @@ def _pushed_dot(target: Aircraft, exposed: set[str]) -> PushedDot:
 
 
 def _aircraft_label(target: Aircraft, hit: ExposedFlight | None) -> str:
-    name = target.proxy_flight if target.airline else (target.callsign or target.hex.upper())
+    named = target.airline or target.own_named
+    name = target.proxy_flight if named else (target.callsign or target.hex.upper())
     if target.alt_baro_ft is not None:
         name += f" {_fl_text(target.alt_baro_ft)}"
     if hit is None:

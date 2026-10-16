@@ -8,7 +8,7 @@ Appendix 1, Model VAR); the labels here are TEPHRA's own wording.
 
 from typing import Final, Literal
 
-from tephra.config import AIRLINE_NAME
+from tephra.config import DEMO_AIRLINE, Airline
 from tephra.desk.approvals import SYSTEM_ACTOR
 from tephra.geo.units import distance_nm, ft_to_fl, initial_bearing_deg
 from tephra.models import (
@@ -79,6 +79,7 @@ async def draft_var(runtime: DocsRuntime, flight_id: str, *, actor: str = SYSTEM
         raise FlightNotExposed(flight_id)
     cone = runtime.cones.get(flight.volcano_id)
     state = await runtime.system_state()
+    fictional = runtime.settings.airline.fictional
     created = timeutil.now()
     layers = [layer for layer in situation.official_layers if layer.is_valid(situation.as_of)]
     facts = _facts(flight, cone, layers)
@@ -88,7 +89,11 @@ async def draft_var(runtime: DocsRuntime, flight_id: str, *, actor: str = SYSTEM
         id=stable_id("DOC", "VAR", flight_id, timeutil.to_iso(created), input_hash),
         header=VAR_HEADER,
         labels=[
-            "ADS-B PROXY FLIGHT OF A FICTIONAL AIRLINE - NOT A REAL FLIGHT",
+            *(
+                ["ADS-B PROXY FLIGHT OF A FICTIONAL AIRLINE - NOT A REAL FLIGHT"]
+                if fictional
+                else []
+            ),
             *document_labels(state, backend=None),
         ],
         created_at=created,
@@ -103,7 +108,7 @@ async def draft_var(runtime: DocsRuntime, flight_id: str, *, actor: str = SYSTEM
         proxy_flight=flight.proxy_flight,
         volcano_id=situation.volcano.id,
         volcano_name=situation.volcano.name,
-        header_fields=_header_fields(flight, situation.volcano.vaac),
+        header_fields=_header_fields(flight, situation.volcano.vaac, runtime.settings.airline),
         items=items,
         airep_special=_airep_special(flight),
         ars_line=_ars_line(flight),
@@ -145,15 +150,18 @@ def _facts(
     }
 
 
-def _header_fields(flight: ExposedFlight, vaac: VaacCentre) -> list[DocField]:
+def _header_fields(
+    flight: ExposedFlight, vaac: VaacCentre, airline: Airline = DEMO_AIRLINE
+) -> list[DocField]:
     ident = f"ADS-B callsign {flight.callsign or 'none'}, ICAO address {flight.hex}"
+    named = "Proxy flight number derived from the aircraft" if airline.fictional else "The flight"
     return [
-        DocField.code("operator", "Operator", f"{AIRLINE_NAME} (fictional)"),
+        DocField.code("operator", "Operator", airline.operator),
         DocField.code(
             "ac_ident",
             "Aircraft identification",
             flight.proxy_flight,
-            note=f"Proxy flight number derived from the aircraft ({ident}).",
+            note=f"{named} ({ident}).",
         ),
         DocField.to_complete("pic", "Pilot-in-command"),
         DocField.to_complete("dep", "Departed from (airport, date, time UTC)"),

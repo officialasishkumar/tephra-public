@@ -1,6 +1,6 @@
 """The five steps of how TEPHRA works (SPEC-v2 3.3): said once, in ``tephra/web/five-steps.js``,
-and drawn from there by the Guide, the demo's welcome dialog and the side panel. Source checks;
-the browser draws them."""
+and drawn from there by the Guide, the demo's welcome dialog, the side panel and Home (its picture
+and strip; tests/test_home_web.py). Source checks; the browser draws them."""
 
 import re
 from pathlib import Path
@@ -46,10 +46,9 @@ def test_every_step_icon_is_in_the_sprite() -> None:
     [
         ("guide.js", "./five-steps.js"),
         ("wall/welcome.js", "../five-steps.js"),
-        ("wall/assist-panel.js", "../five-steps.js"),
     ],
 )
-def test_the_guide_the_welcome_and_the_side_panel_draw_them(rel: str, spec: str) -> None:
+def test_the_guide_and_the_welcome_draw_them(rel: str, spec: str) -> None:
     source = (WEB / rel).read_text(encoding="utf-8")
     assert re.search(rf'import \{{[^}}]*\bstepsList\b[^}}]*\}} from "{re.escape(spec)}";', source)
 

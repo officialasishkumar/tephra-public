@@ -1512,7 +1512,7 @@ and the flights in it, pink stays official.
 
 Every page starts the same way, so moving between them nothing jumps: a 56 px bar at the top
 (`.tn-bar`; the 32 px strip above it was removed on 15 Oct 2026, 7.1) that opens with the TEPHRA
-mark (`.tn-home`, 132 px wide at 24 px from the left; it goes home) and the pill nav Demo · Assistant · Desk · Onboard · Guide (16 Oct 2026; Onboard only where `onboard` is on, Workspace once an airline is signed in) with the page you are
+mark (`.tn-home`, 132 px wide at 24 px from the left; it goes home) and the pill nav Demo · Desk · Onboard · Guide (16 Oct 2026; Onboard only where `onboard` is on, Workspace in its place once an airline is signed in; Assistant left the nav on 16 Oct 2026: `/assistant` is reached from the demo panel's pop-out link, the A key and the Guide) with the page you are
 on filled. The gap after the mark and the nav's sizes are in px, as the pages' root font sizes
 differ. Each page's own controls follow: the Wall's area, Assistant, data and clock (the Wall's old
 "Connect" and "Desk →" header buttons are gone, the nav has both), the Desk's chips on the right,
@@ -1543,8 +1543,9 @@ Times a reader meets first say "10:32 UTC" (`utcTime`), not "1032Z": the story c
 
 ### 7.27 TEPHRA Assistant is a page (15 Oct 2026)
 
-"Let's not make this a dialog, make it a separate page." The board (7.21) is `/assistant`, in every
-page's nav (Wall · Assistant · Desk · Connect · Guide). The route serves the Wall's own page:
+"Let's not make this a dialog, make it a separate page." The board (7.21) is `/assistant`. Since
+16 Oct 2026 it is not in the top nav: the demo panel's pop-out link (`#assist-page`), the A key and
+the Guide reach it. The route serves the Wall's own page:
 `page-mode.js`, a plain script in the head, sets `data-page="assistant"` before anything draws, so
 the Wall never flashes; CSS then hides the Wall's stage and status line and puts `#board` in the
 grid row under the shared header, and `wall.js` shows it with `show()` (never `showModal`, no close
@@ -1645,46 +1646,88 @@ Shapes are aria-hidden; the words beside them carry every fact. Colours come fro
 The owner's structure: "a fast Home at `/`, the Wall moved to `/demo` with a welcome dialog, a slim
 story strip and the assistant in the right panel".
 
-- **Home (`/`)**: one line on what TEPHRA is and two big choices, **Watch the demo** (filled,
-  autofocus) and **Onboard your airline** (shown where `onboard` is on; "Your airline workspace"
-  once signed in), with "Already onboarded? Sign in" under them. Beside them, a real frame of the
-  replay's map, captioned with its replay time; the count over it says "Now in the replay". An old
-  link to `/` with a query string or a hash lands on `/demo` with it.
-- **Welcome dialog on `/demo`**: the five steps as numbered nodes joined by one line, from the same
-  source as the Guide's words (`five-steps.js`), then the honesty lines and **Start the demo**
-  (Enter or Esc start; "Don't show this again"; **How it works** and **W** reopen it). `?intro=0`,
+- **Home (`/`)**: one line on what TEPHRA is and two big choices, title only (16 Oct 2026: "no
+  need to mention it here"), **Watch the demo** (filled, autofocus) and **Onboard your airline**
+  (shown where `onboard` is on; "Your airline workspace" once signed in), with "Already onboarded?
+  Sign in" under them. Behind them a volcanic sky (a token gradient with faint ash drifting,
+  `home/ash.js`; still under reduced motion, stopped while the tab is hidden); beside them a
+  picture of the five steps from `five-steps.js` on a flowing path that ends at an advisory card
+  marked **Example** (no flight, an Approve shape that is not a control; one `role="img"` with a
+  label, nothing focusable), one pulse travelling down it. Under 1024 px the steps are the small
+  strip under the line. Neither carries data: the replay map, its live count and caption left Home
+  on 17 Oct 2026 ("it looks repetitve to the map"). An old link to `/` with a query string or a
+  hash lands on `/demo` with it.
+- **Welcome dialog on `/demo`** (read in about three seconds): the Replay chip with the case, one
+  short title, the five steps as numbered nodes joined by one line, by name only, from the same
+  source as the Guide's words (`five-steps.js`; the Guide keeps their description lines), one quiet
+  line of three short honesty facts (the full sentences are the dialog's screen-reader description
+  and are said in About), then a small "Don't show again" and **Start the demo** (Enter or Esc
+  start, with no visible key hint; **How it works** and **W** reopen it). `?intro=0`,
   `?shots=1`, `?present=1` and a Details, track-record or assistant hash skip it.
 - **Left**: a slim story strip (volcano, colour code, RFA flights in or heading in, volcanoes with
   ash, advisories waiting, from the one `allCounts`); one click or **E** opens the full story.
 - **Right**: one panel with two tabs, **Assistant** (on load) and **Details** (the old drawer), and a
-  pinned foot with the one filled **Open the Desk**. The Assistant tab is the board's model in a
-  column: the state line, a replay player, the five steps with the newest one marked, the newest
-  step as a card, and every step newest first. Under 900 px the panel is a bottom sheet (peek,
-  half, full).
+  pinned foot with the one filled **Open the Desk** (under the Assistant tab only its button: the
+  diagram's You decide says the rest). The Assistant tab ("can't we have this ui ux in the main
+  demo page", 16 Oct 2026): the state line, the Inside TEPHRA diagram of `/assistant` (one
+  renderer, `board-view.js` `mountInside`: Code checks with feed reads and flight alerts, the
+  Coordinator with its jobs in line, each skill with its state, "When you ask", You decide with
+  its count, reason and per-run bars, and "Nothing leaves TEPHRA until a dispatcher approves."
+  since the foot's line is hidden under this tab), then **What happened**: the step log folded to
+  its newest 3 rows with "Show all (N)". The replay player and its note line sit above the
+  diagram, so "Replay · ..." shows on a 1366x768 laptop too; under 860 px of height the diagram
+  tightens. Rows open Details. Under 900 px the
+  panel is a bottom sheet (peek, half, full), the diagram first, one column.
+- **Catch-up on arrival** (REPLAY only; "leave the replay speed alone and change what the panel
+  does when a visitor arrives"): once the welcome dialog closes and the tab shows, the tab plays
+  the newest full chain of recorded steps the page holds (feed reads, code checks, Coordinator,
+  each skill, drafts at the Desk; with the budget closed, the must-do work passed to a person and
+  no skill) in about 16 s, then follows the replay clock. A pulse runs from each feed's place on
+  the map into Code checks, then node to node down the diagram; each pulse is one recorded step.
+  Labelled "Replay · catching up: TEPHRA's last steps, fast", then "Replay · following the replay
+  clock", with "Replay again"; before it starts the player reads "Replay · about to catch up".
+  The step playing is said in words under the player and to a screen reader ("Replay, catching
+  up: ..."); each skill row shows its state at that step (in line, running, done, no result), and
+  You decide says what reached a person. The player stays at the top of the tab while it plays,
+  and the tab scrolls each step's row into view. It waits, and holds between steps, while the tab
+  is hidden, a dialog is open or the phone sheet only peeks (on a phone it starts when the sheet
+  opens). No request, no model call, nothing written. When no chain is whole it plays what exists
+  and the note says what is missing. Reduced motion: nothing travels, the highlight steps every
+  2.2 s. `?shots=1` skips it.
 - **Light theme**: the panels follow it; the map column stays on the night basemap.
 
 Honesty placements: REPLAY in the page title, the "Replay clock", the welcome dialog's pill and
-first line, the player ("Replay · TEPHRA's steps on the replayed feeds, at the replay clock",
-never a bare "paused") and every modal's screen-reader text; Home's demo tile carries "Replay" and
-"Ring of Fire Air, a fictional airline", and its map caption and count say "replay". Ring of Fire
-Air is fictional: Home's tile, the welcome dialog, the status line's tooltip. Decision support
+first line, the player ("Replay · catching up: TEPHRA's last steps, fast", "Replay · following
+the replay clock", never a bare "paused") and every modal's screen-reader text; Home shows no
+replay data, and its example card says Example. Ring of Fire Air is fictional: the welcome
+dialog, About, the status line's tooltip. Decision support
 only, nothing sent to an aircraft: Home's footer and the welcome dialog. NO MODEL: the Assistant
 tab's state line with the stub. ILLUSTRATIVE: Details › How TEPHRA decided, beside "Operator
 policy A".
 
 ### 7.33 Onboarding and the workspace (16 Oct 2026)
 
-- **Onboarding (`/onboard`)**: a landing (what you provide, in nine lines; after you submit;
-  private; not built yet), then one topic per page (Airline · Ash policy · Fleet · Network ·
-  Schedule and crews · Data feeds · People · Assistant · Review) with a step list, "Step 3 of 9 ·
-  Fleet" in words (the nine-segment bar is `aria-hidden`), Back and Next, and the answers saved in
-  the browser as they are typed. Next checks only the page it leaves. Review lists each page's
-  answers, then the account (email, password, the decision-support acknowledgement) and a
-  recovery code shown once.
+- **Onboarding (`/onboard`)**, account first (16 Oct 2026: "whats the need of writing this,
+  first sign up"): a landing with a short title, the sign-up card (work email, password with Show,
+  the decision-support tick, Create account, "Already have an account? Sign in", one privacy
+  line) in the first column on a wide screen and first on a phone, what you provide in nine lines
+  and one Not-built line; then the recovery code shown once (with answers an older version kept in
+  this browser offered, "Use them" or "Discard", never moved in unasked);
+  then one topic per page (Airline · Ash policy · Fleet · Network · Schedule and crews · Data
+  feeds · People · Assistant · Review) with a step list, "Step 3 of 9 · Fleet" in words (the
+  nine-segment bar is `aria-hidden`) and Back and Next, each saving the pages to the account
+  (a small "Saved" mark; a failed save says why in the action bar and keeps what was typed).
+  Next checks only the page it leaves. Signing in again resumes at the first unfinished page.
+  Review lists each page's answers ("Not opened · default" for a page never opened, every page one
+  tap away from Review) and **Submit for verification**. Signed in after submitting, the landing
+  says "Your answers are submitted". An account never submitted is deleted after seven days
+  without a save (privacy page).
 - **Sign in (`/signin`)**: one card over the dimmed night map; generic errors ("That email and
   password don't match"), the tries left when two or fewer remain, "Use your recovery code".
 - **Workspace (`/workspace`)**: the airline name, "Airline workspace · private to your account" and
-  the status pill (Pending verification, Verified, Declined); Overview, Your answers, Data feeds
+  the status pill (Not submitted, Pending verification, Verified, Declined); while not submitted
+  only Overview, with "Continue onboarding · step n of 9" (the setup kit comes after submit);
+  otherwise Overview, Your answers, Data feeds
   (the format and a dry run), Assistant (the model choice) and Setup kit (a zip made in the
   browser). Sign out and Delete account live in the account menu.
 - **Desk**: the account menu's **Airlines to verify** (a dispatcher verifies or declines; it
@@ -1696,8 +1739,7 @@ Honesty placements: ILLUSTRATIVE on both Ash policy cards, Review's policy row, 
 workspace), Policy B (its card), recovery for the airline's network, and password reset by email
 (Review, sign in); NO MODEL on the Assistant card with no model; DRY RUN · NOTHING TAKEN IN on the
 dry run; "Pending verification" as the status pill; Private on the landing card and the workspace
-header; the airline's own TEPHRA still drafts under Ring of Fire Air numbers (landing note, kit
-card); decision support only in the footers and the Review acknowledgement; Google's unpaid tier
+header; decision support only in the footers and the Review acknowledgement; Google's unpaid tier
 may use what is sent, on the Gemini or Gemma card.
 
 ## 8. 3D, compare, the time bar and the height filter

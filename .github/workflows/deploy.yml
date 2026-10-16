@@ -72,7 +72,10 @@ env:
   # same questions at the same replay minute, so kept answers are reused at zero quota).
   TEPHRA_MODE: REPLAY
   TEPHRA_REPLAY_CASE: anak-krakatau-20260905
-  TEPHRA_REPLAY_START: "2026-09-05T10:30:00Z"
+  # 10:25Z (owner, 16 Oct 2026): the loop opens five minutes before the 10:30Z SIGMET and Darwin
+  # advisory arrive, so a visitor sees new products reach TEPHRA early in each loop. Inside the
+  # case's reconstructed ADS-B (10:00Z-19:30Z); the five new minutes are asked once, then kept.
+  TEPHRA_REPLAY_START: "2026-09-05T10:25:00Z"
   # 13:30Z while the answer store fills (74% of the 9-hour window's asks, the strongest
   # moment and two reissues); keys carry no window, so every answer kept now serves the long
   # loop too. Reopen to 18:35Z once the Wall shows drafts at every minute (RUNBOOK-private.md).

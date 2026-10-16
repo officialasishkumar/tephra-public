@@ -5,7 +5,7 @@
 
 import {
   $, el, icon, age, band, dayMon, durMin, fl, hhmmz, utcTime, hhmmssz, idTime, hhmmBefore, ms, pad, solarHour, isNight,
-  compassWord, compassDeg, kmBetween, safeExternalUrl, pointInGeom, dest, inBbox,
+  compassWord, compassDeg, kmBetween, safeExternalUrl, pointInGeom, dest, inBbox, airline,
 } from "./util.js";
 import { actionWords, deciderName, deciderRole, SEV_RANK, NON_OBS, worstSeverity, LEVEL_MAX, levelIsAll, levelFrac } from "./derive.js";
 import { plainMove } from "./derive.js";
@@ -410,7 +410,7 @@ export function renderFlights(D, store, ui, target = $("flights")) {
     sub: allStale ? el("span", { class: "dk-warn", text: `Every position is old: up to ${oldest} min.` }) : null,
     // the counts are the tiles' and the groups' to say; the header pill only marks the empty case
     pills: [flights.length ? null : dkPill("ok", "None projected")],
-    title: flights.length ? `${flights.length} RFA ${flights.length === 1 ? "flight" : "flights"} in or heading into TEPHRA's estimated area${scopeName ? ` at ${scopeName}` : ""}` : `No RFA flight is projected to enter TEPHRA's area${scopeName ? ` at ${scopeName}` : ""}.`,
+    title: flights.length ? `${flights.length} ${airline().code} ${flights.length === 1 ? "flight" : "flights"} in or heading into TEPHRA's estimated area${scopeName ? ` at ${scopeName}` : ""}` : `No ${airline().code} flight is projected to enter TEPHRA's area${scopeName ? ` at ${scopeName}` : ""}.`,
   });
   const tiles = flights.length || crew ? dkTiles([
     { label: "Inside now", value: String(inside), tone: inside ? "inside" : null },
@@ -433,7 +433,7 @@ export function renderFlights(D, store, ui, target = $("flights")) {
   const group = (title, aside, rows, key) => (rows.length ? dkGroup(title, aside, dkList(rows.map((f) => flightRow(D, f, ui, allStale, hand)), { first: FLIGHTS_FIRST, key, label: title })) : null);
   const list = flights.length
     ? [handNote, group("Inside now", null, flights.filter((f) => f.properties.inside), "flights-inside"), group("Heading in", "soonest first", flights.filter((f) => !f.properties.inside), "flights-heading")]
-    : dkEmpty("No flight heading in", "TEPHRA projects each RFA flight's last position along its track and level.");
+    : dkEmpty("No flight heading in", `TEPHRA projects each ${airline().code} flight's last position along its track and level.`);
   target.replaceChildren(dkSection("flights-head", head, tiles, ...[list].flat(), crew?.node, note, othersBox));
 }
 
@@ -976,7 +976,7 @@ export function renderLevels(D, ui) {
         el("ul", { class: "levels__key" },
           el("li", {}, el("span", { class: "levels__sw levels__sw--official" }), "Official band"),
           el("li", {}, el("span", { class: "levels__sw levels__sw--tephra" }), "TEPHRA's band"),
-          el("li", {}, el("span", { class: "levels__sw levels__sw--ac" }), "Aircraft (amber: RFA heading in)"))),
+          el("li", {}, el("span", { class: "levels__sw levels__sw--ac" }), `Aircraft (amber: ${airline().code} heading in)`))),
       el("div", { class: "levels__presets seg", role: "group", "aria-label": "Height presets" },
         ...[["all", "All"], ["hazard", "Hazard"], ["low", "≤FL180"], ["high", "≥FL180"]].map(([k, t]) =>
           el("button", { type: "button", dataset: { act: "level-preset", preset: k, focus: `lv-${k}` }, "aria-pressed": (k === "all" && all) || (k === "hazard" && hazardOn) ? "true" : "false", text: t }))))));

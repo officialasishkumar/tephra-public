@@ -60,6 +60,10 @@ async function boot() {
     return;
   }
   const view = handover ? renderHandover(doc) : renderDoc(doc);
+  // the footer's fictional-airline clause is the demo's: a document of an airline's own TEPHRA
+  // carries no FICTIONAL label (regdocs/common.py) and a brief says fictional_airline false
+  const fictional = handover ? doc.fictional_airline !== false : (doc.labels || []).some((l) => /FICTIONAL/.test(l));
+  document.getElementById('docfoot-fictional').hidden = !fictional;
   main.replaceChildren(view);
   const title = view.querySelector('.dhd__title');
   document.title = `${doc.replay ? 'REPLAY - ' : ''}${title ? title.textContent : 'TEPHRA document'}`;

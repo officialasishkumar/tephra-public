@@ -31,7 +31,7 @@ from tephra.agents.validators import (
     reroute_of,
     validate_draft,
 )
-from tephra.config import AIRLINE_NAME, Settings
+from tephra.config import DEMO_AIRLINE, Airline, Settings
 from tephra.models import (
     ActionKind,
     Advisory,
@@ -69,9 +69,13 @@ PROMPT_PATH: Final[Path] = Path(__file__).resolve().parent / "prompts" / "drafte
 AI_UNAVAILABLE: Final = "AI UNAVAILABLE"
 REPAIR_ECHO_CHARS: Final = 2000
 """How much of an unreadable answer the repair prompt quotes back."""
-HEADER_TITLE: Final = (
-    f"TEPHRA COMPANY ADVISORY - {AIRLINE_NAME.upper()} (FICTIONAL) - NOT FOR OPERATIONAL USE"
-)
+
+
+def header_title(airline: Airline) -> str:
+    return f"TEPHRA COMPANY ADVISORY - {airline.label.upper()} - NOT FOR OPERATIONAL USE"
+
+
+HEADER_TITLE: Final = header_title(DEMO_AIRLINE)
 POLICY_A_AVOID: Final = (
     "POLICY A ADVISES AVOIDING THE AREA (DOC 9974 APP 5 5.4(D)(2)); NO DRIFT-DOWN OR ESCAPE"
     " CHECK MADE"
@@ -95,6 +99,7 @@ def render_header(
     replay_case: ReplayCase | None = None,
     degraded_feeds: Sequence[FeedHealth] = (),
     drafted_at: datetime | None = None,
+    airline: Airline = DEMO_AIRLINE,
 ) -> str:
     """Every line is code-written. A REPLAY header names its case right after the flight
     line; a degraded official feed adds an information line and changes no action.
@@ -109,7 +114,7 @@ def render_header(
     if cone.llm_backend == "stub":
         cone_line += " NO MODEL"
     lines = [
-        HEADER_TITLE,
+        header_title(airline),
         f"{flight.proxy_flight} (ADS-B {flight.callsign or 'NO CALLSIGN'} {flight.hex})",
         *([_replay_line(replay_case)] if replay or replay_case is not None else []),
         f"VOLCANO {ctx.volcano_name}",
@@ -337,8 +342,8 @@ def drafter_question(
     )
 
 
-def _draft_parts(ctx: PlannerContext, plan: PlannedAction) -> list[LlmPart]:
-    return [_text_part(json.dumps(_facts(ctx, plan), indent=1), "facts")]
+def _draft_parts(ctx: PlannerContext, plan: PlannedAction, airline: Airline) -> list[LlmPart]:
+    return [_text_part(json.dumps(_facts(ctx, plan, airline), indent=1), "facts")]
 
 
 async def draft_advisory(
@@ -369,7 +374,7 @@ async def draft_advisory(
     if replay_case is not None and not _replay(situation):
         raise ValueError(f"replay case {replay_case.case_id} given for a LIVE situation")
     system = PROMPT_PATH.read_text(encoding="utf-8")
-    parts = _draft_parts(ctx, plan)
+    parts = _draft_parts(ctx, plan, settings.airline)
     known = await _known_draft(reuse, llm, ctx, plan) if reuse is not None else None
     calls: list[LlmCall] = []
     if known is not None:
@@ -444,6 +449,7 @@ async def draft_advisory(
         replay_case=replay_case,
         degraded_feeds=degraded,
         drafted_at=drafted,
+        airline=settings.airline,
     )
     return _advisory(
         situation=situation,
@@ -668,13 +674,15 @@ def _advisory(
 # --- model input ------------------------------------------------------------------------
 
 
-def _facts(ctx: PlannerContext, plan: PlannedAction) -> dict[str, Any]:
+def _facts(
+    ctx: PlannerContext, plan: PlannedAction, airline: Airline = DEMO_AIRLINE
+) -> dict[str, Any]:
     """Everything the drafter may say, with no clock times, ids or hashes in it."""
     decision = plan.decision
     alternate = next((alt for alt in ctx.alternates if alt.icao == decision.alternate_icao), None)
     reroute = reroute_of(decision, ctx)
     return {
-        "airline": f"{AIRLINE_NAME} (fictional)",
+        "airline": airline.label,
         "flight": flight_summary(ctx),
         "hazard": {
             "volcano": ctx.volcano_name,

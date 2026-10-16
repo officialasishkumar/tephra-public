@@ -72,7 +72,7 @@
 
   <header class="cmdbar tn-bar">
     <a class="tn-home brand" href="/" title="TEPHRA home">TEPHRA<span class="brand__sub sr-only"> volcanic-ash decision desk</span></a>
-    <nav class="topnav" aria-label="TEPHRA pages"><a href="/demo" aria-current="page">Demo</a><a href="/assistant">Assistant</a><a class="topnav__keep" href="/desk">Desk</a><a href="/onboard" data-feature="onboard" hidden>Onboard</a><a href="/guide">Guide</a></nav>
+    <nav class="topnav" aria-label="TEPHRA pages"><a href="/demo" aria-current="page">Demo</a><a class="topnav__keep" href="/desk">Desk</a><a href="/onboard" data-feature="onboard" hidden>Onboard</a><a href="/guide">Guide</a></nav>
     <span id="mode-badge" class="mode-badge mode-badge--connecting">Connecting…</span>
     <div class="cmdbar__spacer"></div>
     <div class="areapick">
@@ -221,16 +221,22 @@
         </a>
       </div>
 
-      <!-- TEPHRA Assistant's steps (wall/assist-panel.js); the state line is panels.js renderChrome's -->
+      <!-- TEPHRA Assistant (wall/assist-panel.js): the state line (panels.js renderChrome's), the
+           player over the steps ("Replay · ..." first, so the catch-up's label shows on every
+           screen), the Inside TEPHRA diagram (board-view.js mountInside, the /assistant board's
+           renderer) and What happened: the step log, folded to its newest rows -->
       <section id="assist" class="assist" role="tabpanel" aria-labelledby="assist-tab">
         <div id="ai-state" class="as-state">
           <p class="as-state__name"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>TEPHRA Assistant</p>
           <p class="as-state__line"><span id="model-chip" class="as-state__word">Connecting…</span></p>
         </div>
         <div id="assist-player" class="player" role="group" aria-label="Replay of TEPHRA Assistant's steps" hidden></div>
-        <ol id="assist-pipe" class="as-pipe" hidden></ol>
-        <div id="assist-now" class="as-now" aria-current="step" hidden></div>
-        <section id="assist-log" class="log" aria-label="Every step, newest first"></section>
+        <p id="assist-note" class="as-note" hidden></p>
+        <div id="assist-inside" class="flow-panel flow-panel--side"></div>
+        <section class="as-what" aria-labelledby="assist-what-h">
+          <h3 id="assist-what-h" class="as-what__h">What happened</h3>
+          <section id="assist-log" class="log" aria-label="Every step, newest first"></section>
+        </section>
         <p id="assist-live" class="sr-only" aria-live="polite" aria-atomic="true"></p>
       </section>
 
@@ -295,7 +301,7 @@
   <div id="announce" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
   <!-- How TEPHRA works, in five steps: opens over the demo on the first load (wall/welcome.js builds it) -->
-  <dialog id="welcome" class="welcome" aria-labelledby="welcome-title" aria-describedby="welcome-lede welcome-honest"></dialog>
+  <dialog id="welcome" class="welcome" aria-labelledby="welcome-title" aria-describedby="welcome-more"></dialog>
 
   <dialog id="dlg" class="dlg" aria-labelledby="dlg-title">
     <div class="dlg__head">

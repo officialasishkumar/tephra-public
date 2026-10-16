@@ -309,9 +309,11 @@ export function seconds(msv) {
 // ------------------------------------------------------------------ collapsing repeated lines (2.7)
 
 const NUM = /\d+(?:[.,]\d+)*/g;
-const FLIGHT = /\bRFA\d{3,4}\b/g;
+// a flight's name: RFA1225 in the demo; in an airline's own TEPHRA a callsign or flight number
+// (RFB401, RB555) or a registration (PK-RFX). Never a flight level (FL350).
+const FLIGHT = /\b(?!FL\d)(?:[A-Z]{2,3}\d{1,4}[A-Z]?|[A-Z]{1,2}-[A-Z0-9]{3,5})\b/g;
 // "1 job" and "18 jobs" are one shape: the noun after a number counts as singular (D62).
-const shapeOfText = (t) => String(t).replace(FLIGHT, "RFA#").replace(/\b[0-9a-f]{10,}\b/g, "#id").replace(NUM, "#").replace(/# (\w+?)s\b/g, "# $1");
+const shapeOfText = (t) => String(t).replace(FLIGHT, "FLT#").replace(/\b[0-9a-f]{10,}\b/g, "#id").replace(NUM, "#").replace(/# (\w+?)s\b/g, "# $1");
 
 // Lines that say the same thing become one run: a run keeps every item, the count and the time
 // range. Runs come newest first. `textOf` gives the plain line, `groupOf` anything that must
@@ -343,11 +345,11 @@ export function collapseRuns(items, { textOf, timeOf, groupOf = () => "" }) {
 // range dash already, a range would misread: the newest line is shown and marked as the newest.
 function mergeTexts(texts, newest) {
   const flights = texts.map((t) => t.match(FLIGHT) || []);
-  const nums = texts.map((t) => (t.replace(FLIGHT, "RFA#").match(NUM) || []));
+  const nums = texts.map((t) => (t.replace(FLIGHT, "FLT#").match(NUM) || []));
   const width = Math.max(...nums.map((n) => n.length));
   const varies = [];
   for (let i = 0; i < width; i++) if (new Set(nums.map((n) => n[i])).size > 1) varies.push(i);
-  const base = newest.replace(FLIGHT, "RFA#");
+  const base = newest.replace(FLIGHT, "FLT#");
   let clean = varies.length <= 1;
   let i = 0;
   let out = base.replace(NUM, (m, off, whole) => {
@@ -364,10 +366,10 @@ function mergeTexts(texts, newest) {
   // a range counts more than one: "1–18 job" reads "1–18 jobs"
   else out = out.replace(/(\d–(?:FL)?\d+) (job|flight|item|step|time|record|report|delegation)\b(?!s)/g, "$1 $2s");
   let j = 0;
-  out = out.replace(/RFA#( is| enters| was)?/g, (m, verb) => {
+  out = out.replace(/FLT#( is| enters| was)?/g, (m, verb) => {
     const col = [...new Set(flights.map((f) => f[j]).filter(Boolean))];
     j += 1;
-    if (col.length <= 1) return `${col[0] || "RFA"}${verb || ""}`;
+    if (col.length <= 1) return `${col[0] || "a flight"}${verb || ""}`;
     const names = col.length <= 3 ? `${col.slice(0, -1).join(", ")} and ${col[col.length - 1]}` : `${col.slice(0, 2).join(", ")} and ${col.length - 2} more`;
     const plur = { " is": " are", " enters": " enter", " was": " were" }[verb] || "";
     return `${names}${plur}`;

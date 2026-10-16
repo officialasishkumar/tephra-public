@@ -56,6 +56,18 @@ def test_desk_and_airline_cookies_never_verify_as_each_other() -> None:
     assert verify_claims(desk, settings(), at=NOW) is None
 
 
+def test_a_drafts_cookie_has_no_icao_or_name_but_still_needs_its_ids() -> None:
+    """A draft has no checked ICAO or name until it submits: the cookie carries both empty."""
+    draft = replace(CLAIMS, icao="", name="")
+    token, expires = sign_claims(draft, settings(), at=NOW)
+    no_id, _ = sign_claims(replace(CLAIMS, airline_id=""), settings(), at=NOW)
+    no_key, _ = sign_claims(replace(CLAIMS, login_key=""), settings(), at=NOW)
+
+    assert verify_claims(token, settings(), at=NOW) == replace(draft, expires_at=expires)
+    assert verify_claims(no_id, settings(), at=NOW) is None
+    assert verify_claims(no_key, settings(), at=NOW) is None
+
+
 def test_a_tampered_or_foreign_cookie_fails() -> None:
     token, _ = sign_claims(CLAIMS, settings(), at=NOW)
     payload, _, mac = token.partition(".")

@@ -1,6 +1,7 @@
-// Sign in (/signin) and recovery (/signin/recover) for an onboarded airline. The answers never say
-// whether an email has an account: one wording for a wrong email or password, the tries left
-// only when two or fewer remain, and the wait in words after too many.
+// Sign in (/signin) and recovery (/signin/recover) for an airline's account; one still onboarding
+// goes back to its pages. The answers never say whether an email has an account: one wording for
+// a wrong email or password, the tries left only when two or fewer remain, and the wait in words
+// after too many.
 
 import { el, icon } from "../wall/util.js";
 import { ruleMessage, safeNext } from "../onboard/pages.js";
@@ -48,7 +49,8 @@ export function renderSignin(main, { next }) {
     busy(go, false, "Sign in");
     if (res.ok) {
       pw.control.value = "";
-      location.assign(safeNext(next));
+      // An airline still onboarding goes back to the first page it has not finished.
+      location.assign(res.data?.status === "draft" && !next ? "/onboard" : safeNext(next));
       return;
     }
     if (res.status === 401) {
@@ -111,7 +113,7 @@ export function renderRecover(main) {
       pw2.control.value = "";
       main.replaceChildren(recoveryCard({ code: res.data.recovery_code, email: mail, icao: null }, {
         lead: "Your new password is set. Here is your new recovery code: it is shown once, and it is how you get back in if you forget your password.",
-        oldGone: true, submitted: false,
+        oldGone: true,
       }));
       const h = main.querySelector("h1");
       h.tabIndex = -1;

@@ -1,15 +1,15 @@
-// Home (SPEC-v2 5.1): words the two choices from /api/state, shows the onboarding parts only while
-// the server shows onboarding, and swaps the second choice for the workspace when an airline is
-// signed in. Every word goes in through el() / textContent.
+// Home (SPEC-v2 5.1): shows the onboarding parts only while the server shows onboarding, swaps the
+// second choice for the workspace when an airline is signed in, and draws the five steps: a
+// picture beside the choices (home/how.js) and a strip under the line on narrow screens. Neither
+// carries data. The two choices are titles only (owner, 16 Oct 2026: "no need to mention it
+// here"); the demo says it is a replay itself. Every word goes in through el() / textContent.
 
-import { $, el, icon } from "./wall/util.js";
+import { $ } from "./wall/util.js";
 import { setFeatures, has, applyFeatureNav } from "./wall/features.js";
 import { initAccountNav } from "./account-nav.js";
-import { volcanoOf, replayDay } from "./replay-words.js";
-
-// The replay frame the map images show, written by scripts/capture_home_map.mjs with the images
-// (home/replay-map.webp, home/replay-map-phone.webp): the replay clock and the case at capture.
-const MAP_FRAME = { at: "10:33", case: "Anak Krakatau, 5 Sep 2026" };
+import { stepsList } from "./five-steps.js";
+import { howPicture } from "./home/how.js";
+import { driftAsh } from "./home/ash.js";
 
 async function getState() {
   try {
@@ -20,58 +20,31 @@ async function getState() {
   }
 }
 
-function demoLine(state) {
-  if (!state) return "No sign-in";
-  if (state.mode !== "REPLAY") return "The live picture, from public feeds · no sign-in";
-  if (state.replay?.synthetic) return "A replay of invented demo data · no sign-in";
-  const v = volcanoOf(state.replay);
-  const day = replayDay(state.replay);
-  if (v) return `A replay of ${[v, day].filter(Boolean).join(", ")} · no sign-in`;
-  return day ? `A replay from ${day} · no sign-in` : "A replay · no sign-in";
-}
-
-function demoPills(state) {
-  const replay = state?.mode === "REPLAY";
-  return [
-    replay && el("span", { class: "go__pill go__pill--replay" }, icon("i-replay"), "Replay"),
-    el("span", { class: "go__pill", text: "Ring of Fire Air, a fictional airline" }),
-  ];
-}
-
-// The live count says it is live: the picture is one captured frame, so an unlabelled number over
-// it would disagree with the flights it draws.
-function showCount(state) {
-  const n = state?.mode === "REPLAY" ? state.exposed_count : null;
-  const shown = Number.isInteger(n) && n > 0;
-  $("home-count").hidden = !shown;
-  if (shown) {
-    $("home-count").replaceChildren(
-      el("span", { class: "home__count-now", text: "Now in the replay" }),
-      el("b", { text: n }),
-      el("span", { text: `RFA flight${n === 1 ? "" : "s"} in or heading in` }));
-  }
-  document.title = shown ? "REPLAY - TEPHRA" : "TEPHRA";
-}
-
-function showWorkspace(account) {
+function showWorkspace() {
   const tile = $("go-onboard");
   tile.setAttribute("href", "/workspace");
   $("go-onboard-t").textContent = "Your airline workspace";
-  $("go-onboard-sub").textContent = [account.icao, account.name].filter(Boolean).join(" · ");
   for (const p of document.querySelectorAll(".home__signin")) p.hidden = true;
 }
 
+// The pictures' pulses stop while the tab is hidden (home.css .is-paused); the ash stops itself.
+function drawPictures() {
+  howPicture($("home-how"));
+  $("home-strip").replaceChildren(stepsList({ size: "sm" }));
+  driftAsh($("home-ash"));
+  const pause = () => document.body.classList.toggle("is-paused", document.hidden);
+  document.addEventListener("visibilitychange", pause);
+  pause();
+}
+
 async function main() {
-  $("home-cap-t").textContent = `Map from the replay at ${MAP_FRAME.at} UTC · ${MAP_FRAME.case}`;
+  drawPictures();
   const state = await getState();
   setFeatures(state?.features);
   applyFeatureNav();
   for (const part of document.querySelectorAll("main [data-feature]")) part.hidden = !has(part.dataset.feature);
-  $("go-demo-sub").textContent = demoLine(state);
-  $("go-demo-pills").replaceChildren(...demoPills(state).filter(Boolean));
-  showCount(state);
   const account = await initAccountNav({ right: $("tn-right"), signin: false });
-  if (account.signedIn && has("onboard")) showWorkspace(account);
+  if (account.signedIn && has("onboard")) showWorkspace();
 }
 
 main();

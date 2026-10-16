@@ -864,7 +864,8 @@ def test_the_assistant_is_a_page_not_a_dialog() -> None:
     """/assistant shows the board in place of the demo (UI-DESIGN 7.27): page-mode.js marks the
     page before it draws (dark, whatever the theme), the board is shown non-modal, and on the demo
     its key and links select the side panel's Assistant tab, whose "Open as a page" link goes to
-    the board; every page's nav links it."""
+    the board. The owner (16 Oct 2026) took Assistant out of the top nav: the page is reached
+    from that icon and the Guide."""
     wall = (WALL.parent / "wall.js").read_text(encoding="utf-8")
     opener = wall[wall.index("function openBoard() {") :]
     opener = opener[: opener.index("\n}\n")]
@@ -878,9 +879,8 @@ def test_the_assistant_is_a_page_not_a_dialog() -> None:
     assert index.index('<script src="/static/page-mode.js"></script>') < index.index("wall.css")
     assert 'id="assist-page"' in index
     assert 'href="/assistant"' in index
-    for page in ("index.html", "desk.html", "guide.html"):
-        html = (WALL.parent / page).read_text(encoding="utf-8")
-        assert '<a href="/assistant">Assistant</a>' in html, page
+    nav = index[index.index('<nav class="topnav"') : index.index("</nav>")]
+    assert "/assistant" not in nav
     assert "board-close" not in (WALL / "board-view.js").read_text(encoding="utf-8")
 
 
@@ -1104,3 +1104,39 @@ def test_the_page_says_replay_while_the_board_covers_the_wall() -> None:
     assert '=== "assistant" ? "Assistant" : "Wall"}`' in frame
     assert "describeReplay(dlg, replayLine(s))" in frame
     assert "renderFrame(s);" in panels[panels.index("export function renderChrome") :]
+
+
+def test_the_board_and_the_demo_tab_draw_one_inside_tephra() -> None:
+    """The owner (16 Oct 2026): the /assistant page's Inside TEPHRA panel in the demo's right
+    panel. One renderer (board-view.js mountInside) builds the diagram, writes its words and
+    measures its rails for both; the demo's tab opens Details sections where the board opens its
+    sheets, and leaves the Desk's button to its pinned foot."""
+    view = (WALL / "board-view.js").read_text(encoding="utf-8")
+    assert "export function mountInside({ has, side = false }) {" in view
+    assert "export function drawInside(c, A, M, { C, ex = false, open, VW, VH, DPR }) {" in view
+    flow = view[view.index("export function mountFlow(dialog, { has }) {") :]
+    assert "const I = mountInside({ has });" in flow
+    assert "I.renderStatic(M, ex);" in flow
+    assert "I.renderCounters(events, simT);" in flow
+    assert "drawInside(rctx, A, M," in flow
+    # the diagram's DOM is built once, in mountInside only
+    assert view.count('el("p", { class: "flow-eyebrow", text: "Inside TEPHRA" })') == 1
+    assert 'side ? { act: "board-details", sec: sheet === "checks" ? "feeds" : "ai" }' in view
+    panel = (WALL / "assist-panel.js").read_text(encoding="utf-8")
+    assert "const I = mountInside({ has, side: true });" in panel
+    assert "drawInside(rctx, A, M, { C, open, VW: r.width, VH: r.height, DPR });" in panel
+
+
+def test_the_catch_up_is_recorded_steps_only_and_writes_nothing() -> None:
+    """The catch-up plays steps the page already holds: no fetch, no model call, nothing posted,
+    nothing in the audit chain (owner's plan, 16 Oct 2026)."""
+    for name in ("assist.js", "assist-panel.js"):
+        source = (WALL / name).read_text(encoding="utf-8")
+        assert not re.search(r"\bfetch\(", source), name
+        assert "POST" not in source, name
+        assert "EventSource" not in source, name
+    panel = (WALL / "assist-panel.js").read_text(encoding="utf-8")
+    assert '"Replay again"' in panel
+    words = (WALL / "assist.js").read_text(encoding="utf-8")
+    assert "catching up: TEPHRA's last steps, fast" in words
+    assert '"following the replay clock"' in words

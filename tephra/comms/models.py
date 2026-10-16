@@ -209,6 +209,11 @@ class HandoverBrief(TephraModel):
     id: str = Field(description="'ho_' + 12 hex chars")
     created_at: UtcDatetime
     replay: bool
+    fictional_airline: bool = Field(
+        default=True,
+        description="Made for the demo's fictional airline (its banner says so); False in an "
+        "airline's own TEPHRA. Briefs stored before the field existed were the demo's",
+    )
     shift_from: UtcDatetime
     shift_to: UtcDatetime
     outgoing: str

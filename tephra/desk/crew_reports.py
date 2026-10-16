@@ -310,10 +310,12 @@ def check_entry(
     fix: CrewFix | None,
     fix_within: timedelta,
     policy: CrewReportPolicy,
+    proxy_flight: str | None = None,
 ) -> CheckedEntry:
     """Validate the entry; :class:`CrewReportRefused` lists every problem. The time is checked
     before the position: the ADS-B fix is looked up at the observation time, so a time that
-    cannot be right says nothing about the position."""
+    cannot be right says nothing about the position. ``proxy_flight``: the tracked flight's
+    name (``Runtime.flight_name``); None for the RFA number."""
     problems: list[str] = []
     kind: CrewReportKind | None = None
     try:
@@ -327,7 +329,7 @@ def check_entry(
         problems.append(time_problem)
     else:
         hex_id, callsign = flight
-        name = proxy_flight_number(hex_id) if hex_id else callsign
+        name = (proxy_flight or proxy_flight_number(hex_id)) if hex_id else callsign
         position = _position(entry, fix, name or "the flight", fix_within, problems)
     if problems or kind is None or levels is None or position is None:
         raise CrewReportRefused(problems)
@@ -360,6 +362,7 @@ def build_report(
     flight: tuple[str | None, str | None],
     fix: CrewFix | None,
     volcano: Volcano | None,
+    proxy_flight: str | None = None,
     winds: Sequence[WindProfile],
     wind_place: str,
     no_wind_reason: str,
@@ -393,7 +396,7 @@ def build_report(
         replay_case_id=replay_case_id,
         hex=hex_id,
         callsign=callsign,
-        proxy_flight=proxy_flight_number(hex_id) if hex_id else None,
+        proxy_flight=(proxy_flight or proxy_flight_number(hex_id)) if hex_id else None,
         cues=list(dict.fromkeys(entry.cues)),
         kind=kind,
         observed_at=entry.observed_at,

@@ -17,8 +17,10 @@ const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 function exposedLine() {
   const n = app.exposedIds ? app.exposedIds.size : null;
   if (n === null) return null;
-  if (n === 0) return 'No RFA flight is in or heading into the ash.';
-  return `${plural(n, 'RFA flight')} ${n === 1 ? 'is' : 'are'} in or heading into the ash. A draft comes here once TEPHRA Assistant has planned ${n === 1 ? 'it' : 'each one'}.`;
+  // an airline's own TEPHRA names its own airline (state.airline); the demo's is RFA
+  const code = app.state?.airline?.code || 'RFA';
+  if (n === 0) return `No ${code} flight is in or heading into the ash.`;
+  return `${plural(n, `${code} flight`)} ${n === 1 ? 'is' : 'are'} in or heading into the ash. A draft comes here once TEPHRA Assistant has planned ${n === 1 ? 'it' : 'each one'}.`;
 }
 
 function elsewhere() {
