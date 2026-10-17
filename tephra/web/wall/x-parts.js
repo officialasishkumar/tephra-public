@@ -111,11 +111,17 @@ const CAUSE_LINK = {
   drafter: ["See the jobs to plan by hand ›", "decisions"], plume: ["TEPHRA's estimate ›", "estimate"], sat: ["Satellite picture ›", "sat"], notice: ["Notices ›", "notices"],
 };
 
-// The reason class of a failure (budget, timeout, checks, error, other), from the recorded reason.
+// Why a hosted airline has no model at all (tephra/hosted/settings_for.py): no model chosen, no
+// key set, or a key that cannot be read. No model is called, as for a quota refusal.
+const UNAVAILABLE_RE = /no model key is set|no model is chosen|the model key cannot be read/i;
+
+// The reason class of a failure (budget, unavailable, timeout, checks, error, other), from the
+// recorded reason.
 export function reasonClass(reason) {
   const r = String(reason || "");
   // the Coordinator ran and handed must-do work to the Desk: the model answered, nothing failed
   if (/^Duty Officer left \d+ mandatory item|DUTY OFFICER DID NOT DISPATCH/i.test(r)) return "undone";
+  if (UNAVAILABLE_RE.test(r)) return "unavailable";
   if (/budget_exhausted|DAILY QUOTA|RESOURCE_EXHAUSTED|\b429\b|quota/i.test(r)) return "budget";
   if (/Timeout|timed out/i.test(r)) return "timeout";
   if (/FAILED CHECKS|validation|did not pass/i.test(r)) return "checks";
@@ -128,12 +134,28 @@ export function reasonClass(reason) {
 export const WHY = {
   timeout: "timed out", checks: "the answer failed the code's checks", error: "it stopped with an error", other: "it could not answer",
   budget: "today's free AI quota is used up", undone: "left for the Desk",
+  unavailable: "AI UNAVAILABLE: no model can be used",
 };
+// No model was called for the step: the quota refused it (budget), or the airline has no usable
+// model (unavailable). Either way it "did not run"; it never "gave no result".
+export const notRun = (cls) => cls === "budget" || cls === "unavailable";
+// "AI UNAVAILABLE: no model key is set" from a recorded reason (the assistant's home says it).
+export function unavailableWhy(reason) {
+  const m = UNAVAILABLE_RE.exec(String(reason || ""));
+  return m ? `AI UNAVAILABLE: ${m[0].toLowerCase()}` : WHY.unavailable;
+}
+// A Plume reader's outcome as the pages word it: MODEL_FAILED whose note says no model could be
+// used (a hosted airline with no model, no key or an unreadable key) is UNAVAILABLE: no model was
+// called, so it "did not run" and never "gave no result".
+export const plumeOutcome = (outcome, notes) => (outcome === "MODEL_FAILED" && reasonClass(notes) === "unavailable" ? "UNAVAILABLE" : outcome);
+// A cause's reason in words, for the assistant's home: the airline's own reason when no model
+// can be used, else the §1.1 words.
+const whyOf = (c) => (c.reasonClass === "unavailable" ? unavailableWhy(c.items[0]?.reason || c.raw[0]) : WHY[c.reasonClass] || WHY.other);
 // The state word, for a step refused while the whole assistant is paused (ai.kind "paused").
 export const PAUSED = "assistant paused";
 // "{why}" outside the assistant's home: none for a quota refusal (the place says "did not run",
 // and "Why ›" or Technical detail holds the cause), the §1.1 words for any other cause.
-export const plainWhy = (cls) => (cls === "budget" ? null : WHY[cls] || WHY.other);
+export const plainWhy = (cls) => (notRun(cls) ? null : WHY[cls] || WHY.other);
 
 // The helper a failure belongs to: a Coordinator line about a plume read is the Plume reader's.
 function helperOf(stage, reason) {
@@ -264,9 +286,9 @@ const problems = (n) => `${n} problem${n === 1 ? "" : "s"}`;
 // what happened and nothing more, never "paused" (a cause in "trouble" is not a pause).
 export function causeShort(c, { home = false } = {}) {
   if (c.reasonClass === "undone") return `${c.helper} left must-do jobs for the Desk`;
-  if (c.reasonClass === "budget") {
+  if (notRun(c.reasonClass)) {
     if (!home) return c.steps ? `${c.helper} did not run` : `${c.helper} cannot run now`;
-    return c.steps ? `${c.helper} did not run (${WHY.budget})` : `${c.helper} cannot run now (${WHY.budget})`;
+    return c.steps ? `${c.helper} did not run (${whyOf(c)})` : `${c.helper} cannot run now (${whyOf(c)})`;
   }
   return `${c.helper} gave no result (${WHY[c.reasonClass] || WHY.other})`;
 }
@@ -274,14 +296,14 @@ export function causeShort(c, { home = false } = {}) {
 const place = (n) => (n === 1 ? "its place" : "their place");
 
 // What happened to one skill, from its causes: "gave no result" (a model was called and gave nothing
-// usable), "did not run" (only where no model was called: a budget refusal), "left jobs for the
+// usable), "did not run" (only where no model was called: a budget refusal or no usable model), "left jobs for the
 // Desk" (it answered and left must-do work), "had problems" when its causes differ.
 function skillWord(list) {
-  const cls = new Set(list.map((c) => (c.reasonClass === "budget" || c.reasonClass === "undone" ? c.reasonClass : "none")));
+  const cls = new Set(list.map((c) => (notRun(c.reasonClass) ? "notrun" : c.reasonClass === "undone" ? c.reasonClass : "none")));
   if (cls.size > 1) return "had problems";
   const [k] = cls;
   // a skill whose model is out with no refused step yet "cannot run now", as causeShort says it
-  return k === "budget" ? (list.every((c) => !c.steps) ? "cannot run now" : "did not run") : k === "undone" ? "left jobs for the Desk" : "gave no result";
+  return k === "notrun" ? (list.every((c) => !c.steps) ? "cannot run now" : "did not run") : k === "undone" ? "left jobs for the Desk" : "gave no result";
 }
 
 // The chip's state words after "TEPHRA Assistant ·" when there is trouble, counted by skill, never
@@ -361,11 +383,11 @@ export function aiLead(s, { home = true } = {}) {
 // its cause only at the assistant's home (`home`); elsewhere it "did not run" (8.6).
 export function causeTitle(c, { home = false } = {}) {
   if (c.reasonClass === "undone") return `${c.helper} passed must-do jobs to the Desk`;
-  if (c.reasonClass === "budget") {
+  if (notRun(c.reasonClass)) {
     // `absorbed`: the step was refused because the whole assistant is paused
     if (c.absorbed) return c.steps ? `${c.helper} did not run: ${PAUSED}` : `${c.helper} is paused`;
     if (!home) return c.steps ? `${c.helper} did not run` : `${c.helper} cannot run now`;
-    return c.steps ? `${c.helper} did not run: ${WHY.budget}` : `${c.helper}: ${WHY.budget}`;
+    return c.steps ? `${c.helper} did not run: ${whyOf(c)}` : `${c.helper}: ${whyOf(c)}`;
   }
   return `${c.helper} gave no result (${WHY[c.reasonClass] || WHY.other})`;
 }
@@ -381,7 +403,7 @@ export function draftBlock(s) {
   const mine = s.trouble.filter((x) => x.helperKey === "duty" || x.helperKey === "planner" || x.helperKey === "drafter");
   const c = mine.find((x) => x.reasonClass !== "undone");
   // "did not run" only where no model was called (a budget refusal), as causeShort says it
-  if (c) return { word: `${c.helper} ${c.reasonClass === "budget" ? "did not run" : "gave no result"}`, why: plainWhy(c.reasonClass), unavailable: true };
+  if (c) return { word: `${c.helper} ${notRun(c.reasonClass) ? "did not run" : "gave no result"}`, why: plainWhy(c.reasonClass), unavailable: true };
   if (mine.length) return { word: "left for the Desk", undone: true, why: "the Coordinator did not hand them out" };
   if (s.waiting.some((x) => x.kind === "PLAN")) return { word: "Waiting in line", queued: true };
   return null;
@@ -509,9 +531,9 @@ const PLAIN = [
   [/^Duty Officer AI UNAVAILABLE \(GEMINI DAILY QUOTA SPENT.*?\); (\d+) delegation\(s\) made, (\d+) mandatory item\(s\) to the Desk$/,
     (m) => `Coordinator did not run. ${m[1] !== "0" ? `It handed out ${jobs(m[1])}; ` : ""}${jobs(m[2])} that must be done went to the Desk`],
   [/^Duty Officer AI UNAVAILABLE \((.+)\); (\d+) delegation\(s\) made, (\d+) mandatory item\(s\) to the Desk$/,
-    (m) => `Coordinator ${reasonClass(m[1]) === "budget" ? "did not run." : `gave no result (${plainWhy(reasonClass(m[1]))}).`} ${m[2] !== "0" ? `It handed out ${jobs(m[2])}; ` : ""}${jobs(m[3])} that must be done went to the Desk`],
+    (m) => `Coordinator ${notRun(reasonClass(m[1])) ? "did not run." : `gave no result (${plainWhy(reasonClass(m[1]))}).`} ${m[2] !== "0" ? `It handed out ${jobs(m[2])}; ` : ""}${jobs(m[3])} that must be done went to the Desk`],
   [/^Plume read: (.+?) \((.+)\): not dispatched; the area stays at the official products$/,
-    (m) => `Plume read for ${m[1]} was not handed out${reasonClass(m[2]) === "budget" ? "" : ` (${m[2]})`}. TEPHRA's area stays at the official reports`],
+    (m) => `Plume read for ${m[1]} was not handed out${notRun(reasonClass(m[2])) ? "" : ` (${m[2]})`}. TEPHRA's area stays at the official reports`],
   [/^Duty Officer left (\d+) mandatory item\(s\) undone: to the Desk$/, (m) => `Coordinator passed ${m[1]} must-do ${Number(m[1]) === 1 ? "job" : "jobs"} to the Desk`],
   [/^([A-Z0-9][A-Z0-9-]{1,11}) \([^)]*\) is inside the (.+) cone at (FL\d{3})$/, (m) => `${m[1]} is inside TEPHRA's area at ${m[2]}, ${m[3]}`],
   [/^([A-Z0-9][A-Z0-9-]{1,11}) \([^)]*\) enters the (.+) cone in (\d+) min at (FL\d{3}) if track and level are held$/, (m) => `${m[1]} enters TEPHRA's area at ${m[2]} in ${m[3]} min, at ${m[4]}, if track and level are held`],
@@ -551,7 +573,7 @@ export function plainLine(text) {
 // raw line stays under Technical detail.
 const CAUSES = [
   { stage: "DUTY", re: /^Duty Officer AI UNAVAILABLE \((?:budget_exhausted|GEMINI DAILY QUOTA SPENT[^;]*)\); \d+ delegation\(s\) made, (\d+) mandatory/, each: (m) => `${jobs(m[1])} to the Desk` },
-  { stage: "DUTY", re: /^Plume read: (.+?) \((.+)\): not dispatched/, each: (m) => `${m[1]}: ${reasonClass(m[2]) === "budget" ? "not handed out" : m[2]}` },
+  { stage: "DUTY", re: /^Plume read: (.+?) \((.+)\): not dispatched/, each: (m) => `${m[1]}: ${notRun(reasonClass(m[2])) ? "not handed out" : m[2]}` },
   { stage: "DUTY", re: /^Duty Officer left (\d+) mandatory item\(s\) undone: to the Desk$/, each: (m) => `${jobs(m[1])} to the Desk` },
   { stage: "RECOVERY", re: /RECOVERY AGENT ERROR: TimeoutError/, each: () => "timed out" },
   { stage: "RECOVERY", re: /RECOVERY AGENT ERROR: (\w+)/, each: (m) => m[1] },
@@ -641,10 +663,10 @@ export function planFailure(plan) {
   // `why` is the cause in full, for the assistant's home; `word` says what happened in a main
   // view: a quota refusal called no model, so it "did not run", with no cause (8.6)
   const cls = reasonClass(raw);
-  const word = cls === "budget" ? "Recovery planner did not run" : `Recovery planner gave no result (${WHY[cls] || WHY.other})`;
-  const base = { short: "no plan: plan the network by hand", raw, ai: true, cls, why: WHY[cls] || WHY.other, word,
-    place: `No airport plan (Recovery planner ${cls === "budget" ? "did not run" : "gave no result"}): plan the network by hand` };
-  if (cls === "budget") return { ...base, title: "No plan: Recovery planner did not run", sub: "Nothing was put in its place. A dispatcher must plan the network by hand." };
+  const word = notRun(cls) ? "Recovery planner did not run" : `Recovery planner gave no result (${WHY[cls] || WHY.other})`;
+  const base = { short: "no plan: plan the network by hand", raw, ai: true, cls, why: cls === "unavailable" ? unavailableWhy(raw) : WHY[cls] || WHY.other, word,
+    place: `No airport plan (Recovery planner ${notRun(cls) ? "did not run" : "gave no result"}): plan the network by hand` };
+  if (notRun(cls)) return { ...base, title: "No plan: Recovery planner did not run", sub: "Nothing was put in its place. A dispatcher must plan the network by hand." };
   if (m && m[1] === "TimeoutError") return { ...base, title: "Recovery planner timed out", sub: "No plan was made. A dispatcher must plan the network by hand." };
   if (m) return { ...base, title: "Recovery planner stopped with an error", sub: "No plan was made. A dispatcher must plan the network by hand." };
   return { ...base, title: "No plan: Recovery planner gave no result", sub: "Nothing was put in its place. A dispatcher must plan the network by hand." };

@@ -242,7 +242,27 @@ def error_detail(exc: urllib.error.HTTPError) -> str:
     return str(body.get("detail", exc.reason)) if isinstance(body, dict) else str(exc.reason)
 
 
+def checked(result: dict[str, Any]) -> dict[str, Any]:
+    """The check itself: a hosted airline still being set up answers 202 with the push checked
+    but not taken in (``{"taken_in": false, "result": ...}``)."""
+    inner = result.get("result")
+    return inner if result.get("taken_in") is False and isinstance(inner, dict) else result
+
+
 def report(result: dict[str, Any], section: str) -> str:
+    if result.get("taken_in") is False:
+        result = checked(result)
+        part = result.get(section) or {}
+        refused = len(result.get("rejected", []))
+        line = (
+            f"checked {part.get('total', 0)} · would be taken {part.get('accepted', 0)} · "
+            f"refused {refused} · nothing taken in: TEPHRA has not started for this airline yet"
+        )
+        reasons = [
+            f"  {problem.get('section')}[{problem.get('index')}] {problem.get('reason')}"
+            for problem in result.get("rejected", [])
+        ]
+        return "\n".join([line, *reasons])
     refused = len(result.get("rejected", []))
     if section == "flight_plans":
         line = f"plans taken {result.get('plans_taken', 0)} · refused {refused}"
@@ -276,7 +296,7 @@ def push_all(args: argparse.Namespace, records: list[dict[str, Any]], section: s
             print(f"push failed: {exc}", file=sys.stderr)
             return FAILED
         print(report(result, section))
-        refused = refused or bool(result.get("rejected"))
+        refused = refused or bool(checked(result).get("rejected"))
     if args.dry_run:
         print("Dry run: nothing was sent.")
     return REFUSED if refused else OK

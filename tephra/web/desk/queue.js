@@ -25,10 +25,12 @@ import {
   pct,
   timeCell,
   watchOnly,
+  flightWho,
 } from './format.js';
 import { openFailures } from './failures.js';
 import { openBudget } from './budget.js';
-import { aiMark, closeBSheet, fromReplayChip, openBSheet } from './ui.js';
+import { aiMark, closeBSheet, fromReplayChip, openBSheet, shadowStamp } from './ui.js';
+import { TENANT, SHADOW_WORDS } from '../base.js';
 import { crewFlag, crewKey } from './crew.js';
 import { KIND, draftMessages } from './messages.js';
 import { docsToSign } from './docs.js';
@@ -180,11 +182,12 @@ function staleLine(adv, now) {
 
 function buildLead(adv) {
   const now = activeNow();
-  const who = [adv.proxy_flight, adv.callsign].filter(Boolean).join(' · ');
+  const who = flightWho(adv);
   const writer = [aiMark(undefined, isStub(adv) ? null : adv.model_id)];
   // Only a replay draft shown while live feeds play carries a tag.
   const fromReplay = fromReplayChip(adv);
   return el('article', { class: 'lead next__card', 'data-id': adv.id, 'data-version': String(adv.version), 'data-band': band(coneFor(adv)), 'data-crewkey': crewKey(adv), 'data-level': String(levelNow(adv)), 'aria-labelledby': 'next-flight next-action' },
+    shadowStamp(adv),
     el('p', { class: 'lead__top' }, el('span', { class: 'lead__who', id: 'next-flight', text: who }), timeNode(adv, now)),
     el('h3', { class: 'lead__action', id: 'next-action', text: actionShort(adv) }),
     el('p', { class: 'lead__facts', 'data-slot': 'facts', text: factsText(adv, now) }),
@@ -211,9 +214,10 @@ function advRow(adv) {
   const lvl = levelNow(adv);
   const main = watch ? [lvl !== null ? fl(lvl) : null, adv.volcano_name].filter(Boolean).join(' · ') || 'Keep watching' : actionShort(adv);
   const marks = cautions(adv);
-  const sentence = `${adv.proxy_flight}, ${main.toLowerCase().replace(/\bfl(\d)/g, 'FL$1')}, ${timeWords(adv, now)}${marks.length ? `. ${marks.map((m) => m[1]).join('. ')}` : ''}. Review.`;
+  const sentence = `${adv.shadow ? `${SHADOW_WORDS}. ` : ''}${adv.proxy_flight}, ${main.toLowerCase().replace(/\bfl(\d)/g, 'FL$1')}, ${timeWords(adv, now)}${marks.length ? `. ${marks.map((m) => m[1]).join('. ')}` : ''}. Review.`;
   const extra = [adv.callsign, watch ? null : adv.volcano_name, watch || lvl === null ? null : `now ${fl(lvl)}`].filter(Boolean).join(' · ');
   const button = el('button', { type: 'button', class: 'card irow', 'data-open': adv.id, 'aria-label': sentence },
+    shadowStamp(adv),
     el('span', { class: 'irow__who', 'aria-hidden': 'true', text: adv.proxy_flight }),
     el('span', { class: 'irow__main', 'aria-hidden': 'true' },
       el('span', { class: 'irow__text', text: main }),
@@ -222,15 +226,16 @@ function advRow(adv) {
     el('span', { class: 'irow__new', 'data-slot': 'new', 'aria-hidden': 'true', hidden: true }),
     el('span', { 'aria-hidden': 'true' }, timeNode(adv, now)),
     icon('i-chevron-right', 'icon irow__go'));
-  return el('li', { class: 'cards__item', 'data-id': adv.id, 'data-key': `${adv.id}|${adv.version}|${crewKey(adv)}|${lvl}` }, button);
+  return el('li', { class: 'cards__item', 'data-id': adv.id, 'data-key': `${adv.id}|${adv.version}|${crewKey(adv)}|${lvl}|${Boolean(adv.shadow)}` }, button);
 }
 
 // One row for something that is not an advisory: subject, words, its time cell (`time`, a flight's
 // clock) or its state word ("to approve").
-function itemRow({ key, who = '', text, state, time = null, attrs, label }) {
+function itemRow({ key, who = '', text, state, time = null, attrs, label, shadow = null }) {
   const cell = time || el('span', { class: 'tcell', text: state });
-  return el('li', { class: 'cards__item', 'data-id': key, 'data-key': `${key}|${who}|${text}|${state}|${Boolean(time)}` },
-    el('button', { type: 'button', class: 'card irow', 'aria-label': label, ...attrs },
+  return el('li', { class: 'cards__item', 'data-id': key, 'data-key': `${key}|${who}|${text}|${state}|${Boolean(time)}|${Boolean(shadow)}` },
+    el('button', { type: 'button', class: 'card irow', 'aria-label': shadow ? `${SHADOW_WORDS}. ${label}` : label, ...attrs },
+      shadowStamp(shadow),
       el('span', { class: 'irow__who', 'aria-hidden': 'true', text: who }),
       el('span', { class: 'irow__main', 'aria-hidden': 'true' }, el('span', { class: 'irow__text', text })),
       el('span', { 'aria-hidden': 'true' }, cell),
@@ -243,7 +248,7 @@ const msgRow = (m) => {
   const words = `${(KIND[m.kind] || [m.kind])[0]} · ${langs(m)}`;
   const adv = flightActBy(m) === null ? null : sourceAdvisory(m);
   const now = activeNow();
-  return itemRow({ key: m.id, who: m.flight_no || '', text: words, state: 'to approve', time: adv ? timeNode(adv, now) : null, attrs: { 'data-msg': m.id },
+  return itemRow({ key: m.id, who: m.flight_no || '', text: words, state: 'to approve', time: adv ? timeNode(adv, now) : null, attrs: { 'data-msg': m.id }, shadow: m,
     label: `${m.flight_no ? `${m.flight_no}, ` : ''}${words.replace(' · ', ' in ')}, to approve${adv ? `, the flight ${timeWords(adv, now)}` : ''}. Open.` });
 };
 
@@ -436,6 +441,14 @@ export function renderQueue() {
         el('p', {}, el('span', { text: 'The replay plays on; drafts come when a flight approaches the ash and TEPHRA Assistant is on · ' }),
           el('button', { type: 'button', class: 'linkbtn linkbtn--inline', 'aria-label': 'Why: open the TEPHRA Assistant sheet', onclick: openBudget }, el('span', { text: 'Why ›' }))),
         el('a', { class: 'linkbtn', href: '/demo' }, el('span', { text: 'See the demo' }), icon('i-chevron-right'))),
+    );
+  } else if (n === 0 && TENANT && !openFailures().length) {
+    const tick = parseTime(app.state && app.state.last_tick && app.state.last_tick.finished_at);
+    const at = tick === null ? '' : ` Last run ${new Date(tick).toISOString().slice(11, 19)} UTC.`;
+    stateBox.replaceChildren(
+      el('div', { class: 'panel panel--empty' },
+        el('p', { class: 'panel__title' }, icon('i-check', 'st'), el('span', { text: 'Nothing waits for you.' })),
+        el('p', { text: `New drafts appear here as TEPHRA makes them.${at}` })),
     );
   } else if (n === 0) {
     const last = app.lastLoadedAt === null ? '' : ` Last update ${hhmmz(app.lastLoadedAt)}.`;

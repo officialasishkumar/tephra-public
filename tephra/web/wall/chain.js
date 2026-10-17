@@ -9,7 +9,7 @@
 
 import { $, el, icon, hhmmz, ms } from "./util.js";
 import { actionWords } from "./derive.js";
-import { aiMark, machineText, plainLine, MARK } from "./x-parts.js";
+import { aiMark, machineText, plainLine, plumeOutcome, MARK } from "./x-parts.js";
 import { dkHeader, dkEmpty, dkSection } from "./dk.js";
 
 // The skills in the order they ran, named once each (the step title).
@@ -72,8 +72,9 @@ function plumeStep(p, sit, wall) {
   if (!p) return step(2, SKILLS[1], "plume", { line: NOT_ON_HAND });
   const area = `${MODE_WORD[p.mode] || p.mode} ${flWord(p.base_fl)}-${flWord(p.top_fl)}`;
   if (p.outcome === "MODEL_FAILED") {
+    const notRun = plumeOutcome(p.outcome, p.uncertainty_notes) === "UNAVAILABLE";
     return step(2, SKILLS[1], "plume", {
-      line: "gave no result · the official area stands, nothing put in its place",
+      line: `${notRun ? "did not run (AI UNAVAILABLE)" : "gave no result"} · the official area stands, nothing put in its place`,
       more: [p.uncertainty_notes ? el("p", { class: "dk-sub__note", text: machineText(p.uncertainty_notes) }) : null],
     });
   }
@@ -157,11 +158,16 @@ const chains = new Map();
 const RETRY_MS = 60_000;
 let last = null;
 
+// Where the chain is asked for: /api, or a hosted airline's /a/<ICAO>/api (wall/details.js sets it
+// from base.js; this file imports nothing more, so it runs alone under the tests).
+let apiPath = (path) => `/api${path}`;
+export function setChainApi(fn) { apiPath = fn; }
+
 async function fetchChain(id) {
   chains.set(id, { pending: true });
   let chain = null;
   try {
-    const res = await fetch(`/api/advisories/${encodeURIComponent(id)}/chain`, { headers: { Accept: "application/json" } });
+    const res = await fetch(apiPath(`/advisories/${encodeURIComponent(id)}/chain`), { headers: { Accept: "application/json" } });
     if (res.ok) chain = await res.json();
   } catch {
     chain = null;

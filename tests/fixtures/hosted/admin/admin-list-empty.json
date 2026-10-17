@@ -1,0 +1,52 @@
+{
+  "slots": {
+    "used": 0,
+    "max": 3
+  },
+  "limit_reached": false,
+  "hosting": "always-on",
+  "to_verify": 0,
+  "advisories_waiting": 0,
+  "meter": {
+    "day": "2026-10-17",
+    "reads": 900,
+    "writes": 300,
+    "deletes": 10,
+    "airlines": {
+      "reads": 0,
+      "writes": 0,
+      "deletes": 0
+    },
+    "caps": {
+      "reads": 40000,
+      "writes": 16000,
+      "deletes": 16000
+    },
+    "allowance": {
+      "reads": 8000,
+      "writes": 3200,
+      "deletes": 3200
+    },
+    "by_namespace": {
+      "demo": {
+        "reads": 900,
+        "writes": 300,
+        "deletes": 10
+      }
+    },
+    "blob_puts": {
+      "month": "2026-10",
+      "used": 310,
+      "cap": 4000
+    },
+    "counted_since": "2026-10-17T07:00:00.000Z"
+  },
+  "process": {
+    "rss_mb": 512,
+    "limit_mb": 700
+  },
+  "last_pass": null,
+  "unreadable_keys": 0,
+  "onboarding": 0,
+  "rows": []
+}

@@ -2,7 +2,7 @@
 // the Help dialog (read the map, the full key, the words used, the keyboard) and the About dialog.
 // Built with el(); no HTML strings.
 
-import { el, icon, airline } from "./util.js";
+import { el, icon, airline, otherAircraft } from "./util.js";
 import { GLOSSARY, GASES_SCOPE } from "./glossary.js";
 import { has } from "./features.js";
 
@@ -131,7 +131,7 @@ export function helpContent(enabled, { page = false } = {}) {
       keyRow(sw("i-aircraft", "sw--exposed"), `${code} flight in or heading in`, null),
       keyRow(sw("lg-flight-group", "sw--exposed"), `Six or more ${code} flights close together`, "the badge is the count, click to zoom in"),
       keyRow(sw("i-aircraft", "sw--crew"), `${code} flight on a crew report's route`, "when TEPHRA's area does not reach it"),
-      keyRow(sw("i-aircraft", "sw--aircraft"), `Other aircraft (not ${code})`, null),
+      keyRow(sw("i-aircraft", "sw--aircraft"), otherAircraft(), null),
       keyRow(sw("lg-route", "sw--route"), "Route (origin to destination)", "the callsign's usual route (VRS standing data), not the filed flight plan. The small tags at its ends are the airport codes"),
       keyRow(sw("lg-reroute", "sw--reroute"), "Suggested reroute", null),
       keyRow(sw("lg-arrow-official", "sw--official"), "Official movement", null),

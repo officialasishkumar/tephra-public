@@ -196,8 +196,9 @@ export function timeCell(adv, now) {
   return { text: `${st.minutes} min`, soon: st.minutes <= 10 };
 }
 
+// A hosted member's actor is "desk:<name>#<member id>": the name is the part before "#" (S20).
 export const deskName = (actor) =>
-  typeof actor === 'string' && actor.startsWith('desk:') ? actor.slice(5) : actor || '';
+  (typeof actor === 'string' && actor.startsWith('desk:') ? actor.slice(5) : actor || '').split('#')[0];
 
 // How a session signs its decisions: a dispatcher by name, a visitor as visitor:<name>, the
 // actor the public record shows (SPEC 5.1).
@@ -372,4 +373,10 @@ export function initials(name) {
   if (!parts.length) return '?';
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+// A flight on a card: its number and the callsign it flies under, each said once ("RFB414" when
+// the callsign is the flight number, "RFA1225 · GIA417" when it is a proxy).
+export function flightWho(f) {
+  return [...new Set([f.proxy_flight, f.callsign].filter(Boolean).map(String))].join(' · ');
 }

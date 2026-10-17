@@ -1,0 +1,112 @@
+/* The operator console /admin (SPEC hosted §5.7; design hosted.css: the tiles, the airline table
+   .atable with card rows at 900 px and below, .mini, .fh). Uses tokens.css, topnav.css,
+   product.css and tenant.css (.sbadge, .ah-air__code); light and dark from the tokens. Every grid
+   track is minmax(0, ...), so 390 px never scrolls sideways. */
+.apage { width: 100%; max-width: 1320px; margin: 0 auto; padding: 28px var(--gutter) 48px; display: grid; gap: 20px; align-content: start; }
+.hhead { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 20px; }
+.hhead > div { display: grid; gap: 6px; min-width: 0; }
+
+/* the tiles: four counts, then the free-tier tile across the row */
+.acount { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.acount > div, .ftile { padding: 14px 16px; border: 1px solid var(--c-line-1); border-radius: var(--radius-md); background: var(--c-surface-1); }
+.acount > div > b { display: block; font-size: 24px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.acount > div > span { font-size: 13px; color: var(--c-text-3); }
+.acount .full b { color: var(--c-caution); }
+.ftile { grid-column: 1 / -1; display: grid; gap: 12px; }
+.ftile__h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.ftile__h h2 { font-size: var(--fs-3); font-weight: 600; }
+.ftile__bars { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px 20px; }
+.ntable { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.ntable caption { padding-bottom: 6px; text-align: left; }
+.ntable th, .ntable td { padding: 6px 12px 6px 0; border-bottom: 1px solid var(--c-line-1); text-align: left; }
+.ntable thead th { font-weight: 600; color: var(--c-text-3); }
+.ntable tbody th { font-weight: 600; font-family: var(--font-mono); }
+.ntable .is-over { color: var(--c-serious); font-weight: 600; }
+
+/* bars: AI use, the free tier; caution past 80 %, red at the cap */
+.mini { display: grid; gap: 4px; min-width: 120px; font-size: 13px; color: var(--c-text-2); }
+.mini__bar { height: 6px; border-radius: 3px; background: var(--c-line-2); overflow: hidden; }
+.mini__bar i { display: block; width: var(--w, 0); height: 100%; background: var(--c-text-2); }
+.mini--hi .mini__bar i { background: var(--c-caution); }
+.mini--over { color: var(--c-serious); font-weight: 600; }
+.mini--over .mini__bar i { background: var(--c-serious); }
+.minis { display: grid; gap: 8px; }
+
+/* the airline table */
+.wcard > .seg { justify-self: start; }
+.atable { width: 100%; border-collapse: collapse; font-size: 14px; }
+.atable th { padding: 0 12px 8px 0; text-align: left; font-size: 13px; font-weight: 600; color: var(--c-text-3); white-space: nowrap; border-bottom: 1px solid var(--c-line-1); }
+.atable td { padding: 12px 12px 12px 0; border-bottom: 1px solid var(--c-line-1); vertical-align: middle; }
+.atable tbody tr:last-child td { border-bottom: 0; }
+.atable td:first-child { min-width: 230px; }
+.optable td:first-child { min-width: 160px; }
+.air { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 10px; align-items: center; }
+.air .ah-air__code { width: 40px; height: 34px; }
+.air b { display: block; font-size: 14px; }
+.air small { display: block; font-size: 12px; color: var(--c-text-3); overflow-wrap: anywhere; }
+.tdim { color: var(--c-text-3); font-size: 13px; }
+.tacts { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.tacts__why { margin-top: 4px; max-width: 24ch; margin-left: auto; text-align: right; font-size: 12px; }
+.atable td:last-child { white-space: nowrap; }
+.atable td:last-child .tacts__why { white-space: normal; }
+.fh { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.fh .icon { width: 14px; height: 14px; flex: none; }
+.fh--ok { color: var(--c-ok); }
+.fh--caution { color: var(--c-caution); }
+.fh--serious { color: var(--c-serious); }
+.fh--quiet { color: var(--c-text-3); }
+.probs { display: grid; gap: 4px; }
+.sbadge--declined, .sbadge--deleted { color: var(--c-text-3); border-style: dotted; }
+.sbadge--declined i, .sbadge--deleted i { border: 1.5px solid currentColor; border-radius: 2px; }
+
+/* a row's More menu */
+.amenu-wrap { position: relative; }
+.amenu { min-width: 240px; }
+.amenu .tn-menu__item[disabled] { cursor: not-allowed; color: var(--c-text-3); }
+.amenu .tn-menu__item small { margin-left: auto; }
+
+/* links shown once (operator invite, ops-manager link) */
+.once { display: grid; gap: 10px; padding: 14px 16px; border: 1.5px dashed var(--c-line-input); border-radius: var(--radius-md); background: var(--c-surface-2); }
+.once__row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.once code { flex: 1 1 280px; min-width: 0; font: 500 14px/1.4 var(--font-mono); overflow-wrap: anywhere; user-select: all; }
+.once p { font-size: 13px; color: var(--c-text-2); }
+.once p b { color: var(--c-text-1); }
+
+/* the operator invite */
+.opinvite { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 12px; align-items: start; }
+.opinvite__go { padding-top: 26px; }
+.opinvite .inline-alert { grid-column: 1 / -1; }
+.note--serious { border-color: color-mix(in srgb, var(--c-serious) 55%, transparent); background: var(--c-serious-bg); }
+.note--serious > .icon { color: var(--c-serious); }
+
+@media (max-width: 1100px) {
+  .ftile__bars { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1000px) {
+  .acount { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .atable thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .atable, .atable tbody, .atable tr, .atable td { display: block; width: 100%; }
+  .atable tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; padding: 14px; margin-bottom: 10px; border: 1px solid var(--c-line-1); border-radius: var(--radius-md); background: var(--c-surface-2); }
+  .atable td, .atable tbody tr:last-child td { padding: 0; border: 0; min-width: 0; }
+  .atable td:first-child { min-width: 0; }
+  .atable td[data-l]::before { content: attr(data-l); display: block; margin-bottom: 2px; font-size: 12px; font-weight: 600; color: var(--c-text-3); }
+  .atable td.wide { grid-column: 1 / -1; }
+  .tacts { justify-content: flex-start; }
+  .tacts__why { text-align: left; margin-left: 0; max-width: none; }
+  .atable td:last-child { white-space: normal; }
+  .tacts { position: relative; flex-wrap: wrap; }
+  .amenu-wrap { position: static; }
+  .amenu { right: auto; left: 0; min-width: 0; width: 100%; }
+  .amenu .tn-menu__item { flex-wrap: wrap; height: auto; padding-block: 8px; }
+  .amenu .tn-menu__item small { margin-left: 0; flex-basis: 100%; }
+  .opinvite { grid-template-columns: minmax(0, 1fr); }
+  .opinvite__go { padding-top: 0; }
+}
+@media (max-width: 760px) {
+  .apage { padding-top: 20px; }
+  .acount { grid-template-columns: minmax(0, 1fr); }
+  .ftile__bars { grid-template-columns: minmax(0, 1fr); }
+  .once code { font-size: 13px; }
+}

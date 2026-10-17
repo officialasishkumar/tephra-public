@@ -127,6 +127,33 @@ demo's map or the Desk's picture.
   on the site that takes a secret: the key goes only into the zip made in that tab and TEPHRA never
   receives or stores it.
 
+## From verification to hosting
+
+When this site hosts airlines (the opt-in feature `hosted`, off on the deployed demo; see
+`docs/HOSTED.md`), a verified airline can also run TEPHRA here, in its own private space at
+`/a/<ICAO>/`, instead of its own TEPHRA:
+
+1. **Verification.** An operator verifies the airline on `/admin`, which also approves hosting. An
+   airline a dispatcher verified on the Desk sees "TEPHRA's operators approve hosting after
+   verification" until an operator approves it.
+2. **Set up.** The workspace's Overview shows **Go live on TEPHRA**. The account holder names
+   themself once ("Your name on TEPHRA") and becomes the airline's first ops manager. Nothing runs
+   yet and the airline takes none of the site's places.
+3. **The checklist.** Feeds connected (pushes on a key made on the airline's Feeds page), model and
+   key set (Settings › Assistant), policy confirmed (Settings › Policy), dispatchers invited
+   (Settings › People; each invite is a link the ops manager sends). The region is derived from the
+   network's airports, or chosen when they fall in several regions or in none.
+4. **SHADOW.** An ops manager starts shadow runs when a place is free. TEPHRA runs on the airline's
+   real flights and every draft says "Shadow · not for use".
+5. **LIVE.** An ops manager switches to LIVE, ticking "I am <name>'s ops manager…" and typing the
+   airline's code; the switch goes into the airline's record. Back to SHADOW and Stop each need a
+   reason; Stop frees the place and returns the space to setup.
+
+The workspace's Not built line then reads: "TEPHRA runs at most 3 airlines at once on this site.
+Your own TEPHRA with the setup kit has no such limit." Invited members sign in at `/signin` (or on
+the invite page, `/join`); a login that belongs only to hosted airlines has "Your airlines" as its
+workspace.
+
 ## The setup kit, file by file
 
 `tephra-kit-<icao>.zip`, everything under `tephra-kit-<icao>/`:
@@ -224,9 +251,10 @@ privacy page says the same (`/privacy#accounts`).
 
 ## Not built
 
-- Running an airline's live operation on this shared site: it runs the demo only. Pushes from
-  airline accounts and advisories under an airline's name never appear on the demo or the Desk;
-  to check its own flights an airline runs its own TEPHRA with the setup kit.
+- Running an airline's live operation on this shared site while hosting is off (the deployed
+  demo): it runs the demo only. Pushes from airline accounts and advisories under an airline's name
+  never appear on the demo or the Desk; to check its own flights an airline runs its own TEPHRA
+  with the setup kit, or, where the site hosts airlines, in its own space (above).
 - One shared service with a desk per airline over the same public picture.
 - Policy B (through, under or over the ash): no code applies a Policy B preset.
 - Recovery re-planning for the airline's network.

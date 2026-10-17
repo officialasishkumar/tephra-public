@@ -101,8 +101,10 @@ def render_header(
     drafted_at: datetime | None = None,
     airline: Airline = DEMO_AIRLINE,
 ) -> str:
-    """Every line is code-written. A REPLAY header names its case right after the flight
-    line; a degraded official feed adds an information line and changes no action.
+    """Every line is code-written. A hosted airline in SHADOW gets ``SHADOW - NOT FOR USE``
+    as the first line (outside the body a dispatcher may edit, so no edit removes it). A
+    REPLAY header names its case right after the flight line; a degraded official feed adds
+    an information line and changes no action.
     ``drafted_at`` is when the body was written; when that was in an earlier minute than ``at``
     (the facts' time), the entry line says the time it is as of."""
     flight = ctx.flight
@@ -114,6 +116,7 @@ def render_header(
     if cone.llm_backend == "stub":
         cone_line += " NO MODEL"
     lines = [
+        *([airline.stamp] if airline.stamp else []),
         header_title(airline),
         f"{flight.proxy_flight} (ADS-B {flight.callsign or 'NO CALLSIGN'} {flight.hex})",
         *([_replay_line(replay_case)] if replay or replay_case is not None else []),
@@ -474,6 +477,7 @@ async def draft_advisory(
         plan_key=plan_key,
         input_tokens=sum_known(c.input_tokens for c in calls),
         output_tokens=sum_known(c.output_tokens for c in calls),
+        shadow=settings.airline.shadow,
     )
 
 
@@ -608,6 +612,7 @@ def _advisory(
     plan_key: str | None,
     input_tokens: int | None,
     output_tokens: int | None,
+    shadow: bool,
 ) -> Advisory:
     flight = ctx.flight
     decision = plan.decision
@@ -658,6 +663,7 @@ def _advisory(
         plan_key=plan_key,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        shadow=shadow,
         dedupe_key=stable_id(
             "DD",
             flight.hex,

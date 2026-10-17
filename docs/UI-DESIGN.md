@@ -2560,6 +2560,21 @@ the disclaimer exactly as `state.disclaimer` gives them.
 | Airline | "Ring of Fire Air (RFA) is a fictional airline. RFA flight numbers are proxies for real aircraft." |
 | Outbound | "Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system." |
 | TEPHRA's area | On the Wall "TEPHRA's estimate" · "an estimate, not a forecast" · "never smaller than official" |
+| SHADOW (hosted airline, page level) | The header chip "SHADOW" (dashed, half disc) and its tooltip; page titles `SHADOW · <Section> · RFB · TEPHRA` (`docs/HOSTED.md`) |
+| Shadow · not for use (data level) | The `.stamp--shadow` on every draft card with `shadow`; the code-written `SHADOW - NOT FOR USE` line in advisory headers, outbound text, message and document headers (outside editable bodies); a `SHADOW` tag on record entries |
+| LIVE + who and when | The chip's tooltip "Live since …, switched by …"; the Switch to LIVE dialog ("TEPHRA still sends nothing to an aircraft or to any system…"); the workspace card "Live since …, switched by …"; `OWN_DISCLAIMER` stays where it is |
+| Not updating / Picture from | The state chip "LIVE · not updating since hh:mmZ" in red and the dimmed map with "Picture from hh:mmZ" when a running airline's last tick is over 150 s old |
+| ILLUSTRATIVE (hosted policy) | Settings › Policy chip; the map status line "Policy vN · ILLUSTRATIVE"; inside each draft's record; the Switch to LIVE dialog's caution; an acceptance reads "recorded by the airline, TEPHRA does not check it" |
+| AI UNAVAILABLE: reason (hosted) | Every model step of an airline with no model, no key or an unreadable key |
+| Paused (airline or site allowance) | A red line on every airline page ("Paused: <name>'s share of the site's free daily database allowance is used. Resumes 00:00 Pacific (07:00 UTC)."); the workspace card; the console's free-tier tile and notes |
+| Satellite frames paused | The frames feed note when the month's airline uploads are used |
+| Not built (hosted) | `docs/HOSTED.md` §6, each said where it applies; the workspace line "TEPHRA runs at most 3 airlines at once on this site. Your own TEPHRA with the setup kit has no such limit." |
+| DRY RUN · NOTHING TAKEN IN | The dry-run card (`dryrun.js`, workspace and airline Feeds); "Checked, not taken in" on Feeds in setup |
+| Private | The airline space's footer "Private to <name> and TEPHRA's operators" |
+| Unpaid-tier data use | Settings › Assistant: "Google may use what TEPHRA sends with a free-tier key." |
+| Emails are not checked | The invite page ("Anyone with this link can join as <role> until <time>. Emails are not checked."); the People invite box |
+| Verified ≠ approval | The workspace verification card: "It does not approve your policy or your use of TEPHRA." |
+| Operators only | The console's footer: "Operators of this site only. Each action on an airline goes into that airline's record." |
 
 ### 11.2 Mode words
 

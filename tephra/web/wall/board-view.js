@@ -229,8 +229,13 @@ function setMark(useHost, sym) {
   setAttr(u, "href", href);
 }
 
+// Rows a page leaves out of Inside TEPHRA: a hosted airline's map has no recovery row (D15).
+let SKIPPED = [];
+export function skipInsideRows(ids) { SKIPPED = [...ids]; }
+
 export function mountInside({ has, side = false }) {
   const shown = (id) => !FEATURE_OF[id] || has(FEATURE_OF[id]);
+  const listed = (id) => !SKIPPED.includes(id) && shown(id);
   // a row's action: the board opens its sheet; the demo's tab opens the Details section
   const rowAct = (sheet) => (side ? { act: "board-details", sec: sheet === "checks" ? "feeds" : "ai" } : sheet === "checks" ? { flowsheet: "checks" } : { flowskill: sheet });
   const node = (cls, a, kid = null) => el("span", { class: `flow-node ${cls}`, dataset: { a } }, kid);
@@ -294,8 +299,8 @@ export function mountInside({ has, side = false }) {
   // the words: the state now (the model's), the same in Real and Example except where Example says so.
   // `cu`: the demo's catch-up (assist.js catchupSkills), each skill's row as of the beat playing
   function renderStatic(M, ex, cu = null) {
-    for (const [id, r] of Object.entries(skillEls)) if (r.li.hidden === shown(id)) r.li.hidden = !shown(id);
-    const onreq = HELPERS.filter((h) => h.role === "desk" && shown(h.id)).map((h) => h.name).join(" · ");
+    for (const [id, r] of Object.entries(skillEls)) if (r.li.hidden === listed(id)) r.li.hidden = !listed(id);
+    const onreq = HELPERS.filter((h) => h.role === "desk" && listed(h.id)).map((h) => h.name).join(" · ");
     setText(onreqName, `When you ask: ${onreq}`);
     setMark(coordMark, ex ? "ta-working" : M.ai.symbol);
     setText(gateName, ex ? "AI model · open" : M.gate.name);

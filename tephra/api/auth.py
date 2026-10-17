@@ -29,6 +29,7 @@ from tephra.api import ApiError
 from tephra.config import Settings
 from tephra.models import RunMode, SessionInfo, SessionRole
 from tephra.util import timeutil
+from tephra.util.scope import current_tenant
 
 __all__ = [
     "COOKIE_NAME",
@@ -58,10 +59,14 @@ __all__ = [
 ]
 
 COOKIE_NAME: Final = "tephra_desk"
+TENANT_SCOPE_KEY: Final = "tephra.tenant"
+"""``tephra.api.tenancy.SCOPE_KEY``: an ASGI scope rewritten from ``/a/<ICAO>/api``."""
 TASK_HEADER: Final = "X-Tephra-Task-Token"
 CSRF_HEADER: Final = "X-Tephra-Desk"
 MAX_TOKEN_CHARS: Final = 1024
-_ROLES: Final = frozenset(get_args(SessionRole))
+_DESK_ROLES: Final = frozenset(get_args(SessionRole)) - {"viewer"}
+"""A Desk cookie is a dispatcher's or a visitor's; a viewer is only ever a hosted airline's
+member, whose session comes from the airline cookie (``tephra.api.tenancy``)."""
 
 DISPATCHER_ONLY_PATHS: Final[tuple[tuple[str, str], ...]] = (
     ("POST", "/api/mode"),
@@ -178,7 +183,7 @@ def verify_session(token: str, settings: Settings, *, at: datetime) -> SessionIn
     if expires_at <= at:
         return None
     role, sid = claims.get("r", "dispatcher"), claims.get("sid")
-    if role not in _ROLES or not isinstance(sid, str | None):
+    if role not in _DESK_ROLES or not isinstance(sid, str | None):
         return None
     if role == "visitor" and not sid:
         return None  # a visitor's caps are per session id; every minted visitor has one
@@ -186,8 +191,13 @@ def verify_session(token: str, settings: Settings, *, at: datetime) -> SessionIn
 
 
 def actor_of(session: SessionInfo) -> str:
-    """The audit actor a session decides as: ``desk:<name>`` or ``visitor:<name>``."""
-    return f"{'visitor' if session.role == 'visitor' else 'desk'}:{session.name}"
+    """The audit actor a session decides as: ``desk:<name>`` or ``visitor:<name>``; a hosted
+    airline's member is ``desk:<name>#<member id>`` (names are unique only per airline)."""
+    if session.role == "visitor":
+        return f"visitor:{session.name}"
+    if current_tenant() is not None and session.sid:
+        return f"desk:{session.name}#{session.sid}"
+    return f"desk:{session.name}"
 
 
 def _mac(payload: str, settings: Settings) -> bytes:
@@ -269,7 +279,17 @@ async def require_desk(request: Request) -> SessionInfo:
     """The session from the signed cookie; 401 without one. A visitor's session also meets
     the role guards here, before any route body runs: 403 ``visitor_role`` on what only a
     dispatcher may change, 403 ``visitor_replay_only`` on a decision outside REPLAY, 429
-    ``visitor_cap`` / ``visitor_ask_cap`` once the session's caps are spent."""
+    ``visitor_cap`` / ``visitor_ask_cap`` once the session's caps are spent.
+
+    Under a hosted airline (``/a/<ICAO>/api``) the session is the member's, which the
+    airline dependency checked before this runs (``tephra.api.tenancy``): the Desk's PIN
+    cookie is not used there."""
+    if request.scope.get(TENANT_SCOPE_KEY) is not None:
+        held = getattr(request.state, "tenant_scope", None)
+        if held is None or held.session is None:
+            raise ApiError(401, "unauthenticated", "Sign in to open this airline")
+        session: SessionInfo = held.session
+        return session
     await require_desk_enabled(request)
     settings: Settings = request.app.state.settings
     token = request.cookies.get(COOKIE_NAME)

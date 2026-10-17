@@ -1,0 +1,151 @@
+{
+  "entries": [
+    {
+      "id": "aud_0000000000d4",
+      "at": "2026-10-17T14:01:52.000Z",
+      "actor": "system",
+      "action": "DRAFT_CREATED",
+      "advisory_id": "adv_0123456789ab",
+      "before": null,
+      "after": {
+        "shadow": true
+      },
+      "input_hashes": [],
+      "model_id": null,
+      "prompt_hash": null,
+      "note": "RFB401 hold FL370",
+      "seq": 212,
+      "prev_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "sha256": "00d4456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    {
+      "id": "aud_0000000000d3",
+      "at": "2026-10-17T13:58:40.000Z",
+      "actor": "desk:Dee Disp#MB-2b3c4d5e6f",
+      "action": "APPROVED",
+      "advisory_id": "adv_1123456789ab",
+      "before": null,
+      "after": {
+        "shadow": true
+      },
+      "input_hashes": [],
+      "model_id": null,
+      "prompt_hash": null,
+      "note": "RFB405 change level FL300",
+      "seq": 211,
+      "prev_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "sha256": "00d3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    {
+      "id": "aud_0000000000d2",
+      "at": "2026-10-17T13:40:05.000Z",
+      "actor": "desk:Dee Disp#MB-2b3c4d5e6f",
+      "action": "REJECTED",
+      "advisory_id": "adv_2123456789ab",
+      "before": null,
+      "after": {
+        "shadow": true
+      },
+      "input_hashes": [],
+      "model_id": null,
+      "prompt_hash": null,
+      "note": "RB555: already cleared to descend",
+      "seq": 210,
+      "prev_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "sha256": "00d2456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    {
+      "id": "aud_0000000000d1",
+      "at": "2026-10-17T09:31:00.000Z",
+      "actor": "desk:Ana Ops#MB-1a2b3c4d5e",
+      "action": "CONNECTION_CREATED",
+      "advisory_id": null,
+      "before": null,
+      "after": null,
+      "input_hashes": [],
+      "model_id": null,
+      "prompt_hash": null,
+      "note": "Push key ops-feed-2",
+      "seq": 209,
+      "prev_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "sha256": "00d1456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    {
+      "id": "aud_0000000000d0",
+      "at": "2026-10-16T09:20:00.000Z",
+      "actor": "desk:Ana Ops#MB-1a2b3c4d5e",
+      "action": "POLICY_CONFIRMED",
+      "advisory_id": null,
+      "before": null,
+      "after": null,
+      "input_hashes": [],
+      "model_id": null,
+      "prompt_hash": null,
+      "note": "Policy v3 confirmed",
+      "seq": 208,
+      "prev_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "sha256": "00d0456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    {
+      "id": "aud_0000000000cf",
+      "at": "2026-10-16T09:12:00.000Z",
+      "actor": "desk:Ana Ops#MB-1a2b3c4d5e",
+      "action": "POLICY_CHANGED",
+      "advisory_id": null,
+      "before": null,
+      "after": null,
+      "input_hashes": [],
+      "model_id": null,
+      "prompt_hash": null,
+      "note": "Policy v3: exposure.vertical_margin_ft 2000 -> 3000",
+      "seq": 207,
+      "prev_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "sha256": "00cf456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    {
+      "id": "aud_0000000000ce",
+      "at": "2026-10-16T08:00:00.000Z",
+      "actor": "desk:Ana Ops#MB-1a2b3c4d5e",
+      "action": "MEMBER_INVITED",
+      "advisory_id": null,
+      "before": null,
+      "after": null,
+      "input_hashes": [],
+      "model_id": null,
+      "prompt_hash": null,
+      "note": "IV-0a1b2c3d4e dispatcher",
+      "seq": 206,
+      "prev_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "sha256": "00ce456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    {
+      "id": "aud_0000000000cd",
+      "at": "2026-10-15T10:00:00.000Z",
+      "actor": "desk:Ana Ops#MB-1a2b3c4d5e",
+      "action": "HOSTED_SHADOW",
+      "advisory_id": null,
+      "before": null,
+      "after": null,
+      "input_hashes": [],
+      "model_id": null,
+      "prompt_hash": null,
+      "note": "Started shadow runs",
+      "seq": 205,
+      "prev_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "sha256": "00cd456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  ],
+  "head": {
+    "intact": true,
+    "entries": 212,
+    "head_seq": 212,
+    "head_sha256": "00d4456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "verified_through_seq": 200,
+    "checked_at": "2026-10-17T14:00:00.000Z",
+    "problems": [],
+    "note": "The head TEPHRA holds; the whole chain was last walked at 14:00Z."
+  },
+  "next_before_seq": 205,
+  "can_check": true,
+  "can_export": true
+}

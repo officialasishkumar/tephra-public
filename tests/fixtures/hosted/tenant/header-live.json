@@ -1,0 +1,49 @@
+{
+  "icao": "RFC",
+  "name": "Ring of Fire Cargo",
+  "iata": null,
+  "state": "live",
+  "state_since": "2026-10-17T11:30:00.000Z",
+  "wall_now": "2026-10-17T14:02:36.000Z",
+  "you": {
+    "name": "Dee Disp",
+    "role": "dispatcher",
+    "member_id": "MB-2b3c4d5e6f"
+  },
+  "memberships": [
+    {
+      "icao": "RFB",
+      "name": "Ring of Fire Charter",
+      "role": "ops_manager",
+      "state": "shadow"
+    },
+    {
+      "icao": "RFC",
+      "name": "Ring of Fire Cargo",
+      "role": "dispatcher",
+      "state": "live"
+    }
+  ],
+  "runtime": {
+    "running": true,
+    "last_tick_wall_at": "2026-10-17T14:02:00.000Z",
+    "failures": 0,
+    "problem": null,
+    "updating": true
+  },
+  "paused": null,
+  "suspended": null,
+  "live": {
+    "by": "Rin Ops#MB-3c4d5e6f70",
+    "at": "2026-10-17T11:30:00.000Z"
+  },
+  "chain": {
+    "intact": true,
+    "entries": 212,
+    "checked_at": "2026-10-17T14:00:00.000Z"
+  },
+  "policy": {
+    "version": 2,
+    "label": "Accepted under Ring of Fire Cargo's SRA by Rin Ops, on 16 Oct 2026 (recorded by the airline; TEPHRA does not check it)"
+  }
+}

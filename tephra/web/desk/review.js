@@ -41,15 +41,18 @@ import {
   sessionLabel,
   sourceList,
   sourceTime,
+  flightWho,
 } from './format.js';
 import { EARLY_RELEASE_HINT, holdButton } from './hold.js';
 import { anyStaleSource, coneFor, decidedLine, levelNow, modeChip, needsCarefulRead, statusBadge, statusView, walkOrder } from './queue.js';
 import { app } from './state.js';
 import { routeMap } from './route.js';
-import { aiMark, codeChip, fromReplayChip } from './ui.js';
+import { aiMark, codeChip, fromReplayChip, shadowStamp, isViewer, VIEWER_LINE } from './ui.js';
 import { CREW_REASON_MIN, crewBox, crewKey, crewReasonNeeded } from './crew.js';
 import { openBudget } from './budget.js';
 import { chainView } from '../wall/chain.js';
+import { TENANT } from '../base.js';
+import { tenantHeader } from '../tenant-nav.js';
 
 const GHOST_TAP_MS = 450;
 const OFFLINE_HINT = 'Reconnect to approve';
@@ -389,8 +392,9 @@ function reviewView(adv) {
   // about it (UI-DESIGN 7.1, cross-mode records).
   const fromReplay = fromReplayChip(adv);
   if (fromReplay) out.push(el('p', { class: 'replay-note' }, fromReplay, el('span', { text: 'Drafted while a replay played, not from live feeds' })));
-  const who =[adv.proxy_flight, adv.callsign].filter(Boolean).join(' · ');
+  const who = flightWho(adv);
   out.push(
+    shadowStamp(adv),
     el('p', { class: 'rv2__who' }, el('span', { text: who }), el('span', { class: 'rv2__ver', title: 'Version of this advisory', text: `v${adv.version}` })),
     el('h1', { id: 's-title', class: 'rv2__action', tabindex: '-1', text: actionShort(adv) }),
     entryLine(adv));
@@ -618,6 +622,16 @@ function draftedFacts(adv) {
   return [fact('Drafted', `at ${drafted}`), fact('Entry', `at ${facts}, ${entry}`)];
 }
 
+// What the draft's policy values are. The demo's are illustrative; a hosted airline's carry the
+// label of their version (ILLUSTRATIVE until the airline records its SRA acceptance of it, then
+// "recorded by the airline; TEPHRA does not check it"), said only for the version in force.
+function policyNote(adv) {
+  if (!TENANT) return 'Illustrative values, not an airline SRA, and not reviewed by an airline dispatcher';
+  const p = tenantHeader()?.policy;
+  if (p && Number(p.version) === Number(adv.policy_version)) return p.label;
+  return 'An earlier version of your policy: its values and acceptance are in Settings › Policy';
+}
+
 function recordPage(adv) {
   const hex = String(adv.hex || '').toUpperCase();
   const costNote = typeof adv.cost_note === 'string' ? adv.cost_note.trim() : '';
@@ -633,7 +647,7 @@ function recordPage(adv) {
       costNote && costNote !== String(adv.fuel_line || '').trim() ? fact('Cost note', costNote) : null,
       fact('Drafted by', draftedByValue(adv)),
       adv.policy_version ? fact('Operator policy', [el('span', { class: 'mono', text: `${adv.policy_id} v${adv.policy_version}${adv.policy_hash ? ` #${adv.policy_hash}` : ''}` }),
-        fine('Illustrative values, not an airline SRA, and not reviewed by an airline dispatcher')]) : null),
+        fine(policyNote(adv))]) : null),
     el('h2', { class: 'ghead', text: 'Header written by code' }),
     el('pre', { class: 'acars acars--header', text: adv.header || '' }),
     el('h2', { class: 'ghead', text: 'History (audit log)' }),
@@ -921,6 +935,10 @@ function renderBar() {
 
   if (sheet.stamp) {
     put(inner, stampNode(sheet.stamp));
+  } else if (isViewer()) {
+    // a hosted airline's viewer reads the draft and decides nothing (SPEC-FINAL 5.4)
+    put(inner, el('p', { class: 'ah-viewer', text: VIEWER_LINE }),
+      el('button', { type: 'button', class: 'btn btn--outline', 'data-back': '1' }, icon('i-chevron-left'), el('span', { text: 'Back to Decide' })));
   } else if (sheet.view === 'closed' || sheet.view === 'gone' || (sheet.view === 'conflict' && sheet.conflict.current.status !== 'DRAFT')) {
     const newer = adv.superseded_by && app.drafts.get(adv.superseded_by);
     const approved = adv.status === 'APPROVED' || adv.status === 'EDITED';

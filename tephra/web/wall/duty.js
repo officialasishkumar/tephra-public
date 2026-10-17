@@ -8,7 +8,7 @@
 // in through el() (textContent).
 
 import { el, ms } from "./util.js";
-import { aiMark, plainLine, reasonClass } from "./x-parts.js";
+import { aiMark, notRun, plainLine, reasonClass, unavailableWhy } from "./x-parts.js";
 import { dkPill, dkChip, dkFacts, dkRow, dkList, dkNote, dkEmpty, dkTech, dkFromReplay, dkLink, collapseRuns, seconds, plural, dayTime } from "./dk.js";
 
 // What each Coordinator (duty officer) tool reaches. Tool names are fixed by the backend toolkit.
@@ -26,12 +26,15 @@ export const OUTCOME = {
   REPAIRED: ["caution", "Passed after one repair", "The brief passed after one repair."],
   STUB: ["off", "Code only", "The offline stub ran the work in urgency order. No model wrote the brief."],
   BUDGET: ["caution", "Not run", "Today's free AI quota is used up: no model was called."],
+  UNAVAILABLE: ["caution", "Not run", "AI UNAVAILABLE: no model can be used, so no model was called."],
   MODEL_FAILED: ["caution", "No brief", "The model was called and gave no brief that passed the code's checks."],
 };
 
-// MODEL_FAILED with a budget reason is a run that never reached a model.
-const refused = (run) => run.outcome === "MODEL_FAILED" && (run.validation_errors || []).some((e) => reasonClass(e) === "budget");
-export const outcomeOf = (run) => (refused(run) ? "BUDGET" : run.outcome);
+// MODEL_FAILED with a budget reason, or with no usable model (a hosted airline with no model, no
+// key or an unreadable key), is a run that never reached a model.
+const notRunClass = (run) => (run.outcome === "MODEL_FAILED" ? (run.validation_errors || []).map(reasonClass).find(notRun) || null : null);
+export const outcomeOf = (run) => ({ budget: "BUDGET", unavailable: "UNAVAILABLE" })[notRunClass(run)] || run.outcome;
+const firstUnavailable = (run) => (run.validation_errors || []).find((e) => reasonClass(e) === "unavailable");
 // The model that wrote the brief: none for the stub, a refused run, or a run whose answer failed
 // the checks (no "Drafted by" mark on a brief that did not pass; H8).
 export const dutyModel = (run) => (run.outcome === "STUB" || run.llm_backend === "stub" || run.outcome === "MODEL_FAILED" ? null : run.model_id);
@@ -163,7 +166,7 @@ export function dutyDetail(run, loaded, until = null, modeReplay = false) {
       // no model fact for a run the quota refused: no call was made (D68)
       // the model id in words: this is the assistant's own home (Details › TEPHRA Assistant); the
       // brief below carries the "Drafted by" mark
-      ["Model", outcome === "BUDGET" ? null : outcome === "MODEL_FAILED" ? `Called (${run.model_id || "model unknown"}), no brief passed the checks` : model || "Code only (assistant off)", model && outcome !== "MODEL_FAILED" ? { mono: true } : undefined],
+      ["Model", outcome === "BUDGET" || outcome === "UNAVAILABLE" ? null : outcome === "MODEL_FAILED" ? `Called (${run.model_id || "model unknown"}), no brief passed the checks` : model || "Code only (assistant off)", model && outcome !== "MODEL_FAILED" ? { mono: true } : undefined],
       ["Turns", String(run.turns), { mono: true }],
       ["Jobs given", `${run.worklist.length}${mandatory ? ` (${mandatory} must do)` : ""}`],
       // code starts every run, whether or not a model is then called (no claim the assistant ran)
@@ -172,6 +175,9 @@ export function dutyDetail(run, loaded, until = null, modeReplay = false) {
   ];
   if (outcome === "BUDGET") {
     kids.push(dkNote("caution", [`Not run: today's free AI quota is used up${until ? ` (TEPHRA Assistant paused ${until})` : ""}.`, "No brief was made, and nothing was made up in its place. Must-do jobs went to the Desk."], { role: "status" }),
+      dkTech(`${run.validation_errors.join(" · ")} · would have used ${run.model_id}`));
+  } else if (outcome === "UNAVAILABLE") {
+    kids.push(dkNote("caution", [`Not run: ${unavailableWhy(firstUnavailable(run))}. No model was called.`, "No brief was made, and nothing was made up in its place. Must-do jobs went to the Desk."], { role: "status" }),
       dkTech(`${run.validation_errors.join(" · ")} · would have used ${run.model_id}`));
   } else if (run.outcome === "MODEL_FAILED") {
     kids.push(dkNote("caution", ["The model was called and gave no brief that passed the code's checks.", "No brief was made up in its place. The work below was not coordinated."], { role: "status" }),

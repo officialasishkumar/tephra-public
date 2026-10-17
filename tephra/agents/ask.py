@@ -25,7 +25,7 @@ from uuid import uuid4
 from pydantic import Field
 from shapely import affinity
 
-from tephra.agents.adk_runtime import ModelGuard
+from tephra.agents.adk_runtime import AgentModelUnavailable, ModelGuard, agent_model
 from tephra.agents.answers import AiAnswer, AiAnswers, Question, Reuse, prompt_version
 from tephra.agents.llm import LlmBackend, LlmPart, prompt_hash
 from tephra.agents.schemas import gemini_schema, parse_json_model
@@ -1094,6 +1094,9 @@ async def answer_question(
     run = _AskRun()
     try:
         await _run_agent(runtime, llm, toolkit, run, question, flight_id)
+    except AgentModelUnavailable as exc:
+        run.reply = None
+        run.problems = [str(exc)]
     except Exception as exc:  # ADK or API failure: no answer, agents never raise
         logger.warning("ask agent failed: %s", type(exc).__name__)
         run.reply = None
@@ -1265,7 +1268,7 @@ async def _run_agent(
 
     guard = ModelGuard(llm, max_turns=MAX_MODEL_TURNS)
     agent = build_ask_agent(
-        runtime.settings.model_lite,
+        agent_model(runtime.settings, llm),
         toolkit,
         before_model_callback=guard,
         on_model_error_callback=guard.on_model_error,
@@ -1369,7 +1372,7 @@ def _emit(
 
 
 def build_ask_agent(
-    model: str,
+    model: Any,
     toolkit: AskToolkit,
     *,
     before_model_callback: Any = None,
@@ -1379,7 +1382,7 @@ def build_ask_agent(
     from google.adk.agents import LlmAgent
     from google.genai import types
 
-    from tephra.agents.llm import temperature_for
+    from tephra.agents.llm import model_name, temperature_for
 
     def instruction(_: Any) -> str:
         # A provider (not a plain string) so ADK does not template "{...}" in the prompt.
@@ -1399,7 +1402,9 @@ def build_ask_agent(
         description="Answers a dispatcher's question about TEPHRA's volcanic-ash picture.",
         instruction=instruction,
         tools=toolkit.tools(),
-        generate_content_config=types.GenerateContentConfig(temperature=temperature_for(model)),
+        generate_content_config=types.GenerateContentConfig(
+            temperature=temperature_for(model_name(model))
+        ),
         before_model_callback=before_model_callback,
         on_model_error_callback=on_model_error_callback,
         on_tool_error_callback=tool_error,

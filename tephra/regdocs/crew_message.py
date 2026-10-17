@@ -23,7 +23,7 @@ from tephra.models import (
     TraceStage,
     VaacCentre,
 )
-from tephra.regdocs.common import band_text, document_labels
+from tephra.regdocs.common import band_text, document_labels, stamped_header
 from tephra.regdocs.models import (
     VAR_HEADER,
     CrewMessageDraft,
@@ -87,7 +87,8 @@ async def draft_crew_message(
     area = report.area
     doc = CrewMessageDraft(
         id=stable_id("DOC", "CREW_MESSAGE", report.id, timeutil.to_iso(created), input_hash),
-        header=VAR_HEADER,
+        header=stamped_header(VAR_HEADER, shadow=airline.shadow),
+        shadow=airline.shadow,
         labels=[
             "CREW REPORT ENTERED BY A DISPATCHER - NOT FROM A FEED",
             *([label] if (label := _flight_label(report, airline)) else []),

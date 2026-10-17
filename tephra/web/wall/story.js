@@ -3,12 +3,13 @@
 // from fields and goes in with textContent; a missing field drops its line and is never guessed.
 // The story is about the selected volcano; the "All volcanoes" line carries the global counts.
 
-import { $, el, icon, utcTime, ms, fl, kmBetween, reducedMotion, airline } from "./util.js";
+import { $, el, icon, utcTime, ms, fl, kmBetween, reducedMotion, airline, otherAircraft } from "./util.js";
 import { SEV_RANK, regionOfVent } from "./derive.js";
 import { ext, replanning, aiState, handPlan } from "./ext.js";
-import { planFailure, draftBlock, blockPhrase, machineText, ASSISTANT } from "./x-parts.js";
+import { planFailure, draftBlock, blockPhrase, machineText, plumeOutcome, ASSISTANT } from "./x-parts.js";
 import { FEED_NAME } from "./panels.js";
 import { caseStrip, caseOf, loadCases } from "./case.js";
+import { page } from "../base.js";
 
 const CODE_WORD = { RED: "Red", ORANGE: "Orange", YELLOW: "Yellow", GREEN: "Green" };
 const codeColor = (code) => `var(--c-code-${(code || "UNKNOWN").toLowerCase()})`;
@@ -289,10 +290,11 @@ function storyModel(D, store, sit) {
     let tail = null;
     if (cone?.mode === "WIDENED") tail = "TEPHRA's estimate covers both.";
     else if (cone?.mode === "OFFICIAL") {
-      const outcome = sit.assessment?.outcome;
+      const outcome = plumeOutcome(sit.assessment?.outcome, sit.assessment?.estimate?.uncertainty_notes);
       tail = stub || outcome === "STUB" ? "TEPHRA's estimate has not been widened (code only)."
         : outcome === "PENDING" ? "TEPHRA's estimate has not been widened yet (Plume reader waiting)."
-          : outcome === "MODEL_FAILED" ? "TEPHRA's estimate has not been widened (Plume reader gave no result)." : "TEPHRA's estimate has not been widened.";
+          : outcome === "UNAVAILABLE" ? "TEPHRA's estimate has not been widened (Plume reader did not run: AI UNAVAILABLE)."
+            : outcome === "MODEL_FAILED" ? "TEPHRA's estimate has not been widened (Plume reader gave no result)." : "TEPHRA's estimate has not been widened.";
     }
     m.lines.push({ text: `The sources disagree on where the ash is heading, ${Math.round(dir.magnitude)}° apart.`, sub: tail, mark: "disagree", act: "disagree" });
   }
@@ -436,10 +438,10 @@ function renderLines(D, store, ui, sit, announce) {
 function renderActions(D, store, ui, sit) {
   const box = $("story-actions");
   const kids = [];
-  let ctaHref = "/desk", ctaText = "Open the Desk →", primary = false, sub = null;
+  let ctaHref = page("/desk"), ctaText = "Open the Desk →", primary = false, sub = null;
   if (D && sit) {
     const a = advisoryFacts(D, store, sit.volcano_id);
-    if (a.urgent) { ctaHref = `/desk#review/${encodeURIComponent(a.urgent.id)}`; ctaText = "Decide on the Desk →"; primary = true; }
+    if (a.urgent) { ctaHref = page(`/desk#review/${encodeURIComponent(a.urgent.id)}`); ctaText = "Decide on the Desk →"; primary = true; }
     else {
       // no drafts because the assistant did not run: the Desk holds the hand-plan work (W18),
       // said under the quiet button, never as the one filled call to action
@@ -478,7 +480,7 @@ export function keyRows(D, ui) {
   if (ui.layers.aircraft && D.exposed.length >= 6) rows.push([sw("lg-flight-group", "sw--exposed"), `${airline().code} flights close together`, "click to zoom in"]);
   const step = D.official.find((f) => f.properties.show && f.properties.step !== "now");
   if (step) rows.push([sw("lg-area-forecast", "sw--official"), `Official forecast area (${step.properties.layer.replace("FCST+", "+").replace("H", " h")})`, null]);
-  if (ui.layers.aircraft && D.aircraft.some((f) => !f.properties.exposed)) rows.push([sw("i-aircraft", "sw--aircraft"), `Other aircraft (not ${airline().code})`, null]);
+  if (ui.layers.aircraft && D.aircraft.some((f) => !f.properties.exposed)) rows.push([sw("i-aircraft", "sw--aircraft"), otherAircraft(), null]);
   if (ui.layers.routes && D.hasRouteLine) rows.push([sw("lg-route", "sw--route"), "Route (origin to destination)", "airport codes at the ends"]);
   if (ui.layers.airports && currentPlan()?.closures.length) rows.push([sw("i-airport", "sw--closed"), "Closed airport", "dashed: its closure radius"]);
   const pickedReroute = !!D.selFlight && D.rerouteKeys?.has(`${D.selFlight.properties.hex}:${D.selFlight.properties.volcano_id}`);
@@ -604,11 +606,11 @@ export function renderStory(D, store, ui, { conn, extra, announce, notes = [] })
   const sit = D?.sit || null;
   renderFailures(storyFailures(D, store, conn, extra));
   const h1 = $("volcano-name");
-  if (!D) setText(h1, extra.error ? "TEPHRA" : "Connecting to TEPHRA…");
+  if (!D) setText(h1, extra.error ? "TEPHRA" : extra.waiting || "Connecting to TEPHRA…");
   else if (sit) setText(h1, sit.volcano_name);
   else if (D.regionEmpty || D.reading) setText(h1, D.area?.name || (D.reading ? "Watched regions" : "This area"));
   else setText(h1, "Watched regions");
-  document.body.classList.toggle("is-connecting", (!D && !extra.error) || !!D?.reading);
+  document.body.classList.toggle("is-connecting", (!D && !extra.error && !extra.waiting) || !!D?.reading);
   // A load error shows the failure line only: no numbers and never a cached story (R5.4).
   $("verdict").classList.toggle("verdict--error", !D && !!extra.error);
   // the case's words (REPLAY, a case with an entry, the selected volcano one of the case's)

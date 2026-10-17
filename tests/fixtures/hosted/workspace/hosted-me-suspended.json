@@ -1,0 +1,13 @@
+{
+  "memberships": [
+    {
+      "icao": "RFB",
+      "name": "Ring of Fire Charter",
+      "role": "ops_manager",
+      "state": "suspended"
+    }
+  ],
+  "can_set_up": null,
+  "waiting": null,
+  "max_airlines": 3
+}

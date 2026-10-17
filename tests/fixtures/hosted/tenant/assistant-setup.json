@@ -1,0 +1,35 @@
+{
+  "model": "gemini-3.8-flash",
+  "model_lite": "gemini-3.5-flash-lite",
+  "models": [
+    {
+      "name": "gemini-3.8-flash",
+      "free_rpd": 20
+    },
+    {
+      "name": "gemini-3.5-flash-lite",
+      "free_rpd": 1000
+    },
+    {
+      "name": "gemini-3.1-flash-lite",
+      "free_rpd": 1000
+    },
+    {
+      "name": "gemma-4-31b-it",
+      "free_rpd": 14400
+    }
+  ],
+  "key": {
+    "set": false,
+    "last4": null,
+    "set_by": null,
+    "readable": false
+  },
+  "reserve_share": 0.2,
+  "daily_limits": {
+    "gemini-3.5-flash-lite": 200
+  },
+  "state": "unavailable",
+  "reason": "no model key is set",
+  "budget": null
+}

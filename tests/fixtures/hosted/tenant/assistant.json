@@ -1,0 +1,127 @@
+{
+  "model": "gemini-3.8-flash",
+  "model_lite": "gemini-3.5-flash-lite",
+  "models": [
+    {
+      "name": "gemini-3.8-flash",
+      "free_rpd": 20
+    },
+    {
+      "name": "gemini-3.5-flash-lite",
+      "free_rpd": 1000
+    },
+    {
+      "name": "gemini-3.1-flash-lite",
+      "free_rpd": 1000
+    },
+    {
+      "name": "gemma-4-31b-it",
+      "free_rpd": 14400
+    }
+  ],
+  "key": {
+    "set": true,
+    "last4": "x9Qa",
+    "set_by": {
+      "by": "Ana Ops#MB-1a2b3c4d5e",
+      "at": "2026-10-15T09:10:00.000Z"
+    },
+    "readable": true
+  },
+  "reserve_share": 0.2,
+  "daily_limits": {
+    "gemini-3.5-flash-lite": 200
+  },
+  "state": "on",
+  "reason": null,
+  "budget": {
+    "backend": "gemini",
+    "as_of": "2026-10-17T14:02:00.000Z",
+    "quota_day": "2026-10-17",
+    "resets_at": "2026-10-18T07:00:00.000Z",
+    "models": [
+      {
+        "model_id": "gemini-3.5-flash-lite",
+        "jobs": "every other AI step",
+        "used": 101,
+        "limit": 200,
+        "free_limit": 1000,
+        "remaining": 99,
+        "closed": false,
+        "lanes": [
+          {
+            "lane": "urgent",
+            "words": "urgent (flights in or near the area)",
+            "used": 18,
+            "share": 60
+          },
+          {
+            "lane": "interactive",
+            "words": "Desk (questions, voice, notices, messages, documents)",
+            "used": 11,
+            "share": 40
+          },
+          {
+            "lane": "routine",
+            "words": "routine (paced through the day)",
+            "used": 72,
+            "share": 100
+          }
+        ],
+        "routine_allowed_now": 80,
+        "next_routine_slot": null,
+        "pacing": "on pace"
+      },
+      {
+        "model_id": "gemini-3.8-flash",
+        "jobs": "Plume Reader",
+        "used": 6,
+        "limit": 20,
+        "free_limit": 20,
+        "remaining": 14,
+        "closed": false,
+        "lanes": [
+          {
+            "lane": "urgent",
+            "words": "urgent (flights in or near the area)",
+            "used": 6,
+            "share": 16
+          },
+          {
+            "lane": "interactive",
+            "words": "Desk (questions, voice, notices, messages, documents)",
+            "used": 0,
+            "share": 4
+          },
+          {
+            "lane": "routine",
+            "words": "routine (paced through the day)",
+            "used": 0,
+            "share": 0
+          }
+        ],
+        "routine_allowed_now": 0,
+        "next_routine_slot": null,
+        "pacing": "on pace"
+      }
+    ],
+    "tiers": [
+      {
+        "tier": "main",
+        "model_id": "gemini-3.8-flash",
+        "used": 6,
+        "limit": 20,
+        "remaining": 14
+      },
+      {
+        "tier": "lite",
+        "model_id": "gemini-3.5-flash-lite",
+        "used": 101,
+        "limit": 200,
+        "remaining": 99
+      }
+    ],
+    "waiting": [],
+    "note": "Counts reset at midnight Pacific."
+  }
+}

@@ -51,16 +51,21 @@ from tephra.airline.models import (
 )
 from tephra.airline.policy_check import EDITABLE, PolicyRefused, apply_changes
 from tephra.airline.sessions import (
+    AirlineClaims,
     AirlineContext,
+    LoginContext,
     accounts_enabled,
     claims_of,
     clear_airline_cookie,
     client_key_64,
+    member_claims,
     read_claims,
     require_accounts,
     require_airline,
+    require_login,
     require_onboard,
     set_airline_cookie,
+    sign_out_everywhere,
 )
 from tephra.api import ApiError
 from tephra.api.auth import VISITOR_ROLE_DETAIL, LoginThrottle, require_csrf, wall_clock_now
@@ -82,6 +87,12 @@ TRIES_HEADER: Final = "X-Tephra-Tries-Left"
 _AIRLINE_ID: Final = re.compile(r"AL-[0-9a-f]{12}")
 
 Airline = Annotated[AirlineContext, Depends(require_airline)]
+SignedIn = Annotated[LoginContext, Depends(require_login)]
+DELETE_REFUSALS: Final = {
+    "hosted_airline": "Your airline is hosted on TEPHRA. TEPHRA's operators delete its data.",
+    "last_ops_manager": "You are the last ops manager of an airline on TEPHRA. Make someone "
+    "else ops manager first.",
+}
 Accounts = [Depends(require_csrf), Depends(require_accounts)]
 
 
@@ -205,11 +216,20 @@ async def _purge_now_and_then(request: Request, runtime: Any) -> None:
 
 
 def _view(
-    model: BaseModel, request: Request, record: AirlineRecord, login: AirlineLogin
+    model: BaseModel, request: Request, record: AirlineRecord | None, login: AirlineLogin
 ) -> Response:
+    """``record`` None: a member-only login (it joined a hosted airline by invite)."""
     response = _json(model)
-    set_airline_cookie(response, request, claims_of(record, login))
+    set_airline_cookie(response, request, _claims(record, login))
     return response
+
+
+def _claims(record: AirlineRecord | None, login: AirlineLogin) -> AirlineClaims:
+    return member_claims(login) if record is None else claims_of(record, login)
+
+
+def _hosted(request: Request) -> bool:
+    return "hosted" in request.app.state.settings.features
 
 
 async def _json_body(request: Request) -> Any:
@@ -316,14 +336,16 @@ async def sign_in(body: SignIn, request: Request, runtime: RuntimeDep) -> Respon
         left = _record_failure(request, client, key, "airline_login_email")
         raise _bad_credentials("That email and password don't match", left)
     _throttle(request, "airline_login_email").clear(key)
-    record = await _record_of(runtime, login.airline_id)
-    claims = claims_of(record, login)
+    record = await _record_or_none(runtime, login)
+    claims = _claims(record, login)
+    if _hosted(request):
+        await accounts.note_sign_in(runtime.store, key, at=wall_clock_now())
     view = AirlineSessionView(
         accounts=True,
         signed_in=True,
         icao=claims.icao or None,
         name=claims.name or None,
-        status=record.status,
+        status=None if record is None else record.status,
     )
     return _view(view, request, record, login)
 
@@ -359,22 +381,30 @@ async def recover(body: Recover, request: Request, runtime: RuntimeDep) -> Respo
         raise _bad_credentials("That email and recovery code don't match") from None
     _throttle(request, "airline_recover_email").clear(key)
     _throttle(request, "airline_login_email").clear(key)
-    record = await _record_of(runtime, login.airline_id)
+    if _hosted(request):
+        request.app.state.access.drop(login_key=key)
+    record = await _record_or_none(runtime, login)
     return _view(RecoveryCode(recovery_code=code), request, record, login)
 
 
-async def _record_of(runtime: Runtime, airline_id: str) -> AirlineRecord:
+async def _record_or_none(runtime: Runtime, login: AirlineLogin) -> AirlineRecord | None:
+    """The login's onboarding record; None for a member-only login."""
+    if login.airline_id is None:
+        return None
     try:
-        return await accounts.get_record(runtime.store, airline_id)
+        return await accounts.get_record(runtime.store, login.airline_id)
     except accounts.AirlineNotFound:
         raise ApiError(401, "unauthenticated", "Sign in to your airline workspace") from None
 
 
 @router.post("/airline/sign-out", status_code=204, dependencies=Accounts)
 async def sign_out(request: Request, runtime: RuntimeDep) -> Response:
-    """Ends the session on the server too: a copy of the cookie stops working at once."""
+    """Ends the session on the server too: a copy of the cookie stops working at once. With
+    hosted airlines, signing out signs out every device (an airline's pages are private)."""
     claims = read_claims(request)
-    if claims is not None:
+    if claims is not None and _hosted(request):
+        await sign_out_everywhere(runtime.store, claims.login_key, access=request.app.state.access)
+    elif claims is not None:
         await accounts.end_sessions(runtime.store, claims.login_key, version=claims.version)
     response = Response(status_code=204)
     clear_airline_cookie(response, request)
@@ -495,21 +525,33 @@ async def put_assistant(
 
 @router.post("/airline/delete", status_code=204, dependencies=[Depends(require_csrf)])
 async def delete_account(
-    body: DeleteAccount, request: Request, airline: Airline, runtime: RuntimeDep
+    body: DeleteAccount, request: Request, signed_in: SignedIn, runtime: RuntimeDep
 ) -> Response:
-    """The password again (throttled as sign-in), then both documents go."""
-    client, key = client_key_64(request), airline.login.login_key
+    """The password again (throttled as sign-in), then the login and its record go. With
+    hosted airlines, an airline that is hosted keeps its account (409 ``hosted_airline``) and
+    the last ops manager of one cannot leave it without one (409 ``last_ops_manager``)."""
+    login = signed_in.login
+    record = await _record_or_none(runtime, login)
+    client, key = client_key_64(request), login.login_key
     _refuse_if_blocked(
         request,
         [("airline_login", client), ("airline_login_email", key)],
         "too_many_attempts",
         "Too many tries; deleting waits",
     )
-    if not await passwords.check_password(body.password, airline.login.password):
+    if not await passwords.check_password(body.password, login.password):
         left = _record_failure(request, client, key, "airline_login_email")
         raise _bad_credentials("That password doesn't match", left)
-    await accounts.delete_account(runtime.store, airline.record)
-    logger.info("airline deleted id=%s", airline.record.id)
+    if _hosted(request):
+        refusal = await accounts.deletion_refusal(runtime.store, login, record)
+        if refusal is not None:
+            raise ApiError(409, refusal, DELETE_REFUSALS[refusal])
+    if record is None:
+        await _delete_member_login(request, runtime, login)
+        logger.info("member login deleted")
+    else:
+        await accounts.delete_account(runtime.store, record)
+        logger.info("airline deleted id=%s", record.id)
     response = Response(status_code=204)
     clear_airline_cookie(response, request)
     return response
@@ -542,6 +584,21 @@ async def dry_run(request: Request, airline: Airline) -> Response:
 async def get_fleet(runtime: RuntimeDep) -> Response:
     """The own-fleet filter this TEPHRA runs with; null when every aircraft is checked."""
     return _json(FleetResponse(own_fleet=runtime.own_fleet()))
+
+
+async def _delete_member_login(request: Request, runtime: Runtime, login: AirlineLogin) -> None:
+    """A member-only login leaves every airline it joined (each one's record says so), then
+    goes."""
+    from tephra.hosted import members
+
+    registry = request.app.state.registry
+    await members.delete_member_login(
+        runtime.store,
+        login,
+        spaces=registry.space,
+        access=request.app.state.access,
+        at=wall_clock_now(),
+    )
 
 
 # --- the Desk ---------------------------------------------------------------------------

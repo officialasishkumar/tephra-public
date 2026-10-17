@@ -11,6 +11,7 @@ import asyncio
 import contextvars
 import json
 import logging
+import os
 import re
 import secrets
 import sys
@@ -21,7 +22,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppres
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, Final, Self
+from typing import TYPE_CHECKING, Annotated, Any, Final, Self
 
 from fastapi import APIRouter, Depends, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -55,7 +56,24 @@ from tephra.api.auth import (
 )
 from tephra.api.routes_pages import WEB_DIR
 from tephra.api.routes_pages import router as pages
-from tephra.api.sse import EventStreamResponse, StreamSlots, event_stream, parse_last_event_id
+from tephra.api.sse import (
+    TENANT_STREAM_CHECK_S,
+    TENANT_STREAM_LIFETIME_S,
+    TENANT_STREAMS_PER_MEMBER,
+    EventStreamResponse,
+    StreamSlots,
+    event_stream,
+    parse_last_event_id,
+)
+from tephra.api.tenancy import (
+    RUN,
+    TenantPathMiddleware,
+    TenantScope,
+    TenantScopeDep,
+    build_route_index,
+    scoped_routes_missing,
+    tenant_scope,
+)
 from tephra.config import (
     MAX_BODY_BYTES,
     MAX_NOTICE_BODY_BYTES,
@@ -104,6 +122,13 @@ from tephra.scheduler import run_local_scheduler, run_writer_watchdog
 from tephra.store.base import BLOB_KEY_PATTERN, Collection
 from tephra.util import timeutil
 from tephra.util.hashing import sha256_bytes
+from tephra.util.scope import current_tenant
+
+if TYPE_CHECKING:
+    from tephra.hosted.access import AccessCache
+    from tephra.hosted.registry import TenantRegistry
+    from tephra.store.base import Store
+    from tephra.store.metered import StoreMeter
 
 __all__ = ["CONTENT_SECURITY_POLICY", "WEB_DIR", "configure_logging", "create_app"]
 
@@ -144,8 +169,16 @@ ONBOARD_PATHS: Final = frozenset(
     {"/api/airline/accounts", "/api/airline/answers", "/api/airline/draft", "/api/airline/submit"}
 )
 PUSH_BODY_PATHS: Final = frozenset(
-    {"/api/push/positions", "/api/desk/upload", "/api/airline/feeds/dry-run"}
+    {
+        "/api/push/positions",
+        "/api/desk/upload",
+        "/api/airline/feeds/dry-run",
+        "/api/tenant/feeds/dry-run",
+    }
 )
+HOSTED_KEY_ENV: Final = ("GOOGLE_API_KEY", "GEMINI_API_KEY")
+"""Removed from the process environment when ``hosted`` is on: every model client gets its key
+passed in, so a client that would read the environment finds nothing (fails closed)."""
 SECURITY_HEADERS: Final = {
     "content-security-policy": CONTENT_SECURITY_POLICY,
     "x-content-type-options": "nosniff",
@@ -186,7 +219,11 @@ _STATUS_ERRORS: Final = {
     429: "too_many_attempts",
 }
 
-type RuntimeFactory = Callable[[Settings], Awaitable[Runtime]]
+type RuntimeFactory = Callable[..., Awaitable[Runtime]]
+"""``(settings)``; with ``hosted`` on, ``(settings, meter=StoreMeter)``."""
+type RegistryFactory = Callable[
+    [Settings, "Store", Runtime, "StoreMeter", "AccessCache"], "TenantRegistry"
+]
 
 
 # --- API-only response and request bodies -----------------------------------------------
@@ -288,14 +325,27 @@ class AuditVerify(TephraModel):
 # --- dependencies -----------------------------------------------------------------------
 
 
-def get_runtime(request: Request) -> Runtime:
+def _tenant_runtime(scope: TenantScope) -> Runtime:
+    runtime = scope.runtime
+    if runtime is None:
+        raise ApiError(409, "not_started", f"TEPHRA has not started for {scope.name} yet")
+    return runtime
+
+
+def get_runtime(request: Request, scope: TenantScopeDep) -> Runtime:
+    """The airline's runtime under ``/a/<ICAO>/api``, else the site's own."""
+    if scope is not None:
+        return _tenant_runtime(scope)
     runtime: Runtime | None = getattr(request.app.state, "runtime", None)
     if runtime is None:
         raise ApiError(503, "starting", "TEPHRA is starting")
     return runtime
 
 
-def get_app_settings(request: Request) -> Settings:
+def get_app_settings(request: Request, scope: TenantScopeDep) -> Settings:
+    """The airline runtime's settings under ``/a/<ICAO>/api``, else the site's."""
+    if scope is not None:
+        return _tenant_runtime(scope).settings
     settings: Settings = request.app.state.settings
     return settings
 
@@ -311,6 +361,7 @@ RuntimeDep = Annotated[Runtime, Depends(get_runtime)]
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 ReplaysDep = Annotated[ReplayCatalogue, Depends(get_replay_catalogue)]
 DeskSession = Annotated[SessionInfo, Depends(require_desk)]
+"""The Desk's session, or under ``/a/<ICAO>/api`` the member's (``auth.require_desk``)."""
 Limit = Annotated[int, Query(ge=1, le=200)]
 
 
@@ -556,21 +607,84 @@ async def get_airports(runtime: RuntimeDep) -> Response:
 
 @read_api.get("/events", response_class=StreamingResponse)
 @read_api.get("/stream", response_class=StreamingResponse, include_in_schema=False)
-async def get_events(request: Request, runtime: RuntimeDep) -> StreamingResponse:
-    slots: StreamSlots = request.app.state.event_streams
-    if not slots.acquire():
-        raise ApiError(
-            503,
-            "too_many_streams",
-            "Too many open event streams; try again shortly",
-            headers={"Retry-After": str(STREAMS_RETRY_AFTER_S)},
-        )
+async def get_events(
+    request: Request, runtime: RuntimeDep, scope: TenantScopeDep
+) -> StreamingResponse:
+    """The demo's streams share ``event_streams``. An airline's stream takes one of that
+    airline's own places (``hosted_streams_per_tenant``, set apart from the demo's, so no
+    number of demo visitors can cut an airline off) and one of its member's
+    (``TENANT_STREAMS_PER_MEMBER``). It ends after 15 minutes, and within 15 s of its reader
+    losing the airline: removed, a new role, signed out everywhere, or the airline suspended
+    or stopped (the page reopens)."""
+    if scope is None:
+        held = [request.app.state.event_streams]
+    else:
+        held = [_tenant_streams(request, scope.icao), _member_streams(request, scope)]
+    taken: list[StreamSlots] = []
+    for slots in held:
+        if not slots.acquire():
+            for other in taken:
+                other.release()
+            raise ApiError(
+                503,
+                "too_many_streams",
+                "Too many open event streams; try again shortly",
+                headers={"Retry-After": str(STREAMS_RETRY_AFTER_S)},
+            )
+        taken.append(slots)
     stream = event_stream(
         runtime.bus,
         last_event_id=parse_last_event_id(request.headers.get("last-event-id")),
         mode=lambda: runtime.mode,
+        **({} if scope is None else _tenant_stream_rules(request, scope, runtime)),
     )
-    return EventStreamResponse(stream, slots)
+    return EventStreamResponse(stream, *held)
+
+
+def _tenant_streams(request: Request, icao: str) -> StreamSlots:
+    streams: dict[str, StreamSlots] = request.app.state.tenant_streams
+    if icao not in streams:
+        streams[icao] = StreamSlots(request.app.state.settings.hosted_streams_per_tenant)
+    return streams[icao]
+
+
+def _member_streams(request: Request, scope: TenantScope) -> StreamSlots:
+    streams: dict[tuple[str, str], StreamSlots] = request.app.state.member_streams
+    key = (scope.icao, scope.login_key or "")
+    if key not in streams:
+        streams[key] = StreamSlots(TENANT_STREAMS_PER_MEMBER)
+    return streams[key]
+
+
+def demo_stream_places(settings: Settings) -> int:
+    """The demo's open streams: all of ``max_event_streams``, less, with ``hosted`` on, every
+    airline's own places (the config check keeps at least one for the demo)."""
+    if "hosted" not in settings.features:
+        return settings.max_event_streams
+    held_apart = settings.hosted_max_tenants * settings.hosted_streams_per_tenant
+    return settings.max_event_streams - held_apart
+
+
+def _tenant_stream_rules(request: Request, scope: TenantScope, runtime: Runtime) -> dict[str, Any]:
+    registry: TenantRegistry = request.app.state.registry
+    access: AccessCache = request.app.state.access
+    root: Store = request.app.state.runtime.store
+    login_key, version = scope.login_key, scope.version
+    assert login_key is not None, "a member's scope names its login"
+    assert version is not None, "a member's scope names its session version"
+
+    async def still_allowed() -> bool:
+        handle = registry.handle(scope.icao)
+        if handle is None or handle.runtime is not runtime or handle.record.state not in RUN:
+            return False
+        member = await access.member(root, login_key, version, scope.icao, record=handle.record)
+        return member is not None and member.role == scope.role
+
+    return {
+        "lifetime_s": TENANT_STREAM_LIFETIME_S,
+        "check": still_allowed,
+        "check_every_s": TENANT_STREAM_CHECK_S,
+    }
 
 
 # --- desk (dispatcher session) ----------------------------------------------------------
@@ -887,7 +1001,12 @@ tasks = APIRouter()
 
 
 @tasks.post("/tasks/tick", response_model=TickReport, dependencies=[Depends(require_task_token)])
-async def run_tick(runtime: RuntimeDep) -> Response:
+async def run_tick(request: Request, runtime: RuntimeDep) -> Response:
+    """The demo's tick. With hosted airlines, their pass is started first and runs on its own,
+    so a slow demo tick never delays them (and theirs never delays this answer)."""
+    registry: TenantRegistry | None = getattr(request.app.state, "registry", None)
+    if registry is not None:
+        registry.kick()
     return _json(await runtime.tick(reason="scheduler"))
 
 
@@ -1120,6 +1239,9 @@ class JsonLogFormatter(logging.Formatter):
         fields = getattr(record, "json_fields", None)
         if isinstance(fields, Mapping):
             entry.update(fields)
+        tenant = current_tenant()
+        if tenant is not None:
+            entry.setdefault("tenant", tenant)
         entry.update(self._trace_fields(_request_trace.get()))
         if record.exc_info:
             entry["stack_trace"] = self.formatException(record.exc_info)
@@ -1153,21 +1275,40 @@ def configure_logging(level: str, *, project: str | None = None) -> None:
 
 
 def _lifespan(
-    settings: Settings, runtime_factory: RuntimeFactory
+    settings: Settings,
+    runtime_factory: RuntimeFactory,
+    registry_factory: RegistryFactory | None,
 ) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
+    hosted = "hosted" in settings.features
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.replays = await asyncio.to_thread(ReplayCatalogue.build, settings.data_dir)
-        runtime = await runtime_factory(settings)
-        app.state.runtime = runtime
+        registry: TenantRegistry | None = None
+        if hosted:
+            meter = _new_meter(settings)
+            runtime = await runtime_factory(settings, meter=meter)
+            app.state.runtime = runtime
+            await meter.restore(runtime.store)
+            app.state.meter = meter
+            factory = registry_factory or _default_registry
+            registry = factory(settings, runtime.store, runtime, meter, app.state.access)
+            await registry.start_all()
+            app.state.registry = registry
+        else:
+            runtime = await runtime_factory(settings)
+            app.state.runtime = runtime
         watchdog = asyncio.create_task(run_writer_watchdog(runtime), name="tephra-writer-watchdog")
         watchdog.add_done_callback(_report_task_exit)
         stop = asyncio.Event()
         scheduler: asyncio.Task[None] | None = None
         if settings.local_scheduler:
-            scheduler = asyncio.create_task(
-                run_local_scheduler(runtime, stop), name="tephra-local-scheduler"
+            loop = (
+                run_local_scheduler(runtime, stop)
+                if registry is None
+                else run_local_scheduler(runtime, stop, after_tick=registry.kick)
             )
+            scheduler = asyncio.create_task(loop, name="tephra-local-scheduler")
             scheduler.add_done_callback(_report_task_exit)
         else:
             # Cloud Scheduler's first tick may be a minute away; the picture (official
@@ -1188,6 +1329,11 @@ def _lifespan(
         try:
             yield
         finally:
+            if registry is not None:
+                # the airlines first: their runtimes, counters and stores close before the
+                # demo's store (their root) does
+                await registry.aclose()
+                del app.state.registry
             stop.set()
             watchdog.cancel()
             with suppress(asyncio.CancelledError):
@@ -1202,6 +1348,20 @@ def _lifespan(
     return lifespan
 
 
+def _new_meter(settings: Settings) -> "StoreMeter":
+    from tephra.store.metered import StoreMeter
+
+    return StoreMeter(blob_puts_cap=settings.hosted_blob_puts_cap)
+
+
+def _default_registry(
+    settings: Settings, root: "Store", demo: Runtime, meter: "StoreMeter", access: "AccessCache"
+) -> "TenantRegistry":
+    from tephra.hosted.registry import TenantRegistry
+
+    return TenantRegistry(settings, root, demo, meter, access)
+
+
 async def _startup_tick(runtime: Runtime) -> None:
     try:
         await runtime.tick(reason="startup")
@@ -1214,7 +1374,7 @@ def _report_task_exit(task: asyncio.Task[None]) -> None:
         logger.error("%s stopped", task.get_name(), exc_info=exc)
 
 
-def _include_feature_routers(app: FastAPI) -> None:
+def _include_feature_routers(app: FastAPI, dependencies: list[Any]) -> None:
     """The feature routers import the dependencies above, so they are imported here, not at the
     top of the module (a top-level import would be circular)."""
     from tephra.api import (
@@ -1246,20 +1406,59 @@ def _include_feature_routers(app: FastAPI) -> None:
         routes_evals,
         routes_airline,
     ):
-        app.include_router(module.router, prefix="/api")
+        app.include_router(module.router, prefix="/api", dependencies=dependencies)
+
+
+def _include_hosted_routers(app: FastAPI, dependencies: list[Any]) -> None:
+    """Only with ``hosted`` on: the airline's own routes, the root hosted routes (set up,
+    invites) and the operators' console and tasks."""
+    from tephra.api import routes_admin, routes_hosted, routes_tenant
+    from tephra.api.routes_pages import hosted_router as hosted_pages
+
+    app.include_router(hosted_pages)
+    app.include_router(routes_tenant.router, prefix="/api/tenant", dependencies=dependencies)
+    app.include_router(routes_hosted.router, prefix="/api/hosted", dependencies=dependencies)
+    app.include_router(routes_admin.router, prefix="/api/admin", dependencies=dependencies)
+    app.include_router(routes_admin.tasks, dependencies=dependencies)
+
+
+def _start_hosted_state(app: FastAPI) -> None:
+    """Throttles and the access cache an airline request needs; the key variables leave the
+    environment (B1). Nothing here reads the store."""
+    from tephra.hosted.access import AccessCache
+    from tephra.hosted.models import HostedRefused
+    from tephra.hosted.throttles import HOSTED_THROTTLES
+
+    @app.exception_handler(HostedRefused)
+    async def hosted_refused(_: Request, exc: HostedRefused) -> Response:
+        return _json(ErrorBody(error=exc.code, detail=exc.detail), exc.status)
+
+    for name, (attempts, window_s) in HOSTED_THROTTLES.items():
+        setattr(app.state, name, LoginThrottle(max_failures=attempts, window_s=window_s))
+    app.state.access = AccessCache()
+    app.state.tenant_streams = {}
+    app.state.member_streams = {}
+    for name in HOSTED_KEY_ENV:
+        os.environ.pop(name, None)
 
 
 def create_app(
-    settings: Settings | None = None, *, runtime_factory: RuntimeFactory | None = None
+    settings: Settings | None = None,
+    *,
+    runtime_factory: RuntimeFactory | None = None,
+    registry_factory: RegistryFactory | None = None,
 ) -> FastAPI:
-    """The TEPHRA app. ``runtime_factory`` defaults to ``create_runtime`` (tests swap it)."""
+    """The TEPHRA app. ``runtime_factory`` defaults to ``create_runtime`` and
+    ``registry_factory`` (hosted airlines, ``hosted`` on) to ``TenantRegistry`` (tests swap
+    them). With ``hosted`` off nothing of hosting exists: no router, middleware or meter."""
     settings = settings if settings is not None else get_settings()
+    hosted = "hosted" in settings.features
     app = FastAPI(
         title="TEPHRA",
         version=__version__,
         description="Volcanic-ash decision desk. Decision support only"
         + ("; the airline is fictional." if settings.airline.fictional else "."),
-        lifespan=_lifespan(settings, runtime_factory or create_runtime),
+        lifespan=_lifespan(settings, runtime_factory or create_runtime, registry_factory),
         docs_url=None,
         redoc_url=None,
         openapi_url="/api/openapi.json",
@@ -1272,18 +1471,29 @@ def create_app(
     app.state.visitor_decisions = Counter[str]()
     for name, (attempts, window_s) in AIRLINE_THROTTLES.items():
         setattr(app.state, name, LoginThrottle(max_failures=attempts, window_s=window_s))
-    app.state.event_streams = StreamSlots(settings.max_event_streams)
+    app.state.event_streams = StreamSlots(demo_stream_places(settings))
+    if hosted:
+        _start_hosted_state(app)
     _install_error_handlers(app)
     # Starlette's GZip skips text/event-stream, images and woff2 by default, so the SSE stream is
     # never buffered or compressed. Added first so HttpGuard stays outermost and still sees every
     # response, including the 413 it sends itself.
     app.add_middleware(GZipMiddleware, minimum_size=GZIP_MIN_BYTES)
     app.add_middleware(HttpGuardMiddleware, upload_bytes=settings.max_upload_bytes)
+    scoped: list[Any] = [Depends(tenant_scope)] if hosted else []
+    if hosted:
+        # outermost: HttpGuard's body limits and log line see the rewritten path
+        app.add_middleware(TenantPathMiddleware)
     app.include_router(health)
     app.include_router(pages)
-    app.include_router(read_api)
-    app.include_router(desk_api)
-    _include_feature_routers(app)
-    app.include_router(tasks)
+    app.include_router(read_api, dependencies=scoped)
+    app.include_router(desk_api, dependencies=scoped)
+    _include_feature_routers(app, scoped)
+    app.include_router(tasks, dependencies=scoped)
+    if hosted:
+        _include_hosted_routers(app, scoped)
     app.mount("/static", StaticFiles(directory=WEB_DIR, check_dir=False), name="static")
+    build_route_index(app)
+    if hosted and (missing := scoped_routes_missing(app)):
+        raise RuntimeError(f"routes without the airline check: {', '.join(missing)}")
     return app

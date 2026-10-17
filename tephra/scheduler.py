@@ -22,7 +22,7 @@ pass read that doc, and an instance that another one has out-ticked retires (see
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from contextlib import suppress
 from typing import TYPE_CHECKING, Final
 
@@ -208,9 +208,12 @@ async def run_adsb_pass(runtime: "Runtime") -> None:
         await runtime.publish_live()
 
 
-async def run_local_scheduler(runtime: "Runtime", stop: asyncio.Event) -> None:
+async def run_local_scheduler(
+    runtime: "Runtime", stop: asyncio.Event, *, after_tick: Callable[[], None] | None = None
+) -> None:
     """Tick every ``tick_interval_s`` counted from the start of each tick, as Cloud Scheduler
-    does; a tick that overruns the interval is followed at once by the next."""
+    does; a tick that overruns the interval is followed at once by the next. ``after_tick``
+    (the hosted registry's ``kick``) is called after each tick and must not block."""
     reason = "startup"
     while not stop.is_set():
         started = time.monotonic()
@@ -218,6 +221,11 @@ async def run_local_scheduler(runtime: "Runtime", stop: asyncio.Event) -> None:
             await runtime.tick(reason=reason)
         except Exception:  # keep the loop alive; the next tick starts clean
             logger.exception("tick failed")
+        if after_tick is not None:
+            try:
+                after_tick()
+            except Exception:  # the demo's ticks go on whatever the airlines' pass does
+                logger.exception("after-tick hook failed")
         reason = "local"
         wait_s = started + runtime.settings.tick_interval_s - time.monotonic()
         if wait_s > 0:
@@ -290,7 +298,9 @@ def _trace_poll(runtime: "Runtime", result: FeedPoll, before: FeedHealth | None)
 
 
 def _schedule_adsb_passes(runtime: "Runtime", reason: str, started: float) -> None:
-    if reason == "scheduler":
+    # A hosted airline's tick comes with the hosted pass, which Cloud Scheduler's minute (or
+    # the local loop's ``after_tick``) starts: its passes keep the same 30 s cadence.
+    if reason in ("scheduler", "hosted"):
         interval = SCHEDULER_INTERVAL_S
     elif reason in ("local", "startup"):
         interval = runtime.settings.tick_interval_s

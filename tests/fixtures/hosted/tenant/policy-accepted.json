@@ -1,0 +1,127 @@
+{
+  "current": {
+    "version": 3,
+    "created": {
+      "by": "Ana Ops#MB-1a2b3c4d5e",
+      "at": "2026-10-16T09:12:00.000Z"
+    },
+    "note": "Our SRA draft asks for 3,000 ft below FL200.",
+    "changes": [
+      {
+        "name": "exposure.vertical_margin_ft",
+        "value": 3000,
+        "reason": "Company SOP 4.2 asks for 3,000 ft."
+      },
+      {
+        "name": "reroute.buffer_nm",
+        "value": 25,
+        "reason": "Matches our current dispatch practice for VA SIGMETs."
+      }
+    ]
+  },
+  "versions": [
+    {
+      "version": 3,
+      "created": {
+        "by": "Ana Ops#MB-1a2b3c4d5e",
+        "at": "2026-10-16T09:12:00.000Z"
+      },
+      "changed": [
+        "exposure.vertical_margin_ft"
+      ]
+    },
+    {
+      "version": 2,
+      "created": {
+        "by": "Ana Ops#MB-1a2b3c4d5e",
+        "at": "2026-10-15T09:02:00.000Z"
+      },
+      "changed": [
+        "reroute.buffer_nm"
+      ]
+    },
+    {
+      "version": 1,
+      "created": {
+        "by": "Ana Ops#MB-1a2b3c4d5e",
+        "at": "2026-10-15T08:40:00.000Z"
+      },
+      "changed": []
+    }
+  ],
+  "values": [
+    {
+      "name": "exposure.vertical_margin_ft",
+      "value": 3000,
+      "base": 2000,
+      "unit": "ft",
+      "editable": true
+    },
+    {
+      "name": "reroute.buffer_nm",
+      "value": 25,
+      "base": 20,
+      "unit": "NM",
+      "editable": true
+    },
+    {
+      "name": "reroute.max_extra_min",
+      "value": 30,
+      "base": 30,
+      "unit": "min",
+      "editable": true
+    },
+    {
+      "name": "planner.divert_within_min",
+      "value": 15,
+      "base": 15,
+      "unit": "min",
+      "editable": true
+    },
+    {
+      "name": "planner.hold_within_min",
+      "value": 30,
+      "base": 30,
+      "unit": "min",
+      "editable": true
+    },
+    {
+      "name": "alternates.min_runway_m",
+      "value": 2000,
+      "base": 2000,
+      "unit": "m",
+      "editable": true
+    },
+    {
+      "name": "fuel.hold_min",
+      "value": 20,
+      "base": 20,
+      "unit": "min",
+      "editable": true
+    },
+    {
+      "name": "recovery.airport_closure_radius_nm",
+      "value": 30,
+      "base": 30,
+      "unit": "NM",
+      "editable": false,
+      "not_built": "Not built for your network"
+    }
+  ],
+  "label": "Accepted under Ring of Fire Charter's SRA by Ana Ops, Head of Flight Ops, on 17 Oct 2026 (recorded by the airline; TEPHRA does not check it)",
+  "confirmed": {
+    "by": "Ana Ops#MB-1a2b3c4d5e",
+    "at": "2026-10-16T09:20:00.000Z",
+    "version": 3
+  },
+  "sra": {
+    "version": 3,
+    "accepted_by": "Ana Ops, Head of Flight Ops",
+    "accepted_on": "2026-10-17",
+    "sra_ref": "SRA-VA-2026-03",
+    "recorded": {
+      "by": "Ana Ops#MB-1a2b3c4d5e",
+      "at": "2026-10-17T10:02:00.000Z"
+    }
+  }
+}

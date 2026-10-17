@@ -4,18 +4,24 @@
 example are public GETs. Connections are made, listed and revoked with a desk session; the
 sample feed is started and stopped the same way. ``POST /api/push/positions`` takes a push with
 the connection's key in ``Authorization: Bearer <key>`` and answers record by record.
+
+Under a hosted airline (``/a/<ICAO>/api``) the push key was already checked by the airline
+dependency, from memory: in setup a push is checked and counted, never taken in (202); once
+running it is taken under the airline's limits, and counted in memory for its Feeds page.
 """
 
 import json
-from typing import Annotated, Any, Final
+from typing import Annotated, Any, Final, Literal
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import Response
 from pydantic import Field
 
+from tephra.airline.models import DryRunResult
 from tephra.api import ApiError
-from tephra.api.auth import require_csrf
-from tephra.api.server import DeskSession, RuntimeDep, _actor, _json
+from tephra.api.auth import require_csrf, wall_clock_now
+from tephra.api.server import DeskSession, RuntimeDep, _actor, _json, get_runtime
+from tephra.api.tenancy import TenantScope, TenantScopeDep
 from tephra.desk import connections
 from tephra.desk.crew_reports import CrewEntry
 from tephra.models import (
@@ -38,6 +44,7 @@ __all__ = ["router"]
 
 router = APIRouter()
 MIN_PUSH_GAP_S: Final = 1.0
+SECTIONS: Final = ("positions", "flight_plans", "pilot_reports")
 
 
 class NewConnection(TephraModel):
@@ -65,6 +72,13 @@ class Upload(PositionBatch):
 
 
 UPLOAD_CONNECTION = "Uploaded files"
+
+
+class SetupPush(TephraModel):
+    """A push to a hosted airline in setup: checked record by record, not taken in."""
+
+    taken_in: Literal[False] = False
+    result: DryRunResult
 
 
 class FormatInfo(TephraModel):
@@ -151,9 +165,22 @@ async def get_live(runtime: RuntimeDep) -> Response:
 
 
 @router.post("/desk/upload", response_model=PushResult, dependencies=[Depends(require_csrf)])
-async def upload(body: Upload, session: DeskSession, runtime: RuntimeDep) -> Response:
+async def upload(
+    body: Upload, session: DeskSession, runtime: RuntimeDep, scope: TenantScopeDep
+) -> Response:
     """A file uploaded or pasted on the page, taken through the "Uploaded files" connection
-    (made the first time) exactly as a push."""
+    (made the first time) exactly as a push. A hosted airline's upload is never retimed: its
+    picture is live, and a file stamped "now" would put old positions on it as current."""
+    retime = body.retime
+    if scope is not None:
+        if "retime" in body.model_fields_set and body.retime:
+            raise ApiError(
+                422,
+                "retime_not_on_hosted",
+                "Positions keep their own times here",
+                problems=["retime: not offered for an airline's live picture"],
+            )
+        retime = False
     found = [
         c
         for c in await connections.list_connections(runtime.store)
@@ -169,7 +196,7 @@ async def upload(body: Upload, session: DeskSession, runtime: RuntimeDep) -> Res
         body.positions,
         plans=body.flight_plans,
         reports=body.pilot_reports,
-        retime=body.retime,
+        retime=retime,
     )
     return _json(taken)
 
@@ -225,11 +252,15 @@ async def switch_sample(
 @router.post("/push/positions", response_model=PushResult)
 async def push_positions(
     body: PositionBatch,
-    runtime: RuntimeDep,
+    request: Request,
+    scope: TenantScopeDep,
     authorization: Annotated[str | None, Header()] = None,
 ) -> Response:
     """One push from an airline connection. 401 without a live key; 429 when pushes come
     faster than one a second; otherwise 200 with every record's outcome."""
+    if scope is not None:
+        return await _hosted_push(body, request, scope)
+    runtime = get_runtime(request, None)
     scheme, _, key = (authorization or "").partition(" ")
     connection = (
         await connections.find_by_key(runtime.store, key.strip())
@@ -245,3 +276,43 @@ async def push_positions(
         connection, body.positions, plans=body.flight_plans, reports=body.pilot_reports
     )
     return _json(result)
+
+
+async def _hosted_push(body: PositionBatch, request: Request, scope: TenantScope) -> Response:
+    """The airline's push, its key checked already (``tenant_scope``, no store read), under
+    the airline's limits (one push per key every ``hosted_push_gap_s``, 30 a minute)."""
+    connection = scope.connection
+    assert connection is not None, "a push scope carries its key's connection"
+    space = scope.handle.space
+    at = wall_clock_now()
+    settings = request.app.state.settings
+    wait = space.conn_stats.wait_s(connection, at=at, gap_s=settings.hosted_push_gap_s)
+    if wait is not None:
+        raise _too_fast(f"At most one push every {settings.hosted_push_gap_s:g} s per key", wait)
+    throttle = request.app.state.hosted_push
+    if throttle.blocked(scope.icao):
+        wait_s = throttle.retry_after_s(scope.icao)
+        raise _too_fast("At most 30 pushes a minute per airline", wait_s)
+    throttle.record_failure(scope.icao)
+    sections = [name for name in SECTIONS if getattr(body, name)]
+    if scope.handle.record.state == "setup":
+        checked = connections.dry_run(body.model_dump(mode="json"), at)
+        space.feed_stats.record_dry_run(checked, wall_at=at, connection_id=connection.id)
+        accepted, rejected = len(checked.accepted), len(checked.rejected)
+        reply = _json(SetupPush(result=checked), status_code=202)
+    else:
+        result = await get_runtime(request, scope).take_push(
+            connection, body.positions, plans=body.flight_plans, reports=body.pilot_reports
+        )
+        space.feed_stats.record_push(result, wall_at=at)
+        accepted, rejected = result.accepted, len(result.rejected)
+        reply = _json(result)
+    space.conn_stats.note(
+        connection.id, accepted=accepted, rejected=rejected, sections=sections, at=at
+    )
+    return reply
+
+
+def _too_fast(detail: str, wait_s: float) -> ApiError:
+    retry = max(1, int(wait_s + 0.999))
+    return ApiError(429, "too_many_pushes", detail, headers={"Retry-After": str(retry)})

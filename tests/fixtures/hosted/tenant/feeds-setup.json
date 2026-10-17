@@ -1,0 +1,87 @@
+{
+  "taken_in": false,
+  "push_url": "/a/RFB/api/push/positions",
+  "counted_since": "2026-10-17T09:20:00.000Z",
+  "cards": [
+    {
+      "feed": "positions",
+      "declared": true,
+      "last_received_at": "2026-10-17T14:01:31.000Z",
+      "records_last_hour": 1207,
+      "refused_last_hour": 0,
+      "reasons": [],
+      "optional": false
+    },
+    {
+      "feed": "flight_plans",
+      "declared": false,
+      "last_received_at": null,
+      "records_last_hour": 0,
+      "refused_last_hour": 0,
+      "reasons": [],
+      "optional": false
+    },
+    {
+      "feed": "pilot_reports",
+      "declared": true,
+      "last_received_at": null,
+      "records_last_hour": 0,
+      "refused_last_hour": 0,
+      "reasons": [],
+      "optional": true
+    }
+  ],
+  "keys": [
+    {
+      "kind": "positions",
+      "sample": false,
+      "revoked_at": null,
+      "key": null,
+      "id": "CN-0a1b2c3d4e",
+      "name": "ops-feed-1",
+      "created_at": "2026-10-15T08:50:00.000Z",
+      "created_by": "desk:Ana Ops#MB-1a2b3c4d5e",
+      "key_hint": "k2Q9",
+      "last_push_at": "2026-10-17T14:02:31.000Z",
+      "pushes": 812,
+      "accepted": 40112,
+      "rejected": 37,
+      "sections_seen": [
+        "positions",
+        "flight_plans"
+      ]
+    },
+    {
+      "kind": "positions",
+      "sample": false,
+      "revoked_at": null,
+      "key": null,
+      "id": "CN-1b2c3d4e5f",
+      "name": "efb-reports",
+      "created_at": "2026-10-15T09:05:00.000Z",
+      "created_by": "desk:Ana Ops#MB-1a2b3c4d5e",
+      "key_hint": "7mVb",
+      "last_push_at": null,
+      "pushes": 0,
+      "accepted": 0,
+      "rejected": 0,
+      "sections_seen": []
+    },
+    {
+      "kind": "positions",
+      "sample": false,
+      "revoked_at": "2026-10-15T08:49:00.000Z",
+      "key": null,
+      "id": "CN-2c3d4e5f60",
+      "name": "old-feed",
+      "created_at": "2026-10-14T08:00:00.000Z",
+      "created_by": "desk:Ana Ops#MB-1a2b3c4d5e",
+      "key_hint": "Zz01",
+      "last_push_at": "2026-10-15T08:48:00.000Z",
+      "pushes": 20,
+      "accepted": 900,
+      "rejected": 0,
+      "sections_seen": []
+    }
+  ]
+}

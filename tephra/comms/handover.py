@@ -586,6 +586,7 @@ async def draft_handover(
         created_at=now,
         replay=runtime.mode is RunMode.REPLAY,
         fictional_airline=runtime.airline.fictional,
+        shadow=runtime.airline.shadow,
         shift_from=since,
         shift_to=now,
         outgoing=outgoing,
@@ -628,7 +629,12 @@ async def draft_handover(
         runtime.store,
         actor=f"desk:{outgoing}",
         action=AuditAction.DOC_DRAFTED,
-        after={"doc_type": brief.doc_type, "handover_id": brief.id, "incoming": incoming},
+        after={
+            "doc_type": brief.doc_type,
+            "handover_id": brief.id,
+            "incoming": incoming,
+            **({"shadow": True} if brief.shadow else {}),
+        },
         model_id=brief.model_id,
         prompt_hash=brief.prompt_hash,
     )
@@ -692,6 +698,7 @@ def summary_of(brief: HandoverBrief) -> DocSummary:
         signed_roles=[],
         missing_roles=[],
         llm_backend=brief.llm_backend,
+        shadow=brief.shadow,
     )
 
 

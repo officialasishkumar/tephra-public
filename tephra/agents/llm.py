@@ -54,6 +54,8 @@ __all__ = [
     "RatePacer",
     "StubBackend",
     "Tier",
+    "UnavailableBackend",
+    "backend_for",
     "daily_quota_spent",
     "estimate_tokens",
     "gemini_call_fields",
@@ -83,6 +85,11 @@ MAX_RETRY_AFTER_S: Final = 60.0
 """A per-minute 429 names its own retry delay (about 30 s); a longer one is capped here."""
 _RETRY_DELAY: Final = re.compile(r"retryDelay['\"]?\s*:\s*['\"](\d+(?:\.\d+)?)s")
 _GEMINI_3: Final = re.compile(r"(?:models/)?gemini-3(?:[.-]|$)")
+
+
+def model_name(model: Any) -> str:
+    """The model id of an ADK agent's model: a name, or an ADK model object's ``model``."""
+    return model if isinstance(model, str) else str(model.model)
 
 
 def temperature_for(model_id: str) -> float:
@@ -248,6 +255,73 @@ def get_llm(settings: Settings, *, quota: QuotaLedger | None = None) -> LlmBacke
 
         return OllamaBackend(settings)
     return StubBackend()
+
+
+def backend_for(
+    settings: Settings, *, unavailable: str | None, quota: QuotaLedger | None = None
+) -> LlmBackend:
+    """A hosted airline's backend: :class:`UnavailableBackend` when its model cannot be used
+    (no key, an unreadable key, no model chosen), else :func:`get_llm` on its own settings."""
+    if unavailable is not None:
+        return UnavailableBackend(unavailable, settings)
+    return get_llm(settings, quota=quota)
+
+
+class UnavailableBackend:
+    """A hosted airline whose model cannot be used: every reservation is refused with
+    ``reason``, so every model step reports AI UNAVAILABLE through the paths a spent budget
+    takes. It never answers in a model's place (it is no stub) and sends nothing."""
+
+    def __init__(self, reason: str, settings: Settings | None = None) -> None:
+        self.reason = reason
+        self._models = (
+            {"main": settings.model, "lite": settings.model_lite, "tts": settings.model_tts}
+            if settings is not None
+            else None
+        )
+
+    @property
+    def name(self) -> LlmBackendName:
+        return "gemini"
+
+    @property
+    def metered(self) -> bool:
+        return True
+
+    @property
+    def unavailable(self) -> str:
+        """Why no model step can run (``adk_runtime.agent_model`` reads it)."""
+        return self.reason
+
+    def model_id(self, tier: Tier) -> str:
+        return "none" if self._models is None else self._models[tier]
+
+    async def reserve(self, tier: Tier) -> str | None:
+        return self.reason
+
+    async def exhaust(self, tier: Tier) -> None:
+        """Nothing was sent, so no quota was spent."""
+
+    async def pace(self, tier: Tier, tokens: int = 0) -> None:
+        """Nothing is sent, so nothing waits."""
+
+    async def structured[T: BaseModel](
+        self,
+        *,
+        tier: Tier,
+        system: str,
+        parts: Sequence[LlmPart],
+        schema: type[T],
+        stub: Callable[[], T],
+        temperature: float | None = None,
+    ) -> tuple[T | None, LlmCall]:
+        call = LlmCall(
+            backend="gemini",
+            model_id=self.model_id(tier),
+            prompt_hash=prompt_hash(system, parts),
+            error=self.reason,
+        )
+        return None, call
 
 
 class StubBackend:

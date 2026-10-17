@@ -44,6 +44,8 @@ modules (sections 5.11 to 5.17) were built against.
 | airline | `tephra/airline/{__init__,models,passwords,sessions,accounts,policy_check}.py`, `tephra/api/routes_airline.py`, `tephra/geo/fleet.py`, `tephra/web/kit/push.py`, `.env.airline.example`, `docs/ONBOARDING.md`, `tests/test_airline_api.py`, `tests/test_airline_sessions.py`, `tests/test_fleet_filter.py`, `tests/test_policy_file.py`, `tests/test_push_tool.py`, `tests/fixtures/airline/` (airline onboarding, accounts and an airline's own TEPHRA: section 5.21) |
 | pages | `tephra/api/routes_pages.py`, `tephra/web/{home,onboard,workspace,privacy,doc}.html`, `tephra/web/home.{js,css}`, `tephra/web/home-boot.js`, `tephra/web/home/`, `tephra/web/onboard.js`, `tephra/web/onboard/*.js`, `tephra/web/workspace.js`, `tephra/web/workspace/*.js`, `tephra/web/product.css`, `tephra/web/five-steps.{js,css}`, `tephra/web/welcome.css`, `tephra/web/account-nav.js`, `tephra/web/theme-boot.js`, `tephra/web/theme.js`, `tephra/web/replay-words.js`, `tephra/web/tokens.css`, `tephra/web/topnav.{css,js}` (the nav every page shares) (section 8.1) |
 | crew | `tephra/geo/crew_area.py`, `tephra/desk/crew_reports.py`, `tephra/api/routes_crew.py` (crew reports of ash: section 5.19) |
+| hosted | `tephra/hosted/*.py`, `tephra/store/metered.py`, `tephra/util/scope.py`, `tephra/api/{tenancy,routes_tenant,routes_hosted,routes_admin}.py`, `scripts/hosted_measure.py`, `docs/HOSTED.md`, `tests/test_hosted_*.py`, `tests/test_{metered_store,store_namespace,store_page,settings_bind,timeutil_bind,features_opt_in,operators,airline_member_logins,tenancy_routes,admin_api,demo_unchanged,shadow_stamp,shared_source,adk_model,audit_incremental,write_on_change}.py`, `tests/fixtures/hosted/` (hosted airlines: section 5.22) |
+| web-hosted | `tephra/web/{base,tenant-nav,dryrun,hosted,admin}.js`, `tephra/web/hosted/*.js`, `tephra/web/{hosted,admin}.html`, `tephra/web/{tenant,hosted,admin}.css`, `tephra/web/workspace/{golive,join}.js`, `tests/test_{tenant_web,hosted_pages_js,golive_web,join_web,admin_web}.py` |
 | ops-evals | `Dockerfile`, `.dockerignore`, `.gcloudignore`, `.env.example`, `deploy/_common.sh`, `deploy/cloudbuild.yaml`, `deploy/cloudrun.sh`, `deploy/ar-cleanup.json`, `scripts/live_smoke.sh`, `deploy/scheduler.sh`, `deploy/secrets.sh`, `deploy/firestore.rules`, `deploy/README.md`, `deploy/github_deploy_setup.sh`, `deploy/deploy_paths.py`, `deploy/report_interrupted.sh`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`, `scripts/record_replay.py`, `scripts/count_traffic.py`, `scripts/count_model_calls.py`, `scripts/plume_eval.py`, `scripts/make_plume_cases.py`, `scripts/free_model_check.py`, `scripts/*.mjs`, `scripts/public_export.py`, `deploy/public/`, `evals/plume/README.md`, `evals/free_models/`, `data/replay/README.md`, `tests/test_scripts.py`, `tests/test_record_replay.py`, `tests/fixtures/ops_evals/` |
 
 Each module may also create test fixtures under `tests/fixtures/<module_key>/` (e.g.
@@ -189,6 +191,10 @@ datetime inside a mapping, list or tuple written by `to_iso`), `compact(dt, *,
 seconds=False)` -> `20261007T1032Z`, `hhmmz(dt)` -> `1032Z`, `ddhhmmz(dt)` -> `071032Z`,
 `slash_dtg(dt)` -> `20261007/1032Z`. Arithmetic: `minutes_between(a, b)`, `age_s(then,
 at=None)`, `floor_minutes(dt, minutes)`.
+
+`bind_clock(clock)` (a context manager over a ContextVar) and `clock_bound()`: inside a binding
+`get_clock()`, `now()` and `now_exact()` read the bound clock, and `set_clock` / `use_clock`
+raise. Hosted airlines bind the wall clock (section 5.22); nothing else binds one.
 
 ### 4.2 `tephra.util.hashing`
 
@@ -408,7 +414,10 @@ is the body cap of `POST /api/desk/ask/voice` alone (a recording up to 1 MiB plu
 overhead); a pasted notice has `MAX_NOTICE_BODY_BYTES`, every other route `MAX_BODY_BYTES`.
 `max_event_streams` (`TEPHRA_MAX_EVENT_STREAMS`,
 default 200, at least 1) caps open `GET /api/events` streams; each holds a Cloud Run request
-slot, so it must stay below the service's `--concurrency`.
+slot, so it must stay below the service's `--concurrency`. With `hosted` on, each airline's
+`hosted_streams_per_tenant` places (and `TENANT_STREAMS_PER_MEMBER` = 4 per member) are held
+apart from the demo's within it, and the total must exceed `hosted_max_tenants x
+hosted_streams_per_tenant` (config check).
 `build_sha` (`TEPHRA_BUILD_SHA`, default unset) is the commit the image was built from: the
 Dockerfile sets it from the `BUILD_SHA` build arg (`unknown` when none is given), and
 `GET /api/state` shows it (kept answers are not keyed by it, 5.7).
@@ -479,6 +488,18 @@ with `replay`, anyone may enter the Desk as a visitor (no PIN) while a replay pl
 (`TEPHRA_TICK_DEADLINE_S`, 100, at least 20) is how long a tick may take before it publishes
 what it has, under Cloud Scheduler's 120 s attempt deadline.
 
+Hosted airlines (section 5.22): the feature `hosted` is opt-in (`OPT_IN_FEATURES`; never in
+`"all"` or the default) and needs `onboard` and an explicitly set `TEPHRA_SESSION_SECRET` or
+`TEPHRA_KEY_SECRET` (`key_secret`, at least 32 characters). `hosted_max_tenants` (3, 0-3),
+`hosted_tick_budget_s` (40, 35-45), `hosted_reads_cap` (40,000), `hosted_writes_cap` (16,000),
+`hosted_deletes_cap` (16,000), `hosted_tenant_share` (0.6), `hosted_blob_puts_cap` (4,000 a
+month), `hosted_rss_limit_mb` (700), `hosted_push_gap_s` (10), `hosted_streams_per_tenant` (10).
+`hosted_tenant` and `hosted_stage` exist only in an airline runtime's own settings and are
+refused from the environment and `.env`. `bind_settings(provider)` binds a callable;
+`get_settings()` reads it, else `_process_settings()`. `apply_process_env(settings, *,
+export_key=True)` never exports `GOOGLE_API_KEY` while `hosted` is on and raises for an
+airline's settings. `SHADOW_LINE`, `SHADOW_WORDS`, `Airline.shadow`, `Airline.stamp`.
+
 ### 4.6 `tephra.feeds.base`
 
 `USER_AGENT`, `FetchError(url, feed, reason)`, `FetchResult` (frozen dataclass: `feed, url,
@@ -518,6 +539,11 @@ exception from `change` writes nothing and propagates. The AI budget counts with
 (The method is `list_docs`, not `list`, so implementations can still annotate with `list[...]`.)
 `Collection` has no `adsb`, `wall` or `exposures` member: nothing read them back, so aircraft,
 exposures and the Wall are no longer stored and rebuild on the first tick after a restart.
+`page(collection, *, field, before, limit, descending=True)` returns up to `limit` documents
+ordered by `field`, strictly past the cursor (documents without `field` never), one read per
+document; the Record tab and the audit catch-up use it. `delete_some(collection, *, limit)`
+deletes up to `limit` documents of a collection and returns how many (the purge of a deleted
+airline's namespace only). Namespaces, billed counts and the meter: section 5.22.
 
 ### 4.8 `tephra.policy` and `data/policy/policy_a.json`
 
@@ -3112,7 +3138,9 @@ client and 10 per email (a success clears only that email's count, never the cli
 5/h per email, dry runs 30/h, saves of the draft, the answers or the assistant (`airline_writes`)
 100/day per airline and 3,000/day for the site (`airline_writes_all`), and signed-in requests
 (`require_airline`, counted before its two store reads) 60 per 5 min per client and 5,000/day for
-the site (`airline_requests`, `airline_requests_all`); in process memory, empty after a restart).
+the site (`airline_requests`, `airline_requests_all`; with `hosted` on the site-wide count is
+replaced by the login's own `hosted_member_requests`, and a tenant access-cache miss counts per
+client only); in process memory, empty after a restart).
 
 `tephra/airline/accounts.py`: `login_key(email)`, `create_account` (the record first through
 `store.update` refusing an existing id, then the login refusing an existing key: a lost race on
@@ -3160,6 +3188,145 @@ fleet nothing changes (RFA numbers; `tests/test_own_flights.py`); `tephra/web/ki
 library only; flight plans from `flights.json` for a date, positions from CSV or JSON, nothing
 guessed, `--stamp-now` only for a file written in the last minute, batches of 1,000 at least 1.1 s
 apart, `--dry-run`).
+
+### 5.22 Hosted airlines (hosted)
+
+Off unless `hosted` is in `TEPHRA_FEATURES` (`OPT_IN_FEATURES`: `"all"` and the default never
+include it; the deploy workflow does not set it). With it off, none of the routers below is
+included, no store is metered, nothing is written to `hosted_*` and no airline runtime starts;
+`tests/test_demo_unchanged.py` pins 48 demo answers byte for byte. `docs/HOSTED.md` is the
+operator's and the airline's guide. Each verified airline that an operator approves gets
+`/a/<ICAO>/` on the shared site (Map, Desk, Feeds, Settings, documents), its own `Runtime`, store
+namespace, audit chain, quota ledger, answer store and event bus, at most
+`hosted_max_tenants` (3) in SHADOW or LIVE at once.
+
+**Binding (contract).** `timeutil.bind_clock(clock)` / `clock_bound()` (a ContextVar; `set_clock`
+inside a binding raises), `config.bind_settings(provider)` (a callable, so a runtime's later
+settings changes reach running tasks; `get_settings()` reads the bound provider, else
+`_process_settings()`), `tephra/util/scope.py` `bind_tenant(icao)` / `current_tenant()`. The wall
+clock is the only clock for hosted data: the middleware, the hosted, admin and task routes and
+every registry task bind `SystemClock()`.
+
+**Store.** `open_store(settings, *, namespace=None, shared=None)`: Firestore documents at
+`tenants/<ICAO>/<collection>/<doc>` through `FirestoreStore.sibling(icao)` (shares the clients;
+its `aclose` closes nothing); SQLite `tenant_sqlite_path(settings, icao)` =
+`<sqlite dir>/tenants/<ICAO>.sqlite3`; blobs shared. Backends report every operation the way
+Firestore bills it (`on_op(kind, n)`). `tephra/store/metered.py`: `MeteredStore(inner, meter,
+namespace, *, cache=frozenset())` (one per backend object; an airline store fails closed outside
+its tenant and wall-clock binding; `TENANT_CACHED` collections cached at most 120 s, 256 entries,
+off until the first hosted pass, emptied each pass and by any write to that collection;
+`delete_some` for the purge, refused on the demo namespace) and `StoreMeter(*, blob_puts_cap,
+clock=None)` (per Pacific day and namespace; `allowance(settings)` =
+`floor(cap x hosted_tenant_share / hosted_max_tenants)`; `ceiling(settings)` =
+`reads_cap // hosted_max_tenants` and `reads_spent` (an airline's people's reads stop there);
+`over`; `site_over` and `would_exceed` sum the airline namespaces only, never the demo's;
+root-store operations inside a member's `/a/<ICAO>/api` request are charged to that airline
+through `tephra.util.scope.bind_charge` / `charged_to`;
+`persist(root, *, allowed, force=False)` merges by max into `hosted_meter/<day>`; `restore`;
+monthly blob puts with `BlobAllowanceUsed` at `hosted_blob_puts_cap`, which `feeds/registry`
+turns into the frames feed's `BLOB_PAUSED` note). `MeterDay` lives here (re-exported by
+`hosted.models`).
+
+**Runtime (core).** `create_runtime(settings, *, hosted: HostedParts | None = None, meter=None)`.
+The demo with `meter` gets `MeteredStore(store, meter, "demo")` and exports no model key while
+`hosted` is on. A hosted runtime (`_create_hosted`) takes the airline's LIVE settings
+(`hosted_tenant`, `hosted_stage`), its own bus (`HOSTED_BUS_HISTORY` 20), its backend
+(`llm.backend_for(settings, unavailable=reason, quota=ledger)`, `UnavailableBackend` when it has
+no readable key: every model step says `AI UNAVAILABLE: <reason>`), and never calls
+`apply_process_env`. `Runtime.bound()` binds the wall clock, `lambda: self.settings` and the ICAO;
+`tick`, spawned tasks, ADS-B passes and the worker run inside it. `start_worker()` (once, at the
+registry's first pass), `set_policy(policy)`, `reconfigure(settings, *, llm=None)` (only
+`RECONFIGURABLE` fields; a new model or key needs `llm=`), `retired` follows the demo's
+(`fence`), `_switch` raises `HostedModeLocked`, `aclose` keeps the store and the shared source
+open. Hosted pushes mark `exposure_dirty` (one exposure pass per `EXPOSURE_GAP_S` 30 s), allow
+`PILOT_REPORTS_PER_HOUR` (60) and fill `PushSummary.rejected_by_section`. Recovery runs only for
+the fictional airline (`RECOVERY_NOT_BUILT`), and the hosted map draws the airline's own fleet.
+Reroutes and plans are written only when they change (demo included). The audit chain is never
+walked whole at start: `audit.restore_head(..., trusted=True)`, `catch_up(store)`, the checkpoint
+`check_chain(store)` past `verified_through_seq` (`head_doc(store, verified=True)`); the whole walk
+is `check_chain(store, whole=True)` on an ops manager's request. Every ADK agent (planner and
+`root_agent`, Duty Officer, Ask, recovery) gets `adk_runtime.adk_model(settings)`: a Gemini
+object with `client_kwargs={"api_key": <the runtime's key>, "vertexai": False}`, so no key is
+read from the environment (`AgentModelUnavailable` without one). `SharedHttpSource(inner,
+memo_s=25, *, settings=None)` lets every airline share one fetch per URL.
+
+**SHADOW stamps.** `config.SHADOW_LINE` ("SHADOW - NOT FOR USE") and `SHADOW_WORDS`
+("Shadow · not for use"). `Airline.shadow` / `.stamp`; `Advisory.shadow`, `OutboundMessage.shadow`,
+`CrewPaxMessage.shadow`, `HandoverBrief.shadow`, `DocSummary.shadow`, SRA/VAR/crew-message
+`shadow` (all left out of dumps when false). Code writes the line first in advisory headers and
+outbound texts and as `"SHADOW - NOT FOR USE - <header>"` in document headers, outside any
+editable body; it survives edit-then-approve and the switch to LIVE.
+
+**`tephra/hosted/` (domain).**
+- `models.py`: documents `TenantRecord` (`hosted_tenants/<ICAO>`, compare-and-set on `version`),
+  `Member` (`hosted_members/<ICAO>~<login key>`), `Invite` (`hosted_invites/<sha256(token)>`),
+  `Operator`, `OperatorInvite`, `PolicyVersion`, `SlotDoc`, `SealedKey`; the §4.3 views
+  (`TenantHeader` with `started`, `GoLive`, `FeedsView`, `PolicyTab`, `AssistantTab`, `PeopleTab`,
+  `RecordTab`, `HostedMe` with `max_airlines`, `InviteView` with `you` (`InviteYou`: the
+  browser's own sign-in masked, `for_you`, the name it uses elsewhere; None signed out),
+  `OperatorView` with `k`, `AdminList`/`AdminRow` (`AdminMeter.airlines`: the airlines' total
+  the caps pause on, beside the whole site's),
+  `AdminContact`, `Membership`, `LinkView`); request bodies; `HostedRefused(status, code,
+  detail)`; roles `ops_manager` > `dispatcher` > `viewer` (`ROLE_RANK`); states `setup`,
+  `shadow`, `live`, `suspended`, `deleting`, `deleted`.
+- `keys.py`: AES-256-GCM sealing of an airline's model key (HKDF-SHA256 from `key_secret`, else
+  `session_secret`; separate key-id output; AAD binds ICAO, version and key id); `seal`, `unseal`,
+  `readable`; no key in any message or repr; shown only as `••••<last4>`.
+- `tenants.py`: every transition (`set_up`, `start`, `go_live`, `back_to_shadow`, `stop_runs`,
+  `suspend`, `resume`, `mark_deleting` (7 days after suspension), `finish_delete`) and settings
+  change (`set_assistant`, `set_key`, `set_policy_version`, `confirm_policy`, `record_sra`,
+  `withdraw_sra`), each written into the airline's chain inside `space.bound()`; places
+  (`hosted_slots/site`, CAS); `hosted_me`, `header`, `record_tab`.
+- `members.py`: one-time invites (72 h, bound to the email, token hash only), `accept`, `join`
+  (returns the new login's recovery code), roles, remove, leave (the last ops manager stays),
+  revoke-on-demote/remove/leave, member-only logins, `people_tab`.
+- `access.py`: `AccessCache` (10 min, negative entries too, `drop` on every write, `generation`
+  for the stream re-check). `operators.py`: operator accounts and the `tephra_operator` cookie
+  (own MAC label, 8 h, `k v n exp`); the first operator only from `POST /tasks/operator-invite`
+  while none exists. `policy.py`: per-airline policy versions (`EDITABLE` minus recovery values),
+  the ILLUSTRATIVE / SRA-acceptance label. `settings_for.py`: `tenant_settings` (secrets cleared;
+  the airline's key only), the free-tier model table, `assistant_tab`. `feeds.py`: in-memory
+  `FeedStats` / `ConnectionStats` (written back at most every 10 min) and `feeds_view`.
+  `golive.py`: the four-item checklist and the region. `throttles.py`: `HOSTED_THROTTLES`.
+- `registry.py`: `TenantRegistry(base, root, demo, meter, access, *, factory=create_runtime,
+  source=None, clock=None, rss_mb=process_rss_mb)`: one `TenantSpace` (store object, stats, key
+  index) per airline; `start_all` (restore only), `kick()` / `run_pass()` (the hosted pass:
+  first-pass cache and workers, caches emptied, airline and site pauses, concurrent ticks under
+  `hosted_tick_budget_s` + 10 s, restarts at 1/5/15 min and at most 6 a Pacific day, the purge
+  of a deleted airline at most 500 deletes a minute within its allowance, then a tombstone),
+  `start` (409 `site_memory` over `hosted_rss_limit_mb`), `stop`, `reconfigure`, `apply_policy`,
+  `push_key` (no store read), key create/rotate/revoke, views (`header`, `go_live`,
+  `record_view`, `check_record`, `admin_list`), `aclose`.
+- Changed outside the package: `AirlineRecord.hosting` (an operator's approval `Stamp`),
+  `AirlineLogin.airline_id: str | None` (None = member-only) and `last_sign_in_at`;
+  `accounts.approve_hosting`, `create_member_login`, `note_sign_in`, `deletion_refusal`;
+  `sessions` accepts an empty airline id (member-only), `require_login`, `member_claims`,
+  `sign_out_everywhere`; `connections.KeyIndex`, `rotate_connection`.
+
+**HTTP (api).** `tephra/api/tenancy.py`: `TenantPathMiddleware` (pure ASGI, outermost) rewrites
+`/a/<ICAO>/api/...` to `/api/...` with the airline and the wall clock bound and refuses tricky
+paths; `tenant_scope` (on every API and task router when hosted is on; the app refuses to start
+if a route lacks it) looks the route up by identity in `ROUTE_INDEX`, checks `TENANT_ROUTES`
+(role and state), the airline cookie and the membership, and caps `limit` at 50; any other route
+under an airline answers 404 `not_hosted` (a 405 too). `routes_tenant.py` (`/api/tenant/*`, only
+under an airline), `routes_hosted.py` (`/api/hosted/me|setup|invites/lookup|accept|join`; join
+answers `Joined` = `AirlineSessionView` + `recovery_code`), `routes_admin.py` (`/tasks/operator-
+invite|revoke`, `/api/admin/*`). Pushes under an airline: the key from `Authorization` only, one
+401 `bad_key` for every failure, 202 `{"taken_in": false}` in setup, per-key gap and 30 a minute
+when running, 503 `airline_paused` / `site_paused`. Tenant SSE: per-airline cap, 15-minute
+lifetime, membership re-checked every 15 s. `/tasks/tick` kicks the hosted pass before it awaits
+the demo tick. `routes_pages.hosted_router` (`/a/<ICAO>/...`, `/admin`, `/admin/join`, `/join`;
+`noindex`; 303 to `/signin?next=` signed out) is included only with hosted on. With hosted on,
+`create_app` removes `GOOGLE_API_KEY` / `GEMINI_API_KEY` from `os.environ` after reading the
+settings.
+
+**Web (web-hosted).** `base.js` (`TENANT`, `api()`, `tenantPath()`, `rewriteLinks`): the Map,
+the Desk and `doc.js` ask their API of the airline under `/a/<ICAO>/`; `tenant-nav.js` +
+`tenant.css` (the airline header: switcher, Map·Desk·Feeds·Settings, state chip, red alarm
+line, user menu); `hosted.html|js|css` and `hosted/{feeds,policy,assistant,people,record}.js`
+(Feeds and Settings); `dryrun.js` (shared with the workspace); `workspace/golive.js` (Go live
+on TEPHRA), `workspace/join.js` (`/join#<token>`, the joiner's recovery code shown once);
+`admin.html|js|css` (the operator console). Tokens travel in fragments and JSON bodies only.
 
 ## 6. Quota and model use
 
@@ -3249,9 +3416,20 @@ metrics.
 | `ai_budget` | `<quota day>/<model id>` | `ModelDay`: that model's calls per lane on that Google quota day, and whether Google closed it | `agents.quota` (one transaction per HTTP attempt, before it is sent) |
 | `ai_work` | work id (a Duty item id, or `recover`) | `AiWork`: AI work queued, running or WAITING for budget with its next slot | core (`tephra.ai_worker`, on change; restored after a LIVE restart) |
 | `ai_answers` | 32 hex (hash of `KEY_VERSION`, mode, case, model, skill and material; no build) | `AiAnswer`: a model's answer that passed the code's checks, for the same material question (`expires_at` is the sweep's field: `ai_answer_keep_h` in LIVE, `ai_answer_replay_keep_h` in REPLAY) | core (`tephra.agents.answers`; a newer answer replaces it; swept every ten minutes; in Firestore only `expires_at` is indexed) |
+| `hosted_tenants` | ICAO | `TenantRecord` (state, stamps, the sealed model key, policy version; CAS on `version`) | hosted (`tephra.hosted.tenants`); root only |
+| `hosted_members` | `<ICAO>~<login key>` | `Member` (role, display name, joined) | hosted (`members`); root only |
+| `hosted_invites` | sha256 of the token | `Invite` (email, role, 72 h, used/revoked) | hosted (`members`); root only |
+| `hosted_slots` | `site` | `SlotDoc` (the airlines holding one of the places; CAS) | hosted (`tenants`); root only |
+| `hosted_meter` | Pacific quota day | `MeterDay` (store operations per namespace, blob puts per month; merged by max) | `store.metered.StoreMeter.persist`; root only |
+| `operators`, `operator_invites` | login key; sha256 of the token | `Operator`, `OperatorInvite` | hosted (`operators`); root only |
+| `policy_versions` | `%06d` | `PolicyVersion` (an airline's policy changes) | hosted (`policy`); an airline's namespace only |
 | blobs | `frames/*.png`, `btd/*.png` | PNG bytes | core |
 
 Documents are strict JSON (`tephra.store.encode_doc`): NaN and infinities are stored as null.
+
+A hosted airline uses every collection above (except the `hosted_*` and `operator*` ones) inside
+its own namespace: `tenants/<ICAO>/<collection>/<doc>` in Firestore, `tenants/<ICAO>.sqlite3` in
+SQLite (section 5.22). Blobs are shared.
 
 A failed write of a feed record (`sigmets`, `vonas`, `vaas`, `tafs`, `metars`, `winds`) never
 fails the poll: the record is already in memory, its `(collection, doc id)` waits in
@@ -3547,3 +3725,11 @@ has the CSRF guard. Errors never repeat input; the 422 body is the app's `valida
 | `POST /api/desk/airlines/{AL-id}/delete` | `DeleteAirline` `{version}` | 204, the record and its login deleted; 409; 422 `not_declined` |
 
 A visitor session is refused (403 `visitor_role`) on every `/api/desk/airlines` route.
+
+Hosted routes (only with the feature `hosted`; section 5.22 and `docs/HOSTED.md`): the airline
+API under `/a/<ICAO>/api/...` (the routes above that `TENANT_ROUTES` lists, plus
+`/api/tenant/*`), `/api/hosted/*`, `/api/admin/*`, `POST /tasks/operator-invite` and
+`POST /tasks/operator-revoke`. Their errors add `not_hosted` (404), `no_such_airline` (404),
+`not_started` (409), `tenant_suspended` (403), `role` (403), `bad_key` (401), `airline_paused`
+and `site_paused` (503), `operator_only` (403), `limit_too_large` (422) and the codes of
+`HostedRefused`.

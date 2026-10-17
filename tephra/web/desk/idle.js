@@ -11,6 +11,7 @@ import { docsToSign } from './docs.js';
 import { draftPlans } from './network.js';
 import { openFailures } from './failures.js';
 import { aiLead, aiSymbol } from '../wall/x-parts.js';
+import { TENANT } from '../base.js';
 
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
@@ -59,5 +60,5 @@ export function renderIdle() {
         el('span', {}, el('strong', { text: lead.strong }), ` ${lead.text}`)),
       other.length ? el('h3', { class: 'idle__h', text: 'Also waiting for you' }) : null,
       other.length ? el('ul', { class: 'idle__list' }, other) : null,
-      el('a', { class: 'linkbtn idle__board', href: '/assistant', target: '_blank', rel: 'noopener' }, icon('ta-16'), el('span', { text: 'See TEPHRA Assistant at work' }), icon('i-external-link'))));
+      TENANT ? null : el('a', { class: 'linkbtn idle__board', href: '/assistant', target: '_blank', rel: 'noopener' }, icon('ta-16'), el('span', { text: 'See TEPHRA Assistant at work' }), icon('i-external-link'))));
 }

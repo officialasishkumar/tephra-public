@@ -11,6 +11,7 @@ import { dayMonthHhmm, hhmmz, parseTime, serverNow } from './format.js';
 import { app } from './state.js';
 import { aiState, openBSheet } from './ui.js';
 import { aiLead, aiSymbol, aiWords, causeTitle, jobsWords, pacingWords, machineText, realWhen, ASSISTANT } from '../wall/x-parts.js';
+import { TENANT, PAGE_BASE } from '../base.js';
 
 const LANE_WORDS = { urgent: 'flights in or near the ash', interactive: 'the Desk (questions, notices, messages, documents)', routine: 'routine work, paced through the day' };
 const BOARD_URL = '/assistant';
@@ -166,8 +167,16 @@ export function openBudget() {
       el('ul', { class: 'aimodels' }, models(b).map((m) => modelRow(m))),
       lanes(b))
     : null;
-  const board = el('a', { class: 'btn btn--outline btn--block aisheet__board', href: BOARD_URL, target: '_blank', rel: 'noopener' },
-    icon('ta-16'), el('span', { text: `See ${ASSISTANT} at work` }), icon('i-external-link'));
+  // a hosted airline: its model, key and daily limits are in Settings › Assistant; the board is the demo's
+  const board = TENANT
+    ? el('a', { class: 'btn btn--outline btn--block aisheet__board', href: `${PAGE_BASE}/settings/assistant` }, icon('i-model'), el('span', { text: 'Model, key and daily limits: Settings › Assistant' }), icon('i-chevron-right'))
+    : el('a', { class: 'btn btn--outline btn--block aisheet__board', href: BOARD_URL, target: '_blank', rel: 'noopener' },
+      icon('ta-16'), el('span', { text: `See ${ASSISTANT} at work` }), icon('i-external-link'));
+  const notBuilt = TENANT
+    ? el('section', { class: 'aisheet__sec', 'aria-labelledby': 'ai-nb-title' },
+      el('h3', { id: 'ai-nb-title', class: 'aisheet__h', text: 'Not built' }),
+      el('ul', { class: 'aisheet__nb' }, el('li', { text: 'Recovery re-planning for your network is not built.' })))
+    : null;
   const foot = stub
     ? el('p', { class: 'note', text: 'With no model, no calls are made or counted.' })
     : b
@@ -175,7 +184,7 @@ export function openBudget() {
       : el('p', { class: 'note', text: "Today's assistant calls have not loaded yet." });
   openBSheet({
     title: ASSISTANT,
-    body: el('div', { class: 'stack aisheet' }, mark, lead, causes, queue, calls, board, foot, runsOn(),
+    body: el('div', { class: 'stack aisheet' }, mark, lead, causes, queue, calls, board, notBuilt, foot, runsOn(),
       el('p', { class: 'note', text: 'When a skill cannot run, it says so and nothing is put in its place.' }),
       el('p', { class: 'note aisheet__about', text: 'About TEPHRA Assistant: TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything.' })),
   });

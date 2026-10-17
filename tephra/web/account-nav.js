@@ -2,18 +2,42 @@
 // Workspace; on pages that pass `right` (Home, onboarding, workspace), the header's right side holds
 // Sign in, or the account button with its menu (Workspace, Theme, Sign out). The session read costs
 // the server no store read. Nothing here runs on the Desk: dispatchers sign in there.
+// With hosting on (SPEC hosted §5, the server's "hosted" feature), the menu lists the airlines the
+// login belongs to (GET /api/hosted/me), each going to its space, and the nav gains Admin for
+// TEPHRA's operators (GET /api/admin/me answers 200 only for a signed-in operator).
 
 import { el, icon } from "./wall/util.js";
 import { themeControl } from "./theme.js";
 import { clearOnboardStorage } from "./onboard/draft.js";
+import { has } from "./wall/features.js";
 
-async function readSession() {
+async function readJson(path) {
   try {
-    const res = await fetch("/api/airline/session", { headers: { Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(8000) });
+    const res = await fetch(path, { headers: { Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(8000) });
     return res.ok ? await res.json() : null;
   } catch {
     return null;
   }
+}
+const readSession = () => readJson("/api/airline/session");
+
+// Admin goes before Guide in every shared nav on the page, once.
+export function addAdminLink(root = document) {
+  for (const nav of root.querySelectorAll(".topnav")) {
+    if (nav.querySelector('a[href="/admin"]')) continue;
+    const admin = el("a", { href: "/admin", text: "Admin" });
+    const guide = nav.querySelector('a[href="/guide"]');
+    if (guide) guide.before(admin);
+    else nav.append(admin);
+  }
+}
+
+// The menu's items for the airlines a login belongs to, each to its own space.
+export function airlineItems(memberships) {
+  const list = (Array.isArray(memberships) ? memberships : []).filter((m) => m && /^[A-Z]{3}$/.test(m.icao));
+  if (!list.length) return [];
+  return [el("div", { class: "tn-menu__airlines", role: "group", "aria-label": "Your airlines" },
+    ...list.map((m) => el("a", { class: "tn-menu__item", role: "menuitem", href: `/a/${m.icao}/` }, icon("i-live"), `${m.name} (${m.icao})`)))];
 }
 
 export async function signOut() {
@@ -95,12 +119,20 @@ function accountMenu(session, items) {
 }
 
 export async function initAccountNav({ right = null, signin = true, items = [] } = {}) {
-  const session = await readSession();
+  const hosted = has("hosted");
+  const [session, operator] = await Promise.all([readSession(), hosted ? readJson("/api/admin/me") : null]);
+  if (operator) addAdminLink();
   if (!session) return { signedIn: false, icao: null, name: null };
   const signedIn = session.signed_in === true;
   if (signedIn) swapNav();
+  const mine = hosted && signedIn ? await readJson("/api/hosted/me") : null;
+  const airlines = airlineItems(mine?.memberships);
+  if (signedIn && !session.icao && !WHO && mine?.memberships?.length) {
+    const only = mine.memberships.length === 1 ? mine.memberships[0] : null;
+    WHO = only ? { icao: only.icao, name: only.name } : { icao: "", name: "Your airlines" };
+  }
   if (right) {
-    if (signedIn) right.replaceChildren(accountMenu(session, items));
+    if (signedIn) right.replaceChildren(accountMenu(session, [...airlines, ...[items].flat()]));
     else right.replaceChildren(...(signin && session.accounts ? [signInLink()] : []));
   }
   return { signedIn, icao: signedIn ? session.icao : null, name: signedIn ? session.name : null };

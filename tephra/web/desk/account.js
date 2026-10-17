@@ -14,6 +14,7 @@ import { describeReplayIn } from './ui.js';
 import { has } from '../wall/features.js';
 import { airlinesWaiting, openAirlines } from './airlines.js';
 import { openConnections } from './connections.js';
+import { TENANT } from '../base.js';
 
 const PAGES_BELOW_PX = 600; // desk.css hides .topnav under this width
 
@@ -21,6 +22,8 @@ const WAKE_KEY = 'tephra.desk.wake';
 export const wakeSupported = () => 'wakeLock' in navigator;
 
 export function initAccount({ onSignOut, onWakeChange }) {
+  // a hosted airline's Desk: the airline header's account menu takes this one's place
+  if (TENANT) return;
   const button = byId('account-btn');
   const menu = byId('account-menu');
   try {
@@ -83,6 +86,7 @@ export function initAccount({ onSignOut, onWakeChange }) {
 }
 
 export function setAccount(session) {
+  if (TENANT) return;
   const button = byId('account-btn');
   if (!session) {
     button.hidden = true;

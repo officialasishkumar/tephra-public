@@ -7,7 +7,7 @@
 
 import { PATHS, api, problems } from './api.js';
 import { announce, byId, el, icon } from './dom.js';
-import { activeNow, fl, hhmmz } from './format.js';
+import { activeNow, fl, flightWho, hhmmz } from './format.js';
 import { loadDocs, openDoc } from './docs.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
@@ -402,7 +402,7 @@ export function openCrewForm({ hex = null } = {}) {
   const flightSel = el('select', { id: 'crew-flight', class: 'field field--select', 'aria-describedby': 'crew-flight-msg' },
     el('option', { value: '', text: tracked.length ? `Choose a tracked ${code} flight` : `No ${code} flight is tracked right now` }),
     tracked.map((p) => el('option', { value: p.hex, selected: p.hex === f.flight ? true : null,
-      text: `${p.proxy_flight} · ${p.callsign}${p.alt_baro_ft != null ? ` · ${fl(p.alt_baro_ft / 100)}` : ''}` })),
+      text: `${flightWho(p)}${p.alt_baro_ft != null ? ` · ${fl(p.alt_baro_ft / 100)}` : ''}` })),
     el('option', { value: '__typed', text: 'Another flight: type its callsign' }));
   const callsign = el('input', { id: 'crew-callsign', class: 'field crewmono', type: 'text', maxlength: '7', autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', placeholder: 'e.g. GIA417', hidden: true, 'aria-label': 'Callsign', 'aria-describedby': 'crew-flight-msg' });
 

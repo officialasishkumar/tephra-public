@@ -9,10 +9,11 @@
 
 import { $, el, icon, ms, hhmmz } from "./util.js";
 import { frameFor } from "./ext-map.js";
-import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, assistantIs, causeTitle, handPlanOf, reasonClass, realWhen, machineText, machineSentences, jobsWords, pacingWords, whyLink, WHY, MARK, ASSISTANT } from "./x-parts.js";
+import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, assistantIs, causeTitle, handPlanOf, notRun, reasonClass, realWhen, unavailableWhy, machineText, machineSentences, jobsWords, pacingWords, whyLink, WHY, MARK, ASSISTANT } from "./x-parts.js";
 import { dutyDetail, dispatchedTools } from "./duty.js";
 import { HELPERS } from "./board.js";
 import { has } from "./features.js";
+import { TENANT, api, page } from "../base.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkMeter, meterTone, dkGroup, dkRow, dkList, dkFacts, dkNote, dkAbout, dkEmpty, dkTech,
   dkSection, dkLink, dkFromReplay, dkWhen, timeRange, times, plural, dayTime,
@@ -38,20 +39,25 @@ const getJson = async (url) => {
   return res.json();
 };
 
+// A hosted airline has no airport re-planning, track record or scorecards (D15, D17): those
+// routes are the demo's, so its map never asks for them and Details leaves their rows out.
+const DEMO_ONLY = new Set(["recovery", "backtest", "evals"]);
+
 export async function loadExt(onChange) {
   const jobs = [
-    ["notices", "/api/notices", (d) => { ext.notices = d.notices || []; }],
-    ["recovery", "/api/recovery", (d) => { ext.recovery = d.plans || []; }],
-    ["budget", "/api/budget", (d) => { ext.budget = d; }],
-    ["backtest", "/api/backtest", (d) => { ext.backtest = d; }],
-    ["docs", "/api/docs", (d) => { ext.docs = d.docs || []; }],
+    ["notices", api("/notices"), (d) => { ext.notices = d.notices || []; }],
+    ["recovery", api("/recovery"), (d) => { ext.recovery = d.plans || []; }],
+    ["budget", api("/budget"), (d) => { ext.budget = d; }],
+    ["backtest", api("/backtest"), (d) => { ext.backtest = d; }],
+    ["docs", api("/docs"), (d) => { ext.docs = d.docs || []; }],
     // the committed scorecards (docs/evals): the Plume reader's cases and the replay's speed figures
-    ["evals", "/api/evals", (d) => { ext.evals = d; }],
-  ];
+    ["evals", api("/evals"), (d) => { ext.evals = d; }],
+  ].filter(([key]) => !(TENANT && DEMO_ONLY.has(key)));
   await Promise.all(jobs.map(async ([key, url, set]) => {
     try { set(await getJson(url)); ext.errors[key] = null; } catch (e) { ext.errors[key] = e.message; }
     ext.loaded[key] = true;
   }));
+  if (TENANT) for (const key of DEMO_ONLY) ext.loaded[key] = true;
   onChange();
 }
 
@@ -143,7 +149,7 @@ function satRow(D, reading, sit, store) {
     // a quota refusal says what happened ("paused" only while the whole assistant is), never its
     // cause: that is at the assistant's home, behind the section's "Why ›" (UI-AI-QUIET 8.6)
     const cls = reasonClass(reading.reason);
-    const what = cls !== "budget" ? `Satellite reader gave no result (${WHY[cls] || WHY.other})` : aiState(D, store).kind === "paused" ? `${ASSISTANT} is paused` : "Satellite reader did not run";
+    const what = !notRun(cls) ? `Satellite reader gave no result (${WHY[cls] || WHY.other})` : cls === "budget" && aiState(D, store).kind === "paused" ? `${ASSISTANT} is paused` : "Satellite reader did not run";
     return dkRow({ key: `sat-${vid}`, dot: "caution", edge: "caution", title: name, sub: `Not read: ${what}. Nothing was put in its place.`, meta: scan,
       body: [dkTech(String(reading.reason || "no reason given"), reading.model_id ? `would have used ${reading.model_id}` : null)], open: vid === D.selected });
   }
@@ -252,7 +258,7 @@ function noticesPanel(D) {
     title: all.length ? `${all.length} notice${all.length === 1 ? "" : "s"} · newest ${clock(newest.created_at)}` : "No notices yet",
     sub: "A notice only enters the picture once every claim is found word for word in it.",
   });
-  if (!all.length) return [dkSection("notices-head", head, dkEmpty("Nothing to show", "Paste a notice on the Desk (EN, ID, JA or FIL) and it shows up here.", el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Open the Desk ›" })))];
+  if (!all.length) return [dkSection("notices-head", head, dkEmpty("Nothing to show", "Paste a notice on the Desk (EN, ID, JA or FIL) and it shows up here.", el("a", { class: "link-btn", href: page("/desk"), target: "_blank", rel: "noopener", text: "Open the Desk ›" })))];
   const tiles = dkTiles([
     { label: "Notices", value: String(all.length) },
     { label: "Verified", value: String(verified), tone: verified ? "ok" : null },
@@ -603,15 +609,15 @@ export function agentStatus(D, store, ai) {
     // the badge says what happened ("Not run" only where no model was called); `words` says why,
     // without repeating the badge (review H6)
     // the time is said once, in the lead above (review clutter 7)
-    const paused = (cls) => (cls === "budget" ? (ai.paused ? `${ASSISTANT} paused` : WHY.budget) : `gave no result (${WHY[cls] || WHY.other})`);
+    const paused = (cls, reason) => (cls === "budget" ? (ai.paused ? `${ASSISTANT} paused` : WHY.budget) : cls === "unavailable" ? unavailableWhy(reason) : `gave no result (${WHY[cls] || WHY.other})`);
     if (a.id === "duty" && run?.outcome === "MODEL_FAILED") {
       const cls = reasonClass((run.validation_errors || [])[0]);
-      state = "failed"; badge = cls === "budget" ? "Not run" : "No brief"; words = paused(cls); at = at || run.finished_at;
+      state = "failed"; badge = notRun(cls) ? "Not run" : "No brief"; words = paused(cls, (run.validation_errors || [])[0]); at = at || run.finished_at;
     } else if (a.id === "plume" && pending) { state = "waiting"; words = "plume read queued for the Coordinator"; }
-    else if (a.id === "recovery" && pf?.ai) { state = "failed"; badge = pf.cls === "budget" ? "Not run" : "No plan"; words = paused(pf.cls); at = plan.created_at; }
+    else if (a.id === "recovery" && pf?.ai) { state = "failed"; badge = notRun(pf.cls) ? "Not run" : "No plan"; words = paused(pf.cls, pf.raw); at = plan.created_at; }
     // its own slot only when it is not the reset the lead already says (the time once)
     else if (a.id === "sra" && sra) { state = "waiting"; words = sra.slot && sra.slot !== ai.slotAt ? `next slot ${sra.slot}` : "waiting in line"; }
-    else if (state === "failed") { const cls = reasonClass(last.message); badge = cls === "budget" ? "Not run" : cls === "undone" ? "Left for the Desk" : "No result"; words = cls === "undone" ? "must-do jobs passed to the Desk" : paused(cls); }
+    else if (state === "failed") { const cls = reasonClass(last.message); badge = notRun(cls) ? "Not run" : cls === "undone" ? "Left for the Desk" : "No result"; words = cls === "undone" ? "must-do jobs passed to the Desk" : paused(cls, last.message); }
     return { ...a, i, state, words, badge, count: mine.length, fails, last: at, detail: last?.message || null, delegated: delegated.has(DELEGATED_VIA[a.id]) };
   });
 }

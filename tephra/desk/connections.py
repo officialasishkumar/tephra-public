@@ -7,11 +7,16 @@ and the ones that pass become :class:`Aircraft` beside the ADS-B targets
 (``Runtime.take_push``). Nothing here plans, drafts or calls a model; the exposure check that
 follows a push is the same one ADS-B gets. :func:`dry_run` checks a push file the same way for
 an airline's workspace and takes nothing in.
+
+A hosted airline's pushes find their key in memory (:class:`KeyIndex`, rebuilt on every
+create, rotate and revoke), so a push costs no store read; :func:`rotate_connection` gives a
+key's successor and stops the old one at once.
 """
 
 import hashlib
 import secrets
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Final
 
@@ -40,6 +45,7 @@ __all__ = [
     "KEY_PREFIX",
     "PUSH_FRESH_S",
     "ConnectionNotFound",
+    "KeyIndex",
     "NotAPush",
     "checked_plans",
     "checked_positions",
@@ -50,6 +56,7 @@ __all__ = [
     "push_source_id",
     "refusal",
     "revoke_connection",
+    "rotate_connection",
     "save_counts",
     "view",
 ]
@@ -137,6 +144,41 @@ async def revoke_connection(store: Store, connection_id: str, *, actor: str) -> 
             before={"connection_id": connection.id, "name": connection.name},
         )
     return connection
+
+
+async def rotate_connection(
+    store: Store, connection_id: str, *, actor: str
+) -> tuple[Connection, str]:
+    """A new key under the same name, and the old one revoked at once (no grace window: that
+    would be a second valid key). Both audit entries are written; the new key is returned
+    once. A revoked or unknown connection raises :class:`ConnectionNotFound`."""
+    doc = await store.get(Collection.CONNECTIONS, connection_id)
+    if doc is None:
+        raise ConnectionNotFound(connection_id)
+    old = Connection.model_validate(doc)
+    if old.revoked_at is not None:
+        raise ConnectionNotFound(connection_id)
+    await revoke_connection(store, old.id, actor=actor)
+    return await create_connection(store, old.name, actor=actor)
+
+
+@dataclass(frozen=True, slots=True)
+class KeyIndex:
+    """Each live connection by its key's SHA-256: a push is matched with no store read."""
+
+    by_sha256: dict[str, Connection]
+
+    @classmethod
+    def build(cls, connections: Iterable[Connection]) -> "KeyIndex":
+        return cls({c.key_sha256: c for c in connections if c.revoked_at is None})
+
+    def find(self, key: str) -> Connection | None:
+        if not key.startswith(KEY_PREFIX):
+            return None
+        return self.by_sha256.get(_sha(key))
+
+    def __len__(self) -> int:
+        return len(self.by_sha256)
 
 
 async def save_counts(

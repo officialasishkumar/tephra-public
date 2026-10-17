@@ -5,6 +5,10 @@ with ``mac = HMAC-SHA256(key, payload)`` and ``key = HMAC-SHA256(session secret,
 label separates it from the Desk's cookie, so neither verifies as the other. Expiry is on the
 wall clock, never the replay clock. Reading the claims costs no store read (the nav asks on
 every page); :func:`require_airline` then checks them against the stored login.
+
+A member-only login (someone who joined a hosted airline by invite, with no onboarding record)
+signs the same cookie with an empty ``a``: :func:`require_login` accepts it, and
+:func:`require_airline`, which needs a record, answers 404 ``no_airline_record``.
 """
 
 import base64
@@ -14,32 +18,39 @@ import ipaddress
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from fastapi import Request, Response
 from pydantic import ValidationError
 
 from tephra.airline.models import AirlineLogin, AirlineRecord
 from tephra.api import ApiError
-from tephra.api.auth import client_key, is_https, wall_clock_now
+from tephra.api.auth import LoginThrottle, client_key, is_https, wall_clock_now
 from tephra.config import Settings
 from tephra.store.base import Collection, Store
+
+if TYPE_CHECKING:
+    from tephra.hosted.access import AccessCache
 
 __all__ = [
     "COOKIE_NAME",
     "THROTTLES",
     "AirlineClaims",
     "AirlineContext",
+    "LoginContext",
     "accounts_enabled",
     "claims_of",
     "clear_airline_cookie",
     "client_key_64",
+    "member_claims",
     "read_claims",
     "require_accounts",
     "require_airline",
+    "require_login",
     "require_onboard",
     "set_airline_cookie",
     "sign_claims",
+    "sign_out_everywhere",
     "verify_claims",
 ]
 
@@ -66,7 +77,8 @@ Cloud Run runs one instance; every count starts again after a deploy or restart.
 (saves of the draft, the answers or the assistant) are bounded per airline and for the whole
 site, and every signed-in request (two store reads before anything else) per address and for
 the whole site, so a cookie that costs only an email and a password cannot spend the store's
-free daily reads or writes, which the shared site's audit trail needs too."""
+free daily reads or writes, which the shared site's audit trail needs too. With ``hosted`` on,
+signed-in requests count per login instead of per site (``_count_request``)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +97,14 @@ class AirlineClaims:
 @dataclass(frozen=True, slots=True)
 class AirlineContext:
     record: AirlineRecord
+    login: AirlineLogin
+    claims: AirlineClaims
+
+
+@dataclass(frozen=True, slots=True)
+class LoginContext:
+    """A signed-in login, with or without an onboarding record (``claims.airline_id`` "")."""
+
     login: AirlineLogin
     claims: AirlineClaims
 
@@ -127,6 +147,13 @@ def claims_of(record: AirlineRecord, login: AirlineLogin) -> AirlineClaims:
     )
 
 
+def member_claims(login: AirlineLogin) -> AirlineClaims:
+    """A member-only login's claims: no record, so no airline id, ICAO or name."""
+    return AirlineClaims(
+        airline_id="", login_key=login.login_key, version=login.session_version, icao="", name=""
+    )
+
+
 def sign_claims(claims: AirlineClaims, settings: Settings, *, at: datetime) -> tuple[str, datetime]:
     """The cookie value for ``claims`` and its expiry (whole seconds, UTC)."""
     if not _filled(settings):
@@ -163,7 +190,8 @@ def _claims(body: Any, at: datetime) -> AirlineClaims | None:
         return None
     texts = [body.get(key) for key in ("a", "k", "c", "n")]
     version, expires = body.get("v"), body.get("exp")
-    if not all(isinstance(text, str) for text in texts) or not (texts[0] and texts[1]):
+    # an empty airline id is a member-only login; the login key is always there
+    if not all(isinstance(text, str) for text in texts) or not texts[1]:
         return None
     if type(version) is not int or type(expires) is not int:
         return None
@@ -246,31 +274,87 @@ def _store(request: Request) -> Store:
 async def require_airline(request: Request) -> AirlineContext:
     """The signed-in airline: the cookie checked against the stored login and record. A
     recovery or deletion bumps or removes the login, which signs every other browser out.
-    The request throttles come before the two store reads, so a refused request costs none."""
+    The request throttles come before the two store reads, so a refused request costs none.
+    A valid member-only login has no record here: 404 ``no_airline_record``."""
     await require_accounts(request)
     claims = read_claims(request)
     if claims is None:
         raise _unauthenticated()
-    _count_request(request)
+    _count_request(request, claims)
     store = _store(request)
-    login_doc = await store.get(Collection.AIRLINE_LOGINS, claims.login_key)
+    login = await _login(store, claims)
+    if not claims.airline_id:
+        if login.airline_id is not None:
+            raise _unauthenticated()
+        raise ApiError(404, "no_airline_record", "This account has no airline onboarding")
     record_doc = await store.get(Collection.AIRLINES, claims.airline_id)
-    if login_doc is None or record_doc is None:
+    if record_doc is None:
         raise _unauthenticated()
     try:
-        login = AirlineLogin.model_validate(login_doc)
         record = AirlineRecord.model_validate(record_doc)
     except ValidationError:
         raise _unauthenticated() from None
-    if login.session_version != claims.version or login.airline_id != record.id:
+    if login.airline_id != record.id:
         raise _unauthenticated()
     return AirlineContext(record=record, login=login, claims=claims)
 
 
-def _count_request(request: Request) -> None:
+async def require_login(request: Request) -> LoginContext:
+    """Any signed-in login, a record holder's or a member-only one (one store read)."""
+    await require_accounts(request)
+    claims = read_claims(request)
+    if claims is None:
+        raise _unauthenticated()
+    _count_request(request, claims)
+    login = await _login(_store(request), claims)
+    if (login.airline_id or "") != claims.airline_id:
+        raise _unauthenticated()
+    return LoginContext(login=login, claims=claims)
+
+
+async def _login(store: Store, claims: AirlineClaims) -> AirlineLogin:
+    doc = await store.get(Collection.AIRLINE_LOGINS, claims.login_key)
+    if doc is None:
+        raise _unauthenticated()
+    try:
+        login = AirlineLogin.model_validate(doc)
+    except ValidationError:
+        raise _unauthenticated() from None
+    if login.session_version != claims.version:
+        raise _unauthenticated()
+    return login
+
+
+async def sign_out_everywhere(store: Store, login_key: str, *, access: "AccessCache") -> None:
+    """A new session version whatever the cookie said (every browser and device is signed
+    out), and the hosted access cache forgets the login at once (S26)."""
+
+    def change(stored: dict[str, Any] | None) -> dict[str, Any]:
+        if stored is None:
+            raise LookupError(login_key)
+        login = AirlineLogin.model_validate(stored)
+        bumped = login.model_copy(update={"session_version": login.session_version + 1})
+        return bumped.model_dump(mode="json")
+
+    try:
+        await store.update(Collection.AIRLINE_LOGINS, login_key, change)
+    except LookupError:
+        pass
+    finally:
+        access.drop(login_key=login_key)
+
+
+def _count_request(request: Request, claims: AirlineClaims) -> None:
+    """Every signed-in request counts per address, and per site with ``hosted`` off. With
+    ``hosted`` on the site-wide count would let one self-made account lock every hosted
+    airline's people out for the day, so it counts per login instead (the login's own
+    ``hosted_member_requests``, keyed apart from its airlines' own counts)."""
     state = request.app.state
     client = client_key_64(request)
-    gates = [(state.airline_requests, client), (state.airline_requests_all, "site")]
+    site: tuple[LoginThrottle, str] = (state.airline_requests_all, "site")
+    if "hosted" in state.settings.features:
+        site = (state.hosted_member_requests, f"root~{claims.login_key}")
+    gates = [(state.airline_requests, client), site]
     waits = [gate.retry_after_s(key) for gate, key in gates if gate.blocked(key)]
     if waits:
         raise ApiError(

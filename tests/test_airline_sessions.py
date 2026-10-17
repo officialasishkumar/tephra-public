@@ -56,15 +56,20 @@ def test_desk_and_airline_cookies_never_verify_as_each_other() -> None:
     assert verify_claims(desk, settings(), at=NOW) is None
 
 
-def test_a_drafts_cookie_has_no_icao_or_name_but_still_needs_its_ids() -> None:
-    """A draft has no checked ICAO or name until it submits: the cookie carries both empty."""
+def test_a_drafts_cookie_has_no_icao_or_name_but_still_needs_its_login_key() -> None:
+    """A draft has no checked ICAO or name until it submits: the cookie carries both empty.
+    An empty airline id is a member-only login (hosted SPEC §3.3: an airline account that
+    belongs to airlines as a member and holds no record of its own), so it verifies; an empty
+    login key never does."""
     draft = replace(CLAIMS, icao="", name="")
     token, expires = sign_claims(draft, settings(), at=NOW)
     no_id, _ = sign_claims(replace(CLAIMS, airline_id=""), settings(), at=NOW)
     no_key, _ = sign_claims(replace(CLAIMS, login_key=""), settings(), at=NOW)
 
     assert verify_claims(token, settings(), at=NOW) == replace(draft, expires_at=expires)
-    assert verify_claims(no_id, settings(), at=NOW) is None
+    assert verify_claims(no_id, settings(), at=NOW) == replace(
+        CLAIMS, airline_id="", expires_at=expires
+    )
     assert verify_claims(no_key, settings(), at=NOW) is None
 
 

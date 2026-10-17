@@ -1,10 +1,10 @@
 """Small pieces both drafts share: the labels every document carries and the band text."""
 
-from tephra.config import NO_MODEL_LABEL
+from tephra.config import NO_MODEL_LABEL, SHADOW_LINE
 from tephra.geo.units import ft_to_fl
 from tephra.models import LlmBackendName, SystemState
 
-__all__ = ["band_text", "document_labels"]
+__all__ = ["band_text", "document_labels", "stamped_header"]
 
 
 def document_labels(state: SystemState, *, backend: LlmBackendName | None) -> list[str]:
@@ -19,6 +19,12 @@ def document_labels(state: SystemState, *, backend: LlmBackendName | None) -> li
     if backend == "stub":
         labels.append(NO_MODEL_LABEL)
     return labels
+
+
+def stamped_header(header: str, *, shadow: bool) -> str:
+    """A document drafted while a hosted airline runs in SHADOW leads its header with
+    ``SHADOW - NOT FOR USE``, written by code (no field a signer fills carries it)."""
+    return f"{SHADOW_LINE} - {header}" if shadow else header
 
 
 def band_text(base_ft: int, top_ft: int) -> str:

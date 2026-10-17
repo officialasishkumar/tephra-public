@@ -13,6 +13,12 @@ the chain is intact, and every append advances the head from the entry just writ
 read of the newest entry per append is the fork detector across a rollout overlap, when a
 no-traffic candidate and the serving instance both hold a head: a newest entry that is not the
 head's marks the head not intact until the next walk.
+
+A hosted airline's chain is never walked whole at start (D25): its runtime restores the head
+the last checkpoint persisted (with ``verified_through_seq``, how far a walk has checked it),
+reads only the entries after that head (:func:`catch_up`, one :meth:`Store.page`) and later
+walks only what lies past ``verified_through_seq`` (:func:`check_chain`); a whole walk happens
+only when an ops manager asks for one.
 """
 
 import asyncio
@@ -33,11 +39,15 @@ from tephra.util.hashing import sha256_json
 __all__ = [
     "GENESIS_SHA256",
     "NOT_WALKED",
+    "PAGE_SIZE",
     "WALK_LIMIT",
     "AuditChain",
     "ChainedAuditEntry",
+    "catch_up",
     "chain",
+    "check_chain",
     "entry_digest",
+    "head_doc",
     "list_entries",
     "newest_entry",
     "record",
@@ -54,6 +64,10 @@ WALK_PROBLEMS: Final = 50
 """Problems one walk lists; the rest are counted (a fork once cascaded into thousands)"""
 CATCH_UP_LIMIT: Final = 5_000
 """Entries read after the held head when the newest entry is not it (a rollout overlap)"""
+PAGE_SIZE: Final = 500
+"""Entries one read of an incremental or paged walk takes (``Store.page``)"""
+VERIFIED_THROUGH: Final = "verified_through_seq"
+VERIFIED_SHA256: Final = "verified_sha256"
 _locks: "weakref.WeakKeyDictionary[Store, asyncio.Lock]" = weakref.WeakKeyDictionary()
 _chains: "weakref.WeakKeyDictionary[Store, AuditChain]" = weakref.WeakKeyDictionary()
 
@@ -61,10 +75,18 @@ _chains: "weakref.WeakKeyDictionary[Store, AuditChain]" = weakref.WeakKeyDiction
 @dataclass
 class AuditChain:
     """This process's view of one store's chain: ``head`` is None until a walk or an append;
-    ``rewalk`` asks the next checkpoint for a full walk."""
+    ``rewalk`` asks the next checkpoint for a walk. ``verified_through_seq`` is how far a walk
+    has found the chain intact (entry ``verified_sha256``); an incremental walk starts there."""
 
     head: ChainHead | None = None
     rewalk: bool = False
+    verified_through_seq: int = 0
+    verified_sha256: str = GENESIS_SHA256
+
+    def verified(self, head: ChainHead) -> None:
+        """A walk found the chain intact through ``head``."""
+        if head.intact:
+            self.verified_through_seq, self.verified_sha256 = head.seq, head.sha256
 
 
 def chain(store: Store) -> AuditChain:
@@ -98,6 +120,38 @@ async def record(
     model_id: str | None = None,
     prompt_hash: str | None = None,
     note: str | None = None,
+) -> AuditEntry:
+    """Append one entry. The append runs shielded: a tick cancelled at its deadline (or a
+    request that goes away) never leaves an entry written but not taken into the held head;
+    the append completes and the cancel takes effect after it."""
+    return await asyncio.shield(
+        _record(
+            store,
+            actor=actor,
+            action=action,
+            advisory_id=advisory_id,
+            before=before,
+            after=after,
+            input_hashes=input_hashes,
+            model_id=model_id,
+            prompt_hash=prompt_hash,
+            note=note,
+        )
+    )
+
+
+async def _record(
+    store: Store,
+    *,
+    actor: str,
+    action: AuditAction,
+    advisory_id: str | None,
+    before: Mapping[str, Any] | None,
+    after: Mapping[str, Any] | None,
+    input_hashes: Sequence[str],
+    model_id: str | None,
+    prompt_hash: str | None,
+    note: str | None,
 ) -> AuditEntry:
     async with _lock(store):
         previous = await _last_entry(store)
@@ -137,12 +191,8 @@ async def _catch_up(store: Store, held: AuditChain, previous: ChainedAuditEntry 
         return
     if previous.seq <= head.seq:
         return
-    docs = await store.query(
-        Collection.AUDIT,
-        [Where("seq", ">", head.seq)],
-        order_by="seq",
-        descending=False,
-        limit=CATCH_UP_LIMIT,
+    docs = await store.page(
+        Collection.AUDIT, field="seq", before=head.seq, limit=CATCH_UP_LIMIT, descending=False
     )
     tail = _walk(docs, start_seq=head.seq, start_sha256=head.sha256)
     if tail.intact and (tail.seq, tail.sha256) == (previous.seq, previous.sha256):
@@ -205,7 +255,80 @@ async def verify_head(store: Store, *, limit: int = WALK_LIMIT) -> ChainHead:
         held = chain(store)
         held.head = head
         held.rewalk = False
+        held.verified(head)
         return head
+
+
+async def check_chain(store: Store, *, whole: bool = False) -> ChainHead:
+    """Walk the chain in pages and hold the head found. Only the entries past the held
+    ``verified_through_seq`` are read unless ``whole`` (an ops manager's full check): the part
+    already found intact is not read again. Never per request; a hosted airline's checkpoint
+    and its ops manager's check call it."""
+    async with _lock(store):
+        held = chain(store)
+        start_seq, start_sha256 = (
+            (0, GENESIS_SHA256) if whole else (held.verified_through_seq, held.verified_sha256)
+        )
+        docs = await _pages(store, after=start_seq)
+        tail = _walk(docs, start_seq=start_seq, start_sha256=start_sha256)
+        if start_seq == 0:
+            head = tail
+        else:
+            before = held.head
+            problems = [p for p in (before.problems if before else []) if p != NOT_WALKED]
+            head = tail.model_copy(
+                update={
+                    "entries": start_seq + tail.entries,
+                    "intact": tail.intact and not problems,
+                    "problems": [*problems, *tail.problems],
+                }
+            )
+        held.head = head
+        held.rewalk = False
+        held.verified(head)
+        return head
+
+
+async def catch_up(store: Store) -> ChainHead | None:
+    """Move the held head (a restored one) over the entries written after it, reading only
+    those (one page of at most ``CATCH_UP_LIMIT``): when they link up to the head, the head
+    moves to the newest; when they do not, the head is marked not intact and a walk is asked
+    for. Nothing is read before the head."""
+    async with _lock(store):
+        held = chain(store)
+        head = held.head
+        if head is None:
+            return None
+        docs = await store.page(
+            Collection.AUDIT, field="seq", before=head.seq, limit=CATCH_UP_LIMIT, descending=False
+        )
+        if not docs:
+            return head
+        tail = _walk(docs, start_seq=head.seq, start_sha256=head.sha256)
+        update: dict[str, Any] = {
+            "seq": tail.seq,
+            "sha256": tail.sha256,
+            "entries": head.entries + tail.entries,
+        }
+        if not tail.intact:
+            update["intact"] = False
+            update["problems"] = [*head.problems, *tail.problems]
+            held.rewalk = True
+        held.head = head.model_copy(update=update)
+        return held.head
+
+
+def head_doc(store: Store, *, verified: bool = False) -> dict[str, Any] | None:
+    """The held head as ``runtime/audit_head`` keeps it; with ``verified`` (a hosted airline)
+    also how far a walk has checked it. None while no head is held."""
+    held = chain(store)
+    if held.head is None:
+        return None
+    doc = held.head.model_dump(mode="json")
+    if verified:
+        doc[VERIFIED_THROUGH] = held.verified_through_seq
+        doc[VERIFIED_SHA256] = held.verified_sha256
+    return doc
 
 
 async def newest_entry(store: Store) -> ChainedAuditEntry | None:
@@ -213,18 +336,30 @@ async def newest_entry(store: Store) -> ChainedAuditEntry | None:
     return await _last_entry(store)
 
 
-def restore_head(store: Store, doc: Mapping[str, Any] | None) -> ChainHead | None:
-    """Hold the head a checkpoint persisted (``runtime/audit_head``) as not yet walked on this
-    instance, with a re-walk marked, and return it; None (nothing held) when ``doc`` is absent
-    or not a head."""
+def restore_head(
+    store: Store, doc: Mapping[str, Any] | None, *, trusted: bool = False
+) -> ChainHead | None:
+    """Hold the head a checkpoint persisted (``runtime/audit_head``) and return it; None
+    (nothing held) when ``doc`` is absent or not a head.
+
+    The demo holds it as not yet walked on this instance, with a re-walk marked. A hosted
+    airline (``trusted``) holds it as persisted, with the ``verified_through_seq`` it carries,
+    and walks only past that point later (D25)."""
     if doc is None:
         return None
     try:
         persisted = ChainHead.model_validate(doc)
     except ValidationError:
         return None
-    head = persisted.model_copy(update={"intact": False, "problems": [NOT_WALKED]})
     held = chain(store)
+    if trusted:
+        held.head = persisted
+        held.rewalk = False
+        through, sha256 = doc.get(VERIFIED_THROUGH), doc.get(VERIFIED_SHA256)
+        if isinstance(through, int) and isinstance(sha256, str) and 0 <= through <= persisted.seq:
+            held.verified_through_seq, held.verified_sha256 = through, sha256
+        return persisted
+    head = persisted.model_copy(update={"intact": False, "problems": [NOT_WALKED]})
     held.head = head
     held.rewalk = True
     return head
@@ -290,6 +425,21 @@ def _walk(
         intact=not problems,
         problems=problems,
     )
+
+
+async def _pages(store: Store, *, after: int) -> list[dict[str, Any]]:
+    """Every entry with ``seq`` above ``after``, oldest first, read a page at a time."""
+    docs: list[dict[str, Any]] = []
+    cursor = after
+    while len(docs) < WALK_LIMIT:
+        page = await store.page(
+            Collection.AUDIT, field="seq", before=cursor, limit=PAGE_SIZE, descending=False
+        )
+        docs.extend(page)
+        if len(page) < PAGE_SIZE:
+            break
+        cursor = page[-1]["seq"]
+    return docs
 
 
 async def _last_entry(store: Store) -> ChainedAuditEntry | None:

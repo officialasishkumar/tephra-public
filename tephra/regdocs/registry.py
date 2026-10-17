@@ -214,7 +214,7 @@ def _audit_view(doc: DocModel) -> dict[str, Any]:
         subject = {"crew_report_id": doc.crew_report_id, "flight": doc.flight}
     else:
         subject = {"flight_id": doc.flight_id}
-    return {
+    view: dict[str, Any] = {
         "doc_id": doc.id,
         "kind": doc.kind,
         "status": doc.status.value,
@@ -222,6 +222,9 @@ def _audit_view(doc: DocModel) -> dict[str, Any]:
         "signed_roles": [role.value for role in doc.signed_roles()],
         **subject,
     }
+    if doc.shadow:  # only when set: the demo's entries stay as they were
+        view["shadow"] = True
+    return view
 
 
 def _parse(stored: dict[str, Any] | None) -> DocModel | None:

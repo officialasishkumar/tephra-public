@@ -2,13 +2,18 @@
 
 Only composition roots (``tephra.api.server``, ``tephra.pipeline.create_runtime``,
 ``scripts/*``) call :func:`get_settings`. Library functions take a ``Settings`` argument
-so tests can pass ``Settings(_env_file=None, ...)`` explicitly.
+so tests can pass ``Settings(_env_file=None, ...)`` explicitly. A hosted airline's work binds
+its own settings for the current context (:func:`bind_settings`); elsewhere
+:func:`get_settings` is the process's settings, as before.
 """
 
 import math
 import os
 import re
 import secrets
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -46,6 +51,11 @@ DISCLAIMER = "Decision support only - fictional airline - not for operational us
 OWN_DISCLAIMER = "Decision support only - not for operational use"
 """An airline's own TEPHRA: its airline is real, and the rest of the disclaimer holds."""
 NO_MODEL_LABEL = "NO MODEL"
+SHADOW_LINE: Final = "SHADOW - NOT FOR USE"
+"""Written by code into every header of a draft a hosted airline makes in SHADOW (advisory,
+outbound text, message, document), outside any body a dispatcher can edit."""
+SHADOW_WORDS: Final = "Shadow · not for use"
+"""The same label as pages show it (the web's base.js keeps an equal constant)."""
 REPLAY_BANNER_TEMPLATE = "REPLAY: recorded real feeds from {date}"
 """``{date}`` is ``recorded_from`` formatted as ``%d %b %Y`` (e.g. '07 Oct 2026')."""
 SYNTHETIC_BANNER_TEMPLATE = "REPLAY: synthetic demo data, scenario dated {date}"
@@ -151,9 +161,22 @@ _HEX = re.compile(r"[0-9a-f]{6}")
 _AIRPORT = re.compile(r"[A-Z]{4}")
 
 Feature = Literal[
-    "connect", "crew", "notices", "satellite", "btd", "voice", "example", "present", "onboard"
+    "connect",
+    "crew",
+    "notices",
+    "satellite",
+    "btd",
+    "voice",
+    "example",
+    "present",
+    "onboard",
+    "hosted",
 ]
-ALL_FEATURES: frozenset[str] = frozenset(get_args(Feature))
+OPT_IN_FEATURES: Final = frozenset({"hosted"})
+"""Features only a comma list names: "all" and the default never include them."""
+ALL_FEATURES: frozenset[str] = frozenset(get_args(Feature)) - OPT_IN_FEATURES
+HOSTED_FEATURES: Final = frozenset({"connect", "crew", "notices"})
+"""What a hosted airline's runtime runs (no voice, BTD, sample feed or replays)."""
 HERO_FEATURES: frozenset[str] = frozenset()
 """The demo shows the hero path and its three acts only."""
 
@@ -166,6 +189,16 @@ class Airline(TephraModel):
     name: str
     iata: str | None = None
     fictional: bool
+    shadow: bool = Field(
+        default=False,
+        exclude_if=lambda value: value is False,
+        description="A hosted airline in SHADOW: every draft it makes is stamped",
+    )
+
+    @property
+    def stamp(self) -> str | None:
+        """The line code writes into each draft's header while in SHADOW."""
+        return SHADOW_LINE if self.shadow else None
 
     @property
     def label(self) -> str:
@@ -407,7 +440,8 @@ class Settings(BaseSettings):
         description=(
             "Optional features shown in the nav, menus, legend, index and board; 'all', 'hero' "
             "or a comma list. Hidden features keep their routes and tests (except onboard, "
-            "whose routes answer 404); their scheduled model work stops."
+            "whose routes answer 404); their scheduled model work stops. 'hosted' (TEPHRA "
+            "for verified airlines) is opt-in: only a comma list turns it on, never 'all'"
         ),
     )
     ai_answer_replay_keep_h: float = Field(
@@ -538,7 +572,8 @@ class Settings(BaseSettings):
         ge=1,
         description=(
             "Open GET /api/events streams; each holds a Cloud Run request slot, so keep "
-            "this below the service's --concurrency"
+            "this below the service's --concurrency. With hosted on, each airline's own "
+            "places (TEPHRA_HOSTED_STREAMS_PER_TENANT) are held apart from the demo's within it"
         ),
     )
     airline_session_ttl_h: float = Field(
@@ -602,6 +637,73 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Hosted airlines (feature "hosted"; off unless TEPHRA_FEATURES names it).
+    key_secret: SecretStr | None = Field(
+        default=None,
+        description=(
+            "Seals each hosted airline's model key (AES-256-GCM, key derived with HKDF); unset: "
+            "derived from TEPHRA_SESSION_SECRET. Rotating it makes every sealed key unreadable"
+        ),
+    )
+    hosted_max_tenants: int = Field(
+        default=3, ge=0, le=3, description="Airlines in SHADOW or LIVE at once on this site"
+    )
+    hosted_tick_budget_s: int = Field(
+        default=40,
+        ge=35,
+        le=45,
+        description="Seconds an airline's tick may take in a hosted pass (publishes 15 s early)",
+    )
+    hosted_reads_cap: int = Field(
+        default=40_000,
+        ge=0,
+        description="Site backstop: document reads a Pacific day before every airline pauses",
+    )
+    hosted_writes_cap: int = Field(
+        default=16_000,
+        ge=0,
+        description="Site backstop: document writes a Pacific day before every airline pauses",
+    )
+    hosted_deletes_cap: int = Field(
+        default=16_000,
+        ge=0,
+        description="Site backstop: document deletes a Pacific day before every airline pauses",
+    )
+    hosted_tenant_share: float = Field(
+        default=0.6,
+        gt=0,
+        le=1,
+        description=(
+            "Part of each site cap shared by the airlines: each gets cap x share / "
+            "TEPHRA_HOSTED_MAX_TENANTS a day and pauses alone past it"
+        ),
+    )
+    hosted_blob_puts_cap: int = Field(
+        default=4_000,
+        ge=0,
+        description="Satellite frame uploads by airlines a calendar month (storage operations)",
+    )
+    hosted_rss_limit_mb: int = Field(
+        default=700,
+        ge=200,
+        description="No airline starts while the process uses more memory than this (MB)",
+    )
+    hosted_push_gap_s: float = Field(
+        default=10.0, ge=1, description="Seconds between two pushes on one airline key"
+    )
+    hosted_streams_per_tenant: int = Field(
+        default=10, ge=1, le=50, description="Open event streams per airline"
+    )
+    hosted_tenant: str | None = Field(
+        default=None,
+        pattern=r"^[A-Z]{3}$",
+        description="Set only in a hosted airline's runtime settings, never from the environment",
+    )
+    hosted_stage: Literal["setup", "shadow", "live"] | None = Field(
+        default=None,
+        description="Set only in a hosted airline's runtime settings, never from the environment",
+    )
+
     @model_validator(mode="before")
     @classmethod
     def _not_moved_to_policy(cls, data: Any) -> Any:
@@ -641,7 +743,7 @@ class Settings(BaseSettings):
             names = frozenset(part.strip() for part in text.split(",") if part.strip())
         else:
             names = frozenset(value)
-        unknown = sorted(names - ALL_FEATURES)
+        unknown = sorted(names - ALL_FEATURES - OPT_IN_FEATURES)
         if unknown:
             raise ValueError(f"unknown feature(s): {', '.join(unknown)}")
         return names
@@ -680,7 +782,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
-        if self.llm == "gemini" and self.gemini_api_key is None:
+        # A hosted airline without a readable key runs with every model step unavailable;
+        # nowhere else may gemini run keyless.
+        if self.llm == "gemini" and self.gemini_api_key is None and self.hosted_tenant is None:
             raise ValueError("TEPHRA_LLM=gemini needs GEMINI_API_KEY (Google AI Studio key)")
         if self.llm == "ollama" and not all(":" in m for m in (self.model, self.model_lite)):
             raise ValueError(
@@ -692,7 +796,7 @@ class Settings(BaseSettings):
                 "TEPHRA_AI_URGENT_SHARE + TEPHRA_AI_INTERACTIVE_SHARE must leave a share for "
                 "routine work (their sum must be below 1)"
             )
-        for name in ("session_secret", "task_token"):
+        for name in ("session_secret", "task_token", "key_secret"):
             secret = getattr(self, name)
             if secret is not None and len(secret.get_secret_value().strip()) < MIN_SECRET_CHARS:
                 raise ValueError(
@@ -701,6 +805,7 @@ class Settings(BaseSettings):
                 )
         self._check_replay_window()
         self._check_own_airline()
+        self._check_hosted()
         if self.store == "firestore" and not (self.gcp_project and self.gcs_bucket):
             raise ValueError(
                 "TEPHRA_STORE=firestore needs TEPHRA_GCP_PROJECT and TEPHRA_GCS_BUCKET"
@@ -742,6 +847,29 @@ class Settings(BaseSettings):
                 " or TEPHRA_FLEET_HEXES too"
             )
 
+    def _check_hosted(self) -> None:
+        if (self.hosted_tenant is None) != (self.hosted_stage is None):
+            raise ValueError("hosted_tenant and hosted_stage are set together, or neither")
+        if "hosted" not in self.features:
+            return
+        if "onboard" not in self.features:
+            raise ValueError(
+                "TEPHRA_FEATURES: hosted needs onboard (airlines sign up and are verified there)"
+            )
+        if "session_secret" not in self.model_fields_set and self.key_secret is None:
+            raise ValueError(
+                "TEPHRA_FEATURES=hosted needs TEPHRA_SESSION_SECRET or TEPHRA_KEY_SECRET set: a "
+                "random per-process secret would make every sealed model key unreadable after "
+                "a restart"
+            )
+        held_apart = self.hosted_max_tenants * self.hosted_streams_per_tenant
+        if self.max_event_streams <= held_apart:
+            raise ValueError(
+                "TEPHRA_MAX_EVENT_STREAMS must be more than TEPHRA_HOSTED_MAX_TENANTS x "
+                f"TEPHRA_HOSTED_STREAMS_PER_TENANT ({held_apart}): those places are held apart "
+                "for the airlines and the demo needs at least one"
+            )
+
     @property
     def airline(self) -> Airline:
         """The demo's fictional airline while no own fleet is set; else the airline whose
@@ -756,7 +884,11 @@ class Settings(BaseSettings):
                 "TEPHRA_AIRLINE_NAME and TEPHRA_AIRLINE_ICAO: its drafts name the airline"
             )
         return Airline(
-            code=self.airline_icao, name=self.airline_name, iata=self.airline_iata, fictional=False
+            code=self.airline_icao,
+            name=self.airline_name,
+            iata=self.airline_iata,
+            fictional=False,
+            shadow=self.hosted_stage == "shadow",
         )
 
     def unlimited_models(self) -> list[str]:
@@ -835,22 +967,56 @@ def _code_list(value: Any, pattern: re.Pattern[str], *, upper: bool, what: str) 
     return codes
 
 
-def apply_process_env(settings: Settings) -> None:
+def apply_process_env(settings: Settings, *, export_key: bool = True) -> None:
     """Point ADK and google-genai at the Gemini API key and away from Vertex AI.
 
     Current SDKs call the switch GOOGLE_GENAI_USE_ENTERPRISE and still honour the older
     GOOGLE_GENAI_USE_VERTEXAI, so both are pinned off. GOOGLE_API_KEY is overwritten only
-    when GEMINI_API_KEY is set, so a stray key from the shell never wins.
+    when GEMINI_API_KEY is set, so a stray key from the shell never wins. With the hosted
+    feature on, the key is never exported: every model client is given its key explicitly,
+    and a client that reads the environment finds none instead of TEPHRA's key.
     """
+    if settings.hosted_tenant is not None:
+        raise ValueError("a hosted airline's settings never reach the process environment")
     os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "FALSE"
     os.environ["GOOGLE_GENAI_USE_ENTERPRISE"] = "FALSE"
-    if settings.gemini_api_key is not None:
+    if export_key and "hosted" not in settings.features and settings.gemini_api_key is not None:
         os.environ["GOOGLE_API_KEY"] = settings.gemini_api_key.get_secret_value()
 
 
+_HOSTED_ONLY_ENV: Final = ("TEPHRA_HOSTED_TENANT", "TEPHRA_HOSTED_STAGE")
+_bound_settings: ContextVar[Callable[[], Settings] | None] = ContextVar(
+    "tephra_settings", default=None
+)
+
+
 @lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    """Process-wide settings, read once from the environment (and ``.env`` if present)."""
+def _process_settings() -> Settings:
+    """The process's settings, read once from the environment (and ``.env`` if present)."""
+    environ = {name.upper() for name, value in os.environ.items() if value.strip()}
+    if found := [name for name in _HOSTED_ONLY_ENV if name in environ]:
+        raise ValueError(f"{', '.join(found)}: set only for a hosted airline's runtime")
     settings = Settings()
-    apply_process_env(settings)
+    if settings.hosted_tenant is not None:
+        raise ValueError(
+            f"{', '.join(_HOSTED_ONLY_ENV)}: set only for a hosted airline's runtime (.env)"
+        )
+    apply_process_env(settings, export_key="hosted" not in settings.features)
     return settings
+
+
+def get_settings() -> Settings:
+    """The settings bound in this context (a hosted airline's runtime), else the process's."""
+    provider = _bound_settings.get()
+    return _process_settings() if provider is None else provider()
+
+
+@contextmanager
+def bind_settings(provider: Callable[[], Settings]) -> Iterator[None]:
+    """Make ``get_settings()`` answer ``provider()`` in this context and the tasks and threads
+    it starts. A provider, not a value: a runtime's later settings reach work already running."""
+    token = _bound_settings.set(provider)
+    try:
+        yield
+    finally:
+        _bound_settings.reset(token)

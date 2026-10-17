@@ -261,7 +261,19 @@ MAIN_VIEW_SOURCES = (
     "desk/ui.js",
     "index.html",
     "desk.html",
+    # a hosted airline's own space (SPEC-FINAL 5.2-5.6): its header and every page but Settings,
+    # Assistant, which is the airline's assistant home
+    "tenant-nav.js",
+    "hosted.js",
+    "hosted.html",
+    "hosted/feeds.js",
+    "hosted/policy.js",
+    "hosted/people.js",
+    "hosted/record.js",
 )
+# The other places allowed to say the quota, the budgets and the lanes, besides the homes above:
+# a hosted airline's Settings, Assistant tab and the operators' console (SPEC-FINAL 0.7).
+ASSISTANT_HOMES = ("hosted/assistant.js", "admin.js", "admin.html")
 QUOTA_TEXT = re.compile(
     r"quota|used up|closed by google|free ai|next slot|\bspent\b|calls today|calls left"
     r"|share of calls|\bpacing\b|resets? (?:at|once)|reset was due|AI budget",
@@ -295,6 +307,11 @@ def test_main_views_never_say_why_the_assistant_is_paused() -> None:
             texts = STRING.findall(code) if rel.endswith(".js") else html
             for text in texts:
                 assert not QUOTA_TEXT.search(text), (rel, line.strip()[:140])
+
+
+def test_the_assistant_homes_are_not_main_views() -> None:
+    assert not set(ASSISTANT_HOMES) & set(MAIN_VIEW_SOURCES)
+    assert "quota day ends" in _read("hosted/assistant.js")
 
 
 def test_the_cause_of_a_pause_is_one_tap_from_every_place_that_lacks_an_output() -> None:

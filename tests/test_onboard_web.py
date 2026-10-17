@@ -22,6 +22,7 @@ SOURCES = [
     *sorted((WEB / "workspace").glob("*.js")),
     WEB / "desk" / "airlines.js",
     WEB / "desk" / "connections.js",
+    WEB / "dryrun.js",
 ]
 INLINE_SCRIPT = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>", re.I)
 INLINE_STYLE = re.compile(r"\sstyle=|<style", re.I)

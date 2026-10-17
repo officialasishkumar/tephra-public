@@ -1,5 +1,5 @@
 """Airline accounts in the store: create, sign-in lookups, recover, update, delete, and the
-Desk's verify, decline and delete.
+Desk's verify, decline and delete; an operator's hosting approval (feature ``hosted``).
 
 Two collections: ``airlines`` (the record a Desk review reads: status, answers, private
 history) and ``airline_logins`` (credentials, keyed by a hash of the email). Every change is a
@@ -27,6 +27,7 @@ from tephra.airline.models import (
     HistoryAction,
     HistoryEntry,
     OnboardDraft,
+    Stamp,
 )
 from tephra.store.base import Collection, Store, Where
 from tephra.util.hashing import sha256_json
@@ -44,16 +45,21 @@ __all__ = [
     "EmailTaken",
     "NotDeclined",
     "NotPending",
+    "NotVerified",
     "VersionConflict",
+    "approve_hosting",
     "create_account",
+    "create_member_login",
     "decide",
     "delete_account",
+    "deletion_refusal",
     "desk_delete",
     "end_sessions",
     "get_login",
     "get_record",
     "list_airlines",
     "login_key",
+    "note_sign_in",
     "onboarding_full",
     "pending_count",
     "purge_stale_drafts",
@@ -111,6 +117,10 @@ class AlreadySubmitted(Exception):
 
 class NotDeclined(Exception):
     pass
+
+
+class NotVerified(Exception):
+    """Hosting is approved only for an airline a person verified."""
 
 
 class _Exists(Exception):
@@ -346,6 +356,32 @@ async def create_account(
     return record, login
 
 
+async def create_member_login(
+    store: Store, *, email: str, password_hash: str, recovery_sha256: str, at: datetime
+) -> AirlineLogin:
+    """A login with no onboarding record: someone who joined a hosted airline by invite. The
+    email is claimed by compare-and-set, as an account's is (raises :class:`EmailTaken`)."""
+    key = login_key(email)
+    login = AirlineLogin(
+        login_key=key,
+        airline_id=None,
+        email=email,
+        password=password_hash,
+        recovery_sha256=recovery_sha256,
+        session_version=1,
+        created_at=at,
+        password_changed_at=at,
+    )
+
+    def claim(stored: dict[str, Any] | None) -> dict[str, Any]:
+        if stored is not None:
+            raise EmailTaken()
+        return login.model_dump(mode="json")
+
+    await store.update(Collection.AIRLINE_LOGINS, key, claim)
+    return login
+
+
 async def _write_new_record(store: Store, email: str, key: str, at: datetime) -> AirlineRecord:
     """A new draft under a new id; an id drawn twice retries once with another."""
 
@@ -543,6 +579,47 @@ async def delete_account(store: Store, record: AirlineRecord) -> None:
     await store.delete(Collection.AIRLINES, record.id)
 
 
+async def note_sign_in(store: Store, key: str, *, at: datetime) -> None:
+    """The login's last sign-in (shown to the airline's ops managers on People)."""
+
+    def change(stored: dict[str, Any] | None) -> dict[str, Any]:
+        if stored is None:
+            raise AirlineNotFound()
+        login = AirlineLogin.model_validate(stored)
+        return login.model_copy(update={"last_sign_in_at": at}).model_dump(mode="json")
+
+    try:
+        await store.update(Collection.AIRLINE_LOGINS, key, change)
+    except AirlineNotFound:
+        return
+
+
+async def deletion_refusal(
+    store: Store, login: AirlineLogin, record: AirlineRecord | None
+) -> Literal["hosted_airline", "last_ops_manager"] | None:
+    """Why this account may not be deleted now: its airline is hosted (a tenant that is not
+    deleted), or it is the last ops manager of a hosted airline. None: it may go."""
+    from tephra.hosted.models import Member, TenantRecord
+
+    if record is not None and record.answers is not None:
+        doc = await store.get(Collection.HOSTED_TENANTS, record.answers.airline.icao)
+        if doc is not None:
+            tenant = TenantRecord.model_validate(doc)
+            if tenant.airline_id == record.id and tenant.state != "deleted":
+                return "hosted_airline"
+    for found in await store.query(
+        Collection.HOSTED_MEMBERS, [Where("login_key", "==", login.login_key)], limit=50
+    ):
+        member = Member.model_validate(found)
+        doc = await store.get(Collection.HOSTED_TENANTS, member.icao)
+        if doc is None:
+            continue
+        tenant = TenantRecord.model_validate(doc)
+        if tenant.state != "deleted" and tenant.ops_managers == [member.id]:
+            return "last_ops_manager"
+    return None
+
+
 # --- the Desk ---------------------------------------------------------------------------
 
 
@@ -555,10 +632,14 @@ async def decide(
     verified: bool,
     note: str | None,
     at: datetime,
+    hosting: Stamp | None = None,
 ) -> AirlineRecord:
     """Verify or decline a pending airline: its own history records who and why. No audit
-    entry and no event: the public audit would list airlines publicly."""
+    entry and no event: the public audit would list airlines publicly. An operator's verify
+    also approves hosting (``hosting``); the Desk's never does."""
     status: AirlineStatus = "verified" if verified else "declined"
+    if hosting is not None and not verified:
+        raise ValueError("only a verify approves hosting")
 
     def edit(record: AirlineRecord) -> AirlineRecord:
         if record.status != "pending":
@@ -569,6 +650,30 @@ async def decide(
                 "status": status,
                 "decided_at": at,
                 "decline_reason": None if verified else note,
+                "updated_at": at,
+                "history": [*record.history, entry],
+                "hosting": hosting,
+            }
+        )
+
+    return await _apply(store, airline_id, version, edit)
+
+
+async def approve_hosting(
+    store: Store, airline_id: str, *, by: str, version: int, at: datetime
+) -> AirlineRecord:
+    """An operator's approval for an airline the Desk verified (D24). ``by`` is the
+    operator's stamp (``operator:<name>#<k8>``); approving twice keeps the first stamp."""
+
+    def edit(record: AirlineRecord) -> AirlineRecord:
+        if record.status != "verified":
+            raise NotVerified()
+        if record.hosting is not None:
+            return record
+        entry = _entry(record.history, at=at, actor=by, action="hosting_approved")
+        return record.model_copy(
+            update={
+                "hosting": Stamp(by=by, at=at),
                 "updated_at": at,
                 "history": [*record.history, entry],
             }

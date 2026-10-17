@@ -8,7 +8,7 @@ flight by the airline's own name for it (:meth:`FleetFilter.flight_name`), never
 """
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -153,6 +153,13 @@ class OwnSchedule:
         return legs
 
     @classmethod
+    def from_registrations(cls, registrations: Mapping[str, str]) -> Self:
+        """A hosted airline's fleet from its onboarding answers (hex -> registration), with
+        no schedule: its flights are named by pushed flight plans, callsigns and
+        registrations (uploading flights.json is not built on hosted TEPHRA)."""
+        return cls(registrations={hex_id.lower(): tail for hex_id, tail in registrations.items()})
+
+    @classmethod
     def load(cls, data_dir: Path, schedule_file: str | None, fleet_file: str | None) -> Self:
         flights = _read(data_dir, schedule_file, _Flights) if schedule_file else None
         fleet = _read(data_dir, fleet_file, _Fleet) if fleet_file else None
@@ -250,15 +257,19 @@ class FleetFilter:
         return aircraft.named(name)
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> Self:
-        """Reads the schedule and fleet files when set; :class:`ScheduleError` stops startup."""
+    def from_settings(cls, settings: Settings, schedule: OwnSchedule | None = None) -> Self:
+        """Reads the schedule and fleet files when set, unless ``schedule`` is given (a hosted
+        airline's, :meth:`OwnSchedule.from_registrations`); :class:`ScheduleError` stops
+        startup."""
+        if schedule is None:
+            schedule = OwnSchedule.load(
+                settings.data_dir, settings.airline_schedule, settings.airline_fleet
+            )
         return cls(
             prefixes=settings.fleet_prefixes,
             hexes=settings.fleet_hexes,
             icao=settings.airline_icao,
-            schedule=OwnSchedule.load(
-                settings.data_dir, settings.airline_schedule, settings.airline_fleet
-            ),
+            schedule=schedule,
         )
 
 

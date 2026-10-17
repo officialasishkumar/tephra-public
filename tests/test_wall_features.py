@@ -17,6 +17,7 @@ FEATURES = (
     "example",
     "present",
     "onboard",
+    "hosted",
 )
 
 # a string of a hidden feature -> (file, the feature its line must consult)

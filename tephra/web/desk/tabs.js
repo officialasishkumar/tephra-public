@@ -6,8 +6,11 @@
 
 import { byId, el, icon } from './dom.js';
 import { app } from './state.js';
+import { TENANT } from '../base.js';
 
 export const TABS = ['queue', 'network', 'docs'];
+// a hosted airline has no Airports tab: re-planning its network is not built (D15)
+const SHOWN = TENANT ? TABS.filter((t) => t !== 'network') : TABS;
 const LABEL = { queue: 'Decide', network: 'Airports', docs: 'Paperwork' };
 const ICON = { queue: 'i-inbox', network: 'i-network', docs: 'i-file' };
 const PANEL = (name) => (name === 'queue' ? 'desk-view' : `panel-${name}`);
@@ -20,11 +23,11 @@ export function initTabs(handler) {
   const bar = byId('tabbar');
   bar.setAttribute('role', 'tablist');
   bar.setAttribute('aria-label', 'Desk sections');
-  bar.replaceChildren(...TABS.map((name) =>
+  bar.replaceChildren(...SHOWN.map((name) =>
     el('button', { type: 'button', role: 'tab', id: `tab-${name}`, class: 'tab', 'data-tab': name, 'aria-controls': PANEL(name), 'aria-selected': 'false', tabindex: '-1' },
       el('span', { class: 'tab__ic' }, icon(ICON[name]), name === 'queue' ? el('span', { class: 'tab__badge', 'data-badge': name, 'aria-hidden': 'true', hidden: true }) : null),
       el('span', { class: 'tab__l', text: LABEL[name] }))));
-  for (const name of TABS) {
+  for (const name of SHOWN) {
     const panel = byId(PANEL(name));
     if (!panel) continue;
     panel.setAttribute('role', 'tabpanel');
@@ -38,8 +41,8 @@ export function initTabs(handler) {
     const keys = { ArrowRight: 1, ArrowLeft: -1, Home: 'first', End: 'last' };
     const dir = keys[event.key];
     if (!dir) return;
-    const i = TABS.indexOf(app.tab);
-    const next = dir === 'first' ? TABS[0] : dir === 'last' ? TABS[TABS.length - 1] : TABS[(i + dir + TABS.length) % TABS.length];
+    const i = SHOWN.indexOf(app.tab);
+    const next = dir === 'first' ? SHOWN[0] : dir === 'last' ? SHOWN[SHOWN.length - 1] : SHOWN[(i + dir + SHOWN.length) % SHOWN.length];
     event.preventDefault();
     goTab(next, { focus: true });
     bar.querySelector(`[data-tab="${next}"]`).focus();
@@ -50,11 +53,11 @@ export function initTabs(handler) {
   } catch {
     saved = 'queue';
   }
-  goTab(TABS.includes(saved) ? saved : 'queue', { focus: false, quiet: true });
+  goTab(SHOWN.includes(saved) ? saved : 'queue', { focus: false, quiet: true });
 }
 
 export function goTab(name, { focus = false, quiet = false } = {}) {
-  if (!TABS.includes(name)) return;
+  if (!SHOWN.includes(name)) return;
   const changed = app.tab !== name;
   app.tab = name;
   document.body.dataset.tab = name;

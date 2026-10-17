@@ -253,3 +253,23 @@ def test_batches_fit_the_push_body_limit() -> None:
     assert tool.BATCH_BYTES < MAX_PUSH_BODY_BYTES
     small = tool.batches([{"hex": "8a0412"}] * 2500, "positions")
     assert [len(b["positions"]) for b in small] == [1000, 1000, 500]
+
+
+def test_a_hosted_airline_in_setup_hears_checked_not_taken_in(
+    push: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A hosted airline still being set up answers 202 ``{"taken_in": false, "result":
+    DryRunResult}``: the tool says what was checked and that nothing was taken in."""
+    answer = {
+        "taken_in": False,
+        "result": {
+            "positions": {"total": 3, "accepted": 2},
+            "rejected": [{"section": "positions", "index": 2, "reason": "observed_at is old"}],
+        },
+    }
+    assert push.report(answer, "positions") == (
+        "checked 3 · would be taken 2 · refused 1 · nothing taken in: TEPHRA has not started "
+        "for this airline yet\n  positions[2] observed_at is old"
+    )
+    assert push.checked(answer)["rejected"]
+    assert push.checked({"accepted": 1}) == {"accepted": 1}

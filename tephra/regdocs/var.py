@@ -21,7 +21,7 @@ from tephra.models import (
     TraceStage,
     VaacCentre,
 )
-from tephra.regdocs.common import band_text, document_labels
+from tephra.regdocs.common import band_text, document_labels, stamped_header
 from tephra.regdocs.models import (
     VAR_HEADER,
     DocField,
@@ -79,7 +79,8 @@ async def draft_var(runtime: DocsRuntime, flight_id: str, *, actor: str = SYSTEM
         raise FlightNotExposed(flight_id)
     cone = runtime.cones.get(flight.volcano_id)
     state = await runtime.system_state()
-    fictional = runtime.settings.airline.fictional
+    airline = runtime.settings.airline
+    fictional = airline.fictional
     created = timeutil.now()
     layers = [layer for layer in situation.official_layers if layer.is_valid(situation.as_of)]
     facts = _facts(flight, cone, layers)
@@ -87,7 +88,8 @@ async def draft_var(runtime: DocsRuntime, flight_id: str, *, actor: str = SYSTEM
     items = _items(flight, situation, cone, layers)
     doc = VarDraft(
         id=stable_id("DOC", "VAR", flight_id, timeutil.to_iso(created), input_hash),
-        header=VAR_HEADER,
+        header=stamped_header(VAR_HEADER, shadow=airline.shadow),
+        shadow=airline.shadow,
         labels=[
             *(
                 ["ADS-B PROXY FLIGHT OF A FICTIONAL AIRLINE - NOT A REAL FLIGHT"]

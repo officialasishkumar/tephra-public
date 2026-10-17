@@ -11,8 +11,9 @@ import { activeNow, dayMonthHhmm, deskName, hhmmz, secs } from './format.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
 import { aiMark, fmtUsd, fromReplayChip, openBSheet, unavailableCard } from './ui.js';
-import { machineText, plainWhy, reasonClass } from '../wall/x-parts.js';
+import { machineText, notRun, plainWhy, reasonClass } from '../wall/x-parts.js';
 import { openBudget } from './budget.js';
+import { TENANT } from '../base.js';
 
 const STATUS = {
   DRAFT: ['i-clock', 'Waiting for your decision', 'neutral'],
@@ -27,7 +28,7 @@ const STATUS = {
 // the assistant sheet only, behind "Why ›" (8.6). The raw reason stays under Technical detail.
 function noRecWords(p) {
   const cls = reasonClass([p.unavailable_reason, ...(p.validation_errors || [])].join(' '));
-  return cls === 'budget' ? 'Recovery planner did not run.' : `Recovery planner gave no result (${plainWhy(cls)}).`;
+  return notRun(cls) ? 'Recovery planner did not run.' : `Recovery planner gave no result (${plainWhy(cls)}).`;
 }
 const whyBtn = () => el('button', { type: 'button', class: 'linkbtn', 'aria-label': 'Why: open the TEPHRA Assistant sheet', onclick: openBudget }, el('span', { text: 'Why ›' }));
 // The re-plan the queue holds for later: that it waits, not when (the slot is in the assistant sheet).
@@ -112,6 +113,12 @@ export function replanInProgress() {
 export const latestPlan = () => app.plans[0] || null;
 
 export async function loadPlans() {
+  if (TENANT) {
+    // re-planning an airline's own network is not built (D15): nothing to load
+    app.plansLoaded = true;
+    app.hub.afterPlans();
+    return;
+  }
   const res = await api(PATHS.recovery);
   if (res.ok && res.data && Array.isArray(res.data.plans)) {
     app.plans = res.data.plans.filter((p) => p && p.id).sort(byNewest);

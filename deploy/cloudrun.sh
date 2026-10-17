@@ -31,18 +31,29 @@ LLM="${TEPHRA_LLM:-gemini}"
 RUN_SA_NAME="${TEPHRA_RUN_SA:-tephra-run}"
 RUN_SA="$RUN_SA_NAME@$TEPHRA_PROJECT.iam.gserviceaccount.com"
 SECRETS=(GEMINI_API_KEY TEPHRA_DESK_PIN TEPHRA_TASK_TOKEN TEPHRA_SESSION_SECRET)
+# Hosted airlines (docs/HOSTED.md): TEPHRA_KEY_SECRET seals each airline's model key. It is
+# optional (the session secret is used without it) and a fifth secret fits Secret Manager's six
+# free versions only if no old versions are kept, so it is mounted only when asked for.
+if [ "${TEPHRA_MOUNT_KEY_SECRET:-0}" = 1 ]; then
+  SECRETS+=(TEPHRA_KEY_SECRET)
+fi
 # Settings forwarded to the service when they are set in this shell; nothing else is.
 FORWARDED=(TEPHRA_MODE TEPHRA_REPLAY_CASE TEPHRA_REPLAY_START TEPHRA_REPLAY_END TEPHRA_REPLAY_SPEED
   TEPHRA_AUTO_REPLAY TEPHRA_REGION TEPHRA_MODEL TEPHRA_MODEL_LITE
   TEPHRA_MODEL_DAILY_BUDGET TEPHRA_MODEL_LITE_DAILY_BUDGET
   TEPHRA_FEATURES TEPHRA_VISITOR_ACCESS TEPHRA_REPLAY_QUANTUM_S TEPHRA_RECOVERY_AUTO
   TEPHRA_CLOUD_REGION TEPHRA_AI_INTERACTIVE_SHARE TEPHRA_AI_ANSWER_REPLAY_KEEP_H
-  TEPHRA_FLEET_PREFIXES TEPHRA_FLEET_HEXES TEPHRA_NETWORK_AIRPORTS TEPHRA_POLICY_FILE)
+  TEPHRA_FLEET_PREFIXES TEPHRA_FLEET_HEXES TEPHRA_NETWORK_AIRPORTS TEPHRA_POLICY_FILE
+  TEPHRA_HOSTED_MAX_TENANTS TEPHRA_HOSTED_TICK_BUDGET_S TEPHRA_HOSTED_READS_CAP
+  TEPHRA_HOSTED_WRITES_CAP TEPHRA_HOSTED_DELETES_CAP TEPHRA_HOSTED_TENANT_SHARE
+  TEPHRA_HOSTED_BLOB_PUTS_CAP TEPHRA_HOSTED_RSS_LIMIT_MB TEPHRA_HOSTED_PUSH_GAP_S
+  TEPHRA_HOSTED_STREAMS_PER_TENANT)
 KEEP_TAG="${TEPHRA_KEEP_TAG:-}"
 # --- B21 (optional): pin secret versions ------------------------------------------------
 # TEPHRA_SECRET_VERSIONS="GEMINI_API_KEY=3,TEPHRA_DESK_PIN=2" mounts those versions instead
 # of "latest" (a rollback target then reads the same secret values it was tested with). Names
-# must be the four above; a version is a number or "latest".
+# must be the secrets above (four, or five with TEPHRA_KEY_SECRET); a version is a number or
+# "latest".
 declare -A secret_version=()
 if [ -n "${TEPHRA_SECRET_VERSIONS:-}" ]; then
   IFS=, read -r -a pins <<<"$TEPHRA_SECRET_VERSIONS"

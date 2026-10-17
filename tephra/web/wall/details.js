@@ -15,12 +15,15 @@ import { ext, renderXPanel, recoverySummary, proofTicks, rerouteBlock, replannin
 import { has } from "./features.js";
 import { renderLayers, layersStatus } from "./controls.js";
 import { currentPlan, closuresFor } from "./story.js";
-import { planFailure, techDetail, blockPhrase, whyLink, aircraftNoun } from "./x-parts.js";
+import { planFailure, techDetail, blockPhrase, whyLink, aircraftNoun, plumeOutcome } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkList, dkFacts, dkNote, dkEmpty, dkSection, dkDot, dkFromReplay,
   dkGlance, dkBand, dkMove, dkArrow, dkFact, dkLevelMark, dkCountdown, dkSources, dkSteps, dkLabel, dkFoot, dkQuiet,
 } from "./dk.js";
-import { chainSection } from "./chain.js";
+import { chainSection, setChainApi } from "./chain.js";
+import { TENANT, api, page } from "../base.js";
+
+setChainApi(api);
 
 // Section key, index group, title, host element id, the old rail panel id it stands for (R8.2),
 // and the optional feature (wall/features.js) the section is listed under.
@@ -33,12 +36,12 @@ export const SECTIONS = [
   { key: "crew", group: "The ash", title: "Crew reports of ash", host: "crew", feature: "crew" },
   { key: "flights", group: "The flights", title: "Flights heading in", host: "flights" },
   { key: "decisions", group: "The flights", title: "Decisions", host: "decisions" },
-  { key: "recovery", group: "The flights", title: "Airport closures", host: "xpanel", xtab: "recovery" },
+  { key: "recovery", group: "The flights", title: "Airport closures", host: "xpanel", xtab: "recovery", demoOnly: true },
   { key: "history", group: "Time and height", title: "Timeline history", host: "history" },
   { key: "levels", group: "Time and height", title: "Height filter", host: "levels" },
   { key: "trace", group: "Behind the scenes", title: "How TEPHRA decided", host: "trace" },
   { key: "ai", group: "Behind the scenes", title: "TEPHRA Assistant", host: "xpanel", xtab: "ai" },
-  { key: "proof", group: "Behind the scenes", title: "Track record", host: "xpanel", xtab: "proof" },
+  { key: "proof", group: "Behind the scenes", title: "Track record", host: "xpanel", xtab: "proof", demoOnly: true },
   { key: "runs", group: "Behind the scenes", title: "Runs on", host: "xpanel", xtab: "runs" },
   { key: "feeds", group: "Behind the scenes", title: "Data feeds", host: "feeds" },
   { key: "layers", group: "Behind the scenes", title: "Map layers, 3D and compare", host: "layers-pop" },
@@ -88,7 +91,7 @@ export function indexStatus(key, D, store, ui) {
     case "estimate": {
       const cone = sit ? D.coneOf(sit.volcano_id)?.properties : null;
       if (!cone) return { text: "none yet" };
-      return { text: tephraLabelText(cone, sit.assessment?.outcome, D.state.llm?.backend === "stub").replace("TEPHRA's estimate · ", "") };
+      return { text: tephraLabelText(cone, plumeOutcome(sit.assessment?.outcome, sit.assessment?.estimate?.uncertainty_notes), D.state.llm?.backend === "stub").replace("TEPHRA's estimate · ", "") };
     }
     case "sat": {
       const r = store.snapshot?.satellite || [];
@@ -202,6 +205,7 @@ function renderIndex(D, store, ui) {
   const attention = [];
   for (const s of SECTIONS) {
     if (s.hidden || (s.feature && !has(s.feature))) continue;
+    if (s.demoOnly && TENANT) continue;
     let g = groups.find((x) => x.name === s.group);
     if (!g) { g = { name: s.group, rows: [] }; groups.push(g); }
     const stt = indexStatus(s.key, D, store, ui);
@@ -351,7 +355,7 @@ function flightDetail(D, ui, store) {
       el("div", { class: "gl-top" }, el("h3", { class: "gl-label", id: "fl-adv-h", text: "Drafted action" }), el("span", { class: `ss-badge ss-badge--${tone}` }, icon(ic), state)),
       el("p", { class: "fl-now__act", text: actionText(adv) }),
       adv.decision_reason ? el("p", { class: "dk-sub__note" }, "Reason given: ", el("q", { text: adv.decision_reason })) : null,
-      dkFoot(el("a", { class: "btn btn--small", href: `/desk#review/${encodeURIComponent(adv.id)}`, target: "_blank", rel: "noopener", text: adv.status === "DRAFT" ? "Open on the Desk ›" : "See it on the Desk ›" }),
+      dkFoot(el("a", { class: "btn btn--small", href: page(`/desk#review/${encodeURIComponent(adv.id)}`), target: "_blank", rel: "noopener", text: adv.status === "DRAFT" ? "Open on the Desk ›" : "See it on the Desk ›" }),
         techDetail(`action ${actionWords(adv)} · status ${adv.status}${adv.version != null ? ` · version ${adv.version}` : ""}`))));
   } else if (p.exposed) {
     // no advisory because the assistant did not run: the job, here, once (D54)
@@ -362,7 +366,7 @@ function flightDetail(D, ui, store) {
       // paused: what is missing and what to do; the cause is behind "Why ›" (docs/UI-AI-QUIET.md 8.6),
       // as it is for a skill that did not run or gave no result
       kids.push(dkNote("caution", [el("p", {}, b.paused ? "No advisory draft for this flight. " : `No advisory for this flight: ${blockPhrase(b)}. `,
-        el("a", { class: "link-btn", href: "/desk", target: "_blank", rel: "noopener", text: "Plan it by hand on the Desk ›" }),
+        el("a", { class: "link-btn", href: page("/desk"), target: "_blank", rel: "noopener", text: "Plan it by hand on the Desk ›" }),
         b.paused || b.unavailable ? [" ", whyLink("fdetail-why")] : null,
         mine.must ? [" ", dkChip("Must do", { kind: "must", title: "Code requires this work this run" })] : null)], { role: "status" }));
     } else kids.push(dkEmpty("No advisory is drafted for this flight yet.", null));
@@ -433,7 +437,7 @@ function crewRow(D, v, picked) {
       area ? el("div", { class: "dk-sub" }, el("p", { class: "dk-sub__title", text: "Caution area" }), area) : null,
       el("div", { class: "dk-actions" },
         drawn ? el("button", { type: "button", class: "btn btn--small", dataset: { act: "crew-show", report: r.id, focus: `crew-show-${r.id}` } }, icon("i-frame"), "Show on the map") : null,
-        el("a", { class: "btn btn--small", href: `/desk#crew/${encodeURIComponent(r.id)}`, target: "_blank", rel: "noopener" }, "Open on the Desk ›")),
+        el("a", { class: "btn btn--small", href: page(`/desk#crew/${encodeURIComponent(r.id)}`), target: "_blank", rel: "noopener" }, "Open on the Desk ›")),
       techDetail(`report ${r.id}`, r.position_source_id ? `position ${r.position_source_id}` : null, a?.wind_source_id ? `wind ${a.wind_source_id}` : null,
         v.covered_by.length ? `covered by ${v.covered_by.join(", ")}` : null, `policy ${r.policy_id} v${r.policy_version} #${r.policy_hash}`, r.replay_case_id ? `replay case ${r.replay_case_id}` : null),
     ],
@@ -443,7 +447,7 @@ function crewRow(D, v, picked) {
 function crewSection(D, ui) {
   const C = D.crew;
   const host = $("crew");
-  const report = el("div", { class: "dk-actions" }, el("a", { class: "btn btn--small", href: "/desk#crew-report", target: "_blank", rel: "noopener", text: "Report ash from a crew on the Desk ›" }));
+  const report = el("div", { class: "dk-actions" }, el("a", { class: "btn btn--small", href: page("/desk#crew-report"), target: "_blank", rel: "noopener", text: "Report ash from a crew on the Desk ›" }));
   const chip = dkChip("Operator policy A · not a VAA or SIGMET", { kind: "crew" });
   const title = "A dispatcher enters a crew report on the Desk. Code draws a caution area and flags flights that cross it.";
   if (!C.reports.length) {

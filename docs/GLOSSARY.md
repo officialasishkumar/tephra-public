@@ -60,6 +60,22 @@ page string.
 | Own fleet | `TEPHRA_FLEET_PREFIXES`, `TEPHRA_FLEET_HEXES`, `FleetFilter` | In an airline's own TEPHRA, the aircraft checked against the ash: its callsign prefixes, its aircraft addresses and every aircraft it pushes. Empty (every aircraft) in the demo. |
 | Dry run | `POST /api/airline/feeds/dry-run` | A push file checked record by record in the workspace, as a push would be; nothing is taken in. |
 
+## Hosted airlines (`docs/HOSTED.md`; the opt-in feature `hosted`)
+
+Pages say "airline", never "tenant" (the code's word for an airline's space).
+
+| On screen (canonical) | In the code | What it is |
+|---|---|---|
+| Go live on TEPHRA | `workspace/golive.js`, `GET /api/hosted/me` | The workspace card that sets up a verified airline's own space at `/a/<ICAO>/`, with its four-item checklist. |
+| SHADOW | `TenantRecord.state` `shadow`, `Advisory.shadow` | TEPHRA runs on the airline's real flights and every draft says "Shadow · not for use" (code writes `SHADOW - NOT FOR USE` into each header). Said by the header chip; a dashed shape, no hue. |
+| LIVE | `TenantRecord.state` `live`, `TenantRecord.live` | The ops manager has switched the airline on: drafts lose the stamp and are for its dispatchers to use. Recorded with a name and a time. Still decision support only. |
+| Not started | `TenantRecord.state` `setup` | The airline's space exists (feeds, keys, settings) but nothing runs and it takes no place. |
+| Suspended | `TenantRecord.state` `suspended` | TEPHRA's operators stopped the airline's runs and refuse its pushes; its pages stay readable; its data is deleted 7 days later unless resumed. |
+| Ops manager | `HostedRole` `ops_manager` | A member who also changes the airline's settings, people and keys, and starts, switches or stops TEPHRA. |
+| Dispatcher, Viewer | `HostedRole` | A member who decides drafts at the Desk; a member who reads and decides nothing. |
+| Operator | `Operator`, `/admin`, cookie `tephra_operator` | One of TEPHRA's own people on the operator console: verifies airlines, approves hosting, suspends, resumes, deletes data. Not a Desk role; sees each airline as one row. |
+| airline place | `hosted_slots`, `TEPHRA_HOSTED_MAX_TENANTS` | One of the (at most 3) airlines in SHADOW or LIVE at once on this site. |
+
 ## Modes and honesty
 
 | Word | Meaning |

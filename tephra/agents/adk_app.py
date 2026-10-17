@@ -5,9 +5,10 @@ The tools are thin wrappers: each reads the flight's ``PlannerContext`` from ses
 Geometry, alternates, TAF screening and costs are never the model's work.
 
 Gemini is reached only with a Google AI Studio key, never Vertex AI or ADC.
+``root_agent`` runs on ``adk_model(get_settings())``: with ``TEPHRA_LLM=gemini`` its model
+carries ``GEMINI_API_KEY`` itself, so ADK reads no key from the environment.
 ``tephra.config.get_settings()`` (called below) pins ``GOOGLE_GENAI_USE_VERTEXAI`` and
-``GOOGLE_GENAI_USE_ENTERPRISE`` to FALSE and copies ``GEMINI_API_KEY`` into
-``GOOGLE_API_KEY``. Outside the app, set the same in the shell first::
+``GOOGLE_GENAI_USE_ENTERPRISE`` to FALSE. Outside the app, set the same in the shell first::
 
     export GOOGLE_GENAI_USE_VERTEXAI=FALSE GOOGLE_GENAI_USE_ENTERPRISE=FALSE
     export GEMINI_API_KEY=...            # AI Studio key
@@ -22,9 +23,11 @@ from typing import Any
 
 from google.adk.agents import LlmAgent
 from google.adk.agents.readonly_context import ReadonlyContext
+from google.adk.models import BaseLlm
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
 
+from tephra.agents.adk_runtime import adk_model
 from tephra.agents.exposure_planner import (
     CONTEXT_STATE_KEY,
     DECISION_STATE_KEY,
@@ -39,7 +42,7 @@ from tephra.agents.exposure_planner import (
     reroutes_summary,
     submit_decision,
 )
-from tephra.agents.llm import temperature_for
+from tephra.agents.llm import model_name, temperature_for
 from tephra.config import get_settings
 from tephra.models import PlannerContext
 
@@ -163,7 +166,7 @@ def _tool_error(
 
 
 def build_planner_agent(
-    model: str,
+    model: str | BaseLlm,
     *,
     before_model_callback: Any = None,
     after_model_callback: Any = None,
@@ -184,7 +187,9 @@ def build_planner_agent(
             estimate_cost,
             submit_plan,
         ],
-        generate_content_config=types.GenerateContentConfig(temperature=temperature_for(model)),
+        generate_content_config=types.GenerateContentConfig(
+            temperature=temperature_for(model_name(model))
+        ),
         before_model_callback=before_model_callback,
         after_model_callback=after_model_callback,
         on_model_error_callback=on_model_error_callback,
@@ -192,7 +197,7 @@ def build_planner_agent(
     )
 
 
-root_agent: LlmAgent = build_planner_agent(get_settings().model_lite)
+root_agent: LlmAgent = build_planner_agent(adk_model(get_settings()))
 
 # ADK's AgentEvaluator imports `agent_module` and then reads `<module>.agent.root_agent`
 # unless the module name ends in ".agent" (google-adk 2.11 agent_evaluator). Pointing `agent`

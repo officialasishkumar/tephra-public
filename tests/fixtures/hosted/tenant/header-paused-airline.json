@@ -1,0 +1,50 @@
+{
+  "icao": "RFB",
+  "name": "Ring of Fire Charter",
+  "iata": "RB",
+  "state": "shadow",
+  "state_since": "2026-10-17T09:20:00.000Z",
+  "wall_now": "2026-10-17T14:02:36.000Z",
+  "you": {
+    "name": "Ana Ops",
+    "role": "ops_manager",
+    "member_id": "MB-1a2b3c4d5e"
+  },
+  "memberships": [
+    {
+      "icao": "RFB",
+      "name": "Ring of Fire Charter",
+      "role": "ops_manager",
+      "state": "shadow"
+    },
+    {
+      "icao": "RFC",
+      "name": "Ring of Fire Cargo",
+      "role": "dispatcher",
+      "state": "live"
+    }
+  ],
+  "runtime": {
+    "running": true,
+    "last_tick_wall_at": "2026-10-17T14:02:00.000Z",
+    "failures": 0,
+    "problem": null,
+    "updating": true
+  },
+  "paused": {
+    "scope": "airline",
+    "reason": "writes",
+    "resumes_at": "2026-10-18T07:00:00.000Z"
+  },
+  "suspended": null,
+  "live": null,
+  "chain": {
+    "intact": true,
+    "entries": 212,
+    "checked_at": "2026-10-17T14:00:00.000Z"
+  },
+  "policy": {
+    "version": 3,
+    "label": "ILLUSTRATIVE, not an airline SRA"
+  }
+}

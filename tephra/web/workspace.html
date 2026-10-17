@@ -20,9 +20,11 @@
   <link rel="stylesheet" href="/static/tokens.css">
   <link rel="stylesheet" href="/static/topnav.css">
   <link rel="stylesheet" href="/static/product.css">
+  <link rel="stylesheet" href="/static/tenant.css">
   <script type="module" src="/static/workspace.js"></script>
   <!-- every module workspace.js imports, fetched at once (tests/test_modulepreload.py) -->
   <link rel="modulepreload" href="/static/account-nav.js">
+  <link rel="modulepreload" href="/static/dryrun.js">
   <link rel="modulepreload" href="/static/onboard/draft.js">
   <link rel="modulepreload" href="/static/onboard/form.js">
   <link rel="modulepreload" href="/static/onboard/pages.js">
@@ -36,13 +38,16 @@
   <link rel="modulepreload" href="/static/workspace/api.js">
   <link rel="modulepreload" href="/static/workspace/assistant.js">
   <link rel="modulepreload" href="/static/workspace/feeds.js">
+  <link rel="modulepreload" href="/static/workspace/golive.js">
+  <link rel="modulepreload" href="/static/workspace/join.js">
   <link rel="modulepreload" href="/static/workspace/kit.js">
   <link rel="modulepreload" href="/static/workspace/overview.js">
   <link rel="modulepreload" href="/static/workspace/signin.js">
   <link rel="modulepreload" href="/static/workspace/zip.js">
 </head>
 <!-- Sign in and the airline workspace (SPEC-v2 7): /signin, /signin/recover, /workspace and its
-     sections. workspace.js fills #main; every string goes in through textContent. -->
+     sections, and, with hosting on, the invite page /join (its token stays in the fragment).
+     workspace.js fills #main; every string goes in through textContent. -->
 <body class="product ws-shell">
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="tn-bar">

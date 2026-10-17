@@ -90,3 +90,22 @@ export const PATHS = {
   schema: "/api/connect/schema.json",
   pushTool: "/static/kit/push.py",
 };
+
+// Hosting on this site (SPEC hosted §4.2): the root routes, and an airline's own routes under
+// /a/<ICAO>/api/tenant. A code that is not three capitals never becomes a path.
+export const HOSTED = {
+  me: "/api/hosted/me",
+  setup: "/api/hosted/setup",
+  inviteLookup: "/api/hosted/invites/lookup",
+  inviteAccept: "/api/hosted/invites/accept",
+  inviteJoin: "/api/hosted/invites/join",
+};
+export const isIcao = (icao) => typeof icao === "string" && /^[A-Z]{3}$/.test(icao);
+export function tenantApi(icao, path) {
+  if (!isIcao(icao)) throw new Error("not an airline code");
+  return `/a/${icao}/api/tenant${path}`;
+}
+export function spacePath(icao, path = "/") {
+  if (!isIcao(icao)) throw new Error("not an airline code");
+  return `/a/${icao}${path}`;
+}

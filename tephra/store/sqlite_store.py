@@ -4,6 +4,10 @@ The stdlib ``sqlite3`` driver is synchronous, so every call runs in a worker thr
 (``asyncio.to_thread``) on one shared connection guarded by a lock. Filters and ordering
 are pushed into SQL with ``json_extract``; field paths and values are always bound as
 parameters, never formatted into the statement.
+
+``on_op(kind, n)`` hears every operation the way Firestore would bill it (``tephra.store.
+billed_reads``): a read per row read (at least one per query or get), a count aggregation per
+1,000 rows counted, a read and a write per update or compare-and-set.
 """
 
 import asyncio
@@ -18,7 +22,15 @@ from pathlib import Path
 from typing import Any, Final
 
 from tephra.models import AuditEntry, FeedHealth, FeedId
-from tephra.store import check_blob_key, check_cas_doc, decode_doc, encode_doc
+from tephra.store import (
+    OpHook,
+    billed_count_reads,
+    billed_reads,
+    check_blob_key,
+    check_cas_doc,
+    decode_doc,
+    encode_doc,
+)
 from tephra.store.base import Collection, Store, Where
 from tephra.util import timeutil
 
@@ -42,11 +54,12 @@ _MAX_DOC_ID: Final = 500
 
 
 class SqliteStore(Store):
-    def __init__(self, path: Path, blob_dir: Path) -> None:
+    def __init__(self, path: Path, blob_dir: Path, *, on_op: OpHook | None = None) -> None:
         self._path = path
         self._blob_dir = blob_dir
         self._conn: sqlite3.Connection | None = None
         self._lock = threading.Lock()
+        self.on_op = on_op
 
     # --- documents ----------------------------------------------------------------------
 
@@ -58,6 +71,7 @@ class SqliteStore(Store):
                 (str(collection), _doc_id(doc_id), text),
             )
         )
+        self._count("writes", 1)
 
     async def get(self, collection: str, doc_id: str) -> dict[str, Any] | None:
         row = await self._run(
@@ -66,6 +80,7 @@ class SqliteStore(Store):
                 (str(collection), _doc_id(doc_id)),
             ).fetchone()
         )
+        self._count("reads", 1)
         return None if row is None else decode_doc(row[0])
 
     async def delete(self, collection: str, doc_id: str) -> None:
@@ -75,6 +90,7 @@ class SqliteStore(Store):
                 (str(collection), _doc_id(doc_id)),
             )
         )
+        self._count("deletes", 1)
 
     async def list_docs(
         self,
@@ -102,6 +118,29 @@ class SqliteStore(Store):
             return []
         sql, params = statement
         rows = await self._run(lambda conn: conn.execute(sql, params).fetchall())
+        self._count("reads", billed_reads(len(rows)))
+        return [decode_doc(row[0]) for row in rows]
+
+    async def page(
+        self,
+        collection: str,
+        *,
+        field: str,
+        before: Any | None,
+        limit: int,
+        descending: bool = True,
+    ) -> list[dict[str, Any]]:
+        path = _json_path(field)
+        direction = "DESC" if descending else "ASC"
+        sql = "SELECT doc FROM docs WHERE collection = ? AND json_extract(doc, ?) IS NOT NULL"
+        params: list[Any] = [str(collection), path]
+        if before is not None:
+            sql += f" AND json_extract(doc, ?) {'<' if descending else '>'} ?"
+            params.extend([path, _sql_value(before)])
+        sql += f" ORDER BY json_extract(doc, ?) {direction}, id {direction} LIMIT ?"
+        params.extend([path, max(0, limit)])
+        rows = await self._run(lambda conn: conn.execute(sql, params).fetchall())
+        self._count("reads", billed_reads(len(rows)))
         return [decode_doc(row[0]) for row in rows]
 
     async def count(self, collection: str, where: Sequence[Where] = ()) -> int:
@@ -112,7 +151,22 @@ class SqliteStore(Store):
         row = await self._run(
             lambda conn: conn.execute(f"SELECT COUNT(*) FROM docs WHERE {sql}", params).fetchone()
         )
+        self._count("reads", billed_count_reads(int(row[0])))
         return int(row[0])
+
+    async def delete_some(self, collection: str, *, limit: int) -> int:
+        def purge(conn: sqlite3.Connection) -> int:
+            cursor = conn.execute(
+                "DELETE FROM docs WHERE collection = ? AND id IN"
+                " (SELECT id FROM docs WHERE collection = ? LIMIT ?)",
+                (str(collection), str(collection), max(0, limit)),
+            )
+            return max(0, cursor.rowcount)
+
+        gone = await self._run(purge)
+        self._count("reads", billed_reads(gone))
+        self._count("deletes", gone)
+        return gone
 
     async def update(
         self,
@@ -141,7 +195,12 @@ class SqliteStore(Store):
                 raise
             return decode_doc(text)
 
-        return await self._run(apply)
+        try:
+            written = await self._run(apply)
+        finally:
+            self._count("reads", 1)
+        self._count("writes", 1)
+        return written
 
     async def compare_and_set_advisory(
         self, advisory_id: str, expected_version: int, doc: Mapping[str, Any]
@@ -173,7 +232,13 @@ class SqliteStore(Store):
                 raise
             return matches
 
-        return await self._run(swap)
+        try:
+            swapped = await self._run(swap)
+        finally:
+            self._count("reads", 1)
+        if swapped:
+            self._count("writes", 1)
+        return swapped
 
     async def append_audit(self, entry: AuditEntry) -> None:
         text = encode_doc(entry.model_dump(mode="json"))
@@ -183,6 +248,7 @@ class SqliteStore(Store):
                 (Collection.AUDIT.value, _doc_id(entry.id), text),
             )
         )
+        self._count("writes", 1)
 
     # --- feed health --------------------------------------------------------------------
 
@@ -224,6 +290,10 @@ class SqliteStore(Store):
         await asyncio.to_thread(self._close)
 
     # --- internals ----------------------------------------------------------------------
+
+    def _count(self, kind: str, n: int) -> None:
+        if self.on_op is not None and n > 0:
+            self.on_op(kind, n)
 
     async def _run[T](self, operation: Callable[[sqlite3.Connection], T]) -> T:
         return await asyncio.to_thread(self._call, operation)

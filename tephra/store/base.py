@@ -61,6 +61,16 @@ class Collection(StrEnum):
     AI_BUDGET = "ai_budget"  # "<quota day>/<model id>" -> that model's calls on that day
     AI_WORK = "ai_work"  # work id -> AI work waiting for, or running in, the AI worker
     AI_ANSWERS = "ai_answers"  # answer key -> AiAnswer: a model's answer to a material question
+    # Hosted airlines. Root namespace unless noted; an airline's own documents use every
+    # collection above inside its namespace (see tephra.store.open_store).
+    HOSTED_TENANTS = "hosted_tenants"  # ICAO -> TenantRecord (compare-and-set on version)
+    HOSTED_MEMBERS = "hosted_members"  # "<ICAO>~<login key>" -> Member
+    HOSTED_INVITES = "hosted_invites"  # sha256(token) -> Invite
+    HOSTED_SLOTS = "hosted_slots"  # "site" -> SlotDoc (the airlines holding a place)
+    HOSTED_METER = "hosted_meter"  # Pacific quota day -> MeterDay (store operations)
+    OPERATORS = "operators"  # login key -> Operator (TEPHRA's own people)
+    OPERATOR_INVITES = "operator_invites"  # sha256(token) -> OperatorInvite
+    POLICY_VERSIONS = "policy_versions"  # "%06d" -> PolicyVersion (an airline's namespace)
 
 
 WhereOp = Literal["==", "!=", "<", "<=", ">", ">=", "in"]
@@ -114,9 +124,30 @@ class Store(Protocol):
         """All filters are ANDed. Implementations may filter or sort in memory."""
         ...
 
+    async def page(
+        self,
+        collection: str,
+        *,
+        field: str,
+        before: Any | None,
+        limit: int,
+        descending: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Up to ``limit`` documents ordered by ``field``, starting strictly past the cursor
+        ``before`` in that order (below it when descending, above it when ascending; None
+        starts at the end). Documents without ``field`` are never returned. Served by one
+        single-field index, so it costs one read per document returned."""
+        ...
+
     async def count(self, collection: str, where: Sequence[Where] = ()) -> int:
         """How many documents match (filters ANDed), counted without reading them where the
         backend can: a capacity check must not cost a read per document."""
+        ...
+
+    async def delete_some(self, collection: str, *, limit: int) -> int:
+        """Delete up to ``limit`` documents of ``collection`` (any of them) and return how
+        many went. Only the purge of a deleted airline's namespace uses it; it costs one read
+        and one delete per document."""
         ...
 
     async def update(

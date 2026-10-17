@@ -1,6 +1,10 @@
-"""SqliteStore against the Store contract, plus the pure helpers of the Firestore store."""
+"""SqliteStore against the Store contract, plus the pure helpers of the Firestore store.
+
+The contract suites also run over MeteredStore: the demo's (counted, never cached) and an
+airline's (counted, cached and bound to its airline on every call)."""
 
 import asyncio
+import inspect
 import math
 import sqlite3
 from collections.abc import AsyncIterator
@@ -14,15 +18,46 @@ from tephra.models import AuditAction, AuditEntry, FeedHealth, FeedId, FeedStatu
 from tephra.store import decode_doc, encode_doc
 from tephra.store.base import Collection, Where
 from tephra.store.firestore_store import DOC_FIELD, index_fields, matches, plan_query
+from tephra.store.metered import MeteredStore, StoreMeter
 from tephra.store.sqlite_store import SqliteStore
+from tephra.util import timeutil
+from tephra.util.scope import bind_tenant
 
 AT = datetime(2026, 10, 9, 19, 40, tzinfo=UTC)
+CACHED = frozenset(
+    {"things", "one", "two", "counts", Collection.ADVISORIES, Collection.VAAS, Collection.BTD}
+)
 
 
-@pytest.fixture
-async def store(tmp_path: Path) -> AsyncIterator[SqliteStore]:
+class _Bound:
+    """An airline's store called the way its runtime calls it: inside the airline's binding."""
+
+    def __init__(self, store: MeteredStore) -> None:
+        self._store = store
+
+    def __getattr__(self, name: str) -> Any:
+        attribute = getattr(self._store, name)
+        if not inspect.iscoroutinefunction(attribute):
+            return attribute
+
+        async def bound(*args: Any, **kwargs: Any) -> Any:
+            with bind_tenant("RFB"), timeutil.bind_clock(timeutil.SystemClock()):
+                return await attribute(*args, **kwargs)
+
+        return bound
+
+
+@pytest.fixture(params=["sqlite", "metered-demo", "metered-airline"])
+async def store(request: pytest.FixtureRequest, tmp_path: Path) -> AsyncIterator[Any]:
     opened = SqliteStore(tmp_path / "tephra.sqlite3", tmp_path / "blobs")
-    yield opened
+    if request.param == "sqlite":
+        yield opened
+    elif request.param == "metered-demo":
+        yield MeteredStore(opened, StoreMeter(blob_puts_cap=100), "demo")
+    else:
+        airline = MeteredStore(opened, StoreMeter(blob_puts_cap=100), "RFB", cache=CACHED)
+        airline.enable_cache()
+        yield _Bound(airline)
     await opened.aclose()
 
 

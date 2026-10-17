@@ -1,0 +1,59 @@
+{
+  "state": "setup",
+  "items": [
+    {
+      "key": "feeds",
+      "done": false,
+      "title": "Feeds connected",
+      "detail": "Positions and flight plans: none received in the last 10 minutes. Pilot reports: optional.",
+      "href": "/a/RFB/feeds"
+    },
+    {
+      "key": "assistant",
+      "done": true,
+      "title": "Model and key set",
+      "detail": "Google AI Studio with your own key, ending x9Qa",
+      "href": "/a/RFB/settings/assistant"
+    },
+    {
+      "key": "policy",
+      "done": false,
+      "title": "Policy confirmed",
+      "detail": "Version 2 not confirmed",
+      "href": "/a/RFB/settings/policy#versions"
+    },
+    {
+      "key": "people",
+      "done": true,
+      "title": "Dispatchers invited",
+      "detail": "2 dispatchers joined; 1 invite open",
+      "href": "/a/RFB/settings/people"
+    }
+  ],
+  "region": {
+    "key": "java_bali",
+    "name": "Java / Bali",
+    "derived": true
+  },
+  "regions": [
+    {
+      "key": "java_bali",
+      "name": "Java / Bali"
+    },
+    {
+      "key": "halmahera",
+      "name": "Halmahera"
+    },
+    {
+      "key": "kyushu",
+      "name": "Kyushu"
+    }
+  ],
+  "region_note": null,
+  "slots": {
+    "used": 2,
+    "max": 3
+  },
+  "can_start": false,
+  "blocked": "checklist"
+}

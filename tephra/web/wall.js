@@ -17,13 +17,16 @@ import { planeCard, volcanoCard, airportCard } from "./wall/pick.js";
 import { photoFor, photoFigure } from "./wall/photo.js";
 import { renderDetails, sectionOf, PANELS } from "./wall/details.js";
 import { boardModel, flowModel } from "./wall/board.js";
-import { mountFlow } from "./wall/board-view.js";
+import { mountFlow, skipInsideRows } from "./wall/board-view.js";
 import { describeReplay, setModelBackend } from "./wall/x-parts.js";
 import { nextRetryMs, shouldReopen } from "./wall/stream.js";
 import { setFeatures, has, applyFeatureNav } from "./wall/features.js";
 import { mountAssist } from "./wall/assist-panel.js";
 import { shouldOpenWelcome, openWelcome } from "./wall/welcome.js";
 import { initAccountNav } from "./account-nav.js";
+import { TENANT, api, rewriteLinks } from "./base.js";
+import { mountTenantNav, onTenantHeader, titleFor } from "./tenant-nav.js";
+import { setTenantHeader } from "./wall/panels.js";
 
 const STREAM_TIMEOUT_MS = 45e3;
 // A Wall hidden this long gives its stream (a Cloud Run request slot) back until it is shown.
@@ -156,7 +159,7 @@ function airlineWords(a) {
 
 async function load() {
   try {
-    const res = await fetch("/api/wall", { headers: { Accept: "application/json" }, cache: "no-store" });
+    const res = await fetch(api("/wall"), { headers: { Accept: "application/json" }, cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     store.state = data.state;
@@ -217,7 +220,7 @@ function firstRegion() {
 }
 
 function openStream() {
-  const es = new EventSource("/api/events");
+  const es = new EventSource(api("/events"));
   conn.source = es;
   const on = (name, fn) => es.addEventListener(name, (ev) => {
     touch();
@@ -425,7 +428,7 @@ function fetchRouteLine(d) {
   if (!key || store.routeLines.has(key) || d.routes.some((f) => f.id === key)) return;
   store.routeLines.set(key, null);
   const [origin, dest] = key.split("-");
-  fetch(`/api/routes/${encodeURIComponent(origin)}/${encodeURIComponent(dest)}`)
+  fetch(api(`/routes/${encodeURIComponent(origin)}/${encodeURIComponent(dest)}`))
     .then((r) => (r.ok ? r.json() : null))
     .then((fc) => { if (fc?.features) { store.routeLines.set(key, fc); scheduleRender(); } })
     .catch(() => {});
@@ -854,14 +857,14 @@ function placeStory() {
 
 const welcome = () => $("welcome");
 function showWelcome(opener) {
-  if (ASSISTANT_PAGE || !store.state) return;
+  if (ASSISTANT_PAGE || TENANT || !store.state) return;
   openWelcome(welcome(), store.state, { opener });
 }
 
 // After the first load, unless ?intro=0, ?shots=1, ?present=1, a deep link or "Don't show this
 // again" says not to (wall/welcome.js).
 function openWelcomeOnLoad() {
-  if (!ASSISTANT_PAGE && shouldOpenWelcome(params, START_HASH)) showWelcome(null);
+  if (!ASSISTANT_PAGE && !TENANT && shouldOpenWelcome(params, START_HASH)) showWelcome(null);
 }
 
 // ------------------------------------------------------------------ area menu (R3.1)
@@ -1092,7 +1095,7 @@ function startMap() {
   canvas.setAttribute("aria-label", "Map. Arrow keys pan, plus and minus zoom. Click an area or a plane for its details.");
   canvas.id = "map-canvas";
   // where each airport is, for the airports the plan closes (the catalogue changes only on deploy)
-  fetch("/api/airports")
+  fetch(api("/airports"))
     .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
     .then((fc) => map.setAirports(fc))
     .catch(() => { extra.airportsMissing = true; scheduleRender(); });
@@ -1425,7 +1428,7 @@ renderShell();
 // record ›" (#track-record) and the board's "Details ›" (#details-<section>) open that Details
 // section. The hash is not kept, so a reload shows the demo.
 const hashSec = START_HASH === "#track-record" ? "proof" : START_HASH.match(/^#details-([a-z]+)$/)?.[1];
-if (START_HASH === "#ai-at-work") location.replace("/assistant");
+if (START_HASH === "#ai-at-work" && !TENANT) location.replace("/assistant");
 else if (hashSec && !ASSISTANT_PAGE) {
   history.replaceState(history.state, "", location.pathname + location.search);
   openDetails(hashSec === "index" ? null : hashSec, { opener: $("details-btn") });
@@ -1435,14 +1438,75 @@ if (ASSISTANT_PAGE) {
   document.querySelector('.topnav a[href="/demo"]')?.removeAttribute("aria-current");
   openBoard();
 }
-// signed in as an airline, the nav's Onboard link reads Workspace (account-nav.js)
-initAccountNav();
+// A hosted airline's map (/a/<ICAO>/, SPEC-FINAL 5.3): the airline header takes the bar's nav and
+// the demo's mode badge, area picker, How it works and clock; the shell's links stay in its space.
+// Elsewhere, signed in as an airline, the nav's Onboard link reads Workspace (account-nav.js).
+// What the map draws for a hosted airline: its picture only while TEPHRA runs for it (shadow or
+// live); in setup or suspended a line says so and nothing is drawn as current. A picture that
+// stopped updating (S17) is dimmed, with the time it is from.
+let tenantStarted = false;
+// While nothing runs for the airline (setup, suspended, no access) nothing connects: the shell's
+// "Connecting…" words say what is so instead.
+function notRunning(word) {
+  for (const node of [$("model-chip"), $("clock-sub"), document.querySelector("#rail-vol .rail__name")]) if (node) node.textContent = word;
+}
+function tenantPicture(h) {
+  const running = h.state === "shadow" || h.state === "live";
+  let note = $("ah-setup");
+  if (!running) {
+    extra.waiting = h.state === "setup" ? "Not started" : "Runs stopped";
+    notRunning(extra.waiting);
+    if (!note) { note = el("div", { id: "ah-setup", class: "ah-setup", role: "status" }); $("assist").prepend(note); }
+    // only an ops manager can finish Go live: everyone else is told who does
+    const opsManager = h.you?.role === "ops_manager";
+    note.replaceChildren(...(h.state === "setup"
+      ? [el("b", { text: `TEPHRA has not started for ${h.name} yet.` }), opsManager ? el("a", { class: "ah-setup__link", href: "/workspace", text: "Finish Go live in your workspace ›" }) : el("span", { text: `${h.name}'s ops manager starts it from the workspace.` })]
+      : [el("b", { text: `TEPHRA is not running for ${h.name}.` }), el("span", { text: "Nothing on this map is current." })]));
+  } else {
+    extra.waiting = null;
+    note?.remove();
+  }
+  if (!running) document.title = titleFor(h, "Map");
+  const last = ms(h.runtime?.last_tick_wall_at);
+  const stale = running && h.runtime?.updating === false;
+  document.body.classList.toggle("is-stale-picture", stale);
+  let pill = $("ah-picture");
+  if (stale && !pill) { pill = el("p", { id: "ah-picture", class: "ah-picture", role: "status" }); $("map").after(pill); }
+  if (pill) {
+    pill.hidden = !stale;
+    pill.textContent = stale ? (Number.isFinite(last) ? `Picture from ${hhmmZ(last)}` : "Picture not updating") : "";
+  }
+  if (running && !tenantStarted) { tenantStarted = true; load(); }
+  else if (!running) renderShell();
+}
+const hhmmZ = (t) => { const d = new Date(t); return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}Z`; };
+
+if (TENANT) {
+  // no recovery row in Inside TEPHRA: re-planning runs for the fictional airline only (D15)
+  skipInsideRows(["recovery"]);
+  // the shell names the demo's fictional airline until the first state arrives (story.js relabels
+  // it then); an airline's map names its own from the start, also in setup and on No access
+  const kpi = $("kpi-exposed")?.closest(".kpi");
+  if (kpi) {
+    kpi.querySelector("dt").textContent = `${TENANT} flights in or heading in`;
+    kpi.querySelector(".kpi__l").textContent = `${TENANT} flights in or heading in`;
+  }
+  $("assist-page").hidden = true;
+  const howKey = document.querySelector('.stl__key[data-key="w"]');
+  if (howKey) howKey.hidden = true;
+  rewriteLinks(document);
+  mountTenantNav({ bar: document.querySelector(".cmdbar"), section: "map", hide: [$("mode-badge"), document.querySelector(".areapick"), $("how-btn"), document.querySelector(".cmdbar .clock"), document.querySelector(".cmdbar__spacer")] });
+  onTenantHeader((h, { error }) => {
+    if (h) { setTenantHeader(h); tenantPicture(h); if (store.state) renderNow(); }
+    else if (error && error !== "offline") { extra.waiting = "No access"; notRunning("No access"); renderShell(); }
+  });
+} else initAccountNav();
 inlineSprite().then(() => { if (store.state) renderNow(); else renderShell(); });
 // the Assistant page draws the board's own map, not the Wall's
 if (ASSISTANT_PAGE) { /* no Wall map */ }
 else if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startMap, { once: true });
 else startMap();
-load();
+if (!TENANT) load();
 
 // The old rail panel ids still open their Details section (R8.2), for a debugging console.
 export { setRail };

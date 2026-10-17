@@ -10,7 +10,8 @@ import { renderDoc, renderHandover, roleName } from './docview.js';
 import { openBudget } from './budget.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
-import { openBSheet, unavailableCard } from './ui.js';
+import { openBSheet, unavailableCard, shadowStamp, isViewer } from './ui.js';
+import { page } from '../base.js';
 
 const WINDOWS = [4, 8, 12];
 
@@ -147,8 +148,8 @@ function handoverBody() {
     el('p', { class: 'flabel', text: 'Shift covered' }), seg, msg, gen));
   if (hoError) out.push(hoError.reason ? unavailableCard(hoError.reason, { instead: 'No brief was written. Hand over by voice or in writing.' }) : el('div', { class: 'panel panel--serious', role: 'alert' }, el('p', { class: 'panel__title' }, icon('st-serious', 'st'), el('span', { text: hoError.text }))));
   if (handover) {
-    out.push(renderHandover(handover, { onAck: ackHandover, ackBusy }),
-      el('p', { class: 'dlinks' }, el('a', { class: 'btn', href: `/docs/${encodeURIComponent(handover.id)}`, target: '_blank', rel: 'noopener' }, icon('i-printer'), el('span', { text: 'Printable page' }))));
+    out.push(shadowStamp(handover), renderHandover(handover, { onAck: isViewer() ? null : ackHandover, ackBusy }),
+      el('p', { class: 'dlinks' }, el('a', { class: 'btn', href: page(`/docs/${encodeURIComponent(handover.id)}`), target: '_blank', rel: 'noopener' }, icon('i-printer'), el('span', { text: 'Printable page' }))));
   }
   return out;
 }
@@ -227,6 +228,11 @@ export function renderDocs() {
   parts.push(ready);
 
   // Then three starters, one line each.
+  // a viewer starts nothing: the handover and the paperwork drafts are dispatchers' (SPEC-FINAL 6.1)
+  if (isViewer()) {
+    panel.replaceChildren(...parts);
+    return;
+  }
   parts.push(el('h2', { class: 'more__title', text: 'Start a document' }));
   parts.push(starter('ho', 'Hand over the shift', handover ? (handoverWaiting() ? 'brief written, waiting for the read-back' : 'last brief read back') : 'WEST and I-PASS brief for the incoming dispatcher', handoverBody(), { open: hoBusy || Boolean(hoError) }));
 
@@ -316,9 +322,10 @@ export function openDoc(doc) {
   let current = doc;
   const sheet = openBSheet({ title: docTitle(current), wide: true });
   const draw = () => {
-    sheet.setBody(renderDoc(current, { onSign: signLine }));
+    const view = renderDoc(current, { onSign: isViewer() ? null : signLine });
+    sheet.setBody(current.shadow ? el('div', { class: 'stack' }, shadowStamp(current), view) : view);
     sheet.setFooter(el('div', { class: 'fstack' },
-      el('a', { class: 'btn btn--block', href: `/docs/${encodeURIComponent(current.id)}`, target: '_blank', rel: 'noopener' }, icon('i-printer'), el('span', { text: 'Open printable page' }))));
+      el('a', { class: 'btn btn--block', href: page(`/docs/${encodeURIComponent(current.id)}`), target: '_blank', rel: 'noopener' }, icon('i-printer'), el('span', { text: 'Open printable page' }))));
   };
   const signLine = (line, li, trigger) => {
     const input = el('input', { class: 'field', type: 'text', maxlength: '200', autocomplete: 'name', 'aria-label': `Name to sign as ${roleName(line.role)}` });

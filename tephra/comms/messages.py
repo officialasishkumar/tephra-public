@@ -40,7 +40,7 @@ from tephra.comms.models import (
     RecoveryClosure,
     RecoveryInput,
 )
-from tephra.config import Airline
+from tephra.config import SHADOW_LINE, Airline
 from tephra.desk import audit
 from tephra.desk.approvals import SYSTEM_ACTOR
 from tephra.feeds.airports import AirportCatalogue
@@ -1046,6 +1046,8 @@ async def draft_messages(
         source_kind: Literal["advisory", "recovery"] = "advisory"
         source_id, source_version = source.id, source.version
         replay = source.replay
+        # A briefing from a SHADOW advisory is not for use either, whatever the stage now.
+        shadow = runtime.airline.shadow or source.shadow
         targets = [briefing_target(source)]
         input_hashes = [source.input_hash, *(ref.sha256 for ref in source.sources)]
     else:
@@ -1053,6 +1055,7 @@ async def draft_messages(
         plan = await _load_recovery(runtime.store, recovery_id)
         source_kind, source_id, source_version = "recovery", plan.id, None
         replay = plan.replay
+        shadow = runtime.airline.shadow
         targets = [
             *passenger_targets(plan, runtime.airports, runtime.policy),
             *crew_notice_targets(plan, runtime.airports),
@@ -1070,6 +1073,7 @@ async def draft_messages(
             source_version=source_version,
             replay=replay,
             input_hashes=input_hashes,
+            shadow=shadow,
         )
         for target in needed
     ]
@@ -1173,6 +1177,7 @@ def _new_message(
     source_version: int | None,
     replay: bool,
     input_hashes: Sequence[str],
+    shadow: bool,
 ) -> CrewPaxMessage:
     at = timeutil.now()
     texts = [
@@ -1203,6 +1208,7 @@ def _new_message(
         prompt_hashes={"templates": templates.prompt_hash},
         input_hashes=list(input_hashes),
         dedupe_key=target.key,
+        shadow=shadow,
     )
 
 
@@ -1412,6 +1418,7 @@ async def _queue_outbound(
         status=AdvisoryStatus(message.status.value),
         approved_by=actor,
         text=outbound_text(message, actor=actor, airline=airline),
+        shadow=message.shadow,
     )
     await store.put(Collection.OUTBOUND, queued.id, queued.model_dump(mode="json"))
     await audit.record(
@@ -1433,9 +1440,12 @@ async def _queue_outbound(
 
 def outbound_text(message: CrewPaxMessage, *, actor: str, airline: Airline) -> str:
     """The demo's 'RING OF FIRE AIR (FICTIONAL) CREW BRIEFING - NOT FOR OPERATIONAL USE'; an
-    airline's own TEPHRA names the airline and never calls it fictional."""
+    airline's own TEPHRA names the airline and never calls it fictional. A message drafted in
+    SHADOW keeps ``SHADOW - NOT FOR USE`` as its first line, written here by code, outside
+    the bodies a dispatcher may edit, and after a switch to LIVE too."""
     kind = message.kind.value.replace("_", " ")
     blocks = [
+        *([SHADOW_LINE] if message.shadow else []),
         f"{airline.label.upper()} {kind} - NOT FOR OPERATIONAL USE",
         *(f"[{language.upper()}]\n{body}" for language, body in message.final_bodies.items()),
         f"MESSAGE {message.id} VERSION {message.version} APPROVED BY {actor}"
@@ -1449,7 +1459,8 @@ def _advisory_ref(message: CrewPaxMessage) -> str | None:
 
 
 def _audit_view(message: CrewPaxMessage) -> dict[str, Any]:
-    return {
+    """``shadow`` only when set: the demo's entries stay as they were."""
+    view: dict[str, Any] = {
         "message_id": message.id,
         "kind": message.kind.value,
         "source_kind": message.source_kind,
@@ -1462,3 +1473,6 @@ def _audit_view(message: CrewPaxMessage) -> dict[str, Any]:
         "edited_bodies": message.edited_bodies,
         "reject_reason": message.reject_reason,
     }
+    if message.shadow:
+        view["shadow"] = True
+    return view

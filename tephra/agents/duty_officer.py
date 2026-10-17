@@ -35,9 +35,9 @@ from uuid import uuid4
 
 from pydantic import Field
 
-from tephra.agents.adk_runtime import ModelGuard, summarise
+from tephra.agents.adk_runtime import AgentModelUnavailable, ModelGuard, agent_model, summarise
 from tephra.agents.answers import Question, Reuse, prompt_version
-from tephra.agents.llm import LlmBackend, LlmPart, prompt_hash, temperature_for
+from tephra.agents.llm import LlmBackend, LlmPart, model_name, prompt_hash, temperature_for
 from tephra.agents.validators import clock_problems, first_problems
 from tephra.config import Settings
 from tephra.models import (
@@ -526,6 +526,8 @@ async def run_duty_officer(
             p_hash = prompt_hash(system, [LlmPart.of_text(task)])
             try:
                 await _run_agent(toolkit, llm, run, task, settings)
+            except AgentModelUnavailable as exc:
+                run.problems = [*run.problems, str(exc)]
             except Exception as exc:  # ADK or API failure: no substitute dispatcher
                 logger.warning("duty officer run failed: %s", type(exc).__name__)
                 run.problems = [*run.problems, f"DUTY OFFICER ERROR: {type(exc).__name__}"]
@@ -676,7 +678,7 @@ async def _run_agent(
 
     guard = ModelGuard(llm, max_turns=MAX_MODEL_TURNS)
     agent = build_duty_agent(
-        settings.model_lite,
+        agent_model(settings, llm),
         toolkit,
         before_model_callback=guard,
         on_model_error_callback=guard.on_model_error,
@@ -712,7 +714,7 @@ async def _turn(
 
 
 def build_duty_agent(
-    model: str,
+    model: Any,
     toolkit: DutyToolkit,
     *,
     before_model_callback: Callable[..., Any] | None = None,
@@ -763,7 +765,9 @@ def build_duty_agent(
         description="TEPHRA duty officer: orders and delegates the volcanic-ash desk's AI work.",
         instruction=_instruction,
         tools=[assess_volcanoes, plan_flights, run_recovery, draft_sra, defer, submit_brief],
-        generate_content_config=types.GenerateContentConfig(temperature=temperature_for(model)),
+        generate_content_config=types.GenerateContentConfig(
+            temperature=temperature_for(model_name(model))
+        ),
         before_model_callback=before_model_callback,
         on_model_error_callback=on_model_error_callback,
     )

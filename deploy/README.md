@@ -26,7 +26,7 @@ CLOUDSDK_ACTIVE_CONFIG_NAME=tephra-personal gcloud storage buckets create "gs://
 
 The scripts refuse the `default` gcloud configuration, and refuse to run while an access-token file, a credential-file override or service-account impersonation is set (in the configuration or through a `CLOUDSDK_AUTH_*` variable), because each of those makes gcloud act as someone other than `TEPHRA_GCLOUD_ACCOUNT`.
 
-`cloudrun.sh` runs the service as its own service account, `tephra-run@<project>.iam.gserviceaccount.com`, which it creates if needed and grants exactly `roles/datastore.user` on the project, `roles/storage.objectAdmin` on the bucket and `roles/secretmanager.secretAccessor` on the four secrets. The Compute Engine default account would have far more access and still no right to read the secrets.
+`cloudrun.sh` runs the service as its own service account, `tephra-run@<project>.iam.gserviceaccount.com`, which it creates if needed and grants exactly `roles/datastore.user` on the project, `roles/storage.objectAdmin` on the bucket and `roles/secretmanager.secretAccessor` on the four secrets (five with `TEPHRA_KEY_SECRET`, see Hosted airlines). The Compute Engine default account would have far more access and still no right to read the secrets.
 
 ## Deploy
 
@@ -49,9 +49,10 @@ Options (environment variables):
 | `TEPHRA_LLM` | `gemini` | `stub` deploys without spending Gemini quota |
 | `TEPHRA_KEEP_TAG` | unset | also tags the built image, e.g. `keep-submission-20261018`; must start with `keep-` so the cleanup policy keeps it |
 | `TEPHRA_SCIENCE` | `false` | `true` builds with satpy and turns on the split-window layer (2 GiB); only `true` or `false` |
+| `TEPHRA_MOUNT_KEY_SECRET` | `0` | `1` also mounts the optional `TEPHRA_KEY_SECRET`, which seals hosted airlines' model keys (see Hosted airlines) |
 | `TEPHRA_SECRET_VERSIONS` | unset | pins secret versions, e.g. `GEMINI_API_KEY=3,TEPHRA_DESK_PIN=2`; the rest stay `latest`. A rollback target then reads the values it was tested with |
 
-`cloudrun.sh` also forwards each of these app settings to the service when it is set in your shell, and prints the full list before it asks to go ahead: `TEPHRA_MODE`, `TEPHRA_REPLAY_CASE`, `TEPHRA_REPLAY_START`, `TEPHRA_REPLAY_END`, `TEPHRA_REPLAY_SPEED`, `TEPHRA_AUTO_REPLAY`, `TEPHRA_REGION`, `TEPHRA_MODEL`, `TEPHRA_MODEL_LITE`, `TEPHRA_MODEL_DAILY_BUDGET`, `TEPHRA_MODEL_LITE_DAILY_BUDGET`, `TEPHRA_FEATURES`, `TEPHRA_VISITOR_ACCESS`, `TEPHRA_REPLAY_QUANTUM_S`, `TEPHRA_RECOVERY_AUTO`, `TEPHRA_CLOUD_REGION`, `TEPHRA_AI_INTERACTIVE_SHARE`, `TEPHRA_AI_ANSWER_REPLAY_KEEP_H`, and an airline's own TEPHRA's `TEPHRA_FLEET_PREFIXES`, `TEPHRA_FLEET_HEXES`, `TEPHRA_NETWORK_AIRPORTS` and `TEPHRA_POLICY_FILE` (the demo deploy sets none of these four). Anything else keeps the default in `tephra/config.py`. The list goes to `--set-env-vars` with gcloud's `^@^` delimiter (`gcloud topic escaping`), so a comma list such as `TEPHRA_FEATURES=connect,onboard` stays one value; a value holding `@` is refused. There is no automatic switch to another model. It always sets `TEPHRA_SECRETS_SOURCE=secret-manager` beside `--set-secrets`, so the service reports where its secrets come from rather than guessing.
+`cloudrun.sh` also forwards each of these app settings to the service when it is set in your shell, and prints the full list before it asks to go ahead: `TEPHRA_MODE`, `TEPHRA_REPLAY_CASE`, `TEPHRA_REPLAY_START`, `TEPHRA_REPLAY_END`, `TEPHRA_REPLAY_SPEED`, `TEPHRA_AUTO_REPLAY`, `TEPHRA_REGION`, `TEPHRA_MODEL`, `TEPHRA_MODEL_LITE`, `TEPHRA_MODEL_DAILY_BUDGET`, `TEPHRA_MODEL_LITE_DAILY_BUDGET`, `TEPHRA_FEATURES`, `TEPHRA_VISITOR_ACCESS`, `TEPHRA_REPLAY_QUANTUM_S`, `TEPHRA_RECOVERY_AUTO`, `TEPHRA_CLOUD_REGION`, `TEPHRA_AI_INTERACTIVE_SHARE`, `TEPHRA_AI_ANSWER_REPLAY_KEEP_H`, and an airline's own TEPHRA's `TEPHRA_FLEET_PREFIXES`, `TEPHRA_FLEET_HEXES`, `TEPHRA_NETWORK_AIRPORTS` and `TEPHRA_POLICY_FILE` (the demo deploy sets none of these four), and the hosted limits `TEPHRA_HOSTED_*` (see Hosted airlines). Anything else keeps the default in `tephra/config.py`. The list goes to `--set-env-vars` with gcloud's `^@^` delimiter (`gcloud topic escaping`), so a comma list such as `TEPHRA_FEATURES=connect,onboard` stays one value; a value holding `@` is refused. There is no automatic switch to another model. It always sets `TEPHRA_SECRETS_SOURCE=secret-manager` beside `--set-secrets`, so the service reports where its secrets come from rather than guessing.
 
 The service is deployed with `--concurrency 300` (one instance carries the Wall's event streams), a start-up probe on `/health` that gives the restore from Firestore up to two minutes, and a liveness probe on `/health` every 30 s that replaces a stuck instance.
 
@@ -171,6 +172,73 @@ It prints every gcloud command before running it and creates:
 - with `TEPHRA_MONITORING_ALERTS=true` only: one email notification channel and two alert policies, "no tick for 10 min" and "Gemini errors >= 2 in 30 min". These use the `beta` and `alpha` gcloud command groups.
 
 It also creates one uptime check, `TEPHRA /health`, from Google's checkers every 5 minutes (left as it is when it exists). It creates no Cloud Trace setup. Rerunning it updates the metrics and leaves an existing dashboard, channel or policy as it is. If you pause the scheduler job or the service, disable the no-tick policy first, or it will email you.
+
+## Hosted airlines (off until the owner turns it on)
+
+Hosting gives each verified airline its own private TEPHRA at `/a/<ICAO>/` on this service, with an
+operator console at `/admin` (`docs/HOSTED.md`). It is the opt-in feature `hosted`: `all` never
+includes it, and the deploy workflow does not name it, so the live site runs the demo only. With it
+off, the hosted, airline and console routes do not exist and every demo answer is as before.
+
+**Before turning it on**, read the demo's own Firestore use in the console (Firestore > Usage: reads,
+writes and deletes per day). Hosting shares the free tier with the demo, and the site caps below
+assume the demo stays well under them.
+
+**Turning it on** is one change by the owner: add `,hosted` to `TEPHRA_FEATURES` in
+`.github/workflows/deploy.yml` (it needs `onboard`, which is already there) and push. The app
+refuses to start with `hosted` unless `TEPHRA_SESSION_SECRET` is set explicitly (it is, from Secret
+Manager) or `TEPHRA_KEY_SECRET` is. Hosted airlines need `TEPHRA_HOSTING=always-on` (the
+default); on demand, nothing ticks for them and the console says so.
+
+**One day after**, read Firestore's usage again. The console's free-tier tile shows what this
+instance counted since it started (per Pacific day, by airline), but only the console's figures
+are the bill.
+
+**The first operator.** Mint a one-time operator link with the task token, then open it and choose
+a password. It works only while no active operator exists; every later operator is invited from
+`/admin`.
+
+```bash
+TOKEN="$(CLOUDSDK_ACTIVE_CONFIG_NAME=tephra-personal gcloud secrets versions access latest --secret TEPHRA_TASK_TOKEN)"
+curl -sS -X POST "https://<service URL>/tasks/operator-invite" \
+  -H "X-Tephra-Task-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name": "<your name>", "email": "<your operator email>"}'
+# -> {"link": "https://<service URL>/admin/join#<token>", "expires_at": "..."}  (24 hours, one use)
+unset TOKEN
+```
+
+The answer is 409 `operators_exist` once an operator exists. **Locked out** (every operator
+disabled or forgotten): delete the documents of the `operators` collection in the Firestore
+console, then mint a link again. **Kill switch** for one operator:
+`POST /tasks/operator-revoke` with the same header and `{"email": "<their email>"}` disables them
+and signs them out on their next request.
+
+**The airlines' model keys** are sealed with a key derived from `TEPHRA_KEY_SECRET` if it is set,
+else from `TEPHRA_SESSION_SECRET`. `TEPHRA_KEY_SECRET` is optional and recommended before turning
+hosting on: create it like the others (`openssl rand -hex 32`, at least 32 characters) and deploy
+with `TEPHRA_MOUNT_KEY_SECRET=1`, which adds it to `--set-secrets`. It is a fifth secret: Secret
+Manager's six free active versions hold it only if no old versions are kept. **Rotating either
+secret makes every sealed key unreadable**; each airline's Settings › Assistant then asks for its
+key again, and the console counts the unreadable keys.
+
+**Limits and settings** (`cloudrun.sh` forwards each when set in your shell; the defaults are in
+`tephra/config.py`): `TEPHRA_HOSTED_MAX_TENANTS` (3, at most 3 airlines in shadow or live),
+`TEPHRA_HOSTED_TICK_BUDGET_S` (40), `TEPHRA_HOSTED_READS_CAP` / `_WRITES_CAP` / `_DELETES_CAP`
+(40,000 / 16,000 / 16,000 a Pacific day), `TEPHRA_HOSTED_TENANT_SHARE` (0.6, each airline's
+allowance is cap × share / max airlines), `TEPHRA_HOSTED_BLOB_PUTS_CAP` (4,000 airline uploads a
+month), `TEPHRA_HOSTED_RSS_LIMIT_MB` (700), `TEPHRA_HOSTED_PUSH_GAP_S` (10) and
+`TEPHRA_HOSTED_STREAMS_PER_TENANT` (10).
+
+- The site caps keep 20 % under Firestore's free 50,000 reads and 20,000 writes and deletes a day,
+  because TTL deletes and console reads are not counted by the app. When the airlines together
+  reach a cap every airline pauses until 00:00 Pacific; an airline over its own allowance pauses
+  alone, and its people's reads stop at `cap / max airlines`. Nothing stands in for paused work,
+  and the demo keeps answering.
+- The demo's public reads are today's exposure and are not paused or limited by hosting; they
+  never pause an airline either. The console says when the whole site is past a cap through
+  them: read the Firestore usage page then (the bill is the owner's to watch).
+- During a rollout overlap (two instances for a few minutes), a membership or operator change made
+  on one instance reaches the other within 10 minutes at most.
 
 ## Cost notes
 

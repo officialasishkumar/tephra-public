@@ -1,0 +1,47 @@
+{
+  "members": [
+    {
+      "id": "MB-1a2b3c4d5e",
+      "name": "Ana Ops",
+      "email": "ana@rfb.example",
+      "role": "ops_manager",
+      "joined_at": "2026-10-15T08:40:00.000Z",
+      "last_sign_in_at": "2026-10-17T13:58:00.000Z",
+      "you": true
+    },
+    {
+      "id": "MB-2b3c4d5e6f",
+      "name": "Dee Disp",
+      "email": "dee@rfb.example",
+      "role": "dispatcher",
+      "joined_at": "2026-10-15T10:12:00.000Z",
+      "last_sign_in_at": "2026-10-17T13:41:00.000Z",
+      "you": false
+    },
+    {
+      "id": "MB-4d5e6f7081",
+      "name": "Vic View",
+      "email": "vic@rfb.example",
+      "role": "viewer",
+      "joined_at": "2026-10-16T11:30:00.000Z",
+      "last_sign_in_at": null,
+      "you": false
+    }
+  ],
+  "invites": [
+    {
+      "id": "IV-0a1b2c3d4e",
+      "email": "sam@rfb.example",
+      "role": "dispatcher",
+      "created": {
+        "by": "Ana Ops#MB-1a2b3c4d5e",
+        "at": "2026-10-17T09:00:00.000Z"
+      },
+      "expires_at": "2026-10-20T09:00:00.000Z"
+    }
+  ],
+  "limits": {
+    "members": 50,
+    "open_invites": 20
+  }
+}

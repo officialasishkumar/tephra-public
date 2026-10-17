@@ -356,6 +356,9 @@ async def _queue_outbound(store: Store, advisory: Advisory, *, actor: str) -> No
         policy_id=advisory.policy_id,
         policy_version=advisory.policy_version,
         policy_hash=advisory.policy_hash,
+        # A SHADOW draft's outbound copy keeps the stamp: the header line is in final_text and
+        # the record says so, whatever the stage when it was approved.
+        shadow=advisory.shadow,
     )
     await store.put(Collection.OUTBOUND, message.id, message.model_dump(mode="json"))
     await audit.record(
@@ -475,7 +478,9 @@ async def _audit_transition(
 
 
 def _audit_view(advisory: Advisory) -> dict[str, Any]:
-    return {
+    """``shadow`` only when set, so the demo's entries (and its chain's bytes) stay as they
+    were; a hosted airline's record shows the SHADOW tag from it."""
+    view: dict[str, Any] = {
         "status": advisory.status.value,
         "version": advisory.version,
         "body": advisory.body,
@@ -486,6 +491,9 @@ def _audit_view(advisory: Advisory) -> dict[str, Any]:
         "policy_version": advisory.policy_version,
         "policy_hash": advisory.policy_hash,
     }
+    if advisory.shadow:
+        view["shadow"] = True
+    return view
 
 
 def _input_hashes(advisory: Advisory) -> list[str]:

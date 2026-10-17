@@ -13,7 +13,7 @@ import asyncio
 import json
 import os
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +36,7 @@ __all__ = [
     "HttpSource",
     "LastGoodCache",
     "RecordingSource",
+    "SharedHttpSource",
     "Source",
     "build_url",
 ]
@@ -213,7 +214,10 @@ class HttpSource:
         retries: int = 2,
         host_intervals_s: Mapping[str, float] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        clock: timeutil.Clock | None = None,
     ) -> None:
+        """``clock`` stamps ``fetched_at``: the wall clock, unless an offline measurement
+        plays a recording through ``transport`` (``scripts/hosted_measure.py``)."""
         self._cache = LastGoodCache(cache_dir / "http")
         self._client = httpx.AsyncClient(
             headers={"User-Agent": USER_AGENT},
@@ -225,7 +229,7 @@ class HttpSource:
         self._intervals: dict[str, float] = {"api.adsb.lol": 1.1, **(host_intervals_s or {})}
         self._host_locks: dict[str, asyncio.Lock] = {}
         self._host_ready_at: dict[str, float] = {}
-        self._clock = timeutil.SystemClock()
+        self._clock = clock if clock is not None else timeutil.SystemClock()
 
     @classmethod
     def from_settings(cls, settings: "Settings") -> "HttpSource":
@@ -306,6 +310,77 @@ class HttpSource:
         delay = self._host_ready_at.get(host, 0.0) - time.monotonic()
         if delay > 0:
             await asyncio.sleep(delay)
+
+
+class SharedHttpSource:
+    """The one live source every hosted airline's runtime fetches through.
+
+    Three airlines watching the same volcanoes ask for the same URLs within seconds of each
+    other. The first fetch goes out through ``inner`` (one httpx client, one per-host spacing,
+    so adsb.lol sees one client); a fetch of the same URL within ``min(memo_s, cadence / 2)``
+    seconds gets that same :class:`FetchResult` back, with its own ``fetched_at`` and stale
+    flags. That is the response fetched seconds ago under its own time, never a copy passed
+    off as newer. A failed fetch is not kept. Concurrent fetches of one URL wait for the one
+    in flight.
+
+    :meth:`aclose` closes nothing: a runtime closing must not cut the other airlines off; the
+    registry closes ``inner`` at shutdown.
+    """
+
+    def __init__(
+        self,
+        inner: HttpSource,
+        memo_s: float = 25.0,
+        *,
+        settings: "Settings | None" = None,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        """``clock`` measures the window in seconds: the monotonic clock, unless an offline
+        measurement plays a recording at its own pace (``scripts/hosted_measure.py``)."""
+        self.inner = inner
+        self._memo_s = memo_s
+        self._settings = settings
+        self._clock = clock
+        self._held: dict[str, tuple[float, FetchResult]] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    async def fetch(
+        self, url: str, *, feed: FeedId, params: Mapping[str, str] | None = None
+    ) -> FetchResult:
+        full_url = build_url(url, params)
+        window = self._window(feed)
+        held = self._fresh(full_url, window)
+        if held is not None:
+            return held
+        lock = self._locks.setdefault(full_url, asyncio.Lock())
+        try:
+            async with lock:
+                held = self._fresh(full_url, window)
+                if held is not None:
+                    return held
+                result = await self.inner.fetch(url, feed=feed, params=params)
+                self._held[full_url] = (self._clock(), result)
+                return result
+        finally:
+            if not lock.locked() and self._locks.get(full_url) is lock:
+                del self._locks[full_url]
+
+    async def aclose(self) -> None:
+        """Shared: the registry closes ``inner``."""
+
+    def _window(self, feed: FeedId) -> float:
+        if self._settings is None:
+            return self._memo_s
+        return min(self._memo_s, self._settings.cadence_s(feed) / 2)
+
+    def _fresh(self, url: str, window: float) -> FetchResult | None:
+        now = self._clock()
+        for key in [key for key, (at, _) in self._held.items() if now - at > self._memo_s]:
+            del self._held[key]
+        held = self._held.get(url)
+        if held is None or now - held[0] > window:
+            return None
+        return held[1]
 
 
 class RecordingSource:

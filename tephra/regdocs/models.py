@@ -142,6 +142,11 @@ class _DocBase(TephraModel):
     replay: bool
     signatures: list[SignatureLine]
     input_hash: str = Field(description="sha256 of the facts the draft was made from")
+    shadow: bool = Field(
+        default=False,
+        exclude_if=lambda value: value is False,
+        description="Drafted while a hosted airline ran in SHADOW: its header says not for use",
+    )
 
     def signed_roles(self) -> list[SignRole]:
         return [line.role for line in self.signatures if line.signed_at is not None]
@@ -243,6 +248,11 @@ class DocSummary(TephraModel):
     flight: str | None = Field(
         default=None, description="VAR: the proxy flight; CREW_MESSAGE: the reporting flight"
     )
+    shadow: bool = Field(
+        default=False,
+        exclude_if=lambda value: value is False,
+        description="Drafted while a hosted airline ran in SHADOW (its card is stamped)",
+    )
 
     @classmethod
     def of(cls, doc: DocModel) -> Self:
@@ -270,6 +280,7 @@ class DocSummary(TephraModel):
             llm_backend=backend,
             region=region,
             flight=flight,
+            shadow=doc.shadow,
         )
 
 

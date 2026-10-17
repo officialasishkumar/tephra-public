@@ -36,6 +36,9 @@ export function setAirline(a) {
   if (a?.code) AIRLINE = { code: a.code, name: a.name || a.code, fictional: a.fictional !== false };
 }
 export const airline = () => AIRLINE;
+// An aircraft on the map that is not in or heading into an area. A hosted airline's map draws its
+// own fleet only (D16), so there it is another of its flights; elsewhere any other aircraft.
+export const otherAircraft = () => (/^\/a\/[A-Z]{3}(?:\/|$)/.test(location.pathname) ? `Other ${AIRLINE.code} flight` : `Other aircraft (not ${AIRLINE.code})`);
 // A flight's name in a trace line: an RFA number in the demo; in an airline's own TEPHRA a
 // callsign, a flight number or a registration (RFB401, RB555, PK-RFX). A RegExp source.
 export const FLIGHT_NAME = "[A-Z0-9][A-Z0-9-]{1,11}";

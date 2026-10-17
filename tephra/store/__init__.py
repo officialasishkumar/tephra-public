@@ -7,7 +7,8 @@ runs this file first. The backends are imported inside :func:`open_store`.
 import json
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from tephra.store.base import BLOB_KEY_PATTERN, Store
@@ -15,26 +16,79 @@ from tephra.store.base import BLOB_KEY_PATTERN, Store
 if TYPE_CHECKING:
     from tephra.config import Settings
 
-__all__ = ["check_blob_key", "check_cas_doc", "decode_doc", "encode_doc", "open_store"]
+__all__ = [
+    "NAMESPACE_PATTERN",
+    "OpHook",
+    "billed_count_reads",
+    "billed_reads",
+    "check_blob_key",
+    "check_cas_doc",
+    "decode_doc",
+    "encode_doc",
+    "open_store",
+    "tenant_sqlite_path",
+]
 
 _BLOB_KEY = re.compile(BLOB_KEY_PATTERN)
+NAMESPACE_PATTERN = r"^[A-Z]{3}$"
+"""A hosted airline's namespace is its ICAO designator."""
+_NAMESPACE = re.compile(NAMESPACE_PATTERN)
+
+OpHook = Callable[[str, int], None]
+"""``on_op(kind, n)``: a backend reports ``n`` billed operations of ``kind`` ("reads",
+"writes" or "deletes") as it makes them (``tephra.store.metered`` attributes them)."""
 
 
-def open_store(settings: "Settings") -> Store:
-    """The store selected by ``TEPHRA_STORE`` (Firestore only runs inside Cloud Run)."""
+def open_store(
+    settings: "Settings", *, namespace: str | None = None, shared: Store | None = None
+) -> Store:
+    """The store selected by ``TEPHRA_STORE`` (Firestore only runs inside Cloud Run).
+
+    ``namespace`` (an airline's ICAO) opens that airline's own documents: Firestore's
+    ``tenants/<ICAO>/<collection>`` beside the root collections, on ``shared``'s client when it
+    is a Firestore store; SQLite's ``tenants/<ICAO>.sqlite3`` beside ``TEPHRA_SQLITE_PATH``.
+    Blobs (public data) stay shared. Open one store per namespace per process: the audit chain,
+    decision locks and the meter are kept per store object.
+    """
+    if namespace is not None and _NAMESPACE.fullmatch(namespace) is None:
+        raise ValueError(f"store namespace must be an ICAO designator, got {namespace!r}")
     if settings.store == "firestore":
         from tephra.store.firestore_store import FirestoreStore
 
+        root = getattr(shared, "inner", shared)
+        if namespace is not None and isinstance(root, FirestoreStore):
+            return root.sibling(namespace)
         if settings.gcp_project is None or settings.gcs_bucket is None:
             message = "TEPHRA_STORE=firestore needs TEPHRA_GCP_PROJECT and TEPHRA_GCS_BUCKET"
             raise ValueError(message)
         return FirestoreStore(
-            settings.gcp_project, settings.firestore_database, settings.gcs_bucket
+            settings.gcp_project,
+            settings.firestore_database,
+            settings.gcs_bucket,
+            namespace=namespace,
         )
 
     from tephra.store.sqlite_store import SqliteStore
 
-    return SqliteStore(settings.sqlite_path, settings.cache_dir / "blobs")
+    path = settings.sqlite_path if namespace is None else tenant_sqlite_path(settings, namespace)
+    return SqliteStore(path, settings.cache_dir / "blobs")
+
+
+def tenant_sqlite_path(settings: "Settings", icao: str) -> Path:
+    """An airline's SQLite file: ``<sqlite dir>/tenants/<ICAO>.sqlite3``."""
+    if _NAMESPACE.fullmatch(icao) is None:
+        raise ValueError(f"not an ICAO designator: {icao!r}")
+    return settings.sqlite_path.parent / "tenants" / f"{icao}.sqlite3"
+
+
+def billed_reads(documents: int) -> int:
+    """Reads Firestore bills for a query or get: one per document, at least one."""
+    return max(1, documents)
+
+
+def billed_count_reads(matches: int) -> int:
+    """Reads Firestore bills for a count aggregation: one per 1,000 entries, at least one."""
+    return max(1, math.ceil(matches / 1000))
 
 
 def encode_doc(doc: Mapping[str, Any]) -> str:

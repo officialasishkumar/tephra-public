@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from tephra.agents.adk_runtime import ModelGuard, summarise
+from tephra.agents.adk_runtime import AgentModelUnavailable, ModelGuard, agent_model, summarise
 from tephra.agents.answers import Question, Reuse, prompt_version
 from tephra.agents.llm import (
     LlmBackend,
@@ -701,6 +701,9 @@ async def plan_flight(
     run = _AgentRun()
     try:
         await _run_agent(ctx, llm, run, settings=settings, trace=trace)
+    except AgentModelUnavailable as exc:
+        run.decision = None
+        run.problems = [str(exc)]
     except Exception as exc:  # ADK or API failure: no plan, agents never raise
         logger.warning("planner agent failed for %s: %s", ctx.flight.id, type(exc).__name__)
         run.decision = None
@@ -998,7 +1001,7 @@ async def _run_agent(
     guard = ModelGuard(llm, max_turns=MAX_MODEL_TURNS)
     meter = _TurnMeter(guard, run, settings.model_lite)
     agent = build_planner_agent(
-        settings.model_lite,
+        agent_model(settings, llm),
         before_model_callback=meter.before_model,
         after_model_callback=meter.after_model,
         on_model_error_callback=meter.on_model_error,

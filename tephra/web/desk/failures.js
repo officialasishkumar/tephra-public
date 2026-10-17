@@ -18,7 +18,7 @@ import { openBSheet } from './ui.js';
 import { toast } from './toast.js';
 import { openBudget } from './budget.js';
 import { renderDuty } from './duty.js';
-import { WHY, machineText, reasonClass } from '../wall/x-parts.js';
+import { WHY, machineText, notRun, reasonClass } from '../wall/x-parts.js';
 
 const NOTE_MAX = 500;
 const HANDLED_CHIPS = ['Contacted the flight by phone', 'Re-planned by hand', 'Flight already outside the area', 'Duplicate'];
@@ -55,14 +55,14 @@ const causeOf = (f) => `${HELPER[f.stage] || f.stage}|${reasonClass(f.reason)}`;
 // step did not run (docs/UI-AI-QUIET.md 8.6). Null for a quota refusal.
 function causeWords(cls) {
   if (cls === 'undone') return 'the Coordinator ran and left it for the Desk';
-  if (cls === 'budget') return null;
+  if (notRun(cls)) return null;
   return `the assistant gave no result (${WHY[cls] || WHY.other})`;
 }
 const causeSentence = (cls, n) => (causeWords(cls) || '').replace(/left it for/, n === 1 ? 'left it for' : 'left them for');
 
 // A few words per cause, for a row when the list mixes causes. A quota refusal says what happened,
 // never "paused": the refusal may have been one skill's share while the assistant is on (8.6).
-const SHORT = { budget: 'did not run', undone: 'left for the Desk', timeout: 'timed out', checks: 'failed the checks', error: 'stopped with an error', other: 'no answer' };
+const SHORT = { budget: 'did not run', unavailable: 'did not run', undone: 'left for the Desk', timeout: 'timed out', checks: 'failed the checks', error: 'stopped with an error', other: 'no answer' };
 
 function causes(list) {
   const by = new Map();

@@ -1,0 +1,43 @@
+{
+  "icao": "RFB",
+  "name": "Ring of Fire Charter",
+  "iata": "RB",
+  "state": "live",
+  "state_since": "2026-10-17T14:02:00.000Z",
+  "wall_now": "2026-10-17T14:05:12.000Z",
+  "you": {
+    "name": "Ana Ops",
+    "role": "ops_manager",
+    "member_id": "MB-1a2b3c4d5e"
+  },
+  "memberships": [
+    {
+      "icao": "RFB",
+      "name": "Ring of Fire Charter",
+      "role": "ops_manager",
+      "state": "live"
+    }
+  ],
+  "runtime": {
+    "running": true,
+    "last_tick_wall_at": "2026-10-17T14:04:00.000Z",
+    "failures": 0,
+    "problem": null,
+    "updating": true
+  },
+  "paused": null,
+  "suspended": null,
+  "live": {
+    "by": "Ana Ops",
+    "at": "2026-10-17T14:02:00.000Z"
+  },
+  "chain": {
+    "intact": true,
+    "entries": 14,
+    "checked_at": "2026-10-17T14:00:00.000Z"
+  },
+  "policy": {
+    "version": 3,
+    "label": "Accepted under Ring of Fire Charter's SRA by Ana Ops, on 17 Oct 2026 (recorded by the airline; TEPHRA does not check it)"
+  }
+}

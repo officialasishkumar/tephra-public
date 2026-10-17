@@ -2459,6 +2459,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "google-adk" },
     { name = "google-genai" },
@@ -2493,6 +2494,7 @@ science = [
 [package.metadata]
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.12" },
+    { name = "cryptography", specifier = ">=50" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "google-adk", specifier = ">=2.10" },
     { name = "google-cloud-firestore", marker = "extra == 'gcp'", specifier = ">=2.20" },

@@ -20,6 +20,7 @@ import { el, icon, reducedMotion } from "./util.js";
 import { hmsOf, RESULT } from "./board.js";
 import { mountInside, drawInside, insideColours, SRC } from "./board-view.js";
 import { FIVE_STEPS } from "../five-steps.js";
+import { TENANT } from "../base.js";
 import { visibleRows, minuteGroups, playerWords, trackTicks, newestAt, sayRow, sayBeat, PLAY_SPEED, RM_STEP_MS, lastChain, beatMs, chainNote, eventsShown, rowsOf, catchupSkills } from "./assist.js";
 
 // the log shows this many newest rows until "Show all"
@@ -116,7 +117,8 @@ export function mountAssist(host, { has = () => true, mapView = () => null, shee
   let lastSaid = -1e9, sayTimer = 0, said = "";
   let raf = 0, lastFrame = 0, rmLeft = 0;
   // the catch-up: its chain, the beat playing, the ids played, its timer
-  const CU = { state: noCatchup ? "done" : "waiting", chain: null, i: -1, played: new Set(), timer: 0, waitSince: 0, held: false, bumped: -1 };
+  // a hosted airline's map has no catch-up: its panel follows its own live steps (SPEC-FINAL 5.3)
+  const CU = { state: noCatchup || TENANT ? "done" : "waiting", chain: null, i: -1, played: new Set(), timer: 0, waitSince: 0, held: false, bumped: -1 };
   let C = insideColours();
   let railKey = "", gateOpenUntil = 0;
 
@@ -149,7 +151,8 @@ export function mountAssist(host, { has = () => true, mapView = () => null, shee
     player.hidden = !M;
     if (!M) return;
     const w = playerWords(M, CU.state === "waiting" && M.replay ? { ...P, mode: "waiting" } : P);
-    setText(lead, w.lead);
+    // an airline's space says SHADOW or LIVE in its header chip: "Live" here would read as that
+    setText(lead, TENANT && w.live ? "Now" : w.lead);
     setText(words, w.text);
     setText(time, w.time || "");
     // LIVE: no player, one line

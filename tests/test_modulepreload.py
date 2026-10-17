@@ -17,6 +17,7 @@ PAGES = {
     "onboard.html": "onboard.js",
     "workspace.html": "workspace.js",
     "doc.html": "doc.js",
+    "admin.html": "admin.js",
 }
 IMPORT = re.compile(
     r"""^\s*(?:import|export)\s[^;]*?from\s+["'](\.{1,2}/[^"']+)["']"""

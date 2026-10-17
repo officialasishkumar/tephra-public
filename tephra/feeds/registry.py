@@ -63,6 +63,7 @@ from tephra.models import (
 )
 from tephra.science.btd import ScienceUnavailable, btd_key, run_btd
 from tephra.store.base import Collection
+from tephra.store.metered import BLOB_PAUSED, BlobAllowanceUsed
 from tephra.util import timeutil
 
 if TYPE_CHECKING:
@@ -387,6 +388,10 @@ async def poll(feed: FeedId, runtime: "Runtime") -> FeedPoll:
         return _failed(runtime, feed, at, exc.reason)
     except ScienceUnavailable as exc:
         return _failed(runtime, feed, at, str(exc), status=FeedStatus.DISABLED)
+    except BlobAllowanceUsed:
+        # A hosted airline's frames past the site's monthly storage operations: not stored and
+        # not drawn, said in the feed's note; nothing stands in for them.
+        return _failed(runtime, feed, at, BLOB_PAUSED, status=FeedStatus.DISABLED)
     except Exception as exc:  # a parser bug must not stop the other feeds or the tick
         logger.exception("polling %s failed", feed.value)
         return _failed(runtime, feed, at, f"{type(exc).__name__}: {exc}")
@@ -673,7 +678,7 @@ async def _per_volcano(
     for volcano in volcanoes:
         try:
             count, new, was_stale = await fetch_one(source, volcano)
-        except ScienceUnavailable:
+        except (ScienceUnavailable, BlobAllowanceUsed):
             raise
         except _HostSkipped:
             skipped.append(volcano)

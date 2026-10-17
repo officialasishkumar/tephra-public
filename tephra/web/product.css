@@ -586,3 +586,65 @@ html:has(.ob-shell[data-view="page"]) { scroll-padding-bottom: 96px; scroll-padd
 /* the recovery code page: answers an earlier version kept in this browser, offered, never moved in */
 .legacy { display: grid; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--c-line-1); }
 .legacy__act { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* ================================================================== GO LIVE ON TEPHRA (workspace, hosted airlines)
+   The design's go-live card (scratchpad design, hosted.css): the checklist, the SHADOW-then-LIVE
+   explainer, the space's address, the start row and the record line in its dialogs. The state
+   shapes (.sbadge, .stamp--shadow) and the code tile (.ah-air__code) come from tenant.css. */
+.golive { border-color: color-mix(in srgb, var(--c-text-1) 22%, var(--c-line-1)); }
+.clist { display: grid; border: 1px solid var(--c-line-1); border-radius: var(--radius-md); }
+.clist li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 14px; }
+.clist li + li { border-top: 1px solid var(--c-line-1); }
+.clist__n { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--c-line-input); font: 600 12px var(--font-mono); color: var(--c-text-2); }
+.clist .is-done .clist__n { border-color: var(--c-ok); background: var(--c-ok-bg); color: var(--c-ok); }
+.clist .is-done .clist__n .icon { width: 15px; height: 15px; }
+.clist b { display: block; font-size: 15px; color: var(--c-text-1); }
+.clist li > span:nth-child(2) > span { font-size: 13px; color: var(--c-text-2); }
+.clist a { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.golive__go { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.golive__go p, .golive__why { flex: 1 1 280px; font-size: 13px; color: var(--c-text-3); }
+.golive__why.status--caution { color: var(--c-caution); }
+.golive__slots { display: flex; align-items: center; gap: 8px; }
+.golive__slots .icon { width: 16px; height: 16px; color: var(--c-text-3); }
+.golive__region { display: grid; gap: 8px; }
+.golive__region .select { max-width: 320px; }
+.golive__regionline .tdim { color: var(--c-text-3); }
+.golive__setup { max-width: 520px; min-width: 0; }
+.golive > * { min-width: 0; }
+.modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.modes > div { display: grid; gap: 6px; padding: 14px 16px; border: 1px solid var(--c-line-1); border-radius: var(--radius-md); background: var(--c-surface-2); font-size: 13px; color: var(--c-text-2); }
+.modes > div > :first-child { justify-self: start; }
+.modes > div.is-now { border-color: var(--c-text-2); box-shadow: inset 0 0 0 1px var(--c-text-2); }
+.modes p { font-size: 13px; }
+.space { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 14px; border-radius: var(--radius-md); background: var(--c-surface-2); font-size: 14px; }
+.space > .icon { width: 16px; height: 16px; color: var(--c-text-3); }
+.space code { min-width: 0; font-size: 14px; color: var(--c-text-1); overflow-wrap: anywhere; }
+.dlg-rec { display: grid; gap: 4px; padding: 12px 14px; border-left: 3px solid var(--c-text-2); border-radius: var(--radius-sm); background: var(--c-surface-2); font-size: 14px; overflow-wrap: anywhere; }
+.dlg-rec small { font-size: 12px; font-weight: 600; letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-text-3); }
+.pending .pending__hosting { color: var(--c-text-1); }
+.golive__susp { display: grid; gap: 6px; justify-items: start; }
+.golive__susp .btn { margin-top: 6px; }
+.golive .banner .btn .icon { width: 16px; height: 16px; color: inherit; }
+/* the airlines a login belongs to */
+.yairs { display: grid; border: 1px solid var(--c-line-1); border-radius: var(--radius-md); }
+.yairs li { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 12px 14px; }
+.yairs li + li { border-top: 1px solid var(--c-line-1); }
+.yairs .ah-air__code { width: 40px; height: 34px; }
+.yairs__who { display: grid; min-width: 0; }
+.yairs__who b { font-size: 15px; overflow-wrap: anywhere; }
+.yairs__who small { font-size: 12px; color: var(--c-text-3); }
+.yourairs { display: grid; gap: 16px; max-width: 720px; }
+/* the invite page */
+.join { display: grid; gap: 16px; max-width: 520px; }
+.join .kv { margin: 0; }
+@media (max-width: 900px) {
+  .modes { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .clist li { grid-template-columns: 28px minmax(0, 1fr); }
+  .clist li > a { grid-column: 2; justify-self: start; }
+  .yairs li { grid-template-columns: 40px minmax(0, 1fr); }
+  .yairs li > .sbadge { grid-column: 2; justify-self: start; }
+  .yairs li > .btn { grid-column: 1 / -1; }
+  .golive__go .btn { flex: 1 1 100%; min-width: 0; height: auto; min-height: var(--tap-min); padding-block: 8px; white-space: normal; text-align: center; }
+}

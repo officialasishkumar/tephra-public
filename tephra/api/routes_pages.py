@@ -2,13 +2,18 @@
 workspace, the Guide, the privacy notice and the printable documents.
 
 Pages are served whatever ``TEPHRA_FEATURES`` says; a page whose feature is off draws one line
-and its API refuses. This module never imports ``tephra.api.server`` (the server imports it).
+and its API refuses. The hosted pages (an airline's ``/a/<ICAO>/...``, ``/join``, ``/admin``)
+are the exception: with ``hosted`` off their router is not included at all. An airline's pages
+are the site's own shells, the same for every ICAO: whether the reader is a member is the API's
+answer.
+This module never imports ``tephra.api.server`` (the server imports it).
 """
 
 import asyncio
 import re
 from pathlib import Path
 from typing import Final
+from urllib.parse import quote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response
@@ -16,7 +21,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from tephra.airline.sessions import read_claims
 from tephra.api import ApiError
 
-__all__ = ["WEB_DIR", "router"]
+__all__ = ["WEB_DIR", "hosted_router", "router"]
 
 WEB_DIR: Final = Path(__file__).resolve().parent.parent / "web"
 _PRINT_DOC_ID = re.compile(r"(?:DOC-|ho_)[0-9a-f]{12}")
@@ -35,8 +40,13 @@ ONBOARD_PAGES: Final = frozenset(
     }
 )
 WORKSPACE_SECTIONS: Final = frozenset({"answers", "feeds", "assistant", "kit"})
+SETTINGS_TABS: Final = frozenset({"policy", "assistant", "people", "record"})
+_TENANT_ICAO: Final = re.compile(r"[A-Z]{3}")
+NOINDEX: Final = {"X-Robots-Tag": "noindex"}
 
 router = APIRouter()
+hosted_router = APIRouter()
+"""The hosted pages, included only with ``hosted`` on (else no route answers them: 404)."""
 
 
 async def _page(filename: str) -> FileResponse:
@@ -133,3 +143,83 @@ async def workspace_section(section: str) -> FileResponse:
     if section not in WORKSPACE_SECTIONS:
         raise _no_such_page()
     return await _page("workspace.html")
+
+
+# --- hosted airlines (feature "hosted") --------------------------------------------------
+
+
+def _tenant_guard(request: Request, icao: str) -> RedirectResponse | None:
+    """404 unless ``icao`` is three capital letters the path middleware accepted; a reader
+    without a valid airline cookie goes to sign-in and comes back."""
+    if _TENANT_ICAO.fullmatch(icao) is None or request.scope.get("tephra.tenant_page") != icao:
+        raise _no_such_page()
+    if read_claims(request) is None:
+        target = f"/signin?next={quote(request.url.path, safe='/')}"
+        return RedirectResponse(target, status_code=303, headers=NOINDEX)
+    return None
+
+
+async def _tenant_page(request: Request, icao: str, filename: str) -> Response:
+    redirect = _tenant_guard(request, icao)
+    if redirect is not None:
+        return redirect
+    response = await _page(filename)
+    response.headers.update(NOINDEX)
+    return response
+
+
+@hosted_router.get("/a/{icao}", include_in_schema=False)
+async def tenant_root(request: Request, icao: str) -> Response:
+    redirect = _tenant_guard(request, icao)
+    if redirect is not None:
+        return redirect
+    return RedirectResponse(f"/a/{icao}/", status_code=308, headers=NOINDEX)
+
+
+@hosted_router.get("/a/{icao}/", include_in_schema=False)
+async def tenant_map(request: Request, icao: str) -> Response:
+    return await _tenant_page(request, icao, "index.html")
+
+
+@hosted_router.get("/a/{icao}/desk", include_in_schema=False)
+async def tenant_desk(request: Request, icao: str) -> Response:
+    return await _tenant_page(request, icao, "desk.html")
+
+
+@hosted_router.get("/a/{icao}/feeds", include_in_schema=False)
+@hosted_router.get("/a/{icao}/settings", include_in_schema=False)
+async def tenant_hosted(request: Request, icao: str) -> Response:
+    return await _tenant_page(request, icao, "hosted.html")
+
+
+@hosted_router.get("/a/{icao}/settings/{tab}", include_in_schema=False)
+async def tenant_settings_tab(request: Request, icao: str, tab: str) -> Response:
+    if tab not in SETTINGS_TABS:
+        _tenant_guard(request, icao)
+        raise _no_such_page()
+    return await _tenant_page(request, icao, "hosted.html")
+
+
+@hosted_router.get("/a/{icao}/docs/{doc_id}", include_in_schema=False)
+async def tenant_doc(request: Request, icao: str, doc_id: str) -> Response:
+    if _PRINT_DOC_ID.fullmatch(doc_id) is None:
+        _tenant_guard(request, icao)
+        raise ApiError(404, "not_found", "No such document")
+    return await _tenant_page(request, icao, "doc.html")
+
+
+@hosted_router.get("/admin", include_in_schema=False)
+@hosted_router.get("/admin/join", include_in_schema=False)
+async def admin_page() -> Response:
+    """The operators' console; ``/admin/join#<token>`` keeps its token in the fragment."""
+    response = await _page("admin.html")
+    response.headers.update(NOINDEX)
+    return response
+
+
+@hosted_router.get("/join", include_in_schema=False)
+async def join_page() -> Response:
+    """An invite link, ``/join#<token>``: the workspace page reads the fragment."""
+    response = await _page("workspace.html")
+    response.headers.update(NOINDEX)
+    return response

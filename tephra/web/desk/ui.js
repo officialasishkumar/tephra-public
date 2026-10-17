@@ -7,10 +7,21 @@ import { byId, el, icon } from './dom.js';
 import { serverNow } from './format.js';
 import { aiStateOf, describeReplay, machineText, MARK, replayWords } from '../wall/x-parts.js';
 import { app } from './state.js';
+import { SHADOW_WORDS } from '../base.js';
 
 // REPLAY is said by the page (its title and clock), not by each record. A record keeps a chip
 // only when its mode differs from what plays: a replay record seen while live feeds play. Before
 // the state has loaded the mode is unknown, so no chip (never a flash of it in REPLAY).
+// "Shadow · not for use" on a draft made while a hosted airline ran in SHADOW (D12): the record's own
+// flag, above the flight id. Nothing for the demo or a LIVE draft.
+export const shadowStamp = (rec) => (rec && rec.shadow === true
+  ? el('span', { class: 'stamp--shadow' }, el('i', { 'aria-hidden': 'true' }), el('span', { text: SHADOW_WORDS }))
+  : null);
+
+// A hosted airline's viewer reads the Desk and decides nothing (SPEC-FINAL 5.4).
+export const VIEWER_LINE = 'You can view. Ops managers and dispatchers decide.';
+export const isViewer = () => Boolean(app.me && app.me.role === 'viewer');
+
 export function fromReplayChip(rec) {
   if (!rec || !rec.replay || !app.state || app.state.mode === 'REPLAY') return null;
   return el('span', { class: 'chip chip--replay chip--sm' }, icon('i-replay', 'st'), el('span', { text: 'From a replay' }));

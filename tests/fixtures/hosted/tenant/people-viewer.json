@@ -1,0 +1,36 @@
+{
+  "members": [
+    {
+      "id": "MB-1a2b3c4d5e",
+      "name": "Ana Ops",
+      "email": null,
+      "role": "ops_manager",
+      "joined_at": "2026-10-15T08:40:00.000Z",
+      "last_sign_in_at": "2026-10-17T13:58:00.000Z",
+      "you": false
+    },
+    {
+      "id": "MB-2b3c4d5e6f",
+      "name": "Dee Disp",
+      "email": null,
+      "role": "dispatcher",
+      "joined_at": "2026-10-15T10:12:00.000Z",
+      "last_sign_in_at": "2026-10-17T13:41:00.000Z",
+      "you": false
+    },
+    {
+      "id": "MB-4d5e6f7081",
+      "name": "Vic View",
+      "email": null,
+      "role": "viewer",
+      "joined_at": "2026-10-16T11:30:00.000Z",
+      "last_sign_in_at": null,
+      "you": true
+    }
+  ],
+  "invites": [],
+  "limits": {
+    "members": 50,
+    "open_invites": 20
+  }
+}

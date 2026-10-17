@@ -302,6 +302,12 @@ class QuotaLedger:
         self._unreadable: dict[str, str] = {}
         """model id -> why its count cannot be read or written now"""
 
+    def reconfigure(self, settings: Settings) -> None:
+        """Budgets and lane shares from ``settings`` from now on (a hosted airline's new
+        model, daily limits or Desk reserve). The day's counts are kept: they are per model
+        id, in the store, and a call already counted stays counted."""
+        self._settings = settings
+
     def shares(self, model_id: str) -> Shares:
         return Shares.of(self._settings, model_id)
 

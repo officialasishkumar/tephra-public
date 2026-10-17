@@ -34,6 +34,11 @@ __all__ = [
     "WeatherAsh",
 ]
 
+
+def _is_false(value: object) -> bool:
+    return value is False
+
+
 Language = Literal["id", "ja", "en"]
 """Bahasa Indonesia, Japanese, English."""
 
@@ -91,6 +96,11 @@ class CrewPaxMessage(TephraModel):
     )
     input_hashes: list[str] = Field(default_factory=list)
     dedupe_key: str
+    shadow: bool = Field(
+        default=False,
+        exclude_if=_is_false,
+        description="Drafted while a hosted airline ran in SHADOW (or from a SHADOW advisory)",
+    )
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -241,6 +251,11 @@ class HandoverBrief(TephraModel):
         default=None,
         description="When the model wrote situation and contingencies; the same model's text "
         "for identical facts keeps its time. None: created_at",
+    )
+    shadow: bool = Field(
+        default=False,
+        exclude_if=_is_false,
+        description="Made while a hosted airline ran in SHADOW: its banner says not for use",
     )
 
 

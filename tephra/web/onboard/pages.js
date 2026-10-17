@@ -37,6 +37,9 @@ export const PROVIDE = [
 
 // The one "Not built" line the landing and the workspace say.
 export const NOT_BUILT = "This shared site runs the demo only. To check your own flights, run your own TEPHRA with the setup kit.";
+// The workspace's line once this site hosts airlines (SPEC hosted §9), with the site's own limit
+// (TEPHRA_HOSTED_MAX_TENANTS, from GET /api/hosted/me).
+export const notBuiltHosted = (max) => `TEPHRA runs at most ${max} ${max === 1 ? "airline" : "airlines"} at once on this site. Your own TEPHRA with the setup kit has no such limit.`;
 
 // TEPHRA's free-tier table (tephra/config.py DEFAULT_MODEL_LIMITS); a test keeps the two equal.
 export const FREE_TIER_MODELS = ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-flash-lite-tts", "gemma-4-31b-it", "gemma-4-26b-a4b-it"];
@@ -108,6 +111,8 @@ export const RULES = {
   "assistant.ollama_url": { label: "Ollama address", required: true, pattern: OLLAMA_URL, msg: "An address like http://127.0.0.1:11434." },
   "acct.email": { label: "Email", required: true, max: 254, norm: (v) => str(v).toLowerCase(), pattern: EMAIL, msg: "Enter an email address, like ops@rfa.example." },
   "acct.password": { label: "Password", required: true, min: 12, max: 128, minMsg: "12 characters or more.", raw: true },
+  // a member's name in a hosted airline: the Desk's own name rule (2 to 32; letters, digits, . ' - _)
+  "member.name": { label: "Your name", required: true, min: 2, max: 32, minMsg: "2 to 32 characters.", maxMsg: "2 to 32 characters.", norm: (v) => str(v).replace(/\s+/g, " "), pattern: /^[\p{L}\p{N} .'_-]+$/u, msg: "Letters, digits, spaces and . ' - _ only." },
 };
 
 // The words for one value against one rule, or null when it passes.
@@ -717,6 +722,9 @@ export function airportCode(text, airports) {
 const NEXT_OK = [
   /^\/workspace(\/(answers|feeds|assistant|kit))?$/,
   /^\/onboard\/(airline|policy|fleet|network|schedule|feeds|people|assistant)\?edit=1$/,
+  // a hosted airline's pages (/a/<ICAO>/...) and the invite page; one slash at a time, no dots
+  /^\/a\/[A-Z]{3}(\/([A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*\/?)?)?$/,
+  /^\/join$/,
 ];
 export function safeNext(next) {
   const n = typeof next === "string" ? next : "";

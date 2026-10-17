@@ -9,7 +9,8 @@ Cloud Run request slot for as long as its page stays open.
 import json
 import logging
 import math
-from collections.abc import AsyncGenerator, Callable, Mapping
+import time
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from typing import Any, Final
 
 from starlette.responses import StreamingResponse
@@ -21,6 +22,9 @@ from tephra.util.events import Event, EventBus
 
 __all__ = [
     "RETRY_MS",
+    "TENANT_STREAMS_PER_MEMBER",
+    "TENANT_STREAM_CHECK_S",
+    "TENANT_STREAM_LIFETIME_S",
     "EventStreamResponse",
     "StreamSlots",
     "event_stream",
@@ -36,6 +40,13 @@ _RESUMABLE: Final = tuple(
     name.value for name in SseEvent if name not in (SseEvent.HEARTBEAT, SseEvent.END_STREAMS)
 )
 _MAX_EVENT_ID_DIGITS: Final = 18
+TENANT_STREAM_LIFETIME_S: Final = 900.0
+"""A hosted airline's stream ends after 15 minutes; the page reopens it, checked again."""
+TENANT_STREAM_CHECK_S: Final = 15.0
+"""How often a hosted airline's stream asks whether its reader may still read it."""
+TENANT_STREAMS_PER_MEMBER: Final = 4
+"""Open streams one member may hold in one airline (a map, a Desk and two more tabs), so one
+person cannot take every one of the airline's places."""
 
 
 def format_event(event: Event) -> str:
@@ -49,6 +60,9 @@ async def event_stream(
     heartbeat_s: float = 15.0,
     last_event_id: int | None = None,
     mode: Callable[[], RunMode] = lambda: RunMode.LIVE,
+    lifetime_s: float | None = None,
+    check: Callable[[], Awaitable[bool]] | None = None,
+    check_every_s: float = TENANT_STREAM_CHECK_S,
 ) -> AsyncGenerator[str, None]:
     """The SSE body: ``retry``, any missed events, then live events and idle heartbeats.
 
@@ -60,7 +74,13 @@ async def event_stream(
     An ``end_streams`` event on the bus ends the stream too: the runtime sends one when this
     instance is retired by a newer revision, or when ticks stop arriving, so the browser
     reconnects to the instance that is serving.
+
+    A hosted airline's stream also ends after ``lifetime_s`` and as soon as ``check`` (asked
+    every ``check_every_s``) answers False: its reader lost the airline.
     """
+    started = time.monotonic()
+    ends_at = None if lifetime_s is None else started + lifetime_s
+    next_check = started + check_every_s
     async with bus.subscribe() as subscription:
         yield f"retry: {RETRY_MS}\n\n"
         sent = 0
@@ -69,7 +89,18 @@ async def event_stream(
                 sent = event.id
                 yield format_event(event)
         while True:
-            event = await subscription.get(within_s=heartbeat_s)
+            wait_s = heartbeat_s
+            if check is not None or ends_at is not None:
+                now = time.monotonic()
+                if ends_at is not None and now >= ends_at:
+                    return
+                if check is not None and now >= next_check:
+                    if not await check():
+                        return
+                    next_check = now + check_every_s
+                deadlines = [d for d in (ends_at, next_check if check else None) if d is not None]
+                wait_s = max(0.0, min(heartbeat_s, *(d - now for d in deadlines)))
+            event = await subscription.get(within_s=wait_s)
             if subscription.dropped:
                 logger.info("closing a slow event stream: %d events dropped", subscription.dropped)
                 return
@@ -130,7 +161,7 @@ class EventStreamResponse(StreamingResponse):
 
     media_type = "text/event-stream"
 
-    def __init__(self, stream: AsyncGenerator[str, None], slots: StreamSlots) -> None:
+    def __init__(self, stream: AsyncGenerator[str, None], *slots: StreamSlots) -> None:
         super().__init__(stream, headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
         self._stream = stream
         self._slots = slots
@@ -139,7 +170,8 @@ class EventStreamResponse(StreamingResponse):
         try:
             await super().__call__(scope, receive, send)
         finally:
-            self._slots.release()
+            for slots in self._slots:
+                slots.release()
             await self._stream.aclose()
 
 

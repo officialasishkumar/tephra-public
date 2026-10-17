@@ -16,8 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from tephra.agents.adk_runtime import ModelGuard, tool_record
-from tephra.agents.llm import LlmBackend, LlmPart, prompt_hash, temperature_for
+from tephra.agents.adk_runtime import AgentModelUnavailable, ModelGuard, agent_model, tool_record
+from tephra.agents.llm import LlmBackend, LlmPart, model_name, prompt_hash, temperature_for
 from tephra.config import Settings
 from tephra.models import (
     Airport,
@@ -91,6 +91,8 @@ async def recommend_recovery(
     else:
         try:
             await _adk(box, llm, run, settings=settings, trace=trace)
+        except AgentModelUnavailable as exc:
+            run.problems = [str(exc)]
         except Exception as exc:  # ADK or API failure: no plan, agents never raise
             logger.warning("recovery agent failed: %s", type(exc).__name__)
             run.problems = [f"RECOVERY AGENT ERROR: {type(exc).__name__}"]
@@ -182,7 +184,7 @@ async def _stub(box: Toolbox, run: _Run) -> None:
 
 
 def build_recovery_agent(
-    model: str,
+    model: Any,
     box: Toolbox,
     *,
     before_model_callback: Any = None,
@@ -231,7 +233,9 @@ def build_recovery_agent(
         description="Compares closure scenarios for an airline network and recommends one.",
         instruction=instruction,
         tools=[disruption, run_scenario, compare, submit_recommendation],
-        generate_content_config=types.GenerateContentConfig(temperature=temperature_for(model)),
+        generate_content_config=types.GenerateContentConfig(
+            temperature=temperature_for(model_name(model))
+        ),
         before_model_callback=before_model_callback,
         on_model_error_callback=on_model_error_callback,
         on_tool_error_callback=_tool_error,
@@ -256,7 +260,7 @@ async def _adk(
 
     guard = ModelGuard(llm, max_turns=MAX_MODEL_TURNS)
     agent = build_recovery_agent(
-        settings.model_lite,
+        agent_model(settings, llm),
         box,
         before_model_callback=guard,
         on_model_error_callback=guard.on_model_error,

@@ -7,7 +7,7 @@ import { announce, byId, el, icon } from './dom.js';
 import { holdButton } from './hold.js';
 import { app } from './state.js';
 import { toast } from './toast.js';
-import { aiMark, fromReplayChip, openBSheet, unavailableCard } from './ui.js';
+import { aiMark, fromReplayChip, openBSheet, unavailableCard, shadowStamp, isViewer, VIEWER_LINE } from './ui.js';
 
 export const KIND = {
   CREW_BRIEFING: ['Crew briefing', 'i-aircraft'],
@@ -125,6 +125,7 @@ export function openMessage(id) {
 
   function draw() {
     const head = [
+      shadowStamp(current),
       el('p', { class: 'mmeta' },
         aiMark(undefined, current.llm_backend === 'stub' ? null : current.model_id),
         fromReplayChip(current),
@@ -190,6 +191,10 @@ export function openMessage(id) {
   // The one decision bar (6.5), the same as an advisory's but filled neutral (green stays
   // advisory-only): hold to approve, or tap for the confirm step; Edit and Reject at equal width.
   function setFooter() {
+    if (isViewer()) {
+      sheet.setFooter(el('div', { class: 'fstack' }, el('p', { class: 'ah-viewer', text: VIEWER_LINE })));
+      return;
+    }
     if (busy) {
       sheet.setFooter(el('div', { class: 'fstack' }, el('button', { type: 'button', class: 'approve approve--neutral is-busy', disabled: true }, el('span', { class: 'spinner', 'aria-hidden': 'true' }), el('span', { text: 'Saving…' }))));
       return;

@@ -7,18 +7,29 @@ google-genai client make no retries of their own unless given ``retry_options``,
 none), and it is taken from its model's daily budget, in the current lane, before it is sent; a
 per-day 429 closes that model until Google's quota day ends; a turn cap stops a model that
 loops. A stopped run ends with no answer, and the caller reports AI UNAVAILABLE.
+
+Every agent is given its model by :func:`adk_model`: a Gemini model carries the key of the
+settings it was built from (``client_kwargs``), so ADK never reads a key from the environment
+and one airline's agents can never run on another's key or on TEPHRA's.
 """
 
 import json
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from tephra.agents.llm import LlmBackend, Tier, daily_quota_spent, estimate_tokens
+from tephra.config import Settings
 from tephra.models import ToolCallRecord
+
+if TYPE_CHECKING:
+    from google.adk.models import Gemini
 
 __all__ = [
     "BUDGET_EXHAUSTED",
     "DAILY_QUOTA_SPENT",
+    "AgentModelUnavailable",
     "ModelGuard",
+    "adk_model",
+    "agent_model",
     "request_tokens",
     "stop_response",
     "summarise",
@@ -29,6 +40,44 @@ DAILY_QUOTA_SPENT: Final = "GEMINI DAILY QUOTA SPENT (429): MODEL CLOSED FOR THE
 BUDGET_EXHAUSTED: Final = "budget_exhausted"
 SUMMARY_CHARS: Final = 240
 """Tool results are kept on record (and in the trace) cut to this length."""
+
+
+class AgentModelUnavailable(Exception):
+    """No model can run this agent: ``str(exc)`` is the reason the step reports."""
+
+
+def adk_model(settings: Settings) -> "str | Gemini":
+    """The model an ADK agent runs on. With ``TEPHRA_LLM=gemini``, a name ADK resolves to its
+    Gemini class becomes ``Gemini(model=name, client_kwargs={"api_key": key, "vertexai":
+    False})``: ADK builds its client as it always does (tracking headers, API version), with
+    the key passed in rather than read from the environment. ``client_kwargs`` is excluded
+    from dumps and ``repr``. Any other name (an Ollama tag, a test's scripted model) stays a
+    name. A Gemini model with no key raises :class:`AgentModelUnavailable`, never a bare name
+    that would send ADK to the environment."""
+    name = settings.model_lite
+    if settings.llm != "gemini":
+        return name
+    from google.adk.models import Gemini, LLMRegistry
+
+    try:
+        resolved = LLMRegistry.resolve(name)
+    except ValueError:  # no ADK model has the name: ADK refuses it when the agent runs
+        return name
+    if not issubclass(resolved, Gemini):
+        return name
+    key = settings.gemini_api_key
+    if key is None:
+        raise AgentModelUnavailable("no model key is set")
+    return Gemini(model=name, client_kwargs={"api_key": key.get_secret_value(), "vertexai": False})
+
+
+def agent_model(settings: Settings, llm: LlmBackend) -> "str | Gemini":
+    """:func:`adk_model` for a run on ``llm``: a backend that cannot run any model
+    (``UnavailableBackend``) stops the run first, with its own reason."""
+    reason = getattr(llm, "unavailable", None)
+    if isinstance(reason, str):
+        raise AgentModelUnavailable(reason)
+    return adk_model(settings)
 
 
 class ModelGuard:

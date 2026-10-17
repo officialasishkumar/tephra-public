@@ -35,6 +35,9 @@ import { closeBSheet, describeReplayIn } from './desk/ui.js';
 import { loadCrewPolicy, openCrewForm, openCrewReport, renderCrewSection, setAircraft, setCrew } from './desk/crew.js';
 import { applyFeatureNav, has, setFeatures } from './wall/features.js';
 import { setModelBackend } from './wall/x-parts.js';
+import { TENANT, rewriteLinks, tenantPath } from './base.js';
+import { mountTenantNav, onTenantHeader, titleFor } from './tenant-nav.js';
+import { isViewer } from './desk/ui.js';
 
 const TICK_MS = 15000;
 const SSE_OFFLINE_AFTER_MS = 10000;
@@ -90,8 +93,13 @@ function applyState(state) {
 // account menu's Airlines to verify and Data connections consult has() where they are drawn; the
 // nav's Onboard link follows wall/features.js applyFeatureNav.
 function applyFeatures() {
+  // a hosted airline's viewer enters no crew report and pastes no notice (SPEC-FINAL 6.1)
   byId('crew-report-btn').hidden = !has('crew');
   byId('paste-notice').hidden = !has('notices');
+  if (isViewer()) {
+    byId('crew-report-btn').hidden = true;
+    byId('paste-notice').hidden = true;
+  }
   applyFeatureNav();
 }
 
@@ -99,6 +107,10 @@ function applyFeatures() {
 function setTitle() {
   const n = app.me ? waitingCount().n : 0;
   const replay = app.state && app.state.mode === 'REPLAY';
+  if (TENANT) {
+    document.title = `${n ? `(${n}) ` : ''}${titleFor(tenantNow, 'Desk')}`;
+    return;
+  }
   document.title = `${replay ? 'REPLAY - ' : ''}${n ? `(${n}) ` : ''}TEPHRA Desk`;
 }
 
@@ -194,7 +206,7 @@ function setConn(conn) {
 function openEvents() {
   if (events) events.close();
   window.clearTimeout(sseRetryTimer);
-  const source = new EventSource(PATHS.events);
+  const source = new EventSource(tenantPath(PATHS.events));
   events = source;
   source.addEventListener('open', () => {
     window.clearTimeout(sseDownTimer);
@@ -720,7 +732,9 @@ function enterDesk(session, { focus = true } = {}) {
   app.listLoaded = false;
   app.listError = '';
   byId('tabbar').hidden = false;
-  byId('ask-btn').hidden = false;
+  // Ask is a dispatcher's: a hosted airline's viewer reads only
+  byId('ask-btn').hidden = isViewer();
+  applyFeatures();
   if (!askReady) {
     initAsk();
     askReady = true;
@@ -796,6 +810,10 @@ function leaveDesk() {
 }
 
 function handleUnauthorized() {
+  if (TENANT) {
+    location.assign(`/signin?next=${encodeURIComponent(location.pathname)}`);
+    return;
+  }
   if (!app.me) return;
   resumeId = app.selectedId;
   leaveDesk();
@@ -1083,11 +1101,71 @@ function wire() {
   });
 }
 
+// A hosted airline's Desk (/a/<ICAO>/desk, SPEC-FINAL 5.4): the airline header replaces the nav and
+// the account button; the member's own session is the Desk session (no PIN, no visitor), and the
+// Desk opens only while TEPHRA runs for the airline (shadow or live).
+let tenantNow = null;
+let tenantOpen = false;
+function tenantNote(kids) {
+  let note = byId('ah-desk-note');
+  if (!kids) { note?.remove(); return; }
+  if (!note) {
+    note = el('section', { id: 'ah-desk-note', class: 'panel panel--empty ah-desknote', role: 'status' });
+    byId('main').prepend(note);
+  }
+  note.replaceChildren(...kids);
+}
+function tenantBoot() {
+  rewriteLinks(document);
+  mountTenantNav({ bar: byId('dhead').querySelector('.dhead__row'), section: 'desk', chips: [byId('budget-chip'), byId('ask-btn'), byId('conn')], theme: false });
+  // the assistant chip, Ask and the connection pill say something only while TEPHRA runs for the
+  // airline: in setup, suspended or with no access nothing connects, so they are not shown
+  const runningChips = (on) => { for (const id of ['budget-chip', 'conn']) byId(id).hidden = !on; if (!on) byId('ask-btn').hidden = true; };
+  onTenantHeader(async (h, { error }) => {
+    tenantNow = h;
+    setTitle();
+    if (!h) {
+      byId('boot').hidden = true;
+      if (error && error !== 'offline') runningChips(false);
+      return;
+    }
+    runningChips(h.state === 'shadow' || h.state === 'live');
+    if (h.state !== 'shadow' && h.state !== 'live') {
+      byId('boot').hidden = true;
+      if (app.me) leaveDesk();
+      tenantOpen = false;
+      // only an ops manager can finish Go live: everyone else is told who does
+      const finish = h.you?.role === 'ops_manager'
+        ? el('a', { class: 'linkbtn', href: '/workspace' }, el('span', { text: 'Finish Go live in your workspace' }), icon('i-chevron-right'))
+        : el('p', { text: `${h.name}'s ops manager starts it from the workspace.` });
+      tenantNote(h.state === 'setup'
+        ? [el('p', { class: 'panel__title' }, el('span', { text: `TEPHRA has not started for ${h.name} yet.` })), finish]
+        : [el('p', { class: 'panel__title' }, el('span', { text: `TEPHRA is not running for ${h.name}.` })), el('p', { text: 'Its drafts wait until TEPHRA runs for it again.' })]);
+      return;
+    }
+    tenantNote(null);
+    if (tenantOpen) return;
+    tenantOpen = true;
+    loadState();
+    loadBudget();
+    openEvents();
+    const res = await api(PATHS.me);
+    byId('boot').hidden = true;
+    if (res.ok && isSession(res.data)) enterDesk(res.data, { focus: false });
+    else if (res.status === 401) handleUnauthorized();
+    else tenantNote([el('p', { class: 'panel__title' }, el('span', { text: `The Desk did not open (HTTP ${res.status}).` }))]);
+  });
+}
+
 async function boot() {
   await loadSprite();
   wire();
   setConn('idle');
   initTabs(onTab);
+  if (TENANT) {
+    tenantBoot();
+    return;
+  }
   loadState();
   loadBudget();
   openEvents();

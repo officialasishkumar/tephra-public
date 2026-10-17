@@ -4,8 +4,10 @@ Every datetime inside TEPHRA is timezone-aware UTC. Feed formats carry partial d
 ("251252" has no month or year), so the parsers that need it take a reference time and
 resolve to the candidate nearest to it.
 
-The active clock is process-global so that REPLAY mode can move "now" for every module at
-once; library code calls :func:`now` instead of ``datetime.now``.
+The process clock is global so that REPLAY mode can move "now" for every module at once;
+library code calls :func:`now` instead of ``datetime.now``. A hosted airline's work binds its
+own clock for the current context (:func:`bind_clock`), so the demo's replay clock never moves
+an airline's time; with nothing bound, every context reads the process clock as before.
 """
 
 import math
@@ -13,6 +15,7 @@ import re
 import time
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
@@ -23,6 +26,8 @@ __all__ = [
     "ReplayClock",
     "SystemClock",
     "age_s",
+    "bind_clock",
+    "clock_bound",
     "compact",
     "ddhhmmz",
     "ensure_utc",
@@ -144,21 +149,28 @@ class ReplayClock:
 
 
 _clock: Clock = SystemClock()
+_bound_clock: ContextVar[Clock | None] = ContextVar("tephra_clock", default=None)
 
 
 def get_clock() -> Clock:
-    return _clock
+    """The clock bound in this context, else the process clock."""
+    bound = _bound_clock.get()
+    return _clock if bound is None else bound
 
 
 def set_clock(clock: Clock) -> None:
+    """Install the process clock. Refused inside a bound clock: an airline's work must never
+    move the demo's time (a replay started there would)."""
     global _clock
+    if _bound_clock.get() is not None:
+        raise RuntimeError("set_clock inside a bound clock")
     _clock = clock
 
 
 @contextmanager
 def use_clock(clock: Clock) -> Iterator[Clock]:
-    """Temporarily install ``clock`` (tests); restores the previous clock on exit."""
-    previous = get_clock()
+    """Temporarily install ``clock`` as the process clock (tests); restores it on exit."""
+    previous = _clock
     set_clock(clock)
     try:
         yield clock
@@ -166,17 +178,33 @@ def use_clock(clock: Clock) -> Iterator[Clock]:
         set_clock(previous)
 
 
+@contextmanager
+def bind_clock(clock: Clock) -> Iterator[Clock]:
+    """Use ``clock`` in this context and the tasks and threads it starts, until exit."""
+    token = _bound_clock.set(clock)
+    try:
+        yield clock
+    finally:
+        _bound_clock.reset(token)
+
+
+def clock_bound() -> bool:
+    """True inside :func:`bind_clock`."""
+    return _bound_clock.get() is not None
+
+
 def now() -> datetime:
     """Current time on the active clock (system time in LIVE, recorded time in REPLAY)."""
-    return ensure_utc(_clock.now())
+    return ensure_utc(get_clock().now())
 
 
 def now_exact() -> datetime:
     """The active clock without the replay quantum: the Wall clock and heartbeats keep
     their seconds while ticks see the floored minute."""
-    if isinstance(_clock, ReplayClock):
-        return ensure_utc(_clock.now_exact())
-    return ensure_utc(_clock.now())
+    clock = get_clock()
+    if isinstance(clock, ReplayClock):
+        return ensure_utc(clock.now_exact())
+    return ensure_utc(clock.now())
 
 
 # --- parsing ----------------------------------------------------------------------------

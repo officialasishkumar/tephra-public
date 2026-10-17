@@ -1,0 +1,19 @@
+{
+  "memberships": [
+    {
+      "icao": "RFB",
+      "name": "Ring of Fire Charter",
+      "role": "dispatcher",
+      "state": "live"
+    },
+    {
+      "icao": "RFC",
+      "name": "Ring of Fire Cargo",
+      "role": "viewer",
+      "state": "shadow"
+    }
+  ],
+  "can_set_up": null,
+  "waiting": null,
+  "max_airlines": 3
+}

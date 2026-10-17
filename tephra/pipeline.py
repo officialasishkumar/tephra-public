@@ -14,17 +14,26 @@ Wall are not stored: they rebuild from the feeds on the first tick after a resta
 A database error never drops a record already in memory and never stops a tick: the record
 waits in ``unsaved`` for the next checkpoint, the step that needed a read is skipped for the
 tick (an unread list is never taken as empty), and ``store_health`` says so on the Wall.
+
+A hosted airline (``create_runtime(..., hosted=HostedParts(...))``) gets a runtime of its own
+in the same process: its own store namespace, bus, ledger, answers and audit chain, LIVE only,
+on the wall clock. Everything it runs (ticks, ADS-B passes, the AI worker, spawned tasks) runs
+inside :meth:`Runtime.bound`, which binds the wall clock, its settings and its ICAO for the
+context, so the demo's replay clock and settings never reach it; its store refuses any use
+outside that binding.
 """
 
 import asyncio
+import contextvars
 import json
 import logging
 import math
 import os
 import time
 import uuid
-from collections import deque
-from collections.abc import Awaitable, Coroutine, Iterable, Mapping, Sequence
+from collections import Counter, deque
+from collections.abc import Awaitable, Callable, Coroutine, Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -44,7 +53,7 @@ from tephra.agents.exposure_planner import (
     plan_flight,
     planner_question,
 )
-from tephra.agents.llm import LlmBackend, LlmPart, get_llm
+from tephra.agents.llm import LlmBackend, LlmPart, backend_for, get_llm
 from tephra.agents.plume_reader import plume_question, read_plume, reused_assessment
 from tephra.agents.quota import QuotaLedger
 from tephra.agents.satellite_reader import (
@@ -62,6 +71,7 @@ from tephra.config import (
     Airline,
     Settings,
     apply_process_env,
+    bind_settings,
 )
 from tephra.desk import audit, connections, crew_reports, sample_feed
 from tephra.desk.approvals import SYSTEM_ACTOR, submit_draft, supersede
@@ -101,7 +111,7 @@ from tephra.feeds.volcanoes import VolcanoCatalogue, load_volcanoes
 from tephra.feeds.winds import fetch_winds
 from tephra.geo.cone import build_cone, geometry_to_shape
 from tephra.geo.exposure import find_exposed
-from tephra.geo.fleet import ALL_AIRCRAFT, FleetFilter
+from tephra.geo.fleet import ALL_AIRCRAFT, FleetFilter, OwnSchedule
 from tephra.geo.reroute import coordinate_text
 from tephra.geo.units import deg_to_compass, distance_nm, ft_to_fl, haversine_km
 from tephra.models import (
@@ -219,11 +229,13 @@ from tephra.replay.cases import (
 from tephra.scheduler import run_tick
 from tephra.store import open_store
 from tephra.store.base import Collection, Store, Where
+from tephra.store.metered import DEMO_NAMESPACE, MeteredStore, StoreMeter
 from tephra.util import timeutil
 from tephra.util.events import EventBus, get_bus
 from tephra.util.hashing import proxy_flight_number, sha256_json
+from tephra.util.scope import bind_tenant
 
-__all__ = ["Runtime", "create_runtime"]
+__all__ = ["HostedModeLocked", "HostedParts", "Runtime", "create_runtime"]
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +282,26 @@ DESK_UNREACHABLE_NOTE: Final = "Desk store unreachable: drafts not updated this 
 DRAFT_RUN_ENDED: Final = "THE REPLAY RUN IT WAS DRAFTED IN HAS ENDED"
 STORE_ERROR_CHARS: Final = 300
 FEED_STATE_CLOCK_FIELDS: Final[IncEx] = {"age_s", "last_attempt_at", "last_success_at"}
+HOSTED_BUS_HISTORY: Final = 20
+"""Events a hosted airline's bus keeps per name for late joiners (memory, D28)"""
+EXPOSURE_GAP_S: Final = 30.0
+"""A hosted airline's pushes run at most one exposure pass this often (D23)"""
+PILOT_REPORTS_PER_HOUR: Final = 60
+"""Pilot reports a hosted airline's pushes may enter in any hour (D23)"""
+RECOVERY_NOT_BUILT: Final = "Not built for your network"
+"""Recovery re-planning works on the fictional airline's day only (D15)"""
+RECONFIGURABLE: Final = frozenset(
+    {
+        "hosted_stage",
+        "model",
+        "model_lite",
+        "gemini_api_key",
+        "model_daily_budget",
+        "model_lite_daily_budget",
+        "ai_interactive_share",
+    }
+)
+"""The settings a running hosted airline may change without a restart (D26)"""
 """Feed-state fields that move on every poll: storing them would rewrite every feed's state at
 every checkpoint. Feed state is written when its status, error or count changes instead, so a
 restored ``last_success_at`` can be older than the true one; that only makes it look staler."""
@@ -290,6 +322,33 @@ class _PlanFailure(NamedTuple):
     retry_at: datetime
 
 
+class HostedModeLocked(Exception):
+    """A hosted airline runs LIVE only: no replay, no mode switch."""
+
+    def __init__(self) -> None:
+        super().__init__("a hosted airline runs LIVE only; its mode cannot be switched")
+
+
+@dataclass(frozen=True)
+class HostedParts:
+    """What the registry hands :func:`create_runtime` for one hosted airline."""
+
+    tenant: str
+    store: Store
+    """The airline's store object (``TenantSpace.store``): one per namespace per process"""
+    source: Source
+    """The shared live source (``SharedHttpSource``); never closed by the runtime"""
+    catalogue: VolcanoCatalogue
+    airports: AirportCatalogue
+    routes: RouteTable
+    policy: OperatorPolicy
+    own_schedule: OwnSchedule | None
+    llm_unavailable: str | None
+    """None: the airline's own key; else why no model step can run (``UnavailableBackend``)"""
+    fence: Callable[[], bool]
+    """True once the demo runtime of this process retired (a rollout)"""
+
+
 @dataclass(eq=False)
 class Runtime:
     settings: Settings
@@ -308,6 +367,10 @@ class Runtime:
     """The day's model-call counts; ``create_runtime`` shares one with the Gemini backend"""
     fleet: FleetFilter = ALL_AIRCRAFT
     """Which aircraft enter exposure (an airline's own TEPHRA); every aircraft by default"""
+    hosted: str | None = None
+    """The hosted airline's ICAO; None for the demo and an airline's own TEPHRA"""
+    fence: Callable[[], bool] | None = field(default=None, repr=False)
+    """A hosted runtime retires with the demo runtime of its process (``retired``)"""
     policy_summary: PolicySummary = field(init=False)
     live: LiveData = field(init=False, default_factory=LiveData)
     lock: asyncio.Lock = field(init=False, default_factory=asyncio.Lock, repr=False)
@@ -364,8 +427,21 @@ class Runtime:
     _published: dict[str, str] = field(init=False, default_factory=dict)
     """Wall layer (or ``situation/<volcano id>``) -> digest of the payload last published"""
     instance_id: str = field(init=False, default_factory=lambda: uuid.uuid4().hex)
-    retired: bool = field(init=False, default=False)
-    """Another instance ticked after this one (a rollout): no ADS-B passes, no checkpoints"""
+    _retired: bool = field(init=False, default=False)
+    """Another instance ticked after this one (a rollout); see ``retired``"""
+    wall_clock: timeutil.Clock = field(init=False, default_factory=timeutil.SystemClock)
+    """The clock a hosted runtime binds (``bound``): the wall clock; only the offline measure
+    script (``scripts/hosted_measure.py``) binds a recording's time instead"""
+    exposure_dirty: bool = field(init=False, default=False)
+    """A hosted airline's push brought positions or plans not yet checked against the ash"""
+    _exposure_task: asyncio.Task[None] | None = field(init=False, default=None, repr=False)
+    _exposure_at: float | None = field(init=False, default=None)
+    """``time.monotonic()`` of the last push-driven exposure pass"""
+    _pilot_reports: deque[float] = field(init=False, default_factory=deque, repr=False)
+    """``time.monotonic()`` of each pilot report a hosted airline's pushes entered"""
+    _written: dict[str, str] = field(init=False, default_factory=dict, repr=False)
+    """'<collection>/<id>' -> digest of the reroute or plan document this runtime last wrote"""
+    _worker_started: bool = field(init=False, default=False)
     adsb_passes: asyncio.Task[None] | None = field(init=False, default=None, repr=False)
     last_tick_clock: float | None = field(init=False, default=None)
     """``time.monotonic()`` when the last tick began"""
@@ -420,6 +496,30 @@ class Runtime:
         )
 
     @property
+    def retired(self) -> bool:
+        """No ADS-B passes, checkpoints or AI work here: another instance ticked after this
+        one, or (a hosted airline) the demo runtime of this process retired (``fence``)."""
+        return self._retired or (self.fence is not None and self.fence())
+
+    @retired.setter
+    def retired(self, value: bool) -> None:
+        self._retired = value
+
+    @contextmanager
+    def bound(self) -> Iterator[None]:
+        """A hosted airline's context: the wall clock, its own settings (read through, so a
+        ``reconfigure`` reaches tasks already running) and its ICAO. The demo binds nothing."""
+        if self.hosted is None:
+            yield
+            return
+        with (
+            timeutil.bind_clock(self.wall_clock),
+            bind_settings(lambda: self.settings),
+            bind_tenant(self.hosted),
+        ):
+            yield
+
+    @property
     def urgency_limits_min(self) -> tuple[int, int]:
         """With "inside now" and "later", entry within the policy's divert and hold times makes
         the urgency buckets, the same limits the rules apply: a flight is planned once per cone
@@ -469,7 +569,8 @@ class Runtime:
     # --- contract ------------------------------------------------------------------------
 
     async def tick(self, *, reason: str = "scheduler") -> TickReport:
-        return await run_tick(self, reason=reason)
+        with self.bound():
+            return await run_tick(self, reason=reason)
 
     async def system_state(self) -> SystemState:
         """``draft_count`` counts the open drafts of the mode playing (``open_drafts``), as the
@@ -543,7 +644,7 @@ class Runtime:
             cones=feature_collection(part for cone in cones for part in cone.to_features()),
             exposures=_exposure_features(self.exposed.values()),
             aircraft=_aircraft_features(
-                self.aircraft(), self.exposed.values(), self.crew, routes, self.plan_numbers()
+                self.map_aircraft(), self.exposed.values(), self.crew, routes, self.plan_numbers()
             ),
             reroutes=_reroute_features(self.reroutes, self.exposed),
             routes=self.route_layer(routes),
@@ -585,9 +686,15 @@ class Runtime:
             await self._switch(mode, auto=auto, case=case)
 
     async def aclose(self) -> None:
+        """A hosted runtime closes neither its store nor the shared source: the registry
+        owns both (one store object per namespace, one source for every airline)."""
         for task in list(self._tasks):
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
+        if self.hosted is not None:
+            with self.bound():
+                await self.checkpoint(force=True)
+            return
         await self.checkpoint(force=True)
         if self._live_source is not None:
             await self._live_source.aclose()
@@ -595,6 +702,39 @@ class Runtime:
         if self.mode is RunMode.REPLAY:
             stop_replay_clock()
         await self.store.aclose()
+
+    async def set_policy(self, policy: OperatorPolicy) -> None:
+        """Run on ``policy`` from the next step on (a hosted airline's new policy version).
+        Drafts already made keep the version they name. Airports are read again only when
+        the policy's runway minimum changed."""
+        async with self.lock:
+            if policy.alternates.min_runway_m.value != self.policy.alternates.min_runway_m.value:
+                self.airports = await asyncio.to_thread(
+                    load_airports,
+                    self.settings.data_dir,
+                    min_runway_m=policy.alternates.min_runway_m.value,
+                )
+            self.policy = policy
+            self.policy_summary = PolicySummary.of(policy)
+
+    async def reconfigure(self, settings: Settings, *, llm: LlmBackend | None = None) -> None:
+        """A hosted airline's new stage, model, key, daily limits or Desk reserve, without a
+        restart (D26): the settings are swapped under the lock (tasks already running read
+        them through ``bound``), the budgets follow, and ``llm`` replaces the backend; a new
+        model or key needs one (``llm.backend_for`` on the runtime's ledger). Drafts already
+        made keep their stamp; new ones follow the new stage."""
+        changed = _changed_settings(self.settings, settings)
+        if not changed <= RECONFIGURABLE:
+            raise ValueError(
+                f"reconfigure cannot change {', '.join(sorted(changed - RECONFIGURABLE))}"
+            )
+        if llm is None and changed & {"model", "model_lite", "gemini_api_key"}:
+            raise ValueError("a new model or key needs its backend (llm=)")
+        async with self.lock:
+            self.settings = settings
+            if llm is not None:
+                self.llm = llm
+            self.quota.reconfigure(settings)
 
     # --- steps the scheduler runs, in tick order -----------------------------------------
 
@@ -737,7 +877,11 @@ class Runtime:
         self.worker.wake("adsb")
 
     def start_worker(self) -> None:
-        """Start the AI worker's loop (``create_runtime`` does; ``aclose`` stops it)."""
+        """Start the AI worker's loop, once (``create_runtime`` does for the demo; a hosted
+        airline's registry does at this instance's first hosted pass); ``aclose`` stops it."""
+        if self._worker_started:
+            return
+        self._worker_started = True
         self.spawn(self.worker.run())
 
     def desk_unreachable(self, report: TickReport) -> None:
@@ -792,7 +936,7 @@ class Runtime:
         No airport closed queues nothing. A Desk run in progress covers the change. Recovery
         stays queued (and is offered again) until the Duty Officer dispatches it."""
         self.recovery_due = None
-        if not self.settings.recovery_auto:
+        if not self.settings.recovery_auto or not self.airline.fictional:
             return
         schedule = await self._rfa_schedule(at)
         if schedule is None:
@@ -814,6 +958,8 @@ class Runtime:
     def start_recovery(self, report: TickReport) -> dict[str, Any]:
         """The Duty Officer's ``run_recovery``: the run is queued as an AI worker job of its
         own, since three CP-SAT solves and a model run must not hold the Duty Officer."""
+        if not self.airline.fictional:
+            return {"error": RECOVERY_NOT_BUILT.upper()}
         due = self.recovery_due
         if due is None:
             return {"error": "NO NETWORK RECOVERY IS DUE"}
@@ -836,7 +982,9 @@ class Runtime:
 
     async def recover_queued(self, airports: Sequence[str]) -> None:
         """The AI worker's recovery job: closures as they stand now (a job queued before a
-        restart runs on today's picture), then the agent."""
+        restart runs on today's picture), then the agent. Never for a real airline (D15)."""
+        if not self.airline.fictional:
+            return
         at = timeutil.now()
         async with self.lock:
             schedule = await self._rfa_schedule(at)
@@ -1335,7 +1483,7 @@ class Runtime:
         self.bus.publish(
             SseEvent.AIRCRAFT,
             _aircraft_features(
-                self.aircraft(), self.exposed.values(), self.crew, routes, self.plan_numbers()
+                self.map_aircraft(), self.exposed.values(), self.crew, routes, self.plan_numbers()
             ),
         )
         self.bus.publish(SseEvent.EXPOSURES, _exposure_features(self.exposed.values()))
@@ -1412,6 +1560,11 @@ class Runtime:
         """The aircraft checked against the ash: every one unless the own-fleet filter is set."""
         return [target for target in self.aircraft() if self.fleet.admits(target)]
 
+    def map_aircraft(self) -> list[Aircraft]:
+        """The aircraft the map draws: a hosted airline's own fleet only (D16), so its map
+        and its counts show its flights; every aircraft elsewhere."""
+        return self.exposure_aircraft() if self.hosted is not None else self.aircraft()
+
     def own_fleet(self) -> OwnFleet | None:
         return self.fleet.own_fleet()
 
@@ -1446,14 +1599,19 @@ class Runtime:
         plans_ok, plan_problems = connections.checked_plans(plans)
         problems += plan_problems
         self.take_plans(plans_ok, at)
-        if (accepted or plans_ok) and self.live.active and not self.lock.locked():
+        if self.hosted is not None:
+            # A hosted airline's pushes only mark the picture: one exposure pass every
+            # EXPOSURE_GAP_S at most, from the runtime's own task (D23).
+            if accepted or plans_ok:
+                self.mark_exposure_dirty()
+        elif (accepted or plans_ok) and self.live.active and not self.lock.locked():
             async with self.lock:
                 report = TickReport(started_at=at, finished_at=at, mode=self.mode, reason="push")
                 await self.run_exposures(at, report)
                 await self.publish_live()
         reports_taken = 0
         for index, raw in enumerate(reports):
-            reason = await self._take_pilot_report(connection, raw)
+            reason = self._pilot_report_limit() or await self._take_pilot_report(connection, raw)
             if reason is None:
                 reports_taken += 1
             else:
@@ -1464,8 +1622,13 @@ class Runtime:
         closed_hits = sorted(
             {p.flight for p in plans_ok if p.origin_icao in closed or p.dest_icao in closed}
         )
-        saved = await connections.save_counts(
-            self.store, connection, accepted=len(accepted), rejected=len(problems), at=at
+        # A hosted airline's push counters are kept in memory by the registry (D23).
+        saved = (
+            connection
+            if self.hosted is not None
+            else await connections.save_counts(
+                self.store, connection, accepted=len(accepted), rejected=len(problems), at=at
+            )
         )
         summary = PushSummary(
             connection_id=saved.id,
@@ -1480,6 +1643,11 @@ class Runtime:
             reports=reports_taken,
             closed_hits=len(closed_hits),
             reasons=list(dict.fromkeys(problem.reason for problem in problems))[:3],
+            rejected_by_section=(
+                dict(Counter(problem.section for problem in problems))
+                if self.hosted is not None
+                else {}
+            ),
         )
         self.push_log.appendleft(summary)
         dots = [_pushed_dot(t, exposed) for t in accepted[:200]]
@@ -1494,6 +1662,47 @@ class Runtime:
             reports_taken=reports_taken,
             closed_hits=closed_hits,
         )
+
+    def mark_exposure_dirty(self) -> None:
+        """A hosted airline's push brought positions or plans: run one exposure pass now, or
+        when :data:`EXPOSURE_GAP_S` has passed since the last one."""
+        self.exposure_dirty = True
+        if self._exposure_task is None or self._exposure_task.done():
+            self._exposure_task = self.spawn(self._exposure_passes())
+
+    async def _exposure_passes(self) -> None:
+        while self.exposure_dirty:
+            last = self._exposure_at
+            if last is not None:
+                await asyncio.sleep(max(0.0, last + EXPOSURE_GAP_S - time.monotonic()))
+            if self.retired:
+                return
+            self.exposure_dirty = False
+            self._exposure_at = time.monotonic()
+            if not self.live.active:
+                continue
+            async with self.lock:
+                at = timeutil.now()
+                report = TickReport(started_at=at, finished_at=at, mode=self.mode, reason="push")
+                await self.run_exposures(at, report)
+                await self.publish_live()
+
+    def _pilot_report_limit(self) -> str | None:
+        """Why a hosted airline's pushed pilot report is refused for its rate, or None; each
+        report let through is counted."""
+        if self.hosted is None:
+            return None
+        now = time.monotonic()
+        held = self._pilot_reports
+        while held and now - held[0] >= 3600:
+            held.popleft()
+        if len(held) >= PILOT_REPORTS_PER_HOUR:
+            return (
+                f"refused: {PILOT_REPORTS_PER_HOUR} pilot reports in the last hour already; "
+                "crews report ash rarely, so check what sends them"
+            )
+        held.append(now)
+        return None
 
     async def _take_pilot_report(self, connection: Connection, raw: Any) -> str | None:
         """Enter one pushed pilot report as a crew report; the reason when it is refused. The
@@ -1760,7 +1969,13 @@ class Runtime:
         return route_features(legs, self.routes, self.airports)
 
     def spawn(self, coroutine: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
-        task = asyncio.create_task(coroutine)
+        """A task of this runtime's, cancelled by ``aclose``; a hosted airline's runs in a
+        copy of the context taken inside :meth:`bound`, whatever context started it."""
+        context = None
+        if self.hosted is not None:
+            with self.bound():
+                context = contextvars.copy_context()
+        task = asyncio.create_task(coroutine, context=context)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return task
@@ -1773,8 +1988,12 @@ class Runtime:
         ``--max-instances 1`` holds per revision: during a rollout the old revision's instance
         lives on while its streams stay open, but ticks reach only the serving revision. A
         tick is therefore the proof of serving, and it also ends a retirement (traffic moved
-        back to this revision).
+        back to this revision). A hosted airline claims nothing: it follows the demo runtime's
+        fence (``retired``).
         """
+        if self.hosted is not None:
+            self.last_tick_clock = time.monotonic()
+            return
         at = timeutil.SystemClock().now()
         await self.store.put(
             Collection.RUNTIME,
@@ -1787,18 +2006,21 @@ class Runtime:
         )
         self._writer_at = at
         self.last_tick_clock = time.monotonic()
-        if self.retired:
-            self.retired = False
+        if self._retired:
+            self._retired = False
             logger.warning("ticks reach this instance again; it polls and checkpoints again")
 
     async def check_writer(self) -> bool:
         """True when this instance is retired: another instance ticked after it last did.
 
         An instance that has not ticked yet has nothing of its own to fence, so it never
-        retires on a writer doc it found at startup.
+        retires on a writer doc it found at startup. A hosted airline reads nothing: it is
+        retired when the demo runtime of its process is.
         """
         if self.retired:
             return True
+        if self.hosted is not None:
+            return False
         if self._writer_at is None:
             return False
         doc = await self.store.get(Collection.RUNTIME, WRITER_DOC)
@@ -1810,7 +2032,7 @@ class Runtime:
         return True
 
     def _retire(self, writer: Mapping[str, Any]) -> None:
-        self.retired = True
+        self._retired = True
         passes = self.adsb_passes
         if passes is not None and passes is not asyncio.current_task():
             passes.cancel()
@@ -1924,7 +2146,20 @@ class Runtime:
         """One full walk of the chain at startup, unless the head the last checkpoint
         persisted (``runtime/audit_head``) still names the newest entry: that head is held as
         not yet walked on this instance and the first checkpoint walks it. A head below the
-        newest entry, or none, is walked now."""
+        newest entry, or none, is walked now.
+
+        A hosted airline's chain is never walked whole here (D25): a head this process still
+        holds for the same store object (a restart of the runtime) is kept, else the persisted
+        one is taken as it was persisted, and only the entries written after it are read."""
+        if self.hosted is not None:
+            if audit.chain(self.store).head is None:
+                audit.restore_head(
+                    self.store,
+                    await self.store.get(Collection.RUNTIME, AUDIT_HEAD_DOC),
+                    trusted=True,
+                )
+            await audit.catch_up(self.store)
+            return
         persisted = audit.restore_head(
             self.store, await self.store.get(Collection.RUNTIME, AUDIT_HEAD_DOC)
         )
@@ -1989,6 +2224,9 @@ class Runtime:
                 logger.warning("ignoring unreadable stored reroute")
                 continue
             self.reroutes.setdefault(option.flight_id, []).append(option)
+            self._written[f"{Collection.REROUTES.value}/{option.id}"] = sha256_json(
+                option.model_dump(mode="json")
+            )
 
     # --- per volcano ---------------------------------------------------------------------
 
@@ -2495,7 +2733,7 @@ class Runtime:
                 )
                 return {"error": stale.upper()}, False
             await self._store_reroutes(flight, ctx.reroutes)
-            await self.store.put(Collection.PLANS, plan.id, plan.model_dump(mode="json"))
+            await self._put_on_change(Collection.PLANS, plan.id, plan.model_dump(mode="json"))
             return await self._commit_draft(
                 ctx, flight, plan, advisory, urgency, report, outdated
             ), True
@@ -2612,7 +2850,21 @@ class Runtime:
             return
         self.reroutes[flight.id] = list(options)
         for option in options:
-            await self.store.put(Collection.REROUTES, option.id, option.model_dump(mode="json"))
+            await self._put_on_change(
+                Collection.REROUTES, option.id, option.model_dump(mode="json")
+            )
+
+    async def _put_on_change(
+        self, collection: Collection, doc_id: str, doc: dict[str, Any]
+    ) -> None:
+        """Put a reroute or a plan only when it differs from what this runtime last wrote
+        there: a flight planned again to the same answer costs no write (free tier, B2)."""
+        key = f"{collection.value}/{doc_id}"
+        digest = sha256_json(doc)
+        if self._written.get(key) == digest:
+            return
+        await self.store.put(collection, doc_id, doc)
+        self._written[key] = digest
 
     async def _record_failure(self, failure: AiFailure) -> None:
         """No plan or no draft: the flight goes to the Desk for a dispatcher, and outdated
@@ -2881,7 +3133,9 @@ class Runtime:
         """Change mode. REPLAY plays ``case``, else the case playing, else
         ``TEPHRA_REPLAY_CASE`` or the newest recorded case; picking another case while
         replaying restarts the replay on it. ``note`` replaces the banner as the audit
-        entry's note."""
+        entry's note. A hosted airline never switches (:class:`HostedModeLocked`)."""
+        if self.hosted is not None:
+            raise HostedModeLocked
         playing = self.source.case if isinstance(self.source, ReplaySource) else None
         previous = {"mode": self.mode.value, "case_id": playing.case_id if playing else None}
         if mode is RunMode.REPLAY:
@@ -3032,17 +3286,22 @@ class Runtime:
         held = audit.chain(self.store)
         if held.rewalk:
             try:
-                head = await audit.verify_head(self.store)
+                # A hosted airline walks only past what a walk already found intact (D25).
+                head = await (
+                    audit.check_chain(self.store)
+                    if self.hosted is not None
+                    else audit.verify_head(self.store)
+                )
             except Exception as exc:  # the mark stays; the next checkpoint walks again
                 logger.warning("audit chain walk failed: %s", exc)
                 self.store_failed(exc, calls="reads")
             else:
                 self._trace_audit_head(head)
-        if held.head is None:
+        doc = audit.head_doc(self.store, verified=self.hosted is not None)
+        if doc is None:
             return
         await self._checkpoint_write(
-            Collection.RUNTIME,
-            self.store.put(Collection.RUNTIME, AUDIT_HEAD_DOC, held.head.model_dump(mode="json")),
+            Collection.RUNTIME, self.store.put(Collection.RUNTIME, AUDIT_HEAD_DOC, doc)
         )
 
     def _trace_audit_head(self, head: ChainHead) -> None:
@@ -3149,9 +3408,16 @@ class Runtime:
         return records
 
 
-async def create_runtime(settings: Settings) -> Runtime:
-    """Build the process-wide runtime (composition root; settings come from the caller)."""
-    apply_process_env(settings)
+async def create_runtime(
+    settings: Settings, *, hosted: HostedParts | None = None, meter: StoreMeter | None = None
+) -> Runtime:
+    """Build the process-wide runtime (composition root; settings come from the caller), or
+    with ``hosted`` one hosted airline's (:func:`_create_hosted`). ``meter`` (the hosted
+    feature on): the demo's store is counted as namespace ``demo``, never cached."""
+    if hosted is not None:
+        return await _create_hosted(settings, hosted)
+    # With the hosted feature on, TEPHRA's own key is never exported for ADK to find (B1).
+    apply_process_env(settings, export_key="hosted" not in settings.features)
     settings.airline  # noqa: B018  # an own fleet without the airline's name stops startup here
     fleet = await asyncio.to_thread(FleetFilter.from_settings, settings)
     policy = await asyncio.to_thread(load_policy, settings.data_dir, settings.policy_file)
@@ -3169,7 +3435,9 @@ async def create_runtime(settings: Settings) -> Runtime:
         window = _start_clock(settings, replay_case)
     else:
         source = HttpSource.from_settings(settings)
-    store = open_store(settings)
+    store: Store = open_store(settings)
+    if meter is not None:
+        store = MeteredStore(store, meter, DEMO_NAMESPACE)
     ledger = QuotaLedger(settings, store)
     if settings.llm == "gemini" and settings.unlimited_models():
         logger.warning(
@@ -3199,6 +3467,48 @@ async def create_runtime(settings: Settings) -> Runtime:
     await runtime.restore()
     runtime.start_worker()
     return runtime
+
+
+async def _create_hosted(settings: Settings, parts: HostedParts) -> Runtime:
+    """One hosted airline's runtime: LIVE on the wall clock, its own bus (short history) and
+    ledger, the shared source and catalogues, its store as the registry opened it. It never
+    touches the process environment, claims no writer and starts no AI worker: the registry
+    starts that at this instance's first hosted pass (``start_worker``). Restores run inside
+    its binding."""
+    if settings.hosted_tenant != parts.tenant or settings.mode is not RunMode.LIVE:
+        raise ValueError(f"settings are not {parts.tenant}'s hosted LIVE settings")
+    ledger = QuotaLedger(settings, parts.store)
+    runtime = Runtime(
+        settings=settings,
+        store=parts.store,
+        bus=EventBus(history_per_event=HOSTED_BUS_HISTORY),
+        source=parts.source,
+        llm=backend_for(settings, unavailable=parts.llm_unavailable, quota=ledger),
+        catalogue=parts.catalogue,
+        airports=parts.airports,
+        routes=parts.routes,
+        policy=parts.policy,
+        mode=RunMode.LIVE,
+        replay_case=None,
+        auto_replay=False,
+        ledger=ledger,
+        fleet=FleetFilter.from_settings(settings, parts.own_schedule or OwnSchedule()),
+        hosted=parts.tenant,
+        fence=parts.fence,
+    )
+    if runtime.bus is get_bus():
+        raise RuntimeError("a hosted airline's runtime must not publish on the demo's bus")
+    with runtime.bound():
+        await runtime.restore_crew_reports()
+        await runtime.restore()
+    return runtime
+
+
+def _changed_settings(before: Settings, after: Settings) -> set[str]:
+    """The names of the settings that differ (secrets compared by value)."""
+    return {
+        name for name in type(before).model_fields if getattr(before, name) != getattr(after, name)
+    }
 
 
 def _start_clock(settings: Settings, case: ReplayCase) -> tuple[datetime, datetime] | None:

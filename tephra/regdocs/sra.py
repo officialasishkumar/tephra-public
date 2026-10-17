@@ -29,7 +29,7 @@ from tephra.models import (
     Situation,
     TraceStage,
 )
-from tephra.regdocs.common import band_text, document_labels
+from tephra.regdocs.common import band_text, document_labels, stamped_header
 from tephra.regdocs.evidence import Evidence, FlightView, VolcanoView, gather_evidence
 from tephra.regdocs.models import (
     SRA_HEADER,
@@ -101,6 +101,7 @@ async def draft_sra(runtime: DocsRuntime, region: str, *, actor: str = SYSTEM_AC
         call,
         facts=facts,
         narrative_at=written_at,
+        shadow=runtime.settings.airline.shadow,
     )
     await record_new_doc(
         runtime.store,
@@ -211,6 +212,7 @@ def build_sra(
     *,
     facts: dict[str, Any],
     narrative_at: datetime | None = None,
+    shadow: bool = False,
 ) -> SraDraft:
     sections = [
         _status_section(evidence, policy, summary),
@@ -231,7 +233,8 @@ def build_sra(
     created = evidence.created
     return SraDraft(
         id=stable_id("DOC", "SRA", evidence.region.key, timeutil.to_iso(created), input_hash),
-        header=SRA_HEADER,
+        header=stamped_header(SRA_HEADER, shadow=shadow),
+        shadow=shadow,
         labels=document_labels(evidence.state, backend=call.backend),
         created_at=created,
         updated_at=created,

@@ -1,0 +1,9 @@
+{
+  "memberships": [],
+  "can_set_up": {
+    "icao": "RFB",
+    "name": "Ring of Fire Charter"
+  },
+  "waiting": null,
+  "max_airlines": 2
+}

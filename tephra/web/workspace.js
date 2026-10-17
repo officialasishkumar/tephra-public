@@ -4,6 +4,10 @@
 // to its pages; the rest, the setup kit with it, comes once it submits. Signed out, a workspace
 // address goes to sign in with ?next= kept (only workspace and edit paths are followed). Sections
 // move with the history API. Every string goes in through el() (textContent).
+// With hosting on (SPEC hosted §5.1), a verified airline's Overview carries Go live on TEPHRA
+// (workspace/golive.js), a login that only belongs to hosted airlines (no onboarding record) gets
+// "Your airlines", and /join#<token> is the invite page (workspace/join.js), whose token is taken
+// out of the address bar before anything else runs.
 
 import { $, el, icon, inlineSprite } from "./wall/util.js";
 import { applyFeatureNav, has, setFeatures } from "./wall/features.js";
@@ -16,7 +20,9 @@ import { renderOverview } from "./workspace/overview.js";
 import { renderFeeds } from "./workspace/feeds.js";
 import { renderAssistant } from "./workspace/assistant.js";
 import { renderKitPage } from "./workspace/kit.js";
-import { ACCOUNTS_OFF, ONBOARD_OFF, PATHS, call, failWords, minutesWords, retryMinutes } from "./workspace/api.js";
+import { airlinesList, loadHosted } from "./workspace/golive.js";
+import { renderJoin, takeToken } from "./workspace/join.js";
+import { ACCOUNTS_OFF, HOSTED, ONBOARD_OFF, PATHS, call, errorCode, failWords, minutesWords, retryMinutes } from "./workspace/api.js";
 import { setError } from "./onboard/form.js";
 
 const SECTIONS = [
@@ -32,11 +38,12 @@ const PILL = {
   verified: ["badge--ok", "i-check"],
   declined: ["badge--serious", "st-serious"],
 };
-const S = { view: null, named: {}, navMode: null };
+const S = { view: null, named: {}, navMode: null, joinToken: null };
 
 function route() {
   const parts = location.pathname.replace(/\/+$/, "").split("/");
   if (parts[1] === "signin") return { area: "signin", recover: parts[2] === "recover" };
+  if (parts[1] === "join") return { area: "join" };
   return { area: "workspace", section: parts[2] || "" };
 }
 
@@ -67,6 +74,12 @@ function deleteItem() {
   return item;
 }
 
+// An account a hosted airline still needs (SPEC hosted §3.4).
+const DELETE_REFUSED = {
+  hosted_airline: "Your airline still has its space on TEPHRA. Ask TEPHRA's operators to suspend it and delete its data first.",
+  last_ops_manager: "You are the last ops manager of an airline on TEPHRA. Make another member ops manager first, in its Settings › People.",
+};
+
 function openDelete() {
   const dlg = $("ob-dlg");
   const pw = el("input", { id: "del-pw", class: "input", type: "password", autocomplete: "current-password", "aria-describedby": "del-pw-err" });
@@ -95,7 +108,7 @@ function openDelete() {
       location.assign("/");
       return;
     }
-    setError(pw, res.status === 401 ? "That password doesn't match." : res.status === 429 ? `Too many tries. Try again in ${minutesWords(retryMinutes(res))}.` : failWords(res));
+    setError(pw, res.status === 401 ? "That password doesn't match." : res.status === 429 ? `Too many tries. Try again in ${minutesWords(retryMinutes(res))}.` : DELETE_REFUSED[errorCode(res)] || failWords(res));
     pw.select();
   });
   dlg.replaceChildren(form);
@@ -155,6 +168,25 @@ async function loadNamed() {
   }
 }
 
+// A login with no onboarding record belongs only to hosted airlines: its workspace is the list.
+async function memberOnly(section) {
+  if (section) history.replaceState(null, "", "/workspace");
+  document.title = "Your airlines · Workspace · TEPHRA";
+  showAccountWho(null);
+  const me = await call(HOSTED.me);
+  if (!me.ok || !me.data) {
+    offCard(failWords(me));
+    return;
+  }
+  const list = me.data.memberships || [];
+  $("main").replaceChildren(el("div", { class: "narrow yourairs" },
+    el("h1", { class: "h1", text: "Your airlines" }),
+    el("p", { class: "body2", text: "The airlines on TEPHRA you are a member of. Each one's map, Desk, feeds and settings are private to its members and TEPHRA's operators." }),
+    list.length
+      ? airlinesList(list, { title: list.length === 1 ? "Your airline" : `${list.length} airlines` })
+      : el("p", { class: "status status--quiet" }, icon("st-off"), el("span", { text: "You are not a member of any airline now. An ops manager's invite link adds you." }))));
+}
+
 async function workspace(section) {
   const known = SECTIONS.map(([k]) => k);
   if (!known.includes(section)) {
@@ -166,16 +198,27 @@ async function workspace(section) {
     location.replace(`/signin?next=${encodeURIComponent(location.pathname)}`);
     return;
   }
+  if (me.status === 404 && errorCode(me) === "no_airline_record") {
+    await memberOnly(section);
+    return;
+  }
   if (!me.ok || !me.data) {
     offCard(failWords(me));
     return;
   }
   S.view = me.data;
   const view = S.view;
+  // this site hosts airlines: an operator, not only a Desk dispatcher, may verify (overview words)
+  view.hostedSite = has("hosted");
   if (view.status === "draft" && section) {
     history.replaceState(null, "", "/workspace");
     await workspace("");
     return;
+  }
+  // hosting on this site: the Overview's Go live card (null when the server has it off)
+  if (section === "" && view.status === "verified" && has("hosted")) {
+    view.hosted = await loadHosted(view.answers?.airline?.icao);
+    view.onHostedChange = () => workspace(section).then(() => focusHeading("#gl-h"));
   }
   const label = SECTIONS.find(([k]) => k === section)[1];
   document.title = `${section ? `${label} · ` : ""}Workspace · ${[identity(view).icao, "TEPHRA"].filter(Boolean).join(" · ")}`;
@@ -194,12 +237,15 @@ async function workspace(section) {
 
 async function render({ first = false } = {}) {
   const r = route();
-  const navMode = r.area === "signin" ? "signin" : "workspace";
+  const navMode = r.area === "workspace" ? "workspace" : r.area;
   if (navMode !== S.navMode) {
     S.navMode = navMode;
     initAccountNav({ right: $("tn-right"), signin: false, items: navMode === "workspace" ? [deleteItem()] : [] });
   }
-  if (r.area === "signin") {
+  if (r.area === "join") {
+    if (!has("hosted")) offCard("Airlines are not hosted on this server.");
+    else await renderJoin($("main"), { token: S.joinToken, signedIn: S.signedIn });
+  } else if (r.area === "signin") {
     const next = new URLSearchParams(location.search).get("next");
     if (S.signedIn) {
       location.replace(safeNext(next));
@@ -224,6 +270,8 @@ document.addEventListener("click", (e) => {
 window.addEventListener("popstate", () => render());
 
 async function boot() {
+  // the invite token leaves the address bar before any request or render
+  S.joinToken = takeToken();
   inlineSprite();
   const [state, session] = await Promise.all([call(PATHS.state), call(PATHS.session)]);
   setFeatures(state.ok ? state.data?.features : []);

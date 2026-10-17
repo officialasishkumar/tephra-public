@@ -1,5 +1,9 @@
 // HTTP for the Desk (MODULES.md 8.2 and 8.5). Every request sends X-Tephra-Desk: 1 and JSON
-// bodies; a network failure resolves to { status: 0 } so callers never see an exception.
+// bodies; a network failure resolves to { status: 0 } so callers never see an exception. On a
+// hosted airline's Desk (/a/<ICAO>/desk) every /api/... path is asked of /a/<ICAO>/api/...
+// (base.js tenantPath), so the paths below stay the demo's.
+
+import { TENANT, tenantPath } from '../base.js';
 
 export const PATHS = {
   state: '/api/state',
@@ -10,7 +14,8 @@ export const PATHS = {
   login: '/api/desk/login',
   visitor: '/api/desk/visitor',
   logout: '/api/desk/logout',
-  drafts: '/api/desk/advisories?status=DRAFT&limit=100',
+  // an airline's API answers at most 50 a page (hosted SPEC 4.1 step 7); the demo keeps 100
+  drafts: `/api/desk/advisories?status=DRAFT&limit=${TENANT ? 50 : 100}`,
   decide: (id, kind) => `/api/desk/advisories/${encodeURIComponent(id)}/${kind}`,
   audit: (id) => `/api/audit?advisory_id=${encodeURIComponent(id)}&limit=50`,
   chain: (id) => `/api/advisories/${encodeURIComponent(id)}/chain`,
@@ -72,7 +77,7 @@ export async function api(path, { method = 'GET', body, form, signal, blob = fal
   }
   let response;
   try {
-    response = await fetch(path, init);
+    response = await fetch(tenantPath(path), init);
   } catch (error) {
     if (error && error.name === 'AbortError') return { ok: false, status: 0, aborted: true, data: null, headers: null };
     for (const fn of listeners) fn(true);

@@ -13,7 +13,7 @@ import { app } from './state.js';
 import { aiMark, reportsHead } from './ui.js';
 import { drawAiChip } from './budget.js';
 // The Wall's plain-words table (wall/x-parts.js, R12.7), shared so both screens say the same.
-import { machineText, plainLine, reasonClass } from '../wall/x-parts.js';
+import { machineText, notRun, plainLine, reasonClass, unavailableWhy } from '../wall/x-parts.js';
 
 const RESULTS_SHOWN = 2;
 
@@ -23,8 +23,11 @@ const OUTCOME = {
   STUB: ['i-code', 'Code only', 'off'],
   MODEL_FAILED: ['st-caution', 'No brief (no result)', 'caution'],
 };
-// A run the quota refused never reached a model (docs/UI-AI-QUIET.md K93, H4).
-const refused = (run) => run.outcome === 'MODEL_FAILED' && (run.validation_errors || []).some((e) => reasonClass(e) === 'budget');
+// A run the quota refused, or one with no usable model (a hosted airline with no model, no key or an
+// unreadable key), never reached a model (docs/UI-AI-QUIET.md K93, H4).
+const notRunClass = (run) => (run.outcome === 'MODEL_FAILED' ? (run.validation_errors || []).map(reasonClass).find(notRun) || null : null);
+const refused = (run) => notRunClass(run) !== null;
+const unavailable = (run) => (notRunClass(run) === 'unavailable' ? unavailableWhy((run.validation_errors || []).find((e) => reasonClass(e) === 'unavailable')) : null);
 const SPECIALIST = {
   assess_volcanoes: ['Satellite reader + Plume reader', 'volcano'],
   plan_flights: ['Flight planner + Drafter', 'flight'],
@@ -148,7 +151,7 @@ function oneLine(run, failed, stub) {
 function buildCard(run) {
   const [shape, word0, tone] = OUTCOME[run.outcome] || ['i-info', run.outcome, 'off'];
   // the assistant's one state word, as the header chip says it (docs/UI-AI-QUIET.md 8.6)
-  const word = refused(run) ? 'Not run (TEPHRA Assistant paused)' : word0;
+  const word = unavailable(run) ? `Not run (${unavailable(run)})` : refused(run) ? 'Not run (TEPHRA Assistant paused)' : word0;
   const dispatched = delegations(run);
   const calls = run.dispatches.length;
   const failed = run.outcome === 'MODEL_FAILED';
@@ -174,7 +177,7 @@ function buildCard(run) {
   if (left) card.append(left);
 
   const more = el('div', { id: 'duty-more', class: 'dcard__more', hidden: !expanded });
-  append(more, [el('p', { class: 'dcard__state' }, stateChip(tone, shape, word, failed ? (refused(run) ? 'TEPHRA Assistant is paused: no model was called' : 'The model was called and gave no brief that passed the code checks') : 'Outcome of the last Coordinator run'),
+  append(more, [el('p', { class: 'dcard__state' }, stateChip(tone, shape, word, failed ? (unavailable(run) ? `${unavailable(run)}: no model was called` : refused(run) ? 'TEPHRA Assistant is paused: no model was called' : 'The model was called and gave no brief that passed the code checks') : 'Outcome of the last Coordinator run'),
     failed ? null : el('span', { class: 'dcard__count', text: plural(calls, 'delegation') }))]);
   if (failed) {
     append(more, [el('p', { class: 'dcard__note', text: 'No brief was made up in its place.' })]);

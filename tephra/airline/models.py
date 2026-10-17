@@ -1,8 +1,9 @@
 """The onboarding answers, the stored airline documents, the views the API returns and the
 request bodies (``tephra.api.routes_airline``).
 
-No field anywhere holds a key, PIN, secret, token, password, Ollama address or file contents:
-the airline's own Gemini key and its schedule files stay in its browser and its setup kit.
+No airline document holds a password or a recovery code; a hosted airline's model key is held
+only sealed, in its tenant record (D5). No field holds a PIN, secret, token, Ollama address or
+file contents: the airline's schedule files stay in its browser and its setup kit.
 Validator messages never repeat the input (the app's 422 body copies them as written).
 """
 
@@ -20,6 +21,11 @@ from pydantic import (
 )
 
 from tephra.models import PushProblem, TephraModel, UtcDatetime
+
+
+def _is_none(value: object) -> bool:
+    return value is None
+
 
 __all__ = [
     "DESK_STATUSES",
@@ -66,6 +72,7 @@ __all__ = [
     "RecoveryCode",
     "ScheduleSummary",
     "SignIn",
+    "Stamp",
     "StatusStep",
     "Submit",
     "VerifyAirline",
@@ -537,8 +544,23 @@ class OnboardDraft(_DraftPart):
 # --- stored documents -------------------------------------------------------------------
 
 HistoryAction = Literal[
-    "created", "answers_changed", "assistant_changed", "submitted", "verified", "declined"
+    "created",
+    "answers_changed",
+    "assistant_changed",
+    "submitted",
+    "verified",
+    "declined",
+    "hosting_approved",
 ]
+
+
+class Stamp(TephraModel):
+    """Who did something and when (wall clock). ``by`` is ``"<display name>#<member id>"`` for
+    an airline member or ``"operator:<name>#<k[:8]>"`` for one of TEPHRA's operators; pages
+    show the part before ``#``."""
+
+    by: str = Field(min_length=1, max_length=160)
+    at: UtcDatetime
 
 
 class HistoryEntry(TephraModel):
@@ -588,19 +610,27 @@ class AirlineRecord(TephraModel):
     decline_reason: str | None = Field(default=None, max_length=500)
     flags: list[str] = Field(default_factory=list, description="Reviewer hints, Desk only")
     history: list[HistoryEntry]
+    hosting: Stamp | None = Field(
+        default=None,
+        exclude_if=_is_none,
+        description="An operator's approval to host this airline on the site (hosted feature)",
+    )
 
 
 class AirlineLogin(TephraModel):
     """Collection ``airline_logins``, id = ``login_key``: credentials, never returned."""
 
     login_key: str
-    airline_id: str
+    airline_id: str | None = Field(
+        description="None: a member-only login (joined a hosted airline; no onboarding record)"
+    )
     email: str
     password: str = Field(description="scrypt$N$r$p$<salt>$<hash>, never the password")
     recovery_sha256: str
     session_version: int = Field(ge=1, description="Bumped on recovery: other browsers sign out")
     created_at: UtcDatetime
     password_changed_at: UtcDatetime
+    last_sign_in_at: UtcDatetime | None = Field(default=None, exclude_if=_is_none)
 
 
 # --- views ------------------------------------------------------------------------------

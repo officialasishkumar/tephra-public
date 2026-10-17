@@ -10,7 +10,7 @@
 // (docs/UI-AI-QUIET.md 8.6 "Say the cause once").
 
 import { ms, FLIGHT_NAME } from "./util.js";
-import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiSymbol, causeShort, reasonClass, WHY, ASSISTANT } from "./x-parts.js";
+import { plainLine, planFailure, actionPlain, aiStateOf, aiErrorsOf, newestPlan, aiWords, aiSymbol, causeShort, notRun, reasonClass, unavailableWhy, WHY, ASSISTANT } from "./x-parts.js";
 import { collapseRuns, plural } from "./dk.js";
 
 // Every skill of TEPHRA Assistant on the Wall, in board order. `tool` is the Coordinator's tool that reaches it,
@@ -70,7 +70,7 @@ function ownLines(h, trace) {
 // (caution), not a Plume reader failure.
 function lineTone(h, t) {
   if (h.id === "plume" && t.stage === "DUTY") return "caution";
-  if (t.level === "error") return reasonClass(t.message) === "budget" ? "caution" : "failed";
+  if (t.level === "error") return notRun(reasonClass(t.message)) ? "caution" : "failed";
   return LEVEL_TONE[t.level] || "ok";
 }
 
@@ -171,7 +171,7 @@ function resultSteps(h, ctx) {
       const name = ctx.volcanoName(r.volcano_id);
       const ash = { yes: "ash seen", no: "no ash seen", uncertain: "can't tell" }[r.ash_visible] || "can't tell";
       // a quota refusal called no model: "did not run", never "gave no result" (Q4)
-      const text = r.status === "ai_unavailable" ? `${name}: not read (Satellite reader ${reasonClass(r.reason) === "budget" ? "did not run" : "gave no result"}). Nothing was put in its place`
+      const text = r.status === "ai_unavailable" ? `${name}: not read (Satellite reader ${notRun(reasonClass(r.reason)) ? "did not run" : "gave no result"}). Nothing was put in its place`
         : r.status === "no_frames" ? `${name}: no picture to read` : `${name}: ${ash}`;
       out.push({ tone: r.status === "ai_unavailable" ? "failed" : r.status === "no_frames" ? "caution" : "ok", text, count: 1, at: ms(r.created_at || r.observed_at), source: SOURCE.reading });
     }
@@ -256,6 +256,7 @@ export function dutyLine(run) {
   if (run.outcome === "MODEL_FAILED") {
     const cls = reasonClass((run.validation_errors || [])[0]);
     if (cls === "budget") return { tone: "caution", word: "Not run", text: `Not run: ${ASSISTANT} is paused. No brief was made.${first}${tail ? ` ${tail}` : ""}` };
+    if (cls === "unavailable") return { tone: "caution", word: "Not run", text: `Not run: ${unavailableWhy((run.validation_errors || [])[0])}. No model was called and no brief was made.${first}${tail ? ` ${tail}` : ""}` };
     return { tone: "failed", word: "No brief", text: `No brief: the Coordinator gave no result (${WHY[cls] || WHY.other}). Nothing was made up in its place.${first}${tail ? ` ${tail}` : ""}` };
   }
   if (run.outcome === "STUB") return { tone: "ok", text: `Handed out ${plural(handed, "job")} in urgency order (code only).${tail ? ` ${tail}` : ""}` };
@@ -425,7 +426,7 @@ export function stepEvents(t) {
       return [{ ...base, type: "refused", cls, reason: m[1], d: Number(m[2]), n: Number(m[3]),
         // a refusal on record says what happened, not "paused": it may have been one skill's
         // share, and the state now is the headline's (8.6)
-        text: cls === "budget" ? "Coordinator did not run" : `Coordinator gave no result (${WHY[cls] || WHY.other})` }];
+        text: notRun(cls) ? "Coordinator did not run" : `Coordinator gave no result (${WHY[cls] || WHY.other})` }];
     }
     if ((m = DUTY_HANDOFF.exec(msg))) {
       const skill = TOOL_SKILL[m[1]] || null;
@@ -585,7 +586,7 @@ function rowWords(r, example) {
     if (example) return r.duty ? { tone: "job", text: `Coordinator hands ${plural2(r.duty.n, "job")} to the skills (example)`, raw } : { text: "" };
     if (!r.out) return { tone: "job", text: got, raw };
     const o = r.out.e;
-    const head = o.type === "undone" ? `${got} · it left must-do work` : o.cls === "budget" ? `${got} · did not run` : `${got} · ${o.text.replace(/^Coordinator /, "")}`;
+    const head = o.type === "undone" ? `${got} · it left must-do work` : notRun(o.cls) ? `${got} · did not run` : `${got} · ${o.text.replace(/^Coordinator /, "")}`;
     return { tone: "must", text: head, toYou: `${o.n} must-do to you`, repeat: r.out.k > 1 ? `${r.out.k}× since ${hmsOf(r.out.since)}` : null, raw };
   }
   if (r.kind.startsWith("handoff:")) return { tone: "job", text: `Coordinator handed ${r.items.length === 1 ? "a job" : `${r.items.length} jobs`} to ${SKILL_NAME[e.skill] || e.skill}`, raw };
@@ -675,7 +676,10 @@ export function flowModel(input) {
   } else if (ai.kind === "trouble") {
     status = words.suffix;
     sub = `${ai.trouble.map((c) => causeShort(c)).join(". ")}. Nothing was put in ${ai.trouble.length === 1 ? "its" : "their"} place: code still checks every flight, and that work comes to you.`;
-    gate = { open: false, kind: "trouble", name: "AI model · gave no result", meta: inLine, title: "" };
+    // "gave no result" only where a model was called; with no usable model nothing was (AI UNAVAILABLE)
+    const notCalled = ai.trouble.every((c) => notRun(c.reasonClass));
+    const noModel = notCalled && ai.trouble.some((c) => c.reasonClass === "unavailable");
+    gate = { open: false, kind: "trouble", name: noModel ? "AI UNAVAILABLE · no model called" : notCalled ? "AI model · did not run" : "AI model · gave no result", meta: inLine, title: "" };
   } else {
     status = "working";
     sub = "The Coordinator hands each job to a skill, and every draft waits for you. Code checks every number before you see it.";

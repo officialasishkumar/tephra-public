@@ -7,6 +7,7 @@ import { addImages, flightGroupImage } from "./images.js";
 import { STYLE_URL, nightBasemap, nightColours, mapTokens } from "./basemap.js";
 import { officialLabelText, tephraLabelText, LEVEL_MAX } from "./derive.js";
 import { GASES_SCOPE_SHORT } from "./glossary.js";
+import { plumeOutcome } from "./x-parts.js";
 import {
   $, el, band, bboxOf, compassWord, dest, fc, hhmmz, kmBetween, ms, reducedMotion, ringCentre, ringsOf, dayMon,
 } from "./util.js";
@@ -823,7 +824,7 @@ export class WallMap {
         const dx = (at[0] - c[0]) * Math.cos((c[1] * Math.PI) / 180), dy = at[1] - c[1];
         const side = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? ["left", [0.6, 0]] : ["right", [-0.6, 0]]) : dy < 0 ? ["bottom", [0, -0.6]] : ["top", [0, 0.6]];
         const stub = D.state?.llm?.backend === "stub";
-        areas.push({ type: "Feature", geometry: { type: "Point", coordinates: at }, properties: { size: S.box, line1: tephraLabelText(p, D.sit.assessment?.outcome, stub), anchor: side[0], offset: side[1] } });
+        areas.push({ type: "Feature", geometry: { type: "Point", coordinates: at }, properties: { size: S.box, line1: tephraLabelText(p, plumeOutcome(D.sit.assessment?.outcome, D.sit.assessment?.estimate?.uncertainty_notes), stub), anchor: side[0], offset: side[1] } });
       }
     }
     return { boxes, areas, selBox };

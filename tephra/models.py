@@ -107,7 +107,17 @@ class RunMode(StrEnum):
     REPLAY = "REPLAY"
 
 
-SessionRole = Literal["dispatcher", "visitor"]
+SessionRole = Literal["dispatcher", "visitor", "viewer"]
+"""A viewer reads a hosted airline's queues and decides nothing; viewer sessions come only
+from an airline member's sign-in, never from the Desk PIN."""
+
+
+def _is_false(value: object) -> bool:
+    return value is False
+
+
+def _is_empty(value: object) -> bool:
+    return not value
 
 
 class AviationColor(StrEnum):
@@ -271,6 +281,28 @@ class AuditAction(StrEnum):
     CONNECTION_REVOKED = "CONNECTION_REVOKED"
     VISITOR_ENTERED = "VISITOR_ENTERED"
     REPLAY_RESTARTED = "REPLAY_RESTARTED"
+    # A hosted airline's own chain only. Entries name people by member id and display name
+    # and invites by id and role, never by email.
+    HOSTED_SETUP = "HOSTED_SETUP"
+    HOSTED_SHADOW = "HOSTED_SHADOW"
+    HOSTED_LIVE = "HOSTED_LIVE"
+    HOSTED_STOPPED = "HOSTED_STOPPED"
+    HOSTED_SUSPENDED = "HOSTED_SUSPENDED"
+    HOSTED_RESUMED = "HOSTED_RESUMED"
+    POLICY_CHANGED = "POLICY_CHANGED"
+    POLICY_CONFIRMED = "POLICY_CONFIRMED"
+    SRA_RECORDED = "SRA_RECORDED"
+    SRA_WITHDRAWN = "SRA_WITHDRAWN"
+    MODEL_KEY_SET = "MODEL_KEY_SET"
+    MODEL_KEY_REMOVED = "MODEL_KEY_REMOVED"
+    ASSISTANT_CHANGED = "ASSISTANT_CHANGED"
+    MEMBER_INVITED = "MEMBER_INVITED"
+    MEMBER_JOINED = "MEMBER_JOINED"
+    MEMBER_ROLE_CHANGED = "MEMBER_ROLE_CHANGED"
+    MEMBER_REMOVED = "MEMBER_REMOVED"
+    INVITE_REVOKED = "INVITE_REVOKED"
+    OPS_MANAGER_RESTORED = "OPS_MANAGER_RESTORED"
+    CHAIN_CHECKED = "CHAIN_CHECKED"
 
 
 class FeedStatus(StrEnum):
@@ -955,6 +987,11 @@ class PushSummary(TephraModel):
     closed_hits: int = 0
     reasons: list[str] = Field(default_factory=list, description="Up to 3 distinct reasons")
     dots: list[PushedDot] = Field(default_factory=list)
+    rejected_by_section: dict[str, int] = Field(
+        default_factory=dict,
+        exclude_if=_is_empty,
+        description="Hosted airlines: refused records per section (positions, flight_plans...)",
+    )
 
 
 class ConnectFlow(TephraModel):
@@ -1839,6 +1876,11 @@ class Advisory(TephraModel):
         description="Drafter prompt tokens for a fresh draft; None on a reused body",
     )
     output_tokens: int | None = None
+    shadow: bool = Field(
+        default=False,
+        exclude_if=_is_false,
+        description="Drafted while a hosted airline ran in SHADOW: not for use, ever",
+    )
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -2009,6 +2051,11 @@ class OutboundMessage(TephraModel):
     policy_id: str | None = None
     policy_version: str | None = None
     policy_hash: str | None = None
+    shadow: bool = Field(
+        default=False,
+        exclude_if=_is_false,
+        description="From an advisory drafted in SHADOW; its text carries the SHADOW line",
+    )
 
 
 class AuditEntry(TephraModel):
