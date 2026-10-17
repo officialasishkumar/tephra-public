@@ -1761,9 +1761,9 @@ policy A".
   tap away from Review) and **Submit for verification**. Signed in after submitting, the landing
   says "Your answers are submitted". An account never submitted is deleted after seven days
   without a save (privacy page).
-- **Sign in (`/signin`)**: one card over the dimmed night map ("Sign in to your workspace"); generic
-  errors ("That email and password don't match"), the tries left when two or fewer remain, "Forgot
-  password?" (the recovery code) and "Dispatcher? Use the Desk".
+- **Sign in (`/signin`)**: one card over the dimmed night map ("Sign in to your airline"); generic
+  errors ("That email and password don't match"), the tries left when two or fewer remain and "Forgot
+  password?" (the recovery code). No Desk link: the demo Desk is RFA's dispatcher only.
 - **Your airline (`/workspace`, was "Workspace")**: the airline name and a lock with "Private to your airline" and the
   sign-up card's (i) (one shared sentence, `WHO_READS` in onboard/pages.js); the
   status is said once (the Overview's status card, else the header pill: Not submitted, Pending
@@ -1771,9 +1771,19 @@ policy A".
   otherwise Overview, Your answers, Data feeds (the format and a dry run) and Assistant (the model
   choice). Sign out and Delete account live in the account menu. (Amended 17 Oct 2026, 7.36: the
   setup kit is gone; `/workspace/kit` answers 404.)
-- **Desk**: the account menu's **Airlines to verify** (a dispatcher verifies or declines; it
-  approves no policy and publishes nothing) and **Data connections** (Connect's dispatcher tools:
-  keys, the sample feed, a file upload). Visitors see neither.
+- **Desk**: the account menu's **Data connections** (Connect's dispatcher tools: keys, the sample
+  feed, a file upload); visitors do not see it. The demo Desk is RFA's dispatcher only (owner, 17
+  Oct 2026): it has no Airlines to verify.
+- **TEPHRA staff (`/admin`)**: staff sign in with their own accounts and verify or decline each
+  submitted airline (Review…: the answers, the hints, the private history, a note or a reason;
+  it approves no policy and publishes nothing) or delete a declined one's record. With hosting
+  off the page draws only the airlines (All, To verify, Verified, Declined), the onboarding count
+  and the staff accounts; the free-tier tiles, Approve hosting, Suspend and the rest appear only
+  with hosting on. Decline… asks again, with the reason, in its own step. Status words are the same
+  with hosting on or off ("Pending" beside To verify; a decided row says "since <day>"). The nav
+  pill is "Staff", the account button shows the staff member's name; "TEPHRA staff" is said by the
+  page title, sign-in, the join page, the footer and the history ("Verified · TEPHRA staff
+  (<name>)"); "operator" stays a code name.
 
 Honesty placements: ILLUSTRATIVE on both Ash policy cards and Review's policy row; "Running your
 airline on this site is not switched on yet." once on the onboarding landing and once on the workspace Overview (7.36), Policy B (its card), recovery for the airline's network, and password reset by email
@@ -1952,8 +1962,8 @@ The rules of 7.35 and 7.36 on the pages of a hosted airline (`docs/HOSTED.md`; t
   to aircraft."; LIVE "Switched to LIVE on … by …. Nothing is sent to aircraft.". Not started,
   suspended and "not updating" add none: the chip and the red line say it. At 480 px and less the
   map's header chip drops its clock (the time bar shows it), so the map header stays two rows.
-- **No decision-support footer.** The space's footer is "Private to <name> and TEPHRA's
-  operators"; the console's is "Operators of this site only" and its (i). Every SHADOW stamp,
+- **No decision-support footer.** The space's footer is "Private to <name> and TEPHRA staff"; the
+  console's is "TEPHRA staff only" and its (i). Every SHADOW stamp,
   `SHADOW - NOT FOR USE` line and Record SHADOW tag stays (`tests/test_shadow_stamp.py`).
 - **AI state once.** Settings › Assistant says "On", "AI paused" or "AI unavailable" with its
   reason and one (i); "Not chosen" for a missing model; "Not built: Ollama on this site.". The
@@ -2128,13 +2138,15 @@ no sign-in" (the three steps went on 17 Oct 2026). The right
 pane is the card (max 420): title, `#login-pending`, the form message, then the ways in. Below
 900 px the panes stack and the left one keeps only the headline, the safety line and the Wall link.
 
-While `/api/state` says `visitor_access`, the title is "Sign in to the Desk" and two tabs
+The title is "RFA dispatcher · demo" with one (i): "RFA is a fictional airline; you play its
+dispatcher on a replay." (on live public feeds when the server runs LIVE). While `/api/state`
+says `visitor_access`, two tabs
 (`#login-tabs`, `role="tablist"`, arrow keys move) choose Visitor ("No PIN") or Dispatcher ("PIN");
 the first choice is Visitor unless this browser has signed a dispatcher in before. Visitor: an
 optional name and "Enter as a visitor →", then one line "Your decisions are public." with an
 (i) (written in desk.html, wired by `wall/info.js wireInfo`): they go into the public record as
 visitor:<your name>, and visitors cannot change the display or the feeds.
-Without visitor access the title is "Dispatcher sign-in" and only the PIN form shows.
+Without visitor access only the PIN form shows.
 
 The PIN form: name (autocomplete `username`, 2-32 chars) and PIN (`current-password`, numeric
 keyboard `inputmode="numeric"`), each with its icon inside the field, labels above, errors under
@@ -2821,11 +2833,11 @@ the disclaimer exactly as `state.disclaimer` gives them.
 | Satellite frames paused | The frames feed note when the month's airline uploads are used |
 | Not built (hosted) | `docs/HOSTED.md` §6, each said where it applies; the workspace line "TEPHRA runs at most 3 airlines at once on this site." until the airline has its space, then the places line beside Start ("1 of 3 airline places in use") (the setup kit is dropped) |
 | DRY RUN · NOTHING TAKEN IN | The dry-run card (`dryrun.js`, workspace and airline Feeds); "Checked, not taken in" on Feeds in setup |
-| Private | The airline space's footer "Private to <name> and TEPHRA's operators" |
+| Private | The airline space's footer "Private to <name> and TEPHRA staff" |
 | Unpaid-tier data use | Settings › Assistant: "Google may use what TEPHRA sends with a free-tier key." |
 | Emails are not checked | The invite page ("Anyone with this link can join as <role> until <time>. Emails are not checked."); the People invite box |
 | Verified ≠ approval | The workspace verification card: "It does not approve your policy or your use of TEPHRA." |
-| Operators only | The console's footer: "Operators of this site only" and its (i) "Each action on an airline goes into that airline's record." |
+| TEPHRA staff only | The console's footer: "TEPHRA staff only" and its (i) "Each action on an airline goes into that airline's record." |
 
 ### 11.2 Mode words
 

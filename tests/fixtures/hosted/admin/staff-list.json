@@ -1,0 +1,62 @@
+{
+  "to_verify": 1,
+  "onboarding": 2,
+  "airlines": [
+    {
+      "id": "AL-0a1b2c3d4e5f",
+      "version": 2,
+      "status": "pending",
+      "status_label": "Pending",
+      "name": "Ring of Fire Regional",
+      "icao": "RFR",
+      "state_of_operator": "Indonesia",
+      "aoc_number": null,
+      "ops_email": "ops@rfr.example",
+      "email": "ana@rfr.example",
+      "submitted_at": "2026-10-17T09:12:00.000Z",
+      "decided_at": null,
+      "aircraft": 3,
+      "airports": 4,
+      "flags": [
+        "no AOC number given"
+      ]
+    },
+    {
+      "id": "AL-5f6e7d8c9b0a",
+      "version": 3,
+      "status": "verified",
+      "status_label": "Verified",
+      "name": "Ring of Fire Nusantara",
+      "icao": "RFN",
+      "state_of_operator": "Indonesia",
+      "aoc_number": "AOC-RFN-12",
+      "ops_email": "ops@rfn.example",
+      "email": "ana@rfn.example",
+      "submitted_at": "2026-10-16T08:00:00.000Z",
+      "decided_at": "2026-10-16T09:30:00.000Z",
+      "aircraft": 3,
+      "airports": 4,
+      "flags": []
+    },
+    {
+      "id": "AL-9a8b7c6d5e4f",
+      "version": 3,
+      "status": "declined",
+      "status_label": "Declined",
+      "name": "Spam Air",
+      "icao": "SPM",
+      "state_of_operator": "Indonesia",
+      "aoc_number": null,
+      "ops_email": "x@spam.example",
+      "email": "x@spam.example",
+      "submitted_at": "2026-10-15T07:00:00.000Z",
+      "decided_at": "2026-10-15T09:00:00.000Z",
+      "aircraft": 3,
+      "airports": 4,
+      "flags": [
+        "contact email domain is a public mail provider",
+        "no AOC number given"
+      ]
+    }
+  ]
+}

@@ -36,7 +36,7 @@ from pydantic import Field
 from tephra.agents.llm import backend_for
 from tephra.agents.quota import day_bounds
 from tephra.airline import accounts
-from tephra.airline.models import AirlineAnswers, AirlineLogin, AirlineRecord
+from tephra.airline.models import STAFF_STATUS_LABEL, AirlineAnswers, AirlineLogin, AirlineRecord
 from tephra.config import Settings
 from tephra.desk import audit
 from tephra.desk.connections import (
@@ -625,7 +625,7 @@ class TenantRegistry:
                 handle.health = handle.health.model_copy(
                     update={
                         "problem": f"stopped at {_hhmm(now)} after {tenants.MAX_RESTARTS} "
-                        "restarts today; TEPHRA's operators see this on their console"
+                        "restarts today; TEPHRA staff see this on their console"
                     }
                 )
                 continue
@@ -849,9 +849,9 @@ class TenantRegistry:
             slots=Slots(used=used, max=base.hosted_max_tenants),
             limit_reached=used >= base.hosted_max_tenants,
             hosting=self.hosting,
-            # Pending airlines, and apart from them the Desk-verified ones waiting for an
-            # operator's hosting approval: the console's "To verify" and "Approve hosting"
-            # filters count the same rows (a Desk-verified airline is verified already).
+            # Pending airlines, and apart from them the ones verified without hosting (at the
+            # Desk, or by staff while this site hosted none) waiting for its approval: the
+            # console's "To verify" and "Approve hosting" filters count the same rows.
             to_verify=await accounts.pending_count(self.root),
             to_approve=sum(
                 1
@@ -938,8 +938,8 @@ class TenantRegistry:
         checklist_words = None
         if tenant is None:
             status = record.status
-            label = _AIRLINE_WORDS[record.status]
-            if hosting == "desk":
+            label = STAFF_STATUS_LABEL[record.status]
+            if hosting == "desk" and _verified_at_desk(record):
                 label = "Verified (Desk)"
             since = record.decided_at or record.submitted_at
         else:
@@ -1033,12 +1033,12 @@ class TenantRegistry:
             )
 
 
-_AIRLINE_WORDS: Final[dict[str, str]] = {
-    "draft": "Not submitted",
-    "pending": "Pending",
-    "verified": "Verified",
-    "declined": "Declined",
-}
+def _verified_at_desk(record: AirlineRecord) -> bool:
+    """Verified by a Desk dispatcher, before TEPHRA staff verified airlines (17 Oct 2026); one
+    staff verified while this site hosted none is just "Verified"."""
+    return any(e.action == "verified" and e.actor.startswith("desk:") for e in record.history)
+
+
 _SECTION_WORDS: Final[dict[str, str]] = {
     "positions": "positions",
     "flight_plans": "flight plans",

@@ -86,10 +86,10 @@ def test_setup_words_name_the_airline_and_only_an_ops_manager_is_sent_to_go_live
     wall = _src("wall.js")
     assert "`${TENANT} flights in or heading in`" in wall
     assert 'h.you?.role === "ops_manager"' in wall
-    assert "ops manager starts it from the workspace." in wall
+    assert "ops manager starts it from Your airline." in wall
     desk = _src("desk.js")
     assert "h.you?.role === 'ops_manager'" in desk
-    assert "ops manager starts it from the workspace." in desk
+    assert "ops manager starts it from Your airline." in desk
 
 
 def test_nothing_says_connecting_while_nothing_runs_for_the_airline() -> None:

@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark light">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="description" content="TEPHRA's operator console: the airlines hosted on this site, for TEPHRA's operators only.">
-  <title>Operator console · TEPHRA</title>
+  <meta name="description" content="The TEPHRA staff console: the airlines that onboard on this site, for TEPHRA staff only.">
+  <title>TEPHRA staff · TEPHRA</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <script src="/static/theme-boot.js"></script>
   <link rel="preload" href="/static/fonts/ibm-plex-sans-var-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -20,28 +20,32 @@
   <!-- every module admin.js imports, fetched at once (tests/test_admin_web.py) -->
   <link rel="modulepreload" href="/static/onboard/form.js">
   <link rel="modulepreload" href="/static/onboard/pages.js">
+  <link rel="modulepreload" href="/static/onboard/review.js">
   <link rel="modulepreload" href="/static/theme.js">
+  <link rel="modulepreload" href="/static/wall/dk.js">
   <link rel="modulepreload" href="/static/wall/features.js">
   <link rel="modulepreload" href="/static/wall/info.js">
+  <link rel="modulepreload" href="/static/wall/policy.js">
   <link rel="modulepreload" href="/static/wall/util.js">
+  <link rel="modulepreload" href="/static/wall/x-parts.js">
   <link rel="modulepreload" href="/static/workspace/api.js">
 </head>
-<!-- The operator console (SPEC hosted §5.7): /admin and /admin/join (the operator link's token
+<!-- The TEPHRA staff console (SPEC hosted §5.7): /admin and /admin/join (the staff link's token
      stays in the fragment). admin.js fills #main; every string goes in through textContent. -->
 <body class="product admin-shell">
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="tn-bar">
     <a class="tn-home" href="/" title="TEPHRA home">TEPHRA</a>
-    <nav class="topnav" aria-label="TEPHRA pages"><a href="/demo">Demo</a><a href="/desk">Desk</a><a href="/admin" aria-current="page">Admin</a><a href="/guide">Guide</a></nav>
+    <nav class="topnav" aria-label="TEPHRA pages"><a href="/demo">Demo</a><a href="/desk">Desk</a><a href="/admin" aria-current="page">Staff</a><a href="/guide">Guide</a></nav>
     <span class="tn-spacer"></span>
     <div id="tn-right" class="tn-right"></div>
   </header>
   <main id="main" class="pmain" tabindex="-1">
-    <noscript><p class="note note--caution">The operator console needs JavaScript.</p></noscript>
+    <noscript><p class="note note--caution">The staff console needs JavaScript.</p></noscript>
   </main>
   <footer class="pfoot">
     <!-- one line; admin.js adds its (i): each action goes into that airline's record -->
-    <span id="ad-foot" class="pfoot__private"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-lock"></use></svg><span>Operators of this site only</span></span>
+    <span id="ad-foot" class="pfoot__private"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-lock"></use></svg><span>TEPHRA staff only</span></span>
     <nav aria-label="More pages"><a href="/guide">Guide</a><a href="/privacy">Privacy</a></nav>
   </footer>
   <p id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></p>

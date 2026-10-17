@@ -26,7 +26,6 @@
   <!-- every module desk.js imports, fetched at once (tests/test_modulepreload.py) -->
   <link rel="modulepreload" href="/static/base.js">
   <link rel="modulepreload" href="/static/desk/account.js">
-  <link rel="modulepreload" href="/static/desk/airlines.js">
   <link rel="modulepreload" href="/static/desk/api.js">
   <link rel="modulepreload" href="/static/desk/ask.js">
   <link rel="modulepreload" href="/static/desk/budget.js">
@@ -53,9 +52,6 @@
   <link rel="modulepreload" href="/static/desk/tabs.js">
   <link rel="modulepreload" href="/static/desk/toast.js">
   <link rel="modulepreload" href="/static/desk/ui.js">
-  <link rel="modulepreload" href="/static/onboard/form.js">
-  <link rel="modulepreload" href="/static/onboard/pages.js">
-  <link rel="modulepreload" href="/static/onboard/review.js">
   <link rel="modulepreload" href="/static/tenant-nav.js">
   <link rel="modulepreload" href="/static/theme.js">
   <link rel="modulepreload" href="/static/wall/basemap.js">
@@ -65,7 +61,6 @@
   <link rel="modulepreload" href="/static/wall/features.js">
   <link rel="modulepreload" href="/static/wall/images.js">
   <link rel="modulepreload" href="/static/wall/info.js">
-  <link rel="modulepreload" href="/static/wall/policy.js">
   <link rel="modulepreload" href="/static/wall/util.js">
   <link rel="modulepreload" href="/static/wall/x-parts.js">
   <link rel="modulepreload" href="/static/workspace/api.js">
@@ -129,7 +124,9 @@
       </div>
 
       <div class="login__card">
-        <h1 id="login-title" class="login__title">Dispatcher sign-in</h1>
+        <!-- the demo Desk is RFA's dispatcher only (owner, 17 Oct): one line, the fictional airline
+             behind its (i); login.js says replay or live there as the state says -->
+        <div class="login__head"><h1 id="login-title" class="login__title">RFA dispatcher · demo</h1><span class="info" data-wire="info"><button type="button" class="info__btn" aria-expanded="false" aria-controls="login-who-pop" aria-label="About RFA" aria-describedby="login-who-sr" data-info="rfa"><svg class="icon info__glyph" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-info"></use></svg></button><span id="login-who-sr" class="sr-only">RFA is a fictional airline; you play its dispatcher on a replay.</span><span id="login-who-pop" class="info__pop" role="group" aria-label="About RFA" aria-hidden="true" hidden><span class="info__line">RFA is a fictional airline; you play its dispatcher on a replay.</span></span></span></div>
         <p id="login-pending" class="login__pending" hidden></p>
         <p id="login-error" class="msg msg--serious form-msg" role="alert" hidden></p>
 

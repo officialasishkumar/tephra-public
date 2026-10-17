@@ -9,7 +9,8 @@ it on.
 
 Hosting is the opt-in feature `hosted`. It is **off** on the deployed demo: `TEPHRA_FEATURES` in
 `.github/workflows/deploy.yml` does not name it, and `all` never includes it. With it off, nothing
-on this page exists and every demo answer is as before. Turning it on is the owner's change
+on this page exists and every demo answer is as before, except that TEPHRA staff still verify
+airlines on `/admin` (onboarding's console, with its hosting parts not drawn). Turning it on is the owner's change
 (`deploy/README.md`, "Hosted airlines").
 
 ## 1. What an airline gets
@@ -26,7 +27,7 @@ Every page sits behind sign-in and answers `X-Robots-Tag: noindex`. A header on 
 the airline (a switcher for people in several), the four pages, the state chip (SHADOW, LIVE,
 SUSPENDED, or "Not started" in setup; in SHADOW and LIVE its (i) says what a draft is) and the
 account. The footer says "Private to <name> and
-TEPHRA's operators". The decision-support sentence is not page chrome (owner, 17 Oct 2026: "don't
+TEPHRA staff". The decision-support sentence is not page chrome (owner, 17 Oct 2026: "don't
 put this everywhere"): it is said in the Switch to LIVE dialog and the sign-up and invite ticks, and
 documents and outbound text keep their labels; every SHADOW draft keeps its stamp.
 
@@ -34,12 +35,12 @@ documents and outbound text keep their labels; every SHADOW draft keeps its stam
 
 | State | What runs | Who moves it on |
 |---|---|---|
-| Verified, waiting | Nothing. An airline verified with the Desk PIN shows "TEPHRA's operators approve hosting after verification." | An operator approves hosting on `/admin`. |
+| Verified, waiting | Nothing. An airline verified without hosting (at the Desk before 17 Oct 2026, or by staff while hosting was off) shows "TEPHRA staff approve hosting after verification." | TEPHRA staff approve hosting on `/admin`. With hosting on, a staff Verify approves hosting too. |
 | Can set up | Nothing. The workspace offers "Set up TEPHRA for <name>". | The airline's account holder names themself once and becomes the first ops manager. |
 | Setup | No runtime and no airline place. Feeds, keys and Settings work; a push is checked and counted, never taken in (202, `taken_in: false`). | An ops manager starts shadow runs once the checklist is 4 of 4, a region is set and a place is free. |
 | SHADOW | TEPHRA runs on the airline's real flights; every draft carries "Shadow · not for use", written by code outside any editable text. | An ops manager switches to LIVE (ticks "I am <name>'s ops manager…" and types the code), or stops. |
 | LIVE | The stamp goes; approved drafts are for the airline's dispatchers to use. The switch is recorded with a name and a time. | An ops manager goes back to SHADOW (with a reason) or stops TEPHRA (with a reason). |
-| Suspended | Runs stop and pushes are refused; every page stays readable, every change is refused. | An operator resumes it (always in SHADOW) or, from 7 days after suspension, deletes its data. |
+| Suspended | Runs stop and pushes are refused; every page stays readable, every change is refused. | TEPHRA staff resume it (always in SHADOW) or, from 7 days after suspension, delete its data. |
 | Data deleted | A tombstone with the code, the airline's name and the times it was set up and deleted; nothing about its people (names, member ids, the SRA signatory), no suspension reason, key or region. Members and invites are removed. | — |
 
 The go-live checklist (workspace): **Feeds connected** (positions and, if declared, flight plans
@@ -57,23 +58,26 @@ rest of what it means sits behind its (i).
 
 ## 3. Roles
 
-| | Viewer | Dispatcher | Ops manager | Operator (TEPHRA) |
+| | Viewer | Dispatcher | Ops manager | TEPHRA staff |
 |---|---|---|---|---|
 | Map, Desk queues, documents, Feeds, Policy, Assistant (no key), People (no emails), Record | ✓ | ✓ | ✓ | console only |
 | Approve, edit, reject; crew reports; notices; Ask; dry run | | ✓ | ✓ | |
 | Push keys, policy, model and key, invites and roles, Start, LIVE, back to SHADOW, Stop, Record check and export | | | ✓ | |
-| Verify, approve hosting, suspend, resume, delete data, ops-manager link, operators | | | | ✓ |
+| Verify, approve hosting, suspend, resume, delete data, ops-manager link, staff accounts | | | | ✓ |
 
 Members are airline accounts. An ops manager invites by email and role; the invite is a one-time
 link, valid 72 hours, that the ops manager copies and sends. The token travels in the link's
 fragment (`/join#<token>`) and in JSON bodies, never in a path. TEPHRA sends no email and does not
 check emails: the link is the proof. An airline always keeps at least one ops manager; when none is
-left, an operator makes an ops-manager link for the airline's account email.
+left, TEPHRA staff make an ops-manager link for the airline's account email.
 
-Operators are TEPHRA's own people, with their own accounts and cookie (`tephra_operator`, 8 hours).
-They see each airline as one row (status, counts, contacts), never its drafts, people or key. The
-first operator comes from a one-time link that works only while no operator exists; every later one
-is invited by an operator.
+TEPHRA staff ("operators" in code) are TEPHRA's own people, with their own accounts and cookie
+(`tephra_operator`, 8 hours), on `/admin`. They verify every airline that onboards, with hosting on
+or off (the demo Desk is RFA's dispatcher only and verifies nothing); with hosting on they also see
+each hosted airline as one row (status, counts, contacts), never its advisory drafts, member
+accounts or key. The
+first staff account comes from a one-time link that works only while no account is active
+(`deploy/README.md`, "The first TEPHRA staff account"); every later one is invited from `/admin`.
 
 ## 4. Keys
 
@@ -121,7 +125,7 @@ is invited by an operator.
 
 ## 6. Not built
 
-- Email: invites and operator links are links you copy; no email is sent and emails are not
+- Email: invites and staff links are links you copy; no email is sent and emails are not
   checked.
 - Password reset by email.
 - Two-factor sign-in, single sign-on, custom domains, a choice of data residency.

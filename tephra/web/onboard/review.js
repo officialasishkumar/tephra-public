@@ -157,7 +157,7 @@ export function accountFields() {
 // "Email reset: not built" there). `next`: where the button goes once the code is saved, its
 // words, and `go` when the page moves there itself (onboarding keeps the account's answers in
 // memory on the way).
-export function recoveryCard(r, { lead, chip = null, next = { href: "/workspace", text: "Open my workspace" }, extra = null }) {
+export function recoveryCard(r, { lead, chip = null, next = { href: "/workspace", text: "Open Your airline" }, extra = null }) {
   const copy = el("button", { type: "button", class: "btn btn--secondary btn--sm" }, icon("i-clipboard"), el("span", { text: "Copy" }));
   copy.addEventListener("click", async () => {
     try {

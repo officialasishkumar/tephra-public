@@ -173,12 +173,37 @@ It prints every gcloud command before running it and creates:
 
 It also creates one uptime check, `TEPHRA /health`, from Google's checkers every 5 minutes (left as it is when it exists). It creates no Cloud Trace setup. Rerunning it updates the metrics and leaves an existing dashboard, channel or policy as it is. If you pause the scheduler job or the service, disable the no-tick policy first, or it will email you.
 
+## The first TEPHRA staff account (verifying airlines)
+
+TEPHRA staff verify the airlines that onboard, on `/admin`, with their own accounts; the demo Desk
+(the Desk PIN) is RFA's dispatcher only and cannot verify. `/admin` exists whenever `onboard` is in
+`TEPHRA_FEATURES` (the live site's `connect,onboard`), hosting off included. The first account comes
+from a one-time link the task token mints; it works only while no active staff account exists, and
+every later one is invited from `/admin`.
+
+```bash
+TOKEN="$(CLOUDSDK_ACTIVE_CONFIG_NAME=tephra-personal gcloud secrets versions access latest --secret TEPHRA_TASK_TOKEN)"
+curl -sS -X POST "https://<service URL>/tasks/operator-invite" \
+  -H "X-Tephra-Task-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name": "<your name>", "email": "<your staff email>"}'
+# -> {"link": "https://<service URL>/admin/join#<token>", "expires_at": "..."}  (24 hours, one use)
+unset TOKEN
+```
+
+Open the link, type the same email and choose a password (12 characters or more). The answer is 409
+`operators_exist` once an account exists. **Locked out** (every account disabled or forgotten):
+delete the documents of the `operators` collection in the Firestore console, then mint a link
+again. **Kill switch** for one account: `POST /tasks/operator-revoke` with the same header and
+`{"email": "<their email>"}` disables it and signs it out on its next request. Airlines verified or
+declined at the Desk before 17 Oct 2026 keep their status and history.
+
 ## Hosted airlines (off until the owner turns it on)
 
-Hosting gives each verified airline its own private TEPHRA at `/a/<ICAO>/` on this service, with an
-operator console at `/admin` (`docs/HOSTED.md`). It is the opt-in feature `hosted`: `all` never
-includes it, and the deploy workflow does not name it, so the live site runs the demo only. With it
-off, the hosted, airline and console routes do not exist and every demo answer is as before.
+Hosting gives each verified airline its own private TEPHRA at `/a/<ICAO>/` on this service; the
+staff console at `/admin` (`docs/HOSTED.md`) then also approves hosting, suspends, resumes and
+deletes. It is the opt-in feature `hosted`: `all` never includes it, and the deploy workflow does
+not name it, so the live site runs the demo and onboarding only. With it off, the hosted and
+airline-space routes do not exist and every demo answer is as before.
 
 **Before turning it on**, read the demo's own Firestore use in the console (Firestore > Usage: reads,
 writes and deletes per day). Hosting shares the free tier with the demo, and the site caps below
@@ -194,24 +219,7 @@ default); on demand, nothing ticks for them and the console says so.
 instance counted since it started (per Pacific day, by airline), but only the console's figures
 are the bill.
 
-**The first operator.** Mint a one-time operator link with the task token, then open it and choose
-a password. It works only while no active operator exists; every later operator is invited from
-`/admin`.
-
-```bash
-TOKEN="$(CLOUDSDK_ACTIVE_CONFIG_NAME=tephra-personal gcloud secrets versions access latest --secret TEPHRA_TASK_TOKEN)"
-curl -sS -X POST "https://<service URL>/tasks/operator-invite" \
-  -H "X-Tephra-Task-Token: $TOKEN" -H "Content-Type: application/json" \
-  -d '{"name": "<your name>", "email": "<your operator email>"}'
-# -> {"link": "https://<service URL>/admin/join#<token>", "expires_at": "..."}  (24 hours, one use)
-unset TOKEN
-```
-
-The answer is 409 `operators_exist` once an operator exists. **Locked out** (every operator
-disabled or forgotten): delete the documents of the `operators` collection in the Firestore
-console, then mint a link again. **Kill switch** for one operator:
-`POST /tasks/operator-revoke` with the same header and `{"email": "<their email>"}` disables them
-and signs them out on their next request.
+**The first TEPHRA staff account** is the same with hosting on or off (the section above).
 
 **The airlines' model keys** are sealed with a key derived from `TEPHRA_KEY_SECRET` if it is set,
 else from `TEPHRA_SESSION_SECRET`. `TEPHRA_KEY_SECRET` is optional and recommended before turning
@@ -237,7 +245,7 @@ month), `TEPHRA_HOSTED_RSS_LIMIT_MB` (700), `TEPHRA_HOSTED_PUSH_GAP_S` (10) and
 - The demo's public reads are today's exposure and are not paused or limited by hosting; they
   never pause an airline either. The console says when the whole site is past a cap through
   them: read the Firestore usage page then (the bill is the owner's to watch).
-- During a rollout overlap (two instances for a few minutes), a membership or operator change made
+- During a rollout overlap (two instances for a few minutes), a membership or staff change made
   on one instance reaches the other within 10 minutes at most.
 
 ## Cost notes

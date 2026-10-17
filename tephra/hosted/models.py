@@ -5,7 +5,7 @@ Root collections hold the site's documents (``hosted_tenants``, ``hosted_members
 ``hosted_invites``, ``hosted_slots``, ``hosted_meter``, ``operators``, ``operator_invites``); an
 airline's own namespace holds its ``policy_versions`` beside every other collection. No audit
 entry and no view carries a password, a token or a model key; emails are shown to an airline's
-ops managers and to TEPHRA's operators only.
+ops managers and to TEPHRA staff only.
 """
 
 import unicodedata
@@ -665,7 +665,10 @@ class AdminRow(TephraModel):
     status: str = Field(description="Airline status (pending, declined) or the tenant state")
     status_label: str
     state_since: UtcDatetime | None
-    hosting: Literal["desk", "operator"] | None
+    hosting: Literal["desk", "operator"] | None = Field(
+        description="A verified airline's hosting: 'operator' approved, 'desk' not approved yet "
+        "(verified at the Desk, or by staff while this site hosted no airlines)"
+    )
     checklist: str | None = Field(description="'2/4' for an airline in setup")
     feeds: AdminFeeds | None
     ai: list[AdminAi]
@@ -684,7 +687,7 @@ class AdminList(TephraModel):
     hosting: Literal["always-on", "on-demand"]
     to_verify: int = Field(description="Airlines waiting to be verified (pending)")
     to_approve: int = Field(
-        description="Airlines the Desk verified, waiting for an operator to approve hosting"
+        description="Verified airlines waiting for TEPHRA staff to approve hosting"
     )
     advisories_waiting: int
     meter: AdminMeter

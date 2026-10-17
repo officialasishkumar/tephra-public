@@ -399,7 +399,7 @@ def test_hosting_off_keeps_today_s_overview(tmp_path: Path) -> None:
     assert skipped["calls"] == []
 
 
-WAITING = "TEPHRA's operators approve hosting after verification. This page says when."
+WAITING = "TEPHRA staff approve hosting after verification. This page says when."
 
 
 def _pending(hosted_site: bool, status: str = "pending") -> dict[str, Any]:
@@ -428,9 +428,7 @@ def test_a_pending_airline_is_told_what_follows_when_this_site_hosts(tmp_path: P
 def test_desk_verified_airline_waits_for_the_operators(tmp_path: Path) -> None:
     r = _overview(tmp_path, "waiting")
     assert r["golive"] is None
-    assert (
-        "TEPHRA's operators approve hosting after verification. This page says when." in r["text"]
-    )
+    assert "TEPHRA staff approve hosting after verification. This page says when." in r["text"]
     assert "It does not approve your policy or your use of TEPHRA." in r["text"]
     assert NOT_BUILT_HOSTED in r["text"]
 
@@ -492,7 +490,7 @@ def test_set_up_sends_the_display_name_and_says_why_it_was_refused(tmp_path: Pat
     )
     assert taken["done"] == 0
     assert taken["errors"] == [
-        "Another airline already has a space with this code. Contact TEPHRA's operators."
+        "Another airline already has a space with this code. Contact TEPHRA staff."
     ]
 
 
@@ -544,11 +542,11 @@ def test_a_full_site_and_a_full_memory_say_so(tmp_path: Path) -> None:
     assert full["start"]["disabled"] is True
     assert (
         full["why"]
-        == "All airline places on this site are in use. TEPHRA's operators can see you are ready."
+        == "All airline places on this site are in use. TEPHRA staff can see you are ready."
     )
     assert "3 of 3 airline places in use" in full["golive"]
     memory = _overview(tmp_path, "setup", "header-setup", "golive-site-memory")
-    assert memory["why"] == "This site's memory is full. TEPHRA's operators can see you are ready."
+    assert memory["why"] == "This site's memory is full. TEPHRA staff can see you are ready."
 
 
 def test_an_open_checklist_on_a_full_site_says_both(tmp_path: Path) -> None:
@@ -631,7 +629,7 @@ def test_start_sends_the_region_and_a_refusal_is_said(tmp_path: Path) -> None:
     assert refused["calls"][0]["body"] == {"region": "java_bali"}
     assert refused["done"] == 0
     assert refused["said"] == [
-        "All airline places on this site are in use. TEPHRA's operators can see you are ready."
+        "All airline places on this site are in use. TEPHRA staff can see you are ready."
     ]
 
 
@@ -671,11 +669,11 @@ def test_suspended_says_who_when_why_and_the_delete_date(tmp_path: Path) -> None
     r = _overview(tmp_path, "suspended", "header-suspended")
     assert ["sbadge sbadge--suspended", "SUSPENDED"] in r["badges"]
     assert (
-        "TEPHRA's operators suspended Ring of Fire Charter on 17 Oct, 13:40 UTC: Positions pushed "
+        "TEPHRA staff suspended Ring of Fire Charter on 17 Oct, 13:40 UTC: Positions pushed "
         "for aircraft outside your fleet. Runs are stopped and pushes are refused." in r["seen"]
     )
     assert dict(r["infos"])["your data"] == (
-        "Your settings, people, keys and record are kept. TEPHRA's operators can delete your "
+        "Your settings, people, keys and record are kept. TEPHRA staff can delete your "
         "data from 24 Oct, 13:40 UTC; nothing deletes it on its own."
     )
     assert "Contact TEPHRA" in r["golive"]

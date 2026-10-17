@@ -3,7 +3,7 @@
 // its (i)), then, when this site hosts airlines (view.hosted, from workspace.js), Go live on TEPHRA
 // (golive.js), then the answers, the data feeds, the assistant and the people, a line each (once
 // the airline has its own space, only the answers stay). Both end with the one line that says this
-// site runs no airline's operation yet, or, where it hosts airlines, that the operators approve
+// site runs no airline's operation yet, or, where it hosts airlines, that TEPHRA staff approve
 // hosting after verification, then the site's limit once hosting is open to the airline; once the
 // airline has its space that line goes (its places line says the limit where it matters).
 // Every value goes in through el().
@@ -21,16 +21,11 @@ export function utcDay(iso) {
 }
 
 // The status in one line (the Overview's header shows no pill: this card says it); what it means
-// behind the (i). A declined airline's line carries the dispatcher's reason.
+// behind the (i). TEPHRA staff verify (owner, 17 Oct 2026); a decision made at the Desk before that
+// stays in the record as it was, so the decided lines say "TEPHRA". A declined airline's line
+// carries the reason.
 const VERIFY = {
-  pending: ["A dispatcher is checking your airline. Answers stay editable.", "Until verified, nothing is drafted under your airline's name."],
-  verified: ["Verified.", "A TEPHRA dispatcher checked who you are. It does not approve your policy or your use of TEPHRA."],
-  declined: ["Declined.", "A TEPHRA dispatcher declined this airline. Your answers stay as they are."],
-};
-// Where this site hosts airlines, a dispatcher or one of TEPHRA's operators verifies: the words
-// name neither (the record says who).
-const VERIFY_HOSTED = {
-  pending: ["TEPHRA is checking your airline. Answers stay editable.", "Until verified, nothing is drafted under your airline's name."],
+  pending: ["TEPHRA staff are checking your airline. Answers stay editable.", "Until verified, nothing is drafted under your airline's name."],
   verified: ["Verified.", "TEPHRA checked who you are. It does not approve your policy or your use of TEPHRA."],
   declined: ["Declined.", "TEPHRA declined this airline. Your answers stay as they are."],
 };
@@ -38,8 +33,7 @@ const VERIFY_HOSTED = {
 function verification(view, waiting = false) {
   const step = (kind) => view.steps.find((s) => s.kind === kind);
   const declined = view.status === "declined";
-  const words = view.hostedSite ? VERIFY_HOSTED : VERIFY;
-  const [said, more] = words[view.status] || words.pending;
+  const [said, more] = VERIFY[view.status] || VERIFY.pending;
   const reason = declined ? step("declined")?.reason : null;
   const line = reason ? `Declined: ${reason}` : said;
   const cut = line.lastIndexOf(" ") + 1;
@@ -128,10 +122,10 @@ export function renderOverview(main, view) {
   main.append(
     verification(view, waiting),
     ...hostedCards(view, hosted, { onChange: () => view.onHostedChange?.() }),
-    el("ul", { class: "wrows", "aria-label": "Your workspace" },
+    el("ul", { class: "wrows", "aria-label": "Your airline" },
       row("i-list", "Your answers",
         [`${c.done} of 9`, c.first ? el("span", { class: "status status--caution" }, " ", icon("st-caution"), el("span", { text: c.first })) : null],
-        view.editable ? go("/workspace/answers", "Edit") : el("span", { class: "wrow__note", text: "Locked: ask a dispatcher" })),
+        view.editable ? go("/workspace/answers", "Edit") : el("span", { class: "wrow__note", text: "Locked" })),
       spaced ? null : row("i-inbox", "Data feeds", feeds.length ? feeds.join(", ").replace(/^./, (m) => m.toUpperCase()) : "Public ADS-B only", go("/workspace/feeds", "Dry run")),
       spaced ? null : row("ta-16", "Assistant", [PROVIDER_WORDS[a.assistant.provider] || "–", model ? el("span", { class: "mono wrow__sub", text: ` ·\u00a0${model}` }) : null], go("/workspace/assistant", "Change")),
       spaced ? null : row("i-dispatcher", "People", `${approvers} ${approvers === 1 ? "approver" : "approvers"}`,

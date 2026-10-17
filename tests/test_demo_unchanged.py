@@ -195,6 +195,16 @@ PINNED: dict[str, str] = {
 }
 """Computed from bc3fac9 (the module docstring says how)."""
 
+STAFF_CONSOLE: dict[str, str] = {
+    "GET /admin": "2971d270a47edc300ee53eb46bc4035d",
+    "GET /api/admin/me": "b2dd63c7cba267bc4ff2da15f757ee8b",
+    "GET /api/airline/session": "24a73a87738664a70deed7244aae7fa9",
+}
+"""The three answers that changed on purpose: TEPHRA staff verify airlines on /admin, with hosting
+off too (owner, 17 Oct 2026: "yes, do the split"), so with ``onboard`` on the console's page and
+its sign-in check exist (200, and 401 signed out) where bc3fac9 had no route (404); and the
+session read says ``staff`` (false here) so only a staff cookie makes the nav ask /api/admin/me."""
+
 
 @pytest.fixture
 def base(tmp_path: Path) -> Settings:
@@ -204,7 +214,8 @@ def base(tmp_path: Path) -> Settings:
 def test_with_hosted_off_every_answer_is_the_one_bc3fac9_gave(base: Settings) -> None:
     now = capture(base, runtime_factory=Harness().factory)
     assert set(now) == set(PINNED)
-    changed = sorted(label for label in PINNED if now[label] != PINNED[label])
+    expected = PINNED | STAFF_CONSOLE
+    changed = sorted(label for label in expected if now[label] != expected[label])
     assert changed == []
 
 

@@ -1,25 +1,24 @@
-"""Airline onboarding accounts, the private workspace's API, the Desk's airline review and the
-own-fleet read (``GET /api/fleet``). The account comes first: its onboarding pages are a draft
-saved on each Next and Back (``PUT /api/airline/draft``) until Review submits them
-(``POST /api/airline/submit``); the Desk never sees a draft.
+"""Airline onboarding accounts, the private workspace's API and the own-fleet read
+(``GET /api/fleet``). The account comes first: its onboarding pages are a draft saved on each
+Next and Back (``PUT /api/airline/draft``) until Review submits them (``POST
+/api/airline/submit``). TEPHRA staff verify a submitted airline on ``/admin``
+(``tephra.api.routes_admin``); the demo Desk never reads an airline's record.
 
-``router`` is mounted under ``/api`` by the app factory. Every ``/api/airline/*`` and
-``/api/desk/airlines*`` route answers 404 ``feature_off`` unless ``onboard`` is in
-``TEPHRA_FEATURES``; ``/api/airline/*`` (but ``session``) answers 503 ``accounts_off`` without
-a session secret. Nothing here publishes an event, writes the audit trail or changes the
-picture: an airline's record is private to it and this site's dispatchers, and a dry run takes
-nothing in. Errors never repeat input (no email, no password).
+``router`` is mounted under ``/api`` by the app factory. Every ``/api/airline/*`` route answers
+404 ``feature_off`` unless ``onboard`` is in ``TEPHRA_FEATURES``, and (but ``session``) 503
+``accounts_off`` without a session secret. Nothing here publishes an event, writes the audit
+trail or changes the picture: an airline's record is private to it and TEPHRA staff, and a dry
+run takes nothing in. Errors never repeat input (no email, no password).
 """
 
 import asyncio
 import json
 import logging
-import re
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Annotated, Any, Final, Literal
+from typing import Annotated, Any, Final
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, ValidationError
 
@@ -28,26 +27,19 @@ from tephra.airline.models import (
     AccountCreate,
     AccountCreated,
     AirlineAnswers,
-    AirlineDeskRow,
-    AirlineDeskView,
-    AirlineList,
     AirlineLogin,
     AirlineRecord,
     AirlineSessionView,
     AirlineView,
     AnswersUpdate,
     AssistantUpdate,
-    DeclineAirline,
     DeleteAccount,
-    DeleteAirline,
-    DeskStatus,
     DraftUpdate,
     DryRunResult,
     Recover,
     RecoveryCode,
     SignIn,
     Submit,
-    VerifyAirline,
 )
 from tephra.airline.policy_check import EDITABLE, PolicyRefused, apply_changes
 from tephra.airline.sessions import (
@@ -63,16 +55,16 @@ from tephra.airline.sessions import (
     require_accounts,
     require_airline,
     require_login,
-    require_onboard,
     set_airline_cookie,
     sign_out_everywhere,
 )
 from tephra.api import ApiError
-from tephra.api.auth import VISITOR_ROLE_DETAIL, LoginThrottle, require_csrf, wall_clock_now
-from tephra.api.server import DeskSession, RuntimeDep, SettingsDep, _actor, _json
+from tephra.api.auth import LoginThrottle, require_csrf, wall_clock_now
+from tephra.api.server import RuntimeDep, SettingsDep, _json
 from tephra.desk import connections
 from tephra.feeds.routes import ROUTES_FILE
-from tephra.models import ErrorBody, FleetResponse, SessionInfo, TephraModel, is_airline_callsign
+from tephra.hosted.operators import read_operator_claims
+from tephra.models import ErrorBody, FleetResponse, is_airline_callsign
 from tephra.pipeline import Runtime
 from tephra.store.base import Store
 
@@ -85,20 +77,15 @@ router = APIRouter()
 SITE: Final = "site"
 PURGE_EVERY_S: Final = 3600.0
 TRIES_HEADER: Final = "X-Tephra-Tries-Left"
-_AIRLINE_ID: Final = re.compile(r"AL-[0-9a-f]{12}")
 
 Airline = Annotated[AirlineContext, Depends(require_airline)]
 SignedIn = Annotated[LoginContext, Depends(require_login)]
 DELETE_REFUSALS: Final = {
-    "hosted_airline": "Your airline is hosted on TEPHRA. TEPHRA's operators delete its data.",
+    "hosted_airline": "Your airline is hosted on TEPHRA. TEPHRA staff delete its data.",
     "last_ops_manager": "You are the last ops manager of an airline on TEPHRA. Make someone "
     "else ops manager first.",
 }
 Accounts = [Depends(require_csrf), Depends(require_accounts)]
-
-
-class PendingSummary(TephraModel):
-    pending: int
 
 
 # --- helpers ----------------------------------------------------------------------------
@@ -260,6 +247,7 @@ async def get_session(request: Request, settings: SettingsDep) -> Response:
             signed_in=claims is not None,
             icao=None if claims is None else claims.icao or None,
             name=None if claims is None else claims.name or None,
+            staff=read_operator_claims(request, settings) is not None,
         )
     )
 
@@ -480,7 +468,7 @@ def _locked(status: str) -> ApiError:
     return ApiError(
         403,
         "answers_locked",
-        f"Your answers are kept as {status}. Ask a TEPHRA dispatcher to change them.",
+        f"Your answers are kept as {status}. Ask TEPHRA staff to change them.",
     )
 
 
@@ -608,140 +596,3 @@ async def _delete_member_login(request: Request, runtime: Runtime, login: Airlin
         access=request.app.state.access,
         at=wall_clock_now(),
     )
-
-
-# --- the Desk ---------------------------------------------------------------------------
-
-DeskOnboard = [Depends(require_onboard)]
-DeskOnboardCsrf = [Depends(require_csrf), Depends(require_onboard)]
-
-
-async def require_dispatcher(session: DeskSession) -> SessionInfo:
-    """An airline's record is private to this site's dispatchers: a visitor is refused here on
-    every route (``DISPATCHER_ONLY_PATHS`` names the GET prefix too, but a POST prefix there would
-    name a path no route serves)."""
-    if session.role == "visitor":
-        raise ApiError(403, "visitor_role", VISITOR_ROLE_DETAIL)
-    return session
-
-
-Dispatcher = Annotated[SessionInfo, Depends(require_dispatcher)]
-
-
-async def _desk_record(runtime: Runtime, airline_id: str) -> AirlineRecord:
-    """A submitted airline: a draft is the airline's own, and answers 404 like a missing one."""
-    if _AIRLINE_ID.fullmatch(airline_id) is None:
-        raise ApiError(404, "not_found", "No such airline")
-    try:
-        record = await accounts.get_record(runtime.store, airline_id)
-    except accounts.AirlineNotFound:
-        raise ApiError(404, "not_found", "No such airline") from None
-    if record.status == "draft":
-        raise ApiError(404, "not_found", "No such airline")
-    return record
-
-
-def _desk_view(record: AirlineRecord) -> AirlineDeskView:
-    broken = accounts.verify_history(record.history)
-    return AirlineDeskView(
-        **AirlineDeskRow.of(record).model_dump(),
-        answers=record.submitted(),
-        history=record.history,
-        history_ok=broken is None,
-        history_broken_at=broken,
-    )
-
-
-@router.get("/desk/airlines", response_model=AirlineList, dependencies=DeskOnboard)
-async def list_airlines(
-    session: Dispatcher,
-    runtime: RuntimeDep,
-    status: DeskStatus | Literal["all"] = "pending",
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
-) -> Response:
-    records = await accounts.list_airlines(runtime.store, status, limit)
-    return _json(AirlineList(airlines=[AirlineDeskRow.of(record) for record in records]))
-
-
-@router.get("/desk/airlines/summary", response_model=PendingSummary, dependencies=DeskOnboard)
-async def airlines_summary(session: Dispatcher, runtime: RuntimeDep) -> Response:
-    return _json(PendingSummary(pending=await accounts.pending_count(runtime.store)))
-
-
-@router.get("/desk/airlines/{airline_id}", response_model=AirlineDeskView, dependencies=DeskOnboard)
-async def get_airline(airline_id: str, session: Dispatcher, runtime: RuntimeDep) -> Response:
-    return _json(_desk_view(await _desk_record(runtime, airline_id)))
-
-
-async def _decide(
-    runtime: Runtime,
-    airline_id: str,
-    session: SessionInfo,
-    *,
-    version: int,
-    verified: bool,
-    note: str | None,
-) -> Response:
-    await _desk_record(runtime, airline_id)
-    try:
-        record = await accounts.decide(
-            runtime.store,
-            airline_id,
-            version=version,
-            actor=_actor(session),
-            verified=verified,
-            note=note,
-            at=wall_clock_now(),
-        )
-    except accounts.VersionConflict:
-        raise _version_conflict() from None
-    except accounts.NotPending:
-        raise ApiError(
-            422, "not_pending", "Only an airline pending verification can be decided"
-        ) from None
-    return _json(_desk_view(record))
-
-
-@router.post(
-    "/desk/airlines/{airline_id}/verify",
-    response_model=AirlineDeskView,
-    dependencies=DeskOnboardCsrf,
-)
-async def verify_airline(
-    airline_id: str, body: VerifyAirline, session: Dispatcher, runtime: RuntimeDep
-) -> Response:
-    """A person checked who this operator is; it approves no policy and publishes nothing."""
-    return await _decide(
-        runtime, airline_id, session, version=body.version, verified=True, note=body.note
-    )
-
-
-@router.post(
-    "/desk/airlines/{airline_id}/decline",
-    response_model=AirlineDeskView,
-    dependencies=DeskOnboardCsrf,
-)
-async def decline_airline(
-    airline_id: str, body: DeclineAirline, session: Dispatcher, runtime: RuntimeDep
-) -> Response:
-    return await _decide(
-        runtime, airline_id, session, version=body.version, verified=False, note=body.reason
-    )
-
-
-@router.post("/desk/airlines/{airline_id}/delete", status_code=204, dependencies=DeskOnboardCsrf)
-async def delete_airline(
-    airline_id: str, body: DeleteAirline, session: Dispatcher, runtime: RuntimeDep
-) -> Response:
-    """A declined airline's record and login, so spam does not fill the 1,000-record cap."""
-    await _desk_record(runtime, airline_id)
-    try:
-        await accounts.desk_delete(runtime.store, airline_id, version=body.version)
-    except accounts.VersionConflict:
-        raise _version_conflict() from None
-    except accounts.NotDeclined:
-        raise ApiError(
-            422, "not_declined", "Only a declined airline's record can be deleted"
-        ) from None
-    logger.info("airline deleted by desk id=%s", airline_id)
-    return Response(status_code=204)

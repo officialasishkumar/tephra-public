@@ -20,7 +20,6 @@ SOURCES = [
     WEB / "workspace.js",
     *sorted((WEB / "onboard").glob("*.js")),
     *sorted((WEB / "workspace").glob("*.js")),
-    WEB / "desk" / "airlines.js",
     WEB / "desk" / "connections.js",
     WEB / "dryrun.js",
 ]
@@ -132,12 +131,14 @@ def test_the_honesty_labels_these_pages_say() -> None:
 
 
 def test_the_landing_says_who_reads_the_answers_once() -> None:
-    """The Desk's review list shows every submitted answer to this site's dispatchers: the
-    sign-up card says so once and never claims nothing reaches the Desk."""
+    """TEPHRA staff's review on /admin shows every submitted answer (owner, 17 Oct 2026: staff
+    verify, not the Desk): the sign-up card says so once and never claims nothing reaches the
+    Desk."""
     card = _read("onboard.js").split("function signupCard()")[1].split("\nfunction ")[0]
     assert "text: WHO_READS" in card
     pages = _read("onboard/pages.js")
-    assert "this site's TEPHRA dispatchers, who verify your airline, read your answers" in pages
+    assert "Only you and TEPHRA staff, who verify your airline, read your answers" in pages
+    assert "TEPHRA dispatcher" not in pages
     assert "reaches the demo, the map or the Desk" not in pages + card
     assert pages.count("the Desk's picture") == 1
     # the workspace header says the same line, with the same (i)
@@ -178,7 +179,7 @@ def test_a_signed_in_airline_is_sent_to_its_workspace_not_a_second_account() -> 
     code = _read("onboard.js")
     landing = code.split("function landing()")[1].split("\nfunction ")[0]
     assert "S.account?.signedIn" in landing
-    assert '"Open your workspace"' in landing
+    assert '"Open Your airline"' in landing
     assert "Signed in as " in landing
     render = code.split("async function render(")[1].split("\n}\n")[0]
     assert "S.account = await initAccountNav(" in render

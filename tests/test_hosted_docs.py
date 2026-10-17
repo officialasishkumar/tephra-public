@@ -122,7 +122,7 @@ def test_hosted_md_follows_the_declutter() -> None:
     """Owner, 17 Oct 2026: the setup kit is dropped and the decision-support sentence is not page
     chrome; the SHADOW stamp and the Switch to LIVE dialog keep their honesty words."""
     assert "The footer keeps today's sentence" not in FLAT
-    assert "Private to <name> and TEPHRA's operators" in FLAT
+    assert "Private to <name> and TEPHRA staff" in FLAT
     assert "own TEPHRA" not in FLAT
     assert "setup kit" not in FLAT.lower()
     assert "every SHADOW draft keeps its stamp" in FLAT
@@ -131,7 +131,7 @@ def test_hosted_md_follows_the_declutter() -> None:
 
 def test_the_glossary_and_the_honesty_table_name_the_new_words() -> None:
     glossary = (ROOT / "docs/GLOSSARY.md").read_text(encoding="utf-8")
-    for word in ("| SHADOW |", "| LIVE |", "| Ops manager |", "| Operator |"):
+    for word in ("| SHADOW |", "| LIVE |", "| Ops manager |", "| TEPHRA staff |"):
         assert word in glossary, word
     ui = (ROOT / "docs/UI-DESIGN.md").read_text(encoding="utf-8")
     table = ui.split("### 11.1 Honesty labels (exact)")[1].split("### 11.2")[0]

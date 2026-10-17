@@ -71,11 +71,10 @@ export function renderSignin(main, { next }) {
   main.replaceChildren(stage(
     el("section", { class: "card authcard auth__card", "aria-labelledby": "si-h" },
       el("span", { class: "authcard__mark", "aria-hidden": "true" }, icon("i-lock")),
-      el("h1", { id: "si-h", class: "h1 h1--auth", text: "Sign in to your workspace" }),
+      el("h1", { id: "si-h", class: "h1 h1--auth", text: "Sign in to your airline" }),
       form,
       el("p", { class: "body2 authcard__links" },
-        el("a", { class: "link", href: "/signin/recover", dataset: { go: "" }, text: "Forgot password?" }),
-        el("span", {}, "Dispatcher? ", el("a", { class: "link", href: "/desk", text: "Use the Desk" })))),
+        el("a", { class: "link", href: "/signin/recover", dataset: { go: "" }, text: "Forgot password?" }))),
     el("p", { class: "signin__new body2" }, "New airline? ", el("a", { class: "link", href: "/onboard", text: "Onboard" }))));
 }
 

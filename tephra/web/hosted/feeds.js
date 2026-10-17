@@ -13,7 +13,7 @@ import { input } from "../onboard/form.js";
 import { can, call, errorWords, pageHead, loadingCard, failCard, onceBox, openDialog, inlineStatus, notBuiltNote, announce, refocus, headInfo, checkedField } from "../hosted.js";
 
 export const LEAD = { text: "What your systems push, as it arrives.", info: { topic: "feeds", text: "Public feeds (ash reports, satellite, winds) are on the map, under Details › Data feeds." } };
-export const SETUP_STRIP = "Checked, not taken in: TEPHRA starts in SHADOW from your workspace.";
+export const SETUP_STRIP = "Checked, not taken in: TEPHRA starts in SHADOW from Your airline.";
 // the uploader (tephra/web/kit/push.py), served to the airline's people only
 export const UPLOADER = "/tenant/feeds/uploader";
 export const UPLOADER_INFO = "push.py sends your flight plans and positions with a push key. Python 3, nothing to install; --dry-run sends nothing.";
@@ -163,7 +163,7 @@ function draw(host, h, view, fresh = null) {
   // suspended: the red line under the header says pushes are refused, and each card says so
   host.replaceChildren(...[
     pageHead("Feeds", LEAD),
-    suspended || view.taken_in ? null : el("p", { class: "fsetup", role: "status" }, el("span", {}, el("b", { text: "Checked, not taken in:" }), " TEPHRA starts in SHADOW from your workspace. "), el("a", { class: "link", href: "/workspace", text: "Your workspace ›" })),
+    suspended || view.taken_in ? null : el("p", { class: "fsetup", role: "status" }, el("span", {}, el("b", { text: "Checked, not taken in:" }), " TEPHRA starts in SHADOW from Your airline. "), el("a", { class: "link", href: "/workspace", text: "Your airline ›" })),
     el("div", { class: "fcards" }, ...(view.cards || []).map((c) => feedCard(c, opts))),
     keys].filter(Boolean));
   if (can(h, "dispatcher")) mountDryRun(host, { path: api("/tenant/feeds/dry-run"), info: "Each record is checked as a real push would be. Nothing is taken in." });

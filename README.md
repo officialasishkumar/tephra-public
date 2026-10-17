@@ -252,7 +252,7 @@ which can feed a collaborative decision-making platform like Indonesia's I-WISH,
 One instance today, on purpose: the event bus behind the streams is in process, and one pipeline is
 the single writer of the picture, the drafts and the hash-chained record. For many airlines the bus
 would become a store-backed event feed any instance can stream from, and one writer per region would
-run the tick. Airlines onboard at `/onboard` and a dispatcher verifies each one; running a verified
+run the tick. Airlines onboard at `/onboard` and TEPHRA staff verify each one; running a verified
 airline on this site is not switched on yet, and one shared service with a desk per airline over the
 same public picture is not built.
 
@@ -328,7 +328,7 @@ Every setting is in [`.env.example`](.env.example). The ones that matter first:
 ### Onboard your airline
 
 Any airline can onboard at `/onboard`: an account first, then nine short pages, then a private
-workspace. A TEPHRA dispatcher verifies each airline. Running a verified airline on this site is
+workspace. TEPHRA staff verify each airline on `/admin`. Running a verified airline on this site is
 not switched on yet.
 
 **How to onboard: what you provide**

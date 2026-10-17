@@ -373,7 +373,7 @@ async def invite_view(
         role=found.role,
         email_hint=email_hint(found.email),
         expires_at=found.expires_at,
-        invited_by="TEPHRA's operators" if by.startswith("operator:") else by.split("#")[0],
+        invited_by="TEPHRA staff" if by.startswith("operator:") else by.split("#")[0],
         you=None if login is None else await _you(store, login, found),
     )
 

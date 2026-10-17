@@ -807,6 +807,7 @@ def test_a_member_only_login_signs_in_and_may_delete_itself(
         "icao": None,
         "name": None,
         "status": None,
+        "staff": False,
     }
     assert client.get("/api/airline/me").json()["error"] == "no_airline_record"
     assert [m["icao"] for m in client.get("/api/hosted/me").json()["memberships"]] == ["RFB"]

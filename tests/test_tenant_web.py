@@ -299,13 +299,13 @@ def test_red_line_says_real_alarms_only(ran: dict[str, Any]) -> None:
         }
     ]
     (s,) = a["header-suspended"]
-    assert s["lead"] == "TEPHRA's operators suspended Ring of Fire Charter on 17 Oct, 13:40 UTC."
+    assert s["lead"] == "TEPHRA staff suspended Ring of Fire Charter on 17 Oct, 13:40 UTC."
     assert (
         "Runs are stopped and pushes are refused. Your settings, people, keys and record are kept"
         in s["text"]
     )
     assert (
-        "TEPHRA's operators can delete your data from 24 Oct 2026; nothing deletes it on its own."
+        "TEPHRA staff can delete your data from 24 Oct 2026; nothing deletes it on its own."
         in s["text"]
     )
 
@@ -323,7 +323,7 @@ def test_titles_switcher_names_and_footer(ran: dict[str, Any]) -> None:
     assert ran["names"] == ["Ana Ops", "Ana Ops", "M. Tan", "Dee Disp"]
     # who sees the space; the decision-support sentence left the footer (owner, 17 Oct 2026:
     # "don't put this everywhere"; tests/test_footer_said_once.py)
-    assert ran["footer"] == "Private to Ring of Fire Charter and TEPHRA's operators."
+    assert ran["footer"] == "Private to Ring of Fire Charter and TEPHRA staff."
 
 
 def test_header_markup_and_aria() -> None:

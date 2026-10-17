@@ -441,9 +441,6 @@ def test_the_rank_table_agrees_with_the_hosted_models() -> None:
         "/a/RFB/settings/people",
         "/api/tenant/header",
         "/api/hosted/me",
-        "/api/admin/me",
-        "/admin",
-        "/admin/join",
         "/join",
     ],
 )

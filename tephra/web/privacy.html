@@ -36,7 +36,7 @@
       <ul>
         <li>The demo needs no account and keeps no analytics.</li>
         <li>The name you type at the Desk is public.</li>
-        <li>Airline accounts are private to the airline and this site's dispatchers.</li>
+        <li>Airline accounts are private to the airline and TEPHRA staff.</li>
         <li>Gemini sees public feeds and code facts, never dispatcher names.</li>
         <li>On the unpaid tier, Google may use what it receives.</li>
       </ul>
@@ -77,25 +77,25 @@
 
     <details id="cookies" class="pfold">
       <summary><h2>Cookies</h2></summary>
-      <p>The Desk session cookie, <code>tephra_desk</code>, is set when you sign in to the Desk, holds your name and its expiry, is signed by the server and is removed when you sign out. An airline account has its own cookie, described under <a href="#accounts">Airline accounts</a>. There are no analytics or advertising cookies. The Desk also keeps two things in your browser's own storage: whether to keep the screen awake, and, for the open tab only, the incoming dispatcher's name typed on the handover form. They stay in your browser. The name reaches the server only when you create the handover.</p>
+      <p>The Desk session cookie, <code>tephra_desk</code>, is set when you sign in to the Desk, holds your name and its expiry, is signed by the server and is removed when you sign out. An airline account has its own cookie, described under <a href="#accounts">Airline accounts</a>. TEPHRA staff, who verify airlines, sign in to their own console with the cookie <code>tephra_operator</code>: it holds an id of the staff account (a hash of its email), the name, a version and its expiry (8 hours), and is signed by the server. There are no analytics or advertising cookies. The Desk also keeps two things in your browser's own storage: whether to keep the screen awake, and, for the open tab only, the incoming dispatcher's name typed on the handover form. They stay in your browser. The name reaches the server only when you create the handover.</p>
     </details>
 
     <details id="accounts" class="pfold">
       <summary><h2>Airline accounts</h2></summary>
       <p>An airline that onboards creates its account first, on the onboarding page. TEPHRA stores the account email; the password as a salted scrypt hash, never the password itself; a hash of the recovery code; and, from sign-up on, the onboarding answers with the account, saved each time you go to the next or the previous page, open another step, or leave the page, including the operations email, the contact name and the dispatchers' names or initials. On the live site they are kept in Google Cloud Firestore, and in a SQLite file when TEPHRA runs on a laptop.</p>
-      <p>The airline reads them when signed in. This site's signed-in dispatchers read them to verify the airline once it submits them on the last page; answers not submitted are not shown to them. They are never public, never written into the audit trail and never sent to Gemini.</p>
+      <p>The airline reads them when signed in. TEPHRA staff, signed in to their own console, read them to verify the airline once it submits them on the last page; answers not submitted are not shown to them, and the demo Desk never shows them. They are never public, never written into the audit trail and never sent to Gemini.</p>
       <p>The schedule files you add stay in your browser's own storage; only their counts go with your answers, and signing out clears them. Onboarding never asks for your Gemini key<!-- hosted -->; a hosted airline sets one in its own space (<a href="#hosted">Hosted airlines</a>)<!-- /hosted -->.</p>
       <p>The cookie <code>tephra_airline</code> holds the signed-in airline's id, code and name (empty until the answers are submitted), a hash of the account email and its expiry. It is HttpOnly and SameSite=Strict, is signed by the server and lasts 12 hours.</p>
-      <p>An account whose answers were never submitted is deleted, with its answers, once seven days pass without a save (at the next sign-up on this site). A submitted account is kept until the airline deletes it from the account menu on its Your airline page, or a dispatcher deletes a declined airline's record.</p>
+      <p>An account whose answers were never submitted is deleted, with its answers, once seven days pass without a save (at the next sign-up on this site). A submitted account is kept until the airline deletes it from the account menu on its Your airline page, or TEPHRA staff delete a declined airline's record.</p>
     </details>
 
     <!-- hosted -->
     <details id="hosted" class="pfold">
       <summary><h2>Hosted airlines</h2></summary>
       <p>Where this site hosts airlines (off unless its owner turns it on), a verified airline can run TEPHRA here in its own private space. For that space TEPHRA stores: its members' emails and the names they chose, with their roles; the airline's model key, only sealed (encrypted with AES-256-GCM) and shown only as its last four characters, never returned, logged or sent anywhere but Google's Gemini API for that airline's own assistant; its push keys as fingerprints only; its policy versions and its acceptance under its SRA as the airline recorded it; and the airline's record (the hash-chained audit trail of its drafts, decisions and settings), its advisories, messages and documents. Members are named in the record by the name they chose, never by email. Dispatcher names are never sent to Gemini.</p>
-      <p>Who sees it: the airline's members, by role (only its ops managers see members' emails and manage keys). TEPHRA's operators, who run this site, see each airline as one row on their console: its status, counts and contact email, never its drafts, people or key. Nothing of a hosted airline appears on the demo's map, the demo Desk or another airline's pages.</p>
-      <p>How it is deleted: TEPHRA's operators can delete a suspended airline's data from 7 days after suspending it. Its documents, members and invites are then deleted, and a tombstone with its code, its name and the times it was set up and deleted stays, with nothing about its people. Each member can leave an airline, and delete their own account, unless they are its last ops manager.</p>
-      <p>Invites are links an ops manager copies and sends: TEPHRA sends no email, and emails are not checked. An operator's console has its own cookie, <code>tephra_operator</code>, which holds an id of the operator's account (a hash of its email), the operator's name, a version and its expiry (8 hours), and is signed by the server.</p>
+      <p>Who sees it: the airline's members, by role (only its ops managers see members' emails and manage keys). TEPHRA staff, who run this site, see each airline as one row on their console: its status, counts and contact email, never its drafts, people or key. Nothing of a hosted airline appears on the demo's map, the demo Desk or another airline's pages.</p>
+      <p>How it is deleted: TEPHRA staff can delete a suspended airline's data from 7 days after suspending it. Its documents, members and invites are then deleted, and a tombstone with its code, its name and the times it was set up and deleted stays, with nothing about its people. Each member can leave an airline, and delete their own account, unless they are its last ops manager.</p>
+      <p>Invites are links an ops manager copies and sends: TEPHRA sends no email, and emails are not checked.</p>
     </details>
     <!-- /hosted -->
 

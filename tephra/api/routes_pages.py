@@ -2,8 +2,9 @@
 workspace, the Guide, the privacy notice and the printable documents.
 
 Pages are served whatever ``TEPHRA_FEATURES`` says; a page whose feature is off draws one line
-and its API refuses. The hosted pages (an airline's ``/a/<ICAO>/...``, ``/join``, ``/admin``)
-are the exception: with ``hosted`` off their router is not included at all. An airline's pages
+and its API refuses. The hosted pages (an airline's ``/a/<ICAO>/...``, ``/join``) and the TEPHRA
+staff console (``/admin``) are the exceptions: with ``hosted`` off (``onboard`` off for the
+console) their router is not included at all. An airline's pages
 are the site's own shells, the same for every ICAO: whether the reader is a member is the API's
 answer.
 This module never imports ``tephra.api.server`` (the server imports it).
@@ -21,7 +22,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from tephra.airline.sessions import read_claims
 from tephra.api import ApiError
 
-__all__ = ["WEB_DIR", "hosted_router", "router"]
+__all__ = ["WEB_DIR", "hosted_router", "router", "staff_router"]
 
 WEB_DIR: Final = Path(__file__).resolve().parent.parent / "web"
 _PRINT_DOC_ID = re.compile(r"(?:DOC-|ho_)[0-9a-f]{12}")
@@ -47,6 +48,8 @@ NOINDEX: Final = {"X-Robots-Tag": "noindex"}
 router = APIRouter()
 hosted_router = APIRouter()
 """The hosted pages, included only with ``hosted`` on (else no route answers them: 404)."""
+staff_router = APIRouter()
+"""The TEPHRA staff console, included only with ``onboard`` on (else 404)."""
 
 
 async def _page(filename: str) -> FileResponse:
@@ -226,10 +229,10 @@ async def tenant_doc(request: Request, icao: str, doc_id: str) -> Response:
     return await _tenant_page(request, icao, "doc.html")
 
 
-@hosted_router.get("/admin", include_in_schema=False)
-@hosted_router.get("/admin/join", include_in_schema=False)
+@staff_router.get("/admin", include_in_schema=False)
+@staff_router.get("/admin/join", include_in_schema=False)
 async def admin_page() -> Response:
-    """The operators' console; ``/admin/join#<token>`` keeps its token in the fragment."""
+    """The TEPHRA staff console; ``/admin/join#<token>`` keeps its token in the fragment."""
     response = await _page("admin.html")
     response.headers.update(NOINDEX)
     return response

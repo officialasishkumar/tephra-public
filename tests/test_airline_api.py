@@ -1,5 +1,6 @@
 """Airline accounts over HTTP: onboarding's account (a draft first, then Review submits it),
-sign-in limits, recovery, the private workspace and the Desk's review. No network and no model:
+sign-in limits, recovery and the private workspace (TEPHRA staff's review is
+tests/test_staff_console.py). No network and no model:
 a real runtime on fixture feeds that never ticks, so the shared picture can be compared byte for
 byte before and after.
 """
@@ -23,8 +24,6 @@ from tephra.airline import accounts, passwords
 from tephra.airline.models import AirlineAnswers, AirlineRecord, OnboardDraft
 from tephra.airline.sessions import COOKIE_NAME
 from tephra.api import server
-from tephra.api.auth import COOKIE_NAME as DESK_COOKIE
-from tephra.api.auth import sign_session, wall_clock_now
 from tephra.config import Settings
 from tephra.models import SseEvent
 from tephra.pipeline import Runtime
@@ -51,14 +50,7 @@ ACCOUNT_ROUTES = [
     ("POST", "/api/airline/delete"),
     ("POST", "/api/airline/feeds/dry-run"),
 ]
-DESK_ROUTES = [
-    ("GET", "/api/desk/airlines"),
-    ("GET", "/api/desk/airlines/summary"),
-    ("GET", "/api/desk/airlines/AL-0123456789ab"),
-    ("POST", "/api/desk/airlines/AL-0123456789ab/verify"),
-    ("POST", "/api/desk/airlines/AL-0123456789ab/decline"),
-    ("POST", "/api/desk/airlines/AL-0123456789ab/delete"),
-]
+STAFF = "operator:M. Tan#4f1c2a9b"
 
 
 # --- harness ----------------------------------------------------------------------------
@@ -181,6 +173,25 @@ def desk_login(client: TestClient) -> None:
     assert response.status_code == 200
 
 
+def decide(
+    client: TestClient, airline_id: str, version: int, *, verified: bool, note: str | None = None
+) -> AirlineRecord:
+    """TEPHRA staff's decision, through the domain (their routes: tests/test_staff_console.py)."""
+
+    async def go() -> AirlineRecord:
+        return await accounts.decide(
+            runtime_of(client).store,
+            airline_id,
+            version=version,
+            actor=STAFF,
+            verified=verified,
+            note=note,
+            at=AT,
+        )
+
+    return client.portal.call(go)  # type: ignore[union-attr]
+
+
 def error_of(response: httpx.Response) -> str:
     return str(response.json()["error"])
 
@@ -244,6 +255,7 @@ def test_creating_an_account_keeps_a_hash_a_draft_record_and_signs_in(
         "icao": None,
         "name": None,
         "status": None,
+        "staff": False,
     }
 
 
@@ -782,11 +794,7 @@ def test_verified_answers_are_locked_and_the_assistant_changes_in_every_status(
     client: TestClient,
 ) -> None:
     view = onboard(client)
-    desk_login(client)
-    verified = client.post(
-        f"/api/desk/airlines/{view['id']}/verify", json={"version": view["version"]}
-    )
-    assert verified.status_code == 200
+    decide(client, view["id"], view["version"], verified=True)
     me = client.get("/api/airline/me").json()
     locked = client.put("/api/airline/answers", json={"version": me["version"], "answers": ANSWERS})
     choice = {
@@ -803,7 +811,7 @@ def test_verified_answers_are_locked_and_the_assistant_changes_in_every_status(
     assert [step["kind"] for step in me["steps"]] == ["submitted", "verified"]
     assert (locked.status_code, error_of(locked)) == (403, "answers_locked")
     assert locked.json()["detail"] == (
-        "Your answers are kept as verified. Ask a TEPHRA dispatcher to change them."
+        "Your answers are kept as verified. Ask TEPHRA staff to change them."
     )
     assert changed.status_code == 200
     assert changed.json()["answers"]["assistant"] == choice
@@ -1022,7 +1030,7 @@ def test_with_onboard_hidden_every_airline_route_is_not_found(
     settings = airline_settings(tmp_path, features="connect")
     with use_clock(FixedClock(AT)), open_client(settings, monkeypatch)() as c:
         desk_login(c)
-        answers_ = [request(c, method, path) for method, path in ACCOUNT_ROUTES + DESK_ROUTES]
+        answers_ = [request(c, method, path) for method, path in ACCOUNT_ROUTES]
         session = c.get("/api/airline/session")
         fleet = c.get("/api/fleet")
 
@@ -1035,6 +1043,7 @@ def test_with_onboard_hidden_every_airline_route_is_not_found(
         "icao": None,
         "name": None,
         "status": None,
+        "staff": False,
     }
     assert fleet.json() == {"own_fleet": None}
 
@@ -1049,127 +1058,6 @@ def test_a_blank_session_secret_turns_accounts_off(
 
     assert {(r.status_code, error_of(r)) for r in refused} == {(503, "accounts_off")}
     assert session.json()["accounts"] is False
-
-
-# --- the Desk ---------------------------------------------------------------------------
-
-
-def test_the_desk_needs_a_dispatcher(client: TestClient) -> None:
-    signed_out = [request(client, method, path) for method, path in DESK_ROUTES]
-    token, _ = sign_session(
-        "Visitor-ab12",
-        client.app.state.settings,  # type: ignore[attr-defined]
-        at=wall_clock_now(),
-        role="visitor",
-        sid="0123456789abcdef",
-    )
-    client.cookies.set(DESK_COOKIE, token)
-    visitor = [request(client, method, path) for method, path in DESK_ROUTES]
-
-    assert {r.status_code for r in signed_out} == {401}
-    assert {(r.status_code, error_of(r)) for r in visitor} == {(403, "visitor_role")}
-
-
-def test_a_dispatcher_lists_verifies_and_declines(client: TestClient) -> None:
-    first = onboard(client, headers=ip(70))
-    gmail = answers(airline__aoc_number=None, airline__ops_email="ops@" + "gmail.com")
-    second = onboard(client, email="desk@rfa-ops.example", body_answers=gmail, headers=ip(71))
-    client.cookies.clear()
-    desk_login(client)
-
-    listed = client.get("/api/desk/airlines").json()["airlines"]
-    summary = client.get("/api/desk/airlines/summary").json()
-    view = client.get(f"/api/desk/airlines/{second['id']}").json()
-    verify = client.post(
-        f"/api/desk/airlines/{first['id']}/verify", json={"version": 2, "note": "AOC checked"}
-    )
-    again = client.post(f"/api/desk/airlines/{first['id']}/verify", json={"version": 3})
-    stale = client.post(
-        f"/api/desk/airlines/{second['id']}/decline", json={"version": 5, "reason": "Not real"}
-    )
-    decline = client.post(
-        f"/api/desk/airlines/{second['id']}/decline", json={"version": 2, "reason": "Not real"}
-    )
-    missing = client.get("/api/desk/airlines/AL-ffffffffffff")
-    malformed = client.get("/api/desk/airlines/not-an-id")
-    declined = client.get("/api/desk/airlines?status=declined").json()["airlines"]
-    everyone = client.get("/api/desk/airlines?status=all").json()["airlines"]
-
-    assert {row["id"] for row in listed} == {second["id"], first["id"]}
-    assert summary == {"pending": 2}
-    assert view["email"] == "desk@rfa-ops.example"
-    assert "contact email domain is a public mail provider" in view["flags"]
-    assert "account email domain differs from the operations email's" in view["flags"]
-    assert "no AOC number given" in view["flags"]
-    assert view["history_ok"] is True
-    assert view["aircraft"] == 3
-    assert verify.status_code == 200
-    assert verify.json()["status"] == "verified"
-    history = verify.json()["history"]
-    assert [e["action"] for e in history] == ["created", "submitted", "verified"]
-    assert history[2]["actor"] == "desk:Ana K"
-    assert history[2]["note"] == "AOC checked"
-    assert history[2]["prev_sha256"] == history[1]["sha256"]
-    assert (again.status_code, error_of(again)) == (422, "not_pending")
-    assert (stale.status_code, error_of(stale)) == (409, "version_conflict")
-    assert decline.json()["status"] == "declined"
-    assert (missing.status_code, malformed.status_code) == (404, 404)
-    assert [row["id"] for row in declined] == [second["id"]]
-    assert len(everyone) == 2
-
-
-def test_the_desk_never_sees_a_draft(client: TestClient) -> None:
-    submitted = onboard(client, headers=ip(72))
-    draft = signup(client, email="draft@rfa.example", headers=ip(73)).json()["airline"]
-    client.cookies.clear()
-    desk_login(client)
-
-    lists = {
-        status: [
-            row["id"]
-            for row in client.get(f"/api/desk/airlines?status={status}").json()["airlines"]
-        ]
-        for status in ("pending", "all")
-    }
-    asked = client.get("/api/desk/airlines?status=draft")
-    one = client.get(f"/api/desk/airlines/{draft['id']}")
-    verify = client.post(f"/api/desk/airlines/{draft['id']}/verify", json={"version": 1})
-    decline = client.post(
-        f"/api/desk/airlines/{draft['id']}/decline", json={"version": 1, "reason": "spam!"}
-    )
-    delete = client.post(f"/api/desk/airlines/{draft['id']}/delete", json={"version": 1})
-
-    assert lists == {"pending": [submitted["id"]], "all": [submitted["id"]]}
-    assert client.get("/api/desk/airlines/summary").json() == {"pending": 1}
-    assert asked.status_code == 422
-    assert [r.status_code for r in (one, verify, decline, delete)] == [404] * 4
-    assert {d["id"] for d in docs(client, Collection.AIRLINES)} == {submitted["id"], draft["id"]}
-
-
-def test_the_desk_deletes_only_a_declined_airline(client: TestClient) -> None:
-    pending = onboard(client, headers=ip(80))
-    other = onboard(client, email="b@rfa.example", headers=ip(81))
-    client.cookies.clear()
-    desk_login(client)
-    refused = client.post(f"/api/desk/airlines/{pending['id']}/delete", json={"version": 2})
-    client.post(f"/api/desk/airlines/{other['id']}/decline", json={"version": 2, "reason": "spam"})
-    deleted = client.post(f"/api/desk/airlines/{other['id']}/delete", json={"version": 3})
-
-    assert (refused.status_code, error_of(refused)) == (422, "not_declined")
-    assert deleted.status_code == 204
-    assert [d["id"] for d in docs(client, Collection.AIRLINES)] == [pending["id"]]
-    assert [d["airline_id"] for d in docs(client, Collection.AIRLINE_LOGINS)] == [pending["id"]]
-
-
-def test_a_broken_history_link_is_said(client: TestClient) -> None:
-    view = onboard(client)
-    [record] = docs(client, Collection.AIRLINES)
-    record["history"][0]["note"] = "rewritten"
-    put_docs(client, Collection.AIRLINES, {view["id"]: record})
-    client.cookies.clear()
-    desk_login(client)
-    body = client.get(f"/api/desk/airlines/{view['id']}").json()
-    assert (body["history_ok"], body["history_broken_at"]) == (False, 1)
 
 
 # --- nothing reaches the shared picture -------------------------------------------------
@@ -1199,39 +1087,6 @@ def picture(client: TestClient) -> dict[str, Any]:
         kind.value: [_frozen(e.data) for e in bus.recent(kind, limit=500)] for kind in SseEvent
     }
     return shown
-
-
-def test_nothing_an_airline_or_the_desk_does_here_is_published(client: TestClient) -> None:
-    desk_login(client)
-    before = picture(client)
-    first = signup(client, headers=ip(90)).json()["airline"]
-    steps = [
-        client.put("/api/airline/draft", json=draft_body(1, airline={"name": "Ring of Fire"})),
-        submit(client, version=2),
-        client.put("/api/airline/answers", json={"version": 3, "answers": ANSWERS}),
-        client.put(
-            "/api/airline/assistant", json={"version": 4, "assistant": {"provider": "none"}}
-        ),
-        client.post(
-            "/api/airline/feeds/dry-run",
-            json={"format": "tephra.airline/1", "positions": [{"hex": "8a0412"}]},
-        ),
-    ]
-    second = onboard(client, email="b@rfa.example", headers=ip(91))
-    steps += [
-        client.post(f"/api/desk/airlines/{first['id']}/verify", json={"version": 5}),
-        client.post(
-            f"/api/desk/airlines/{second['id']}/decline", json={"version": 2, "reason": "not real"}
-        ),
-        client.post(f"/api/desk/airlines/{second['id']}/delete", json={"version": 3}),
-    ]
-    assert signup(client, email="c@rfa.example", headers=ip(92)).status_code == 201
-    steps.append(client.post("/api/airline/delete", json={"password": PASSWORD}, headers=ip(92)))
-    after = picture(client)
-
-    assert [r.status_code for r in steps] == [200] * 7 + [204, 204]
-    assert [d["id"] for d in docs(client, Collection.AIRLINES)] == [first["id"]]
-    assert json.dumps(after, sort_keys=True) == json.dumps(before, sort_keys=True)
 
 
 def test_a_full_size_push_passes_the_dry_run_and_the_push(client: TestClient) -> None:

@@ -129,9 +129,9 @@ def member_by(member: Member) -> str:
 
 
 def shown_by(by: str) -> str:
-    """A stamp's ``by`` as pages show it: the member's name, or "TEPHRA's operators" for an
+    """A stamp's ``by`` as pages show it: the member's name, or "TEPHRA staff" for an
     operator (a resume restarts the runs in the operator's name)."""
-    return "TEPHRA's operators" if by.startswith("operator:") else by.split("#")[0]
+    return "TEPHRA staff" if by.startswith("operator:") else by.split("#")[0]
 
 
 def actor_of(by: str) -> str:
@@ -267,7 +267,7 @@ async def set_up(
         raise HostedRefused(
             409,
             "hosting_not_approved",
-            "TEPHRA's operators approve hosting after verification",
+            "TEPHRA staff approve hosting after verification",
         )
     if login.airline_id != record.id:
         raise HostedRefused(403, "not_record_holder", "Only the airline's own account sets up")

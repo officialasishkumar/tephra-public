@@ -1,15 +1,19 @@
-"""The operators' console API (``/api/admin``) and the operator tasks (``/tasks/operator-*``).
+"""The TEPHRA staff console API (``/api/admin``) and the staff tasks (``/tasks/operator-*``).
 
-Operators are TEPHRA's own people (D9): never an airline member and never a Desk role. Their
-cookie ``tephra_operator`` is checked against the operator document on every request through
-the access cache, which every operator function empties for the operator it changes. The first
-operator comes from a one-time link the task token mints, only while no operator is active;
-every later one is invited from the console. Every route binds the wall clock, and every action
-on an airline is recorded in that airline's own chain by the hosted domain.
+TEPHRA staff (in code, operators) are TEPHRA's own people (D9): never an airline member and never
+a Desk role. They verify the airlines that onboard on this site, and, where it hosts airlines,
+approve hosting, suspend, resume and delete. Their cookie ``tephra_operator`` is checked against
+the operator document on every request through the access cache, which every operator function
+empties for the operator it changes. The first account comes from a one-time link the task token
+mints, only while no account is active; every later one is invited from the console. Every route
+binds the wall clock. A decision on an airline goes into that airline's private history.
 
-``router`` is mounted under ``/api/admin`` and ``tasks`` at the root, only with ``hosted`` on.
+``router`` (sign-in, staff accounts, airlines to verify) is mounted under ``/api/admin`` and
+``tasks`` at the root whenever ``onboard`` is on; ``hosting`` (approve hosting, suspend, resume,
+delete data, the ops-manager link, the contact) only with ``hosted`` on too.
 """
 
+import logging
 import re
 from datetime import datetime
 from typing import Annotated, Final
@@ -19,7 +23,7 @@ from fastapi.responses import Response
 from pydantic import TypeAdapter
 
 from tephra.airline import accounts
-from tephra.airline.models import Stamp
+from tephra.airline.models import AirlineDeskRow, AirlineDeskView, AirlineRecord, StaffList, Stamp
 from tephra.airline.sessions import COOKIE_NAME as AIRLINE_COOKIE
 from tephra.airline.sessions import client_key_64
 from tephra.api import ApiError
@@ -56,12 +60,15 @@ from tephra.hosted.models import (
 )
 from tephra.hosted.registry import TenantHandle, TenantRegistry
 from tephra.models import TephraModel, UtcDatetime
-from tephra.store.base import Store
+from tephra.store.base import Collection, Store, Where
 
-__all__ = ["router", "tasks"]
+__all__ = ["hosting", "router", "tasks"]
 
 router = APIRouter(dependencies=[Depends(bind_wall_clock)])
+hosting = APIRouter(dependencies=[Depends(bind_wall_clock)])
 tasks = APIRouter(dependencies=[Depends(bind_wall_clock)])
+
+logger = logging.getLogger(__name__)
 
 TRIES_HEADER: Final = "X-Tephra-Tries-Left"
 SITE: Final = "site"
@@ -110,15 +117,16 @@ def _view(op: Operator, *, you: Operator | None) -> Response:
 
 async def require_operator(request: Request) -> Operator:
     """The signed-in operator, checked against the stored operator (through the access cache):
-    401 signed out; 403 ``operator_only`` for someone signed in as an airline or at the Desk."""
+    401 signed out; 403 ``operator_only`` for someone signed in as an airline or at the Desk (a
+    Desk PIN session never verifies, declines or deletes an airline)."""
     claims = operators.read_operator_claims(request, request.app.state.settings)
     if claims is None:
         if request.cookies.get(AIRLINE_COOKIE) or request.cookies.get(DESK_COOKIE):
-            raise ApiError(403, "operator_only", "TEPHRA's operators only")
-        raise ApiError(401, "unauthenticated", "Sign in as an operator")
+            raise ApiError(403, "operator_only", "TEPHRA staff only")
+        raise ApiError(401, "unauthenticated", "Sign in as TEPHRA staff")
     op = await _access(request).operator(_root(request), claims.login_key, claims.version)
     if op is None:
-        raise ApiError(401, "unauthenticated", "Sign in as an operator")
+        raise ApiError(401, "unauthenticated", "Sign in as TEPHRA staff")
     return op
 
 
@@ -154,7 +162,7 @@ async def operator_revoke(body: EmailBody, request: Request) -> Response:
 async def invite_lookup(body: TokenBody, request: Request) -> Response:
     gate(
         request,
-        "hosted_invite_reads",
+        "operator_invite_reads",
         client_key_64(request),
         "too_many_requests",
         "Too many invite lookups from this address",
@@ -167,7 +175,7 @@ async def invite_lookup(body: TokenBody, request: Request) -> Response:
 async def invite_accept(body: OperatorAcceptBody, request: Request) -> Response:
     gate(
         request,
-        "hosted_invite_reads",
+        "operator_invite_reads",
         client_key_64(request),
         "too_many_requests",
         "Too many invite lookups from this address",
@@ -249,7 +257,7 @@ async def me(request: Request) -> Response:
         else await _access(request).operator(_root(request), claims.login_key, claims.version)
     )
     if op is None:
-        raise ApiError(401, "unauthenticated", "Sign in as an operator")
+        raise ApiError(401, "unauthenticated", "Sign in as TEPHRA staff")
     return _view(op, you=op)
 
 
@@ -268,7 +276,7 @@ async def list_operators(op: OperatorDep, request: Request) -> Response:
 
 @router.post("/operators/invites", response_model=OperatorLink, dependencies=Csrf)
 async def invite_operator(body: OperatorInviteBody, op: OperatorDep, request: Request) -> Response:
-    gate(request, "operator_invites", SITE, "too_many_requests", "Five operator invites a day")
+    gate(request, "operator_invites", SITE, "too_many_requests", "Five staff invites a day")
     at = wall_clock_now()
     token = await operators.invite(_root(request), body.name, body.email, by=op, at=at)
     return _json(_link(request, token, at + operators.INVITE_LIFE))
@@ -279,17 +287,22 @@ async def disable_operator(k: str, op: OperatorDep, request: Request) -> Respons
     root = _root(request)
     target = await operators.find_by_k(root, k)
     if target is None:
-        raise ApiError(404, "not_found", "No such operator")
+        raise ApiError(404, "not_found", "No such staff account")
     found = await operators.disable(
         root, target.login_key, by=op, access=_access(request), at=wall_clock_now()
     )
     return _operators(found, op)
 
 
-# --- airlines ---------------------------------------------------------------------------
+# --- airlines to verify (with hosting on or off) ----------------------------------------
 
 _AIRLINE_ID: Final = re.compile(r"AL-[0-9a-f]{12}")
 _ICAO: Final = re.compile(r"[A-Z]{3}")
+STAFF_ROWS: Final = 200
+
+
+def _hosting(request: Request) -> bool:
+    return "hosted" in request.app.state.settings.features
 
 
 def _registry(request: Request) -> TenantRegistry:
@@ -298,7 +311,7 @@ def _registry(request: Request) -> TenantRegistry:
 
 
 async def _row(request: Request, airline_id: str) -> Response:
-    """The console row of one airline after an action (from the same builder as the list)."""
+    """The console row of one airline after a hosting action (from the list's builder)."""
     listed = await _registry(request).admin_list()
     for row in listed.rows:
         if row.airline_id == airline_id:
@@ -312,6 +325,30 @@ def _airline_id(airline_id: str) -> str:
     return airline_id
 
 
+async def _submitted(request: Request, airline_id: str) -> AirlineRecord:
+    """A submitted airline: a draft is the airline's own, and answers 404 like a missing one."""
+    try:
+        record = await accounts.get_record(_root(request), _airline_id(airline_id))
+    except accounts.AirlineNotFound:
+        raise ApiError(404, "not_found", "No such airline") from None
+    if record.status == "draft":
+        raise ApiError(404, "not_found", "No such airline")
+    return record
+
+
+def _detail(record: AirlineRecord) -> Response:
+    broken = accounts.verify_history(record.history)
+    return _json(
+        AirlineDeskView(
+            **AirlineDeskRow.of(record).model_dump(),
+            answers=record.submitted(),
+            history=record.history,
+            history_ok=broken is None,
+            history_broken_at=broken,
+        )
+    )
+
+
 def _handle(request: Request, icao: str) -> TenantHandle:
     handle = _registry(request).handle(icao) if _ICAO.fullmatch(icao) else None
     if handle is None:
@@ -323,11 +360,28 @@ def _version_conflict() -> ApiError:
     return ApiError(409, "version_conflict", "This airline changed since you loaded it")
 
 
-@router.get("/airlines", response_model=AdminList)
+@router.get("/airlines", response_model=AdminList | StaffList)
 async def list_airlines(op: OperatorDep, request: Request) -> Response:
-    """Places, the free-tier meter, memory, the last pass and every submitted airline's row;
-    airlines still onboarding are a count only."""
-    return _json(await _registry(request).admin_list())
+    """With hosting on: places, the free-tier meter, memory, the last pass and every submitted
+    airline's row. With it off: every submitted airline's row. Either way airlines still
+    onboarding are a count only."""
+    if _hosting(request):
+        return _json(await _registry(request).admin_list())
+    root = _root(request)
+    records = await accounts.list_airlines(root, "all", STAFF_ROWS)
+    return _json(
+        StaffList(
+            to_verify=await accounts.pending_count(root),
+            onboarding=await root.count(Collection.AIRLINES, [Where("status", "==", "draft")]),
+            airlines=[AirlineDeskRow.of(record) for record in records],
+        )
+    )
+
+
+@router.get("/airlines/{airline_id}", response_model=AirlineDeskView)
+async def get_airline(airline_id: str, op: OperatorDep, request: Request) -> Response:
+    """One submitted airline: its answers, the reviewer's hints and its private history."""
+    return _detail(await _submitted(request, airline_id))
 
 
 async def _decide(
@@ -339,18 +393,21 @@ async def _decide(
     version: int,
     note: str | None,
 ) -> Response:
+    """With hosting on, a staff verify also approves hosting; with it off it never does (an
+    airline verified then waits for Approve hosting once the site hosts airlines)."""
+    await _submitted(request, airline_id)
     at = wall_clock_now()
     by = operators.operator_by(op)
     try:
-        await accounts.decide(
+        record = await accounts.decide(
             _root(request),
-            _airline_id(airline_id),
+            airline_id,
             version=version,
             actor=by,
             verified=verified,
             note=note,
             at=at,
-            hosting=Stamp(by=by, at=at) if verified else None,
+            hosting=Stamp(by=by, at=at) if verified and _hosting(request) else None,
         )
     except accounts.AirlineNotFound:
         raise ApiError(404, "not_found", "No such airline") from None
@@ -358,18 +415,18 @@ async def _decide(
         raise _version_conflict() from None
     except accounts.NotPending:
         raise ApiError(409, "not_pending", "Only an airline pending verification") from None
-    return await _row(request, airline_id)
+    return _detail(record)
 
 
-@router.post("/airlines/{airline_id}/verify", response_model=AdminRow, dependencies=Csrf)
+@router.post("/airlines/{airline_id}/verify", response_model=AirlineDeskView, dependencies=Csrf)
 async def verify(airline_id: str, body: VerifyBody, op: OperatorDep, request: Request) -> Response:
-    """A person checked who this operator is; an operator's verify also approves hosting."""
+    """A person checked who this airline is; it approves no policy and publishes nothing."""
     return await _decide(
         request, op, airline_id, verified=True, version=body.version, note=body.note
     )
 
 
-@router.post("/airlines/{airline_id}/decline", response_model=AdminRow, dependencies=Csrf)
+@router.post("/airlines/{airline_id}/decline", response_model=AirlineDeskView, dependencies=Csrf)
 async def decline(
     airline_id: str, body: DeclineBody, op: OperatorDep, request: Request
 ) -> Response:
@@ -378,11 +435,31 @@ async def decline(
     )
 
 
-@router.post("/airlines/{airline_id}/approve-hosting", response_model=AdminRow, dependencies=Csrf)
+@router.post("/airlines/{airline_id}/delete", status_code=204, dependencies=Csrf)
+async def delete_airline(
+    airline_id: str, body: VersionBody, op: OperatorDep, request: Request
+) -> Response:
+    """A declined airline's record and login, so spam does not fill the 1,000-record cap."""
+    await _submitted(request, airline_id)
+    try:
+        await accounts.desk_delete(_root(request), airline_id, version=body.version)
+    except accounts.VersionConflict:
+        raise _version_conflict() from None
+    except accounts.NotDeclined:
+        raise ApiError(409, "not_declined", "Only a declined airline's record") from None
+    logger.info("airline deleted by TEPHRA staff id=%s", airline_id)
+    return Response(status_code=204)
+
+
+# --- hosting (only with hosted on) ------------------------------------------------------
+
+
+@hosting.post("/airlines/{airline_id}/approve-hosting", response_model=AdminRow, dependencies=Csrf)
 async def approve_hosting(
     airline_id: str, body: VersionBody, op: OperatorDep, request: Request
 ) -> Response:
-    """Hosting for an airline the Desk verified (D24): the Desk's verify never sets it."""
+    """Hosting for an airline verified without it: by the Desk before staff verified airlines
+    (D24), or by staff while this site hosted none."""
     try:
         await accounts.approve_hosting(
             _root(request),
@@ -400,7 +477,7 @@ async def approve_hosting(
     return await _row(request, airline_id)
 
 
-@router.post("/tenants/{icao}/suspend", response_model=AdminRow, dependencies=Csrf)
+@hosting.post("/tenants/{icao}/suspend", response_model=AdminRow, dependencies=Csrf)
 async def suspend(icao: str, body: ReasonBody, op: OperatorDep, request: Request) -> Response:
     """Runs stop, pushes are refused and every page turns read-only; the data is deleted 7
     days later unless resumed. Open streams end; members are asked again on their next
@@ -419,7 +496,7 @@ async def suspend(icao: str, body: ReasonBody, op: OperatorDep, request: Request
     return await _row(request, handle.record.airline_id)
 
 
-@router.post("/tenants/{icao}/resume", response_model=AdminRow, dependencies=Csrf)
+@hosting.post("/tenants/{icao}/resume", response_model=AdminRow, dependencies=Csrf)
 async def resume(icao: str, op: OperatorDep, request: Request) -> Response:
     """Back to SHADOW (never straight to LIVE), when a place is free."""
     handle = _handle(request, icao)
@@ -438,7 +515,7 @@ async def resume(icao: str, op: OperatorDep, request: Request) -> Response:
     return await _row(request, handle.record.airline_id)
 
 
-@router.post("/tenants/{icao}/delete-data", response_model=AdminRow, dependencies=Csrf)
+@hosting.post("/tenants/{icao}/delete-data", response_model=AdminRow, dependencies=Csrf)
 async def delete_data(
     icao: str, body: ConfirmIcaoBody, op: OperatorDep, request: Request
 ) -> Response:
@@ -460,7 +537,7 @@ async def delete_data(
     return await _row(request, handle.record.airline_id)
 
 
-@router.post("/tenants/{icao}/ops-manager-invite", response_model=OperatorLink, dependencies=Csrf)
+@hosting.post("/tenants/{icao}/ops-manager-invite", response_model=OperatorLink, dependencies=Csrf)
 async def ops_manager_invite(icao: str, op: OperatorDep, request: Request) -> Response:
     """The way out when an airline has no ops manager left: an ops-manager invite to its
     record holder's email (accepting it needs that account signed in)."""
@@ -475,7 +552,7 @@ async def ops_manager_invite(icao: str, op: OperatorDep, request: Request) -> Re
     return _json(OperatorLink(link=f"{_origin(request)}/join#{token}", expires_at=made.expires_at))
 
 
-@router.get("/tenants/{icao}/contact", response_model=AdminContact)
+@hosting.get("/tenants/{icao}/contact", response_model=AdminContact)
 async def contact(icao: str, op: OperatorDep, request: Request) -> Response:
     handle = _handle(request, icao)
     try:

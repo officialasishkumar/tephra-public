@@ -1,8 +1,9 @@
 // Account menu (10.1, 10.9, 10.10): who is signed in and until when, the display mode switch
-// (POST /api/mode; never on the queue), the optional screen wake lock, Airlines to verify and Data
-// connections (SPEC-v2 7.8), and sign out. A visitor (SPEC 5.1) sees who they are and when the
-// session ends, never the display switch, the airlines or the connections: the server refuses
-// them (403 visitor_role). Below 600 px, where the shared nav is folded away, the menu lists the
+// (POST /api/mode; never on the queue), the optional screen wake lock, Data connections (SPEC-v2
+// 7.8), and sign out. The demo Desk is RFA's dispatcher only: airlines that onboard are verified
+// by TEPHRA staff on /admin, never here. A visitor (SPEC 5.1) sees who they are and when the
+// session ends, never the display switch or the connections: the server refuses them (403
+// visitor_role). Below 600 px, where the shared nav is folded away, the menu lists the
 // other pages.
 
 import { PATHS, api, errorCode } from './api.js';
@@ -12,7 +13,6 @@ import { app } from './state.js';
 import { toast } from './toast.js';
 import { describeReplayIn } from './ui.js';
 import { has } from '../wall/features.js';
-import { airlinesWaiting, openAirlines } from './airlines.js';
 import { openConnections } from './connections.js';
 import { TENANT } from '../base.js';
 
@@ -61,9 +61,6 @@ export function initAccount({ onSignOut, onWakeChange }) {
     } else if (t.dataset.menu === 'display') {
       close();
       openDisplayDialog();
-    } else if (t.dataset.menu === 'airlines') {
-      close();
-      openAirlines();
     } else if (t.dataset.menu === 'connections') {
       close();
       openConnections();
@@ -130,13 +127,6 @@ function renderMenu() {
       el('p', { class: 'menu__fine', text: 'Pages' }),
       el('a', { class: 'menu__item', href: '/demo' }, icon('i-external-link'), el('span', { text: 'Demo' })),
       el('a', { class: 'menu__item', href: '/guide' }, icon('i-help'), el('span', { text: 'Guide' }))));
-  }
-  if (has('onboard') && !visitor) {
-    const count = el('span', { class: 'menu__count' });
-    items.push(el('button', { type: 'button', class: 'menu__item', 'data-menu': 'airlines' }, icon('i-inbox'), el('span', { text: 'Airlines to verify' }), count));
-    airlinesWaiting().then((n) => {
-      if (n != null) count.textContent = ` · ${n}`;
-    });
   }
   if (has('connect') && !visitor) items.push(el('button', { type: 'button', class: 'menu__item', 'data-menu': 'connections' }, icon('i-network'), el('span', { text: 'Data connections' })));
   items.push(el('button', { type: 'button', class: 'menu__item', 'data-menu': 'signout' }, icon('i-log-out'), el('span', { text: 'Sign out' })));

@@ -359,7 +359,7 @@ async def test_the_whole_life_of_an_airline(tmp_path: Path) -> None:
     assert resumed.state == "shadow"
     assert resumed.suspended is None
     assert resumed.started is not None
-    assert tenants.shown_by(resumed.started.by) == "TEPHRA's operators"
+    assert tenants.shown_by(resumed.started.by) == "TEPHRA staff"
     assert tenants.shown_by("Ana Ops#MB-1a2b3c4d5e") == "Ana Ops"
     await tenants.suspend(w.root, "RFB", by=OPERATOR, reason="Again.", space=space, at=at)
     deleting = await tenants.mark_deleting(w.root, "RFB", by=OPERATOR, at=at + tenants.DELETE_AFTER)

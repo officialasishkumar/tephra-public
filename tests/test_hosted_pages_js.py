@@ -278,9 +278,7 @@ def test_setup_feeds_say_checked_not_taken_in(out: dict[str, Any]) -> None:
     assert "Checked" in text
     assert "Receiving" not in text
     assert "Not declared" in text
-    assert (
-        out["setupStrip"] == "Checked, not taken in: TEPHRA starts in SHADOW from your workspace."
-    )
+    assert out["setupStrip"] == "Checked, not taken in: TEPHRA starts in SHADOW from Your airline."
 
 
 def test_push_keys_show_a_key_once_then_its_last_four(out: dict[str, Any]) -> None:
@@ -446,7 +444,7 @@ def test_record(out: dict[str, Any]) -> None:
     assert "Export (.ndjson)" not in _text(out["recordViewer"])
     b = _text(out["recordBroken"])
     assert "Chain broken at entry 203" in b
-    assert "TEPHRA's operators see this on their console. Export still works and shows where." in b
+    assert "TEPHRA staff see this on their console. Export still works and shows where." in b
     d = _text(out["recordDecisions"])
     assert "Approved advisory" in d
     assert "Push key made" not in d

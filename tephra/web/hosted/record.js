@@ -41,10 +41,10 @@ const WORDS = {
   CREW_REPORT_ENTERED: "Crew report entered", CREW_REPORT_WITHDRAWN: "Crew report withdrawn", CREW_REPORT_EXPIRED: "Crew report expired",
   CONNECTION_CREATED: "Push key made", CONNECTION_REVOKED: "Push key revoked",
   HOSTED_SETUP: "Set up on TEPHRA", HOSTED_SHADOW: "Shadow runs", HOSTED_LIVE: "Switched to LIVE", HOSTED_STOPPED: "Runs stopped",
-  HOSTED_SUSPENDED: "Suspended by TEPHRA's operators", HOSTED_RESUMED: "Resumed by TEPHRA's operators", POLICY_CHANGED: "Policy changed",
+  HOSTED_SUSPENDED: "Suspended by TEPHRA staff", HOSTED_RESUMED: "Resumed by TEPHRA staff", POLICY_CHANGED: "Policy changed",
   POLICY_CONFIRMED: "Policy confirmed", SRA_RECORDED: "SRA acceptance recorded", SRA_WITHDRAWN: "SRA acceptance withdrawn", MODEL_KEY_SET: "Model key set",
   MODEL_KEY_REMOVED: "Model key removed", ASSISTANT_CHANGED: "Assistant changed", MEMBER_INVITED: "Invite made", MEMBER_JOINED: "Joined",
-  MEMBER_ROLE_CHANGED: "Role changed", MEMBER_REMOVED: "Removed", INVITE_REVOKED: "Invite revoked", OPS_MANAGER_RESTORED: "Ops manager invite by TEPHRA's operators",
+  MEMBER_ROLE_CHANGED: "Role changed", MEMBER_REMOVED: "Removed", INVITE_REVOKED: "Invite revoked", OPS_MANAGER_RESTORED: "Ops manager invite by TEPHRA staff",
   CHAIN_CHECKED: "Whole chain checked", LOGIN_OK: "Signed in", LOGIN_FAILED: "Sign-in refused",
 };
 // A model step that was never called (no usable model, a spent quota) "did not run"; only a model
@@ -78,7 +78,7 @@ export function chainLine(head) {
   const at = /entry (\d+)/.exec(first)?.[1] ?? (Number.isFinite(head.verified_through_seq) ? head.verified_through_seq + 1 : null);
   return el("div", { class: "chainline", role: "alert" },
     el("span", { class: "chainbadge chainbadge--bad" }, icon("i-alert-serious"), el("span", { text: at != null ? `Chain broken at entry ${num(at)}` : "Chain broken" })),
-    el("p", { class: "body2", text: `${first ? `${first.replace(/^./, (c) => c.toUpperCase())}. ` : ""}TEPHRA's operators see this on their console. Export still works and shows where.` }));
+    el("p", { class: "body2", text: `${first ? `${first.replace(/^./, (c) => c.toUpperCase())}. ` : ""}TEPHRA staff see this on their console. Export still works and shows where.` }));
 }
 
 export function entriesTable(entries, filter, now = Date.now()) {

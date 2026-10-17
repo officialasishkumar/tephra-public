@@ -538,9 +538,7 @@ def _check_state(handle: "TenantHandle", rule: RouteRule) -> None:
     if state in {"deleting", "deleted"}:
         raise _no_such_airline()
     if state == "suspended":
-        raise ApiError(
-            403, "tenant_suspended", f"TEPHRA's operators suspended {handle.record.name}"
-        )
+        raise ApiError(403, "tenant_suspended", f"TEPHRA staff suspended {handle.record.name}")
     if state == "setup" and rule.states == RUN:
         raise ApiError(409, "not_started", f"TEPHRA has not started for {handle.record.name} yet")
     raise ApiError(409, "wrong_state", f"Not possible while {handle.record.name} is {state}")

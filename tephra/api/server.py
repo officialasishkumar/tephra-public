@@ -1426,33 +1426,54 @@ def _include_feature_routers(app: FastAPI, dependencies: list[Any]) -> None:
         app.include_router(module.router, prefix="/api", dependencies=dependencies)
 
 
+def _include_staff_routers(app: FastAPI, dependencies: list[Any], *, hosted: bool) -> None:
+    """With ``onboard`` on: the TEPHRA staff console (``/admin``, ``/api/admin``) and its tasks,
+    where staff verify airlines; its hosting routes only with ``hosted`` on too."""
+    from tephra.api import routes_admin
+    from tephra.api.routes_pages import staff_router as staff_pages
+
+    app.include_router(staff_pages)
+    app.include_router(routes_admin.router, prefix="/api/admin", dependencies=dependencies)
+    if hosted:
+        app.include_router(routes_admin.hosting, prefix="/api/admin", dependencies=dependencies)
+    app.include_router(routes_admin.tasks, dependencies=dependencies)
+
+
 def _include_hosted_routers(app: FastAPI, dependencies: list[Any]) -> None:
-    """Only with ``hosted`` on: the airline's own routes, the root hosted routes (set up,
-    invites) and the operators' console and tasks."""
-    from tephra.api import routes_admin, routes_hosted, routes_tenant
+    """Only with ``hosted`` on: the airline's own routes and the root hosted routes (set up,
+    invites)."""
+    from tephra.api import routes_hosted, routes_tenant
     from tephra.api.routes_pages import hosted_router as hosted_pages
 
     app.include_router(hosted_pages)
     app.include_router(routes_tenant.router, prefix="/api/tenant", dependencies=dependencies)
     app.include_router(routes_hosted.router, prefix="/api/hosted", dependencies=dependencies)
-    app.include_router(routes_admin.router, prefix="/api/admin", dependencies=dependencies)
-    app.include_router(routes_admin.tasks, dependencies=dependencies)
 
 
-def _start_hosted_state(app: FastAPI) -> None:
-    """Throttles and the access cache an airline request needs; the key variables leave the
-    environment (B1). Nothing here reads the store."""
+def _start_staff_state(app: FastAPI) -> None:
+    """The staff console's throttles, the access cache that holds signed-in staff (and, with
+    hosting on, airline members) and the refusals its functions raise. Nothing here reads the
+    store."""
     from tephra.hosted.access import AccessCache
     from tephra.hosted.models import HostedRefused
-    from tephra.hosted.throttles import HOSTED_THROTTLES
+    from tephra.hosted.throttles import STAFF_THROTTLES
 
     @app.exception_handler(HostedRefused)
     async def hosted_refused(_: Request, exc: HostedRefused) -> Response:
         return _json(ErrorBody(error=exc.code, detail=exc.detail), exc.status)
 
-    for name, (attempts, window_s) in HOSTED_THROTTLES.items():
+    for name, (attempts, window_s) in STAFF_THROTTLES.items():
         setattr(app.state, name, LoginThrottle(max_failures=attempts, window_s=window_s))
     app.state.access = AccessCache()
+
+
+def _start_hosted_state(app: FastAPI) -> None:
+    """Throttles an airline request needs; the key variables leave the environment (B1).
+    Nothing here reads the store."""
+    from tephra.hosted.throttles import HOSTED_THROTTLES
+
+    for name, (attempts, window_s) in HOSTED_THROTTLES.items():
+        setattr(app.state, name, LoginThrottle(max_failures=attempts, window_s=window_s))
     app.state.tenant_streams = {}
     app.state.member_streams = {}
     for name in HOSTED_KEY_ENV:
@@ -1467,9 +1488,11 @@ def create_app(
 ) -> FastAPI:
     """The TEPHRA app. ``runtime_factory`` defaults to ``create_runtime`` and
     ``registry_factory`` (hosted airlines, ``hosted`` on) to ``TenantRegistry`` (tests swap
-    them). With ``hosted`` off nothing of hosting exists: no router, middleware or meter."""
+    them). With ``hosted`` off nothing of hosting exists: no router, middleware or meter; with
+    ``onboard`` on the TEPHRA staff console does (staff verify airlines either way)."""
     settings = settings if settings is not None else get_settings()
     hosted = "hosted" in settings.features
+    staff = "onboard" in settings.features
     app = FastAPI(
         title="TEPHRA",
         version=__version__,
@@ -1489,6 +1512,8 @@ def create_app(
     for name, (attempts, window_s) in AIRLINE_THROTTLES.items():
         setattr(app.state, name, LoginThrottle(max_failures=attempts, window_s=window_s))
     app.state.event_streams = StreamSlots(demo_stream_places(settings))
+    if staff:
+        _start_staff_state(app)
     if hosted:
         _start_hosted_state(app)
     _install_error_handlers(app)
@@ -1507,6 +1532,8 @@ def create_app(
     app.include_router(desk_api, dependencies=scoped)
     _include_feature_routers(app, scoped)
     app.include_router(tasks, dependencies=scoped)
+    if staff:
+        _include_staff_routers(app, scoped, hosted=hosted)
     if hosted:
         _include_hosted_routers(app, scoped)
     hidden = frozenset({"kit"}) if hosted else frozenset()

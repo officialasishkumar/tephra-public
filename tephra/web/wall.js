@@ -1463,7 +1463,7 @@ function tenantPicture(h) {
     // only an ops manager can finish Go live: everyone else is told who does
     const opsManager = h.you?.role === "ops_manager";
     note.replaceChildren(...(h.state === "setup"
-      ? [el("b", { text: `TEPHRA has not started for ${h.name} yet.` }), opsManager ? el("a", { class: "ah-setup__link", href: "/workspace", text: "Finish Go live in your workspace ›" }) : el("span", { text: `${h.name}'s ops manager starts it from the workspace.` })]
+      ? [el("b", { text: `TEPHRA has not started for ${h.name} yet.` }), opsManager ? el("a", { class: "ah-setup__link", href: "/workspace", text: "Finish Go live on Your airline ›" }) : el("span", { text: `${h.name}'s ops manager starts it from Your airline.` })]
       : [el("b", { text: `TEPHRA is not running for ${h.name}.` }), el("span", { text: "Nothing on this map is current." })]));
   } else {
     extra.waiting = null;

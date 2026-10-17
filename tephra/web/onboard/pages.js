@@ -10,7 +10,7 @@ export const ONBOARD_FORMAT = "tephra.onboard/2";
 // list, the Next button and the Review rows show; `why` is the one line under the h1, and `info`
 // what its (i) holds.
 export const PAGES = [
-  { key: "airline", n: 1, name: "Airline", short: "Airline", h1: "Your airline", why: "A TEPHRA dispatcher verifies your airline before anything runs." },
+  { key: "airline", n: 1, name: "Airline", short: "Airline", h1: "Your airline", why: "TEPHRA staff verify your airline before anything runs." },
   { key: "policy", n: 2, name: "Ash policy", short: "Ash policy", h1: "Your ash policy", why: "Your margins around official ash areas.", info: "Under ICAO Doc 9974 each operator decides how it flies near ash, through its own safety risk assessment (SRA)." },
   { key: "fleet", n: 3, name: "Fleet", short: "Fleet", h1: "Your fleet", why: "Only these aircraft are checked." },
   { key: "network", n: 4, name: "Network", short: "Network", h1: "Your network", why: "Airports to watch for ash closure." },
@@ -40,24 +40,30 @@ export const PROVIDE = [
 
 // Who reads an airline's answers: the (i) behind "Private to your airline" on the sign-up card and the
 // workspace header.
-export const WHO_READS = "Only you and this site's TEPHRA dispatchers, who verify your airline, read your answers. Nothing you enter appears on the demo's map or the Desk's picture.";
+export const WHO_READS = "Only you and TEPHRA staff, who verify your airline, read your answers. Nothing you enter appears on the demo's map or the Desk's picture.";
 
 // The one line the landing and the workspace say while this site runs no airline's operation.
 export const NOT_ON_YET = "Running your airline on this site is not switched on yet.";
 // The landing's line once this site hosts airlines (SPEC hosted §9): what follows verification.
-export const HOSTED_NEXT = "TEPHRA's operators approve hosting after verification. Your airline goes live from its workspace.";
+export const HOSTED_NEXT = "TEPHRA staff approve hosting after verification. You go live from Your airline.";
 // The landing's line: `hosted` is the server's "hosted" feature.
 export const siteLine = (hosted) => (hosted ? HOSTED_NEXT : NOT_ON_YET);
 
-// An airline's private history (the Desk's Airlines to verify): one word per entry, each action of
+// An airline's private history (TEPHRA staff's /admin): one word per entry, each action of
 // tephra/airline/models.py HistoryAction (a test keeps the two equal). "created" is the account,
 // "submitted" the answers sent for verification.
 export const HISTORY_WORDS = {
   created: "Account created", answers_changed: "Answers changed", assistant_changed: "Model choice changed",
   submitted: "Submitted", verified: "Verified", declined: "Declined", hosting_approved: "Hosting approved",
 };
-// "airline", "desk:<name>" or "operator:<name>#<k8>": who, as the pages name them (never the key part)
-export const historyActor = (actor) => String(actor ?? "").replace(/^(desk|operator):/, "").replace(/#[^#]*$/, "");
+// "airline", "operator:<name>#<k8>" (TEPHRA staff, named) or "desk:<name>" (a Desk dispatcher's
+// decision before staff verified airlines, kept as it was): who, as the pages name them (never the
+// key part)
+export const historyActor = (actor) => {
+  const who = String(actor ?? "");
+  if (who.startsWith("operator:")) return `TEPHRA staff (${who.slice(9).replace(/#[^#]*$/, "")})`;
+  return who.replace(/^desk:/, "").replace(/#[^#]*$/, "");
+};
 export const historyLine = (h) => [HISTORY_WORDS[h.action] || h.action, historyActor(h.actor), h.note || null].filter(Boolean).join(" · ");
 // The workspace's line once this site hosts airlines (SPEC hosted §9), with the site's own limit
 // (TEPHRA_HOSTED_MAX_TENANTS, from GET /api/hosted/me).

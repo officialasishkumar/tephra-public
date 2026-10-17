@@ -74,10 +74,8 @@ DISPATCHER_ONLY_PATHS: Final[tuple[tuple[str, str], ...]] = (
     ("POST", "/api/desk/connections"),
     ("POST", "/api/desk/upload"),
     ("POST", "/api/desk/notices"),
-    ("GET", "/api/desk/airlines"),
 )
-"""Method and path prefix of what changes the server's picture, or reads an airline's private
-record: a visitor is refused (403)."""
+"""Method and path prefix of what changes the server's picture: a visitor is refused (403)."""
 VISITOR_DECISION_PATHS: Final[tuple[tuple[str, str, str], ...]] = (
     ("POST", "/api/desk/advisories/", "/approve"),
     ("POST", "/api/desk/advisories/", "/edit"),

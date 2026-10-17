@@ -371,15 +371,13 @@ def test_the_landing_line_follows_hosting(tmp_path: Path) -> None:
     Hosting off keeps that line; hosting on says once what follows verification."""
     off, on = _run(tmp_path, [["siteLine", False], ["siteLine", True]])
     assert off == "Running your airline on this site is not switched on yet."
-    assert on == (
-        "TEPHRA's operators approve hosting after verification. "
-        "Your airline goes live from its workspace."
-    )
+    assert on == ("TEPHRA staff approve hosting after verification. You go live from Your airline.")
 
 
 def test_history_words_name_each_action_once(tmp_path: Path) -> None:
     """Journey 17 Oct 2026 (17): the Desk called the account's creation "Submitted" and showed
-    the real submission as "submitted". Every stored action has its own word."""
+    the real submission as "submitted". Every stored action has its own word. Staff actions say
+    "TEPHRA staff" (owner, 17 Oct 2026: the split); a Desk decision made before keeps its name."""
     from typing import get_args
 
     from tephra.airline.models import HistoryAction
@@ -401,15 +399,15 @@ def test_history_words_name_each_action_once(tmp_path: Path) -> None:
         "Answers changed · airline",
         "Submitted · airline",
         "Verified · Rina Desk",
-        "Hosting approved · M. Tan",
+        "Hosting approved · TEPHRA staff (M. Tan)",
         "Declined · Rina · Unknown AOC",
-        "M. Tan",
+        "TEPHRA staff (M. Tan)",
     ]
     pages = (WEB / "onboard" / "pages.js").read_text(encoding="utf-8")
     words = pages.split("export const HISTORY_WORDS = {")[1].split("};")[0]
     keys = re.findall(r"(\w+): \"", words)
     assert sorted(keys) == sorted(get_args(HistoryAction))
-    assert "historyLine(h)" in (WEB / "desk" / "airlines.js").read_text(encoding="utf-8")
+    assert "historyLine(h)" in (WEB / "admin.js").read_text(encoding="utf-8")
 
 
 def test_an_added_airport_prefers_tephras_list_over_a_free_code(tmp_path: Path) -> None:

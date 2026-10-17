@@ -83,7 +83,8 @@ def test_desk_imports_features_and_hides_hidden_entries() -> None:
     assert "composer.mic.hidden = !has('voice');" in ask
     account = _read("desk/account.js")
     assert "has('connect') && !visitor" in account
-    assert "has('onboard') && !visitor" in account
+    # the demo Desk verifies no airline (owner, 17 Oct 2026: TEPHRA staff do, on /admin)
+    assert "has('onboard')" not in account
 
 
 def test_visitor_review_opens_at_once_and_tab_ask_routes_to_the_drawer() -> None:

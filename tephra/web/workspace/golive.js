@@ -1,7 +1,7 @@
 // Workspace › Overview, "Go live on TEPHRA" (SPEC hosted §5.1): once this site hosts airlines, a
 // verified airline sets up its own space at /a/<ICAO>/, ticks the four-item checklist, starts in
 // SHADOW (every draft says "Shadow · not for use"), and its ops manager switches to LIVE, goes
-// back to SHADOW or stops; TEPHRA's operators may suspend it. The cards read GET /api/hosted/me
+// back to SHADOW or stops; TEPHRA staff may suspend it. The cards read GET /api/hosted/me
 // and, for the airline's own space, its TenantHeader and GoLive. Buttons that change the space are
 // drawn for ops managers only, and a Start that cannot run says why. Each card says one short line
 // per fact; what explains it sits behind the shared (i) (wall/info.js). Form errors are terse and
@@ -40,13 +40,13 @@ export const stateBadge = (state) => {
   return el("span", { class: `sbadge ${cls}` }, el("i", { "aria-hidden": "true" }), word);
 };
 
-export const WAITING_WORDS = "TEPHRA's operators approve hosting after verification. This page says when.";
+export const WAITING_WORDS = "TEPHRA staff approve hosting after verification. This page says when.";
 // The card's one line; what the space is sits behind its (i).
 const LEAD = "TEPHRA on your flights, for the people you invite.";
 const LEAD_MORE = "The same TEPHRA, in your own space on this site, with your policy and your assistant. No one else can sign in to it.";
 const leadLine = () => el("p", { class: "golive__lead" }, ...infoTail(LEAD, { topic: "your space", label: "About your space", text: LEAD_MORE }));
 const ITEM_LINK = { feeds: "Feeds", assistant: "Assistant", policy: "Policy", people: "People" };
-// Contacting TEPHRA's operators: the one channel the site names (privacy notice, "Questions").
+// Contacting TEPHRA staff: the one channel the site names (privacy notice, "Questions").
 export const CONTACT_HREF = "https://github.com/officialasishkumar/tephra/issues";
 
 // Why Start shadow runs cannot run, in words, or null when it can. `region` is the one chosen in
@@ -67,9 +67,9 @@ export function startBlock(golive, region = null) {
     case "region":
       return region ? null : "Choose a region";
     case "airline_limit_reached":
-      return "All airline places on this site are in use. TEPHRA's operators can see you are ready.";
+      return "All airline places on this site are in use. TEPHRA staff can see you are ready.";
     case "site_memory":
-      return "This site's memory is full. TEPHRA's operators can see you are ready.";
+      return "This site's memory is full. TEPHRA staff can see you are ready.";
     default:
       return "Finish the checklist";
   }
@@ -83,15 +83,15 @@ export function changeWords(res, name) {
   const code = errorCode(res);
   const words = {
     checklist_open: "The checklist is not finished: reload to see what is open.",
-    airline_limit_reached: "All airline places on this site are in use. TEPHRA's operators can see you are ready.",
-    site_memory: "This site's memory is full. TEPHRA's operators can see you are ready.",
+    airline_limit_reached: "All airline places on this site are in use. TEPHRA staff can see you are ready.",
+    site_memory: "This site's memory is full. TEPHRA staff can see you are ready.",
     wrong_state: "Someone changed this airline's state in another tab. Reload to see it.",
     confirm_icao: "Type the airline's code exactly, in capitals.",
     not_verified: "Your airline is not verified yet.",
     hosting_not_approved: WAITING_WORDS,
-    icao_taken: `Another airline already has a space with this code. Contact TEPHRA's operators.`,
+    icao_taken: `Another airline already has a space with this code. Contact TEPHRA staff.`,
     already_set_up: `${name || "Your airline"} is set up already. Reload to see it.`,
-    tenant_suspended: "TEPHRA's operators suspended this airline: nothing can be changed.",
+    tenant_suspended: "TEPHRA staff suspended this airline: nothing can be changed.",
     role: "Only an ops manager can do this.",
     name_taken: "Another member uses this name. Choose another.",
   }[code];
@@ -378,15 +378,15 @@ export function reasonDialog(icao, header, kind, onDone) {
   reason.focus();
 }
 
-// --- suspended by TEPHRA's operators -----------------------------------------------------------
+// --- suspended by TEPHRA staff -----------------------------------------------------------
 
 export function suspendedWords(header) {
   const s = header.suspended || {};
   const reason = String(s.reason || "no reason given").trim().replace(/[.\s]+$/, "");
   return {
-    lead: `TEPHRA's operators suspended ${header.name} on ${whenWords(s.at)}: ${reason}.`,
+    lead: `TEPHRA staff suspended ${header.name} on ${whenWords(s.at)}: ${reason}.`,
     rest: "Runs are stopped and pushes are refused.",
-    more: `Your settings, people, keys and record are kept. TEPHRA's operators can delete your data from ${whenWords(s.delete_after)}; nothing deletes it on its own.`,
+    more: `Your settings, people, keys and record are kept. TEPHRA staff can delete your data from ${whenWords(s.delete_after)}; nothing deletes it on its own.`,
   };
 }
 

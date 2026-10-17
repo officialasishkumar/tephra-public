@@ -5,7 +5,7 @@ TEPHRA's demo runs on Ring of Fire Air (RFA), a fictional airline. Any real airl
 then nine short pages, one topic per page, and a private workspace. Each page is saved to the account on Next, on Back, on a step in the list
 and when you leave the page; signing in again
 resumes at the first page not finished. Review's **Submit for verification** sends the answers to
-this site's dispatchers.
+TEPHRA staff.
 
 What onboarding is not: running an airline on this site is not switched on yet. Nothing an airline enters
 reaches the demo's map or the Desk's picture, no advisory is drafted under its name, and pushes
@@ -80,31 +80,35 @@ a password, an address or a file: the schedule files stay in the browser.
 
 ## Verification
 
-A submitted airline is **Pending verification** until a TEPHRA dispatcher opens it on the Desk
-(account menu › Airlines to verify) and verifies or declines it. An account still onboarding
-(**Not submitted**) is never listed there and answers 404 on every Desk route: its answers are its
-own until it submits. Verifying records that a person checked
+A submitted airline is **Pending verification** until TEPHRA staff open it on `/admin` (the staff
+console, its own accounts and cookie; with hosting on or off) and verify or decline it. The demo
+Desk is RFA's dispatcher only: a Desk PIN session cannot verify, decline or delete an airline
+(owner, 17 Oct 2026). Airlines decided at the Desk before that keep their status and their
+history as it was. An account still onboarding (**Not submitted**) is never listed there and
+answers 404 on every staff route: its answers are its own until it submits. On a server without
+a staff account yet, the first one comes from the task token (`deploy/README.md`, "The first TEPHRA
+staff account"). Verifying records that a person checked
 who the operator is (for example its designator, its AOC and the email domain). It does not approve
 its policy or its use of TEPHRA, publishes nothing and changes no picture. Declining needs a
 reason, which the airline sees.
 
 - While pending the airline can change its answers; verified or declined, they are kept as they are
-  ("Ask a TEPHRA dispatcher to change them"). The assistant's model can change in every status.
+  ("Ask TEPHRA staff to change them"). The assistant's model can change in every status.
 - Each change and each decision is an entry in the airline record's own hash-linked history, which
-  only the airline and this site's dispatchers read. It is never written to the public audit trail,
-  which would list airlines publicly. A history its writer can rewrite shows accidents, not
-  tampering, so the Desk says only where a link does not check out.
-- The Desk sees hints that code works out, never shown to the airline and never blocking: a
+  only the airline and TEPHRA staff read ("Verified · TEPHRA staff (<name>)"). It is never written
+  to the public audit trail, which would list airlines publicly. A history its writer can rewrite
+  shows accidents, not tampering, so the console says only where a link does not check out.
+- Staff see hints that code works out, never shown to the airline and never blocking: a
   designator TEPHRA's route table holds (a real operator may hold it), a public mail provider, an
   account email whose domain differs from the operations email's, airports outside TEPHRA's list,
   no AOC number.
-- A dispatcher can delete a declined airline's record and login, so spam does not fill the cap.
+- Staff can delete a declined airline's record and login, so spam does not fill the cap.
 
 ## The workspace
 
-Sign in at `/signin`. The workspace (`/workspace`) is private: only the airline and this site's
-TEPHRA dispatchers, who verify it, read its answers; it is never listed publicly, never on the
-demo's map or the Desk's picture.
+Sign in at `/signin`. The workspace (`/workspace`) is private: only the airline and TEPHRA staff,
+who verify it, read its answers; it is never listed publicly, never on the demo's map or the Desk's
+picture.
 
 - **Overview**: still onboarding, "Continue onboarding · step n of 9" and the page to go back to,
   and nothing else (the other sections come once the answers are submitted). Submitted: the
@@ -129,9 +133,10 @@ When this site hosts airlines (the opt-in feature `hosted`, off on the deployed 
 `docs/HOSTED.md`), a verified airline can run TEPHRA here, in its own private space at
 `/a/<ICAO>/`:
 
-1. **Verification.** An operator verifies the airline on `/admin`, which also approves hosting. An
-   airline a dispatcher verified on the Desk sees "TEPHRA's operators approve hosting after
-   verification" until an operator approves it.
+1. **Verification.** TEPHRA staff verify the airline on `/admin`, which with hosting on also
+   approves hosting. An airline verified without it (at the Desk before 17 Oct 2026, or by staff
+   while hosting was off) sees "TEPHRA staff approve hosting after verification" until staff
+   approve it there.
 2. **Set up.** The workspace's Overview shows **Go live on TEPHRA**. The account holder names
    themself once ("Your name on TEPHRA") and becomes the airline's first ops manager. Nothing runs
    yet and the airline takes none of the site's places.
@@ -188,12 +193,12 @@ What is stored: the account email; the password as a salted scrypt hash, never t
 hash of the recovery code; from sign-up on, the onboarding answers with the account, including the
 operations email, the contact name and the dispatchers' names or initials. Where: Firestore on the
 live site (`airlines`, `airline_logins`), SQLite locally. Who reads it: the airline when signed in,
-and this site's signed-in dispatchers once the airline submits, to verify it. It is never public,
+and TEPHRA staff, signed in on `/admin`, once the airline submits, to verify it. It is never public,
 never in the audit trail and never sent to Gemini. The browser keeps only the schedule files (their
 counts go with the answers), until sign-out or deleting the account. TEPHRA never asks for a Gemini
 key.
 Records are kept until the airline deletes its
-account, or a dispatcher deletes a declined airline's record; nothing expires them. The site's
+account, or TEPHRA staff delete a declined airline's record; nothing expires them. The site's
 privacy page says the same (`/privacy#accounts`).
 
 ## Not built

@@ -1,5 +1,6 @@
-"""TEPHRA's operators: the people who verify airlines, approve hosting, suspend, resume and
-delete (D9). Never an airline member and never a Desk role.
+"""TEPHRA staff ("operators" in code): the people who verify the airlines that onboard and,
+where the site hosts airlines, approve hosting, suspend, resume and delete (D9). Never an airline
+member and never a Desk role.
 
 The first operator comes from a one-time link minted with the task token, which works only
 while no active operator exists (S10); every later one is invited by an operator. Passwords are
@@ -162,14 +163,14 @@ async def bootstrap_invite(store: Store, name: str, email: str, *, at: datetime)
     """The first operator's one-time link (``/tasks/operator-invite``): refused with 409
     ``operators_exist`` once any operator is active."""
     if await _any_active(store):
-        raise HostedRefused(409, "operators_exist", "Operators exist: one of them invites you")
+        raise HostedRefused(409, "operators_exist", "TEPHRA staff exist: one of them invites you")
     return await _put_invite(store, name, email, None, at=at)
 
 
 async def invite(store: Store, name: str, email: str, *, by: Operator, at: datetime) -> str:
     existing = await get_operator(store, login_key(email))
     if existing is not None and existing.disabled is None:
-        raise HostedRefused(409, "email_taken", "That email is already an operator")
+        raise HostedRefused(409, "email_taken", "That email already has a TEPHRA staff account")
     return await _put_invite(store, name, email, by.login_key[:8], at=at)
 
 
@@ -222,7 +223,7 @@ async def accept_invite(
     def create(stored: dict[str, Any] | None) -> dict[str, Any]:
         held = _parse(stored)
         if held is not None and held.disabled is None:
-            raise HostedRefused(409, "email_taken", "That email is already an operator")
+            raise HostedRefused(409, "email_taken", "That email already has a TEPHRA staff account")
         return Operator(
             login_key=key,
             email=email,
@@ -255,7 +256,7 @@ async def note_sign_in(store: Store, op: Operator, *, at: datetime) -> Operator:
     def change(stored: dict[str, Any] | None) -> dict[str, Any]:
         held = _parse(stored)
         if held is None:
-            raise HostedRefused(401, "unauthenticated", "Sign in as an operator")
+            raise HostedRefused(401, "unauthenticated", "Sign in as TEPHRA staff")
         return held.model_copy(update={"last_sign_in_at": at}).model_dump(mode="json")
 
     return Operator.model_validate(await store.update(Collection.OPERATORS, op.login_key, change))
@@ -265,7 +266,7 @@ async def _bump(store: Store, key: str, *, disabled: Stamp | None = None) -> Ope
     def change(stored: dict[str, Any] | None) -> dict[str, Any]:
         held = _parse(stored)
         if held is None:
-            raise HostedRefused(404, "not_found", "No such operator")
+            raise HostedRefused(404, "not_found", "No such staff account")
         update: dict[str, Any] = {"session_version": held.session_version + 1}
         if disabled is not None:
             update["disabled"] = held.disabled or disabled
@@ -288,7 +289,7 @@ async def disable(
     """Refused (409 ``last_operator``) for the last active operator."""
     others = [op for op in await list_operators(store) if op.disabled is None]
     if [op.login_key for op in others] == [key]:
-        raise HostedRefused(409, "last_operator", "The last active operator stays")
+        raise HostedRefused(409, "last_operator", "The last active staff account stays")
     try:
         await _bump(store, key, disabled=Stamp(by=operator_by(by), at=at))
     finally:

@@ -3105,14 +3105,17 @@ declined (`STATUS_LABEL["draft"]` = "Not submitted"; `DeskStatus` the last three
 includes `submitted`. Views: `AirlineView` (+ `draft`; `answers` and `submitted_at` nullable;
 never the login key, flags or history),
 `AccountCreated` (+ `recovery_code`, in that answer only), `RecoveryCode`, `AirlineSessionView`
-(+ `status`, in sign-in's answer only; the cookie-only read leaves it null),
-`AirlineDeskRow`, `AirlineDeskView` (+ `answers`, `history`, `history_ok`, `history_broken_at`),
-`AirlineList`, `DryRunResult` (`DryRunSection` counts, `rejected: [PushProblem]`,
+(+ `status`, in sign-in's answer only; the cookie-only read leaves it null; `staff`: a signed,
+unexpired `tephra_operator` cookie came along, so the nav asks `GET /api/admin/me`),
+`AirlineDeskRow` (+ `decided_at`; `status_label` is `STAFF_STATUS_LABEL`, "Pending" as with
+hosting on), `AirlineDeskView` (+ `answers`, `history`, `history_ok`, `history_broken_at`),
+`StaffList` (`to_verify`, `onboarding`, `airlines: [AirlineDeskRow]`: TEPHRA staff's list with
+hosting off), `DryRunResult` (`DryRunSection` counts, `rejected: [PushProblem]`,
 `accepted: [DryRunRecord]`). Bodies: `AccountCreate` (`email`, `password` 12-128 and not the
 email, `acknowledge: true`, `website` honeypot, empty; no answers), `DraftUpdate` (`version`,
 `draft: OnboardDraft`), `Submit` (`version`, `answers: AirlineAnswers`), `SignIn`, `Recover`,
-`AnswersUpdate`, `AssistantUpdate`, `DeleteAccount`, `VerifyAirline`, `DeclineAirline`,
-`DeleteAirline`; passwords are NFC-normalised, never stripped.
+`AnswersUpdate`, `AssistantUpdate`, `DeleteAccount`; passwords are NFC-normalised, never
+stripped.
 
 `tephra/airline/passwords.py` (standard library): `hash_password` (scrypt N=2^14, r=8, p=5, 16
 random salt bytes, 64 MiB `maxmem`), `password_matches` (parameters read from the stored string,
@@ -3288,7 +3291,8 @@ editable body; it survives edit-then-approve and the switch to LIVE.
   the ILLUSTRATIVE / SRA-acceptance label. `settings_for.py`: `tenant_settings` (secrets cleared;
   the airline's key only), the free-tier model table, `assistant_tab`. `feeds.py`: in-memory
   `FeedStats` / `ConnectionStats` (written back at most every 10 min) and `feeds_view`.
-  `golive.py`: the four-item checklist and the region. `throttles.py`: `HOSTED_THROTTLES`.
+  `golive.py`: the four-item checklist and the region. `throttles.py`: `HOSTED_THROTTLES`, and
+  `STAFF_THROTTLES` (the staff console's; registered whenever `onboard` is on).
 - `registry.py`: `TenantRegistry(base, root, demo, meter, access, *, factory=create_runtime,
   source=None, clock=None, rss_mb=process_rss_mb)`: one `TenantSpace` (store object, stats, key
   index) per airline; `start_all` (restore only), `kick()` / `run_pass()` (the hosted pass:
@@ -3311,13 +3315,14 @@ if a route lacks it) looks the route up by identity in `ROUTE_INDEX`, checks `TE
 (role and state), the airline cookie and the membership, and caps `limit` at 50; any other route
 under an airline answers 404 `not_hosted` (a 405 too). `routes_tenant.py` (`/api/tenant/*`, only
 under an airline), `routes_hosted.py` (`/api/hosted/me|setup|invites/lookup|accept|join`; join
-answers `Joined` = `AirlineSessionView` + `recovery_code`), `routes_admin.py` (`/tasks/operator-
-invite|revoke`, `/api/admin/*`). Pushes under an airline: the key from `Authorization` only, one
+answers `Joined` = `AirlineSessionView` + `recovery_code`), `routes_admin.py` (TEPHRA staff:
+`router` and `tasks` whenever `onboard` is on, `hosting` only with hosted on; see 8.7). Pushes under an airline: the key from `Authorization` only, one
 401 `bad_key` for every failure, 202 `{"taken_in": false}` in setup, per-key gap and 30 a minute
 when running, 503 `airline_paused` / `site_paused`. Tenant SSE: per-airline cap, 15-minute
 lifetime, membership re-checked every 15 s. `/tasks/tick` kicks the hosted pass before it awaits
-the demo tick. `routes_pages.hosted_router` (`/a/<ICAO>/...`, `/admin`, `/admin/join`, `/join`;
-`noindex`; 303 to `/signin?next=` signed out) is included only with hosted on; it also answers
+the demo tick. `routes_pages.hosted_router` (`/a/<ICAO>/...`, `/join`; `noindex`; 303 to
+`/signin?next=` signed out) is included only with hosted on, `routes_pages.staff_router`
+(`/admin`, `/admin/join`, `noindex`) whenever `onboard` is on; it also answers
 404 for `/static/kit/*`, so the uploader `kit/push.py` leaves only through the member-only
 `GET /a/<ICAO>/api/tenant/feeds/uploader` (viewer, any state; `Content-Disposition: attachment`,
 the file as it is). With hosted on,
@@ -3330,7 +3335,8 @@ the Desk and `doc.js` ask their API of the airline under `/a/<ICAO>/`; `tenant-n
 line, user menu); `hosted.html|js|css` and `hosted/{feeds,policy,assistant,people,record}.js`
 (Feeds and Settings); `dryrun.js` (shared with the workspace); `workspace/golive.js` (Go live
 on TEPHRA), `workspace/join.js` (`/join#<token>`, the joiner's recovery code shown once);
-`admin.html|js|css` (the operator console). Tokens travel in fragments and JSON bodies only.
+`admin.html|js|css` (the TEPHRA staff console; with hosting off it draws the airlines to verify
+and staff accounts only). Tokens travel in fragments and JSON bodies only.
 
 ## 6. Quota and model use
 
@@ -3508,7 +3514,7 @@ The headers above are unchanged by compression.
 | `GET /api/routes/{origin_icao}/{dest_icao}` | FeatureCollection (`RouteFeatureProps`, `routes.route_features`): the great circle between two airports and a Point at each end, for the route of a flight picked on the Wall that is not in `WallSnapshot.routes` (the line's id is the pair in alphabetical order, whichever order is asked). Which airports a flight flies between comes only from `AircraftFeatureProps`; this answer depends only on the two positions, so it is sent with `Cache-Control: public, max-age=86400`. 404 `not_found` for a code that is not 4 capitals or digits, the same airport twice, or an airport with no known position |
 | `GET /api/airports` | FeatureCollection of the airport catalogue (`data/airports.json`, `Airport`): a Point per airport with `icao`, `iata`, `name`, `country`, `longest_runway_m` (feature id the ICAO code), for the maps to place the airports an airport plan closes. The catalogue changes only with a deploy: `Cache-Control: public, max-age=3600` |
 | `GET /api/fleet` | `FleetResponse` `{own_fleet: null \| {prefixes, hex_count}}`: the own-fleet filter this TEPHRA runs with; never the addresses (always on) |
-| `GET /api/airline/session` | `AirlineSessionView` `{accounts, signed_in, icao, name, status}` (`status` null here) from the airline cookie alone (no store read); `accounts` false when `onboard` is off or the session secret is blank; never an error |
+| `GET /api/airline/session` | `AirlineSessionView` `{accounts, signed_in, icao, name, status, staff}` (`status` null here) from the airline and staff cookies alone (no store read); `accounts` false when `onboard` is off or the session secret is blank; never an error |
 | `GET /api/connect/format` | `FormatInfo` `{format, max_positions, fresh_s, push_url, schema}`: the push format `tephra.positions/1` and its JSON Schema |
 | `GET /api/connect/schema.json`, `GET /api/connect/sample.json` | Downloads (`Content-Disposition: attachment`): the JSON Schema, and an example push of 12 real recorded flights (`sample_feed`) at their recorded fixes, timed on the active clock now, accepted as it is for `PUSH_FRESH_S` |
 | `GET /api/connect/live` | `ConnectLive` `{wall_at, sample_running, sample_connection_id, flows: [ConnectFlow], dots: [PushedDot], recent: [PushSummary]}`: the pushed flights updated in the last 60 s, each connection's positions / min and 5-minute sparkline (wall clock), the newest 14 pushes; public, so a reload of the page starts complete |
@@ -3657,8 +3663,7 @@ is `desk:<SessionInfo.name>`, or `visitor:<SessionInfo.name>` for a visitor sess
 
 Visitor sessions (`SessionInfo.role == "visitor"`) make real, audited decisions in REPLAY only,
 capped per session (`sid`): 403 `visitor_role` on `POST /api/mode`, the sample feed,
-connections, upload, notices and every `/api/desk/airlines` route (GET too: an airline's record
-is private); 409 `visitor_replay_only` on any decision in LIVE; 429
+connections, upload and notices; 409 `visitor_replay_only` on any decision in LIVE; 429
 `visitor_cap` past `TEPHRA_VISITOR_DECISION_CAP` decisions and 429 `visitor_ask_cap` past
 `TEPHRA_VISITOR_ASK_CAP` Ask questions. The decision guard applies to every session: 409
 `rule_blocked` when the rules refuse the action (a DIVERT or REROUTE in HYPOTHESIS mode) and
@@ -3702,8 +3707,8 @@ failure is HTTP 503 `{"error": "ai_unavailable", "message": "AI UNAVAILABLE: <re
 | `POST /api/desk/crew-reports/{CR-id}/withdraw` | `{reason (3-500 chars)}` | `CrewReportView` (WITHDRAWN); 404; 409 `invalid_transition` when already withdrawn; writes `CREW_REPORT_WITHDRAWN` and withdraws every message drafted from it (`DOC_WITHDRAWN`) |
 | `POST /api/desk/crew-reports/{CR-id}/message` | none (send `X-Tephra-Desk: 1`) | `CrewMessageDraft` (the message to the weather office and the VAAC, section 5.16; nothing is sent); 404; 409 `invalid_transition` (not an ASH report, withdrawn, or not in the current picture) |
 
-Airline routes (`tephra/api/routes_airline.py`, section 5.21). Every `/api/airline/*` and
-`/api/desk/airlines*` route answers 404 `feature_off` while `onboard` is hidden, and
+Airline routes (`tephra/api/routes_airline.py`, section 5.21). Every `/api/airline/*` route
+answers 404 `feature_off` while `onboard` is hidden, and
 `/api/airline/*` but `session` 503 `accounts_off` without a session secret. Every POST and PUT
 has the CSRF guard. Errors never repeat input; the 422 body is the app's `validation_failed` shape
 (`problems`: "dotted.location: message"), route checks included.
@@ -3721,19 +3726,33 @@ has the CSRF guard. Errors never repeat input; the 422 body is the app's `valida
 | `PUT /api/airline/assistant` | `AssistantUpdate` `{version, assistant}` | `AirlineView` (every status but draft: 403 `answers_locked`); 409; 422; 429 (the same 300 saves a day) |
 | `POST /api/airline/delete` | `DeleteAccount` `{password}` | 204, both documents deleted, cookie cleared; 401 `bad_credentials`; 429 |
 | `POST /api/airline/feeds/dry-run` | a `tephra.airline/1` or `tephra.positions/1` push, as the file has it | `DryRunResult` (checked against the wall clock; nothing taken in); 422 `not_a_push`; 413 over 512 KiB; 429 `too_many_requests` past 30 an hour |
-| `GET /api/desk/airlines?status=pending\|verified\|declined\|all&limit=1..200` | dispatcher session | `AirlineList`, newest `submitted_at` first (default pending, 50); `all` is pending, verified and declined: a draft is never listed, and a draft's id answers 404 on every Desk route |
-| `GET /api/desk/airlines/summary` | dispatcher session | `{pending}` |
-| `GET /api/desk/airlines/{AL-id}` | dispatcher session | `AirlineDeskView`; 404 `not_found` |
-| `POST /api/desk/airlines/{AL-id}/verify` | `VerifyAirline` `{version, note?}` | `AirlineDeskView`; 409 `version_conflict`; 422 `not_pending` |
-| `POST /api/desk/airlines/{AL-id}/decline` | `DeclineAirline` `{version, reason (3-500)}` | `AirlineDeskView`; 409; 422 `not_pending` |
-| `POST /api/desk/airlines/{AL-id}/delete` | `DeleteAirline` `{version}` | 204, the record and its login deleted; 409; 422 `not_declined` |
 
-A visitor session is refused (403 `visitor_role`) on every `/api/desk/airlines` route.
+TEPHRA staff routes (`tephra/api/routes_admin.py`; whenever `onboard` is on, hosting off
+included; owner, 17 Oct 2026: the demo Desk is RFA's dispatcher only and has no airline route).
+Each needs the staff cookie `tephra_operator`: 401 `unauthenticated` signed out, 403
+`operator_only` with an airline or Desk cookie (a Desk PIN session never verifies, declines or
+deletes). A draft's id answers 404 on every route. Every POST has the CSRF guard.
+
+| Method, path | Request | Response |
+|---|---|---|
+| `POST /tasks/operator-invite` | task token; `{name, email}` | `{link: /admin/join#<token>, expires_at}` (24 h, one use); 409 `operators_exist` once a staff account is active |
+| `POST /tasks/operator-revoke` | task token; `{email}` | 204 |
+| `POST /api/admin/invite/lookup`, `.../invite/accept`, `POST /api/admin/sign-in`, `.../sign-out`, `GET /api/admin/me` | as named | `OperatorView` (+ cookie); 401 `bad_credentials` with `X-Tephra-Tries-Left`; 429 |
+| `GET /api/admin/operators`, `POST /api/admin/operators/invites`, `POST /api/admin/operators/{k}/disable` | | the staff accounts; a link; 409 `last_operator` |
+| `GET /api/admin/airlines` | none | hosting off: `StaffList`, newest `submitted_at` first (200 at most); hosting on: `AdminList` |
+| `GET /api/admin/airlines/{AL-id}` | none | `AirlineDeskView` (answers, hints, private history); 404 `not_found` |
+| `POST /api/admin/airlines/{AL-id}/verify` | `VerifyBody` `{version, note?}` | `AirlineDeskView`; with hosting on it also approves hosting; 409 `version_conflict` / `not_pending` |
+| `POST /api/admin/airlines/{AL-id}/decline` | `DeclineBody` `{version, reason (3-500)}` | `AirlineDeskView`; 409 |
+| `POST /api/admin/airlines/{AL-id}/delete` | `VersionBody` `{version}` | 204, the record and its login deleted; 409 `version_conflict` / `not_declined` |
+
+With hosting on only (`routes_admin.hosting`): `POST /api/admin/airlines/{AL-id}/approve-hosting`
+(an airline verified without hosting: at the Desk before 17 Oct 2026, or by staff while hosting
+was off), `POST /api/admin/tenants/{ICAO}/suspend|resume|delete-data|ops-manager-invite` and
+`GET /api/admin/tenants/{ICAO}/contact`.
 
 Hosted routes (only with the feature `hosted`; section 5.22 and `docs/HOSTED.md`): the airline
 API under `/a/<ICAO>/api/...` (the routes above that `TENANT_ROUTES` lists, plus
-`/api/tenant/*`), `/api/hosted/*`, `/api/admin/*`, `POST /tasks/operator-invite` and
-`POST /tasks/operator-revoke`. Their errors add `not_hosted` (404), `no_such_airline` (404),
+`/api/tenant/*`), `/api/hosted/*` and the staff routes' hosting part. Their errors add `not_hosted` (404), `no_such_airline` (404),
 `not_started` (409), `tenant_suspended` (403), `role` (403), `bad_key` (401), `airline_paused`
 and `site_paused` (503), `operator_only` (403), `limit_too_large` (422) and the codes of
 `HostedRefused`.

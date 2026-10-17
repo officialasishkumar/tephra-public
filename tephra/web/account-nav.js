@@ -3,8 +3,10 @@
 // Sign in, or the account button with its menu (Workspace, Theme, Sign out). The session read costs
 // the server no store read. Nothing here runs on the Desk: dispatchers sign in there.
 // With hosting on (SPEC hosted §5, the server's "hosted" feature), the menu lists the airlines the
-// login belongs to (GET /api/hosted/me), each going to its space, and the nav gains Admin for
-// TEPHRA's operators (GET /api/admin/me answers 200 only for a signed-in operator).
+// login belongs to (GET /api/hosted/me), each going to its space. With onboarding on (hosting or
+// not) the nav gains Staff for TEPHRA staff, who verify airlines: asked of GET /api/admin/me only
+// when the session read saw a signed staff cookie, so other visitors' pages make no request that
+// answers 401.
 
 import { el, icon } from "./wall/util.js";
 import { themeControl } from "./theme.js";
@@ -21,11 +23,11 @@ async function readJson(path) {
 }
 const readSession = () => readJson("/api/airline/session");
 
-// Admin goes before Guide in every shared nav on the page, once.
+// Staff (/admin) goes before Guide in every shared nav on the page, once.
 export function addAdminLink(root = document) {
   for (const nav of root.querySelectorAll(".topnav")) {
     if (nav.querySelector('a[href="/admin"]')) continue;
-    const admin = el("a", { href: "/admin", text: "Admin" });
+    const admin = el("a", { href: "/admin", text: "Staff" });
     const guide = nav.querySelector('a[href="/guide"]');
     if (guide) guide.before(admin);
     else nav.append(admin);
@@ -120,8 +122,8 @@ function accountMenu(session, items) {
 
 export async function initAccountNav({ right = null, signin = true, items = [] } = {}) {
   const hosted = has("hosted");
-  const [session, operator] = await Promise.all([readSession(), hosted ? readJson("/api/admin/me") : null]);
-  if (operator) addAdminLink();
+  const session = await readSession();
+  if (session?.staff && has("onboard") && await readJson("/api/admin/me")) addAdminLink();
   if (!session) return { signedIn: false, icao: null, name: null };
   const signedIn = session.signed_in === true;
   if (signedIn) swapNav();

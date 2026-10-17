@@ -1,0 +1,157 @@
+{
+  "id": "AL-5f6e7d8c9b0a",
+  "version": 3,
+  "status": "verified",
+  "status_label": "Verified",
+  "name": "Ring of Fire Nusantara",
+  "icao": "RFN",
+  "state_of_operator": "Indonesia",
+  "aoc_number": "AOC-RFN-12",
+  "ops_email": "ops@rfn.example",
+  "email": "ana@rfn.example",
+  "submitted_at": "2026-10-16T08:00:00.000Z",
+  "decided_at": "2026-10-16T09:30:00.000Z",
+  "aircraft": 3,
+  "airports": 4,
+  "flags": [],
+  "answers": {
+    "format": "tephra.onboard/2",
+    "airline": {
+      "name": "Ring of Fire Nusantara",
+      "icao": "RFN",
+      "iata": null,
+      "callsign_prefix": "RFA",
+      "state_of_operator": "Indonesia",
+      "aoc_number": "AOC-RFA-0001",
+      "main_base": "WIII",
+      "ops_email": "ops@rfn.example",
+      "contact_name": "Duty manager"
+    },
+    "policy": {
+      "preset": "A",
+      "changes": [
+        {
+          "name": "exposure.vertical_margin_ft",
+          "value": 3000,
+          "reason": "Our SRA section 4.2 asks for a wider margin."
+        }
+      ],
+      "risk_owner": "Director of Flight Operations",
+      "sra_ref": "RFA-SRA-VA rev 3"
+    },
+    "fleet": {
+      "aircraft": [
+        {
+          "registration": "PK-RFA",
+          "type_icao": "A320",
+          "seats": 180,
+          "home_base": "WIII",
+          "hex": "8a0412"
+        },
+        {
+          "registration": "PK-RFB",
+          "type_icao": "B738",
+          "seats": 189,
+          "home_base": null,
+          "hex": null
+        },
+        {
+          "registration": "PK-RFC",
+          "type_icao": "AT76",
+          "seats": 0,
+          "home_base": "WADD",
+          "hex": "8a0413"
+        }
+      ],
+      "extra_prefixes": []
+    },
+    "network": {
+      "airports": [
+        {
+          "icao": "WIII",
+          "alternates": [
+            "WIHH"
+          ]
+        },
+        {
+          "icao": "WADD",
+          "alternates": []
+        },
+        {
+          "icao": "WARR",
+          "alternates": []
+        }
+      ]
+    },
+    "schedule": {
+      "provided": false,
+      "flights": 0,
+      "tails": 0,
+      "crews": 0,
+      "crew_bases": []
+    },
+    "feeds": {
+      "positions": true,
+      "flight_plans": false,
+      "pilot_reports": true,
+      "source_system": null
+    },
+    "people": {
+      "dispatchers": [
+        {
+          "name": "Ana K",
+          "role": "approves"
+        },
+        {
+          "name": "BT",
+          "role": "views"
+        }
+      ]
+    },
+    "assistant": {
+      "provider": "ollama",
+      "model": "gemma4:e4b",
+      "model_lite": "gemma4:e4b"
+    }
+  },
+  "history": [
+    {
+      "seq": 1,
+      "at": "2026-10-16T07:00:00.000Z",
+      "actor": "airline",
+      "action": "created",
+      "note": null,
+      "prev_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-16T08:00:00.000Z",
+      "actor": "airline",
+      "action": "submitted",
+      "note": null,
+      "prev_sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000002"
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-16T09:30:00.000Z",
+      "actor": "desk:Rina Desk",
+      "action": "verified",
+      "note": "AOC checked by phone",
+      "prev_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-17T10:00:00.000Z",
+      "actor": "operator:M. Tan#4f1c2a9b",
+      "action": "hosting_approved",
+      "note": null,
+      "prev_sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000004"
+    }
+  ],
+  "history_ok": true,
+  "history_broken_at": null
+}

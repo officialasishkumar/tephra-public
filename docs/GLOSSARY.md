@@ -54,7 +54,7 @@ page string.
 | On screen (canonical) | In the code | What it is |
 |---|---|---|
 | Onboard your airline | `/onboard`, `tephra/airline/` | An airline account first, then nine short pages, then Submit for verification. Behind `TEPHRA_FEATURES` `onboard`. |
-| Pending verification | `AirlineRecord.status` `pending` | The airline's status until a TEPHRA dispatcher verifies or declines it on the Desk (Airlines to verify). Verified means a person checked who the operator is; it approves no policy and no use of TEPHRA. |
+| Pending verification | `AirlineRecord.status` `pending` | The airline's status until TEPHRA staff verify or decline it on `/admin`. Verified means a person checked who the operator is; it approves no policy and no use of TEPHRA. |
 | Airline workspace | `/workspace` | The airline's private pages after sign-in: its answers, Data feeds, its assistant's model and its people. Never listed publicly, never on the demo's map or the Desk's picture. |
 | Push tool | `tephra/web/kit/push.py` | Sends an airline's flight plans and positions to a push endpoint with a Desk-made key; `--dry-run` sends nothing. |
 | Own fleet | `TEPHRA_FLEET_PREFIXES`, `TEPHRA_FLEET_HEXES`, `FleetFilter` | With these settings set, the aircraft checked against the ash: the airline's callsign prefixes, its aircraft addresses and every aircraft it pushes. Empty (every aircraft) in the demo. |
@@ -70,10 +70,10 @@ Pages say "airline", never "tenant" (the code's word for an airline's space).
 | SHADOW | `TenantRecord.state` `shadow`, `Advisory.shadow` | TEPHRA runs on the airline's real flights and every draft says "Shadow · not for use" (code writes `SHADOW - NOT FOR USE` into each header). Said by the header chip; a dashed shape, no hue. |
 | LIVE | `TenantRecord.state` `live`, `TenantRecord.live` | The ops manager has switched the airline on: drafts lose the stamp and are for its dispatchers to use. Recorded with a name and a time. Still decision support only. |
 | Not started | `TenantRecord.state` `setup` | The airline's space exists (feeds, keys, settings) but nothing runs and it takes no place. |
-| Suspended | `TenantRecord.state` `suspended` | TEPHRA's operators stopped the airline's runs and refuse its pushes; its pages stay readable; its data is deleted 7 days later unless resumed. |
+| Suspended | `TenantRecord.state` `suspended` | TEPHRA staff stopped the airline's runs and refuse its pushes; its pages stay readable; its data is deleted 7 days later unless resumed. |
 | Ops manager | `HostedRole` `ops_manager` | A member who also changes the airline's settings, people and keys, and starts, switches or stops TEPHRA. |
 | Dispatcher, Viewer | `HostedRole` | A member who decides drafts at the Desk; a member who reads and decides nothing. |
-| Operator | `Operator`, `/admin`, cookie `tephra_operator` | One of TEPHRA's own people on the operator console: verifies airlines, approves hosting, suspends, resumes, deletes data. Not a Desk role; sees each airline as one row. |
+| TEPHRA staff | `Operator` ("operator" in code), `/admin`, cookie `tephra_operator` | One of TEPHRA's own people on the staff console: verifies or declines airlines from their answers and private history (hosting on or off); with hosting on also approves hosting, suspends, resumes, deletes data. Not a Desk role; never sees an unsent draft, member accounts or keys. |
 | airline place | `hosted_slots`, `TEPHRA_HOSTED_MAX_TENANTS` | One of the (at most 3) airlines in SHADOW or LIVE at once on this site. |
 
 ## Modes and honesty

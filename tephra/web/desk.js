@@ -93,7 +93,7 @@ function applyState(state) {
 
 // The optional features the server shows (SystemState.features, TEPHRA_FEATURES): the Desk's
 // entries for a hidden feature are hidden, their ids and code stay (SPEC 5.3). Ask's mic and the
-// account menu's Airlines to verify and Data connections consult has() where they are drawn; the
+// account menu's Data connections consult has() where they are drawn; the
 // nav's Onboard link follows wall/features.js applyFeatureNav.
 function applyFeatures() {
   // a hosted airline's viewer enters no crew report and pastes no notice (SPEC-FINAL 6.1)
@@ -1140,8 +1140,8 @@ function tenantBoot() {
       tenantOpen = false;
       // only an ops manager can finish Go live: everyone else is told who does
       const finish = h.you?.role === 'ops_manager'
-        ? el('a', { class: 'linkbtn', href: '/workspace' }, el('span', { text: 'Finish Go live in your workspace' }), icon('i-chevron-right'))
-        : el('p', { text: `${h.name}'s ops manager starts it from the workspace.` });
+        ? el('a', { class: 'linkbtn', href: '/workspace' }, el('span', { text: 'Finish Go live on Your airline' }), icon('i-chevron-right'))
+        : el('p', { text: `${h.name}'s ops manager starts it from Your airline.` });
       tenantNote(h.state === 'setup'
         ? [el('p', { class: 'panel__title' }, el('span', { text: `TEPHRA has not started for ${h.name} yet.` })), finish]
         : [el('p', { class: 'panel__title' }, el('span', { text: `TEPHRA is not running for ${h.name}.` })), el('p', { text: 'Its drafts wait until TEPHRA runs for it again.' })]);

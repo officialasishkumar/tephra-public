@@ -1,4 +1,4 @@
-/* The operator console /admin (SPEC hosted §5.7; design hosted.css: the tiles, the airline table
+/* The TEPHRA staff console /admin (SPEC hosted §5.7; design hosted.css: the tiles, the airline table
    .atable with card rows at 900 px and below, .mini, .fh). Uses tokens.css, topnav.css,
    product.css and tenant.css (.sbadge, .ah-air__code); light and dark from the tokens. Every grid
    track is minmax(0, ...), so 390 px never scrolls sideways. */
@@ -8,7 +8,7 @@
 .hhead__t { display: flex; align-items: center; gap: 4px; min-width: 0; }
 
 /* the tiles: four counts, then the free-tier tile across the row */
-.acount { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.acount { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .acount > div, .ftile { padding: 14px 16px; border: 1px solid var(--c-line-1); border-radius: var(--radius-md); background: var(--c-surface-1); }
 .acount > div > b { display: block; font-size: 24px; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .acount > div > span { font-size: 13px; color: var(--c-text-3); }
@@ -73,7 +73,15 @@
 .once p { font-size: 13px; color: var(--c-text-2); }
 .once p b { color: var(--c-text-1); }
 
-/* the operator invite */
+/* one airline's answers and private history (admin.js airlineDetail), in a wider dialog */
+.pdlg--wide { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; }
+.adet { display: grid; gap: 12px; }
+.adet .kv { margin: 0; }
+.adet__flags { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+.adet__hist { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.adet__hist li { display: grid; grid-template-columns: 11em minmax(0, 1fr); gap: 12px; overflow-wrap: anywhere; }
+
+/* the staff invite */
 .opinvite { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 12px; align-items: start; }
 .opinvite__go { padding-top: 26px; }
 .opinvite .inline-alert { grid-column: 1 / -1; }
@@ -82,9 +90,6 @@
 
 @media (max-width: 1100px) {
   .ftile__bars { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-@media (max-width: 1000px) {
-  .acount { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
   .atable thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
@@ -109,6 +114,7 @@
 }
 @media (max-width: 760px) {
   .apage { padding-top: 20px; }
+  .adet__hist li { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .acount { grid-template-columns: minmax(0, 1fr); }
   .ftile__bars { grid-template-columns: minmax(0, 1fr); }
   .once code { font-size: 13px; }

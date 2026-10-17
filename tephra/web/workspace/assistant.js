@@ -112,7 +112,7 @@ export function renderAssistant(main, view, { onSaved }) {
       onSaved(res.data);
       return;
     }
-    status.textContent = res.status === 409 ? "Someone changed your workspace in another tab. Reload to see it." : res.status === 422 ? "Not saved: the server refused these model names." : failWords(res);
+    status.textContent = res.status === 409 ? "Someone changed this in another tab. Reload to see it." : res.status === 422 ? "Not saved: the server refused these model names." : failWords(res);
   });
   main.append(form);
 }

@@ -86,8 +86,8 @@ export function alarmLines(h) {
     const del = ms(h.suspended.delete_after);
     out.push({
       kind: "suspended",
-      lead: `TEPHRA's operators suspended ${h.name} on ${whenWords(ms(h.suspended.at))}.`,
-      text: `Reason: “${h.suspended.reason}”. Runs are stopped and pushes are refused. Your settings, people, keys and record are kept${Number.isFinite(del) ? `. TEPHRA's operators can delete your data from ${dayMonth(del)} ${new Date(del).getUTCFullYear()}; nothing deletes it on its own` : ""}.`,
+      lead: `TEPHRA staff suspended ${h.name} on ${whenWords(ms(h.suspended.at))}.`,
+      text: `Reason: “${h.suspended.reason}”. Runs are stopped and pushes are refused. Your settings, people, keys and record are kept${Number.isFinite(del) ? `. TEPHRA staff can delete your data from ${dayMonth(del)} ${new Date(del).getUTCFullYear()}; nothing deletes it on its own` : ""}.`,
     });
   }
   if (h.paused) {
@@ -152,7 +152,7 @@ function account(h, { theme }) {
     icon("i-chevron-down"));
   const menu = el("div", { id: "ah-account-menu", class: "tn-menu", role: "menu", "aria-label": "Your account", hidden: true },
     el("div", { class: "ah-who" }, el("b", { text: you.name || "" }), el("span", { text: `${ROLE_WORDS[you.role] || ""} · ${h.name}` })),
-    el("a", { class: "tn-menu__item", role: "menuitem", href: "/workspace" }, icon("i-list"), "Your workspace"),
+    el("a", { class: "tn-menu__item", role: "menuitem", href: "/workspace" }, icon("i-list"), "Your airline"),
     theme ? el("div", { class: "tn-menu__theme", role: "group", "aria-label": "Theme" }, themeControl()) : null,
     el("button", { type: "button", class: "tn-menu__item", role: "menuitem", dataset: { act: "sign-out-all" } }, icon("i-log-out"), "Sign out on every device"));
   menu.addEventListener("click", (e) => { if (e.target.closest('[data-act="sign-out-all"]')) signOutEverywhere(); });
@@ -340,12 +340,12 @@ function drawGone() {
   S.parts.stateInfo.hidden = true;
   S.parts.alarm.replaceChildren(el("div", { class: "banner ah-alarm__line" }, icon("i-alert-serious"),
     el("p", {}, el("b", { text: S.error === "no_such_airline" ? `There is no airline ${TENANT} here, or you are not one of its people.` : "TEPHRA could not open this airline's space." }),
-      " ", el("a", { href: "/workspace", text: "Your workspace ›" }))));
+      " ", el("a", { href: "/workspace", text: "Your airline ›" }))));
   S.parts.alarm.hidden = false;
 }
 
 // The product pages' footer inside the space: who sees it (the decision-support sentence left the
 // footer: owner, 17 Oct 2026, "don't put this everywhere").
 export function footerWords(h) {
-  return `Private to ${h ? h.name : "this airline"} and TEPHRA's operators.`;
+  return `Private to ${h ? h.name : "this airline"} and TEPHRA staff.`;
 }

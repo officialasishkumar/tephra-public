@@ -76,7 +76,7 @@ function deleteItem() {
 
 // An account a hosted airline still needs (SPEC hosted §3.4).
 const DELETE_REFUSED = {
-  hosted_airline: "Your airline still has its space on TEPHRA. Ask TEPHRA's operators to suspend it and delete its data first.",
+  hosted_airline: "Your airline still has its space on TEPHRA. Ask TEPHRA staff to suspend it and delete its data first.",
   last_ops_manager: "You are the last ops manager of an airline on TEPHRA. Make another member ops manager first, in its Settings › People.",
 };
 
@@ -88,7 +88,7 @@ function openDelete() {
   const del = el("button", { type: "submit", class: "btn btn--serious" }, el("span", { text: "Delete account" }));
   const form = el("form", { class: "pdlg__form", novalidate: true },
     el("h2", { id: "del-h", class: "h2", text: "Delete your account?" }),
-    el("p", { class: "body2", text: "Deletes your answers and workspace for good." }),
+    el("p", { class: "body2", text: "Deletes your account and answers for good." }),
     el("div", { class: "field" }, el("label", { for: "del-pw", text: "Your password" }), pw, err),
     el("div", { class: "pdlg__acts" }, cancel, del));
   cancel.addEventListener("click", () => dlg.close());
@@ -168,7 +168,7 @@ function answersSection(main, view) {
   main.append(
     el("section", { class: "wsec", "aria-labelledby": "ans-h" },
       el("h2", { id: "ans-h", class: "h2", text: "Your answers" }),
-      editable ? null : el("p", { class: "body2", text: "Locked. Ask a dispatcher to change them." }),
+      editable ? null : el("p", { class: "body2", text: "Locked once TEPHRA has checked them." }),
       reviewList(view.answers, { named: S.named, editHref: editable ? (k) => `/onboard/${k}?edit=1` : null })));
 }
 
@@ -196,7 +196,7 @@ async function memberOnly(section) {
   const list = me.data.memberships || [];
   $("main").replaceChildren(el("div", { class: "narrow yourairs" },
     el("h1", { class: "h1", text: "Your airlines" }),
-    el("p", { class: "body2", text: "Each airline's pages are private to its members and TEPHRA's operators." }),
+    el("p", { class: "body2", text: "Each airline's pages are private to its members and TEPHRA staff." }),
     list.length
       ? airlinesList(list, { title: list.length === 1 ? "Your airline" : `${list.length} airlines` })
       : el("p", { class: "status status--quiet" }, icon("st-off"), el("span", { text: "No airline yet. An ops manager's invite link adds you." }))));
@@ -205,7 +205,7 @@ async function memberOnly(section) {
 async function workspace(section) {
   const known = SECTIONS.map(([k]) => k);
   if (!known.includes(section)) {
-    offCard("No such workspace page.");
+    offCard("No such page.");
     return;
   }
   const me = await call(PATHS.me);
@@ -223,7 +223,7 @@ async function workspace(section) {
   }
   S.view = me.data;
   const view = S.view;
-  // this site hosts airlines: an operator, not only a Desk dispatcher, may verify (overview words)
+  // this site hosts airlines: the overview's last line says what follows verification
   view.hostedSite = has("hosted");
   if (view.status === "draft" && section) {
     history.replaceState(null, "", "/workspace");

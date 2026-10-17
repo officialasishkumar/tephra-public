@@ -12,6 +12,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from tephra.airline import accounts
 from tephra.airline.sessions import COOKIE_NAME as AIRLINE_COOKIE
 from tephra.api import routes_admin
 from tephra.api.auth import COOKIE_NAME as DESK_COOKIE
@@ -189,7 +190,9 @@ def test_verify_approves_hosting_and_decline_says_why(
         client, f"/api/admin/airlines/{pending.record.id}/verify", {"version": row["version"]}
     )
     assert verified.status_code == 200, verified.text
-    assert (verified.json()["status"], verified.json()["hosting"]) == ("verified", "operator")
+    assert verified.json()["status"] == "verified"
+    assert verified.json()["history"][-1]["actor"].startswith("operator:M. Tan#")
+    assert row_of(client, "RFB")["hosting"] == "operator"
     declined = post(
         client,
         f"/api/admin/airlines/{other.record.id}/decline",
@@ -218,6 +221,40 @@ def test_a_desk_verified_airline_needs_an_operator_s_approval(
         {"version": row["version"]},
     )
     assert approved.status_code == 200, approved.text
+    assert approved.json()["hosting"] == "operator"
+
+
+def test_an_airline_staff_verified_while_hosting_was_off_waits_for_approve_hosting(
+    client: TestClient, site: HostedSite, operator: str
+) -> None:
+    """Hosting off, a staff verify approves no hosting; once the site hosts airlines the row
+    waits under Approve hosting, labelled Verified (only a Desk verify says Desk)."""
+
+    async def verified_without_hosting() -> str:
+        held = await site.holder("RFC", verified=False)
+        await accounts.decide(
+            site.root,
+            held.record.id,
+            version=held.record.version,
+            actor="operator:M. Tan#4f1c2a9b",
+            verified=True,
+            note=None,
+            at=wall_clock_now(),
+        )
+        return held.record.id
+
+    airline_id = site.run(client, verified_without_hosting)
+    site.run(client, lambda: site.holder("RFB", hosting=False))
+    listed = client.get("/api/admin/airlines").json()
+    assert listed["to_approve"] == 2
+    staff, desk = row_of(client, "RFC"), row_of(client, "RFB")
+    assert (staff["status_label"], staff["hosting"]) == ("Verified", "desk")
+    assert desk["status_label"] == "Verified (Desk)"
+    one = client.get(f"/api/admin/airlines/{airline_id}").json()
+    assert one["history"][-1]["actor"] == "operator:M. Tan#4f1c2a9b"
+    approved = post(
+        client, f"/api/admin/airlines/{airline_id}/approve-hosting", {"version": staff["version"]}
+    )
     assert approved.json()["hosting"] == "operator"
 
 

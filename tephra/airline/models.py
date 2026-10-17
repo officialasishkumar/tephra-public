@@ -31,6 +31,7 @@ __all__ = [
     "DESK_STATUSES",
     "EMAIL",
     "ONBOARD_FORMAT",
+    "STAFF_STATUS_LABEL",
     "STATUS_LABEL",
     "AccountCreate",
     "AccountCreated",
@@ -38,7 +39,6 @@ __all__ = [
     "AirlineDeskRow",
     "AirlineDeskView",
     "AirlineIdentity",
-    "AirlineList",
     "AirlineLogin",
     "AirlineRecord",
     "AirlineSessionView",
@@ -48,9 +48,7 @@ __all__ = [
     "AshPolicy",
     "AssistantChoice",
     "AssistantUpdate",
-    "DeclineAirline",
     "DeleteAccount",
-    "DeleteAirline",
     "DeskStatus",
     "Dispatcher",
     "DraftUpdate",
@@ -72,10 +70,10 @@ __all__ = [
     "RecoveryCode",
     "ScheduleSummary",
     "SignIn",
+    "StaffList",
     "Stamp",
     "StatusStep",
     "Submit",
-    "VerifyAirline",
 ]
 
 ONBOARD_FORMAT: Final = "tephra.onboard/2"
@@ -89,7 +87,7 @@ _BIDI_CONTROLS: Final = frozenset("‪‫‬‭‮⁦⁧⁨⁩")
 
 AirlineStatus = Literal["draft", "pending", "verified", "declined"]
 DeskStatus = Literal["pending", "verified", "declined"]
-"""What the Desk sees: a draft is the airline's own until it submits."""
+"""What TEPHRA staff see: a draft is the airline's own until it submits."""
 DESK_STATUSES: Final[tuple[DeskStatus, ...]] = ("pending", "verified", "declined")
 PageKey = Literal[
     "airline", "policy", "fleet", "network", "schedule", "feeds", "people", "assistant", "review"
@@ -100,6 +98,8 @@ STATUS_LABEL: Final[dict[str, str]] = {
     "verified": "Verified",
     "declined": "Declined",
 }
+# The staff console's words (hosting on or off): "Pending" beside its To verify filter.
+STAFF_STATUS_LABEL: Final[dict[str, str]] = {**STATUS_LABEL, "pending": "Pending"}
 
 
 def _has_control(text: str) -> bool:
@@ -556,7 +556,7 @@ HistoryAction = Literal[
 
 class Stamp(TephraModel):
     """Who did something and when (wall clock). ``by`` is ``"<display name>#<member id>"`` for
-    an airline member or ``"operator:<name>#<k[:8]>"`` for one of TEPHRA's operators; pages
+    an airline member or ``"operator:<name>#<k[:8]>"`` for TEPHRA staff; pages
     show the part before ``#``."""
 
     by: str = Field(min_length=1, max_length=160)
@@ -564,12 +564,15 @@ class Stamp(TephraModel):
 
 
 class HistoryEntry(TephraModel):
-    """The airline record's own hash-linked history, private to the airline and the Desk (never
-    the public audit trail, which would list airlines publicly)."""
+    """The airline record's own hash-linked history, private to the airline and TEPHRA staff
+    (never the public audit trail, which would list airlines publicly)."""
 
     seq: int = Field(ge=1)
     at: UtcDatetime = Field(description="Wall clock")
-    actor: str = Field(description="'airline' or 'desk:<name>'")
+    actor: str = Field(
+        description="'airline', 'operator:<name>#<k8>' (TEPHRA staff), or 'desk:<name>' on "
+        "records the Desk decided before staff verified airlines"
+    )
     action: HistoryAction
     note: str | None = Field(default=None, max_length=500)
     prev_sha256: str = Field(description="'0' * 64 for the first entry")
@@ -608,7 +611,7 @@ class AirlineRecord(TephraModel):
 
     decided_at: UtcDatetime | None = None
     decline_reason: str | None = Field(default=None, max_length=500)
-    flags: list[str] = Field(default_factory=list, description="Reviewer hints, Desk only")
+    flags: list[str] = Field(default_factory=list, description="Reviewer hints, TEPHRA staff only")
     history: list[HistoryEntry]
     hosting: Stamp | None = Field(
         default=None,
@@ -700,10 +703,15 @@ class AirlineSessionView(TephraModel):
     icao: str | None = None
     name: str | None = None
     status: AirlineStatus | None = Field(default=None, description="Sign-in's answer only")
+    staff: bool = Field(
+        default=False,
+        description="A signed, unexpired TEPHRA staff cookie came along (no store read): the nav "
+        "then asks GET /api/admin/me",
+    )
 
 
 class AirlineDeskRow(TephraModel):
-    """A submitted airline: the Desk never reads a draft."""
+    """A submitted airline, as TEPHRA staff read it: never a draft."""
 
     id: str
     version: int
@@ -716,6 +724,7 @@ class AirlineDeskRow(TephraModel):
     ops_email: str
     email: str
     submitted_at: UtcDatetime | None
+    decided_at: UtcDatetime | None = Field(default=None, description="Verified or declined at")
     aircraft: int
     airports: int
     flags: list[str]
@@ -728,7 +737,7 @@ class AirlineDeskRow(TephraModel):
             id=record.id,
             version=record.version,
             status=record.status,
-            status_label=STATUS_LABEL[record.status],
+            status_label=STAFF_STATUS_LABEL[record.status],
             name=airline.name,
             icao=airline.icao,
             state_of_operator=airline.state_of_operator,
@@ -736,13 +745,18 @@ class AirlineDeskRow(TephraModel):
             ops_email=airline.ops_email,
             email=record.email,
             submitted_at=record.submitted_at,
+            decided_at=record.decided_at,
             aircraft=len(answers.fleet.aircraft),
             airports=len(answers.network.airports),
             flags=record.flags,
         )
 
 
-class AirlineList(TephraModel):
+class StaffList(TephraModel):
+    """The staff console's airlines on a site that hosts none (``hosted`` off)."""
+
+    to_verify: int = Field(description="Airlines waiting to be verified (pending)")
+    onboarding: int = Field(description="Airlines still onboarding: a count, never rows")
     airlines: list[AirlineDeskRow]
 
 
@@ -850,22 +864,3 @@ class Submit(_Form):
 class AssistantUpdate(_Form):
     version: int = Field(ge=1)
     assistant: AssistantChoice
-
-
-class VerifyAirline(_Form):
-    version: int = Field(ge=1)
-    note: str | None = Field(default=None, max_length=300)
-
-    @field_validator("note", mode="before")
-    @classmethod
-    def _tidy_optional(cls, value: object) -> object:
-        return _optional(value)
-
-
-class DeclineAirline(_Form):
-    version: int = Field(ge=1)
-    reason: str = Field(min_length=3, max_length=500)
-
-
-class DeleteAirline(_Form):
-    version: int = Field(ge=1)

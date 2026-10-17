@@ -1,5 +1,8 @@
-"""The operator console /admin (SPEC hosted §5.7), ``tephra/web/admin.js``, under Node with the §4.3
-fixtures of ``tests/fixtures/hosted/admin``: the tiles (places, waiting, last pass, advisories,
+"""The TEPHRA staff console /admin (SPEC hosted §5.7), ``tephra/web/admin.js``, under Node with the
+§4.3 fixtures of ``tests/fixtures/hosted/admin``: with hosting off (owner, 17 Oct 2026: staff
+verify, the demo Desk is RFA's dispatcher only) only the airlines (All, To verify, Verified,
+Declined), Review… with the answers and private history, and Delete record… for a declined one;
+with hosting on the tiles (places, waiting, last pass, advisories,
 the free-tier tile with the namespaces and RSS), the notes, the filters and their counts, each
 row's status shape and actions (Review… for pending airlines, Approve hosting… for Desk-verified
 ones, Suspend… for
@@ -64,8 +67,8 @@ def test_the_tiles_and_the_free_tier(tmp_path: Path) -> None:
     r = _console(tmp_path, "admin-list-full")
     tiles = {t: c for c, t in r["tiles"]}
     assert "2 / 3 places in use (shadow or live)" in tiles
-    # one pending airline to verify and one Desk-verified airline waiting for hosting approval
-    assert "2 waiting for an operator" in tiles
+    # what waits for staff is said once, by the To verify and Approve hosting filters
+    assert not any("waiting" in t and "staff" in t for t in tiles)
     assert not any("waiting to be verified" in t for t in tiles)
     assert "18.6 s last hosted pass, of 40 s · 14:04:00Z" in tiles
     assert "6 advisories waiting, all airlines" in tiles
@@ -158,6 +161,9 @@ def test_each_status_gets_its_shape_and_its_actions(tmp_path: Path) -> None:
     assert rfs["badge"] == "sbadge sbadge--suspended"
     assert ["Resume…", False] in rfs["buttons"]
     assert ["Delete data… From 21 Oct, 13:40 UTC", True] in rfs["buttons"]
+    # a decided airline's answers and history are one menu item away; a pending one's are Review…
+    assert ["Answers and history", False] in rfn["buttons"]
+    assert ["Answers and history", False] not in rfr["buttons"]
     assert dict(rfb["cells"])["Feeds"] == "2 of 3 receiving · pilot reports quiet 15 h"
     assert (
         dict(_row(r, "RFC")["cells"])["Feeds"]
@@ -364,7 +370,8 @@ def test_sign_in_says_the_tries_left(tmp_path: Path) -> None:
         }
     }
     r = run_node(tmp_path, SIGNIN, {"routes": routes})
-    assert "Operator sign-in" in r["text"]
+    assert "TEPHRA staff sign-in" in r["text"]
+    assert "Operator" not in r["text"]
     assert r["errors"] == [
         "That email and password don't match. 2 tries left before sign-in waits 15 minutes."
     ]
@@ -395,7 +402,8 @@ def test_the_operator_link_reads_its_token_once(tmp_path: Path) -> None:
     assert r["token"] == token
     assert r["left"] == "/admin/join"
     assert r["calls"] == [["/api/admin/invite/lookup", {"token": token}]]
-    assert "Become an operator of TEPHRA" in r["text"]
+    assert "Join TEPHRA staff" in r["text"]
+    assert "operator" not in r["text"].lower()
     assert "For r•••@tephra.example" in r["text"]
     gone = run_node(
         tmp_path,
@@ -407,13 +415,13 @@ def test_the_operator_link_reads_its_token_once(tmp_path: Path) -> None:
             },
         },
     )
-    assert "This operator link is used or expired. Ask an operator for a new one." in gone["text"]
+    assert "This staff link is used or expired. Ask TEPHRA staff for a new one." in gone["text"]
 
 
 def test_admin_html_is_the_shared_shell() -> None:
     assert (
         '<nav class="topnav" aria-label="TEPHRA pages"><a href="/demo">Demo</a>'
-        '<a href="/desk">Desk</a><a href="/admin" aria-current="page">Admin</a>'
+        '<a href="/desk">Desk</a><a href="/admin" aria-current="page">Staff</a>'
         '<a href="/guide">Guide</a></nav>' in HTML
     )
     for hook in ('<a class="skip-link" href="#main">', 'id="announcer"', 'id="tn-right"'):
@@ -427,7 +435,8 @@ def test_admin_html_is_the_shared_shell() -> None:
         assert f'href="/static/{css}"' in HTML
     # one short footer line (no decision-support sentence); admin.js adds its (i)
     assert '<span id="ad-foot" class="pfoot__private">' in HTML
-    assert "<span>Operators of this site only</span>" in HTML
+    assert "<span>TEPHRA staff only</span>" in HTML
+    assert "perator" not in HTML.split("<body")[1]
     assert "Each action on an airline goes into that airline's record." not in HTML
     assert "Each action on an airline goes into that airline's record." in JS
     assert 'class="product admin-shell"' in HTML
@@ -463,7 +472,7 @@ FOOT = """
 const A = await import("./admin.js");
 const m = main();
 const foot = Object.assign(new Element("span"), { id: "ad-foot" });
-foot.append("Operators of this site only");
+foot.append("TEPHRA staff only");
 m.append(foot, A.signinCard());
 A.footInfo(document);
 A.footInfo(document);  // once only
@@ -480,4 +489,254 @@ def test_the_footer_and_the_sign_in_card_say_each_fact_once(tmp_path: Path) -> N
         ["the record", "Each action on an airline goes into that airline's record."]
     ]
     assert "For TEPHRA's operators of this site." not in r["seen"]
-    assert "Airline? Use the workspace Email reset: not built" in r["seen"]
+    assert "Airline? Sign in here Email reset: not built" in r["seen"]
+
+
+# --- hosting off: the airlines to verify, nothing of hosting -------------------------------------
+
+
+@needs_node
+def test_with_hosting_off_the_console_is_the_airlines_alone(tmp_path: Path) -> None:
+    script = """
+const A = await import("./admin.js");
+const list = A.staffList(DATA.list);
+const m = main();
+m.append(...A.notes(list), A.airlinesCard(list, DATA.filter, () => {}, Date.parse(DATA.now)));
+const rows = [...m.querySelectorAll("tbody tr[data-icao]")].map((tr) => ({
+  icao: tr.dataset.icao,
+  cells: [...tr.children].map((td) => [td.getAttribute("data-l"), text(td)]),
+  buttons: [...tr.querySelectorAll("button")].map((b) => [text(b), b.disabled]),
+}));
+out({
+  text: text(m),
+  tabs: [...m.querySelectorAll('[role="tab"]')].map(text),
+  heads: [...m.querySelectorAll("thead th")].map(text),
+  rows,
+  tiles: m.querySelectorAll(".acount").length,
+});
+"""
+    data = {"list": fixture("admin", "staff-list"), "now": NOW, "filter": "all"}
+    r = run_node(tmp_path, script, data)
+    assert r["tabs"] == ["All · 3", "To verify · 1", "Verified · 1", "Declined · 1"]
+    assert r["heads"] == ["Airline", "Status", "Actions"]
+    assert r["tiles"] == 0
+    for gone in ("Approve hosting", "Suspend", "Feeds", "AI use", "places", "free tier", "Running"):
+        assert gone not in r["text"], gone
+    assert "2 airlines are still onboarding." in r["text"]
+    rows = {x["icao"]: x for x in r["rows"]}
+    assert rows["RFR"]["buttons"] == [["Review…", False]]
+    assert "submitted 17 Oct · 1 hint" in dict(rows["RFR"]["cells"])["Status"]
+    # the same words as with hosting on: "PENDING", and a decided row says since its decision
+    assert dict(rows["RFR"]["cells"])["Status"].startswith("PENDING submitted")
+    assert dict(rows["RFN"]["cells"])["Status"] == "VERIFIED since 16 Oct"
+    assert dict(rows["SPM"]["cells"])["Status"] == "DECLINED since 15 Oct"
+    assert ["Answers and history", False] in rows["RFN"]["buttons"]
+    assert ["Delete record…", False] in rows["SPM"]["buttons"]
+    assert ["Delete record…", False] not in rows["RFN"]["buttons"]
+    assert [c for c, _ in rows["RFR"]["cells"]] == ["Airline", "Status", None]
+
+
+DETAIL = """
+const F = await import("./wall/features.js");
+F.setFeatures(DATA.features);
+const A = await import("./admin.js");
+setRoutes(DATA.routes);
+main();
+const dlg = Object.assign(new Element("dialog"), { id: "ad-dlg" });
+document.body.append(dlg);
+A.act(DATA.kind, DATA.row);
+await tick(); await tick();
+const look = { shown: text(dlg), seen: seen(dlg), infos: infos(dlg), wide: dlg.className };
+for (const [sel, v] of DATA.fill || []) dlg.querySelector(sel).value = v;
+const press = [...dlg.querySelectorAll("button")].find((b) => text(b) === DATA.press);
+if (press) { press.click(); await tick(); await tick(); }
+out({ ...look, calls: CALLS.map((c) => [c.method, c.path, c.body]),
+  history: [...dlg.querySelectorAll(".adet__hist li")].map(text) });
+"""
+
+
+def _detail(tmp_path: Path, name: str, row: dict, **kw: object) -> dict:
+    one = fixture("admin", name)
+    routes = {
+        f"GET /api/admin/airlines/{one['id']}": {"status": 200, "body": one},
+        "GET /api/policy": {"status": 404, "body": {}},
+        f"POST /api/admin/airlines/{one['id']}/verify": {"status": 200, "body": one},
+        f"POST /api/admin/airlines/{one['id']}/decline": {"status": 200, "body": one},
+        f"POST /api/admin/airlines/{one['id']}/delete": {"status": 204, "body": None},
+        "GET /api/admin/airlines": {"status": 200, "body": fixture("admin", "staff-list")},
+        "GET /api/admin/operators": {"status": 200, "body": fixture("admin", "operators")},
+    }
+    data = {"routes": routes, "row": row, "features": ["onboard"], "kind": "review", **kw}
+    return run_node(tmp_path, DETAIL, data)
+
+
+def _staff_row(icao: str) -> dict:
+    script_rows = fixture("admin", "staff-list")["airlines"]
+    a = next(x for x in script_rows if x["icao"] == icao)
+    return {
+        "airline_id": a["id"], "name": a["name"], "icao": a["icao"], "status": a["status"],
+        "status_label": a["status_label"], "state_since": a["submitted_at"],
+        "ops_email": a["ops_email"], "version": a["version"], "hints": len(a["flags"]),
+    }  # fmt: skip
+
+
+@needs_node
+def test_review_shows_the_answers_and_history_then_verifies(tmp_path: Path) -> None:
+    r = _detail(
+        tmp_path, "airline-detail-pending", _staff_row("RFR"), press="Verify",
+        fill=[["#ad-note", "AOC checked"]],
+    )  # fmt: skip
+    assert "Review Ring of Fire Regional (RFR)" in r["shown"]
+    assert "pdlg--wide" in r["wide"]
+    assert "Check who they are: write to ops@rfr.example from an address you trust." in r["seen"]
+    infos = dict(r["infos"])
+    assert "Verifying does not approve their policy and publishes nothing." in infos["verifying"]
+    assert "hosting" not in infos["verifying"]  # hosting off: a verify approves no hosting
+    assert "1 hint for you" in r["seen"]
+    assert "no AOC number given" in r["seen"]
+    assert "Answers" in r["seen"]
+    assert "Private history" in r["seen"]
+    assert r["history"] == [
+        "17 Oct, 09:00 UTC Account created · airline",
+        "17 Oct, 09:12 UTC Submitted · airline",
+    ]
+    verify = ["POST", "/api/admin/airlines/AL-0a1b2c3d4e5f/verify"]
+    assert [*verify, {"version": 2, "note": "AOC checked"}] in r["calls"]
+
+
+@needs_node
+def test_with_hosting_on_a_verify_says_it_approves_hosting(tmp_path: Path) -> None:
+    r = _detail(
+        tmp_path, "airline-detail-pending", _staff_row("RFR"), features=["onboard", "hosted"]
+    )
+    assert "Here it also approves hosting." in dict(r["infos"])["verifying"]
+
+
+DECLINE = """
+const A = await import("./admin.js");
+setRoutes(DATA.routes);
+main();
+const dlg = Object.assign(new Element("dialog"), { id: "ad-dlg" });
+document.body.append(dlg);
+A.act("review", DATA.row);
+await tick(); await tick();
+const review = { reason: Boolean(dlg.querySelector("#ad-reason")) };
+[...dlg.querySelectorAll("button")].find((b) => text(b) === "Decline…").click();
+await tick();
+const posts = () => CALLS.filter((c) => c.method === "POST").length;
+const step = { seen: seen(dlg), posts: posts() };
+dlg.querySelector('button[type="submit"]').click(); await tick();
+const empty = { posts: posts(), err: text(dlg.querySelector("#ad-reason-err")) };
+dlg.querySelector("#ad-reason").value = DATA.reason;
+dlg.querySelector('button[type="submit"]').click(); await tick(); await tick();
+out({ review, step, empty, calls: CALLS.map((c) => [c.method, c.path, c.body]) });
+"""
+
+
+@needs_node
+def test_decline_asks_again_and_needs_a_reason(tmp_path: Path) -> None:
+    """UX check, 17 Oct 2026: "Decline…" promised a second step but declined at once; it now
+    asks the question with the reason, as the Desk did."""
+    one = fixture("admin", "airline-detail-pending")
+    routes = {
+        f"GET /api/admin/airlines/{one['id']}": {"status": 200, "body": one},
+        "GET /api/policy": {"status": 404, "body": {}},
+        f"POST /api/admin/airlines/{one['id']}/decline": {"status": 200, "body": one},
+        "GET /api/admin/airlines": {"status": 200, "body": fixture("admin", "staff-list")},
+        "GET /api/admin/operators": {"status": 200, "body": fixture("admin", "operators")},
+    }
+    data = {"routes": routes, "row": _staff_row("RFR"), "reason": "Not an airline we can find"}
+    r = run_node(tmp_path, DECLINE, data)
+    assert r["review"]["reason"] is False  # the review dialog has no reason box
+    assert "Decline Ring of Fire Regional (RFR)?" in r["step"]["seen"]
+    assert "The airline reads your reason when it signs in." in r["step"]["seen"]
+    assert r["step"]["posts"] == 0
+    assert r["empty"] == {"posts": 0, "err": "Required"}
+    assert [
+        "POST",
+        "/api/admin/airlines/AL-0a1b2c3d4e5f/decline",
+        {"version": 2, "reason": "Not an airline we can find"},
+    ] in r["calls"]
+
+
+@needs_node
+def test_a_decided_airline_shows_its_history_in_staff_words(tmp_path: Path) -> None:
+    """Owner, 17 Oct 2026: history labels say "TEPHRA staff"; a Desk decision made before keeps
+    its old actor name."""
+    r = _detail(tmp_path, "airline-detail-verified", _staff_row("RFN"))
+    assert "Ring of Fire Nusantara (RFN)" in r["shown"]
+    assert "Review " not in r["shown"]
+    assert not any(b in r["shown"] for b in ("Verify", "Decline"))
+    assert r["history"][2:] == [
+        "16 Oct, 09:30 UTC Verified · Rina Desk · AOC checked by phone",
+        "17 Oct, 10:00 UTC Hosting approved · TEPHRA staff (M. Tan)",
+    ]
+
+
+@needs_node
+def test_delete_record_is_for_a_declined_airline_and_confirms(tmp_path: Path) -> None:
+    script = """
+const A = await import("./admin.js");
+setRoutes(DATA.routes);
+main();
+const dlg = Object.assign(new Element("dialog"), { id: "ad-dlg" });
+document.body.append(dlg);
+A.act("deleterecord", DATA.row);
+await tick();
+const seenNow = seen(dlg);
+dlg.querySelector('button[type="submit"]').click(); await tick(); await tick();
+out({ seen: seenNow, calls: CALLS.map((c) => [c.method, c.path, c.body]) });
+"""
+    row = _staff_row("SPM")
+    routes = {
+        f"POST /api/admin/airlines/{row['airline_id']}/delete": {"status": 204, "body": None},
+        "GET /api/admin/airlines": {"status": 200, "body": fixture("admin", "staff-list")},
+        "GET /api/admin/operators": {"status": 200, "body": fixture("admin", "operators")},
+    }
+    r = run_node(tmp_path, script, {"routes": routes, "row": row})
+    assert "Delete Spam Air (SPM)'s record?" in r["seen"]
+    assert "It cannot be undone." in r["seen"]
+    assert r["calls"][0] == ["POST", "/api/admin/airlines/AL-9a8b7c6d5e4f/delete", {"version": 3}]
+
+
+FOCUS = """
+const A = await import("./admin.js");
+setRoutes(DATA.routes);
+const m = main();
+Object.defineProperty(Element.prototype, "isConnected", { get() {
+  let n = this;
+  while (n.parentNode) n = n.parentNode;
+  return n === document.documentElement;
+} });
+const dlg = Object.assign(new Element("dialog"), { id: "ad-dlg" });
+document.body.append(dlg);
+const list = A.staffList(DATA.list);
+m.append(A.airlinesCard(list, "all", () => {}, Date.parse(DATA.now)));
+const row = m.querySelector('tr[data-icao="RFN"]');
+const more = row.querySelector('[aria-haspopup="menu"]');
+more.click();
+const item = row.querySelector('[data-act="review"]');
+item.focus();
+item.click();
+await tick(); await tick();
+const opened = dlg.open;
+// Chrome: the hidden item cannot take focus back, so it stays in the closed dialog
+document.activeElement = dlg.querySelector("h2");
+[...dlg.querySelectorAll("button")].find((x) => text(x) === "Close").click();
+out({ opened, back: document.activeElement === more });
+"""
+
+
+@needs_node
+def test_closing_answers_and_history_gives_focus_back_to_the_rows_menu_button(
+    tmp_path: Path,
+) -> None:
+    """UX check, 17 Oct 2026: closing a dialog opened from a row's ⋯ menu left focus on <body>."""
+    one = fixture("admin", "airline-detail-verified")
+    routes = {
+        f"GET /api/admin/airlines/{one['id']}": {"status": 200, "body": one},
+        "GET /api/policy": {"status": 404, "body": {}},
+    }
+    data = {"routes": routes, "list": fixture("admin", "staff-list"), "now": NOW}
+    r = run_node(tmp_path, FOCUS, data)
+    assert r == {"opened": True, "back": True}

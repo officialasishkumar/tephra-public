@@ -344,7 +344,7 @@ function airlinePage() {
       el("div", { class: "row2" },
         field({ id: fid("airline.state_of_operator"), label: "State of the Operator", hint: "The State that issued your AOC", control: t("state_of_operator", { list: "ob-countries", maxlength: 60, autocomplete: "country-name" }) }),
         field({ id: fid("airline.main_base"), label: "Main base", hint: baseHint, control: base })),
-      field({ id: fid("airline.ops_email"), label: "Operations email", info: { topic: "the operations email", text: "A TEPHRA dispatcher writes here when verifying your airline." }, control: t("ops_email", { type: "email", autocomplete: "email", inputmode: "email", maxlength: 254, spellcheck: "false" }) }),
+      field({ id: fid("airline.ops_email"), label: "Operations email", info: { topic: "the operations email", text: "TEPHRA staff write here when verifying your airline." }, control: t("ops_email", { type: "email", autocomplete: "email", inputmode: "email", maxlength: 254, spellcheck: "false" }) }),
       el("datalist", { id: "ob-countries" }, ...COUNTRIES.map((n) => el("option", { value: n })))),
     el("details", { class: "more more--page" },
       el("summary", {}, el("span", { text: "IATA code, callsign, AOC and contact" }), caret()),
@@ -785,7 +785,7 @@ function feedsPage() {
       el("summary", {}, el("span", { text: "Format: tephra.airline/1" }), caret()),
       el("div", { class: "more__body" },
         el("p", { class: "body2" }, "One JSON push with any of three sections. ", el("a", { class: "link", href: PATHS.schema, download: "", text: "Schema (JSON)" })),
-        el("p", { class: "body2", text: "Once you submit, try a file in the dry run in your workspace." }))),
+        el("p", { class: "body2", text: "Once you submit, try a file in the dry run under Your airline." }))),
   ];
 }
 
@@ -880,7 +880,7 @@ function reviewPage() {
   return [
     el("div", { id: "ob-errors", class: "ob-errors", role: "alert", tabindex: "-1", hidden: true }),
     reviewList(answers, { named: S.named, labels: S.labels, problems: Object.fromEntries(ANSWER_PAGES.map((k) => [k, problemCount(k)])), unseen: new Set(ANSWER_PAGES.filter((k) => !S.draft.seen.includes(k))), editHref: (k) => `/onboard/${k}` }),
-    el("p", { class: "hint", text: "A dispatcher verifies you next. You can still edit." }),
+    el("p", { class: "hint", text: "TEPHRA staff verify you next. You can still edit." }),
   ];
 }
 
@@ -1150,7 +1150,7 @@ function landing() {
     ? el("section", { id: "ob-signup", class: "card signup", "aria-labelledby": "su-h" },
       el("h2", { id: "su-h", class: "h2", text: "Answers submitted" }),
       el("p", { class: "body2", text: `Signed in as ${[me.icao, me.name].filter(Boolean).join(" · ")}.` }),
-      el("a", { id: "ob-start", class: "btn btn--primary btn--block", href: "/workspace" }, el("span", { text: "Open your workspace" }), icon("i-arrow-right")))
+      el("a", { id: "ob-start", class: "btn btn--primary btn--block", href: "/workspace" }, el("span", { text: "Open Your airline" }), icon("i-arrow-right")))
     : signupCard();
   $("main").replaceChildren(el("div", { class: "ostart" },
     el("div", { class: "ostart__head" },

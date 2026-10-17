@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from pydantic import TypeAdapter
 
-from tephra.airline.models import AirlineSessionView, AirlineView
+from tephra.airline.models import AirlineDeskView, AirlineSessionView, AirlineView, StaffList
 from tephra.hosted.models import (
     AdminContact,
     AdminList,
@@ -31,6 +31,8 @@ from tephra.hosted.models import (
 FIXTURES = Path(__file__).parent / "fixtures" / "hosted"
 MODELS: dict[str, Any] = {
     "admin-list-": AdminList,
+    "staff-list": StaffList,
+    "airline-detail-": AirlineDeskView,
     "contact-": AdminContact,
     "operator-invite": OperatorInviteView,
     "operator-link": LinkView,

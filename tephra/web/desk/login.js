@@ -43,7 +43,6 @@ const els = () => ({
   formErr: byId('login-error'),
   disabled: byId('login-disabled'),
   pad: byId('pin-pad'),
-  title: byId('login-title'),
   visitor: byId('visitor-card'),
   dispatcher: byId('dispatcher-card'),
   tabs: byId('login-tabs'),
@@ -147,16 +146,23 @@ export const hideLogin = () => {
   els().view.hidden = true;
 };
 
+// The title's (i): the demo Desk is RFA's dispatcher, on a replay or, on a server that runs live
+// (TEPHRA_MODE=LIVE), on live public feeds.
+export const whoWords = (mode) => `RFA is a fictional airline; you play its dispatcher on ${mode === 'LIVE' ? 'live public feeds' : 'a replay'}.`;
+
 // The tabs show only while the server says a visitor may enter (SystemState.visitor_access: the
 // setting is on and a replay plays); desk.js calls this on every state arrival, so they follow a
-// display switch. With the tabs, the title names the whole sign-in; without them, the PIN form
-// is the only way in.
+// display switch. The title stays "RFA dispatcher · demo" either way; without the tabs the PIN
+// form is the only way in.
 export function syncVisitorCard() {
   const e = els();
   const on = Boolean(app.state && app.state.visitor_access === true) && e.form.hidden === false;
   const appeared = on && e.tabs.hidden;
   e.tabs.hidden = !on;
-  e.title.textContent = on ? 'Sign in to the Desk' : 'Dispatcher sign-in';
+  if (app.state) {
+    const words = whoWords(app.state.mode);
+    for (const node of [byId('login-who-sr'), byId('login-who-pop')?.firstElementChild]) if (node) node.textContent = words;
+  }
   if (!on) {
     e.visitor.hidden = true;
     e.dispatcher.hidden = false;
