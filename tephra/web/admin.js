@@ -3,13 +3,16 @@
 // the hosted pass, and verify, approve hosting, suspend, resume or delete an airline's data, each
 // destructive action behind a reason or the airline's code. /admin/join#<token> turns a one-time
 // operator link into an account; the token leaves the address bar before anything else runs.
-// Every string goes in through el() (textContent).
+// Each note and dialog says one short line; what explains it sits behind the shared (i)
+// (wall/info.js), and form errors are terse and wait until a typed field is left or the form is
+// sent. Every string goes in through el() (textContent).
 
 import { $, el, icon, inlineSprite } from "./wall/util.js";
 import { applyFeatureNav, has, setFeatures } from "./wall/features.js";
 import { themeControl } from "./theme.js";
 import { ruleMessage } from "./onboard/pages.js";
-import { field, input, passwordInput, segmented, setError } from "./onboard/form.js";
+import { checkOnLeave, field, infoTail, input, passwordInput, segmented, setError } from "./onboard/form.js";
+import { infoButton } from "./wall/info.js";
 import { call, errorCode, failWords, minutesWords, retryMinutes } from "./workspace/api.js";
 
 export const ADMIN = {
@@ -127,8 +130,17 @@ function bar(used, cap, words, { title = null } = {}) {
   if (Number.isFinite(used) && Number.isFinite(cap) && cap > 0) fill.style.setProperty("--w", `${Math.min(100, Math.round((used / cap) * 100))}%`);
   return el("div", { class: `mini${lv ? ` mini--${lv}` : ""}`, title }, el("span", { text: words }), el("span", { class: "mini__bar", "aria-hidden": "true" }, fill));
 }
-const note = (kind, lead, text) => el("div", { class: `note note--${kind}`, role: kind === "serious" ? "alert" : "note" },
-  icon(kind === "caution" || kind === "serious" ? "i-alert" : "i-info"), el("p", {}, lead ? el("b", { text: `${lead} ` }) : null, text));
+// `more`: { topic, text } behind the note's (i)
+function note(kind, lead, text, more = null) {
+  const info = more ? { topic: more.topic, label: `About ${more.topic}`, text: more.text } : null;
+  const head = !lead ? [] : info && !text ? [el("b", {}, ...infoTail(lead, info))] : [el("b", { text: `${lead} ` })];
+  const body = !text ? [] : info ? infoTail(text, info) : [text];
+  return el("div", { class: `note note--${kind}`, role: kind === "serious" ? "alert" : "note" },
+    icon(kind === "caution" || kind === "serious" ? "i-alert" : "i-info"), el("p", {}, ...head, ...body));
+}
+// A dialog's one line, with the rest behind its (i).
+const leadLine = (text, more) => el("p", { class: "body2" }, ...(more ? infoTail(text, more) : [text]));
+const RECORDED = "It goes into the airline's record.";
 
 export function badge(row) {
   return el("span", { class: `sbadge ${BADGE[rowState(row)] || "sbadge--draft"}` }, el("i", { "aria-hidden": "true" }), String(row.status_label || row.status).toUpperCase());
@@ -176,9 +188,11 @@ export function tiles(list) {
     el("div", {}, el("b", { text: pass ? `${pass.seconds.toFixed(1)} s` : "–" }), el("span", { text: pass ? `last hosted pass, of ${pass.budget_s} s · ${hms(pass.at)}` : "no hosted pass on this instance yet" })),
     el("div", {}, el("b", { text: num(list.advisories_waiting) }), el("span", { text: "advisories waiting, all airlines" })),
     el("section", { class: "ftile", "aria-labelledby": "ft-h" },
-      el("div", { class: "ftile__h" }, el("h2", { id: "ft-h", text: "Free tier today" }), el("span", { class: "tdim", text: `Pacific day ${day(m.day)} · counted since ${when(m.counted_since)} on this instance` })),
+      el("div", { class: "ftile__h" }, el("h2", { id: "ft-h", text: "Free tier today" }),
+        infoButton({ topic: "the free tier", label: "About the free-tier bars", text: "The bars count the whole site, the demo included. The airlines pause on what they used together, never on the demo's use." }),
+        el("span", { class: "tdim", text: `Pacific day ${day(m.day)} · counted since ${when(m.counted_since)} on this instance` })),
       el("div", { class: "ftile__bars" },
-        ...["reads", "writes", "deletes"].map((k) => bar(m[k], m.caps?.[k], `${num(m[k])} / ${num(m.caps?.[k])} ${k}`, { title: `The whole site, the demo included. The airlines together: ${num(m.airlines?.[k])}; at the cap they pause.` })),
+        ...["reads", "writes", "deletes"].map((k) => bar(m[k], m.caps?.[k], `${num(m[k])} / ${num(m.caps?.[k])} ${k} · airlines ${num(m.airlines?.[k])}`)),
         bar(blob.used, blob.cap, `${num(blob.used)} / ${num(blob.cap)} file uploads in ${blob.month || "this month"}`),
         bar(rss.rss_mb, rss.limit_mb, `${num(rss.rss_mb)} / ${num(rss.limit_mb)} MB memory`)),
       nsRows.length
@@ -192,13 +206,14 @@ export function tiles(list) {
 export function notes(list) {
   const out = [];
   const over = siteOver(list.meter);
-  if (over.length) out.push(note("serious", "Every airline is paused.", `The airlines together reached the site's free daily ${over.join(" and ")} cap. They resume at 00:00 Pacific; the demo keeps answering.`));
+  if (over.length) out.push(note("serious", "Every airline is paused.", `The airlines together reached today's free ${over.join(" and ")} cap. They resume at 00:00 Pacific.`, { topic: "the pause", text: "The demo keeps answering." }));
   const busy = siteOnlyOver(list.meter);
-  if (busy.length) out.push(note("caution", "The site is past its free daily cap.", `Today's ${busy.join(" and ")}, mostly the demo's, passed the cap. No airline is paused for it: each stops at its own share.`));
-  if (list.hosting !== "always-on") out.push(note("caution", "Hosted airlines need always-on.", "This site runs on demand, so nothing ticks for the airlines. The owner changes the deploy's hosting mode."));
-  if (list.limit_reached) out.push(note("caution", "Airline limit reached.", `${list.slots.used} of ${list.slots.max} places are in use: this free-tier site runs at most ${list.slots.max} airlines in shadow or live.`));
-  if (list.unreadable_keys > 0) out.push(note("caution", `${list.unreadable_keys} ${list.unreadable_keys === 1 ? "airline's model key cannot" : "airlines' model keys cannot"} be read.`, "The key secret changed. Each of them is asked for its key again in Settings › Assistant."));
-  if (list.onboarding > 0) out.push(note("info", null, `${list.onboarding} ${list.onboarding === 1 ? "airline is" : "airlines are"} still onboarding. Their answers stay private until they submit.`));
+  if (busy.length) out.push(note("caution", "The site is past its free daily cap.", `Mostly the demo's ${busy.join(" and ")}. No airline is paused for it.`, { topic: "the cap", text: "Each airline stops only at its own share." }));
+  if (list.hosting !== "always-on") out.push(note("caution", "Hosted airlines need always-on.", "This site runs on demand.", { topic: "always-on", text: "Nothing ticks for the airlines. The owner changes the deploy's hosting mode." }));
+  // the places tile says how many are in use; the note says what the limit means
+  if (list.limit_reached) out.push(note("caution", "Airline limit reached.", null, { topic: "the limit", text: `This free-tier site runs at most ${list.slots.max} airlines in shadow or live.` }));
+  if (list.unreadable_keys > 0) out.push(note("caution", `${list.unreadable_keys} ${list.unreadable_keys === 1 ? "airline's model key cannot" : "airlines' model keys cannot"} be read.`, "Each is asked for its key again.", { topic: "unreadable keys", text: "The key secret changed. The Assistant tab of each airline asks for its key again." }));
+  if (list.onboarding > 0) out.push(note("info", null, `${list.onboarding} ${list.onboarding === 1 ? "airline is" : "airlines are"} still onboarding.`, { topic: "onboarding airlines", text: "Their answers stay private until they submit." }));
   return out;
 }
 
@@ -300,13 +315,16 @@ export function airlinesCard(list, filter, onFilter, now = Date.now()) {
         ? el("table", { class: "atable" },
           el("thead", {}, el("tr", {}, ...["Airline", "Status", "Feeds", "AI use today", "Advisories waiting", "Problem"].map((h) => el("th", { scope: "col", text: h })), el("th", { scope: "col" }, el("span", { class: "sr-only", text: "Actions" })))),
           el("tbody", {}, ...rows.map((r) => rowNode(r, list, now))))
-        : el("p", { class: "status status--quiet" }, icon("st-off"), el("span", { text: "No airline here." }))),
-    el("p", { class: "hint", text: "Operators see status, counts and contacts, never an airline's drafts, people or key." }));
+        : el("p", { class: "status status--quiet" }, icon("st-off"), el("span", { text: "No airline here." }))));
 }
 
 export function operatorsCard(ops, onChange) {
-  const name = input({ autocomplete: "off", maxlength: 32 });
-  const email = input({ type: "email", autocomplete: "off", inputmode: "email", spellcheck: "false", autocapitalize: "off", maxlength: 254 });
+  const nameWords = () => {
+    const nm = name.value.trim().replace(/\s+/g, " ");
+    return !nm ? "Required" : nm.length < 2 || nm.length > 32 ? "2 to 32 characters" : null;
+  };
+  const name = checkOnLeave(input({ autocomplete: "off", maxlength: 32 }), nameWords);
+  const email = checkOnLeave(input({ type: "email", autocomplete: "off", inputmode: "email", spellcheck: "false", autocapitalize: "off", maxlength: 254 }), () => ruleMessage("acct.email", email.value));
   const status = statusLine("op-status");
   const out = el("div", { id: "op-once" });
   const go = el("button", { type: "submit", class: "btn btn--secondary" }, el("span", { text: "Make an invite link" }));
@@ -317,7 +335,7 @@ export function operatorsCard(ops, onChange) {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const nm = name.value.trim().replace(/\s+/g, " ");
-    const problems = [[name, nm.length < 2 || nm.length > 32 ? "2 to 32 characters." : null], [email, ruleMessage("acct.email", email.value)]];
+    const problems = [[name, nameWords()], [email, ruleMessage("acct.email", email.value)]];
     for (const [c, m] of problems) setError(c, m);
     const first = problems.find(([, m]) => m);
     if (first) {
@@ -381,16 +399,23 @@ const ACT_WORDS = {
 const actWords = (res) => ACT_WORDS[errorCode(res)] || (res.status === 409 ? "Someone changed this airline meanwhile. Reload to see it." : failWords(res));
 
 // One confirm dialog: `reason` asks for a reason of min-max characters, `typeIcao` for the code.
-function confirmAct({ row, title, lead, go, serious = false, reason = null, typeIcao = false, send, done = "reload" }) {
+// `lead` is the one line, `more` ({ topic, text }) what sits behind its (i), `record` a "Goes into
+// the record" line.
+const reasonWords = (box, [lo, hi]) => {
+  const t = box.value.trim();
+  return !t ? "Required" : t.length < lo || t.length > hi ? `${lo} to ${hi} characters` : null;
+};
+function confirmAct({ row, title, lead, more = null, go, serious = false, reason = null, typeIcao = false, send, done = "reload" }) {
   const id = "ad-h";
-  const reasonBox = reason ? el("textarea", { class: "input textarea", rows: "3", maxlength: reason[1] }) : null;
+  const reasonBox = reason ? checkOnLeave(el("textarea", { class: "input textarea", rows: "3", maxlength: reason[1] }), () => reasonWords(reasonBox, reason)) : null;
   const icaoBox = typeIcao ? input({ autocomplete: "off", spellcheck: "false", autocapitalize: "characters", maxlength: 3 }) : null;
   const status = statusLine("ad-status");
   const button = el("button", { type: "submit", class: `btn ${serious ? "btn--serious" : "btn--primary"}` }, el("span", { text: go }));
   const { dlg, form } = dialog(id,
     el("h2", { id, class: "h2", text: title }),
-    ...[lead].flat().map((t) => el("p", { class: "body2", text: t })),
-    reasonBox ? field({ id: "ad-reason", label: "Reason", hint: `${reason[0]} to ${reason[1]} characters. The airline reads it.`, control: reasonBox }) : null,
+    leadLine(lead, more ? { topic: more.topic, label: `About ${more.topic}`, text: more.text } : null),
+    reasonBox ? field({ id: "ad-reason", label: "Reason", rule: `${reason[0]} to ${reason[1]} characters`, control: reasonBox,
+      info: { topic: "the reason", label: "Who reads the reason", text: "The airline reads it in its record." } }) : null,
     icaoBox ? field({ id: "ad-icao", label: `Type ${row.icao} to confirm`, control: icaoBox }) : null,
     status,
     el("div", { class: "pdlg__acts" }, null, button));
@@ -398,8 +423,7 @@ function confirmAct({ row, title, lead, go, serious = false, reason = null, type
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (reasonBox) {
-      const t = reasonBox.value.trim();
-      const bad = t.length < reason[0] || t.length > reason[1] ? `A reason of ${reason[0]} to ${reason[1]} characters is needed.` : null;
+      const bad = reasonWords(reasonBox, reason);
       setError(reasonBox, bad);
       if (bad) {
         reasonBox.focus();
@@ -407,7 +431,7 @@ function confirmAct({ row, title, lead, go, serious = false, reason = null, type
       }
     }
     if (icaoBox) {
-      const bad = icaoBox.value.trim() !== row.icao ? `Type ${row.icao}, in capitals.` : null;
+      const bad = !icaoBox.value.trim() ? "Required" : icaoBox.value.trim() !== row.icao ? `Type ${row.icao}` : null;
       setError(icaoBox, bad);
       if (bad) {
         icaoBox.focus();
@@ -433,15 +457,18 @@ function confirmAct({ row, title, lead, go, serious = false, reason = null, type
 function reviewDialog(row) {
   const id = "ad-h";
   const noteBox = el("textarea", { class: "input textarea", rows: "2", maxlength: 300 });
-  const reasonBox = el("textarea", { class: "input textarea", rows: "2", maxlength: 500 });
+  const reasonBox = checkOnLeave(el("textarea", { class: "input textarea", rows: "2", maxlength: 500 }), () => reasonWords(reasonBox, [3, 500]));
   const status = statusLine("ad-status");
   const verify = el("button", { type: "button", class: "btn btn--primary" }, el("span", { text: "Verify" }));
   const decline = el("button", { type: "button", class: "btn btn--serious" }, el("span", { text: "Decline…" }));
   const { dlg } = dialog(id,
     el("h2", { id, class: "h2", text: `Review ${row.name} (${row.icao})` }),
-    el("p", { class: "body2", text: `Check who they are before verifying: write to ${row.ops_email} from an address you trust and ask them to confirm the airline's name, its code and who is asking. Verifying also approves hosting on this site; it does not approve their policy.` }),
-    field({ id: "ad-note", label: "Note", optional: true, hint: "Kept with the decision. Up to 300 characters.", control: noteBox }),
-    field({ id: "ad-reason", label: "Reason, to decline", hint: "3 to 500 characters. The airline reads it.", control: reasonBox }),
+    leadLine(`Check who they are: write to ${row.ops_email} from an address you trust.`,
+      { topic: "verifying", label: "About verifying", text: "Ask them to confirm the airline's name, its code and who is asking. Verifying also approves hosting here; it does not approve their policy." }),
+    field({ id: "ad-note", label: "Note", optional: true, rule: "Up to 300 characters", control: noteBox,
+      info: { topic: "the note", label: "About the note", text: "Kept with the decision." } }),
+    field({ id: "ad-reason", label: "Reason, to decline", rule: "3 to 500 characters", control: reasonBox,
+      info: { topic: "the reason", label: "Who reads the reason", text: "The airline reads it in its record." } }),
     status,
     el("div", { class: "pdlg__acts" }, cancelButton(dlg), decline, verify));
   verify.addEventListener("click", async () => {
@@ -459,7 +486,7 @@ function reviewDialog(row) {
   });
   decline.addEventListener("click", async () => {
     const t = reasonBox.value.trim();
-    const bad = t.length < 3 || t.length > 500 ? "To decline, a reason of 3 to 500 characters is needed." : null;
+    const bad = reasonWords(reasonBox, [3, 500]);
     setError(reasonBox, bad);
     if (bad) {
       reasonBox.focus();
@@ -497,7 +524,8 @@ function disableDialog(op, onChange) {
   confirmAct({
     row: { icao: "" },
     title: `Disable ${op.name}?`,
-    lead: [op.you ? "You are signed out at once and cannot sign in again." : `${op.name} is signed out at once and cannot sign in again.`, "An operator can invite them again later."],
+    lead: op.you ? "You are signed out at once and cannot sign in again." : `${op.name} is signed out at once and cannot sign in again.`,
+    more: { topic: "disabling", text: "An operator can invite them again later." },
     go: "Disable",
     serious: true,
     send: () => call(ADMIN.operator(op.k, "disable"), { method: "POST", body: {} }),
@@ -516,7 +544,8 @@ export function act(kind, row) {
   if (kind === "approve") {
     return confirmAct({
       row, title: `Approve hosting for ${name}?`,
-      lead: [`A TEPHRA dispatcher verified ${row.name} at the Desk. Hosting on this site needs an operator: approving lets its account holder set up its space.`, "Nothing runs until its ops manager starts shadow runs."],
+      lead: "Its account holder can then set up its space. Nothing runs until shadow runs start.",
+      more: { topic: "approving", text: `A TEPHRA dispatcher verified ${row.name} at the Desk. Hosting on this site needs an operator too.` },
       go: "Approve hosting",
       send: () => call(ADMIN.airline(row.airline_id, "approve-hosting"), { method: "POST", body: { version: row.version } }),
     });
@@ -524,7 +553,8 @@ export function act(kind, row) {
   if (kind === "suspend") {
     return confirmAct({
       row, title: `Suspend ${name}?`, serious: true, reason: [3, 300],
-      lead: ["Runs stop and its pushes are refused at once; its members can still read. From 7 days after suspension an operator can delete its data (Delete data…); nothing deletes it on its own. It goes into the airline's record."],
+      lead: "Runs stop and pushes are refused at once; its members can still read.",
+      more: { topic: "suspending", text: `From 7 days after suspension an operator can delete its data; nothing deletes it on its own. ${RECORDED}` },
       go: `Suspend ${row.icao}`,
       send: ({ reason }) => call(ADMIN.tenant(row.icao, "suspend"), { method: "POST", body: { reason } }),
     });
@@ -532,7 +562,8 @@ export function act(kind, row) {
   if (kind === "resume") {
     return confirmAct({
       row, title: `Resume ${name}?`,
-      lead: ["It resumes in SHADOW, never straight to LIVE: its ops manager switches again. It takes one airline place."],
+      lead: "It resumes in SHADOW, never straight to LIVE, and takes one airline place.",
+      more: { topic: "resuming", text: "Its ops manager switches to LIVE again when ready." },
       go: "Resume in SHADOW",
       send: () => call(ADMIN.tenant(row.icao, "resume"), { method: "POST", body: {} }),
     });
@@ -540,7 +571,8 @@ export function act(kind, row) {
   if (kind === "delete") {
     return confirmAct({
       row, title: `Delete ${name}'s data?`, serious: true, typeIcao: true,
-      lead: ["Every document of its space is deleted: advisories, messages, documents, keys, policy versions and its record. Its members and invites are removed. A tombstone with its code, its name and the times it was set up and deleted stays, with nothing about its people.", "It cannot be undone."],
+      lead: "Everything in its space, its members and its invites go. It cannot be undone.",
+      more: { topic: "what is deleted", text: "Advisories, messages, documents, keys, policy versions and its record. A tombstone keeps its code, name and dates, nothing about its people." },
       go: `Delete ${row.icao}'s data`,
       send: ({ icao }) => call(ADMIN.tenant(row.icao, "delete-data"), { method: "POST", body: { confirm_icao: icao } }),
     });
@@ -548,7 +580,8 @@ export function act(kind, row) {
   if (kind === "opsinvite") {
     return confirmAct({
       row, title: `New ops-manager link for ${name}`,
-      lead: ["For when no ops manager is left. The link is for the airline's account email and needs that account signed in. Accepting makes it an ops manager.", "It goes into the airline's record."],
+      lead: "For when no ops manager is left: accepting makes the airline's account an ops manager.",
+      more: { topic: "the link", text: `The link is for the airline's account email and needs that account signed in. ${RECORDED}` },
       go: "Make the link",
       send: () => call(ADMIN.tenant(row.icao, "ops-manager-invite"), { method: "POST", body: {} }),
       done: (res, form) => {
@@ -562,10 +595,11 @@ export function act(kind, row) {
 
 // --- signed out: sign in, or turn an operator link into an account -------------------------------
 
-function authCard(id, title, lead, form, ...more) {
+// `lead`: one line (or null), `info`: infoButton options for the (i) beside it
+function authCard(id, title, lead, form, { info = null } = {}, ...more) {
   return el("div", { class: "narrow" }, el("section", { class: "card authcard", "aria-labelledby": id },
     el("span", { class: "authcard__mark", "aria-hidden": "true" }, icon("i-lock")),
-    el("div", {}, el("h1", { id, class: "h1 h1--auth", text: title }), el("p", { class: "body2", text: lead })),
+    el("div", {}, el("h1", { id, class: "h1 h1--auth", text: title }), lead ? el("p", { class: "body2" }, ...(info ? infoTail(lead, info) : [lead])) : null),
     form, ...more));
 }
 
@@ -574,18 +608,21 @@ export function signinCard() {
   const pw = passwordInput({ id: "as-pw", autocomplete: "current-password" });
   const status = statusLine("as-status");
   const go = el("button", { type: "submit", class: "btn btn--primary btn--block" }, el("span", { text: "Sign in" }));
+  const emailWords = () => ruleMessage("acct.email", email.value);
+  const pwWords = () => (pw.control.value ? null : "Required");
+  checkOnLeave(email, emailWords);
+  checkOnLeave(pw.control, pwWords);
   const form = el("form", { class: "authform", novalidate: true },
     field({ id: "as-email", label: "Email", control: email }),
     field({ id: "as-pw", label: "Password", control: pw.control, slot: pw.wrap(pw.control) }),
     status, go);
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const bad = ruleMessage("acct.email", email.value) ? [email, "Enter an email address."] : !pw.control.value ? [pw.control, "Password is needed."] : null;
-    setError(email, null);
-    setError(pw.control, null);
-    if (bad) {
-      setError(bad[0], bad[1]);
-      bad[0].focus();
+    const bad = [[email, emailWords()], [pw.control, pwWords()]].filter(([, w]) => w);
+    for (const c of [email, pw.control]) setError(c, null);
+    for (const [c, w] of bad) setError(c, w);
+    if (bad.length) {
+      bad[0][0].focus();
       return;
     }
     go.disabled = true;
@@ -605,33 +642,41 @@ export function signinCard() {
       say(status, res.status === 429 ? `Too many tries. Try again in ${minutesWords(retryMinutes(res))}.` : failWords(res));
     }
   });
-  return authCard("as-h", "Operator sign-in", "For TEPHRA's operators of this site.", form,
-    el("p", { class: "body2" }, "An airline signs in to ", el("a", { class: "link", href: "/signin", text: "its workspace" }), ". Password reset by email is not built."));
+  // the footer says the console is for this site's operators; the title says sign-in
+  return authCard("as-h", "Operator sign-in", null, form, {},
+    el("p", { class: "body2 authcard__links" },
+      el("span", {}, "Airline? ", el("a", { class: "link", href: "/signin", text: "Use the workspace" })),
+      el("span", { class: "chip chip--notbuilt", text: "Email reset: not built" })));
 }
 
 export const OP_GONE = "This operator link is used or expired. Ask an operator for a new one.";
 
 export async function joinCard(token) {
-  if (!token) return authCard("aj-h", "This link cannot be used", token === "" ? OP_GONE : "This page needs the whole operator link. Open it again.", el("a", { class: "btn btn--secondary btn--block", href: "/admin" }, el("span", { text: "Operator sign-in" })));
+  if (!token) return authCard("aj-h", "This link cannot be used", token === "" ? OP_GONE : "This page needs the whole operator link. Open it again.", el("a", { class: "btn btn--secondary btn--block", href: "/admin" }, el("span", { text: "Operator sign-in" })), {});
   const res = await call(ADMIN.inviteLookup, { method: "POST", body: { token } });
   if (!res.ok || !res.data) {
     const words = res.status === 404 ? OP_GONE : res.status === 429 ? `Too many tries. Try again in ${minutesWords(retryMinutes(res))}.` : failWords(res);
-    return authCard("aj-h", "This link cannot be used", words, el("a", { class: "btn btn--secondary btn--block", href: "/admin" }, el("span", { text: "Operator sign-in" })));
+    return authCard("aj-h", "This link cannot be used", words, el("a", { class: "btn btn--secondary btn--block", href: "/admin" }, el("span", { text: "Operator sign-in" })), {});
   }
   const inv = res.data;
   const email = input({ type: "email", autocomplete: "username", inputmode: "email", spellcheck: "false", autocapitalize: "off", maxlength: 254 });
   const pw = passwordInput({ id: "aj-pw", autocomplete: "new-password" });
   const status = statusLine("aj-status");
   const go = el("button", { type: "submit", class: "btn btn--primary btn--block" }, el("span", { text: "Create the operator account" }));
+  const emailWords = () => ruleMessage("acct.email", email.value);
+  const pwWords = () => ruleMessage("acct.password", pw.control.value) || (pw.control.value.trim().toLowerCase() === email.value.trim().toLowerCase() ? "Not your email" : null);
+  checkOnLeave(email, emailWords);
+  checkOnLeave(pw.control, pwWords);
+  // "For" says which email the link is for; the password's rule is in its label
   const form = el("form", { class: "authform", novalidate: true },
     el("dl", { class: "kv" }, el("dt", { text: "Name" }), el("dd", { text: inv.name }), el("dt", { text: "For" }), el("dd", { class: "mono", text: inv.email_hint }), el("dt", { text: "Until" }), el("dd", { text: when(inv.expires_at) })),
-    field({ id: "aj-email", label: "Email", hint: `The link is for ${inv.email_hint}.`, control: email }),
-    field({ id: "aj-pw", label: "Password", hint: "12 characters or more", control: pw.control, slot: pw.wrap(pw.control) }),
+    field({ id: "aj-email", label: "Email", control: email }),
+    field({ id: "aj-pw", label: "Password · 12+ characters", rule: "12 characters or more", control: pw.control, slot: pw.wrap(pw.control) }),
     status, go);
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const mail = email.value.trim().toLowerCase();
-    const problems = [[email, ruleMessage("acct.email", email.value)], [pw.control, ruleMessage("acct.password", pw.control.value) || (pw.control.value.trim().toLowerCase() === mail ? "The password must not be your email." : null)]];
+    const problems = [[email, emailWords()], [pw.control, pwWords()]];
     for (const [c, m] of problems) setError(c, m);
     const first = problems.find(([, m]) => m);
     if (first) {
@@ -649,7 +694,8 @@ export async function joinCard(token) {
     const code = errorCode(r);
     say(status, r.status === 404 ? OP_GONE : code === "wrong_email" ? `This link is for ${inv.email_hint}.` : code === "email_taken" ? "This email has an operator account already: sign in instead." : failWords(r));
   });
-  return authCard("aj-h", "Become an operator of TEPHRA", "Operators verify airlines and keep this site's hosted airlines inside the free tier. Emails are not checked: the link is the proof.", form);
+  return authCard("aj-h", "Become an operator of TEPHRA", "Emails are not checked: the link is the proof.", form,
+    { info: { topic: "operators", label: "What operators do", text: "Operators verify airlines and keep this site's hosted airlines inside the free tier." } });
 }
 
 // --- the header's account button -------------------------------------------------------------------
@@ -695,7 +741,9 @@ function drawConsole(now = Date.now()) {
     document.getElementById(`af-${k}`)?.focus();
   };
   $("main").replaceChildren(el("div", { class: "apage" },
-    el("header", { class: "hhead" }, el("div", {}, el("p", { class: "eyebrow", text: "TEPHRA operator console" }), el("h1", { class: "h1", text: "Airlines" }))),
+    el("header", { class: "hhead" }, el("div", {}, el("p", { class: "eyebrow", text: "TEPHRA operator console" }),
+      el("div", { class: "hhead__t" }, el("h1", { class: "h1", text: "Airlines" }),
+        infoButton({ topic: "what operators see", label: "What operators see", text: "Status, counts and contacts; never an airline's drafts, people or key." })))),
     ...notes(list),
     tiles(list),
     airlinesCard(list, S.filter, onFilter, now),
@@ -764,9 +812,16 @@ export function takeToken(loc = location, hist = history) {
   return /^[A-Za-z0-9_-]{20,200}$/.test(raw) ? raw : "";
 }
 
+// The footer's one line (in the page) gets its (i): what an operator's action leaves behind.
+export function footInfo(doc = document) {
+  const foot = doc.getElementById("ad-foot");
+  if (foot && !foot.querySelector(".info")) foot.append(infoButton({ topic: "the record", label: "What is recorded", text: "Each action on an airline goes into that airline's record." }));
+}
+
 export async function boot() {
   S.token = takeToken();
   inlineSprite();
+  footInfo();
   const state = await call(ADMIN.state);
   setFeatures(state.ok ? state.data?.features : []);
   applyFeatureNav();

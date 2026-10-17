@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from tephra.airline.sessions import COOKIE_NAME, AirlineClaims, sign_claims
 from tephra.api.auth import wall_clock_now
-from tephra.api.routes_pages import ONBOARD_PAGES, WEB_DIR, WORKSPACE_SECTIONS
+from tephra.api.routes_pages import ONBOARD_PAGES, WEB_DIR, WORKSPACE_SECTIONS, without_hosted
 from tephra.api.server import CONTENT_SECURITY_POLICY, create_app
 from tephra.config import Settings
 from tests.test_api import Harness
@@ -74,7 +74,9 @@ def test_each_page_serves_its_file_with_the_page_headers(
     response = client.get(path)
     assert response.status_code == 200, path
     assert response.headers["content-type"] == "text/html; charset=utf-8"
-    assert response.text == _body(page)
+    # with hosting off (this client) the privacy notice is served without its data-hosted parts
+    expected = without_hosted(_body(page)) if path == "/privacy" else _body(page)
+    assert response.text == expected
     assert response.headers["content-security-policy"] == CONTENT_SECURITY_POLICY
     assert response.headers["cache-control"] == "no-cache"
 

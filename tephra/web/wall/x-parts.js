@@ -17,8 +17,13 @@ export const ASSISTANT = "TEPHRA Assistant";
 // explanation behind an info button (wall/info.js) with the way to the cause ("Why ›" on the demo,
 // "Assistant details ›" on the Desk). On, nothing shows; `said` is the screen-reader text in every
 // state (the honesty label is never dropped). `w` is aiWords' words (its suffix names the skill in
-// trouble).
-export function stateLine(w, { stub = false, kind = "on" } = {}) {
+// trouble). "unavailable" is a hosted airline with no usable model at all (no model chosen, no key,
+// an unreadable key: BudgetView.unavailable); its (i) gives that reason and where it is fixed.
+// "no model key is set" -> "No model key is set."
+const sentence = (t) => { const x = String(t || "").trim(); return x ? `${x.charAt(0).toUpperCase()}${x.slice(1)}${/[.!?]$/.test(x) ? "" : "."}` : ""; };
+// Where a hosted airline's people fix it (tephra/web/hosted/assistant.js is that page).
+const FIX_WHERE = "Fix it in Settings › Assistant.";
+export function stateLine(w, { stub = false, kind = "on", reason = null } = {}) {
   if (stub || kind === "off") {
     return { word: "AI off", tone: "off", icon: "st-off", why: false, said: `${ASSISTANT} off: no model is connected.`,
       info: "Offline stub: no model is connected. Code checks still run, and code templates write the drafts." };
@@ -27,10 +32,14 @@ export function stateLine(w, { stub = false, kind = "on" } = {}) {
     return { word: "AI paused", tone: "caution", icon: "st-caution", why: true, said: `${ASSISTANT} paused.`,
       info: "Code still reads every feed and checks every flight. Must-do flights come straight to you." };
   }
-  if (kind === "trouble") {
+  if (kind === "trouble" || kind === "unavailable") {
+    // no usable model at all: its reason and where it is set; else what the skills did
+    const none = kind === "unavailable";
     const what = w?.suffix || "gave no result";
-    return { word: "AI unavailable", tone: "caution", icon: "st-caution", why: true, said: `${ASSISTANT}: ${what}.`,
-      info: `${what.charAt(0).toUpperCase()}${what.slice(1)}. Nothing was put in its place; code still checks every flight.` };
+    return { word: "AI unavailable", tone: "caution", icon: "st-caution", why: true,
+      said: none ? `${ASSISTANT} unavailable: ${reason || "no model can be used"}.` : `${ASSISTANT}: ${what}.`,
+      info: none ? `${reason ? `${sentence(reason)} ` : ""}${FIX_WHERE} No model is called and nothing is put in its place; code still checks every flight.`
+        : `${what.charAt(0).toUpperCase()}${what.slice(1)}. Nothing was put in its place; code still checks every flight.` };
   }
   return { word: null, tone: "ok", icon: "st-ok", why: false, said: `${ASSISTANT} on.`, info: null };
 }
@@ -260,6 +269,9 @@ export function realWhen(t, now, replay) {
 // assistant's home only (docs/UI-AI-QUIET.md 8.6).
 export function aiStateOf({ stub = false, budget = null, errors = [], duty = null, plan = null, replay = false, now = Date.now() }) {
   const lite = liteModel(budget);
+  // a hosted airline whose model cannot be used at all: no model is ever called, so this is the
+  // state itself, never a pause or "On, n problems"
+  const reason = !stub && budget?.unavailable ? String(budget.unavailable) : null;
   // closed by a 429 for the day, or every call of the day spent: paused either way, on the Desk
   // (which sees only the budget) as on the Wall (which also sees the runs that were refused)
   const closed = !stub && (lite?.closed === true || (lite?.limit > 0 && lite?.remaining <= 0));
@@ -268,15 +280,18 @@ export function aiStateOf({ stub = false, budget = null, errors = [], duty = nul
   const until = reset?.until || null;
   const overdue = reset?.past ? reset.due : null;
   const groups = new Map();
-  const add = (helperKey, reason, at, raw, src, stage) => {
-    const cls = reasonClass(reason);
+  const add = (helperKey, why, at, raw, src, stage) => {
+    // with no usable model at all no skill was called: whatever a step recorded (a plume read
+    // "not dispatched"), it did not run for that reason, never "gave no result"
+    const own = reasonClass(why);
+    const cls = reason && own !== "undone" ? "unavailable" : own;
     const key = `${helperKey}|${cls}`;
     let g = groups.get(key);
     if (!g) { g = { key, helperKey, helper: HELPER_NAME[helperKey] || helperKey, reasonClass: cls, items: [], raw: [], main: false }; groups.set(key, g); }
     // the Plume reader's own calls run on the main model, not on the lite model a pause is about
     if (stage === "PLUME") g.main = true;
-    g.items.push({ at, reason, src });
-    g.raw.push(raw || reason);
+    g.items.push({ at, reason: why, src });
+    g.raw.push(raw || why);
     return g;
   };
   for (const e of errors) add(helperOf(e.stage, e.reason), e.reason, e.at, e.raw, e.src, e.stage);
@@ -307,7 +322,7 @@ export function aiStateOf({ stub = false, budget = null, errors = [], duty = nul
   const causes = [...groups.values()].map((g) => {
     const ts = g.items.map((x) => x.at).filter(Number.isFinite);
     return { ...g, steps: g.items.length, first: ts.length ? Math.min(...ts) : NaN, last: ts.length ? Math.max(...ts) : NaN,
-      absorbed: paused && g.reasonClass === "budget" && !g.main,
+      absorbed: paused && g.reasonClass === "budget" && !g.main || (reason != null && g.reasonClass === "unavailable"),
       consequence: g.reasonClass === "undone" ? "Plan them by hand" : CONSEQUENCE[g.helperKey] || "Do this step by hand", link: CAUSE_LINK[g.helperKey] || null };
   }).sort((a, b) => (b.last || 0) - (a.last || 0));
   const trouble = causes.filter((c) => !c.absorbed);
@@ -315,9 +330,9 @@ export function aiStateOf({ stub = false, budget = null, errors = [], duty = nul
     const slot = realWhen(Date.parse(w.next_slot_at || ""), now, replay);
     return { job: w.label, kind: w.item?.kind || w.kind, slot: slot?.at || null, volcano: w.item?.volcano_id || null };
   });
-  const kind = stub ? "off" : paused ? "paused" : trouble.length ? "trouble" : "on";
+  const kind = stub ? "off" : reason ? "unavailable" : paused ? "paused" : trouble.length ? "trouble" : "on";
   // `model` and `slotAt` word the cause at the assistant's home only (aiLead)
-  return { kind, until, slotAt: reset?.at || null, overdue, model: lite?.model_id || null, causes, trouble, waiting, paused };
+  return { kind, until, slotAt: reset?.at || null, overdue, model: lite?.model_id || null, causes, trouble, waiting, paused, reason };
 }
 
 const problems = (n) => `${n} problem${n === 1 ? "" : "s"}`;
@@ -386,6 +401,12 @@ export function aiWords(s, { home = `${ASSISTANT} at work`, opens = `${ASSISTANT
       aria: `${ASSISTANT} paused. Opens ${opens}.`,
       title: `${ASSISTANT} is paused: see why in ${home}. ${is} ${never}` };
   }
+  if (s.kind === "unavailable") {
+    const why = s.reason || "no model can be used";
+    return { label, suffix: "unavailable", tone: "caution",
+      aria: `${ASSISTANT} unavailable: ${why}. Opens ${opens}.`,
+      title: `${ASSISTANT} is unavailable: ${why}. No model is called and nothing is put in its place. ${is} ${never}` };
+  }
   if (s.kind === "trouble") {
     const n = s.trouble.length;
     const list = causeList(s.trouble);
@@ -407,6 +428,11 @@ export function aiLead(s, { home = true } = {}) {
   if (s.kind === "off") return [{ strong: `${ASSISTANT} is off.`, text: "No model is connected. Code does every step, and code templates write the text." }];
   if (s.kind === "on") return [{ strong: `${ASSISTANT} is on.`, text: `It can widen TEPHRA's estimate, never shrink the official area. What it wrote is marked.` }];
   if (s.kind === "trouble") return [{ strong: `${ASSISTANT} is on, ${problems(s.trouble.length)}.`, text: lines(s.trouble) }];
+  if (s.kind === "unavailable") {
+    const out = [{ strong: `${ASSISTANT} is unavailable.`, text: `${home ? `${sentence(s.reason)} ${FIX_WHERE} ` : ""}No model is called, and nothing is put in its place. Code still checks every flight, and flights that need a plan are on the Desk to plan by hand.` }];
+    if (s.trouble.length) out.push({ strong: "Also:", text: lines(s.trouble) });
+    return out;
+  }
   if (!home) return [{ strong: `${ASSISTANT} is paused.`, text: "Code still checks every flight, and must-do flights come to you to plan by hand." }];
   // the time is said once, in the first words; a reset already behind the real clock is said as
   // overdue, never as a countdown or a stale "until"
@@ -443,10 +469,12 @@ export function causeTitle(c, { home = false } = {}) {
 export function draftBlock(s) {
   if (!s || s.kind === "off") return null;
   if (s.kind === "paused") return { word: "Assistant paused", paused: true };
-  const mine = s.trouble.filter((x) => x.helperKey === "duty" || x.helperKey === "planner" || x.helperKey === "drafter");
+  // with no usable model at all its own causes are the state (absorbed), still named here
+  const mine = (s.kind === "unavailable" ? s.causes : s.trouble).filter((x) => x.helperKey === "duty" || x.helperKey === "planner" || x.helperKey === "drafter");
   const c = mine.find((x) => x.reasonClass !== "undone");
   // "did not run" only where no model was called (a budget refusal), as causeShort says it
   if (c) return { word: `${c.helper} ${notRun(c.reasonClass) ? "did not run" : "gave no result"}`, why: plainWhy(c.reasonClass), unavailable: true };
+  if (s.kind === "unavailable") return { word: "Drafter did not run", why: null, unavailable: true };
   if (mine.length) return { word: "left for the Desk", undone: true, why: "the Coordinator did not hand them out" };
   if (s.waiting.some((x) => x.kind === "PLAN")) return { word: "Waiting in line", queued: true };
   return null;

@@ -82,7 +82,7 @@ export function drawAiChip() {
   if (!chip || !label || !wrap || !app.state) return;
   const ai = deskAi();
   const w = aiWords(ai, { home: 'the assistant sheet', opens: 'the assistant sheet' });
-  const line = stateLine(w, { kind: ai.kind });
+  const line = stateLine(w, { kind: ai.kind, reason: ai.reason });
   const key = `${ai.kind}|${line.word}|${line.info || ''}`;
   chip.dataset.tone = w.tone;
   chip.dataset.kind = ai.kind;

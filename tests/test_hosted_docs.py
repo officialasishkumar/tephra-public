@@ -118,6 +118,17 @@ def test_hosted_md_has_the_states_roles_limits_and_not_built() -> None:
     assert "It is **off** on the deployed demo" in FLAT
 
 
+def test_hosted_md_follows_the_declutter() -> None:
+    """Owner, 17 Oct 2026: the setup kit is dropped and the decision-support sentence is not page
+    chrome; the SHADOW stamp and the Switch to LIVE dialog keep their honesty words."""
+    assert "The footer keeps today's sentence" not in FLAT
+    assert "Private to <name> and TEPHRA's operators" in FLAT
+    assert "own TEPHRA" not in FLAT
+    assert "setup kit" not in FLAT.lower()
+    assert "every SHADOW draft keeps its stamp" in FLAT
+    assert "the places line beside Start says it" in FLAT
+
+
 def test_the_glossary_and_the_honesty_table_name_the_new_words() -> None:
     glossary = (ROOT / "docs/GLOSSARY.md").read_text(encoding="utf-8")
     for word in ("| SHADOW |", "| LIVE |", "| Ops manager |", "| Operator |"):

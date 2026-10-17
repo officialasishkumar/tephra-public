@@ -30,8 +30,11 @@ export const $ = (id) => document.getElementById(id);
 
 // The airline whose flights TEPHRA checks (`state.airline`): the demo's fictional Ring of Fire Air,
 // or the airline running its own TEPHRA, whose pages name it by its code and never call it
-// fictional. Set from /api/state by each page that reads it.
+// fictional. Set from /api/state by each page that reads it. A hosted airline's space (/a/<ICAO>/)
+// names its own code from the start, before any state arrives (in setup none ever does).
+const SPACE_ICAO = /^\/a\/([A-Z]{3})(?:\/|$)/.exec(globalThis.location?.pathname || "")?.[1] || null;
 let AIRLINE = { code: "RFA", name: "Ring of Fire Air", fictional: true };
+if (SPACE_ICAO) AIRLINE = { code: SPACE_ICAO, name: SPACE_ICAO, fictional: false };
 export function setAirline(a) {
   if (a?.code) AIRLINE = { code: a.code, name: a.name || a.code, fictional: a.fictional !== false };
 }

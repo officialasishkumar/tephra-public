@@ -9,6 +9,7 @@
 // in through textContent.
 
 import { el, icon } from "./wall/util.js";
+import { infoButton, setInfo } from "./wall/info.js";
 import { TENANT, PAGE_BASE, api, SHADOW_WORDS } from "./base.js";
 import { call } from "./workspace/api.js";
 import { themeControl } from "./theme.js";
@@ -21,9 +22,10 @@ export const SECTIONS = [
 ];
 export const ROLE_WORDS = { ops_manager: "Ops manager", dispatcher: "Dispatcher", viewer: "Viewer" };
 export const STATE_WORDS = { setup: "Not started", shadow: "SHADOW", live: "LIVE", suspended: "SUSPENDED" };
-// the state chip's tooltip says what a draft becomes; the decision-support sentence is not page
+// the state chip's (i) says what a draft becomes; the decision-support sentence is not page
 // chrome (owner, 17 Oct 2026: "don't put this everywhere"): it lives in About and the sign-up tick
 export const NOTHING_SENT = "Nothing is sent to aircraft.";
+export const STATE_TOPIC = "the airline's state";
 const REFRESH_MS = 60e3;
 const RETRY_MS = 10e3;
 
@@ -66,16 +68,14 @@ export function stateChip(h, nowMs) {
   }
   const lastTick = ms(h.runtime?.last_tick_wall_at);
   const staleWords = stale ? (Number.isFinite(lastTick) ? `not updating since ${hhmmZ(lastTick)}` : "not updating") : "";
-  const tip = [];
-  if (state === "shadow") tip.push(`Shadow: TEPHRA runs on your real flights; every draft says ${SHADOW_WORDS}.`);
-  if (state === "setup") tip.push(`TEPHRA has not started for ${h.name} yet.`);
-  if (state === "suspended") tip.push(`TEPHRA's operators suspended ${h.name}.`);
-  tip.push(NOTHING_SENT);
-  if (state === "live" && h.live) tip.push(`Live since ${whenWords(ms(h.live.at))}, switched by ${personName(h.live.by)}.`);
-  if (stale) tip.push(`The picture is from ${Number.isFinite(lastTick) ? hhmmZ(lastTick) : "before TEPHRA stopped updating"}.`);
+  // the (i) beside the chip: what a running airline's drafts are, said once. Not started and
+  // suspended say nothing more than the chip and the red line under the header already say.
+  let info = null;
+  if (state === "shadow") info = `TEPHRA runs on your real flights; every draft says ${SHADOW_WORDS}. ${NOTHING_SENT}`;
+  if (state === "live") info = h.live ? `Switched to LIVE on ${whenWords(ms(h.live.at))} by ${personName(h.live.by)}. ${NOTHING_SENT}` : NOTHING_SENT;
   return {
     cls: `ah-state ah-state--${state === "setup" ? "setup" : state}${stale ? " ah-state--stale" : ""}`,
-    word, sub, clock, stale: staleWords, title: tip.join(" "),
+    word, sub, clock, stale: staleWords, info,
   };
 }
 
@@ -195,15 +195,13 @@ async function signOutEverywhere() {
   location.assign("/signin");
 }
 
-function chipNode(h, nowMs) {
-  const c = stateChip(h, nowMs);
-  return el("span", { id: "ah-state", class: c.cls, title: c.title },
+function chipNode(c) {
+  return el("span", { id: "ah-state", class: c.cls },
     el("i", { "aria-hidden": "true" }),
     el("b", { text: c.word }),
     c.stale ? el("span", { class: "ah-state__stale", text: ` · ${c.stale}` }) : null,
     c.sub ? el("span", { class: "ah-state__sub", text: c.sub }) : null,
-    c.clock ? el("span", { class: "ah-state__clock", text: c.clock }) : null,
-    el("span", { class: "sr-only", text: ` ${c.title}` }));
+    c.clock ? el("span", { class: "ah-state__clock", text: c.clock }) : null);
 }
 
 function nav(h, section) {
@@ -236,8 +234,11 @@ export const serverNow = () => Date.now() + S.offset;
 // (the demo's mode badge, area picker, How it works and clock). `theme`: offer the theme control.
 export function mountTenantNav({ bar, section, chips = [], hide = [], theme = true }) {
   if (!TENANT || S.parts) return;
-  // the space's stylesheet, added here so the demo's page shells stay as they are
-  if (!document.querySelector('link[href="/static/tenant.css"]')) document.head.append(el("link", { rel: "stylesheet", href: "/static/tenant.css" }));
+  // the space's stylesheets (and the (i)'s, which the document page lacks), added here so the
+  // demo's page shells stay as they are
+  for (const css of ["/static/info.css", "/static/tenant.css"]) {
+    if (!document.querySelector(`link[href="${css}"]`)) document.head.append(el("link", { rel: "stylesheet", href: css }));
+  }
   document.body.classList.add("is-tenant");
   // the shells' descriptions speak of the demo (replay, fictional airline): not of this space
   const about = `TEPHRA for ${TENANT}: a private airline space, behind sign-in.`;
@@ -250,12 +251,14 @@ export function mountTenantNav({ bar, section, chips = [], hide = [], theme = tr
   const links = nav(null, section);
   const spacer = el("span", { class: "tn-spacer ah-spacer" });
   const chip = el("span", { id: "ah-state", class: "ah-state ah-state--loading", text: "…" });
+  const stateInfo = infoButton({ topic: STATE_TOPIC, text: NOTHING_SENT });
+  stateInfo.hidden = true;
   const who = el("div", { class: "tn-account-wrap" });
   if (home) home.after(air, links, spacer); else bar.prepend(air, links, spacer);
-  bar.append(...chips.filter(Boolean), chip, who);
+  bar.append(...chips.filter(Boolean), el("span", { class: "ah-statewrap" }, chip, stateInfo), who);
   const alarm = el("div", { id: "ah-alarm", class: "ah-alarm", role: "alert", hidden: true });
   bar.after(alarm);
-  S.parts = { bar, air, links, chip, who, alarm, section };
+  S.parts = { bar, air, links, chip, stateInfo, who, alarm, section };
   S.opts = { theme };
   load();
   setInterval(() => { if (S.h) drawChip(); }, 15e3);
@@ -310,10 +313,16 @@ function draw() {
   drawAlarm();
 }
 
+// The chip is drawn again every 15 s; its (i) stays (an open one keeps its place) and only its
+// words change.
 function drawChip() {
-  const node = chipNode(S.h, serverNow());
+  const c = stateChip(S.h, serverNow());
+  const node = chipNode(c);
   S.parts.chip.replaceWith(node);
   S.parts.chip = node;
+  if (c.info) setInfo(S.parts.stateInfo, c.info);
+  else S.parts.stateInfo.close?.();
+  S.parts.stateInfo.hidden = !c.info;
 }
 
 function drawAlarm() {
@@ -328,6 +337,7 @@ function drawGone() {
   const node = el("span", { id: "ah-state", class: "ah-state ah-state--setup" }, el("i", { "aria-hidden": "true" }), el("b", { text: "No access" }));
   S.parts.chip.replaceWith(node);
   S.parts.chip = node;
+  S.parts.stateInfo.hidden = true;
   S.parts.alarm.replaceChildren(el("div", { class: "banner ah-alarm__line" }, icon("i-alert-serious"),
     el("p", {}, el("b", { text: S.error === "no_such_airline" ? `There is no airline ${TENANT} here, or you are not one of its people.` : "TEPHRA could not open this airline's space." }),
       " ", el("a", { href: "/workspace", text: "Your workspace ›" }))));

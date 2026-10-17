@@ -397,7 +397,8 @@ function renderOther(flightless) {
   for (const li of docRows.querySelectorAll('.irow-doc')) li.remove();
   for (const d of docs) {
     docRows.append(el('li', { class: 'irow-doc' },
-      el('button', { type: 'button', class: 'card irow', 'data-goto': 'docs', 'aria-label': `${d.title}, to sign. Opens Paperwork.` },
+      el('button', { type: 'button', class: 'card irow', 'data-goto': 'docs', 'aria-label': `${d.shadow ? `${SHADOW_WORDS}. ` : ''}${d.title}, to sign. Opens Paperwork.` },
+        shadowStamp(d),
         el('span', { class: 'irow__main irow__main--wide', 'aria-hidden': 'true' }, el('span', { class: 'irow__text', text: d.title })),
         el('span', { 'aria-hidden': 'true' }, el('span', { class: 'tcell', text: 'to sign' })),
         icon('i-chevron-right', 'icon irow__go'))));

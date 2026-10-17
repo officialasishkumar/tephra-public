@@ -145,6 +145,13 @@ out.record = box(R.render(ops, rec, recArgs(rec)));
 out.recordViewer = box(R.render(viewer, rec, recArgs(rec)));
 out.recordBroken = box(R.chainLine(fx("record-broken").head));
 out.recordDecisions = box(R.entriesTable(rec.entries, "decisions", now));
+out.recordWords = [
+  { action: "AI_FAILED", note: "DUTY OFFICER AI UNAVAILABLE: no model key is set" },
+  { action: "AI_FAILED", note: "Plume read timed out" },
+  { action: "SUPERSEDED", note: "REPLACED BY A NEWER DRAFT" },
+].map((e) => [
+  R.actionWords(e), box(R.entriesTable([{ ...e, at: rec.entries[0].at, seq: 1 }], "all", now)),
+]);
 out.alarms = {
   susp: N.alarmLines(susp), paused: N.alarmLines(fx("header-paused-airline")),
   site: N.alarmLines(fx("header-paused-site")), stale: N.alarmLines(fx("header-stale")),
@@ -159,6 +166,19 @@ out.can = [
   H.can(ops, "ops_manager"), H.can(viewer, "dispatcher"), H.can(susp, "ops_manager"),
   H.can(live, "dispatcher"), H.can(live, "ops_manager"),
 ];
+out.terse = {
+  keyName: ["", "a", "ops-feed-2"].map(F.keyNameError),
+  email: ["", "ana@", "ana@rfb.example"].map(U.emailError),
+  modelKey: ["", "short", "A".repeat(39)].map(A.keyError),
+  by: ["", "A", "Ana Ops"].map(P.byError),
+  day: ["", "2026-10-17"].map(P.dayError),
+};
+out.uploader = F.uploaderLink();
+out.words = {
+  feedsLead: F.LEAD.text, notBuilt: F.NOT_BUILT, uploaderInfo: F.UPLOADER_INFO,
+  peopleLimits: U.limitsWords(fx("people")), recordLead: R.lead(ops).text,
+  newVersion: P.NEW_VERSION, pacing: A.PACING,
+};
 const where = ["/a/RFB/feeds", "/a/RFB/settings", "/a/RFB/settings/people"];
 out.sections = [...where, "/a/RFB/settings/nope", "/a/RFB/"].map((p) => H.sectionOf(p));
 process.stdout.write(JSON.stringify(out));
@@ -185,7 +205,22 @@ def _tags(node: Any, tag: str) -> list[dict[str, Any]]:
 
 
 def _buttons(node: Any) -> list[str]:
-    return [_text(b) for b in _tags(node, "button")]
+    """The named buttons (an (i) is not an action)."""
+    return [_text(b) for b in _tags(node, "button") if "info__btn" not in b.get("cls", "")]
+
+
+def _seen(node: Any) -> str:
+    """The words on screen before anything is opened: no (i) popover, no screen-reader text."""
+    if node is None or {"info__pop", "sr-only"} & set(str(node.get("cls", "")).split()):
+        return ""
+    if node.get("text") is not None and not node.get("kids"):
+        return node["text"]
+    return "".join(_seen(k) for k in node.get("kids", []))
+
+
+def _pops(node: Any) -> list[str]:
+    """The words behind each (i)."""
+    return [_text(n) for n in _all(node) if "info__pop" in str(n.get("cls", "")).split()]
 
 
 @pytest.fixture(scope="module")
@@ -327,40 +362,50 @@ def test_assistant_key_is_write_only_and_shown_as_its_last_four(out: dict[str, A
     assert "••••x9Qa" in a
     assert "Stored encrypted; never shown again or written to a log." in a
     assert "Unpaid-tier data use: Google may use what TEPHRA sends with a free-tier key." in a
-    assert "Ollama on hosted TEPHRA" in a
+    # Ollama is not offered on this site, and no own TEPHRA is offered instead (the kit is dropped)
+    assert "Not built: Ollama on this site." in _seen(out["assistant"])
+    assert "own TEPHRA" not in a
     assert {"Change…", "Replace…", "Remove…"} <= set(_buttons(out["assistant"]))
     assert "20 calls a day · the free-tier limit for this model" in a
     assert "200 calls a day · the limit you set for your key" in a
     # no key yet: a write-only field, never filled in
     setup = out["assistantSetup"]
-    (field,) = [i for i in _tags(setup, "input") if i["attrs"].get("id") == "akey"]
+    (field,) = [i for i in _tags(setup, "input") if i["attrs"].get("type") == "password"]
     assert field["attrs"]["type"] == "password"
     assert field["attrs"]["autocomplete"] == "off"
     assert "value" not in field["attrs"]
     assert "Today's calls show once TEPHRA runs for Ring of Fire Charter." in _text(setup)
-    assert "AI UNAVAILABLE: no model key is set" in _text(setup)
+    # the state is said as the map and the Desk say it: "AI unavailable", its reason, its (i)
+    assert "AI unavailableNo model key is set." in _seen(setup)
+    assert "AI UNAVAILABLE" not in _seen(setup)
+    assert "Every model step says it did not run; nothing is put in its place." in _pops(setup)[0]
     # viewers see the model and the key's last four, and change nothing
     assert _buttons(out["assistantViewer"]) == ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
     u = _text(out["assistantUnavailable"])
     assert (
-        "AI UNAVAILABLE: the model key cannot be read: enter it again in Settings › Assistant"  # noqa: RUF001
-        in u
+        "AI unavailableThe model key cannot be read: enter it again in Settings › Assistant."  # noqa: RUF001
+        in _seen(out["assistantUnavailable"])
     )
     assert "Enter the key again" in u
+    assert "No model chosen" not in u
+    assert "No model chosen" not in _seen(out["assistantSetup"])
 
 
 def test_budget_draws_the_desk_reserve_apart(out: dict[str, Any]) -> None:
     a = _text(out["assistant"])
     assert "101 of 200 calls on gemini-3.5-flash-lite" in a
-    assert "Held for the Desk." in a
-    assert "Routine work cannot take it." in a
+    assert "Held for the Desk." in _seen(out["assistant"])
+    # the explanations are one tap away, behind an (i)
+    assert any("Routine work cannot take it." in p for p in _pops(out["assistant"]))
+    assert "Routine work cannot take it." not in _seen(out["assistant"])
     assert "29of 40 left" in a
     assert "Urgent" in a
     assert "18 / 60" in a
     assert "11 / 40" in a
     assert "72 / 100" in a
-    # the 01:00 UTC release is said once
-    assert a.count("01:00 UTC") == 1
+    # the 01:00 UTC release is said once, behind the heading's (i)
+    assert "01:00 UTC" not in _seen(out["assistant"])
+    assert sum(p.count("01:00 UTC") for p in _pops(out["assistant"])) == 1
     assert "quota day ends 07:00 UTC (midnight Pacific)" in a
     reserve = [n for n in _all(out["assistant"]) if n.get("cls") == "reserve"]
     assert len(reserve) == 1
@@ -375,12 +420,13 @@ def test_people(out: dict[str, Any]) -> None:
     assert "Revoke" in _buttons(out["people"])
     assert "Leave Ring of Fire Charter…" in _buttons(out["people"])
     words = " ".join(out["inviteWords"])
-    assert "Email sending is not built: send this link yourself." in words
-    assert (
-        "Anyone with the link who gives that email can join as dispatcher until 20 Oct, 09:00 UTC."
-        in words
-    )
+    assert "Not built: email sending. Send this link yourself." in words
+    assert "It joins one person as dispatcher, until 20 Oct, 09:00 UTC." in words
     assert "Emails are not checked." in words
+    # the limits and what each role may do are one tap away
+    assert "open invites and" not in _seen(out["people"])
+    assert any("A link works once, for 72 hours." in p for p in _pops(out["people"]))
+    assert [n["tag"] for n in _all(out["people"]) if n.get("cls") == "rolesfold"] == ["details"]
     v = out["peopleViewer"]
     assert "@" not in _text(v)
     assert _buttons(v) == ["Leave Ring of Fire Charter…"]
@@ -404,6 +450,15 @@ def test_record(out: dict[str, Any]) -> None:
     d = _text(out["recordDecisions"])
     assert "Approved advisory" in d
     assert "Push key made" not in d
+    # a model step never called "did not run"; one that answered with nothing "gave no result";
+    # a replaced draft says it once (merge verify, 17 Oct)
+    (unavailable, row), (timed_out, _), (replaced, replaced_row) = out["recordWords"]
+    assert unavailable == "Assistant step did not run"
+    assert "gave no result" not in _text(row)
+    assert "AI UNAVAILABLE: no model key is set" in _text(row)  # the raw reason stays in the record
+    assert timed_out == "Assistant gave no result"
+    assert replaced == "Draft replaced by a newer draft"
+    assert "REPLACED BY" not in _text(replaced_row)
 
 
 def test_header_lines_for_suspended_paused_and_not_updating(out: dict[str, Any]) -> None:
@@ -459,3 +514,47 @@ def test_the_assistant_tab_is_the_only_hosted_page_with_quota_words() -> None:
         ]
         assert not any(quota.search(line) for line in code), name
     assert "quota day ends" in (WEB / "hosted" / "assistant.js").read_text("utf-8")
+
+
+def test_forms_say_what_is_wrong_in_terse_words_after_the_field_is_left() -> None:
+    """Owner, 17 Oct: form errors are terse ("Required", "Not an email", "2+ characters"), in the
+    caution colour with a triangle (never red), shown after blur or submit (onboard/form.js
+    checkOnLeave), as on sign-up."""
+    hosted = (WEB / "hosted.js").read_text("utf-8")
+    assert "checkOnLeave(control, () => check(control.value.trim()));" in hosted
+    css = (WEB / "hosted.css").read_text("utf-8")
+    assert "line-height: 1.4; font-weight: 600; color: var(--c-invalid); }" in css
+    for rel in ("hosted/feeds.js", "hosted/people.js", "hosted/policy.js", "hosted/assistant.js"):
+        assert "checkedField(" in (WEB / rel).read_text("utf-8"), rel
+
+
+def test_terse_error_words(out: dict[str, Any]) -> None:
+    t = out["terse"]
+    assert t["keyName"] == ["Required", "2+ characters", None]
+    assert t["email"] == ["Required", "Not an email", None]
+    assert t["modelKey"] == ["Required", "Not a Google AI Studio key", None]
+    assert t["by"] == ["Required", "2+ characters", None]
+    assert t["day"] == ["Required", None]
+    for words in t.values():
+        assert all(w is None or len(w.split()) <= 10 for w in words)  # TEXT-SPEC A1: error 10
+
+
+def test_the_uploader_is_offered_beside_the_push_keys(out: dict[str, Any]) -> None:
+    """FOLLOWUP: push.py on Feeds as "Download uploader", a file from the member-only route."""
+    (link,) = _tags(out["uploader"], "a")
+    assert link["attrs"]["href"] == "/api/tenant/feeds/uploader"  # under Node: no airline
+    assert link["attrs"]["download"] == "push.py"
+    assert _seen(out["uploader"]) == "Download uploader"
+    assert "--dry-run sends nothing" in _pops(out["uploader"])[0]
+    feeds = (WEB / "hosted" / "feeds.js").read_text("utf-8")
+    assert 'el("span", { class: "wcard__acts" }, uploaderLink(), ops ? newKey : null)' in feeds
+
+
+def test_lines_and_explanations_keep_the_text_budgets(out: dict[str, Any]) -> None:
+    """TEXT-SPEC A1/A5: a visible line 12 to 15 words at most, an (i) 25 at most."""
+    w = {k: len(v.split()) for k, v in out["words"].items()}
+    assert w["feedsLead"] <= 10
+    assert w["recordLead"] <= 12
+    assert w["notBuilt"] <= 15
+    for key in ("uploaderInfo", "peopleLimits", "newVersion", "pacing"):
+        assert w[key] <= 25, key

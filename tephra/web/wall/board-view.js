@@ -1450,7 +1450,7 @@ export function mountFlow(dialog, { has }) {
     setMark(markUse, sym);
     if (dialog.dataset.ai !== (ex ? "on" : M.ai.kind)) dialog.dataset.ai = ex ? "on" : M.ai.kind;
     if (dialog.dataset.mode !== M.mode) dialog.dataset.mode = M.mode;
-    const line = stateLine({ suffix: M.ai.suffix }, { stub: M.stub, kind: M.ai.kind });
+    const line = stateLine({ suffix: M.ai.suffix }, { stub: M.stub, kind: M.ai.kind, reason: M.ai.reason });
     const skey = ex ? "ex" : `${line.word}|${line.info}`;
     if (status.dataset.k !== skey) {
       status.dataset.k = skey;

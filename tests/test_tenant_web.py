@@ -129,7 +129,9 @@ def test_the_shells_are_not_forked() -> None:
         assert re.findall(r"<[^>]*tenant-nav\.js[^>]*>", text) == [
             '<link rel="modulepreload" href="/static/tenant-nav.js">'
         ], name
-    assert 'href: "/static/tenant.css"' in (WEB / "tenant-nav.js").read_text("utf-8")
+    assert 'for (const css of ["/static/info.css", "/static/tenant.css"])' in (
+        WEB / "tenant-nav.js"
+    ).read_text("utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -230,23 +232,32 @@ def test_state_chip_shapes_words_and_clock(ran: dict[str, Any]) -> None:
     c = ran["chips"]
     assert c["header-shadow"]["cls"] == "ah-state ah-state--shadow"
     assert (c["header-shadow"]["word"], c["header-shadow"]["clock"]) == ("SHADOW", "14:02Z")
-    assert "every draft says Shadow · not for use" in c["header-shadow"]["title"]
-    assert "Nothing is sent to aircraft." in c["header-shadow"]["title"]
-    assert "Decision support only" not in c["header-shadow"]["title"]  # not page chrome (17 Oct)
+    # the chip's (i) (no tooltip-only words): what a draft is, once; the decision-support sentence
+    # is not page chrome (owner, 17 Oct: "don't put this everywhere")
+    assert c["header-shadow"]["info"] == (
+        "TEPHRA runs on your real flights; every draft says Shadow · not for use."
+        " Nothing is sent to aircraft."
+    )
+    assert "Decision support only" not in c["header-shadow"]["info"]
     live = c["header-live"]
     assert (live["cls"], live["word"], live["clock"]) == (
         "ah-state ah-state--live",
         "LIVE",
         "14:02Z",
     )
-    assert "Live since 17 Oct, 11:30 UTC, switched by Rin Ops." in live["title"]
-    assert "#MB" not in live["title"]
+    assert (
+        live["info"]
+        == "Switched to LIVE on 17 Oct, 11:30 UTC by Rin Ops. Nothing is sent to aircraft."
+    )
+    assert "#MB" not in live["info"]
     setup = c["header-setup"]
     assert (setup["cls"], setup["word"], setup["clock"]) == (
         "ah-state ah-state--setup",
         "Not started",
         "",
     )
+    # Not started and suspended get no (i): the chip and the red line say it all
+    assert setup["info"] is None
     susp = c["header-suspended"]
     assert (susp["cls"], susp["word"], susp["sub"], susp["clock"]) == (
         "ah-state ah-state--suspended",
@@ -254,11 +265,12 @@ def test_state_chip_shapes_words_and_clock(ran: dict[str, Any]) -> None:
         "since",
         "13:40Z",
     )
+    assert susp["info"] is None
     # S17: not updating is said in the chip, with the time of the last run, and no clock
     stale = c["header-stale"]
     assert stale["cls"] == "ah-state ah-state--shadow ah-state--stale"
     assert (stale["stale"], stale["clock"]) == ("not updating since 13:51Z", "")
-    assert "The picture is from 13:51Z." in stale["title"]
+    assert "13:51Z" not in stale["info"]  # said once, in the chip
 
 
 def test_red_line_says_real_alarms_only(ran: dict[str, Any]) -> None:
@@ -329,9 +341,12 @@ def test_header_markup_and_aria() -> None:
     css = (WEB / "tenant.css").read_text("utf-8")
     assert ".tn-bar.ah .topnav.ah-nav a { display: inline-flex; }" in css
     assert "grid-template-columns: repeat(4, minmax(0, 1fr))" in css
-    # the red line is an alert; the chip's tooltip is also said to a screen reader
+    # the red line is an alert; the chip's words are its (i) (wall/info.js: a real button whose
+    # words a screen reader hears on focus), kept beside the chip and only reworded on a redraw
     assert 'role: "alert", hidden: true' in src
-    assert 'el("span", { class: "sr-only", text: ` ${c.title}` })' in src
+    assert 'el("span", { class: "ah-statewrap" }, chip, stateInfo)' in src
+    assert "if (c.info) setInfo(S.parts.stateInfo, c.info);" in src
+    assert "title:" not in src.split("function chipNode")[1].split("\n}")[0]
     # sign-out signs out on every device (S26)
     assert '"Sign out on every device"' in src
     assert 'call("/api/airline/sign-out", { method: "POST", body: {} })' in src
@@ -366,3 +381,24 @@ def test_the_desk_asks_an_airline_for_at_most_50_a_page() -> None:
     fixed = [int(n) for n in re.findall(r"limit=(\d+)", src)]
     assert fixed
     assert max(fixed) <= 50, fixed
+
+
+def test_the_merge_verify_findings_stay_fixed_in_the_page_sources() -> None:
+    """Merge verify, 17 Oct (static checks of the sources the hosted pages run):
+    the Desk's AI (i) moves with its chip into the airline bar; Paperwork stamps SHADOW drafts on
+    their rows; an airline's pages never name the demo's RFA (not even as hidden text); a form
+    error inside a card keeps the invalid colour."""
+    desk = (WEB / "desk.js").read_text(encoding="utf-8")
+    assert "chips: [byId('ai-status'), byId('ask-btn'), byId('conn')]" in desk
+    assert "for (const id of ['ai-status', 'conn'])" in desk
+    docs = (WEB / "desk" / "docs.js").read_text(encoding="utf-8")
+    assert "shadowStamp(d), el('span', { class: 'drow__t'" in docs
+    assert "shadowStamp(handover), el('span', { class: 'drow__t'" in docs
+    assert "no RFA flight" not in docs
+    assert "const code = app.state?.airline?.code || 'RFA';" in docs
+    assert '$("stl-rfa")?.remove();' in (WEB / "wall.js").read_text(encoding="utf-8")
+    util = (WEB / "wall" / "util.js").read_text(encoding="utf-8")
+    assert "if (SPACE_ICAO) AIRLINE = { code: SPACE_ICAO, name: SPACE_ICAO," in util
+    css = (WEB / "product.css").read_text(encoding="utf-8")
+    assert ".wcard .err { font-size: 13px; line-height: 1.4; color: var(--c-invalid); }" in css
+    assert ".drow__what > .stamp--shadow" in (WEB / "tenant.css").read_text(encoding="utf-8")

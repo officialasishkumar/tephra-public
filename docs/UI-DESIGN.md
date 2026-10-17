@@ -1942,6 +1942,52 @@ infomation". Every (i) on these pages is the one info button of 7.35 (`wall/info
   as the push tool; the own-fleet settings stay. The onboarding tour's screenshot is retaken once
   the onboarding pages settle.
 
+### 7.37 Said once on the hosted airline pages (17 Oct 2026)
+
+The rules of 7.35 and 7.36 on the pages of a hosted airline (`docs/HOSTED.md`; the feature
+`hosted`, off on the deployed site). Every (i) is the one info button (`wall/info.js`, `info.css`).
+
+- **State chip.** SHADOW and LIVE each carry one (i) beside the chip (no tooltip-only words):
+  SHADOW "TEPHRA runs on your real flights; every draft says Shadow · not for use. Nothing is sent
+  to aircraft."; LIVE "Switched to LIVE on … by …. Nothing is sent to aircraft.". Not started,
+  suspended and "not updating" add none: the chip and the red line say it. At 480 px and less the
+  map's header chip drops its clock (the time bar shows it), so the map header stays two rows.
+- **No decision-support footer.** The space's footer is "Private to <name> and TEPHRA's
+  operators"; the console's is "Operators of this site only" and its (i). Every SHADOW stamp,
+  `SHADOW - NOT FOR USE` line and Record SHADOW tag stays (`tests/test_shadow_stamp.py`).
+- **AI state once.** Settings › Assistant says "On", "AI paused" or "AI unavailable" with its
+  reason and one (i); "Not chosen" for a missing model; "Not built: Ollama on this site.". The
+  map's Plume tails say "did not run", never a capitalised `AI UNAVAILABLE` beside the status.
+  An airline with no usable model (no model, no key, an unreadable key) is its own state,
+  `unavailable` (`aiStateOf`, from `BudgetView.unavailable`), never "on" or "On · 1 problem": the
+  map's tab bar and the Desk's header say "AI unavailable", and the (i) gives the reason and
+  "Fix it in Settings › Assistant."; Details › TEPHRA Assistant and the assistant sheet lead
+  with "TEPHRA Assistant is unavailable."; its refused steps are part of the state, and a place
+  without its draft says the skill "did not run". The Record says "Assistant step did not run"
+  for such a step, "gave no result" only where a model answered with nothing usable. On the
+  airline's Desk the status and its (i) move into the airline bar together.
+- **The airline's own code.** An airline's pages name its code from the first paint, also in
+  setup when no state ever arrives; the demo's fictional RFA marker is removed from its map, and
+  the Desk's empty VAR list says how many of its flights are in the ash and that none has an
+  advisory yet, never "none needed" while flights are inside.
+- **Paperwork rows.** A SHADOW document or handover carries its stamp on its row in Paperwork,
+  above the title, as the Desk's cards do, not only once opened.
+- **Forms.** Hosted forms (`hosted.js` `checkedField`, the workspace go-live dialogs, join and the
+  console) build on `onboard/form.js`: a label with its rule ("Name · 2-48 characters",
+  "Password · 12+ characters"), terse errors ("Required", "Not an email", "2+ characters", "Not a
+  Google AI Studio key", "Tick to continue", "Type RFB") shown after a typed field is left or on
+  submit, in `--c-invalid` with the caution triangle. Action answers (`.hstatus`) are caution, not
+  red; red stays for real alarms (a pause, a feed outage, a suspension, a broken record chain).
+- **Uploader.** Feeds offers "Download uploader" and its (i) to every member, from
+  `GET /a/<ICAO>/api/tenant/feeds/uploader`; with hosting on `/static/kit/` answers 404, checked
+  on the path the static files resolve (`server.PageFiles`), so `//kit`, `./kit`, `x/../kit` and
+  another case answer 404 too. With hosting off `/privacy` drops its parts between `<!-- hosted -->` and `<!-- /hosted -->`.
+- **Workspace.** The go-live cards say one short line each, the rest behind an (i); the site-limit
+  line shows until the airline has its space, then the places line beside Start says it. Once the
+  space exists the workspace nav drops Data feeds and Assistant, and their addresses open the
+  space's Feeds and Settings › Assistant. `infoTail` (`onboard/form.js`) keeps an (i) on the line of
+  its last word at 390 px.
+
 ## 8. 3D, compare, the time bar and the height filter
 
 ### 8.1 3D mode (D)
@@ -2765,21 +2811,21 @@ the disclaimer exactly as `state.disclaimer` gives them.
 | Airline | "Ring of Fire Air (RFA) is a fictional airline. RFA flight numbers are proxies for real aircraft." |
 | Outbound | "Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system." |
 | TEPHRA's area | On the Wall "TEPHRA's estimate" · "an estimate, not a forecast" · "never smaller than official" |
-| SHADOW (hosted airline, page level) | The header chip "SHADOW" (dashed, half disc) and its tooltip; page titles `SHADOW · <Section> · RFB · TEPHRA` (`docs/HOSTED.md`) |
+| SHADOW (hosted airline, page level) | The header chip "SHADOW" (dashed, half disc) and its (i) "TEPHRA runs on your real flights; every draft says Shadow · not for use. Nothing is sent to aircraft."; page titles `SHADOW · <Section> · RFB · TEPHRA` (`docs/HOSTED.md`) |
 | Shadow · not for use (data level) | The `.stamp--shadow` on every draft card with `shadow`; the code-written `SHADOW - NOT FOR USE` line in advisory headers, outbound text, message and document headers (outside editable bodies); a `SHADOW` tag on record entries |
-| LIVE + who and when | The chip's tooltip "Live since …, switched by …"; the Switch to LIVE dialog ("TEPHRA still sends nothing to an aircraft or to any system…"); the workspace card "Live since …, switched by …"; `OWN_DISCLAIMER` stays where it is |
+| LIVE + who and when | The chip's (i) "Switched to LIVE on … by …. Nothing is sent to aircraft."; the Switch to LIVE dialog ("TEPHRA still sends nothing to an aircraft or to any system." and its (i) "An approved advisory goes to your outbound list; a person passes it on."); the workspace card "Live since …, switched by …"; `OWN_DISCLAIMER` stays where it is |
 | Not updating / Picture from | The state chip "LIVE · not updating since hh:mmZ" in red and the dimmed map with "Picture from hh:mmZ" when a running airline's last tick is over 150 s old |
 | ILLUSTRATIVE (hosted policy) | Settings › Policy chip; the map status line "Policy vN · ILLUSTRATIVE"; inside each draft's record; the Switch to LIVE dialog's caution; an acceptance reads "recorded by the airline, TEPHRA does not check it" |
-| AI UNAVAILABLE: reason (hosted) | Every model step of an airline with no model, no key or an unreadable key |
+| AI unavailable (hosted) | Said once per screen, as on the demo: the airline map's and Desk's AI status ("AI off", "AI paused", "AI unavailable" and its (i)) and Settings › Assistant's state line ("AI unavailable · <reason>." and its (i)); each model step of an airline with no model, no key or an unreadable key says it did not run ("Plume reader did not run"), its raw `AI UNAVAILABLE: <reason>` one tap in (Technical detail, the record) |
 | Paused (airline or site allowance) | A red line on every airline page ("Paused: <name>'s share of the site's free daily database allowance is used. Resumes 00:00 Pacific (07:00 UTC)."); the workspace card; the console's free-tier tile and notes |
 | Satellite frames paused | The frames feed note when the month's airline uploads are used |
-| Not built (hosted) | `docs/HOSTED.md` §6, each said where it applies; the workspace line "TEPHRA runs at most 3 airlines at once on this site." (the setup kit is dropped) |
+| Not built (hosted) | `docs/HOSTED.md` §6, each said where it applies; the workspace line "TEPHRA runs at most 3 airlines at once on this site." until the airline has its space, then the places line beside Start ("1 of 3 airline places in use") (the setup kit is dropped) |
 | DRY RUN · NOTHING TAKEN IN | The dry-run card (`dryrun.js`, workspace and airline Feeds); "Checked, not taken in" on Feeds in setup |
 | Private | The airline space's footer "Private to <name> and TEPHRA's operators" |
 | Unpaid-tier data use | Settings › Assistant: "Google may use what TEPHRA sends with a free-tier key." |
 | Emails are not checked | The invite page ("Anyone with this link can join as <role> until <time>. Emails are not checked."); the People invite box |
 | Verified ≠ approval | The workspace verification card: "It does not approve your policy or your use of TEPHRA." |
-| Operators only | The console's footer: "Operators of this site only. Each action on an airline goes into that airline's record." |
+| Operators only | The console's footer: "Operators of this site only" and its (i) "Each action on an airline goes into that airline's record." |
 
 ### 11.2 Mode words
 

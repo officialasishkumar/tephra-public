@@ -453,6 +453,9 @@ html:has(.ob-shell[data-view="page"]) { scroll-padding-bottom: 96px; scroll-padd
 .wcard__ic .icon { width: 17px; height: 17px; }
 .wcard__h h2 { flex: 1; min-width: 0; font-size: var(--fs-3); font-weight: 600; }
 .wcard p { font-size: var(--fs-2); line-height: 1.5; color: var(--c-text-2); }
+/* a form error that is a <p> in a card keeps its own colour and size (.wcard p would win on specificity) */
+.wcard .err { font-size: 13px; line-height: 1.4; color: var(--c-invalid); }
+.wcard .err--alarm { color: var(--c-serious); }
 .wcard__foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
 .ws-status { min-height: 1.5em; font-size: var(--fs-2); color: var(--c-text-2); }
 
@@ -633,6 +636,9 @@ html:has(.ob-shell[data-view="page"]) { scroll-padding-bottom: 96px; scroll-padd
 .hint.infoline { font-size: 13px; color: var(--c-text-3); }
 .checkrow .hint.infoline { padding-left: 30px; }
 .chipinfo { display: inline-flex; align-items: center; gap: 2px; }
+/* onboard/form.js infoTail: the last word and its (i) never part */
+.tline__end { white-space: nowrap; }
+.tline__end .info { margin-left: 4px; }
 /* the tick's (i) sits beside its label, outside it, so a tap on the (i) never ticks the box */
 .checkline { display: flex; align-items: flex-start; gap: 4px; }
 .checkline > .check { flex: 0 1 auto; }

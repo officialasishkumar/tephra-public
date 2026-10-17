@@ -61,7 +61,7 @@ def test_the_header_says_the_assistant_state_once() -> None:
     assert "Offline stub: no model is connected. Code checks still run" in line
     assert "function statusLine(" not in budget
     chip = _function(budget, "drawAiChip")
-    assert "const line = stateLine(w, { kind: ai.kind });" in chip
+    assert "const line = stateLine(w, { kind: ai.kind, reason: ai.reason });" in chip
     assert "infoButton({" in chip
     assert "if (line.info)" in chip
     # the label keeps the state for a screen reader in every state, the mark alone while on

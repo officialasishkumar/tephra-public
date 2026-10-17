@@ -1495,6 +1495,8 @@ if (TENANT) {
     kpi.querySelector(".kpi__l").textContent = `${TENANT} flights in or heading in`;
   }
   $("assist-page").hidden = true;
+  // the fictional airline's marker is the demo's: not even hidden text of it on an airline's map
+  $("stl-rfa")?.remove();
   const howKey = document.querySelector('.stl__key[data-key="w"]');
   if (howKey) howKey.hidden = true;
   rewriteLinks(document);

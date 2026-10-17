@@ -233,3 +233,21 @@ def test_with_hosted_on_and_two_airlines_the_demo_answers_as_with_it_off(
     demo = [label for label in off if not label.split(" ")[1].startswith(HOSTED_ONLY)]
     assert len(demo) > 35
     assert [label for label in demo if on[label] != off[label]] == []
+
+
+def test_with_hosted_off_the_privacy_notice_says_nothing_of_hosted_airlines(
+    base: Settings,
+) -> None:
+    """Merge verify, 17 Oct: hosting off showed the Hosted airlines fold and a clause pointing to
+    it. The file keeps them (served whole with ``hosted`` on); off, its hosted-only parts go."""
+    with TestClient(create_app(base, runtime_factory=Harness().factory)) as client:
+        page = client.get("/privacy")
+    assert page.status_code == 200
+    assert page.headers["content-type"] == "text/html; charset=utf-8"
+    text = page.text
+    for gone in ("Hosted airlines", "hosted airline", "<!-- hosted -->", 'href="#hosted"'):
+        assert gone not in text, gone
+    assert "Onboarding never asks for your Gemini key.</p>" in text
+    assert '<details id="questions" class="pfold">' in text
+    whole = (Path(__file__).resolve().parents[1] / "tephra/web/privacy.html").read_text("utf-8")
+    assert whole.count("<!-- hosted -->") == whole.count("<!-- /hosted -->") == 2

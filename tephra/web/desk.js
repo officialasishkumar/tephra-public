@@ -1120,10 +1120,11 @@ function tenantNote(kids) {
 }
 function tenantBoot() {
   rewriteLinks(document);
-  mountTenantNav({ bar: byId('dhead').querySelector('.dhead__row'), section: 'desk', chips: [byId('budget-chip'), byId('ask-btn'), byId('conn')], theme: false });
-  // the assistant chip, Ask and the connection pill say something only while TEPHRA runs for the
-  // airline: in setup, suspended or with no access nothing connects, so they are not shown
-  const runningChips = (on) => { for (const id of ['budget-chip', 'conn']) byId(id).hidden = !on; if (!on) byId('ask-btn').hidden = true; };
+  mountTenantNav({ bar: byId('dhead').querySelector('.dhead__row'), section: 'desk', chips: [byId('ai-status'), byId('ask-btn'), byId('conn')], theme: false });
+  // the assistant status (its chip and its (i), moved together), Ask and the connection pill say
+  // something only while TEPHRA runs for the airline: in setup, suspended or with no access
+  // nothing connects, so they are not shown
+  const runningChips = (on) => { for (const id of ['ai-status', 'conn']) byId(id).hidden = !on; if (!on) byId('ask-btn').hidden = true; };
   onTenantHeader(async (h, { error }) => {
     tenantNow = h;
     setTitle();

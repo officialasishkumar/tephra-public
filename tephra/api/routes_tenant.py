@@ -12,6 +12,7 @@ and the view. Errors never repeat what was typed: a model key above all.
 ``router`` is mounted under ``/api/tenant`` only with ``hosted`` on.
 """
 
+import asyncio
 import json
 import re
 from collections.abc import AsyncIterator
@@ -26,6 +27,7 @@ from tephra.airline import accounts
 from tephra.airline.models import AirlineAnswers, DryRunResult
 from tephra.api import ApiError
 from tephra.api.auth import is_https, require_csrf, wall_clock_now
+from tephra.api.routes_pages import WEB_DIR
 from tephra.api.server import _json
 from tephra.api.tenancy import TenantScope, gate, require_scope
 from tephra.config import Settings
@@ -292,6 +294,28 @@ async def dry_run(request: Request, scope: Scope) -> Response:
         raise ApiError(422, "not_a_push", str(exc)) from None
     scope.handle.space.feed_stats.record_dry_run(result, wall_at=at, connection_id=None)
     return _json(result)
+
+
+UPLOADER: Final = WEB_DIR / "kit" / "push.py"
+"""The uploader (standard library only) the Feeds page offers as "Download uploader": the same file
+for every airline, nothing of the airline or the site written into it. ``/static/kit/`` answers
+404 with ``hosted`` on, so this member-only route is its one way out."""
+
+
+@router.get("/feeds/uploader")
+async def get_uploader(scope: Scope) -> Response:
+    """push.py as a file to save (``Content-Disposition: attachment``), for any of the airline's
+    people in any state; it reads nothing from the store."""
+    body = await asyncio.to_thread(UPLOADER.read_bytes)
+    return Response(
+        body,
+        media_type="text/x-python; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="push.py"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("/keys", response_model=KeyList)

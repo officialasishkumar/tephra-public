@@ -678,6 +678,11 @@ export function flowModel(input) {
     // has no words of its own: the one status ("AI off", wall/x-parts.js stateLine) says it (owner,
     // 17 Oct: "don't say no model everywhere"); the dashed rail still draws it
     gate = { open: true, kind: "nomodel", name: "", meta: "", title: "" };
+  } else if (ai.kind === "unavailable") {
+    // a hosted airline with no usable model: nothing is called, so nothing goes past the gate
+    status = "unavailable";
+    sub = "No model can be used, so no skill runs and nothing is put in its place. Code still reads every feed and checks every flight, and that work comes to you.";
+    gate = { open: false, kind: "closed", name: "", meta: inLine, title: `Why: Details › ${ASSISTANT}` };
   } else if (ai.kind === "trouble") {
     status = words.suffix;
     sub = `${ai.trouble.map((c) => causeShort(c)).join(". ")}. Nothing was put in ${ai.trouble.length === 1 ? "its" : "their"} place: code still checks every flight, and that work comes to you.`;
@@ -689,7 +694,7 @@ export function flowModel(input) {
     gate = { open: true, kind: "open", name: "AI model · open", meta: inLine, title: "" };
   }
   const run = input.duty || null;
-  const coord = { meta: ai.kind === "paused" ? "Must-do jobs come to you" : ai.kind === "off" ? "" : "Orders the jobs and hands them to skills",
+  const coord = { meta: ai.kind === "paused" || ai.kind === "unavailable" ? "Must-do jobs come to you" : ai.kind === "off" ? "" : "Orders the jobs and hands them to skills",
     refused: run?.outcome === "MODEL_FAILED", lastAt: run ? ms(run.decided_at || run.finished_at) : NaN };
   // You decide: the Wall's own counts, this mode's work only
   const plan = newestPlan(input.recovery);
@@ -706,7 +711,7 @@ export function flowModel(input) {
   const region = input.region || s.region || null;
   return {
     ready: true, replay, stub, mode: s.mode, demo: replay && !!s.replay?.synthetic,
-    ai: { kind: ai.kind, symbol: aiSymbol(ai.kind), title: words.title, label: words.label, suffix: words.suffix, tone: words.tone }, status, sub, gate, budgetError,
+    ai: { kind: ai.kind, reason: ai.reason, symbol: aiSymbol(ai.kind), title: words.title, label: words.label, suffix: words.suffix, tone: words.tone }, status, sub, gate, budgetError,
     queue: waiting.map((w) => ({ label: w.label, kind: kindOf(w), skill: ownerOf(w) })),
     skills, coord, desk, runs, events, t0, t1, spanMin: Number.isFinite(t0) ? Math.max(1, Math.round((t1 - t0) / 60000)) : 0,
     feeds: (input.feeds || []).map((f) => ({ feed: f.feed, status: f.status, records: f.record_count, error: f.last_error || null, kind: FEED_KIND[f.feed] || "weather" })),

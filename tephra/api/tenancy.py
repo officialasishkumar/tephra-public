@@ -174,6 +174,7 @@ TENANT_ROUTES: Final[dict[tuple[str, str], RouteRule]] = {
             "/api/tenant/assistant",
             "/api/tenant/people",
             "/api/tenant/record",
+            "/api/tenant/feeds/uploader",
         ),
         "viewer",
         ANY,

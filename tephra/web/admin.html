@@ -40,7 +40,8 @@
     <noscript><p class="note note--caution">The operator console needs JavaScript.</p></noscript>
   </main>
   <footer class="pfoot">
-    <span class="pfoot__honest"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-hand"></use></svg><span>Operators of this site only. Each action on an airline goes into that airline's record.</span></span>
+    <!-- one line; admin.js adds its (i): each action goes into that airline's record -->
+    <span id="ad-foot" class="pfoot__private"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-lock"></use></svg><span>Operators of this site only</span></span>
     <nav aria-label="More pages"><a href="/guide">Guide</a><a href="/privacy">Privacy</a></nav>
   </footer>
   <p id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></p>

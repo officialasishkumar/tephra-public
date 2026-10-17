@@ -74,7 +74,7 @@ const OUTCOME = {
   ACCEPTED: "Reading accepted by the code's checks",
   REPAIRED: "Accepted after one repair",
   MODEL_FAILED: "Plume reader gave no result: official products only, nothing assessed beyond them",
-  UNAVAILABLE: "Plume reader did not run (AI UNAVAILABLE): official products only, nothing assessed beyond them",
+  UNAVAILABLE: "Plume reader did not run: official products only, nothing assessed beyond them",
   OFFICIAL_ONLY: "No read needed: official products only",
   PENDING: "Plume read queued for the Coordinator: official products only until it runs",
 };
@@ -189,7 +189,7 @@ export function renderChrome(D, store, ui) {
   // why it is paused (8.6). The screen-reader words say the state in every case.
   const ai = aiStateNow(D, store);
   const w = aiWords(ai, { home: `Details › ${ASSISTANT}`, opens: `Details › ${ASSISTANT}` });
-  const line = stateLine(w, { stub: s.llm?.backend === "stub", kind: ai.kind });
+  const line = stateLine(w, { stub: s.llm?.backend === "stub", kind: ai.kind, reason: ai.reason });
   const box = $("ai-state");
   const lkey = `${line.tone}|${line.word}|${line.info}|${line.why}`;
   if (box.dataset.key !== lkey) {
@@ -277,10 +277,11 @@ function renderStatusLine(D, ui) {
     if (info) setInfo(info, words);
     else box.append(infoButton({ topic: "policy", label: "About the illustrative policy", text: words }));
   }
+  // an airline's own map has no fictional-airline marker at all (wall.js removes it)
   const rfa = $("stl-rfa");
   const own = s.airline?.fictional === false ? s.airline : null;
-  rfa.hidden = !!own;
-  if (!own && !rfa.querySelector(".info")) {
+  if (rfa) rfa.hidden = !!own;
+  if (rfa && !own && !rfa.querySelector(".info")) {
     rfa.append(infoButton({ topic: "airline", label: "About the fictional airline", text: `Ring of Fire Air (RFA) is a fictional airline. Its flight numbers stand in for ${aircraftNoun(s)}.` }));
   }
   const extra = [];
@@ -778,7 +779,7 @@ function disRow(D, sit, d, ui) {
       const outcome = plumeOutcome(sit.assessment?.outcome, sit.assessment?.estimate?.uncertainty_notes);
       tail = D.state.llm?.backend === "stub" || outcome === "STUB" ? " TEPHRA has not widened the area."
         : outcome === "PENDING" ? " TEPHRA has not widened the area yet (Plume reader waiting)."
-          : outcome === "UNAVAILABLE" ? " TEPHRA has not widened the area (Plume reader did not run: AI UNAVAILABLE)."
+          : outcome === "UNAVAILABLE" ? " TEPHRA has not widened the area (Plume reader did not run)."
             : outcome === "MODEL_FAILED" ? " TEPHRA has not widened the area (Plume reader gave no result)." : " TEPHRA has not widened the area.";
     }
     explain = `A point 15 km along the observatory's drift is outside the official polygon.${tail}`;
@@ -807,7 +808,7 @@ export function estimateOutcome(D, sit, cone) {
   // the stub: the tab bar says the AI is off; the line says only what the area is
   if (stub) return MODE_LINE.OFFICIAL;
   if (outcome === "MODEL_FAILED") return "Same as the official area: the Plume reader gave no result, nothing assessed beyond the official reports.";
-  if (outcome === "UNAVAILABLE") return "Same as the official area: the Plume reader did not run (AI UNAVAILABLE), nothing assessed beyond the official reports.";
+  if (outcome === "UNAVAILABLE") return "Same as the official area: the Plume reader did not run, nothing assessed beyond the official reports.";
   // a queued read waits in line; when it runs is said at the assistant's home (8.6)
   if (outcome === "PENDING") return "Same as the official area: the Plume reader's read waits in line.";
   if (outcome === "OFFICIAL_ONLY") return "Same as the official area: no Plume reader read was needed.";

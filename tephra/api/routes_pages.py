@@ -92,9 +92,27 @@ async def guide_page() -> FileResponse:
     return await _page("guide.html")
 
 
+# The privacy notice's hosted-only parts (a fold and a clause), between ``<!-- hosted -->`` and
+# ``<!-- /hosted -->`` in the file (a comment, so the markup and its styles stay as they are).
+_HOSTED_ONLY: Final = re.compile(r"[ \t]*<!-- hosted -->.*?<!-- /hosted -->\n?", re.S)
+
+
+def without_hosted(html: str) -> str:
+    """A page with its hosted-only parts cut, as it is served with ``hosted`` off."""
+    return _HOSTED_ONLY.sub("", html)
+
+
 @router.get("/privacy", include_in_schema=False)
-async def privacy_page() -> FileResponse:
-    return await _page("privacy.html")
+async def privacy_page(request: Request) -> Response:
+    """With ``hosted`` off the notice says nothing of hosted airlines: its hosted-only parts are
+    cut before it is served."""
+    if "hosted" in request.app.state.settings.features:
+        return await _page("privacy.html")
+    path = WEB_DIR / "privacy.html"
+    if not await asyncio.to_thread(path.is_file):
+        raise ApiError(404, "not_found", "Page not installed")
+    text = await asyncio.to_thread(path.read_text, encoding="utf-8")
+    return Response(without_hosted(text), media_type="text/html; charset=utf-8")
 
 
 @router.get("/robots.txt", include_in_schema=False)
@@ -215,6 +233,15 @@ async def admin_page() -> Response:
     response = await _page("admin.html")
     response.headers.update(NOINDEX)
     return response
+
+
+@hosted_router.get("/static/kit/{rest:path}", include_in_schema=False)
+@hosted_router.head("/static/kit/{rest:path}", include_in_schema=False)
+async def kit_files(rest: str) -> Response:
+    """With ``hosted`` on, the uploader (``kit/push.py``) is an airline member's download
+    (``/a/<ICAO>/api/tenant/feeds/uploader``), never a public static file. Included before the
+    ``/static`` mount, so it answers first."""
+    raise ApiError(404, "not_found", "No such file")
 
 
 @hosted_router.get("/join", include_in_schema=False)

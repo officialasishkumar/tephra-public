@@ -101,3 +101,70 @@ def test_every_place_that_says_did_not_run_for_a_quota_says_it_for_no_model_too(
                 if "paused" in line or "aiState" in line:
                     continue  # the paused state is the quota's alone
                 raise AssertionError(f"{path.name}: {line.strip()}")
+
+
+STATE_SCRIPT = """
+const x = await import("./x-parts.js");
+const reason = process.argv[1];
+const budget = {
+  backend: "gemini", resets_at: "2026-09-06T07:00:00Z", unavailable: reason, waiting: [],
+  models: [{ model_id: "gemini-3.5-flash-lite", jobs: "Every other AI step", used: 0, limit: 18,
+    remaining: 18, closed: false }],
+  tiers: [{ tier: "lite", model_id: "gemini-3.5-flash-lite", used: 0, limit: 18, remaining: 18 }],
+};
+const why = `DUTY OFFICER AI UNAVAILABLE: ${reason}`;
+const plume = "Plume read: Anak Krakatau (sources or aircraft changed): not dispatched";
+const errors = [
+  { stage: "DUTY", reason: why, at: 1, raw: "r" },
+  { stage: "DUTY", reason: plume, at: 2, raw: "p" },
+];
+const ai = x.aiStateOf({ budget, errors });
+const plain = x.aiStateOf({ budget: { ...budget, unavailable: null } });
+const stub = x.aiStateOf({ stub: true, budget });
+const w = x.aiWords(ai);
+const line = x.stateLine(w, { kind: ai.kind, reason: ai.reason });
+console.log(JSON.stringify({
+  titles: ai.causes.map((c) => x.causeTitle(c, { home: true })),
+  kind: ai.kind, trouble: ai.trouble.length, causes: ai.causes.length, line, words: w,
+  lead: x.aiLead(ai), main: x.aiLead(ai, { home: false }), block: x.draftBlock(ai),
+  bare: x.draftBlock(x.aiStateOf({ budget })), plain: plain.kind, stub: stub.kind,
+}));
+"""
+
+
+@pytest.mark.parametrize("reason", REASONS)
+def test_an_airline_with_no_usable_model_reads_ai_unavailable_with_its_reason(reason: str) -> None:
+    """Merge verify, 17 Oct: a no-key airline's Desk said "TEPHRA Assistant on" and its map's
+    Details "On · 1 problem". The budget names the airline's reason (BudgetView.unavailable), and
+    that is the one state, "AI unavailable", its (i) giving the reason and where it is set."""
+    assert NODE is not None
+    done = subprocess.run(
+        [NODE, "--input-type=module", "-e", STATE_SCRIPT, reason],
+        cwd=WALL,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+    r = json.loads(done.stdout)
+    assert r["kind"] == "unavailable"
+    assert (r["plain"], r["stub"]) == ("on", "off")
+    # its own refused steps are the state, not "problems" on top of it; a plume read the
+    # Coordinator could not hand out did not run either (no skill was called)
+    assert (r["trouble"], r["causes"]) == (0, 2)
+    said = reason[0].upper() + reason[1:] + "."
+    assert r["line"]["word"] == "AI unavailable"
+    assert r["line"]["info"].startswith(f"{said} Fix it in Settings › Assistant.")  # noqa: RUF001
+    assert reason in r["line"]["said"]
+    assert reason in r["words"]["aria"]
+    assert " on." not in r["words"]["aria"]
+    assert r["lead"][0]["strong"] == "TEPHRA Assistant is unavailable."
+    assert said in r["lead"][0]["text"]
+    # a main view says the state and what holds, not the reason (the (i) and the home say it)
+    assert said not in r["main"][0]["text"]
+    # a place without its draft says the step did not run, never "gave no result"
+    assert r["block"]["word"] == "Coordinator did not run"
+    assert r["bare"]["word"] == "Drafter did not run"
+    assert all("did not run" in title for title in r["titles"])
+    for out in (r["line"], r["words"], r["lead"], r["block"], r["titles"]):
+        assert "gave no result" not in json.dumps(out)

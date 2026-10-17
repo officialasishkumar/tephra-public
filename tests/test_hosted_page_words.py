@@ -112,9 +112,12 @@ def test_the_header_menus_open_and_close_from_the_keyboard() -> None:
     assert 'e.key === "Escape" && !menu.hidden' in nav
 
 
-def test_the_desk_header_stays_two_rows_on_a_phone() -> None:
+def test_the_desk_header_on_a_phone_keeps_the_ai_words() -> None:
+    """The AI state is said once per screen and is the last thing the Desk's header drops
+    (desk/budget.js fitHead): an airline's Desk on a phone keeps "AI off" in words, and only the
+    connection while connected becomes a mark."""
     css = _src("tenant.css")
-    assert ".is-tenant .dhead__row.ah #budget-chip > :not(svg)" in css
+    assert "#budget-chip > :not(svg)" not in css
     assert '.conn[data-conn="live"] > span' in css
 
 

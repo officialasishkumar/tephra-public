@@ -7,7 +7,9 @@ same fixture source. The stub model only; no network. tests/test_admin_api.py an
 tests/test_hosted_isolation.py build on it.
 """
 
+import asyncio
 import json
+import re
 from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +19,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from tephra.agents.llm import get_llm
 from tephra.airline import accounts, passwords
@@ -25,6 +28,7 @@ from tephra.airline.sessions import COOKIE_NAME as AIRLINE_COOKIE
 from tephra.airline.sessions import claims_of, member_claims, sign_claims
 from tephra.api import server
 from tephra.api.auth import CSRF_HEADER, wall_clock_now
+from tephra.api.routes_pages import WEB_DIR
 from tephra.config import Settings
 from tephra.feeds.airports import load_airports
 from tephra.feeds.volcanoes import load_volcanoes
@@ -665,6 +669,80 @@ def test_the_record_pages_checks_and_exports_once_a_day(
     assert client.get("/a/RFB/api/tenant/record/export").status_code == 429
     older = client.get(f"/a/RFB/api/tenant/record?before_seq={lines[-1]['seq']}").json()
     assert all(entry["seq"] < lines[-1]["seq"] for entry in older["entries"])
+
+
+def test_the_uploader_is_a_member_s_download_with_nothing_of_the_airline_in_it(
+    client: TestClient, site: HostedSite, rfb: tuple[Holder, Member]
+) -> None:
+    """FOLLOWUP (owner, 17 Oct: the setup kit is dropped, push.py stays): the Feeds page offers
+    kit/push.py as "Download uploader" to the airline's people only, as a file to save."""
+    tool = (WEB_DIR / "kit" / "push.py").read_bytes()
+    _, key = new_key(client)
+    got = client.get("/a/RFB/api/tenant/feeds/uploader")
+    assert got.status_code == 200, got.text
+    assert got.headers["content-disposition"] == 'attachment; filename="push.py"'
+    assert got.headers["content-type"].startswith("text/x-python")
+    assert got.headers["cache-control"] == "private, no-store"
+    assert got.content == tool  # the same file for everyone: nothing written into it
+    text = got.text
+    for secret in (key, GEMINI_KEY, SECRET, TASK_TOKEN, PIN, "AIza"):
+        assert secret not in text
+    assert not re.search(r"tph_[A-Za-z0-9_]{12,}", text)
+    # a viewer may download it too; someone who is not one of RFB's people may not
+    viewer, _ = site.run(
+        client, lambda: site.person("RFB", "viewer", "vic@rfb.example", "Vic V", by=rfb[1])
+    )
+    as_login(client, site, viewer)
+    assert client.get("/a/RFB/api/tenant/feeds/uploader").content == tool
+    other, _ = site.run(client, lambda: site.airline("RFC", "setup"))
+    as_login(client, site, other.login, other.record)
+    stranger = client.get("/a/RFB/api/tenant/feeds/uploader")
+    assert (stranger.status_code, error_of(stranger)) == (404, "no_such_airline")
+    assert "push.py" not in stranger.headers.get("content-disposition", "")
+    assert client.get("/a/RFC/api/tenant/feeds/uploader").content == tool
+    client.cookies.clear()
+    assert client.get("/a/RFB/api/tenant/feeds/uploader").status_code == 401
+    # never a public static file while hosting is on (GET or HEAD), and not under the root API
+    for method in ("GET", "HEAD"):
+        public = client.request(method, "/static/kit/push.py")
+        assert public.status_code == 404, method
+        assert public.content in (
+            b"",
+            b'{"error":"not_found","detail":"No such file","problems":[],"current":null}',
+        )
+    assert client.get("/static/kit/__pycache__/x.pyc").status_code == 404
+    assert client.get("/api/tenant/feeds/uploader").status_code == 404
+    # a path the /static/kit/ route does not match, which the static files normalise (merge
+    # verify, 17 Oct: these were served signed out)
+    for raw in ("/static//kit/push.py", "/static///kit//push.py"):
+        assert client.get(raw).status_code == 404, raw
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "/static//kit/push.py",
+        "/static///kit//push.py",
+        "/static/./kit/push.py",
+        "/static/x/../kit/push.py",
+        "/static/KIT/push.py",
+        "/static/Kit/./push.py",
+    ],
+)
+def test_no_spelling_of_the_kit_path_gets_past_the_page_files(raw: str) -> None:
+    """The static files resolve ``//``, ``.`` and ``..`` themselves (and a macOS disk ignores
+    case), so the hosted guard reads the path they resolve, not the URL."""
+    scope = {"type": "http", "method": "GET", "path": raw, "root_path": "/static", "headers": []}
+    hidden = server.PageFiles(directory=WEB_DIR, check_dir=False, hidden=frozenset({"kit"}))
+    with pytest.raises(StarletteHTTPException) as refused:
+        asyncio.run(hidden.get_response(hidden.get_path(scope), scope))
+    assert refused.value.status_code == 404
+    # the same files with hosting off, and every other page file, are served as before
+    shown = server.PageFiles(directory=WEB_DIR, check_dir=False, hidden=frozenset())
+    plain = {**scope, "path": "/static/kit/push.py"}
+    assert asyncio.run(shown.get_response(shown.get_path(plain), plain)).status_code == 200
+    page = {**scope, "path": "/static/wall/info.js"}
+    assert asyncio.run(hidden.get_response(hidden.get_path(page), page)).status_code == 200
 
 
 def test_a_check_over_the_airline_s_allowance_is_refused(

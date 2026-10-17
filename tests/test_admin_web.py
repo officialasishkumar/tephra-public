@@ -35,9 +35,14 @@ const rows = [...m.querySelectorAll("tbody tr[data-icao]")].map((tr) => ({
 }));
 out({
   text: text(m),
+  seen: seen(m),
   tiles: m.querySelector(".acount").children.filter((d) => d.tagName === "DIV")
     .map((d) => [d.className, text(d)]),
-  notes: [...m.querySelectorAll(".note")].map((n) => [n.className, text(n)]),
+  // a note as [class, what is on screen, the words behind its (i) or null]
+  notes: [...m.querySelectorAll(".note")].map((n) => [
+    n.className, seen(n), n.querySelector(".info") ? text(n.querySelector(".info .sr-only")) : null,
+  ]),
+  infos: infos(m),
   tabs: [...m.querySelectorAll('[role="tab"]')].map(text),
   over: [...m.querySelectorAll(".mini--over, .is-over")].map(text),
   rows,
@@ -62,7 +67,7 @@ def test_the_tiles_and_the_free_tier(tmp_path: Path) -> None:
     assert "18.6 s last hosted pass, of 40 s · 14:04:00Z" in tiles
     assert "6 advisories waiting, all airlines" in tiles
     t = r["text"]
-    assert "Free tier today Pacific day 17 Oct" in t
+    assert "Free tier today Pacific day 17 Oct" in r["seen"]
     for words in (
         "12,000 / 40,000 reads",
         "5,100 / 16,000 writes",
@@ -78,9 +83,13 @@ def test_the_tiles_and_the_free_tier(tmp_path: Path) -> None:
     assert r["notes"] == [
         [
             "note note--info",
-            "4 airlines are still onboarding. Their answers stay private until they submit.",
+            "4 airlines are still onboarding.",
+            "Their answers stay private until they submit.",
         ]
     ]
+    # what the bars count, behind the heading's (i), not in hover-only titles
+    assert "the demo included" in dict(r["infos"])["the free tier"]
+    assert "12,000 / 40,000 reads · airlines" in t
 
 
 @needs_node
@@ -91,12 +100,14 @@ def test_the_demo_past_a_cap_pauses_no_airline_and_the_console_says_so(tmp_path:
     busy["meter"]["reads"] = 41_000
     busy["meter"]["by_namespace"]["demo"]["reads"] = 38_000
     r = run_node(tmp_path, CONSOLE, {"list": busy, "now": NOW})
-    notes = [t for _, t in r["notes"]]
+    notes = [t for _, t, _ in r["notes"]]
     assert not any(n.startswith("Every airline is paused.") for n in notes)
-    assert (
-        "The site is past its free daily cap. Today's reads, mostly the demo's, passed the cap. "
-        "No airline is paused for it: each stops at its own share." in notes
-    )
+    assert [
+        "note note--caution",
+        "The site is past its free daily cap. Mostly the demo's reads. No airline is paused "
+        "for it.",
+        "Each airline stops only at its own share.",
+    ] in r["notes"]
 
 
 @needs_node
@@ -104,18 +115,21 @@ def test_at_the_limit_and_at_a_cap_the_console_says_so(tmp_path: Path) -> None:
     r = _console(tmp_path, "admin-list-limit-reached")
     tiles = {t: c for c, t in r["tiles"]}
     assert tiles["3 / 3 places in use (shadow or live)"] == "full"
-    notes = [t for _, t in r["notes"]]
-    assert notes[0].startswith(
-        "Every airline is paused. The airlines together reached the site's free daily writes cap."
+    notes = [t for _, t, _ in r["notes"]]
+    assert notes[0] == (
+        "Every airline is paused. The airlines together reached today's free writes cap. They "
+        "resume at 00:00 Pacific."
     )
     assert r["notes"][0][0] == "note note--serious"
     assert any(n.startswith("Hosted airlines need always-on.") for n in notes)
-    assert (
-        "Airline limit reached. 3 of 3 places are in use: this free-tier site runs at most 3 "
-        "airlines in shadow or live." in notes
-    )
+    # the places tile says 3 / 3; the note says what the limit is, behind its (i)
+    assert [
+        "note note--caution",
+        "Airline limit reached.",
+        "This free-tier site runs at most 3 airlines in shadow or live.",
+    ] in r["notes"]
     assert any(n.startswith("1 airline's model key cannot be read.") for n in notes)
-    assert "20,000 / 16,000 writes" in r["over"]
+    assert any(o.startswith("20,000 / 16,000 writes") for o in r["over"])
     assert "3,200" in r["over"]  # RFC at its own writes allowance
     assert "12,800" in r["over"]  # and RFB past its own
     rfc = dict(_row(r, "RFC")["cells"])
@@ -195,12 +209,13 @@ document.body.append(dlg);
 A.act(DATA.kind, DATA.row);
 await tick();
 const shown = text(dlg);
+const look = { seen: seen(dlg), infos: infos(dlg) };
 const go = dlg.querySelector('button[type="submit"]');
 for (const [sel, v] of DATA.fill || []) dlg.querySelector(sel).value = v;
 if (go) { go.click(); await tick(); await tick(); }
 const shownErrors = dlg.querySelectorAll(".err:not([hidden]), .inline-alert:not([hidden])");
 const errors = [...shownErrors].map(text);
-out({ shown, calls: CALLS.map((c) => [c.method, c.path, c.body]), errors, open: dlg.open });
+out({ shown, look, calls: CALLS.map((c) => [c.method, c.path, c.body]), errors, open: dlg.open });
 """
 
 
@@ -228,8 +243,14 @@ def _act(
 def test_suspend_needs_a_reason_and_delete_needs_the_code(tmp_path: Path) -> None:
     bare = _act(tmp_path, "suspend", "RFB")
     assert "Suspend Ring of Fire Charter (RFB)?" in bare["shown"]
+    # one line on screen; the delete rule and the record behind its (i); who reads the reason
+    seen, infos = bare["look"]["seen"], dict(bare["look"]["infos"])
+    assert "Runs stop and pushes are refused at once; its members can still read." in seen
+    assert "delete its data" not in seen
+    assert "It goes into the airline's record." in infos["suspending"]
+    assert infos["the reason"] == "The airline reads it in its record."
     assert bare["calls"] == []
-    assert bare["errors"] == ["A reason of 3 to 300 characters is needed."]
+    assert bare["errors"] == ["Required"]  # terse (declutter, 17 Oct 2026)
     done = _act(tmp_path, "suspend", "RFB", [["#ad-reason", "Pushed another operator's aircraft"]])
     assert done["calls"][0] == [
         "POST",
@@ -237,9 +258,13 @@ def test_suspend_needs_a_reason_and_delete_needs_the_code(tmp_path: Path) -> Non
         {"reason": "Pushed another operator's aircraft"},
     ]
     wrong = _act(tmp_path, "delete", "RFS", [["#ad-icao", "rfs"]])
-    assert "It cannot be undone." in wrong["shown"]
+    assert "It cannot be undone." in wrong["look"]["seen"]
+    assert (
+        "A tombstone keeps its code, name and dates"
+        in dict(wrong["look"]["infos"])["what is deleted"]
+    )
     assert wrong["calls"] == []
-    assert wrong["errors"] == ["Type RFS, in capitals."]
+    assert wrong["errors"] == ["Type RFS"]
     ok = _act(tmp_path, "delete", "RFS", [["#ad-icao", "RFS"]])
     assert ok["calls"][0] == ["POST", "/api/admin/tenants/RFS/delete-data", {"confirm_icao": "RFS"}]
     soon = _act(
@@ -385,10 +410,11 @@ def test_admin_html_is_the_shared_shell() -> None:
     assert not re.search(r"\sstyle=|<style", HTML, re.I)
     for css in ("tokens.css", "topnav.css", "product.css", "tenant.css", "admin.css"):
         assert f'href="/static/{css}"' in HTML
-    assert (
-        "Operators of this site only. Each action on an airline goes into that airline's record."
-        in HTML
-    )
+    # one short footer line (no decision-support sentence); admin.js adds its (i)
+    assert '<span id="ad-foot" class="pfoot__private">' in HTML
+    assert "<span>Operators of this site only</span>" in HTML
+    assert "Each action on an airline goes into that airline's record." not in HTML
+    assert "Each action on an airline goes into that airline's record." in JS
     assert 'class="product admin-shell"' in HTML
     assert 'id="ad-dlg" class="pdlg"' in HTML
 
@@ -416,3 +442,27 @@ def test_admin_code_and_style_rules() -> None:
         if "call(" in line and "token" in line:
             assert "body: {" in line, line
             assert "token" in line.split("body: {")[1], line
+
+
+FOOT = """
+const A = await import("./admin.js");
+const m = main();
+const foot = Object.assign(new Element("span"), { id: "ad-foot" });
+foot.append("Operators of this site only");
+m.append(foot, A.signinCard());
+A.footInfo(document);
+A.footInfo(document);  // once only
+out({ seen: seen(m), infos: infos(m) });
+"""
+
+
+@needs_node
+def test_the_footer_and_the_sign_in_card_say_each_fact_once(tmp_path: Path) -> None:
+    """Owner, 17 Oct 2026: no page-footer sentence, one short line and an (i). The sign-in card
+    has no lead repeating the footer; the not-built email reset is a chip."""
+    r = run_node(tmp_path, FOOT, {})
+    assert r["infos"] == [
+        ["the record", "Each action on an airline goes into that airline's record."]
+    ]
+    assert "For TEPHRA's operators of this site." not in r["seen"]
+    assert "Airline? Use the workspace Email reset: not built" in r["seen"]

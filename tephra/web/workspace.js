@@ -21,7 +21,7 @@ import { renderFeeds } from "./workspace/feeds.js";
 import { renderAssistant } from "./workspace/assistant.js";
 import { airlinesList, loadHosted } from "./workspace/golive.js";
 import { renderJoin, takeToken } from "./workspace/join.js";
-import { ACCOUNTS_OFF, ACCOUNTS_OFF_HOW, HOSTED, ONBOARD_OFF, PATHS, call, errorCode, failWords, minutesWords, retryMinutes } from "./workspace/api.js";
+import { ACCOUNTS_OFF, ACCOUNTS_OFF_HOW, HOSTED, ONBOARD_OFF, PATHS, call, errorCode, failWords, minutesWords, retryMinutes, spacePath } from "./workspace/api.js";
 import { infoButton } from "./wall/info.js";
 import { setError } from "./onboard/form.js";
 
@@ -143,8 +143,20 @@ function header(view, { pill = true } = {}) {
       : null);
 }
 
-function sectionNav(section, view) {
-  const shown = view.status === "draft" ? SECTIONS.slice(0, 1) : SECTIONS;
+// Once the airline has its own space on this site, the space's Feeds and Settings › Assistant are
+// where those live: the nav drops the onboarding's Data feeds and Assistant (as the Overview drops
+// their rows), and their addresses open the space's pages.
+const SPACE_PAGE = { feeds: "/feeds", assistant: "/settings/assistant" };
+async function ownSpace(view) {
+  if (view.status !== "verified" || !has("hosted")) return null;
+  const icao = view.answers?.airline?.icao;
+  if (view.hosted !== undefined) return view.hosted?.own ? icao : null;
+  const me = await call(HOSTED.me);
+  return me.ok && (me.data?.memberships || []).some((m) => m.icao === icao) ? icao : null;
+}
+
+function sectionNav(section, view, space = null) {
+  const shown = view.status === "draft" ? SECTIONS.slice(0, 1) : SECTIONS.filter(([k]) => !(space && SPACE_PAGE[k]));
   return el("nav", { class: "ws__nav", "aria-label": "Workspace" },
     ...shown.map(([key, label, ic]) => el("a", { href: `/workspace${key ? `/${key}` : ""}`, "aria-current": key === section ? "page" : null, dataset: { go: "" } }, icon(ic), el("span", { text: label }))),
     el("hr"),
@@ -184,10 +196,10 @@ async function memberOnly(section) {
   const list = me.data.memberships || [];
   $("main").replaceChildren(el("div", { class: "narrow yourairs" },
     el("h1", { class: "h1", text: "Your airlines" }),
-    el("p", { class: "body2", text: "The airlines on TEPHRA you are a member of. Each one's map, Desk, feeds and settings are private to its members and TEPHRA's operators." }),
+    el("p", { class: "body2", text: "Each airline's pages are private to its members and TEPHRA's operators." }),
     list.length
       ? airlinesList(list, { title: list.length === 1 ? "Your airline" : `${list.length} airlines` })
-      : el("p", { class: "status status--quiet" }, icon("st-off"), el("span", { text: "You are not a member of any airline now. An ops manager's invite link adds you." }))));
+      : el("p", { class: "status status--quiet" }, icon("st-off"), el("span", { text: "No airline yet. An ops manager's invite link adds you." }))));
 }
 
 async function workspace(section) {
@@ -223,10 +235,15 @@ async function workspace(section) {
     view.hosted = await loadHosted(view.answers?.airline?.icao);
     view.onHostedChange = () => workspace(section).then(() => focusHeading("#gl-h"));
   }
+  const space = await ownSpace(view);
+  if (space && SPACE_PAGE[section]) {
+    location.replace(spacePath(space, SPACE_PAGE[section]));
+    return;
+  }
   const label = SECTIONS.find(([k]) => k === section)[1];
   document.title = `${section ? `${label} · ` : ""}Workspace · ${[identity(view).icao, "TEPHRA"].filter(Boolean).join(" · ")}`;
   const content = el("div", { class: "ws__main" }, header(view, { pill: section !== "" || view.status === "draft" }));
-  $("main").replaceChildren(el("div", { class: "ws" }, sectionNav(section, view), content));
+  $("main").replaceChildren(el("div", { class: "ws" }, sectionNav(section, view, space), content));
   if (section === "") renderOverview(content, view);
   else if (section === "answers") {
     await loadNamed();

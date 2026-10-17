@@ -3,11 +3,14 @@
 // it from the address bar (history.replaceState), and from then on it lives in this module's
 // memory, never in storage or a path. The invite is looked up (POST /api/hosted/invites/lookup),
 // then the person joins with a new account, or signs in here and accepts; both end on the
-// airline's own space. Every string goes in through el() (textContent).
+// airline's own space. As on sign-up, field errors are terse and wait until a typed field is left
+// or the form is sent, and what explains a line sits behind the shared (i) (wall/info.js). Every
+// string goes in through el() (textContent).
 
 import { el, icon } from "../wall/util.js";
 import { ruleMessage } from "../onboard/pages.js";
-import { field, input, passwordInput, segmented, setError } from "../onboard/form.js";
+import { checkOnLeave, field, infoTail, input, passwordInput, segmented, setError } from "../onboard/form.js";
+import { infoButton } from "../wall/info.js";
 import { recoveryCard, supportTick } from "../onboard/review.js";
 import { HOSTED, PATHS, call, errorCode, failWords, isIcao, minutesWords, retryMinutes, spacePath } from "./api.js";
 import { ROLE_WORDS, whenWords } from "./golive.js";
@@ -29,7 +32,8 @@ const ROLE_LINES = {
   dispatcher: "Dispatchers decide TEPHRA's drafts at the Desk: approve, edit or reject.",
   viewer: "Viewers see the map, the Desk and the record, and decide nothing.",
 };
-export const anyoneWords = (invite) => `Anyone with this link who gives the email it is for can join as ${ROLE_WORDS[invite.role] || invite.role} until ${whenWords(invite.expires_at)}. Emails are not checked.`;
+export const anyoneWords = (invite) => `Anyone with this link can join as ${ROLE_WORDS[invite.role] || invite.role} until ${whenWords(invite.expires_at)}. Emails are not checked.`;
+const ANYONE_MORE = "Joining asks for the email the invite is for, but TEPHRA cannot check that the email is yours: the link is the proof.";
 
 const S = { token: null, invite: null, signedIn: false, mode: "join", email: "", main: null };
 
@@ -51,11 +55,12 @@ export function inviteCard(invite) {
     el("h1", { id: "jn-h", class: "h1 h1--auth", text: `Join ${invite.airline} on TEPHRA` }),
     el("dl", { class: "kv" },
       el("dt", { text: "Airline" }), el("dd", { text: `${invite.airline} (${invite.icao})` }),
-      el("dt", { text: "Role" }), el("dd", { text: ROLE_WORDS[invite.role] || invite.role }),
+      el("dt", { text: "Role" }), el("dd", { class: "chipinfo" }, el("span", { text: ROLE_WORDS[invite.role] || invite.role }),
+        ROLE_LINES[invite.role] ? infoButton({ topic: "the role", label: `What a ${ROLE_WORDS[invite.role]} does`, text: ROLE_LINES[invite.role] }) : null),
       el("dt", { text: "Invited by" }), el("dd", { text: invite.invited_by }),
       el("dt", { text: "For" }), el("dd", { class: "mono", text: invite.email_hint })),
-    el("p", { class: "body2", text: ROLE_LINES[invite.role] || "" }),
-    el("p", { id: "jn-anyone", class: "note note--caution" }, icon("st-caution"), el("span", { text: anyoneWords(invite) })));
+    el("p", { id: "jn-anyone", class: "note note--caution" }, icon("st-caution"),
+      el("span", {}, ...infoTail(anyoneWords(invite), { topic: "unchecked emails", label: "About unchecked emails", text: ANYONE_MORE }))));
 }
 
 const statusLine = (id) => el("p", { id, class: "inline-alert", role: "status", hidden: true });
@@ -71,7 +76,8 @@ const open = () => location.assign(spacePath(S.invite.icao, "/"));
 // lives only in the card's text, never in storage, and goes when the page moves on.
 function showRecovery(code, email) {
   S.main.replaceChildren(recoveryCard({ code, email, icao: S.invite.icao }, {
-    lead: `Your account is made and you are a member of ${S.invite.airline}. Here is your recovery code: it is shown once, and it is how you get back in if you forget your password.`,
+    lead: `You joined ${S.invite.airline}. Shown once: your way back if you forget your password.`,
+    chip: "Email reset: not built",
     next: { href: spacePath(S.invite.icao, "/"), text: `Open ${S.invite.airline}` },
   }));
   const h = S.main.querySelector("h1");
@@ -89,8 +95,12 @@ function commonWords(res) {
 }
 
 function nameField(id, value = "") {
-  const control = input({ autocomplete: "nickname", maxlength: 32, value });
-  return { control, node: field({ id, label: "Your name on TEPHRA", hint: `${S.invite.airline}'s members see it on your decisions and in its record. 2 to 32 characters.`, control }) };
+  const control = checkOnLeave(input({ autocomplete: "nickname", maxlength: 32, value }), () => ruleMessage("member.name", control.value));
+  return {
+    control,
+    node: field({ id, label: "Your name on TEPHRA", rule: "2 to 32 characters", control,
+      info: { topic: "your name", label: "About your name", text: `${S.invite.airline}'s members see it on your decisions and in its record.` } }),
+  };
 }
 
 // Signed in: accept with a name.
@@ -150,7 +160,7 @@ function acceptCard(rerender) {
     el("p", { class: "body2" }, `${who} Not the account this invite is for? `, out),
     form);
 }
-const wrongAccount = () => `This invite is for ${S.invite.email_hint}, and you are signed in with another email. Sign out, then sign in with that email.`;
+const wrongAccount = () => `This invite is for ${S.invite.email_hint}. Sign out, then sign in with that email.`;
 
 // Signed out: a new account, or sign in here and then accept.
 function joinForm(rerender) {
@@ -160,9 +170,17 @@ function joinForm(rerender) {
   const ack = el("input", { type: "checkbox", id: "jn-ack", "aria-describedby": "jn-ack-err" });
   const status = statusLine("jn-status");
   const go = el("button", { type: "submit", class: "btn btn--primary btn--block" }, el("span", { text: `Join ${S.invite.airline}` }));
+  const emailWords = () => ruleMessage("acct.email", email.value);
+  const pwWords = () => ruleMessage("acct.password", pw.control.value) || (pw.control.value.trim().toLowerCase() === email.value.trim().toLowerCase() ? "Not your email" : null);
+  checkOnLeave(email, emailWords);
+  checkOnLeave(pw.control, pwWords);
+  ack.addEventListener("change", () => {
+    if (ack.checked) setError(ack, null);
+  });
+  // the invite card says which email the invite is for ("For"); the password's rule is in its label
   const form = el("form", { class: "authform", novalidate: true },
-    field({ id: "jn-email", label: "Email", hint: `The invite is for ${S.invite.email_hint}.`, control: email }),
-    field({ id: "jn-pw", label: "Password", hint: "12 characters or more", control: pw.control, slot: pw.wrap(pw.control) }),
+    field({ id: "jn-email", label: "Email", control: email }),
+    field({ id: "jn-pw", label: "Password · 12+ characters", rule: "12 characters or more", control: pw.control, slot: pw.wrap(pw.control) }),
     name.node,
     supportTick(ack, "jn-ack-err"),
     status, go);
@@ -170,10 +188,10 @@ function joinForm(rerender) {
     e.preventDefault();
     const mail = email.value.trim().toLowerCase();
     const problems = [
-      [email, ruleMessage("acct.email", email.value)],
-      [pw.control, ruleMessage("acct.password", pw.control.value) || (pw.control.value.trim().toLowerCase() === mail ? "The password must not be your email." : null)],
+      [email, emailWords()],
+      [pw.control, pwWords()],
       [name.control, ruleMessage("member.name", name.control.value)],
-      [ack, ack.checked ? null : "Tick this to go on."],
+      [ack, ack.checked ? null : "Tick to continue"],
     ];
     for (const [c, m] of problems) setError(c, m);
     const first = problems.find(([, m]) => m);
@@ -223,19 +241,23 @@ function signinForm(rerender, said) {
   const pw = passwordInput({ id: "jn-si-pw", autocomplete: "current-password" });
   const status = statusLine("jn-status");
   const go = el("button", { type: "submit", class: "btn btn--primary btn--block" }, el("span", { text: "Sign in" }));
+  const emailWords = () => ruleMessage("acct.email", email.value);
+  const pwWords = () => (pw.control.value ? null : "Required");
+  checkOnLeave(email, emailWords);
+  checkOnLeave(pw.control, pwWords);
   const form = el("form", { class: "authform", novalidate: true },
     field({ id: "jn-si-email", label: "Email", control: email }),
     field({ id: "jn-si-pw", label: "Password", control: pw.control, slot: pw.wrap(pw.control) }),
-    status, go);
+    status, go,
+    el("p", { class: "body2" }, el("a", { class: "link", href: "/signin/recover", text: "Forgot password?" })));
   if (said) say(status, said);
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const bad = ruleMessage("acct.email", email.value) ? [email, "Enter an email address, like ops@rfb.example."] : !pw.control.value ? [pw.control, "Password is needed."] : null;
-    setError(email, null);
-    setError(pw.control, null);
-    if (bad) {
-      setError(bad[0], bad[1]);
-      bad[0].focus();
+    const bad = [[email, emailWords()], [pw.control, pwWords()]].filter(([, w]) => w);
+    for (const c of [email, pw.control]) setError(c, null);
+    for (const [c, w] of bad) setError(c, w);
+    if (bad.length) {
+      bad[0][0].focus();
       return;
     }
     go.disabled = true;
@@ -276,8 +298,7 @@ function signedOutCard(rerender, said) {
         document.getElementById(`jn-tab-${k}`)?.focus();
       },
     }),
-    el("div", { id: "jn-tab-panel", role: "tabpanel", "aria-labelledby": `jn-tab-${S.mode}` }, body),
-    el("p", { class: "hint", text: "Password reset by email is not built: keep your password safe." }));
+    el("div", { id: "jn-tab-panel", role: "tabpanel", "aria-labelledby": `jn-tab-${S.mode}` }, body));
 }
 
 function headingFocus(main) {

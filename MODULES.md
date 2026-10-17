@@ -1232,7 +1232,7 @@ class BudgetModel(TephraModel):  # model_id, jobs (plain words, first letter cap
                                  # pacing (plain words: how the routine share is spread through the day, the
                                  # next slot, "Count unknown: ..." when the store cannot be read)
 class BudgetTier(TephraModel):   # tier, model_id, used, limit, remaining (its model's count)
-class BudgetView(TephraModel):   # backend, as_of, quota_day, resets_at, models, tiers, waiting: list[AiWork], note
+class BudgetView(TephraModel):   # backend, as_of, quota_day, resets_at, models, tiers, waiting: list[AiWork], note, unavailable: str | None (a hosted airline's no-model reason)
 async def budget_view(settings: Settings, llm: LlmBackend, quota: QuotaLedger,
                       work: Sequence[AiWork] = ()) -> BudgetView   # the stub reads zero used
 def slot_words(next_slot_at: datetime | None) -> str            # "waiting for AI budget, next slot HHMMZ"
@@ -3316,7 +3316,10 @@ invite|revoke`, `/api/admin/*`). Pushes under an airline: the key from `Authoriz
 when running, 503 `airline_paused` / `site_paused`. Tenant SSE: per-airline cap, 15-minute
 lifetime, membership re-checked every 15 s. `/tasks/tick` kicks the hosted pass before it awaits
 the demo tick. `routes_pages.hosted_router` (`/a/<ICAO>/...`, `/admin`, `/admin/join`, `/join`;
-`noindex`; 303 to `/signin?next=` signed out) is included only with hosted on. With hosted on,
+`noindex`; 303 to `/signin?next=` signed out) is included only with hosted on; it also answers
+404 for `/static/kit/*`, so the uploader `kit/push.py` leaves only through the member-only
+`GET /a/<ICAO>/api/tenant/feeds/uploader` (viewer, any state; `Content-Disposition: attachment`,
+the file as it is). With hosted on,
 `create_app` removes `GOOGLE_API_KEY` / `GEMINI_API_KEY` from `os.environ` after reading the
 settings.
 
@@ -3516,7 +3519,7 @@ The headers above are unchanged by compression.
 | `POST /api/push/positions` | `PositionBatch` `{format: "tephra.airline/1" or "tephra.positions/1", positions, flight_plans, pilot_reports}` (at most 1000, 1000 and 20) with `Authorization: Bearer <key>` -> `PushResult` `{connection_id, received_at, accepted, rejected: [{section, index, reason}], in_ash, plans_taken, reports_taken, closed_hits}`. 401 without a live key; 429 `too_many_pushes` faster than one a second. Each record is checked alone: a position must have `observed_at` within `PUSH_FRESH_S` (300 s) before, or 120 s after, the active clock |
 | `GET /api/blobs/{key}` | PNG bytes; `key` must match `BLOB_KEY_PATTERN` (else 404); `Cache-Control: public, max-age=86400, immutable` |
 | `GET /api/duty?limit=10` | `DutyRunList` `{runs: [DutyRun]}`, current mode (in REPLAY, the replay run playing), newest first (`limit` 1 to 20) |
-| `GET /api/budget` | `BudgetView` `{backend, as_of, quota_day, resets_at, models: [{model_id, jobs, used, limit, free_limit, remaining, closed, lanes: [{lane, words, used, share}], routine_allowed_now, next_routine_slot, pacing}], tiers: [{tier, model_id, used, limit, remaining}], waiting: [AiWork], note}` |
+| `GET /api/budget` | `BudgetView` `{backend, as_of, quota_day, resets_at, models: [{model_id, jobs, used, limit, free_limit, remaining, closed, lanes: [{lane, words, used, share}], routine_allowed_now, next_routine_slot, pacing}], tiers: [{tier, model_id, used, limit, remaining}], waiting: [AiWork], note, unavailable}` (`unavailable`: why a hosted airline has no usable model, else null) |
 | `GET /api/notices?limit=` | `{notices: [NoticeReading]}`, current mode, newest first; includes the JMA volcano reports of the live picture (`JMA-` VONA records) as `source_kind "jma_xml"`, language `ja`, verified, no model |
 | `GET /api/recovery?limit=` | `{plans: [RecoveryPlan]}`, current mode, newest first |
 | `GET /api/docs?kind=&limit=` and `GET /api/docs/{DOC-id}` | `{docs: [DocSummary]}`; `SraDraft`, `VarDraft` or `CrewMessageDraft` |

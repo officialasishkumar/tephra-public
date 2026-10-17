@@ -111,6 +111,17 @@ const flightsForVar = () => {
   return app.exposedIds ? live.filter((a) => app.exposedIds.has(a.flight_id)) : [];
 };
 
+// Why the VAR list is empty, in the airline's own code (the demo's is RFA): no flight in the ash,
+// or flights in the ash none of which has an advisory in force yet (a VAR starts from one).
+function varEmpty() {
+  if (!app.exposedIds) return 'Reading the flights in or heading into the ash…';
+  const code = app.state?.airline?.code || 'RFA';
+  // one flight near two volcanoes is one flight
+  const n = new Set([...app.exposedIds].map((id) => id.split(':')[0])).size;
+  if (!n) return `None needed: no ${code} flight is in or heading into an ash area.`;
+  return `${n} ${code} flight${n === 1 ? ' is' : 's are'} in or heading into the ash, none with an advisory in force. A VAR starts from a flight's advisory.`;
+}
+
 function draftBtn(key, label, onclick) {
   const on = drafting === key;
   return el('button', { type: 'button', class: 'btn', disabled: Boolean(drafting) || app.offline, 'aria-busy': on ? 'true' : null, onclick },
@@ -123,7 +134,7 @@ function docRow(d, why = null) {
   const signing = d.status === 'WITHDRAWN' ? 'crew report withdrawn, not to be sent' : d.status === 'SIGNED' ? 'all lines signed' : `${d.signed_roles.length} of ${d.signed_roles.length + open} signed`;
   return el('li', {}, el('button', { type: 'button', class: 'drow', 'data-doc': d.id },
     el('span', { class: 'drow__kind', text: KIND_WORD[d.kind] || d.kind }),
-    el('span', { class: 'drow__what' }, el('span', { class: 'drow__t', text: d.title }),
+    el('span', { class: 'drow__what' }, shadowStamp(d), el('span', { class: 'drow__t', text: d.title }),
       el('span', { class: 'drow__m', text: `${why || signing} · drafted ${dayMonthHhmm(d.created_at)}` })),
     el('span', { class: `adv-status adv-status--${tone}` }, icon(shape, 'st'), el('span', { text: word })),
     icon('i-chevron-right', 'icon nrow__go')));
@@ -204,7 +215,7 @@ export function renderDocs() {
   if (handoverWaiting()) {
     rows.unshift(el('li', {}, el('button', { type: 'button', class: 'drow', 'data-open-start': 'ho' },
       el('span', { class: 'drow__kind', text: 'SHIFT' }),
-      el('span', { class: 'drow__what' }, el('span', { class: 'drow__t', text: `Shift handover to ${handover.incoming || 'the next dispatcher'}` }),
+      el('span', { class: 'drow__what' }, shadowStamp(handover), el('span', { class: 'drow__t', text: `Shift handover to ${handover.incoming || 'the next dispatcher'}` }),
         el('span', { class: 'drow__m', text: 'waiting for the read-back' })),
       el('span', { class: 'adv-status adv-status--neutral' }, icon('i-clock', 'st'), el('span', { text: 'Open' })),
       icon('i-chevron-right', 'icon nrow__go'))));
@@ -274,8 +285,10 @@ export function renderDocs() {
   varKids.push(flights.length ? el('ul', { class: 'dflights' }, flights.map((a) => el('li', { class: 'dflight' },
     el('span', { class: 'dflight__name' }, el('span', { class: 'mono', text: a.proxy_flight }), el('span', { class: 'dflight__sub', text: `${a.volcano_name} · ${actionShort(a)}` })),
     draftBtn(`var:${a.flight_id}`, 'Draft VAR', () => draftVar(a)))))
-    : el('p', { class: 'note', text: app.exposedIds ? 'None needed: no RFA flight is in or heading into an ash area.' : 'Reading the flights in or heading into the ash…' }));
-  parts.push(starter('var', app.exposedIds ? `Pilot ash reports (VAR): ${flights.length} flight${flights.length === 1 ? '' : 's'}` : 'Pilot ash reports (VAR)', flights.length ? 'one per flight in or heading into the ash' : app.exposedIds ? 'none needed right now' : 'reading the flights…', varKids, { open: (draftError && draftError.kind === 'VAR') || drafting.startsWith('var:') }));
+    : el('p', { class: 'note', text: varEmpty() }));
+  // flights in the ash with no advisory in force have no VAR row yet: never "none needed" for them
+  const waitingVar = app.exposedIds ? app.exposedIds.size > 0 : false;
+  parts.push(starter('var', app.exposedIds ? `Pilot ash reports (VAR): ${flights.length} flight${flights.length === 1 ? '' : 's'}` : 'Pilot ash reports (VAR)', flights.length ? 'one per flight in or heading into the ash' : !app.exposedIds ? 'reading the flights…' : waitingVar ? 'none with an advisory yet' : 'none needed right now', varKids, { open: (draftError && draftError.kind === 'VAR') || drafting.startsWith('var:') }));
 
   panel.replaceChildren(...parts);
 }

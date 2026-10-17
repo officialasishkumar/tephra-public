@@ -1348,6 +1348,23 @@ def _lifespan(
     return lifespan
 
 
+class PageFiles(StaticFiles):
+    """The page files under ``/static``. Folders in ``hidden`` are never served from here: with
+    ``hosted`` on that is ``kit/``, whose uploader leaves only through the member route. The check
+    reads the path StaticFiles itself resolves (``//``, ``.`` and ``..`` already removed), case
+    folded for a case-insensitive disk, so no spelling of the URL gets past it."""
+
+    def __init__(self, *, hidden: frozenset[str], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.hidden = hidden
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        top = path.replace(os.sep, "/").split("/", 1)[0].casefold()
+        if top in self.hidden:
+            raise StarletteHTTPException(404)
+        return await super().get_response(path, scope)
+
+
 def _new_meter(settings: Settings) -> "StoreMeter":
     from tephra.store.metered import StoreMeter
 
@@ -1492,7 +1509,10 @@ def create_app(
     app.include_router(tasks, dependencies=scoped)
     if hosted:
         _include_hosted_routers(app, scoped)
-    app.mount("/static", StaticFiles(directory=WEB_DIR, check_dir=False), name="static")
+    hidden = frozenset({"kit"}) if hosted else frozenset()
+    app.mount(
+        "/static", PageFiles(directory=WEB_DIR, check_dir=False, hidden=hidden), name="static"
+    )
     build_route_index(app)
     if hosted and (missing := scoped_routes_missing(app)):
         raise RuntimeError(f"routes without the airline check: {', '.join(missing)}")

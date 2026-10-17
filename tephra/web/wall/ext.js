@@ -794,6 +794,7 @@ export function aiPill(ai) {
   if (ai.kind === "off") return null;
   // the time is in the lead beside it, said once (review clutter 7)
   if (ai.kind === "paused") return dkPill("caution", "Paused");
+  if (ai.kind === "unavailable") return dkPill("caution", "Unavailable");
   if (ai.kind === "trouble") return dkPill("caution", `On · ${plural(ai.trouble.length, "problem")}`);
   return dkPill("ok", "On");
 }

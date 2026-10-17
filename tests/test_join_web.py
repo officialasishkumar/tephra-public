@@ -53,6 +53,8 @@ if (DATA.submit) { m.querySelector('button[type="submit"]').click(); await tick(
 out({
   title: document.title,
   text: text(m),
+  seen: seen(m),
+  infos: infos(m),
   buttons: [...m.querySelectorAll("button")].map(text),
   tabs: [...m.querySelectorAll('[role="tab"]')]
     .map((b) => [text(b), b.getAttribute("aria-selected")]),
@@ -87,11 +89,26 @@ def test_the_invite_card_says_who_what_until_when_and_that_emails_are_not_checke
     assert "Role Dispatcher" in t
     assert "Invited by Ana Ops" in t
     assert "For d•••@rfb.example" in t
+    seen = r["seen"]
+    infos = dict(r["infos"])
+    # "Emails are not checked" (SPEC hosted §5.1) on screen; the rest behind its (i)
     assert (
-        "Anyone with this link who gives the email it is for can join as Dispatcher until 20 Oct, "
-        "14:05 UTC. Emails are not checked." in t
+        "Anyone with this link can join as Dispatcher until 20 Oct, 14:05 UTC. Emails are not "
+        "checked." in seen
     )
-    assert "Password reset by email is not built" in t
+    assert "cannot check that the email is yours" in infos["unchecked emails"]
+    # what the role does, behind the role's (i); the decision-support tick's words behind its own
+    assert infos["the role"].startswith("Dispatchers decide TEPHRA's drafts at the Desk")
+    assert "Dispatchers decide" not in seen
+    assert infos["decision support"] == "A person decides, and nothing is sent to an aircraft."
+    # said once: the card's "For" names the email, the label the password rule (sign-up's words)
+    assert "The invite is for" not in seen
+    assert "Password · 12+ characters" in seen
+    assert "12 characters or more" not in seen
+    assert "Members see it" not in seen
+    assert "2 to 32 characters" not in seen
+    # the not-built email reset is said on the recovery card (and the sign-in tab's Recover page)
+    assert "Password reset by email is not built" not in t
     assert r["tabs"] == [["New to TEPHRA", "true"], ["I have an account", "false"]]
     assert r["calls"] == [
         {"method": "POST", "path": "/api/hosted/invites/lookup", "body": {"token": TOKEN}}
@@ -139,7 +156,7 @@ def test_a_new_account_joins_and_lands_on_the_airline(tmp_path: Path) -> None:
     assert r["assigned"] == "/a/RFB/"
     unticked = _page(tmp_path, fill=JOIN_FILL[:3], submit=True, routes={JOIN: ok})
     assert len(unticked["calls"]) == 1
-    assert "Tick this to go on." in unticked["errors"]
+    assert unticked["errors"] == ["Tick to continue"]  # sign-up's terse words
 
 
 def test_a_new_accounts_recovery_code_is_shown_once_before_the_airline_opens(
@@ -153,8 +170,8 @@ def test_a_new_accounts_recovery_code_is_shown_once_before_the_airline_opens(
     t = r["text"]
     assert "Save your recovery code" in t
     assert "K7QW-M2PX-9TRB-4HZD" in t
-    assert "you are a member of Ring of Fire Charter" in t
-    assert "it is shown once" in t
+    assert "You joined Ring of Fire Charter. Shown once: your way back if you forget your" in t
+    assert "Email reset: not built" in t
     assert "Open Ring of Fire Charter" in t
     assert "Join Ring of Fire Charter on TEPHRA" not in t  # the form is gone with the password
 
@@ -215,8 +232,7 @@ def test_a_signed_in_account_accepts_with_its_name(tmp_path: Path) -> None:
         routes={ACCEPT: {"status": 403, "body": {"error": "wrong_email"}}},
     )
     assert wrong["errors"] == [
-        "This invite is for d•••@rfb.example, and you are signed in with another email. Sign out, "
-        "then sign in with that email."
+        "This invite is for d•••@rfb.example. Sign out, then sign in with that email."
     ]
     assert wrong["assigned"] is None
 
@@ -244,10 +260,10 @@ def test_signed_in_with_another_email_is_told_before_anything_is_tried(tmp_path:
     }
     r = _page(tmp_path, signed_in=True, lookup={"status": 200, "body": invite})
     assert r["errors"] == [
-        "You are signed in as s•••@nowhere.example. This invite is for d•••@rfb.example, and you "
-        "are signed in with another email. Sign out, then sign in with that email."
+        "You are signed in as s•••@nowhere.example. This invite is for d•••@rfb.example. Sign "
+        "out, then sign in with that email."
     ]
-    assert r["buttons"] == ["Sign out"]
+    assert [b for b in r["buttons"] if b] == ["Sign out"]  # the (i) buttons have no words
 
 
 SIGNIN = """
@@ -279,6 +295,40 @@ def test_an_existing_account_signs_in_here_then_accepts(tmp_path: Path) -> None:
         "/api/hosted/invites/lookup",
     ]
     assert "Accept the invite" in r["text"]
+
+
+LEAVE = """
+const { renderJoin } = await import("./workspace/join.js");
+setRoutes(DATA.routes);
+const m = main();
+await renderJoin(m, { token: DATA.token, signedIn: false });
+const shown = () => m.querySelectorAll(".err:not([hidden])").map(text);
+const email = m.querySelector("#jn-email");
+const pw = m.querySelector("#jn-pw");
+email.dispatchEvent(new Event("blur"));
+const untouched = shown();
+email.value = "dee@rfb";
+email.dispatchEvent(new Event("input"));
+email.dispatchEvent(new Event("blur"));
+pw.value = "short"; pw.dispatchEvent(new Event("input")); pw.dispatchEvent(new Event("blur"));
+const left = shown();
+email.value = "dee@rfb.example"; email.dispatchEvent(new Event("input"));
+const fixed = shown();
+m.querySelector('button[type="submit"]').click(); await tick();
+out({ untouched, left, fixed, sent: shown(), focus: document.activeElement?.id });
+"""
+
+
+def test_join_errors_wait_until_a_typed_field_is_left_or_the_form_is_sent(tmp_path: Path) -> None:
+    """The owner's form rule (17 Oct 2026), as on sign-up: terse words, shown after blur or
+    submit, never before; once shown they follow the typing."""
+    routes = {LOOKUP: {"status": 200, "body": fixture("workspace", "invite-dispatcher")}}
+    r = run_node(tmp_path, LEAVE, {"token": TOKEN, "routes": routes})
+    assert r["untouched"] == []
+    assert r["left"] == ["Not an email", "12+ characters"]
+    assert r["fixed"] == ["12+ characters"]
+    assert r["sent"] == ["12+ characters", "Required", "Tick to continue"]
+    assert r["focus"] == "jn-pw"
 
 
 def test_the_token_goes_only_into_json_bodies() -> None:

@@ -156,7 +156,7 @@ export function indexStatus(key, D, store, ui) {
       // off, paused or in trouble: the tab bar's one status says it (owner, 17 Oct: once per
       // screen); why and until when are in the section this row opens (8.6)
       if (ai.kind === "off") return { text: "" };
-      if (ai.kind === "paused") return { text: "", tone: "caution", noAttn: true };
+      if (ai.kind === "paused" || ai.kind === "unavailable") return { text: "", tone: "caution", noAttn: true };
       if (ai.kind === "trouble") return { text: `${n} problem${n === 1 ? "" : "s"}`, tone: "caution", noAttn: true };
       return { text: "On" };
     }

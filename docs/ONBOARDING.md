@@ -145,7 +145,8 @@ When this site hosts airlines (the opt-in feature `hosted`, off on the deployed 
    airline's code; the switch goes into the airline's record. Back to SHADOW and Stop each need a
    reason; Stop frees the place and returns the space to setup.
 
-The workspace's Not built line then reads: "TEPHRA runs at most 3 airlines at once on this site."
+Until the airline has its space, the workspace's Not built line reads: "TEPHRA runs at most 3
+airlines at once on this site."; from then the places line beside Start says it.
 Invited members sign in at `/signin` (or on the invite page, `/join`); a login that belongs only to
 hosted airlines has "Your airlines" as its workspace.
 

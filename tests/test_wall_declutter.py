@@ -121,8 +121,9 @@ def test_the_ai_state_is_said_once_on_the_demo() -> None:
     for word in ("AI off", "AI paused", "AI unavailable"):
         assert xparts.count(f'word: "{word}"') == 1, word
         assert word not in assist, word
-    assert "stateLine({ suffix: M.ai.suffix }, { stub: M.stub, kind: M.ai.kind })" in _src(
-        "wall/board-view.js"
+    assert (
+        "stateLine({ suffix: M.ai.suffix }, { stub: M.stub, kind: M.ai.kind, reason: M.ai.reason })"
+        in _src("wall/board-view.js")
     )
     board = _src("wall/board.js")
     assert 'gate = { open: true, kind: "nomodel", name: "", meta: "", title: "" };' in board

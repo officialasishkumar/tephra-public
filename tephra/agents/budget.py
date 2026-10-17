@@ -13,7 +13,7 @@ from typing import Final, Literal
 
 from pydantic import Field
 
-from tephra.agents.llm import LlmBackend, Tier
+from tephra.agents.llm import LlmBackend, Tier, UnavailableBackend
 from tephra.agents.quota import LANES, Lane, ModelDay, QuotaLedger, Shares, day_bounds
 from tephra.config import Settings
 from tephra.models import DutyItem, TephraModel, UtcDatetime
@@ -121,6 +121,11 @@ class BudgetView(TephraModel):
     tiers: list[BudgetTier]
     waiting: list[AiWork] = Field(default_factory=list)
     note: str = QUOTA_NOTE
+    unavailable: str | None = Field(
+        default=None,
+        description="Why no model can be used at all (a hosted airline with no model chosen, no "
+        "key or an unreadable key); None when a model can be called",
+    )
 
 
 async def budget_view(
@@ -164,6 +169,7 @@ async def budget_view(
             for tier in tiers
         ],
         waiting=sorted(work, key=lambda item: (item.urgency, item.since, item.id)),
+        unavailable=llm.reason if isinstance(llm, UnavailableBackend) else None,
     )
 
 

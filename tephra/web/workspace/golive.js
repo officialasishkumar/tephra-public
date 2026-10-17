@@ -3,12 +3,15 @@
 // SHADOW (every draft says "Shadow · not for use"), and its ops manager switches to LIVE, goes
 // back to SHADOW or stops; TEPHRA's operators may suspend it. The cards read GET /api/hosted/me
 // and, for the airline's own space, its TenantHeader and GoLive. Buttons that change the space are
-// drawn for ops managers only, and a Start that cannot run says why. Every string goes in through
-// el() (textContent).
+// drawn for ops managers only, and a Start that cannot run says why. Each card says one short line
+// per fact; what explains it sits behind the shared (i) (wall/info.js). Form errors are terse and
+// wait until a typed field is left or the form is sent. Every string goes in through el()
+// (textContent).
 
 import { el, icon } from "../wall/util.js";
 import { ruleMessage } from "../onboard/pages.js";
-import { field, input, setError } from "../onboard/form.js";
+import { checkOnLeave, field, infoTail, input, setError } from "../onboard/form.js";
+import { infoButton } from "../wall/info.js";
 import { HOSTED, call, errorCode, failWords, spacePath, tenantApi } from "./api.js";
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -38,7 +41,10 @@ export const stateBadge = (state) => {
 };
 
 export const WAITING_WORDS = "TEPHRA's operators approve hosting after verification. This page says when.";
-const LEAD = "Your own space on this site: the same TEPHRA, on your flights, with your policy and your assistant. Only the people you invite can sign in to it.";
+// The card's one line; what the space is sits behind its (i).
+const LEAD = "TEPHRA on your flights, for the people you invite.";
+const LEAD_MORE = "The same TEPHRA, in your own space on this site, with your policy and your assistant. No one else can sign in to it.";
+const leadLine = () => el("p", { class: "golive__lead" }, ...infoTail(LEAD, { topic: "your space", label: "About your space", text: LEAD_MORE }));
 const ITEM_LINK = { feeds: "Feeds", assistant: "Assistant", policy: "Policy", people: "People" };
 // Contacting TEPHRA's operators: the one channel the site names (privacy notice, "Questions").
 export const CONTACT_HREF = "https://github.com/officialasishkumar/tephra/issues";
@@ -56,7 +62,7 @@ export function startBlock(golive, region = null) {
       // the first unmet blocker is reported; a full site is said too, so finishing the
       // checklist is not taken as enough to start
       const full = golive.slots && golive.slots.used >= golive.slots.max;
-      return `Finish the checklist: ${open} of ${(golive.items || []).length} still open${full ? ". Every airline place on this site is in use as well; TEPHRA's operators see when you are ready" : ""}`;
+      return `Finish the checklist: ${open} of ${(golive.items || []).length} still open${full ? ". No airline place is free either" : ""}`;
     }
     case "region":
       return region ? null : "Choose a region";
@@ -115,13 +121,14 @@ function say(line, words) {
 // --- not set up yet: the record holder names themself once and the setup space is made ---------
 
 export function setupCard(can, { onDone }) {
-  const name = input({ autocomplete: "name", maxlength: 32 });
+  const name = checkOnLeave(input({ autocomplete: "name", maxlength: 32 }), () => ruleMessage("member.name", name.value));
   const status = inlineStatus("gl-setup-status");
   const go = el("button", { type: "submit", class: "btn btn--primary btn--lg" }, el("span", { text: `Set up TEPHRA for ${can.name}` }), icon("i-arrow-right"));
   const form = el("form", { class: "authform golive__setup", novalidate: true },
-    field({ id: "gl-name", label: "Your name on TEPHRA", hint: "Your dispatchers see it on your decisions and in the airline's record. 2 to 32 characters.", control: name }),
+    field({ id: "gl-name", label: "Your name on TEPHRA", rule: "2 to 32 characters", control: name,
+      info: { topic: "your name", label: "About your name", text: "Your dispatchers see it on your decisions and in the airline's record." } }),
     status,
-    el("div", { class: "golive__go" }, go, el("p", { text: "You become its first ops manager. Nothing runs until you start shadow runs." })));
+    el("div", { class: "golive__go" }, go, el("p", { text: "You become its first ops manager; nothing runs yet." })));
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const bad = ruleMessage("member.name", name.value);
@@ -139,7 +146,7 @@ export function setupCard(can, { onDone }) {
     }
     say(status, changeWords(res, can.name));
   });
-  return card("gl-h", "Go live on TEPHRA", null, el("p", { text: LEAD }), form);
+  return card("gl-h", "Go live on TEPHRA", null, leadLine(), form);
 }
 
 // --- setup: the checklist, the region, the places, Start shadow runs ---------------------------
@@ -154,10 +161,12 @@ function checklist(items) {
 const modes = () => el("div", { class: "modes" },
   el("div", { class: "is-now" },
     el("span", { class: "stamp stamp--shadow" }, el("i", { "aria-hidden": "true" }), "SHADOW"),
-    el("p", {}, el("b", { text: "First. " }), "TEPHRA runs on your real flights and your dispatchers decide its drafts at the Desk. Every draft says ", el("b", { text: "Shadow · not for use" }), ".")),
+    el("p", {}, el("b", { text: "First. " }), "Every draft says ", el("b", { text: "Shadow · not for use" }),
+      el("span", { class: "tline__end" }, ".", infoButton({ topic: "shadow runs", label: "About shadow runs", text: "TEPHRA runs on your real flights, and your dispatchers decide its drafts at the Desk." })))),
   el("div", {},
     stateBadge("live"),
-    el("p", {}, el("b", { text: "When your ops manager is ready. " }), "The stamp goes; drafts are for your dispatchers to use. The switch is recorded with a name and a time.")));
+    el("p", {}, el("b", { text: "Then. " }),
+      ...infoTail("Your ops manager switches, on the record.", { topic: "LIVE", label: "About LIVE", text: "The stamp goes; drafts are for your dispatchers to use. The switch is recorded with a name and a time." }))));
 
 function regionBlock(golive, onPick) {
   const r = golive.region;
@@ -169,7 +178,8 @@ function regionBlock(golive, onPick) {
     ...(golive.regions || []).map((x) => el("option", { value: x.key, text: x.name, selected: r && r.key === x.key ? true : null })));
   select.addEventListener("change", () => onPick(select.value || null));
   return el("div", { class: "golive__region" },
-    field({ id: "gl-region", label: "Region TEPHRA watches for you", hint: "Your network's airports fall in several regions or in none, so you choose.", control: select }),
+    field({ id: "gl-region", label: "Region to watch", control: select,
+      info: { topic: "the region", label: "About the region", text: "Your network's airports fall in several regions or in none, so you choose." } }),
     golive.region_note ? el("div", { class: "note note--notbuilt", role: "note" }, icon("i-info"), el("p", {}, el("b", { text: "Not built. " }), golive.region_note)) : null);
 }
 
@@ -184,7 +194,7 @@ export function setupStateCard(icao, header, golive, { onDone }) {
     const block = startBlock(golive, region);
     if (start) {
       start.disabled = Boolean(block);
-      why.replaceChildren(...(block ? [icon("st-caution"), el("span", { text: `${block}.`.replace(/\.\.$/, ".") })] : [el("span", { text: "Ops managers only. You can stop at any time; starting and stopping are in your record." })]));
+      why.replaceChildren(...(block ? [icon("st-caution"), el("span", { text: `${block}.`.replace(/\.\.$/, ".") })] : [el("span", { text: "Recorded with your name. You can stop at any time." })]));
       why.className = block ? "golive__why status status--caution" : "golive__why";
     } else {
       why.replaceChildren(el("span", { text: `${ROLE_WORDS[header?.you?.role] || "Your role"}: an ops manager of ${header.name} starts shadow runs.` }));
@@ -206,7 +216,7 @@ export function setupStateCard(icao, header, golive, { onDone }) {
   const ready = done === golive.items.length;
   return card("gl-h", "Go live on TEPHRA",
     el("span", { class: `status ${ready ? "status--ok" : "status--quiet"}` }, icon(ready ? "st-ok" : "st-off"), el("span", { text: `${done} of ${golive.items.length} ready` })),
-    el("p", { text: LEAD }),
+    leadLine(),
     spaceLine(icao, header.name, { open: false }),
     checklist(golive.items),
     regionBlock(golive, (v) => {
@@ -282,9 +292,13 @@ export function liveDialog(icao, header, onDone) {
   const { dlg, form } = dialogShell("live-h",
     el("h2", { id: "live-h", class: "h2", text: `Switch ${name} to LIVE?` }),
     el("p", { class: "body2" }, "Drafts stop saying ", el("b", { text: "Shadow · not for use" }), ", and your dispatchers may use the advisories they approve in your operation."),
-    el("p", { class: "note" }, icon("i-hand"), el("span", { text: "TEPHRA still sends nothing to an aircraft or to any system. An approved advisory goes to your outbound list; a person passes it on." })),
+    el("p", { class: "note" }, icon("i-hand"), el("span", {},
+      ...infoTail("TEPHRA still sends nothing to an aircraft or to any system.", { topic: "approved advisories", label: "Where an approved advisory goes", text: "An approved advisory goes to your outbound list; a person passes it on." }))),
     illustrative
-      ? el("p", { class: "note note--caution" }, icon("i-alert"), el("span", {}, `Ash policy v${header.policy.version} is `, el("b", { text: "ILLUSTRATIVE" }), ": its acceptance under your SRA is not recorded. Every draft will say so until you record it in ", el("a", { class: "link", href: spacePath(icao, "/settings/policy"), text: "Settings › Policy" }), "."))
+      ? el("p", { class: "note note--caution" }, icon("i-alert"),
+        el("span", {}, `Ash policy v${header.policy.version} is `, el("b", { text: "ILLUSTRATIVE" }), ": its acceptance under your SRA is not recorded. ",
+          el("span", { class: "tline__end" }, el("a", { class: "link", href: spacePath(icao, "/settings/policy"), text: "Record it ›" }),
+            infoButton({ topic: "ILLUSTRATIVE", label: "About ILLUSTRATIVE", text: "Every draft says so until you record it in Settings › Policy." }))))
       : null,
     el("div", { class: "field" },
       el("label", { class: "check" }, attest, el("span", {}, el("b", { text: `I am ${name}'s ops manager` }), " and may put TEPHRA's drafts into our operation.")),
@@ -296,8 +310,8 @@ export function liveDialog(icao, header, onDone) {
   cancel.addEventListener("click", () => dlg.close());
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    setError(attest, attest.checked ? null : "Tick this to switch.");
-    const typedBad = typed.value.trim() !== icao ? `Type ${icao}, in capitals.` : null;
+    setError(attest, attest.checked ? null : "Tick to continue");
+    const typedBad = !typed.value.trim() ? "Required" : typed.value.trim() !== icao ? `Type ${icao}` : null;
     setError(typed, typedBad);
     if (!attest.checked || typedBad) {
       (attest.checked ? typed : attest).focus();
@@ -323,9 +337,9 @@ export function reasonDialog(icao, header, kind, onDone) {
   const you = header.you || {};
   const live = header.state === "live";
   const words = kind === "shadow"
-    ? { h: `Put ${name} back to SHADOW?`, lead: "From now on every new draft says Shadow · not for use again. What was approved in LIVE stays as it was.", go: "Back to SHADOW", rec: "Back to SHADOW", path: "/shadow" }
-    : { h: live ? `Stop TEPHRA for ${name}?` : `Stop shadow runs for ${name}?`, lead: "Runs end and the airline place is freed; your space goes back to setup. Your settings, people, keys and record are kept, and you can start again from here.", go: live ? "Stop TEPHRA" : "Stop shadow runs", rec: live ? "Stopped TEPHRA" : "Stopped shadow runs", path: "/stop" };
-  const reason = el("textarea", { class: "input textarea", rows: "3", maxlength: 300 });
+    ? { h: `Put ${name} back to SHADOW?`, lead: "New drafts say Shadow · not for use again.", more: "What was approved in LIVE stays as it was.", go: "Back to SHADOW", rec: "Back to SHADOW", path: "/shadow" }
+    : { h: live ? `Stop TEPHRA for ${name}?` : `Stop shadow runs for ${name}?`, lead: "Runs end and the airline place is freed.", more: "Your space goes back to setup. Your settings, people, keys and record are kept, and you can start again from here.", go: live ? "Stop TEPHRA" : "Stop shadow runs", rec: live ? "Stopped TEPHRA" : "Stopped shadow runs", path: "/stop" };
+  const reason = checkOnLeave(el("textarea", { class: "input textarea", rows: "3", maxlength: 300 }), () => ruleMessage("policy.reason", reason.value));
   const status = inlineStatus("rs-status");
   const cancel = el("button", { type: "button", class: "btn btn--secondary", text: "Cancel" });
   const go = el("button", { type: "submit", class: kind === "stop" ? "btn btn--serious" : "btn btn--primary" }, el("span", { text: words.go }));
@@ -335,8 +349,8 @@ export function reasonDialog(icao, header, kind, onDone) {
   });
   const { dlg, form } = dialogShell("rs-h",
     el("h2", { id: "rs-h", class: "h2", text: words.h }),
-    el("p", { class: "body2", text: words.lead }),
-    field({ id: "rs-reason", label: "Reason", hint: "3 to 300 characters. Your members read it in the record.", control: reason }),
+    el("p", { class: "body2" }, ...infoTail(words.lead, { topic: kind === "shadow" ? "back to SHADOW" : "stopping", label: kind === "shadow" ? "About going back to SHADOW" : "About stopping", text: words.more })),
+    field({ id: "rs-reason", label: "Reason", rule: "3 to 300 characters", control: reason }),
     el("div", { class: "dlg-rec" }, el("small", { text: "Goes into your record" }), rec),
     status,
     el("div", { class: "pdlg__acts" }, cancel, go));
@@ -344,7 +358,7 @@ export function reasonDialog(icao, header, kind, onDone) {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const text = reason.value.trim();
-    const bad = text.length < 3 || text.length > 300 ? "A reason of 3 to 300 characters is needed." : null;
+    const bad = ruleMessage("policy.reason", reason.value);
     setError(reason, bad);
     if (bad) {
       reason.focus();
@@ -371,7 +385,8 @@ export function suspendedWords(header) {
   const reason = String(s.reason || "no reason given").trim().replace(/[.\s]+$/, "");
   return {
     lead: `TEPHRA's operators suspended ${header.name} on ${whenWords(s.at)}: ${reason}.`,
-    rest: `Runs are stopped and pushes are refused. Your settings, people, keys and record are kept. TEPHRA's operators can delete your data from ${whenWords(s.delete_after)}; nothing deletes it on its own.`,
+    rest: "Runs are stopped and pushes are refused.",
+    more: `Your settings, people, keys and record are kept. TEPHRA's operators can delete your data from ${whenWords(s.delete_after)}; nothing deletes it on its own.`,
   };
 }
 
@@ -379,7 +394,8 @@ export function suspendedCard(icao, header) {
   const w = suspendedWords(header);
   return card("gl-h", "On TEPHRA", stateBadge("suspended"),
     el("div", { class: "banner", role: "status" }, icon("i-alert-serious"),
-      el("div", { class: "golive__susp" }, el("b", { text: w.lead }), el("p", { text: w.rest }),
+      el("div", { class: "golive__susp" }, el("b", { text: w.lead }),
+        el("p", {}, ...infoTail(w.rest, { topic: "your data", label: "About your data", text: w.more })),
         el("a", { class: "btn btn--secondary btn--sm", href: CONTACT_HREF, rel: "noopener" }, el("span", { text: "Contact TEPHRA" }), icon("i-external-link")))),
     spaceLine(icao, header.name, { open: true }));
 }

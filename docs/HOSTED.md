@@ -18,14 +18,17 @@ on this page exists and every demo answer is as before. Turning it on is the own
 |---|---|---|
 | Map | `/a/<ICAO>/` | The demo's map, in LIVE, filtered to the airline's own fleet and flight numbers, with its own Inside TEPHRA panel. No replay, no case switcher. |
 | Desk | `/a/<ICAO>/desk` | Today's Desk on the airline's own drafts, for its signed-in members. Drafts made in SHADOW carry the "Shadow · not for use" stamp. |
-| Feeds | `/a/<ICAO>/feeds` | What the airline's systems push, as it arrives (positions, flight plans, pilot reports), its push keys and the dry run. |
+| Feeds | `/a/<ICAO>/feeds` | What the airline's systems push, as it arrives (positions, flight plans, pilot reports), its push keys, the uploader (`push.py`, "Download uploader": members only, from `/a/<ICAO>/api/tenant/feeds/uploader`; `/static/kit/` answers 404 with hosting on) and the dry run. |
 | Settings | `/a/<ICAO>/settings/{policy,assistant,people,record}` | Policy versions and the SRA acceptance; model, key, daily limits and the Desk reserve; members and invites; the airline's own hash-chained record. |
 | Documents | `/a/<ICAO>/docs/<id>` | The airline's regulator drafts and handovers. |
 
 Every page sits behind sign-in and answers `X-Robots-Tag: noindex`. A header on every page names
 the airline (a switcher for people in several), the four pages, the state chip (SHADOW, LIVE,
-SUSPENDED, or "Not started" in setup) and the account. The footer keeps today's sentence,
-"Decision support only. Not for operational use.", with "Private to <name> and TEPHRA's operators".
+SUSPENDED, or "Not started" in setup; in SHADOW and LIVE its (i) says what a draft is) and the
+account. The footer says "Private to <name> and
+TEPHRA's operators". The decision-support sentence is not page chrome (owner, 17 Oct 2026: "don't
+put this everywhere"): it is said in the Switch to LIVE dialog and the sign-up and invite ticks, and
+documents and outbound text keep their labels; every SHADOW draft keeps its stamp.
 
 ## 2. States
 
@@ -45,6 +48,12 @@ declared feed is found by its callsign on public ADS-B); **Model and key set** (
 free-tier table, the key set and readable); **Policy confirmed** (the current version confirmed by
 an ops manager); **Dispatchers invited** (at least one dispatcher has joined). After a restart the
 feed counts begin again and the checklist says since when.
+
+The workspace says the site's limit ("TEPHRA runs at most 3 airlines at once on this site.") until
+the airline has its space; from then the places line beside Start says it ("1 of 3 airline places
+in use"). Once the space exists, the workspace's nav drops Data feeds and Assistant, and their
+addresses open the space's Feeds and Settings › Assistant. Each card says one short line; the
+rest of what it means sits behind its (i).
 
 ## 3. Roles
 
@@ -76,7 +85,9 @@ is invited by an operator.
   Assistant tab says so and asks for the key again.
 - **Push keys** are shown once; TEPHRA keeps only their SHA-256. Rotate stops the old key at once.
 - An airline with no readable key gets `AI UNAVAILABLE: <reason>` on every model step. Nothing is
-  substituted.
+  substituted. The pages say it once per screen ("AI unavailable" and its (i), which gives the
+  reason and where it is set); the raw reason is one tap in. `GET /api/budget` carries it as
+  `unavailable`, so the map and the Desk read the airline's state, never "on".
 
 ## 5. Limits, allowances and pauses (free tier only)
 
@@ -114,7 +125,7 @@ is invited by an operator.
   checked.
 - Password reset by email.
 - Two-factor sign-in, single sign-on, custom domains, a choice of data residency.
-- Ollama on hosted TEPHRA: it runs only in an airline's own TEPHRA.
+- Ollama on hosted TEPHRA.
 - Regions other than Java / Bali, Halmahera and Kyushu.
 - Recovery re-planning for an airline's own network.
 - Uploading an own schedule (`flights.json`): flights are named by pushed flight plans, callsigns and

@@ -3,13 +3,15 @@
 // GET /api/tenant/assistant (AssistantTab). This tab is the airline's assistant home, so model
 // ids, daily limits and lanes are said here and nowhere else in the space. The key is write-only:
 // after saving it is shown as ••••last4, never again. No key, an unreadable key or no model gives
-// AI UNAVAILABLE on every model step; nothing stands in for it. Every string goes in through el().
+// AI UNAVAILABLE on every model step; nothing stands in for it. The state is said the way the map
+// and the Desk say it ("AI paused", "AI unavailable" and its (i)). Every string goes in through el().
 
 import { el, icon } from "../wall/util.js";
 import { api } from "../base.js";
 import { personName, whenWords, hhmmZ, reloadTenantHeader } from "../tenant-nav.js";
 import { segmented } from "../onboard/form.js";
-import { can, call, errorWords, pageHead, loadingCard, failCard, openDialog, inlineStatus, notBuiltNote, announce, refocus } from "../hosted.js";
+import { infoButton } from "../wall/info.js";
+import { can, call, errorWords, pageHead, loadingCard, failCard, openDialog, inlineStatus, notBuiltNote, announce, refocus, headInfo, checkedField } from "../hosted.js";
 
 export const TITLE = "TEPHRA Assistant";
 export const LEAD = "The model your drafts are written with, your key, and how today's calls are spent.";
@@ -17,6 +19,11 @@ export const UNPAID = "Unpaid-tier data use: Google may use what TEPHRA sends wi
 export const KEY_WORDS = "Stored encrypted; never shown again or written to a log.";
 export const FREE_LIMIT_WORDS = "the free-tier limit for this model";
 export const LIMIT_HINT = "Set it to your key's own limit. TEPHRA stops before it, never after.";
+export const NOT_CHOSEN = "Not chosen";
+export const KEY_ERROR = "Not a Google AI Studio key";
+// a Google AI Studio key: 30 to 100 letters, digits, - or _ (the server's rule)
+export const keyError = (v) => (!v ? "Required" : /^[A-Za-z0-9_-]{30,100}$/.test(v) ? null : KEY_ERROR);
+export const PACING = "Routine work is paced through the day. From 01:00 UTC, unused urgent and Desk calls flow to routine work.";
 const ms = (iso) => (iso ? Date.parse(iso) : NaN);
 const pct = (n, of) => (of > 0 ? Math.max(0, Math.min(100, (n / of) * 100)) : 0);
 const LANES = [
@@ -25,10 +32,17 @@ const LANES = [
   { lane: "routine", cls: "routine", name: "Routine", sub: "paced through the day" },
 ];
 
+// The one state line: "On", "AI paused" or "AI unavailable" with its reason; the rest behind its (i).
 export function stateLine(a) {
-  if (a.state === "on") return el("p", { class: "astate", dataset: { tone: "on" } }, el("b", { text: "ON" }), el("span", { text: "TEPHRA Assistant writes your drafts with your key." }));
-  if (a.state === "paused") return el("p", { class: "astate", dataset: { tone: "paused" } }, el("b", { text: "PAUSED" }), el("span", { text: a.reason ? `${a.reason}.` : "Today's calls on your key are used." }), el("span", { text: "Code checks still run; drafts that need the assistant say what is missing at the Desk." }));
-  return el("p", { class: "astate", dataset: { tone: "unavailable" } }, el("b", { text: `AI UNAVAILABLE: ${a.reason || "no reason given"}` }), el("span", { text: "Every model step says so; nothing is put in its place." }));
+  if (a.state === "on") return el("p", { class: "astate", dataset: { tone: "on" } }, el("b", { text: "On" }), el("span", { text: "Your drafts are written with your key." }));
+  const paused = a.state === "paused";
+  const reason = a.reason || (paused ? "today's calls on your key are used" : "no reason given");
+  return el("p", { class: "astate", dataset: { tone: paused ? "paused" : "unavailable" } },
+    el("b", { text: paused ? "AI paused" : "AI unavailable" }),
+    el("span", { text: `${reason.charAt(0).toUpperCase()}${reason.slice(1)}${/[.!?]$/.test(reason) ? "" : "."}` }),
+    infoButton({ topic: "the assistant state", text: paused
+      ? "Code checks still run. A draft that needs the assistant says what is missing at the Desk."
+      : "Every model step says it did not run; nothing is put in its place. Code checks still run." }));
 }
 
 export const limitOf = (a, model) => {
@@ -49,22 +63,23 @@ export function keyBlock(a, { editable, onReplace, onRemove }) {
     el("code", { "aria-label": `Model key ending ${k.last4}`, text: `••••${k.last4}` }),
     el("span", { class: "secret__who", text: k.readable
       ? `Added by ${personName(k.set_by?.by)}, ${whenWords(ms(k.set_by?.at))}. ${KEY_WORDS}`
-      : "TEPHRA cannot read this key any more (its secret changed). Enter the key again: re-sealing an old key is not built." }),
+      : "TEPHRA cannot read this key any more. Enter the key again." }),
     editable ? [replace, remove] : null);
 }
 
+// A key is typed as it is: a password field, never filled in, no spelling or capitals help.
+const keyInput = () => el("input", { class: "input mono", type: "password", autocomplete: "off", spellcheck: "false", autocapitalize: "off" });
+
+// The key field: write-only (a password field, never filled in); its error after it is left or on save.
 export function keyForm({ onSave, first }) {
   const id = "akey";
-  const input = el("input", { id, class: "input mono", type: "password", autocomplete: "off", spellcheck: "false", "aria-describedby": `${id}-hint` });
-  const save = el("button", { type: "button", class: "btn btn--primary", text: first ? "Save the key" : "Save the new key" });
+  const control = keyInput();
+  const key = checkedField({ id, label: "Your Google AI Studio key", control, check: keyError, info: { topic: "the key", text: `Write-only. ${KEY_WORDS}` } });
+  const save = el("button", { type: "submit", class: "btn btn--primary", text: first ? "Save the key" : "Save the new key" });
   const status = inlineStatus(`${id}-status`);
-  save.addEventListener("click", () => onSave(input, status, save));
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); onSave(input, status, save); } });
-  return el("div", { class: "field" },
-    el("label", { for: id, text: "Your Google AI Studio key" }),
-    el("div", { class: "keyform" }, input, save),
-    el("p", { id: `${id}-hint`, class: "hint", text: `Write-only. ${KEY_WORDS}` }),
-    status);
+  const form = el("form", { class: "keyform", novalidate: true }, key, save);
+  form.addEventListener("submit", (e) => { e.preventDefault(); onSave(key, status, save, control); });
+  return el("div", { class: "keyblock" }, form, status);
 }
 
 export function modelCard(a, h, handlers) {
@@ -81,13 +96,13 @@ export function modelCard(a, h, handlers) {
     stateLine(a),
     el("dl", { class: "kv" },
       el("dt", { text: "Provider" }), el("dd", { text: "Google AI Studio, your own key" }),
-      el("dt", { text: "Reads plumes" }), el("dd", {}, a.model ? [el("span", { class: "mono", text: a.model }), el("small", { class: "limits tdim", text: lim(a.model) })] : "No model chosen"),
-      el("dt", { text: "Plans and drafts" }), el("dd", {}, a.model_lite ? [el("span", { class: "mono", text: a.model_lite }), el("small", { class: "limits tdim", text: lim(a.model_lite) })] : "No model chosen"),
+      el("dt", { text: "Reads plumes" }), el("dd", {}, a.model ? [el("span", { class: "mono", text: a.model }), el("small", { class: "limits tdim", text: lim(a.model) })] : NOT_CHOSEN),
+      el("dt", { text: "Plans and drafts" }), el("dd", {}, a.model_lite ? [el("span", { class: "mono", text: a.model_lite }), el("small", { class: "limits tdim", text: lim(a.model_lite) })] : NOT_CHOSEN),
       el("dt", { text: "Held for the Desk" }), el("dd", { text: `${reserve} % of each model's calls` })),
     keyBlock(a, { editable, onReplace: handlers.replace, onRemove: handlers.remove }),
     !a.key?.set ? (editable ? keyForm({ onSave: handlers.saveKey, first: true }) : el("p", { class: "body2", text: "No model key is set. An ops manager adds it here." })) : null,
     el("p", { class: "hint", text: UNPAID }),
-    notBuiltNote("Ollama on hosted TEPHRA: it runs only in your own TEPHRA."));
+    notBuiltNote("Ollama on this site."));
 }
 
 // The budget meter: per model, the stacked bar and three lanes; the Desk's share drawn apart as
@@ -104,11 +119,12 @@ export function budgetView(model, a) {
     }));
   const own = a.daily_limits?.[model.model_id] != null;
   return el("div", { class: "budget" },
-    el("p", { class: "body2" }, el("b", { text: `${model.used} of ${total}` }), ` calls on ${model.model_id}. ${total} is ${own ? "the daily limit you set for your key" : "TEPHRA's budget within the free-tier limit for this model"}.`),
+    el("p", { class: "body2 hlead" }, el("span", {}, el("b", { text: `${model.used} of ${total}` }), ` calls on ${model.model_id}`),
+      infoButton({ topic: "this budget", text: `${total} is ${own ? "the daily limit you set for your key" : "TEPHRA's budget within the free-tier limit for this model"}.` })),
     bar,
     desk ? el("div", { class: "reserve" },
       el("span", { class: "wcard__ic", "aria-hidden": "true" }, icon("i-dispatcher")),
-      el("p", {}, el("b", { text: "Held for the Desk." }), " Ask, messages, handover and documents a dispatcher waits on. Routine work cannot take it."),
+      el("p", { class: "hlead" }, el("b", { text: "Held for the Desk." }), infoButton({ topic: "the Desk's share", text: "Ask, messages, handover and documents a dispatcher waits on. Routine work cannot take it." })),
       el("p", { class: "reserve__n" }, el("b", { text: String(Math.max(0, desk.share - desk.used)) }), el("small", { text: `of ${desk.share} left` }))) : null,
     ...LANES.filter((x) => by[x.lane]).map((x) => {
       const l = by[x.lane];
@@ -135,7 +151,7 @@ export function budgetCard(a, h, state = { model: null }) {
   const panel = el("div", { id: "bm-panel", role: "tabpanel", "aria-labelledby": `bm-${pick}` });
   const draw = (key) => {
     const m = models.find((x) => x.model_id === key);
-    panel.replaceChildren(m ? budgetView(m, a) : el("p", { text: "No model." }));
+    panel.replaceChildren(m ? budgetView(m, a) : el("p", { text: "Nothing counted yet." }));
   };
   const tabs = el("div", {});
   const drawTabs = (key) => tabs.replaceChildren(segmented({
@@ -146,10 +162,10 @@ export function budgetCard(a, h, state = { model: null }) {
   drawTabs(pick);
   draw(pick);
   card.append(...[
-    el("div", { class: "wcard__h" }, el("span", { class: "wcard__ic", "aria-hidden": "true" }, icon("i-gauge")), el("h2", { id: "b-h", text: "Today's calls" }),
-      el("span", { class: "tdim", text: `quota day ends ${hhmmZ(ms(b.resets_at)).replace("Z", " UTC")} (midnight Pacific)` })),
-    models.length > 1 ? tabs : null, panel,
-    el("p", { class: "hint", text: "Routine work starts only in step with the part of the day gone by. From 01:00 UTC, unused urgent and Desk calls flow to routine work." })].filter(Boolean));
+    el("div", { class: "wcard__h" }, el("span", { class: "wcard__ic", "aria-hidden": "true" }, icon("i-gauge")),
+      headInfo(el("h2", { id: "b-h", text: "Today's calls" }), { topic: "pacing", text: PACING }),
+      el("span", { class: "tdim wcard__sub", text: `quota day ends ${hhmmZ(ms(b.resets_at)).replace("Z", " UTC")} (midnight Pacific)` })),
+    models.length > 1 ? tabs : null, panel].filter(Boolean));
   return card;
 }
 
@@ -171,15 +187,16 @@ export async function mount(host, h) {
 
 function draw(host, h, a) {
   const again = (data) => { draw(host, h, data); refocus(host, "#mod-h"); reloadTenantHeader(); };
-  const saveKey = async (input, status, btn) => {
-    const key = input.value.trim();
-    if (!/^[A-Za-z0-9_-]{30,100}$/.test(key)) { status.say("That is not a Google AI Studio key: 30 to 100 letters, digits, - or _."); input.focus(); return; }
+  const saveKey = async (field, status, btn, control) => {
+    status.say("");
+    if (!field.ok()) return;
+    const key = field.value();
     btn.disabled = true;
     const res = await call(api("/tenant/assistant/key"), { method: "PUT", body: { key } });
     btn.disabled = false;
-    input.value = "";
+    control.value = "";
     if (res.ok && res.data) { announce("Key saved. It is not shown again."); again(res.data); return; }
-    status.say(res.data?.error === "key_format" ? "That is not a Google AI Studio key: 30 to 100 letters, digits, - or _." : errorWords(res, h));
+    status.say(res.data?.error === "key_format" ? `${KEY_ERROR}.` : errorWords(res, h));
   };
   host.replaceChildren(...render(h, a, {
     change: () => changeDialog(h, a, again),
@@ -190,17 +207,17 @@ function draw(host, h, a) {
 }
 
 function replaceDialog(h, again) {
-  const input = el("input", { id: "akey2", class: "input mono", type: "password", autocomplete: "off", spellcheck: "false" });
+  const control = keyInput();
+  const key = checkedField({ id: "akey2", label: "The new key", control, check: keyError });
   openDialog({
     id: "akr", title: "Replace the model key?", goText: "Save the new key",
-    body: [el("p", { class: "body2", text: `The old key is dropped at once. ${KEY_WORDS}` }), el("div", { class: "field" }, el("label", { for: "akey2", text: "The new key" }), input)],
+    body: [el("p", { class: "body2", text: "The old key is dropped at once." }), key],
     go: async (status) => {
-      const key = input.value.trim();
-      if (!/^[A-Za-z0-9_-]{30,100}$/.test(key)) { status.say("That is not a Google AI Studio key: 30 to 100 letters, digits, - or _."); input.focus(); return false; }
-      const res = await call(api("/tenant/assistant/key"), { method: "PUT", body: { key } });
-      input.value = "";
+      if (!key.ok()) return false;
+      const res = await call(api("/tenant/assistant/key"), { method: "PUT", body: { key: key.value() } });
+      control.value = "";
       if (res.ok && res.data) { again(res.data); announce("Key replaced. It is not shown again."); return true; }
-      status.say(res.data?.error === "key_format" ? "That is not a Google AI Studio key." : errorWords(res, h));
+      status.say(res.data?.error === "key_format" ? `${KEY_ERROR}.` : errorWords(res, h));
       return false;
     },
   });
@@ -209,7 +226,7 @@ function replaceDialog(h, again) {
 function removeDialog(h, again) {
   openDialog({
     id: "akd", title: "Remove the model key?", goText: "Remove the key", tone: "serious",
-    body: [el("p", { class: "body2", text: "Without a key every model step says AI UNAVAILABLE: no model key is set. Code checks still run." })],
+    body: [el("p", { class: "body2", text: "Without a key the assistant is unavailable. Code checks still run." })],
     go: async (status) => {
       const res = await call(api("/tenant/assistant/key"), { method: "DELETE" });
       if (res.ok && res.data) { again(res.data); announce("Key removed."); return true; }
@@ -252,7 +269,7 @@ function changeDialog(h, a, again) {
       el("p", { class: "hint", text: "Only models with a free tier on Google AI Studio are offered." }),
       limits,
       el("p", { class: "hint", text: LIMIT_HINT }),
-      el("div", { class: "field" }, el("label", { for: "am-res", text: "Held for the Desk (%)" }), reserve, el("p", { class: "hint", text: "10 to 50 % of each model's calls, kept for what a dispatcher waits on." })),
+      el("div", { class: "field" }, el("label", { for: "am-res", text: "Held for the Desk · 10-50 %" }), reserve),
     ],
     go: async (status) => {
       const share = Number(reserve.value);

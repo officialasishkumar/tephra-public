@@ -30,6 +30,9 @@ button.ah-air:hover, .ah-air[aria-expanded="true"] { background: var(--c-surface
 .ah .tn-account .icon { width: 16px; height: 16px; flex: none; color: var(--c-text-3); }
 
 /* the state chip */
+/* the chip and its (i) (wall/info.js) stay together; the (i) is hidden while it has nothing to add */
+.ah-statewrap { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.ah-statewrap > .info[hidden] { display: none; }
 .ah-state {
   display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px 0 10px; flex: none;
   border: 1px solid var(--c-line-input); border-radius: var(--radius-pill); color: var(--c-text-1);
@@ -95,6 +98,8 @@ button.ah-air:hover, .ah-air[aria-expanded="true"] { background: var(--c-surface
 }
  /* in a Desk row: its own line above the flight id */
 .card.irow > .stamp--shadow { display: inline-flex; grid-column: 1 / -1; grid-row: 1; justify-self: start; height: 22px; margin-bottom: 4px; font-size: 11px; }
+ /* in a Paperwork row: above the document's title */
+.drow__what > .stamp--shadow { height: 22px; margin-bottom: 4px; font-size: 11px; }
 .stamp--shadow i { display: inline-block; flex: none; width: 9px; min-width: 9px; height: 9px; border: 1.5px solid currentColor; border-radius: 50%; background: linear-gradient(90deg, currentColor 50%, transparent 50%); }
 
 /* the airline states as badges (workspace, /admin, record tags) */
@@ -153,7 +158,8 @@ body.is-tenant.is-stale-picture #map canvas { filter: saturate(0.35) brightness(
   .ah-airwrap { flex: 0 1 auto; }
   .ah-air { max-width: 100%; }
   .ah-air__name { max-width: 13ch; }
-  .ah-state { margin-left: auto; height: 32px; padding: 0 10px 0 8px; gap: 6px; }
+  .ah-statewrap { margin-left: auto; }
+  .ah-state { height: 32px; padding: 0 10px 0 8px; gap: 6px; }
   .ah-state__clock { font-size: 13px; }
   .ah .tn-account { padding: 0 6px; gap: 4px; }
   .ah .tn-account .icon { display: none; }
@@ -163,11 +169,10 @@ body.is-tenant.is-stale-picture #map canvas { filter: saturate(0.35) brightness(
   /* the map's bar is a grid on phones (wall.css): the space's bar is the two rows above */
   body.wall.is-tenant > .cmdbar.ah { display: flex; grid-template-areas: none; }
   .is-tenant .dhead__row.ah { padding: 8px 16px; }
-  /* the Desk's assistant chip, Ask and connection stay on row 1 as marks only (two rows, never
-     three): the chip keeps its symbol and name for screen readers and opens the assistant sheet;
-     the connection keeps its words while it is not connected (a real alarm) */
-  .is-tenant .dhead__row.ah #budget-chip { padding: 0 8px; min-width: 36px; justify-content: center; }
-  .is-tenant .dhead__row.ah #budget-chip > :not(svg) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  /* the Desk's assistant status keeps its words ("AI off": the one AI state on the screen, the
+     last thing the Desk's own header drops); Ask and the connection stay on row 1 as marks, the
+     connection keeping its words while it is not connected (a real alarm). The airline's state
+     chip and the account sit on the row under them, the four pages under that. */
   .is-tenant .dhead__row.ah .conn[data-conn="live"] > span,
   .is-tenant .dhead__row.ah .conn[data-conn="idle"] > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   /* the map's data alarm keeps its failing count only (its label holds the rest): row 1 holds */
@@ -181,4 +186,11 @@ body.is-tenant.is-stale-picture #map canvas { filter: saturate(0.35) brightness(
   .ah-air__name { display: none; }
   .ah-menu { min-width: 0; width: calc(100vw - 32px); }
   .ah-state b { letter-spacing: 0.04em; }
+  /* the chip's (i) costs no row: chip, (i) and account fit beside the airline code and the map's
+     data alarm on one 390 px row */
+  .ah-statewrap { gap: 0; }
+  .ah-state { padding: 0 8px 0 6px; gap: 5px; }
+  .ah-state__clock { font-size: 12px; }
+  /* the map's own time bar shows the clock ("1026Z · Now"): its header chip drops it on a phone */
+  body.wall.is-tenant .ah-state__clock { display: none; }
 }

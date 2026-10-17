@@ -5,12 +5,14 @@
 // entries loaded. A broken chain is a real alarm, in red. Every string goes in through el().
 
 import { el, icon } from "../wall/util.js";
+import { infoButton } from "../wall/info.js";
+import { reasonClass, notRun } from "../wall/x-parts.js";
 import { api } from "../base.js";
 import { personName, hhmmZ, dayMonth, serverNow } from "../tenant-nav.js";
 import { can, call, errorWords, pageHead, loadingCard, failCard, inlineStatus, announce } from "../hosted.js";
 
 export const TITLE = "Record";
-export const lead = (h) => `Every draft, decision and setting change in ${h.name}'s space. Each entry is linked to the one before by its hash.`;
+export const lead = (h) => ({ text: `Every draft, decision and setting change in ${h.name}'s space.`, info: { topic: "the record", text: "Each entry is linked to the one before by its hash, so a changed or missing entry shows." } });
 const ms = (iso) => (iso ? Date.parse(iso) : NaN);
 const num = (n) => Number(n || 0).toLocaleString("en");
 const pad = (n) => String(n).padStart(2, "0");
@@ -45,7 +47,16 @@ const WORDS = {
   MEMBER_ROLE_CHANGED: "Role changed", MEMBER_REMOVED: "Removed", INVITE_REVOKED: "Invite revoked", OPS_MANAGER_RESTORED: "Ops manager invite by TEPHRA's operators",
   CHAIN_CHECKED: "Whole chain checked", LOGIN_OK: "Signed in", LOGIN_FAILED: "Sign-in refused",
 };
-export const actionWords = (e) => WORDS[e.action] || e.action.toLowerCase().replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+// A model step that was never called (no usable model, a spent quota) "did not run"; only a model
+// that answered with nothing usable "gave no result" (the pages' rule, wall/x-parts.js notRun).
+const REPLACED = /^replaced by (.+)$/i;
+export function actionWords(e) {
+  if (e.action === "AI_FAILED" && notRun(reasonClass(e.note))) return "Assistant step did not run";
+  // "Draft replaced · REPLACED BY A NEWER DRAFT" says it once
+  if (e.action === "SUPERSEDED" && REPLACED.test(e.note || "")) return `Draft replaced by ${REPLACED.exec(e.note)[1].toLowerCase()}`;
+  return WORDS[e.action] || e.action.toLowerCase().replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+}
+const noteOf = (e) => (e.action === "SUPERSEDED" && REPLACED.test(e.note || "") ? "" : e.note || "");
 export const whoOf = (actor) => (!actor || actor === "system" ? "TEPHRA" : personName(actor));
 export function whenOf(t, now) {
   if (!Number.isFinite(t)) return "";
@@ -79,7 +90,7 @@ export function entriesTable(entries, filter, now = Date.now()) {
     el("tbody", {}, ...rows.map((e) => el("tr", {},
       el("td", { "data-l": "When", text: whenOf(ms(e.at), now) }),
       el("td", { "data-l": "Who", text: whoOf(e.actor) }),
-      el("td", { "data-l": "What", class: "wide" }, actionWords(e), e.note ? ` · ${e.note}` : "", isShadow(e) ? el("span", { class: "rtag", text: "SHADOW" }) : null),
+      el("td", { "data-l": "What", class: "wide" }, actionWords(e), noteOf(e) ? ` · ${noteOf(e)}` : "", isShadow(e) ? el("span", { class: "rtag", text: "SHADOW" }) : null),
       el("td", { "data-l": "Hash", class: "hash", title: e.sha256 || "", text: shortHash(e.sha256) })))));
 }
 
@@ -97,9 +108,8 @@ export function render(h, view, { entries, filter, onFilter, onOlder, onCheck, o
     pageHead(TITLE, lead(h), exp),
     el("section", { class: "card wcard", "aria-labelledby": "rec-h" },
       el("h2", { id: "rec-h", class: "sr-only", text: "Entries" }),
-      el("div", { class: "racts" }, chainLine(view.head), check),
+      el("div", { class: "racts" }, chainLine(view.head), check, ops ? infoButton({ topic: "checking and exporting", text: "Checking the whole chain and exporting work once a day each." }) : null),
       checkStatus,
-      ops ? el("p", { class: "hint", text: "Checking the whole chain and exporting work once a day each." }) : null,
       seg,
       entriesTable(entries, filter, serverNow()),
       older),
@@ -141,7 +151,7 @@ export async function mount(host, h) {
           S.entries = [...(r.data.entries || [])];
           S.next = r.data.next_before_seq;
           draw();
-          checkStatus.say(r.data.head.intact ? "The whole chain was walked and is intact." : "The whole chain was walked: it is broken.", r.data.head.intact ? "ok" : "bad");
+          checkStatus.say(r.data.head.intact ? "The whole chain was walked and is intact." : "The whole chain was walked: it is broken.", r.data.head.intact ? "ok" : "alarm");
           return;
         }
         btn.disabled = false;

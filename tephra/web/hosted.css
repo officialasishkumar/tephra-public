@@ -10,8 +10,18 @@
 .hhead .body2 { max-width: 70ch; }
 .hhead h1:focus { outline: none; }
 .tdim { color: var(--c-text-3); font-size: 13px; }
-.hstatus { display: flex; gap: 6px; align-items: flex-start; font-size: 13px; line-height: 1.4; font-weight: 500; color: var(--c-serious); }
-.hstatus[data-tone="ok"] { color: var(--c-ok); }
+/* what an action answered: a refusal or a form problem is the caution colour with its triangle
+   (never red); red only for a real alarm (a broken chain) */
+.hstatus { display: flex; gap: 6px; align-items: flex-start; font-size: 13px; line-height: 1.4; font-weight: 600; color: var(--c-invalid); }
+.hstatus[data-tone="ok"] { color: var(--c-ok); font-weight: 500; }
+.hstatus[data-tone="alarm"] { color: var(--c-serious); }
+/* a short line and its (i); a card heading and its (i); a card's actions on the right */
+.hlead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.hhead2 { display: inline-flex; flex: 1; align-items: center; gap: 4px; min-width: 0; }
+.wcard__h .hhead2 h2 { flex: 0 1 auto; }
+/* a dim line under a card heading: its own row, lined up with the heading (never drawn over it) */
+.wcard__h > .wcard__sub { flex-basis: 100%; margin-top: -6px; padding-left: 44px; line-height: 1.4; }
+.wcard__acts { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-left: auto; }
 .hstatus .icon { width: 16px; height: 16px; margin-top: 1px; }
 .wcard__ic--bad { color: var(--c-serious); }
 .skel { display: block; height: 12px; border-radius: 4px; background: linear-gradient(90deg, var(--c-surface-3), var(--c-surface-2)); }
@@ -126,7 +136,9 @@
 .astate[data-tone="on"] b { color: var(--c-ok); }
 .astate[data-tone="paused"] b { color: var(--c-caution); }
 .astate[data-tone="unavailable"] b { color: var(--c-caution); }
-.keyform { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
+.keyform { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; }
+.keyform > .btn { margin-top: 26px; }
+.keyblock { display: grid; gap: 8px; }
 .limits { display: grid; gap: 4px; }
 
 /* people */
@@ -136,7 +148,12 @@
 .roles > div { padding: 12px 14px; border: 1px solid var(--c-line-1); border-radius: var(--radius-md); background: var(--c-surface-2); font-size: 13px; color: var(--c-text-2); }
 .roles b { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 14px; color: var(--c-text-1); }
 .roles .icon { width: 16px; height: 16px; color: var(--c-text-2); }
-.invite { display: grid; grid-template-columns: minmax(0, 1fr) 200px auto; gap: 12px; align-items: end; }
+.invite { display: grid; grid-template-columns: minmax(0, 1fr) 200px auto; gap: 12px; align-items: start; }
+/* the button sits level with the inputs (under their labels), whatever error shows under the email */
+.invite > .btn { margin-top: 26px; }
+.rolesfold { margin-top: 4px; }
+.rolesfold > summary { width: fit-content; padding: 12px 0; cursor: pointer; font-size: 14px; font-weight: 600; color: var(--c-text-2); }
+.rolesfold .roles { margin-top: 4px; }
 .ilist { display: grid; }
 .ilist li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--c-line-1); font-size: 14px; }
 .ilist li:first-child { border-top: 0; }
@@ -150,6 +167,8 @@
 .chainline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .rtable td:first-child { white-space: nowrap; font-family: var(--font-mono); font-size: 13px; }
 .rtable .hash { font: 500 12px var(--font-mono); color: var(--c-text-3); white-space: nowrap; }
+/* a name is never broken inside a word ("TEPHR / A") */
+.rtable td[data-l="Who"] { overflow-wrap: normal; white-space: nowrap; }
 .rtag { display: inline-flex; align-items: center; height: 20px; margin-left: 6px; padding: 0 6px; border: 1px dashed var(--c-text-3); border-radius: 4px; font: 600 11px var(--font-mono); letter-spacing: 0.06em; color: var(--c-text-2); vertical-align: 1px; }
 .racts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .seg .seg__b { display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; color: var(--c-text-2); font-size: var(--fs-2); font-weight: 600; cursor: pointer; }
@@ -172,10 +191,12 @@
   .ktable, .ktable tbody, .ktable tr, .ktable td, .ptable, .ptable tbody, .ptable tr, .ptable td, .rtable, .rtable tbody, .rtable tr, .rtable td { display: block; width: 100%; }
   .ktable tr, .ptable tr, .rtable tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; padding: 14px; margin-bottom: 10px; border: 1px solid var(--c-line-1); border-radius: var(--radius-md); background: var(--c-surface-2); }
   .ktable td, .ptable td, .rtable td { padding: 0; border: 0; }
+  .rtable td[data-l="Who"] { white-space: normal; overflow-wrap: anywhere; }
   .ktable td[data-l]::before, .ptable td[data-l]::before, .rtable td[data-l]::before { content: attr(data-l); display: block; margin-bottom: 2px; font-size: 12px; font-weight: 600; color: var(--c-text-3); font-family: var(--font-sans); }
   .ktable td.wide, .ptable td.wide, .rtable td.wide { grid-column: 1 / -1; }
   .tacts { justify-content: flex-start; }
   .invite, .keyform { grid-template-columns: minmax(0, 1fr); }
+  .invite > .btn, .keyform > .btn { margin-top: 0; justify-self: start; }
   .roles { grid-template-columns: minmax(0, 1fr); }
   .lane { grid-template-columns: minmax(0, 1fr) 80px; }
   .lane__bar { grid-column: 1 / -1; grid-row: 2; }

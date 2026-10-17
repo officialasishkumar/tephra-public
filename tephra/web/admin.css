@@ -5,6 +5,7 @@
 .apage { width: 100%; max-width: 1320px; margin: 0 auto; padding: 28px var(--gutter) 48px; display: grid; gap: 20px; align-content: start; }
 .hhead { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 20px; }
 .hhead > div { display: grid; gap: 6px; min-width: 0; }
+.hhead__t { display: flex; align-items: center; gap: 4px; min-width: 0; }
 
 /* the tiles: four counts, then the free-tier tile across the row */
 .acount { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
@@ -93,6 +94,8 @@
   .atable td:first-child { min-width: 0; }
   .atable td[data-l]::before { content: attr(data-l); display: block; margin-bottom: 2px; font-size: 12px; font-weight: 600; color: var(--c-text-3); }
   .atable td.wide { grid-column: 1 / -1; }
+  /* an email is one long word: its own row, broken anywhere rather than run into the next cell */
+  .optable td[data-l="Email"] { grid-column: 1 / -1; overflow-wrap: anywhere; }
   .tacts { justify-content: flex-start; }
   .tacts__why { text-align: left; margin-left: 0; max-width: none; }
   .atable td:last-child { white-space: normal; }

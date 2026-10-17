@@ -296,6 +296,8 @@ async def test_an_airline_without_a_usable_key_gets_ai_unavailable_and_no_stand_
         assert rfb.llm.name == "gemini"
         assert rfb.llm.metered
         assert await rfb.llm.reserve("lite") == reason
+        # the pages read the airline's state from the budget: "AI unavailable" and why, never "on"
+        assert (await rfb.budget_view()).unavailable == reason
         await tick_and_drain(rfb)
         with rfb.bound():
             drafts = await list_advisories(rfb.store, status=AdvisoryStatus.DRAFT, limit=50)
@@ -452,6 +454,9 @@ async def test_reconfigure_refuses_other_settings_and_a_key_without_its_backend(
         assert rfb.quota.shares(rotated.model_lite) is not None
         with pytest.raises(AgentModelUnavailable, match="no model key is set"):
             agent_model(rfb.settings, rfb.llm)
+        assert (await rfb.budget_view()).unavailable == "no model key is set"
+        await rfb.reconfigure(rotated, llm=backend_for(rotated, unavailable=None, quota=rfb.quota))
+        assert (await rfb.budget_view()).unavailable is None
     finally:
         await rfb.aclose()
 

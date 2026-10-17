@@ -82,6 +82,13 @@ export function note(kind, lead, text, { role = null } = {}) {
 export const infoLine = (text, info, { cls = "", shape = null } = {}) =>
   el("p", { class: `infoline${cls ? ` ${cls}` : ""}` }, shape ? icon(shape) : null, el("span", { text }), infoButton(info));
 
+// A sentence whose (i) stays with its last word, never alone on a line of its own at 390 px: the
+// two spans go inside a block line (a <p> or a note's text).
+export function infoTail(text, info) {
+  const cut = text.lastIndexOf(" ") + 1;
+  return [el("span", { text: text.slice(0, cut) }), el("span", { class: "tline__end" }, text.slice(cut), infoButton(info))];
+}
+
 export const illus = () => el("span", { class: "chip chip--illus", text: "ILLUSTRATIVE" });
 export const notBuilt = () => el("span", { class: "chip chip--notbuilt", text: "Not built" });
 // a chip and its (i), kept together on one line

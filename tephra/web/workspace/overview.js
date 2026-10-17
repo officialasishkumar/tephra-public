@@ -3,7 +3,8 @@
 // its (i)), then, when this site hosts airlines (view.hosted, from workspace.js), Go live on TEPHRA
 // (golive.js), then the answers, the data feeds, the assistant and the people, a line each (once
 // the airline has its own space, only the answers stay). Both end with the one line that says this
-// site runs no airline's operation yet, or, once hosting is open to the airline, the site's limit.
+// site runs no airline's operation yet, or, once hosting is open to the airline, the site's limit;
+// once the airline has its space that line goes (its places line says the limit where it matters).
 // Every value goes in through el().
 
 import { el, icon } from "../wall/util.js";
@@ -124,5 +125,5 @@ export function renderOverview(main, view) {
       spaced ? null : row("ta-16", "Assistant", [PROVIDER_WORDS[a.assistant.provider] || "–", model ? el("span", { class: "mono wrow__sub", text: ` ·\u00a0${model}` }) : null], go("/workspace/assistant", "Change")),
       spaced ? null : row("i-dispatcher", "People", `${approvers} ${approvers === 1 ? "approver" : "approvers"}`,
         infoButton({ topic: "names", label: "About names", text: "Names never go to a model." }))),
-    notYet(hosted && !hosted.error && hosted.me ? hosted.me.max_airlines : null));
+    ...(spaced ? [] : [notYet(hosted && !hosted.error && hosted.me ? hosted.me.max_airlines : null)]));
 }

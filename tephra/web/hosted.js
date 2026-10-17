@@ -7,6 +7,8 @@
 // Every string goes in through textContent.
 
 import { el, icon } from "./wall/util.js";
+import { infoButton } from "./wall/info.js";
+import { field, checkOnLeave, setError } from "./onboard/form.js";
 import { TENANT, PAGE_BASE } from "./base.js";
 import { call, errorCode, retryMinutes, minutesWords, waitWords } from "./workspace/api.js";
 import { mountTenantNav, onTenantHeader, titleFor, footerWords, ROLE_WORDS } from "./tenant-nav.js";
@@ -18,6 +20,7 @@ export const SETTINGS_TABS = [
   { key: "people", name: "People", icon: "i-user", title: "People" },
   { key: "record", name: "Record", icon: "i-list", title: "Record" },
 ];
+// said to the people who cannot change a setting (an ops manager needs no line saying they can)
 export const SETTINGS_LEAD = "Ops managers change settings. Dispatchers and viewers read them.";
 
 // What the person may do here: `need` is a role; nothing is written while the airline is suspended.
@@ -62,9 +65,18 @@ export const announce = (text) => {
   if (a) { a.textContent = ""; window.setTimeout(() => { a.textContent = text; }, 30); }
 };
 
+// One short line under a heading; `info` (infoButton's options) holds the rest of the explanation.
+export const leadLine = (text, info = null, cls = "body2") =>
+  el("p", { class: `${cls} hlead` }, el("span", { text }), info ? infoButton(info) : null);
+
+// The page heading and its lead: a string, or { text, info } for a lead with its (i).
 export function pageHead(title, lead, ...right) {
-  return el("header", { class: "hhead" }, el("div", {}, el("h1", { class: "h1", id: "page-h", tabindex: "-1", text: title }), lead ? el("p", { class: "body2", text: lead }) : null), ...right);
+  const line = !lead ? null : typeof lead === "string" ? el("p", { class: "body2", text: lead }) : leadLine(lead.text, lead.info);
+  return el("header", { class: "hhead" }, el("div", {}, el("h1", { class: "h1", id: "page-h", tabindex: "-1", text: title }), line), ...right);
 }
+
+// A card heading (h2) with its (i) beside it.
+export const headInfo = (h2, info) => el("span", { class: "hhead2" }, h2, infoButton(info));
 
 // Loading (states.html): skeleton lines and the word, no numbers until real ones arrive.
 export function loadingCard(title) {
@@ -79,13 +91,14 @@ export function failCard(res, h, { title = "Not loaded" } = {}) {
     el("p", { text: errorWords(res, h) }));
 }
 
-// A line under a form or a button that says what happened, in words with a shape.
+// A line under a form or a button that says what happened, in words with a shape: "bad" (the
+// caution colour and triangle: a refusal or a form problem), "ok", or "alarm" (red: a real alarm).
 export function inlineStatus(id) {
   const node = el("p", { id, class: "hstatus", role: "status", hidden: true });
   node.say = (text, tone = "bad") => {
     node.hidden = !text;
     node.dataset.tone = tone;
-    node.replaceChildren(...(text ? [icon(tone === "ok" ? "i-check" : "i-alert"), el("span", { text })] : []));
+    node.replaceChildren(...(text ? [icon(tone === "ok" ? "i-check" : tone === "alarm" ? "i-alert-serious" : "st-caution"), el("span", { text })] : []));
   };
   return node;
 }
@@ -162,26 +175,25 @@ export function openDialog({ id, title, body = [], goText, tone = "primary", go 
   return { dlg, status };
 }
 
-// A reason field (3-300 characters) for the dialogs that ask why.
-export function reasonField(id, label, { min = 3, max = 300, hint = null } = {}) {
-  const area = el("textarea", { id, class: "input textarea", rows: "3", maxlength: String(max), "aria-describedby": `${id}-err${hint ? ` ${id}-hint` : ""}` });
-  const err = el("p", { id: `${id}-err`, class: "err", hidden: true });
-  const node = el("div", { class: "field" }, el("label", { for: id, text: label }), area, hint ? el("p", { id: `${id}-hint`, class: "hint", text: hint }) : null, err);
-  node.value = () => area.value.trim();
-  node.check = () => {
-    const v = area.value.trim();
-    const bad = v.length < min ? `Give a reason of at least ${min} characters.` : v.length > max ? `At most ${max} characters.` : null;
-    area.setAttribute("aria-invalid", bad ? "true" : "false");
-    err.hidden = !bad;
-    err.replaceChildren(...(bad ? [icon("i-alert"), el("span", { text: bad })] : []));
-    if (bad) area.focus();
+// "Not built: <what>." in one line; `info` (infoButton's options) holds what it means for the airline.
+export const notBuiltNote = (text, info = null) =>
+  el("div", { class: "note note--notbuilt" }, icon("i-info"), el("p", {}, el("b", { text: "Not built: " }), text, info ? infoButton(info) : null));
+
+// A labelled field (onboard/form.js field) whose error shows after it is left or on submit, never
+// before, in terse words with the caution shape. `check(value)` returns the words or null;
+// `node.ok()` checks it now (on submit) and focuses it when it is wrong.
+export function checkedField({ id, label, control, check, info = null, rule = null, optional = false }) {
+  const node = field({ id, label, control, info, rule, optional });
+  checkOnLeave(control, () => check(control.value.trim()));
+  node.value = () => control.value.trim();
+  node.ok = () => {
+    const bad = check(control.value.trim());
+    setError(control, bad);
+    if (bad) control.focus();
     return !bad;
   };
   return node;
 }
-
-export const notBuiltNote = (text) => el("div", { class: "note note--notbuilt" }, icon("i-info"), el("p", {}, el("b", { text: "Not built. " }), text));
-export const readOnlyNote = (h) => el("p", { class: "ah-viewer", text: h.state === "suspended" ? `${h.name} is suspended: these pages are read-only.` : SETTINGS_LEAD });
 
 // ------------------------------------------------------------------ the page
 
@@ -193,11 +205,12 @@ const MODULES = {
   record: () => import("./hosted/record.js"),
 };
 
-function settingsShell(tab) {
+function settingsShell(tab, h) {
+  const reader = h.you?.role !== "ops_manager";
   const nav = el("nav", { class: "ws__nav", "aria-label": "Settings" },
     ...SETTINGS_TABS.map((t) => el("a", { href: `${PAGE_BASE}/settings/${t.key}`, "aria-current": t.key === tab ? "page" : null }, icon(t.icon), el("span", { text: t.name }))),
-    el("hr"),
-    el("p", { class: "ws__who", text: SETTINGS_LEAD }));
+    reader ? el("hr") : null,
+    reader ? el("p", { class: "ws__who", text: SETTINGS_LEAD }) : null);
   const main = el("div", { class: "hset__main" });
   return { node: el("div", { class: "hset" }, nav, main), main };
 }
@@ -214,7 +227,7 @@ async function draw(h, where) {
   document.getElementById("foot-words").textContent = footerWords(h);
   let host;
   if (tab) {
-    const shell = settingsShell(tab.key);
+    const shell = settingsShell(tab.key, h);
     main.replaceChildren(shell.node);
     host = shell.main;
   } else {

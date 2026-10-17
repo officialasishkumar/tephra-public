@@ -7,7 +7,8 @@
 import { el, icon } from "../wall/util.js";
 import { api } from "../base.js";
 import { whenWords, hhmmZ, dayMonth, ROLE_WORDS, serverNow, personName } from "../tenant-nav.js";
-import { can, call, errorWords, pageHead, loadingCard, failCard, onceBox, openDialog, inlineStatus, announce, refocus } from "../hosted.js";
+import { input } from "../onboard/form.js";
+import { can, call, errorWords, pageHead, loadingCard, failCard, onceBox, openDialog, inlineStatus, announce, refocus, headInfo, checkedField } from "../hosted.js";
 
 export const TITLE = "People";
 export const lead = (h) => `Who can sign in to ${h.name}'s space. Names never go to a model.`;
@@ -23,7 +24,7 @@ export function inviteWords(invite, link) {
   return {
     lead: el("span", {}, el("b", { text: `Invite link for ${invite.email}, ${ROLE_WORDS[invite.role] || invite.role}.` }), " Shown once."),
     link,
-    words: [`Email sending is not built: send this link yourself. Anyone with the link who gives that email can join as ${role} until ${until}. Emails are not checked.`],
+    words: ["Not built: email sending. Send this link yourself.", `It joins one person as ${role}, until ${until}. Emails are not checked.`],
   };
 }
 
@@ -62,11 +63,13 @@ export function invitesList(p, { editable, onRevoke }) {
   }));
 }
 
+// What each role may do: reference, one tap away (a closed fold that names what is inside).
 export function rolesCard() {
-  return el("div", { class: "roles" },
-    el("div", {}, el("b", {}, icon("i-gauge"), "Ops manager"), "Settings, people, policy acceptance, push keys, starting shadow runs and switching to LIVE. At least one always."),
-    el("div", {}, el("b", {}, icon("i-dispatcher"), "Dispatcher"), "Decides drafts at the Desk: approve, edit, reject. Checks a push with the dry run."),
-    el("div", {}, el("b", {}, icon("i-eye"), "Viewer"), "Reads the map, the Desk and the record. Decides nothing."));
+  return el("details", { class: "rolesfold" }, el("summary", { text: "What each role can do" }),
+    el("div", { class: "roles" },
+      el("div", {}, el("b", {}, icon("i-gauge"), "Ops manager"), "Settings, people, policy acceptance, push keys, starting shadow runs and switching to LIVE. At least one always."),
+      el("div", {}, el("b", {}, icon("i-dispatcher"), "Dispatcher"), "Decides drafts at the Desk: approve, edit, reject. Checks a push with the dry run."),
+      el("div", {}, el("b", {}, icon("i-eye"), "Viewer"), "Reads the map, the Desk and the record. Decides nothing.")));
 }
 
 export function render(h, p, handlers = {}, fresh = null) {
@@ -81,31 +84,34 @@ export function render(h, p, handlers = {}, fresh = null) {
       el("div", { class: "wcard__h" }, el("span", { class: "wcard__ic", "aria-hidden": "true" }, icon("i-user")), el("h2", { id: "mem-h", text: `Members · ${(p.members || []).length}` })),
       membersTable(p, h, { editable, onRole: handlers.role, onRemove: handlers.remove }),
       el("h3", { class: "h3", text: `Open invites · ${(p.invites || []).length}` }),
-      invitesList(p, { editable, onRevoke: handlers.revoke })),
-    rolesCard(),
+      invitesList(p, { editable, onRevoke: handlers.revoke }),
+      rolesCard()),
     el("section", { class: "card wcard", "aria-labelledby": "leave-h" },
-      el("div", { class: "wcard__h" }, el("h2", { id: "leave-h", text: "Leave this airline" })),
-      el("p", { text: `You stop being one of ${h.name}'s people at once, on every device. An ops manager can invite you again.` }),
-      el("div", { class: "wcard__foot" }, leave)),
+      el("div", { class: "wcard__h" }, el("h2", { id: "leave-h", text: "Leave this airline" }), leave)),
   ].filter(Boolean);
 }
 
+// The invite's email: said wrong only after it is left or on submit, in terse words.
+export const emailError = (v) => (!v ? "Required" : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? null : "Not an email");
+export const limitsWords = (p) => `At most ${p.limits?.open_invites ?? 20} open invites and ${p.limits?.members ?? 50} people. A link works once, for 72 hours.`;
+
 function inviteCard(p, h, onInvite, fresh) {
-  const email = el("input", { id: "inv-email", class: "input", type: "email", autocomplete: "off", maxlength: "254" });
+  const email = checkedField({ id: "inv-email", label: "Work email", control: input({ type: "email", autocomplete: "off", maxlength: "254" }), check: emailError });
   const role = el("select", { id: "inv-role", class: "select" }, ...ROLES.map((r) => el("option", { value: r, selected: r === "dispatcher" ? true : null, text: ROLE_WORDS[r] })));
-  const go = el("button", { type: "button", class: "btn btn--primary", text: "Make invite link" });
+  const go = el("button", { type: "submit", class: "btn btn--primary", text: "Make invite link" });
   const status = inlineStatus("inv-status");
-  go.addEventListener("click", () => onInvite({ email, role, go, status }));
+  const form = el("form", { class: "invite", novalidate: true },
+    email,
+    el("div", { class: "field" }, el("label", { for: "inv-role", text: "Role" }), role),
+    go);
+  form.addEventListener("submit", (e) => { e.preventDefault(); onInvite({ email, role, go, status }); });
   const box = fresh ? (() => { const w = inviteWords(fresh.invite, fresh.link); return onceBox(w.lead, w.link, ...w.words); })() : null;
   return el("section", { class: "card wcard", "aria-labelledby": "inv-h" },
-    el("div", { class: "wcard__h" }, el("span", { class: "wcard__ic", "aria-hidden": "true" }, icon("i-plus")), el("h2", { id: "inv-h", text: "Invite someone" })),
-    el("div", { class: "invite" },
-      el("div", { class: "field" }, el("label", { for: "inv-email", text: "Work email" }), email),
-      el("div", { class: "field" }, el("label", { for: "inv-role", text: "Role" }), role),
-      go),
+    el("div", { class: "wcard__h" }, el("span", { class: "wcard__ic", "aria-hidden": "true" }, icon("i-plus")),
+      headInfo(el("h2", { id: "inv-h", text: "Invite someone" }), { topic: "invites", text: limitsWords(p) })),
+    form,
     status,
-    box,
-    el("p", { class: "hint", text: `At most ${p.limits?.open_invites ?? 20} open invites and ${p.limits?.members ?? 50} people. A link works once and for 72 hours; joining asks for the invite's email, which TEPHRA does not check.` }));
+    box);
 }
 
 // ------------------------------------------------------------------ the page
@@ -128,8 +134,9 @@ function draw(host, h, p, fresh = null) {
   };
   host.replaceChildren(...render(h, p, {
     invite: async ({ email, role, go, status }) => {
-      const e = email.value.trim();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) { status.say("Give a work email."); email.focus(); return; }
+      status.say("");
+      if (!email.ok()) return;
+      const e = email.value();
       go.disabled = true;
       const res = await call(api("/tenant/people/invites"), { method: "POST", body: { email: e, role: role.value } });
       go.disabled = false;
@@ -149,7 +156,7 @@ function draw(host, h, p, fresh = null) {
     },
     remove: (m) => openDialog({
       id: "prm", title: `Remove ${m.name}?`, goText: `Remove ${m.name}`, tone: "serious",
-      body: [el("p", { class: "body2", text: `${m.name} is signed out of ${h.name} at once. Their decisions stay in the record under their name. Their open invites are revoked.` })],
+      body: [el("p", { class: "body2", text: `${m.name} is signed out at once and their open invites are revoked. Their decisions stay in the record.` })],
       go: async (status) => {
         const res = await call(api(`/tenant/people/${encodeURIComponent(m.id)}/remove`), { method: "POST", body: {} });
         if (res.ok && res.data) { again(res.data); announce(`${m.name} removed.`); return true; }
@@ -163,7 +170,7 @@ function draw(host, h, p, fresh = null) {
     },
     leave: () => openDialog({
       id: "pleave", title: `Leave ${h.name}?`, goText: `Leave ${h.name}`, tone: "serious",
-      body: [el("p", { class: "body2", text: "You lose access to its map, Desk, feeds and settings at once." })],
+      body: [el("p", { class: "body2", text: "You lose access at once, on every device. An ops manager can invite you again." })],
       go: async (status) => {
         const res = await call(api("/tenant/people/me/leave"), { method: "POST", body: {} });
         if (res.status === 204 || res.ok) { location.assign("/workspace"); return true; }

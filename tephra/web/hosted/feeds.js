@@ -1,17 +1,24 @@
 // Feeds /a/<ICAO>/feeds (SPEC-FINAL 5.5, mockup a-feeds.html): what the airline's systems push, as
 // it arrives. Three cards (positions, flight plans, pilot reports) from GET /api/tenant/feeds, the
-// push keys (ops managers) and the shared dry run. In setup a push is checked and counted, never
+// push keys (ops managers), the uploader (kit/push.py, members only) and the shared dry run. In setup a push is checked and counted, never
 // taken in, and the page says so. Counts are kept in memory since `counted_since`; refused records
 // are not stored, so the cards give reasons and counts only. Every string goes in through el().
 
 import { el, icon } from "../wall/util.js";
+import { infoButton } from "../wall/info.js";
 import { api } from "../base.js";
 import { mountDryRun } from "../dryrun.js";
 import { personName, dayMonth, hhmmZ, serverNow } from "../tenant-nav.js";
-import { can, call, errorWords, pageHead, loadingCard, failCard, onceBox, openDialog, inlineStatus, notBuiltNote, announce, refocus } from "../hosted.js";
+import { input } from "../onboard/form.js";
+import { can, call, errorWords, pageHead, loadingCard, failCard, onceBox, openDialog, inlineStatus, notBuiltNote, announce, refocus, headInfo, checkedField } from "../hosted.js";
 
-export const LEAD = "What your systems push to TEPHRA, as it arrives. Public feeds (ash reports, satellite, winds) are on the map, under Details › Data feeds.";
+export const LEAD = { text: "What your systems push, as it arrives.", info: { topic: "feeds", text: "Public feeds (ash reports, satellite, winds) are on the map, under Details › Data feeds." } };
 export const SETUP_STRIP = "Checked, not taken in: TEPHRA starts in SHADOW from your workspace.";
+// the uploader (tephra/web/kit/push.py), served to the airline's people only
+export const UPLOADER = "/tenant/feeds/uploader";
+export const UPLOADER_INFO = "push.py sends your flight plans and positions with a push key. Python 3, nothing to install; --dry-run sends nothing.";
+export const NOT_BUILT = "schedule upload, counts kept over a restart, a grace window for a rotated key.";
+export const KEYS_INFO = "Rotate makes a new key and stops the old one at once. Revoke stops a key at once.";
 const FEEDS = {
   positions: { name: "Positions", icon: "i-aircraft", unit: ["record", "records"] },
   flight_plans: { name: "Flight plans", icon: "i-route", unit: ["record", "records"] },
@@ -69,14 +76,14 @@ export function feedCard(card, { now, countedSince, takenIn, suspended = false }
       el("h2", { id: `fc-${card.feed}`, text: f.name }),
       el("span", { class: `status status--${st.tone}` }, icon(st.icon), el("span", { text: st.word }))),
     st.empty
-      ? el("p", { class: "fnone", text: st.suspended ? "Pushes are refused until TEPHRA's operators resume your airline." : st.undeclared ? "Your onboarding answers do not list this feed." : card.optional ? "Optional. Crews report ash rarely; a quiet hour is normal." : "Make a push key below, check a file with the dry run, then point your push script at the address." })
+      ? (st.suspended ? null : el("p", { class: "fnone", text: st.undeclared ? "Your onboarding answers do not list this feed." : card.optional ? "Optional. Crews report ash rarely; a quiet hour is normal." : "Make a push key below, then send with the uploader." }))
       : el("dl", { class: "fstat" },
         el("dt", { text: "Last received" }), el("dd", {}, receivedAt(last, now), Number.isFinite(last) ? el("small", { text: ago((now - last) / 1000) }) : null),
         el("dt", { text: lastHour }), el("dd", { text: `${num(card.records_last_hour)} ${Number(card.records_last_hour) === 1 ? f.unit[0] : f.unit[1]}` }),
         el("dt", { text: "Refused" }), el("dd", {}, refused ? el("span", { class: "bad", text: num(refused) }) : "0")),
     reasons.length ? el("ul", { class: "freasons", "aria-label": `Why ${f.name.toLowerCase()} were refused` },
       ...reasons.map((r) => el("li", {}, el("span", { text: r.reason }), el("b", { text: num(r.count) })))) : null,
-    st.alarm ? el("p", { class: "falarm", text: "Your flights are on the map at their last position. TEPHRA cannot say which are heading into ash until positions arrive." }) : null,
+    st.alarm ? el("p", { class: "falarm", text: "Your flights are on the map at their last position. Which head into ash is unknown until positions arrive." }) : null,
     !st.empty && card.optional ? el("p", { class: "fnone", text: "Optional. Crews report ash rarely; a quiet hour is normal." }) : null,
     st.undeclared && !st.empty ? el("p", { class: "fnone", text: "Your onboarding answers do not list this feed." }) : null);
 }
@@ -137,54 +144,57 @@ function draw(host, h, view, fresh = null) {
   const newKey = el("button", { type: "button", class: "btn btn--secondary btn--sm" }, icon("i-plus"), el("span", { text: "New push key" }));
   newKey.addEventListener("click", () => newKeyDialog(h, (made) => reload(made)));
   const address = `${location.origin}${view.push_url}`;
+  const heading = el("h2", { id: "keys-h", text: "Push keys" });
   keys.append(...[
-    el("div", { class: "wcard__h" }, el("span", { class: "wcard__ic", "aria-hidden": "true" }, icon("i-lock")), el("h2", { id: "keys-h", text: "Push keys" }), ops ? newKey : null),
+    el("div", { class: "wcard__h" }, el("span", { class: "wcard__ic", "aria-hidden": "true" }, icon("i-lock")),
+      ops ? headInfo(heading, { topic: "push keys", text: KEYS_INFO }) : heading,
+      el("span", { class: "wcard__acts" }, uploaderLink(), ops ? newKey : null)),
     el("div", { class: "endpoint" }, el("span", { class: "verb", text: "POST" }), el("code", { text: address }),
       el("span", { class: "tdim" }, "format ", el("code", { text: "tephra.airline/1" })),
       el("a", { class: "link body2", href: api("/connect/schema.json"), download: "" }, el("span", { text: "Schema (JSON)" }), icon("i-external-link"))),
-    fresh ? onceBox(el("span", {}, el("b", { text: `${fresh.rotated ? "New key for" : "New key"} “${fresh.name}”.` }), " Shown once: copy it into your push script now."), fresh.key,
-      `TEPHRA keeps only its fingerprint.${fresh.rotated ? " The old key stopped at once." : ""}`) : null,
+    fresh ? onceBox(el("span", {}, el("b", { text: `${fresh.rotated ? "New key for" : "New key"} “${fresh.name}”.` }), " Shown once: copy it now."), fresh.key,
+      `TEPHRA keeps only its fingerprint.${fresh.rotated ? " The old key stopped." : ""}`) : null,
     ops
       ? (view.keys || []).length
         ? keysTable(view.keys, { ...opts, editable: true, onRotate: (k) => rotateDialog(h, k, (made) => reload(made)), onRevoke: (k) => revokeDialog(h, k, () => reload(null)) })
-        : el("p", { class: "body2", text: "No push key yet. Make one, then send with it from your own systems." })
+        : el("p", { class: "body2", text: "No push key yet." })
       : el("p", { class: "body2", text: "Ops managers make, rotate and revoke push keys." }),
-    ops ? el("p", { class: "hint", text: "Rotate makes a new key and stops the old one at once. Revoke stops a key at once." }) : null,
     status].filter(Boolean));
+  // suspended: the red line under the header says pushes are refused, and each card says so
   host.replaceChildren(...[
     pageHead("Feeds", LEAD),
-    suspended ? el("p", { class: "fsetup", role: "status" }, el("span", {}, el("b", { text: "Pushes refused:" }), ` TEPHRA's operators suspended ${h.name}. Nothing pushed is checked or taken in until they resume it.`))
-      : view.taken_in ? null : el("p", { class: "fsetup", role: "status" }, el("span", {}, el("b", { text: "Checked, not taken in:" }), " TEPHRA starts in SHADOW from your workspace. "), el("a", { class: "link", href: "/workspace", text: "Your workspace ›" })),
+    suspended || view.taken_in ? null : el("p", { class: "fsetup", role: "status" }, el("span", {}, el("b", { text: "Checked, not taken in:" }), " TEPHRA starts in SHADOW from your workspace. "), el("a", { class: "link", href: "/workspace", text: "Your workspace ›" })),
     el("div", { class: "fcards" }, ...(view.cards || []).map((c) => feedCard(c, opts))),
     keys].filter(Boolean));
   if (can(h, "dispatcher")) mountDryRun(host, { path: api("/tenant/feeds/dry-run"), info: "Each record is checked as a real push would be. Nothing is taken in." });
-  host.append(notBuiltNote(`Uploading your own schedule (flights.json) here: your flights are named by your pushed flight plans, callsigns and registrations. Counts survive no restart: these cards count since ${hhmmZ(ms(view.counted_since))}. A rotated key has no grace window.`));
+  // each not-built item and what it means here, in the note's order
+  host.append(notBuiltNote(NOT_BUILT, { topic: "what is not built", text: [
+    "No schedule upload: your flights are named by your pushed flight plans, callsigns and registrations.",
+    `Counts start again when TEPHRA restarts: these cards count since ${hhmmZ(ms(view.counted_since))}.`,
+    "A rotated or revoked key stops working at once.",
+  ] }));
 }
 
+// The uploader, for every member: a file, never a page (Content-Disposition: attachment).
+export function uploaderLink() {
+  return el("span", { class: "chipinfo" },
+    el("a", { class: "btn btn--quiet btn--sm", href: api(UPLOADER), download: "push.py" }, icon("i-file"), el("span", { text: "Download uploader" })),
+    infoButton({ topic: "the uploader", text: UPLOADER_INFO }));
+}
+
+// A key's name: 2 to 48 characters (the server's rule), said in the label.
+export const keyNameError = (v) => (!v ? "Required" : v.length < 2 ? "2+ characters" : null);
 function keyName(id) {
-  const input = el("input", { id, class: "input", type: "text", maxlength: "48", autocomplete: "off", "aria-describedby": `${id}-hint ${id}-err` });
-  const err = el("p", { id: `${id}-err`, class: "err", hidden: true });
-  const node = el("div", { class: "field" }, el("label", { for: id, text: "Name" }), input, el("p", { id: `${id}-hint`, class: "hint", text: "2 to 48 characters, to tell your keys apart (for example ops-feed-2)." }), err);
-  node.value = () => input.value.trim();
-  node.check = () => {
-    const v = input.value.trim();
-    const bad = v.length < 2 ? "Give the key a name of at least 2 characters." : null;
-    input.setAttribute("aria-invalid", bad ? "true" : "false");
-    err.hidden = !bad;
-    err.replaceChildren(...(bad ? [icon("i-alert"), el("span", { text: bad })] : []));
-    if (bad) input.focus();
-    return !bad;
-  };
-  return node;
+  return checkedField({ id, label: "Name · 2-48 characters", control: input({ maxlength: "48", autocomplete: "off", placeholder: "ops-feed-2" }), check: keyNameError });
 }
 
 function newKeyDialog(h, done) {
   const name = keyName("key-name");
   openDialog({
     id: "newkey", title: "New push key", goText: "Make the key",
-    body: [el("p", { class: "body2", text: "The key is shown once, when it is made. TEPHRA keeps only its fingerprint." }), name],
+    body: [name],
     go: async (status) => {
-      if (!name.check()) return false;
+      if (!name.ok()) return false;
       const res = await call(api("/tenant/keys"), { method: "POST", body: { name: name.value() } });
       if (res.ok && res.data?.key) {
         done({ name: res.data.name, key: res.data.key });
@@ -200,7 +210,7 @@ function newKeyDialog(h, done) {
 function rotateDialog(h, k, done) {
   openDialog({
     id: "rotate", title: `Rotate “${k.name}”?`, goText: "Rotate the key",
-    body: [el("p", { class: "body2", text: `A new key is made and shown once. The old key (…${k.key_hint}) stops at once, so a script still using it is refused until it has the new one.` })],
+    body: [el("p", { class: "body2", text: `The old key (…${k.key_hint}) stops at once. The new one is shown once.` })],
     go: async (status) => {
       const res = await call(api(`/tenant/keys/${encodeURIComponent(k.id)}/rotate`), { method: "POST", body: {} });
       if (res.ok && res.data?.key) {
@@ -217,7 +227,7 @@ function rotateDialog(h, k, done) {
 function revokeDialog(h, k, done) {
   openDialog({
     id: "revoke", title: `Revoke “${k.name}”?`, goText: "Revoke the key", tone: "serious",
-    body: [el("p", { class: "body2", text: `The key (…${k.key_hint}) stops at once. Pushes with it are refused. This cannot be undone.` })],
+    body: [el("p", { class: "body2", text: `The key (…${k.key_hint}) stops at once. This cannot be undone.` })],
     go: async (status) => {
       const res = await call(api(`/tenant/keys/${encodeURIComponent(k.id)}/revoke`), { method: "POST", body: {} });
       if (res.ok) {

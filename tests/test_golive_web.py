@@ -283,6 +283,17 @@ const words = (n) => (n instanceof Text
   ? n.data
   : n.childNodes.map((c) => (c instanceof Text ? c.data : ` ${words(c)} `)).join(""));
 globalThis.text = (n) => words(n).replace(/\s+/g, " ").replace(/ ([,.;:)])/g, "$1").trim();
+// what a sighted reader sees before opening anything: no (i) words, no screen-reader-only text
+const seenWords = (n) => (n instanceof Text
+  ? n.data
+  : n.classList.contains("info") || n.classList.contains("sr-only")
+    ? " "
+    : n.childNodes.map((c) => (c instanceof Text ? c.data : ` ${seenWords(c)} `)).join(""));
+globalThis.seen = (n) => seenWords(n).replace(/\s+/g, " ").replace(/ ([,.;:)])/g, "$1").trim();
+// each (i) as [topic, its words]
+globalThis.infos = (n) => n.querySelectorAll(".info").map((i) => [
+  i.querySelector("button").getAttribute("data-info"), text(i.querySelector(".sr-only")),
+]);
 """
 
 
@@ -331,6 +342,8 @@ const start = m.querySelector("#gl-start");
 out({
   text: text(m),
   golive: gl ? text(gl) : null,
+  seen: gl ? seen(gl) : null,
+  infos: gl ? infos(gl) : [],
   buttons: [...m.querySelectorAll("button")].map((b) => text(b)),
   start: start
     ? { disabled: start.disabled, describedby: start.getAttribute("aria-describedby") }
@@ -399,7 +412,14 @@ def test_desk_verified_airline_waits_for_the_operators(tmp_path: Path) -> None:
 def test_an_approved_airline_sets_up_once_with_its_name(tmp_path: Path) -> None:
     r = _overview(tmp_path, "can-set-up")
     assert r["golive"].startswith("Go live on TEPHRA")
-    assert "Only the people you invite can sign in to it." in r["golive"]
+    # one short line on the card; what the space is, and why the name, behind their (i)
+    assert "TEPHRA on your flights, for the people you invite." in r["seen"]
+    assert "No one else can sign in to it." not in r["seen"]
+    infos = dict(r["infos"])
+    # the (i) says what the line does not, never "the people you invite" again (merge verify)
+    assert "No one else can sign in to it." in infos["your space"]
+    assert "people you invite" not in infos["your space"]
+    assert "Your dispatchers see it on your decisions" in infos["your name"]
     assert "Your name on TEPHRA" in r["golive"]
     assert "Set up TEPHRA for Ring of Fire Charter" in r["buttons"]
     # the site's own limit (TEPHRA_HOSTED_MAX_TENANTS=2 in this fixture), never a fixed 3
@@ -468,7 +488,14 @@ def test_setup_shows_the_checklist_region_places_and_why_start_waits(tmp_path: P
     assert "Region: Java / Bali · from your network's airports" in g
     assert not r["regionSelect"]
     assert "2 of 3 airline places in use" in g
-    assert "Every draft says Shadow · not for use." in g
+    assert "First. Every draft says Shadow · not for use." in r["seen"]
+    infos = dict(r["infos"])
+    assert "your dispatchers decide its drafts at the Desk" in infos["shadow runs"]
+    assert "The switch is recorded with a name and a time." in infos["LIVE"]
+    assert "decide its drafts" not in r["seen"]
+    # the places line says the site's limit here: the workspace's not-built line is not repeated
+    assert NOT_BUILT_HOSTED not in r["text"]
+    assert NOT_BUILT not in r["text"]
     assert r["start"] == {"disabled": True, "describedby": "gl-why"}
     assert r["why"] == "Finish the checklist: 2 of 4 still open."
     assert "tephra.example/a/RFB/" in g
@@ -479,10 +506,7 @@ def test_start_is_open_at_four_of_four_and_only_for_ops_managers(tmp_path: Path)
     r = _overview(tmp_path, "setup", "header-setup", "golive-setup-4of4")
     assert "4 of 4 ready" in r["golive"]
     assert r["start"]["disabled"] is False
-    assert (
-        r["why"]
-        == "Ops managers only. You can stop at any time; starting and stopping are in your record."
-    )
+    assert r["why"] == "Recorded with your name. You can stop at any time."
     viewer = _overview(tmp_path, "setup", "header-setup-dispatcher", "golive-setup-4of4")
     assert viewer["start"] is None
     assert "Start shadow runs" not in viewer["buttons"]
@@ -506,10 +530,7 @@ def test_an_open_checklist_on_a_full_site_says_both(tmp_path: Path) -> None:
     g = fixture("workspace", "golive-setup-2of4")
     g["slots"] = {"used": g["slots"]["max"], "max": g["slots"]["max"]}
     r = _overview(tmp_path, "setup", "header-setup", routes={GOLIVE: _ok(g)})
-    assert r["why"] == (
-        "Finish the checklist: 2 of 4 still open. Every airline place on this site is in use as "
-        "well; TEPHRA's operators see when you are ready."
-    )
+    assert r["why"] == "Finish the checklist: 2 of 4 still open. No airline place is free either."
 
 
 def test_once_set_up_only_the_answers_stay_beside_go_live(tmp_path: Path) -> None:
@@ -522,6 +543,7 @@ def test_once_set_up_only_the_answers_stay_beside_go_live(tmp_path: Path) -> Non
     assert "Dry run" not in r["text"]
     assert "Public ADS-B only" not in r["text"]
     assert "kit" not in r["text"].lower()
+    assert "at once on this site" not in r["text"]  # said by the places line
     before = _overview(tmp_path, "can-set-up")
     assert "1 approver" in before["text"]
     assert "Dry run" in before["text"]
@@ -598,6 +620,8 @@ def test_shadow_and_live_say_since_when_and_give_ops_managers_their_switches(
     assert {"Switch to LIVE…", "Stop shadow runs…"} <= set(shadow["buttons"])
     assert "Back to SHADOW…" not in shadow["buttons"]
     assert shadow["calls"] == [ME, HEADER]
+    # running: the site's limit no longer concerns the airline, so the not-built line goes
+    assert "at once on this site" not in shadow["text"]
     live = _overview(tmp_path, "live", "header-live")
     assert ["sbadge sbadge--live", "LIVE"] in live["badges"]
     assert "Live since 17 Oct, 14:02 UTC, switched by Ana Ops." in live["golive"]
@@ -622,9 +646,11 @@ def test_suspended_says_who_when_why_and_the_delete_date(tmp_path: Path) -> None
     assert ["sbadge sbadge--suspended", "SUSPENDED"] in r["badges"]
     assert (
         "TEPHRA's operators suspended Ring of Fire Charter on 17 Oct, 13:40 UTC: Positions pushed "
-        "for aircraft outside your fleet. Runs are stopped and pushes are refused. Your settings, "
-        "people, keys and record are kept. TEPHRA's operators can delete your data from 24 Oct, "
-        "13:40 UTC; nothing deletes it on its own." in r["golive"]
+        "for aircraft outside your fleet. Runs are stopped and pushes are refused." in r["seen"]
+    )
+    assert dict(r["infos"])["your data"] == (
+        "Your settings, people, keys and record are kept. TEPHRA's operators can delete your "
+        "data from 24 Oct, 13:40 UTC; nothing deletes it on its own."
     )
     assert "Contact TEPHRA" in r["golive"]
     assert not {"Switch to LIVE…", "Stop shadow runs…", "Back to SHADOW…", "Stop TEPHRA…"} & set(
@@ -647,16 +673,21 @@ const m = main();
 let done = 0;
 liveDialog("RFB", DATA.header, () => { done += 1; });
 const dlg = document.getElementById("ob-dlg");
-const shown = { open: dlg.open, text: text(dlg), labelled: dlg.getAttribute("aria-labelledby") };
+const shown = {
+  open: dlg.open, text: text(dlg), seen: seen(dlg), infos: infos(dlg),
+  labelled: dlg.getAttribute("aria-labelledby"),
+};
 const typed = dlg.querySelector("#live-icao");
 const attest = dlg.querySelector("#live-attest");
 const go = dlg.querySelector('button[type="submit"]');
 go.click(); await tick();
 const unticked = CALLS.length;
+const errors = dlg.querySelectorAll(".err:not([hidden])").map(text);
 attest.checked = true; typed.value = "rfb"; go.click(); await tick();
 const lower = CALLS.length;
+const lowerErrors = dlg.querySelectorAll(".err:not([hidden])").map(text);
 typed.value = "RFB"; go.click(); await tick(); await tick();
-out({ shown, unticked, lower, calls: CALLS, done, open: dlg.open });
+out({ shown, unticked, lower, errors, lowerErrors, calls: CALLS, done, open: dlg.open });
 """
 
 
@@ -670,11 +701,16 @@ def test_switch_to_live_needs_the_attestation_and_the_typed_code(tmp_path: Path)
         "Drafts stop saying Shadow · not for use, and your dispatchers may use the advisories "
         "they approve in your operation." in t
     )
-    assert (
-        "TEPHRA still sends nothing to an aircraft or to any system. An approved advisory goes to "
-        "your outbound list; a person passes it on." in t
+    seen = r["shown"]["seen"]
+    infos = dict(r["shown"]["infos"])
+    # decision support, said in this dialog: the line on screen, where the advisory goes behind (i)
+    assert "TEPHRA still sends nothing to an aircraft or to any system." in seen
+    assert infos["approved advisories"] == (
+        "An approved advisory goes to your outbound list; a person passes it on."
     )
-    assert "Ash policy v2 is ILLUSTRATIVE: its acceptance under your SRA is not recorded." in t
+    assert "Ash policy v2 is ILLUSTRATIVE: its acceptance under your SRA is not recorded." in seen
+    assert "Record it" in seen
+    assert infos["ILLUSTRATIVE"] == "Every draft says so until you record it in Settings › Policy."  # noqa: RUF001
     assert (
         "I am Ring of Fire Charter's ops manager and may put TEPHRA's drafts into our operation."
         in t
@@ -682,7 +718,9 @@ def test_switch_to_live_needs_the_attestation_and_the_typed_code(tmp_path: Path)
     assert "Type RFB to confirm" in t
     assert "Goes into your record Switched to LIVE by Ana Ops (Ops manager)," in t
     assert r["unticked"] == 0
+    assert r["errors"] == ["Tick to continue", "Required"]  # terse (declutter, 17 Oct 2026)
     assert r["lower"] == 0
+    assert r["lowerErrors"] == ["Type RFB"]
     assert r["calls"] == [
         {
             "method": "POST",
@@ -704,8 +742,10 @@ const box = dlg.querySelector("textarea");
 const go = dlg.querySelector('button[type="submit"]');
 box.value = "x"; go.click(); await tick();
 const short = CALLS.length;
+const shortErrors = dlg.querySelectorAll(".err:not([hidden])").map(text);
+const shown = { seen: seen(dlg), infos: infos(dlg) };
 box.value = "  Fleet maintenance week "; go.click(); await tick();
-out({ text: text(dlg), short, calls: CALLS });
+out({ text: text(dlg), short, shortErrors, shown, calls: CALLS });
 """
 
 
@@ -716,7 +756,12 @@ def test_back_to_shadow_and_stop_need_a_reason(tmp_path: Path) -> None:
         {"header": fixture("workspace", "header-live"), "kind": "shadow", "path": "shadow"},
     )
     assert back["short"] == 0
+    assert back["shortErrors"] == ["3 to 300 characters"]
     assert "Put Ring of Fire Charter back to SHADOW?" in back["text"]
+    assert "New drafts say Shadow · not for use again." in back["shown"]["seen"]
+    assert dict(back["shown"]["infos"])["back to SHADOW"] == (
+        "What was approved in LIVE stays as it was."
+    )
     assert back["calls"] == [
         {
             "method": "POST",
@@ -730,7 +775,12 @@ def test_back_to_shadow_and_stop_need_a_reason(tmp_path: Path) -> None:
         {"header": fixture("workspace", "header-shadow"), "kind": "stop", "path": "stop"},
     )
     assert "Stop shadow runs for Ring of Fire Charter?" in stop["text"]
-    assert "the airline place is freed" in stop["text"]
+    assert "Runs end and the airline place is freed." in stop["shown"]["seen"]
+    assert (
+        "Your settings, people, keys and record are kept"
+        in dict(stop["shown"]["infos"])["stopping"]
+    )
+    assert "Your settings" not in stop["shown"]["seen"]
     assert stop["calls"][0]["path"] == "/a/RFB/api/tenant/stop"
     live_stop = run_node(
         tmp_path,
@@ -755,6 +805,10 @@ def test_workspace_page_wiring() -> None:
     assert "S.joinToken = takeToken();\n  inlineSprite();" in js  # before any request or render
     assert 'if (me.status === 404 && errorCode(me) === "no_airline_record")' in js
     assert 'view.status === "verified" && has("hosted")' in js
+    # once the airline has its space, the space's Feeds and Assistant replace the onboarding's
+    assert 'const SPACE_PAGE = { feeds: "/feeds", assistant: "/settings/assistant" };' in js
+    assert "location.replace(spacePath(space, SPACE_PAGE[section]));" in js
+    assert "SECTIONS.filter(([k]) => !(space && SPACE_PAGE[k]))" in js
     html = (WEB / "workspace.html").read_text(encoding="utf-8")
     assert '<link rel="stylesheet" href="/static/tenant.css">' in html
     feeds = (WEB / "workspace" / "feeds.js").read_text(encoding="utf-8")

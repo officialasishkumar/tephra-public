@@ -294,7 +294,7 @@ function storyModel(D, store, sit) {
       const outcome = plumeOutcome(sit.assessment?.outcome, sit.assessment?.estimate?.uncertainty_notes);
       tail = stub || outcome === "STUB" ? "TEPHRA's estimate has not been widened."
         : outcome === "PENDING" ? "TEPHRA's estimate has not been widened yet (Plume reader waiting)."
-          : outcome === "UNAVAILABLE" ? "TEPHRA's estimate has not been widened (Plume reader did not run: AI UNAVAILABLE)."
+          : outcome === "UNAVAILABLE" ? "TEPHRA's estimate has not been widened (Plume reader did not run)."
             : outcome === "MODEL_FAILED" ? "TEPHRA's estimate has not been widened (Plume reader gave no result)." : "TEPHRA's estimate has not been widened.";
     }
     m.lines.push({ text: `The sources disagree on where the ash is heading, ${Math.round(dir.magnitude)}° apart.`, sub: tail, mark: "disagree", act: "disagree" });
