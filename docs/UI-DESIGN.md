@@ -1,7 +1,7 @@
 # TEPHRA UI design spec: the Wall and the Desk
 
 Version 3, 12 Oct 2026. Owner: lead product designer. Builders implement this document;
-reviewers check the result against it. Where this spec and the code disagree, the spec wins until
+critics assess the result against it. Where this spec and the code disagree, the spec wins until
 it is changed here. Version 3 records the redesign ("The Story") of the Wall and the Desk: its
 source and full rationale is `docs/UI-REDESIGN.md`, and the sections below describe both pages as
 built from it (the Desk in 4.5-4.7 and 10.1-10.14). Version 3.1 (12 Oct 2026) adds crew (pilot)
