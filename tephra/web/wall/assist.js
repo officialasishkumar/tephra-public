@@ -6,6 +6,7 @@
 // (tests/test_wall_assist.py). A row or a step is never invented: with no steps the panel says so.
 
 import { foldRows, hmsOf, HELPERS, FEED_NAMES, REFUSED, TOOLISH } from "./board.js";
+import { templateText } from "./x-parts.js";
 
 // The five steps' keys in order (five-steps.js holds their words): a step's number is its place.
 export const STAGES = ["feeds", "code", "ai", "desk", "record"];
@@ -61,9 +62,17 @@ function resultOf(row) {
 
 // One row as the panel shows it. `at` places it on the playhead; `tm` is the record's own time,
 // the one shown.
+// A step a code template wrote (the offline stub) drops its "(code only)" words and the assistant's
+// name for the small "{ }" mark (`code`): the AI-off state is said once, in the tab bar.
 export function rowView(row) {
   const [actor, kind] = actorOf(row);
-  return { key: row.key, at: row.at, tm: row.tm ?? row.at, stage: stageOf(row), actor, kind, text: row.text, result: resultOf(row) };
+  const t = templateText(row.text);
+  const code = t.code || (row.items || []).some((e) => e.actor === "stub");
+  // the row names its actor once: "Aircraft positions · public feed / Read (adsb.lol)", not
+  // "... / Aircraft positions read (adsb.lol)" (UX verify, 17 Oct)
+  const text = actor && t.text.startsWith(`${actor} `) && t.text.length > actor.length + 1
+    ? `${t.text.charAt(actor.length + 1).toUpperCase()}${t.text.slice(actor.length + 2)}` : t.text;
+  return { key: row.key, at: row.at, tm: row.tm ?? row.at, stage: stageOf(row), actor, kind: code && kind === ASSISTANT ? null : kind, text, code, result: resultOf(row) };
 }
 
 // Every row at or before the playhead `t`, newest first.
@@ -110,33 +119,23 @@ export function playerWords(M, P) {
   const time = Number.isFinite(at) ? hmsOf(at) : null;
   const pace = P.rm ? "one step at a time" : `at ${PLAY_SPEED}x`;
   if (P.mode === "waiting") {
-    return { live: false, lead: "Replay", text: "about to catch up: TEPHRA's last steps, fast", time: null, action: "pause", button: "Pause the steps",
+    return { live: false, lead: "Replay", text: "about to catch up", time: null, action: "pause", button: "Pause the steps",
       valuetext: "the newest step, about to catch up" };
   }
   if (P.mode === "catchup") {
-    return { live: false, lead: "Replay", text: "catching up: TEPHRA's last steps, fast", time, action: "pause", button: "Pause the steps",
+    return { live: false, lead: "Replay", text: "catching up", time, action: "pause", button: "Pause the steps",
       valuetext: `step at replay clock ${time || "--:--:--"}, catching up` };
   }
   if (P.mode === "paused") {
-    return { live: false, lead: "Replay", text: `steps paused at ${time || "--:--:--"} (the replay clock runs on)`, time: null, action: "play", button: `Play the steps from ${time || "the start"}`,
+    return { live: false, lead: "Replay", text: `paused at ${time || "--:--:--"}, replay clock runs on`, time: null, action: "play", button: `Play the steps from ${time || "the start"}`,
       valuetext: `step at replay clock ${time || "--:--:--"}` };
   }
   if (P.mode === "playing") {
     return { live: false, lead: "Replay", text: `playing back from ${hmsOf(P.from)} ${pace}`, time, action: "pause", button: "Pause the steps",
       valuetext: `step at replay clock ${time}` };
   }
-  return { live: false, lead: "Replay", text: "following the replay clock", time, action: "pause", button: "Pause the steps",
+  return { live: false, lead: "Replay", text: "following the clock", time, action: "pause", button: "Pause the steps",
     valuetext: `step at replay clock ${time || "--:--:--"}, the newest step` };
-}
-
-// The panel's state line from the assistant's state words (x-parts aiWords) and the stub flag:
-// with no model it says NO MODEL (never removed), else the one state word with its shape and,
-// when paused or in trouble, a way to the cause.
-export function stateLine(w, { stub = false, kind = "on" } = {}) {
-  if (stub || kind === "off") return { strong: "NO MODEL", text: "offline stub: code checks still run", tone: "off", icon: "st-off", why: false };
-  if (kind === "paused") return { strong: null, text: w?.suffix || "paused", tone: "caution", icon: "st-caution", why: true };
-  if (kind === "trouble") return { strong: null, text: w?.suffix || "gave no result", tone: "caution", icon: "st-caution", why: true };
-  return { strong: null, text: w?.suffix || "on", tone: "ok", icon: "st-ok", why: false };
 }
 
 // What the screen reader hears for a new step (at most one every 10 s, the panel's rule), and for

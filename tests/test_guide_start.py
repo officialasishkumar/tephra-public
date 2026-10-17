@@ -35,12 +35,12 @@ WEB_TREE = [
 
 def test_the_guide_has_one_h1_and_start_here_comes_first() -> None:
     assert GUIDE.count("<h1") == 1
-    assert "TEPHRA: a volcanic-ash decision desk" in GUIDE
+    assert '<h1 id="start-h" class="guide__title">A volcanic-ash decision desk</h1>' in GUIDE
     start = GUIDE.index('id="start"')
     # the static block, then the tour (UI-DESIGN 7.29), then Try it, then the folds guide.js fills
     tour = GUIDE.index('id="tour-wall"')
     assert start < tour < GUIDE.index('id="try"') < GUIDE.index('id="more"')
-    assert GUIDE.index('href="#start">Start here') < GUIDE.index('href="#read">Map key')
+    assert GUIDE.index('href="#start">Start') < GUIDE.index('href="#read">Map key')
     # guide.js fills Map key first, then How it works
     read = GUIDE_JS.index('getElementById("read-body")')
     assert read < GUIDE_JS.index('getElementById("how-body")')
@@ -59,18 +59,21 @@ def test_the_case_paragraph_comes_from_the_wall_s_one_source() -> None:
 
 
 def test_the_try_it_steps_carry_the_links() -> None:
-    assert "Try it in three minutes" in GUIDE
-    for href in (
-        'href="/demo"',
-        'href="/demo#details-disagree"',
-        'href="/demo#details-estimate"',
-        'href="/assistant"',
-        'href="/desk"',
-        'href="/demo#track-record"',
-        'href="#policy"',
-    ):
-        assert href in GUIDE, href
-    assert "<b>Open the demo</b><span>Press Start, then F to fit the volcano</span>" in GUIDE
+    """Five steps of five words or fewer, no sub-lines (TEXT-SPEC G6)."""
+    assert "Try it in 3 minutes" in GUIDE
+    try_ = GUIDE[GUIDE.index('id="try"') : GUIDE.index('id="more"')]
+    steps = re.findall(r'<a href="([^"]+)"><b>([^<]+)</b></a>', try_)
+    assert steps == [
+        ("/demo", "Open the demo, press Start"),
+        ("/demo#details-disagree", "See where sources disagree"),
+        ("/assistant", "Watch the Assistant"),
+        ("/desk", "Decide on the Desk"),
+        ("/demo#track-record", "Check the track record"),
+    ]
+    for _, words in steps:
+        assert len(words.split()) <= 5, words
+    assert "<span>" not in try_
+    assert 'el("span", { text: "Hold to approve, then open Record" })' not in GUIDE_JS
     # the Wall moved to /demo: no link on the Guide still means it by "/"
     assert not re.search(r'href="/#', GUIDE)
     assert '"/#details-' not in GUIDE_JS
@@ -187,14 +190,55 @@ def test_privacy_is_on_the_night_theme_with_the_shared_header_and_discloses_the_
     assert 'class="topnav" aria-label="TEPHRA pages"' in privacy
     assert "tn-strip" not in privacy
     assert "docdisclaimer" not in privacy
-    assert "Wall readers" in privacy
+    assert "demo readers" in privacy
     assert "Wall visitors" not in privacy
+    assert "Nothing you do on the demo or the Guide is sent to Gemini." in privacy
+    # the visitor's name is public: said once, in the Desk section
+    desk = privacy[privacy.index('<details id="desk"') : privacy.index('<details id="kept"')]
     assert (
-        "Nothing you do on the Wall or the Guide is sent to Gemini. If you enter the Desk as a "
-        "visitor, the name you type (or the one TEPHRA gives you) is written into TEPHRA's public "
-        "decision record with each decision you make; use a first name or none." in privacy
+        "If you enter the Desk as a visitor, the name you type (or the one TEPHRA gives you) is "
+        "written into that public record with each decision you make; use a first name or none."
+        in desk
     )
+    assert privacy.count("use a first name or none") == 1
     assert "github.com/officialasishkumar/tephra/issues" in privacy
+
+
+def test_privacy_says_it_in_short_first_and_folds_each_section() -> None:
+    """TEXT-SPEC X14 (owner, 17 Oct 2026: "nobody is going to read so much"): an "In short" box of
+    five lines, then each section closed under its heading; a link that names a section opens it.
+    The intro keeps the fictional airline; "not for operational use" is not page chrome here."""
+    privacy = _read("privacy.html")
+    short = privacy[privacy.index('<section class="pshort"') : privacy.index("</section>")]
+    lines = re.findall(r"<li>([^<]+)</li>", short)
+    assert len(lines) == 5, lines
+    for line in lines:
+        assert len(line.split()) <= 11, line
+    assert "The name you type at the Desk is public." in lines
+    assert "On the unpaid tier, Google may use what it receives." in lines
+    folds = re.findall(r'<details id="([a-z]+)" class="pfold">', privacy)
+    assert folds == [
+        "demo",
+        "desk",
+        "kept",
+        "address",
+        "gemini",
+        "cookies",
+        "accounts",
+        "hosted",  # hosting's own section (off unless the site's owner turns it on)
+        "questions",
+    ]
+    assert "<details open" not in privacy
+    assert privacy.count("<summary><h2>") == len(folds)
+    intro = privacy[privacy.index("<h1>") : privacy.index('<section class="pshort"')]
+    assert "The demo's airline is fictional." in intro
+    assert len(re.sub(r"<[^>]+>", " ", intro).split()) <= 25
+    assert "not for operational use" not in privacy
+    assert '<script type="module" src="/static/privacy.js"></script>' in privacy
+    js = _read("privacy.js")
+    assert 'closest("details")' in js
+    assert "fold.open = true;" in js
+    assert 'window.addEventListener("hashchange", openNamed);' in js
 
 
 def test_the_document_page_s_bar_carries_the_pill_nav() -> None:
@@ -213,7 +257,8 @@ def test_the_document_page_s_bar_carries_the_pill_nav() -> None:
 
 def test_privacy_says_what_an_airline_account_keeps() -> None:
     privacy = _read("privacy.html")
-    assert '<h2 id="accounts">Airline accounts</h2>' in privacy
+    assert '<details id="accounts" class="pfold">' in privacy
+    assert "<summary><h2>Airline accounts</h2></summary>" in privacy
     accounts = privacy[privacy.index('id="accounts"') : privacy.index("<h2>Questions</h2>")]
     for words in (
         "the password as a salted scrypt hash, never the password itself",
@@ -224,7 +269,10 @@ def test_privacy_says_what_an_airline_account_keeps() -> None:
         "never public, never written into the audit trail and never sent to Gemini",
         "from sign-up on, the onboarding answers with the account",
         "answers not submitted are not shown to them",
-        "goes only into the zip",
+        "only their counts go with your answers",
+        # a hosted airline sets its model key in its own space (the Hosted airlines fold), so
+        # the promise is onboarding's
+        "Onboarding never asks for your Gemini key",
         "<code>tephra_airline</code>",
         "HttpOnly and SameSite=Strict",
         "12 hours",
@@ -234,6 +282,9 @@ def test_privacy_says_what_an_airline_account_keeps() -> None:
         assert words in accounts, words
     # the Cookies paragraph no longer says the Desk's cookie is the only one
     assert "The only cookie is" not in privacy
+    # the setup kit went (owner, 17 Oct 2026: "drop it")
+    for gone in ("setup kit", "zip", "Ollama address"):
+        assert gone not in privacy, gone
 
 
 def test_the_guide_tour_folds_connect_into_onboarding() -> None:
@@ -244,8 +295,12 @@ def test_the_guide_tour_folds_connect_into_onboarding() -> None:
     assert '<h2 id="tour-onboard-h" class="gstep__h">Onboard your airline</h2>' in step
     assert 'href="/onboard">Open onboarding' in step
     assert 'href="/demo?intro=0">Open the demo' in GUIDE
-    run = GUIDE[GUIDE.index('id="run"') : GUIDE.index('id="more"')]
-    assert 'data-feature="onboard" hidden' in run
+    # no "Your airline" card and no setup kit or self-hosting offer on the Guide (owner, 17 Oct
+    # 2026: "drop it"); Run it is a fold for the laptop commands
+    assert '<details id="run" class="gfold">' in GUIDE
+    for gone in ("setup kit", "run your own TEPHRA", "Your airline</span>", "grun__go"):
+        assert gone not in GUIDE, gone
+    assert '<p class="gstep__line">An account, then nine short pages.</p>' in step
     # the nine "what you provide" lines are said on the onboarding landing, not here
     assert "ICAO 24-bit address" not in GUIDE
     # a hidden part shows by the server's features, the nav by applyFeatureNav

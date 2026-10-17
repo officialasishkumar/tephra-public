@@ -72,7 +72,10 @@ def test_the_model_key_is_said_sealed_and_shown_as_its_last_four() -> None:
 
 
 def test_the_privacy_page_says_what_who_and_how_it_is_deleted() -> None:
-    section = PRIVACY.split('<h2 id="hosted">Hosted airlines</h2>')[1].split("<h2>")[0]
+    # its own fold, as every section of the notice (owner, 17 Oct 2026: "nobody is going to read
+    # so much")
+    section = PRIVACY.split('<details id="hosted" class="pfold">')[1].split("</details>")[0]
+    assert "<summary><h2>Hosted airlines</h2></summary>" in section
     for words in (
         "members' emails and the names they chose",
         "its policy versions",

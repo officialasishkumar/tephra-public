@@ -17,7 +17,8 @@ import { planeCard, volcanoCard, airportCard } from "./wall/pick.js";
 import { photoFor, photoFigure } from "./wall/photo.js";
 import { renderDetails, sectionOf, PANELS } from "./wall/details.js";
 import { boardModel, flowModel } from "./wall/board.js";
-import { mountFlow, skipInsideRows } from "./wall/board-view.js";
+import { mountFlow, skipInsideRows, YOU_DECIDE } from "./wall/board-view.js";
+import { infoButton } from "./wall/info.js";
 import { describeReplay, setModelBackend } from "./wall/x-parts.js";
 import { nextRetryMs, shouldReopen } from "./wall/stream.js";
 import { setFeatures, has, applyFeatureNav } from "./wall/features.js";
@@ -121,6 +122,8 @@ let dialogKind = null;
 let dialogOpener = null;
 let lastSel = null;
 setAiState(aiState);
+// the side panel's foot under Details: "You decide", its rule behind an info button (owner, 17 Oct)
+$("side-foot").querySelector(".side__eyebrow").append(infoButton({ topic: "you-decide-foot", label: "About You decide", text: YOU_DECIDE }));
 
 const now = () => (Number.isFinite(clock.base) ? clock.base + (performance.now() - clock.at) : NaN);
 function setClock(iso) {
@@ -154,7 +157,7 @@ function airlineWords(a) {
   setAirline(a);
   if (!a || a.fictional !== false) return;
   const line = document.querySelector(".honesty__airline");
-  if (line) line.title = `TEPHRA checks only ${a.name}'s own flights (${a.code}). Decision support only.`;
+  if (line) line.title = `TEPHRA checks only ${a.name}'s own flights (${a.code}).`;
 }
 
 async function load() {

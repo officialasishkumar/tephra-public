@@ -83,6 +83,7 @@
 <symbol id="st-info" viewBox="0 0 16 16"><path fill="currentColor" fill-rule="evenodd" d="M8 1.4a6.6 6.6 0 1 0 0 13.2A6.6 6.6 0 0 0 8 1.4Z M7.15 6.9h1.7v4.8h-1.7Z M7.15 4.1h1.7v1.7h-1.7Z"/></symbol>
 <symbol id="st-off" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
 <symbol id="st-never" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="2.2 2.2"/></symbol>
+<symbol id="st-closed" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="8" r="5.6"/><path d="M4.2 11.8 11.8 4.2"/></g></symbol>
 <symbol id="st-inside" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="8" r="3.4" fill="currentColor"/></symbol>
 <symbol id="i-eruption" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M9.4 9h5.2l6.2 12.4H3.2Z M12 17.1a1.35 1.35 0 1 0 0 2.7 1.35 1.35 0 1 0 0-2.7Z"/><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="7.2" x2="12" y2="2.4"/><line x1="10.1" y1="7.6" x2="7.1" y2="3.6"/><line x1="13.9" y1="7.6" x2="16.9" y2="3.6"/></g></symbol>
 <symbol id="lg-arrow-official" viewBox="0 0 24 24"><line x1="2" y1="12" x2="16" y2="12" stroke="currentColor" stroke-width="2.6" stroke-linecap="butt"/><path fill="currentColor" d="M22 12 15.5 7.6v8.8Z"/></symbol>

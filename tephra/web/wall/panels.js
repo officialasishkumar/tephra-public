@@ -12,7 +12,8 @@ import { plainMove } from "./derive.js";
 import { advisoryFacts } from "./story.js";
 import { TENANT, PAGE_BASE, page } from "../base.js";
 import { titleFor } from "../tenant-nav.js";
-import { stateLine } from "./assist.js";
+import { infoButton, setInfo } from "./info.js";
+import { codeMark, templateText, stateLine } from "./x-parts.js";
 import { plainLine, techDetail, actorWords, actionPlain, aiWords, aiMark, replayWords, aircraftNoun, describeReplay, handPlanOf, causeTitle, blockPhrase, whyLink, machineText, plumeOutcome, MARK, ASSISTANT } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkLinkRow, dkList, dkFacts, dkNote, dkEmpty, dkTech, dkSection, dkLink,
@@ -69,7 +70,7 @@ const MODE_LINE = {
   HYPOTHESIS: "No valid official product: a hypothesis. Only MONITOR or HOLD may be advised.",
 };
 const OUTCOME = {
-  STUB: "Code only (assistant off): official reports only",
+  STUB: "Official reports only",
   ACCEPTED: "Reading accepted by the code's checks",
   REPAIRED: "Accepted after one repair",
   MODEL_FAILED: "Plume reader gave no result: official products only, nothing assessed beyond them",
@@ -118,7 +119,7 @@ const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct
 export const dayMonth = (t) => { if (!Number.isFinite(t)) return "—"; const d = new Date(t); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]}`; };
 const narrow = () => window.innerWidth < 1360;
 
-// The area picker's words: "Area: Java / Bali · 2 with ash", or "Area: All areas".
+// The area picker's words: "Java / Bali · 2 with ash", or "All areas" (its label adds "Area:").
 export function areaWords(D, key) {
   const r = (D.state.regions || []).find((x) => x.key === key);
   if (!r) return "All areas";
@@ -157,7 +158,10 @@ export function renderChrome(D, store, ui) {
   // Area picker (R3.1): one menu button; the phone keeps the native select.
   const regions = s.regions || [];
   const cur = ui.region;
-  setText($("area-label"), `Area: ${areaWords(D, cur)}`);
+  // the button shows the area; its name keeps "Area:" for a screen reader
+  const aw = areaWords(D, cur);
+  setText($("area-label"), aw);
+  if ($("area-btn").getAttribute("aria-label") !== `Area: ${aw}`) $("area-btn").setAttribute("aria-label", `Area: ${aw}`);
   const menu = $("regions");
   const items = [
     ...regions.map((r, i) => ({ key: r.key, text: areaWords(D, r.key), kbd: String(i + 1) })),
@@ -178,25 +182,29 @@ export function renderChrome(D, store, ui) {
   }
   sel.value = cur || "all";
 
-  // TEPHRA Assistant's state line, at the top of the side panel's Assistant tab (SPEC v2 5.2.5,
-  // docs/UI-AI-QUIET.md W1-W3, Naming): its one state in words with a shape, never a count of
-  // failed steps and never red; NO MODEL with the offline stub. The one place on the demo that
-  // says the state; "Why ›" opens Details › TEPHRA Assistant, the one place that says why it is
-  // paused (docs/UI-AI-QUIET.md 8.6). The tooltip keeps the first-use words about the AI.
+  // TEPHRA Assistant's one status, in the side panel's tab bar (docs/UI-AI-QUIET.md W1-W3, Naming;
+  // owner 17 Oct: "don't say no model everywhere"): shown only when it is not working normally, a
+  // shape and two words ("AI off", "AI paused", "AI unavailable"), never red; the explanation sits
+  // behind its info button, with "Why ›" to Details › TEPHRA Assistant, the one place that says
+  // why it is paused (8.6). The screen-reader words say the state in every case.
   const ai = aiStateNow(D, store);
   const w = aiWords(ai, { home: `Details › ${ASSISTANT}`, opens: `Details › ${ASSISTANT}` });
   const line = stateLine(w, { stub: s.llm?.backend === "stub", kind: ai.kind });
   const box = $("ai-state");
-  const lkey = `${line.tone}|${line.icon}|${line.strong}|${line.text}|${line.why}`;
+  const lkey = `${line.tone}|${line.word}|${line.info}|${line.why}`;
   if (box.dataset.key !== lkey) {
     box.dataset.key = lkey;
     box.dataset.tone = line.tone;
+    setText($("ai-state-said"), line.said);
     const chip = $("model-chip");
-    chip.replaceChildren(...(line.strong ? [el("strong", { text: line.strong }), ` · ${line.text}`] : [line.text]));
-    const why = line.why ? [el("button", { type: "button", class: "link-btn as-state__why", dataset: { act: "details-sec", sec: "ai", focus: "ai-why" }, text: "Why ›" })] : [];
-    box.querySelector(".as-state__line").replaceChildren(st(line.icon, `var(--c-${line.tone})`), chip, ...why);
+    chip.hidden = !line.word;
+    chip.replaceChildren(...(line.word ? [st(line.icon, `var(--c-${line.tone})`), el("span", { text: line.word })] : []));
+    box.querySelector(".info")?.remove();
+    if (line.word) {
+      const why = line.why ? el("button", { type: "button", class: "link-btn", dataset: { act: "details-sec", sec: "ai", focus: "ai-why" }, text: "Why ›" }) : null;
+      box.append(infoButton({ topic: "assistant", label: "About the AI state", text: line.info, actions: [why] }));
+    }
   }
-  box.title = w.title;
 
   // Data chip: "Data: all working", else worst first, "Data: 1 error · 5 working". Feeds that are
   // off (not in this case, or switched off) are not a state of the data: Details lists them.
@@ -242,22 +250,38 @@ function renderStatusLine(D, ui) {
   const chain = TENANT ? auditWords(tenantHead?.chain) : auditWords(s.audit);
   audit.hidden = !chain;
   if (chain) { setText(audit, chain.text); audit.dataset.tone = chain.tone; audit.title = chain.title; }
+  // the policy and the fictional airline: a word each with its info button, never a hover title
+  // alone (TEXT-SPEC A6; owner 17 Oct: explanations one tap away)
   const policy = s.policy;
   const policyBtn = $("policy-btn");
   if (TENANT) {
     const p = tenantHead?.policy;
-    policyBtn.hidden = !p;
+    policyBtn.hidden = $("stl-policy").hidden = !p;
     if (p) {
       const illus = String(p.label || "").startsWith("ILLUSTRATIVE");
       setText(policyBtn, `Policy v${p.version} · ${illus ? "ILLUSTRATIVE" : "accepted under your SRA (recorded by the airline)"}`);
-      policyBtn.title = p.label;
       policyBtn.setAttribute("href", `${PAGE_BASE}/settings/policy`);
       policyBtn.removeAttribute("target");
+      // the version's own label is said once, behind the (i) beside the button
+      const box = $("stl-policy");
+      const info = box.querySelector(".info");
+      if (info) setInfo(info, [p.label]);
+      else box.append(infoButton({ topic: "policy", label: "About this policy version", text: [p.label] }));
     }
-  } else policyBtn.hidden = !policy;
+  } else policyBtn.hidden = $("stl-policy").hidden = !policy;
   if (policy && !TENANT) {
     setText(policyBtn, `Policy ${policy.preset}`);
-    policyBtn.title = `${policy.policy_id} v${policy.version}: ${policy.label} (illustrative). Open its values and sources.`;
+    const words = ["Illustrative values, not an airline SRA, and not reviewed by an airline dispatcher.", `${policy.policy_id} v${policy.version}.`];
+    const box = $("stl-policy");
+    const info = box.querySelector(".info");
+    if (info) setInfo(info, words);
+    else box.append(infoButton({ topic: "policy", label: "About the illustrative policy", text: words }));
+  }
+  const rfa = $("stl-rfa");
+  const own = s.airline?.fictional === false ? s.airline : null;
+  rfa.hidden = !!own;
+  if (!own && !rfa.querySelector(".info")) {
+    rfa.append(infoButton({ topic: "airline", label: "About the fictional airline", text: `Ring of Fire Air (RFA) is a fictional airline. Its flight numbers stand in for ${aircraftNoun(s)}.` }));
   }
   const extra = [];
   if (ui.sat !== "off") extra.push("Imagery: NASA GIBS");
@@ -299,8 +323,17 @@ export function renderClock(D, conn) {
     setText(sub, `Stopped · ${dayMonth(conn.lostAt)} · UTC`);
     sub.dataset.tone = "caution";
   } else {
-    setText(sub, narrow() ? (replay ? "Replay · UTC" : "UTC") : `${replay ? "Replay clock · " : ""}${dayMonth(D.now)} · UTC`);
+    // "Replay clock · 5 Sep": what plays and that the time is that day's, not now, behind its (i)
+    setText(sub, narrow() ? (replay ? "Replay" : "UTC") : replay ? `Replay clock · ${dayMonth(D.now)}` : `${dayMonth(D.now)} · UTC`);
     sub.dataset.tone = replay ? "replay" : "";
+  }
+  const box = $("clock-info");
+  box.hidden = !replay || !!conn.lostAt;
+  if (replay) {
+    const words = [`${replayWords(D.state?.replay).text}.`, "The clock shows that day's time (UTC), not now."];
+    const info = box.querySelector(".info");
+    if (info) setInfo(info, words);
+    else box.append(infoButton({ topic: "replay", label: "About replay", text: words }));
   }
   setText($("stale-text"), conn.lostAt ? `Not updating since ${hhmmz(conn.lostAt)}` : "");
 }
@@ -508,7 +541,7 @@ function traceRun(run, ui, stub, ai) {
     sub: cause && cause.helperKey === "duty" && range ? `${range} must-do ${range === "1" ? "job" : "jobs"} per run went to the Desk` : stepWho(t0.stage, who),
     titleOf: cause ? () => `${causeTitle(cause)}.` : null,
     extra: cause?.link ? dkLink(cause.link[0], { act: "details-sec", sec: cause.link[1], focus: `trace-go-${cause.key}` }) : null,
-    lineOf: (t) => plainLine(t.message),
+    lineOf: (t) => templateText(plainLine(t.message)).text,
     rawOf: (t) => `${hhmmssz(t._t)} · ${t.stage} · ${(ACTOR[t.actor] || [null, String(t.actor || "")])[1]} · ${t.message}`,
   });
   if (run.items.some((t) => ui.freshTrace?.has(t.id))) row.classList.add("is-new");
@@ -539,7 +572,7 @@ export function renderTrace(D, store, ui, conn, target = $("trace")) {
   const causesHere = new Set(aiErr.map((t) => causeOf.get(t.id)));
   const shown = ui.traceFilter === "problems" ? problems : lines;
   const runs = collapseRuns(shown.map((t) => ({ ...t, _t: ms(t.at), _cause: causeOf.get(t.id) || null })), {
-    textOf: (t) => (t._cause ? `cause ${t._cause}` : plainLine(t.message)), timeOf: (t) => t._t, groupOf: (t) => `${t.stage}|${t.level}|${t._cause ? "" : t.actor}` });
+    textOf: (t) => (t._cause ? `cause ${t._cause}` : templateText(plainLine(t.message)).text), timeOf: (t) => t._t, groupOf: (t) => `${t.stage}|${t.level}|${t._cause ? "" : t.actor}` });
   const seg = (label, act, key, opts) => el("div", { class: "seg", role: "group", "aria-label": label },
     ...opts.map(([v, text]) => el("button", { type: "button", "aria-pressed": (ui[key] || opts[0][0]) === v ? "true" : "false", dataset: { act, [act === "trace-scope" ? "scope" : "filter"]: v, focus: `${act}-${v}` }, text })));
   // the operator policy the code decided under, with its ILLUSTRATIVE label (never removed)
@@ -690,7 +723,7 @@ export function sourcesSection(D, sit) {
 const QUOTED = { VAA: ["Info source", "Remarks"], VONA: ["Activity", "Cloud height"] };
 
 // Where the sources disagree (R8.3 `disagree`): CAUTION and SERIOUS first; minor ones folded.
-const SEV_WORD = { WARNING: ["serious", "Serious"], CAUTION: ["caution", "Caution"], INFO: ["info", "Minor"] };
+const SEV_WORD = { WARNING: ["warning", "Serious"], CAUTION: ["caution", "Caution"], INFO: ["info", "Minor"] };
 export function disagreeSection(D, sit, ui) {
   const items = sit.discrepancies.slice().sort((a, b) => (SEV_RANK[b.severity] || 0) - (SEV_RANK[a.severity] || 0));
   const check = items.filter((d) => d.severity !== "INFO");
@@ -703,7 +736,7 @@ export function disagreeSection(D, sit, ui) {
     if (card.missing || !NON_OBS.has(card.evidence)) continue;
     minor.push({ _t: NaN, text: `${card.kind} could not see the ash`, why: "Not evidence of no ash. It never shrinks TEPHRA's area or weakens an advisory.", raw: `NOT OBSERVED · ${card.source_id}`, detail: null });
   }
-  const worst = check.some((d) => d.severity === "WARNING") ? "serious" : "caution";
+  const worst = check.some((d) => d.severity === "WARNING") ? "warning" : "caution";
   const headText = check.length
     ? `${check.length} to check${minor.length ? ` · ${minor.length} minor` : ""}`
     : `Nothing that needs checking${minor.length ? ` (${minor.length} minor difference${minor.length === 1 ? "" : "s"})` : ""}`;
@@ -743,7 +776,7 @@ function disRow(D, sit, d, ui) {
     if (cone?.mode === "WIDENED" && sector && D.rose) tail = pointInGeom(dest(D.rose.vent, D.rose.obsDeg, 15), sector.geometry) || pointInGeom(dest(D.rose.vent, D.rose.obsDeg, 15), D.coneOf(sit.volcano_id).geometry) ? " TEPHRA's area covers it." : "";
     else if (cone?.mode === "OFFICIAL") {
       const outcome = plumeOutcome(sit.assessment?.outcome, sit.assessment?.estimate?.uncertainty_notes);
-      tail = D.state.llm?.backend === "stub" || outcome === "STUB" ? " TEPHRA has not widened the area (code only)."
+      tail = D.state.llm?.backend === "stub" || outcome === "STUB" ? " TEPHRA has not widened the area."
         : outcome === "PENDING" ? " TEPHRA has not widened the area yet (Plume reader waiting)."
           : outcome === "UNAVAILABLE" ? " TEPHRA has not widened the area (Plume reader did not run: AI UNAVAILABLE)."
             : outcome === "MODEL_FAILED" ? " TEPHRA has not widened the area (Plume reader gave no result)." : " TEPHRA has not widened the area.";
@@ -761,6 +794,8 @@ function disRow(D, sit, d, ui) {
 }
 
 const capFirst = (t) => (t ? t[0].toUpperCase() + t.slice(1) : t);
+// code's sentence without the server's "NO MODEL:" stamp, in the page's words
+const codeSaid = (t) => capFirst(machineText(String(t).replace(/^NO MODEL:\s*/, "")));
 
 // TEPHRA's estimate (R8.3 `estimate`): the outcome sentence, the rule, who read it, valid until.
 // "The Plume reader found nothing to add" only when a model read it (H1): a queued read is waiting, and
@@ -769,7 +804,8 @@ export function estimateOutcome(D, sit, cone) {
   const outcome = plumeOutcome(sit.assessment?.outcome, sit.assessment?.estimate?.uncertainty_notes);
   const stub = outcome === "STUB" || (!outcome && D.state.llm?.backend === "stub");
   if (cone.mode !== "OFFICIAL") return MODE_LINE[cone.mode] || "";
-  if (stub) return "Same as the official area (code only, nothing added).";
+  // the stub: the tab bar says the AI is off; the line says only what the area is
+  if (stub) return MODE_LINE.OFFICIAL;
   if (outcome === "MODEL_FAILED") return "Same as the official area: the Plume reader gave no result, nothing assessed beyond the official reports.";
   if (outcome === "UNAVAILABLE") return "Same as the official area: the Plume reader did not run (AI UNAVAILABLE), nothing assessed beyond the official reports.";
   // a queued read waits in line; when it runs is said at the assistant's home (8.6)
@@ -790,7 +826,7 @@ export function areaSection(D, sit, ui) {
   const [tone, word] = MODE_PILL[cone.mode] || ["info", cone.mode];
   // the model's name only where a model read it (Q5); a queued read says it waits (D44)
   const modelRead = MODEL_READ.has(outcome) && a?.model_id && a.model_id !== "none" && a.model_id !== "stub";
-  const readBy = stub ? OUTCOME.STUB
+  const readBy = stub ? [codeMark("Read by code"), " ", OUTCOME.STUB]
     : outcome === "PENDING" ? `Plume reader waiting · ${OUTCOME.PENDING}.`
       : modelRead ? [aiMark(a.model_id, null, MARK.read("Plume reader")), " ", OUTCOME[outcome]] : OUTCOME[outcome] || "not given";
   const est = a?.estimate;
@@ -808,9 +844,10 @@ export function areaSection(D, sit, ui) {
       el("summary", { dataset: { focus: "area-read" } }, icon("i-chevron-right", "icon dk-about__chev"), el("span", { text: modelRead ? "How the Plume reader read it" : "How TEPHRA built it" }), modelRead ? aiMark(a.model_id, null, MARK.read("Plume reader")) : el("span", { class: "dk-chip dk-chip--code", text: "Code-written" })),
       el("div", { class: "dk-about__body" },
         readings.length ? dkList(readings, { first: 5, key: "area-readings" }) : null,
-        // code's own sentences say their clauses with the page's dot; a model's words stay as written
-        est.rationale ? el("div", { class: "dk-sub" }, el("p", { class: "dk-sub__title", text: "Rationale" }), el("p", { class: "dk-quote", text: modelRead ? est.rationale : machineText(est.rationale) })) : null,
-        est.uncertainty_notes ? el("div", { class: "dk-sub" }, el("p", { class: "dk-sub__title", text: "Uncertainty" }), el("p", { class: "dk-quote", text: modelRead ? est.uncertainty_notes : machineText(est.uncertainty_notes) })) : null));
+        // code's own sentences say their clauses with the page's dot, without the server's "NO
+        // MODEL:" stamp (the "Code-written" chip says who wrote them); a model's words stay as written
+        est.rationale ? el("div", { class: "dk-sub" }, el("p", { class: "dk-sub__title", text: "Rationale" }), el("p", { class: "dk-quote", text: modelRead ? est.rationale : codeSaid(est.rationale) })) : null,
+        est.uncertainty_notes ? el("div", { class: "dk-sub" }, el("p", { class: "dk-sub__title", text: "Uncertainty" }), el("p", { class: "dk-quote", text: modelRead ? est.uncertainty_notes : codeSaid(est.uncertainty_notes) })) : null));
   }
   return dkSection("h-area",
     cone.mode === "HYPOTHESIS" ? hypothesisBanner(sit) : null,
@@ -842,9 +879,8 @@ export const CHECKED = "Checked by code: action allowed · every number and plac
 // mark, the check line, the facts the body was drafted from, the decision and the way to the Desk.
 export function draftPreview(D, a) {
   const stub = a.llm_backend === "stub" || a.model_id === "stub" || !a.model_id;
-  const mark = stub
-    ? el("span", { class: "ai-mark ai-mark--none", title: "No model wrote this: code did (the offline stub, NO MODEL)" }, icon("i-code"), el("span", { text: "Code only (NO MODEL)" }))
-    : aiMark(a.model_id, MARK.written);
+  // a code template's draft carries the small "{ }" mark; the AI-off state is said once, in the tab bar
+  const mark = stub ? codeMark() : aiMark(a.model_id, MARK.written);
   const entry = a.inside_now ? "inside TEPHRA's ash area now" : `enters TEPHRA's ash area in ${a.minutes_to_entry} min`;
   const policy = a.policy_id ? `${a.policy_id}${a.policy_version ? ` v${a.policy_version}` : ""}${a.policy_hash ? ` #${a.policy_hash}` : ""}` : null;
   const draft = a.status === "DRAFT";
@@ -877,7 +913,7 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
   const row = (a) => {
     const fresh = ui.freshDecisions?.has(a.id);
     const status = {
-      DRAFT: ["i-clock", "var(--c-text-2)"], APPROVED: ["i-approved", "var(--c-ok)"], EDITED: ["i-approved", "var(--c-ok)"], REJECTED: ["i-rejected", "var(--c-serious)"],
+      DRAFT: ["i-clock", "var(--c-text-2)"], APPROVED: ["i-approved", "var(--c-ok)"], EDITED: ["i-approved", "var(--c-ok)"], REJECTED: ["i-rejected", "var(--c-text-2)"],
     }[a.status] || ["i-clock", "var(--c-text-2)"];
     // the role is said on purpose: a visitor's decision is a real, audited decision in REPLAY
     const when = a.status === "DRAFT" ? `drafted ${age((D.now - ms(a.drafted_at || a.created_at)) / 1000)} ago` : `${a.status === "REJECTED" ? "rejected" : "approved"} by ${deciderName(a)} · ${deciderRole(a)}${a.decided_at ? ` · ${hhmmz(ms(a.decided_at))}` : ""}${a.status === "EDITED" ? " · with edits" : ""}`;
@@ -911,7 +947,7 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
     { label: "Rejected", value: String(rej.length), sub: capped ? "in the newest 50" : null },
   ], "Decisions in numbers") : null;
   const caption = all.length ? el("p", { class: "dk-foot", text: `The waiting count covers every advisory of this mode on the server. The lists below show the ${capped ? "newest 50 loaded" : `${all.length} loaded`}.` }) : null;
-  const note = dkNote("info", "Approve on the Desk · nothing is sent anywhere. Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system.", { iconId: "i-outbound" });
+  const note = dkNote("info", "Approve on the Desk. Approved text goes only to TEPHRA's own outbound queue, never to an aircraft or any real system.", { iconId: "i-outbound" });
   const groups = [];
   if (handN) {
     // the Coordinator's "Passed to the Desk" list, copied here where the dispatcher acts (D69)

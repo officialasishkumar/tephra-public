@@ -9,7 +9,7 @@
 
 import { $, el, icon, ms, hhmmz } from "./util.js";
 import { frameFor } from "./ext-map.js";
-import { aiMark, plainLine, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, assistantIs, causeTitle, handPlanOf, notRun, reasonClass, realWhen, unavailableWhy, machineText, machineSentences, jobsWords, pacingWords, whyLink, WHY, MARK, ASSISTANT } from "./x-parts.js";
+import { aiMark, codeMark, plainLine, templateText, techDetail, usd, planFailure, failureEach, aiStateOf, aiErrorsOf, newestPlan, aiLead, assistantIs, causeTitle, handPlanOf, notRun, reasonClass, realWhen, unavailableWhy, machineText, machineSentences, jobsWords, pacingWords, whyLink, WHY, MARK, ASSISTANT } from "./x-parts.js";
 import { dutyDetail, dispatchedTools } from "./duty.js";
 import { HELPERS } from "./board.js";
 import { has } from "./features.js";
@@ -187,13 +187,13 @@ function satRow(D, reading, sit, store) {
 function satPanel(D, store) {
   const readings = store.snapshot?.satellite || [];
   const list = readings.slice().sort((a, b) => (a.volcano_id === D.selected ? -1 : 0) - (b.volcano_id === D.selected ? -1 : 0));
-  const stub = D.state.llm?.backend === "stub";
   const bad = readings.filter((r) => r.status === "ai_unavailable").length;
   const head = dkHeader({
     id: "sat-head",
     pills: [dkPill("info", "Supporting evidence only"), bad ? dkPill("caution", `${bad} not read`) : null],
-    title: stub ? "The newest Himawari picture for each active volcano, read by a code stub while TEPHRA Assistant is off." : "Newest Himawari picture per active volcano · supporting only",
-    sub: "Supporting evidence only. It never changes the official area, TEPHRA's estimate, the heights or an advisory.",
+    // the pill says "supporting evidence only" once; the tab bar says when the AI is off
+    title: "Newest Himawari picture per active volcano",
+    sub: "It never changes the official area, TEPHRA's estimate, the heights or an advisory.",
   });
   // pictures the assistant did not read: that they are missing, what holds, and "Why ›" (8.6)
   const missing = bad ? dkNote("caution", [el("p", {}, `${bad === 1 ? "1 picture was" : `${bad} pictures were`} not read. Nothing was put in ${bad === 1 ? "its" : "their"} place, and the official area stands. `, whyLink("sat-why"))], { role: "status" }) : null;
@@ -278,7 +278,7 @@ function noticesPanel(D) {
 // ------------------------------------------------------------------ Recovery board
 
 const PLAN_STATUS = {
-  DRAFT: ["caution", "Waiting for a dispatcher"], APPROVED: ["ok", "Approved"], REJECTED: ["serious", "Rejected"],
+  DRAFT: ["caution", "Waiting for a dispatcher"], APPROVED: ["ok", "Approved"], REJECTED: ["off", "Rejected"],
   SUPERSEDED: ["off", "Superseded"], AI_UNAVAILABLE: ["caution", "No plan"],
 };
 const LEVEL = (ft) => (ft == null ? "?" : ft <= 0 ? "SFC" : `FL${String(Math.round(ft / 100)).padStart(3, "0")}`);
@@ -340,7 +340,7 @@ function recoveryPanel(D, store) {
   const what = fail ? `${fail.title}. ${fail.sub}` : t ? `${plan.status === "DRAFT" ? "Plan waiting on the Desk" : plan.status === "APPROVED" ? "Plan approved" : plan.status === "REJECTED" ? "Plan rejected" : "Plan"}: cancel ${t.cancelled_flights}${t.delayed_flights ? `, delay ${t.delayed_flights}` : ""}, ${usd(t.total_usd)}.` : "No scenario chosen.";
   // "Chosen by TEPHRA Assistant" only when a model chose the plan; with no plan the "No plan" pill
   // says it once
-  const chosenBy = plan.outcome === "STUB" ? dkChip("Planned by code (code only)") : plan.chosen ? aiMark(plan.model_id, null, MARK.chosen) : null;
+  const chosenBy = plan.outcome === "STUB" ? codeMark("Planned by code") : plan.chosen ? aiMark(plan.model_id, null, MARK.chosen) : null;
   // the re-plan the budget holds for later, at the place it changes (D58)
   const queued = fail ? waitingWork().find((w) => w.status === "WAITING" && w.item?.kind === "RECOVER") : null;
   const head = dkHeader({
@@ -359,7 +359,7 @@ function recoveryPanel(D, store) {
   }
   // closed airports: a row each; the full reason and its sources are one tap further in
   kids.push(dkGroup(`Closed airports, all volcanoes · ${plan.closures.length}`, null, dkList(plan.closures.map((c) => dkRow({
-    key: `rec-ap-${c.icao}-${c.start}`, dot: "serious", title: c.icao, titleMono: true, sub: c.summary || null,
+    key: `rec-ap-${c.icao}-${c.start}`, dot: "closed", title: c.icao, titleMono: true, sub: c.summary || null,
     foot: el("span", { class: "mono", text: `${clock(c.start)} – ${c.open_ended ? "open" : clock(c.end)}` }),
     body: [dkFacts([["Closed from", clock(c.start), { mono: true }], ["Until", c.open_ended ? "open-ended" : clock(c.end), { mono: true }], ["Heights", c.top_ft != null ? `${LEVEL(c.base_ft ?? 0)}–${LEVEL(c.top_ft)}` : null, { mono: true }], ["Radius", c.radius_nm != null ? `${Math.round(c.radius_nm)} NM` : null]]),
       el("details", { class: "tech x-closure__more" }, el("summary", { text: "Full reason and sources" }),
@@ -378,7 +378,7 @@ function recoveryPanel(D, store) {
     const tt = chosen.totals;
     kids.push(dkGroup(`Chosen scenario: ${scenarioName(chosen.label)}`, `${solverWords(chosen)} in ${Math.round(chosen.solve_ms / 1000)} s`,
       tt ? dkTiles([
-        { label: "Cancelled", value: String(tt.cancelled_flights), tone: tt.cancelled_flights ? "serious" : null },
+        { label: "Cancelled", value: String(tt.cancelled_flights), tone: tt.cancelled_flights ? "warning" : null },
         { label: "Delayed", value: String(tt.delayed_flights), tone: tt.delayed_flights ? "caution" : null },
         { label: "Passengers affected", value: tt.pax_affected.toLocaleString("en") },
         { label: "Total cost", value: usd(tt.total_usd) },
@@ -395,7 +395,7 @@ function recoveryPanel(D, store) {
       el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Scenario" }), el("th", { scope: "col", class: "num", text: "Cancel" }), el("th", { scope: "col", class: "num", text: "Delay" }), el("th", { scope: "col", class: "num", text: "Cost" }))),
       el("tbody", {}, ...rows)))));
   }
-  if (plan.rationale) kids.push(dkAbout("Why this plan", "rec-why", el("p", { class: "dk-quote", text: plainLine(plan.rationale) }), aiMark(plan.model_id, plan.outcome === "STUB" ? "NO MODEL" : null, "Explained by Recovery planner"), techDetail(plan.rationale, plan.chosen && plan.outcome !== "STUB" ? `chosen by ${plan.model_id}` : null)));
+  if (plan.rationale) kids.push(dkAbout("Why this plan", "rec-why", el("p", { class: "dk-quote", text: templateText(plainLine(plan.rationale)).text }), aiMark(plan.model_id, plan.outcome === "STUB" ? "NO MODEL" : null, "Explained by Recovery planner"), techDetail(plan.rationale, plan.chosen && plan.outcome !== "STUB" ? `chosen by ${plan.model_id}` : null)));
   if (plan.risks?.length) kids.push(dkAbout(`Risks (${plan.risks.length})`, "rec-risks", el("ul", { class: "dk-bullets" }, ...plan.risks.map((r) => el("li", { text: r })))));
   const decided = plan.decided_at ? `${plan.status === "REJECTED" ? "Rejected" : "Approved"} by ${(plan.decided_by || "a dispatcher").replace(/^desk:/, "")} at ${hhmmz(ms(plan.decided_at))}` : null;
   kids.push(dkNote(plan.status === "APPROVED" ? "info" : "info", decided || (plan.status === "DRAFT" ? "Waiting for a dispatcher. Nothing is sent anywhere." : fail ? "No plan to decide on. Nothing is sent anywhere." : "No decision."), { iconId: plan.status === "APPROVED" ? "i-approved" : "i-dispatcher" }));
@@ -447,8 +447,8 @@ function proofPanel() {
   const kids = [head,
     dkNote("caution", [el("p", {}, el("strong", { text: "Later official areas are not ash truth." })), "TEPHRA is scored against the official areas issued after each moment. Those are partly built from the same reports and satellite data, so this measures agreement, not what the ash did."], { role: "note" }),
     dkTiles([
-      { label: "Official area missed", value: String(b.floor_violations), of: " times", tone: b.floor_violations === 0 ? "ok" : "serious", sub: b.floor_violations === 0 ? "always kept it all" : "left part of one out" },
-      { label: "Later data used", value: String(b.input_leaks), of: " times", tone: b.input_leaks === 0 ? "ok" : "serious", sub: b.input_leaks === 0 ? "a fair test" : "not a fair test" },
+      { label: "Official area missed", value: String(b.floor_violations), of: " times", tone: b.floor_violations === 0 ? "ok" : "warning", sub: b.floor_violations === 0 ? "always kept it all" : "left part of one out" },
+      { label: "Later data used", value: String(b.input_leaks), of: " times", tone: b.input_leaks === 0 ? "ok" : "warning", sub: b.input_leaks === 0 ? "a fair test" : "not a fair test" },
       { label: "Moments scored", value: ticks.toLocaleString("en"), sub: `in ${plural(b.cases.length, "case")}` },
     ], "Checks"),
   ];
@@ -476,7 +476,7 @@ function proofPanel() {
 // The Plume reader's scorecard (docs/evals/plume-scorecard.json through /api/evals): the counts the
 // file holds, its own verdict as the pill, the case it missed by name, and what was not run.
 const scoreWord = (v) => (String(v || "").split(" ")[0] || "INCOMPLETE").toUpperCase();
-const SCORE_TONE = { PASS: "ok", FAIL: "serious" };
+const SCORE_TONE = { PASS: "ok", FAIL: "warning" };
 function plumeScorecard() {
   if (!ext.loaded.evals) return dkGroup("Plume reader scorecard", null, loadingBox());
   const p = ext.evals?.plume;
@@ -521,7 +521,7 @@ export function runsRows(state) {
   if (!c) return [];
   const store = c.store === "firestore" ? "Firestore" : "SQLite";
   const secrets = c.secrets === "secret-manager" ? "Secret Manager" : "Secrets from the environment";
-  const model = { "gemini-api": "Gemini API", "ollama-local": "Gemma on this computer (Ollama)" }[c.model_access] || "No model connected (NO MODEL)";
+  const model = { "gemini-api": "Gemini API", "ollama-local": "Gemma on this computer (Ollama)" }[c.model_access] || "None connected";
   if (c.platform !== "cloud-run") {
     return [["Runs on", `This computer · ${store} · ${c.scheduler === "cloud-scheduler" ? "Cloud Scheduler" : "in-process scheduler"}`], ["Secrets", secrets], ["Model access", model]];
   }
@@ -566,7 +566,7 @@ function runsPanel(D, store) {
 // drawn: the features arrive with the first state.
 export const agents = () => [
   ...HELPERS.filter((h) => !h.feature || has(h.feature)).map(({ id, name, stage, does, skip, only }) => ({ id, name, stage, what: does, skip, only })),
-  { id: "backtest", name: "Backtest", stage: null, what: "Scores TEPHRA against later official areas (code, no model)" },
+  { id: "backtest", name: "Backtest", stage: null, what: "Scores TEPHRA against later official areas, by code" },
 ];
 // The Coordinator (duty officer) tool that reaches each specialist.
 const DELEGATED_VIA = { plume: "assess_volcanoes", sat: "assess_volcanoes", planner: "plan_flights", drafter: "plan_flights", recovery: "run_recovery", sra: "draft_sra" };
@@ -673,7 +673,6 @@ function budgetBlock(replay, ai = null) {
   const when = realWhen(resets, Date.now(), replay);
   const counts = when?.at && !(ai?.kind === "paused" && ai.until) ? ` Counts start again ${replay ? when.at : `at ${when.at}`}.` : "";
   return el("div", { class: "x-budget" },
-    stub ? el("p", { class: "dk-sub__note", text: "Offline stub: no model is called, so no quota is spent." }) : null,
     ...models.map((m) => {
       const left = m.limit ? m.remaining / m.limit : 0;
       const lanes = (m.lanes || []).map((l) => `${LANE_WORDS[l.lane] || l.lane} ${l.used} of ${l.share}`).join(" · ");
@@ -721,7 +720,7 @@ function budgetTile(stub, ai) {
   return {
     label: "Assistant calls today", value: used.toLocaleString("en"), of: ` of ${lite.limit.toLocaleString("en")}`, wide: true,
     meter: { value: used, max: lite.limit, tone: budgetTone(left, stub, false), label: `Assistant calls today: ${used} of ${lite.limit} used` },
-    sub: stub ? "Offline stub: no quota is spent" : [waitingTail() || null, main ? `Plume reader ${usedOf(main)} of ${main.limit}` : null, "resets at midnight Pacific"].filter(Boolean).join(" · "),
+    sub: stub ? null : [waitingTail() || null, main ? `Plume reader ${usedOf(main)} of ${main.limit}` : null, "resets at midnight Pacific"].filter(Boolean).join(" · "),
   };
 }
 
@@ -756,6 +755,12 @@ function causeRows(causes) {
   });
 }
 
+// A code template's line: the "{ }" mark, not "(code only)" words (the tab bar says the state).
+function markedLine(text) {
+  const t = templateText(text);
+  return t.code ? el("span", {}, codeMark(), " ", t.text) : t.text;
+}
+
 function helperRow(a, store, n, stub, until, replay) {
   const [tone, word] = STATE_UI[a.state];
   const last = ms(a.last);
@@ -770,23 +775,23 @@ function helperRow(a, store, n, stub, until, replay) {
   if (a.id === "duty") {
     body = [...dutyDetail(run, !!store.snapshot, until, replay), a.detail ? dkTech(`newest step: ${a.detail}`) : null];
   } else if (a.id === "backtest") {
-    body = [dkFacts([["Status", a.state === "done" ? "Done: scored by code, no model" : "Not run yet"], ["Cases scored", a.state === "done" ? String(a.count) : null], ["Generated", Number.isFinite(last) ? dayTime(last) : null, { mono: true }]]),
+    body = [dkFacts([["Status", a.state === "done" ? "Done: scored by code" : "Not run yet"], ["Cases scored", a.state === "done" ? String(a.count) : null], ["Generated", Number.isFinite(last) ? dayTime(last) : null, { mono: true }]]),
       dkLink("Track record ›", { act: "details-sec", sec: "proof", focus: "helper-proof" })];
   } else {
     const status = a.words ? `${badge}: ${a.words}` : a.state === "idle" ? `Quiet: not seen in the newest ${n} steps` : a.state === "running" ? "Working on it" : a.state === "failed" ? badge : "Its newest step worked";
     const seen = a.count ? ` · ${plural(a.count, "step")}${a.fails ? `, ${a.fails} did not run` : ""} in the newest ${n}` : "";
     body = [dkFacts([
       ["Status", `${status}${seen}`],
-      ["Last step", a.detail ? plainLine(a.detail) : null],
-      ["Model", stub ? "Code only (assistant off): code follows the skill's script" : null],
+      ["Last step", a.detail ? markedLine(plainLine(a.detail)) : null],
     ]), a.detail ? dkTech(`${a.stage} · ${a.detail}`) : null];
   }
   return dkRow({ key: `helper-${a.id}`, dot: tone, title: a.name, sub, meta, body, badge });
 }
 
-// The state pill at the assistant home (D64): one state, never red.
+// The state pill at the assistant home (D64): one state, never red. Off says nothing here: the
+// lead below and the tab bar's status say it (said once, 17 Oct 2026).
 export function aiPill(ai) {
-  if (ai.kind === "off") return dkPill("off", "Off · code only");
+  if (ai.kind === "off") return null;
   // the time is in the lead beside it, said once (review clutter 7)
   if (ai.kind === "paused") return dkPill("caution", "Paused");
   if (ai.kind === "trouble") return dkPill("caution", `On · ${plural(ai.trouble.length, "problem")}`);
@@ -807,14 +812,17 @@ function aiPanel(D, store) {
   const head = dkHeader({
     id: "ai-head",
     pills: [aiPill(ai)],
-    title: stub ? "Code does every step, and code templates write the text a model would." : `${assistantIs()} Its skills can widen TEPHRA's estimate but never shrink the official area.`,
-    chips: stub ? [dkChip("No model (offline stub)")] : ids.map(([k, id]) => dkChip(id, { label: k, mono: true })),
+    // stub: the lead says the state once; the title only names the section for a screen reader
+    title: stub ? ASSISTANT : `${assistantIs()} Its skills can widen TEPHRA's estimate but never shrink the official area.`,
+    srTitle: stub,
+    chips: stub ? [] : ids.map(([k, id]) => dkChip(id, { label: k, mono: true })),
     extra: el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "board-open", focus: "ai-board" }, "aria-keyshortcuts": "A" }, icon("ta-16"), `See ${ASSISTANT} at work`)),
   });
   // the calm lead (5.1): what state the assistant is in, what still holds, where the hand work is
   const lead = el("div", { class: "dk-lead", role: "status" }, ...aiLead(ai).map((p) => el("p", {}, el("strong", { text: p.strong }), ` ${p.text}`)));
   const tiles = dkTiles([
-    budgetTile(stub, ai),
+    // the stub spends no calls: its tile would only repeat that the assistant is off
+    stub ? null : budgetTile(stub, ai),
     { label: "Jobs handed out", value: jobsN == null ? "none yet" : String(jobsN), tone: jobsN == null ? "never" : null, sub: run ? `latest Coordinator run${Number.isFinite(runT) ? `, ${hhmmz(runT)}` : ""}` : "no Coordinator run yet" },
   ], "TEPHRA Assistant in numbers");
 

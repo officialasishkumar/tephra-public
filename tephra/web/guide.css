@@ -121,6 +121,21 @@ body.guide {
   color: var(--c-text-2);
 }
 
+/* "What is real?": a link, not a chip, to About › Safety limits */
+.gfacts .gfacts__more {
+  padding: 0;
+  border: 0;
+}
+
+.gfacts__more a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 4px var(--sp-1);
+  color: var(--c-text-1);
+  text-underline-offset: 3px;
+}
+
 .guide__case {
   margin: 0;
   padding: var(--sp-4) var(--sp-5);
@@ -448,6 +463,18 @@ body.guide {
   font-weight: var(--fw-semibold);
 }
 
+/* titles only; the one sentence shows on hover, focus or a tap (the item is active), and screen
+   readers always hear it */
+.shot__item:not(.is-active):not(:hover):not(:focus-visible) .shot__txt > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .shot__mark.is-pulse,
   .shot__item.is-pulse {
@@ -533,14 +560,13 @@ body.guide {
 }
 
 .gtry,
-.grun,
 .gmore {
   margin-top: var(--sp-16);
 }
 
 .gtry__list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: var(--sp-3);
   margin: 0;
   padding: 0;
@@ -555,7 +581,7 @@ body.guide {
 .gtry__list a {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
-  grid-template-rows: auto auto;
+  align-items: start;
   column-gap: var(--sp-3);
   row-gap: 2px;
   height: 100%;
@@ -571,7 +597,6 @@ body.guide {
 
 .gtry__list a::before {
   content: counter(try);
-  grid-row: 1 / span 2;
   width: 24px;
   height: 24px;
   border: 1px solid var(--c-line-input);
@@ -596,10 +621,6 @@ body.guide {
   color: var(--c-text-1);
   font-size: var(--fs-2);
   font-weight: var(--fw-semibold);
-}
-
-.gtry__list span {
-  font-size: var(--fs-1);
 }
 
 .grun__list {
@@ -644,11 +665,6 @@ body.guide {
   color: var(--c-text-1);
 }
 
-.grun__line {
-  font-size: var(--fs-1);
-  color: var(--c-text-2);
-}
-
 .grun__cmd {
   display: flex;
   align-items: flex-start;
@@ -688,20 +704,11 @@ body.guide {
 .grun__copy:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .grun__copy .icon { width: 15px; height: 15px; }
 
-.grun__go {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-2);
-  align-self: start;
-  min-height: 44px;
-  margin-top: auto;
-  color: var(--c-text-1);
-  font-size: var(--fs-2);
-  font-weight: var(--fw-semibold);
-  text-underline-offset: 3px;
+.grun__cloud {
+  margin: var(--sp-4) 0 0;
+  font-size: var(--fs-1);
+  color: var(--c-text-2);
 }
-
-.grun__go .icon { width: 16px; height: 16px; }
 
 .gfold {
   border: 1px solid var(--c-line-1);
@@ -988,4 +995,72 @@ body.guide {
   font-family: var(--font-mono);
   font-size: 0.92em;
   color: var(--c-text-1);
+}
+
+/* the privacy notice: "In short" open, every section closed under its heading */
+.pshort {
+  margin: var(--sp-5) 0;
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--c-line-2);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--c-surface-2) 80%, transparent);
+}
+
+.guide__prose .pshort h2 {
+  margin-top: 0;
+}
+
+.guide__prose .pshort ul {
+  margin-bottom: 0;
+}
+
+.pfold {
+  border-top: 1px solid var(--c-line-1);
+  scroll-margin-top: 72px;
+}
+
+.pfold:last-child {
+  border-bottom: 1px solid var(--c-line-1);
+}
+
+.pfold > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 48px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.pfold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.guide__prose .pfold > summary h2 {
+  margin: 0;
+  font-size: var(--fs-3);
+}
+
+.pfold > summary::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-right: 2px solid var(--c-text-3);
+  border-bottom: 2px solid var(--c-text-3);
+  transform: rotate(45deg) translateY(-2px);
+}
+
+.pfold[open] > summary::after {
+  transform: rotate(225deg) translateY(-2px);
+}
+
+.pfold > summary:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-md);
+}
+
+.pfold[open] {
+  padding-bottom: var(--sp-3);
 }

@@ -60,17 +60,17 @@ export function readTokens() {
   const css = mapTokens();
   const tok = (name) => css.getPropertyValue(name).trim();
   return {
-    official: tok("--c-official"), officialText: tok("--c-official-text"),
+    official: tok("--c-official"), officialText: tok("--c-official-text"), forecast: tok("--c-forecast"),
     tephra: tok("--c-tephra"), tephraText: tok("--c-tephra-text"),
     observer: tok("--c-observer"), observerText: tok("--c-observer-text"),
     crew: tok("--c-crew"), crewText: tok("--c-crew-text"),
     aircraft: tok("--c-aircraft"), stale: tok("--c-aircraft-stale"), route: tok("--c-route"),
+    reroute: tok("--c-reroute"), closed: tok("--c-closed"), muted: tok("--c-map-muted"),
     tephraBack: tok("--map-flight-back"), land: tok("--map-land"), water: tok("--map-water"), halo: tok("--map-halo"), label: tok("--map-label"),
     night: nightColours(),
     fir: tok("--map-fir"), firActive: tok("--map-fir-active"), vaac: tok("--map-vaac"), navaid: tok("--map-navaid"),
     labelMinor: tok("--map-label-minor"), labelFir: tok("--map-label-fir"), labelVaac: tok("--map-label-vaac"),
     text1: tok("--c-text-1"), text2: tok("--c-text-2"), text3: tok("--c-text-3"),
-    ok: tok("--c-ok"), serious: tok("--c-serious"),
     codes: {
       GREEN: tok("--c-code-green"), YELLOW: tok("--c-code-yellow"), ORANGE: tok("--c-code-orange"),
       RED: tok("--c-code-red"), UNKNOWN: tok("--c-code-unknown"),
@@ -79,6 +79,26 @@ export function readTokens() {
 }
 
 const empty = () => fc([]);
+
+// The official area now in --c-official; its forecast steps (+6, +12, +18 h) in --c-forecast, the
+// same hue today (same source), told apart by dash and no fill, and retunable on their own.
+const stepColour = (C, step) => (step === "now" ? C.official : C.forecast);
+
+// Lines over satellite imagery (5.6): over imagery a pixel can be as light or as red as the line,
+// so the official and TEPHRA lines get a double casing, 1.5 px --map-halo next to the line and a
+// 1 px --map-label hairline at 70 % outside it (CHECKS: with the dark casing alone 5 of 24 tested
+// Ash RGB cases stay under 3:1). Built hidden under each line; updateImageryCasing shows them only
+// while imagery is on the map. A dashed line keeps its dashes: the casing is a quiet edge.
+const CASED = [...Object.keys(STEP_STYLE).map((step) => `official-line-${step}`), "tephra-line"];
+const widen = (w, d) => (Array.isArray(w) && w[0] === "interpolate"
+  ? [...w.slice(0, 3), ...w.slice(3).map((v, i) => (i % 2 ? (typeof v === "number" ? v + d : ["+", v, d]) : v))]
+  : w + d);
+function addImageryCasing(map, C, id, { source, filter, layout, width, opacity, offset = 0 }) {
+  const base = { type: "line", source, filter, layout: { ...layout, visibility: "none" } };
+  const at = offset ? { "line-offset": offset } : {};
+  map.addLayer({ ...base, id: `${id}-case`, paint: { "line-color": C.label, "line-width": widen(width, 5), "line-opacity": ["*", 0.7, opacity], ...at } });
+  map.addLayer({ ...base, id: `${id}-halo`, paint: { "line-color": C.halo, "line-width": widen(width, 3), "line-opacity": opacity, ...at } });
+}
 const before = (map, id) => (map.getLayer(id) ? id : undefined);
 
 // The hexes the flight filter keeps (null: every flight). "inside": RFA flights inside the ash;
@@ -106,8 +126,10 @@ function tuneBasemap(map, C, ui) {
   if (!map.getSource("dem")) {
     map.addSource("dem", { type: "raster-dem", tiles: ["https://tiles.mapterhorn.com/{z}/{x}/{y}.webp"], encoding: "terrarium", tileSize: 512, maxzoom: 12, attribution: "© Mapterhorn" });
   }
+  // The relief and the 3D sky (set3d) are literals in the land's hue (OKLCH h 258-261) and about
+  // its chroma, so the cool near-neutral land (--map-land) reads as one plate in 2D and 3D.
   if (!map.getLayer("hillshade")) {
-    map.addLayer({ id: "hillshade", type: "hillshade", source: "dem", minzoom: 5, layout: { visibility: vis }, paint: { "hillshade-exaggeration": 0.45, "hillshade-shadow-color": "#000000", "hillshade-highlight-color": "#2a3442", "hillshade-accent-color": "#05070a" } }, before(map, "waterway"));
+    map.addLayer({ id: "hillshade", type: "hillshade", source: "dem", minzoom: 5, layout: { visibility: vis }, paint: { "hillshade-exaggeration": 0.45, "hillshade-shadow-color": "#000000", "hillshade-highlight-color": "#2f343b", "hillshade-accent-color": C.halo } }, before(map, "waterway"));
   }
 }
 
@@ -116,8 +138,10 @@ function addContext(map, C, ui, noText) {
   map.addSource("vaac", { type: "geojson", data: "/static/data/vaac_aor.geojson" });
   map.addSource("navaids", { type: "geojson", data: "/static/data/navaids.geojson" });
   const ctxVis = ui.layers.context ? "visible" : "none";
-  map.addLayer({ id: "fir-line", type: "line", source: "firs", layout: { visibility: ctxVis }, paint: { "line-color": C.fir, "line-width": 1 } });
-  map.addLayer({ id: "fir-active", type: "line", source: "firs", filter: ["in", ["get", "icao"], ["literal", []]], layout: { visibility: ctxVis }, paint: { "line-color": C.firActive, "line-width": 1.6 } });
+  // One context grey (--c-map-context) for FIR lines, VAAC lines and routes, told apart by pattern:
+  // FIR dotted, VAAC dash-dot, a route a thin solid line (AUDIT P5).
+  map.addLayer({ id: "fir-line", type: "line", source: "firs", layout: { visibility: ctxVis }, paint: { "line-color": C.fir, "line-width": 1.2, "line-dasharray": [1, 2.5] } });
+  map.addLayer({ id: "fir-active", type: "line", source: "firs", filter: ["in", ["get", "icao"], ["literal", []]], layout: { visibility: ctxVis }, paint: { "line-color": C.firActive, "line-width": 1.6, "line-dasharray": [1, 2] } });
   map.addLayer({ id: "vaac-line", type: "line", source: "vaac", layout: { visibility: ctxVis }, paint: { "line-color": C.vaac, "line-width": 1.2, "line-dasharray": [6, 3, 1, 3] } });
   if (!noText) {
     const lab = { "symbol-placement": "line", "symbol-spacing": 700, "text-field": ["get", "label"], "text-font": FONT_REG, "text-size": 12, "text-letter-spacing": 0.08, "text-offset": [0, 0.8], visibility: ctxVis };
@@ -149,26 +173,33 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
     map.addLayer({ id: "tephra-hatch", type: "fill", source: "cones", filter: ["==", ["get", "part"], "sector"], layout: { visibility: tVis }, paint: { "fill-pattern": "hatch-tephra", "fill-opacity": fade(1) } });
   }
   // Crew report caution areas (5.7): an operator-policy layer drawn from a dispatcher's entry,
-  // beneath every official area so it never hides or replaces one. Long ivory dashes, a faint
+  // beneath every official area so it never hides or replaces one. Long parchment dashes, a faint
   // fill. Not on the compare map's "official only" side.
   if (withTephra) {
     const area = ["==", ["get", "feature"], "area"];
     map.addLayer({ id: "crew-fill", type: "fill", source: "crew", filter: area, paint: { "fill-color": C.crew, "fill-opacity": 0.06 } });
-    map.addLayer({ id: "crew-line", type: "line", source: "crew", filter: area, layout: { "line-join": "round" }, paint: { "line-color": C.crew, "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.4, 8, 2.2], "line-dasharray": [4, 3], "line-opacity": 0.95 } });
+    map.addLayer({ id: "crew-line", type: "line", source: "crew", filter: area, layout: { "line-join": "round" }, paint: { "line-color": C.crew, "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.4, 8, 2.2], "line-dasharray": [6.5, 2.7], "line-opacity": 0.95 } });
   }
   for (const [step, s] of Object.entries(STEP_STYLE)) {
     const filter = ["all", ["==", ["get", "step"], step], ["==", ["get", "show"], true]];
     const fillFilter = step === "now" ? ["all", filter, ["==", ["get", "fill"], true]] : filter;
-    map.addLayer({ id: `official-fill-${step}`, type: "fill", source: "official", filter: fillFilter, paint: { "fill-color": C.official, "fill-opacity": fade(s.fill) } });
+    map.addLayer({ id: `official-fill-${step}`, type: "fill", source: "official", filter: fillFilter, paint: { "fill-color": stepColour(C, step), "fill-opacity": fade(s.fill) } });
   }
   for (const [step, s] of Object.entries(STEP_STYLE)) {
     const filter = ["all", ["==", ["get", "step"], step], ["==", ["get", "show"], true]];
-    const paint = { "line-color": C.official, "line-width": ["interpolate", ["linear"], ["zoom"], 4, s.w * 0.6, 8, s.w], "line-opacity": ["*", s.op, ["coalesce", ["get", "lfade"], ["get", "fade"], 1]] };
+    const width = ["interpolate", ["linear"], ["zoom"], 4, s.w * 0.6, 8, s.w];
+    const opacity = ["*", s.op, ["coalesce", ["get", "lfade"], ["get", "fade"], 1]];
+    const paint = { "line-color": stepColour(C, step), "line-width": width, "line-opacity": opacity };
     if (s.dash) paint["line-dasharray"] = s.dash;
-    map.addLayer({ id: `official-line-${step}`, type: "line", source: "official", filter, layout: { "line-join": "round", "line-cap": step === "f18" ? "round" : "butt" }, paint });
+    const layout = { "line-join": "round", "line-cap": step === "f18" ? "round" : "butt" };
+    addImageryCasing(map, C, `official-line-${step}`, { source: "official", filter, layout, width, opacity });
+    map.addLayer({ id: `official-line-${step}`, type: "line", source: "official", filter, layout, paint });
   }
   if (withTephra) {
-    map.addLayer({ id: "tephra-line", type: "line", source: "cones", filter: ["==", ["get", "part"], "cone"], layout: { "line-join": "round", visibility: tVis }, paint: { "line-color": C.tephra, "line-width": ["interpolate", ["linear"], ["zoom"], 4, ["case", ["==", ["get", "sel"], true], 1.6, 1.4], 8, ["case", ["==", ["get", "sel"], true], 2.6, 1.4]], "line-dasharray": [3, 2], "line-offset": -5, "line-opacity": fade(1) } });
+    const tWidth = ["interpolate", ["linear"], ["zoom"], 4, ["case", ["==", ["get", "sel"], true], 1.6, 1.4], 8, ["case", ["==", ["get", "sel"], true], 2.6, 1.4]];
+    const cone = ["==", ["get", "part"], "cone"];
+    addImageryCasing(map, C, "tephra-line", { source: "cones", filter: cone, layout: { "line-join": "round" }, width: tWidth, opacity: fade(1), offset: -5 });
+    map.addLayer({ id: "tephra-line", type: "line", source: "cones", filter: cone, layout: { "line-join": "round", visibility: tVis }, paint: { "line-color": C.tephra, "line-width": tWidth, "line-dasharray": [3, 2], "line-offset": -5, "line-opacity": fade(1) } });
     const pVis = ui.layers.paths ? "visible" : "none";
     map.addLayer({ id: "exposure-path", type: "line", source: "exposures", filter: ["==", ["get", "kind"], "path"], layout: { visibility: pVis, "line-cap": "butt" }, paint: { "line-color": C.tephra, "line-width": 2.4, "line-dasharray": [1.5, 1.5] } });
     const entry = ["all", ["==", ["get", "kind"], "entry"], [">", ["coalesce", ["get", "minutes_to_entry"], 0], 0]];
@@ -177,7 +208,7 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
     const entryPaint = { "circle-radius": 5, "circle-color": C.halo, "circle-stroke-color": C.tephra, "circle-stroke-width": 2.5 };
     map.addLayer({ id: "exposure-entry", type: "circle", source: "exposures", minzoom: 8, filter: entry, layout: { visibility: pVis }, paint: entryPaint });
     map.addLayer({ id: "exposure-entry-sel", type: "circle", source: "exposures", maxzoom: 8, filter: ["all", entry, ["==", ["get", "picked"], true]], layout: { visibility: pVis }, paint: entryPaint });
-    // a flagged flight's projected track into a crew report area: fine ivory dots
+    // a flagged flight's projected track into a crew report area: fine parchment dots
     map.addLayer({ id: "crew-path", type: "line", source: "crew", filter: ["==", ["get", "feature"], "path"], layout: { visibility: pVis, "line-cap": "round" }, paint: { "line-color": C.crew, "line-width": 1.8, "line-dasharray": [0.1, 2.2] } });
     if (!noText) map.addLayer({ id: "exposure-entry-label", type: "symbol", source: "exposures", minzoom: 8, filter: entry, layout: { visibility: pVis, "text-field": ["concat", "in ", ["to-string", ["get", "minutes_to_entry"]], " min"], "text-font": FONT_BOLD, "text-size": 13, "text-variable-anchor": ["bottom", "top", "left", "right"], "text-radial-offset": 0.9, "symbol-sort-key": ["coalesce", ["get", "minutes_to_entry"], 999] }, paint: { "text-color": C.tephraText, "text-halo-color": C.halo, "text-halo-width": 2 } });
   }
@@ -191,9 +222,10 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
   if (withTephra) acIcon("exposed-icon", "exposed-pts", ["!", ["has", "point_count"]]);
   if (!noText) map.addLayer({ id: "aircraft-label", type: "symbol", source: "aircraft", minzoom: 7.5, filter: withTephra ? ["!", RFA] : ["literal", true], layout: { visibility: ui.layers.acLabels && ui.layers.aircraft ? "visible" : "none", "text-field": ["get", "short"], "text-font": FONT_REG, "text-size": 12, "text-offset": [0, 1.2], "text-anchor": "top", "text-optional": true }, paint: { "text-color": C.text3, "text-halo-color": C.halo, "text-halo-width": 1.5 } });
   if (withTephra) {
-    // The aircraft picked by the viewer (7.8): the only ring on the map. "Inside now" is in each
-    // flight's label, not a ring of its own, so a busy airport is not a pile of circles.
-    map.addLayer({ id: "aircraft-picked", type: "circle", source: "aircraft", filter: ["==", ["get", "picked"], true], layout: { visibility: acVis }, paint: { "circle-radius": 17, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": C.text1, "circle-stroke-width": 2.5 } });
+    // The aircraft picked by the viewer (7.8): the only ring on the map, in the plan's white (it is
+    // the flight a dispatcher decides on). "Inside now" is in each flight's label, not a ring of its
+    // own, so a busy airport is not a pile of circles.
+    map.addLayer({ id: "aircraft-picked", type: "circle", source: "aircraft", filter: ["==", ["get", "picked"], true], layout: { visibility: acVis }, paint: { "circle-radius": 17, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": C.reroute, "circle-stroke-width": 2.5 } });
     // The picked flight's two airport codes (route-end-label-sel): drawn over the planes, so the
     // hub's code is never cut by the plane icons (moved up below).
     if (!noText) map.addLayer({ id: "route-end-label-sel", type: "symbol", minzoom: DETAIL_ZOOM, source: "routes", filter: ["all", ["==", ["get", "feature"], "airport"], ["==", ["get", "sel"], true]], layout: { visibility: ui.layers.routes ? "visible" : "none", ...routeTag(true) }, paint: { "text-color": C.text1 } });
@@ -247,31 +279,33 @@ function addHazard(map, C, ui, { withTephra = true, noText = false } = {}) {
 }
 
 // Airports (5, 13 Oct 2026): every catalogue airport a small dot (its code from zoom 6), and each
-// airport the current airport plan closes ringed in --c-serious with its closure radius dashed and
-// a "WIII closed" tag at every zoom. Above the ash fills, beneath the planes; a click on a closed
-// one opens Details › Airport closures.
+// airport the current airport plan closes drawn as a white bar on a dark disc (the closed-airport
+// image, --c-closed: white is the plan a dispatcher decides on, never red or amber), its closure
+// radius dashed and a "WIII closed" tag at every zoom. Above the ash fills, beneath the planes; a
+// click on a closed one opens Details › Airport closures.
 function addAirportLayers(map, C, ui, noText) {
   map.addSource("airports", { type: "geojson", data: empty() });
   map.addSource("closures", { type: "geojson", data: empty() });
   const vis = ui.layers.airports ? "visible" : "none";
   const closed = ["==", ["get", "closed"], true];
   const at = before(map, "aircraft-icon");
-  map.addLayer({ id: "closure-area", type: "fill", source: "closures", layout: { visibility: vis }, paint: { "fill-color": C.serious, "fill-opacity": 0.06 } }, at);
-  map.addLayer({ id: "closure-ring", type: "line", source: "closures", layout: { visibility: vis }, paint: { "line-color": C.serious, "line-opacity": 0.85, "line-width": 1.4, "line-dasharray": [3, 2] } }, at);
-  map.addLayer({ id: "airport-dot", type: "circle", source: "airports", layout: { visibility: vis, "circle-sort-key": ["case", closed, 1, 0] }, paint: {
-    "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, ["case", closed, 4.5, 2], 8, ["case", closed, 6.5, 3.2]],
-    "circle-color": ["case", closed, C.halo, C.text2], "circle-opacity": ["case", closed, 1, 0.7],
-    "circle-stroke-color": ["case", closed, C.serious, C.halo], "circle-stroke-width": ["case", closed, 2.4, 1],
+  map.addLayer({ id: "closure-area", type: "fill", source: "closures", layout: { visibility: vis }, paint: { "fill-color": C.closed, "fill-opacity": 0.04 } }, at);
+  map.addLayer({ id: "closure-ring", type: "line", source: "closures", layout: { visibility: vis }, paint: { "line-color": C.closed, "line-opacity": 0.55, "line-width": 1.4, "line-dasharray": [3, 3] } }, at);
+  map.addLayer({ id: "airport-dot", type: "circle", source: "airports", filter: ["!", closed], layout: { visibility: vis }, paint: {
+    "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 2, 8, 3.2], "circle-color": C.text2, "circle-opacity": 0.7,
+    "circle-stroke-color": C.halo, "circle-stroke-width": 1,
   } }, at);
+  map.addLayer({ id: "airport-closed-bar", type: "symbol", source: "airports", filter: closed, layout: { visibility: vis,
+    "icon-image": "closed-airport", "icon-size": ["interpolate", ["linear"], ["zoom"], 3, 0.75, 8, 1], "icon-allow-overlap": true, "icon-ignore-placement": true } }, at);
   if (noText) return;
-  // zoomed out a closed airport is its code in red beside the ring; from zoom 6.5 a tag that says it
+  // zoomed out a closed airport is its code beside the symbol; from zoom 6.5 a tag that says it
   const anchors = { "text-variable-anchor-offset": ["bottom", [0, -1.1], "top", [0, 1.1], "left", [1.1, 0], "right", [-1.1, 0]], "text-allow-overlap": false, "symbol-sort-key": 0 };
   map.addLayer({ id: "airport-closed-code", type: "symbol", source: "airports", maxzoom: 6.5, filter: closed, layout: { visibility: vis,
     "text-field": ["get", "icao"], "text-font": FONT_BOLD, "text-size": 12, "text-letter-spacing": 0.06, "text-optional": true, ...anchors },
-    paint: { "text-color": C.serious, "text-halo-color": C.halo, "text-halo-width": 2 } });
+    paint: { "text-color": C.closed, "text-halo-color": C.halo, "text-halo-width": 2 } });
   map.addLayer({ id: "airport-closed-label", type: "symbol", source: "airports", minzoom: 6.5, filter: closed, layout: { visibility: vis,
     "icon-image": "box-closed", "icon-text-fit": "both", "icon-text-fit-padding": [3, 7, 3, 7], "text-field": ["concat", ["get", "icao"], " closed"],
-    "text-font": FONT_BOLD, "text-size": 12, "icon-allow-overlap": false, ...anchors }, paint: { "text-color": C.serious } });
+    "text-font": FONT_BOLD, "text-size": 12, "icon-allow-overlap": false, ...anchors }, paint: { "text-color": C.closed } });
   map.addLayer({ id: "airport-label", type: "symbol", source: "airports", minzoom: 6, filter: ["!", closed], layout: { visibility: vis,
     "text-field": ["get", "icao"], "text-font": FONT_REG, "text-size": 12, "text-letter-spacing": 0.06, "text-variable-anchor": ["left", "right", "top", "bottom"], "text-radial-offset": 0.7, "text-optional": true },
     paint: { "text-color": C.text3, "text-halo-color": C.halo, "text-halo-width": 1.5 } });
@@ -350,12 +384,12 @@ function addRouteLayers(map, C, ui, noText) {
 function addRoseLayers(map, C, ui, noText) {
   const role = (r) => ["==", ["get", "role"], r];
   const vis = ui.layers.rose ? "visible" : "none";
-  map.addLayer({ id: "rose-casing", type: "line", source: "rose", filter: ["in", ["get", "role"], ["literal", ["off", "obs", "arc"]]], layout: { "line-cap": "round", visibility: vis }, paint: { "line-color": ["match", ["get", "role"], "off", "#05070a", C.halo], "line-width": ["match", ["get", "role"], "arc", 5, "off", 9, 8], "line-opacity": 1 } });
+  map.addLayer({ id: "rose-casing", type: "line", source: "rose", filter: ["in", ["get", "role"], ["literal", ["off", "obs", "arc"]]], layout: { "line-cap": "round", visibility: vis }, paint: { "line-color": C.halo, "line-width": ["match", ["get", "role"], "arc", 5, "off", 9, 8], "line-opacity": 1 } });
   map.addLayer({ id: "rose-arc", type: "line", source: "rose", filter: role("arc"), layout: { visibility: vis }, paint: { "line-color": C.text1, "line-width": 1.6 } });
   map.addLayer({ id: "rose-off", type: "line", source: "rose", filter: role("off"), layout: { visibility: vis }, paint: { "line-color": C.officialText, "line-width": 3.6 } });
   map.addLayer({ id: "rose-obs", type: "line", source: "rose", filter: role("obs"), layout: { visibility: vis }, paint: { "line-color": C.observer, "line-width": 3.4, "line-dasharray": [2, 1.6] } });
   map.addLayer({ id: "rose-probe", type: "circle", source: "rose", filter: role("probe"), layout: { visibility: vis }, paint: { "circle-radius": 5, "circle-color": C.halo, "circle-stroke-color": C.observer, "circle-stroke-width": 2.5 } });
-  map.addLayer({ id: "rose-heads", type: "symbol", source: "rose", filter: ["in", ["get", "role"], ["literal", ["off-head", "obs-head"]]], layout: { visibility: vis, "icon-image": "arrowhead", "icon-size": ["match", ["get", "role"], "off-head", 1.25, 0.62], "icon-rotate": ["get", "bearing"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true }, paint: { "icon-color": ["match", ["get", "role"], "off-head", C.officialText, C.observer], "icon-halo-color": ["match", ["get", "role"], "off-head", "#05070a", C.halo], "icon-halo-width": ["match", ["get", "role"], "off-head", 2, 1.5] } });
+  map.addLayer({ id: "rose-heads", type: "symbol", source: "rose", filter: ["in", ["get", "role"], ["literal", ["off-head", "obs-head"]]], layout: { visibility: vis, "icon-image": "arrowhead", "icon-size": ["match", ["get", "role"], "off-head", 1.25, 0.62], "icon-rotate": ["get", "bearing"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true }, paint: { "icon-color": ["match", ["get", "role"], "off-head", C.officialText, C.observer], "icon-halo-color": C.halo, "icon-halo-width": ["match", ["get", "role"], "off-head", 2, 1.5] } });
   if (noText) return;
   map.addLayer({ id: "rose-labels", type: "symbol", minzoom: DETAIL_ZOOM, source: "rose", filter: role("obs-head"), layout: { visibility: vis, "text-field": ["format", ["get", "line1"], { "text-color": C.observerText }, "\n", {}, ["get", "line2"], { "text-color": C.text2, "font-scale": 0.85 }], "text-font": FONT_BOLD, "text-size": ["get", "size"], "text-variable-anchor": ["left", "right", "top", "bottom"], "text-radial-offset": 1.1, "text-justify": "auto", "text-max-width": 30 }, paint: { "text-halo-color": C.halo, "text-halo-width": 2 } });
   map.addLayer({ id: "rose-angle", type: "symbol", minzoom: DETAIL_ZOOM, source: "rose", filter: role("angle"), layout: { visibility: vis, "icon-image": "box-angle", "icon-text-fit": "both", "icon-text-fit-padding": [3, 7, 3, 7], "text-field": ["get", "text"], "text-font": FONT_BOLD, "text-size": ["get", "size"], "icon-allow-overlap": false, "text-allow-overlap": false, "symbol-sort-key": 1 }, paint: { "text-color": C.text1 } });
@@ -430,7 +464,7 @@ export class WallMap {
     this.map.on("styleimagemissing", (e) => {
       if (this.map.hasImage(e.id)) return;
       const n = /^ac-group-(\d+)$/.exec(e.id);
-      if (n) this.map.addImage(e.id, flightGroupImage(Number(n[1]), this.C.tephra, this.C.tephraBack), { pixelRatio: 2 });
+      if (n) this.map.addImage(e.id, flightGroupImage(Number(n[1]), this.C.tephra, this.C.tephraBack, this.C.halo), { pixelRatio: 2 });
       else this.map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) });
     });
     this.map.on("error", (e) => this.onError(e));
@@ -522,7 +556,7 @@ export class WallMap {
       this.updateAirports();
       if (!this.hoverBound) {
         this.hoverBound = true;
-        for (const id of ["aircraft-icon", "exposed-icon", "exposed-cluster", "volcano-active", "official-fill-now", "tephra-fill", "reroute-line", "reroute-wp", "crew-pin", "crew-label", "crew-fill", "airport-closed-label", "airport-closed-code"]) {
+        for (const id of ["aircraft-icon", "exposed-icon", "exposed-cluster", "volcano-active", "official-fill-now", "tephra-fill", "reroute-line", "reroute-wp", "crew-pin", "crew-label", "crew-fill", "airport-closed-bar", "airport-closed-label", "airport-closed-code"]) {
           map.on("mouseenter", id, () => { map.getCanvas().style.cursor = "pointer"; });
           map.on("mouseleave", id, () => { map.getCanvas().style.cursor = ""; });
         }
@@ -1089,7 +1123,7 @@ export class WallMap {
   // No popups: a click opens the matching Details section (wall.js), and a flight cluster zooms in.
 
   onClick(e) {
-    const order = ["exposed-cluster", "aircraft-icon", "exposed-icon", "exposure-entry", "exposure-entry-sel", "reroute-wp", "reroute-line", "crew-pin", "crew-label", "crew-path", "volcano-active", "volcano-inactive", "airport-closed-label", "airport-closed-code", "airport-dot", "airport-label", "closure-ring", "crew-line", "official-fill-now", "official-line-now", "official-line-f6", "official-line-f12", "official-line-f18", "tephra-line", "tephra-fill", "tephra-hatch", "crew-fill"];
+    const order = ["exposed-cluster", "aircraft-icon", "exposed-icon", "exposure-entry", "exposure-entry-sel", "reroute-wp", "reroute-line", "crew-pin", "crew-label", "crew-path", "volcano-active", "volcano-inactive", "airport-closed-bar", "airport-closed-label", "airport-closed-code", "airport-dot", "airport-label", "closure-ring", "crew-line", "official-fill-now", "official-line-now", "official-line-f6", "official-line-f12", "official-line-f18", "tephra-line", "tephra-fill", "tephra-hatch", "crew-fill"];
     const layers = order.filter((id) => this.map.getLayer(id));
     const hits = this.map.queryRenderedFeatures([[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]], { layers });
     if (!hits.length) { this.hideCard(); return; }
@@ -1147,10 +1181,11 @@ export class WallMap {
   applyLayers() {
     const L = this.ui.layers;
     this.setVisible(["hillshade", "ne2-relief"], L.terrain);
-    this.setVisible(["closure-area", "closure-ring", "airport-dot", "airport-closed-code", "airport-closed-label", "airport-label"], L.airports);
+    this.setVisible(["closure-area", "closure-ring", "airport-dot", "airport-closed-bar", "airport-closed-code", "airport-closed-label", "airport-label"], L.airports);
     this.setVisible(["fir-line", "fir-active", "fir-label", "vaac-line", "vaac-label"], L.context);
     this.setVisible(["navaid", "navaid-label"], L.navaids);
     this.setVisible(["tephra-fill", "tephra-hatch", "tephra-line", "tephra-label"], L.tephra);
+    this.updateImageryCasing();
     this.setVisible(["exposure-path", "exposure-entry", "exposure-entry-sel", "exposure-entry-label", "crew-path"], L.paths);
     this.setVisible(["route-line", "route-end", "route-end-label", "route-end-label-sel", "route-avoid-official", "route-avoid-crew", "route-avoid-volcano", "route-avoid-volcano-sel"], L.routes);
     this.setVisible(["route-avoid-cone"], L.routes && L.tephra);
@@ -1283,6 +1318,13 @@ export class WallMap {
       }
     });
     this.btdIds = ids;
+    this.updateImageryCasing();
+  }
+
+  // The imagery casing (addImageryCasing) shows while satellite, SO2 or BTD imagery is drawn.
+  updateImageryCasing() {
+    const imagery = this.ui.sat !== "off" || this.ui.so2 || this.btdIds.length > 0;
+    for (const id of CASED) this.setVisible([`${id}-case`, `${id}-halo`], imagery && (id !== "tephra-line" || this.ui.layers.tephra));
   }
 
   // ---------------------------------------------------------------- 3D (8.1)
@@ -1306,7 +1348,7 @@ export class WallMap {
         map.addLayer({ id: "ac3d-box", type: "fill-extrusion", source: "ac3d", filter: ["==", ["get", "part"], "box"], paint: { "fill-extrusion-color": ["case", ["==", ["get", "exposed"], true], this.C.tephra, this.C.aircraft], "fill-extrusion-opacity": 0.95, "fill-extrusion-base": ["get", "b"], "fill-extrusion-height": ["get", "h"] } }, beforeId);
       }
       if (this.ui.layers.terrain && map.getLayer("hillshade")) map.setLayoutProperty("hillshade", "visibility", "visible");
-      map.setSky({ "sky-color": "#0b1220", "horizon-color": "#1b2430", "fog-color": "#07090d", "sky-horizon-blend": 0.6, "horizon-fog-blend": 0.6, "fog-ground-blend": 0.8 });
+      map.setSky({ "sky-color": "#0f1219", "horizon-color": "#1f242a", "fog-color": "#07090d", "sky-horizon-blend": 0.6, "horizon-fog-blend": 0.6, "fog-ground-blend": 0.8 });
       this.update3d();
       // 3D always targets the selected volcano (8.1)
       if (this.D?.sit) this.frame({ animate: true }); else map.easeTo({ pitch: 60, bearing: -20, duration: dur });

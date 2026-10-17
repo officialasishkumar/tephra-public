@@ -17,7 +17,7 @@ function largeStep(step, n, lines) {
   return el("li", { class: `steps5__n steps5__n--${step.key}` },
     el("span", { class: "steps5__node" }, icon(step.icon), el("span", { class: "steps5__num", "aria-hidden": "true", text: n })),
     el("b", {}, el("span", { class: "sr-only", text: `Step ${n}: ` }), step.name),
-    lines && el("span", { class: "steps5__line", text: step.line }));
+    lines && el("span", { class: lines === "sr" ? "sr-only" : "steps5__line", text: step.line }));
 }
 
 function smallStep(step) {
@@ -26,13 +26,13 @@ function smallStep(step) {
     el("span", { class: "steps5__short", text: step.short }));
 }
 
-// size "lg": 56 px nodes with a number badge, the name and its line under each (the Guide);
-// `lines: false` leaves the lines out and keeps the strip in one row on a phone too (the welcome
-// dialog). "sm": 32 px nodes with the short names only (the side panel, Home's strip). `current` is a step
+// size "lg": 56 px nodes with a number badge, the name and its line under each; `lines: false`
+// leaves the lines out and keeps the strip in one row on a phone too (the welcome dialog), and
+// `lines: "sr"` does the same with the lines kept for screen readers (the Guide). "sm": 32 px nodes with the short names only (the side panel, Home's strip). `current` is a step
 // key: that node is ringed and its item carries aria-current="step".
 export function stepsList({ size = "lg", lines = true, current = null, label = "How TEPHRA works, in five steps", id = null } = {}) {
   const items = FIVE_STEPS.map((step, i) => (size === "sm" ? smallStep(step) : largeStep(step, i + 1, lines)));
-  const names = size !== "sm" && !lines ? " steps5--names" : "";
+  const names = size !== "sm" && lines !== true ? " steps5--names" : "";
   const list = el("ol", { class: `steps5 steps5--${size}${names}`, "aria-label": label, id }, items);
   setCurrentStep(list, current);
   return list;

@@ -202,7 +202,7 @@ function crewReasonField(adv) {
     const n = sheet.crewReason.trim().length;
     count.textContent = n < CREW_REASON_MIN ? `${n} / ${REASON_MAX_CHARS} · at least ${CREW_REASON_MIN} characters` : `${n} / ${REASON_MAX_CHARS}`;
     count.dataset.level = n < CREW_REASON_MIN && sheet.crewError ? 'caution' : 'ok';
-    msg.replaceChildren(...(sheet.crewError ? [el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: sheet.crewError }))] : []));
+    msg.replaceChildren(...(sheet.crewError ? [el('p', { class: 'msg msg--invalid' }, icon('st-caution', 'st'), el('span', { text: sheet.crewError }))] : []));
   };
   area.addEventListener('input', () => {
     sheet.crewReason = area.value;
@@ -368,12 +368,21 @@ function textBox(adv, { body = true } = {}) {
     body ? el('pre', { class: 'textbox__body', text: adv.edited_body ?? adv.body }) : null);
 }
 
-// Who wrote the text, as one line under the box: the mark only where a model wrote it.
+// Who wrote the text, as one line under the box. Text a code template wrote carries only the code
+// mark "{ }", beside the heading (textHead), unless an edit is said here too.
 function writerLine(adv) {
   const stub = isStub(adv);
   const words = [];
   if (adv.edited_body != null) words.push(`edited by ${deskName(adv.decided_by) || 'a dispatcher'}`);
+  if (stub && !words.length) return null;
   return el('p', { class: 'writer-note' }, aiMark(undefined, stub ? null : adv.model_id), words.length ? el('span', { text: ` · ${words.join(' · ')}` }) : null);
+}
+
+// "Text to approve", and the code mark beside it when a code template wrote the text (not inside
+// the heading, so its name stays the heading's words).
+function textHead(adv, words) {
+  const h = el('h2', { class: 'ghead', text: words });
+  return isStub(adv) && adv.edited_body == null ? el('div', { class: 'ghead-row' }, h, aiMark(undefined, null)) : h;
 }
 
 function hypothesisBanner() {
@@ -410,7 +419,7 @@ function reviewView(adv) {
 
   out.push(checkSection(adv));
   out.push(
-    el('h2', { class: 'ghead', text: adv.edited_body != null ? 'Text to approve · edited' : 'Text to approve' }),
+    textHead(adv, adv.edited_body != null ? 'Text to approve · edited' : 'Text to approve'),
     textBox(adv),
     writerLine(adv),
     el('button', { type: 'button', class: 'recordbtn', 'data-page': 'record' },
@@ -522,7 +531,7 @@ function areaPage(adv) {
   const facts = el('dl', { class: 'facts' },
     band(cone) ? fact('Ash band', band(cone)) : null,
     fact('Volcano', adv.volcano_name || adv.volcano_id),
-    fact('Set by', isStub(adv) ? 'code (TEPHRA Assistant off)' : 'code, from the official area and the Plume reader'));
+    fact('Set by', isStub(adv) ? 'code, from the official area' : 'code, from the official area and the Plume reader'));
   out.push(facts);
   return out;
 }
@@ -594,9 +603,9 @@ async function loadChain(id) {
 }
 
 function draftedByValue(adv) {
-  const out = [el('span', { class: 'v-strong', text: isStub(adv) ? 'Written by a code template (NO MODEL)' : `TEPHRA Assistant · ${adv.model_id}` })];
+  const out = [el('span', { class: 'v-strong', text: isStub(adv) ? 'Code template' : `TEPHRA Assistant · ${adv.model_id}` })];
   out.push(fine(isStub(adv)
-    ? 'Built from the official reports only. A code template wrote the text. Code writes every time, id and hash.'
+    ? 'Built from the official reports only. Code writes every time, id and hash.'
     : 'Model-written body, checked by code. Times, ids and hashes are written by code.'));
   // the four steps behind the text, one tap in (the Why page)
   out.push(el('p', { class: 'record__why' },
@@ -685,7 +694,7 @@ async function loadHistory(id, list) {
       if (e.action === 'REJECTED' && e.after && typeof e.after.reject_reason === 'string') detail.push(`Reason: ${e.after.reject_reason}`);
       if (e.action === 'EDITED' && e.after && typeof e.after.edited_body === 'string') detail.push(`Edited text: ${e.after.edited_body}`);
       if (typeof e.note === 'string' && e.note) detail.push(e.note);
-      if (e.action === 'DRAFT_CREATED' && e.model_id) detail.push(e.model_id === 'stub' ? 'Written by a code template (NO MODEL)' : `Drafted by TEPHRA Assistant · ${e.model_id}`);
+      if (e.action === 'DRAFT_CREATED' && e.model_id) detail.push(e.model_id === 'stub' ? 'Written by a code template' : `Drafted by TEPHRA Assistant · ${e.model_id}`);
       const hashes = Array.isArray(e.input_hashes) ? e.input_hashes.length : 0;
       return el('li', { class: `timeline__item timeline__item--${String(e.action).toLowerCase()}` },
         el('span', { class: 'timeline__time', text: hhmmz(e.at) }),
@@ -726,9 +735,9 @@ function editView(adv) {
     count.dataset.level = n > BODY_MAX_CHARS ? 'serious' : n >= BODY_CAUTION_CHARS ? 'caution' : 'ok';
     const problem = editProblem(area.value, { tried: sheet.editTried });
     const lines = [];
-    if (problem && problem.text) lines.push(el('p', { class: `msg msg--${problem.tone}` }, icon(problem.tone === 'serious' ? 'st-serious' : 'st-info', 'st'), el('span', { text: problem.text })));
+    if (problem && problem.text) lines.push(el('p', { class: `msg msg--${problem.tone === 'serious' ? 'invalid' : problem.tone}` }, icon(problem.tone === 'serious' ? 'st-caution' : 'st-info', 'st'), el('span', { text: problem.text })));
     if (sheet.problems.length) {
-      lines.push(el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: `Check the text: ${sheet.problems.join(' · ')}` })));
+      lines.push(el('p', { class: 'msg msg--invalid' }, icon('st-caution', 'st'), el('span', { text: `Check the text: ${sheet.problems.join(' · ')}` })));
     }
     msg.replaceChildren(...lines);
     renderBar();
@@ -776,7 +785,7 @@ function rejectView(adv) {
     // Quiet until the dispatcher has typed or tried to reject: an untouched field is not an error.
     count.dataset.level = n < REASON_MIN_CHARS && sheet.reasonTouched ? 'caution' : 'ok';
     for (const chip of chipButtons) chip.setAttribute('aria-pressed', String(area.value.includes(chip.dataset.reason)));
-    msg.replaceChildren(...(sheet.error ? [el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: sheet.error }))] : []));
+    msg.replaceChildren(...(sheet.error ? [el('p', { class: 'msg msg--invalid' }, icon('st-caution', 'st'), el('span', { text: sheet.error }))] : []));
     renderBar();
   };
   area.addEventListener('input', () => {

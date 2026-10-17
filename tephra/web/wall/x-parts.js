@@ -11,6 +11,30 @@ import { el, icon, ms, hhmmz, hhmmssz, airline } from "./util.js";
 // Naming). Ids, file names and API fields keep their old names; only the words on screen change.
 export const ASSISTANT = "TEPHRA Assistant";
 
+// The assistant's one status (owner, 17 Oct: "don't say no model everywhere"), said once per
+// screen: in the demo's tab bar, the /assistant board's title and the Desk's header, and only when
+// it is not working normally: a dot and two words ("AI off", "AI paused", "AI unavailable"), the
+// explanation behind an info button (wall/info.js) with the way to the cause ("Why ›" on the demo,
+// "Assistant details ›" on the Desk). On, nothing shows; `said` is the screen-reader text in every
+// state (the honesty label is never dropped). `w` is aiWords' words (its suffix names the skill in
+// trouble).
+export function stateLine(w, { stub = false, kind = "on" } = {}) {
+  if (stub || kind === "off") {
+    return { word: "AI off", tone: "off", icon: "st-off", why: false, said: `${ASSISTANT} off: no model is connected.`,
+      info: "Offline stub: no model is connected. Code checks still run, and code templates write the drafts." };
+  }
+  if (kind === "paused") {
+    return { word: "AI paused", tone: "caution", icon: "st-caution", why: true, said: `${ASSISTANT} paused.`,
+      info: "Code still reads every feed and checks every flight. Must-do flights come straight to you." };
+  }
+  if (kind === "trouble") {
+    const what = w?.suffix || "gave no result";
+    return { word: "AI unavailable", tone: "caution", icon: "st-caution", why: true, said: `${ASSISTANT}: ${what}.`,
+      info: `${what.charAt(0).toUpperCase()}${what.slice(1)}. Nothing was put in its place; code still checks every flight.` };
+  }
+  return { word: null, tone: "ok", icon: "st-ok", why: false, said: `${ASSISTANT} on.`, info: null };
+}
+
 // The mark set (docs/UI-AI-QUIET.md Q5, Naming): "Drafted by TEPHRA Assistant", "Read by {skill}",
 // "Chosen by TEPHRA Assistant", and "Code only (assistant off)" when no model wrote it. Only for
 // content a model actually produced (a model id, and an outcome that passed the checks); the
@@ -18,9 +42,28 @@ export const ASSISTANT = "TEPHRA Assistant";
 export const MARK = { written: `Drafted by ${ASSISTANT}`, chosen: `Chosen by ${ASSISTANT}`, read: (skill) => `Read by ${skill}`, none: "Code only (assistant off)" };
 export function aiMark(modelId, label, verb = MARK.written) {
   const no = label === "NO MODEL" || !modelId || modelId === "stub" || modelId === "none";
-  const title = no ? "No model wrote this: code did (the offline stub, NO MODEL)" : `${verb} (${modelId}). Code checked every number, time and id.`;
-  return el("span", { class: `ai-mark${no ? " ai-mark--none" : ""}`, title, "aria-label": no ? MARK.none : `${verb} (${modelId})` },
-    icon(no ? "i-code" : "ta-16"), el("span", { text: no ? MARK.none : verb, "aria-hidden": "true" }));
+  if (no) return codeMark();
+  return el("span", { class: "ai-mark", title: `${verb} (${modelId}). Code checked every number, time and id.`, "aria-label": `${verb} (${modelId})` },
+    icon("ta-16"), el("span", { text: verb, "aria-hidden": "true" }));
+}
+
+// The per-item mark for text a code template wrote (owner, 17 Oct: "don't say no model
+// everywhere"): a small "{ }" with a tooltip and screen-reader words, never capital NO MODEL
+// words; the AI-off state itself is said once per screen (the Wall's tab-bar status).
+export const TEMPLATE = "Written by a code template";
+export const codeMark = (words = TEMPLATE) => el("span", { class: "ai-mark ai-mark--none ai-mark--code", role: "img", "aria-label": words, title: words }, icon("i-code"));
+
+// A plain line (plainLine) without its "(code only)" words, and whether it had them: the caller
+// shows codeMark() beside the shorter text. Lines a model wrote come back as they were.
+export function templateText(text) {
+  const t = String(text ?? "");
+  const out = t
+    .replace(/^Advisory text written by a code template \(code only\): /, "Advisory text: ")
+    .replace(/^Written by code \(code only\): /, "")
+    .replace(/^Code only: /, "")
+    .replace(/ by a code template \(code only\)/g, "")
+    .replace(/ \(code only\)/g, "");
+  return { text: out === t ? t : out.charAt(0).toUpperCase() + out.slice(1), code: out !== t };
 }
 
 // The chip's mark by state (docs/UI-AI-QUIET.md 8.4, Desk spec 6.6): working when on, hollow bands
@@ -335,7 +378,7 @@ export function aiWords(s, { home = `${ASSISTANT} at work`, opens = `${ASSISTANT
   // one of the few places that say "AI" (disclosure, docs/UI-AI-QUIET.md Naming)
   const is = assistantIs();
   const label = narrow ? "Assistant" : ASSISTANT;
-  if (s.kind === "off") return { label, suffix: narrow ? "off" : "off (code only)", tone: "off", aria: `${ASSISTANT} off: no model is connected, code only. Opens ${opens}.`, title: `${ASSISTANT} off: no model is connected (NO MODEL). Code does every step, and code templates write the text. TEPHRA Assistant is TEPHRA's AI assistant when a model is connected. ${never}` };
+  if (s.kind === "off") return { label, suffix: narrow ? "off" : "off (code only)", tone: "off", aria: `${ASSISTANT} off: no model is connected, code only. Opens ${opens}.`, title: `${ASSISTANT} off: no model is connected. Code does every step, and code templates write the text. TEPHRA Assistant is TEPHRA's AI assistant when a model is connected. ${never}` };
   if (s.kind === "paused") {
     // one neutral word, no reason and no time (8.6): the cause and the time are said once, at the
     // assistant's home, one tap from the chip
@@ -594,14 +637,14 @@ export function failureEach(t) {
 }
 
 // Who did a step, in words (stage chips: CODE / ADK / NO MODEL).
-export const ACTOR_WORDS = { code: "by code", gemini: `by ${ASSISTANT}`, adk: `by ${ASSISTANT}`, stub: "code only (assistant off)", human: "by a person", system: "by the system" };
+export const ACTOR_WORDS = { code: "by code", gemini: `by ${ASSISTANT}`, adk: `by ${ASSISTANT}`, stub: "code template", human: "by a person", system: "by the system" };
 // Agent-framework ("adk") steps code writes before any model is called: the Coordinator's work
 // list. They say "by code (agent worklist)"; "by TEPHRA Assistant" is kept for steps a model took
 // (docs/UI-AI-QUIET.md D63).
 const ADK_CODE = [/^Duty Officer: \d+ item\(s\) to dispatch\b/];
 // With the assistant off (the stub backend) the agent framework still runs, but no model speaks:
-// an "adk" or "gemini" step is then code following the skill's script, so it says "code only
-// (assistant off)" (review 1, 6).
+// an "adk" or "gemini" step is then code following the skill's script, so it says "code
+// template" (review 1, 6; the AI-off state itself is said once, by the tab-bar status).
 export const actorWords = (actor, stub, message = "") => {
   if (stub && (actor === "adk" || actor === "gemini")) return ACTOR_WORDS.stub;
   if (actor === "adk" && ADK_CODE.some((re) => re.test(String(message)))) return "by code (agent worklist)";

@@ -252,8 +252,9 @@ which can feed a collaborative decision-making platform like Indonesia's I-WISH,
 One instance today, on purpose: the event bus behind the streams is in process, and one pipeline is
 the single writer of the picture, the drafts and the hash-chained record. For many airlines the bus
 would become a store-backed event feed any instance can stream from, and one writer per region would
-run the tick. Each airline can already run its own TEPHRA with its own fleet and policy file
-(`/onboard`); one shared service with a desk per airline over the same public picture is not built.
+run the tick. Airlines onboard at `/onboard` and a dispatcher verifies each one; running a verified
+airline on this site is not switched on yet, and one shared service with a desk per airline over the
+same public picture is not built.
 
 Model cost is gated off the tick: a daily budget per model and quota day, counted in the store
 before every attempt; routine work paced through the day; answers kept by the content of their
@@ -307,7 +308,7 @@ Every setting is in [`.env.example`](.env.example). The ones that matter first:
 | `TEPHRA_STORE`, `TEPHRA_LOCAL_SCHEDULER` | `sqlite` with in-process ticks locally; `firestore` and Cloud Scheduler inside Cloud Run |
 | `TEPHRA_DESK_PIN`, `TEPHRA_SESSION_SECRET`, `TEPHRA_TASK_TOKEN` | the Desk sign-in, the cookie signer, the tick token (32+ characters) |
 | `TEPHRA_FEATURES` | `all`, `hero`, or a comma list of `connect, crew, notices, satellite, btd, voice, example, present, onboard`; hidden features keep their routes (except `onboard`, whose routes answer 404), their scheduled model work stops |
-| `TEPHRA_FLEET_PREFIXES`, `TEPHRA_FLEET_HEXES`, `TEPHRA_NETWORK_AIRPORTS`, `TEPHRA_POLICY_FILE` | an airline's own TEPHRA: only its fleet checked, its airports watched, its policy file; empty by default |
+| `TEPHRA_FLEET_PREFIXES`, `TEPHRA_FLEET_HEXES`, `TEPHRA_NETWORK_AIRPORTS`, `TEPHRA_POLICY_FILE` | one airline's fleet: only its aircraft checked, its airports watched, its policy file; empty by default |
 | `TEPHRA_VISITOR_ACCESS` | `replay`: anyone may enter the Desk as a visitor while a replay plays, capped per session; `off` otherwise |
 | `TEPHRA_RECOVERY_AUTO`, `TEPHRA_VONA_LIVE` | the Recovery planner by itself when the closed airports change; live observatory polling (off: MAGMA's robots.txt disallows crawling, replays serve recorded notices) |
 
@@ -324,12 +325,11 @@ Every setting is in [`.env.example`](.env.example). The ones that matter first:
 | `/api/desk/...`, `POST /api/desk/visitor` | Desk routes (cookie session, CSRF header, optimistic versioning; [`MODULES.md`](MODULES.md) §8); the visitor sign-in |
 | `POST /tasks/tick` | the scheduler tick (`X-Tephra-Task-Token`) |
 
-### Run it for your airline
+### Onboard your airline
 
 Any airline can onboard at `/onboard`: an account first, then nine short pages, then a private
-workspace with a setup kit to run its own TEPHRA on its own fleet, where each flight goes by the
-airline's own callsign, flight number or registration. A TEPHRA dispatcher verifies each airline;
-running a verified airline's live operation on the shared site is not built.
+workspace. A TEPHRA dispatcher verifies each airline. Running a verified airline on this site is
+not switched on yet.
 
 **How to onboard: what you provide**
 
@@ -343,7 +343,7 @@ running a verified airline's live operation on the shared site is not built.
 8. **Assistant (AI model)**: Gemini or Gemma with your own Google AI Studio key, Gemma on your own computer through Ollama, or no model.
 9. **Review**: check every answer and submit it for verification.
 
-What happens after, file by file, is in [`docs/ONBOARDING.md`](docs/ONBOARDING.md).
+What happens after is in [`docs/ONBOARDING.md`](docs/ONBOARDING.md).
 
 Deployment is in [`deploy/README.md`](deploy/README.md): every push to `main` deploys through the
 gate above; the one-time setup is a person's, from a dedicated personal-account gcloud configuration.

@@ -134,66 +134,84 @@ Only hex tokens go to MapLibre. Do not pass `rgb(… / …)` strings to paint pr
 
 ### 3.1 Colour roles
 
-Neutrals (cool blue-black; dark by default; Home, the demo's panels, onboarding, the workspace and
-the Guide follow a light theme too; the map, the Desk and the Assistant page stay dark):
+The theme is **Basalt & Paper** (17 Oct 2026; the owner chose it over two other directions, with
+grafts from both). Dark is warm basalt, light is paper and ink. Home, the demo's panels, onboarding,
+the workspace, sign-in and the Guide follow the system or the reader's choice (`theme.js` writes
+`data-theme` on `<html>`); the map stays on the night values in both themes (`.night`), and the Desk,
+the Assistant page and the printable document's bar stay dark (`data-theme="dark"`, pinned by tests).
+Rules the palette keeps:
 
-| Token | Hex | Use |
-|---|---|---|
-| `--c-bg` | `#05080c` | Page background, behind everything |
-| `--c-surface-1` | `#0a1017` | Top bar, story column, Details drawer, footer, time bar, Desk header |
-| `--c-surface-2` | `#0f1720` | Cards, grid column heads, Desk cards |
-| `--c-surface-3` | `#16212c` | Selected tab, hover, pressed tool |
-| `--c-surface-glass` | `rgb(10 16 23 / .88)` + `--glass-blur` | Panels floating over the map |
-| `--c-scrim` | `rgb(2 4 8 / .72)` | Behind dialogs and sheets |
-| `--c-line-1` | `#1c2834` | Hairline dividers |
-| `--c-line-2` | `#2b3a4a` | Panel borders |
-| `--c-line-input` | `#5b7086` | Borders that identify a control (3.2:1 or better on every surface) |
-| `--c-text-1` | `#eaf1f7` | Primary text |
-| `--c-text-2` | `#b6c3d0` | Secondary text |
-| `--c-text-3` | `#93a3b5` | Tertiary text, labels of values (6.3:1 on the lightest surface) |
-| `--c-text-ink` | `#05080c` | Text on bright fills (amber chip, magenta chip) |
+- **Red is for real alarms only**: feeds, the database, the connection, server errors, the audit chain.
+- **Solid = real and binding; dashed = an estimate, an example or something not connected**
+  (TEPHRA's area, ILLUSTRATIVE, NO MODEL, EXAMPLE, SHADOW).
+- **White on the map = the plan a dispatcher decides on**: the reroute, a closed airport, the picked
+  flight, told apart by shape (a line with chevrons, a bar on a dark disc, a ring round a plane).
+- **Violet is REPLAY only.** Amber is "TEPHRA flags this", never decoration and never the assistant.
+- The volcano colour-code hues are the standard ones and never change.
 
-Data semantics (map and panels, one meaning each):
+Neutrals (dark set; the light set is in `tokens.css`, the paper `#f7f4ef` / ink `#1a1510`):
 
-| Token | Hex | Meaning | Text tint (on dark) |
+| Token | Dark | Light | Use |
 |---|---|---|---|
-| `--c-official` | `#ff3d8b` magenta | Official, binding (SIGMET, VAA) | `--c-official-text` `#ff9cc4` |
-| `--c-tephra` | `#ffb000` amber | TEPHRA: its cautious area; flights it finds entering; its timeline marks | `--c-tephra-text` `#ffc845` |
-| `--c-observer` | `#38bdf8` sky | Observatory: VONA, ground observer, drift arrow | `--c-observer-text` `#7dd3fc` |
-| `--c-aircraft` | `#aab4be` | Other airline aircraft (context) | — |
-| `--c-aircraft-stale` | `#7a8796` | Aircraft position older than 60 s | — |
-| `--c-route` | `#a9b8c8` | A flight's usual route, origin to destination (thin, faint, beneath everything) | none |
-| `--c-crew` | `#e8dcc6` warm ivory | Crew report caution area (operator policy A, not an official product): its long-dashed outline, pin and label, an RFA plane only a crew report flags, the Desk's crew box | `--c-crew-text` `#f2e9d8`; `--c-crew-soft` for the Desk and Wall flag boxes |
-| `--c-code-green/yellow/orange/red/unknown` | `#2ec4a0` `#fff176` `#f2711c` `#e8273b` `#8a96a3` | Aviation colour code, only inside the eruption symbol with its letter, and next to the word | Print the word in `--c-text-1`, never in the code colour |
+| `--c-bg` | `#100e0c` | `#f7f4ef` | Page background, behind everything |
+| `--c-surface-1` | `#171512` | `#fffefb` | Top bar, story column, Details drawer, footer, time bar, Desk header |
+| `--c-surface-2` | `#1f1c19` | `#fbf9f5` | Cards, grid column heads, Desk cards |
+| `--c-surface-3` | `#292622` | `#ede9e3` | Selected tab, hover, pressed tool |
+| `--c-surface-glass` | `rgb(23 21 18 / .9)` + `--glass-blur` | `rgb(255 254 251 / .93)` | Panels floating over the map |
+| `--c-scrim` | `rgb(8 6 4 / .72)` | `rgb(26 21 16 / .5)` | Behind dialogs and sheets |
+| `--c-line-1` / `--c-line-2` | `#322e2a` / `#45403b` | `#e3dfd8` / `#d1cbc4` | Hairlines / panel borders |
+| `--c-line-input` | `#847f7a` | `#7e7870` | Borders that identify a control (3.6:1 or better on every surface) |
+| `--c-text-1` / `-2` / `-3` | `#f5f1ec` / `#cec8c1` / `#b3ada5` | `#1a1510` / `#4f4840` / `#686058` | Text (text-3 on surface-3: 6.8 dark, 5.1 light) |
+| `--c-text-ink` | `#100e0c` | `#fffefb` | Text on bright fills |
+| `--c-brand` | `#ffb000` | `#9b6a05` | The dashed brand tick under the wordmark and before the Home eyebrow; nothing else |
 
-Map-only (`--map-*`): land `#0b121a` under a `--map-dot` `#9db4cc` dot matrix at 30 %, water
-`#04070b`, coast, 2° grid and country border in `#9db4cc` at 28 %, 5 % and 22 %, label
-halo `#05070a`, volcano label `#d5dee7`, FIR line `#56697e`, FIR with a valid SIGMET
-`#8aa2bb`, VAAC boundary `#7d8fa3`, navaid `#8fa0b2`. Label colours (contrast on land
-`#0b121a`): `--map-label-minor` `#7d8a97` (basemap place names, inactive volcano names, 5.2:1),
-`--map-label-fir` `#7f92a6` (FIR names, 6.1:1), `--map-label-vaac` `#8a9bb0` (VAAC names,
-6.9:1); other aircraft labels use `--c-text-3` (7.6:1). `map.js` reads all of them with
-`readTokens()`, so no map label colour is a literal any more.
+Data semantics (map and panels, one meaning each; dark values, the map keeps them in both themes):
+
+| Token | Hex | Meaning | Text tint (dark) |
+|---|---|---|---|
+| `--c-official` | `#ff3d8b` magenta | Official, binding (SIGMET, VAA): solid | `--c-official-text` `#ff9cc4` |
+| `--c-forecast` | `#ff3d8b` | Official forecast steps (+6/+12/+18 h): the official hue, dashed, no fill; its own token so it can be retuned alone | — |
+| `--c-tephra` | `#ffb000` amber | TEPHRA flags this: its cautious area (dashed, never smaller), the RFA flights it finds entering, its timeline marks | `--c-tephra-text` `#ffc845` |
+| `--c-observer` | `#a6dcff` glacier blue | Observatory: VONA, ground observer, drift arrow | `--c-observer-text` `#cbeaff` |
+| `--c-crew` | `#e1c88b` parchment | Crew report caution area (operator policy A, not an official product): long dashes and a pin | `--c-crew-text` `#ecdcb0` |
+| `--c-reroute` | `#f4f8fa` chalk white | The proposed reroute (dark casing, chevrons) and the picked-flight ring | `--c-reroute-text` |
+| `--c-closed` | `#f4f8fa` | A closed airport in TEPHRA's plan: a white bar on a dark disc, a white "WIII closed" tag, a dashed radius. Never red | — |
+| `--c-aircraft` | `#8a96a2` steel | Other airline aircraft (context) | — |
+| `--c-map-context` = `--c-map-muted` = `--c-route` = `--c-aircraft-stale` | `#787671` | One context grey: FIR (dotted) and VAAC (dash-dot) lines, a usual route, a stale aircraft, code UNKNOWN, navaids; told apart by pattern and shape | — |
+| `--c-code-green/yellow/orange/red` | `#2ec4a0` `#fff176` `#f2711c` `#e8273b` | Aviation colour code, only inside the eruption symbol with its letter, and next to the word. On paper a code dot gets a 1 px `--c-code-ring` | Print the word in `--c-text-1` |
+
+Map-only (`--map-*`, never flipped): land `#14171c` (cool near-neutral) under a `--map-dot` `#9db4cc`
+dot matrix at 30 %, water `#04060a`, coast, 2° grid and border in the dot tint at 28 %, 5 % and 22 %,
+halo / casing `#05070a`, volcano label `--map-label` `#e2e8ee`, place, FIR and VAAC names
+`--c-map-wordgrey` `#8b9db4` (6.5:1 on land), FIR with a valid SIGMET `--map-fir-active` `#c8c8d0`
+(dotted, brighter), the flight-group back plane `#a26f00`, the plate edge `--map-plate-edge`.
+`map.js` reads all of them with `readTokens()`; the hillshade highlight `#2f343b` and the 3D sky
+`#0f1219` / `#1f242a` are literals matched to the land's hue.
 
 Status (panels only; always shape + word; section 3.2):
 
-| Token | Hex | Background token | Meaning |
+| Token | Dark | Light | Meaning |
 |---|---|---|---|
-| `--c-ok` | `#4ade80` | `--c-ok-bg` `#0b2416` | Feed OK, LIVE, APPROVED |
-| `--c-caution` | `#ffe566` | `--c-caution-bg` `#2a2205` | CAUTION discrepancy, STALE feed, non-observation, night |
-| `--c-serious` | `#ff7a6e` | `--c-serious-bg` `#2d0f0c` | SERIOUS discrepancy (backend severity WARNING), feed ERROR, REJECTED |
-| `--c-info` | `#9db4cc` | — | INFO (harmless) discrepancy, estimated |
-| `--c-off` | `#7a8796` | — | Feed off (DISABLED), never polled, SUPERSEDED |
+| `--c-ok` / `-bg` | `#4ade80` / `#0d2415` | `#15733a` / `#e3f2e4` | Feed OK, APPROVED |
+| `--c-caution` / `-bg` | `#ffe566` / `#2a2306` | `#6f5c01` / `#f8f0c8` | CAUTION, a SERIOUS discrepancy (heavier edge), STALE feed, non-observation, night, a failed check |
+| `--c-invalid` / `-bg` | `#ffe566` / `#2a2306` | `#6f5c01` / `#f8f0c8` | A form field or text that needs fixing: the caution triangle and the words, never red |
+| `--c-serious` / `-bg` | `#ff7a6e` / `#2e100c` | `#8a1810` / `#fce8e4` | Real alarms only: a feed ERROR, the database, the connection, a server error, the audit chain |
+| `--c-info` | `#b9b2a9` stone | `#5e574f` | INFO (harmless) discrepancy, estimated |
+| `--c-off` | `#9a948d` | `#6e675f` | Feed off, never polled, SUPERSEDED, REJECTED, a declined airline |
 
 Modes and decisions:
 
-| Token | Hex | Use |
+| Token | Dark | Use |
 |---|---|---|
-| `--c-replay` / `--c-replay-text` / `--c-replay-bg` / `--c-replay-ink` | `#b794ff` / `#cdb6ff` / `#1c1233` / `#e3d6ff` | the frame strip's REPLAY part (7.1), the "From a replay" tag, replay clock caption, timeline progress |
-| `--c-hypothesis-bg` | `#2b1d00` | HYPOTHESIS banner background (text `--c-tephra-text`) |
-| `--c-approve` / `--c-approve-progress` / `--c-approve-ink` | `#2fbf71` / `#7ef0b0` / `#04130a` | Approve button, its hold fill, its text |
-| `--c-reject` / `--c-reject-ink` / `--c-reject-text` | `#c9302c` / `#fff` / `#ff7a6e` | Final reject button, outline reject button text |
-| `--c-focus` | `#f5f9fc` | Focus ring (2 px, offset 2 px, dark 4 px halo `--focus-halo`) |
+| `--c-replay` / `-text` / `-bg` / `-ink` | `#b794ff` / `#cdb6ff` / `#1d1430` / `#e3d6ff` | REPLAY only: the replay clock caption, the "From a replay" tag, the player and the timeline progress (its marks sit off the violet bar) |
+| `--c-live-chip-bg` / `-text` | `#292622` / `#f5f1ec` | LIVE: a solid neutral chip; its dot is the data health (circle OK, diamond stale, octagon down) |
+| `--c-shadow-chip-line` / `-text` | `#b3ada5` / `#cec8c1` | SHADOW: a dashed chip with a half disc, "Shadow · not for use" |
+| `--c-illus-line` / `-text` | `#b3ada5` / `#f5f1ec` | ILLUSTRATIVE: a square mono stamp with a faint hatch; NO MODEL and EXAMPLE are dashed the same way |
+| `--c-hypothesis-bg` | `#2b2620` | HYPOTHESIS banner background (text `--c-tephra-text`) |
+| `--c-approve` / `-progress` / `-ink` | `#2fbf71` / `#7ef0b0` / `#04130a` | Approve button, its hold fill, its text (the Desk's action bar only) |
+| `--c-reject` / `-ink` / `-text` | `#4a443e` / `#f5f1ec` / `#f5f1ec` | Reject, the Ask stop and the mic while recording: neutral stone, never red, distinct from the send white |
+| `--c-ask*` | stone (`#cec8c1` ...) | The assistant has no colour of its own; amber never marks it |
+| `--c-focus` | `#fbf8f3` (light `#1a1510`) | Focus ring (2 px, offset 2 px, 4 px halo `--focus-halo`) |
 
 `prefers-contrast: more` lifts text-2/text-3, the lines and the glass opacity (in `tokens.css`).
 
@@ -210,7 +228,7 @@ its `aria-label` and a tooltip.
 | Feed | ERROR | `st-serious` octagon with ! | `--c-serious` | "Error" |
 | Feed | DISABLED | `st-off` ring | `--c-off` | "Off" |
 | Feed | NEVER | `st-never` dashed ring | `--c-off` | "Not polled yet" |
-| Discrepancy | WARNING | `st-serious` | `--c-serious` | "SERIOUS" |
+| Discrepancy | WARNING | `st-caution` | `--c-caution`, heavier edge (tone `warning`) | "SERIOUS" |
 | Discrepancy | CAUTION | `st-caution` triangle with ! | `--c-caution` | "CAUTION" |
 | Discrepancy | INFO | `st-info` circle with i | `--c-info` | "INFO" |
 | Evidence | OBSERVED_SAT / OBSERVED_GROUND | `st-ok` | `--c-ok` | "Ash seen by satellite" / "Ash seen from the ground" |
@@ -220,69 +238,74 @@ its `aria-label` and a tooltip.
 | Advisory | DRAFT | `i-clock` | `--c-text-2` | "Awaiting dispatcher" |
 | Advisory | APPROVED | `i-approved` circle-check | `--c-ok` | "Approved" |
 | Advisory | EDITED | `i-approved` + `i-pencil` | `--c-ok` | "Approved with edits" |
-| Advisory | REJECTED | `i-rejected` circle-x | `--c-serious` | "Rejected" |
+| Advisory | REJECTED | `i-rejected` circle-x | `--c-text-2` (a decision, not an alarm) | "Rejected" |
 | Advisory | SUPERSEDED | `i-superseded` dashed circle | `--c-off` | "Replaced by a newer draft" |
 | Flight | inside the area now | `st-inside` ring with dot | `--c-tephra` | "INSIDE NOW" |
 | Trace actor | code / gemini / adk / stub / human / system | `i-code` / `i-model` / `i-agent` / `st-never` / `i-user` / `i-system` | neutral; human `--c-ok` | "CODE" / "GEMINI" / "ADK" / "NO MODEL" / "HUMAN" / "SYSTEM" |
+| Form | a field or text that needs fixing | `st-caution` | `--c-invalid` | the words, e.g. "Three letters, A to Z." |
+| Form | offline or a server error on submit | `st-serious` | `--c-serious` (`.err--alarm`, `.msg--serious`) | what failed |
+| Airport | closed in TEPHRA's plan | `st-closed` ring with bar | `--c-closed` | "WIII closed" / "Closed airport" |
+| Check | a failed backtest check, cancelled flights, a FAIL scorecard | `st-caution` | `--c-caution` (tone `warning`) | the count and the words |
+| Mode | LIVE / SHADOW / ILLUSTRATIVE, NO MODEL, EXAMPLE | health dot / half disc / none | solid neutral / dashed / dashed | "LIVE" / "Shadow · not for use" / the label |
 
 ### 3.3 Colour-vision and contrast evidence
 
 Method: Machado et al. 2009 dichromacy matrices at severity 1.0, CIEDE2000 on the simulated
-colours (the research team's `cvd.py`), WCAG 2.2 contrast ratios. Script and full output:
-`…/scratchpad/ui/lead/tools/palette_check.py`, `…/ui/lead/palette_report.md`.
+colours (`tools/cvd.py`), WCAG 2.2 ratios (`tools/contrast.py`), re-run on the Basalt & Paper
+`tokens.css` on 17 Oct 2026 (the theme work's `final/CHECKS.md`; the navaid and active-FIR greys
+re-checked after the map was applied).
 
 Map colours, smallest CIEDE2000 across normal, protan, deutan and tritan vision (10 or more is
-clearly distinct; under 10 means a second channel must carry the difference, and does):
+clearly distinct; under 10 a second channel must carry the difference, and does). Every pair that
+includes a colour this theme chose is 10.5 or more apart; the only pairs under 10 are between the
+fixed hues the owner keeps:
 
 | Pair | normal | protan | deutan | tritan | min | Second channel |
 |---|---|---|---|---|---|---|
-| official `#ff3d8b` vs tephra `#ffb000` | 54.5 | 46.5 | 25.7 | 20.8 | **20.8** | also solid vs dashed |
-| official vs observer `#38bdf8` | 63.2 | 24.8 | 33.7 | 82.4 | **24.8** | solid vs dashed arrow |
-| tephra vs observer | 56.0 | 52.8 | 57.5 | 52.5 | **52.5** | — |
-| tephra vs aircraft `#aab4be` | 36.5 | 34.5 | 36.2 | 32.3 | **32.3** | size, label |
-| observer vs aircraft | 18.0 | 15.2 | 17.1 | 18.4 | **15.2** | arrow vs plane shape |
-| tephra vs code ORANGE `#f2711c` | 21.7 | 15.5 | 10.6 | 14.2 | **10.6** | letter O in the symbol |
-| tephra vs code YELLOW `#fff176` | 20.7 | 13.2 | 10.9 | 20.1 | **10.9** | letter Y |
-| code ORANGE vs code RED `#e8273b` | 22.3 | 20.0 | 10.6 | 9.3 | **9.3** | letters O/R, symbol size |
-| official vs code ORANGE | 35.2 | 39.5 | 20.3 | 8.0 | **8.0** | eruption symbol vs polygon |
-| official vs code GREEN `#2ec4a0` | 77.9 | 31.4 | 7.3 | 73.2 | **7.3** | eruption symbol vs polygon |
-| observer vs code GREEN | 30.7 | 32.4 | 26.3 | 6.0 | **6.0** | arrow vs symbol, letter G |
+| official `#ff3d8b` vs code GREEN `#2ec4a0` | 77.9 | 31.4 | 7.6 | 73.2 | **7.6** | polygon vs eruption symbol, letter G |
+| official vs code ORANGE `#f2711c` | 35.2 | 39.5 | 20.2 | 8.1 | **8.1** | polygon vs symbol, letter O |
+| code ORANGE vs code RED `#e8273b` | 22.3 | 20.2 | 10.6 | 9.3 | **9.3** | letters O/R, symbol size |
+| crew `#e1c88b` vs code GREEN | 30.8 | 10.5 | 19.2 | 43.1 | **10.5** | long dashes and pin vs symbol |
+| tephra `#ffb000` vs code ORANGE | 21.7 | 15.4 | 10.5 | 14.2 | **10.5** | dashed area vs symbol |
+| crew vs code YELLOW `#fff176` | 13.2 | 12.4 | 11.1 | 10.8 | **10.8** | — |
+| FIR with a SIGMET `#c8c8d0` vs nearest (every map colour) | | | | | **10.8** | dotted line |
+| tephra vs code YELLOW | 20.7 | 13.2 | 10.9 | 20.2 | **10.9** | letter Y |
+| tephra vs crew | 15.7 | 13.0 | 12.8 | 10.9 | **10.9** | short vs long dashes, pin |
+| observer `#a6dcff` vs code GREEN | 28.9 | 28.2 | 22.3 | 12.0 | **12.0** | arrow vs symbol |
+| aircraft `#8a96a2` vs code GREEN | 26.6 | 20.3 | 12.7 | 19.9 | **12.7** | plane vs symbol |
+| official vs aircraft | 33.4 | 12.9 | 17.5 | 30.8 | **12.9** | — |
+| observer vs REPLAY `#b794ff` | 22.1 | 17.3 | 13.9 | 28.9 | **13.9** | (text tints 11.8) |
+| observer vs reroute / closed / picked `#f4f8fa` | 16.6 | 14.0 | 16.6 | 20.1 | **14.0** | — |
+| official vs context grey `#787671` | 31.9 | 14.4 | 14.3 | 28.7 | **14.3** | — |
+| reroute / closed / picked vs code YELLOW | 27.6 | 28.1 | 27.8 | 14.7 | **14.7** | — |
+| aircraft vs context grey | 14.8 | 15.1 | 14.9 | 16.5 | **14.8** | — |
 
-Basemap: the research's water override raises land/sea CIEDE2000 from 4.2 to 10.5. Contrast
-against land / water: official 5.86 / 5.26, tephra 10.68 / 9.59, observer 9.13 / 8.20, aircraft
-9.30 / 8.35, code RED 4.46 / 4.00, FIR line 3.46 / 3.11 (all ≥ 3:1 for graphics).
+Same hex by design, told apart by shape: official = forecast (solid with fill vs dashed, no fill);
+reroute = closed = picked ring (a line with chevrons, a bar on a disc, a ring round a plane); route =
+stale = FIR = VAAC = navaid (one context grey: a thin line, a muted plane, dotted, dash-dot, a small
+ring with its ident).
 
-Panel text (WCAG ratio, worst surface `--c-surface-3`): text-1 14.3, text-2 9.1, text-3 6.3,
-official-text 8.4, tephra-text 10.6, observer-text 9.8, ok 9.4, caution (`#ffe566`) 12.9,
-serious 6.4, info 7.6, replay-text 9.1. `--c-off` (4.45 on surface-3) is used for shapes and on
-surface-1/2 only (5.2/4.9). Fills with text: approve 8.0, approve hold fill 13.6, reject 5.3,
-replay banner 13.0, caution banner 12.5, hypothesis banner 10.6, serious banner 8.9, amber chip
-11.0, magenta chip 6.0. Control borders `--c-line-input` 3.2-3.9:1; focus ring 15-19:1.
+Contrast on the night basemap (land `#14171c` / water `#04060a`): official 5.38 / 6.08, tephra 9.80 /
+11.07, observer 12.23 / 13.81, crew 10.98 / 12.39, aircraft 5.96 / 6.73, reroute and closed 16.81 /
+18.98, REPLAY 7.44, context grey 3.96 / 4.47, code RED 4.09 / 4.62 (2.77 on land under protanopia, so
+the eruption symbol keeps its dark outline and letter). Text on the map: 6.48 (place names) to 16.8
+("WIII closed"); glass pills 16.2. Land vs water for video: a 14.5 code-value luma gap (it was 9.0).
 
-Redesign pairs (R13.2, WCAG ratios): `--c-cta-ink` on `--c-cta` (the "Decide on the Desk" button)
-17.6:1; story text `--c-text-1` on `--c-surface-1` 16.8:1 and `--c-text-2` 10.6:1; map pills
-(`--c-text-1` on `--c-surface-glass` composited over land `#0c0c0c` 16.8:1, water 16.6:1, a pink
-official fill 15.1:1, even pure white 12.2:1); the failure line's text on `--c-serious-bg` 15.5:1 and
-its `--c-serious` edge 7.0:1 against that fill; the Details index's serious status `--c-serious` on
-`--c-surface-1` 7.5:1; amber index status `--c-tephra-text` on `--c-surface-1` 12.4:1.
+Over satellite imagery (Ash RGB colours approximated from the EUMeTrain quick guide, composited at
+the app's 0.55-0.75 opacities): the official and TEPHRA lines get a double casing while imagery is on
+(`<id>-halo` 1.5 px `--map-halo` and `<id>-case` 1 px `--map-label` at 70 %); every one of 24 cases
+then reaches 3:1 (worst 3.36). With the dark casing alone 5 of 24 fail. Re-check on real imagery.
 
-Crew colour (5.7): `--c-crew` is far lighter than the official magenta, TEPHRA's amber and the
-observatory's sky blue, so it separates from them by lightness in every vision type; it is
-always drawn with a second channel too (long dashes [4,3] and the pin, never a fill alone).
-The palette script has not been run on it yet (15).
+Panels (WCAG, both themes; 204 of 204 pairs pass): text-3 on surface-3 6.77 dark / 5.10 light; the
+input line on surface-3 3.80 / 3.61; focus on bg 18.2 / 16.5; REPLAY text on its chip 9.82 / 6.74;
+reject ink on the stone fill 8.54 / 7.05; `--c-invalid` on its background 12.41 / 5.70. The light
+brand tick on paper is 4.29 (a mark, 3 needed).
 
-Status pairs under CVD that collide (always shape + word): ok vs serious 5.3 (deutan), caution vs
-tephra 8.8 (deutan with `#ffe566`; the earlier `#f5d04a` was 4.9 and was dropped), ok vs caution
-8.2.
-
-Light set (16 Oct 2026, `tokens.css`: under `prefers-color-scheme: light` unless the page is set
-dark, and under `data-theme="light"`; `.night` keeps a subtree, the map above all, on the dark
-values in both themes). WCAG 2.1 ratios as measured with the set: text-1 on bg 16.7:1; text-2 on
-white 9.4; text-3 on surface-3 5.35, on bg 5.8; the input line on white 4.2 (3 or more for
-controls); caution on caution-bg 5.7; ok on ok-bg 5.2 (an earlier `#17803f` was 4.43, so the set
-darkens it); serious 5.6; replay-text on replay-bg 6.7; official, tephra and observer text on
-white 6.9, 6.2 and 6.2; the five step tones on white 4.3 or more (non-text, 3 needed); CTA 18.3.
-The dark set is unchanged (text-3 on surface-3 6.3, replay 9.9).
+Status pairs under CVD that collide (always shape + word): caution vs code YELLOW 2.5 (protan; no
+caution hue can sit 10 from both code YELLOW and TEPHRA amber and still read as caution, so caution is
+always the triangle and the word, the code always a dot and the word); caution vs TEPHRA text 4.5
+dark (deutan) and 0.9 on paper (protan), never in the same component; ok vs serious 5.3 (deutan);
+serious vs caution and invalid 16.8 dark, 6.4 on paper (deutan).
 
 ### 3.4 Typography
 
@@ -501,28 +524,30 @@ waits for and where the other work is. Ask, Airports and Paperwork are one centr
 Basemap: the night basemap (`wall/basemap.js`, 13 Oct 2026), shared by the Wall, the flow board
 and the Desk map: OpenFreeMap `dark`, tuned after `load` (each call guarded with `map.getLayer`).
 Land is a dot matrix: the style's `background` drawn with `land-dots` (an opaque 5 px tile, a soft
-`--map-dot` dot at 30 % over `--map-land` `#0b121a`), the sea `--map-water` `#04070b` over it, a
+`--map-dot` dot at 30 % over `--map-land` `#14171c`), the sea `--map-water` `#04060a` over it, a
 `coast` line (`--map-coast`) and a faint 2° `graticule` (`--map-grid`) under it. Roads, rail,
 buildings, residential and wood land use, waterways and water names are hidden (none helps read
 ash); parks and land cover at 0.12; country names in spaced capitals and city names in
-`--map-label-minor` (5.2:1 on `--map-land`); suburbs and villages hidden; the board and the Desk keep
+`--map-label-minor` (6.5:1 on `--map-land`); suburbs and villages hidden; the board and the Desk keep
 country names only. Map controls (`mapui.css`): one column of 40 px glass icon buttons, each naming
 itself beside it on hover and focus: zoom, Fit, Satellite (infrared on or off), Compare, 3D and
 Layers on the Wall (a phone keeps Fit and Layers); a pressed or open button is solid.
 
 Airports (13 Oct 2026, `GET /api/airports` once): every catalogue airport a small `--c-text-2`
-dot, its code from zoom 6; each airport the current airport plan closes a dark dot ringed in
-`--c-serious`, its closure radius (`Closure.radius_nm`) a dashed `--c-serious` circle over a 6 %
-fill, and its code in red beside it, from zoom 6.5 a "WIII closed" tag. Above the ash fills, beneath
+dot, its code from zoom 6; each airport the current airport plan closes a white ⊘ (17 Oct 2026, never red: a closure is
+the plan, not an alarm): a `--c-closed` ring on a `--map-halo` disc (`airport-dot`) with the
+`closed-airport` bar on top (`airport-closed-bar`), its closure radius (`Closure.radius_nm`) a
+dashed `--c-closed` circle at 0.55 (dash [3,3], `closure-ring`) over a 4 % fill (`closure-area`),
+its code in white beside it, from zoom 6.5 a white "WIII closed" tag. Above the ash fills, beneath
 the planes; selecting a closed one opens Details › Airport closures. Map layers › Airports turns
-them off; the map key adds "Closed airport · dashed: its closure radius" while one is drawn. If the
+them off; the map key adds "Closed airport" (`st-closed`, "TEPHRA's plan · dashed: its closure radius") while one is drawn; the full key in Help always lists it. If the
 catalogue does not load, a caution pill says so and links Airport closures. The Desk map draws the
 same closed-airport marks. The style's
 `ne2_shaded` raster is added as `ne2-relief` under `water` with the terrain switch (saturation -1,
 contrast 0.15, brightness-max 0.45, opacity 0.5, maxzoom 8); add
 Mapterhorn `raster-dem` (`https://tiles.mapterhorn.com/{z}/{x}/{y}.webp`, terrarium, tileSize
 512, maxzoom 12, attribution "© Mapterhorn") and a `hillshade` layer before `waterway` (minzoom
-5, exaggeration 0.45, shadow `#000000`, highlight `#2a3442`, accent `#05070a`). Handle
+5, exaggeration 0.45, shadow `#000000`, highlight `#2f343b`, accent `--map-halo`). Handle
 `styleimagemissing` with a 1x1 transparent image (the dark style asks for `circle-11`).
 
 Layer order, bottom to top (all after the basemap unless noted):
@@ -533,15 +558,15 @@ Layer order, bottom to top (all after the basemap unless noted):
 | 1 | `gibs` | raster | GIBS (5.6) | inserted before `water_name`; opacity 0.6 (Air Mass 0.55); IR: saturation -1, contrast 0.2 |
 | 2 | `so2` | raster | GIBS TROPOMI | before `water_name`; opacity 0.7 |
 | 3 | `btd-<id>` | raster (image) | `overlays.btd[*]` corners | before `water_name`; opacity 0.75 |
-| 4 | `fir-line` | line | `/static/data/firs.geojson` | `--map-fir`, 1 px |
-| 5 | `fir-active` | line | FIRs named in a valid SIGMET id (`SIGMET:<FIR>:…`) | `--map-fir-active`, 1.6 px |
-| 6 | `fir-label` | symbol | firs, minzoom 5 | line placement, spacing 700, `label` ("WAAF UJUNG PANDANG FIR"), Noto Sans Regular 12, letter-spacing 0.08, `#7f92a6`, halo 1.5; FIR and VAAC lines are off by default (Map layers) |
+| 4 | `fir-line` | line | `/static/data/firs.geojson` | `--map-fir` (the context grey), 1.2 px, dotted [1,2.5] |
+| 5 | `fir-active` | line | FIRs named in a valid SIGMET id (`SIGMET:<FIR>:…`) | `--map-fir-active` `#c8c8d0`, 1.6 px, dotted [1,2] |
+| 6 | `fir-label` | symbol | firs, minzoom 5 | line placement, spacing 700, `label` ("WAAF UJUNG PANDANG FIR"), Noto Sans Regular 12, letter-spacing 0.08, `--map-label-fir`, halo 1.5; FIR and VAAC lines are off by default (Map layers) |
 | 7 | `vaac-line` | line | `/static/data/vaac_aor.geojson` | `--map-vaac`, 1.2 px, dash [6,3,1,3]; label "DARWIN VAAC" / "TOKYO VAAC" like FIRs |
-| 8 | `navaid` | circle + symbol | `/static/data/navaids.geojson`, minzoom 8 | 3 px ring `--map-navaid`; ident 12 px; off by default |
+| 8 | `navaid` | circle + symbol | `/static/data/navaids.geojson`, minzoom 8 | 3 px ring `--map-navaid` (the context grey); ident 12 px; off by default |
 | 9 | `tephra-fill` | fill | cones, `part == cone` | `--c-tephra` 0.07 (dimmed 0.03) |
 | 10 | `tephra-hatch` | fill | cones, `part == sector` | `fill-pattern` hatch image (section 5.2), opacity 1 (dimmed 0.4) |
 | 10a | `crew-fill` | fill | `crew`, `feature == area` (5.7) | `--c-crew` 0.06; beneath every official layer |
-| 10b | `crew-line` | line | `crew`, `feature == area` | `--c-crew` 1.4 px at z4, 2.2 px at z8, dash [4,3], opacity 0.95; beneath the official fills, so an official area is never covered |
+| 10b | `crew-line` | line | `crew`, `feature == area` | `--c-crew` 1.4 px at z4, 2.2 px at z8, dash [6.5,2.7] (longer than TEPHRA's), opacity 0.95; beneath the official fills, so an official area is never covered |
 | 10c | `route-line` | line | `routes`, `feature == line` (`WallSnapshot.routes`, plus `/api/routes/{origin}/{dest}` for the picked flight) | a flight's usual route, origin to destination (VRS standing data, not the filed flight plan), one line per pair of airports (both directions share it): `--c-route` (a muted cool neutral), 1.2 px at z3 and 1.5 px at z8, opacity 0.36 at z3 and 0.26 from z5; the picked flight's 1.8 / 2.2 px at 0.8 / 0.75, and while it is drawn the others step back to 0.16 / 0.13; great circle, round caps, no arrows, no animation. Inserted above the basemap's roads and borders and beneath its place names, so beneath every TEPHRA layer (crew areas, official areas, TEPHRA's line, the dashed path). Only the RFA flights in or heading in and the picked flight; Map layers "Flight routes" (on by default) |
 | 10d | `route-end` | circle | `routes`, `feature == airport` | a filled `--c-route` dot (r 2.2 at z3, 3 at z8; the picked flight's 3 / 4) with a 1.2 px `--map-halo` ring, unlike the basemap's hollow town dots |
 | 10e | `route-end-label` | symbol | `routes`, airports not of the picked flight | the code ("WIII", Noto Sans Regular 11, `--c-text-3`) in a small tag (`box-route`: dark fill, 1 px `--c-route` border at 0.5), so it reads as an airport, not a town name. Placed last: after every TEPHRA label, the place names and the invisible `route-avoid-*` copies of the planes and their rings, the eruption symbols, the entry markers, the dashed paths and the area outlines, so a code never sits under a plane or across an outline; it drops out instead |
@@ -561,7 +586,7 @@ Layer order, bottom to top (all after the basemap unless noted):
 | 24a | `crew-pin` | symbol | `crew`, `feature == pin` | the canvas pin `crew-pin` (ivory, dark outline and centre), anchor bottom at the report position, allow overlap; above every area, under the planes and labels |
 | 25 | `aircraft-icon` | symbol | aircraft that are not in or heading into TEPHRA's area, and the picked flight | SDF plane (5.3) |
 | 25a | `exposed-icon` | symbol | `exposed-pts`, not clustered | the same plane for RFA flights in or heading in; six or more within 60 px are drawn as one `exposed-cluster` box instead (up to zoom 8). The picked flight is never clustered |
-| 26 | `aircraft-picked` | circle | `picked` | r 17, stroke `--c-text-1` 2.5, no fill: the only ring on the map. "Inside now" is said by the flight's label, not by a ring (a busy airport was a pile of circles); drawn beneath the group markers |
+| 26 | `aircraft-picked` | circle | `picked` | r 17, stroke `--c-reroute` 2.5 (white = the plan; text-1 sat 9.0 from code YELLOW under tritanopia, the cool white 14.7), no fill: the only ring on the map. "Inside now" is said by the flight's label, not by a ring (a busy airport was a pile of circles); drawn beneath the group markers |
 | 27 | `exposed-cluster` | symbol | `exposed-pts` (clustered: radius 60, min points 6, up to zoom 8) | the flight-group marker `ac-group-<n>` (images.js: an upright plane in `--c-tephra`, one in `--map-flight-back` behind it, the count in an amber badge at the top right; drawn on `styleimagemissing`), centred on the planes it stands for, allow overlap, labels give way to it; the click area adds 6 px on every side; a click zooms in. Map key: "Six or more RFA flights close together" (`lg-flight-group`) |
 | 28 | `aircraft-label-exposed` | symbol | `exposed-pts`, not clustered, minzoom 6 | one line "RFA1225 · inside" / "RFA6178 · in 12 min", Bold 13, right of the plane, collides; the picked flight's (`aircraft-label-picked`) is placed before the other flight labels, after the group markers, on a free side of its plane |
 | 29 | `aircraft-label` | symbol | not exposed, minzoom 7.5 | "GIA123 FL350", Regular 12, `--c-text-3`, optional |
@@ -656,7 +681,7 @@ map pill says so).
 | Normal | `exposed == false` | `--c-aircraft`, halo `--map-halo` 1.5 | 0.3 at z3, 0.42 at z6, 0.5 from z8 (thinned when zoomed out) | from z7.5: callsign (or hex) + level, 11 px grey |
 | Exposed | `exposed == true` | `--c-tephra` | 0.7 | from z6: one line `--c-tephra-text` "RFA4821 · in 12 min", Bold 13, right of the plane; six or more within 60 px merge into a "n RFA flights" box (row 27) |
 | Inside now | exposed and `minutes_to_entry == 0` | `--c-tephra` + ring r 18 from z6 | 0.7 | "RFA4821 · inside" |
-| Picked | the viewer chose it on the map or in Flights heading in (7.8) | unchanged + `--c-text-1` ring r 23, 2.5 px | unchanged | details in Details › This flight |
+| Picked | the viewer chose it on the map or in Flights heading in (7.8) | unchanged + `--c-reroute` ring, 2.5 px | unchanged | details in Details › This flight |
 | Stale | `state.now − observed_at > 60 s` | `--c-aircraft-stale`, opacity 0.55 | as above | the age is in This flight and the flights list |
 | Level unknown | `alt_baro_ft == null` | as above | | "level unknown" in This flight; never hidden by the height filter |
 | Decided | an advisory for this flight is APPROVED/EDITED/REJECTED | unchanged | | the decision is in This flight, the flights list and Decisions |
@@ -673,7 +698,11 @@ this layer animates continuously.
 - FIR and VAAC outlines are off by default (Map layers), "approximate" in Map layers, Help and
   About. When on, the FIR containing a valid SIGMET is brighter: that explains why a SIGMET stops at
   a line. Navaids off by default; airports are not drawn (no data contract for them on the Wall).
-- Reroutes are drawn only for the picked flight, unless Map layers turns them all on.
+- Reroutes are drawn only for the picked flight, unless Map layers turns them all on: a white
+  `--c-reroute` line on a 6 px dark casing with white chevrons along it (`reroute-chev`, the
+  `chevron` SDF in `images.js`) that give its direction.
+- One context grey (`--c-map-context` `#787671`) for FIR, VAAC, routes and navaids, told apart by
+  pattern: FIR dotted, VAAC dash-dot, a route a thin solid line, a navaid a small ring.
 - ADS-B coverage: when no RFA flight is heading in, the story says "Aircraft coverage here is
   patchy: an empty map is not an empty sky." (or that aircraft data is failing or off); the 150 km
   coverage note goes to the story notes when the flight line has not said it. An empty map is never
@@ -690,6 +719,11 @@ this layer animates continuously.
 
 URL template: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/{layer}/default/{time}/{matrix}/{z}/{y}/{x}.png`
 (note `{y}` before `{x}`), `tileSize: 256`.
+
+While satellite, SO2 or BTD imagery is on, the official and TEPHRA lines get a double casing
+(17 Oct 2026, section 3.3): `<id>-halo` 1.5 px `--map-halo` next to the line and `<id>-case` a 1 px
+`--map-label` hairline at 70 % outside it. Under a dashed line the casing is solid (a dashed casing
+cannot follow MapLibre's dashes as the width changes with zoom).
 
 TIME follows TEPHRA's active clock, never the browser's:
 
@@ -873,7 +907,8 @@ R17.2). Left to right:
 1. Brand "TEPHRA"; the sub-line "Volcanic-ash decision desk" only at 1600 px and up.
 2. Mode pill `#mode-badge`: "Live" (green, live icon), "Replay" (violet, replay icon),
    "Connecting…".
-3. Area picker: `#area-btn` "Area: Java / Bali · 2 with ash ▾" opens the menu `#regions`
+3. Area picker: `#area-btn` "Java / Bali · 2 with ash ▾" (its name, "Area: Java / Bali · 2 with
+   ash", is the aria-label; 17 Oct 2026) opens the menu `#regions`
    (`role="menu"`, `menuitemradio` rows "Halmahera · 2 with ash", "Kyushu · none", "All areas"; the
    current one checked; arrow keys, Home/End, Esc). Keys 1-9 still choose areas. On a phone the
    native `#region-select` replaces it ("Java / Bali · 2"). The counts come from one active list
@@ -894,8 +929,9 @@ R17.2). Left to right:
 6. Data chip `#feeds-chip`: "Data: 6 working · 5 off", worst first ("Data: 1 error · 5 working ·
    5 off", serious shape and border; "2 stale" in caution); "ok" for "working" below 1360 px. It
    opens Details › Data feeds.
-7. Clock: `#clock-time` (fixed 9ch) and `#clock-sub` "11 Oct · UTC" or "Replay clock · 5 Sep · UTC"
-   ("UTC" / "Replay · UTC" below 1360 px; "Stopped · …" while the stream is lost).
+7. Clock: `#clock-time` (fixed 9ch) and `#clock-sub` "11 Oct · UTC" or "Replay clock · 5 Sep" with
+   an (i) "About replay" (`#clock-info`: feeds rebuilt from archives, the clock shows that day's
+   time in UTC, not now); "Replay (i)" below 1360 px; "Stopped · …" while the stream is lost.
 8. `#stale-chip` "Not updating since 10:31Z", only while the stream is lost.
 9. "Desk →" (`.desk-link`, quiet outline, new tab). The filled button is in the story.
 
@@ -937,13 +973,15 @@ when it changes because an area was chosen and its first volcano arrived later).
 
 Moved onto the map on 13 Oct 2026 (user feedback: the key took a third of the story column).
 `#legend` is a glass card on the map's top left at 601 px and up (248 px wide, `--z-map-overlay`),
-listing what is drawn now: "Official ash area · binding", "TEPHRA's estimate · never smaller than
-official", "Crew report area" (while one is drawn), "RFA flight in or heading in", "RFA flights
-close together · click to zoom in", "Official forecast area (+6 h)", "Other aircraft (not RFA)",
-"Route (origin to destination) · airport codes at the ends" (while a route line is drawn),
-"Suggested reroute", "Observatory's reported drift", "Where TEPHRA widened the area", "Box marked
-on the satellite picture · AI-read · supporting only", then "Full map key and alert colours ›"
-(Help). Each row is the swatch on the label's line with its note under it. The card folds to its
+listing what is drawn now, one short line per item (owner, 17 Oct 2026: "why you are saying never
+smaller than official, binding, move it to info"): "Official ash area", "TEPHRA's estimate", "Crew
+report area" (while one is drawn), "RFA flight in or heading in", "RFA flights close together",
+"Forecast area (+6 h)", "Other aircraft", "Route" (while a route line is drawn), "Suggested
+reroute", "Observatory's drift", "Where TEPHRA widened", "Satellite box", then "Full map key and
+alert colours ›" (Help). The notes that used to sit under the labels ("binding", "never smaller
+than official", "click to zoom in", "not RFA", "airport codes at the ends", "AI-read · supporting
+only") are in the (i) beside "Map key" (one line per row, with "Full map key ›"), each row's
+title tooltip and Help's full key. The card folds to its
 bar, "Map key" with the first three swatches and a chevron (`aria-expanded`, `aria-controls`); it
 starts folded at every width (13 Oct 2026: the map first, the key one click away), and a choice is
 kept for the session. A fit
@@ -1143,7 +1181,8 @@ below still hold except where that document's table 5.3 replaces them (for examp
 pill with the model ids as chips, failures grouped by cause, "Passed the checks" for ACCEPTED).
 
 - Decisions (`#decisions`): "{state.draft_count} waiting · a approved · r rejected", "Approve on the
-  Desk · nothing is sent anywhere…", then the full list (folded).
+  Desk. Approved text goes only to TEPHRA's own outbound queue, never to an aircraft or any real
+  system.", then the full list (folded).
 - Airport closures (`#xpanel`, `recovery`): "WIII, WIHH closed by ash SFC/FL500 within 20 NM · Plan
   waiting on the Desk: cancel 47, delay 29, $893,032", or the solver wording (R2.6) in a red box
   with the raw string under "Technical detail"; the as-of time and who planned it; then
@@ -1700,9 +1739,9 @@ Honesty placements: REPLAY in the page title, the "Replay clock", the welcome di
 first line, the player ("Replay · catching up: TEPHRA's last steps, fast", "Replay · following
 the replay clock", never a bare "paused") and every modal's screen-reader text; Home shows no
 replay data, and its example card says Example. Ring of Fire Air is fictional: the welcome
-dialog, About, the status line's tooltip. Decision support
-only, nothing sent to an aircraft: Home's footer and the welcome dialog. NO MODEL: the Assistant
-tab's state line with the stub. ILLUSTRATIVE: Details › How TEPHRA decided, beside "Operator
+dialog, About, the status line's "RFA (i)". Decision support
+only, nothing sent to an aircraft: Home's footer and the welcome dialog. The AI state: the
+Assistant tab bar's one status (7.35), with its (i). ILLUSTRATIVE: Details › How TEPHRA decided, beside "Operator
 policy A".
 
 ### 7.33 Onboarding and the workspace (16 Oct 2026)
@@ -1722,25 +1761,186 @@ policy A".
   tap away from Review) and **Submit for verification**. Signed in after submitting, the landing
   says "Your answers are submitted". An account never submitted is deleted after seven days
   without a save (privacy page).
-- **Sign in (`/signin`)**: one card over the dimmed night map; generic errors ("That email and
-  password don't match"), the tries left when two or fewer remain, "Use your recovery code".
-- **Workspace (`/workspace`)**: the airline name, "Airline workspace · private to your account" and
-  the status pill (Not submitted, Pending verification, Verified, Declined); while not submitted
-  only Overview, with "Continue onboarding · step n of 9" (the setup kit comes after submit);
-  otherwise Overview, Your answers, Data feeds
-  (the format and a dry run), Assistant (the model choice) and Setup kit (a zip made in the
-  browser). Sign out and Delete account live in the account menu.
+- **Sign in (`/signin`)**: one card over the dimmed night map ("Sign in to your workspace"); generic
+  errors ("That email and password don't match"), the tries left when two or fewer remain, "Forgot
+  password?" (the recovery code) and "Dispatcher? Use the Desk".
+- **Workspace (`/workspace`)**: the airline name and a lock with "Private to your airline" and the
+  sign-up card's (i) (one shared sentence, `WHO_READS` in onboard/pages.js); the
+  status is said once (the Overview's status card, else the header pill: Not submitted, Pending
+  verification, Verified, Declined); while not submitted only Overview, with "Step n of 9";
+  otherwise Overview, Your answers, Data feeds (the format and a dry run) and Assistant (the model
+  choice). Sign out and Delete account live in the account menu. (Amended 17 Oct 2026, 7.36: the
+  setup kit is gone; `/workspace/kit` answers 404.)
 - **Desk**: the account menu's **Airlines to verify** (a dispatcher verifies or declines; it
   approves no policy and publishes nothing) and **Data connections** (Connect's dispatcher tools:
   keys, the sample feed, a file upload). Visitors see neither.
 
-Honesty placements: ILLUSTRATIVE on both Ash policy cards, Review's policy row, the kit's
-`policy.json` and inside it; Not built for live operation on the shared deploy (landing,
-workspace), Policy B (its card), recovery for the airline's network, and password reset by email
+Honesty placements: ILLUSTRATIVE on both Ash policy cards and Review's policy row; "Running your
+airline on this site is not switched on yet." once on the onboarding landing and once on the workspace Overview (7.36), Policy B (its card), recovery for the airline's network, and password reset by email
 (Review, sign in); NO MODEL on the Assistant card with no model; DRY RUN · NOTHING TAKEN IN on the
 dry run; "Pending verification" as the status pill; Private on the landing card and the workspace
-header; decision support only in the footers and the Review acknowledgement; Google's unpaid tier
+header; decision support only in the sign-up acknowledgement and its (i) (no page footer, 7.36);
+Google's unpaid tier
 may use what is sent, on the Gemini or Gemma card.
+
+### 7.34 Basalt & Paper on the pages (17 Oct 2026)
+
+The palette is in 3.1; what it changed on each page:
+
+- **Every page:** the dashed brand tick (34x3 px, `--c-brand`) under the TEPHRA wordmark
+  (`topnav.css`); Sign out is neutral, not red. Pinned-dark pages use `theme-color` `#100e0c`.
+- **Home:** no amber or magenta glow; the headline's emphasis is an ink underline; the flow is one
+  neutral dotted wire (`--c-line-input`, dash 2 6, no gradient) and its pulse is neutral; nine contour rings are drawn on the `#home-ash` canvas
+  (`home/ash.js`, colours `--home-contour` / `--home-contour-index` from `.home__sky`); the same dashed
+  rule stands over the headline (the eyebrow went, 7.36). The Example card's amber bar stays (it is TEPHRA's flag there).
+- **Demo and the Wall:** the assistant's NO MODEL word is a dashed mono stamp; ILLUSTRATIVE is a
+  square stamp with a faint hatch; TEPHRA's area label is dashed amber; LIVE is a solid neutral chip.
+  A SERIOUS discrepancy, a failed backtest check, a FAIL scorecard and cancelled flights are caution
+  with a heavier edge (dk tone `warning`), sorted after real alarms in "Needs a look"; a rejected
+  advisory or plan is neutral. On a phone the open map key ends above the time pill and scrolls.
+  The Satellite reader's box is cobalt `--c-sat` `#4088c4` with a dark casing (white is the plan;
+  10.5 CIEDE2000 or more from every map colour in all four visions). The Inside TEPHRA catch-up
+  pulses that start on the map take the night map's colours and their labels are night chips in both
+  themes (`mapColours()`); the active step is a tint and the node ring, no edge bar. "Off" and "not
+  read" pills are dashed (not connected); the real recovery code sits in a solid box.
+- **Onboarding and the workspace:** every field error is `--c-invalid` with the filled caution
+  triangle and the words; refused upload rows the same; only offline or a server error on submit is
+  red (`.err--alarm`). A declined airline is neutral (`st-off`). Delete account is the stone fill.
+- **The Desk** (dark): field errors, the text counter over the limit, a crew-report contradiction and
+  a 422 "Correct these" panel are `--c-invalid` (`.msg--invalid`, `.panel--invalid`) with the triangle;
+  "No plan found" and a scenario with no solution are caution; closures are the white ⊘
+  (`.clo__icao` uses `st-closed`); flights inside the ash read in `--c-tephra-text`; Reject, cancel
+  decisions, airline declined and "Desk switched off" (`.panel--off`, dashed) are neutral; the
+  Coordinator brief and the assistant chip are neutral, never amber; the map key's "This flight"
+  swatch is the white ring. Sign-in, Reject, crew-report, connection-name and 422 sign or reject
+  errors are `--c-invalid` with the triangle; red stays for offline and the server. A lock-out is
+  caution, visitor access off is neutral. A failed specialist call is caution. The assistant chip is
+  dashed when off (code only), the fictional-airline and draft chips are dashed (examples), TEPHRA's
+  area swatch and its label box on the map are broken (corners only). The picked plane is amber only
+  when TEPHRA flags it, and the key says "TEPHRA's area" only while that area is drawn.
+- **The printable document:** its paper colours are one `--paper-*` block in `doc.css` (the page is
+  pinned dark for its bar); CRITICAL severity is caution with a 2 px edge.
+
+### 7.35 Said once (17 Oct 2026)
+
+The owner, looking at the demo: "don't say no model everywhere", "why are you putting tephra
+assistant again after assistant tab", "you can hide this in a info icon or something, but current
+there is too much text". One short line stays on screen; the explanation is one tap away.
+
+- **The info button** (`tephra/web/wall/info.js`, one component for the demo, /assistant and the
+  Desk; its look is `info.css`, loaded by `index.html` and `desk.html`): a real `<button>` (16 px
+  glyph, 44 px hit area) with `aria-expanded`, `aria-controls` and a topic name ("About replay",
+  never "More info"), described by an sr-only span holding the same words, so a screen reader
+  hears them without opening it. The popover uses the browser's Popover API (top layer: no panel,
+  map key or sticky header clips it), one open at a time; a tap outside, focus leaving it, Esc
+  (focus back on the button, the page's own Esc not also fired) or a resize closes it; keys typed
+  inside never reach the demo's shortcuts; a click on it never ticks a label it sits in, and a
+  press on its own words keeps it open with focus on the button (only its links and buttons take
+  focus). `face`
+  makes a chip its own (i) (the Desk's REPLAY chip); `wireInfo()` wires an (i) written in the
+  page's HTML (the Desk's sign-in card).
+- **The AI state, once per screen** (`wall/x-parts.js stateLine`, shared by the demo's tab bar,
+  the /assistant title and the Desk's header): nothing while the model is on; otherwise a dot and
+  "AI off" (dashed), "AI paused" or "AI unavailable" with an (i): "Offline stub: no model is
+  connected. Code checks still run, and code templates write the drafts." / "Code still reads
+  every feed and checks every flight. Must-do flights come straight to you." / "<skill> gave no
+  result. Nothing was put in its place; code still checks every flight." with "Why ›" (demo) or
+  "Assistant details ›" (Desk). The screen-reader text keeps the state in every case. These three
+  status words are the one place "AI" is a visible word besides the first-use line, About and the
+  tooltips (the lead's decision A over the "AI" rule in CLAUDE.md, so "Assistant" is not repeated
+  beside the Assistant tab). Gone: the "TEPHRA Assistant" heading row under the tab, the "NO
+  MODEL · offline stub" stamp, "Code orders the jobs (no model)", the gate's "No model · code
+  templates / Skills run as code, no model is called", the Desk idle pane's AI line and the off
+  sheet's "no calls" line.
+- **Per-item marks:** text a code template wrote carries the small "{ }" mark (`codeMark()`;
+  tooltip and sr-only "Written by a code template", or "Ordered / Counted / Picked / Read by
+  code"), never "NO MODEL" words or "(code only)" suffixes; AI-written text keeps its mark, so a
+  day with the budget closed still tells the two apart. Server text, exported documents' labels
+  and the raw lines under Technical detail are unchanged.
+- **You decide:** the count and "advisories wait for you"; "Drafts wait at the Desk for a
+  dispatcher. Nothing leaves TEPHRA until a dispatcher approves." is its (i) (the tab, /assistant,
+  the Details foot).
+- **The demo's status line:** "Policy A (i)" (illustrative values, not an airline SRA) and
+  "RFA (i)" (the fictional airline), instead of hover-only titles.
+- **Said once, also inside the sections (fix pass, 17 Oct):** Details › TEPHRA Assistant says the
+  off state in its lead only (no pill, chip, title, quota tile or note, no per-skill "Model" line);
+  Details sections and the /assistant skill sheets turn "(code only)" lines into the "{ }" mark
+  (`templateText`), and the Coordinator's code brief, which only repeated its line, is not quoted;
+  paused or in trouble, the gate and the Coordinator row say what waits, not the state again; with
+  no model the band between the Coordinator and the skills closes up. The status and the page link
+  sit beside the side panel's tablist, not inside it.
+- **The Desk:** one REPLAY chip with its (i) (10.1); Ask says the stub once and keeps its sub-line
+  in the title's (i); sign-in errors are one or two words (11.8). No "Decision support only" chip
+  is added anywhere (the owner: "don't put this everywhere").
+
+### 7.36 Said once on the site pages, onboarding and the workspace (17 Oct 2026)
+
+The owner, on the footer "Decision support only. Not for operational use.": "don't put this
+everywhere"; on the sign-up card's privacy note: "no need to put so much information, you can
+always collapse it"; on the sign-up form: "why so much text after warning sign, keep it modular";
+on the setup kit: "drop it"; and "nobody is going to read so much, don't overwhelm with
+infomation". Every (i) on these pages is the one info button of 7.35 (`wall/info.js`, `info.css`).
+
+- **No decision-support footer.** No page's chrome says "Decision support only" or "Not for
+  operational use" (Home, Guide, Privacy, the demo, the Desk, onboarding, the workspace;
+  `tests/test_footer_said_once.py`). It stays once where it matters: the demo's welcome dialog
+  (its facts line), About › Safety limits (the Guide's About fold, anchor `#what-is-real`), the
+  sign-up checkbox's (i), and Home's line ("a dispatcher approves"). Link previews, `og.svg`,
+  generated documents and their labels keep their own words. No "Decision support only" chip is
+  added anywhere.
+- **Home:** the eyebrow went (the brand's dashed tick now stands over the line); "Already
+  onboarded? Sign in to your workspace" became "Sign in" in the top bar (only while the server
+  shows onboarding); the footer is Credits and Privacy, plus Guide below 1100 px where the top bar
+  hides the nav. The headline, the two choices and the picture are unchanged; no replay or
+  fictional-airline words on Home.
+- **Guide:** the title "A volcanic-ash decision desk" and a 15-word lead; three chips (Fictional
+  airline, Nothing sent to aircraft, Replay; each with its full sentence for screen readers) and
+  "What is real?", which opens About at Safety limits; the five steps show names only (the lines
+  are screen-reader text, `stepsList({ lines: "sr" })`); the case is one line and "What went
+  wrong" now opens the rest on the Guide too. Tours: each legend shows titles; the one sentence
+  shows on hover, focus or a tap (screen readers always hear it). Marks: the demo 5 (This case,
+  TEPHRA Assistant and Decide on the Desk went), the Assistant 5 (Skills and Play merged), the
+  Desk 4 (the tab bar and Ask went), the phone review 5 (Record went). Try it is five steps of
+  five words or fewer. Every fold is closed: Map key and words, How it works (the eight-step flow
+  went; the five steps say it), About and safety limits ("What TEPHRA is" went), Operator policy
+  (illustrative), Credits (its own fold, still `#about-credits`), Run it on a laptop (the two
+  commands and the Google Cloud line; the "Your airline" card went). The section nav is Start,
+  Try it, Map key, About.
+- **Privacy:** an "In short" box of five lines, then each section closed under its heading;
+  `privacy.js` opens the one a link names (`/privacy#accounts`). The visitor's public name is said
+  once, in the Desk section. The setup kit, its zip and the Ollama address are gone from the text.
+- **Sign-up:** the privacy note is one line, a lock, "Private to your airline" and an (i) holding
+  the full sentence and the Privacy link. "Work email" has no hint; the password label is
+  "Password · 12+ characters" (the rule is also in `aria-describedby`). Errors are terse with the
+  caution triangle ("Required", "Not an email", "12+ characters", "Tick to continue"), shown only
+  once a typed field is left or on submit, never before; an empty submit focuses the first bad
+  field and marks each. The tick reads "I understand TEPHRA is decision support only"; its (i)
+  ("A person decides, and nothing is sent to an aircraft.") sits beside the label, outside it, so
+  tapping the (i) never ticks the box and tapping the words still does. Server error words are
+  unchanged. Sign-in and the recovery code page follow the same rules.
+- **The onboarding pages:** one short line under each heading (10 words or fewer); what explained
+  it sits in an (i) on the heading, a section, a label, a hint or a chip. The landing is the title,
+  the sign-up card, a closed fold "What you will provide" (nine one-liners) and one line "Running
+  your airline on this site is not switched on yet." The step shell is the step list, "Step n of
+  9" and the Saved mark. The AI model cards (page 8 and the workspace's Assistant) are a title and
+  one line; Gemini's line is "Your key · data use" with an (i) holding what TEPHRA sends (public
+  ash feeds and the facts code writes), Google's unpaid-tier data use and the Privacy link, also read to screen readers on its radio before it is chosen.
+- **The workspace:** the Overview says the status once (a pending track, "Verified." with an (i)
+  saying verification checked who you are and approved no policy, or the declined reason), four
+  one-line rows and "Running your airline on this site is not switched on yet." The status (i)
+  stays on the line with the last word, and a model name keeps its "·" with it, so at 390 px no
+  (i) or "·" is left alone at a line's end. On a phone the account chip shows only the ICAO code
+  (the name stays for screen readers) rather than a cut name. Data feeds is a
+  closed "The format" fold, one drop line and the DRY RUN stamp with its (i). If the account does
+  not load, the onboarding landing says "Your account did not load" and why, never "Answers
+  submitted".
+- **The setup kit is gone** from the onboarding pages and the workspace (the kit preview, Download
+  setup kit, its checklist, the made-in-your-browser chip, the Gemini key and Ollama address
+  fields that only fed it, the fleet settings preview and "Sending for real"; `workspace/kit.js`
+  and `zip.js` deleted, `.env.airline.example`, the kit's airline.env template, deleted), from README.md, docs/ONBOARDING.md (its file table and "Run your own
+  TEPHRA"), the glossary, the Guide and Privacy. `tephra/web/kit/push.py` stays and is documented
+  as the push tool; the own-fleet settings stay. The onboarding tour's screenshot is retaken once
+  the onboarding pages settle.
 
 ## 8. 3D, compare, the time bar and the height filter
 
@@ -1839,12 +2039,15 @@ decision sends the `version` the dispatcher saw.
 
 ### 10.1 Header (always)
 
-Row 1 (48): "TEPHRA" (700, letter-spaced) + "Desk" (text-3, hidden at 430 px and under); the AI
-chip `#budget-chip` with `#model-chip` as its label (10.16, docs/UI-AI-QUIET.md K78, 8.4): "TEPHRA
-Assistant · on", "TEPHRA Assistant · paused", "TEPHRA Assistant · Drafter gave no result" or
-"TEPHRA Assistant · off (code only)" ("Assistant · paused" at 420 px and less, no reason and no
-time, docs/UI-AI-QUIET.md 8.6; the name drops
-when the row would scroll sideways, docs/UI-AI-QUIET.md 8.5), never red, which
+Row 1 (48): "TEPHRA" (700, letter-spaced) + "Desk" (text-3, hidden at 430 px and under); in
+REPLAY the chip "REPLAY 1032Z" on the replay clock (`#mode-chip`, `desk/modechip.js`), which is its
+own (i): feeds rebuilt from archives, the clock shows that day, Ring of Fire Air is fictional; the
+AI status `#budget-chip` with `#model-chip` as its label (7.35): only the assistant mark while it
+is on, otherwise a dot and "AI off", "AI paused" or "AI unavailable" with an (i) (the words of
+`wall/x-parts.js stateLine`, plus "Assistant details ›"); its aria-label keeps the full state;
+when the row would scroll sideways the connection words and gaps go first, then the wordmark and
+REPLAY chip compact, then the AI (i), the status's dot and the REPLAY glyph, then the REPLAY clock;
+the AI words go last, only on a row narrower than any phone (a 390 px phone reads "AI off"); never red; it
 opens the TEPHRA Assistant sheet; the connection `#conn`, always a word with its shape: `st-ok` "Connected" (not
 "Live", which under the REPLAY bar would read as live data), `st-stale` "Reconnecting…",
 `st-serious` "Offline", `st-never` "Connecting…"; the account button (initials in a 32 px circle,
@@ -1874,24 +2077,25 @@ advisories · 23 flights to plan by hand · 1 airport plan · 1 document to sign
 Two panes, one screen (15 Oct 2026). At 900 px and up the view fills the height under the header
 and the page does not scroll. The left pane says what the Desk is: the headline "TEPHRA drafts. A
 person decides.", a small drawing (the official area inside TEPHRA's wider estimate, a flight
-heading in), three steps with icons ("A draft for each flight heading into ash", "You approve,
-edit or reject it", "Every decision signed in the public audit"), the safety line "Nothing reaches
-a real aircraft or system." and "See the Wall, the public picture, with no sign-in". The right
+heading in), the safety line "Nothing reaches a real aircraft or system." and "Watch the demo,
+no sign-in" (the three steps went on 17 Oct 2026). The right
 pane is the card (max 420): title, `#login-pending`, the form message, then the ways in. Below
 900 px the panes stack and the left one keeps only the headline, the safety line and the Wall link.
 
 While `/api/state` says `visitor_access`, the title is "Sign in to the Desk" and two tabs
 (`#login-tabs`, `role="tablist"`, arrow keys move) choose Visitor ("No PIN") or Dispatcher ("PIN");
 the first choice is Visitor unless this browser has signed a dispatcher in before. Visitor: an
-optional name and "Enter as a visitor →", then two lines: the decisions are real and go into the
-public record as visitor:<your name>, and visitors cannot change the display or the feeds.
+optional name and "Enter as a visitor →", then one line "Your decisions are public." with an
+(i) (written in desk.html, wired by `wall/info.js wireInfo`): they go into the public record as
+visitor:<your name>, and visitors cannot change the display or the feeds.
 Without visitor access the title is "Dispatcher sign-in" and only the PIN form shows.
 
 The PIN form: name (autocomplete `username`, 2-32 chars) and PIN (`current-password`, numeric
 keyboard `inputmode="numeric"`), each with its icon inside the field, labels above, errors under
 the field (`aria-describedby`), an on-screen PIN pad (hidden on a short computer screen with a
 fine pointer, where the keyboard types the PIN), button "Sign in" (primary neutral), and the hint
-"Your name goes on each decision in the public audit. The PIN is never stored." with Privacy.
+"Your name goes on each decision in the public audit." with Privacy; "The PIN is never stored."
+is the (i) beside the "Desk PIN" label.
 Errors (11.8): bad PIN, too many attempts (button disabled with a countdown from the `Retry-After`
 header), desk disabled, offline. A deep link waiting for a session shows "Sign in to review
 RFA1225." above the ways in (`#login-pending`, the flight named from the public
@@ -2039,7 +2243,7 @@ line above (`--c-approve` fill, `--c-approve-ink`, 56 tall, radius 12, 18 px 600
 
 Sheet view "Edit RFA4821": textarea (Plex Mono 16, upper case as typed with
 `autocapitalize="characters"` and a CSS `text-transform` preview; the value sent is what was
-typed), 9 rows, counter "312 / 400" under it (caution at 380, serious and blocked above 400),
+typed), 9 rows, counter "312 / 400" under it (caution at 380, and above 400 blocked in `--c-invalid` with the triangle: a form error, never red),
 `aria-describedby` to the counter; "Show the drafted text" disclosure with the original body; a
 note "Both versions are kept in the audit log. The header with sources and times is written by
 code and cannot be edited." Primary "Approve edited text for RFA4821" (approve style, the same
@@ -2326,8 +2530,9 @@ its own audit entry.
 
 The AI chip (`#budget-chip` with `#model-chip` as its label, `desk/budget.js`): the one state of
 docs/UI-AI-QUIET.md 5.2 ("AI on", "AI paused · 0700Z real time", "AI on · 1 problem", "AI off";
-since 8.4 and 8.6 "TEPHRA Assistant · on / paused / Drafter gave no result / off (code only)", a
-pause with no reason or time), caution for paused and trouble, never red. The sheet is the Desk's
+since 8.4 and 8.6 "TEPHRA Assistant · on / paused / Drafter gave no result / off (code only)";
+since 17 Oct 2026 the status of 7.35: nothing but the mark while on, "AI off / AI paused / AI
+unavailable" with an (i) otherwise, a pause with no reason or time), caution for paused and trouble, never red. The sheet is the Desk's
 one place that says why the assistant is paused and until when (UI-AI-QUIET 8.6). Its sheet, "AI today": the calm lead (UI-AI-QUIET
 5.1), "What went wrong" by cause (each with its count, its times and what the dispatcher does
 instead, the raw lines under Technical detail), "AI work waiting" (each job with "waits for AI
@@ -2531,7 +2736,7 @@ The Desk takes the flow board's look, so the Wall, the board and the Desk read a
   minutes to entry), its path and the reroute its draft proposes (`--c-reroute`; never a reroute
   the draft does not propose), framed together with its volcano. Selecting
   a bright plane opens its review; any other plane shows its path and a card that says it has no
-  open draft. The airports the airport plan closes are ringed in `--c-serious` with their closure
+  open draft. The airports the airport plan closes are a white ⊘ (`--c-closed`, as on the Wall) with their closure
   radius (section 5). A draft whose aircraft the newest picture no longer holds says
   so on the map ("RFA1738: no current position in the newest picture"); nothing is guessed. Zoom
   and "Every flight in or heading in" are the shared control column; a key pill names the four
@@ -2550,7 +2755,7 @@ the disclaimer exactly as `state.disclaimer` gives them.
 
 | Where | Text |
 |---|---|
-| Disclaimer (both pages, always) | `Decision support only - fictional airline - not for operational use` (from `state.disclaimer`; the HTML ships the same text) |
+| Disclaimer | `Decision support only - fictional airline - not for operational use` (`state.disclaimer`): in documents, outbound text and link previews, never page chrome (7.36). On screen the fact is said once: the welcome dialog's facts line, About › Safety limits and the sign-up tick's (i) |
 | REPLAY label (both pages, whole session, once: the frame strip, 7.1) | "Replay · recorded feeds from 23 Sep 2026 · not live" (`replayWords()`); `state.replay.banner` ("REPLAY: recorded real feeds from 23 Sep 2026") is its tooltip and the About line |
 | Model label (both pages, always) | The AI's one state on both pages (`aiStateOf()`, docs/UI-AI-QUIET.md 5.2): "AI on", "AI paused · 0700Z", "AI on · 1 problem", "AI off" (the Wall's AI chip, the Desk's AI chip, AI at work); the model ids are in the Desk's AI today sheet, AI at work and Details › AI helpers |
 | AI marking | "AI-drafted" (advisory body), "AI-written · {model}" (plume reading, satellite limits); with no model the Wall says "Written by code (AI off)" |
@@ -2568,7 +2773,7 @@ the disclaimer exactly as `state.disclaimer` gives them.
 | AI UNAVAILABLE: reason (hosted) | Every model step of an airline with no model, no key or an unreadable key |
 | Paused (airline or site allowance) | A red line on every airline page ("Paused: <name>'s share of the site's free daily database allowance is used. Resumes 00:00 Pacific (07:00 UTC)."); the workspace card; the console's free-tier tile and notes |
 | Satellite frames paused | The frames feed note when the month's airline uploads are used |
-| Not built (hosted) | `docs/HOSTED.md` §6, each said where it applies; the workspace line "TEPHRA runs at most 3 airlines at once on this site. Your own TEPHRA with the setup kit has no such limit." |
+| Not built (hosted) | `docs/HOSTED.md` §6, each said where it applies; the workspace line "TEPHRA runs at most 3 airlines at once on this site." (the setup kit is dropped) |
 | DRY RUN · NOTHING TAKEN IN | The dry-run card (`dryrun.js`, workspace and airline Feeds); "Checked, not taken in" on Feeds in setup |
 | Private | The airline space's footer "Private to <name> and TEPHRA's operators" |
 | Unpaid-tier data use | Settings › Assistant: "Google may use what TEPHRA sends with a free-tier key." |
@@ -2654,19 +2859,22 @@ edited text for {proxy}", "Reject advisory for {proxy}", "Review {proxy}", "Edit
 "Approve now", "Cancel", "Back to Decide", "Review the new version", "Sign in", "Sign out", "Try
 again", "Reload the lists", "Re-plan now", "Approve plan…", "Write the handover", "Draft SRA",
 "Draft VAR". Tabs: "Decide", "Ask", "Airports", "Paperwork". Labels: "Version 1" (not "v1"),
-"Written by a code template (AI off)" (not "Template · NO MODEL"), "AI calls today: 0 of 450",
+"{ }" with the tooltip and screen-reader words "Written by a code template" (not "Template · NO
+MODEL", 7.35), "AI calls today: 0 of 450",
 "Pilot ash report (VAR)", "Ready for you", "from: flights heading in" (not "T01 exposed_flights"),
-"TEPHRA's area" (not "hazard cone"). Per-item AI chips read "AI off · code" with the stub (title
-"NO MODEL: …").
+"TEPHRA's area" (not "hazard cone"). Per-item marks with the stub are the "{ }" code mark
+("Written by a code template", or "Ordered / Counted / Picked / Read by code").
 
 ### 11.8 Desk messages
 
 | Situation | Text |
 |---|---|
-| Bad PIN (401 `bad_pin`) | "That PIN is not right. Check it and try again." |
+| PIN empty | "Required" |
+| Bad PIN (401 `bad_pin`) | "Wrong PIN" |
 | Too many attempts (429) | "Too many attempts. Wait 10 minutes and try again." |
 | Desk disabled (503) | "The Desk is switched off on this server (no Desk PIN is set)." |
-| Name invalid (422) | "Use 2 to 32 letters, digits, spaces or . ' - _" |
+| Name empty | "Required" |
+| Name invalid (422) | "2–32 letters or digits" |
 | Session ended (401) | "Your session has ended. Sign in again to decide." |
 | Offline | "You're offline. Can't approve right now: reconnect to decide. Drafts stay readable." |
 | Conflict (409) | "This advisory changed while you were reviewing it." |
@@ -2834,8 +3042,8 @@ context label (section 7.3, 5.6).
   bulk approval).
 - The Desk shows the same solver wording as the Wall from its own `planProblem()` in
   `desk/network.js`; the Ask stub's "NO MODEL: this is the offline stub…" sentence stays in the API
-  (tests and the spoken reply rely on it) and is put in plain words only on screen, and only for
-  the stub's code-written text.
+  (tests and the spoken reply rely on it); on screen it is said once above the conversation
+  ("Answers are code counts: the question is not read.", 7.35), not on each answer.
 - Crew reports (5.7, 7.20, 10.15): the ivory `--c-crew` is not yet in the palette script's
   tables (3.3); the research's "stale" and "expired, needs review" steps are one EXPIRED state
   (listed for 24 h, not drawn); a report withdrawn or expired leaves the drafts it flagged as they
@@ -2888,7 +3096,10 @@ primary text. In short:
   Officer's stub brief, its "urgency order" reason (said once above the list), the recovery stub's
   rationale ("Planned by code (AI off): this plan cancels 47 flights and delays 29. It affects
   12,057 passengers and costs about $893,032."), and any other "NO MODEL: …" line ("Written by code
-  (AI off): …"). The raw line stays under Technical detail. Desk review › Why: TEPHRA area "Official
+  (AI off): …"). Where a line sits beside its own code mark (the Coordinator brief on the Desk and
+  in Details, the Why chain, the What happened log, "Why this plan"), `templateText()` drops the
+  "(code only)" words and the "{ }" mark says it once (7.35). The raw line stays under Technical
+  detail. Desk review › Why: TEPHRA area "Official
   area only" / "Wider than the official area · 80% confidence" / "HYPOTHESIS · MONITOR or HOLD only"
   (mode code and confidence in the tooltip); the cost note in sentence case (the original in the
   tooltip); Drafted by "AI off: built from the official reports only…". Wall flight and decision

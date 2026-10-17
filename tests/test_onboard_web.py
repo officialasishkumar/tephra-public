@@ -2,7 +2,7 @@
 with Onboard current, the landmarks every page needs, no inline script or style (CSP), text only
 through textContent, one file that touches the browser's storage, a Gemini key that has no field
 name and reaches no request, the honesty labels these pages say, and the account first: sign-up
-on the landing, answers saved to the account, Review submits, the kit only once submitted.
+on the landing, answers saved to the account, Review submits, the workspace once submitted.
 """
 
 import re
@@ -51,7 +51,9 @@ def test_pages_have_the_nav_skip_link_announcer_and_no_inline_code() -> None:
         assert html.index('src="/static/theme-boot.js"') < html.index('type="module"'), page
         assert not INLINE_SCRIPT.search(html), page
         assert not INLINE_STYLE.search(html), page
-        assert "Decision support only" in html, page
+        # the footer no longer says it (owner, 17 Oct 2026: "don't put this everywhere"); the
+        # sign-up tick's (i) does (tests/test_footer_said_once.py)
+        assert "pfoot__honest" not in html, page
 
 
 def test_no_inner_html_and_no_style_attribute_in_the_page_code() -> None:
@@ -80,25 +82,14 @@ def test_draft_js_is_the_only_onboarding_file_using_storage() -> None:
     assert 'from "./onboard/draft.js"' in _read("account-nav.js")
 
 
-def test_the_gemini_key_has_no_name_and_reaches_no_request() -> None:
-    kit = _read("workspace/kit.js")
-    field = kit.split("function keyInput()")[1].split("\n}\n")[0]
-    assert 'type: "password"' in field
-    assert 'autocomplete: "off"' in field
-    assert "name:" not in field
-    assert '"pagehide"' in field
-    assert "kit-gemini-key" not in _read("workspace/overview.js")
-    assert "keyField" not in _read("workspace/overview.js")
-    for rel in ("onboard/draft.js", "workspace/api.js", "onboard/pages.js"):
-        text = _read(rel)
-        assert "geminiKey" not in text, rel
-        assert "gemini_key" not in text, rel
+def test_no_gemini_key_is_asked_for_or_sent() -> None:
+    """With the setup kit gone (owner, 17 Oct 2026: "drop it") no page asks for a Gemini key:
+    only the provider and the model names are stored."""
     for path in SOURCES:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if "call(" in line or "fetch(" in line:
-                assert "geminiKey" not in line, (path.name, line)
-                assert "gemini_key" not in line, (path.name, line)
-    assert "It goes only into the zip made in this tab. TEPHRA never receives or stores it." in kit
+        text = path.read_text(encoding="utf-8")
+        for word in ("geminiKey", "gemini_key", "kit-gemini-key", "GEMINI_API_KEY"):
+            assert word not in text, (path.name, word)
+    assert "this site never stores it" in _read("workspace/assistant.js")
 
 
 def test_the_progress_bar_is_hidden_from_screen_readers() -> None:
@@ -119,21 +110,20 @@ def test_the_honesty_labels_these_pages_say() -> None:
         "Pending verification",
         "is not built",
         "nothing is sent to an aircraft",
-        "Password reset by email is not built",
-        "private to your account",
+        "Email reset is not built",
+        "Email reset: not built",
+        "Private to your airline",
+        "Running your airline on this site is not switched on yet.",
         "may be used to improve Google's products",
     ):
         assert label in text, label
     code = _read("onboard.js")
     provide = code.split("function provideList()")[1].split("\nfunction ")[0]
-    assert "How to onboard: what you provide" in provide
+    assert 'el("details", { id: "ob-provide"' in provide  # closed until asked for
+    assert '"What you will provide"' in provide
     landing = code.split("function landing()")[1].split("\nfunction ")[0]
-    assert 'el("b", { text: "Not built yet. " }), NOT_BUILT' in landing
-    assert 'el("b", { text: "Not built yet. " }), NOT_BUILT' in _read("workspace/overview.js")
-    assert (
-        'export const NOT_BUILT = "This shared site runs the demo only. To check your own flights, '
-        'run your own TEPHRA with the setup kit.";' in _read("onboard/pages.js")
-    )
+    assert "NOT_ON_YET" in landing
+    assert "notYet()" in _read("workspace/overview.js")
     assert "Running your live operation on this shared TEPHRA" not in text
     # own flight numbers work in an airline's own TEPHRA (OWNFLIGHTS, 16 Oct 2026): no page says
     # its drafts use Ring of Fire Air numbers any more
@@ -145,9 +135,14 @@ def test_the_landing_says_who_reads_the_answers_once() -> None:
     """The Desk's review list shows every submitted answer to this site's dispatchers: the
     sign-up card says so once and never claims nothing reaches the Desk."""
     card = _read("onboard.js").split("function signupCard()")[1].split("\nfunction ")[0]
-    assert "this site's TEPHRA dispatchers, who verify your airline, read your answers" in card
-    assert "reaches the demo, the map or the Desk" not in card
-    assert _read("onboard.js").count("the Desk's picture") == 1
+    assert "text: WHO_READS" in card
+    pages = _read("onboard/pages.js")
+    assert "this site's TEPHRA dispatchers, who verify your airline, read your answers" in pages
+    assert "reaches the demo, the map or the Desk" not in pages + card
+    assert pages.count("the Desk's picture") == 1
+    # the workspace header says the same line, with the same (i)
+    assert "text: WHO_READS" in _read("workspace.js")
+    assert "Private to your account" not in _read("workspace.js")
 
 
 def test_the_account_comes_first_and_no_answer_is_kept_in_the_browser() -> None:
@@ -157,7 +152,7 @@ def test_the_account_comes_first_and_no_answer_is_kept_in_the_browser() -> None:
     assert landing.index("side,") < landing.index("provideList()")
     card = code.split("function signupCard()")[1].split("\nfunction ")[0]
     assert '"Create account"' in card
-    assert '"Already have an account? "' in card
+    assert '"Have an account? "' in card
     assert '"Work email"' in _read("onboard/review.js")
     assert '"Submit for verification"' in code
     assert "Create account and submit" not in code
@@ -174,7 +169,7 @@ def test_the_account_comes_first_and_no_answer_is_kept_in_the_browser() -> None:
     assert "PATHS.draft" in code
     assert 'text: "Saved"' in code
     assert "What you typed stays on this page." in code
-    assert '"Back and Next save your answers to your account."' in code
+    assert "Back and Next save your answers to your account." not in code  # the Saved mark says it
     privacy = _read("privacy.html")
     assert "from sign-up on, the onboarding answers with the account" in privacy
 
@@ -184,7 +179,7 @@ def test_a_signed_in_airline_is_sent_to_its_workspace_not_a_second_account() -> 
     landing = code.split("function landing()")[1].split("\nfunction ")[0]
     assert "S.account?.signedIn" in landing
     assert '"Open your workspace"' in landing
-    assert "You are signed in as" in landing
+    assert "Signed in as " in landing
     render = code.split("async function render(")[1].split("\n}\n")[0]
     assert "S.account = await initAccountNav(" in render
     assert 'location.replace("/workspace/answers")' in render
@@ -194,11 +189,11 @@ def test_a_signed_in_airline_is_sent_to_its_workspace_not_a_second_account() -> 
     assert 'res.data?.status === "draft" && !next ? "/onboard"' in _read("workspace/signin.js")
 
 
-def test_a_drafts_workspace_continues_onboarding_and_has_no_kit_yet() -> None:
+def test_a_drafts_workspace_continues_onboarding() -> None:
     overview = _read("workspace/overview.js")
     body = overview.split("export function renderOverview(main, view) {")[1]
-    assert body.index('if (view.status === "draft")') < body.index("kitCard(view)")
-    assert "Continue onboarding · step ${page.n} of 9" in overview
+    assert body.index('if (view.status === "draft")') < body.index("verification(view")
+    assert "Step ${page.n} of 9" in overview
     workspace = _read("workspace.js")
     assert 'view.status === "draft" ? SECTIONS.slice(0, 1) : SECTIONS' in workspace
     assert 'if (view.status === "draft" && section)' in workspace

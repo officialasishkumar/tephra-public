@@ -50,46 +50,38 @@ if (!(state.features || []).includes("onboard")) { console.error("start the serv
 // outside the official area), clear of every panel over the map.
 const MARKS = {
   wall: [
-    { sel: "#rail-btn" },
     { sel: "#rail-exposed" },
     { area: "tephra" },
     { area: "official" },
-    { sel: "#assist" },
     { sel: "#clock-sub" },
     { sel: "#details-btn" },
-    { sel: "#side-desk" },
   ],
   assistant: [
     { sel: ".flow-head__brand" },
     { sel: ".flow-labels > *", text: "SIGMET", deep: true },
     { sel: ".flow-panel" },
-    { sel: ".flow-skill" },
     { sel: ".flow-you" },
-    { sel: ".flow-log" },
     { sel: ".flow-player" },
   ],
   desk: [
-    { sel: "#tabbar" },
     { sel: "section.next" },
     { sel: "section.next .ai-mark" },
     { sel: "section.grp" },
     { sel: "#desk-map" },
-    { sel: "#ask-btn" },
   ],
   "desk-phone": [
     { sel: ".rv2__action" },
     { sel: "dl.facts" },
     { sel: ".textbox" },
-    { sel: ".recordbtn" },
     { sel: ".approve" },
     { sel: ".actions__inner .secondary" },
   ],
   onboard: [
     { sel: "#su-form" },
     { sel: "#ob-signup a[href='/signin']" },
-    { sel: "#ob-signup .hint" },
-    { sel: "section:has(#provide-h)" },
-    { sel: "#ob-notbuilt" },
+    { sel: "#su-private" },
+    { sel: "#ob-provide" },
+    { sel: "#ob-notyet" },
   ],
 };
 
@@ -214,10 +206,11 @@ const SHOTS = [
     await settle(page, 1500);
   } },
   // the onboarding landing as a first visitor sees it (signed out), the viewport as tall as the
-  // landing so its sign-up card, what you provide and the Not built line show
+  // landing so its sign-up card, the closed "What you will provide" fold and the not-switched-on
+  // line show
   { name: "onboard", vw: 1440, vh: 900, outW: 1800, go: async (page) => {
     await page.goto(`${BASE}/onboard`);
-    await page.waitForSelector("#provide-h", { state: "visible" });
+    await page.waitForSelector("#ob-notyet", { state: "visible" });
     await settle(page, 1500);
     const tall = await page.evaluate(() => Math.min(1400, document.documentElement.scrollHeight));
     await page.setViewportSize({ width: 1440, height: tall });

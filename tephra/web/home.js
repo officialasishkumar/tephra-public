@@ -1,5 +1,6 @@
 // Home (SPEC-v2 5.1): shows the onboarding parts only while the server shows onboarding, swaps the
-// second choice for the workspace when an airline is signed in, and draws the five steps: a
+// second choice for the workspace when an airline is signed in, puts Sign in in the top bar while
+// signed out (the server says when accounts are on), and draws the five steps: a
 // picture beside the choices (home/how.js) and a strip under the line on narrow screens. Neither
 // carries data. The two choices are titles only (owner, 16 Oct 2026: "no need to mention it
 // here"); the demo says it is a replay itself. Every word goes in through el() / textContent.
@@ -24,7 +25,6 @@ function showWorkspace() {
   const tile = $("go-onboard");
   tile.setAttribute("href", "/workspace");
   $("go-onboard-t").textContent = "Your airline workspace";
-  for (const p of document.querySelectorAll(".home__signin")) p.hidden = true;
 }
 
 // The pictures' pulses stop while the tab is hidden (home.css .is-paused); the ash stops itself.
@@ -43,7 +43,7 @@ async function main() {
   setFeatures(state?.features);
   applyFeatureNav();
   for (const part of document.querySelectorAll("main [data-feature]")) part.hidden = !has(part.dataset.feature);
-  const account = await initAccountNav({ right: $("tn-right"), signin: false });
+  const account = await initAccountNav({ right: $("tn-right"), signin: has("onboard") });
   if (account.signedIn && has("onboard")) showWorkspace();
 }
 

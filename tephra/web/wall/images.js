@@ -1,7 +1,8 @@
 // Map images drawn on a canvas and added with map.addImage. Under TEPHRA's CSP MapLibre
 // cannot load data: or SVG images (docs/UI-DESIGN.md 15), so every symbol is drawn here:
-// the SDF plane, the flight-group marker, the SDF arrowhead, the eruption symbols, the
-// stretchable label boxes, the hatch pattern and the crew report pin.
+// the SDF plane, the flight-group marker, the SDF arrowhead and reroute chevron, the eruption
+// symbols, the closed airport, the stretchable label boxes, the hatch pattern and the crew report
+// pin. Every colour comes from the caller's tokens (C); the dark outline is --map-halo.
 
 const MATERIAL_FLIGHT =
   "M409-421 137-311q-20 8-38.5-4T80-350v-18q0-11 5-19.5T98-402l311-219v-188q0-29 21-50t50-21q29 0 50 21t21 50v188l311 219q8 6 13 14.5t5 19.5v18q0 23-18.5 35t-38.5 4L551-421v172l109 76q7 5 11 12.5t4 15.5v19q0 17-13.5 27.5T631-93l-151-46-151 46q-17 5-30.5-5.5T285-126v-19q0-8 4-15.5t11-12.5l109-76v-172Z";
@@ -16,9 +17,9 @@ function canvas(w, h) {
 }
 
 function alphaOf(ctx, w, h) {
-  const rgba = ctx.getImageData(0, 0, w, h).data;
+  const px = ctx.getImageData(0, 0, w, h).data;
   const alpha = new Uint8ClampedArray(w * h);
-  for (let i = 0; i < alpha.length; i++) alpha[i] = rgba[i * 4 + 3];
+  for (let i = 0; i < alpha.length; i++) alpha[i] = px[i * 4 + 3];
   return alpha;
 }
 
@@ -76,8 +77,49 @@ function arrowheadSdf(size = 64, padding = 14) {
   return { width: size, height: size, data: alphaToSdf(alphaOf(ctx, size, size), size, size, 12) };
 }
 
+// The reroute's chevron (5.4): an open ">" pointing along the line, drawn every so often on the
+// proposed reroute so its direction reads without a legend.
+function chevronSdf(size = 40, padding = 10) {
+  const ctx = canvas(size, size);
+  const m = size / 2;
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 5;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(m - 4, padding);
+  ctx.lineTo(m + 5, m);
+  ctx.lineTo(m - 4, size - padding);
+  ctx.stroke();
+  return { width: size, height: size, data: alphaToSdf(alphaOf(ctx, size, size), size, size, 8) };
+}
+
+// A closed airport in the airport plan (section 5): a white bar on a dark disc, a ring and a bar
+// in --c-closed. White is the plan a dispatcher decides on; never red, never amber (amber is
+// TEPHRA's flag on the planes beside it).
+function closedAirport(fill, ink, size = 44) {
+  const ctx = canvas(size, size);
+  const s = size / 22;
+  const c = size / 2;
+  ctx.beginPath();
+  ctx.arc(c, c, 9 * s, 0, 2 * Math.PI);
+  ctx.fillStyle = ink;
+  ctx.fill();
+  ctx.strokeStyle = fill;
+  ctx.lineWidth = 2.2 * s;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.arc(c, c, 6.5 * s, 0, 2 * Math.PI);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(c - 4.6 * s, c + 4.6 * s);
+  ctx.lineTo(c + 4.6 * s, c - 4.6 * s);
+  ctx.stroke();
+  return ctx.getImageData(0, 0, size, size);
+}
+
 // ICAO/WMO eruption symbol: trapezoid, three rays, the colour-code letter (section 5.3).
-export function eruptionIcon(fill, letter, active, size = 64) {
+export function eruptionIcon(fill, letter, active, ink, size = 64) {
   const ctx = canvas(size, size);
   const s = size / 64;
   ctx.lineJoin = "round";
@@ -88,7 +130,7 @@ export function eruptionIcon(fill, letter, active, size = 64) {
   ctx.lineTo(55 * s, 57 * s);
   ctx.lineTo(9 * s, 57 * s);
   ctx.closePath();
-  ctx.strokeStyle = "#05070a";
+  ctx.strokeStyle = ink;
   ctx.lineWidth = 5 * s;
   ctx.stroke();
   if (active) {
@@ -100,12 +142,12 @@ export function eruptionIcon(fill, letter, active, size = 64) {
       ctx.lineTo(x2 * s, y2 * s);
     }
     ctx.lineWidth = 6 * s;
-    ctx.strokeStyle = "#05070a";
+    ctx.strokeStyle = ink;
     ctx.stroke();
     ctx.strokeStyle = fill;
     ctx.lineWidth = 3 * s;
     ctx.stroke();
-    ctx.fillStyle = "#05070a";
+    ctx.fillStyle = ink;
     ctx.font = `700 ${19 * s}px "IBM Plex Sans", system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "alphabetic";
@@ -118,26 +160,50 @@ export function eruptionIcon(fill, letter, active, size = 64) {
   return ctx.getImageData(0, 0, size, size);
 }
 
-// Stretchable VAG-style label box for icon-text-fit (section 5.1).
-function labelBox(border, size = 36, r = 6, bw = 3) {
+// a token's hex at an alpha, for the canvases
+function rgba(hex, alpha) {
+  const n = parseInt(String(hex).trim().replace("#", ""), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
+// Stretchable VAG-style label box for icon-text-fit (section 5.1): the halo at 92 % behind the text.
+// `open`: an estimate's box (TEPHRA's area) has a broken edge, its corners only, so it reads as
+// dashed like its area; the open middle is what stretches, so the gaps grow with the text.
+function labelBox(border, ink, size = 36, r = 6, bw = 3, { open = false } = {}) {
   const ctx = canvas(size, size);
   ctx.beginPath();
   ctx.roundRect(bw / 2, bw / 2, size - bw, size - bw, r);
-  ctx.fillStyle = "rgba(8,12,18,0.92)";
+  ctx.fillStyle = rgba(ink, 0.92);
   ctx.fill();
+  const a = r + bw;
+  const b = size - r - bw;
+  // open: each corner keeps a short leg (to c), the stroke between is clipped away and only that
+  // middle stretches
+  const c = open ? a + 5 : a;
+  const d = size - c;
+  if (open) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, size, size);
+    ctx.rect(c, 0, d - c, a);
+    ctx.rect(c, b, d - c, size - b);
+    ctx.rect(0, c, a, d - c);
+    ctx.rect(b, c, size - b, d - c);
+    ctx.clip("evenodd");
+  }
+  ctx.beginPath();
+  ctx.roundRect(bw / 2, bw / 2, size - bw, size - bw, r);
   ctx.strokeStyle = border;
   ctx.lineWidth = bw;
   ctx.stroke();
-  const a = r + bw;
-  const b = size - r - bw;
-  return [ctx.getImageData(0, 0, size, size), { pixelRatio: 2, stretchX: [[a, b]], stretchY: [[a, b]], content: [a, a, b, b] }];
+  if (open) ctx.restore();
+  return [ctx.getImageData(0, 0, size, size), { pixelRatio: 2, stretchX: [[c, d]], stretchY: [[c, d]], content: [a, a, b, b] }];
 }
 
 // An airport code's tag on a route's end: a thin border in the route colour, so the code reads
 // as an airport and not as a basemap town name.
-function routeBox(hex, alpha) {
-  const n = parseInt(hex.replace("#", ""), 16);
-  return labelBox(`rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`, 24, 5, 2);
+function routeBox(hex, alpha, ink) {
+  return labelBox(rgba(hex, alpha), ink, 24, 5, 2);
 }
 
 function hatch(color, size = 24) {
@@ -157,7 +223,7 @@ function hatch(color, size = 24) {
 
 // The crew report pin (UI-DESIGN 5.7): a map pin in the crew colour with a dark outline and a
 // dark centre, drawn on top of its dashed caution area so the report position is never lost.
-function crewPin(fill, size = 48) {
+function crewPin(fill, ink, size = 48) {
   const ctx = canvas(size, size);
   const s = size / 48;
   const pin = new Path2D();
@@ -167,14 +233,14 @@ function crewPin(fill, size = 48) {
   pin.bezierCurveTo(39 * s, 29 * s, 24 * s, 44 * s, 24 * s, 44 * s);
   pin.closePath();
   ctx.lineJoin = "round";
-  ctx.strokeStyle = "#05070a";
+  ctx.strokeStyle = ink;
   ctx.lineWidth = 5 * s;
   ctx.stroke(pin);
   ctx.fillStyle = fill;
   ctx.fill(pin);
   ctx.beginPath();
   ctx.arc(24 * s, 19 * s, 5.5 * s, 0, 2 * Math.PI);
-  ctx.fillStyle = "#05070a";
+  ctx.fillStyle = ink;
   ctx.fill();
   return ctx.getImageData(0, 0, size, size);
 }
@@ -182,7 +248,7 @@ function crewPin(fill, size = 48) {
 // A group of RFA flights close together on the map (the exposed-cluster layer): an upright plane
 // in the TEPHRA colour, a darker one behind it, and the count in a badge at the top right. One
 // image per count, drawn when the map first asks for it (styleimagemissing in map.js).
-export function flightGroupImage(n, fill, back) {
+export function flightGroupImage(n, fill, back, ink) {
   const r = 2, P = 30, gap = 8, pad = 3, bh = 18, behind = [-7, 6];
   const text = String(n);
   const font = `700 ${12 * r}px "IBM Plex Sans", system-ui, sans-serif`;
@@ -201,7 +267,7 @@ export function flightGroupImage(n, fill, back) {
     ctx.translate(-480, 480);
     ctx.lineJoin = "round";
     ctx.lineWidth = (3 * r) / s;
-    ctx.strokeStyle = "#05070a";
+    ctx.strokeStyle = ink;
     ctx.stroke(path);
     ctx.fillStyle = color;
     ctx.fill(path);
@@ -215,9 +281,9 @@ export function flightGroupImage(n, fill, back) {
   ctx.fillStyle = fill;
   ctx.fill();
   ctx.lineWidth = 2 * r;
-  ctx.strokeStyle = "#05070a";
+  ctx.strokeStyle = ink;
   ctx.stroke();
-  ctx.fillStyle = "#05070a";
+  ctx.fillStyle = ink;
   ctx.font = font;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -233,22 +299,26 @@ export function addImages(map, C) {
     cache = {
       plane: aircraftSdf(),
       arrow: arrowheadSdf(),
-      codes: Object.fromEntries(Object.entries(C.codes).map(([code, hex]) => [code, eruptionIcon(hex, CODE_LETTER[code], true)])),
-      inactive: eruptionIcon("#6d7b8a", "", false),
-      boxOfficial: labelBox(C.official),
-      boxTephra: labelBox(C.tephra),
-      boxClosed: labelBox(C.serious || C.official),
-      boxAngle: labelBox(C.text1),
-      boxObserver: labelBox(C.observer),
-      boxRoute: routeBox(C.route, 0.5),
-      boxRouteSel: routeBox(C.route, 1),
+      chevron: chevronSdf(),
+      codes: Object.fromEntries(Object.entries(C.codes).map(([code, hex]) => [code, eruptionIcon(hex, CODE_LETTER[code], true, C.halo)])),
+      inactive: eruptionIcon(C.muted, "", false, C.halo),
+      closed: closedAirport(C.closed, C.halo),
+      boxOfficial: labelBox(C.official, C.halo),
+      boxTephra: labelBox(C.tephra, C.halo, 36, 6, 3, { open: true }),
+      boxClosed: labelBox(C.closed, C.halo),
+      boxAngle: labelBox(C.text1, C.halo),
+      boxObserver: labelBox(C.observer, C.halo),
+      boxRoute: routeBox(C.route, 0.5, C.halo),
+      boxRouteSel: routeBox(C.route, 1, C.halo),
       hatch: hatch(C.tephra),
-      pin: crewPin(C.crew),
+      pin: crewPin(C.crew, C.halo),
     };
   }
   const add = (id, img, opts) => { if (!map.hasImage(id)) map.addImage(id, img, opts); };
   add("ac-sdf", cache.plane, { sdf: true, pixelRatio: 2 });
   add("arrowhead", cache.arrow, { sdf: true, pixelRatio: 2 });
+  add("chevron", cache.chevron, { sdf: true, pixelRatio: 2 });
+  add("closed-airport", cache.closed, { pixelRatio: 2 });
   for (const [code, img] of Object.entries(cache.codes)) add(`volcano-${code}`, img, { pixelRatio: 2 });
   add("volcano-inactive", cache.inactive, { pixelRatio: 2 });
   add("box-official", ...cache.boxOfficial);

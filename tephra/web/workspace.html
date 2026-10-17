@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="/static/topnav.css">
   <link rel="stylesheet" href="/static/product.css">
   <link rel="stylesheet" href="/static/tenant.css">
+  <link rel="stylesheet" href="/static/info.css">
   <script type="module" src="/static/workspace.js"></script>
   <!-- every module workspace.js imports, fetched at once (tests/test_modulepreload.py) -->
   <link rel="modulepreload" href="/static/account-nav.js">
@@ -32,6 +33,7 @@
   <link rel="modulepreload" href="/static/theme.js">
   <link rel="modulepreload" href="/static/wall/dk.js">
   <link rel="modulepreload" href="/static/wall/features.js">
+  <link rel="modulepreload" href="/static/wall/info.js">
   <link rel="modulepreload" href="/static/wall/policy.js">
   <link rel="modulepreload" href="/static/wall/util.js">
   <link rel="modulepreload" href="/static/wall/x-parts.js">
@@ -40,10 +42,8 @@
   <link rel="modulepreload" href="/static/workspace/feeds.js">
   <link rel="modulepreload" href="/static/workspace/golive.js">
   <link rel="modulepreload" href="/static/workspace/join.js">
-  <link rel="modulepreload" href="/static/workspace/kit.js">
   <link rel="modulepreload" href="/static/workspace/overview.js">
   <link rel="modulepreload" href="/static/workspace/signin.js">
-  <link rel="modulepreload" href="/static/workspace/zip.js">
 </head>
 <!-- Sign in and the airline workspace (SPEC-v2 7): /signin, /signin/recover, /workspace and its
      sections, and, with hosting on, the invite page /join (its token stays in the fragment).
@@ -60,7 +60,6 @@
     <noscript><p class="note note--caution">The workspace needs JavaScript.</p></noscript>
   </main>
   <footer class="pfoot">
-    <span class="pfoot__honest"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-hand"></use></svg><span>Decision support only. Not for operational use.</span></span>
     <nav aria-label="More pages"><a href="/guide">Guide</a><a href="/privacy">Privacy</a><a href="/demo">Demo</a></nav>
   </footer>
   <p id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></p>

@@ -453,6 +453,27 @@ a {
   color: var(--c-serious);
 }
 
+/* the server refused a form (422): fix the fields, caution (--c-invalid), the triangle and the words */
+.panel--invalid {
+  border-color: var(--c-invalid);
+  background: var(--c-invalid-bg);
+  color: var(--c-text-1);
+}
+
+.panel--invalid .panel__title .st {
+  color: var(--c-invalid);
+}
+
+/* switched off on this server (not connected): dashed and neutral, not an alarm */
+.panel--off {
+  border: 1px dashed var(--c-line-input);
+  color: var(--c-text-1);
+}
+
+.panel--off .panel__title .st {
+  color: var(--c-text-2);
+}
+
 .panel .btn {
   align-self: flex-start;
   margin-top: var(--sp-1);
@@ -533,8 +554,18 @@ a {
   color: var(--c-serious);
 }
 
+/* text that needs fixing before it can be saved: a form error, never red */
+.msg--invalid {
+  color: var(--c-invalid);
+}
+
 .msg--caution {
   color: var(--c-caution);
+}
+
+/* switched off (not connected): neutral, never an alarm */
+.msg--off {
+  color: var(--c-off);
 }
 
 .msg--info,
@@ -606,7 +637,7 @@ a {
 }
 
 .btn--neutral:hover:not(:disabled, [aria-disabled="true"]) {
-  background: #ffffff;
+  background: var(--c-cta-hover);
 }
 
 .btn--approve {
@@ -628,10 +659,6 @@ a {
   border-color: transparent;
   background: var(--c-reject);
   color: var(--c-reject-ink);
-}
-
-.btn--reject-solid:hover:not(:disabled, [aria-disabled="true"]) {
-  background: #d93a35;
 }
 
 .btn[aria-disabled="true"],
@@ -740,7 +767,7 @@ a {
 .chip--replay {
   border-color: transparent;
   background: var(--c-replay);
-  color: #120a24;
+  color: var(--c-text-ink);
   letter-spacing: 0.04em;
 }
 
@@ -845,8 +872,9 @@ a {
   border-color: var(--c-text-1);
 }
 
+/* a field that needs fixing: caution (--c-invalid), the triangle and the words; never red */
 .field[aria-invalid="true"] {
-  border-color: var(--c-serious);
+  border-color: var(--c-invalid);
   border-width: 2px;
 }
 
@@ -1012,7 +1040,7 @@ textarea.field {
 
 .card:hover {
   border-color: var(--c-line-input);
-  background: #121b25;
+  background: var(--c-surface-2);
 }
 
 .card:active {
@@ -1307,7 +1335,7 @@ textarea.field {
 }
 
 .adv-status--serious .st {
-  color: var(--c-serious);
+  color: var(--c-caution);
 }
 
 .adv-status--rejected .st {
@@ -1480,7 +1508,7 @@ textarea.field {
 }
 
 .disclose > summary:hover {
-  color: #ffffff;
+  color: var(--c-text-1);
 }
 
 .disclosure {
@@ -1698,8 +1726,9 @@ textarea.field {
   color: var(--c-caution);
 }
 
+/* the text is too long: a form error, so caution (--c-invalid), not red */
 .counter[data-level="serious"] {
-  color: var(--c-serious);
+  color: var(--c-invalid);
   font-weight: var(--fw-medium);
 }
 
@@ -1806,7 +1835,7 @@ textarea.field {
 
 .diff__cell.is-changed {
   box-shadow: inset 3px 0 0 var(--c-caution);
-  background: #15140c;
+  background: var(--c-caution-bg);
 }
 
 .diff__same {
@@ -1852,8 +1881,9 @@ textarea.field {
   border-left-color: var(--c-ok);
 }
 
+/* a decision is not an alarm: a rejected outcome is neutral */
 .outcome--serious {
-  border-left-color: var(--c-serious);
+  border-left-color: var(--c-line-input);
 }
 
 .outcome--rejected {
@@ -2834,12 +2864,6 @@ body[data-review="1"] .tabbar {
   color: var(--c-text-2);
 }
 
-.budget__w {
-  font-family: var(--font-sans);
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
 
 @media (max-width: 430px) {
   .conn[data-conn="live"] > span {
@@ -2934,13 +2958,13 @@ body[data-review="1"] .tabbar {
 }
 
 .shead--serious .shead__title {
-  color: var(--c-serious);
+  color: var(--c-caution);
 }
 
 .shead--serious .shead__count {
-  background: var(--c-serious-bg);
-  border: 1px solid var(--c-serious);
-  color: var(--c-serious);
+  background: var(--c-caution-bg);
+  border: 2px solid var(--c-caution);
+  color: var(--c-caution);
 }
 
 .qsec {
@@ -2952,8 +2976,10 @@ body[data-review="1"] .tabbar {
   font-weight: var(--fw-medium);
 }
 
+/* a fictional airline or a draft: an example, so dashed (the line grammar) */
 .chip--fict {
-  border-color: var(--c-line-2);
+  border-style: dashed;
+  border-color: var(--c-line-input);
   background: var(--c-surface-1);
   color: var(--c-text-2);
 }
@@ -3205,9 +3231,9 @@ body[data-review="1"] .tabbar {
 }
 
 .vbadge--bad {
-  border-color: var(--c-serious);
-  background: var(--c-serious-bg);
-  color: var(--c-serious);
+  border-color: var(--c-line-input);
+  background: var(--c-surface-3);
+  color: var(--c-text-1);
 }
 
 /* notice reading */
@@ -3346,7 +3372,7 @@ body[data-review="1"] .tabbar {
 }
 
 .rmap__hatch {
-  stroke: #ffffff;
+  stroke: var(--map-label);
   stroke-opacity: 0.16;
   stroke-width: 2;
 }
@@ -4027,12 +4053,13 @@ body[data-review="1"] .tabbar {
   animation: recpulse var(--dur-pulse) ease-out infinite;
 }
 
+/* recording: a neutral stone pulse, never red */
 @keyframes recpulse {
   0% {
-    box-shadow: 0 0 0 0 rgb(201 48 44 / 0.7);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--c-text-2) 70%, transparent);
   }
   100% {
-    box-shadow: 0 0 0 14px rgb(201 48 44 / 0);
+    box-shadow: 0 0 0 14px color-mix(in srgb, var(--c-text-2) 0%, transparent);
   }
 }
 
@@ -4092,15 +4119,16 @@ body[data-review="1"] .tabbar {
   gap: var(--sp-2);
 }
 
+/* a closed airport in TEPHRA's plan: white = the plan, never red or amber */
 .clo {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 4px var(--sp-3);
   padding: var(--sp-3);
-  border: 1px solid var(--c-serious);
-  border-left-width: 4px;
+  border: 1px solid var(--c-line-2);
+  border-left: 4px solid var(--c-closed);
   border-radius: var(--radius-md);
-  background: var(--c-serious-bg);
+  background: var(--c-surface-2);
 }
 
 .clo__icao {
@@ -4115,7 +4143,7 @@ body[data-review="1"] .tabbar {
 .clo__icao .st {
   width: 16px;
   height: 16px;
-  color: var(--c-serious);
+  color: var(--c-closed);
 }
 
 .clo__win {
@@ -4296,7 +4324,7 @@ body[data-review="1"] .tabbar {
   align-items: center;
   gap: 6px;
   font-size: var(--fs-2);
-  color: var(--c-serious);
+  color: var(--c-caution);
 }
 
 .sc__fine {
@@ -4387,7 +4415,7 @@ body[data-review="1"] .tabbar {
 }
 
 .akind--cancel {
-  color: var(--c-serious);
+  color: var(--c-text-1);
 }
 
 .akind--delay {
@@ -4431,11 +4459,11 @@ body[data-review="1"] .tabbar {
 }
 
 .ndec--no {
-  border-color: var(--c-serious);
+  border-color: var(--c-line-input);
 }
 
 .ndec--no .st {
-  color: var(--c-serious);
+  color: var(--c-text-2);
 }
 
 /* --- Docs and handover ---------------------------------------------------------------------- */
@@ -4780,24 +4808,26 @@ a.btn {
 
 /* ---- Duty Officer brief card (desk/duty.js) ---- */
 .qsec--duty { margin: var(--sp-3) 0 var(--sp-2); }
-.dcard { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border: 1px solid var(--c-line-2); border-left: 4px solid var(--c-tephra); border-radius: var(--radius-lg); background: var(--c-surface-2); cursor: pointer; min-width: 0; }
+.dcard { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border: 1px solid var(--c-line-2); border-left: 4px solid var(--c-ask); border-radius: var(--radius-lg); background: var(--c-surface-2); cursor: pointer; min-width: 0; }
 .dcard--serious { border-color: var(--c-caution); background: var(--c-caution-bg); }
 .dcard--off { border-left-color: var(--c-line-input); }
 .dcard__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); min-height: var(--tap-min); width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.dcard__icon { width: 22px; height: 22px; color: var(--c-tephra-text); flex: none; }
+/* the Coordinator brief is the assistant's: neutral (amber never marks the assistant) */
+.dcard__icon { width: 22px; height: 22px; color: var(--c-ask); flex: none; }
 .dcard__title { font-size: var(--fs-4); font-weight: var(--fw-semibold); line-height: var(--lh-tight); }
 .dcard__count { font-size: var(--fs-1); font-family: var(--font-mono); color: var(--c-text-2); }
 .dcard__chev { margin-left: auto; width: 18px; height: 18px; color: var(--c-text-2); transition: transform var(--dur-3) var(--ease-standard); }
 .dcard.is-open .dcard__chev { transform: rotate(180deg); }
 .chip--d-ok { border-color: var(--c-ok); background: var(--c-ok-bg); color: var(--c-ok); }
 .chip--d-caution { border-color: var(--c-caution); background: var(--c-caution-bg); color: var(--c-caution); }
-.chip--d-serious { border-color: var(--c-serious); background: var(--c-serious-bg); color: var(--c-serious); }
+/* an airline declined: a decision, so neutral (its shape and word say it) */
+.chip--d-serious { border-color: var(--c-line-input); background: var(--c-surface-3); color: var(--c-text-1); }
 .chip--d-off { border: 1px dashed var(--c-line-input); font-family: var(--font-mono); color: var(--c-text-1); }
-.dcard__ai { border-left: 2px dashed var(--c-tephra); padding-left: var(--sp-2); }
+.dcard__ai { border-left: 2px dashed var(--c-line-input); padding-left: var(--sp-2); }
 div.dcard__ai { border-left: 0; padding-left: 0; }
 .dcard__summary { font-size: var(--fs-3); line-height: var(--lh-body); overflow-wrap: anywhere; }
 .dcard__plist { display: flex; flex-direction: column; gap: var(--sp-2); padding-left: 1.5em; list-style: decimal; }
-.dcard__plist li::marker { font-family: var(--font-mono); font-weight: var(--fw-semibold); color: var(--c-tephra-text); }
+.dcard__plist li::marker { font-family: var(--font-mono); font-weight: var(--fw-semibold); color: var(--c-text-2); }
 .dcard__plabel { display: block; font-size: var(--fs-2); font-weight: var(--fw-semibold); line-height: var(--lh-snug); overflow-wrap: anywhere; }
 .dcard__must { display: inline-block; margin-right: var(--sp-2); padding: 0 5px; border: 1px solid var(--c-caution); border-radius: var(--radius-xs); font-size: var(--fs-1); letter-spacing: 0.02em; color: var(--c-caution); vertical-align: 1px; }
 .dcard__why { display: block; margin-top: 2px; font-size: var(--fs-2); line-height: var(--lh-body); color: var(--c-text-2); overflow-wrap: anywhere; }
@@ -4816,9 +4846,10 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
 .dcard__h { font-size: var(--fs-1); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-text-3); }
 .dcard__dlist { display: flex; flex-direction: column; gap: var(--sp-2); list-style: none; }
 .dcard__d { display: flex; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-line-2); border-radius: var(--radius-md); background: var(--c-surface-1); }
-.dcard__d--bad { border-color: var(--c-serious); background: var(--c-serious-bg); }
-.dcard__arrow { width: 16px; height: 16px; margin-top: 2px; color: var(--c-tephra-text); flex: none; }
-.dcard__d--bad .dcard__arrow { color: var(--c-serious); }
+/* a failed specialist call is an assistant step (caution), not a feeds or connection alarm */
+.dcard__d--bad { border-color: var(--c-caution); background: var(--c-caution-bg); }
+.dcard__arrow { width: 16px; height: 16px; margin-top: 2px; color: var(--c-text-2); flex: none; }
+.dcard__d--bad .dcard__arrow { color: var(--c-caution); }
 .dcard__dmain { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .dcard__dtop { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; font-size: var(--fs-2); }
 .dcard__dstat { font-size: var(--fs-1); font-weight: var(--fw-semibold); color: var(--c-ok); }
@@ -4828,7 +4859,7 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
 .dcard__meta { font-family: var(--font-mono); font-size: var(--fs-1); color: var(--c-text-3); overflow-wrap: anywhere; }
 .dcard__head:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); border-radius: var(--radius-sm); }
 .dcard__resmore { display: flex; flex-direction: column; gap: 2px; }
-.dcard__resmore > summary { min-height: var(--tap-min); display: flex; align-items: center; cursor: pointer; font-size: var(--fs-1); color: var(--c-tephra-text); }
+.dcard__resmore > summary { min-height: var(--tap-min); display: flex; align-items: center; cursor: pointer; font-size: var(--fs-1); color: var(--c-text-2); }
 .dcard__resmore .dcard__dres { display: block; }
 
 /* =====================================================================================
@@ -5336,8 +5367,9 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   box-shadow: var(--shadow-1);
 }
 
+/* no plan found is not an alarm: caution with a heavier edge */
 .plan--serious {
-  border-color: var(--c-serious);
+  border: 2px solid var(--c-caution);
 }
 
 .plan__eyebrow {
@@ -5367,7 +5399,7 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
 }
 
 .plan__status--serious .st {
-  color: var(--c-serious);
+  color: var(--c-caution);
 }
 
 .plan__lead {
@@ -5407,7 +5439,7 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
 
 .plan__problem .st {
   margin-top: 4px;
-  color: var(--c-serious);
+  color: var(--c-caution);
 }
 
 .plan__tags {
@@ -5524,7 +5556,7 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   flex-direction: column;
   gap: 2px;
   border-color: var(--c-line-2);
-  border-left-color: var(--c-serious);
+  border-left-color: var(--c-closed);
   background: var(--c-surface-1);
 }
 
@@ -5625,11 +5657,6 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   border-radius: var(--radius-pill);
 }
 
-.asugg__lang {
-  margin-top: var(--sp-2);
-  font-size: var(--fs-2);
-  color: var(--c-text-3);
-}
 
 #panel-ask .alog {
   min-height: 0;
@@ -6023,8 +6050,9 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   color: var(--c-crew);
 }
 
+/* a contradiction in the crew report form: a form error, caution (--c-invalid) */
 .crewkind[data-tone="serious"] {
-  color: var(--c-serious);
+  color: var(--c-invalid);
 }
 
 .crewlevel {
@@ -6169,6 +6197,7 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   border-color: var(--c-caution);
 }
 
+
 .budget .model-chip {
   min-height: 0;
   max-width: none;
@@ -6178,17 +6207,7 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   font-weight: var(--fw-semibold);
 }
 
-.budget.is-tight .model-chip,
-.budget.is-tight .budget__sep {
-  display: none;
-}
 
-.budget .budget__w {
-  font-weight: var(--fw-medium);
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--c-text-2);
-}
 
 .ai-mark {
   display: inline-flex;
@@ -6499,9 +6518,10 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   color: var(--c-text-2);
 }
 
+/* inside the ash: TEPHRA's flag, not an alarm */
 .frow__entry.is-inside,
 .frow__entry.is-inside .st {
-  color: var(--c-serious);
+  color: var(--c-tephra-text);
 }
 
 .frow__meta {
@@ -6538,7 +6558,7 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
 
 .ffacts dd.is-inside {
   font-weight: var(--fw-semibold);
-  color: var(--c-serious);
+  color: var(--c-tephra-text);
 }
 
 /* several flights: a ticked list, each saved on its own */
@@ -6595,7 +6615,7 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
 
 .bulk__entry.is-inside {
   font-weight: var(--fw-semibold);
-  color: var(--c-serious);
+  color: var(--c-tephra-text);
 }
 
 .bulk__meta {
@@ -6834,32 +6854,6 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
     font-size: var(--fs-3);
     line-height: var(--lh-body);
     color: var(--c-text-1);
-  }
-
-  .idle__ai {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--sp-2);
-    font-size: var(--fs-2);
-    line-height: var(--lh-body);
-    color: var(--c-text-2);
-  }
-
-  .idle__ai .st {
-    width: 16px;
-    height: 16px;
-    flex: none;
-    margin-top: 2px;
-    color: var(--c-ok);
-  }
-
-  .idle__ai--paused .st,
-  .idle__ai--trouble .st {
-    color: var(--c-caution);
-  }
-
-  .idle__ai--off .st {
-    color: var(--c-text-2);
   }
 
   .idle__h {
@@ -7430,20 +7424,22 @@ div.dcard__ai { border-left: 0; padding-left: 0; }
   gap: 6px;
 }
 
+/* the map key's area swatches, small: official solid (binding), TEPHRA's estimate dashed */
 .swatch {
   display: inline-block;
   flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+  width: 12px;
+  height: 9px;
+  border-radius: 2px;
 }
 
 .swatch--official {
-  background: var(--c-official);
+  background: color-mix(in srgb, var(--c-official) 25%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--c-official);
 }
 
 .swatch--tephra {
-  background: var(--c-tephra);
+  border: 1.5px dashed var(--c-tephra);
 }
 
 .rfig--small svg {
@@ -7920,10 +7916,19 @@ body {
   border: 1.5px dashed var(--c-tephra);
 }
 
+/* one key entry that comes and goes with what the map draws; its parts sit in the key's own row */
+.dmap__ki {
+  display: contents;
+}
+
+.dmap__ki[hidden] {
+  display: none;
+}
+
 .dmap__sw--sel {
   width: 10px;
   border-radius: 50%;
-  box-shadow: inset 0 0 0 2px var(--c-tephra);
+  box-shadow: inset 0 0 0 2px var(--c-reroute);
 }
 
 .dmap__sw--route {
@@ -7947,10 +7952,15 @@ body {
   color: var(--c-text-2);
 }
 
+/* a closed airport: a white bar on a dark disc (the map's symbol) */
 .dmap__sw--closed {
-  width: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  box-shadow: inset 0 0 0 2px var(--c-serious);
+  background:
+    linear-gradient(135deg, transparent calc(50% - 1px), var(--c-closed) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)),
+    var(--map-halo);
+  box-shadow: inset 0 0 0 2px var(--c-closed), 0 0 0 1px var(--map-halo);
 }
 
 .dmap__off {
@@ -8554,14 +8564,10 @@ body {
 
 .login__lede em {
   font-style: normal;
-  background: linear-gradient(100deg, var(--c-tephra-text), var(--c-official-text));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--c-text-1);
 }
 
-.login__art,
-.login__steps {
+.login__art {
   display: none;
 }
 
@@ -8679,7 +8685,7 @@ body {
 }
 
 .ways__tab[aria-selected="true"] .icon {
-  color: var(--c-tephra);
+  color: var(--c-text-1);
 }
 
 .ways__sub {
@@ -8745,6 +8751,7 @@ body {
 }
 
 .lfacts li,
+.lfacts--one,
 .login__hint {
   display: flex;
   align-items: flex-start;
@@ -8798,9 +8805,6 @@ body {
     gap: var(--sp-5);
     padding: var(--sp-8) clamp(var(--sp-8), 6vw, 96px);
     border-right: 1px solid color-mix(in srgb, var(--c-text-1) 7%, transparent);
-    background:
-      radial-gradient(60% 50% at 20% 85%, color-mix(in srgb, var(--c-official) 12%, transparent), transparent 70%),
-      radial-gradient(55% 45% at 75% 20%, color-mix(in srgb, var(--c-tephra) 10%, transparent), transparent 70%);
   }
 
   .login__lede {
@@ -8850,56 +8854,6 @@ body {
 
   .login__art-volcano {
     fill: var(--c-text-3);
-  }
-
-  .login__steps {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-4);
-    max-width: 440px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    counter-reset: none;
-  }
-
-  /* the thread through the three steps */
-  .login__steps::before {
-    content: "";
-    position: absolute;
-    top: 18px;
-    bottom: 18px;
-    left: 17px;
-    width: 1px;
-    background: linear-gradient(var(--c-line-2), color-mix(in srgb, var(--c-line-2) 20%, transparent));
-  }
-
-  .login__steps li {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: var(--sp-3);
-    font-size: var(--fs-3);
-    line-height: 1.4;
-    color: var(--c-text-2);
-  }
-
-  .login__steps b {
-    font-weight: var(--fw-semibold);
-    color: var(--c-text-1);
-  }
-
-  .login__steps .icon {
-    flex: none;
-    box-sizing: content-box;
-    width: 18px;
-    height: 18px;
-    padding: 8px;
-    border: 1px solid var(--c-line-2);
-    border-radius: 10px;
-    background: var(--c-surface-2);
-    color: var(--c-tephra);
   }
 
   .login__what {
@@ -9292,8 +9246,9 @@ body {
   font-size: var(--fs-2);
 }
 
+/* rows the upload refused: the file needs fixing (--c-invalid), not an alarm */
 .dc-reasons {
-  color: var(--c-serious);
+  color: var(--c-invalid);
 }
 
 @media (max-width: 600px) {
@@ -9316,4 +9271,263 @@ body {
   .dc-switch i {
     transition: none;
   }
+}
+
+/* =====================================================================================
+   Said once (owner, 17 Oct: "don't say no model everywhere"). The header carries the AI state
+   only when it is not on (a dot and two words, an (i) for why) and REPLAY with its clock; text no
+   model wrote carries only the small code mark "{ }". wall/info.js is the (i) and its popover.
+   ===================================================================================== */
+
+.aistat {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.budget[data-kind] {
+  font-family: var(--font-sans);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semibold);
+}
+
+/* off: no model is connected, so the status is dashed (the line grammar: dashed = not connected) */
+.budget[data-tone="off"] {
+  border-style: dashed;
+}
+
+.budget[data-kind="on"] {
+  min-width: 28px;
+  justify-content: center;
+  padding: 0 var(--sp-1);
+  border-color: transparent;
+}
+
+.budget[data-kind="on"] .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.budget[data-kind="off"] {
+  border-color: var(--c-line-2);
+  color: var(--c-text-2);
+}
+
+.budget[data-kind="paused"],
+.budget[data-kind="trouble"] {
+  border-color: var(--c-caution);
+}
+
+.aistat__dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--c-caution);
+}
+
+/* off: a hollow dot, the state is calm (code still checks everything) */
+.budget[data-kind="off"] .aistat__dot {
+  background: none;
+  border: 1.5px solid var(--c-off);
+}
+
+.budget.is-tight .model-chip {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.budget .model-chip:empty {
+  display: none;
+}
+
+/* REPLAY and its clock (desk/modechip.js) */
+.dmode {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.dmode[hidden] {
+  display: none;
+}
+
+.info__btn.info__btn--chip {
+  min-height: 26px;
+  padding: 0 4px 0 var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: var(--c-replay-bg);
+  color: var(--c-replay-ink);
+  font-family: var(--font-sans);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.info__btn.info__btn--chip::after {
+  inset: -9px -3px;
+}
+
+.info__btn.info__btn--chip:hover,
+.info__btn.info__btn--chip[aria-expanded="true"] {
+  color: var(--c-replay-ink);
+  background: color-mix(in srgb, var(--c-replay) 24%, var(--c-replay-bg));
+}
+
+.info__btn.info__btn--chip .info__glyph {
+  width: 14px;
+  height: 14px;
+  color: var(--c-replay-text);
+}
+
+.dmode__clock {
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  color: var(--c-replay-text);
+}
+
+/* the (i)'s placements on the Desk (wall/info.js; its look: info.css) */
+.info__acts .linkbtn {
+  min-height: 32px;
+  margin: 0;
+  font-size: var(--fs-2);
+}
+
+/* the code mark: "{ }" only; its words are the tooltip and screen-reader text */
+.ai-mark--none {
+  min-height: 20px;
+  padding: 0 3px;
+  border: 0;
+  background: none;
+  color: var(--c-text-3);
+}
+
+.ai-mark--none .st,
+.ai-mark--none .icon {
+  width: 14px;
+  height: 14px;
+}
+
+@media (forced-colors: active) {
+  .aistat__dot,
+  .budget[data-kind="off"] .aistat__dot {
+    border: 1px solid CanvasText;
+  }
+
+}
+
+.phead__line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.astub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--c-text-2);
+}
+
+.astub[hidden] {
+  display: none;
+}
+
+.astub .st {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--c-text-3);
+}
+
+.lead__top .ai-mark--none {
+  margin-right: auto;
+  margin-left: calc(-1 * var(--sp-2));
+  align-self: center;
+}
+
+.dhead__row.is-tightest #ai-status .info {
+  display: none;
+}
+
+.dhead__row.is-tightest {
+  column-gap: 6px;
+}
+
+/* the words say the state, so the dot goes before the words ever do */
+.dhead__row.is-tightest .budget:not(.is-tight) .aistat__dot,
+.dhead__row.is-tightest .info__btn--chip .info__glyph {
+  display: none;
+}
+
+.dhead__row.is-tiniest .dmode__clock {
+  display: none;
+}
+
+.dhead__row.is-tight {
+  column-gap: 8px;
+}
+
+.dhead__row.is-tight .conn[data-conn="live"] > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.dhead__row.is-tighter > .tn-home {
+  font-size: 16px;
+  letter-spacing: 0.12em;
+}
+
+.dhead__row.is-tighter .info__btn--chip {
+  gap: 4px;
+  padding-left: 6px;
+  letter-spacing: 0.02em;
+}
+
+.ghead-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin: var(--sp-6) 0 var(--sp-2);
+}
+
+.ghead-row > .ghead {
+  margin: 0;
+}
+
+/* the visitor card's one line and the PIN label, each with its (i) */
+.lfacts.lfacts--one {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-2);
+}
+
+.lfacts--one .info {
+  margin: -4px 0;
+}
+
+.flabel-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.flabel-row {
+  margin-bottom: 2px;
+}
+
+.flabel-row .flabel {
+  margin-bottom: 0;
 }

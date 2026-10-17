@@ -111,14 +111,17 @@ def test_readme_mermaid_labels_are_quoted() -> None:
     assert not problems, problems
 
 
-def test_the_own_tephra_limits_are_said_where_onboarding_is() -> None:
-    """The account comes first, an airline's own TEPHRA names its flights by its own callsign,
-    flight number or registration (geo/fleet.py flight_name), and the shared site does not run a
-    verified airline's operation: the README says so beside the offer, and no longer says the
-    own TEPHRA drafts under Ring of Fire Air numbers (batch 2 honesty finding 3)."""
-    section = _readme().split("### Run it for your airline", 1)[1].split("**How to onboard", 1)[0]
+def test_the_onboarding_limits_are_said_where_onboarding_is() -> None:
+    """The account comes first, a dispatcher verifies each airline, and running a verified airline
+    on this site is not switched on: the README says so beside the offer. The setup kit and the
+    self-hosting offer went (owner, 17 Oct 2026: "drop it"); the README no longer says the airline's
+    TEPHRA drafts under Ring of Fire Air numbers (batch 2 honesty finding 3)."""
+    section = _readme().split("### Onboard your airline", 1)[1].split("**How to onboard", 1)[0]
     flat = " ".join(section.split())
     assert "an account first, then nine short pages" in flat
-    assert "own callsign, flight number or registration" in flat
-    assert "live operation on the shared site is not built" in flat
+    assert "A TEPHRA dispatcher verifies each airline." in flat
+    assert "Running a verified airline on this site is not switched on yet." in flat
     assert "Ring of Fire Air number" not in flat
+    readme = _readme()
+    for gone in ("setup kit", "run its own TEPHRA", "Run your own TEPHRA", "file by file"):
+        assert gone not in readme, gone

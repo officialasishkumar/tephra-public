@@ -1,7 +1,8 @@
 """Home at ``/`` (SPEC-v2 5.1): one line on what TEPHRA is and two choices, Watch the demo first,
-the onboarding parts only while the server shows them, the decision-support line in the footer,
-the old ``/#...`` links sent on to the demo before anything draws, and a sky and a picture of the
-five steps that carry no data (owner, 17 Oct 2026: the replay map "looks repetitve to the map").
+the onboarding parts only while the server shows them, Sign in in the top bar, a footer of links
+with no decision-support sentence (owner, 17 Oct 2026: "don't put this everywhere"), the old
+``/#...`` links sent on to the demo before anything draws, and a sky and a picture of the five
+steps that carry no data (owner, 17 Oct 2026: the replay map "looks repetitve to the map").
 Source checks; the browser draws the page."""
 
 import re
@@ -44,22 +45,44 @@ def test_the_onboarding_parts_wait_for_the_server_s_features() -> None:
     onboard = re.search(r"<a id=\"go-onboard\"[^>]*>", HTML)
     assert onboard
     assert 'data-feature="onboard" hidden' in onboard.group(0)
-    assert '<p class="home__signin" data-feature="onboard" hidden>' in HTML
-    assert 'Already onboarded? <a href="/signin">Sign in to your workspace</a>' in HTML
     assert '<a href="/onboard" data-feature="onboard" hidden>Onboard</a>' in HTML
     assert 'document.querySelectorAll("main [data-feature]")' in JS
-    # Sign in is said once: the body line carries it, the header shows nothing while signed out
-    assert 'initAccountNav({ right: $("tn-right"), signin: false })' in JS
+    # Sign in is said once, in the top bar (TEXT-SPEC H5): no body line, and only while the server
+    # shows onboarding (account-nav.js adds it only when accounts are on)
+    for gone in ("home__signin", "Already onboarded?", "Sign in to your workspace"):
+        assert gone not in HTML, gone
+        assert gone not in JS, gone
+        assert gone not in CSS, gone
+    assert 'initAccountNav({ right: $("tn-right"), signin: has("onboard") })' in JS
+    assert '<div id="tn-right" class="tn-right"></div>' in HTML
     assert '"Your airline workspace"' in JS
 
 
-def test_the_footer_says_decision_support_only() -> None:
-    assert (
-        "Decision support only: a person approves every advisory, and nothing is sent to an "
-        "aircraft." in HTML
-    )
+def test_the_footer_is_links_only_and_the_line_says_a_dispatcher_approves() -> None:
+    """Owner, 17 Oct 2026, on the footer sentence: "don't put this everywhere". The headline
+    says "a dispatcher approves"; the demo's welcome dialog and About say the rest."""
+    foot = HTML.split("<footer")[1]
+    for gone in (
+        "Decision support",
+        "decision support",
+        "nothing is sent",
+        "home__honest",
+        "i-hand",
+    ):
+        assert gone not in foot, gone
+        assert gone not in CSS, gone
     for link in ('href="/guide"', 'href="/guide#about-credits"', 'href="/privacy"'):
-        assert link in HTML.split("<footer")[1], link
+        assert link in foot, link
+    assert "<em>a dispatcher approves</em>" in HTML
+    # the eyebrow went (TEXT-SPEC H1); the brand tick stands over the line instead
+    assert "home__eyebrow" not in HTML
+    assert "home__eyebrow" not in CSS
+    assert ".home__copy::before" in CSS
+    # the footer's Guide link shows only below 1100 px, where the top bar hides the nav
+    assert '<a class="home__guide" href="/guide">Guide</a>' in HTML
+    assert (
+        "@media (min-width: 1100px) { .home .home__links .home__guide { display: none; } }" in CSS
+    )
 
 
 def test_the_two_choices_are_titles_only() -> None:

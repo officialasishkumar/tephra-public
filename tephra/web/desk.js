@@ -23,6 +23,7 @@ import { initDeskMap, patchDeskSnapshot, setDeskSnapshot } from './desk/map.js';
 import { toast } from './desk/toast.js';
 import { initAsk, focusAsk, setFlightContext } from './desk/ask.js';
 import { drawAiChip, fitHead, loadBudget, openBudget, setBudget } from './desk/budget.js';
+import { drawModeChip } from './desk/modechip.js';
 import { clearHandover, loadDocs, loadHandover, onDocEvent, onDocsClick, renderDocs } from './desk/docs.js';
 import { loadDuty, onDutyEvent } from './desk/duty.js';
 import { loadFailures, onFailureEvent, openBulk, openFailures, openHandled, renderFailures } from './desk/failures.js';
@@ -75,8 +76,10 @@ function applyState(state) {
   // a sheet open across a mode switch gets the new REPLAY words in its sr-only description
   for (const dlg of document.querySelectorAll('dialog[open]')) describeReplayIn(dlg);
 
-  // R10.1, docs/UI-AI-QUIET.md K78: one AI chip with the AI's state; the model ids are in its sheet.
+  // R10.1, docs/UI-AI-QUIET.md K78: one AI status with the AI's state; the model ids are in its
+  // sheet. REPLAY and its clock: one header chip (owner's lead, 17 Oct).
   drawAiChip();
+  drawModeChip();
   applyActiveRegions(null);
   setTitle();
   measure();
@@ -1055,7 +1058,7 @@ function wire() {
     loadExtras();
   });
   byId('budget-chip').addEventListener('click', openBudget);
-  // the chip drops its time below 420 px (UI-AI-QUIET 5.2)
+  // the status drops its words when the header row is full (budget.js fitHead)
   window.addEventListener('resize', drawAiChip);
   byId('ask-btn').addEventListener('click', () => (byId('ask-drawer').hidden ? openAsk() : closeAsk()));
   byId('ask-close').addEventListener('click', closeAsk);

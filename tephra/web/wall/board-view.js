@@ -16,6 +16,11 @@ import { $, el, icon, fl, airline } from "./util.js";
 import { flowAt, foldRows, readEvent, stepEvents, hmsOf as hms, STAGGER_MS, TOOL_SKILLS, HELPERS, FEED_KIND, FEED_NAMES, RESULT, resultKind } from "./board.js";
 import { STYLE_URL, nightBasemap, nightColours, symbolColours } from "./basemap.js";
 import { addImages } from "./images.js";
+import { infoButton } from "./info.js";
+import { codeMark, templateText, stateLine } from "./x-parts.js";
+
+// You decide's rule, behind its (i) on the demo's tab, the /assistant board and the Details foot
+export const YOU_DECIDE = "Drafts wait at the Desk for a dispatcher. Nothing leaves TEPHRA until a dispatcher approves.";
 
 // ---------------------------------------------------------------- the Code checks sheet
 // What "N feed reads · M flight alerts" are: one card per source, one row per flagged flight.
@@ -40,7 +45,7 @@ function checksSheet(evs, colOf) {
   const nReads = [...reads.values()].reduce((n, r) => n + r.n, 0);
   const nAlerts = [...flights.values()].reduce((n, f) => n + f.n, 0);
   const kids = [
-    el("div", { class: "ss-head" }, el("span", { class: "ss-pill" }, el("i"), "Code only"), el("span", { class: "ss-does", text: "Reads every source and flags flights near the ash. No model." })),
+    el("div", { class: "ss-head" }, el("span", { class: "ss-pill" }, el("i"), "Code only"), el("span", { class: "ss-does", text: "Reads every source and flags flights near the ash." })),
     el("div", { class: "ss-stats ss-stats--2" },
       el("div", { class: "ss-stat" }, el("b", { text: String(nReads) }), el("span", { text: nReads === 1 ? "feed read" : "feed reads" })),
       el("div", { class: "ss-stat" }, el("b", { text: String(nAlerts) }), el("span", { text: `flight alerts · ${flights.size} ${flights.size === 1 ? "flight" : "flights"}` }))),
@@ -70,6 +75,14 @@ function checksSheet(evs, colOf) {
   if (!cards.length && !rows.length) kids.push(el("p", { text: "Nothing read yet in this window." }));
   return kids;
 }
+
+// A code template's line: the "{ }" mark and the line without its "(code only)" words (the AI
+// status says the state once; owner, 17 Oct: "don't say no model everywhere").
+function markedText(text) {
+  const t = templateText(text);
+  return t.code ? [codeMark(), " ", t.text] : [t.text];
+}
+const stepText = (cls, text) => el("span", { class: cls }, ...markedText(text));
 
 // ---------------------------------------------------------------- one skill's sheet
 // Glance first: its state, three counts, the job it is on, then the queue by urgency and the
@@ -125,16 +138,16 @@ function skillSheet(card, s, skillId, paused) {
       return el("li", { class: "ss-result", title: x.source },
         el("span", { class: "flow-sheet__tm", text: x.atText || (Number.isFinite(x.at) ? hms(x.at) : "") }),
         el("span", { class: `ss-badge ss-badge--${tone}` }, icon(ic), word),
-        el("span", { class: "ss-result__text", text: plainCase(x.text) }),
+        stepText("ss-result__text", plainCase(x.text)),
         x.count > 1 ? el("span", { class: "ss-count", text: `×${x.count}` }) : null);
     })));
-  } else if (s?.last) kids.push(el("p", { text: `${s.last.text} · ${hms(s.last.at)}` }));
+  } else if (s?.last) kids.push(el("p", {}, ...markedText(s.last.text), ` · ${hms(s.last.at)}`));
 
   const links = [];
   const stalled = card && (card.state === "notrun" || card.state === "failed" || card.state === "waiting");
   if (stalled || (paused && inLine)) links.push(el("button", { type: "button", class: "flow-link", dataset: { act: "board-details", sec: "ai", focus: `board-why-${skillId}` }, text: "Why ›" }));
   links.push(el("button", { type: "button", class: "flow-link", dataset: { act: "board-details", sec: "trace", focus: `board-trace-${skillId}` }, text: "Every step ›" }));
-  kids.push(el("div", { class: "ss-foot" }, el("span", { class: "ss-links" }, ...links), card?.model ? el("span", { class: "ss-model", text: card.model.text }) : null));
+  kids.push(el("div", { class: "ss-foot" }, el("span", { class: "ss-links" }, ...links), card?.model?.text ? el("span", { class: "ss-model", text: card.model.text }) : null));
   return kids;
 }
 
@@ -210,18 +223,22 @@ const MAP_LAYERS = [
 // sheets), the Desk's button is the panel's pinned foot (the demo's one filled button), and the
 // Desk's other counts stay on the Desk.
 
-// the colours the canvases draw with, read from the page's tokens (tokens.css)
-export function insideColours() {
-  const css = getComputedStyle(document.documentElement);
-  const tok = (name, fb) => (css.getPropertyValue(name) || "").trim() || fb;
+// the colours the canvases draw with, read from the page's tokens (tokens.css holds every value).
+// `scope`: the element whose tokens to read; mapColours() reads the night map's, for marks that
+// start on the map (it stays dark in both themes).
+export function insideColours(scope = document.documentElement) {
+  const css = getComputedStyle(scope);
+  const tok = (name) => (css.getPropertyValue(name) || "").trim();
   return {
-    official: tok("--c-official", "#ff3d8b"), officialText: tok("--c-official-text", "#ff9cc4"), observer: tok("--c-observer", "#38bdf8"),
-    weather: tok("--c-info", "#9db4cc"), aircraft: tok("--c-aircraft", "#aab4be"), satellite: tok("--c-info", "#9db4cc"),
-    job: tok("--c-text-1", "#eaf1f7"), must: tok("--c-caution", "#ffe566"), tephra: tok("--c-tephra", "#ffb000"), info: tok("--c-info", "#9db4cc"),
-    text2: tok("--c-text-2", "#b6c3d0"), text3: tok("--c-text-3", "#93a3b5"), line2: tok("--c-line-2", "#2b3a4a"), muted: tok("--c-text-3", "#93a3b5"),
-    bg: tok("--c-bg", "#05080c"), s1: tok("--c-surface-1", "#0a1017"), s2: tok("--c-surface-2", "#0f1720"),
+    official: tok("--c-official"), officialText: tok("--c-official-text"), observer: tok("--c-observer"),
+    weather: tok("--c-info"), aircraft: tok("--c-aircraft"), satellite: tok("--c-info"),
+    job: tok("--c-text-1"), must: tok("--c-caution"), tephra: tok("--c-tephra"), info: tok("--c-info"),
+    text2: tok("--c-text-2"), text3: tok("--c-text-3"), line2: tok("--c-line-2"), muted: tok("--c-text-3"),
+    bg: tok("--c-bg"), s1: tok("--c-surface-1"), s2: tok("--c-surface-2"),
   };
 }
+
+export const mapColours = () => insideColours(document.querySelector(".map-pane.night") || document.documentElement);
 
 function setMark(useHost, sym) {
   const u = useHost.querySelector("use");
@@ -275,11 +292,12 @@ export function mountInside({ has, side = false }) {
   const factsCap = el("p", { class: "flow-facts__cap", text: "At the Desk now" });
   const youId = side ? "assist-you" : "flow-you";
   const youHead = el("h3", { id: youId, class: "flow-you__eyebrow", text: "You decide" });
+  // the count and its words on one line; the rule (never removed) one tap away behind the (i)
+  // (owner, 17 Oct: "you can hide this in a info icon or something")
   const decide = el("section", { class: "flow-you", "aria-labelledby": youId },
-    el("div", { class: "flow-you__head" }, node("flow-node--you", "you"), youHead),
+    el("div", { class: "flow-you__head" }, node("flow-node--you", "you"), youHead,
+      infoButton({ topic: "you-decide", label: "About You decide", text: YOU_DECIDE, above: true })),
     el("p", { class: "flow-hero" }, heroN, heroW), who,
-    // the demo's tab hides the foot's line, so You decide keeps its rule (never removed)
-    side ? el("p", { class: "flow-who flow-who--rule", text: "Nothing leaves TEPHRA until a dispatcher approves." }) : null,
     runsBox,
     ...(side ? [] : [factsCap, facts,
       el("a", { class: "flow-cta", href: "/desk", dataset: { focus: "board-desk" } }, el("span", { text: "Open the Desk" }), el("span", { "aria-hidden": "true", text: "→" })),
@@ -302,14 +320,23 @@ export function mountInside({ has, side = false }) {
     for (const [id, r] of Object.entries(skillEls)) if (r.li.hidden === listed(id)) r.li.hidden = !listed(id);
     const onreq = HELPERS.filter((h) => h.role === "desk" && listed(h.id)).map((h) => h.name).join(" · ");
     setText(onreqName, `When you ask: ${onreq}`);
+    // the demo's tab leaves the on-request skills to Details › TEPHRA Assistant (one line less)
+    if (side && !onreqName.parentElement.hidden) onreqName.parentElement.hidden = true;
     setMark(coordMark, ex ? "ta-working" : M.ai.symbol);
     setText(gateName, ex ? "AI model · open" : M.gate.name);
     setText(gateMeta, ex ? "Example: open, jobs go straight through" : M.gate.meta);
+    // with no model the gate says nothing: the one AI status says it
+    const bare = !gateName.textContent && !gateMeta.textContent;
+    gateRow.classList.toggle("is-bare", bare);
+    // no words and no gate to show: the band between Coordinator and the skills closes up, so no
+    // lone dash is left there (UX verify, 17 Oct)
+    panel.classList.toggle("is-gate-bare", bare && M.gate.kind === "nomodel" && !ex);
     // what waits and where the cause is; why the assistant is paused is said at its home (8.6)
     setAttr(gateRow, "title", ex || (!M.queue.length && !M.gate.title) ? null : [M.queue.length ? `Waiting in line:\n${M.queue.map((w) => `• ${w.label}`).join("\n")}` : null, M.gate.title || null].filter(Boolean).join("\n"));
     setText(coordMeta, ex ? "Orders the jobs and hands them to skills" : M.coord.meta);
+    coordMeta.hidden = !coordMeta.textContent;
     const more = side ? "Details › TEPHRA Assistant" : "Details";
-    setAttr(coordBtn, "aria-label", `Coordinator: ${ex ? "orders the jobs and hands them to skills (example)" : M.coord.meta}. ${more}`);
+    setAttr(coordBtn, "aria-label", `Coordinator${ex ? ": orders the jobs and hands them to skills (example)" : M.coord.meta ? `: ${M.coord.meta}` : ""}. ${more}`);
     for (const s of M.skills) {
       const r = skillEls[s.id];
       if (!r) continue;
@@ -321,12 +348,12 @@ export function mountInside({ has, side = false }) {
       const stateKey = inLine ? `in:${s.inLine}` : failed ? "failed" : ex ? "ex" : s.last ? `last:${s.last.at}` : "idle";
       if (r.state.dataset.k !== stateKey) {
         r.state.dataset.k = stateKey;
-        r.state.replaceChildren(...(inLine ? [el("i", { class: "flow-ring" }), `${s.inLine} in line`] : failed ? ["no result"] : ex ? [] : [s.last ? `last ${hms(s.last.at)}` : "idle"]));
+        r.state.replaceChildren(...(inLine ? [el("i", { class: "flow-ring" }), `${s.inLine} in line`] : failed ? ["no result"] : ex ? [] : [s.last ? hms(s.last.at) : "idle"]));
       }
       r.li.classList.toggle("is-idle", !inLine && !failed && !ex && !s.last);
       r.dot.classList.toggle("is-wait", Boolean(inLine));
       setAttr(r.btn, "aria-label", `${s.name}: ${inLine ? `${s.inLine} ${s.inLine === 1 ? "job waits" : "jobs wait"} in line` : failed ? "its newest step gave no result" : s.last ? `newest step ${hms(s.last.at)}` : "nothing in the newest steps"}. ${more}`);
-      setAttr(r.btn, "title", [s.does, s.last ? `${s.last.text} · ${hms(s.last.at)}` : null, inLine ? `In line: ${s.jobs.join("; ")}` : null].filter(Boolean).join("\n"));
+      setAttr(r.btn, "title", [s.does, s.last ? `${templateText(s.last.text).text} · ${hms(s.last.at)}` : null, inLine ? `In line: ${s.jobs.join("; ")}` : null].filter(Boolean).join("\n"));
     }
   }
 
@@ -336,7 +363,8 @@ export function mountInside({ has, side = false }) {
     const stateKey = `cu:${st}:${c?.at ?? ""}:${c?.n ?? ""}`;
     if (r.state.dataset.k !== stateKey) {
       r.state.dataset.k = stateKey;
-      const words = { inline: `${c?.n} in line`, running: "running", done: `done ${hms(c?.at)}`, noresult: "no result", last: `last ${hms(c?.at)}`, idle: "idle" }[st];
+      // a time alone says when it last ran (the row's label says done or newest step)
+      const words = { inline: `${c?.n} in line`, running: "running", done: hms(c?.at), noresult: "no result", last: hms(c?.at), idle: "idle" }[st];
       r.state.replaceChildren(...(st === "inline" || st === "running" ? [el("i", { class: "flow-ring" }), words] : [words]));
     }
     r.li.classList.toggle("is-idle", st === "idle");
@@ -373,9 +401,12 @@ export function mountInside({ has, side = false }) {
     setText(heroW, words);
     if (bump && (before !== heroN.textContent || note) && !rm) { heroN.classList.add("is-bump"); window.setTimeout(() => heroN.classList.remove("is-bump"), 320); }
     decide.classList.toggle("is-must", mustMode);
-    setText(who, note || (ex ? (exState?.run ? `Illustrative: one draft per flight of the example run at ${hms(exState.runAt)}.` : "Illustrative: no run in this window yet.")
+    // the catch-up's note is the player's beat line on the demo's tab: said there, not twice
+    const whoText = (side ? null : note) || (ex ? (exState?.run ? `Illustrative: one draft per flight of the example run at ${hms(exState.runAt)}.` : "Illustrative: no run in this window yet.")
       : mustMode ? (S.mustAt == null ? "Waiting for the first run in this window." : `Passed straight to you by code · run ${hms(S.mustAt)}`)
-        : n == null ? "Advisory count unknown (database error)." : "Drafts wait at the Desk for a dispatcher."));
+        : n == null ? "Advisory count unknown (database error)." : "");
+    setText(who, whoText);
+    if (who.hidden !== !whoText) who.hidden = !whoText;
     // run bars: one per refused run in the window, lit up to the playhead
     const runs = M.runs.filter((e) => e.type === "refused");
     runsBox.hidden = ex || !runs.length;
@@ -506,12 +537,11 @@ export function drawInside(c, A, M, { C, ex = false, open, VW, VH, DPR }) {
   if (!open) {
     c.strokeStyle = C.info; c.lineWidth = 3;
     c.beginPath(); c.moveTo(g.x - 11, g.y); c.lineTo(g.x + 11, g.y); c.stroke();
-  } else {
-    // open: the bar split in two (dashed: no model, the skills are code templates)
-    c.strokeStyle = nomodel ? rgba(C.info, 0.6) : rgba(C.job, 0.5); c.lineWidth = 2;
-    if (nomodel) c.setLineDash([2, 2]);
+  } else if (!nomodel) {
+    // open: the bar split in two. No model: no gate is drawn at all (the dashed rail and the one AI
+    // status say it; a lone "- -" read as a stray glyph, UX verify 17 Oct)
+    c.strokeStyle = rgba(C.job, 0.5); c.lineWidth = 2;
     c.beginPath(); c.moveTo(g.x - 11, g.y); c.lineTo(g.x - 5, g.y); c.moveTo(g.x + 5, g.y); c.lineTo(g.x + 11, g.y); c.stroke();
-    c.setLineDash([]);
   }
 }
 
@@ -542,15 +572,19 @@ export function mountFlow(dialog, { has }) {
   const mapWrap = el("div", { class: "flow-map", role: "region", "aria-label": "Map of the area: drag to move, scroll or pinch to zoom, select a plane, volcano, ash area or feed" }, glDiv, labels, pick, ctl);
 
   const markUse = icon("ta-waiting", "flow-head__mark");
+  // the assistant's one status, as on the demo's tab (wall/x-parts.js stateLine): nothing while it
+  // works, else a shape and two words ("AI off", "AI paused") with the explanation behind its (i)
+  // and "Why ›" to the cause, said once at Details › TEPHRA Assistant (docs/UI-AI-QUIET.md 8.6)
   const status = el("span", { id: "board-status", class: "flow-head__status", text: "· connecting" });
-  // the lede, then "Why ›" while the assistant is paused or has trouble: the cause is said once, at
-  // Details › TEPHRA Assistant, one tap from here (docs/UI-AI-QUIET.md 8.6)
+  // the lede: the board's description for a screen reader (the dialog's aria-describedby); on
+  // screen only in Example, where it says what the example is
   const ledeText = el("span", { text: "Connecting to TEPHRA…" });
-  const whyBtn = el("button", { type: "button", class: "flow-link flow-why", hidden: true, "aria-label": "Why: open Details › TEPHRA Assistant", dataset: { act: "board-details", sec: "ai", focus: "board-why" }, text: "Why ›" });
-  const lede = el("p", { id: "board-lede", class: "flow-head__sub" }, ledeText, " ", whyBtn);
+  const lede = el("p", { id: "board-lede", class: "flow-head__sub" }, ledeText);
   const btnReal = el("button", { type: "button", class: "flow-seg__btn", "aria-pressed": "true", dataset: { flowmode: "real" }, text: "Real now" });
   const btnEx = el("button", { type: "button", class: "flow-seg__btn", "aria-pressed": "false", dataset: { flowmode: "example" }, text: "Example: working normally" });
-  const exFlag = el("p", { class: "flow-exflag", hidden: true, text: "Example · illustrative, not recorded. The assistant steps it shows did not happen." });
+  const exFlag = el("p", { class: "flow-exflag", hidden: true },
+    "Example · illustrative, did not happen",
+    infoButton({ topic: "example", label: "About the example", text: "Example · illustrative, not recorded. The assistant steps it shows did not happen." }));
   const helpBtn = el("button", { type: "button", class: "flow-iconbtn", "aria-label": "How this moves", title: "How this moves", dataset: { flowsheet: "help" }, text: "?" });
   const modeSeg = el("div", { class: "flow-seg", role: "group", "aria-label": "What to show" }, btnReal, btnEx);
   const head = el("header", { class: "flow-head" },
@@ -569,7 +603,7 @@ export function mountFlow(dialog, { has }) {
   // the dock: the log, the legend, the player
   const log = el("ol", { class: "flow-log", "aria-label": "Newest steps" });
   const legend = el("p", { class: "flow-legend" });
-  const allSteps = el("button", { type: "button", class: "flow-link", dataset: { flowsheet: "steps" }, text: "Every step in plain words" });
+  const allSteps = el("button", { type: "button", class: "flow-link", "aria-label": "Every step in plain words", dataset: { flowsheet: "steps" }, text: "All steps" });
   const playWord = el("span", { class: "flow-play__word" });
   const play = el("button", { type: "button", class: "flow-play", "aria-label": "Play back the latest steps" }, icon("i-play"), playWord);
   const chipWord = el("span", { class: "flow-chip__word" });
@@ -587,7 +621,7 @@ export function mountFlow(dialog, { has }) {
   const player = el("div", { class: "flow-player" }, play, el("p", { class: "flow-chip" }, chipWord, chipText, skip, speedBtn), track, tnow, mchip);
   const dock = el("div", { class: "flow-dock" }, log, el("div", { class: "flow-logrow" }, legend, allSteps), player);
   // not a live region of its own: the board's one live region says it (spec 8)
-  const staleNote = el("p", { class: "flow-stale", hidden: true, text: "Live updates paused, reconnecting. The board shows the last steps it had." });
+  const staleNote = el("p", { class: "flow-stale", hidden: true, text: "Reconnecting. Showing the last steps." });
 
   const stage = el("div", { class: "flow-stage" }, mapWrap, head, staleNote, panel, dock);
   body.replaceChildren(stage);
@@ -864,8 +898,9 @@ export function mountFlow(dialog, { has }) {
       const sub = !on ? null : edge && km ? `${s.sub} · ${km.toLocaleString("en")} km`
         : id === "sigmet" ? (at ? `${plural(sig.length, "area")} in force` : "none in force here") : s.sub;
       if (hidden.has("feeds")) continue;
-      const labEl = el("span", { class: `flow-beacon__lab flow-beacon__lab--${lab}` }, el("b", { text: `${arrow ? `${arrow} ` : ""}${s.name}` }), phone || !sub ? null : el("span", { text: sub }));
-      const b = el("div", { class: `flow-beacon flow-beacon--${BE[id].kind}${on ? "" : " is-off"}`, title: on ? `${FEED_TITLE[id]}: ${f.records ?? 0} records` : `${FEED_TITLE[id]}: ${f.error || "off"}`, dataset: { flowbeacon: id } },
+      // the name alone on the map (one short line); the office, distance or count in its tooltip
+      const labEl = el("span", { class: `flow-beacon__lab flow-beacon__lab--${lab}` }, el("b", { text: `${arrow ? `${arrow} ` : ""}${s.name}` }));
+      const b = el("div", { class: `flow-beacon flow-beacon--${BE[id].kind}${on ? "" : " is-off"}`, title: [on ? `${FEED_TITLE[id]}: ${f.records ?? 0} records` : `${FEED_TITLE[id]}: ${f.error || "off"}`, sub].filter(Boolean).join(" · "), dataset: { flowbeacon: id } },
         el("i", { class: `flow-beacon__pin${edge ? " is-edge" : ""}` }), labEl);
       b.style.left = `${x}px`; b.style.top = `${y}px`;
       kids.push(b);
@@ -1359,7 +1394,7 @@ export function mountFlow(dialog, { has }) {
     setText(chipWord, replay ? "Replay" : "Live");
     chipWord.classList.toggle("is-replay", replay);
     const span = M.spanMin ? `the last ${M.spanMin} min of real steps` : "no steps yet";
-    setText(chipText, following ? "new steps play as they come" : playing ? `playing back ${span}` : `paused in ${span}`);
+    setText(chipText, following ? "" : playing ? `playing back ${span}` : `paused in ${span}`);
     const label = following ? `Play back ${span}` : playing ? "Pause the playback" : "Play the playback";
     const ic = playing ? "i-pause" : following ? "i-replay" : "i-play";
     if (play.dataset.icon !== ic) { play.dataset.icon = ic; play.replaceChildren(icon(ic), playWord); }
@@ -1415,17 +1450,26 @@ export function mountFlow(dialog, { has }) {
     setMark(markUse, sym);
     if (dialog.dataset.ai !== (ex ? "on" : M.ai.kind)) dialog.dataset.ai = ex ? "on" : M.ai.kind;
     if (dialog.dataset.mode !== M.mode) dialog.dataset.mode = M.mode;
-    setText(status, `· ${ex ? "working (example)" : M.status}`);
-    setAttr(status, "title", M.ai.title || null);
+    const line = stateLine({ suffix: M.ai.suffix }, { stub: M.stub, kind: M.ai.kind });
+    const skey = ex ? "ex" : `${line.word}|${line.info}`;
+    if (status.dataset.k !== skey) {
+      status.dataset.k = skey;
+      status.dataset.tone = ex ? "ok" : line.tone;
+      const why = line.why ? el("button", { type: "button", class: "link-btn", "aria-label": "Why: open Details › TEPHRA Assistant", dataset: { act: "board-details", sec: "ai", focus: "board-why" }, text: "Why ›" }) : null;
+      status.replaceChildren(...(ex ? ["· working (example)"]
+        : line.word ? [el("span", { class: "flow-head__word" }, icon(line.icon, "st"), line.word), infoButton({ topic: "assistant", label: "About the AI state", text: line.info, actions: [why] })]
+          : [el("span", { class: "sr-only", text: line.said })]));
+    }
     setText(ledeText, ex ? "An example of a normal run on the same recorded inputs: the Coordinator hands each job to a skill, and every draft waits for you." : M.sub);
-    const why = !ex && (M.ai.kind === "paused" || M.ai.kind === "trouble");
-    if (whyBtn.hidden === why) whyBtn.hidden = !why;
-    if (legendFor !== mode) {
-      legendFor = mode;
+    lede.classList.toggle("sr-only", !ex);
+    // "waiting in line" and "must-do, to you" only while something can wait or be passed on
+    const queueing = M.ai.kind === "paused" || M.desk.must > 0 || M.queue.length > 0;
+    if (legendFor !== `${mode}|${queueing}`) {
+      legendFor = `${mode}|${queueing}`;
       const sw = (tone, word, hollow = false) => el("span", {}, (() => { const i = el("i", { class: hollow ? "is-hollow" : null }); if (hollow) i.style.color = colOf(tone); else i.style.background = colOf(tone); return i; })(), word);
       legend.replaceChildren(...(ex
         ? [sw("official", "official reports"), sw("observer", "observatory"), sw("aircraft", "aircraft"), sw("weather", "weather"), sw("job", "jobs (example)"), sw("tephra", "TEPHRA's estimate (example)")]
-        : [sw("official", "official reports"), sw("observer", "observatory"), sw("aircraft", "aircraft"), sw("weather", "weather"), sw("job", "jobs"), sw("info", "waiting in line", true), sw("must", "must-do, to you")]));
+        : [sw("official", "official reports"), sw("observer", "observatory"), sw("aircraft", "aircraft"), sw("weather", "weather"), sw("job", "jobs"), queueing ? sw("info", "waiting in line", true) : null, queueing ? sw("must", "must-do, to you") : null].filter(Boolean)));
     }
     renderDecide(false);
     renderPlayer();
@@ -1456,7 +1500,9 @@ export function mountFlow(dialog, { has }) {
   // log and the hero never say two numbers for one run.
   const landed = (r) => !r.out || !pendingLand.has(r.out.e.id);
   function rowParts(r) {
-    return [r.text, r.toYou && landed(r) ? el("span", { class: "flow-log__you", text: `, ${r.toYou}` }) : null, r.repeat ? el("span", { class: "flow-log__x", text: ` · ${r.repeat}` }) : null].filter(Boolean);
+    // a code template's line: the "{ }" mark, not "(code only)" words (the AI status says it once)
+    const t = templateText(r.text);
+    return [t.code ? codeMark() : null, t.text, r.toYou && landed(r) ? el("span", { class: "flow-log__you", text: `, ${r.toYou}` }) : null, r.repeat ? el("span", { class: "flow-log__x", text: ` · ${r.repeat}` }) : null].filter(Boolean);
   }
   const rowSig = (r) => `${r.text}|${r.toYou && landed(r) ? r.toYou : ""}|${r.repeat || ""}|${r.tone}`;
   function rowNode(r) {
@@ -1569,7 +1615,7 @@ export function mountFlow(dialog, { has }) {
     const key = `${mode}|${rows.length}|${rows.map((r) => `${r.key}:${r.items.length}`).join(",")}`;
     if (ol.dataset.k !== key) {
       ol.dataset.k = key;
-      ol.replaceChildren(...rows.map((r) => el("li", { dataset: { at: String(r.at) } }, el("span", { class: "flow-sheet__tm", text: hms(r.tm) }), el("span", { text: `${r.text}${r.toYou ? `, ${r.toYou}` : ""}${r.repeat ? ` · ${r.repeat}` : ""}` }))));
+      ol.replaceChildren(...rows.map((r) => el("li", { dataset: { at: String(r.at) } }, el("span", { class: "flow-sheet__tm", text: hms(r.tm) }), el("span", {}, ...markedText(r.text), `${r.toYou ? `, ${r.toYou}` : ""}${r.repeat ? ` · ${r.repeat}` : ""}`))));
     }
     for (const li of ol.children) li.classList.toggle("is-now", Number(li.dataset.at) <= simT);
   }

@@ -8,8 +8,8 @@
 // (the feed reads, the code checks, the Coordinator, each skill, You decide) in about 16 s, a pulse
 // running from each feed's place on the map into Code checks and down the diagram, then follows the
 // replay clock. Every beat is recorded steps; nothing is fetched, asked of a model or written.
-// Labelled "Replay · catching up: TEPHRA's last steps, fast" (the step playing in words under it,
-// and said to a screen reader as the replay's), then "Replay · following the replay clock", with
+// Labelled "Replay · catching up" (the step playing in words under it,
+// and said to a screen reader as the replay's), then "Replay · following the clock", with
 // "Replay again". Each skill's row shows its state at the beat playing (in line, running, done, no
 // result). The catch-up waits, and holds between beats, while the tab is hidden, a dialog covers it
 // or the phone sheet only peeks; the tab scrolls the step playing into view. Under reduced motion
@@ -17,8 +17,9 @@
 // the CSSOM and SVG attributes.
 
 import { el, icon, reducedMotion } from "./util.js";
+import { codeMark, ASSISTANT } from "./x-parts.js";
 import { hmsOf, RESULT } from "./board.js";
-import { mountInside, drawInside, insideColours, SRC } from "./board-view.js";
+import { mountInside, drawInside, insideColours, mapColours, SRC } from "./board-view.js";
 import { FIVE_STEPS } from "../five-steps.js";
 import { TENANT } from "../base.js";
 import { visibleRows, minuteGroups, playerWords, trackTicks, newestAt, sayRow, sayBeat, PLAY_SPEED, RM_STEP_MS, lastChain, beatMs, chainNote, eventsShown, rowsOf, catchupSkills } from "./assist.js";
@@ -47,12 +48,13 @@ function resultWord(r) {
   return word ? el("span", { class: `ev__res ev__res--${tone}` }, icon(ic), word) : null;
 }
 
-function logRow(r) {
+function logRow(r, stub = false) {
   return el("li", { class: `ev t-${r.stage}` },
     el("time", { class: "ev__t", datetime: new Date(r.tm).toISOString(), text: hmsOf(r.tm) }),
     el("span", { class: "ev__ic" }, icon(rowIcon(r))),
-    el("span", { class: "ev__who" }, r.actor, r.kind ? el("small", { text: r.kind }) : null, resultWord(r)),
-    el("span", { class: "ev__what", text: r.text }));
+    // with no model connected no step is the assistant's: the tab bar's status says so once
+    el("span", { class: "ev__who" }, r.actor, r.kind && !(stub && r.kind === ASSISTANT) ? el("small", { text: r.kind }) : null, resultWord(r)),
+    el("span", { class: "ev__what" }, r.code ? codeMark() : null, r.text));
 }
 
 // Where a feed's read comes from on the map (lon, lat), as the /assistant board places its beacons
@@ -120,6 +122,8 @@ export function mountAssist(host, { has = () => true, mapView = () => null, shee
   // a hosted airline's map has no catch-up: its panel follows its own live steps (SPEC-FINAL 5.3)
   const CU = { state: noCatchup || TENANT ? "done" : "waiting", chain: null, i: -1, played: new Set(), timer: 0, waitSince: 0, held: false, bumped: -1 };
   let C = insideColours();
+  // a pulse that starts on the map takes the night map's colours (the map is dark in both themes)
+  let CM = mapColours();
   let railKey = "", gateOpenUntil = 0;
 
   const steps = () => (M?.events || []).filter((e) => !e.quiet && e.type !== "note");
@@ -141,6 +145,7 @@ export function mountAssist(host, { has = () => true, mapView = () => null, shee
     if (!force && key === railKey) return;
     railKey = key;
     C = insideColours();
+    CM = mapColours();
     railC.width = Math.round(r.width * DPR); railC.height = Math.round(r.height * DPR);
     const origin = () => I.panel.getBoundingClientRect();
     const A = I.fitGate(M, () => I.measure(origin(), M), origin);
@@ -208,7 +213,7 @@ export function mountAssist(host, { has = () => true, mapView = () => null, shee
       log.replaceChildren(el("p", { class: "log__empty", text: "No steps yet in this window." }));
       return;
     }
-    const kids = minuteGroups(list).flatMap((g) => [el("h3", { class: "log__min", text: g.minute }), el("ol", {}, ...g.rows.map(logRow))]);
+    const kids = minuteGroups(list).flatMap((g) => [el("h3", { class: "log__min", text: g.minute }), el("ol", {}, ...g.rows.map((r) => logRow(r, M?.stub)))]);
     if (rows.length > FOLDED_ROWS) {
       kids.push(el("button", { type: "button", class: "link-btn log__more", "aria-expanded": String(showAll), dataset: { focus: "assist-all" }, text: showAll ? "Show fewer" : `Show all (${rows.length})` }));
     }
@@ -401,7 +406,8 @@ export function mountAssist(host, { has = () => true, mapView = () => null, shee
     }
     let lab = null;
     if (label && from) {
-      lab = el("span", { class: "as-flow__lab", text: label });
+      // the label sits on the map: a night chip in both themes, like every other map label
+      lab = el("span", { class: "as-flow__lab night", text: label });
       lab.style.setProperty("--c", col);
       lab.style.left = `${from[0]}px`; lab.style.top = `${from[1]}px`;
       flow.append(lab);
@@ -446,14 +452,14 @@ export function mountAssist(host, { has = () => true, mapView = () => null, shee
         const from = mapPoint(feedPlace(feed, M));
         if (!from) return;
         const kind = M.feeds.find((f) => f.feed === feed)?.kind || (feed === "adsb" || feed === "airline" ? "aircraft" : "weather");
-        pulse(arcPath(from, code), C[kind] || C.info, { delay: i * 180, dur: 1100, label: FEED_LABEL[feed] || SRC[feed]?.name || feed, from, to: "code" });
+        pulse(arcPath(from, code), CM[kind] || CM.info, { delay: i * 180, dur: 1100, label: FEED_LABEL[feed] || SRC[feed]?.name || feed, from, to: "code" });
       });
     } else if (b.kind === "code") {
       if (!code || !toMap) return;
       const planes = b.flights.map((f) => M.geo.aircraft.find((a) => a.flight === f)).filter((a) => a?.at).slice(0, 6);
       planes.forEach((a, i) => {
         const from = mapPoint(a.at);
-        if (from) pulse(arcPath(from, code), C.aircraft, { delay: i * 120, dur: 1000, from, to: "code" });
+        if (from) pulse(arcPath(from, code), CM.aircraft, { delay: i * 120, dur: 1000, from, to: "code" });
       });
     } else if (b.kind === "coord") {
       const p = at("code"), q = at("coord");

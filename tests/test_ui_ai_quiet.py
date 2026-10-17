@@ -50,7 +50,7 @@ def test_ai_builders_use_no_red_and_no_alert() -> None:
 def test_ai_chip_text_carries_no_model_id() -> None:
     # the demo's state line (the side panel's Assistant tab) took the Wall's header chip's place
     panels = _read("wall/panels.js")
-    chip = panels[panels.index("// TEPHRA Assistant's state line") : panels.index("// Data chip:")]
+    chip = panels[panels.index("// TEPHRA Assistant's one status") : panels.index("// Data chip:")]
     assert "llm?.label" not in chip
     assert "model_id" not in chip
     budget = _function(_read("desk/budget.js"), "drawAiChip")
@@ -164,6 +164,9 @@ OLD_WORDS = (
     "AI off",
     "AI on",
 )
+# the one status the demo's tab bar, the /assistant board and the Desk's header show, in one
+# function for every page (wall/x-parts.js stateLine)
+STATUS_WORDS = ("AI paused", "AI unavailable", "AI off")
 COMMENT = re.compile(r"^\s*(//|/\*|\*|<!--)")
 REGEX_LITERAL = re.compile(r"/(?:\\.|[^/\n])+/[gimsuy]*")
 # the reason code writes for a run that left must-do work, as the server words it (raw)
@@ -185,6 +188,14 @@ def test_one_assistant_name_and_no_old_ai_words() -> None:
     for name, source in _page_sources().items():
         code = [line for line in source.splitlines() if not COMMENT.match(line)]
         for word in OLD_WORDS:
+            # the one assistant status (owner, 17 Oct, lead decisions A and D): "AI off", "AI
+            # paused", "AI unavailable" beside the Assistant tab and in the Desk's header, so the
+            # name is not said twice; written once, in x-parts.js stateLine
+            if name == "x-parts.js" and word in STATUS_WORDS:
+                lines = [line for line in code if word in line]
+                assert len(lines) == 1, (name, word)
+                assert all(f'word: "{word}"' in line for line in lines), (name, word)
+                continue
             assert not any(word in line for line in code), (name, word)
         for line in code:
             rest = REGEX_LITERAL.sub("", line.replace(RAW_REASON, "")).split("//")[0]
@@ -350,7 +361,7 @@ def test_the_cause_of_a_pause_is_one_tap_from_every_place_that_lacks_an_output()
     ask = _read("desk/ask.js")
     assert "title: 'TEPHRA Assistant is paused.'" in ask
     assert "onWhy: openBudget" in ask
-    assert "TEPHRA Assistant is paused, so Ask cannot answer yet." in ask
+    assert "Ask cannot answer while the assistant is paused. " in ask
     # "paused" only while the assistant is; the question goes back into the box
     assert "paused = quota && deskAi().kind === 'paused';" in ask
     assert "composer.input.value = question;" in _function(ask, "finish")

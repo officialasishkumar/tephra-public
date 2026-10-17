@@ -10,7 +10,8 @@ import { byId, el, icon } from './dom.js';
 import { dayMonthHhmm, hhmmz, parseTime, serverNow } from './format.js';
 import { app } from './state.js';
 import { aiState, openBSheet } from './ui.js';
-import { aiLead, aiSymbol, aiWords, causeTitle, jobsWords, pacingWords, machineText, realWhen, ASSISTANT } from '../wall/x-parts.js';
+import { infoButton } from '../wall/info.js';
+import { aiLead, aiWords, causeTitle, jobsWords, pacingWords, machineText, realWhen, stateLine, ASSISTANT } from '../wall/x-parts.js';
 import { TENANT, PAGE_BASE } from '../base.js';
 
 const LANE_WORDS = { urgent: 'flights in or near the ash', interactive: 'the Desk (questions, notices, messages, documents)', routine: 'routine work, paced through the day' };
@@ -47,34 +48,67 @@ const models = (b) => (Array.isArray(b.models) && b.models.length ? b.models : b
 const isOut = (m) => Boolean(m.closed) || m.limit <= 0 || m.remaining <= 0;
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
-// The header row never scrolls sideways (review: 406 px at 390 with "Assistant · 3 problems" and
-// "Connecting…"). When the chip and the connection words do not fit, the chip keeps its mark and
-// its state words and drops the visible name; its label and tooltip still say "TEPHRA Assistant".
+// The header row never scrolls sideways (review: 406 px at 390 with the state words and
+// "Connecting…"). The AI words are the one place the Desk says the AI is off, paused or
+// unavailable, so they go last (honesty verify, 17 Oct: a phone saw only a dot). When the row does
+// not fit: the connection words go and the gaps close; then the wordmark and the REPLAY chip get
+// compact; then the AI (i), the status's dot (its words say it) and the REPLAY chip's glyph go
+// (each chip still opens what it explains); then the REPLAY clock (the chip keeps "REPLAY"); only
+// then, on a row narrower than any phone, the AI words. Labels keep every state.
 export function fitHead() {
   const row = document.querySelector('.dhead__row');
   const chip = byId('budget-chip');
   if (!row || !chip) return;
   chip.classList.remove('is-tight');
-  if (row.scrollWidth > row.clientWidth) chip.classList.add('is-tight');
+  row.classList.remove('is-tight', 'is-tighter', 'is-tightest', 'is-tiniest');
+  const over = () => row.scrollWidth > row.clientWidth;
+  const steps = ['is-tight', 'is-tighter', 'is-tightest', 'is-tiniest'].map((c) => () => row.classList.add(c));
+  for (const step of [...steps, () => chip.classList.add('is-tight')]) {
+    if (!over()) break;
+    step();
+  }
 }
 
-// The chip: the one state; `model-chip` is its label span (re-parented in desk.html).
+// The AI state in the header, said once for the whole Desk (owner, 17 Oct: "don't say no model
+// everywhere"), in the demo's words (wall/x-parts.js stateLine, one copy for both pages): nothing
+// but the assistant mark while it is on; otherwise a dot and two words, and an (i) whose popover
+// says why and what still holds, with the way to the assistant sheet.
+
+// The status: the one state; `model-chip` is its label span (desk.html).
 export function drawAiChip() {
   const chip = byId('budget-chip');
   const label = byId('model-chip');
-  if (!chip || !label || !app.state) return;
+  const wrap = byId('ai-status');
+  if (!chip || !label || !wrap || !app.state) return;
   const ai = deskAi();
-  const narrow = window.innerWidth <= 420;
-  const w = aiWords(ai, { home: 'the assistant sheet', opens: 'the assistant sheet', narrow });
+  const w = aiWords(ai, { home: 'the assistant sheet', opens: 'the assistant sheet' });
+  const line = stateLine(w, { kind: ai.kind });
+  const key = `${ai.kind}|${line.word}|${line.info || ''}`;
   chip.dataset.tone = w.tone;
-  label.textContent = w.label;
-  const kids = [icon(aiSymbol(ai.kind)), label];
-  if (w.suffix) kids.push(el('span', { class: 'budget__w' }, el('span', { class: 'budget__sep', text: '· ' }), w.suffix));
-  chip.replaceChildren(...kids);
-  fitHead();
+  chip.dataset.kind = ai.kind;
+  label.textContent = line.word || '';
+  chip.replaceChildren(...(ai.kind === 'on' ? [icon('ta-16')] : [el('span', { class: 'aistat__dot', 'aria-hidden': 'true' }), label]));
   const jobs = ai.waiting.length ? ` ${plural(ai.waiting.length, 'job')} wait${ai.waiting.length === 1 ? 's' : ''}.` : '';
   chip.setAttribute('aria-label', w.aria.replace(/ Opens /, `${ai.kind === 'paused' ? jobs : ''} Opens `));
-  chip.title = w.title;
+  chip.title = ai.kind === 'on' ? `${ASSISTANT} on` : line.word;
+  // the (i) is redrawn only when what it says changes, so an open popover is not thrown away by a
+  // budget event that changed nothing it shows
+  if (wrap.dataset.key !== key) {
+    wrap.dataset.key = key;
+    const old = wrap.querySelector('.info');
+    if (old) {
+      old.close();
+      old.remove();
+    }
+    if (line.info) {
+      wrap.append(infoButton({
+        topic: 'assistant', label: 'About the assistant state',
+        text: line.info,
+        actions: el('button', { type: 'button', class: 'linkbtn', onclick: openBudget }, el('span', { text: 'Assistant details ›' })),
+      }));
+    }
+  }
+  fitHead();
   // Ask's paused note and other places that word the assistant state redraw on this
   document.dispatchEvent(new CustomEvent('tephra:ai'));
 }
@@ -178,14 +212,14 @@ export function openBudget() {
       el('ul', { class: 'aisheet__nb' }, el('li', { text: 'Recovery re-planning for your network is not built.' })))
     : null;
   const foot = stub
-    ? el('p', { class: 'note', text: 'With no model, no calls are made or counted.' })
+    ? null
     : b
       ? el('p', { class: 'note', text: `${b.note}${counts} As of ${dayMonthHhmm(b.as_of)}.` })
       : el('p', { class: 'note', text: "Today's assistant calls have not loaded yet." });
   openBSheet({
     title: ASSISTANT,
     body: el('div', { class: 'stack aisheet' }, mark, lead, causes, queue, calls, board, notBuilt, foot, runsOn(),
-      el('p', { class: 'note', text: 'When a skill cannot run, it says so and nothing is put in its place.' }),
+      ai.kind === 'paused' || ai.kind === 'trouble' ? el('p', { class: 'note', text: 'When a skill cannot run, it says so and nothing is put in its place.' }) : null,
       el('p', { class: 'note aisheet__about', text: 'About TEPHRA Assistant: TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything.' })),
   });
 }

@@ -257,6 +257,10 @@ async function fetch(path, init = {}) {
 const GLOBALS = {
   Node, Element, Text, Event, document, location, history, fetch, CALLS,
   window: globalThis,
+  // wall/info.js (the shared (i), reached through onboard/form.js) listens on the window
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  requestAnimationFrame: (f) => setTimeout(f, 0),
   navigator: { clipboard: { writeText: async () => {} } },
   matchMedia: () => ({ matches: false }),
   localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
@@ -365,14 +369,10 @@ def _overview(
     return run_node(tmp_path, OVERVIEW, data)
 
 
-NOT_BUILT = (
-    "This shared site runs the demo only. To check your own flights, run your own TEPHRA with the "
-    "setup kit."
-)
-NOT_BUILT_HOSTED = (
-    "TEPHRA runs at most 3 airlines at once on this site. Your own TEPHRA with the setup kit has "
-    "no such limit."
-)
+# main's one line while this site runs no airline (onboard/pages.js NOT_ON_YET), and the hosted
+# line with the site's own limit; the setup kit is dropped (owner, 17 Oct 2026: "drop it")
+NOT_BUILT = "Running your airline on this site is not switched on yet."
+NOT_BUILT_HOSTED = "TEPHRA runs at most 3 airlines at once on this site."
 
 
 def test_hosting_off_keeps_today_s_overview(tmp_path: Path) -> None:
@@ -438,7 +438,7 @@ def test_set_up_sends_the_display_name_and_says_why_it_was_refused(tmp_path: Pat
     short = run_node(tmp_path, SETUP, {"name": "A", "answer": _ok({})})
     assert short["calls"] == []
     assert short["done"] == 0
-    assert short["errors"] == ["2 to 32 characters."]
+    assert short["errors"] == ["2 to 32 characters"]  # terse rule words (declutter, 17 Oct)
     taken = run_node(
         tmp_path,
         SETUP,
@@ -512,15 +512,19 @@ def test_an_open_checklist_on_a_full_site_says_both(tmp_path: Path) -> None:
     )
 
 
-def test_once_set_up_only_the_answers_and_the_kit_stay_beside_go_live(tmp_path: Path) -> None:
-    """UX finding 9: the onboarding's Data feeds, Assistant and People cards repeated or
-    contradicted the checklist once the airline has its space."""
+def test_once_set_up_only_the_answers_stay_beside_go_live(tmp_path: Path) -> None:
+    """UX finding 9: the onboarding's Data feeds, Assistant and People rows repeated or
+    contradicted the checklist once the airline has its space. The setup kit card is gone with
+    the kit (owner, 17 Oct 2026: "drop it")."""
     r = _overview(tmp_path, "setup", "header-setup", "golive-setup-2of4")
     assert "Your answers" in r["text"]
-    assert "will approve advisories in your TEPHRA" not in r["text"]
-    assert "Try a file" not in r["text"]
+    assert "1 approver" not in r["text"]
+    assert "Dry run" not in r["text"]
+    assert "Public ADS-B only" not in r["text"]
+    assert "kit" not in r["text"].lower()
     before = _overview(tmp_path, "can-set-up")
-    assert "will approve advisories in your TEPHRA" in before["text"]
+    assert "1 approver" in before["text"]
+    assert "Dry run" in before["text"]
 
 
 def test_an_ambiguous_network_chooses_its_region_and_says_not_built(tmp_path: Path) -> None:

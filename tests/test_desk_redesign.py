@@ -178,8 +178,10 @@ def test_never_on_screen_words_are_gone() -> None:
         assert "Decided while this page was open" not in line, (name, line)
 
 
-# "AI" stays only where disclosure needs it (the About line, the free AI quota) and in the raw
-# machine reason the server writes ("AI UNAVAILABLE: …", one tap in, under Technical detail).
+# "AI" stays only where disclosure needs it (the About line, the free AI quota), in the raw
+# machine reason the server writes ("AI UNAVAILABLE: …", one tap in, under Technical detail). The
+# header's one status takes its words from wall/x-parts.js stateLine (owner, 17 Oct, lead decisions
+# A and D), so no Desk file writes them.
 AI_ALLOWED = (
     "TEPHRA Assistant is an AI assistant.",
     "free AI quota",

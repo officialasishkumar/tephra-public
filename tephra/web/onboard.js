@@ -3,29 +3,30 @@
 // each, saved to the account on every Next and Back (PUT /api/airline/draft) until Review submits
 // them for verification. Signing in again resumes at the first page not finished. Signed in while
 // the airline is pending, /onboard/<page>?edit=1 edits the stored answers instead. Pages move with
-// the history API; focus goes to each page's h1. Every string goes in through el() (textContent).
+// the history API; focus goes to each page's h1. Each page says one line under its h1; what explains
+// it sits behind an (i) (wall/info.js). Errors wait until a field is left or Next is pressed. Every
+// string goes in through el() (textContent).
 
 import { $, el, icon, inlineSprite } from "./wall/util.js";
+import { infoButton } from "./wall/info.js";
 import { applyFeatureNav, has, setFeatures } from "./wall/features.js";
 import { formatValue, policyValues } from "./wall/policy.js";
 import { initAccountNav, showAccountWho } from "./account-nav.js";
 import {
-  ANSWER_PAGES, DEFAULT_OLLAMA_URL, airportCode, checkedValues, FLEET_FILE_MAX_BYTES, KEY_POLICY_VALUES, NOT_BUILT, PAGES, PAGE_KEYS, PROVIDE, SCHEDULE_FILE_MAX_BYTES,
-  cautionsOf, checkPage, checkSchedule, emptyValues, fileLine, firstUnfinished, fromAnswers, hexOf, isEditablePolicyValue, mapServerProblem,
-  pageOf, parseFleetFile, ruleMessage, toAnswers, upper,
+  ANSWER_PAGES, airportCode, FLEET_FILE_MAX_BYTES, KEY_POLICY_VALUES, NOT_ON_YET, PAGES, PAGE_KEYS, PROVIDE, SCHEDULE_FILE_MAX_BYTES,
+  cautionsOf, checkPage, checkSchedule, emptyValues, fileLine, firstUnfinished, fromAnswers, isEditablePolicyValue, mapServerProblem,
+  pageOf, parseFleetFile, problemText, toAnswers, upper, WHO_READS,
 } from "./onboard/pages.js";
-import { caret, choiceCards, chipsInput, fid, field, illus, input, listError, notBuilt, note, section, segmented, setError, setListError } from "./onboard/form.js";
+import { caret, chipInfo, choiceCards, chipsInput, fid, field, illus, input, listError, notBuilt, note, section, segmented, setError, setListError } from "./onboard/form.js";
 import { dropLegacyDraft, loadLegacyDraft, loadLocal, saveLocal } from "./onboard/draft.js";
 import { accountFields, recoveryCard, reviewList } from "./onboard/review.js";
 import { COUNTRIES } from "./onboard/countries.js";
-import { envLines } from "./workspace/kit.js";
 import { modelChoice } from "./workspace/assistant.js";
-import { ACCOUNTS_OFF, ONBOARD_OFF, PATHS, call, errorCode, problemsOf, waitWords } from "./workspace/api.js";
+import { ACCOUNTS_OFF, ACCOUNTS_OFF_HOW, ONBOARD_OFF, PATHS, call, errorCode, failWords, problemsOf, waitWords } from "./workspace/api.js";
 
 const MAX_BODY_BYTES = 128 * 1024;
 const KEEPALIVE_MAX_BYTES = 60 * 1024;
 const ROWS_STEP = 50;
-const WIDE = window.matchMedia("(min-width: 1280px)");
 const blankDraft = () => ({ seen: [], at: null, values: emptyValues() });
 const draftOf = (d) => ({ seen: Array.isArray(d?.seen) ? [...d.seen] : [], at: d?.at || null, values: { ...emptyValues(), ...(d?.values || {}) } });
 // replaceChildren prints a null slot as "null": the optional parts are dropped first.
@@ -33,13 +34,13 @@ const put = (node, ...kids) => node.replaceChildren(...kids.flat().filter((k) =>
 
 const S = {
   state: null, accounts: false, policy: null, named: {}, labels: {}, airports: new Map(), known: null, positions: null,
-  draft: blankDraft(), local: { ollama_url: null, files: {} },
-  edit: null, me: null, dirty: false, saving: false, flagged: new Set(), leaveAnyway: null, anywayFor: null, server: {}, recovery: null, envBefore: null,
+  draft: blankDraft(), local: { files: {} },
+  edit: null, me: null, meFail: null, dirty: false, saving: false, flagged: new Set(), leaveAnyway: null, anywayFor: null, server: {}, recovery: null,
   fleetShown: ROWS_STEP, fleetTab: "type", navMode: null, account: null, legacy: null,
 };
 
 const V = () => S.draft.values;
-const ctxFor = (key) => ({ named: S.named, ollamaUrl: S.local.ollama_url ?? DEFAULT_OLLAMA_URL, schedule: key === "schedule" ? scheduleCheck() : null });
+const ctxFor = (key) => ({ named: S.named, schedule: key === "schedule" ? scheduleCheck() : null });
 
 // --- saving to the account -------------------------------------------------------------------------
 
@@ -57,7 +58,6 @@ function changed() {
   if (S.edit) return;
   S.dirty = true;
   setSaved("");
-  drawAside();
 }
 
 const keepLocal = () => saveLocal(S.local);
@@ -182,7 +182,6 @@ function frame(view) {
   $("ob-progress-row").hidden = !page;
   $("ob-steps").hidden = !page;
   $("ob-actions").hidden = !page;
-  $("ob-aside").hidden = !page;
 }
 
 function focusHeading() {
@@ -219,7 +218,7 @@ function stepList(states) {
     const inner = [
       el("span", { class: "n", "aria-hidden": "true" }, mark),
       el("span", { class: "steps__t" },
-        el("span", { text: p.name }),
+        el("span", { text: p.short }),
         st === "done" ? el("span", { class: "sr-only", text: " (done)" }) : null,
         st === "warn" ? el("span", { class: "flag", text: n === 1 ? "1 thing to check" : `${n} things to check` }) : null),
     ];
@@ -234,45 +233,14 @@ function stepList(states) {
 function drawSteps(current) {
   const states = Object.fromEntries(PAGES.map((p) => [p.key, stepState(p.key, current)]));
   const done = Object.values(states).filter((s) => s === "done").length;
-  const foot = S.edit ? el("div", { class: "steps__foot" }, el("p", { text: "Changes are saved to your workspace with Save changes." })) : null;
   put($("ob-steps"),
-    el("h2", { class: "eyebrow steps__h", text: S.edit ? "Edit your answers" : "Onboard your airline" }),
     el("details", { class: "steps__phone" }, el("summary", {}, el("span", { text: `All pages · ${done} of ${S.edit ? 8 : 9} done` }), caret()), stepList(states)),
-    el("div", { class: "steps__wide" }, stepList(states)),
-    foot);
+    el("div", { class: "steps__wide" }, stepList(states)));
   const page = pageOf(current);
   $("ob-step").replaceChildren(...(S.edit
     ? [el("b", { text: "Editing your answers" }), " · Pending verification"]
-    : [el("b", { text: `Step ${page.n} of 9` }), ` · ${page.name}`]));
+    : [el("b", { text: `Step ${page.n} of 9` })]));
   $("ob-progress").replaceChildren(...PAGES.map((p) => el("i", { class: p.key === current ? "is-now" : states[p.key] === "todo" ? null : "is-done" })));
-}
-
-// --- the aside: the setup kit so far ----------------------------------------------------------------
-
-function drawAside() {
-  const box = $("ob-aside-code");
-  if (!box) return;
-  const checked = { ...S.draft, values: checkedValues(V(), ctxFor) };
-  const lines = envLines(toAnswers(checked), { positions: S.positions, regions: S.state?.regions, known: S.known, ollamaUrl: S.local.ollama_url || DEFAULT_OLLAMA_URL });
-  const before = S.envBefore;
-  S.envBefore = new Set(lines);
-  box.replaceChildren(...lines.map((line) => el("span", { class: [line.startsWith("#") ? "c" : "", before && !before.has(line) ? "new" : ""].join(" ").trim() || null, text: `${line}\n` })));
-  if (!before) return;
-  // The box is shorter than the file: bring the first line this answer added into view.
-  const added = box.querySelector(".new");
-  if (added) box.scrollTop += added.getBoundingClientRect().top - box.getBoundingClientRect().top - 8;
-  window.setTimeout(() => box.querySelectorAll(".new").forEach((n) => n.classList.remove("new")), 2000);
-}
-
-function aside() {
-  const details = el("details", { class: "card aside-card kitsofar", open: WIDE.matches || null },
-    el("summary", {}, icon("i-file"), el("span", { text: "Your setup kit so far" }), caret()),
-    el("p", { text: "The airline.env lines your answers add. The kit is made in your workspace once you submit; its secrets are made when you download it." }),
-    el("pre", { id: "ob-aside-code", class: "code", tabindex: "0", "aria-label": "airline.env so far" }));
-  WIDE.onchange = () => {
-    details.open = WIDE.matches || details.open;
-  };
-  return details;
 }
 
 // --- problems on the page ---------------------------------------------------------------------------
@@ -295,6 +263,8 @@ function showProblems(key, { only = null } = {}) {
     if (c && c.matches("input, select, textarea")) setError(c, message);
     else setListError(id, message);
   }
+  // a fold holding a field to fix opens by itself
+  for (const d of main.querySelectorAll("details:not([open])")) if (d.querySelector('[aria-invalid="true"], .err:not([hidden])')) d.open = true;
   return problems;
 }
 
@@ -315,14 +285,19 @@ const listErr = (field) => {
   return node;
 };
 
-// A text control bound to one answer; an error shown under it is re-checked as the person types.
+// A text control bound to one answer. Its error shows once something was typed and the field is
+// left (or on Next), and then follows the typing.
 function bound(control, get, set, page) {
   control.value = get() ?? "";
   control.addEventListener("input", () => {
+    control.dataset.typed = "1";
     set(control.value);
     delete S.server[page];
     if (control.getAttribute("aria-invalid") === "true") showProblems(page, { only: control.id });
     changed();
+  });
+  control.addEventListener("blur", () => {
+    if (control.dataset.typed) showProblems(page, { only: control.id });
   });
   return control;
 }
@@ -335,6 +310,8 @@ const upperAsTyped = (c) => c.addEventListener("input", () => {
 
 // --- page 1 · Airline ------------------------------------------------------------------------------
 
+// The four fields a dispatcher rarely needs on first sight sit in one fold, which opens by itself
+// when one of them needs fixing (showProblems).
 function airlinePage() {
   const a = V().airline;
   const t = (key, attrs = {}, { up = false, after = null } = {}) => {
@@ -354,29 +331,30 @@ function airlinePage() {
   const baseHint = el("span", {});
   const nameBase = () => {
     const ap = S.airports.get(upper(a.main_base));
-    baseHint.textContent = ap ? `ICAO airport code · ${ap.name}` : "ICAO airport code";
+    baseHint.textContent = ap ? `ICAO code · ${ap.name}` : "ICAO code";
   };
   const base = t("main_base", { mono: true, maxlength: 4 }, { up: true, after: nameBase });
   nameBase();
   return [
-    section("Name and designators", "s-names",
-      field({ id: fid("airline.name"), label: "Airline name", control: t("name", { autocomplete: "organization", maxlength: 120 }) }),
-      el("div", { class: "row3" },
-        field({ id: fid("airline.icao"), label: "ICAO designator", hint: "3 letters", control: icao }),
-        field({ id: fid("airline.iata"), label: "IATA code", optional: true, hint: "2 letters or digits", control: t("iata", { mono: true, maxlength: 2 }, { up: true }) }),
-        field({ id: fid("airline.callsign_prefix"), label: "Callsign prefix", hint: "What your flights file as, e.g. RFA1654", control: callsign }))),
-    section("Where you operate from", "s-where",
+    section("Names and codes", "s-names",
       el("div", { class: "row2" },
-        field({ id: fid("airline.state_of_operator"), label: "State of the Operator", hint: "The State that issued your Air Operator Certificate (AOC)", control: t("state_of_operator", { list: "ob-countries", maxlength: 60, autocomplete: "country-name" }) }),
+        field({ id: fid("airline.name"), label: "Airline name", control: t("name", { autocomplete: "organization", maxlength: 120 }) }),
+        field({ id: fid("airline.icao"), label: "ICAO designator", hint: "3 letters", control: icao }))),
+    section("Where you operate", "s-where",
+      el("div", { class: "row2" },
+        field({ id: fid("airline.state_of_operator"), label: "State of the Operator", hint: "The State that issued your AOC", control: t("state_of_operator", { list: "ob-countries", maxlength: 60, autocomplete: "country-name" }) }),
         field({ id: fid("airline.main_base"), label: "Main base", hint: baseHint, control: base })),
-      field({ id: fid("airline.aoc_number"), label: "AOC number", optional: true, hint: "As printed on your Air Operator Certificate. A TEPHRA dispatcher checks it when verifying.", control: t("aoc_number", { mono: true, maxlength: 40 }) }),
+      field({ id: fid("airline.ops_email"), label: "Operations email", info: { topic: "the operations email", text: "A TEPHRA dispatcher writes here when verifying your airline." }, control: t("ops_email", { type: "email", autocomplete: "email", inputmode: "email", maxlength: 254, spellcheck: "false" }) }),
       el("datalist", { id: "ob-countries" }, ...COUNTRIES.map((n) => el("option", { value: n })))),
-    section("Operations contact", "s-contact",
-      el("p", { class: "section__sub", text: "The address a TEPHRA dispatcher writes to when verifying your airline." }),
-      el("div", { class: "row2" },
-        field({ id: fid("airline.ops_email"), label: "Operations email", control: t("ops_email", { type: "email", autocomplete: "email", inputmode: "email", maxlength: 254, spellcheck: "false" }) }),
-        field({ id: fid("airline.contact_name"), label: "Contact name", optional: true, control: t("contact_name", { autocomplete: "name", maxlength: 80 }) }))),
-    note("info", null, "A TEPHRA dispatcher verifies every airline. Until then nothing runs under your name."),
+    el("details", { class: "more more--page" },
+      el("summary", {}, el("span", { text: "IATA code, callsign, AOC and contact" }), caret()),
+      el("div", { class: "more__body" },
+        el("div", { class: "row2" },
+          field({ id: fid("airline.iata"), label: "IATA code", optional: true, hint: "2 letters or digits", control: t("iata", { mono: true, maxlength: 2 }, { up: true }) }),
+          field({ id: fid("airline.callsign_prefix"), label: "Callsign prefix", hint: "Filed as, e.g. RFA1654", control: callsign })),
+        el("div", { class: "row2" },
+          field({ id: fid("airline.aoc_number"), label: "AOC number", optional: true, control: t("aoc_number", { mono: true, maxlength: 40 }) }),
+          field({ id: fid("airline.contact_name"), label: "Contact name", optional: true, control: t("contact_name", { autocomplete: "name", maxlength: 80 }) })))),
   ];
 }
 
@@ -384,6 +362,8 @@ function airlinePage() {
 
 const UNIT = { NM: "NM", ft: "ft", min: "min", m: "m", kt: "kt", deg: "°", FL: "FL", count: "", s: "s", USD: "USD" };
 
+// One value: the box holds Policy A's number; the default is said under it only once it changes,
+// and the reason field opens with the change.
 function valueRow(name, label) {
   const base = S.named[name];
   const changes = V().policy.changes;
@@ -393,28 +373,46 @@ function valueRow(name, label) {
   num.classList.add("input--num");
   const reason = el("textarea", { class: "input textarea", rows: "2", maxlength: "300" });
   reason.value = changes[name]?.reason || "";
-  const reasonField = field({ id: rid, label: "Why this value? (your SRA section)", hint: "3 to 300 characters", control: reason });
+  const reasonField = field({ id: rid, label: "Why this value?", rule: "3 to 300 characters", control: reason });
   const isChanged = () => Boolean(changes[name]) && Number(changes[name].value) !== Number(base.value);
+  const was = el("span", {});
+  const row = el("div", { class: "pval" },
+    field({ id, label, hint: was, control: num,
+      slot: el("div", { class: "pval__in" }, num, el("span", { class: "pval__unit", "aria-hidden": "true", text: UNIT[base.unit] ?? base.unit })) }),
+    reasonField);
+  const sync = () => {
+    const on = isChanged();
+    reasonField.hidden = !on;
+    was.textContent = on ? `Default ${formatValue(name.split(".")[1], base)}` : "";
+    was.parentElement.hidden = !on;
+  };
   num.addEventListener("input", () => {
+    num.dataset.typed = "1";
     const v = num.value.trim();
     if (v === String(base.value)) delete changes[name];
     else changes[name] = { ...(changes[name] || {}), value: v, base: base.value, unit: base.unit, reason: reason.value };
-    reasonField.hidden = !isChanged();
+    sync();
     delete S.server.policy;
     if (num.getAttribute("aria-invalid") === "true") showProblems("policy");
     changed();
   });
+  num.addEventListener("blur", () => {
+    if (num.dataset.typed) showProblems("policy", { only: id });
+  });
   reason.addEventListener("input", () => {
+    reason.dataset.typed = "1";
     if (changes[name]) changes[name].reason = reason.value;
     if (reason.getAttribute("aria-invalid") === "true") showProblems("policy", { only: rid });
     changed();
   });
-  reasonField.hidden = !isChanged();
-  return el("div", { class: "pval" },
-    field({ id, label, hint: `Policy A: ${formatValue(name.split(".")[1], base)}`, control: num,
-      slot: el("div", { class: "pval__in" }, num, el("span", { class: "pval__unit", "aria-hidden": "true", text: UNIT[base.unit] ?? base.unit })) }),
-    reasonField);
+  reason.addEventListener("blur", () => {
+    if (reason.dataset.typed) showProblems("policy", { only: rid });
+  });
+  sync();
+  return row;
 }
+
+const ILLUS_INFO = { topic: "ILLUSTRATIVE", label: "About ILLUSTRATIVE", text: "Your policy file stays ILLUSTRATIVE, not an airline SRA: TEPHRA cannot check an SRA. It records your numbers, reasons and SRA reference." };
 
 function policyPage() {
   const p = V().policy;
@@ -422,8 +420,9 @@ function policyPage() {
     choiceCards({
       name: "ob-preset", legend: "Policy", value: "A", onChange: () => {},
       options: [
-        { value: "A", title: "Policy A · avoid every official ash area", text: "Plan around every official ash area, merged, up to its highest top, with your margins.", chips: [illus()] },
-        { value: "B", title: "Policy B · through, under or over", text: "Plan through, under or over where your safety risk assessment allows.", chips: [illus(), notBuilt()], disabled: true, reason: "No TEPHRA code applies a Policy B preset. The flight planner may still propose a level clear of the ash under Policy A." },
+        { value: "A", title: "Policy A: avoid official ash", chips: [chipInfo(illus(), ILLUS_INFO)] },
+        { value: "B", title: "Policy B: through, under, over", disabled: true,
+          chips: [illus(), chipInfo(notBuilt(), { topic: "Policy B", label: "Why Policy B is not built", text: "No TEPHRA code applies a Policy B preset. The flight planner may still propose a level clear of the ash under Policy A." })] },
       ],
     }),
   ];
@@ -436,20 +435,20 @@ function policyPage() {
     out.push(section("Margins", "s-margins",
       ...KEY_POLICY_VALUES.filter(([n]) => S.named[n]).map(([n, label]) => valueRow(n, label)),
       el("details", { class: "more", open: more.some((n) => p.changes[n]) || null },
-        el("summary", {}, el("span", { text: `More values (${more.length})` }), caret()),
-        el("div", { class: "more__body" }, ...more.map((n) => valueRow(n, S.labels[n] || n)))),
-      el("details", { class: "more" },
-        el("summary", {}, el("span", { text: `Recovery values (${recovery.length})` }), notBuilt(), caret()),
-        el("div", { class: "more__body" },
-          el("p", { class: "hint", text: "Only recovery re-planning reads these, and it is not built for your network." }),
-          el("dl", { class: "kv" }, ...recovery.flatMap((n) => [el("dt", { text: S.labels[n] || n }), el("dd", { class: "mono", text: formatValue(n.split(".")[1], S.named[n]) })]))))));
+        el("summary", {}, el("span", { text: `More values (${more.length + recovery.length})` }), caret()),
+        el("div", { class: "more__body" }, ...more.map((n) => valueRow(n, S.labels[n] || n)),
+          recovery.length
+            ? el("div", { class: "pfixed" },
+              el("p", { class: "pfixed__h" }, el("b", { text: `Recovery values (${recovery.length})` }),
+                chipInfo(notBuilt(), { topic: "recovery values", label: "Why recovery values stay fixed", text: "Only recovery re-planning reads these, and it is not built for your network." })),
+              el("dl", { class: "kv" }, ...recovery.flatMap((n) => [el("dt", { text: S.labels[n] || n }), el("dd", { class: "mono", text: formatValue(n.split(".")[1], S.named[n]) })])))
+            : null))));
   }
   out.push(
     section("Who owns it", "s-owner",
       el("div", { class: "row2" },
-        field({ id: fid("policy.risk_owner"), label: "Risk owner", hint: "The post accountable for this policy in your safety management system.", control: bound(input({ placeholder: "e.g. Director of Flight Operations", maxlength: 80 }), () => p.risk_owner, (v) => { p.risk_owner = v; }, "policy") }),
-        field({ id: fid("policy.sra_ref"), label: "Your SRA reference", optional: true, hint: "Document id and revision. Needed once any value changes.", control: bound(input({ mono: true, maxlength: 120 }), () => p.sra_ref, (v) => { p.sra_ref = v; }, "policy") }))),
-    note("info", null, "Your policy file keeps the label ILLUSTRATIVE, not an airline SRA: TEPHRA cannot check an SRA. It records your numbers, your reasons and your SRA reference."));
+        field({ id: fid("policy.risk_owner"), label: "Risk owner", control: bound(input({ placeholder: "e.g. Director of Flight Operations", maxlength: 80 }), () => p.risk_owner, (v) => { p.risk_owner = v; }, "policy") }),
+        field({ id: fid("policy.sra_ref"), label: "SRA reference", optional: true, hint: "Needed if you change a value.", control: bound(input({ mono: true, maxlength: 120 }), () => p.sra_ref, (v) => { p.sra_ref = v; }, "policy") }))));
   return out;
 }
 
@@ -470,12 +469,16 @@ function fleetRow(row, i, { onEdit, onRemove }) {
     const id = fid(`fleet.aircraft.${i}.${key}`);
     const c = input({ ...attrs, value: row[key] ?? "", autocomplete: "off", "aria-label": `${label}, aircraft ${i + 1}${optional ? OPTIONAL : ""}` });
     c.id = id;
-    c.setAttribute("aria-describedby", `${id}-err${key === "seats" ? " fleet-seats-hint" : ""}`);
+    c.setAttribute("aria-describedby", `${id}-err${key === "seats" || key === "hex" ? " fleet-seats-hint" : ""}`);
     if (up) upperAsTyped(c);
     c.addEventListener("input", () => {
+      c.dataset.typed = "1";
       row[key] = up ? c.value.toUpperCase() : c.value.trim().toLowerCase();
       if (c.getAttribute("aria-invalid") === "true") showProblems("fleet", { only: id });
       onEdit();
+    });
+    c.addEventListener("blur", () => {
+      if (c.dataset.typed) showProblems("fleet", { only: id });
     });
     return el("td", { class: key === "registration" ? "wide" : null, dataset: { l: optional ? `${label}${OPTIONAL}` : label } }, c, el("p", { id: `${id}-err`, class: "err", hidden: true }));
   });
@@ -500,27 +503,18 @@ function fleetUpload(f, take) {
   return el("div", { class: "upload" },
     el("div", { class: "drop" },
       el("span", { class: "drop__ic" }, icon("i-file")),
-      el("p", {}, el("b", { text: "A CSV, or the kit's fleet.json" }), el("br"), "Read in this browser, nothing is uploaded. CSV columns: registration, type, seats, home base, hex (header optional, comma or tab)."),
+      el("p", {}, el("b", { text: "A CSV or fleet.json" }), el("br"), "Read in your browser; nothing is uploaded. ",
+        infoButton({ topic: "the CSV columns", label: "About the CSV columns", text: "Columns: registration, type, seats, home base, hex. A header row is optional; commas or tabs." })),
       el("label", { class: "btn btn--secondary", for: "fleet-file" }, icon("i-file"), el("span", { text: "Choose a file" })), file),
     field({ id: "fleet-paste", label: "Or paste rows", control: paste }),
     el("div", { class: "tool" }, read,
-      el("button", { type: "button", class: "linkbtn", dataset: { act: "tpl-fleet-csv" }, text: "Download the header row (.csv)" }),
-      el("button", { type: "button", class: "linkbtn", dataset: { act: "tpl-fleet-json" }, text: "Download an empty fleet.json" })),
+      el("button", { type: "button", class: "linkbtn", dataset: { act: "tpl-fleet-csv" }, text: "Empty .csv" }),
+      el("button", { type: "button", class: "linkbtn", dataset: { act: "tpl-fleet-json" }, text: "Empty fleet.json" })),
     result);
 }
 
 function fleetPage() {
   const f = V().fleet;
-  const check = el("dl", { class: "kv kv--mono" });
-  const drawCheck = () => {
-    const prefixes = [V().airline.callsign_prefix, ...(f.extra_prefixes || [])].map(upper).filter(Boolean);
-    const hexes = f.aircraft.map((r) => hexOf(r.hex)).filter(Boolean);
-    const bad = f.aircraft.filter((r) => r.hex && ruleMessage("fleet.hex", r.hex)).length;
-    const shownHex = hexes.length ? `${hexes.slice(0, 8).join(",")}${hexes.length > 8 ? ` and ${hexes.length - 8} more` : ""}` : "–";
-    check.replaceChildren(
-      el("dt", { text: "TEPHRA_FLEET_PREFIXES" }), el("dd", { text: prefixes.join(",") || "–" }),
-      el("dt", { text: "TEPHRA_FLEET_HEXES" }), el("dd", { text: `${shownHex}${bad ? ` · ${bad} to fix` : ""}` }));
-  };
   const countH = el("h2", { id: "s-aircraft" });
   const table = el("div", { class: "fleet" });
   const redraw = (focusRow = null) => {
@@ -532,10 +526,7 @@ function fleetPage() {
       redraw(S.fleetShown - ROWS_STEP);
     });
     const hooks = {
-      onEdit: () => {
-        drawCheck();
-        changed();
-      },
+      onEdit: () => changed(),
       onRemove: (i) => {
         f.aircraft.splice(i, 1);
         changed();
@@ -548,9 +539,8 @@ function fleetPage() {
         ? el("table", { class: "ftable" },
           el("thead", {}, el("tr", {}, ...FLEET_COLS.map(([, label, , , optional]) => el("th", { scope: "col" }, label, optional ? el("span", { class: "opt", text: OPTIONAL }) : null)), el("th", { scope: "col" }, el("span", { class: "sr-only", text: "Remove" })))),
           el("tbody", {}, ...rows.map((row, i) => fleetRow(row, i, hooks))))
-        : el("p", { class: "hint", text: "No aircraft yet: add them one by one, or upload a fleet file." }),
+        : el("p", { class: "hint", text: "No aircraft yet." }),
       more);
-    drawCheck();
     if (focusRow != null && focusRow >= 0) document.getElementById(fid(`fleet.aircraft.${focusRow}.registration`))?.focus();
   };
   const add = el("button", { type: "button", class: "btn btn--secondary" }, icon("i-plus"), el("span", { text: "Add aircraft" }));
@@ -578,11 +568,12 @@ function fleetPage() {
   };
   redraw();
   const aircraft = el("section", { class: "section", "aria-labelledby": "s-aircraft" },
-    countH, listErr("fleet.aircraft"), table,
+    el("div", { class: "section__h" }, countH,
+      infoButton({ topic: "which flights are checked", label: "Which flights are checked", text: "Checked: flights filed with your callsign letters, these aircraft, and what you push. A flight filed under a registration stays on the map, unchecked." })),
+    listErr("fleet.aircraft"), table,
     S.fleetTab === "type" ? el("div", { class: "tool" }, add) : null,
-    el("p", { id: "fleet-seats-hint", class: "hint", text: "Seats: 0 for a freighter. The hex address is the aircraft's ICAO 24-bit address, as in your ADS-B data." }),
-    el("details", { class: "help" }, el("summary", {}, el("span", { text: "Why the ICAO address" }), caret()),
-      el("p", { text: "The 24-bit address matches your aircraft even when it flies under another callsign, a wet lease or a codeshare. ADS-B carries no registrations, so an aircraft without one is found only by its callsign prefix." })));
+    el("p", { class: "hint infoline" }, el("span", { id: "fleet-seats-hint", text: "Seats: 0 for a freighter. Hex: the ICAO 24-bit address." }),
+      infoButton({ topic: "the ICAO address", label: "Why the ICAO address", text: "It matches your aircraft even under another callsign, a wet lease or a codeshare. ADS-B carries no registrations." })));
   const seg = segmented({
     label: "How to give your fleet", idBase: "fleet-how", value: S.fleetTab,
     tabs: [{ key: "type", text: "Type it in", icon: "i-pencil" }, { key: "upload", text: "Upload fleet file", icon: "i-file" }],
@@ -593,22 +584,19 @@ function fleetPage() {
   });
   const panel = el("div", { id: "fleet-how-panel", class: "tabpanel", role: "tabpanel", "aria-labelledby": `fleet-how-${S.fleetTab}` },
     S.fleetTab === "upload" ? fleetUpload(f, take) : null, aircraft);
+  const prefixes = [...(f.extra_prefixes || [])];
   return [
     seg, panel,
-    section("Other callsign prefixes", "s-prefixes",
-      el("div", { class: "field" },
-        el("label", { for: "fleet-prefixes" }, "Other callsign prefixes", el("span", { class: "opt", text: " (optional)" })),
-        chipsInput({ id: "fleet-prefixes", label: "Other callsign prefixes", values: [...(f.extra_prefixes || [])], max: 4, placeholder: "3 letters, Enter to add", describedBy: `fleet-prefixes-hint ${fid("fleet.extra_prefixes")}-err`, onChange: (list) => {
-          f.extra_prefixes = list;
-          drawCheck();
-          changed();
-        } }),
-        el("p", { id: "fleet-prefixes-hint", class: "hint", text: "Up to 4, three letters each: flights filed under these are yours too." }),
-        listErr("fleet.extra_prefixes"))),
-    section("What your TEPHRA will check", "s-check",
-      el("div", { class: "filter-preview" }, check,
-        el("p", { text: "Flights whose callsign starts with these letters, these aircraft, and every aircraft you push. Empty means every aircraft, as the demo does." }),
-        el("p", { text: "TEPHRA checks only flights whose callsign is three letters and a flight number; one flying under its registration stays on the map but is not checked." }))),
+    el("details", { class: "more more--page", open: prefixes.length || null },
+      el("summary", {}, el("span", { text: "Add other callsign prefixes" }), caret()),
+      el("div", { class: "more__body" },
+        el("div", { class: "field" },
+          chipsInput({ id: "fleet-prefixes", label: "Other callsign prefixes (optional)", values: prefixes, max: 4, placeholder: "3 letters, Enter to add", describedBy: `fleet-prefixes-hint ${fid("fleet.extra_prefixes")}-err`, onChange: (list) => {
+            f.extra_prefixes = list;
+            changed();
+          } }),
+          el("p", { id: "fleet-prefixes-hint", class: "hint", text: "Up to 4, 3 letters each." }),
+          listErr("fleet.extra_prefixes")))),
   ];
 }
 
@@ -641,8 +629,7 @@ function networkPage() {
         el("div", { class: "ap__h" }, el("code", { class: "ap__code", text: code }), el("span", { class: "ap__name", text: ap ? ap.name : "" }), end),
         caution ? el("p", { class: "ap__caution" }, icon("st-caution"), el("span", { text: caution.message })) : null,
         el("div", { class: "field" },
-          el("label", { for: altId }, `Alternates you use (optional)`),
-          chipsInput({ id: altId, label: `Alternates you use at ${code}`, values: [...(n.alternates[code] || [])], max: 5, placeholder: "ICAO code, Enter to add", describedBy: `net-alt-hint ${altId}-err`, onChange: (vals) => {
+          chipsInput({ id: altId, label: `Alternates at ${code} (optional)`, values: [...(n.alternates[code] || [])], max: 5, placeholder: "+ Alternate", describedBy: `${altId}-err`, onChange: (vals) => {
             n.alternates[code] = vals;
             delete S.server.network;
             changed();
@@ -653,12 +640,12 @@ function networkPage() {
     coverage.replaceChildren(...(outside ? [note("caution", null, outside.message)] : []));
     if (focusId) document.getElementById(focusId)?.focus();
   };
-  const pick = el("input", { id: "ap-add", class: "input", list: "ob-airports", autocomplete: "off", spellcheck: "false", placeholder: "ICAO, IATA or name", "aria-describedby": "ap-add-hint ap-add-err" });
+  const pick = el("input", { id: "ap-add", class: "input", list: "ob-airports", autocomplete: "off", spellcheck: "false", placeholder: "Search or type ICAO", "aria-describedby": "ap-add-err" });
   const addBtn = el("button", { type: "button", class: "btn btn--secondary" }, icon("i-plus"), el("span", { text: "Add airport" }));
   const add = () => {
     const code = airportCode(pick.value, S.airports);
     if (!code) {
-      setError(pick, "Four letters, A to Z, or one airport's name from the list.");
+      setError(pick, "4 letters, or one name from the list");
       return;
     }
     setError(pick, null);
@@ -675,20 +662,20 @@ function networkPage() {
     e.preventDefault();
     add();
   });
+  pick.addEventListener("input", () => {
+    if (pick.getAttribute("aria-invalid") === "true") setError(pick, null);
+  });
   draw();
-  const count = S.airports.size;
   return [
-    section("Airports", "s-airports",
+    section({ title: "Airports", info: { topic: "alternates", label: "About alternates", text: "Your alternates stay with your answers for your dispatchers. TEPHRA picks its own within your policy's search radius." } }, "s-airports",
       el("div", { class: "field" },
         el("label", { for: "ap-add", text: "Add an airport" }),
         el("div", { class: "addrow" }, pick, addBtn),
-        el("p", { id: "ap-add-hint", class: "hint", text: `${count ? `Search TEPHRA's ${count} airports, or type any ICAO code.` : "Type an ICAO code."} Your main base from page 1 is the first row.` }),
         el("p", { id: "ap-add-err", class: "err", hidden: true }),
         el("datalist", { id: "ob-airports" }, ...[...S.airports].map(([code, ap]) => el("option", { value: `${code}${ap.iata ? ` · ${ap.iata}` : ""} · ${ap.name}` })))),
       listErr("network.airports"),
       list,
-      coverage,
-      el("p", { id: "net-alt-hint", class: "hint", text: "Alternates are kept in your setup kit for your dispatchers. TEPHRA picks alternates itself from its airport list within your policy's search radius." })),
+      coverage),
   ];
 }
 
@@ -705,10 +692,10 @@ function schedulePage() {
     const res = scheduleCheck();
     s.summary = res.summary;
     if (res.flights || res.crews) s.skipped = false;
-    put(out, 
+    put(out,
       ...["flights", "crews"].map((k) => {
         const r = res[k];
-        if (!r) return el("p", { class: "hint", text: `${k}.json · not given` });
+        if (!r) return null;
         const remove = el("button", { type: "button", class: "linkbtn", "aria-label": `Remove ${k}.json`, text: "Remove" });
         remove.addEventListener("click", () => {
           const { [k]: _gone, ...rest } = S.local.files;
@@ -743,24 +730,25 @@ function schedulePage() {
       S.local.files = { ...S.local.files, [k]: await one.text() };
       const kept = keepLocal();
       draw();
-      if (kept !== "ok") out.prepend(note("caution", null, `This browser could not keep ${k}.json for your setup kit: add it again on the kit page before you download.`));
+      if (kept !== "ok") out.prepend(note("caution", null, `This browser could not keep ${k}.json: add it again if you reload.`));
       announce(`${k}.json read.`);
     });
     return el("div", { class: "drop" },
       el("span", { class: "drop__ic" }, icon("i-file")),
-      el("p", {}, el("b", { text: `${k}.json` }), el("br"), k === "flights" ? "One day's flights in TEPHRA's flights format (download an empty flights.json below), with your flight numbers and registrations." : "Your crews, each with its base and report time."),
+      el("p", {}, el("b", { text: `${k}.json` }),
+        k === "crews" ? [" ", chipInfo(notBuilt(), { topic: "crew re-planning", label: "About crew re-planning", text: "Recovery re-planning for your network is not built." })] : null,
+        el("br"), k === "flights" ? "One day's flights." : "Crews, with base and report time."),
       el("label", { class: "btn btn--secondary", for: id }, icon("i-file"), el("span", { text: `Choose ${k}.json` })), f);
   };
   const node = [
     section("Your files", "s-files",
-      el("p", { class: "section__sub", text: "Read in this browser, nothing is uploaded. Only the counts go with your answers; the files go into your setup kit." }),
+      el("p", { class: "section__sub", text: "Read in your browser; only counts are sent." }),
       fileInput("flights"), fileInput("crews"),
       el("div", { class: "tool" },
-        el("button", { type: "button", class: "linkbtn", dataset: { act: "tpl-flights" }, text: "Download an empty flights.json" }),
-        el("button", { type: "button", class: "linkbtn", dataset: { act: "tpl-crews" }, text: "Download an empty crews.json" })),
+        el("button", { type: "button", class: "linkbtn", dataset: { act: "tpl-flights" }, text: "Empty flights.json" }),
+        el("button", { type: "button", class: "linkbtn", dataset: { act: "tpl-crews" }, text: "Empty crews.json" })),
       listErr("schedule.files"),
       out),
-    note("notbuilt", "Not built yet.", "Recovery re-planning for your network is not built. Your crews file is kept in your setup kit for when it is."),
   ];
   window.queueMicrotask(draw);
   return node;
@@ -770,31 +758,34 @@ function schedulePage() {
 
 function feedsPage() {
   const f = V().feeds;
-  const none = el("p", { class: "hint", text: "None ticked: public ADS-B only, for now." });
+  const none = el("p", { class: "hint", text: "None ticked: public ADS-B only." });
   const syncNone = () => {
     none.hidden = Boolean(f.positions || f.flight_plans || f.pilot_reports);
   };
-  const box = (key, label, hint) => {
+  // the (i) sits beside the hint, outside the label, so it never ticks the box
+  const box = (key, label, hint, info) => {
     const c = el("input", { type: "checkbox", id: `feeds-${key}`, checked: Boolean(f[key]), "aria-describedby": `feeds-${key}-hint` });
     c.addEventListener("change", () => {
       f[key] = c.checked;
       syncNone();
       changed();
     });
-    return el("div", { class: "checkrow" }, el("label", { class: "check" }, c, el("b", { text: label })), el("p", { id: `feeds-${key}-hint`, class: "hint", text: hint }));
+    return el("div", { class: "checkrow" }, el("label", { class: "check" }, c, el("b", { text: label })),
+      el("p", { class: "hint infoline" }, el("span", { id: `feeds-${key}-hint`, text: hint }), info ? infoButton(info) : null));
   };
   syncNone();
   return [
-    section("What you will send", "s-send",
-      box("positions", "Positions", "From your own tracking. Each one carries the aircraft's ICAO 24-bit address and the time it was measured, within 5 minutes of your TEPHRA's clock. Only a position with an airline-style callsign (designator and flight number, e.g. RFA1654) is checked against the ash; one without stays on the map."),
-      box("flight_plans", "Flight plans", "Origin, destination and times: your routes on the maps and the closed-airport check."),
-      box("pilot_reports", "Pilot reports", "Special air-reports of volcanic ash (AIREP SPECIAL, VAR): where and when a crew saw ash, entered as caution areas, never shrinking the official one."),
+    section("What you send", "s-send",
+      box("positions", "Positions", "From your own tracking.", { topic: "positions", label: "About positions", text: "Each carries the ICAO 24-bit address and its measurement time, within 5 minutes of TEPHRA's clock. Only airline-style callsigns (RFA1654) are checked." }),
+      box("flight_plans", "Flight plans", "Routes and times.", { topic: "flight plans", label: "About flight plans", text: "They draw your routes on the maps and feed the closed-airport check." }),
+      box("pilot_reports", "Pilot reports", "Where crews saw ash.", { topic: "pilot reports", label: "About pilot reports", text: "Special air-reports (AIREP SPECIAL, VAR) become caution areas. They never shrink the official one." }),
       none,
-      field({ id: fid("feeds.source_system"), label: "Where they come from", optional: true, control: bound(input({ placeholder: "e.g. our flight-following system", maxlength: 80 }), () => f.source_system, (v) => { f.source_system = v; }, "feeds") })),
-    section("The format", "s-format",
-      el("p", {}, "One JSON push in the ", el("code", { text: "tephra.airline/1" }), " format, with any of three sections. ", el("a", { class: "link", href: PATHS.schema, download: "", text: "Schema (JSON)" })),
-      el("p", { text: "Your setup kit's push.py sends it, and stamps observed_at at send time for positions measured just then." }),
-      el("p", { text: "Once you submit, try a file in the dry run in your workspace." })),
+      field({ id: fid("feeds.source_system"), label: "Source system", optional: true, control: bound(input({ placeholder: "e.g. our flight-following system", maxlength: 80 }), () => f.source_system, (v) => { f.source_system = v; }, "feeds") })),
+    el("details", { class: "more more--page" },
+      el("summary", {}, el("span", { text: "Format: tephra.airline/1" }), caret()),
+      el("div", { class: "more__body" },
+        el("p", { class: "body2" }, "One JSON push with any of three sections. ", el("a", { class: "link", href: PATHS.schema, download: "", text: "Schema (JSON)" })),
+        el("p", { class: "body2", text: "Once you submit, try a file in the dry run in your workspace." }))),
   ];
 }
 
@@ -811,11 +802,15 @@ function peoplePage() {
           const nid = fid(`people.dispatchers.${i}.name`);
           const name = input({ value: d.name, maxlength: 32, autocomplete: "off", "aria-label": `Name or initials, dispatcher ${i + 1}` });
           name.id = nid;
-          name.setAttribute("aria-describedby", `${nid}-err people-hint`);
+          name.setAttribute("aria-describedby", `${nid}-err`);
           name.addEventListener("input", () => {
+            name.dataset.typed = "1";
             d.name = name.value;
             if (name.getAttribute("aria-invalid") === "true") showProblems("people", { only: nid });
             changed();
+          });
+          name.addEventListener("blur", () => {
+            if (name.dataset.typed) showProblems("people", { only: nid });
           });
           const rid = fid(`people.dispatchers.${i}.role`);
           const role = el("select", { id: rid, class: "select", "aria-label": `Role, dispatcher ${i + 1}`, "aria-describedby": `${rid}-err` },
@@ -851,8 +846,8 @@ function peoplePage() {
   });
   draw();
   return [
-    section("Dispatchers", "s-people", listErr("people.dispatchers"), box, el("div", { class: "tool" }, add),
-      el("p", { id: "people-hint", class: "hint", text: "Their names stay in your workspace and never go to a model. In your own TEPHRA each one signs in on the Desk with your Desk PIN and their name." })),
+    section({ title: "Dispatchers", info: { topic: "names", label: "About names", text: "Names stay in your workspace and never reach a model." } }, "s-people",
+      listErr("people.dispatchers"), box, el("div", { class: "tool" }, add)),
   ];
 }
 
@@ -860,14 +855,13 @@ function peoplePage() {
 
 function assistantPage() {
   const choice = modelChoice(V().assistant, {
-    ollama: S.edit ? null : { get: () => S.local.ollama_url ?? DEFAULT_OLLAMA_URL, set: (v) => { S.local.ollama_url = v; keepLocal(); } },
     onChange: () => {
       delete S.server.assistant;
       changed();
     },
     recheck: (id) => showProblems("assistant", { only: id }),
   });
-  return [section("Where its model runs", "s-model", choice)];
+  return [el("div", { class: "section" }, choice)];
 }
 
 // --- page 9 · Review -------------------------------------------------------------------------------
@@ -875,8 +869,7 @@ function assistantPage() {
 function allProblems() {
   const out = [];
   for (const key of ANSWER_PAGES) {
-    const page = pageOf(key);
-    for (const p of checkPage(key, V(), ctxFor(key))) out.push({ page: key, field: p.field, text: `${page.name}: ${p.message}` });
+    for (const p of checkPage(key, V(), ctxFor(key))) out.push({ page: key, field: p.field, text: problemText(key, p) });
     for (const p of S.server[key] || []) out.push(p);
   }
   return out;
@@ -887,7 +880,7 @@ function reviewPage() {
   return [
     el("div", { id: "ob-errors", class: "ob-errors", role: "alert", tabindex: "-1", hidden: true }),
     reviewList(answers, { named: S.named, labels: S.labels, problems: Object.fromEntries(ANSWER_PAGES.map((k) => [k, problemCount(k)])), unseen: new Set(ANSWER_PAGES.filter((k) => !S.draft.seen.includes(k))), editHref: (k) => `/onboard/${k}` }),
-    note("info", null, "After you submit, your airline is pending verification until a TEPHRA dispatcher verifies it, and your setup kit is ready in your workspace at once. You can still change your answers while it is pending."),
+    el("p", { class: "hint", text: "A dispatcher verifies you next. You can still edit." }),
   ];
 }
 
@@ -982,10 +975,11 @@ function actionBar(key) {
   const back = i === 0
     ? el("a", { class: "btn btn--secondary", href: "/workspace", dataset: { go: "" }, text: "‹ Workspace" })
     : el("a", { class: "btn btn--secondary", href: `/onboard/${PAGE_KEYS[i - 1]}`, dataset: { go: PAGE_KEYS[i - 1] }, text: "‹ Back" });
-  const words = key === "review" ? "Submit for verification" : S.leaveAnyway === key ? "Next anyway ›" : `Next: ${pageOf(PAGE_KEYS[i + 1]).name} ›`;
+  const words = key === "review" ? "Submit for verification" : S.leaveAnyway === key ? "Next anyway ›" : `Next: ${pageOf(PAGE_KEYS[i + 1]).short} ›`;
   const next = el("button", { type: "submit", form: "ob-form", class: "btn btn--primary" }, el("span", { text: words }));
   const skip = key === "schedule" ? el("button", { type: "button", class: "btn btn--quiet", dataset: { act: "skip" }, text: "Skip for now" }) : null;
-  put(bar, back, el("p", { class: "actions__mid", text: key === "review" ? "" : "Back and Next save your answers to your account." }), skip, next);
+  // the middle says only a save that failed (sayNotSaved); the Saved mark says the rest
+  put(bar, back, el("p", { class: "actions__mid" }), skip, next);
 }
 
 function renderPage(key) {
@@ -999,7 +993,9 @@ function renderPage(key) {
   }
   if (S.leaveAnyway !== key) S.leaveAnyway = null;
   const form = el("form", { id: "ob-form", class: "form", novalidate: true },
-    el("div", { class: "form__head" }, el("h1", { text: page.h1 }), el("p", { text: page.why })),
+    el("div", { class: "form__head" },
+      el("div", { class: "form__h1" }, el("h1", { text: page.h1 }), page.info ? infoButton({ topic: page.short, label: `About ${page.short}`, text: page.info }) : null),
+      el("p", { text: page.why })),
     ...BUILDERS[key]());
   form.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -1008,11 +1004,6 @@ function renderPage(key) {
     else next(key);
   });
   $("main").replaceChildren(form);
-  const withAside = key !== "review" && !S.edit;
-  $("ob-aside").replaceChildren(...(withAside ? [aside()] : []));
-  $("ob-aside").hidden = !withAside;
-  document.body.classList.toggle("ob--noaside", !withAside);
-  drawAside();
   drawSteps(key);
   actionBar(key);
   setSaved(S.dirty ? "" : "ok");
@@ -1069,14 +1060,15 @@ async function saveEdit(key) {
 
 // --- the landing: the account first --------------------------------------------------------------
 
+// What an airline provides, one line a page, in a fold the person opens when they want it.
 function provideList() {
-  return el("section", { class: "provide", "aria-labelledby": "provide-h" },
-    el("h2", { id: "provide-h", class: "h3", text: "How to onboard: what you provide" }),
+  return el("details", { id: "ob-provide", class: "provide" },
+    el("summary", {}, el("span", { text: "What you will provide" }), caret()),
     el("ol", { class: "provide__list" }, ...PROVIDE.map((p, i) => el("li", { class: "provide__i" },
       el("span", { class: "provide__ic", "aria-hidden": "true" }, icon(p.icon)),
       el("p", {},
         el("b", {}, el("span", { class: "provide__n", text: String(i + 1) }), p.name),
-        ` ${p.text.charAt(0).toUpperCase()}${p.text.slice(1)}`, p.code ? el("code", { text: p.code }) : null, p.after || null)))));
+        ` ${p.text}`, p.code ? el("code", { text: p.code }) : null)))));
 }
 
 function signupWords(res) {
@@ -1091,22 +1083,11 @@ function signupWords(res) {
   return el("p", { text: `No account was created (HTTP ${res.status}).` });
 }
 
-function accountProblems(v) {
-  const out = [];
-  const e = ruleMessage("acct.email", v.email);
-  if (e) out.push(["acct-email", e]);
-  const p = ruleMessage("acct.password", v.password);
-  if (p) out.push(["acct-password", p]);
-  else if (v.password.trim().toLowerCase() === v.email) out.push(["acct-password", "The password must not be your email."]);
-  if (!v.ack) out.push(["acct-ack", "Tick this to go on."]);
-  return out;
-}
-
 async function createAccount(fields, button, box) {
   const v = fields.values();
   for (const id of ["acct-email", "acct-password", "acct-ack"]) setError($(id), null);
   box.hidden = true;
-  const problems = accountProblems(v);
+  const problems = fields.problems();
   for (const [id, msg] of problems) setError($(id), msg);
   if (problems.length) {
     $(problems[0][0]).focus();
@@ -1137,10 +1118,12 @@ async function createAccount(fields, button, box) {
 }
 
 function signupCard() {
-  const fields = accountFields({ accountsOn: S.accounts });
+  const fields = accountFields();
   const box = el("div", { id: "su-errors", class: "ob-errors", role: "alert", tabindex: "-1", hidden: true });
   const button = el("button", { type: "submit", class: "btn btn--primary btn--block", disabled: S.accounts ? null : true }, el("span", { text: "Create account" }));
-  const form = el("form", { id: "su-form", class: "authform", novalidate: true }, fields.node, box, button);
+  const off = S.accounts ? null : el("div", { class: "note note--caution", role: "status" }, icon("st-caution"),
+    el("p", {}, ACCOUNTS_OFF, " ", infoButton({ topic: "the operator", label: "For the operator", text: ACCOUNTS_OFF_HOW })));
+  const form = el("form", { id: "su-form", class: "authform", novalidate: true }, off, fields.node, box, button);
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     createAccount(fields, button, box);
@@ -1148,28 +1131,34 @@ function signupCard() {
   return el("section", { id: "ob-signup", class: "card signup", "aria-labelledby": "su-h" },
     el("h2", { id: "su-h", class: "h2", text: "Create your account" }),
     form,
-    el("p", { class: "body2" }, "Already have an account? ", el("a", { class: "link", href: "/signin", text: "Sign in" })),
-    el("p", { class: "hint", text: "Only you and this site's TEPHRA dispatchers, who verify your airline, read your answers. Nothing you enter appears on the demo's map or the Desk's picture." }));
+    el("p", { class: "body2" }, "Have an account? ", el("a", { class: "link", href: "/signin", text: "Sign in" })),
+    el("p", { id: "su-private", class: "infoline" }, icon("i-lock"), el("span", { text: "Private to your airline" }),
+      infoButton({ topic: "who reads your answers", label: "Who reads your answers", text: WHO_READS, actions: [el("a", { class: "link", href: "/privacy", text: "Privacy" })] })));
 }
 
 function landing() {
   document.title = "Onboard your airline · TEPHRA";
   const me = S.account?.signedIn ? S.account : null;
-  // Signed in, the airline has submitted already: its workspace, never a second account.
-  const side = me
+  // Signed in, the airline has submitted already: its workspace, never a second account. When the
+  // account did not load, the landing says so and claims nothing about the answers.
+  const failed = me && S.meFail;
+  const side = failed
     ? el("section", { id: "ob-signup", class: "card signup", "aria-labelledby": "su-h" },
-      el("h2", { id: "su-h", class: "h2", text: "Your answers are submitted" }),
-      el("p", { class: "body2", text: `You are signed in as ${[me.icao, me.name].filter(Boolean).join(" · ")}. Your workspace says where verification stands.` }),
+      el("h2", { id: "su-h", class: "h2", text: "Your account did not load" }),
+      el("p", { class: "err err--alarm", role: "alert", text: failWords(S.meFail) }))
+    : me
+    ? el("section", { id: "ob-signup", class: "card signup", "aria-labelledby": "su-h" },
+      el("h2", { id: "su-h", class: "h2", text: "Answers submitted" }),
+      el("p", { class: "body2", text: `Signed in as ${[me.icao, me.name].filter(Boolean).join(" · ")}.` }),
       el("a", { id: "ob-start", class: "btn btn--primary btn--block", href: "/workspace" }, el("span", { text: "Open your workspace" }), icon("i-arrow-right")))
     : signupCard();
   $("main").replaceChildren(el("div", { class: "ostart" },
     el("div", { class: "ostart__head" },
-      el("p", { class: "eyebrow", text: "Onboard your airline" }),
       el("h1", { class: "h1", text: "Set TEPHRA up for your airline" })),
     side,
-    provideList(),
-    el("div", { id: "ob-notbuilt", class: "note note--notbuilt ostart__note", role: "note" }, icon("i-info"),
-      el("p", {}, el("b", { text: "Not built yet. " }), NOT_BUILT))));
+    el("div", { class: "ostart__side" },
+      provideList(),
+      el("p", { id: "ob-notyet", class: "notyet" }, icon("i-info"), el("span", { text: NOT_ON_YET })))));
 }
 
 // --- done and off ----------------------------------------------------------------------------------
@@ -1178,8 +1167,9 @@ function done() {
   document.title = "Recovery code · Onboard · TEPHRA";
   const key = firstUnfinished(S.draft, ctxFor);
   $("main").replaceChildren(recoveryCard(S.recovery, {
-    lead: "It is shown once. With it you can get back into your account if you forget your password; reset by email is not built.",
-    next: { href: `/onboard/${key}`, text: `Continue: ${pageOf(key).name}`, go: true },
+    lead: "Shown once. Your way back if you forget your password.",
+    chip: "Email reset: not built",
+    next: { href: `/onboard/${key}`, text: `Continue: ${pageOf(key).short}`, go: true },
     extra: S.legacy ? legacyOffer() : null,
   }));
 }
@@ -1188,12 +1178,12 @@ function done() {
 // when asked; Discard removes them from the browser.
 function legacyOffer() {
   const when = S.legacy?.at ? new Date(S.legacy.at) : null;
-  const dated = when && !Number.isNaN(when.getTime()) ? ` (from ${when.toISOString().slice(0, 10)})` : "";
+  const dated = when && !Number.isNaN(when.getTime()) ? ` (${when.toISOString().slice(0, 10)})` : "";
   const use = el("button", { type: "button", class: "btn btn--secondary btn--sm" }, el("span", { text: "Use them" }));
   const drop = el("button", { type: "button", class: "btn btn--quiet btn--sm" }, el("span", { text: "Discard" }));
   const said = el("p", { class: "body2", role: "status" });
   const box = el("div", { id: "ob-legacy", class: "legacy", role: "group", "aria-labelledby": "lg-h" },
-    el("p", { id: "lg-h", class: "body2" }, el("b", { text: `Answers from an earlier visit are in this browser${dated}.` }), " On a shared computer they may be another airline's."),
+    el("p", { id: "lg-h", class: "body2" }, el("b", { text: `Answers from an earlier visit are in this browser${dated}.` }), " Not yours? Discard."),
     el("div", { class: "legacy__act" }, use, drop), said);
   const settle = (words) => {
     S.legacy = null;
@@ -1201,19 +1191,19 @@ function legacyOffer() {
     said.textContent = words;
     const next = $("main").querySelector(".auth__card a.btn--primary");
     const key = firstUnfinished(S.draft, ctxFor);
-    if (next) { next.href = `/onboard/${key}`; next.querySelector("span").textContent = `Continue: ${pageOf(key).name}`; }
+    if (next) { next.href = `/onboard/${key}`; next.querySelector("span").textContent = `Continue: ${pageOf(key).short}`; }
   };
   use.addEventListener("click", async () => {
     use.disabled = drop.disabled = true;
     S.draft = draftOf(S.legacy);
     S.dirty = true;
     const ok = await saveDraft();
-    if (ok) settle("The answers from your earlier visit are now in your account.");
+    if (ok) settle("Answers added.");
     else use.disabled = drop.disabled = false;
   });
   drop.addEventListener("click", () => {
     dropLegacyDraft();
-    settle("Discarded: they are no longer in this browser.");
+    settle("Discarded.");
   });
   return box;
 }
@@ -1232,7 +1222,8 @@ function offCard(words) {
 async function loadMe() {
   if (S.me || !S.account?.signedIn) return S.me;
   const res = await call(PATHS.me);
-  if (res.ok && res.data) {
+  S.meFail = res.ok && res.data ? null : res;
+  if (!S.meFail) {
     S.me = res.data;
     if (S.me.status === "draft") S.draft = draftOf(S.me.draft);
   }

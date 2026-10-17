@@ -6,45 +6,51 @@
 
 export const ONBOARD_FORMAT = "tephra.onboard/2";
 
+// `name` is the page's full name (its title, the Review rows' aria); `short` is what the step
+// list, the Next button and the Review rows show; `why` is the one line under the h1, and `info`
+// what its (i) holds.
 export const PAGES = [
-  { key: "airline", n: 1, name: "Airline", h1: "Your airline", why: "Who you are, and how TEPHRA tells your flights from everyone else's." },
-  { key: "policy", n: 2, name: "Ash policy", h1: "Your ash policy", why: "Under ICAO Doc 9974 each operator decides how it flies near ash, through its own safety risk assessment (SRA)." },
-  { key: "fleet", n: 3, name: "Fleet", h1: "Your fleet", why: "Your TEPHRA checks only these aircraft, plus any you push. Everyone else's flights stay on the map, off your Desk." },
-  { key: "network", n: 4, name: "Network", h1: "Your network", why: "The airports you fly to: your TEPHRA watches them for closure by ash." },
-  { key: "schedule", n: 5, name: "Schedule and crews", h1: "Your schedule and crews", why: "One day's flights, so your TEPHRA can push flight plans and draw your routes. Optional: you can add them later." },
-  { key: "feeds", n: 6, name: "Data feeds", h1: "Your data feeds", why: "Your TEPHRA reads the public ash feeds and ADS-B by itself. These add what only you have." },
-  { key: "people", n: 7, name: "People", h1: "Your people", why: "The dispatchers who will approve advisories in your TEPHRA." },
-  { key: "assistant", n: 8, name: "Assistant (AI model)", h1: "Your assistant's model", why: "TEPHRA Assistant reads the ash, plans each flight and drafts. Choose where its model runs." },
-  { key: "review", n: 9, name: "Review", h1: "Review and submit", why: "Check each page, then submit your answers. A TEPHRA dispatcher verifies your airline next." },
+  { key: "airline", n: 1, name: "Airline", short: "Airline", h1: "Your airline", why: "A TEPHRA dispatcher verifies your airline before anything runs." },
+  { key: "policy", n: 2, name: "Ash policy", short: "Ash policy", h1: "Your ash policy", why: "Your margins around official ash areas.", info: "Under ICAO Doc 9974 each operator decides how it flies near ash, through its own safety risk assessment (SRA)." },
+  { key: "fleet", n: 3, name: "Fleet", short: "Fleet", h1: "Your fleet", why: "Only these aircraft are checked." },
+  { key: "network", n: 4, name: "Network", short: "Network", h1: "Your network", why: "Airports to watch for ash closure." },
+  { key: "schedule", n: 5, name: "Schedule and crews", short: "Schedule", h1: "Your schedule and crews", why: "One day's flights and crews. Optional." },
+  { key: "feeds", n: 6, name: "Data feeds", short: "Data feeds", h1: "Your data feeds", why: "Add what only you have.", info: "TEPHRA reads the public ash feeds and ADS-B by itself." },
+  { key: "people", n: 7, name: "People", short: "People", h1: "Your people", why: "Who approves advisories." },
+  { key: "assistant", n: 8, name: "Assistant (AI model)", short: "AI model", h1: "AI model", why: "Choose where it runs.", info: "TEPHRA Assistant reads the ash, plans each flight and drafts." },
+  { key: "review", n: 9, name: "Review", short: "Review", h1: "Review and submit", why: "Check each page, then submit." },
 ];
 export const PAGE_KEYS = PAGES.map((p) => p.key);
 export const ANSWER_PAGES = PAGE_KEYS.slice(0, 8);
 export const pageOf = (key) => PAGES.find((p) => p.key === key) || null;
 
-// "How to onboard: what you provide" (also in README.md and docs/ONBOARDING.md, word for word).
-// `code` marks the part drawn in mono.
+// "What you will provide": one line per page on the landing, in a closed fold. README.md and
+// docs/ONBOARDING.md keep the long wording.
 export const PROVIDE = [
-  { key: "airline", icon: "i-clipboard", name: "Airline", text: "name, ICAO and IATA codes, callsign prefix, State of the Operator and AOC number, main base and an operations contact." },
-  { key: "policy", icon: "i-gauge", name: "Ash policy", text: "start from Policy A, which is ILLUSTRATIVE, and set your own margins, each change with its reason." },
-  { key: "fleet", icon: "i-aircraft", name: "Fleet", text: "each aircraft's registration, type, seats, home base and ICAO 24-bit address." },
-  { key: "network", icon: "i-route", name: "Network", text: "the airports you fly to, and the alternates you use." },
-  { key: "schedule", icon: "i-clock", name: "Schedule and crews", text: "one day's flights and your crew bases, in TEPHRA's file formats (optional)." },
-  { key: "feeds", icon: "i-network", name: "Data feeds", text: "which of positions, flight plans and pilot reports you will send, in the ", code: "tephra.airline/1", after: " format." },
-  { key: "people", icon: "i-dispatcher", name: "People", text: "the dispatchers who approve advisories, and their roles." },
-  { key: "assistant", icon: "ta-16", name: "Assistant (AI model)", text: "Gemini or Gemma with your own Google AI Studio key, Gemma on your own computer through Ollama, or no model." },
-  { key: "review", icon: "i-check", name: "Review", text: "check every answer and submit it for verification." },
+  { key: "airline", icon: "i-clipboard", name: "Airline", text: "Name, codes, base, ops contact" },
+  { key: "policy", icon: "i-gauge", name: "Ash policy", text: "Policy A (ILLUSTRATIVE), your margins and reasons" },
+  { key: "fleet", icon: "i-aircraft", name: "Fleet", text: "Registration, type, seats, ICAO 24-bit address" },
+  { key: "network", icon: "i-route", name: "Network", text: "Airports you fly to, and alternates" },
+  { key: "schedule", icon: "i-clock", name: "Schedule", text: "One day's flights and crews (optional)" },
+  { key: "feeds", icon: "i-network", name: "Data feeds", text: "Positions, flight plans, pilot reports: ", code: "tephra.airline/1" },
+  { key: "people", icon: "i-dispatcher", name: "People", text: "Dispatchers and their roles" },
+  { key: "assistant", icon: "ta-16", name: "AI model", text: "Gemini, Ollama or none" },
+  { key: "review", icon: "i-check", name: "Review", text: "Check and submit" },
 ];
 
-// The one "Not built" line the landing and the workspace say.
-export const NOT_BUILT = "This shared site runs the demo only. To check your own flights, run your own TEPHRA with the setup kit.";
+// Who reads an airline's answers: the (i) behind "Private to your airline" on the sign-up card and the
+// workspace header.
+export const WHO_READS = "Only you and this site's TEPHRA dispatchers, who verify your airline, read your answers. Nothing you enter appears on the demo's map or the Desk's picture.";
+
+// The one line the landing and the workspace say while this site runs no airline's operation.
+export const NOT_ON_YET = "Running your airline on this site is not switched on yet.";
 // The workspace's line once this site hosts airlines (SPEC hosted §9), with the site's own limit
 // (TEPHRA_HOSTED_MAX_TENANTS, from GET /api/hosted/me).
-export const notBuiltHosted = (max) => `TEPHRA runs at most ${max} ${max === 1 ? "airline" : "airlines"} at once on this site. Your own TEPHRA with the setup kit has no such limit.`;
+export const notBuiltHosted = (max) => `TEPHRA runs at most ${max} ${max === 1 ? "airline" : "airlines"} at once on this site.`;
 
 // TEPHRA's free-tier table (tephra/config.py DEFAULT_MODEL_LIMITS); a test keeps the two equal.
 export const FREE_TIER_MODELS = ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-flash-lite-tts", "gemma-4-31b-it", "gemma-4-26b-a4b-it"];
 export const DEFAULT_MODELS = { gemini: ["gemini-3.8-flash", "gemini-3.5-flash-lite"], ollama: ["gemma4:e4b", "gemma4:e4b"] };
-export const DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434";
 
 // tephra/models.py POSITIVE_POLICY_VALUES: a zero would switch the check off (a test keeps them equal).
 export const POSITIVE_POLICY_VALUES = [
@@ -55,10 +61,10 @@ export const POSITIVE_POLICY_VALUES = [
 ];
 // The four values the Ash policy page shows first; the other editable ones sit under "More values".
 export const KEY_POLICY_VALUES = [
-  ["exposure.vertical_margin_ft", "Margin above and below the ash"],
-  ["reroute.buffer_nm", "Reroute buffer outside the ash"],
-  ["planner.hold_within_min", "Advise a hold when entry is within"],
-  ["planner.divert_within_min", "Divert when entry is within"],
+  ["exposure.vertical_margin_ft", "Vertical margin"],
+  ["reroute.buffer_nm", "Reroute buffer"],
+  ["planner.hold_within_min", "Hold if entry within"],
+  ["planner.divert_within_min", "Divert if entry within"],
 ];
 // tephra.airline.policy_check.EDITABLE: every value outside recovery, plus the closure radius
 // (recovery re-planning for an airline's network is not built, so its values stay as they are).
@@ -69,7 +75,6 @@ const ICAO4 = /^[A-Z]{4}$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 const AI_STUDIO_MODEL = /^(gemini|gemma)-[a-z0-9.-]{1,60}$/;
 const OLLAMA_TAG = /^[a-z0-9._-]{1,60}:[a-z0-9._-]{1,40}$/;
-const OLLAMA_URL = /^https?:\/\/[^\s]{3,200}$/;
 
 const str = (v) => (typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim());
 export const upper = (v) => str(v).toUpperCase();
@@ -79,40 +84,41 @@ const lowerFirst = (t) => t.charAt(0).toLowerCase() + t.slice(1);
 const count = (n, one, many = `${one}s`) => `${n.toLocaleString("en")} ${n === 1 ? one : many}`;
 
 // One rule per kind of answer: the label the error words use, then length and shape. `norm`
-// is what the field holds once tidied (codes upper-cased, hex lower-cased).
+// is what the field holds once tidied (codes upper-cased, hex lower-cased). The words are terse
+// (owner, 17 Oct: "keep it modular"): the field's own label says what it is; the server refuses the
+// same things (tephra.airline.models.AirlineAnswers).
 export const RULES = {
   "airline.name": { label: "Airline name", required: true, min: 2, max: 120 },
-  "airline.icao": { label: "ICAO designator", required: true, norm: upper, pattern: /^[A-Z]{3}$/, msg: "Three letters, A to Z." },
-  "airline.iata": { label: "IATA code", norm: upper, pattern: /^[A-Z0-9]{2}$/, msg: "Two letters or digits." },
-  "airline.callsign_prefix": { label: "Callsign prefix", required: true, norm: upper, pattern: /^[A-Z]{3}$/, msg: "Three letters, A to Z." },
+  "airline.icao": { label: "ICAO designator", required: true, norm: upper, pattern: /^[A-Z]{3}$/, msg: "3 letters, A to Z" },
+  "airline.iata": { label: "IATA code", norm: upper, pattern: /^[A-Z0-9]{2}$/, msg: "2 letters or digits" },
+  "airline.callsign_prefix": { label: "Callsign prefix", required: true, norm: upper, pattern: /^[A-Z]{3}$/, msg: "3 letters, A to Z" },
   "airline.state_of_operator": { label: "State of the Operator", required: true, min: 2, max: 60 },
   "airline.aoc_number": { label: "AOC number", max: 40 },
-  "airline.main_base": { label: "Main base", required: true, norm: upper, pattern: ICAO4, msg: "Four letters, A to Z." },
-  "airline.ops_email": { label: "Operations email", required: true, max: 254, norm: (v) => str(v).toLowerCase(), pattern: EMAIL, msg: "Enter an email address, like ops@rfa.example." },
+  "airline.main_base": { label: "Main base", required: true, norm: upper, pattern: ICAO4, msg: "4 letters, A to Z" },
+  "airline.ops_email": { label: "Operations email", required: true, max: 254, norm: (v) => str(v).toLowerCase(), pattern: EMAIL, msg: "Not an email" },
   "airline.contact_name": { label: "Contact name", max: 80 },
-  "policy.value": { label: "Value", required: true, integer: [0, 100_000], msg: "A whole number from 0 to 100,000." },
-  "policy.reason": { label: "Reason", required: true, min: 3, max: 300, minMsg: "A reason of 3 to 300 characters is needed.", needMsg: "A reason of 3 to 300 characters is needed." },
+  "policy.value": { label: "Value", required: true, integer: [0, 100_000], msg: "Whole number, 0 to 100,000" },
+  "policy.reason": { label: "Reason", required: true, min: 3, max: 300, minMsg: "3 to 300 characters", maxMsg: "3 to 300 characters" },
   "policy.risk_owner": { label: "Risk owner", required: true, min: 2, max: 80 },
-  "policy.sra_ref": { label: "Your SRA reference", max: 120 },
-  "fleet.registration": { label: "Registration", required: true, norm: upper, pattern: /^[A-Z0-9-]{2,10}$/, msg: "2 to 10 letters, digits or dashes." },
-  "fleet.type_icao": { label: "Type", required: true, norm: upper, pattern: /^[A-Z0-9]{2,4}$/, msg: "An ICAO type designator, e.g. A320." },
-  "fleet.seats": { label: "Seats", required: true, integer: [0, 1000], msg: "A whole number from 0 to 1,000." },
-  "fleet.home_base": { label: "Home base", norm: upper, pattern: ICAO4, msg: "Four letters, A to Z." },
-  "fleet.hex": { label: "Hex address", norm: hexOf, pattern: /^[0-9a-f]{6}$/, msg: "Hex is 6 characters, 0-9 and a-f." },
-  "fleet.extra_prefixes": { label: "Other callsign prefix", norm: upper, pattern: /^[A-Z]{3}$/, msg: "Three letters, A to Z." },
-  "network.icao": { label: "Airport", norm: upper, pattern: ICAO4, msg: "Four letters, A to Z." },
-  "network.alternates": { label: "Alternate", norm: upper, pattern: ICAO4, msg: "Four letters, A to Z." },
-  "feeds.source_system": { label: "Where they come from", max: 80 },
-  "people.name": { label: "Name or initials", required: true, min: 2, max: 32, minMsg: "2 to 32 characters.", maxMsg: "2 to 32 characters." },
-  "people.role": { label: "Role", required: true, pattern: /^(approves|views)$/, msg: "Choose a role." },
-  "assistant.provider": { label: "Where the model runs", required: true, pattern: /^(gemini|ollama|none)$/, msg: "Choose where the model runs.", needMsg: "Choose where the model runs." },
-  "assistant.gemini": { label: "Model", required: true, pattern: AI_STUDIO_MODEL, msg: "A Gemini or Gemma model name, e.g. gemini-3.8-flash." },
-  "assistant.ollama": { label: "Model tag", required: true, pattern: OLLAMA_TAG, msg: "An Ollama tag, name:tag, e.g. gemma4:e4b." },
-  "assistant.ollama_url": { label: "Ollama address", required: true, pattern: OLLAMA_URL, msg: "An address like http://127.0.0.1:11434." },
-  "acct.email": { label: "Email", required: true, max: 254, norm: (v) => str(v).toLowerCase(), pattern: EMAIL, msg: "Enter an email address, like ops@rfa.example." },
-  "acct.password": { label: "Password", required: true, min: 12, max: 128, minMsg: "12 characters or more.", raw: true },
+  "policy.sra_ref": { label: "SRA reference", max: 120 },
+  "fleet.registration": { label: "Registration", required: true, norm: upper, pattern: /^[A-Z0-9-]{2,10}$/, msg: "2 to 10 letters, digits or dashes" },
+  "fleet.type_icao": { label: "Type", required: true, norm: upper, pattern: /^[A-Z0-9]{2,4}$/, msg: "ICAO type, e.g. A320" },
+  "fleet.seats": { label: "Seats", required: true, integer: [0, 1000], msg: "Whole number, 0 to 1,000" },
+  "fleet.home_base": { label: "Home base", norm: upper, pattern: ICAO4, msg: "4 letters, A to Z" },
+  "fleet.hex": { label: "Hex address", norm: hexOf, pattern: /^[0-9a-f]{6}$/, msg: "6 characters, 0-9 and a-f" },
+  "fleet.extra_prefixes": { label: "Other callsign prefix", norm: upper, pattern: /^[A-Z]{3}$/, msg: "3 letters, A to Z" },
+  "network.icao": { label: "Airport", norm: upper, pattern: ICAO4, msg: "4 letters, A to Z" },
+  "network.alternates": { label: "Alternate", norm: upper, pattern: ICAO4, msg: "4 letters, A to Z" },
+  "feeds.source_system": { label: "Source system", max: 80 },
+  "people.name": { label: "Name or initials", required: true, min: 2, max: 32, minMsg: "2 to 32 characters", maxMsg: "2 to 32 characters" },
+  "people.role": { label: "Role", required: true, pattern: /^(approves|views)$/, msg: "Choose a role", needMsg: "Choose a role" },
+  "assistant.provider": { label: "Where the model runs", required: true, pattern: /^(gemini|ollama|none)$/, msg: "Choose one", needMsg: "Choose one" },
+  "assistant.gemini": { label: "Model", required: true, pattern: AI_STUDIO_MODEL, msg: "Gemini or Gemma name, e.g. gemini-3.8-flash" },
+  "assistant.ollama": { label: "Model tag", required: true, pattern: OLLAMA_TAG, msg: "Ollama tag, e.g. gemma4:e4b" },
+  "acct.email": { label: "Email", required: true, max: 254, norm: (v) => str(v).toLowerCase(), pattern: EMAIL, msg: "Not an email" },
+  "acct.password": { label: "Password", required: true, min: 12, max: 128, minMsg: "12+ characters", maxMsg: "128 characters at most", raw: true },
   // a member's name in a hosted airline: the Desk's own name rule (2 to 32; letters, digits, . ' - _)
-  "member.name": { label: "Your name", required: true, min: 2, max: 32, minMsg: "2 to 32 characters.", maxMsg: "2 to 32 characters.", norm: (v) => str(v).replace(/\s+/g, " "), pattern: /^[\p{L}\p{N} .'_-]+$/u, msg: "Letters, digits, spaces and . ' - _ only." },
+  "member.name": { label: "Your name", required: true, min: 2, max: 32, minMsg: "2 to 32 characters", maxMsg: "2 to 32 characters", norm: (v) => str(v).replace(/\s+/g, " "), pattern: /^[\p{L}\p{N} .'_-]+$/u, msg: "Letters, digits, spaces, . ' - _" },
 };
 
 // The words for one value against one rule, or null when it passes.
@@ -120,10 +126,10 @@ export function ruleMessage(kind, raw) {
   const r = RULES[kind];
   if (!r) return null;
   const v = r.raw ? (typeof raw === "string" ? raw : "") : str(raw);
-  if (!v) return r.required ? r.needMsg || `${r.label} is needed.` : null;
-  if (CONTROL.test(v)) return "Use plain text: no control characters.";
-  if (r.max && v.length > r.max) return r.maxMsg || `At most ${r.max} characters.`;
-  if (r.min && v.length < r.min) return r.minMsg || `At least ${r.min} characters.`;
+  if (!v) return r.required ? r.needMsg || "Required" : null;
+  if (CONTROL.test(v)) return "Plain text only";
+  if (r.max && v.length > r.max) return r.maxMsg || `${r.max} characters at most`;
+  if (r.min && v.length < r.min) return r.minMsg || `${r.min}+ characters`;
   if (r.integer) {
     const [lo, hi] = r.integer;
     return /^\d+$/.test(v) && Number(v) >= lo && Number(v) <= hi ? null : r.msg;
@@ -143,6 +149,18 @@ export function kindOf(field) {
   if (parts[0] === "policy" && parts[1] === "v") return "policy.value";
   if (parts[0] === "policy" && parts[1] === "r") return "policy.reason";
   return field;
+}
+
+// One problem as Review and the workspace say it: the page, then the field, then the terse words
+// ("Fleet · Registration, row 2: Required").
+export function problemText(key, { field, message }) {
+  const parts = String(field || "").split(".");
+  const kind = kindOf(parts.join("."));
+  const policyName = parts[0] === "policy" && (parts[1] === "v" || parts[1] === "r") ? parts.slice(2).join(".") : null;
+  const label = policyName ? `${KEY_POLICY_VALUES.find(([n]) => n === policyName)?.[1] || policyName}${parts[1] === "r" ? " reason" : ""}` : RULES[kind]?.label;
+  const row = (parts[0] === "fleet" && parts[1] === "aircraft") || parts[0] === "people" ? Number(parts[2]) + 1 : NaN;
+  const where = label ? ` · ${label}${Number.isFinite(row) ? `, row ${row}` : ""}` : "";
+  return `${pageOf(key)?.short || key}${where}: ${message}`;
 }
 
 // --- the answers each page holds --------------------------------------------------------------------
@@ -190,75 +208,74 @@ export function checkPage(key, values, ctx = {}) {
     for (const [name, c] of Object.entries(changes)) {
       if (!c || str(c.value) === "" || Number(c.value) === Number(c.base)) continue;
       if (!add(`policy.v.${name}`, c.value)) continue;
-      if (POSITIVE_POLICY_VALUES.includes(name) && Number(c.value) <= 0) out.push({ field: `policy.v.${name}`, message: "Must be above zero: a zero would switch this check off." });
+      if (POSITIVE_POLICY_VALUES.includes(name) && Number(c.value) <= 0) out.push({ field: `policy.v.${name}`, message: "Above 0: a zero switches this check off" });
       add(`policy.r.${name}`, c.reason);
     }
     const divert = valueOf("planner.divert_within_min");
     const hold = valueOf("planner.hold_within_min");
-    if (Number.isFinite(divert) && Number.isFinite(hold) && divert > hold) out.push({ field: "policy.v.planner.divert_within_min", message: "Divert time must not be later than hold time." });
+    if (Number.isFinite(divert) && Number.isFinite(hold) && divert > hold) out.push({ field: "policy.v.planner.divert_within_min", message: "Not later than the hold time" });
     const bandFl = valueOf("planner.level_band_fl");
     const maxFl = valueOf("planner.max_change_level_fl");
-    if (Number.isFinite(bandFl) && Number.isFinite(maxFl) && bandFl > maxFl) out.push({ field: "policy.v.planner.level_band_fl", message: "The level band must not be above the highest level proposed." });
+    if (Number.isFinite(bandFl) && Number.isFinite(maxFl) && bandFl > maxFl) out.push({ field: "policy.v.planner.level_band_fl", message: "Not above the highest level proposed" });
     add("policy.risk_owner", v.policy?.risk_owner);
-    if (changedValues(v).length && !str(v.policy?.sra_ref)) out.push({ field: "policy.sra_ref", message: "Your SRA reference is needed once a value changes." });
+    if (changedValues(v).length && !str(v.policy?.sra_ref)) out.push({ field: "policy.sra_ref", message: "Required once a value changes" });
     else add("policy.sra_ref", v.policy?.sra_ref);
   } else if (key === "fleet") {
     const rows = v.fleet?.aircraft || [];
-    if (!rows.length) out.push({ field: "fleet.aircraft", message: "Add at least one aircraft." });
-    if (rows.length > 1000) out.push({ field: "fleet.aircraft", message: "At most 1,000 aircraft." });
+    if (!rows.length) out.push({ field: "fleet.aircraft", message: "Add an aircraft" });
+    if (rows.length > 1000) out.push({ field: "fleet.aircraft", message: "1,000 aircraft at most" });
     const seenReg = new Map();
     const seenHex = new Map();
     rows.forEach((row, i) => {
       for (const f of ["registration", "type_icao", "seats", "home_base", "hex"]) add(`fleet.aircraft.${i}.${f}`, row?.[f]);
       const reg = upper(row?.registration);
       const hex = hexOf(row?.hex);
-      if (reg && seenReg.has(reg)) out.push({ field: `fleet.aircraft.${i}.registration`, message: `This is already on row ${seenReg.get(reg) + 1}.` });
+      if (reg && seenReg.has(reg)) out.push({ field: `fleet.aircraft.${i}.registration`, message: `Already on row ${seenReg.get(reg) + 1}` });
       else if (reg) seenReg.set(reg, i);
-      if (hex && seenHex.has(hex)) out.push({ field: `fleet.aircraft.${i}.hex`, message: `This is already on row ${seenHex.get(hex) + 1}.` });
+      if (hex && seenHex.has(hex)) out.push({ field: `fleet.aircraft.${i}.hex`, message: `Already on row ${seenHex.get(hex) + 1}` });
       else if (hex) seenHex.set(hex, i);
     });
     const prefixes = (v.fleet?.extra_prefixes || []).map(upper);
-    if (prefixes.length > 4) out.push({ field: "fleet.extra_prefixes", message: "At most 4 other prefixes." });
+    if (prefixes.length > 4) out.push({ field: "fleet.extra_prefixes", message: "4 at most" });
     prefixes.forEach((p, i) => {
       if (!add(`fleet.extra_prefixes.${i}`, p, "fleet.extra_prefixes")) return;
-      if (p === upper(v.airline?.callsign_prefix)) out.push({ field: `fleet.extra_prefixes.${i}`, message: "This is already your callsign prefix." });
-      else if (prefixes.indexOf(p) !== i) out.push({ field: `fleet.extra_prefixes.${i}`, message: "This prefix is already in the list." });
+      if (p === upper(v.airline?.callsign_prefix)) out.push({ field: `fleet.extra_prefixes.${i}`, message: "Already your callsign prefix" });
+      else if (prefixes.indexOf(p) !== i) out.push({ field: `fleet.extra_prefixes.${i}`, message: "Already in the list" });
     });
   } else if (key === "network") {
     const codes = networkCodes(v);
-    if (!codes.length) out.push({ field: "network.airports", message: "Add at least one airport." });
-    if (codes.length > 200) out.push({ field: "network.airports", message: "At most 200 airports." });
+    if (!codes.length) out.push({ field: "network.airports", message: "Add an airport" });
+    if (codes.length > 200) out.push({ field: "network.airports", message: "200 airports at most" });
     codes.forEach((code, i) => {
       add(`network.airports.${i}`, code, "network.icao");
       const alts = (v.network?.alternates?.[code] || []).map(upper);
-      if (alts.length > 5) out.push({ field: `network.alternates.${code}`, message: "At most 5 alternates." });
+      if (alts.length > 5) out.push({ field: `network.alternates.${code}`, message: "5 at most" });
       alts.forEach((alt, j) => {
         if (!add(`network.alternates.${code}`, alt, "network.alternates")) return;
-        if (alt === code) out.push({ field: `network.alternates.${code}`, message: "An airport is not its own alternate." });
-        else if (alts.indexOf(alt) !== j) out.push({ field: `network.alternates.${code}`, message: `${alt} is already an alternate here.` });
+        if (alt === code) out.push({ field: `network.alternates.${code}`, message: "Not its own alternate" });
+        else if (alts.indexOf(alt) !== j) out.push({ field: `network.alternates.${code}`, message: `${alt} is already listed` });
       });
     });
   } else if (key === "schedule") {
     const s = ctx.schedule;
-    if (s && !s.ok) out.push({ field: "schedule.files", message: "A schedule file has problems: fix it or remove it." });
+    if (s && !s.ok) out.push({ field: "schedule.files", message: "Fix or remove the file" });
   } else if (key === "feeds") {
     add("feeds.source_system", v.feeds?.source_system);
   } else if (key === "people") {
     const rows = v.people?.dispatchers || [];
-    if (!rows.length) out.push({ field: "people.dispatchers", message: "At least one person must approve advisories." });
-    if (rows.length > 50) out.push({ field: "people.dispatchers", message: "At most 50 dispatchers." });
+    if (!rows.length) out.push({ field: "people.dispatchers", message: "Add someone who approves" });
+    if (rows.length > 50) out.push({ field: "people.dispatchers", message: "50 at most" });
     rows.forEach((row, i) => {
       add(`people.dispatchers.${i}.name`, row?.name);
       add(`people.dispatchers.${i}.role`, row?.role);
     });
-    if (rows.length && !rows.some((r) => r?.role === "approves")) out.push({ field: "people.dispatchers", message: "At least one person must approve advisories." });
+    if (rows.length && !rows.some((r) => r?.role === "approves")) out.push({ field: "people.dispatchers", message: "Add someone who approves" });
   } else if (key === "assistant") {
     const a = v.assistant || {};
     if (add("assistant.provider", a.provider) && a.provider !== "none") {
       const kind = a.provider === "gemini" ? "assistant.gemini" : "assistant.ollama";
       add("assistant.model", a.model, kind);
       add("assistant.model_lite", a.model_lite, kind);
-      if (a.provider === "ollama" && ctx.ollamaUrl !== undefined) add("assistant.ollama_url", ctx.ollamaUrl);
     }
   }
   return out;
@@ -270,15 +287,15 @@ export function cautionsOf(key, values, ctx = {}) {
   if (key === "network") {
     const known = ctx.airports;
     const codes = networkCodes(values);
-    if (known) for (const code of codes) if (ICAO4.test(code) && !known.has(code)) out.push({ field: `network.airport.${code}`, code, message: "Not in TEPHRA's airport list: no TAF check, closure check or diversion there." });
+    if (known) for (const code of codes) if (ICAO4.test(code) && !known.has(code)) out.push({ field: `network.airport.${code}`, code, message: "Not in TEPHRA's list: no TAF, closure or diversion checks." });
     const outside = codes.filter((code) => ctx.positions?.[code] && !(ctx.regions || []).some((r) => inBox(r.bbox, ctx.positions[code])));
-    if (outside.length) out.push({ field: "network.coverage", codes: outside, message: `Outside TEPHRA's three areas (Java and Bali, Halmahera, Kyushu): its live ash feeds do not cover ${outside.join(", ")}.` });
+    if (outside.length) out.push({ field: "network.coverage", codes: outside, message: `Outside live ash coverage (Java and Bali, Halmahera, Kyushu): ${outside.join(", ")}.` });
   } else if (key === "assistant") {
     const a = values?.assistant || {};
     if (a.provider === "gemini") {
       for (const f of ["model", "model_lite"]) {
         const m = str(a[f]);
-        if (AI_STUDIO_MODEL.test(m) && !FREE_TIER_MODELS.includes(m)) out.push({ field: `assistant.${f}`, message: "TEPHRA has no free-tier limits for this model: it is never called (AI UNAVAILABLE) until you add a TEPHRA_MODEL_LIMITS row in airline.env." });
+        if (AI_STUDIO_MODEL.test(m) && !FREE_TIER_MODELS.includes(m)) out.push({ field: `assistant.${f}`, message: "No known free-tier limit for this model: TEPHRA never calls it (AI UNAVAILABLE)." });
       }
     }
   }
@@ -391,36 +408,26 @@ export function fromAnswers(answers, named = {}) {
 const andList = (items) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`);
 const capFirst = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
 export const PROVIDER_WORDS = {
-  gemini: "Gemini or Gemma, your own Google AI Studio key",
+  gemini: "Gemini or Gemma (your own key)",
   ollama: "Gemma on your computer (Ollama)",
   none: "No model (NO MODEL)",
 };
-const NB = " ";
-const fmtNum = (n, unit) => `${Number(n).toLocaleString("en")}${unit ? `${NB}${unit}` : ""}`;
-
-export function summaryOf(page, answers, named = {}) {
+// One line per page, eight words at most (Review and the workspace's Your answers).
+export function summaryOf(page, answers) {
   const x = answers || {};
   switch (page) {
     case "airline": {
       const a = x.airline || {};
-      return [a.name, a.icao, a.main_base ? `main base ${a.main_base}` : ""].filter(Boolean).join(" · ") || "Not given";
+      return [a.name, a.icao].filter(Boolean).join(" · ") || "Not given";
     }
     case "policy": {
-      const changes = Object.fromEntries((x.policy?.changes || []).map((c) => [c.name, c.value]));
-      const val = (name) => changes[name] ?? named[name]?.value;
-      const parts = ["Policy A"];
-      if (val("exposure.vertical_margin_ft") != null) parts.push(`margin ${fmtNum(val("exposure.vertical_margin_ft"), "ft")}`);
-      if (val("reroute.buffer_nm") != null) parts.push(`buffer ${fmtNum(val("reroute.buffer_nm"), "NM")}`);
       const n = (x.policy?.changes || []).length;
-      if (n) parts.push(`${count(n, "value")} changed`);
-      return parts.join(" · ");
+      return n ? `Policy A · ${count(n, "value")} changed` : "Policy A · as given";
     }
     case "fleet": {
       const rows = x.fleet?.aircraft || [];
       if (!rows.length) return "Not given";
-      const types = [...new Set(rows.map((r) => r.type_icao).filter(Boolean))];
-      const shown = types.slice(0, 4).join(", ") + (types.length > 4 ? ` and ${types.length - 4} more` : "");
-      return [count(rows.length, "aircraft", "aircraft"), shown].filter(Boolean).join(" · ");
+      return count(rows.length, "aircraft", "aircraft");
     }
     case "network": {
       const n = (x.network?.airports || []).length;
@@ -505,7 +512,7 @@ export const SCHEDULE_FILE_MAX_BYTES = 2 * 1024 * 1024;
 const FLEET_COLUMNS = ["registration", "type_icao", "seats", "home_base", "hex"];
 
 // A fleet file: CSV `registration,type,seats,home_base,hex` (header optional, comma or tab) or
-// the kit's fleet.json ({"tails": [{"tail", "type", "seats", "home_base"?, "hex"?}]}). Every row
+// a fleet.json ({"tails": [{"tail", "type", "seats", "home_base"?, "hex"?}]}). Every row
 // is checked as the table checks it; a refused row says its number and why. `existing` is the
 // table now, so a row already there is refused rather than added twice.
 export function parseFleetFile(text, name = "", existing = []) {
@@ -675,24 +682,6 @@ export function checkSchedule(files, registrations = []) {
 
 export const fileLine = (r) => `${r.name} · ${count(r.count, r.name === "flights.json" ? "flight" : "crew")} · ${count(r.total, "problem")}`;
 
-// --- the setup kit so far: only values the kit would take ------------------------------------------
-
-// A copy of the draft's values with each refused text value blanked (the field path of every problem
-// on the answer pages), so the preview never shows a line the kit would refuse. `ctxFor(key)` gives
-// each page's checking context.
-export function checkedValues(values, ctxFor = () => ({})) {
-  const copy = JSON.parse(JSON.stringify(values || emptyValues()));
-  for (const key of ANSWER_PAGES) {
-    for (const { field } of checkPage(key, copy, ctxFor(key))) {
-      const path = field.split(".");
-      const last = path.pop();
-      const parent = path.reduce((node, part) => (node == null ? node : node[/^\d+$/.test(part) ? Number(part) : part]), copy);
-      if (parent != null && typeof parent === "object" && ["string", "number"].includes(typeof parent[last])) parent[last] = "";
-    }
-  }
-  return copy;
-}
-
 // --- the Network page's "Add an airport" -------------------------------------------------------------
 
 // `airports`: a Map (or an object) of ICAO code -> { name, iata }, TEPHRA's airport list. An exact
@@ -720,7 +709,7 @@ export function airportCode(text, airports) {
 // --- where a ?next= may send a signed-in airline (no open redirect) ----------------------------------
 
 const NEXT_OK = [
-  /^\/workspace(\/(answers|feeds|assistant|kit))?$/,
+  /^\/workspace(\/(answers|feeds|assistant))?$/,
   /^\/onboard\/(airline|policy|fleet|network|schedule|feeds|people|assistant)\?edit=1$/,
   // a hosted airline's pages (/a/<ICAO>/...) and the invite page; one slash at a time, no dots
   /^\/a\/[A-Z]{3}(\/([A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*\/?)?)?$/,

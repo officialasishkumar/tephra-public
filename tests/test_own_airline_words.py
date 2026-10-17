@@ -44,7 +44,9 @@ def test_the_fictional_label_stays_for_the_demo() -> None:
     controls = _src("wall/controls.js")
     assert "Ring of Fire Air (RFA) is a fictional airline." in controls
     assert "state?.airline?.fictional === false" in controls
-    assert "Ring of Fire Air (RFA) is a fictional airline" in _src("index.html")
+    # the demo's status line: "RFA" with its info button (wall/panels.js renderStatusLine)
+    assert "Ring of Fire Air (RFA) is a fictional airline" in _src("wall/panels.js")
+    assert 'id="stl-rfa"' in _src("index.html")
     docs = _src("desk/docs.js")
     assert "'DRAFT · not an approved document · fictional airline'" in docs
     assert "app.state?.airline?.fictional === false" in docs
@@ -53,17 +55,14 @@ def test_the_fictional_label_stays_for_the_demo() -> None:
 
 def test_the_handover_banner_and_the_document_footer_follow_the_airline() -> None:
     """Batch 2 honesty finding 2: the handover banner says FICTIONAL AIRLINE only for the demo's
-    briefs (HandoverBrief.fictional_airline), and the document page's footer keeps its
-    fictional-airline clause only for a document that carries the FICTIONAL label. Shown by
-    default, so the label never goes missing for the demo."""
+    briefs (HandoverBrief.fictional_airline); a document's labels carry it otherwise."""
     view = _src("desk/docview.js")
     assert "b.fictional_airline === false ? '' : ' - FICTIONAL AIRLINE'" in view
     assert "'DRAFT HANDOVER BRIEF - DECISION SUPPORT ONLY - FICTIONAL AIRLINE'" not in view
+    # the document page's footer no longer repeats "decision support only" and the fictional
+    # airline (owner, 17 Oct: "don't put this everywhere"): the document's own labels say them
+    # (regdocs/common.py document_labels, the brief's banner above), and docview.js draws them
     page = _src("doc.html")
-    assert (
-        '<span id="docfoot-fictional">, and Ring of Fire Air is a fictional airline</span>' in page
-    )
-    doc = _src("doc.js")
-    assert "doc.fictional_airline !== false" in doc
-    assert "(doc.labels || []).some((l) => /FICTIONAL/.test(l))" in doc
-    assert "getElementById('docfoot-fictional').hidden = !fictional;" in doc
+    assert "docfoot-fictional" not in page
+    assert "decision support only" not in page.split('class="docfoot"')[1]
+    assert "...(doc.labels || [])" in view

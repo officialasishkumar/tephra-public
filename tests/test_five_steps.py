@@ -58,9 +58,11 @@ def test_the_guide_has_no_copy_of_its_own() -> None:
     assert '<div id="gpipe" class="gpipe-host"></div>' in guide
     assert 'class="gpipe"' not in guide
     assert 'href="/static/five-steps.css"' in guide
-    assert 'document.getElementById("gpipe").replaceChildren(stepsList());' in (
+    # the names only; the lines stay for screen readers (TEXT-SPEC G1)
+    assert 'document.getElementById("gpipe").replaceChildren(stepsList({ lines: "sr" }));' in (
         WEB / "guide.js"
     ).read_text(encoding="utf-8")
+    assert 'class: lines === "sr" ? "sr-only" : "steps5__line"' in SOURCE
     assert ".gpipe__n" not in (WEB / "guide.css").read_text(encoding="utf-8")
 
 

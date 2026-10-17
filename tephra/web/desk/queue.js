@@ -80,7 +80,7 @@ export function modeChip(adv) {
     WIDENED: [['official', 'official'], ['tephra', 'TEPHRA estimate']],
     HYPOTHESIS: [['tephra', 'TEPHRA estimate only (HYPOTHESIS)']],
   }[adv.plume_mode] || [['tephra', String(adv.plume_mode || '')]];
-  return el('span', { class: 'areaw', title: `TEPHRA area for this draft: ${adv.plume_mode}${conf ? ` ${conf}` : ''}${isStub(adv) ? ', set by code with TEPHRA Assistant off' : ''}` },
+  return el('span', { class: 'areaw', title: `TEPHRA area for this draft: ${adv.plume_mode}${conf ? ` ${conf}` : ''}${isStub(adv) ? ', set by code' : ''}` },
     parts.map(([kind, words], i) => [i ? el('span', { class: 'areaw__plus', text: ' + ' }) : null,
       el('span', { class: 'areaw__part' }, el('i', { class: `swatch swatch--${kind}`, 'aria-hidden': 'true' }), el('span', { text: words }))]));
 }
@@ -165,9 +165,12 @@ function asideLine() {
 
 // --- the lead card ----------------------------------------------------------------------------
 
+// The minutes to entry are the card's top-right time: the facts line says the entry only when it
+// adds to that ("inside at 0957Z", "entry due 3 min ago"), never "enters in 6 min" beside "6 min".
 const factsText = (adv, now) => {
   const lvl = levelNow(adv);
-  return [adv.volcano_name || adv.volcano_id, lvl !== null ? `now ${fl(lvl)}` : null, entryLead(adv, now)].filter(Boolean).join(' · ');
+  const entry = entryState(adv, now).kind === 'ahead' ? null : entryLead(adv, now);
+  return [adv.volcano_name || adv.volcano_id, lvl !== null ? `now ${fl(lvl)}` : null, entry].filter(Boolean).join(' · ');
 };
 
 function timeNode(adv, now) {
@@ -183,18 +186,21 @@ function staleLine(adv, now) {
 function buildLead(adv) {
   const now = activeNow();
   const who = flightWho(adv);
-  const writer = [aiMark(undefined, isStub(adv) ? null : adv.model_id)];
+  // who wrote the text: the assistant's mark on its own line; a code template's "{ }" beside the
+  // flight (the header says the AI state once)
+  const stub = isStub(adv);
+  const writer = aiMark(undefined, stub ? null : adv.model_id);
   // Only a replay draft shown while live feeds play carries a tag.
   const fromReplay = fromReplayChip(adv);
   return el('article', { class: 'lead next__card', 'data-id': adv.id, 'data-version': String(adv.version), 'data-band': band(coneFor(adv)), 'data-crewkey': crewKey(adv), 'data-level': String(levelNow(adv)), 'aria-labelledby': 'next-flight next-action' },
     shadowStamp(adv),
-    el('p', { class: 'lead__top' }, el('span', { class: 'lead__who', id: 'next-flight', text: who }), timeNode(adv, now)),
+    el('p', { class: 'lead__top' }, el('span', { class: 'lead__who', id: 'next-flight', text: who }), stub ? writer : null, timeNode(adv, now)),
     el('h3', { class: 'lead__action', id: 'next-action', text: actionShort(adv) }),
     el('p', { class: 'lead__facts', 'data-slot': 'facts', text: factsText(adv, now) }),
     fromReplay ? el('p', { class: 'lead__replay' }, fromReplay) : null,
     ...cautions(adv).map(([shape, words]) => el('p', { class: 'lead__caution' }, icon(shape, 'st'), el('span', { text: words }))),
     el('p', { class: 'lead__stale', 'data-slot': 'stale', text: staleLine(adv, now) }),
-    el('p', { class: 'lead__by' }, ...writer),
+    stub ? null : el('p', { class: 'lead__by' }, writer),
     el('button', { type: 'button', class: 'btn btn--cta next__go', 'data-open': adv.id },
       el('span', { text: `Review ${adv.proxy_flight}` }), icon('i-chevron-right')));
 }
@@ -208,14 +214,19 @@ const timeWords = (adv, now) => {
   return st.kind === 'ahead' ? `enters in ${plural(st.minutes, 'minute')}` : 'entry due now';
 };
 
+// A row names its volcano only when the drafts come from more than one (say each fact once: with
+// one volcano, the lead card names it).
+const oneVolcano = () => new Set(draftList().map((a) => a.volcano_id)).size <= 1;
+
 function advRow(adv) {
   const now = activeNow();
   const watch = watchOnly(adv);
   const lvl = levelNow(adv);
-  const main = watch ? [lvl !== null ? fl(lvl) : null, adv.volcano_name].filter(Boolean).join(' · ') || 'Keep watching' : actionShort(adv);
+  const volcano = oneVolcano() ? null : adv.volcano_name;
+  const main = watch ? [lvl !== null ? fl(lvl) : null, volcano].filter(Boolean).join(' · ') || 'Keep watching' : actionShort(adv);
   const marks = cautions(adv);
   const sentence = `${adv.shadow ? `${SHADOW_WORDS}. ` : ''}${adv.proxy_flight}, ${main.toLowerCase().replace(/\bfl(\d)/g, 'FL$1')}, ${timeWords(adv, now)}${marks.length ? `. ${marks.map((m) => m[1]).join('. ')}` : ''}. Review.`;
-  const extra = [adv.callsign, watch ? null : adv.volcano_name, watch || lvl === null ? null : `now ${fl(lvl)}`].filter(Boolean).join(' · ');
+  const extra = [adv.callsign, watch ? null : volcano, watch || lvl === null ? null : `now ${fl(lvl)}`].filter(Boolean).join(' · ');
   const button = el('button', { type: 'button', class: 'card irow', 'data-open': adv.id, 'aria-label': sentence },
     shadowStamp(adv),
     el('span', { class: 'irow__who', 'aria-hidden': 'true', text: adv.proxy_flight }),
@@ -226,7 +237,7 @@ function advRow(adv) {
     el('span', { class: 'irow__new', 'data-slot': 'new', 'aria-hidden': 'true', hidden: true }),
     el('span', { 'aria-hidden': 'true' }, timeNode(adv, now)),
     icon('i-chevron-right', 'icon irow__go'));
-  return el('li', { class: 'cards__item', 'data-id': adv.id, 'data-key': `${adv.id}|${adv.version}|${crewKey(adv)}|${lvl}|${Boolean(adv.shadow)}` }, button);
+  return el('li', { class: 'cards__item', 'data-id': adv.id, 'data-key': `${adv.id}|${adv.version}|${crewKey(adv)}|${lvl}|${volcano || ''}|${Boolean(adv.shadow)}` }, button);
 }
 
 // One row for something that is not an advisory: subject, words, its time cell (`time`, a flight's
@@ -346,7 +357,7 @@ function renderWatch(items) {
     foot = el('p', { class: 'grp__foot' });
     host.replaceChildren(head, list, foot);
   }
-  groupHead(head, 'Keep watching', items.length, ' inside now');
+  groupHead(head, 'Keep watching', items.length);
   reconcile(list, items.map(advRow));
   markSelected(list);
   const capped = !showAllWatch && items.length > WATCH_FIRST + 1;

@@ -157,7 +157,7 @@ function draw(host, h, view, fresh = null) {
       : view.taken_in ? null : el("p", { class: "fsetup", role: "status" }, el("span", {}, el("b", { text: "Checked, not taken in:" }), " TEPHRA starts in SHADOW from your workspace. "), el("a", { class: "link", href: "/workspace", text: "Your workspace ›" })),
     el("div", { class: "fcards" }, ...(view.cards || []).map((c) => feedCard(c, opts))),
     keys].filter(Boolean));
-  if (can(h, "dispatcher")) mountDryRun(host, { path: api("/tenant/feeds/dry-run"), note: "Check a push before you send it: every record is checked on its own, as a real push would be." });
+  if (can(h, "dispatcher")) mountDryRun(host, { path: api("/tenant/feeds/dry-run"), info: "Each record is checked as a real push would be. Nothing is taken in." });
   host.append(notBuiltNote(`Uploading your own schedule (flights.json) here: your flights are named by your pushed flight plans, callsigns and registrations. Counts survive no restart: these cards count since ${hhmmZ(ms(view.counted_since))}. A rotated key has no grace window.`));
 }
 

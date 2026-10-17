@@ -8,7 +8,7 @@
 import { el, icon } from "../wall/util.js";
 import { ruleMessage } from "../onboard/pages.js";
 import { field, input, passwordInput, segmented, setError } from "../onboard/form.js";
-import { recoveryCard } from "../onboard/review.js";
+import { recoveryCard, supportTick } from "../onboard/review.js";
 import { HOSTED, PATHS, call, errorCode, failWords, isIcao, minutesWords, retryMinutes, spacePath } from "./api.js";
 import { ROLE_WORDS, whenWords } from "./golive.js";
 
@@ -164,9 +164,7 @@ function joinForm(rerender) {
     field({ id: "jn-email", label: "Email", hint: `The invite is for ${S.invite.email_hint}.`, control: email }),
     field({ id: "jn-pw", label: "Password", hint: "12 characters or more", control: pw.control, slot: pw.wrap(pw.control) }),
     name.node,
-    el("div", { class: "field" },
-      el("label", { class: "check" }, ack, el("span", { text: "I understand TEPHRA is decision support only: a person decides, and nothing is sent to an aircraft." })),
-      el("p", { id: "jn-ack-err", class: "err", hidden: true })),
+    supportTick(ack, "jn-ack-err"),
     status, go);
   form.addEventListener("submit", async (e) => {
     e.preventDefault();

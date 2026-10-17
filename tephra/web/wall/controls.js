@@ -101,7 +101,7 @@ const SHORTCUT_ROWS = [
 ];
 export const shortcuts = () => SHORTCUT_ROWS.filter(([, , feature]) => !feature || has(feature)).map(([k, a]) => [k, a]);
 
-// Help (R9.1): read the map in 3 steps, the full key, the words used here, the keyboard. On the
+// Help (R9.1): read the map (three lines), the full key, the words used here, the keyboard. On the
 // guide page (`page`) the words and the keyboard fold (one tap in) and the Wall's own shortcut
 // switch is left out.
 export function helpContent(enabled, { page = false } = {}) {
@@ -113,14 +113,11 @@ export function helpContent(enabled, { page = false } = {}) {
   const codes = ["GREEN", "YELLOW", "ORANGE", "RED", "UNKNOWN"].map((c) => icon("i-eruption", "icon", `var(--c-code-${c.toLowerCase()})`));
   const { code } = airline();
   return el("div", { class: "help" },
-    el("h3", { id: "help-read", class: "help__h", tabindex: "-1", text: "Read the map in 3 steps" }),
+    el("h3", { id: "help-read", class: "help__h", tabindex: "-1", text: "Read the map" }),
     el("ol", { class: "help__steps" },
-      el("li", {}, sw("lg-area-official", "sw--official"), el("span", { text: "Pink = the official ash area. It is binding." })),
-      el("li", {}, sw("lg-area-tephra", "sw--tephra"), el("span", { text: "Amber dashes = TEPHRA's estimate. It is never smaller than the official area." })),
-      el("li", {}, sw("i-aircraft", "sw--exposed"), el("span", { text: `Amber planes = ${code} flights in or heading into it. A person approves every advisory on the Desk.` }))),
-    el("ul", { class: "help__list" },
-      el("li", { text: "The story on the left says what is happening at the selected volcano; one click expands it. The side panel shows TEPHRA Assistant's steps, and its Details tab holds everything else: the sources, the timeline, how TEPHRA decided and the data feeds." }),
-      el("li", { text: "Times ending in Z are UTC." })),
+      el("li", {}, sw("lg-area-official", "sw--official"), el("span", { text: "Pink: official ash area, binding." })),
+      el("li", {}, sw("lg-area-tephra", "sw--tephra"), el("span", { text: "Amber dashes: TEPHRA's estimate, never smaller than the official area." })),
+      el("li", {}, sw("i-aircraft", "sw--exposed"), el("span", { text: `Amber planes: ${code} flights heading in.` }))),
     el("h3", { id: "help-key", class: "help__h", text: "Full map key" }),
     el("ul", { class: "key__rows help__key" },
       keyRow(sw("lg-area-official", "sw--official"), "Official ash area", "binding"),
@@ -134,11 +131,12 @@ export function helpContent(enabled, { page = false } = {}) {
       keyRow(sw("i-aircraft", "sw--aircraft"), otherAircraft(), null),
       keyRow(sw("lg-route", "sw--route"), "Route (origin to destination)", "the callsign's usual route (VRS standing data), not the filed flight plan. The small tags at its ends are the airport codes"),
       keyRow(sw("lg-reroute", "sw--reroute"), "Suggested reroute", null),
+      keyRow(sw("st-closed", "sw--closed"), "Closed airport", "in TEPHRA's airport plan, dashed: its closure radius"),
       keyRow(sw("lg-arrow-official", "sw--official"), "Official movement", null),
       keyRow(sw("lg-arrow-observer", "sw--observer"), "Observatory's reported drift", null),
       keyRow(sw("lg-satbox", "sw--sat"), "Box marked on the satellite picture", "Read by Satellite reader · supporting only"),
       el("li", { class: "help__codes" }, el("span", { class: "codes" }, ...codes), el("span", { text: "Alert colour: green, yellow, orange, red. Grey: not given" }))),
-    el("p", { class: "muted", text: "FIR and VAAC lines are approximate. Times ending in Z are UTC. Satellite, SO2 and BTD layers are context only, never ash detection." }),
+    el("p", { class: "muted", text: "FIR and VAAC lines are approximate. Z is UTC." }),
     fold(el("h3", { id: "help-words", class: "help__h", text: "Words used here" }),
       el("dl", { class: "help__glossary" }, ...GLOSSARY.flatMap(([term, meaning]) => [el("dt", { text: term }), el("dd", { text: meaning })]))),
     fold(el("h3", { id: "help-keys", class: "help__h", text: "Keyboard, on the Wall" }),
@@ -146,7 +144,7 @@ export function helpContent(enabled, { page = false } = {}) {
         el("caption", { class: "sr-only", text: "Keyboard shortcuts" }),
         el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Key" }), el("th", { scope: "col", text: "Action" }))),
         el("tbody", {}, ...shortcuts().map(([k, a]) => el("tr", {}, el("td", {}, ...k.split(" ").map((x) => el("kbd", { text: x }))), el("td", { text: a }))))),
-      el("p", { class: "muted", text: "Shortcuts work when focus is not in a text field and no modifier key is held. Every shortcut also has a visible control. On the map: arrow keys pan, plus and minus zoom." })),
+      el("p", { class: "muted", text: "Shortcuts work outside text fields. Arrows pan, plus and minus zoom." })),
     page ? null : el("label", { class: "opt" },
       el("input", { type: "checkbox", dataset: { act: "shortcuts-toggle" }, checked: enabled ? true : null }),
       el("span", { text: "Single-key shortcuts on" })));
@@ -167,36 +165,40 @@ const CREDITS = [
   ["Feed content", "SIGMETs, advisories and observatory notices", "Credited on each card: BMKG, Tokyo and Darwin VAAC, PVMBG; relays by NWS and IEM"],
 ];
 
-// About (R9.2): what TEPHRA is, the safety limits, the credits, the acknowledgement. On the guide
-// page (`page`) its links go to the Wall and to the guide's own sections.
-export function aboutContent(state, { page = false } = {}) {
-  const replay = state?.mode === "REPLAY" ? state.replay : null;
-  const own = state?.airline?.fictional === false ? state.airline : null;
-  const code = own ? own.code : "RFA";
-  return el("div", { class: "about" },
-    el("h3", { class: "help__h", text: "What TEPHRA is" }),
-    el("p", { text: `TEPHRA reads the official volcanic-ash reports (SIGMET, VAA, VONA), shows where they disagree, and draws TEPHRA's estimate, the cautious area. Code works out which ${code} flights would enter that area and drafts an advisory for each. A human dispatcher approves or rejects every advisory on the Desk.` }),
-    // the About disclosure (docs/UI-AI-QUIET.md 8.4): one of the few places that say "AI"
-    el("p", { text: "TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything." }),
-    replay ? el("p", { class: "about__replay" }, el("strong", { text: `${replay.banner} · not live. ` }), el("span", { text: `Case: ${replay.label}` })) : null,
-    el("h3", { class: "help__h", text: "Safety limits" }),
-    el("ul", { class: "about__list" },
-      el("li", { text: "Decision support only. Not for operational use." }),
-      el("li", { text: own ? `This TEPHRA checks only ${own.name}'s own flights (${own.code}), each named by its callsign, schedule or registration.` : replay?.synthetic ? "Ring of Fire Air (RFA) is a fictional airline. In this demo replay its flight numbers stand for invented aircraft." : "Ring of Fire Air (RFA) is a fictional airline. RFA flight numbers are proxies for real aircraft." }),
-      el("li", { text: "Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system." }),
-      el("li", { text: replay?.synthetic ? "This REPLAY is synthetic demo data: real volcanoes, airports and routes, with invented reports, weather and aircraft. Nothing in it happened. It is labelled as such for the whole session." : "REPLAY shows recorded real feeds, labelled as such for the whole session." }),
-      el("li", { text: "TEPHRA's estimate is an estimate, never a forecast. The official reports are binding." }),
-      el("li", { text: "Satellite and SO2 layers are context only, never ash detection." }),
-      el("li", { text: GASES_SCOPE })),
-    el("p", {}, page ? el("a", { class: "honesty__about", href: "/demo#track-record", text: "Track record ›" }) : el("button", { type: "button", class: "honesty__about", dataset: { act: "details-open", sec: "proof" }, text: "Track record ›" }), " How TEPHRA's estimate scored against later official areas."),
-    el("h3", { id: "about-credits", class: "help__h", tabindex: "-1", text: "Credits" }),
+// The credits and the acknowledgement: inside About in the demo, their own fold on the Guide.
+export function creditsContent({ heading = true } = {}) {
+  return el("div", { class: "about__credits" },
+    heading ? el("h3", { id: "about-credits", class: "help__h", tabindex: "-1", text: "Credits" }) : null,
     el("table", { class: "table" },
       el("caption", { class: "sr-only", text: "Credits" }),
       el("thead", {}, el("tr", {}, ...["Source", "Used for", "Credit"].map((h) => el("th", { scope: "col", text: h })))),
       el("tbody", {}, ...CREDITS.map(([a, b, c]) => el("tr", {}, el("th", { scope: "row", text: a }), el("td", { text: b }), el("td", { text: c }))))),
     el("p", { class: "muted" }, el("a", { href: "/static/THIRD_PARTY.md", text: "Full licence inventory" }), ": every asset and service the pages load, with its licence."),
     el("h3", { class: "help__h", text: "Acknowledgement" }),
-    el("p", { text: "We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Science Data and Information System (ESDIS). Himawari-9 data: JMA via NOAA. No source endorses TEPHRA." }),
+    el("p", { text: "We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Science Data and Information System (ESDIS). Himawari-9 data: JMA via NOAA. No source endorses TEPHRA." }));
+}
+
+// About (R9.2): the AI line, the replay, the safety limits (the one home of each honesty sentence:
+// decision support only, the fictional airline, nothing sent, REPLAY), then the credits. On the
+// guide page (`page`) the safety limits carry the #what-is-real anchor, the credits are their own
+// fold (guide.js) and its links go to the demo and to the guide's own sections.
+export function aboutContent(state, { page = false } = {}) {
+  const replay = state?.mode === "REPLAY" ? state.replay : null;
+  const own = state?.airline?.fictional === false ? state.airline : null;
+  return el("div", { class: "about" },
+    // the About disclosure (docs/UI-AI-QUIET.md 8.4): one of the few places that say "AI"
+    el("p", { text: "TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything." }),
+    replay ? el("p", { class: "about__replay" }, el("strong", { text: `${replay.banner} · not live. ` }), el("span", { text: `Case: ${replay.label}` })) : null,
+    el("h3", { id: page ? "what-is-real" : null, class: "help__h", tabindex: page ? "-1" : null, text: "Safety limits" }),
+    el("ul", { class: "about__list" },
+      el("li", { text: "Decision support only. Not for operational use." }),
+      el("li", { text: own ? `This TEPHRA checks only ${own.name}'s own flights (${own.code}), each named by its callsign, schedule or registration.` : replay?.synthetic ? "Ring of Fire Air (RFA) is a fictional airline. In this demo replay its flight numbers stand for invented aircraft." : "Ring of Fire Air (RFA) is a fictional airline. RFA flight numbers are proxies for real aircraft." }),
+      el("li", { text: "Approved text goes only to TEPHRA's own outbound queue. Nothing is sent to an aircraft or any real system." }),
+      el("li", { text: replay?.synthetic ? "This REPLAY is synthetic demo data: real volcanoes, airports and routes, with invented reports, weather and aircraft. Nothing in it happened. It is labelled as such for the whole session." : "REPLAY shows recorded real feeds, labelled as such for the whole session." }),
+      el("li", { text: "TEPHRA's estimate is an estimate, never a forecast. The official reports are binding." }),
+      el("li", { text: "Satellite, SO2 and BTD layers are context only, never ash detection. TEPHRA does not model gases." })),
+    el("p", {}, page ? el("a", { class: "honesty__about", href: "/demo#track-record", text: "Track record ›" }) : el("button", { type: "button", class: "honesty__about", dataset: { act: "details-open", sec: "proof" }, text: "Track record ›" }), " How TEPHRA's estimate scored against later official areas."),
+    page ? null : creditsContent(),
     page ? null : el("h3", { class: "help__h", text: "Operator policy" }),
     page ? null : el("p", {},
       el("button", { type: "button", class: "honesty__about", "aria-haspopup": "dialog", dataset: { act: "policy" }, text: "Open the operator policy" }),

@@ -112,13 +112,51 @@ def test_the_lightbox_is_one_dialog_that_closes_on_escape_and_gives_focus_back()
 
 
 def test_the_honesty_facts_stay_on_the_guide() -> None:
-    for fact in (
-        "Decision support only",
-        "Ring of Fire Air (RFA) is a fictional airline",
-        "Nothing is sent to an aircraft or any real system",
-        "REPLAY plays recorded real feeds, or synthetic demo data where it says so",
+    """Start shows three short chips, each with its full sentence for screen readers, and "What is
+    real?" opens About > Safety limits, the one place the sentences live on the Guide (the
+    decision-support sentence is said there, not as a chip: owner, 17 Oct 2026, "don't put this
+    everywhere")."""
+    facts = GUIDE[
+        GUIDE.index('<ul class="gfacts"') : GUIDE.index("</ul>", GUIDE.index('<ul class="gfacts"'))
+    ]
+    for chip, sentence in (
+        ("Fictional airline", "Ring of Fire Air (RFA) is a fictional airline."),
+        ("Nothing sent to aircraft", "nothing is sent to an aircraft or any real system."),
+        ("Replay", "REPLAY plays recorded real feeds, or synthetic demo data where it says so."),
     ):
-        assert fact in GUIDE, fact
-    # the long parts fold under More, each with the id the Wall links to
-    for ident in ("read", "how", "about", "policy"):
+        assert f'<li>{chip}<span class="sr-only">: {sentence}</span></li>' in facts, chip
+    assert '<li class="gfacts__more"><a href="#what-is-real">What is real?</a></li>' in facts
+    assert "Decision support" not in facts
+    controls = (WEB / "wall" / "controls.js").read_text(encoding="utf-8")
+    assert 'el("h3", { id: page ? "what-is-real" : null' in controls
+    # the long parts fold under More, each closed, with the id the demo links to
+    for ident in ("read", "how", "about", "policy", "about-credits", "run"):
         assert f'<details id="{ident}" class="gfold">' in GUIDE, ident
+    assert "<details open" not in GUIDE
+    assert 'getElementById("credits-body").replaceChildren(creditsContent({ heading: false }))' in (
+        WEB / "guide.js"
+    ).read_text(encoding="utf-8")
+
+
+def test_the_legend_shows_titles_and_the_sentence_on_a_tap() -> None:
+    css = (WEB / "guide.css").read_text(encoding="utf-8")
+    assert ".shot__item:not(.is-active):not(:hover):not(:focus-visible) .shot__txt > span {" in css
+    rule = css[css.index(".shot__item:not(.is-active)") :]
+    rule = rule[: rule.index("}")]
+    assert "clip: rect(0 0 0 0);" in rule, "screen readers still hear the sentence"
+    assert "display: none" not in rule
+    script = (WEB.parents[1] / "scripts" / "capture_guide_shots.mjs").read_text(encoding="utf-8")
+    marks = script[
+        script.index("const MARKS = {") : script.index("\n};\n", script.index("const MARKS = {"))
+    ]
+    for gone in (
+        '"#rail-btn"',
+        '"#assist"',
+        '"#side-desk"',
+        '".flow-skill"',
+        '".flow-log"',
+        '"#tabbar"',
+        '"#ask-btn"',
+        '".recordbtn"',
+    ):
+        assert f"sel: {gone}" not in marks, gone

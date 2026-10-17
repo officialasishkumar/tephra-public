@@ -231,7 +231,8 @@ def test_state_chip_shapes_words_and_clock(ran: dict[str, Any]) -> None:
     assert c["header-shadow"]["cls"] == "ah-state ah-state--shadow"
     assert (c["header-shadow"]["word"], c["header-shadow"]["clock"]) == ("SHADOW", "14:02Z")
     assert "every draft says Shadow · not for use" in c["header-shadow"]["title"]
-    assert "Decision support only. Nothing is sent to aircraft." in c["header-shadow"]["title"]
+    assert "Nothing is sent to aircraft." in c["header-shadow"]["title"]
+    assert "Decision support only" not in c["header-shadow"]["title"]  # not page chrome (17 Oct)
     live = c["header-live"]
     assert (live["cls"], live["word"], live["clock"]) == (
         "ah-state ah-state--live",
@@ -308,11 +309,9 @@ def test_titles_switcher_names_and_footer(ran: dict[str, Any]) -> None:
         "RFC/a/RFB/docs/DOC-0123456789ab|doc": "/a/RFC/desk",
     }
     assert ran["names"] == ["Ana Ops", "Ana Ops", "M. Tan", "Dee Disp"]
-    # today's sentence (owner question Q1) and who sees the space
-    assert (
-        ran["footer"] == "Decision support only. Not for operational use."
-        " Private to Ring of Fire Charter and TEPHRA's operators."
-    )
+    # who sees the space; the decision-support sentence left the footer (owner, 17 Oct 2026:
+    # "don't put this everywhere"; tests/test_footer_said_once.py)
+    assert ran["footer"] == "Private to Ring of Fire Charter and TEPHRA's operators."
 
 
 def test_header_markup_and_aria() -> None:

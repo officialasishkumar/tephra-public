@@ -2,20 +2,19 @@
 
 TEPHRA's demo runs on Ring of Fire Air (RFA), a fictional airline. Any real airline can onboard at
 `/onboard`: the account first (a work email and a password, on the same page as the list below),
-then nine short pages, one topic per page, and a private workspace with a setup kit to run its own
-TEPHRA on its own fleet. Each page is saved to the account on Next, on Back, on a step in the list
+then nine short pages, one topic per page, and a private workspace. Each page is saved to the account on Next, on Back, on a step in the list
 and when you leave the page; signing in again
 resumes at the first page not finished. Review's **Submit for verification** sends the answers to
 this site's dispatchers.
 
-What onboarding is not: there is no live operation on the shared site. Nothing an airline enters
+What onboarding is not: running an airline on this site is not switched on yet. Nothing an airline enters
 reaches the demo's map or the Desk's picture, no advisory is drafted under its name, and pushes
 from airline accounts never enter the shared picture. TEPHRA is decision support only: a person
 decides, and nothing is sent to an aircraft.
 
 Onboarding, the accounts and the workspace sit behind `TEPHRA_FEATURES` `onboard`. It is the one
 feature whose routes answer 404 (`feature_off`) when it is hidden, so an instance that does not
-show it (an airline's own TEPHRA, for one) holds no accounts.
+show it holds no accounts.
 
 ## How to onboard: what you provide
 
@@ -41,7 +40,7 @@ by pattern, every list capped, registrations and aircraft addresses once each, a
 dispatcher who approves, and every policy change named, within the values an airline may change
 and with the policy file's own rules still met (no zero that switches a check off, divert time not
 after hold time). A changed value needs the airline's SRA reference. No answer holds a key, a PIN,
-a password, an address or a file: the schedule files stay in the browser and go only into the kit.
+a password, an address or a file: the schedule files stay in the browser.
 
 ## Your account
 
@@ -108,30 +107,27 @@ TEPHRA dispatchers, who verify it, read its answers; it is never listed publicly
 demo's map or the Desk's picture.
 
 - **Overview**: still onboarding, "Continue onboarding · step n of 9" and the page to go back to,
-  and nothing else (the other sections and the setup kit come once the answers are submitted).
-  Submitted: the verification status, the setup kit, the answers, the data feeds, the assistant and
-  the people. Both end with one line: this shared site runs the demo only; to check your own
-  flights, run your own TEPHRA with the setup kit.
+  and nothing else (the other sections come once the answers are submitted). Submitted: the
+  verification status, the answers, the data feeds, the assistant and the people. Once verified it
+  says "Verified." and, while hosting is off, "Running your airline on this site is not switched on
+  yet."
 - **Your answers**: each page's answers, editable while pending.
 - **Data feeds**: the `tephra.airline/1` format and its schema (`/api/connect/schema.json`), and a
   **dry run** (DRY RUN · NOTHING TAKEN IN): a file is checked record by record exactly as a push
   would be, with the push's own reasons, and nothing is taken in. Freshness (`observed_at` within
-  5 minutes) is checked against the current UTC time, as the airline's own TEPHRA does. Pilot
+  5 minutes) is checked against the current UTC time, as a push is. Pilot
   reports are checked for shape only. A position without an airline-style callsign (designator and
   flight number, e.g. RFA1654) is taken by a push but never checked against the ash; the dry run
   says so for each one. Thirty dry runs an hour, 512 KiB a file.
-- **Assistant**: where the airline's own TEPHRA runs its model: Gemini or Gemma with its own Google
-  AI Studio key, Gemma on its own computer through Ollama, or no model (NO MODEL). Only the provider
-  and the model names are stored.
-- **Setup kit**: the zip below, made in the browser. The page's Gemini key field is the only place
-  on the site that takes a secret: the key goes only into the zip made in that tab and TEPHRA never
-  receives or stores it.
+- **Assistant**: the model the airline chooses: Gemini or Gemma with its own Google AI Studio key,
+  Gemma on its own computer through Ollama, or no model (NO MODEL). Only the provider and the model
+  names are stored; TEPHRA never asks for the key.
 
 ## From verification to hosting
 
 When this site hosts airlines (the opt-in feature `hosted`, off on the deployed demo; see
-`docs/HOSTED.md`), a verified airline can also run TEPHRA here, in its own private space at
-`/a/<ICAO>/`, instead of its own TEPHRA:
+`docs/HOSTED.md`), a verified airline can run TEPHRA here, in its own private space at
+`/a/<ICAO>/`:
 
 1. **Verification.** An operator verifies the airline on `/admin`, which also approves hosting. An
    airline a dispatcher verified on the Desk sees "TEPHRA's operators approve hosting after
@@ -149,37 +145,14 @@ When this site hosts airlines (the opt-in feature `hosted`, off on the deployed 
    airline's code; the switch goes into the airline's record. Back to SHADOW and Stop each need a
    reason; Stop frees the place and returns the space to setup.
 
-The workspace's Not built line then reads: "TEPHRA runs at most 3 airlines at once on this site.
-Your own TEPHRA with the setup kit has no such limit." Invited members sign in at `/signin` (or on
-the invite page, `/join`); a login that belongs only to hosted airlines has "Your airlines" as its
-workspace.
+The workspace's Not built line then reads: "TEPHRA runs at most 3 airlines at once on this site."
+Invited members sign in at `/signin` (or on the invite page, `/join`); a login that belongs only to
+hosted airlines has "Your airlines" as its workspace.
 
-## The setup kit, file by file
+## The push tool
 
-`tephra-kit-<icao>.zip`, everything under `tephra-kit-<icao>/`:
-
-| File | What |
-|---|---|
-| `airline.env` | the settings for the airline's own TEPHRA; copy it to `.env`. It holds secrets (the Desk PIN, the session secret and the task token, made in the browser at download): never commit it. The shape is [`.env.airline.example`](../.env.airline.example) |
-| `policy.json` | Policy A with the airline's changes, each value's `source` saying who set it and why, `label` still "ILLUSTRATIVE, not an airline SRA"; copy it to `data/policy/airline.json` |
-| `fleet.json` | the aircraft in `data/rfa`'s fleet shape: registration as the tail, type, seats, and the home base and address when given |
-| `flights.json`, `crews.json` | the schedule files read on page 5, or empty ones to fill (no invented rows) |
-| `network.json` | the airports and the alternates the airline uses |
-| `answers.json` | the stored answers, the airline id and its status |
-| `push.py` | the push tool (`tephra/web/kit/push.py`, standard library only) |
-| `CHECKLIST.md` | the eight steps below |
-
-`airline.env` sets, in order: `TEPHRA_MODE=LIVE`, `TEPHRA_AUTO_REPLAY=false`, `TEPHRA_REGION` (the
-area that holds the main base; outside TEPHRA's three areas the line is commented out, since the
-live ash feeds cover only those), `TEPHRA_FEATURES=connect` (`,crew` when pilot reports are pushed),
-`TEPHRA_VISITOR_ACCESS=off`, `TEPHRA_RECOVERY_AUTO=false` (recovery re-planning for the airline's
-network is not built), `TEPHRA_VONA_LIVE=false`, `TEPHRA_STORE=sqlite`, `TEPHRA_LOCAL_SCHEDULER=true`,
-the three secrets, the own-fleet and own-airport lists, `TEPHRA_POLICY_FILE=policy/airline.json`,
-the airline's identity for its drafts (`TEPHRA_AIRLINE_NAME`, `TEPHRA_AIRLINE_ICAO`, the IATA code
-when given, and `TEPHRA_AIRLINE_SCHEDULE` / `TEPHRA_AIRLINE_FLEET` pointing at the kit's
-flights.json and fleet.json under `data/airline/`), then the model lines of the provider chosen (`TEPHRA_LLM=stub` is labelled NO MODEL).
-
-`push.py`:
+`tephra/web/kit/push.py` (standard library only) sends an airline's flight plans and positions to a
+TEPHRA's push endpoint, with a key made on the Desk (account menu › Data connections):
 
 ```
 python3 push.py --url URL --key tph_... [--dry-run] plans --schedule flights.json --fleet fleet.json --date YYYY-MM-DD [--callsign-rule ICAO] [--tails-are-today]
@@ -193,34 +166,6 @@ with neither is skipped and said. A position keeps its `observed_at`; one withou
 `--stamp-now` stamps it with the send time, which is for positions measured in the last minute and
 refuses a file written more than a minute before. Batches are at most 1,000 records, a little over a
 second apart. `--dry-run` prints the batches and sends nothing.
-
-## Run your own TEPHRA
-
-1. **What this is**: a private TEPHRA for the airline, which checks only its fleet and the
-   aircraft it pushes. Each flight is named by the airline's callsign, else the flight number of
-   a pushed flight plan that is flying now, else its flight in flights.json, else its
-   registration. Not built: one shared service for many airlines; Policy B;
-   recovery re-planning for its network; a sign-in for the map page.
-2. **Get TEPHRA**: clone the repository, then `uv sync` (or Docker).
-3. **Put the kit in place**: `cp tephra-kit-<icao>/airline.env .env`,
-   `cp tephra-kit-<icao>/policy.json data/policy/airline.json`, and
-   `mkdir -p data/airline && cp tephra-kit-<icao>/flights.json tephra-kit-<icao>/fleet.json data/airline/`.
-4. **The model**: Gemini or Gemma on AI Studio: paste the airline's own key after `GEMINI_API_KEY=`.
-   When its free daily limit is spent the assistant says AI UNAVAILABLE and plans nothing in its
-   place; a model with no row in TEPHRA's free-tier table is never called until one is added with
-   `TEPHRA_MODEL_LIMITS` (`.env.example` shows the shape). Ollama: `ollama pull <model>` and
-   `ollama serve` at the address given. No model: nothing to do (NO MODEL).
-5. **Start it**: `uv run tephra`, then `http://localhost:8080/demo` for the map and `/desk` for the
-   Desk with the PIN in `.env`. The map page and its read API have no sign-in: keep TEPHRA on the
-   airline's own network or put its own access control in front of it.
-6. **Make a push key**: Desk › account menu › Data connections › New connection (shown once).
-7. **Push the data**: `python3 push.py --url http://localhost:8080 --key tph_... plans --schedule
-   flights.json --fleet fleet.json --date <YYYY-MM-DD>` when the schedule is there, then
-   `positions <export.csv>` (each with `observed_at`), or `--stamp-now` for a file written in the
-   last minute.
-8. **Check it**: `GET /api/fleet` shows the prefixes and the number of aircraft addresses; only the
-   fleet's flights become drafts. For Cloud Run instead, read `deploy/README.md` first: a billing
-   account is needed even inside the free tier, and an always-on instance is billed while it runs.
 
 ## Own-fleet filter, own airports, policy file
 
@@ -243,35 +188,27 @@ hash of the recovery code; from sign-up on, the onboarding answers with the acco
 operations email, the contact name and the dispatchers' names or initials. Where: Firestore on the
 live site (`airlines`, `airline_logins`), SQLite locally. Who reads it: the airline when signed in,
 and this site's signed-in dispatchers once the airline submits, to verify it. It is never public,
-never in the audit trail and never sent to Gemini. The browser keeps only the schedule files and
-an Ollama address, for the setup kit, until sign-out or deleting the account. A Gemini key typed on the Setup kit page
-stays in that tab and goes only into the zip. Records are kept until the airline deletes its
+never in the audit trail and never sent to Gemini. The browser keeps only the schedule files (their
+counts go with the answers), until sign-out or deleting the account. TEPHRA never asks for a Gemini
+key.
+Records are kept until the airline deletes its
 account, or a dispatcher deletes a declined airline's record; nothing expires them. The site's
 privacy page says the same (`/privacy#accounts`).
 
 ## Not built
 
-- Running an airline's live operation on this shared site while hosting is off (the deployed
-  demo): it runs the demo only. Pushes from airline accounts and advisories under an airline's name
-  never appear on the demo or the Desk; to check its own flights an airline runs its own TEPHRA
-  with the setup kit, or, where the site hosts airlines, in its own space (above).
+- Running an airline on this site: not switched on yet while hosting is off (the deployed demo);
+  where the site hosts airlines, each runs in its own space (above). Pushes from airline accounts
+  and advisories under an airline's name never appear on the demo or the Desk.
 - One shared service with a desk per airline over the same public picture.
 - Policy B (through, under or over the ash): no code applies a Policy B preset.
 - Recovery re-planning for the airline's network.
 - Password reset by email, and email address checks.
-- A sign-in for the map page of an airline's own TEPHRA.
 
 ## FAQ
 
-**What do my own TEPHRA's drafts call my flights?** Your own TEPHRA names each flight of your
-fleet by its callsign when it is one of yours, else by the flight number of a flight plan you pushed
-that is flying now, else by its flight in your flights.json (matched by registration and time), else
-by its registration. Its airline.env names your airline
-(`TEPHRA_AIRLINE_NAME`, `TEPHRA_AIRLINE_ICAO`), which it needs to start.
-
-**Where does my Gemini key go?** Only into the zip made on the Setup kit page, in that browser tab.
-The field has no name and sits outside any form, so no request carries it; TEPHRA never receives or
-stores it. The workspace keeps the provider and the model names only.
+**Where does my Gemini key go?** Nowhere: TEPHRA never asks for it. The workspace keeps the
+provider and the model names only.
 
 **Why is my policy still ILLUSTRATIVE?** TEPHRA cannot check a safety risk assessment. The policy
 file records the airline's numbers, its reasons and its SRA reference, and keeps the label
@@ -279,4 +216,4 @@ file records the airline's numbers, its reasons and its SRA reference, and keeps
 
 **Why can't I push to the demo?** The demo is a replay of a fictional airline's day, and the shared
 picture is the same for every visitor. Pushes from airline accounts never enter it. Try a file in
-the workspace's dry run, then push to your own TEPHRA from the setup kit.
+the workspace's dry run.

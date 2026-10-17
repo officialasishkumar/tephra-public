@@ -1,0 +1,103 @@
+/* The info button (wall/info.js), one look on the demo, /assistant and the Desk: a small (i) after
+   the label it explains, a 16 px glyph in a 44 px hit area; its popover sits in the browser's top
+   layer on the theme's raised surface. Page-specific placements stay in wall.css and desk.css. */
+
+.info {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+.info__btn {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: -4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--c-text-3);
+  cursor: pointer;
+}
+
+.info__btn::after { content: ""; position: absolute; inset: -10px; }
+
+.info__btn .info__glyph {
+  width: 16px;
+  height: 16px;
+}
+
+.info__btn:hover,
+.info__btn[aria-expanded="true"] {
+  color: var(--c-text-1);
+  background: var(--c-surface-3);
+}
+
+.info__btn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* a chip that is its own (i): its words, then the glyph (the Desk's REPLAY chip) */
+.info__btn.info__btn--chip {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  height: auto;
+  margin: 0;
+  gap: 6px;
+}
+
+.info__pop {
+  position: fixed;
+  inset: auto;
+  z-index: var(--z-popover);
+  width: max-content;
+  max-width: min(320px, calc(100vw - 32px));
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-line-2);
+  border-radius: var(--radius-md);
+  background: var(--c-surface-2);
+  box-shadow: var(--shadow-2);
+  color: var(--c-text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-2);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-body);
+  letter-spacing: normal;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.info__pop:not(:popover-open):not([hidden]) { display: none; }
+.info__pop[hidden] { display: none; }
+.info__line { margin: 0; }
+.info__line + .info__line { margin-top: 6px; }
+.info__line b { font-weight: var(--fw-semibold); }
+
+.info__acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: var(--sp-2) 0 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .info__pop:popover-open { animation: info-in var(--dur-2) var(--ease-standard); }
+}
+
+@keyframes info-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (forced-colors: active) {
+  .info__pop { border: 1px solid CanvasText; }
+}

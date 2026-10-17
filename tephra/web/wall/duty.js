@@ -8,8 +8,10 @@
 // in through el() (textContent).
 
 import { el, ms } from "./util.js";
-import { aiMark, notRun, plainLine, reasonClass, unavailableWhy } from "./x-parts.js";
+import { aiMark, codeMark, notRun, plainLine, reasonClass, templateText, unavailableWhy } from "./x-parts.js";
 import { dkPill, dkChip, dkFacts, dkRow, dkList, dkNote, dkEmpty, dkTech, dkFromReplay, dkLink, collapseRuns, seconds, plural, dayTime } from "./dk.js";
+// a brief line in plain words, without "(code only)": the brief's own mark ("{ }") says it once
+const said = (line) => templateText(plainLine(line)).text;
 
 // What each Coordinator (duty officer) tool reaches. Tool names are fixed by the backend toolkit.
 export const SPECIALISTS = {
@@ -24,7 +26,8 @@ export const SPECIALISTS = {
 export const OUTCOME = {
   ACCEPTED: ["ok", "Passed the checks", "The brief passed the code's checks."],
   REPAIRED: ["caution", "Passed after one repair", "The brief passed after one repair."],
-  STUB: ["off", "Code only", "The offline stub ran the work in urgency order. No model wrote the brief."],
+  // the AI-off state is the one status's; the run says only how it ended (owner, 17 Oct)
+  STUB: ["ok", "Done", "Code ran the work in urgency order."],
   BUDGET: ["caution", "Not run", "Today's free AI quota is used up: no model was called."],
   UNAVAILABLE: ["caution", "Not run", "AI UNAVAILABLE: no model can be used, so no model was called."],
   MODEL_FAILED: ["caution", "No brief", "The model was called and gave no brief that passed the code's checks."],
@@ -64,10 +67,11 @@ const itemLabel = (run, id) => run.worklist.find((i) => i.id === id)?.label || i
 const finishedAt = (run) => ms(run.decided_at || run.finished_at);
 
 // Lines that repeat with other flights collapse into one ("RFA1225, RFA1530 and 19 more: ...").
+// A code template's line keeps its distinction as the "{ }" mark, not "(code only)" words.
 function collapsedLines(lines, key, first, tone = null) {
   const runs = collapseRuns(lines.map((text, i) => ({ text, _t: i })), { textOf: (x) => x.text, timeOf: () => NaN });
-  return dkList(runs.map((r) => el("div", { class: `dk-line${tone ? ` dk-line--${tone}` : ""}` },
-    el("span", { class: "dk-line__text", text: r.label }), r.count > 1 ? el("span", { class: "dk-badge", text: `${r.count}` }) : null)), { first, key });
+  return dkList(runs.map((r) => { const t = templateText(r.label); return el("div", { class: `dk-line${tone ? ` dk-line--${tone}` : ""}` },
+    el("span", { class: "dk-line__text" }, t.code ? codeMark() : null, t.code ? " " : null, t.text), r.count > 1 ? el("span", { class: "dk-badge", text: `${r.count}` }) : null); }), { first, key });
 }
 
 // The run in one line for the helper row: "Passed the checks · 1 job handed out · 1036Z".
@@ -127,15 +131,15 @@ function brief(run) {
     el("span", { class: "dk-prio__n mono", text: String(i + 1) }),
     el("span", { class: "dk-prio__main" },
       el("span", { class: "dk-prio__label" }, itemLabel(run, p.item_id), mustDo(p.item_id) ? [" ", dkChip("Must do", { kind: "must", title: "Code requires this work this run" })] : null),
-      sameStub ? null : el("span", { class: "dk-prio__why", text: plainLine(p.why) }))));
+      sameStub ? null : el("span", { class: "dk-prio__why", text: said(p.why) }))));
   return el("div", { class: "dk-sub" },
     el("div", { class: "dk-sub__titlerow" }, el("p", { class: "dk-sub__title", text: "Brief" }), aiMark(model, model ? null : "NO MODEL")),
-    el("p", { class: "dk-quote", text: plainLine(b.summary) }),
+    el("p", { class: "dk-quote", text: said(b.summary) }),
     b.priorities.length ? el("p", { class: "dk-sub__title", text: `Priorities · ${b.priorities.length}` }) : null,
-    sameStub && b.priorities.length ? el("p", { class: "dk-sub__note", text: "In urgency order: code ordered them (code only)." }) : null,
+    sameStub && b.priorities.length ? el("p", { class: "dk-sub__note", text: "In urgency order: code ordered them." }) : null,
     b.priorities.length ? dkList(prio, { first: 5, key: "duty-prio" }) : null,
     b.watch.length ? el("p", { class: "dk-sub__title", text: "Watch" }) : null,
-    b.watch.length ? el("ul", { class: "dk-bullets" }, ...b.watch.map((w) => el("li", { text: plainLine(w) }))) : null);
+    b.watch.length ? el("ul", { class: "dk-bullets" }, ...b.watch.map((w) => el("li", { text: said(w) }))) : null);
 }
 
 function deferred(run) {
@@ -145,7 +149,7 @@ function deferred(run) {
     el("div", { class: "dk-sub__titlerow" }, el("p", { class: "dk-sub__title", text: `Left for the next run · ${run.deferred.length}` }), run.outcome === "MODEL_FAILED" ? null : aiMark(model, model ? null : "NO MODEL")),
     el("p", { class: "dk-sub__note", text: "Optional work it left for later. The reasons are the model's." }),
     dkList(run.deferred.map((d) => el("div", { class: "dk-prio" }, el("span", { class: "dk-prio__main" },
-      el("span", { class: "dk-prio__label", text: itemLabel(run, d.item_id) }), el("span", { class: "dk-prio__why", text: plainLine(d.reason) })))), { first: 3, key: "duty-defer" }));
+      el("span", { class: "dk-prio__label", text: itemLabel(run, d.item_id) }), el("span", { class: "dk-prio__why", text: said(d.reason) })))), { first: 3, key: "duty-defer" }));
 }
 
 // The body of the Coordinator's skill row.
@@ -166,7 +170,7 @@ export function dutyDetail(run, loaded, until = null, modeReplay = false) {
       // no model fact for a run the quota refused: no call was made (D68)
       // the model id in words: this is the assistant's own home (Details › TEPHRA Assistant); the
       // brief below carries the "Drafted by" mark
-      ["Model", outcome === "BUDGET" || outcome === "UNAVAILABLE" ? null : outcome === "MODEL_FAILED" ? `Called (${run.model_id || "model unknown"}), no brief passed the checks` : model || "Code only (assistant off)", model && outcome !== "MODEL_FAILED" ? { mono: true } : undefined],
+      ["Model", outcome === "BUDGET" || outcome === "UNAVAILABLE" ? null : outcome === "MODEL_FAILED" ? `Called (${run.model_id || "model unknown"}), no brief passed the checks` : model, model && outcome !== "MODEL_FAILED" ? { mono: true } : undefined],
       ["Turns", String(run.turns), { mono: true }],
       ["Jobs given", `${run.worklist.length}${mandatory ? ` (${mandatory} must do)` : ""}`],
       // code starts every run, whether or not a model is then called (no claim the assistant ran)

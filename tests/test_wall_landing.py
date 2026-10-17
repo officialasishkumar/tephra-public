@@ -94,7 +94,8 @@ def test_decisions_rows_open_a_read_only_preview() -> None:
     )
     assert f'export const CHECKED = "{checked}";' in PANELS
     assert "text: CHECKED" in preview
-    assert 'text: "Code only (NO MODEL)"' in preview
+    # a code template's draft: the small "{ }" mark (owner, 17 Oct: "don't say no model everywhere")
+    assert "const mark = stub ? codeMark() : aiMark(a.model_id, MARK.written);" in preview
     assert "aiMark(a.model_id, MARK.written)" in preview
     assert "text: a.header" in preview
     assert "a.edited_body ?? a.body" in preview
@@ -144,11 +145,15 @@ def test_the_footer_keys_are_all_there_and_the_left_part_is_short() -> None:
     status = _function(PANELS, "renderStatusLine")
     assert "Flat map" not in status
     assert "official ash area" not in status
-    # the fictional airline stays said in the status line's tooltip (CLAUDE.md, How the UI talks)
+    # the fictional airline and the illustrative policy stay said in the status line, now as a
+    # word with an info button instead of a hover title (owner, 17 Oct; TEXT-SPEC A6)
+    assert 'class="stl__line honesty__airline"' in footer
+    assert '<span id="stl-rfa" class="stl__seg stl__info">RFA</span>' in footer
     assert (
-        'class="stl__line honesty__airline" title="Ring of Fire Air (RFA) is a fictional airline'
-        in footer
+        'label: "About the fictional airline", '
+        "text: `Ring of Fire Air (RFA) is a fictional airline." in status
     )
+    assert 'label: "About the illustrative policy", text: words' in status
 
 
 def test_the_data_chip_says_all_working_and_leaves_off_feeds_out() -> None:

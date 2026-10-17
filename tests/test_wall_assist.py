@@ -2,11 +2,11 @@
 
 Each folded board row gets the step it belongs to, who took it and how it went; the rows at a
 playhead hold only steps at or before it; the player always says "Replay" in REPLAY and never a
-bare "paused"; LIVE has no player; with the offline stub the state line says NO MODEL. On arrival
-the tab catches up on TEPHRA's last full chain of kept steps (lastChain): every beat is recorded
-events, a chain with a part missing says so, and a run that did not run ends with the must-do work
-passed to a person, never a skill. The module has no DOM, so these run on plain data. Skipped when
-Node is not installed.
+bare "paused"; LIVE has no player; with the offline stub the tab bar's one status says AI off.
+On arrival the tab catches up on TEPHRA's last full chain of kept steps (lastChain): every beat
+is recorded events, a chain with a part missing says so, and a run that did not run ends with the
+must-do work passed to a person, never a skill. The module has no DOM, so these run on plain data.
+Skipped when Node is not installed.
 """
 
 import json
@@ -23,11 +23,11 @@ NODE = shutil.which("node")
 
 RUNNER = """
 import { readFileSync } from "node:fs";
-import { rowView, visibleRows, minuteGroups, playerWords, stateLine, stageOf, lastChain, beatMs,
+import { rowView, visibleRows, minuteGroups, playerWords, stageOf, lastChain, beatMs,
   chainNote, eventsShown, catchupSkills, sayBeat, rowsOf, CATCHUP_MS, RM_STEP_MS }
   from "./wall/assist.js";
 import { flowEvents } from "./wall/board.js";
-import { plainLine } from "./wall/x-parts.js";
+import { plainLine, stateLine } from "./wall/x-parts.js";
 import { collapseRuns } from "./wall/dk.js";
 const input = JSON.parse(readFileSync(process.argv[2], "utf8"));
 const at = (hms) => Date.parse(`2026-09-05T${hms}Z`);
@@ -317,15 +317,16 @@ def test_the_player_always_says_replay_and_never_a_bare_paused(out: dict[str, An
     for state in ("follow", "paused", "playing", "calm"):
         assert p[state]["lead"] == "Replay", state
         assert p[state]["live"] is False, state
-    assert p["follow"]["text"] == "following the replay clock"
-    assert p["catchup"]["text"] == "catching up: TEPHRA's last steps, fast"
+    # one short line each (owner, 17 Oct: "too much text")
+    assert p["follow"]["text"] == "following the clock"
+    assert p["catchup"]["text"] == "catching up"
     assert p["catchup"]["lead"] == "Replay"
     assert p["catchup"]["time"] == "10:31:05"
     assert p["follow"]["time"] == "10:32:20"
     assert p["follow"]["valuetext"] == "step at replay clock 10:32:20, the newest step"
     assert p["follow"]["button"] == "Pause the steps"
     # The player moves only the panel's steps: it never claims the replay itself is paused.
-    assert p["paused"]["text"] == "steps paused at 10:31:00 (the replay clock runs on)"
+    assert p["paused"]["text"] == "paused at 10:31:00, replay clock runs on"
     assert p["paused"]["button"] == "Play the steps from 10:31:00"
     assert p["playing"]["button"] == "Pause the steps"
     assert "Pause the replay" not in json.dumps(p)
@@ -339,14 +340,24 @@ def test_live_has_no_player_only_one_line(out: dict[str, Any]) -> None:
     assert live == {"live": True, "lead": "Live", "text": "new steps appear as they come"}
 
 
-def test_the_state_line_says_no_model_with_the_stub(out: dict[str, Any]) -> None:
-    assert out["stub"]["strong"] == "NO MODEL"
-    assert out["stub"]["text"] == "offline stub: code checks still run"
-    assert out["stub"]["why"] is False
-    assert (out["paused"]["text"], out["paused"]["why"]) == ("paused", True)
-    assert out["trouble"]["text"] == "Flight planner gave no result"
+def test_the_one_status_shows_only_when_not_normal(out: dict[str, Any]) -> None:
+    """Owner, 17 Oct: "don't say no model everywhere". The assistant's state is said once, a
+    shape and two words in the tab bar, only when it is not working normally; the explanation is
+    behind its info button, and the screen-reader words keep the state in every case."""
+    stub = out["stub"]
+    assert (stub["word"], stub["tone"], stub["why"]) == ("AI off", "off", False)
+    assert stub["info"] == (
+        "Offline stub: no model is connected. Code checks still run, and code templates write"
+        " the drafts."
+    )
+    assert stub["said"] == "TEPHRA Assistant off: no model is connected."
+    assert (out["paused"]["word"], out["paused"]["why"]) == ("AI paused", True)
+    assert out["trouble"]["word"] == "AI unavailable"
+    assert out["trouble"]["info"].startswith("Flight planner gave no result.")
     assert out["trouble"]["tone"] == "caution"
-    assert (out["on"]["text"], out["on"]["tone"]) == ("on", "ok")
+    # working normally: nothing on screen, the state still said to a screen reader
+    assert (out["on"]["word"], out["on"]["info"]) == (None, None)
+    assert out["on"]["said"] == "TEPHRA Assistant on."
 
 
 def test_the_catch_up_plays_the_newest_full_chain_in_pipeline_order(out: dict[str, Any]) -> None:
@@ -448,7 +459,8 @@ def test_the_catch_up_log_follows_the_beats_in_play_order(out: dict[str, Any]) -
     shown = out["own"]["shown"]
     assert shown[0] == ["VA SIGMETs read: 2 current"]
     assert shown[1][0].startswith("Code: RFB401, RB555 +1")
-    assert shown[2][0] == "Coordinator handed a job to Flight planner"
+    # the row's actor ("Coordinator") is said once, beside the text, not again in it
+    assert shown[2][0] == "Handed a job to Flight planner"
     assert shown[-1][0] == "Advisory draft for RFB401 reached the Desk"
     assert [len(rows) for rows in shown] == sorted(len(rows) for rows in shown)
 
@@ -480,5 +492,5 @@ def test_the_catch_up_is_said_as_the_replay_s_steps(out: dict[str, Any]) -> None
 
 def test_before_the_catch_up_the_player_says_it_is_about_to_catch_up(out: dict[str, Any]) -> None:
     w = out["player"]["waiting"]
-    assert (w["lead"], w["text"]) == ("Replay", "about to catch up: TEPHRA's last steps, fast")
+    assert (w["lead"], w["text"]) == ("Replay", "about to catch up")
     assert w["time"] is None

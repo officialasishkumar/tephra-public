@@ -21,8 +21,9 @@ export const SECTIONS = [
 ];
 export const ROLE_WORDS = { ops_manager: "Ops manager", dispatcher: "Dispatcher", viewer: "Viewer" };
 export const STATE_WORDS = { setup: "Not started", shadow: "SHADOW", live: "LIVE", suspended: "SUSPENDED" };
-export const NOTHING_SENT = "Decision support only. Nothing is sent to aircraft.";
-export const FOOTER_SENTENCE = "Decision support only. Not for operational use.";
+// the state chip's tooltip says what a draft becomes; the decision-support sentence is not page
+// chrome (owner, 17 Oct 2026: "don't put this everywhere"): it lives in About and the sign-up tick
+export const NOTHING_SENT = "Nothing is sent to aircraft.";
 const REFRESH_MS = 60e3;
 const RETRY_MS = 10e3;
 
@@ -239,7 +240,7 @@ export function mountTenantNav({ bar, section, chips = [], hide = [], theme = tr
   if (!document.querySelector('link[href="/static/tenant.css"]')) document.head.append(el("link", { rel: "stylesheet", href: "/static/tenant.css" }));
   document.body.classList.add("is-tenant");
   // the shells' descriptions speak of the demo (replay, fictional airline): not of this space
-  const about = `TEPHRA for ${TENANT}: a private airline space, behind sign-in. Decision support only.`;
+  const about = `TEPHRA for ${TENANT}: a private airline space, behind sign-in.`;
   for (const m of document.querySelectorAll('meta[name="description"], meta[property="og:description"]')) m.setAttribute("content", about);
   bar.classList.add("ah");
   for (const n of hide) if (n) n.hidden = true;
@@ -333,7 +334,8 @@ function drawGone() {
   S.parts.alarm.hidden = false;
 }
 
-// The product pages' footer inside the space: today's sentence (owner question Q1) and who sees it.
+// The product pages' footer inside the space: who sees it (the decision-support sentence left the
+// footer: owner, 17 Oct 2026, "don't put this everywhere").
 export function footerWords(h) {
-  return `${FOOTER_SENTENCE} Private to ${h ? h.name : "this airline"} and TEPHRA's operators.`;
+  return `Private to ${h ? h.name : "this airline"} and TEPHRA's operators.`;
 }

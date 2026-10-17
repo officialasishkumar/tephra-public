@@ -1,12 +1,12 @@
-"""Push your airline's data to your own TEPHRA, in the tephra.airline/1 format.
+"""Push your airline's data to a TEPHRA server, in the tephra.airline/1 format.
 
-Part of the setup kit made in the TEPHRA airline workspace. Standard library only.
+Standard library only.
 
   python3 push.py --url URL --key tph_... [--dry-run] plans --schedule flights.json \\
       --fleet fleet.json --date YYYY-MM-DD [--callsign-rule ICAO] [--tails-are-today]
   python3 push.py --url URL --key tph_... [--dry-run] positions FILE.csv|FILE.json [--stamp-now]
 
-Make the key on your TEPHRA's Desk: account menu, Data connections, New connection. Nothing is
+Make the key on that server's Desk: account menu, Data connections, New connection. Nothing is
 guessed: a flight plan with neither a callsign nor a known aircraft address is skipped, and a
 position without observed_at is refused unless --stamp-now stamps it at send time (for
 positions measured in the last minute only). Exit codes: 0 sent, 1 records refused, 2 usage or

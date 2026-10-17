@@ -1,4 +1,4 @@
-"""``TEPHRA_POLICY_FILE``: an airline's own TEPHRA reads its policy file from its setup kit;
+"""``TEPHRA_POLICY_FILE``: an airline's own TEPHRA reads its own policy file;
 the default is Policy A, unchanged."""
 
 import json

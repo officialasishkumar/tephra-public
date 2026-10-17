@@ -330,7 +330,8 @@ def test_the_offline_stub_says_ai_off_and_shows_its_hand_outs(tmp_path: Path) ->
     duty = _card(model, "duty")
     assert duty["state"] == "done"
     assert duty["last"]["text"] == "Handed out 2 jobs in urgency order (code only)."
-    assert duty["model"] == {"id": None, "text": "No model (offline stub): no calls", "tone": "off"}
+    # no footer words with no model: the one AI status says it (owner, 17 Oct)
+    assert duty["model"] == {"id": None, "text": "", "tone": "off"}
     planner = _card(model, "planner")
     assert planner["handoff"]["count"] == 2
     assert planner["handoff"]["unit"] == "flight"
@@ -649,7 +650,9 @@ def test_the_off_chip_still_discloses_ai(tmp_path: Path) -> None:
     title = _xparts(tmp_path)["off"]["title"]
     assert "TEPHRA's AI assistant" in title
     assert "never shrink the official area" in title
-    assert "NO MODEL" in title
+    # the off state in words, never the capital NO MODEL stamp (owner, 17 Oct)
+    assert "no model is connected" in title
+    assert "NO MODEL" not in title
 
 
 def test_server_words_are_shown_in_assistant_words(tmp_path: Path) -> None:
@@ -764,7 +767,8 @@ def test_flow_refused_runs_send_no_work_to_a_skill(tmp_path: Path) -> None:
     assert types == {"duty", "refused"}
     assert not any(e.get("skill") for e in out["m"]["events"])
     assert out["m"]["gate"]["open"] is False
-    assert out["m"]["gate"]["name"] == "Paused"
+    # the closed bar and what waits; "AI paused" is the one status's word (said once)
+    assert out["m"]["gate"]["name"] == ""
     # the view's refused branch routes its tokens down the code lane only, never to a skill
     view = (WALL / "board-view.js").read_text(encoding="utf-8")
     refused = view[view.index('e.type === "refused" || e.type === "undone") {') :]
@@ -956,7 +960,7 @@ def test_flow_words_follow_the_assistant_state(tmp_path: Path) -> None:
     )
     assert paused["gate"]["meta"] == "3 jobs in line"
     assert paused["gate"]["title"] == "Why: Details \u203a TEPHRA Assistant"
-    assert paused["coord"]["meta"] == "Paused: must-do jobs come to you"
+    assert paused["coord"]["meta"] == "Must-do jobs come to you"
     for words in (paused["status"], paused["sub"], paused["gate"]["name"], paused["gate"]["meta"]):
         assert not QUOTA_WORDS.search(words), words
     assert [s["inLine"] for s in paused["skills"]] == [0, 0, 1, 0, 1, 1]
@@ -965,6 +969,10 @@ def test_flow_words_follow_the_assistant_state(tmp_path: Path) -> None:
     assert kinds == ("off", "off (code only)", "nomodel")
     # no model to close: the skills are code templates, so the gate is drawn as a bypass
     assert off["gate"]["open"] is True
+    # the AI-off state is said once, by the one status (owner, 17 Oct: "don't say no model
+    # everywhere"): the gate and the Coordinator's row add no words of their own
+    assert (off["gate"]["name"], off["gate"]["meta"], off["gate"]["title"]) == ("", "", "")
+    assert off["coord"]["meta"] == ""
 
 
 def test_flow_example_never_touches_the_wall_store() -> None:
@@ -973,7 +981,15 @@ def test_flow_example_never_touches_the_wall_store() -> None:
     view = (WALL / "board-view.js").read_text(encoding="utf-8")
     imports = re.findall(r'^import .* from "([^"]+)";$', view, flags=re.M)
     # the live map's basemap and symbol images hold no data
-    assert imports == ["./util.js", "./board.js", "./basemap.js", "./images.js"]
+    # the info button and the shared words (the code mark, the one AI status) hold no data either
+    assert imports == [
+        "./util.js",
+        "./board.js",
+        "./basemap.js",
+        "./images.js",
+        "./info.js",
+        "./x-parts.js",
+    ]
     assert not re.search(r"\bstore\b", view)
     assert not re.search(r"\bfetch\(", view)
     assert "POST" not in view
@@ -1138,5 +1154,6 @@ def test_the_catch_up_is_recorded_steps_only_and_writes_nothing() -> None:
     panel = (WALL / "assist-panel.js").read_text(encoding="utf-8")
     assert '"Replay again"' in panel
     words = (WALL / "assist.js").read_text(encoding="utf-8")
-    assert "catching up: TEPHRA's last steps, fast" in words
-    assert '"following the replay clock"' in words
+    # one short line each (owner, 17 Oct): "Replay · catching up", "Replay · following the clock"
+    assert 'text: "catching up"' in words
+    assert 'text: "following the clock"' in words

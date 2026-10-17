@@ -71,10 +71,6 @@ async function boot() {
     return;
   }
   const view = handover ? renderHandover(doc) : renderDoc(doc);
-  // the footer's fictional-airline clause is the demo's: a document of an airline's own TEPHRA
-  // carries no FICTIONAL label (regdocs/common.py) and a brief says fictional_airline false
-  const fictional = handover ? doc.fictional_airline !== false : (doc.labels || []).some((l) => /FICTIONAL/.test(l));
-  document.getElementById('docfoot-fictional').hidden = !fictional;
   // a draft made while a hosted airline ran in SHADOW says so above the document (D12)
   const stamp = doc.shadow === true ? document.createElement('span') : null;
   if (stamp) {

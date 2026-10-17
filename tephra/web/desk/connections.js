@@ -108,7 +108,7 @@ function newBlock() {
       el('p', { class: 'fine', text: 'Shown once. Keep it with your push script. TEPHRA keeps only its fingerprint.' }));
   }
   const name = el('input', { id: 'dc-name', class: 'field', type: 'text', minlength: '2', maxlength: '48', autocomplete: 'off', placeholder: 'e.g. RFA operations', 'aria-describedby': 'dc-name-err' });
-  const err = el('p', { id: 'dc-name-err', class: 'msg msg--serious', hidden: true });
+  const err = el('p', { id: 'dc-name-err', class: 'msg msg--invalid', hidden: true });
   const go = el('button', { type: 'submit', class: 'btn btn--neutral' }, icon('i-plus'), el('span', { text: 'New connection' }));
   const form = el('form', { class: 'dc-new', novalidate: true },
     el('div', { class: 'fgroup' }, el('label', { class: 'flabel', for: 'dc-name', text: 'Name' }), name, err), go);
@@ -116,7 +116,8 @@ function newBlock() {
     e.preventDefault();
     const n = name.value.trim();
     if (n.length < 2) {
-      err.textContent = 'A name of 2 to 48 characters.';
+      err.className = 'msg msg--invalid';
+      err.replaceChildren(icon('st-caution', 'st'), el('span', { text: 'A name of 2 to 48 characters.' }));
       err.hidden = false;
       name.setAttribute('aria-invalid', 'true');
       name.focus();
@@ -126,7 +127,8 @@ function newBlock() {
     const res = await api(PATH.list, { method: 'POST', body: { name: n } });
     go.disabled = false;
     if (!res.ok || !res.data?.key) {
-      err.textContent = failText(res);
+      err.className = 'msg msg--serious';
+      err.replaceChildren(icon('st-serious', 'st'), el('span', { text: failText(res) }));
       err.hidden = false;
       return;
     }

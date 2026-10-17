@@ -28,12 +28,12 @@ setChainApi(api);
 // Section key, index group, title, host element id, the old rail panel id it stands for (R8.2),
 // and the optional feature (wall/features.js) the section is listed under.
 export const SECTIONS = [
-  { key: "sources", group: "The ash", title: "What the official reports say", host: "brief", xtab: "brief" },
+  { key: "sources", group: "The ash", title: "What the official reports say", short: "Official reports", host: "brief", xtab: "brief" },
   { key: "disagree", group: "The ash", title: "Where the sources disagree", host: "brief" },
   { key: "estimate", group: "The ash", title: "TEPHRA's estimate", host: "brief" },
   { key: "sat", group: "The ash", title: "Satellite picture", host: "xpanel", xtab: "sat", feature: "satellite" },
   { key: "notices", group: "The ash", title: "Notices", host: "xpanel", xtab: "notices", feature: "notices" },
-  { key: "crew", group: "The ash", title: "Crew reports of ash", host: "crew", feature: "crew" },
+  { key: "crew", group: "The ash", title: "Crew reports of ash", short: "Crew reports", host: "crew", feature: "crew" },
   { key: "flights", group: "The flights", title: "Flights heading in", host: "flights" },
   { key: "decisions", group: "The flights", title: "Decisions", host: "decisions" },
   { key: "recovery", group: "The flights", title: "Airport closures", host: "xpanel", xtab: "recovery", demoOnly: true },
@@ -44,7 +44,7 @@ export const SECTIONS = [
   { key: "proof", group: "Behind the scenes", title: "Track record", host: "xpanel", xtab: "proof", demoOnly: true },
   { key: "runs", group: "Behind the scenes", title: "Runs on", host: "xpanel", xtab: "runs" },
   { key: "feeds", group: "Behind the scenes", title: "Data feeds", host: "feeds" },
-  { key: "layers", group: "Behind the scenes", title: "Map layers, 3D and compare", host: "layers-pop" },
+  { key: "layers", group: "Behind the scenes", title: "Map layers, 3D and compare", short: "Map layers", host: "layers-pop" },
   // reached from the map and from lists, not from the index
   { key: "area", title: "This ash area", host: "brief", hidden: true },
   { key: "flight", title: "This flight", host: "flights", hidden: true },
@@ -57,14 +57,6 @@ export const sectionOf = (key) => SECTIONS.find((s) => s.key === key) || null;
 export const PANELS = [{ id: "brief", sec: "sources" }, ...SECTIONS.filter((s) => s.xtab && s.xtab !== "brief").map((s) => ({ id: s.xtab, sec: s.key }))];
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-// "newest SIGMET, VAA and VONA": the section shows one card per kind (the newest of each), so the
-// row names the kinds, not a count that would read against the Desk's per-draft source list or the
-// "reasons" list (review 2, item 3).
-export function reportCount(cards) {
-  const kinds = ["SIGMET", "VAA", "VONA"].filter((k) => cards.some((c) => c.kind === k));
-  if (!kinds.length) return "none";
-  return `newest ${kinds.length > 1 ? `${kinds.slice(0, -1).join(", ")} and ${kinds[kinds.length - 1]}` : kinds[0]}`;
-}
 const st = (id, color) => icon(id, "st", color);
 
 // ------------------------------------------------------------------ the index (R8.2)
@@ -75,18 +67,19 @@ export function indexStatus(key, D, store, ui) {
   switch (key) {
     case "sources": {
       if (!sit) return { text: "no volcano selected" };
-      // the same split as the section's summary: official reports (SIGMET, VAA) and the
-      // observatory's notice (VONA) are counted apart (review 2, item 3)
+      // the kinds the section shows, one card each (the newest of each), never a count that would
+      // read against the Desk's per-draft source list (review 2, item 3)
       const cards = sit.cards.filter((c) => !c.missing);
       const newest = Math.max(...cards.map((c) => ms(c.issued_at)).filter(Number.isFinite));
-      return { text: cards.length ? `${reportCount(cards)} · ${age((D.now - newest) / 1000)} ago` : "none in force" };
+      const kinds = ["SIGMET", "VAA", "VONA"].filter((k) => cards.some((c) => c.kind === k));
+      return { text: cards.length ? `${kinds.join(" · ")} · ${age((D.now - newest) / 1000)} ago` : "none in force" };
     }
     case "disagree": {
       if (!sit) return { text: "–" };
       const check = sit.discrepancies.filter((d) => d.severity !== "INFO");
       const minor = sit.discrepancies.length - check.length + sit.cards.filter((c) => !c.missing && NON_OBS.has(c.evidence)).length;
       const worst = Math.max(0, ...check.map((d) => SEV_RANK[d.severity] || 0));
-      return { text: `${check.length ? `${check.length} to check` : "nothing to check"}${minor ? ` · ${minor} minor` : ""}`, tone: worst >= 3 ? "serious" : worst >= 2 ? "caution" : null };
+      return { text: `${check.length ? `${check.length} to check` : "nothing to check"}${minor ? ` · ${minor} minor` : ""}`, tone: worst >= 3 ? "warning" : worst >= 2 ? "caution" : null };
     }
     case "estimate": {
       const cone = sit ? D.coneOf(sit.volcano_id)?.properties : null;
@@ -105,10 +98,10 @@ export function indexStatus(key, D, store, ui) {
     case "notices":
       if (!ext.loaded.notices) return { text: "loading…" };
       if (ext.errors.notices) return { text: "could not load", tone: "serious" };
-      return { text: ext.notices.length ? plural(ext.notices.length, "notice", "notices") : "none" };
+      return { text: ext.notices.length ? String(ext.notices.length) : "none" };
     case "crew": {
       const C = D?.crew;
-      if (!C || !C.reports.length) return { text: "none in the last 24 h" };
+      if (!C || !C.reports.length) return { text: "none in 24 h" };
       const act = C.reports.filter((v) => v.state === "ACTIVE").length;
       const cov = C.reports.filter((v) => v.state === "COVERED").length;
       const out = C.reports.filter((v) => v.discrepancy).length;
@@ -130,7 +123,7 @@ export function indexStatus(key, D, store, ui) {
       const ok = advs.filter((a) => a.status === "APPROVED" || a.status === "EDITED").length;
       const hand = D ? handPlan(D, store).flights.length : 0;
       if (hand && !(D.state.draft_count ?? w)) return { text: `0 waiting · ${hand} to plan by hand`, tone: "caution" };
-      return { text: `${D?.state.draft_count ?? w} waiting, all volcanoes · ${ok} approved` };
+      return { text: `${D?.state.draft_count ?? w} waiting · ${ok} approved` };
     }
     case "recovery": {
       if (!ext.loaded.recovery) return { text: "loading…" };
@@ -138,7 +131,7 @@ export function indexStatus(key, D, store, ui) {
       const plan = currentPlan();
       const re = replanning(store);
       if (re) return { text: `${plural(re.airports.length, "airport", "airports")} (all volcanoes) · re-planning…`, tone: "caution" };
-      if (!plan) return { text: "no airport closed" };
+      if (!plan) return { text: "none closed" };
       if (plan.status === "AI_UNAVAILABLE") return { text: planFailure(plan).short, tone: "caution" };
       // the same scope words as the story and the Desk: this volcano's, then every volcano's (G8)
       const n = new Set(plan.closures.map((c) => c.icao)).size;
@@ -160,10 +153,11 @@ export function indexStatus(key, D, store, ui) {
       if (!D) return { text: "–" };
       const ai = aiState(D, store);
       const n = ai.trouble.length;
-      if (ai.kind === "off") return { text: "Off · code only" };
-      // the state word only; why and until when are in the section it opens (8.6)
-      if (ai.kind === "paused") return { text: "Paused", tone: "caution", noAttn: true };
-      if (ai.kind === "trouble") return { text: `On · ${n} problem${n === 1 ? "" : "s"}`, tone: "caution", noAttn: true };
+      // off, paused or in trouble: the tab bar's one status says it (owner, 17 Oct: once per
+      // screen); why and until when are in the section this row opens (8.6)
+      if (ai.kind === "off") return { text: "" };
+      if (ai.kind === "paused") return { text: "", tone: "caution", noAttn: true };
+      if (ai.kind === "trouble") return { text: `${n} problem${n === 1 ? "" : "s"}`, tone: "caution", noAttn: true };
       return { text: "On" };
     }
     case "proof": {
@@ -187,7 +181,10 @@ export function indexStatus(key, D, store, ui) {
   }
 }
 
-const INDEX_DOT = { serious: ["st-serious", "var(--c-serious)"], caution: ["st-caution", "var(--c-caution)"], tephra: ["st-inside", "var(--c-tephra)"], info: ["st-info", "var(--c-info)"] };
+const INDEX_DOT = { serious: ["st-serious", "var(--c-serious)"], warning: ["st-caution", "var(--c-caution)"], caution: ["st-caution", "var(--c-caution)"], tephra: ["st-inside", "var(--c-tephra)"], info: ["st-info", "var(--c-info)"] };
+
+// "Needs a look" order: real alarms (red) first, then a heavier caution, then caution.
+const ATTN_RANK = { serious: 0, warning: 1, caution: 2 };
 
 // One index row: a shape for its tone, the title over its live status, a chevron.
 function indexRow(s, stt, { focus = `drow-${s.key}`, id = `xtab-${s.xtab || s.key}` } = {}) {
@@ -195,7 +192,7 @@ function indexRow(s, stt, { focus = `drow-${s.key}`, id = `xtab-${s.xtab || s.ke
   const dot = INDEX_DOT[stt.tone];
   return el("button", { type: "button", class: `dindex__row${tone}`, id, dataset: { act: "details-sec", sec: s.key, xtab: id ? s.xtab || null : null, focus } },
     el("span", { class: "dindex__dot" }, dot ? st(dot[0], dot[1]) : null),
-    el("span", { class: "dindex__text" }, el("span", { class: "dindex__label", text: s.title }), el("span", { class: "dindex__status", text: stt.text })),
+    el("span", { class: "dindex__text" }, el("span", { class: "dindex__label", text: s.short || s.title }), stt.text ? el("span", { class: "dindex__status", text: stt.text }) : null),
     icon("i-chevron-right", "icon dindex__go"));
 }
 
@@ -210,14 +207,14 @@ function renderIndex(D, store, ui) {
     if (!g) { g = { name: s.group, rows: [] }; groups.push(g); }
     const stt = indexStatus(s.key, D, store, ui);
     g.rows.push([s, stt]);
-    if ((stt.tone === "serious" || stt.tone === "caution") && !stt.noAttn) attention.push([s, stt]);
+    if (ATTN_RANK[stt.tone] != null && !stt.noAttn) attention.push([s, stt]);
   }
   const kids = [];
-  // "Needs a look": at most three rows whose status is serious or caution, serious first. A row
+  // "Needs a look": at most three rows whose status is serious, warning or caution, in that order. A row
   // listed there is said once: its group below leaves it out.
   const lifted = new Set();
   if (attention.length) {
-    const top = attention.sort((a, b) => (a[1].tone === "serious" ? 0 : 1) - (b[1].tone === "serious" ? 0 : 1)).slice(0, 3);
+    const top = attention.sort((a, b) => ATTN_RANK[a[1].tone] - ATTN_RANK[b[1].tone]).slice(0, 3);
     for (const [s] of top) lifted.add(s.key);
     kids.push(el("div", { role: "listitem", class: "dindex__attn" },
       el("h3", { class: "dindex__attnhead" }, st("st-caution", "var(--c-caution)"), el("span", { text: "Needs a look" })),
@@ -458,7 +455,7 @@ function crewSection(D, ui) {
   const act = C.reports.filter((v) => v.state === "ACTIVE" || v.state === "COVERED").length;
   const out = C.reports.filter((v) => v.discrepancy).length;
   host.replaceChildren(dkSection("crew-head",
-    dkHeader({ id: "crew-head", pills: [act ? dkPill("caution", `${act} with a caution area now`) : dkPill("off", "None active")], title, chips: [chip] }),
+    dkHeader({ id: "crew-head", pills: [act ? dkPill("caution", `${act} with a caution area now`) : dkPill("info", "None active")], title, chips: [chip] }),
     dkTiles([
       { label: "Reports (24 h)", value: String(C.reports.length) },
       { label: "Caution area now", value: String(act), tone: act ? "caution" : null },

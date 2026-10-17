@@ -143,10 +143,6 @@ export const MODE_SENTENCE = {
   HYPOTHESIS: 'No valid official product: a hypothesis. Only MONITOR or HOLD may be advised.',
 };
 
-export function modeLabel(adv) {
-  return `${adv.plume_mode} ${pct(adv.confidence)}${isStub(adv) ? ' (NO MODEL)' : ''}`.trim();
-}
-
 // Entry instant on the active clock: drafted time plus the drafted minutes to entry.
 export function entryAt(adv) {
   const created = parseTime(adv.created_at) ?? 0;

@@ -81,11 +81,8 @@ export function howPicture(host) {
   const d = segs.map(([a, b, c, e], i) => `${i ? "" : `M${a[0]} ${a[1]} `}C${b[0]} ${b[1]} ${c[0]} ${c[1]} ${e[0]} ${e[1]}`).join(" ");
 
   const wire = svgNode("svg", { class: "how__wire", viewBox: `0 0 ${BOX.w} ${BOX.h}`, "aria-hidden": "true", focusable: "false" });
-  const grad = svgNode("linearGradient", { id: "how-grad", gradientUnits: "userSpaceOnUse", x1: 0, y1: PATH_AT.feeds[1], x2: 0, y2: PATH_AT.desk[1] });
-  keys.forEach((k, i) => grad.append(svgNode("stop", { class: `how__stop how__stop--${k}`, offset: i / (keys.length - 1) })));
-  const defs = svgNode("defs", {});
-  defs.append(grad);
-  wire.append(defs, svgNode("path", { class: "how__path", d }), svgNode("path", { class: "how__pulse", d, pathLength: 100 }));
+  // the wire is neutral and dotted (an example, not a live link); only the pulse moves along it
+  wire.append(svgNode("path", { class: "how__path", d }), svgNode("path", { class: "how__pulse", d, pathLength: 100 }));
 
   const nodes = ["feeds", "code", "ai"].map((k) =>
     place(el("span", { class: `how__n how__n--${k}` }, ring(step(k)), el("b", { class: "how__name", text: step(k).name })), PATH_AT[k], share[k]));

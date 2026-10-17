@@ -39,7 +39,7 @@ ONBOARD_PAGES: Final = frozenset(
         "done",
     }
 )
-WORKSPACE_SECTIONS: Final = frozenset({"answers", "feeds", "assistant", "kit"})
+WORKSPACE_SECTIONS: Final = frozenset({"answers", "feeds", "assistant"})
 SETTINGS_TABS: Final = frozenset({"policy", "assistant", "people", "record"})
 _TENANT_ICAO: Final = re.compile(r"[A-Z]{3}")
 NOINDEX: Final = {"X-Robots-Tag": "noindex"}

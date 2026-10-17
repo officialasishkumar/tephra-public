@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="https://unpkg.com/@maplibre/maplibre-gl-compare@0.5.0/dist/maplibre-gl-compare.css">
   <link rel="stylesheet" href="/static/tokens.css">
   <link rel="stylesheet" href="/static/topnav.css">
+  <link rel="stylesheet" href="/static/info.css">
   <link rel="stylesheet" href="/static/mapui.css">
   <link rel="stylesheet" href="/static/wall.css">
   <link rel="stylesheet" href="/static/five-steps.css">
@@ -53,6 +54,7 @@
   <link rel="modulepreload" href="/static/wall/features.js">
   <link rel="modulepreload" href="/static/wall/glossary.js">
   <link rel="modulepreload" href="/static/wall/images.js">
+  <link rel="modulepreload" href="/static/wall/info.js">
   <link rel="modulepreload" href="/static/wall/map.js">
   <link rel="modulepreload" href="/static/wall/panels.js">
   <link rel="modulepreload" href="/static/wall/photo.js">
@@ -97,7 +99,7 @@
     </button>
     <div class="clock" role="group" aria-label="Active clock">
       <span id="clock-time" class="clock__time">--:--:--Z</span>
-      <span id="clock-sub" class="clock__sub">Connecting</span>
+      <span class="clock__row"><span id="clock-sub" class="clock__sub">Connecting</span><span id="clock-info" class="clock__info" hidden></span></span>
     </div>
     <span id="stale-chip" class="stale-chip" hidden>
       <svg class="st" aria-hidden="true" focusable="false"><use href="/static/icons.svg#st-stale"></use></svg>
@@ -212,27 +214,33 @@
          below a bottom sheet that peeks, opens half way or fully -->
     <aside id="side" class="side" aria-label="TEPHRA Assistant and Details">
       <button id="side-handle" class="side__handle" type="button" aria-expanded="false" aria-controls="side" aria-label="Side panel: peeking"></button>
-      <div id="side-tabs" class="side__tabs" role="tablist" aria-label="Side panel">
-        <button id="assist-tab" class="side__tab" type="button" role="tab" aria-selected="true" aria-controls="assist" aria-keyshortcuts="A">
-          <svg class="icon side__ta" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>Assistant
-        </button>
-        <button id="details-btn" class="side__tab" type="button" role="tab" aria-selected="false" aria-controls="details" tabindex="-1" title="Sources, timeline, how TEPHRA decided, TEPHRA Assistant, data feeds">
-          <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-list"></use></svg>Details
-        </button>
+      <!-- the bar: the two tabs (the tablist holds only its tabs), then the status and the page link -->
+      <div class="side__bar">
+        <div id="side-tabs" class="side__tabs" role="tablist" aria-label="Side panel">
+          <button id="assist-tab" class="side__tab" type="button" role="tab" aria-selected="true" aria-controls="assist" aria-keyshortcuts="A">
+            <svg class="icon side__ta" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>Assistant
+          </button>
+          <button id="details-btn" class="side__tab" type="button" role="tab" aria-selected="false" aria-controls="details" tabindex="-1" title="Sources, timeline, how TEPHRA decided, TEPHRA Assistant, data feeds">
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-list"></use></svg>Details
+          </button>
+        </div>
+        <!-- TEPHRA Assistant's one status (panels.js renderChrome, words from wall/x-parts.js
+             stateLine): shown only when it is not working normally, its explanation behind an info
+             button; the screen-reader words say the state in every case -->
+        <span id="ai-state" class="side__ai" data-tone="ok">
+          <span id="ai-state-said" class="sr-only">Connecting…</span>
+          <span id="model-chip" class="side__ai-word" aria-hidden="true" hidden></span>
+        </span>
         <a id="assist-page" class="btn btn--sm btn--quiet side__page" href="/assistant" title="Open TEPHRA Assistant as a page">
           <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-external-link"></use></svg><span class="sr-only">Open TEPHRA Assistant as a page</span>
         </a>
       </div>
 
-      <!-- TEPHRA Assistant (wall/assist-panel.js): the state line (panels.js renderChrome's), the
-           player over the steps ("Replay · ..." first, so the catch-up's label shows on every
-           screen), the Inside TEPHRA diagram (board-view.js mountInside, the /assistant board's
-           renderer) and What happened: the step log, folded to its newest rows -->
+      <!-- TEPHRA Assistant (wall/assist-panel.js): the player over the steps ("Replay · ..." first,
+           so the catch-up's label shows on every screen), the Inside TEPHRA diagram (board-view.js
+           mountInside, the /assistant board's renderer) and What happened: the step log, folded
+           to its newest rows. The tab names the assistant, so no heading repeats it (owner, 17 Oct) -->
       <section id="assist" class="assist" role="tabpanel" aria-labelledby="assist-tab">
-        <div id="ai-state" class="as-state">
-          <p class="as-state__name"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#ta-16"></use></svg>TEPHRA Assistant</p>
-          <p class="as-state__line"><span id="model-chip" class="as-state__word">Connecting…</span></p>
-        </div>
         <div id="assist-player" class="player" role="group" aria-label="Replay of TEPHRA Assistant's steps" hidden></div>
         <p id="assist-note" class="as-note" hidden></p>
         <div id="assist-inside" class="flow-panel flow-panel--side"></div>
@@ -269,10 +277,10 @@
         </div>
       </section>
 
-      <!-- the demo's one filled button: drafts are decided on the Desk -->
+      <!-- the demo's one filled button: drafts are decided on the Desk; under Details the foot says
+           "You decide", its rule behind an info button (wall.js) -->
       <div id="side-foot" class="side__foot">
-        <p class="side__eyebrow">You decide</p>
-        <p class="side__line">Drafts wait at the Desk for a dispatcher. Nothing leaves TEPHRA until one approves.</p>
+        <p class="side__eyebrow"><span>You decide</span></p>
         <a id="side-desk" class="btn btn--primary" href="/desk" target="_blank" rel="noopener">Open the Desk <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-arrow-right"></use></svg></a>
       </div>
     </aside>
@@ -283,9 +291,12 @@
   <footer class="honesty stl">
     <span id="stl-dot" class="stl__dot" aria-hidden="true"></span>
     <span id="stl-where" class="stl__where"></span>
-    <span class="stl__line honesty__airline" title="Ring of Fire Air (RFA) is a fictional airline. Its flight numbers are proxies for real aircraft (About).">
+    <!-- the honesty markers are words with an info button (wall.js), never a hover title alone:
+         "RFA" (a fictional airline) and the policy (illustrative) -->
+    <span class="stl__line honesty__airline">
       <span id="stl-audit" class="stl__seg stl__audit" hidden></span>
-      <a id="policy-btn" class="stl__seg" href="/guide#policy" target="_blank" rel="noopener" hidden></a>
+      <span id="stl-policy" class="stl__seg stl__info" hidden><a id="policy-btn" href="/guide#policy" target="_blank" rel="noopener" hidden></a></span>
+      <span id="stl-rfa" class="stl__seg stl__info">RFA</span>
       <a id="attribution" class="stl__seg" href="/guide#about-credits" target="_blank" rel="noopener">Credits</a>
     </span>
     <span class="stl__keys" role="group" aria-label="Keyboard shortcuts">

@@ -6,15 +6,19 @@
 import { PATHS, api, errorCode, isSession, retryAfterS } from './api.js';
 import { byId, el, icon } from './dom.js';
 import { app } from './state.js';
+import { wireInfo } from '../wall/info.js';
 
 const NAME_KEY = 'tephra.desk.name';
 const NAME_RULE = /^[\p{L}\p{N} .'_-]{2,32}$/u;
 const MSG = {
-  bad_pin: 'That PIN is not right. Check it and try again.',
+  // a field's error is terse, beside its caution triangle (owner, 17 Oct: "why so much text after
+  // warning sign"); shown only on submit
+  bad_pin: 'Wrong PIN',
   locked: (min) => `Too many attempts. Wait ${min} minute${min === 1 ? '' : 's'} and try again.`,
   disabled: 'The Desk is switched off on this server (no Desk PIN is set).',
-  name: "Use 2 to 32 letters, digits, spaces or . ' - _",
-  pin: 'Enter the Desk PIN.',
+  name: '2–32 letters or digits',
+  required: 'Required',
+  pin: 'Required',
   offline: "You're offline. Reconnect to sign in.",
   ended: 'Your session has ended. Sign in again to decide.',
   visitorOff: 'Visitor access is switched off on this server.',
@@ -51,6 +55,8 @@ const els = () => ({
 });
 
 export function initLogin(signedIn) {
+  // the sign-in card's (i) buttons are written in the page; they get their behaviour here
+  for (const wrap of document.querySelectorAll('#login-view [data-wire="info"]')) wireInfo(wrap);
   onSignedIn = signedIn;
   const e = els();
   try {
@@ -97,11 +103,17 @@ export function initLogin(signedIn) {
   });
 }
 
-function setError(which, text) {
+// A field that needs fixing is caution + triangle + words (--c-invalid). The form-level line is red
+// only for the server or the connection; a lock-out or a switched-off way in is caution / off.
+const FORM_TONE = { serious: ['msg--serious', 'st-serious'], caution: ['msg--caution', 'st-caution'], off: ['msg--off', 'st-off'], info: ['msg--info', 'st-info'] };
+
+function setError(which, text, tone = 'serious') {
   const e = els();
   const map = { name: [e.nameErr, e.name], pin: [e.pinErr, e.pin], form: [e.formErr, null], vname: [e.vnameErr, e.vname], vform: [e.vErr, null] };
   const [box, field] = map[which];
-  box.replaceChildren(...(text ? [icon('st-serious', 'st'), el('span', { text })] : []));
+  const [cls, st] = field ? ['msg--invalid', 'st-caution'] : FORM_TONE[tone];
+  box.className = `msg ${cls}${field ? '' : ' form-msg'}`;
+  box.replaceChildren(...(text ? [icon(st, 'st'), el('span', { text })] : []));
   box.hidden = !text;
   if (field) field.setAttribute('aria-invalid', text ? 'true' : 'false');
 }
@@ -118,8 +130,7 @@ export function showLogin(message = '', { disabled = false, info = false } = {})
   setError('vname', '');
   setError('vform', '');
   if (message) {
-    setError('form', message);
-    e.formErr.classList.toggle('form-msg--info', info);
+    setError('form', message, info ? 'info' : 'serious');
   }
   syncVisitorCard();
   if (disabled) return;
@@ -195,7 +206,7 @@ async function enterAsVisitor(event) {
   }
   const code = errorCode(res);
   if (res.status === 0) setError('vform', MSG.offline);
-  else if (code === 'visitor_off') setError('vform', MSG.visitorOff);
+  else if (code === 'visitor_off') setError('vform', MSG.visitorOff, 'off');
   else if (code === 'too_many_visitors') lock(retryAfterS(res) || 600, { visitor: true });
   else if (code === 'desk_disabled') showLogin('', { disabled: true });
   else if (res.status === 422) {
@@ -213,7 +224,7 @@ async function submit(event) {
   setError('form', '');
   let bad = false;
   if (!NAME_RULE.test(name)) {
-    setError('name', MSG.name);
+    setError('name', name ? MSG.name : MSG.required);
     bad = true;
   }
   if (!pin) {
@@ -260,7 +271,7 @@ function lock(seconds, { visitor = false } = {}) {
   const button = visitor ? e.vsubmit : e.submit;
   const label = visitor ? VISITOR_LABEL : 'Sign in';
   lockUntil = Date.now() + seconds * 1000;
-  setError(visitor ? 'vform' : 'form', MSG.locked(Math.max(1, Math.ceil(seconds / 60))));
+  setError(visitor ? 'vform' : 'form', MSG.locked(Math.max(1, Math.ceil(seconds / 60))), 'caution');
   for (const key of e.pad.querySelectorAll('button')) key.disabled = true;
   e.pin.disabled = true;
   const tick = () => {

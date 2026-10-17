@@ -1,7 +1,9 @@
 /* Home (home.html; DESIGN 5.1): a 56 px header, the stage (the copy column, then the picture of
-   the five steps, home/how.js) and a footer line, over a volcanic sky: a token gradient with
-   faint drifting ash (home/ash.js). Neither carries data. Under 1024 px one column, the steps a
-   strip under the line (five-steps.css, small). Light: a pale ash sky with the same tokens. */
+   the five steps, home/how.js) and a footer line, over a quiet backdrop: a token gradient, a
+   field geologist's contour lines round a vent and faint drifting ash (both home/ash.js). Neither
+   carries data, and nothing in it glows: amber is data (TEPHRA's flag), never decoration; the only
+   brand colour is the dashed tick over the line (topnav.css, the wordmark's rule). Under 1024 px one column, the
+   steps a strip under the line (five-steps.css, small). Light: paper, with the same tokens. */
 
 *, *::before, *::after { box-sizing: border-box; }
 html { background: var(--c-bg); -webkit-text-size-adjust: 100%; }
@@ -16,7 +18,7 @@ body.home {
 .home .icon { width: 18px; height: 18px; flex: none; }
 .home [hidden] { display: none !important; }
 
-.skip-link {
+.skip-link, .home .skip-link {
   position: absolute; left: 16px; top: -80px; z-index: var(--z-skip); padding: 10px 14px;
   border-radius: var(--radius-md); background: var(--c-cta); color: var(--c-cta-ink); font-weight: 600; text-decoration: none;
 }
@@ -25,24 +27,27 @@ body.home {
 .home__bar { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; height: var(--bar-h); padding: 0 var(--gutter) 0 24px; border-bottom: 1px solid var(--c-line-1); background: color-mix(in srgb, var(--c-bg) 72%, transparent); }
 
 /* ---------------------------------------------------------------- the sky (no data) */
-/* A cool haze high on the left, an ember glow low on the right, ash specks of --home-ash. */
+/* A cool haze high on the left; contour rings of --home-contour (index rings --home-contour-index)
+   round a vent low right, and ash specks of --home-ash at --home-ash-alpha, all drawn by home/ash.js. */
 .home__sky {
   --home-ash: var(--c-text-2);
+  --home-ash-alpha: 0.55;
+  --home-contour: var(--c-line-2);
+  --home-contour-index: var(--c-line-input);
   position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background:
-    radial-gradient(60% 55% at 84% 96%, color-mix(in srgb, var(--c-tephra) 13%, transparent) 0, transparent 72%),
-    radial-gradient(45% 40% at 96% 70%, color-mix(in srgb, var(--c-official) 5%, transparent) 0, transparent 70%),
     radial-gradient(70% 55% at 4% 0%, color-mix(in srgb, var(--c-observer) 6%, transparent) 0, transparent 70%),
     linear-gradient(180deg, var(--c-surface-1) 0%, var(--c-bg) 60%);
 }
-.home__ash { display: block; width: 100%; height: 100%; opacity: 0.55; }
+.home__ash { display: block; width: 100%; height: 100%; }
 
 /* ---------------------------------------------------------------- the stage */
 .home__stage { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 600px) minmax(0, 1fr); align-items: center; min-height: 0; overflow: hidden; }
 .home__copy { position: relative; z-index: 1; display: grid; gap: var(--sp-6); align-content: center; padding: var(--sp-12) var(--gutter) var(--sp-12) 64px; }
-.home__eyebrow { font-size: 12px; font-weight: 600; letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--c-text-3); }
+/* the brand's dashed rule over the line: the same tick as under the wordmark */
+.home__copy::before { content: ""; width: 44px; height: 3px; margin-bottom: calc(var(--sp-3) - var(--sp-6)); background: repeating-linear-gradient(90deg, var(--c-brand) 0 8px, transparent 8px 13px); }
 .home__line { max-width: 28ch; font-size: var(--fs-display); font-weight: 600; line-height: 1.2; letter-spacing: -0.01em; text-wrap: balance; }
-.home__line em { font-style: normal; color: var(--c-tephra-text); }
+.home__line em { font-style: normal; box-shadow: inset 0 -0.14em 0 var(--c-surface-3); }
 .home__choices { display: grid; gap: var(--sp-3); max-width: 480px; }
 .home__choices:focus { outline: none; }
 
@@ -66,9 +71,6 @@ body.home {
 .go--primary:hover { border-color: var(--c-cta-hover); background: var(--c-cta-hover); }
 .go--primary .go__ic { border-color: color-mix(in srgb, var(--c-cta-ink) 30%, transparent); background: color-mix(in srgb, var(--c-cta-ink) 8%, transparent); }
 
-.home__signin { font-size: 15px; color: var(--c-text-2); }
-.home .home__signin a { color: var(--c-text-1); font-weight: 600; }
-
 /* ---------------------------------------------------------------- the five steps, a picture */
 /* home/how.js places each ring at --x/--y of a 520 x 600 box and sets --at, the share of the
    cycle at which the pulse reaches it. One pulse travels the first 60 % of each cycle; each ring
@@ -80,14 +82,12 @@ body.home {
   margin: var(--sp-8) var(--gutter) var(--sp-8) 0; pointer-events: none; user-select: none;
 }
 .how__wire { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-.how__path { fill: none; stroke: url(#how-grad); stroke-width: 2.5; stroke-linecap: round; opacity: 0.75; }
-.how__stop--feeds { stop-color: var(--tone-feeds); }
-.how__stop--code { stop-color: var(--tone-code); }
-.how__stop--ai { stop-color: var(--tone-ai); }
-.how__stop--desk { stop-color: var(--tone-desk); }
+/* one neutral dotted wire: no hue says "feeds" or "you decide" on a picture that is an example */
+.how__path { fill: none; stroke: var(--c-line-input); stroke-width: 2; stroke-dasharray: 2 6; stroke-linecap: round; }
 .how__pulse {
-  fill: none; stroke: var(--c-tephra); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 5 200; stroke-dashoffset: 5; opacity: 0;
-  filter: drop-shadow(0 0 5px var(--c-tephra)); animation: how-pulse var(--cycle) linear infinite;
+  /* neutral and unlit: amber never touches the assistant */
+  fill: none; stroke: var(--c-text-1); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 5 200; stroke-dashoffset: 5; opacity: 0;
+  animation: how-pulse var(--cycle) linear infinite;
 }
 @keyframes how-pulse {
   0% { stroke-dashoffset: 5; opacity: 0; }
@@ -179,11 +179,11 @@ body.home {
   position: relative; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; min-height: 48px; padding: 0 var(--gutter) 0 64px;
   border-top: 1px solid var(--c-line-1); font-size: 13px; color: var(--c-text-3);
 }
-.home__honest { display: inline-flex; align-items: center; gap: 8px; padding: 8px 0; color: var(--c-text-2); }
-.home .home__honest .icon { width: 16px; height: 16px; }
 .home__links { display: flex; gap: 16px; margin-left: auto; }
 .home .home__links a { display: inline-flex; align-items: center; min-height: 44px; color: var(--c-text-2); }
 .home .home__links a:hover { color: var(--c-text-1); }
+/* the top bar shows Guide from 1100 px, so the footer says it only below */
+@media (min-width: 1100px) { .home .home__links .home__guide { display: none; } }
 
 @media (max-width: 1099px) {
   .home__copy { padding-left: var(--gutter); }
@@ -197,25 +197,23 @@ body.home {
   .home__strip { display: block; max-width: 480px; }
 }
 
-/* ---------------------------------------------------------------- the light theme: a pale ash sky */
+/* ---------------------------------------------------------------- the light theme: paper */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) .home__sky {
     --home-ash: var(--c-text-3);
+    --home-ash-alpha: 0.4;
     background:
-      radial-gradient(60% 55% at 84% 96%, color-mix(in srgb, var(--c-tephra) 12%, transparent) 0, transparent 72%),
       radial-gradient(70% 55% at 4% 0%, color-mix(in srgb, var(--c-observer) 7%, transparent) 0, transparent 70%),
-      linear-gradient(180deg, var(--c-surface-3) 0%, var(--c-bg) 55%);
+      linear-gradient(180deg, var(--c-surface-2) 0%, var(--c-bg) 55%);
   }
-  :root:not([data-theme="dark"]) .home__ash { opacity: 0.4; }
 }
 :root[data-theme="light"] .home__sky {
   --home-ash: var(--c-text-3);
+  --home-ash-alpha: 0.4;
   background:
-    radial-gradient(60% 55% at 84% 96%, color-mix(in srgb, var(--c-tephra) 12%, transparent) 0, transparent 72%),
     radial-gradient(70% 55% at 4% 0%, color-mix(in srgb, var(--c-observer) 7%, transparent) 0, transparent 70%),
-    linear-gradient(180deg, var(--c-surface-3) 0%, var(--c-bg) 55%);
+    linear-gradient(180deg, var(--c-surface-2) 0%, var(--c-bg) 55%);
 }
-:root[data-theme="light"] .home__ash { opacity: 0.4; }
 
 /* ---------------------------------------------------------------- phones */
 @media (max-width: 760px) {

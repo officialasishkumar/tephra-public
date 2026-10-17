@@ -192,8 +192,9 @@ function resultSteps(h, ctx) {
 
 // The model a card's skill calls, as its sheet's footer says it: the id only. Its calls today and
 // whether Google has closed it are said at Details › TEPHRA Assistant (8.6).
+// With no model the sheet's footer says nothing: the one AI status says it (owner, 17 Oct).
 export function modelLine(tier, ctx) {
-  if (ctx.stub) return { id: null, text: "No model (offline stub): no calls", tone: "off" };
+  if (ctx.stub) return { id: null, text: "", tone: "off" };
   const b = ctx.budget;
   if (!b) return { id: null, text: ctx.budgetError ? "Model: unknown, the assistant's status did not load" : "Model: loading", tone: ctx.budgetError ? "caution" : "off" };
   const t = (b.tiers || []).find((x) => x.tier === tier);
@@ -275,7 +276,7 @@ function dutyCard(ctx) {
   const refusedRun = run?.outcome === "MODEL_FAILED";
   const working = items.some((w) => w.status === "RUNNING") || (!refusedRun && isWorkLine(newest) && ctx.arrivedAgo(newest.id) < LIVE_MS);
   const waiting = items.filter((w) => w.status === "WAITING");
-  const model = ctx.stub || run?.llm_backend === "stub" ? { id: null, text: "No model (offline stub): no calls", tone: "off" } : modelLine("lite", ctx);
+  const model = ctx.stub || run?.llm_backend === "stub" ? { id: null, text: "", tone: "off" } : modelLine("lite", ctx);
   if (!run) {
     return {
       id: h.id, role: h.role, name: h.name, does: h.does, state: working ? "working" : "quiet", word: STATE_WORD[working ? "working" : "quiet"],
@@ -293,7 +294,8 @@ function dutyCard(ctx) {
     run.undispatched?.length ? { tone: "caution", text: `To the Desk, for a dispatcher: ${label(run.undispatched[0])}${run.undispatched.length > 1 ? ` and ${run.undispatched.length - 1} more` : ""}`, count: 1, at, source: SOURCE.run } : null,
   ].filter(Boolean);
   const state = working ? "working" : line.tone === "failed" ? "failed" : line.tone === "caution" ? "notrun" : "done";
-  const brief = run.brief && run.outcome !== "MODEL_FAILED" ? { text: run.brief.summary, model: run.outcome === "STUB" || run.llm_backend === "stub" ? null : run.model_id } : null;
+  // a code run's brief only repeats its line ("handed out N jobs in urgency order"): no quote
+  const brief = run.brief && run.outcome !== "MODEL_FAILED" && run.outcome !== "STUB" && run.llm_backend !== "stub" ? { text: run.brief.summary, model: run.model_id } : null;
   return {
     id: h.id, role: h.role, name: h.name, does: h.does, state, word: !working && line.word ? line.word : STATE_WORD[state],
     last: { tone: line.tone, text: line.text, at, source: SOURCE.run },
@@ -667,26 +669,27 @@ export function flowModel(input) {
     sub = budgetError
       ? "Code still reads every feed and checks every flight, and must-do flights come straight to you."
       : "Code still reads every feed and checks every flight; jobs wait in line and must-do flights come straight to you.";
-    gate = { open: false, kind: "closed", name: "Paused", meta: inLine, title: `Why: Details › ${ASSISTANT}` };
+    // the closed bar and what waits; "paused" itself is the one status's word (said once)
+    gate = { open: false, kind: "closed", name: "", meta: inLine, title: `Why: Details › ${ASSISTANT}` };
   } else if (ai.kind === "off") {
     status = "off (code only)";
     sub = "No model is connected. Code reads every feed, checks every flight and orders the work, and code templates write the drafts. Every draft still waits for you.";
-    // no model to close: the skills run as code templates, so work goes past the gate
-    gate = { open: true, kind: "nomodel", name: "No model · code templates", meta: "Skills run as code, no model is called", title: "NO MODEL: the offline stub" };
+    // no model to close: the skills run as code templates, so work goes past the gate. The gate
+    // has no words of its own: the one status ("AI off", wall/x-parts.js stateLine) says it (owner,
+    // 17 Oct: "don't say no model everywhere"); the dashed rail still draws it
+    gate = { open: true, kind: "nomodel", name: "", meta: "", title: "" };
   } else if (ai.kind === "trouble") {
     status = words.suffix;
     sub = `${ai.trouble.map((c) => causeShort(c)).join(". ")}. Nothing was put in ${ai.trouble.length === 1 ? "its" : "their"} place: code still checks every flight, and that work comes to you.`;
-    // "gave no result" only where a model was called; with no usable model nothing was (AI UNAVAILABLE)
-    const notCalled = ai.trouble.every((c) => notRun(c.reasonClass));
-    const noModel = notCalled && ai.trouble.some((c) => c.reasonClass === "unavailable");
-    gate = { open: false, kind: "trouble", name: noModel ? "AI UNAVAILABLE · no model called" : notCalled ? "AI model · did not run" : "AI model · gave no result", meta: inLine, title: "" };
+    // "AI unavailable" is the one status's word; the gate says only what waits
+    gate = { open: false, kind: "trouble", name: "", meta: inLine, title: "" };
   } else {
     status = "working";
     sub = "The Coordinator hands each job to a skill, and every draft waits for you. Code checks every number before you see it.";
     gate = { open: true, kind: "open", name: "AI model · open", meta: inLine, title: "" };
   }
   const run = input.duty || null;
-  const coord = { meta: ai.kind === "paused" ? "Paused: must-do jobs come to you" : ai.kind === "off" ? "Code orders the jobs (no model)" : "Orders the jobs and hands them to skills",
+  const coord = { meta: ai.kind === "paused" ? "Must-do jobs come to you" : ai.kind === "off" ? "" : "Orders the jobs and hands them to skills",
     refused: run?.outcome === "MODEL_FAILED", lastAt: run ? ms(run.decided_at || run.finished_at) : NaN };
   // You decide: the Wall's own counts, this mode's work only
   const plan = newestPlan(input.recovery);

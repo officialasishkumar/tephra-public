@@ -6,7 +6,6 @@ and schedule files are read in the browser with every refused row named; and a `
 sends a signed-in airline off the site. Skipped when Node is not installed.
 """
 
-import copy
 import json
 import re
 import shutil
@@ -87,13 +86,13 @@ def test_airline_page_words(tmp_path: Path) -> None:
         "aoc_number": "x" * 41,
     }
     m = _messages(_one(tmp_path, "checkPage", "airline", _values(airline=airline)))
-    assert m["airline.name"] == "At least 2 characters."
-    assert m["airline.icao"] == "Three letters, A to Z."
-    assert m["airline.iata"] == "Two letters or digits."
-    assert m["airline.callsign_prefix"] == "Callsign prefix is needed."
-    assert m["airline.main_base"] == "Four letters, A to Z."
-    assert m["airline.ops_email"] == "Enter an email address, like ops@rfa.example."
-    assert m["airline.aoc_number"] == "At most 40 characters."
+    assert m["airline.name"] == "2+ characters"
+    assert m["airline.icao"] == "3 letters, A to Z"
+    assert m["airline.iata"] == "2 letters or digits"
+    assert m["airline.callsign_prefix"] == "Required"
+    assert m["airline.main_base"] == "4 letters, A to Z"
+    assert m["airline.ops_email"] == "Not an email"
+    assert m["airline.aoc_number"] == "40 characters at most"
     assert "airline.state_of_operator" not in m
 
 
@@ -112,15 +111,15 @@ def test_policy_page_words(tmp_path: Path) -> None:
     policy = {"preset": "A", "changes": changes}
     out = _one(tmp_path, "checkPage", "policy", _values(policy=policy), {"named": named})
     fields = [(p["field"], p["message"]) for p in out]
-    divert = ("policy.v.planner.divert_within_min", "Divert time must not be later than hold time.")
+    divert = ("policy.v.planner.divert_within_min", "Not later than the hold time")
     assert divert in fields
-    zero = ("policy.v.fuel.hold_min", "Must be above zero: a zero would switch this check off.")
+    zero = ("policy.v.fuel.hold_min", "Above 0: a zero switches this check off")
     assert zero in fields
-    assert ("policy.r.fuel.hold_min", "A reason of 3 to 300 characters is needed.") in fields
-    margin = ("policy.v.exposure.vertical_margin_ft", "A whole number from 0 to 100,000.")
+    assert ("policy.r.fuel.hold_min", "3 to 300 characters") in fields
+    margin = ("policy.v.exposure.vertical_margin_ft", "Whole number, 0 to 100,000")
     assert margin in fields
-    assert ("policy.risk_owner", "Risk owner is needed.") in fields
-    assert ("policy.sra_ref", "Your SRA reference is needed once a value changes.") in fields
+    assert ("policy.risk_owner", "Required") in fields
+    assert ("policy.sra_ref", "Required once a value changes") in fields
 
 
 def test_fleet_page_words(tmp_path: Path) -> None:
@@ -135,14 +134,14 @@ def test_fleet_page_words(tmp_path: Path) -> None:
     values = _values(airline={"callsign_prefix": "RFA"}, fleet=fleet)
     m = _messages(_one(tmp_path, "checkPage", "fleet", values))
     assert "fleet.aircraft.0.seats" not in m  # 0 seats: a freighter
-    assert m["fleet.aircraft.1.registration"] == "This is already on row 1."
-    assert m["fleet.aircraft.1.type_icao"] == "An ICAO type designator, e.g. A320."
-    assert m["fleet.aircraft.1.seats"] == "A whole number from 0 to 1,000."
-    assert m["fleet.aircraft.1.home_base"] == "Four letters, A to Z."
-    assert m["fleet.aircraft.1.hex"] == "Hex is 6 characters, 0-9 and a-f."
-    assert m["fleet.aircraft.2.hex"] == "This is already on row 1."
-    assert m["fleet.extra_prefixes.0"] == "This is already your callsign prefix."
-    assert m["fleet.extra_prefixes.1"] == "Three letters, A to Z."
+    assert m["fleet.aircraft.1.registration"] == "Already on row 1"
+    assert m["fleet.aircraft.1.type_icao"] == "ICAO type, e.g. A320"
+    assert m["fleet.aircraft.1.seats"] == "Whole number, 0 to 1,000"
+    assert m["fleet.aircraft.1.home_base"] == "4 letters, A to Z"
+    assert m["fleet.aircraft.1.hex"] == "6 characters, 0-9 and a-f"
+    assert m["fleet.aircraft.2.hex"] == "Already on row 1"
+    assert m["fleet.extra_prefixes.0"] == "Already your callsign prefix"
+    assert m["fleet.extra_prefixes.1"] == "3 letters, A to Z"
 
 
 def test_people_and_assistant_words(tmp_path: Path) -> None:
@@ -154,20 +153,20 @@ def test_people_and_assistant_words(tmp_path: Path) -> None:
         [
             ["checkPage", "people", people],
             ["checkPage", "assistant", _values(assistant=gemini)],
-            ["checkPage", "assistant", _values(assistant=ollama), {"ollamaUrl": "ftp://x"}],
+            ["checkPage", "assistant", _values(assistant=ollama)],
             ["checkPage", "assistant", _values()],
         ],
     )
     pairs = [(p["field"], p["message"]) for p in out[0]]
-    assert ("people.dispatchers.0.name", "2 to 32 characters.") in pairs
-    assert ("people.dispatchers", "At least one person must approve advisories.") in pairs
+    assert ("people.dispatchers.0.name", "2 to 32 characters") in pairs
+    assert ("people.dispatchers", "Add someone who approves") in pairs
     g = _messages(out[1])
     assert "assistant.model" not in g  # Gemma on the same AI Studio key
-    assert g["assistant.model_lite"] == "A Gemini or Gemma model name, e.g. gemini-3.8-flash."
+    assert g["assistant.model_lite"] == "Gemini or Gemma name, e.g. gemini-3.8-flash"
     o = _messages(out[2])
-    assert o["assistant.model_lite"] == "An Ollama tag, name:tag, e.g. gemma4:e4b."
-    assert o["assistant.ollama_url"] == "An address like http://127.0.0.1:11434."
-    assert _messages(out[3]) == {"assistant.provider": "Choose where the model runs."}
+    assert o["assistant.model_lite"] == "Ollama tag, e.g. gemma4:e4b"
+    assert "assistant.ollama_url" not in o  # the address only ever went into the setup kit
+    assert _messages(out[3]) == {"assistant.provider": "Choose one"}
 
 
 def test_the_draft_becomes_answers_the_server_takes(tmp_path: Path) -> None:
@@ -194,13 +193,12 @@ def test_the_draft_becomes_answers_the_server_takes(tmp_path: Path) -> None:
 
 
 def test_summaries(tmp_path: Path) -> None:
-    named = {"reroute.buffer_nm": {"value": 20, "unit": "NM"}}
     pages = ["airline", "policy", "fleet", "network", "schedule", "feeds", "people", "assistant"]
-    got = _run(tmp_path, [["summaryOf", p, ANSWERS, named] for p in pages])
+    got = _run(tmp_path, [["summaryOf", p, ANSWERS] for p in pages])
     out = dict(zip(pages, got, strict=True))
-    assert out["airline"] == "Ring of Fire Air · RFA · main base WIII"
-    assert out["policy"] == "Policy A · margin 3,000 ft · buffer 20 NM · 1 value changed"
-    assert out["fleet"] == "4 aircraft · A320, B738"
+    assert out["airline"] == "Ring of Fire Air · RFA"
+    assert out["policy"] == "Policy A · 1 value changed"
+    assert out["fleet"] == "4 aircraft"
     assert out["network"] == "3 airports"
     assert out["schedule"] == "2 flights · 1 crew"
     assert out["feeds"] == "Positions and pilot reports"
@@ -222,9 +220,9 @@ def test_server_problems_say_the_page_s_own_words(tmp_path: Path) -> None:
     assert hexa == {
         "page": "fleet",
         "field": "fleet.aircraft.6.hex",
-        "text": "Fleet: row 7 hex is 6 characters, 0-9 and a-f.",
+        "text": "Fleet: row 7 hex: 6 characters, 0-9 and a-f",
     }
-    assert icao["text"] == "Airline: ICAO designator: Three letters, A to Z."
+    assert icao["text"] == "Airline: ICAO designator: 3 letters, A to Z"
     assert change["field"] == "policy.v.exposure.vertical_margin_ft"
     assert other["page"] == "network"
     assert unknown == {"page": "review", "field": None, "text": "Review: should be empty"}
@@ -255,13 +253,13 @@ def test_fleet_files_are_read_and_every_refusal_is_named(tmp_path: Path) -> None
     )
     assert [r["registration"] for r in from_csv["rows"]] == ["PK-RFA", "PK-RFB"]
     assert {r["message"] for r in from_csv["refused"]} == {
-        "Row 4: hex is 6 characters, 0-9 and a-f.",
+        "Row 4: hex: 6 characters, 0-9 and a-f",
         "Row 5: PK-RFA is already in your fleet.",
     }
     assert from_json["rows"] == []
     assert {r["message"] for r in from_json["refused"]} == {
         "Row 1: hex 8a0415 is already in your fleet.",
-        "Row 2: seats is needed.",
+        "Row 2: seats: Required",
     }
     assert bad["error"].startswith("This is not JSON: ")
 
@@ -347,21 +345,25 @@ def test_next_is_followed_only_to_the_workspace_and_edit_pages(tmp_path: Path) -
     assert out == list(cases.values())
 
 
-def test_the_nine_provide_lines_are_the_spec_s() -> None:
+def test_the_nine_provide_lines_are_one_line_each() -> None:
+    """The landing's fold says one short line per page (owner, 17 Oct 2026: "nobody is going to
+    read so much"); README.md and docs/ONBOARDING.md keep the long wording."""
     pages = (WEB / "onboard" / "pages.js").read_text(encoding="utf-8")
-    names = re.findall(r'\{ key: "\w+", icon: "[\w-]+", name: "([^"]+)", text:', pages)
-    assert names == [
+    rows = re.findall(r'\{ key: "\w+", icon: "[\w-]+", name: "([^"]+)", text: "([^"]+)"', pages)
+    assert [name for name, _ in rows] == [
         "Airline",
         "Ash policy",
         "Fleet",
         "Network",
-        "Schedule and crews",
+        "Schedule",
         "Data feeds",
         "People",
-        "Assistant (AI model)",
+        "AI model",
         "Review",
     ]
-    assert "start from Policy A, which is ILLUSTRATIVE, and set your own margins" in pages
+    for _, text in rows:
+        assert len(text.split()) <= 8, text
+    assert "Policy A (ILLUSTRATIVE), your margins and reasons" in pages
 
 
 def test_an_added_airport_prefers_tephras_list_over_a_free_code(tmp_path: Path) -> None:
@@ -396,19 +398,6 @@ def test_an_added_airport_prefers_tephras_list_over_a_free_code(tmp_path: Path) 
     }
     assert _one(tmp_path, "airportCode", "adisutjipto", two) == "WAHH"
     assert _one(tmp_path, "airportCode", "Yogyakarta", two) is None  # two match: pick one
-
-
-def test_the_kit_preview_takes_only_values_the_kit_would(tmp_path: Path) -> None:
-    values = copy.deepcopy(DRAFT["values"])
-    values["fleet"]["aircraft"][1]["hex"] = "8a01zz"
-    values["airline"]["callsign_prefix"] = "R1"
-    checked = _one(tmp_path, "checkedValues", values)
-
-    assert checked["fleet"]["aircraft"][1]["hex"] == ""
-    assert checked["fleet"]["aircraft"][0]["hex"] == values["fleet"]["aircraft"][0]["hex"]
-    assert checked["airline"]["callsign_prefix"] == ""
-    assert checked["airline"]["name"] == values["airline"]["name"]
-    assert values["fleet"]["aircraft"][1]["hex"] == "8a01zz"  # the draft itself is unchanged
 
 
 def test_the_pages_values_are_the_draft_the_server_keeps(tmp_path: Path) -> None:

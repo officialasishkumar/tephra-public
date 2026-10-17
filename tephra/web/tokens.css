@@ -1,10 +1,41 @@
-/* TEPHRA design tokens, shared by every page. Link this file before the page's own stylesheet.
-   The spec is docs/UI-DESIGN.md: every colour below was checked there for WCAG AA contrast and
-   for colour-vision deficiency (Machado 2009 simulation, CIEDE2000). Change a value only
-   together with that table. Map paint colours are read from these properties at start-up
-   (getComputedStyle), so the map and the panels never drift apart; the map stays on the night
-   values in both themes, so they are read inside a .night element. The light set and .night are
-   at the end of the file. */
+/* TEPHRA design tokens: "Basalt & Paper", final (17 Oct 2026).
+   Warm paper and ink by day, warm basalt stone by night. The map is a cool dark plate in both
+   themes, and every mark on it keeps one meaning:
+     magenta       official and binding (solid)       amber      TEPHRA flags this (dashed, never smaller)
+     white         the plan a dispatcher decides on   glacier    the observatory (VONA)
+                   (reroute, closed airport, picked)  parchment  a crew report
+     violet        REPLAY, and nothing else
+   Red is only for real alarms (feeds, database, connection). A form error, a SERIOUS discrepancy,
+   a closed airport and Reject are never red. One line grammar for the map and every chip: solid
+   means real and binding; dashed means an estimate, an example, or not connected.
+
+   Drop-in replacement for tephra/web/tokens.css: all 164 existing names are kept, with the same
+   mechanism (:root dark, prefers-color-scheme light unless data-theme="dark", data-theme="light",
+   and .night, which keeps the map column on the night values in both themes).
+   Checks: final/CHECKS.md (tools/contrast.py and tools/cvd.py, re-run on this file).
+
+   NEW TOKENS (everything else is an existing name with a new value)
+     --c-brand            TEPHRA's mark in chrome: the wordmark's dashed tick, the hero rule
+     --c-forecast         official forecast area (+6 h): the official hue, dashed, no fill
+     --c-closed           closed airport: a white bar on a dark disc, and its "WIII closed" tag
+     --c-invalid / --c-invalid-bg   a form field that needs fixing: caution + triangle + words, never red
+     --c-map-context      context lines on the map (FIR, VAAC, routes): one grey, three patterns
+     --c-map-muted        muted marks (stale aircraft, code UNKNOWN, feed off on the map)
+     --c-map-wordgrey     context words on the map (place, FIR and VAAC names)
+     --c-live-chip-bg / --c-live-chip-text            LIVE: a neutral solid chip; its dot takes feed health
+     --c-shadow-chip-bg / --c-shadow-chip-line / --c-shadow-chip-text
+                                                      SHADOW ("Shadow · not for use"): neutral, dashed, half disc
+     --c-illus-line / --c-illus-text                  ILLUSTRATIVE: a square mono stamp, faint hatch
+     --c-code-ring        the dark ring every code dot gets on a light surface
+     --map-plate-edge     the hairline where the night map meets the page
+
+   CHANGED MEANINGS (same names)
+     --c-ask*             no own hue: the assistant is said quietly, with its icon
+     --c-reject*          a neutral stone fill (Ask stop, mic recording): never red, never the send white
+     --c-reroute          white on the map (ink on paper), with a dark casing and chevrons
+     --c-info             stone grey (calm), no longer a blue beside the observatory
+     --tone-ai            neutral; amber never marks the assistant
+     --c-hypothesis-bg    a neutral raised surface; the banner keeps its triangle and the word */
 
 /* IBM Plex, self-hosted (SIL OFL 1.1, fonts/OFL.txt): latin and latin-ext subsets only. */
 @font-face {
@@ -70,120 +101,137 @@
 :root {
   color-scheme: dark;
 
-  /* --- neutrals (cool blue-black; text pairs pass 4.5:1 on every surface) --- */
-  --c-bg: #05080c;
-  --c-surface-1: #0a1017;
-  --c-surface-2: #0f1720;
-  --c-surface-3: #16212c;
-  --c-surface-glass: rgb(10 16 23 / 0.88);
-  --c-scrim: rgb(2 4 8 / 0.72);
-  --c-line-1: #1c2834;
-  --c-line-2: #2b3a4a;
-  --c-line-input: #5b7086;
-  --c-text-1: #eaf1f7;
-  --c-text-2: #b6c3d0;
-  --c-text-3: #93a3b5;
-  --c-text-ink: #05080c;
+  /* --- neutrals: basalt (OKLCH hue 70-80, chroma 0.006-0.013). text-3 on surface-3 6.8:1 --- */
+  --c-bg: #100e0c;
+  --c-surface-1: #171512;
+  --c-surface-2: #1f1c19;
+  --c-surface-3: #292622;
+  --c-surface-glass: rgb(23 21 18 / 0.9);
+  --c-scrim: rgb(8 6 4 / 0.72);
+  --c-line-1: #322e2a;
+  --c-line-2: #45403b;
+  --c-line-input: #847f7a; /* 3.8:1 on surface-3 */
+  --c-text-1: #f5f1ec;
+  --c-text-2: #cec8c1;
+  --c-text-3: #b3ada5;
+  --c-text-ink: #100e0c;
 
   /* --- data semantics: one meaning each, the same on the map and in the panels --- */
-  --c-official: #ff3d8b;
+  --c-official: #ff3d8b; /* official, binding (SIGMET, VAA): magenta, kept in every direction */
   --c-official-text: #ff9cc4;
   --c-official-soft: rgb(255 61 139 / 0.14);
-  --c-tephra: #ffb000;
+  --c-tephra: #ffb000; /* TEPHRA flags this: its area, the RFA flights in or heading in */
   --c-tephra-text: #ffc845;
   --c-tephra-soft: rgb(255 176 0 / 0.13);
-  --c-observer: #38bdf8;
-  --c-observer-text: #7dd3fc;
-  --c-observer-soft: rgb(56 189 248 / 0.13);
-  --c-aircraft: #aab4be;
-  --c-aircraft-stale: #7a8796;
-  /* Crew report caution area (operator policy, not an official product): a warm ivory that no
-     other data role uses, always drawn with long dashes and a pin, beneath the official area. */
-  --c-crew: #e8dcc6;
-  --c-crew-text: #f2e9d8;
-  --c-crew-soft: rgb(232 220 198 / 0.1);
+  --c-observer: #a6dcff; /* observatory (VONA, ground observer, drift arrow): glacier blue */
+  --c-observer-text: #cbeaff;
+  --c-observer-soft: rgb(166 220 255 / 0.13);
+  --c-aircraft: #8a96a2; /* other aircraft: cool steel (principle 8: map neutrals stay cool) */
+  --c-aircraft-stale: #787671; /* = --c-map-muted = --c-map-context: one grey for context and "not current", 4.0:1 on land */
+  /* Crew report caution area (operator policy, not an official product): parchment, a hand note
+     on the chart; always long dashes and a pin, beneath the official area. */
+  --c-crew: #e1c88b;
+  --c-crew-text: #ecdcb0;
+  --c-crew-soft: rgb(225 200 139 / 0.12);
 
-  /* Aviation colour code: always inside the eruption symbol with its letter, and the word. */
+  /* Aviation colour code: standard hues, unchanged; always inside the eruption symbol with its
+     letter, and the word. --c-code-unknown is the muted map grey. */
   --c-code-green: #2ec4a0;
   --c-code-yellow: #fff176;
   --c-code-orange: #f2711c;
   --c-code-red: #e8273b;
-  --c-code-unknown: #8a96a3;
+  --c-code-unknown: #787671;
+  --c-code-ring: rgb(16 14 12 / 0); /* no ring needed on dark */
 
-  /* --- map-only values (basemap overrides and context lines) --- */
-  --c-reroute: #2dd4bf; /* a computed reroute, on the Wall and the Desk maps */
-  --c-reroute-text: #7ef0e0;
-  --c-route: #a9b8c8; /* a flight's usual route: muted, drawn thin and faint beneath everything */
-  --map-land: #0b121a; /* land under the dot matrix */
-  --map-water: #04070b;
-  --map-dot: #9db4cc; /* the land's dots, drawn at 30 % over --map-land */
+  /* --- new roles (see the list at the top) --- */
+  --c-brand: #ffb000;
+  --c-forecast: #ff3d8b;
+  --c-closed: #f4f8fa; /* white = the plan: a white bar on a dark disc, never amber or red */
+  --c-map-context: #787671;
+  --c-map-muted: #787671;
+  --c-map-wordgrey: #8b9db4;
+
+  /* --- map-only values (basemap overrides and context lines): cool near-neutral land, deep water --- */
+  --c-reroute: #f4f8fa; /* the proposed reroute: chalk white, dark casing, chevrons */
+  --c-reroute-text: #f4f8fa;
+  --c-route: #787671; /* a flight's usual route = the context line, thin and faint */
+  --map-land: #14171c; /* cool near-neutral: map.js hillshade, 3D sky and dot literals stay matched */
+  --map-water: #04060a; /* 14.5 video code values below land (today 9.0) */
+  --map-dot: #9db4cc; /* today's dot tint, 30 % over --map-land */
   --map-coast: rgb(157 180 204 / 0.28);
   --map-grid: rgb(157 180 204 / 0.05);
   --map-border: rgb(157 180 204 / 0.22);
-  --map-halo: #05070a;
-  --map-label: #d5dee7;
-  --map-fir: #56697e;
-  --map-fir-active: #8aa2bb;
-  --map-vaac: #7d8fa3;
-  --map-navaid: #8fa0b2;
-  --map-label-minor: #7d8a97; /* basemap place names, inactive volcano names (5.6:1 on land) */
-  --map-label-fir: #7f92a6; /* FIR names along the boundary line (6.1:1 on land) */
-  --map-label-vaac: #8a9bb0; /* VAAC area names (6.9:1 on land) */
-  --map-flight-back: #9c6c00; /* the plane behind the front one in a flight-group marker */
+  --map-halo: #05070a; /* casing for every map line and symbol, and for lines over satellite imagery */
+  --map-label: #e2e8ee; /* volcano labels */
+  --map-fir: #787671; /* = --c-map-context, dotted */
+  --map-fir-active: #c8c8d0; /* FIR with a valid SIGMET */
+  --map-vaac: #787671; /* = --c-map-context, dash-dot */
+  --map-navaid: #787671;
+  --map-label-minor: #8b9db4; /* = --c-map-wordgrey, 6.5:1 on land */
+  --map-label-fir: #8b9db4;
+  --map-label-vaac: #8b9db4;
+  --map-flight-back: #a26f00; /* the plane behind the front one in a flight-group marker */
   --map-official-fill-opacity: 0.14;
   --map-tephra-fill-opacity: 0.07;
+  --map-plate-edge: rgb(226 232 238 / 0.12);
 
   /* --- status: UI only, never the only signal (always a shape and a word) --- */
   --c-ok: #4ade80;
-  --c-ok-bg: #0b2416;
+  --c-ok-bg: #0d2415;
   --c-caution: #ffe566;
-  --c-caution-bg: #2a2205;
-  --c-serious: #ff7a6e;
-  --c-serious-bg: #2d0f0c;
-  --c-info: #9db4cc;
-  --c-off: #7a8796;
+  --c-caution-bg: #2a2306;
+  --c-serious: #ff7a6e; /* real alarms only: feeds, database, connection */
+  --c-serious-bg: #2e100c;
+  --c-info: #b9b2a9; /* stone: harmless */
+  --c-off: #9a948d; /* 4.9:1 on surface-3, so it may be text */
+  --c-invalid: #ffe566; /* a form field that needs fixing: caution colour + triangle + words, never red */
+  --c-invalid-bg: #2a2306;
 
   /* --- modes --- */
-  /* Ask TEPHRA's own colour (UI-DESIGN 10.18): indigo, used for Ask and nothing else.
-     --c-ask-text on --c-ask-bg 11:1; --c-ask-ink on --c-ask 7.5:1. */
-  --c-ask: #8b9bff;
-  --c-ask-2: #5ec8ff;
-  --c-ask-text: #c7cfff;
-  --c-ask-bg: #121735;
-  --c-ask-ink: #070a1c;
-  --c-replay: #b794ff;
+  /* Ask has no colour of its own: the assistant is said quietly, with its icon. */
+  --c-ask: #cec8c1;
+  --c-ask-2: #b3ada5;
+  --c-ask-text: #f5f1ec;
+  --c-ask-bg: #292622;
+  --c-ask-ink: #100e0c;
+  --c-replay: #b794ff; /* REPLAY: the only violet */
   --c-replay-text: #cdb6ff;
-  --c-replay-bg: #1c1233;
+  --c-replay-bg: #1d1430;
   --c-replay-ink: #e3d6ff;
-  --c-hypothesis-bg: #2b1d00;
+  --c-hypothesis-bg: #2b2620;
+  --c-live-chip-bg: #292622;
+  --c-live-chip-text: #f5f1ec;
+  --c-shadow-chip-bg: transparent;
+  --c-shadow-chip-line: #b3ada5;
+  --c-shadow-chip-text: #cec8c1;
+  --c-illus-line: #b3ada5;
+  --c-illus-text: #f5f1ec;
 
   /* --- decisions (Desk buttons, Wall decision list) --- */
-  --c-approve: #2fbf71;
+  --c-approve: #2fbf71; /* approve green appears only in the Desk's action bar */
   --c-approve-progress: #7ef0b0;
   --c-approve-ink: #04130a;
-  --c-reject: #c9302c;
-  --c-reject-ink: #ffffff;
-  --c-reject-text: #ff7a6e;
+  --c-reject: #4a443e; /* Ask stop, mic recording: a neutral stone fill, never red, not the send white */
+  --c-reject-ink: #f5f1ec;
+  --c-reject-text: #f5f1ec;
 
-  /* --- focus: white ring, dark halo; visible on panels, buttons and the map --- */
-  --c-focus: #f5f9fc;
+  /* --- focus: warm white ring, dark halo; visible on panels, buttons and the map --- */
+  --c-focus: #fbf8f3;
   --focus-ring: 2px solid var(--c-focus);
   --focus-offset: 2px;
-  --focus-halo: 0 0 0 4px rgb(5 8 12 / 0.9);
+  --focus-halo: 0 0 0 4px rgb(16 14 12 / 0.9);
 
   /* --- type --- */
   --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  /* 12 px floor: 0.75rem is only 11.25 px at the Wall's 15 px root and 10.5 px at its 14 px root,
-     so the smallest step is never allowed under 12 px. wall.css sets no smaller size either. */
-  --fs-1: max(12px, 0.75rem); /* 12 px: attribution, hashes, caps labels */
-  --fs-2: 0.875rem; /* 14 px: secondary text, table cells */
-  --fs-3: 1rem; /* 16 px: body */
-  --fs-4: 1.125rem; /* 18 px: key values */
-  --fs-5: 1.25rem; /* 20 px: section headlines */
-  --fs-6: 1.5rem; /* 24 px: volcano name, Desk action */
-  --fs-7: 2rem; /* 32 px: clock, minutes to entry */
-  --fs-8: 2.5rem; /* 40 px: one hero number per screen */
+  --fs-1: max(12px, 0.75rem);
+  --fs-2: 0.875rem;
+  --fs-3: 1rem;
+  --fs-4: 1.125rem;
+  --fs-5: 1.25rem;
+  --fs-6: 1.5rem;
+  --fs-7: 2rem;
+  --fs-8: 2.5rem;
   --fw-regular: 400;
   --fw-medium: 500;
   --fw-semibold: 600;
@@ -216,10 +264,10 @@
   --tap-min: 44px;
   --tap-comfort: 48px;
 
-  /* --- elevation (dark UI: a lighter surface plus a border carries most of it) --- */
-  --shadow-1: 0 1px 0 rgb(0 0 0 / 0.45);
-  --shadow-2: 0 8px 24px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.04);
-  --shadow-3: 0 18px 48px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.06);
+  /* --- elevation (dark: a lighter surface plus a border carries most of it) --- */
+  --shadow-1: 0 1px 0 rgb(0 0 0 / 0.5);
+  --shadow-2: 0 8px 24px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 248 240 / 0.04);
+  --shadow-3: 0 18px 48px rgb(0 0 0 / 0.62), 0 0 0 1px rgb(255 248 240 / 0.06);
   --glass-blur: blur(10px) saturate(1.1);
 
   /* --- stacking --- */
@@ -233,39 +281,39 @@
   --z-skip: 80;
 
   /* --- motion --- */
-  --dur-1: 80ms; /* press feedback */
-  --dur-2: 140ms; /* hover, focus, chip change */
-  --dur-3: 220ms; /* expand, row insert */
-  --dur-4: 360ms; /* sheet, dialog */
-  --dur-5: 600ms; /* decision stamp, changed-value highlight */
-  --dur-camera: 1600ms; /* fly to a volcano or flight */
-  --dur-camera-long: 2600ms; /* story framing, 3D tilt */
-  --dur-pulse: 1600ms; /* one ring cycle; three cycles, then still */
-  --dur-hold: 1200ms; /* hold-to-approve; essential, kept under reduced motion */
+  --dur-1: 80ms;
+  --dur-2: 140ms;
+  --dur-3: 220ms;
+  --dur-4: 360ms;
+  --dur-5: 600ms;
+  --dur-camera: 1600ms;
+  --dur-camera-long: 2600ms;
+  --dur-pulse: 1600ms;
+  --dur-hold: 1200ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-enter: cubic-bezier(0, 0, 0, 1);
   --ease-exit: cubic-bezier(0.3, 0, 1, 1);
 
   /* --- redesign (docs/UI-REDESIGN.md R13.2) --- */
-  --c-cta: var(--c-text-1); /* the one filled button on the Wall and the Desk's neutral primary */
-  --c-cta-ink: var(--c-text-ink); /* 17.6:1 on --c-cta */
+  --c-cta: var(--c-text-1); /* the ink-white filled button */
+  --c-cta-ink: var(--c-text-ink); /* 17.1:1 */
   --c-cta-hover: #ffffff;
-  --fs-story: 1.5rem; /* 24 px; wall.css sets 28 / 22 / 20 px per width (R4) */
+  --fs-story: 1.5rem;
   --lh-story: 1.25;
   --fs-eyebrow: var(--fs-1);
 
-  /* --- layout and themes (Home, the demo's panels, onboarding, workspace; DESIGN 3) --- */
+  /* --- layout and themes --- */
   --bar-h: 56px;
-  --gutter: 24px; /* 16 px at <= 760 px */
-  --rail-w: 120px; /* the demo's slim story strip */
-  --panel-w: 400px; /* the demo's right panel; 360 px under 1280 px */
-  --content-max: 1120px; /* workspace content */
-  --form-max: 760px; /* onboarding form column */
-  --fs-display: clamp(30px, 3.4vw, 40px); /* the home line, the onboarding landing title */
+  --gutter: 24px;
+  --rail-w: 120px;
+  --panel-w: 400px;
+  --content-max: 1120px;
+  --form-max: 760px;
+  --fs-display: clamp(30px, 3.4vw, 40px);
   /* UI tones: icon rings and the five steps' nodes, never text */
   --tone-feeds: var(--c-observer);
-  --tone-code: var(--c-text-2);
-  --tone-ai: var(--c-tephra);
+  --tone-code: var(--c-text-3);
+  --tone-ai: var(--c-text-1); /* the assistant: neutral, bright; never amber */
   --tone-desk: var(--c-approve);
   --tone-record: var(--c-info);
   --c-card: var(--c-surface-1);
@@ -295,88 +343,149 @@
 
 @media (prefers-contrast: more) {
   :root {
-    --c-text-2: #d3dde7;
-    --c-text-3: #b6c3d0;
-    --c-line-1: #3a4b5d;
-    --c-line-2: #5b7086;
-    --c-line-input: #8aa2bb;
-    --c-surface-glass: rgb(10 16 23 / 0.97);
+    --c-text-2: #e2ddd6;
+    --c-text-3: #cec8c1;
+    --c-line-1: #4a4540;
+    --c-line-2: #6a645e;
+    --c-line-input: #a39d96;
+    --c-surface-glass: rgb(23 21 18 / 0.97);
   }
 }
 
 
-/* --- the light set (DESIGN 3): Home, the demo's panels, onboarding, sign-in, workspace and the
-   Guide follow the system, or the reader's choice (theme.js writes data-theme on <html>).
-   The Desk, the Assistant page, documents and the privacy notice carry data-theme="dark", and the
-   map stays on the night basemap in both themes (.night below). Measured contrast is in
-   docs/UI-DESIGN.md 3.3. The dark values above are unchanged. --- */
+/* --- the light set: paper and ink. Home, the demo's panels, onboarding, sign-in, workspace and
+   the Guide follow the system, or the reader's choice (theme.js writes data-theme on <html>).
+   Every data role has a light mark (3.3:1 on surface-3) and a light ink (5:1 on surface-3), so
+   nothing drawn outside .night borrows a dark-theme mark. The map stays on the night values
+   (.night below). --- */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     color-scheme: light;
-    --c-bg: #f3f5f8; --c-surface-1: #ffffff; --c-surface-2: #f7f9fb; --c-surface-3: #e8edf2;
-    --c-surface-glass: rgb(255 255 255 / 0.92); --c-scrim: rgb(12 20 30 / 0.55);
-    --c-line-1: #dbe2ea; --c-line-2: #c3cdd8; --c-line-input: #6b7d90;
-    --c-text-1: #0b1620; --c-text-2: #34485c; --c-text-3: #4f6274; --c-text-ink: #ffffff;
-    --c-official-text: #b0124f; --c-tephra-text: #865700; --c-observer-text: #0a6796;
-    --c-ok: #15733a; --c-ok-bg: #e5f5ea; --c-caution: #7a5c00; --c-caution-bg: #fdf5d3;
-    --c-serious: #b42318; --c-serious-bg: #fde9e7; --c-info: #46607a;
-    --c-replay: #6d3fd8; --c-replay-text: #5a2fc2; --c-replay-bg: #efe8ff;
-    --c-cta: #0b1620; --c-cta-ink: #ffffff; --c-cta-hover: #1d2c3a;
-    --tone-feeds: #0a7bb5; --tone-ai: #9a6200; --tone-desk: #147a42; --tone-record: #46607a;
-    --c-focus: #0b1620; --focus-halo: 0 0 0 4px rgb(255 255 255 / 0.95);
-    --shadow-2: 0 8px 24px rgb(15 30 45 / 0.12), 0 0 0 1px rgb(15 30 45 / 0.06);
-    --shadow-3: 0 18px 48px rgb(15 30 45 / 0.22), 0 0 0 1px rgb(15 30 45 / 0.08);
+    --c-bg: #f7f4ef; --c-surface-1: #fffefb; --c-surface-2: #fbf9f5; --c-surface-3: #ede9e3;
+    --c-surface-glass: rgb(255 254 251 / 0.93); --c-scrim: rgb(26 21 16 / 0.5);
+    --c-line-1: #e3dfd8; --c-line-2: #d1cbc4; --c-line-input: #7e7870;
+    --c-text-1: #1a1510; --c-text-2: #4f4840; --c-text-3: #686058; --c-text-ink: #fffefb;
+    --c-official: #e11073; --c-official-text: #b0124f; --c-official-soft: rgb(193 2 97 / 0.09);
+    --c-tephra: #9b6a05; --c-tephra-text: #855a03; --c-tephra-soft: rgb(155 106 5 / 0.12);
+    --c-observer: #5a81b4; --c-observer-text: #3e6495; --c-observer-soft: rgb(90 129 180 / 0.12);
+    --c-aircraft: #75808c; --c-aircraft-stale: #8a8f95;
+    --c-crew: #947c41; --c-crew-text: #645826; --c-crew-soft: rgb(148 124 65 / 0.12);
+    --c-code-unknown: #75808c; --c-code-ring: rgb(26 21 16 / 0.7);
+    --c-brand: #9b6a05; --c-forecast: #e11073; --c-closed: #1a1510;
+    --c-reroute: #1a1510; --c-reroute-text: #1a1510; --c-route: #7e8389;
+    --c-ok: #15733a; --c-ok-bg: #e3f2e4; --c-caution: #6f5c01; --c-caution-bg: #f8f0c8;
+    --c-serious: #8a1810; --c-serious-bg: #fce8e4; --c-info: #5e574f; --c-off: #6e675f; --c-invalid: #6f5c01; --c-invalid-bg: #f8f0c8;
+    --c-ask: #4f4840; --c-ask-2: #686058; --c-ask-text: #1a1510; --c-ask-bg: #ede9e3; --c-ask-ink: #fffefb;
+    --c-replay: #6d3fd8; --c-replay-text: #5a2fc2; --c-replay-bg: #efe8ff; --c-replay-ink: #3a1d8c;
+    --c-hypothesis-bg: #f1ebe2;
+    --c-live-chip-bg: #ede9e3; --c-live-chip-text: #1a1510;
+    --c-shadow-chip-line: #686058; --c-shadow-chip-text: #4f4840;
+    --c-illus-line: #686058; --c-illus-text: #1a1510;
+    --c-approve: #117a43; --c-approve-progress: #0a5e33; --c-approve-ink: #ffffff;
+    --c-reject: #5e574f; --c-reject-ink: #fffefb; --c-reject-text: #1a1510;
+    --c-cta: #1a1510; --c-cta-ink: #fffefb; --c-cta-hover: #3a332b;
+    --tone-feeds: #5a81b4; --tone-code: #686058; --tone-ai: #1a1510; --tone-desk: #117a43; --tone-record: #5e574f;
+    --c-focus: #1a1510; --focus-halo: 0 0 0 4px rgb(255 254 251 / 0.95);
+    --map-plate-edge: rgb(26 21 16 / 0.28);
+    --shadow-1: 0 1px 0 rgb(60 45 30 / 0.08);
+    --shadow-2: 0 8px 24px rgb(60 45 30 / 0.12), 0 0 0 1px rgb(60 45 30 / 0.06);
+    --shadow-3: 0 18px 48px rgb(60 45 30 / 0.2), 0 0 0 1px rgb(60 45 30 / 0.08);
   }
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --c-bg: #f3f5f8; --c-surface-1: #ffffff; --c-surface-2: #f7f9fb; --c-surface-3: #e8edf2;
-  --c-surface-glass: rgb(255 255 255 / 0.92); --c-scrim: rgb(12 20 30 / 0.55);
-  --c-line-1: #dbe2ea; --c-line-2: #c3cdd8; --c-line-input: #6b7d90;
-  --c-text-1: #0b1620; --c-text-2: #34485c; --c-text-3: #4f6274; --c-text-ink: #ffffff;
-  --c-official-text: #b0124f; --c-tephra-text: #865700; --c-observer-text: #0a6796;
-  --c-ok: #15733a; --c-ok-bg: #e5f5ea; --c-caution: #7a5c00; --c-caution-bg: #fdf5d3;
-  --c-serious: #b42318; --c-serious-bg: #fde9e7; --c-info: #46607a;
-  --c-replay: #6d3fd8; --c-replay-text: #5a2fc2; --c-replay-bg: #efe8ff;
-  --c-cta: #0b1620; --c-cta-ink: #ffffff; --c-cta-hover: #1d2c3a;
-  --tone-feeds: #0a7bb5; --tone-ai: #9a6200; --tone-desk: #147a42; --tone-record: #46607a;
-  --c-focus: #0b1620; --focus-halo: 0 0 0 4px rgb(255 255 255 / 0.95);
-  --shadow-2: 0 8px 24px rgb(15 30 45 / 0.12), 0 0 0 1px rgb(15 30 45 / 0.06);
-  --shadow-3: 0 18px 48px rgb(15 30 45 / 0.22), 0 0 0 1px rgb(15 30 45 / 0.08);
+  --c-bg: #f7f4ef; --c-surface-1: #fffefb; --c-surface-2: #fbf9f5; --c-surface-3: #ede9e3;
+  --c-surface-glass: rgb(255 254 251 / 0.93); --c-scrim: rgb(26 21 16 / 0.5);
+  --c-line-1: #e3dfd8; --c-line-2: #d1cbc4; --c-line-input: #7e7870;
+  --c-text-1: #1a1510; --c-text-2: #4f4840; --c-text-3: #686058; --c-text-ink: #fffefb;
+  --c-official: #e11073; --c-official-text: #b0124f; --c-official-soft: rgb(193 2 97 / 0.09);
+  --c-tephra: #9b6a05; --c-tephra-text: #855a03; --c-tephra-soft: rgb(155 106 5 / 0.12);
+  --c-observer: #5a81b4; --c-observer-text: #3e6495; --c-observer-soft: rgb(90 129 180 / 0.12);
+  --c-aircraft: #75808c; --c-aircraft-stale: #8a8f95;
+  --c-crew: #947c41; --c-crew-text: #645826; --c-crew-soft: rgb(148 124 65 / 0.12);
+  --c-code-unknown: #75808c; --c-code-ring: rgb(26 21 16 / 0.7);
+  --c-brand: #9b6a05; --c-forecast: #e11073; --c-closed: #1a1510;
+  --c-reroute: #1a1510; --c-reroute-text: #1a1510; --c-route: #7e8389;
+  --c-ok: #15733a; --c-ok-bg: #e3f2e4; --c-caution: #6f5c01; --c-caution-bg: #f8f0c8;
+  --c-serious: #8a1810; --c-serious-bg: #fce8e4; --c-info: #5e574f; --c-off: #6e675f; --c-invalid: #6f5c01; --c-invalid-bg: #f8f0c8;
+  --c-ask: #4f4840; --c-ask-2: #686058; --c-ask-text: #1a1510; --c-ask-bg: #ede9e3; --c-ask-ink: #fffefb;
+  --c-replay: #6d3fd8; --c-replay-text: #5a2fc2; --c-replay-bg: #efe8ff; --c-replay-ink: #3a1d8c;
+  --c-hypothesis-bg: #f1ebe2;
+  --c-live-chip-bg: #ede9e3; --c-live-chip-text: #1a1510;
+  --c-shadow-chip-line: #686058; --c-shadow-chip-text: #4f4840;
+  --c-illus-line: #686058; --c-illus-text: #1a1510;
+  --c-approve: #117a43; --c-approve-progress: #0a5e33; --c-approve-ink: #ffffff;
+  --c-reject: #5e574f; --c-reject-ink: #fffefb; --c-reject-text: #1a1510;
+  --c-cta: #1a1510; --c-cta-ink: #fffefb; --c-cta-hover: #3a332b;
+  --tone-feeds: #5a81b4; --tone-code: #686058; --tone-ai: #1a1510; --tone-desk: #117a43; --tone-record: #5e574f;
+  --c-focus: #1a1510; --focus-halo: 0 0 0 4px rgb(255 254 251 / 0.95);
+  --map-plate-edge: rgb(26 21 16 / 0.28);
+  --shadow-1: 0 1px 0 rgb(60 45 30 / 0.08);
+  --shadow-2: 0 8px 24px rgb(60 45 30 / 0.12), 0 0 0 1px rgb(60 45 30 / 0.06);
+  --shadow-3: 0 18px 48px rgb(60 45 30 / 0.2), 0 0 0 1px rgb(60 45 30 / 0.08);
+}
+
+@media (prefers-contrast: more) and (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --c-text-2: #3a342d; --c-text-3: #4f4840; --c-line-1: #c9c3bb; --c-line-2: #a49d95; --c-line-input: #5e584f;
+    --c-surface-glass: rgb(255 254 251 / 0.98);
+  }
+}
+@media (prefers-contrast: more) {
+  :root[data-theme="light"] {
+    --c-text-2: #3a342d; --c-text-3: #4f4840; --c-line-1: #c9c3bb; --c-line-2: #a49d95; --c-line-input: #5e584f;
+    --c-surface-glass: rgb(255 254 251 / 0.98);
+  }
 }
 
 /* A subtree that stays on the night theme in both themes: the demo's map column (the map, its
-   pills, legend, tools and labels) and the sign-in backdrop. Every
-   token the light set changes, back at its dark value. */
+   pills, legend, tools and labels), the Desk map and the sign-in backdrop. Every token the light
+   set changes, back at its dark value. */
 .night {
   color-scheme: dark;
   color: var(--c-text-1);
-  --c-bg: #05080c; --c-surface-1: #0a1017; --c-surface-2: #0f1720; --c-surface-3: #16212c;
-  --c-surface-glass: rgb(10 16 23 / 0.88); --c-scrim: rgb(2 4 8 / 0.72);
-  --c-line-1: #1c2834; --c-line-2: #2b3a4a; --c-line-input: #5b7086;
-  --c-text-1: #eaf1f7; --c-text-2: #b6c3d0; --c-text-3: #93a3b5; --c-text-ink: #05080c;
-  --c-official-text: #ff9cc4; --c-tephra-text: #ffc845; --c-observer-text: #7dd3fc;
-  --c-ok: #4ade80; --c-ok-bg: #0b2416; --c-caution: #ffe566; --c-caution-bg: #2a2205;
-  --c-serious: #ff7a6e; --c-serious-bg: #2d0f0c; --c-info: #9db4cc;
-  --c-replay: #b794ff; --c-replay-text: #cdb6ff; --c-replay-bg: #1c1233;
+  --c-bg: #100e0c; --c-surface-1: #171512; --c-surface-2: #1f1c19; --c-surface-3: #292622;
+  --c-surface-glass: rgb(23 21 18 / 0.9); --c-scrim: rgb(8 6 4 / 0.72);
+  --c-line-1: #322e2a; --c-line-2: #45403b; --c-line-input: #847f7a;
+  --c-text-1: #f5f1ec; --c-text-2: #cec8c1; --c-text-3: #b3ada5; --c-text-ink: #100e0c;
+  --c-official: #ff3d8b; --c-official-text: #ff9cc4; --c-official-soft: rgb(255 61 139 / 0.14);
+  --c-tephra: #ffb000; --c-tephra-text: #ffc845; --c-tephra-soft: rgb(255 176 0 / 0.13);
+  --c-observer: #a6dcff; --c-observer-text: #cbeaff; --c-observer-soft: rgb(166 220 255 / 0.13);
+  --c-aircraft: #8a96a2; --c-aircraft-stale: #787671;
+  --c-crew: #e1c88b; --c-crew-text: #ecdcb0; --c-crew-soft: rgb(225 200 139 / 0.12);
+  --c-code-unknown: #787671; --c-code-ring: rgb(16 14 12 / 0);
+  --c-brand: #ffb000; --c-forecast: #ff3d8b; --c-closed: #f4f8fa;
+  --c-reroute: #f4f8fa; --c-reroute-text: #f4f8fa; --c-route: #787671;
+  --c-ok: #4ade80; --c-ok-bg: #0d2415; --c-caution: #ffe566; --c-caution-bg: #2a2306;
+  --c-serious: #ff7a6e; --c-serious-bg: #2e100c; --c-info: #b9b2a9; --c-off: #9a948d; --c-invalid: #ffe566; --c-invalid-bg: #2a2306;
+  --c-ask: #cec8c1; --c-ask-2: #b3ada5; --c-ask-text: #f5f1ec; --c-ask-bg: #292622; --c-ask-ink: #100e0c;
+  --c-replay: #b794ff; --c-replay-text: #cdb6ff; --c-replay-bg: #1d1430; --c-replay-ink: #e3d6ff;
+  --c-hypothesis-bg: #2b2620;
+  --c-live-chip-bg: #292622; --c-live-chip-text: #f5f1ec;
+  --c-shadow-chip-line: #b3ada5; --c-shadow-chip-text: #cec8c1;
+  --c-illus-line: #b3ada5; --c-illus-text: #f5f1ec;
+  --c-approve: #2fbf71; --c-approve-progress: #7ef0b0; --c-approve-ink: #04130a;
+  --c-reject: #4a443e; --c-reject-ink: #f5f1ec; --c-reject-text: #f5f1ec;
   --c-cta: var(--c-text-1); --c-cta-ink: var(--c-text-ink); --c-cta-hover: #ffffff;
-  --tone-feeds: var(--c-observer); --tone-ai: var(--c-tephra); --tone-desk: var(--c-approve); --tone-record: var(--c-info);
-  --c-focus: #f5f9fc; --focus-halo: 0 0 0 4px rgb(5 8 12 / 0.9);
+  --tone-feeds: var(--c-observer); --tone-code: var(--c-text-3); --tone-ai: var(--c-text-1); --tone-desk: var(--c-approve); --tone-record: var(--c-info);
+  --c-focus: #fbf8f3; --focus-halo: 0 0 0 4px rgb(16 14 12 / 0.9);
+  --map-plate-edge: rgb(226 232 238 / 0.12);
   /* tokens built from the ones above, resolved again here so they take the night values */
-  --tone-code: var(--c-text-2); --c-card: var(--c-surface-1); --c-card-hover: var(--c-surface-2);
+  --c-card: var(--c-surface-1); --c-card-hover: var(--c-surface-2);
   --focus-ring: 2px solid var(--c-focus); --border-hair: 1px solid var(--c-line-1); --border-control: 1px solid var(--c-line-input);
-  --shadow-2: 0 8px 24px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.04);
-  --shadow-3: 0 18px 48px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.06);
+  --shadow-1: 0 1px 0 rgb(0 0 0 / 0.5);
+  --shadow-2: 0 8px 24px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 248 240 / 0.04);
+  --shadow-3: 0 18px 48px rgb(0 0 0 / 0.62), 0 0 0 1px rgb(255 248 240 / 0.06);
 }
 
 @media (prefers-contrast: more) {
   .night {
-    --c-text-2: #d3dde7;
-    --c-text-3: #b6c3d0;
-    --c-line-1: #3a4b5d;
-    --c-line-2: #5b7086;
-    --c-line-input: #8aa2bb;
-    --c-surface-glass: rgb(10 16 23 / 0.97);
+    --c-text-2: #e2ddd6;
+    --c-text-3: #cec8c1;
+    --c-line-1: #4a4540;
+    --c-line-2: #6a645e;
+    --c-line-input: #a39d96;
+    --c-surface-glass: rgb(23 21 18 / 0.97);
   }
 }

@@ -338,7 +338,7 @@ export function openDoc(doc) {
     go.addEventListener('click', async () => {
       const name = input.value.trim();
       if (name.length < 2) {
-        msg.replaceChildren(el('p', { class: 'msg msg--caution' }, icon('st-caution', 'st'), el('span', { text: 'Type the name to print, at least 2 characters.' })));
+        msg.replaceChildren(el('p', { class: 'msg msg--invalid' }, icon('st-caution', 'st'), el('span', { text: 'Type the name to print, at least 2 characters.' })));
         input.focus();
         return;
       }
@@ -353,7 +353,9 @@ export function openDoc(doc) {
         return;
       }
       const list = problems(res);
-      msg.replaceChildren(el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: res.status === 409 ? ((res.data && res.data.detail) || 'Already signed.') : `Not signed: ${list.length ? list.join(' · ') : (res.data && res.data.detail) || `HTTP ${res.status}`}` })));
+      // 422 (the name or role needs fixing) and 409 (already signed) are not alarms: red is for the server.
+      const tone = res.status === 422 ? ['msg--invalid', 'st-caution'] : res.status === 409 ? ['msg--caution', 'st-caution'] : ['msg--serious', 'st-serious'];
+      msg.replaceChildren(el('p', { class: `msg ${tone[0]}` }, icon(tone[1], 'st'), el('span', { text: res.status === 409 ? ((res.data && res.data.detail) || 'Already signed.') : `Not signed: ${list.length ? list.join(' · ') : (res.data && res.data.detail) || `HTTP ${res.status}`}` })));
     });
   };
   draw();
@@ -365,7 +367,7 @@ async function generateHandover(incomingInput, msg) {
   if (hoBusy) return;
   const incoming = incomingInput.value.trim();
   if (incoming.length < 2) {
-    msg.replaceChildren(el('p', { class: 'msg msg--caution' }, icon('st-caution', 'st'), el('span', { text: 'Name the incoming dispatcher (at least 2 characters).' })));
+    msg.replaceChildren(el('p', { class: 'msg msg--invalid' }, icon('st-caution', 'st'), el('span', { text: 'Name the incoming dispatcher (at least 2 characters).' })));
     incomingInput.focus();
     return;
   }

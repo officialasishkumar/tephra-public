@@ -3,7 +3,8 @@
 // the ash areas (the official area filled, TEPHRA's wider area dashed), every RFA flight in or
 // heading in with its path into the ash, the volcanoes, and for the flight under review its ring,
 // its card and the reroute its draft proposes. Selecting a plane that has an open draft opens that
-// review; any other plane shows its path and card. The airports the airport plan closes are ringed.
+// review; any other plane shows its path and card. The airports the airport plan closes are drawn
+// as the Wall draws them: a white bar on a dark disc (--c-closed), never red.
 // Read-only: the map never changes a draft. MapLibre is loaded only when the map is shown, so a
 // phone never downloads it.
 
@@ -61,16 +62,19 @@ function addLayers(C) {
   map.addLayer({ id: 'd-paths', type: 'line', source: 'd-paths', layout: { 'line-cap': 'round' }, paint: { 'line-color': C.tephra, 'line-opacity': ['case', ['get', 'sel'], 0.95, 0.22], 'line-width': ['case', ['get', 'sel'], 2.4, 1], 'line-dasharray': [1, 2] } });
   map.addLayer({ id: 'd-reroute-casing', type: 'line', source: 'd-reroute', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': C.halo, 'line-width': 6, 'line-opacity': 0.8 } });
   map.addLayer({ id: 'd-reroute', type: 'line', source: 'd-reroute', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': C.reroute, 'line-width': 3 } });
-  // the airports the current airport plan closes: ringed in --c-serious, the closure radius dashed
-  map.addLayer({ id: 'd-closure-ring', type: 'line', source: 'd-closures', paint: { 'line-color': C.serious, 'line-opacity': 0.8, 'line-width': 1.3, 'line-dasharray': [3, 2] } });
-  map.addLayer({ id: 'd-airports', type: 'circle', source: 'd-airports', paint: { 'circle-radius': 5.5, 'circle-color': C.halo, 'circle-stroke-color': C.serious, 'circle-stroke-width': 2.2 } });
-  map.addLayer({ id: 'd-airport-label', type: 'symbol', source: 'd-airports', layout: { 'text-field': ['step', ['zoom'], ['get', 'icao'], 6.5, ['concat', ['get', 'icao'], ' closed']], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-variable-anchor': ['bottom', 'top', 'left', 'right'], 'text-radial-offset': 1, 'text-optional': true }, paint: { 'text-color': C.serious, 'text-halo-color': C.halo, 'text-halo-width': 2 } });
-  map.addLayer({ id: 'd-volcanoes', type: 'symbol', source: 'd-volcanoes', layout: { 'icon-image': ['concat', 'volcano-', ['get', 'code']], 'icon-size': 0.7, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 12, 'text-offset': [0, 1.4], 'text-anchor': 'top', 'text-optional': true }, paint: { 'text-color': C.text1, 'text-halo-color': C.halo, 'text-halo-width': 1.5 } });
-  map.addLayer({ id: 'd-sel-ring', type: 'circle', source: 'd-aircraft', filter: ['get', 'sel'], paint: { 'circle-radius': 16, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': C.tephra, 'circle-stroke-width': 2 } });
+  map.addLayer({ id: 'd-reroute-chev', type: 'symbol', source: 'd-reroute', layout: { 'symbol-placement': 'line', 'symbol-spacing': 90, 'icon-image': 'chevron', 'icon-size': 0.9, 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true }, paint: { 'icon-color': C.reroute, 'icon-halo-color': C.halo, 'icon-halo-width': 1 } });
+  // the airports the current airport plan closes: the closed-airport symbol, the radius dashed
+  map.addLayer({ id: 'd-closure-ring', type: 'line', source: 'd-closures', paint: { 'line-color': C.closed, 'line-opacity': 0.55, 'line-width': 1.3, 'line-dasharray': [3, 3] } });
+  map.addLayer({ id: 'd-airports', type: 'symbol', source: 'd-airports', layout: { 'icon-image': 'closed-airport', 'icon-size': 0.85, 'icon-allow-overlap': true, 'icon-ignore-placement': true } });
+  map.addLayer({ id: 'd-airport-label', type: 'symbol', source: 'd-airports', layout: { 'text-field': ['step', ['zoom'], ['get', 'icao'], 6.5, ['concat', ['get', 'icao'], ' closed']], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-variable-anchor': ['bottom', 'top', 'left', 'right'], 'text-radial-offset': 1, 'text-optional': true }, paint: { 'text-color': C.closed, 'text-halo-color': C.halo, 'text-halo-width': 2 } });
+  map.addLayer({ id: 'd-volcanoes', type: 'symbol', source: 'd-volcanoes', layout: { 'icon-image': ['concat', 'volcano-', ['get', 'code']], 'icon-size': 0.7, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 12, 'text-offset': [0, 1.4], 'text-anchor': 'top', 'text-optional': true }, paint: { 'text-color': C.label, 'text-halo-color': C.halo, 'text-halo-width': 1.5 } });
+  // the flight under review: its ring in the plan's white (the Wall's picked ring); the plane is
+  // amber only when TEPHRA flags it (a draft, or a picked plane that is exposed)
+  map.addLayer({ id: 'd-sel-ring', type: 'circle', source: 'd-aircraft', filter: ['get', 'sel'], paint: { 'circle-radius': 16, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': C.reroute, 'circle-stroke-width': 2 } });
   map.addLayer({
     id: 'd-aircraft', type: 'symbol', source: 'd-aircraft',
     layout: { 'icon-image': 'ac-sdf', 'icon-size': ['case', ['get', 'sel'], 0.8, ['get', 'draft'], 0.6, 0.42], 'icon-rotate': ['get', 'trk'], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'symbol-sort-key': ['case', ['get', 'sel'], 2, ['get', 'draft'], 1, 0] },
-    paint: { 'icon-color': ['case', ['get', 'sel'], C.tephra, ['get', 'draft'], C.text1, C.aircraft], 'icon-opacity': ['case', ['get', 'draft'], 1, 0.5], 'icon-halo-color': C.halo, 'icon-halo-width': 1.5 },
+    paint: { 'icon-color': ['case', ['get', 'flag'], C.tephra, ['get', 'draft'], C.reroute, C.aircraft], 'icon-opacity': ['case', ['any', ['get', 'draft'], ['get', 'sel']], 1, 0.5], 'icon-halo-color': C.halo, 'icon-halo-width': 1.5 },
   });
 }
 
@@ -94,7 +98,10 @@ function draw() {
   if (!ready || !snap) return;
   const sel = focusOf();
   const drafts = draftByHex();
-  map.getSource('d-cones').setData(fc(feats('cones').filter((f) => f.properties && f.properties.part === 'cone')));
+  const cones = feats('cones').filter((f) => f.properties && f.properties.part === 'cone');
+  map.getSource('d-cones').setData(fc(cones));
+  const tephraKey = byId('desk-map').querySelector('[data-key="tephra"]');
+  if (tephraKey) tephraKey.hidden = !cones.some((f) => f.properties.mode !== 'OFFICIAL');
   map.getSource('d-paths').setData(fc(feats('exposures').filter((f) => f.properties && f.properties.kind === 'path')
     .map((f) => ({ ...f, properties: { ...f.properties, sel: Boolean(sel && f.properties.flight_id === sel.flight_id) } }))));
   map.getSource('d-reroute').setData(fc(rerouteOf(sel)));
@@ -110,7 +117,7 @@ function draw() {
   map.getSource('d-volcanoes').setData(fc(feats('volcanoes').filter((f) => f.properties && f.properties.active)
     .map((f) => ({ ...f, properties: { name: f.properties.name, code: f.properties.color_code in C.codes ? f.properties.color_code : 'UNKNOWN' } }))));
   map.getSource('d-aircraft').setData(fc(feats('aircraft').filter((f) => f.properties && f.geometry)
-    .map((f) => ({ type: 'Feature', geometry: f.geometry, properties: { hex: f.properties.hex, trk: f.properties.track_deg || 0, draft: drafts.has(f.properties.hex), sel: Boolean(sel && sel.hex === f.properties.hex) } }))));
+    .map((f) => ({ type: 'Feature', geometry: f.geometry, properties: { hex: f.properties.hex, trk: f.properties.track_deg || 0, draft: drafts.has(f.properties.hex), sel: Boolean(sel && sel.hex === f.properties.hex), flag: Boolean(sel && sel.hex === f.properties.hex && (!sel.picked || sel.exposed)) } }))));
   placeCard(sel);
 }
 
@@ -230,7 +237,8 @@ export function initDeskMap(open) {
     el('p', { class: 'dmap__note', role: 'status', hidden: true }),
     el('p', { class: 'dmap__key', 'aria-hidden': 'true' },
       el('span', { class: 'dmap__sw dmap__sw--official' }), 'Official ash',
-      el('span', { class: 'dmap__sw dmap__sw--tephra' }), "TEPHRA's area",
+      // said only while the map draws TEPHRA's own area (when it is the official area, only that is drawn)
+      el('span', { class: 'dmap__ki', dataset: { key: 'tephra' }, hidden: true }, el('span', { class: 'dmap__sw dmap__sw--tephra' }), "TEPHRA's area"),
       el('span', { class: 'dmap__sw dmap__sw--sel' }), 'This flight',
       el('span', { class: 'dmap__sw dmap__sw--route' }), 'Reroute',
       el('span', { class: 'dmap__sw dmap__sw--closed' }), 'Closed airport'));

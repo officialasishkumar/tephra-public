@@ -624,7 +624,7 @@ class Settings(BaseSettings):
         default=None,
         pattern=r"^airline/[a-z0-9_-]{1,40}\.json$",
         description=(
-            "An airline's own TEPHRA: its flights.json (the kit's format), relative to "
+            "An airline's own TEPHRA: its flights.json, relative to "
             "TEPHRA_DATA_DIR; names a fleet aircraft by its scheduled flight"
         ),
     )

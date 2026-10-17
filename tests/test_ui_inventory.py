@@ -288,7 +288,8 @@ def test_replay_is_labelled_by_the_page_not_a_strip() -> None:
         assert "tn-strip" not in html, page
     panels = _text([WEB / "wall" / "panels.js"])
     assert '`${replay ? "REPLAY - " : ""}TEPHRA ${' in panels
-    assert '"Replay clock · "' in panels
+    assert "`Replay clock · ${dayMonth(D.now)}`" in panels
+    assert 'infoButton({ topic: "replay", label: "About replay", text: words })' in panels
     assert 'replay: "Replay"' in panels
     assert "'REPLAY - '" in _text([WEB / "desk.js"])
     # the modals' sr-only REPLAY words come from one function on both pages

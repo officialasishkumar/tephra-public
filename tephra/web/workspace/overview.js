@@ -1,13 +1,14 @@
 // The workspace overview (/workspace): an airline still onboarding sees where it left off and goes
-// back to its pages; once submitted, verification first (what the status pill means, once), then,
-// when this site hosts airlines (view.hosted, from workspace.js), Go live on TEPHRA (golive.js),
-// then the setup kit, the answers, the data feeds, the assistant and the people. Both end with the
-// one "Not built yet" line, in its hosted variant once hosting is open to the airline. Every value
-// goes in through el().
+// back to its pages; once submitted, where verification stands in one line (what it means behind
+// its (i)), then, when this site hosts airlines (view.hosted, from workspace.js), Go live on TEPHRA
+// (golive.js), then the answers, the data feeds, the assistant and the people, a line each (once
+// the airline has its own space, only the answers stay). Both end with the one line that says this
+// site runs no airline's operation yet, or, once hosting is open to the airline, the site's limit.
+// Every value goes in through el().
 
 import { el, icon } from "../wall/util.js";
-import { ANSWER_PAGES, NOT_BUILT, PROVIDER_WORDS, notBuiltHosted, checkPage, emptyValues, firstUnfinished, fromAnswers, pageOf } from "../onboard/pages.js";
-import { kitCard } from "./kit.js";
+import { infoButton } from "../wall/info.js";
+import { ANSWER_PAGES, NOT_ON_YET, PROVIDER_WORDS, notBuiltHosted, checkPage, emptyValues, firstUnfinished, fromAnswers, pageOf, problemText } from "../onboard/pages.js";
 import { WAITING_WORDS, hostedCards } from "./golive.js";
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -17,58 +18,71 @@ export function utcDay(iso) {
   return Number.isNaN(d.getTime()) ? "" : `${d.getUTCDate()} ${MON[d.getUTCMonth()]}, ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
 }
 
-const VERIFY_WORDS = {
-  pending: "A TEPHRA dispatcher checks every new airline. Until then your answers stay editable and nothing is drafted under your airline's name. You can download your setup kit now.",
-  verified: "A TEPHRA dispatcher checked who you are. It does not approve your policy or your use of TEPHRA.",
+// The status in one line (the Overview's header shows no pill: this card says it); what it means
+// behind the (i). A declined airline's line carries the dispatcher's reason.
+const VERIFY = {
+  pending: ["A dispatcher is checking your airline. Answers stay editable.", "Until verified, nothing is drafted under your airline's name."],
+  verified: ["Verified.", "A TEPHRA dispatcher checked who you are. It does not approve your policy or your use of TEPHRA."],
+  declined: ["Declined.", "A TEPHRA dispatcher declined this airline. Your answers stay as they are."],
 };
 // Where this site hosts airlines, a dispatcher or one of TEPHRA's operators verifies: the words
 // name neither (the record says who).
-const VERIFY_WORDS_HOSTED = {
-  pending: "TEPHRA checks every new airline. Until then your answers stay editable and nothing is drafted under your airline's name. You can download your setup kit now.",
-  verified: "TEPHRA checked who you are. It does not approve your policy or your use of TEPHRA.",
+const VERIFY_HOSTED = {
+  pending: ["TEPHRA is checking your airline. Answers stay editable.", "Until verified, nothing is drafted under your airline's name."],
+  verified: ["Verified.", "TEPHRA checked who you are. It does not approve your policy or your use of TEPHRA."],
+  declined: ["Declined.", "TEPHRA declined this airline. Your answers stay as they are."],
 };
 
 function verification(view, waiting = false) {
   const step = (kind) => view.steps.find((s) => s.kind === kind);
   const declined = view.status === "declined";
+  const words = view.hostedSite ? VERIFY_HOSTED : VERIFY;
+  const [said, more] = words[view.status] || words.pending;
+  const reason = declined ? step("declined")?.reason : null;
+  const line = reason ? `Declined: ${reason}` : said;
+  const cut = line.lastIndexOf(" ") + 1;
+  const [lead, last] = [line.slice(0, cut), line.slice(cut)];
   const items = [
-    { key: "submitted", label: "Submitted", at: step("submitted")?.at, state: "done" },
-    { key: "verifying", label: "Verifying", at: null, state: view.status === "pending" ? "now" : "done" },
+    { label: "Submitted", at: step("submitted")?.at, state: "done" },
+    { label: "Verifying", at: null, state: view.status === "pending" ? "now" : "done" },
     declined
-      ? { key: "declined", label: "Declined", at: step("declined")?.at, state: "now" }
-      : { key: "verified", label: "Verified", at: step("verified")?.at, state: view.status === "verified" ? "now" : "todo" },
+      ? { label: "Declined", at: step("declined")?.at, state: "now" }
+      : { label: "Verified", at: step("verified")?.at, state: view.status === "verified" ? "now" : "todo" },
   ];
-  const words = view.hostedSite ? VERIFY_WORDS_HOSTED : VERIFY_WORDS;
-  const text = declined ? `${view.hostedSite ? "TEPHRA" : "A TEPHRA dispatcher"} declined this airline: ${step("declined")?.reason || "no reason given"}.` : words[view.status];
-  return el("section", { class: `card pending pending--${view.status}`, "aria-labelledby": "vf-h" },
-    icon(view.status === "verified" ? "st-ok" : declined ? "st-serious" : "st-caution"),
+  return el("section", { class: `card pending pending--${view.status}`, "aria-label": "Verification" },
+    icon(view.status === "verified" ? "st-ok" : declined ? "st-off" : "st-caution"),
     el("div", {},
-      el("h2", { id: "vf-h", text: "Verification" }),
-      el("p", { text }),
+      // the (i) stays on the line with the last word, never alone on a line of its own
+      el("p", { id: "vf-line", class: "pending__line" }, el("span", { text: lead }),
+        el("span", { class: "pending__tail" }, last, infoButton({ topic: "verification", label: "About verification", text: more }))),
       waiting ? el("p", { id: "vf-hosting", class: "pending__hosting", text: WAITING_WORDS }) : null,
-      el("ol", { class: "track", "aria-label": "Verification steps" }, ...items.map((s) => el("li", { class: `is-${s.state}`, "aria-current": s.state === "now" ? "step" : null },
-        el("b", { text: s.label }),
-        el("span", { text: s.at ? utcDay(s.at) : s.state === "now" ? "A dispatcher reviews it" : "" }))))));
+      view.status === "verified"
+        ? null
+        : el("ol", { class: "track", "aria-label": "Verification steps" }, ...items.map((s) => el("li", { class: `is-${s.state}`, "aria-current": s.state === "now" ? "step" : null },
+          el("b", { text: s.label }),
+          s.at ? el("span", { text: utcDay(s.at) }) : null)))));
 }
 
-function card(id, iconId, title, ...kids) {
-  return el("section", { class: "card wcard", "aria-labelledby": id },
-    el("div", { class: "wcard__h" }, el("span", { class: "wcard__ic", "aria-hidden": "true" }, icon(iconId)), el("h2", { id, text: title })),
-    ...kids);
+// One row: an icon, a name, what it holds now, and where to change it.
+function row(iconId, name, value, ...end) {
+  return el("li", { class: "wrow" },
+    el("span", { class: "wrow__ic", "aria-hidden": "true" }, icon(iconId)),
+    el("b", { class: "wrow__name", text: name }),
+    el("span", { class: "wrow__val" }, value),
+    ...end);
 }
+
+const go = (href, text) => el("a", { class: "link wrow__go", href, dataset: { go: "" }, text });
 
 // Pages of the stored answers that pass the page rules (Review counts once the account exists).
 function completeness(answers) {
   const values = fromAnswers(answers);
   const open = ANSWER_PAGES.map((k) => ({ key: k, problems: checkPage(k, values) })).filter((p) => p.problems.length);
-  return { done: 9 - open.length, first: open[0] ? `${pageOf(open[0].key).name}: ${open[0].problems[0].message}` : null };
+  return { done: 9 - open.length, first: open[0] ? problemText(open[0].key, open[0].problems[0]) : null };
 }
 
 // `max`: the site's airline limit once hosting is open to the airline (null: today's line)
-const notBuilt = (max = null) => el("div", { class: "note note--notbuilt", role: "note" }, icon("i-info"),
-  max != null
-    ? el("p", {}, el("b", { text: "Not built yet. " }), notBuiltHosted(max))
-    : el("p", {}, el("b", { text: "Not built yet. " }), NOT_BUILT));
+const notYet = (max = null) => el("p", { id: "ws-notyet", class: "notyet" }, icon("i-info"), el("span", { text: max != null ? notBuiltHosted(max) : NOT_ON_YET }));
 
 // A draft: the page to go back to, counted as onboarding counts it (Review is page 9).
 function continueCard(view) {
@@ -77,50 +91,38 @@ function continueCard(view) {
   return el("section", { class: "card pending pending--draft", "aria-labelledby": "vf-h" },
     icon("i-pencil"),
     el("div", {},
-      el("h2", { id: "vf-h", text: `Continue onboarding · step ${page.n} of 9` }),
-      el("p", { text: "Your answers are saved to your account. Submit them on Review: a TEPHRA dispatcher then verifies your airline, and your setup kit is ready here." }),
-      el("a", { class: "btn btn--primary pending__go", href: `/onboard/${key}` }, el("span", { text: `Continue: ${page.name}` }), icon("i-arrow-right"))));
+      el("h2", { id: "vf-h", text: `Step ${page.n} of 9` }),
+      el("p", { text: "Saved. Submit on Review when you are done." }),
+      el("a", { class: "btn btn--primary pending__go", href: `/onboard/${key}` }, el("span", { text: `Continue: ${page.short}` }), icon("i-arrow-right"))));
 }
 
 export function renderOverview(main, view) {
   if (view.status === "draft") {
-    main.append(continueCard(view), notBuilt());
+    main.append(continueCard(view), notYet());
     return;
   }
   const a = view.answers;
   const c = completeness(a);
-  const meter = el("div", { class: "meter" }, el("span", { class: "meter__bar", "aria-hidden": "true" }, ...Array.from({ length: 9 }, (_, i) => el("i", { class: i < c.done ? "on" : null }))), el("span", { text: `${c.done} of 9 pages` }));
   const feeds = [a.feeds.positions && "positions", a.feeds.flight_plans && "flight plans", a.feeds.pilot_reports && "pilot reports"].filter(Boolean);
   const approvers = a.people.dispatchers.filter((d) => d.role === "approves").length;
+  const model = a.assistant.provider !== "none" ? [...new Set([a.assistant.model, a.assistant.model_lite].filter(Boolean))].join(" ·\u00a0") : "";
   // hosting on this site: view.hosted is null when it is off; a read that failed says so itself
   const hosted = view.status === "verified" ? view.hosted || null : null;
   const waiting = Boolean(hosted?.me && hosted.me.waiting === "hosting_not_approved");
   // once the airline has its space on this site, Go live's checklist and the space's own Feeds and
-  // Settings say what the onboarding cards said: only the answers and the setup kit stay (mockup
-  // workspace-golive), so nothing here repeats or contradicts the checklist
+  // Settings say what these rows said: only the answers stay (mockup workspace-golive), so nothing
+  // here repeats or contradicts the checklist
   const spaced = Boolean(hosted?.own && hosted.header);
-  const answersCard = card("ov-answers", "i-list", "Your answers",
-    meter,
-    c.first ? el("p", { class: "status status--caution" }, icon("st-caution"), el("span", { text: c.first })) : null,
-    view.editable
-      ? el("div", { class: "wcard__foot" }, el("a", { class: "btn btn--secondary btn--sm", href: "/workspace/answers", dataset: { go: "" }, text: "Edit answers" }))
-      : el("p", { text: "Ask a TEPHRA dispatcher to change them." }));
   main.append(
     verification(view, waiting),
     ...hostedCards(view, hosted, { onChange: () => view.onHostedChange?.() }),
-    kitCard(view),
-    el("div", { class: "wgrid" },
-      answersCard,
-      spaced ? null : card("ov-feeds", "i-inbox", "Data feeds",
-        el("dl", { class: "kv" }, el("dt", { text: "Format" }), el("dd", {}, el("code", { text: "tephra.airline/1" })), el("dt", { text: "Sends" }), el("dd", { text: feeds.length ? feeds.join(", ").replace(/^./, (m) => m.toUpperCase()) : "Public ADS-B only" })),
-        el("p", { text: "Try a file with the dry run: every record is checked, nothing is taken in." }),
-        el("div", { class: "wcard__foot" }, el("a", { class: "btn btn--secondary btn--sm", href: "/workspace/feeds", dataset: { go: "" }, text: "Try a file" }))),
-      spaced ? null : card("ov-assistant", "ta-16", "Assistant",
-        el("dl", { class: "kv" },
-          el("dt", { text: "Provider" }), el("dd", { text: PROVIDER_WORDS[a.assistant.provider] || "–" }),
-          ...(a.assistant.provider !== "none" ? [el("dt", { text: "Models" }), el("dd", { class: "mono", text: [a.assistant.model, a.assistant.model_lite].filter(Boolean).join(" · ") })] : [])),
-        el("div", { class: "wcard__foot" }, el("a", { class: "btn btn--secondary btn--sm", href: "/workspace/assistant", dataset: { go: "" }, text: "Change" }))),
-      spaced ? null : card("ov-people", "i-dispatcher", "People",
-        el("p", { text: `${approvers} ${approvers === 1 ? "dispatcher" : "dispatchers"} will approve advisories in your TEPHRA. Their names never go to a model.` }))),
-    notBuilt(hosted && !hosted.error && hosted.me ? hosted.me.max_airlines : null));
+    el("ul", { class: "wrows", "aria-label": "Your workspace" },
+      row("i-list", "Your answers",
+        [`${c.done} of 9`, c.first ? el("span", { class: "status status--caution" }, " ", icon("st-caution"), el("span", { text: c.first })) : null],
+        view.editable ? go("/workspace/answers", "Edit") : el("span", { class: "wrow__note", text: "Locked: ask a dispatcher" })),
+      spaced ? null : row("i-inbox", "Data feeds", feeds.length ? feeds.join(", ").replace(/^./, (m) => m.toUpperCase()) : "Public ADS-B only", go("/workspace/feeds", "Dry run")),
+      spaced ? null : row("ta-16", "Assistant", [PROVIDER_WORDS[a.assistant.provider] || "–", model ? el("span", { class: "mono wrow__sub", text: ` ·\u00a0${model}` }) : null], go("/workspace/assistant", "Change")),
+      spaced ? null : row("i-dispatcher", "People", `${approvers} ${approvers === 1 ? "approver" : "approvers"}`,
+        infoButton({ topic: "names", label: "About names", text: "Names never go to a model." }))),
+    notYet(hosted && !hosted.error && hosted.me ? hosted.me.max_airlines : null));
 }

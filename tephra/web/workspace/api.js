@@ -56,7 +56,8 @@ export function waitWords(res) {
   return `${h} ${h === 1 ? "hour" : "hours"}`;
 }
 
-export const ACCOUNTS_OFF = "Airline accounts are off on this server: TEPHRA_SESSION_SECRET is not set.";
+export const ACCOUNTS_OFF = "Airline accounts are off on this server.";
+export const ACCOUNTS_OFF_HOW = "Set TEPHRA_SESSION_SECRET to switch them on.";
 export const ONBOARD_OFF = "Onboarding is off on this server.";
 
 // The words for an answer no view handles itself.
@@ -88,7 +89,6 @@ export const PATHS = {
   remove: "/api/airline/delete",
   dryRun: "/api/airline/feeds/dry-run",
   schema: "/api/connect/schema.json",
-  pushTool: "/static/kit/push.py",
 };
 
 // Hosting on this site (SPEC hosted §4.2): the root routes, and an airline's own routes under

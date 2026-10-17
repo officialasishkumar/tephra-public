@@ -1,7 +1,7 @@
 // The airline's side (SPEC-v2 §7): sign in at /signin (and /signin/recover), then the private
-// workspace at /workspace and /workspace/<section>: Overview, Your answers, Data feeds, Assistant
-// and Setup kit. An airline still onboarding (a draft) has the Overview alone, which sends it back
-// to its pages; the rest, the setup kit with it, comes once it submits. Signed out, a workspace
+// workspace at /workspace and /workspace/<section>: Overview, Your answers, Data feeds and
+// Assistant. An airline still onboarding (a draft) has the Overview alone, which sends it back to
+// its pages; the rest comes once it submits. Signed out, a workspace
 // address goes to sign in with ?next= kept (only workspace and edit paths are followed). Sections
 // move with the history API. Every string goes in through el() (textContent).
 // With hosting on (SPEC hosted §5.1), a verified airline's Overview carries Go live on TEPHRA
@@ -12,17 +12,17 @@
 import { $, el, icon, inlineSprite } from "./wall/util.js";
 import { applyFeatureNav, has, setFeatures } from "./wall/features.js";
 import { initAccountNav, showAccountWho } from "./account-nav.js";
-import { safeNext } from "./onboard/pages.js";
+import { WHO_READS, safeNext } from "./onboard/pages.js";
 import { clearOnboardStorage } from "./onboard/draft.js";
 import { reviewList } from "./onboard/review.js";
 import { renderRecover, renderSignin } from "./workspace/signin.js";
 import { renderOverview } from "./workspace/overview.js";
 import { renderFeeds } from "./workspace/feeds.js";
 import { renderAssistant } from "./workspace/assistant.js";
-import { renderKitPage } from "./workspace/kit.js";
 import { airlinesList, loadHosted } from "./workspace/golive.js";
 import { renderJoin, takeToken } from "./workspace/join.js";
-import { ACCOUNTS_OFF, HOSTED, ONBOARD_OFF, PATHS, call, errorCode, failWords, minutesWords, retryMinutes } from "./workspace/api.js";
+import { ACCOUNTS_OFF, ACCOUNTS_OFF_HOW, HOSTED, ONBOARD_OFF, PATHS, call, errorCode, failWords, minutesWords, retryMinutes } from "./workspace/api.js";
+import { infoButton } from "./wall/info.js";
 import { setError } from "./onboard/form.js";
 
 const SECTIONS = [
@@ -30,13 +30,12 @@ const SECTIONS = [
   ["answers", "Your answers", "i-list"],
   ["feeds", "Data feeds", "i-inbox"],
   ["assistant", "Assistant", "ta-16"],
-  ["kit", "Setup kit", "i-file"],
 ];
 const PILL = {
   draft: ["badge--draft", "i-pencil"],
   pending: ["badge--caution", "i-clock"],
   verified: ["badge--ok", "i-check"],
-  declined: ["badge--serious", "st-serious"],
+  declined: ["badge--serious", "st-off"],
 };
 const S = { view: null, named: {}, navMode: null, joinToken: null };
 
@@ -60,9 +59,10 @@ function focusHeading(sel = "h1") {
   window.scrollTo(0, 0);
 }
 
-function offCard(words) {
+// `how`: the operator's step, behind an (i) beside the heading
+function offCard(words, how = null) {
   $("main").replaceChildren(el("div", { class: "narrow" }, el("section", { class: "card authcard" },
-    el("h1", { class: "h2", text: words }),
+    el("div", { class: "form__h1" }, el("h1", { class: "h2", text: words }), how ? infoButton({ topic: "the operator", label: "For the operator", text: how }) : null),
     el("a", { class: "btn btn--primary btn--block", href: "/demo" }, el("span", { text: "Watch the demo" }), icon("i-arrow-right")))));
 }
 
@@ -88,14 +88,14 @@ function openDelete() {
   const del = el("button", { type: "submit", class: "btn btn--serious" }, el("span", { text: "Delete account" }));
   const form = el("form", { class: "pdlg__form", novalidate: true },
     el("h2", { id: "del-h", class: "h2", text: "Delete your account?" }),
-    el("p", { class: "body2", text: "Your answers and your workspace are deleted. It cannot be undone." }),
+    el("p", { class: "body2", text: "Deletes your answers and workspace for good." }),
     el("div", { class: "field" }, el("label", { for: "del-pw", text: "Your password" }), pw, err),
     el("div", { class: "pdlg__acts" }, cancel, del));
   cancel.addEventListener("click", () => dlg.close());
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!pw.value) {
-      setError(pw, "Your password is needed.");
+      setError(pw, "Required");
       pw.focus();
       return;
     }
@@ -125,17 +125,22 @@ function openDelete() {
 // A draft's name and ICAO are as typed on page 1 until it submits; none typed, "Your airline".
 const identity = (view) => (view.answers ? view.answers.airline : { name: view.draft?.values?.airline?.name?.trim() || "Your airline", icao: view.draft?.values?.airline?.icao?.trim().toUpperCase() || "" });
 
-function header(view) {
+// On a submitted airline's Overview the status card says the status, once; the pill stays on the
+// other sections (and for a draft).
+function header(view, { pill = true } = {}) {
   const a = identity(view);
   showAccountWho(a.name === "Your airline" ? { icao: a.icao } : a);
   const [cls, shape] = PILL[view.status] || PILL.pending;
   const reason = view.status === "declined" ? view.steps.find((s) => s.kind === "declined")?.reason : null;
   return el("header", { class: "ws__head" },
     el("span", { class: "ws__logo", "aria-hidden": "true", text: a.icao }),
-    el("div", { class: "ws__title" }, el("h1", { class: "h1", text: a.name }), el("p", { text: "Airline workspace · private to your account" })),
-    el("div", { class: "ws__pill" },
-      el("span", { class: `badge ${cls}` }, icon(shape), el("span", { text: view.status_label })),
-      reason ? el("p", { class: "ws__reason", text: reason }) : null));
+    el("div", { class: "ws__title" }, el("h1", { class: "h1", text: a.name }), el("p", { class: "ws__private" }, icon("i-lock"), el("span", { text: "Private to your airline" }),
+      infoButton({ topic: "who reads your answers", label: "Who reads your answers", text: WHO_READS, actions: [el("a", { class: "link", href: "/privacy", text: "Privacy" })] }))),
+    pill
+      ? el("div", { class: "ws__pill" },
+        el("span", { class: `badge ${cls}` }, icon(shape), el("span", { text: view.status_label })),
+        reason ? el("p", { class: "ws__reason", text: reason }) : null)
+      : null);
 }
 
 function sectionNav(section, view) {
@@ -151,9 +156,7 @@ function answersSection(main, view) {
   main.append(
     el("section", { class: "wsec", "aria-labelledby": "ans-h" },
       el("h2", { id: "ans-h", class: "h2", text: "Your answers" }),
-      editable
-        ? el("p", { class: "body2", text: "Pending verification: you can still change them. Each Edit opens that page with your stored answers." })
-        : el("p", { class: "body2", text: `Your answers are kept as ${view.status === "declined" ? "declined" : "verified"}. Ask a TEPHRA dispatcher to change them.` }),
+      editable ? null : el("p", { class: "body2", text: "Locked. Ask a dispatcher to change them." }),
       reviewList(view.answers, { named: S.named, editHref: editable ? (k) => `/onboard/${k}?edit=1` : null })));
 }
 
@@ -222,7 +225,7 @@ async function workspace(section) {
   }
   const label = SECTIONS.find(([k]) => k === section)[1];
   document.title = `${section ? `${label} · ` : ""}Workspace · ${[identity(view).icao, "TEPHRA"].filter(Boolean).join(" · ")}`;
-  const content = el("div", { class: "ws__main" }, header(view));
+  const content = el("div", { class: "ws__main" }, header(view, { pill: section !== "" || view.status === "draft" }));
   $("main").replaceChildren(el("div", { class: "ws" }, sectionNav(section, view), content));
   if (section === "") renderOverview(content, view);
   else if (section === "answers") {
@@ -230,7 +233,6 @@ async function workspace(section) {
     answersSection(content, view);
   } else if (section === "feeds") renderFeeds(content);
   else if (section === "assistant") renderAssistant(content, view, { onSaved: (v) => { S.view = v; } });
-  else if (section === "kit") await renderKitPage(content, view);
 }
 
 // --- render -----------------------------------------------------------------------------------------
@@ -283,7 +285,7 @@ async function boot() {
   }
   if (session.ok && session.data && !session.data.accounts) {
     document.title = "Workspace · TEPHRA";
-    offCard(ACCOUNTS_OFF);
+    offCard(ACCOUNTS_OFF, ACCOUNTS_OFF_HOW);
     return;
   }
   S.signedIn = Boolean(session.ok && session.data?.signed_in);

@@ -36,14 +36,20 @@ export const describeReplayIn = (dlg) => describeReplay(dlg, replayModalWords())
 
 // The one mark set (UI-AI-QUIET Q5, Naming): the Strata mark and the visible words only
 // ("Drafted by TEPHRA Assistant", "Read by Notice reader", "Answered by TEPHRA Assistant"), the
-// model id in the title and the label; "Code only (assistant off)" when no model wrote it. Only
-// for content a model produced and the code's checks passed.
-export function aiMark(verb = MARK.written, modelId = null, { backend = null } = {}) {
+// model id in the title and the label. Text no model wrote carries only the small code mark "{ }",
+// its words in the tooltip and in screen-reader text ("Written by a code template"): the AI-off
+// state itself is said once, by the header's status (owner, 17 Oct: "don't say no model
+// everywhere"), while each item keeps the AI-or-code distinction (a closed budget leaves some
+// drafts AI-written and some not). `code` words the code mark where it is not text ("Ordered by
+// code").
+export const CODE_WORDS = 'Written by a code template';
+export function codeMark(words = CODE_WORDS) {
+  return el('span', { class: 'ai-mark ai-mark--none', title: words },
+    icon('i-code', 'st'), el('span', { class: 'sr-only', text: words }));
+}
+export function aiMark(verb = MARK.written, modelId = null, { backend = null, code = CODE_WORDS } = {}) {
   const stub = backend === 'stub' || !modelId || modelId === 'stub' || modelId === 'none';
-  if (stub) {
-    return el('span', { class: 'ai-mark ai-mark--none', title: 'NO MODEL: code templates wrote this text, not a model', 'aria-label': MARK.none },
-      icon('i-code', 'st'), el('span', { 'aria-hidden': 'true', text: MARK.none }));
-  }
+  if (stub) return codeMark(code);
   return el('span', { class: 'ai-mark', title: `${verb} (${modelId}). Checked by code before it is shown.`, 'aria-label': `${verb} (${modelId})` },
     icon('ta-16', 'st'), el('span', { 'aria-hidden': 'true', text: verb }));
 }

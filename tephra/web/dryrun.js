@@ -1,10 +1,12 @@
 // The dry run of a tephra.airline/1 push, shared by Workspace › Data feeds and an airline's Feeds
 // page: a file or pasted JSON checked record by record by the server's own push rules, with
 // nothing taken in. Refused records come first, with the validator's own reason.
-// mountDryRun(container, { path, label?, note? }) appends one card to `container`; `path` is the
-// dry-run route (POST, raw JSON body), `label` the card's heading and `note` its closing line.
+// mountDryRun(container, { path, label?, info? }) appends one card to `container`; `path` is the
+// dry-run route (POST, raw JSON body), `label` the card's heading and `info` what the (i) beside the
+// stamp says (the card says nothing more: owner, 17 Oct, "say less").
 
 import { el, icon } from "./wall/util.js";
+import { infoButton } from "./wall/info.js";
 import { segmented } from "./onboard/form.js";
 import { call, errorCode, failWords, minutesWords, retryMinutes } from "./workspace/api.js";
 
@@ -58,22 +60,27 @@ export function failText(res) {
   return failWords(res);
 }
 
+// One error line: a file that needs fixing says so in caution with the triangle; an alarm (offline,
+// a server failure) in red with the octagon. Always the words.
+const errLine = (text, alarm = false) =>
+  el("p", { class: alarm ? "err err--alarm" : "err" }, icon(alarm ? "st-serious" : "st-caution"), el("span", { text }));
+
 let mounted = 0;
 
-export function mountDryRun(container, { path, label = "Dry run", note = "This is a check only. Freshness is checked against the current UTC time, as your own TEPHRA does." } = {}) {
+export function mountDryRun(container, { path, label = "Dry run", info = "A check only: freshness uses the current UTC time." } = {}) {
   const ns = mounted ? `dr${mounted}` : "dr";
   mounted += 1;
   let tab = "upload";
   const result = el("div", { id: `${ns}-result`, class: "vres", "aria-live": "polite" });
   const check = async (textIn, name) => {
     if (new TextEncoder().encode(textIn).length > MAX_BYTES) {
-      result.replaceChildren(el("p", { class: "err", text: "This file is larger than 512 KB." }));
+      result.replaceChildren(errLine("This file is larger than 512 KB."));
       return;
     }
     try {
       JSON.parse(textIn);
     } catch (e) {
-      result.replaceChildren(el("p", { class: "err" }, icon("i-alert"), el("span", { text: `This is not JSON: ${e.message}` })));
+      result.replaceChildren(errLine(`This is not JSON: ${e.message}`));
       return;
     }
     result.replaceChildren(el("p", { class: "body2", text: "Checking…" }));
@@ -82,7 +89,8 @@ export function mountDryRun(container, { path, label = "Dry run", note = "This i
       result.replaceChildren(...resultView(name, res.data));
       return;
     }
-    result.replaceChildren(el("p", { class: "err" }, icon("i-alert"), el("span", { text: failText(res) })));
+    // offline or a server failure is an alarm (red, octagon); a file to fix is caution (triangle)
+    result.replaceChildren(errLine(failText(res), res.status === 0 || res.status >= 500));
   };
   const panel = el("div", { id: `${ns}-tab-panel`, role: "tabpanel" });
   const draw = () => {
@@ -94,14 +102,14 @@ export function mountDryRun(container, { path, label = "Dry run", note = "This i
         file.value = "";
         if (!one) return;
         if (one.size > MAX_BYTES) {
-          result.replaceChildren(el("p", { class: "err", text: "This file is larger than 512 KB." }));
+          result.replaceChildren(errLine("This file is larger than 512 KB."));
           return;
         }
         check(await one.text(), one.name);
       });
       const drop = el("div", { class: "drop" },
         el("span", { class: "drop__ic" }, icon("i-file")),
-        el("p", {}, el("b", { text: "A tephra.airline/1 file" }), el("br"), ".json, up to 512 KB, read in this browser and checked by the server; nothing is taken in."),
+        el("p", { text: "Drop a .json file, up to 512 KB." }),
         el("label", { class: "btn btn--secondary", for: `${ns}-file` }, icon("i-file"), el("span", { text: "Choose a file" })), file);
       drop.addEventListener("dragover", (e) => {
         e.preventDefault();
@@ -141,9 +149,9 @@ export function mountDryRun(container, { path, label = "Dry run", note = "This i
     el("div", { class: "wcard__h wcard__h--stamp" },
       el("span", { class: "wcard__ic", "aria-hidden": "true" }, icon("i-check")),
       el("h2", { id: `${ns}-h`, text: label }),
-      el("span", { class: "stamp", text: DRY_RUN_STAMP })),
-    tabs, panel, result,
-    note ? el("p", { class: "body2", text: note }) : null);
+      el("span", { class: "chipinfo" }, el("span", { class: "stamp", text: DRY_RUN_STAMP }),
+        info ? infoButton({ topic: "the dry run", label: "About the dry run", text: info }) : null)),
+    tabs, panel, result);
   container.append(card);
   return card;
 }

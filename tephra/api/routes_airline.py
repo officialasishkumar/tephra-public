@@ -505,8 +505,8 @@ async def put_answers(
 async def put_assistant(
     body: AssistantUpdate, request: Request, airline: Airline, runtime: RuntimeDep
 ) -> Response:
-    """Allowed once submitted, in every status: the choice goes only into the airline's own
-    setup kit."""
+    """Allowed once submitted, in every status: only the provider and the model names are
+    stored."""
     _count_write(request, airline.record.id)
     try:
         record = await accounts.update_assistant(

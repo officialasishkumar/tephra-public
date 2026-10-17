@@ -9,7 +9,7 @@ import { mapTokens } from "./basemap.js";
 const FONT_BOLD = ["Noto Sans Bold"];
 const FONT_REG = ["Noto Sans Regular"];
 
-export const EXT_LAYERS = ["reroute-casing", "reroute-line", "reroute-wp", "reroute-wp-label", "reroute-name", "sat-frame", "sat-box-fill", "sat-box-line", "sat-box-label"];
+export const EXT_LAYERS = ["reroute-casing", "reroute-line", "reroute-chev", "reroute-wp", "reroute-wp-label", "reroute-name", "sat-frame", "sat-box-fill", "sat-box-casing", "sat-box-line", "sat-box-label"];
 
 export function extTokens() {
   const css = mapTokens();
@@ -26,9 +26,13 @@ export function addExtLayers(map, noText, visible) {
   const fade = ["case", ["==", ["get", "sel"], true], 1, 0.55];
   map.addLayer({ id: "sat-frame", type: "line", source: "satboxes", filter: ["==", ["get", "part"], "frame"], paint: { "line-color": C.sat, "line-width": 1.2, "line-dasharray": [2, 3], "line-opacity": 0.8 } });
   map.addLayer({ id: "sat-box-fill", type: "fill", source: "satboxes", filter: ["==", ["get", "part"], "box"], paint: { "fill-color": C.sat, "fill-opacity": 0.12 } });
+  // a dark casing under the box's edge, so the cobalt holds on bright imagery
+  map.addLayer({ id: "sat-box-casing", type: "line", source: "satboxes", filter: ["==", ["get", "part"], "box"], paint: { "line-color": C.halo, "line-width": 4.6, "line-opacity": 0.8 } });
   map.addLayer({ id: "sat-box-line", type: "line", source: "satboxes", filter: ["==", ["get", "part"], "box"], paint: { "line-color": C.sat, "line-width": 2.2 } });
   map.addLayer({ id: "reroute-casing", type: "line", source: "reroutes", filter: path, layout: { visibility: vis, "line-join": "round", "line-cap": "round" }, paint: { "line-color": C.halo, "line-width": 6.5, "line-opacity": ["case", ["==", ["get", "sel"], true], 0.9, 0.5] } });
   map.addLayer({ id: "reroute-line", type: "line", source: "reroutes", filter: path, layout: { visibility: vis, "line-join": "round", "line-cap": "round" }, paint: { "line-color": C.reroute, "line-width": 3, "line-opacity": fade } });
+  // chevrons along the reroute (images.js "chevron"): its direction, in the same white
+  map.addLayer({ id: "reroute-chev", type: "symbol", source: "reroutes", filter: path, layout: { visibility: vis, "symbol-placement": "line", "symbol-spacing": 90, "icon-image": "chevron", "icon-size": 0.9, "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true }, paint: { "icon-color": C.reroute, "icon-halo-color": C.halo, "icon-halo-width": 1, "icon-opacity": fade } });
   map.addLayer({ id: "reroute-wp", type: "circle", source: "reroutes", filter: wp, layout: { visibility: vis }, paint: { "circle-radius": 5, "circle-color": C.halo, "circle-stroke-color": C.reroute, "circle-stroke-width": 2.2, "circle-opacity": fade, "circle-stroke-opacity": fade } });
   if (noText) return;
   map.addLayer({ id: "reroute-wp-label", type: "symbol", source: "reroutes", filter: wp, minzoom: 5.2, layout: { visibility: vis, "text-field": ["get", "label"], "text-font": FONT_BOLD, "text-size": 12, "text-variable-anchor": ["top", "bottom", "left", "right"], "text-radial-offset": 0.9, "text-optional": true }, paint: { "text-color": C.rerouteText, "text-halo-color": C.halo, "text-halo-width": 2, "text-opacity": fade } });

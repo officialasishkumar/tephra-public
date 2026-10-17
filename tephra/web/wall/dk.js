@@ -15,11 +15,15 @@ export const TONE = {
   caution: ["st-caution", "var(--c-caution)"],
   stale: ["st-stale", "var(--c-caution)"],
   serious: ["st-serious", "var(--c-serious)"],
+  // a SERIOUS discrepancy, a failed check, cancelled flights: needs a look, not an alarm (red is
+  // only feeds, database and connection), so caution with a heavier edge
+  warning: ["st-caution", "var(--c-caution)"],
   info: ["st-info", "var(--c-info)"],
   off: ["st-off", "var(--c-off)"],
   never: ["st-never", "var(--c-off)"],
   inside: ["st-inside", "var(--c-tephra)"],
   tephra: ["st-inside", "var(--c-tephra)"],
+  closed: ["st-closed", "var(--c-closed)"],
   running: ["st-info", "var(--c-observer)"],
 };
 

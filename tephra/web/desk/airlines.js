@@ -20,7 +20,7 @@ const PATH = {
   policy: '/api/policy',
 };
 const FILTERS = [['pending', 'Pending'], ['verified', 'Verified'], ['declined', 'Declined'], ['all', 'All']];
-const PILL = { pending: ['st-caution', 'chip--d-caution'], verified: ['st-ok', 'chip--d-ok'], declined: ['st-serious', 'chip--d-serious'] };
+const PILL = { pending: ['st-caution', 'chip--d-caution'], verified: ['st-ok', 'chip--d-ok'], declined: ['st-off', 'chip--d-serious'] };
 const ACTIONS = { created: 'Submitted', answers_changed: 'Answers changed', assistant_changed: 'Model choice changed', verified: 'Verified', declined: 'Declined' };
 const FOOT = "Airlines are private to this site's dispatchers. Nothing here reaches the demo, the Desk's decisions or the public record.";
 

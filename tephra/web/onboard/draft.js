@@ -1,7 +1,8 @@
 // The one onboarding file that touches localStorage (every access in try/catch; the pages work
 // without it). The answers live in the airline's account from sign-up on; this browser keeps only
-// what never goes to the server: the Ollama address and the schedule files' text, which the
-// workspace's setup kit reads here. Never stored: a password, a recovery code or a Gemini key.
+// what never goes to the server: the schedule files' text, so the Schedule page can check them
+// again after a reload (only their counts go with the answers). Never stored: a password, a
+// recovery code or a Gemini key.
 // One older key is read once: answers an earlier version of these pages kept in the browser,
 // moved into the new account at sign-up and then removed.
 
@@ -37,15 +38,15 @@ function remove(key) {
 
 export function loadLocal() {
   const l = read(LOCAL_KEY);
-  return l && typeof l === "object" ? { ollama_url: typeof l.ollama_url === "string" ? l.ollama_url : null, files: l.files && typeof l.files === "object" ? l.files : {} } : { ollama_url: null, files: {} };
+  return { files: l && typeof l === "object" && l.files && typeof l.files === "object" ? l.files : {} };
 }
 
-// The local part; when the schedule files do not fit, the address is kept without them and the
-// answer says "quota".
+// The local part: "ok", "quota" (the schedule files do not fit; none is kept) or "blocked".
 export function saveLocal(local) {
   const state = write(LOCAL_KEY, local);
   if (state !== "quota") return state;
-  return write(LOCAL_KEY, { ...local, files: {} }) === "ok" ? "quota" : "blocked";
+  remove(LOCAL_KEY);
+  return "quota";
 }
 
 // Answers an earlier version of the pages kept in this browser ({ seen, at, values }), or null.

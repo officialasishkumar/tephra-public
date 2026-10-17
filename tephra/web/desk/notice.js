@@ -102,7 +102,7 @@ export function readingView(n) {
   const head = el('div', { class: 'nhead' }, statusBadge(n),
     el('span', { class: 'chip chip--sm', title: 'Language detected by the model', text: LANGS[n.language] || 'Language not recognised' }),
     fromReplayChip(n),
-    n.status === 'ai_unavailable' ? null : aiMark('Read by Notice reader', n.llm_backend === 'stub' ? null : n.model_id));
+    n.status === 'ai_unavailable' ? null : aiMark('Read by Notice reader', n.llm_backend === 'stub' ? null : n.model_id, { code: 'Read by code' }));
   out.push(head);
 
   if (n.status === 'ai_unavailable') {
@@ -187,7 +187,7 @@ export function openPaste() {
   go.addEventListener('click', async () => {
     const text = area.value.trim();
     if (text.length < MIN_CHARS) {
-      msg.replaceChildren(el('p', { class: 'msg msg--caution' }, icon('st-caution', 'st'), el('span', { text: `Paste at least ${MIN_CHARS} characters.` })));
+      msg.replaceChildren(el('p', { class: 'msg msg--invalid' }, icon('st-caution', 'st'), el('span', { text: `Paste at least ${MIN_CHARS} characters.` })));
       area.focus();
       return;
     }

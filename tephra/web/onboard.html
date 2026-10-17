@@ -8,7 +8,7 @@
   <meta name="description" content="TEPHRA: when official volcanic-ash reports disagree, Gemini proposes TEPHRA's estimate, code keeps it never smaller than the official area, and a dispatcher approves every per-flight advisory. Decision support only; fictional airline; not for operational use. Onboard your airline.">
   <meta property="og:type" content="website">
   <meta property="og:title" content="TEPHRA Onboard">
-  <meta property="og:description" content="When official ash reports disagree, TEPHRA keeps the wider estimate, finds the flights heading in and drafts the advisory a dispatcher approves. Replay demo · fictional airline · decision support only. Onboard your airline: an account, nine short pages and a setup kit.">
+  <meta property="og:description" content="When official ash reports disagree, TEPHRA keeps the wider estimate, finds the flights heading in and drafts the advisory a dispatcher approves. Replay demo · fictional airline · decision support only. Onboard your airline: an account and nine short pages.">
   <meta property="og:image" content="https://tephra-647733667799.asia-southeast1.run.app/static/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="/static/tokens.css">
   <link rel="stylesheet" href="/static/topnav.css">
   <link rel="stylesheet" href="/static/product.css">
+  <link rel="stylesheet" href="/static/info.css">
   <script type="module" src="/static/onboard.js"></script>
   <!-- every module onboard.js imports, fetched at once (tests/test_modulepreload.py) -->
   <link rel="modulepreload" href="/static/account-nav.js">
@@ -31,18 +32,16 @@
   <link rel="modulepreload" href="/static/theme.js">
   <link rel="modulepreload" href="/static/wall/dk.js">
   <link rel="modulepreload" href="/static/wall/features.js">
+  <link rel="modulepreload" href="/static/wall/info.js">
   <link rel="modulepreload" href="/static/wall/policy.js">
   <link rel="modulepreload" href="/static/wall/util.js">
   <link rel="modulepreload" href="/static/wall/x-parts.js">
   <link rel="modulepreload" href="/static/workspace/api.js">
   <link rel="modulepreload" href="/static/workspace/assistant.js">
-  <link rel="modulepreload" href="/static/workspace/kit.js">
-  <link rel="modulepreload" href="/static/workspace/zip.js">
 </head>
 <!-- Onboarding (SPEC-v2 6, account first): the landing with the sign-up form, the recovery code,
-     then nine pages with the step list, the progress row (its Saved mark), the fixed Back / Next bar
-     and the "setup kit so far" aside. onboard.js fills #main; every string goes in through
-     textContent. -->
+     then nine pages with the step list, the progress row (its Saved mark) and the fixed Back / Next
+     bar. onboard.js fills #main; every string goes in through textContent. -->
 <body class="product ob-shell" data-view="landing">
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="tn-bar">
@@ -61,11 +60,9 @@
     <main id="main" class="ob__main" tabindex="-1">
       <noscript><p class="note note--caution">Onboarding needs JavaScript.</p></noscript>
     </main>
-    <aside id="ob-aside" class="ob__aside" aria-label="Your setup kit so far" hidden></aside>
   </div>
   <div id="ob-actions" class="actions" hidden></div>
   <footer class="pfoot">
-    <span class="pfoot__honest"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-hand"></use></svg><span>Decision support only. Not for operational use.</span></span>
     <nav aria-label="More pages"><a href="/guide">Guide</a><a href="/privacy">Privacy</a><a href="/demo">Demo</a></nav>
   </footer>
   <p id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></p>

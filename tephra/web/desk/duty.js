@@ -13,7 +13,7 @@ import { app } from './state.js';
 import { aiMark, reportsHead } from './ui.js';
 import { drawAiChip } from './budget.js';
 // The Wall's plain-words table (wall/x-parts.js, R12.7), shared so both screens say the same.
-import { machineText, notRun, plainLine, reasonClass, unavailableWhy } from '../wall/x-parts.js';
+import { machineText, notRun, plainLine, reasonClass, templateText, unavailableWhy } from '../wall/x-parts.js';
 
 const RESULTS_SHOWN = 2;
 
@@ -39,6 +39,8 @@ let expanded = false;
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const labelOf = (run, id) => (run.worklist.find((i) => i.id === id) || {}).label || id;
+// a brief line in plain words, without "(code only)": the card's title carries the code mark once
+const said = (line) => templateText(plainLine(line)).text;
 
 export async function loadDuty() {
   const res = await api(PATHS.duty);
@@ -75,7 +77,7 @@ const stateChip = (tone, shape, word, title) =>
   el('span', { class: `chip chip--d-${tone}`, title }, icon(shape, 'st'), el('span', { text: word }));
 
 // The stub's reason is code text ("NO MODEL: urgency order"), the same for every item: it is said
-// once above the list ("In urgency order (code only)"), not under each item (review 1, item 14).
+// once above the list ("Do first · by urgency"), not under each item (review 1, item 14).
 const STUB_WHY = /^NO MODEL: urgency order$/;
 
 function priority(run, p, stub) {
@@ -128,24 +130,24 @@ function undone(run) {
     el('ul', {}, rest.map((id) => el('li', { text: labelOf(run, id) }))));
 }
 
-// The one line Decide shows (R10.4): "Coordinator (code only): 3 flights need a plan first ›". A
-// run that did not run points at Plan by hand, which holds its flights (K91).
+// The one line Decide shows (R10.4): "2 items by urgency · run 1025Z", then the mark of who ordered
+// them (the code mark "{ }" while no model is connected: the header says the AI state once). A run
+// that did not run points at Plan by hand, which holds its flights (K91).
 // When the Coordinator's decisions and brief were made (a run before the field: when it finished).
 const decidedAt = (run) => run.decided_at || run.finished_at;
 
-function oneLine(run, failed, stub) {
-  const code = stub ? 'Code only · ' : '';
+function oneLine(run, failed) {
   // the cause is said once, in the Plan by hand group's head; this line says where the work went
   // a refused run called no model: "Not run", as the Wall says it; a model that gave nothing: "No brief"
   if (failed) return `${refused(run) ? 'Not run' : 'No brief this run'} · its must-do flights are in Plan by hand`;
-  if (run.undispatched.length) return `${code}${plural(run.undispatched.length, 'must-do item')} not handed out`;
+  if (run.undispatched.length) return `${plural(run.undispatched.length, 'must-do item')} not handed out`;
   const prios = run.brief ? run.brief.priorities : [];
   if (prios.length) {
     // One noun for every run, with the run's time, so the line does not read as two different
     // counts when an aircraft-triggered run and a tick run alternate (review 2, item 14).
-    return `${code}${plural(prios.length, 'item')} in order of urgency · run ${hhmmz(decidedAt(run))}`;
+    return `${plural(prios.length, 'item')} by urgency · run ${hhmmz(decidedAt(run))}`;
   }
-  return `${code}${plural(run.dispatches.length, 'job')} handed out · run ${hhmmz(decidedAt(run))}`;
+  return `${plural(run.dispatches.length, 'job')} handed out · run ${hhmmz(decidedAt(run))}`;
 }
 
 function buildCard(run) {
@@ -157,7 +159,7 @@ function buildCard(run) {
   const failed = run.outcome === 'MODEL_FAILED';
   const b = run.brief;
   const stub = run.outcome === 'STUB' || run.llm_backend === 'stub';
-  const what = oneLine(run, failed, stub);
+  const what = oneLine(run, failed);
   const left = undone(run);
   const bad = failed || Boolean(left);
 
@@ -169,7 +171,7 @@ function buildCard(run) {
   },
     el('span', { class: 'qlink__who', id: 'duty-who', text: 'Coordinator' }),
     el('span', { class: 'dcard__title qlink__t', id: 'duty-title' }, bad ? icon('st-caution', 'st dcard__icon') : null, el('span', { text: what }),
-      !failed && !stub ? [' ', aiMark('Ordered by Coordinator', run.model_id)] : null),
+      !failed ? [' ', aiMark('Ordered by Coordinator', stub ? null : run.model_id, { code: 'Ordered by code' })] : null),
     icon(expanded ? 'i-chevron-down' : 'i-chevron-right', 'icon dcard__chev'));
 
   const card = el('article', { class: `dcard dcard--${tone}${expanded ? ' is-open' : ''}`, 'aria-labelledby': 'duty-who duty-title' }, toggle);
@@ -177,21 +179,22 @@ function buildCard(run) {
   if (left) card.append(left);
 
   const more = el('div', { id: 'duty-more', class: 'dcard__more', hidden: !expanded });
-  append(more, [el('p', { class: 'dcard__state' }, stateChip(tone, shape, word, failed ? (unavailable(run) ? `${unavailable(run)}: no model was called` : refused(run) ? 'TEPHRA Assistant is paused: no model was called' : 'The model was called and gave no brief that passed the code checks') : 'Outcome of the last Coordinator run'),
+  // a code-only run's outcome is the code mark on its line: no chip says it again
+  append(more, [el('p', { class: 'dcard__state' }, stub ? null : stateChip(tone, shape, word, failed ? (unavailable(run) ? `${unavailable(run)}: no model was called` : refused(run) ? 'TEPHRA Assistant is paused: no model was called' : 'The model was called and gave no brief that passed the code checks') : 'Outcome of the last Coordinator run'),
     failed ? null : el('span', { class: 'dcard__count', text: plural(calls, 'delegation') }))]);
   if (failed) {
     append(more, [el('p', { class: 'dcard__note', text: 'No brief was made up in its place.' })]);
   } else if (b) {
-    const summary = stub && /^NO MODEL: \d+ delegation\(s\) made in urgency order\.$/.test(b.summary)
-      ? `Code only (assistant off): code handed out ${plural(calls, 'job')} in urgency order.`
-      : b.summary;
+    // the stub's summary only restates the count and the order the list below shows: its raw line
+    // stays under Technical detail
+    const codeSummary = stub && /^NO MODEL: \d+ delegation\(s\) made in urgency order\.$/.test(b.summary);
     append(more, [
       stub ? null : el('div', { class: 'dcard__ai' }, aiMark(undefined, run.model_id)),
-      el('p', { class: `dcard__summary${stub ? '' : ' dcard__ai'}`, text: summary }),
-      b.priorities.length ? el('h3', { class: 'dcard__h', text: stub && b.priorities.every((p) => STUB_WHY.test(p.why)) ? 'Do first · in urgency order (code only)' : 'Do first' }) : null,
+      codeSummary ? null : el('p', { class: `dcard__summary${stub ? '' : ' dcard__ai'}`, text: b.summary }),
+      b.priorities.length ? el('h3', { class: 'dcard__h', text: stub && b.priorities.every((p) => STUB_WHY.test(p.why)) ? 'Do first · by urgency' : 'Do first' }) : null,
       b.priorities.length ? el('ol', { class: 'dcard__plist', 'aria-label': 'Priorities' }, b.priorities.map((p) => priority(run, p, stub))) : null,
       b.watch.length ? el('h3', { class: 'dcard__h', text: 'Watch' }) : null,
-      b.watch.length ? el('ul', { class: 'dcard__wlist dcard__ai' }, b.watch.map((w) => el('li', { text: plainLine(w) }))) : null,
+      b.watch.length ? el('ul', { class: 'dcard__wlist dcard__ai' }, b.watch.map((w) => el('li', { text: said(w) }))) : null,
     ]);
   }
   // a run that did not run delegated nothing: no empty section for it (K93)
@@ -204,12 +207,12 @@ function buildCard(run) {
   if (run.deferred.length) {
     more.append(el('h3', { class: 'dcard__h', text: `Deferred · ${run.deferred.length}` }),
       el('ul', { class: 'dcard__wlist' }, run.deferred.map((d) =>
-        el('li', {}, el('span', { class: 'dcard__plabel', text: labelOf(run, d.item_id) }), el('span', { class: 'dcard__why dcard__ai', text: plainLine(d.reason) })))));
+        el('li', {}, el('span', { class: 'dcard__plabel', text: labelOf(run, d.item_id) }), el('span', { class: 'dcard__why dcard__ai', text: said(d.reason) })))));
   }
   const mandatory = run.worklist.filter((i) => i.mandatory).length;
   // The run's machine facts (model, turns, offered, trigger) sit under Technical detail (item 14).
   // a refused run made no call, so it has no turns to count
-  const meta = `${stub ? 'Code only (NO MODEL, offline stub)' : refused(run) ? `no call made · would have used ${run.model_id}` : run.model_id}${refused(run) ? '' : ` · ${plural(run.turns, 'turn')}`} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · started by code after ${run.trigger === 'adsb' ? 'new aircraft' : 'a tick'}, done ${hhmmz(decidedAt(run))}${run.replay ? ' · recorded' : ''}`;
+  const meta = `${stub ? 'offline stub, no model' : refused(run) ? `no call made · would have used ${run.model_id}` : run.model_id}${refused(run) ? '' : ` · ${plural(run.turns, 'turn')}`} · ${run.worklist.length} offered${mandatory ? `, ${mandatory} must do` : ''} · started by code after ${run.trigger === 'adsb' ? 'new aircraft' : 'a tick'}, done ${hhmmz(decidedAt(run))}${run.replay ? ' · recorded' : ''}`;
   more.append(el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }),
     el('p', { class: 'mono tech__line dcard__meta', text: meta }),
     b && stub && b.summary ? el('p', { class: 'mono tech__line', text: machineText(b.summary) }) : null,

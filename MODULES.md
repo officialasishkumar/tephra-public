@@ -41,7 +41,7 @@ modules (sections 5.11 to 5.17) were built against.
 | web-wall | `tephra/web/index.html`, `tephra/web/wall.js`, `tephra/web/wall/*.js`, `tephra/web/wall.css`, `tephra/web/data/`, `tephra/web/og.{svg,png}`, `tephra/web/mapui.css` (map controls, shared), `tephra/web/guide.{html,js,css}` (the guide page) |
 | web-desk | `tephra/web/desk.html`, `tephra/web/desk.js`, `tephra/web/desk/*.js`, `tephra/web/desk.css` |
 | connect | `tephra/desk/connections.py`, `tephra/desk/sample_feed.py`, `tephra/api/routes_connect.py`, `scripts/push_sample.py`, `tephra/web/desk/connections.js` (the Desk's Data connections), `tests/test_connect.py`, `tests/test_dry_run.py` (airline data connections: section 5.20; the Connect page was folded into onboarding on 16 Oct 2026) |
-| airline | `tephra/airline/{__init__,models,passwords,sessions,accounts,policy_check}.py`, `tephra/api/routes_airline.py`, `tephra/geo/fleet.py`, `tephra/web/kit/push.py`, `.env.airline.example`, `docs/ONBOARDING.md`, `tests/test_airline_api.py`, `tests/test_airline_sessions.py`, `tests/test_fleet_filter.py`, `tests/test_policy_file.py`, `tests/test_push_tool.py`, `tests/fixtures/airline/` (airline onboarding, accounts and an airline's own TEPHRA: section 5.21) |
+| airline | `tephra/airline/{__init__,models,passwords,sessions,accounts,policy_check}.py`, `tephra/api/routes_airline.py`, `tephra/geo/fleet.py`, `tephra/web/kit/push.py`, `docs/ONBOARDING.md`, `tests/test_airline_api.py`, `tests/test_airline_sessions.py`, `tests/test_fleet_filter.py`, `tests/test_policy_file.py`, `tests/test_push_tool.py`, `tests/fixtures/airline/` (airline onboarding, accounts and an airline's own TEPHRA: section 5.21) |
 | pages | `tephra/api/routes_pages.py`, `tephra/web/{home,onboard,workspace,privacy,doc}.html`, `tephra/web/home.{js,css}`, `tephra/web/home-boot.js`, `tephra/web/home/`, `tephra/web/onboard.js`, `tephra/web/onboard/*.js`, `tephra/web/workspace.js`, `tephra/web/workspace/*.js`, `tephra/web/product.css`, `tephra/web/five-steps.{js,css}`, `tephra/web/welcome.css`, `tephra/web/account-nav.js`, `tephra/web/theme-boot.js`, `tephra/web/theme.js`, `tephra/web/replay-words.js`, `tephra/web/tokens.css`, `tephra/web/topnav.{css,js}` (the nav every page shares) (section 8.1) |
 | crew | `tephra/geo/crew_area.py`, `tephra/desk/crew_reports.py`, `tephra/api/routes_crew.py` (crew reports of ash: section 5.19) |
 | hosted | `tephra/hosted/*.py`, `tephra/store/metered.py`, `tephra/util/scope.py`, `tephra/api/{tenancy,routes_tenant,routes_hosted,routes_admin}.py`, `scripts/hosted_measure.py`, `docs/HOSTED.md`, `tests/test_hosted_*.py`, `tests/test_{metered_store,store_namespace,store_page,settings_bind,timeutil_bind,features_opt_in,operators,airline_member_logins,tenancy_routes,admin_api,demo_unchanged,shadow_stamp,shared_source,adk_model,audit_incremental,write_on_change}.py`, `tests/fixtures/hosted/` (hosted airlines: section 5.22) |
@@ -466,7 +466,7 @@ fails startup naming it (`invalid fleet prefix: GI`). `policy_file` (`TEPHRA_POL
 operator policy file `create_runtime` loads. The airline's identity in its own TEPHRA (16 Oct
 2026, OWNFLIGHTS): `airline_name` (`TEPHRA_AIRLINE_NAME`, 2-120 characters, no control
 characters), `airline_icao` (`^[A-Z]{3}$`), `airline_iata` (`^[A-Z0-9]{2}$`), `airline_schedule`
-and `airline_fleet` (the kit's `flights.json` and `fleet.json`, `^airline/[a-z0-9_-]{1,40}\.json$`
+and `airline_fleet` (the airline's `flights.json` and `fleet.json`, `^airline/[a-z0-9_-]{1,40}\.json$`
 relative to `data_dir`). Any of them without an own fleet fails startup; `Settings.airline` is
 `DEMO_AIRLINE` (`Airline(code="RFA", name="Ring of Fire Air", fictional=True)`) while no own fleet
 is set, else the configured `Airline` (`label`, `disclaimer` = `OWN_DISCLAIMER` "Decision support
@@ -3081,7 +3081,7 @@ again) and pushed every 5 s through `take_push`, flights whose leg crosses an as
 
 An airline creates its account first at `/onboard`, fills the nine pages (`docs/ONBOARDING.md`),
 each saved to the account as a draft, submits them for verification and gets a private workspace
-with a setup kit to run its own TEPHRA. Nothing here reaches the shared
+(running a verified airline on this site is not switched on yet). Nothing here reaches the shared
 picture: no route publishes an event, writes the audit trail or changes `/api/state`,
 `/api/wall`, `/api/advisories`, `/api/outbound`, `/api/connect/live` or the aircraft.
 
@@ -3169,11 +3169,11 @@ airline's change of the same kind as the last entry, or any once the history hol
 `recovery.airport_closure_radius_nm`) and `apply_changes(policy, changes) -> OperatorPolicy`
 (`PolicyRefused` when the changed policy breaks the file's own rules).
 
-An airline's own TEPHRA (the setup kit): `TEPHRA_FLEET_PREFIXES`, `TEPHRA_FLEET_HEXES`
+An airline's own TEPHRA (the own-fleet settings): `TEPHRA_FLEET_PREFIXES`, `TEPHRA_FLEET_HEXES`
 (`tephra/geo/fleet.py` `FleetFilter`, `ALL_AIRCRAFT`), `TEPHRA_NETWORK_AIRPORTS`,
 `TEPHRA_POLICY_FILE` and the airline settings (section 4.5, 5.7). Own flight names:
 `FleetFilter(prefixes, hexes, icao, schedule: OwnSchedule)`, `from_settings` reads the schedule
-and fleet files (`ScheduleError` stops startup; the kit's unfilled `flights.json` is an empty
+and fleet files (`ScheduleError` stops startup; an unfilled `flights.json` is an empty
 schedule). `Runtime.aircraft()` returns each aircraft `FleetFilter.named(aircraft, at, plans)`
 when an own fleet is set, so `Aircraft.proxy_flight` (and every draft, Desk row, Wall label,
 crew report, VAR and audit entry built from it) is `flight_name`: for an own aircraft the
@@ -3184,7 +3184,7 @@ past its arrival; latest departure wins; two at one minute name nothing), else t
 else the callsign or address; another airline's aircraft goes by its callsign or address. Never
 an RFA number. `Runtime.flight_name(hex)` names an untracked flight the same way for crew fixes
 and reports (`crew_reports.check_entry` and `build_report` take `proxy_flight`). With no own
-fleet nothing changes (RFA numbers; `tests/test_own_flights.py`); `tephra/web/kit/push.py`, the kit's push tool (standard
+fleet nothing changes (RFA numbers; `tests/test_own_flights.py`); `tephra/web/kit/push.py`, the push tool (standard
 library only; flight plans from `flights.json` for a date, positions from CSV or JSON, nothing
 guessed, `--stamp-now` only for a file written in the last minute, batches of 1,000 at least 1.1 s
 apart, `--dry-run`).
@@ -3463,7 +3463,7 @@ request input.
 | `GET /demo` | `tephra/web/index.html`, the demo (the Wall) |
 | `GET /assistant` | `tephra/web/index.html` again: `page-mode.js` marks it `data-page="assistant"` and `wall.js` shows the TEPHRA Assistant board in place of the Wall (UI-DESIGN 7.27) |
 | `GET /onboard`, `GET /onboard/{page}` | `tephra/web/onboard.html` for `airline, policy, fleet, network, schedule, feeds, people, assistant, review, done`; else 404 (UI-DESIGN 7.33) |
-| `GET /signin`, `GET /signin/recover`, `GET /workspace`, `GET /workspace/{section}` | `tephra/web/workspace.html` for `answers, feeds, assistant, kit`; else 404 |
+| `GET /signin`, `GET /signin/recover`, `GET /workspace`, `GET /workspace/{section}` | `tephra/web/workspace.html` for `answers, feeds, assistant`; else 404 |
 | `GET /connect` | 307 to `/workspace/feeds` with a valid airline cookie, else to `/onboard` |
 | `GET /desk` | `tephra/web/desk.html` |
 | `GET /privacy` | `tephra/web/privacy.html`, the privacy notice (linked from the guide's foot, the Desk sign-in and README) |

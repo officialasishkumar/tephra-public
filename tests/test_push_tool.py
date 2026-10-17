@@ -1,5 +1,6 @@
-"""The setup kit's push.py: flight plans from a schedule, positions from a file, nothing guessed,
-and old positions never stamped as current. Runs the tool against a fake ``urlopen``."""
+"""The push tool (tephra/web/kit/push.py): flight plans from a schedule, positions from a file,
+nothing guessed, and old positions never stamped as current. Runs the tool against a fake
+``urlopen``."""
 
 import importlib.util
 import io

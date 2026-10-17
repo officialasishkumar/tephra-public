@@ -44,7 +44,7 @@ its registration."""
 
 
 def schedule(tmp_path: Path, *, std_min: int, days: str | None = None) -> OwnSchedule:
-    """flights.json and fleet.json as the setup kit writes them. AT is 02:40 local (UTC+7) on
+    """An airline's flights.json and fleet.json. AT is 02:40 local (UTC+7) on
     Saturday 10 Oct 2026."""
     folder = tmp_path / "airline"
     folder.mkdir(exist_ok=True)

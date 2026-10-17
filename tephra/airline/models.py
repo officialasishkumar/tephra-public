@@ -3,7 +3,7 @@ request bodies (``tephra.api.routes_airline``).
 
 No airline document holds a password or a recovery code; a hosted airline's model key is held
 only sealed, in its tenant record (D5). No field holds a PIN, secret, token, Ollama address or
-file contents: the airline's schedule files stay in its browser and its setup kit.
+file contents: the schedule files stay in the airline's browser.
 Validator messages never repeat the input (the app's 422 body copies them as written).
 """
 
@@ -181,9 +181,9 @@ class AirlineIdentity(_Form):
     @field_validator("name")
     @classmethod
     def _no_variable(cls, value: str) -> str:
-        """The setup kit writes the name into airline.env, whose loader (python-dotenv) expands
-        ``${VAR}`` in any quoting: a name holding one would print another setting, such as
-        the session secret, in every advisory header."""
+        """The name may end up as ``TEPHRA_AIRLINE_NAME`` in a ``.env`` file, whose loader
+        (python-dotenv) expands ``${VAR}`` in any quoting: a name holding one would print another
+        setting, such as the session secret, in every advisory header."""
         if "${" in value:
             raise ValueError("must not contain ${")
         return value
@@ -299,7 +299,7 @@ class Network(_Form):
 
 
 class ScheduleSummary(_Form):
-    """Counts only: the schedule files stay in the airline's browser and its setup kit."""
+    """Counts only: the schedule files stay in the airline's browser."""
 
     provided: bool = False
     flights: int = Field(default=0, ge=0, le=20_000)

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#0a1017">
+  <meta name="theme-color" content="#100e0c">
   <meta name="robots" content="noindex, nofollow">
   <meta name="description" content="When official ash reports disagree, TEPHRA keeps the wider estimate, finds the flights heading in and drafts the advisory a dispatcher approves. Replay demo · fictional airline · decision support only. The Desk, where a person decides.">
   <meta property="og:type" content="website">
@@ -18,6 +18,7 @@
   <link rel="preload" href="/static/fonts/ibm-plex-sans-var-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/tokens.css">
   <link rel="stylesheet" href="/static/topnav.css">
+  <link rel="stylesheet" href="/static/info.css">
   <link rel="stylesheet" href="/static/mapui.css">
   <link rel="stylesheet" href="/static/desk.css">
   <link rel="stylesheet" href="/static/doc.css">
@@ -42,6 +43,7 @@
   <link rel="modulepreload" href="/static/desk/login.js">
   <link rel="modulepreload" href="/static/desk/map.js">
   <link rel="modulepreload" href="/static/desk/messages.js">
+  <link rel="modulepreload" href="/static/desk/modechip.js">
   <link rel="modulepreload" href="/static/desk/network.js">
   <link rel="modulepreload" href="/static/desk/notice.js">
   <link rel="modulepreload" href="/static/desk/queue.js">
@@ -62,6 +64,7 @@
   <link rel="modulepreload" href="/static/wall/dk.js">
   <link rel="modulepreload" href="/static/wall/features.js">
   <link rel="modulepreload" href="/static/wall/images.js">
+  <link rel="modulepreload" href="/static/wall/info.js">
   <link rel="modulepreload" href="/static/wall/policy.js">
   <link rel="modulepreload" href="/static/wall/util.js">
   <link rel="modulepreload" href="/static/wall/x-parts.js">
@@ -74,11 +77,18 @@
     <div class="dhead__row tn-bar">
       <a class="tn-home" href="/" title="TEPHRA home">TEPHRA</a>
       <nav class="topnav" aria-label="TEPHRA pages"><a href="/demo">Demo</a><a href="/desk" aria-current="page">Desk</a><a href="/onboard" data-feature="onboard" hidden>Onboard</a><a href="/guide">Guide</a></nav>
-      <!-- One assistant chip (docs/UI-AI-QUIET.md K78, Naming): TEPHRA Assistant's state; the models,
-           budget and causes are in its assistant sheet. #model-chip is its label. -->
-      <button id="budget-chip" type="button" class="budget" data-tone="on" aria-haspopup="dialog" aria-label="TEPHRA Assistant, connecting">
-        <span id="model-chip" class="model-chip">TEPHRA Assistant</span>
-      </button>
+      <!-- REPLAY and its clock, said once for the whole Desk (owner, 17 Oct); its (i) says what a
+           replay is and that the airline is fictional (desk/modechip.js). Hidden while live. -->
+      <span id="mode-chip" class="dmode" hidden></span>
+      <!-- The assistant's state, said once for the whole Desk (owner, 17 Oct: "don't say no model
+           everywhere"): two words and a dot only when it is not on (wall/x-parts.js stateLine), with
+           an (i) for the why; on, only the assistant mark. It opens the assistant sheet (models,
+           budget, causes). #model-chip is its label. -->
+      <span id="ai-status" class="aistat">
+        <button id="budget-chip" type="button" class="budget" data-tone="on" aria-haspopup="dialog" aria-label="TEPHRA Assistant, connecting">
+          <span id="model-chip" class="model-chip"></span>
+        </button>
+      </span>
       <!-- Ask from anywhere (UI-DESIGN 10.18): a drawer beside whatever is open, not a tab -->
       <button id="ask-btn" type="button" class="askbtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="ask-drawer" hidden>
         <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-chat"></use></svg><span>Ask</span>
@@ -113,14 +123,9 @@
           <use class="login__art-plane" href="/static/icons.svg#i-aircraft" x="226" y="100" width="26" height="26" transform="rotate(-64 239 113)"/>
           <path class="login__art-volcano" d="M28 132 L40 114 L52 132 Z"/>
         </svg>
-        <ol class="login__steps">
-          <li><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-aircraft"></use></svg><span>A draft for <b>each flight heading into ash</b></span></li>
-          <li><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-hand"></use></svg><span><b>You approve, edit or reject</b> it</span></li>
-          <li><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-pen-line"></use></svg><span>Every decision <b>signed in the public audit</b></span></li>
-        </ol>
         <!-- what the Desk is not, for anyone who arrives here first (a visitor from the live link) -->
         <p class="login__what"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-lock"></use></svg><span>Nothing reaches a real aircraft or system.</span></p>
-        <p class="login__fine"><a href="/demo"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-arrow-right"></use></svg><span>See the demo, the public picture, with no sign-in</span></a></p>
+        <p class="login__fine"><a href="/demo"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-arrow-right"></use></svg><span>Watch the demo, no sign-in</span></a></p>
       </div>
 
       <div class="login__card">
@@ -149,21 +154,19 @@
               <div class="ifield">
                 <svg class="icon ifield__icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-user"></use></svg>
                 <input id="visitor-name" class="field" name="name" type="text" autocomplete="nickname"
-                       autocapitalize="words" spellcheck="false" maxlength="32" aria-describedby="visitor-name-err visitor-facts">
+                       autocapitalize="words" spellcheck="false" maxlength="32" aria-describedby="visitor-name-err visitor-facts-sr">
               </div>
-              <p id="visitor-name-err" class="msg msg--serious" hidden></p>
+              <p id="visitor-name-err" class="msg msg--invalid" hidden></p>
             </div>
             <p id="visitor-error" class="msg msg--serious form-msg" role="alert" hidden></p>
             <button id="visitor-submit" type="submit" class="btn btn--neutral btn--block"><span>Enter as a visitor →</span></button>
           </form>
-          <ul id="visitor-facts" class="lfacts">
-            <li><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-eye"></use></svg><span>Your decisions are real: they go into the public record as visitor:&lt;your name&gt; and change what every other viewer sees.</span></li>
-            <li><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-lock"></use></svg><span>Visitors cannot change the display or the feeds.</span></li>
-          </ul>
+          <!-- one short line; the rest behind its (i) (wall/info.js wireInfo; owner, 17 Oct) -->
+          <p id="visitor-facts" class="lfacts lfacts--one"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-eye"></use></svg><span>Your decisions are public.</span><span class="info" data-wire="info"><button type="button" class="info__btn" aria-expanded="false" aria-controls="visitor-facts-pop" aria-label="About visitor decisions" aria-describedby="visitor-facts-sr" data-info="visitor"><svg class="icon info__glyph" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-info"></use></svg></button><span id="visitor-facts-sr" class="sr-only">They go into the public record as visitor:&lt;your name&gt; and change what every other viewer sees. Visitors cannot change the display or the feeds.</span><span id="visitor-facts-pop" class="info__pop" role="group" aria-label="About visitor decisions" aria-hidden="true" hidden><span class="info__line">They go into the public record as visitor:&lt;your name&gt; and change what every other viewer sees. Visitors cannot change the display or the feeds.</span></span></span></p>
         </section>
 
         <section id="dispatcher-card" class="dispatcher" role="tabpanel" aria-labelledby="login-title">
-          <div id="login-disabled" class="panel panel--serious" role="alert" hidden>
+          <div id="login-disabled" class="panel panel--off" role="alert" hidden>
             <p class="panel__title">
               <svg class="st" aria-hidden="true" focusable="false"><use href="/static/icons.svg#st-off"></use></svg>
               <span>Desk switched off</span>
@@ -181,21 +184,21 @@
                        autocapitalize="words" spellcheck="false" minlength="2" maxlength="32" required
                        aria-describedby="login-name-err login-hint">
               </div>
-              <p id="login-name-err" class="msg msg--serious" hidden></p>
+              <p id="login-name-err" class="msg msg--invalid" hidden></p>
             </div>
             <div class="fgroup">
-              <label class="flabel" for="login-pin">Desk PIN</label>
+              <div class="flabel-row"><label class="flabel" for="login-pin">Desk PIN</label><span class="info" data-wire="info"><button type="button" class="info__btn" aria-expanded="false" aria-controls="login-pin-pop" aria-label="About the Desk PIN" aria-describedby="login-pin-sr" data-info="pin"><svg class="icon info__glyph" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-info"></use></svg></button><span id="login-pin-sr" class="sr-only">The PIN is never stored.</span><span id="login-pin-pop" class="info__pop" role="group" aria-label="About the Desk PIN" aria-hidden="true" hidden><span class="info__line">The PIN is never stored.</span></span></span></div>
               <div class="ifield">
                 <svg class="icon ifield__icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-lock"></use></svg>
                 <input id="login-pin" class="field field--pin" name="pin" type="password" inputmode="numeric"
                        autocomplete="current-password" maxlength="64" required aria-describedby="login-pin-err">
               </div>
-              <p id="login-pin-err" class="msg msg--serious" hidden></p>
+              <p id="login-pin-err" class="msg msg--invalid" hidden></p>
             </div>
             <div id="pin-pad" class="pin-pad" role="group" aria-label="PIN pad"></div>
             <button id="login-submit" type="submit" class="btn btn--neutral btn--block"><span>Sign in</span></button>
           </form>
-          <p id="login-hint" class="login__hint"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-pen-line"></use></svg><span>Your name goes on each decision in the public audit. The PIN is never stored. <a href="/privacy">Privacy</a></span></p>
+          <p id="login-hint" class="login__hint"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-pen-line"></use></svg><span>Your name goes on each decision in the public audit. <a href="/privacy">Privacy</a></span></p>
         </section>
       </div>
     </section>

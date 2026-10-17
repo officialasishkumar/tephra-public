@@ -7,6 +7,7 @@ import { PATHS, api, isUnavailable, problems, unavailableReason } from './api.js
 import { announce, byId, el, icon, reducedMotion } from './dom.js';
 import { app } from './state.js';
 import { aiMark, fromReplayChip, openBSheet, unavailableCard } from './ui.js';
+import { infoButton } from '../wall/info.js';
 import { deskAi, openBudget } from './budget.js';
 import { reasonClass } from '../wall/x-parts.js';
 import { has } from '../wall/features.js';
@@ -19,9 +20,8 @@ const SUGGESTED = [
   'Which flights enter the area soonest?',
   'Where do the official products disagree?',
   'What if the ash extends 50 km further?',
-  'Which feeds are stale right now?',
-  'Which flights must be planned by hand?',
 ];
+const READ_ONLY = 'Read-only: Ask changes nothing.';
 
 // R10.5: each evidence chip says in words what it rests on; the raw tool id is under "How I
 // answered". Unknown tools keep their own name (never a paraphrase).
@@ -37,12 +37,16 @@ const TOOL_WORDS = {
 const toolWords = (tool) => TOOL_WORDS[tool] || String(tool);
 
 // The offline stub's text is written by code, so it is put in plain words here (R10.5, R12.10).
-// A model's answer is always shown exactly as written.
+// A model's answer is always shown exactly as written. The stub's opening sentence is the same on
+// every answer: it is said once, above the conversation (STUB_NOTE), not on each bubble (owner,
+// 17 Oct: "don't say no model everywhere"); each answer keeps the code mark.
 const STUB_PREFIX = 'NO MODEL: this is the offline stub, which does not read the question.';
+const STUB_NOTE = 'Answers are code counts: the question is not read.';
 function stubWords(text, a) {
   if (a.llm_backend !== 'stub' || typeof text !== 'string') return text;
-  return text.replace(STUB_PREFIX, 'Code only (assistant off): this answer is a code count, not a reading of your question.').replace(/\ba hazard cone\b/g, "TEPHRA's area");
+  return text.replace(STUB_PREFIX, '').trim().replace(/\ba hazard cone\b/g, "TEPHRA's area");
 }
+const stubOn = () => Boolean(app.state && app.state.llm && app.state.llm.backend === 'stub');
 
 const canRecord = () => Boolean(navigator.mediaDevices) && typeof MediaRecorder !== 'undefined';
 
@@ -68,8 +72,10 @@ export function initAsk() {
   // while the assistant is paused Ask says so before a question, not after (docs/UI-AI-QUIET.md
   // K102); why it is paused is said in the assistant sheet, behind "Why ›" (8.6)
   const paused = el('p', { id: 'ask-paused', class: 'note', role: 'status', hidden: true });
+  // with no model connected, what an answer is, said once for the conversation
+  const stubNote = el('p', { id: 'ask-stub', class: 'note astub', hidden: true }, icon('i-code', 'st'), el('span', { text: STUB_NOTE }));
   const form = el('form', { class: 'acomposer', novalidate: true }, paused, ctx, el('div', { class: 'acomposer__row' }, input, mic, send),
-    el('p', { id: 'ask-status', class: 'fine acomposer__note', 'aria-live': 'polite', text: 'Read-only: Ask never changes an advisory, a plan or a message.' }));
+    el('p', { id: 'ask-status', class: 'fine acomposer__note', 'aria-live': 'polite', text: READ_ONLY }));
   composer = { form, input, mic, send, ctx };
   // Desk redesign 5.8: a conversation, oldest at the top; the newest answer scrolls into view
   // above the composer, which is pinned at the bottom of the Ask drawer (UI-DESIGN 10.18). The suggestions show
@@ -77,8 +83,10 @@ export function initAsk() {
   const sugg = el('div', { id: 'ask-sugg', class: 'asugg-wrap' });
   panel.replaceChildren(
     el('div', { class: 'phead' },
-      el('h1', { id: 'ask-title', class: 'phead__title', tabindex: '-1', text: 'Ask TEPHRA' }),
-      el('p', { class: 'phead__sub', text: "Answers use only TEPHRA's own tools and show where each claim comes from." })),
+      el('div', { class: 'phead__line' },
+        el('h1', { id: 'ask-title', class: 'phead__title', tabindex: '-1', text: 'Ask TEPHRA' }),
+        infoButton({ topic: 'ask', label: 'About Ask TEPHRA', text: "Answers use only TEPHRA's own tools and show where each claim comes from. English, Bahasa Indonesia or Japanese." })),
+      stubNote),
     sugg, log, form);
   sugg.addEventListener('click', onLogClick);
   form.addEventListener('submit', (event) => {
@@ -104,6 +112,8 @@ export function initAsk() {
   log.addEventListener('click', onLogClick);
   drawEmpty();
   drawPaused();
+  drawStub();
+  document.addEventListener('tephra:ai', drawStub);
   drawVoice();
   document.addEventListener('tephra:ai', drawPaused);
   // the features arrive with the state, which redraws the chip (budget.js drawAiChip)
@@ -127,8 +137,13 @@ function drawPaused() {
     return;
   }
   if (note.childNodes.length) return;
-  note.replaceChildren('TEPHRA Assistant is paused, so Ask cannot answer yet. The Wall shows every flight and count. ',
+  note.replaceChildren('Ask cannot answer while the assistant is paused. ',
     el('button', { type: 'button', class: 'linkbtn', 'aria-label': 'Why: open the TEPHRA Assistant sheet', onclick: openBudget }, el('span', { text: 'Why ›' })));
+}
+
+function drawStub() {
+  const note = byId('ask-stub');
+  if (note) note.hidden = !stubOn();
 }
 
 function autosize(input) {
@@ -140,8 +155,7 @@ function drawEmpty() {
   const host = byId('ask-sugg');
   host.replaceChildren(
     el('ul', { class: 'asugg', 'aria-label': 'Suggested questions' }, SUGGESTED.map((q) =>
-      el('li', {}, el('button', { type: 'button', class: 'asugg__btn', 'data-q': q }, el('span', { text: q }))))),
-    el('p', { class: 'asugg__lang', text: 'English, Bahasa Indonesia or Japanese.' }));
+      el('li', {}, el('button', { type: 'button', class: 'asugg__btn', 'data-q': q }, el('span', { text: q }))))));
 }
 
 export function setFlightContext(adv) {
@@ -232,7 +246,7 @@ async function submit() {
     composer.form.querySelector('#ask-status').textContent = "You're offline. Reconnect to ask.";
     return;
   }
-  composer.form.querySelector('#ask-status').textContent = 'Read-only: Ask never changes an advisory, a plan or a message.';
+  composer.form.querySelector('#ask-status').textContent = READ_ONLY;
   const wait = thinking("Reading TEPHRA's tools…");
   byId('ask-sugg').hidden = true;
   log.append(el('div', { class: 'aturn' }, youBubble(text), wait));
@@ -321,7 +335,7 @@ function stepStrip(a) {
   if (!a.evidence.length) steps.push(['i-info', 'No tool was called', 'The model answered from the question alone.', 'warn']);
   const cited = new Set(a.claims.flatMap((c) => c.evidence_ids));
   steps.push(['i-check', 'validator', `${a.claims.length} claim${a.claims.length === 1 ? '' : 's'} checked against ${cited.size} evidence item${cited.size === 1 ? '' : 's'}: every number, flight and airport in the answer appears in a tool result${a.repaired ? ' (after one repair)' : ''}`, 'ok']);
-  steps.push(['i-model', 'model', a.llm_backend === 'stub' ? 'NO MODEL (offline stub)' : a.model_id, 'ok']);
+  steps.push(['i-model', 'model', a.llm_backend === 'stub' ? 'none: the offline stub' : a.model_id, 'ok']);
   steps.push(['i-user', 'human gate', 'Ask only reads. It cannot approve or change anything.', 'ok']);
   const list = el('ol', { class: 'steps' }, steps.map(([ic, k, v, tone, ev], i) =>
     el('li', { class: `step step--${tone}` },
@@ -361,10 +375,19 @@ export function answerCard(a) {
   if (a.follow_ups && a.follow_ups.length) {
     card.append(el('div', { class: 'afollow' }, a.follow_ups.map((q) => el('button', { type: 'button', class: 'asugg__btn', 'data-follow': q }, el('span', { text: q })))));
   }
+  // who answered: a model's mark sits in the foot; the code mark leads the answer's words, so it
+  // never reads as a mark on the language chip beside it (UX verify, 17 Oct)
+  const mark = aiMark('Answered by TEPHRA Assistant', a.llm_backend === 'stub' ? null : a.model_id, { code: 'Counted by code' });
+  const byCode = mark.classList.contains('ai-mark--none');
+  const lead = card.querySelector('.acard__text');
+  if (byCode && lead) {
+    mark.setAttribute('lang', 'en');
+    lead.prepend(mark, ' ');
+  }
   card.append(el('div', { class: 'acard__foot' },
     has('voice') ? el('button', { type: 'button', class: 'spk', 'data-speak': a.id, 'aria-label': 'Play the answer aloud' }, icon('i-volume'), el('span', { text: 'Listen' })) : null,
     el('span', { class: 'acard__meta' },
-      aiMark('Answered by TEPHRA Assistant', a.llm_backend === 'stub' ? null : a.model_id),
+      byCode && lead ? null : mark,
       el('span', { class: 'chip chip--sm', title: 'Language of the question and the answer', text: LANG_NAME[a.language] || a.language }),
       fromReplayChip(a)),
     el('span', { class: 'spk__msg fine', role: 'status' })));
@@ -536,12 +559,12 @@ async function sendVoice(blob) {
   const res = await api(PATHS.askVoice, { method: 'POST', form, signal: busy.signal });
   busy = null;
   setBusy(false);
-  micStatus('Read-only: Ask never changes an advisory, a plan or a message.');
+  micStatus(READ_ONLY);
   if (mine !== seq) return;
   if (res.ok && res.data && res.data.answer) {
     const heard = res.data.transcript && res.data.transcript.text;
     const you = youBubble(heard || res.data.answer.question, { voice: true });
-    you.querySelector('.abubble').append(el('span', { class: 'abubble__src', text: `heard by ${res.data.transcript.model_id === 'stub' ? 'NO MODEL' : res.data.transcript.model_id}` }));
+    you.querySelector('.abubble').append(el('span', { class: 'abubble__src', text: `heard by ${res.data.transcript.model_id === 'stub' ? 'the offline stub' : res.data.transcript.model_id}` }));
     wait.before(you);
     finish(wait, { ok: true, data: res.data.answer }, heard || '');
     return;

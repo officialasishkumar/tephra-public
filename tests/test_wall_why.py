@@ -332,7 +332,9 @@ def test_chain_view_says_no_model_in_stub_and_not_on_hand_for_nulls(
     stub = rendered["stub"]["wall"]
     marks = _marks(stub)
     assert marks
-    assert all(m == "Code only (assistant off)" for m in marks)
+    # the small "{ }" mark (owner, 17 Oct: "don't say no model everywhere"), its words for a
+    # screen reader and the tooltip
+    assert all(m == "Written by a code template" for m in marks)
     assert "NO MODEL:" not in _text(stub)  # the mark says it; the words are not repeated
     lines = [_text(n) for n in _find(stub, "chain__line")]
     assert lines[0] == "Planned 2 of 24 · urgency order"

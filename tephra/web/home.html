@@ -35,7 +35,9 @@
 </head>
 <!-- Home (SPEC-v2 5.1, DESIGN 5.1): one line on what TEPHRA is and two choices, title only, Watch
      the demo (focused first) and Onboard your airline (only while the server shows onboarding;
-     "Your airline workspace" when signed in). Behind them a volcanic sky with faint drifting ash
+     "Your airline workspace" when signed in). Sign in sits in the top bar. The line says a dispatcher
+     approves; the decision-support sentence is not repeated in the footer (owner, 17 Oct 2026:
+     "don't put this everywhere"): the demo's welcome dialog and About say it. Behind them a volcanic sky with faint drifting ash
      (home/ash.js), and beside them a picture of the five steps ending at an example advisory
      (home/how.js); on narrow screens the steps are a strip under the line. Neither carries data
      (owner, 17 Oct 2026: the replay map "looks repetitve to the map"). -->
@@ -50,7 +52,6 @@
   </header>
   <main id="main" class="home__stage">
     <div class="home__copy">
-      <p class="home__eyebrow">Volcanic-ash decision support for airline dispatch</p>
       <h1 id="home-line" class="home__line">TEPHRA finds the flights heading into volcanic ash and drafts the advisories <em>a dispatcher approves</em>.</h1>
       <div id="home-strip" class="home__strip"></div>
       <div id="home-choices" class="home__choices" tabindex="-1">
@@ -69,13 +70,11 @@
           <svg class="icon go__arrow" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-arrow-right"></use></svg>
         </a>
       </div>
-      <p class="home__signin" data-feature="onboard" hidden>Already onboarded? <a href="/signin">Sign in to your workspace</a></p>
     </div>
     <div id="home-how" class="home__how"></div>
   </main>
   <footer class="home__foot">
-    <p class="home__honest"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-hand"></use></svg>Decision support only: a person approves every advisory, and nothing is sent to an aircraft.</p>
-    <nav class="home__links" aria-label="More about TEPHRA"><a href="/guide">Guide</a><a href="/guide#about-credits">Credits</a><a href="/privacy">Privacy</a></nav>
+    <nav class="home__links" aria-label="More about TEPHRA"><a class="home__guide" href="/guide">Guide</a><a href="/guide#about-credits">Credits</a><a href="/privacy">Privacy</a></nav>
   </footer>
 </body>
 </html>

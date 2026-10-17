@@ -9,7 +9,7 @@
 
 import { $, el, icon, hhmmz, ms } from "./util.js";
 import { actionWords } from "./derive.js";
-import { aiMark, machineText, plainLine, plumeOutcome, MARK } from "./x-parts.js";
+import { aiMark, machineText, plainLine, plumeOutcome, templateText, MARK } from "./x-parts.js";
 import { dkHeader, dkEmpty, dkSection } from "./dk.js";
 
 // The skills in the order they ran, named once each (the step title).
@@ -23,8 +23,9 @@ const MODE_WORD = { OFFICIAL: "Same as official", WIDENED: "Wider than official"
 const flWord = (n) => `FL${String(n ?? 0).padStart(3, "0")}`;
 const count = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const isStub = (s) => s.outcome === "STUB" || s.model_id === "stub";
-// A model's words stay as written; the stub's code-written stand-ins read in plain words.
-const words = (text, stub) => (stub ? plainLine(String(text).replace(/^NO MODEL:\s*/, "")) : String(text));
+// A model's words stay as written; the stub's code-written stand-ins read in plain words, without
+// "(code only)": the step's own mark (codeMark) says it once.
+const words = (text, stub) => (stub ? templateText(plainLine(String(text).replace(/^NO MODEL:\s*/, ""))).text : String(text));
 
 // The source's card title (code-written) for a source id; the id's first parts when the
 // situation is not on hand (the Desk).

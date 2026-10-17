@@ -102,7 +102,7 @@ def test_nothing_says_connecting_while_nothing_runs_for_the_airline() -> None:
 
 def test_the_space_s_pages_describe_the_space_not_the_demo() -> None:
     nav = _src("tenant-nav.js")
-    assert "a private airline space, behind sign-in. Decision support only." in nav
+    assert "a private airline space, behind sign-in.`;" in nav
     assert 'meta[name="description"], meta[property="og:description"]' in nav
 
 

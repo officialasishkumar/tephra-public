@@ -300,7 +300,7 @@ function withdrawView(v, sheet, draw) {
   go.addEventListener('click', async () => {
     const reason = area.value.trim();
     if (reason.length < WITHDRAW_MIN) {
-      msg.replaceChildren(errLine(`Give a reason of at least ${WITHDRAW_MIN} characters.`));
+      msg.replaceChildren(invalidLine(`Give a reason of at least ${WITHDRAW_MIN} characters.`));
       area.focus();
       return;
     }
@@ -313,13 +313,17 @@ function withdrawView(v, sheet, draw) {
       return;
     }
     const why = res.status === 409 ? 'This report is already withdrawn.' : res.status === 404 ? 'This crew report no longer exists.' : res.status === 0 ? "Can't reach the server." : `Not withdrawn: ${problems(res).join(' · ') || (res.data && res.data.detail) || `HTTP ${res.status}`}`;
-    msg.replaceChildren(errLine(why));
+    msg.replaceChildren(res.status === 422 ? invalidLine(why) : res.status === 409 || res.status === 404 ? cautionLine(why) : errLine(why));
   });
   sheet.setFooter(el('div', { class: 'secondary' }, go, cancel));
   window.setTimeout(() => area.focus(), 50);
 }
 
 const errLine = (text) => el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text }));
+// A field or form that needs fixing: caution + triangle + words (--c-invalid), never red. errLine
+// stays for the server and the connection.
+const cautionLine = (text) => el('p', { class: 'msg msg--caution' }, icon('st-caution', 'st'), el('span', { text }));
+const invalidLine = (text) => el('p', { class: 'msg msg--invalid' }, icon('st-caution', 'st'), el('span', { text }));
 
 // POST …/message: the message to the weather office and the VAAC, opened like any Paperwork draft.
 async function draftMessage(v, button, sheet) {
@@ -394,7 +398,7 @@ export function openCrewForm({ hex = null } = {}) {
   const f = { flight: hex || '', callsign: '', cues: new Set(), day: 'today', fix: null, fixState: 'idle', fixNote: '', seq: 0, busy: false };
   const msgs = {};
   const msgNode = (key) => (msgs[key] = el('div', { id: `crew-${key}-msg`, class: 'field-msg', 'aria-live': 'polite' }));
-  const setMsg = (key, text) => msgs[key].replaceChildren(...(text ? [errLine(text)] : []));
+  const setMsg = (key, text) => msgs[key].replaceChildren(...(text ? [invalidLine(text)] : []));
 
   // Flight: a tracked RFA flight, or a typed airline callsign.
   const code = app.state?.airline?.code || 'RFA';
@@ -413,7 +417,7 @@ export function openCrewForm({ hex = null } = {}) {
   const showKind = () => {
     const [tone, text] = kindLine(f.cues);
     kind.dataset.tone = tone;
-    kind.replaceChildren(icon(tone === 'area' ? 'i-pin' : tone === 'serious' ? 'st-serious' : 'st-info', 'st'), el('span', { text }));
+    kind.replaceChildren(icon(tone === 'area' ? 'i-pin' : tone === 'serious' ? 'st-caution' : 'st-info', 'st'), el('span', { text }));
   };
   for (const b of cueBtns) {
     b.addEventListener('click', () => {
@@ -464,7 +468,7 @@ export function openCrewForm({ hex = null } = {}) {
       kids.push(el('p', { class: 'crewfix' }, icon('st-ok', 'st'), el('span', { text: `${x.note}: ${latLon(x.lat, x.lon)}${x.alt_baro_ft != null ? `, ${fl(x.alt_baro_ft / 100)}` : ''}. The report is placed at this fix.` })));
     } else if (f.fixState === 'none') {
       kids.push(el('p', { class: 'crewfix crewfix--none' }, icon('st-caution', 'st'), el('span', { text: `${f.fixNote}.` })), typedBox);
-    } else if (f.fixState === 'error') kids.push(errLine(f.fixNote));
+    } else if (f.fixState === 'error') kids.push(f.fixInvalid ? invalidLine(f.fixNote) : errLine(f.fixNote));
     pos.replaceChildren(...kids);
   };
   drawPos();
@@ -517,6 +521,7 @@ export function openCrewForm({ hex = null } = {}) {
       } else {
         f.fix = null;
         f.fixState = 'error';
+        f.fixInvalid = res.status === 422;
         f.fixNote = res.status === 0 ? "Can't reach the server to look for the ADS-B fix." : `No fix lookup: ${problems(res).join(' · ') || (res.data && res.data.detail) || `HTTP ${res.status}`}`;
       }
       drawPos();
@@ -643,7 +648,7 @@ export function openCrewForm({ hex = null } = {}) {
       local.push(submit);
     }
     if (local.length) {
-      summary.replaceChildren(errLine('Not recorded yet: check the fields marked below.'));
+      summary.replaceChildren(invalidLine('Not recorded yet: check the fields marked below.'));
       local[0].focus();
       return;
     }
@@ -671,8 +676,8 @@ export function openCrewForm({ hex = null } = {}) {
     }
     const list = problems(res);
     if (res.status === 422 && list.length) {
-      summary.replaceChildren(el('div', { class: 'panel panel--serious' },
-        el('p', { class: 'panel__title' }, icon('st-serious', 'st'), el('span', { text: 'Not recorded. Correct these and record it again:' })),
+      summary.replaceChildren(el('div', { class: 'panel panel--invalid' },
+        el('p', { class: 'panel__title' }, icon('st-caution', 'st'), el('span', { text: 'Not recorded. Correct these and record it again:' })),
         el('ul', { class: 'plist' }, list.map((p) => el('li', { text: p.replace(/^[a-z_]+:\s*/, '') })))));
       for (const p of list) {
         const key = FIELD_OF[(/^([a-z_]+):/.exec(p) || [])[1]];

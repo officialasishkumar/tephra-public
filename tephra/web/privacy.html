@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#0a1017">
+  <meta name="theme-color" content="#100e0c">
   <meta name="robots" content="noindex, nofollow">
   <meta name="description" content="What TEPHRA records about the people who use it, where it is kept and what is sent to the Gemini API.">
   <title>TEPHRA privacy notice</title>
@@ -14,10 +14,13 @@
   <link rel="stylesheet" href="/static/topnav.css">
   <link rel="stylesheet" href="/static/guide.css">
   <script type="module" src="/static/topnav.js"></script>
+  <script type="module" src="/static/privacy.js"></script>
 </head>
 <!-- The privacy notice on the night theme with the shared header (UI-DESIGN 7.25): the same bar and
-     pill nav as every other page, no strip. Static text; topnav.js only applies the feature set
-     and the airline's sign-in to the nav. -->
+     pill nav as every other page, no strip. "In short" first (five lines), then each section closed
+     under its heading (TEXT-SPEC X14; owner, 17 Oct 2026: "nobody is going to read so much").
+     privacy.js opens the section a link names (/privacy#accounts); find in page opens one too.
+     topnav.js only applies the feature set and the airline's sign-in to the nav. -->
 <body class="guide">
   <header class="guidebar tn-bar">
     <a class="tn-home" href="/" title="TEPHRA home">TEPHRA</a>
@@ -26,49 +29,78 @@
   <main id="main" class="guide__main">
     <article class="guide__sec guide__prose">
     <h1>Privacy notice</h1>
-    <p>TEPHRA is a decision-support demo for volcanic ash and airline dispatch. The airline, Ring of Fire Air, is fictional, and TEPHRA is not for operational use. This page says what TEPHRA records about the people who use it, where it is kept and what it sends to Google's Gemini API.</p>
+    <p>What TEPHRA records about you, where it is kept, and what reaches Google's Gemini API. The demo's airline is fictional.</p>
 
-    <h2>The Wall</h2>
-    <p>The Wall is public and needs no sign-in. TEPHRA keeps no account, profile or analytics for Wall readers. The page remembers a few display choices (such as which map layers are on) in your own browser's local storage, and, for the open tab only, whether the Details panel is open. They never reach the server.</p>
-    <p>To draw the map, your browser loads files straight from other services: map tiles from OpenFreeMap and Mapterhorn, satellite tiles from NASA GIBS, and the map library from unpkg. When you open a volcano's or an airport's card, it asks Wikidata and Wikimedia Commons for a freely licensed photo. Those services see your address the way any website does.</p>
+    <section class="pshort" aria-labelledby="pshort-h">
+      <h2 id="pshort-h">In short</h2>
+      <ul>
+        <li>The demo needs no account and keeps no analytics.</li>
+        <li>The name you type at the Desk is public.</li>
+        <li>Airline accounts are private to the airline and this site's dispatchers.</li>
+        <li>Gemini sees public feeds and code facts, never dispatcher names.</li>
+        <li>On the unpaid tier, Google may use what it receives.</li>
+      </ul>
+    </section>
 
-    <h2>The Desk sign-in and your name</h2>
-    <p>The Desk sign-in asks for the Desk PIN and your name or initials. The PIN is checked and never stored. Your name is recorded on every decision you make and on every entry TEPHRA writes for your actions.</p>
-    <p>That name is public. The audit trail (<code>/api/audit</code>), the advisories list (<code>/api/advisories</code>, who decided each one) and the outbound queue (<code>/api/outbound</code>, who approved each message) can be read by anyone who opens the site. A question you ask TEPHRA is written into the audit entry with your name (its first 200 characters). A name you type on a shift handover, or as the signatory of a regulator draft, is stored with that document.</p>
+    <details id="demo" class="pfold">
+      <summary><h2>The demo</h2></summary>
+      <p>The demo is public and needs no sign-in. TEPHRA keeps no account, profile or analytics for demo readers. The page remembers a few display choices (such as which map layers are on) in your own browser's local storage, and, for the open tab only, whether the Details panel is open. They never reach the server.</p>
+      <p>To draw the map, your browser loads files straight from other services: map tiles from OpenFreeMap and Mapterhorn, satellite tiles from NASA GIBS, and the map library from unpkg. When you open a volcano's or an airport's card, it asks Wikidata and Wikimedia Commons for a freely licensed photo. Those services see your address the way any website does.</p>
+    </details>
 
-    <h2>Where it is kept</h2>
-    <p>Decisions, advisories, messages, documents, pasted notices, questions with their answers, and audit entries are stored in Google Cloud Firestore on the live site, and in a SQLite file when TEPHRA runs on a laptop. The audit trail is append-only and hash-chained, so its entries are permanent: they are never edited or deleted.</p>
+    <details id="desk" class="pfold">
+      <summary><h2>The Desk sign-in and your name</h2></summary>
+      <p>The Desk sign-in asks for the Desk PIN and your name or initials. The PIN is checked and never stored. Your name is recorded on every decision you make and on every entry TEPHRA writes for your actions.</p>
+      <p>That name is public. The audit trail (<code>/api/audit</code>), the advisories list (<code>/api/advisories</code>, who decided each one) and the outbound queue (<code>/api/outbound</code>, who approved each message) can be read by anyone who opens the site. If you enter the Desk as a visitor, the name you type (or the one TEPHRA gives you) is written into that public record with each decision you make; use a first name or none. A question you ask TEPHRA is written into the audit entry with your name (its first 200 characters). A name you type on a shift handover, or as the signatory of a regulator draft, is stored with that document.</p>
+    </details>
 
-    <h2>Your address</h2>
-    <p>TEPHRA's own code keeps a client address only in server memory, to slow down repeated failed sign-ins. That table is cleared whenever the server restarts and is never written to storage. TEPHRA's request log records the method, path, status and timing of each request, not the address. Google Cloud Run's own request logs do record client addresses, and Cloud Logging keeps them for its standard retention period.</p>
+    <details id="kept" class="pfold">
+      <summary><h2>Where it is kept</h2></summary>
+      <p>Decisions, advisories, messages, documents, pasted notices, questions with their answers, and audit entries are stored in Google Cloud Firestore on the live site, and in a SQLite file when TEPHRA runs on a laptop. The audit trail is append-only and hash-chained, so its entries are permanent: they are never edited or deleted.</p>
+    </details>
 
-    <h2>What is sent to the Gemini API</h2>
-    <ul>
-      <li>Public feed content (ash advisories, satellite pictures from Himawari-9, winds, flight positions) and facts written by TEPHRA's code, for the AI steps that read the ash products and the satellite pictures, plan around the hazard and draft advisories, messages and documents.</li>
-      <li>What a Desk user submits: questions typed or spoken to Ask TEPHRA (the voice recording is sent for transcription and is not stored by TEPHRA), and notices pasted into the notice reader.</li>
-      <li>Dispatcher names are never sent to Gemini.</li>
-    </ul>
-    <p>Nothing you do on the Wall or the Guide is sent to Gemini. If you enter the Desk as a visitor, the name you type (or the one TEPHRA gives you) is written into TEPHRA's public decision record with each decision you make; use a first name or none.</p>
-    <p>TEPHRA uses the Gemini API through a Google AI Studio key. On the unpaid tier, Google may use the content sent and the answers it gives to improve its products, and human reviewers may read them. Do not type or paste personal or confidential information into Ask TEPHRA or the notice reader.</p>
+    <details id="address" class="pfold">
+      <summary><h2>Your address</h2></summary>
+      <p>TEPHRA's own code keeps a client address only in server memory, to slow down repeated failed sign-ins. That table is cleared whenever the server restarts and is never written to storage. TEPHRA's request log records the method, path, status and timing of each request, not the address. Google Cloud Run's own request logs do record client addresses, and Cloud Logging keeps them for its standard retention period.</p>
+    </details>
 
-    <h2>Cookies</h2>
-    <p>The Desk session cookie, <code>tephra_desk</code>, is set when you sign in to the Desk, holds your name and its expiry, is signed by the server and is removed when you sign out. An airline account has its own cookie, described under <a href="#accounts">Airline accounts</a>. There are no analytics or advertising cookies. The Desk also keeps two things in your browser's own storage: whether to keep the screen awake, and, for the open tab only, the incoming dispatcher's name typed on the handover form. They stay in your browser. The name reaches the server only when you create the handover.</p>
+    <details id="gemini" class="pfold">
+      <summary><h2>What is sent to the Gemini API</h2></summary>
+      <ul>
+        <li>Public feed content (ash advisories, satellite pictures from Himawari-9, winds, flight positions) and facts written by TEPHRA's code, for the AI steps that read the ash products and the satellite pictures, plan around the hazard and draft advisories, messages and documents.</li>
+        <li>What a Desk user submits: questions typed or spoken to Ask TEPHRA (the voice recording is sent for transcription and is not stored by TEPHRA), and notices pasted into the notice reader.</li>
+        <li>Dispatcher names are never sent to Gemini.</li>
+      </ul>
+      <p>Nothing you do on the demo or the Guide is sent to Gemini.</p>
+      <p>TEPHRA uses the Gemini API through a Google AI Studio key. On the unpaid tier, Google may use the content sent and the answers it gives to improve its products, and human reviewers may read them. Do not type or paste personal or confidential information into Ask TEPHRA or the notice reader.</p>
+    </details>
 
-    <h2 id="accounts">Airline accounts</h2>
-    <p>An airline that onboards creates its account first, on the onboarding page. TEPHRA stores the account email; the password as a salted scrypt hash, never the password itself; a hash of the recovery code; and, from sign-up on, the onboarding answers with the account, saved each time you go to the next or the previous page, open another step, or leave the page, including the operations email, the contact name and the dispatchers' names or initials. On the live site they are kept in Google Cloud Firestore, and in a SQLite file when TEPHRA runs on a laptop.</p>
-    <p>The airline reads them when signed in. This site's signed-in dispatchers read them to verify the airline once it submits them on the last page; answers not submitted are not shown to them. They are never public, never written into the audit trail and never sent to Gemini.</p>
-    <p>The schedule files you add, and an Ollama address, stay in your browser's own storage for your setup kit and are never sent to the server; signing out clears them. A Gemini key typed into the setup kit card stays in that tab and goes only into the zip the tab makes.</p>
-    <p>The cookie <code>tephra_airline</code> holds the signed-in airline's id, code and name (empty until the answers are submitted), a hash of the account email and its expiry. It is HttpOnly and SameSite=Strict, is signed by the server and lasts 12 hours.</p>
-    <p>An account whose answers were never submitted is deleted, with its answers, once seven days pass without a save (at the next sign-up on this site). A submitted account is kept until the airline deletes it from the workspace's account menu, or a dispatcher deletes a declined airline's record.</p>
+    <details id="cookies" class="pfold">
+      <summary><h2>Cookies</h2></summary>
+      <p>The Desk session cookie, <code>tephra_desk</code>, is set when you sign in to the Desk, holds your name and its expiry, is signed by the server and is removed when you sign out. An airline account has its own cookie, described under <a href="#accounts">Airline accounts</a>. There are no analytics or advertising cookies. The Desk also keeps two things in your browser's own storage: whether to keep the screen awake, and, for the open tab only, the incoming dispatcher's name typed on the handover form. They stay in your browser. The name reaches the server only when you create the handover.</p>
+    </details>
 
-    <h2 id="hosted">Hosted airlines</h2>
-    <p>Where this site hosts airlines (off unless its owner turns it on), a verified airline can run TEPHRA here in its own private space. For that space TEPHRA stores: its members' emails and the names they chose, with their roles; the airline's model key, only sealed (encrypted with AES-256-GCM) and shown only as its last four characters, never returned, logged or sent anywhere but Google's Gemini API for that airline's own assistant; its push keys as fingerprints only; its policy versions and its acceptance under its SRA as the airline recorded it; and the airline's record (the hash-chained audit trail of its drafts, decisions and settings), its advisories, messages and documents. Members are named in the record by the name they chose, never by email. Dispatcher names are never sent to Gemini.</p>
-    <p>Who sees it: the airline's members, by role (only its ops managers see members' emails and manage keys). TEPHRA's operators, who run this site, see each airline as one row on their console: its status, counts and contact email, never its drafts, people or key. Nothing of a hosted airline appears on the demo's map, the demo Desk or another airline's pages.</p>
-    <p>How it is deleted: TEPHRA's operators can delete a suspended airline's data from 7 days after suspending it. Its documents, members and invites are then deleted, and a tombstone with its code, its name and the times it was set up and deleted stays, with nothing about its people. Each member can leave an airline, and delete their own account, unless they are its last ops manager.</p>
-    <p>Invites are links an ops manager copies and sends: TEPHRA sends no email, and emails are not checked. An operator's console has its own cookie, <code>tephra_operator</code>, which holds an id of the operator's account (a hash of its email), the operator's name, a version and its expiry (8 hours), and is signed by the server.</p>
+    <details id="accounts" class="pfold">
+      <summary><h2>Airline accounts</h2></summary>
+      <p>An airline that onboards creates its account first, on the onboarding page. TEPHRA stores the account email; the password as a salted scrypt hash, never the password itself; a hash of the recovery code; and, from sign-up on, the onboarding answers with the account, saved each time you go to the next or the previous page, open another step, or leave the page, including the operations email, the contact name and the dispatchers' names or initials. On the live site they are kept in Google Cloud Firestore, and in a SQLite file when TEPHRA runs on a laptop.</p>
+      <p>The airline reads them when signed in. This site's signed-in dispatchers read them to verify the airline once it submits them on the last page; answers not submitted are not shown to them. They are never public, never written into the audit trail and never sent to Gemini.</p>
+      <p>The schedule files you add stay in your browser's own storage; only their counts go with your answers, and signing out clears them. Onboarding never asks for your Gemini key; a hosted airline sets one in its own space (<a href="#hosted">Hosted airlines</a>).</p>
+      <p>The cookie <code>tephra_airline</code> holds the signed-in airline's id, code and name (empty until the answers are submitted), a hash of the account email and its expiry. It is HttpOnly and SameSite=Strict, is signed by the server and lasts 12 hours.</p>
+      <p>An account whose answers were never submitted is deleted, with its answers, once seven days pass without a save (at the next sign-up on this site). A submitted account is kept until the airline deletes it from the workspace's account menu, or a dispatcher deletes a declined airline's record.</p>
+    </details>
 
-    <h2>Questions</h2>
-    <p>For a question about this notice or about data TEPHRA holds, open an issue in <a href="https://github.com/officialasishkumar/tephra/issues">TEPHRA's GitHub repository</a>.</p>
+    <details id="hosted" class="pfold">
+      <summary><h2>Hosted airlines</h2></summary>
+      <p>Where this site hosts airlines (off unless its owner turns it on), a verified airline can run TEPHRA here in its own private space. For that space TEPHRA stores: its members' emails and the names they chose, with their roles; the airline's model key, only sealed (encrypted with AES-256-GCM) and shown only as its last four characters, never returned, logged or sent anywhere but Google's Gemini API for that airline's own assistant; its push keys as fingerprints only; its policy versions and its acceptance under its SRA as the airline recorded it; and the airline's record (the hash-chained audit trail of its drafts, decisions and settings), its advisories, messages and documents. Members are named in the record by the name they chose, never by email. Dispatcher names are never sent to Gemini.</p>
+      <p>Who sees it: the airline's members, by role (only its ops managers see members' emails and manage keys). TEPHRA's operators, who run this site, see each airline as one row on their console: its status, counts and contact email, never its drafts, people or key. Nothing of a hosted airline appears on the demo's map, the demo Desk or another airline's pages.</p>
+      <p>How it is deleted: TEPHRA's operators can delete a suspended airline's data from 7 days after suspending it. Its documents, members and invites are then deleted, and a tombstone with its code, its name and the times it was set up and deleted stays, with nothing about its people. Each member can leave an airline, and delete their own account, unless they are its last ops manager.</p>
+      <p>Invites are links an ops manager copies and sends: TEPHRA sends no email, and emails are not checked. An operator's console has its own cookie, <code>tephra_operator</code>, which holds an id of the operator's account (a hash of its email), the operator's name, a version and its expiry (8 hours), and is signed by the server.</p>
+    </details>
+
+    <details id="questions" class="pfold">
+      <summary><h2>Questions</h2></summary>
+      <p>For a question about this notice or about data TEPHRA holds, open an issue in <a href="https://github.com/officialasishkumar/tephra/issues">TEPHRA's GitHub repository</a>.</p>
+    </details>
     </article>
   </main>
 </body>

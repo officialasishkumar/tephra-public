@@ -421,8 +421,10 @@ export function untilText(deltaMs) {
 
 // TEPHRA's label for the selected volcano (R6.3): what the estimate is, in plain words. "Same as
 // official" says why when no model checked it, from the volcano's own assessment outcome: a read
-// still waiting, a Plume reader that gave no result, or the assistant off (docs/UI-AI-QUIET.md M24).
-const AI_TAG = { PENDING: " · Plume reader waiting", MODEL_FAILED: " · Plume reader gave no result", UNAVAILABLE: " · Plume reader did not run (AI UNAVAILABLE)", STUB: " · code only" };
+// still waiting, a Plume reader that gave no result, or one that did not run because no model could
+// be used (docs/UI-AI-QUIET.md M24). With the assistant off it says nothing more: the one AI status
+// says that once per screen (owner, 17 Oct), as it says why a reader did not run.
+const AI_TAG = { PENDING: " · Plume reader waiting", MODEL_FAILED: " · Plume reader gave no result", UNAVAILABLE: " · Plume reader did not run", STUB: "" };
 export function tephraLabelText(cone, outcome, stub = false) {
   if (!cone) return null;
   if (cone.mode === "HYPOTHESIS") return "TEPHRA's estimate · hypothesis";

@@ -91,8 +91,8 @@
 
 .dchip--replay {
   border-color: transparent;
-  background: var(--c-replay, #b794ff);
-  color: #120a24;
+  background: var(--c-replay);
+  color: var(--c-text-ink);
 }
 
 .dmark--ai {
@@ -100,9 +100,11 @@
   color: var(--dv-ink);
 }
 
+/* text no model wrote: the code mark "{ }" only, its words in the tooltip and screen-reader text */
 .dmark--stub {
-  border-style: dashed;
-  font-family: var(--font-mono);
+  min-height: 20px;
+  padding: 0 2px;
+  border: 0;
   color: var(--dv-ink);
 }
 
@@ -372,10 +374,11 @@
   color: var(--dv-blank);
 }
 
+/* a severity is not an alarm: CRITICAL is caution with a heavier edge, and the word */
 .sev--critical {
-  border-color: var(--dv-bad);
-  background: var(--c-serious-bg, #fde8e6);
-  color: var(--dv-bad);
+  border: 2px solid var(--dv-blank);
+  background: var(--dv-blank-bg);
+  color: var(--dv-blank);
 }
 
 .hsit {
@@ -421,11 +424,28 @@
 }
 
 /* --- the printable page -------------------------------------------------------------------- */
+/* The sheet is paper in both themes (the page itself is pinned data-theme="dark" for its bar), so
+   it carries the paper values of tokens.css (the light set) once, here, as --paper-*. */
 
 .docpage {
+  --paper-bg: #f7f4ef;
+  --paper-1: #fffefb;
+  --paper-3: #ede9e3;
+  --paper-line-2: #d1cbc4;
+  --paper-text-1: #1a1510;
+  --paper-text-2: #4f4840;
+  --paper-text-3: #686058;
+  --paper-ok: #15733a;
+  --paper-caution: #6f5c01;
+  --paper-caution-bg: #f8f0c8;
+  --paper-serious: #8a1810;
+  --paper-replay-text: #5a2fc2;
+  --paper-replay-bg: #efe8ff;
+  --paper-replay-ink: #3a1d8c;
+  --paper-shadow: 0 8px 28px rgb(60 45 30 / 0.12);
   margin: 0;
-  background: #e9edf1;
-  color: #10161d;
+  background: var(--paper-3);
+  color: var(--paper-text-1);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
@@ -462,8 +482,8 @@
   align-items: center;
   gap: 8px 12px;
   padding: 8px max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
-  background: #0a1017;
-  color: #eaf1f7;
+  background: var(--c-surface-1);
+  color: var(--c-text-1);
 }
 
 .docbar__brand {
@@ -476,7 +496,7 @@
 }
 
 .docbar__brand span {
-  color: #93a3b5;
+  color: var(--c-text-3);
 }
 
 .docbar a,
@@ -486,18 +506,18 @@
   gap: 6px;
   min-height: 44px;
   padding: 0 14px;
-  border: 1px solid #5b7086;
+  border: 1px solid var(--c-line-input);
   border-radius: 8px;
   background: none;
-  color: #eaf1f7;
+  color: var(--c-text-1);
   font: 600 14px var(--font-sans);
   text-decoration: none;
 }
 
 .docbar button.docbar__print {
   border-color: transparent;
-  background: #eaf1f7;
-  color: #05080c;
+  background: var(--c-cta);
+  color: var(--c-cta-ink);
 }
 
 .docbar .icon {
@@ -507,7 +527,7 @@
 
 .docbar a:focus-visible,
 .docbar button:focus-visible {
-  outline: 2px solid #f5f9fc;
+  outline: var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -515,43 +535,39 @@
   max-width: 860px;
   margin: 18px auto 40px;
   padding: 24px max(18px, env(safe-area-inset-right)) 32px max(18px, env(safe-area-inset-left));
-  border: 1px solid #c9d2dc;
-  background: #ffffff;
-  box-shadow: 0 8px 28px rgb(10 16 23 / 0.12);
+  border: 1px solid var(--paper-line-2);
+  background: var(--paper-1);
+  box-shadow: var(--paper-shadow);
 }
 
 .docpage .docv {
-  --dv-bg: #ffffff;
-  --dv-card: #f1f4f7;
-  --dv-ink: #10161d;
-  --dv-ink-2: #2c3947;
-  --dv-ink-3: #55616f;
-  --dv-line: #c3ccd6;
-  --dv-blank: #8a5a00;
-  --dv-blank-bg: #fff6e0;
-  --dv-ok: #0b6b32;
-  --dv-bad: #a3231b;
-  --dv-replay: #4b2fa0;
+  --dv-bg: var(--paper-1);
+  --dv-card: var(--paper-bg);
+  --dv-ink: var(--paper-text-1);
+  --dv-ink-2: var(--paper-text-2);
+  --dv-ink-3: var(--paper-text-3);
+  --dv-line: var(--paper-line-2);
+  --dv-blank: var(--paper-caution);
+  --dv-blank-bg: var(--paper-caution-bg);
+  --dv-ok: var(--paper-ok);
+  --dv-bad: var(--paper-serious);
+  --dv-replay: var(--paper-replay-text);
   font-size: 14px;
 }
 
 .docpage .dchip--replay {
-  background: #e3d6ff;
-  color: #2a1060;
-}
-
-.docpage .sev--critical {
-  background: #fde8e6;
+  background: var(--paper-replay-bg);
+  color: var(--paper-replay-ink);
 }
 
 .docstate {
   margin: 8px 0;
   font-size: 16px;
-  color: #2c3947;
+  color: var(--paper-text-2);
 }
 
 .docstate a {
-  color: #10161d;
+  color: var(--paper-text-1);
 }
 
 .docfoot {
@@ -559,7 +575,7 @@
   margin: 0 auto 28px;
   padding: 0 18px;
   font-size: 12px;
-  color: #55616f;
+  color: var(--paper-text-3);
 }
 
 @media (max-width: 520px) {
@@ -578,7 +594,7 @@
 
 @media print {
   .docpage {
-    background: #ffffff;
+    background: var(--paper-1);
   }
 
   .docbar,
@@ -637,7 +653,7 @@
 }
 
 /* Privacy page (docs/UI-REDESIGN.md R9.4): the disclaimer line at the top and a 680 px measure. */
-.docdisclaimer { margin: 0; padding: 8px 16px; background: #e8edf2; border-bottom: 1px solid #c9d2dc; color: #05080c; font-size: 14px; text-align: center; }
+.docdisclaimer { margin: 0; padding: 8px 16px; background: var(--paper-3); border-bottom: 1px solid var(--paper-line-2); color: var(--paper-text-1); font-size: 14px; text-align: center; }
 .docmain--measure { max-width: 680px; }
 
 /* A crew report message (CREW_MESSAGE): the code-written text, wrapped, ready to read out. */

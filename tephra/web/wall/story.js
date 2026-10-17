@@ -3,13 +3,14 @@
 // from fields and goes in with textContent; a missing field drops its line and is never guessed.
 // The story is about the selected volcano; the "All volcanoes" line carries the global counts.
 
-import { $, el, icon, utcTime, ms, fl, kmBetween, reducedMotion, airline, otherAircraft } from "./util.js";
+import { $, el, icon, utcTime, ms, fl, kmBetween, reducedMotion, airline, onHostedMap, otherAircraft } from "./util.js";
 import { SEV_RANK, regionOfVent } from "./derive.js";
 import { ext, replanning, aiState, handPlan } from "./ext.js";
 import { planFailure, draftBlock, blockPhrase, machineText, plumeOutcome, ASSISTANT } from "./x-parts.js";
 import { FEED_NAME } from "./panels.js";
 import { caseStrip, caseOf, loadCases } from "./case.js";
 import { page } from "../base.js";
+import { infoButton } from "./info.js";
 
 const CODE_WORD = { RED: "Red", ORANGE: "Orange", YELLOW: "Yellow", GREEN: "Green" };
 const codeColor = (code) => `var(--c-code-${(code || "UNKNOWN").toLowerCase()})`;
@@ -291,7 +292,7 @@ function storyModel(D, store, sit) {
     if (cone?.mode === "WIDENED") tail = "TEPHRA's estimate covers both.";
     else if (cone?.mode === "OFFICIAL") {
       const outcome = plumeOutcome(sit.assessment?.outcome, sit.assessment?.estimate?.uncertainty_notes);
-      tail = stub || outcome === "STUB" ? "TEPHRA's estimate has not been widened (code only)."
+      tail = stub || outcome === "STUB" ? "TEPHRA's estimate has not been widened."
         : outcome === "PENDING" ? "TEPHRA's estimate has not been widened yet (Plume reader waiting)."
           : outcome === "UNAVAILABLE" ? "TEPHRA's estimate has not been widened (Plume reader did not run: AI UNAVAILABLE)."
             : outcome === "MODEL_FAILED" ? "TEPHRA's estimate has not been widened (Plume reader gave no result)." : "TEPHRA's estimate has not been widened.";
@@ -467,29 +468,35 @@ function renderActions(D, store, ui, sit) {
 // ------------------------------------------------------------------ key (R5.5)
 
 // The map key sits on the map (top left) at 601 px and up, and under the map on a phone; it folds
-// to one bar ("Map key" and three swatches). "never smaller than official" stays on its TEPHRA row
-// (docs/UI-AI-QUIET.md 2.2).
+// to one bar ("Map key" and three swatches). One short line per item (owner, 17 Oct: "why you are
+// saying never smaller than official, binding, move it to info"): each row's second words (`sub`)
+// sit behind the (i) beside "Map key", in each row's tooltip and in the full key (Help); "never
+// smaller than official" is still one tap away (docs/UI-AI-QUIET.md 2.2).
 export function keyRows(D, ui) {
   const rows = [];
   const sw = (id, cls) => icon(id, `sw ${cls}`);
   if (!D) return rows;
+  const { code } = airline();
   if (D.official.some((f) => f.properties.show)) rows.push([sw("lg-area-official", "sw--official"), "Official ash area", "binding"]);
   if (ui.layers.tephra && D.cones.length) rows.push([sw("lg-area-tephra", "sw--tephra"), "TEPHRA's estimate", "never smaller than official"]);
   if (D.crew.drawn.length) rows.push([sw("lg-area-crew", "sw--crew"), "Crew report area", null]);
-  if (ui.layers.aircraft && D.exposed.length) rows.push([sw("i-aircraft", "sw--exposed"), `${airline().code} flight in or heading in`, null]);
-  if (ui.layers.aircraft && D.exposed.length >= 6) rows.push([sw("lg-flight-group", "sw--exposed"), `${airline().code} flights close together`, "click to zoom in"]);
+  if (ui.layers.aircraft && D.exposed.length) rows.push([sw("i-aircraft", "sw--exposed"), `${code} flight in or heading in`, null]);
+  if (ui.layers.aircraft && D.exposed.length >= 6) rows.push([sw("lg-flight-group", "sw--exposed"), `${code} flights close together`, "click to zoom in"]);
   const step = D.official.find((f) => f.properties.show && f.properties.step !== "now");
-  if (step) rows.push([sw("lg-area-forecast", "sw--official"), `Official forecast area (${step.properties.layer.replace("FCST+", "+").replace("H", " h")})`, null]);
-  if (ui.layers.aircraft && D.aircraft.some((f) => !f.properties.exposed)) rows.push([sw("i-aircraft", "sw--aircraft"), otherAircraft(), null]);
-  if (ui.layers.routes && D.hasRouteLine) rows.push([sw("lg-route", "sw--route"), "Route (origin to destination)", "airport codes at the ends"]);
-  if (ui.layers.airports && currentPlan()?.closures.length) rows.push([sw("i-airport", "sw--closed"), "Closed airport", "dashed: its closure radius"]);
+  if (step) rows.push([sw("lg-area-forecast", "sw--official"), `Forecast area (${step.properties.layer.replace("FCST+", "+").replace("H", " h")})`, "official"]);
+  if (ui.layers.aircraft && D.aircraft.some((f) => !f.properties.exposed)) rows.push([sw("i-aircraft", "sw--aircraft"), ...(onHostedMap() ? [otherAircraft(), null] : ["Other aircraft", `not ${code}`])]);
+  if (ui.layers.routes && D.hasRouteLine) rows.push([sw("lg-route", "sw--route"), "Route", "origin to destination, airport codes at the ends"]);
+  if (ui.layers.airports && currentPlan()?.closures.length) rows.push([sw("st-closed", "sw--closed"), "Closed airport", "TEPHRA's plan · dashed: its closure radius"]);
   const pickedReroute = !!D.selFlight && D.rerouteKeys?.has(`${D.selFlight.properties.hex}:${D.selFlight.properties.volcano_id}`);
   if ((ui.layers.reroutes && D.hasReroutes) || pickedReroute) rows.push([sw("lg-reroute", "sw--reroute"), "Suggested reroute", null]);
-  if (D.rose && ui.layers.rose) rows.push([sw("lg-arrow-observer", "sw--observer"), "Observatory's reported drift", null]);
-  if (D.cones.some((f) => f.properties.part === "sector")) rows.push([sw("lg-area-hatch", "sw--tephra"), "Where TEPHRA widened the area", null]);
-  if (ui.layers.satboxes && D.hasSatBoxes) rows.push([sw("lg-satbox", "sw--sat"), "Box marked on the satellite picture", "Read by Satellite reader · supporting only"]);
+  if (D.rose && ui.layers.rose) rows.push([sw("lg-arrow-observer", "sw--observer"), "Observatory's drift", null]);
+  if (D.cones.some((f) => f.properties.part === "sector")) rows.push([sw("lg-area-hatch", "sw--tephra"), "Where TEPHRA widened", null]);
+  if (ui.layers.satboxes && D.hasSatBoxes) rows.push([sw("lg-satbox", "sw--sat"), "Satellite box", "marked by Satellite reader · supporting only"]);
   return rows;
 }
+
+// The key's (i): each shown row's second words, "Official ash area: binding."
+export const keyInfoLines = (rows) => rows.filter((r) => r[2]).map(([, label, sub]) => [el("b", { text: label }), `: ${sub}.`]);
 
 function renderKey(D, ui) {
   const box = $("legend");
@@ -500,11 +507,16 @@ function renderKey(D, ui) {
   if (box.dataset.key === key && box.childElementCount) return;
   box.dataset.key = key;
   const glyphs = rows.slice(0, 3).map(([s]) => s.cloneNode(true));
+  const lines = keyInfoLines(rows);
+  // the (i)'s own link only while the key is shut: open, its last row is the same link (said once)
+  const full = el("button", { type: "button", class: "link-btn", dataset: { act: "help-map" }, text: "Full map key ›" });
   box.replaceChildren(
-    el("button", { type: "button", class: "key__toggle", "aria-expanded": ui.keyOpen ? "true" : "false", "aria-controls": "key-rows", dataset: { act: "key-toggle", focus: "key-toggle" } },
-      el("span", { class: "key__toggle-label", text: "Map key" }), el("span", { class: "key__glyphs", "aria-hidden": "true" }, ...glyphs),
-      icon("i-chevron-down", "icon key__chev")),
-    el("ul", { class: "key__rows", id: "key-rows", hidden: !ui.keyOpen }, ...rows.map(([s, label, sub]) => el("li", { class: "key__row" }, s, el("span", { class: "key__text" }, el("span", { class: "key__label", text: label }), sub ? el("span", { class: "key__sub", text: sub }) : null))),
+    el("div", { class: "key__head" },
+      el("button", { type: "button", class: "key__toggle", "aria-expanded": ui.keyOpen ? "true" : "false", "aria-controls": "key-rows", dataset: { act: "key-toggle", focus: "key-toggle" } },
+        el("span", { class: "key__toggle-label", text: "Map key" }), el("span", { class: "key__glyphs", "aria-hidden": "true" }, ...glyphs),
+        icon("i-chevron-down", "icon key__chev")),
+      lines.length ? infoButton({ topic: "map-key", label: "About the map key", text: lines, actions: ui.keyOpen ? [] : [full], cls: "key__info" }) : null),
+    el("ul", { class: "key__rows", id: "key-rows", hidden: !ui.keyOpen }, ...rows.map(([s, label, sub]) => el("li", { class: "key__row", title: sub ? `${label}: ${sub}` : null }, s, el("span", { class: "key__text" }, el("span", { class: "key__label", text: label })))),
       el("li", { class: "key__more-row" }, el("button", { type: "button", class: "link-btn key__more", dataset: { act: "help-map", focus: "key-more" }, text: "Full map key and alert colours ›" }))));
 }
 
@@ -626,7 +638,7 @@ export function renderStory(D, store, ui, { conn, extra, announce, notes = [] })
   renderKey(D, ui);
   renderNotes(notes);
   renderAll(D, ui, sit ? advisoryFacts(D, store, sit.volcano_id).drafts : 0);
-  renderRail(D, sit, caseStory);
+  renderRail(D, sit, caseStory, ui);
   fitStory(D, ui);
 }
 
@@ -644,13 +656,15 @@ function railNum(id, num, short, long) {
 // The folded story: the volcano, its area and colour code, the three numbers every volcano shares
 // (allCounts, the same as the story's "All volcanoes" line) and when TEPHRA last updated. Shown
 // while the story is folded, so the numbers are never on screen twice.
-function renderRail(D, sit, caseStory) {
+function renderRail(D, sit, caseStory, ui) {
   const name = $("volcano-name").textContent;
   const sym = $("rail-vol").querySelector(".rail__sym");
   const symKey = sit ? sit.color_code || "UNKNOWN" : "";
   if (sym.dataset.key !== symKey) { sym.dataset.key = symKey; sym.replaceChildren(...(sit ? [eruptIcon(sit.color_code)] : [])); }
   setText($("rail-vol").querySelector(".rail__name"), name);
-  const region = sit ? (D.state.regions || []).find((r) => r.key === regionOfVent(D.state, D.vents.get(sit.volcano_id)))?.name || "" : "";
+  // the area: said by the header's area button when it is that area (each fact once)
+  const rkey = sit ? regionOfVent(D.state, D.vents.get(sit.volcano_id)) : null;
+  const region = sit && rkey !== ui?.region ? (D.state.regions || []).find((r) => r.key === rkey)?.name || "" : "";
   setText($("rail-region"), region);
   const code = $("rail-code");
   const word = sit ? caseStory?.eyebrow || (CODE_WORD[sit.color_code] ? `Colour code ${CODE_WORD[sit.color_code].toLowerCase()}` : "Colour code not given") : "";
@@ -663,8 +677,9 @@ function renderRail(D, sit, caseStory) {
   railNum("rail-drafts", !D ? "–" : drafts === null ? "unknown" : String(drafts), drafts === 1 ? "advisory" : "advisories", drafts === null ? " waiting (database error)" : " waiting");
   // "0 advisories waiting" says nothing to act on, as on the story's line
   $("rail-drafts").hidden = !!D && drafts === 0;
+  // in REPLAY the replay clock says the time; live, when TEPHRA last updated
   const tick = ms(D?.state?.last_tick?.finished_at);
-  setText($("rail-at"), Number.isFinite(tick) ? `Updated ${utcTime(tick)}` : "");
+  setText($("rail-at"), Number.isFinite(tick) && D.state.mode !== "REPLAY" ? `Updated ${utcTime(tick)}` : "");
 }
 
 // ------------------------------------------------------------------ fit (R4.1, review 2, item 4)

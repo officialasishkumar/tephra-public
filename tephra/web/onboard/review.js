@@ -1,12 +1,13 @@
 // The Review accordion (onboarding page 9 and the workspace's Your answers): one row per page
-// with its one-line summary and its state in a word and a shape, opening to the answers and an
-// Edit link; the sign-up fields that start onboarding; and the recovery code, shown once. Every
-// answer goes in through el().
+// with its one-line summary and its state (a tick when complete, words only when something needs
+// a look), opening to the answers and an Edit link; the sign-up fields that start onboarding; and
+// the recovery code, shown once. Every answer goes in through el().
 
 import { el, icon } from "../wall/util.js";
 import { formatValue } from "../wall/policy.js";
-import { ANSWER_PAGES, PROVIDER_WORDS, KEY_POLICY_VALUES, pageOf, summaryOf } from "./pages.js";
-import { field, illus, input, note, passwordInput } from "./form.js";
+import { infoButton } from "../wall/info.js";
+import { ANSWER_PAGES, PROVIDER_WORDS, KEY_POLICY_VALUES, pageOf, ruleMessage, summaryOf } from "./pages.js";
+import { checkOnLeave, field, illus, input, passwordInput, setError } from "./form.js";
 
 const NOT_GIVEN = "Not given";
 const or = (v) => (v == null || v === "" ? NOT_GIVEN : String(v));
@@ -30,7 +31,7 @@ export function answerRows(page, answers, { named = {}, labels = {} } = {}) {
     }
     case "policy": {
       const p = x.policy || {};
-      const rows = [["Preset", "Policy A · avoid every official ash area"]];
+      const rows = [["Preset", "Policy A: avoid official ash"]];
       for (const c of p.changes || []) {
         const base = named[c.name];
         const label = labels[c.name] || KEY_LABELS[c.name] || c.name;
@@ -39,7 +40,7 @@ export function answerRows(page, answers, { named = {}, labels = {} } = {}) {
         rows.push([label, `${now}${was} · ${c.reason}`]);
       }
       if (!(p.changes || []).length) rows.push(["Values", "As Policy A"]);
-      rows.push(["Risk owner", or(p.risk_owner)], ["Your SRA reference", or(p.sra_ref)]);
+      rows.push(["Risk owner", or(p.risk_owner)], ["SRA reference", or(p.sra_ref)]);
       return rows;
     }
     case "fleet": {
@@ -61,7 +62,7 @@ export function answerRows(page, answers, { named = {}, labels = {} } = {}) {
     }
     case "feeds": {
       const f = x.feeds || {};
-      return [["Positions", yes(f.positions)], ["Flight plans", yes(f.flight_plans)], ["Pilot reports", yes(f.pilot_reports)], ["Where they come from", or(f.source_system)]];
+      return [["Positions", yes(f.positions)], ["Flight plans", yes(f.flight_plans)], ["Pilot reports", yes(f.pilot_reports)], ["Source system", or(f.source_system)]];
     }
     case "people":
       return (x.people?.dispatchers || []).map((d) => [d.name || "–", ROLE_WORDS[d.role] || "–"]);
@@ -92,14 +93,14 @@ export function reviewList(answers, opts = {}) {
         ? el("span", { class: "status status--quiet" }, el("span", { text: "Not opened · default" }))
         : skipped
         ? el("span", { class: "status status--quiet" }, el("span", { text: "Optional" }))
-        : el("span", { class: "status status--ok" }, icon("i-check"), el("span", { text: "Complete" }));
+        : el("span", { class: "status status--ok" }, icon("i-check"), el("span", { class: "sr-only", text: "Complete" }));
     const href = opts.editHref ? opts.editHref(key) : null;
-    const edit = href ? el("a", { class: "link rv__edit", href, text: `Edit ${page.name} ›` }) : null;
+    const edit = href ? el("a", { class: "link rv__edit", href, text: `Edit ${page.short} ›` }) : null;
     if (edit && opts.onEdit) edit.addEventListener("click", (e) => opts.onEdit(key, e));
     box.append(el("details", { class: n ? "is-warn" : null, dataset: { page: key } },
       el("summary", {},
         el("span", { class: "n", "aria-hidden": "true", text: String(page.n) }),
-        el("span", { class: "rv__t" }, el("b", { text: page.name }), key === "policy" ? illus() : null, el("small", { text: summaryOf(key, answers, opts.named) })),
+        el("span", { class: "rv__t" }, el("b", { text: page.short }), key === "policy" ? illus() : null, el("small", { text: summaryOf(key, answers) })),
         state,
         icon("i-chevron-down", "icon chev")),
       el("div", { class: "rv__body" }, dl(answerRows(key, answers, opts)), edit)));
@@ -107,24 +108,43 @@ export function reviewList(answers, opts = {}) {
   return box;
 }
 
-// The sign-up fields on the onboarding landing (the account comes first). Returns { node,
-// values(), clearSecrets() }.
-export function accountFields({ accountsOn }) {
+// The sign-up fields on the onboarding landing (the account comes first): the email, the password
+// with its rule in the label, and the decision-support tick with its (i) beside it (the (i) never
+// ticks the box; the words do). Returns { node, values(), problems(), clearSecrets() }. The page
+// says when accounts are off (onboard.js signupCard).
+// The decision-support tick, said once: short words, the rest behind its (i), which sits beside the
+// label, outside it, so a tap on the (i) never ticks the box. Sign-up and the invite page (/join).
+export function supportTick(ack, errId) {
+  return el("div", { class: "field" },
+    el("div", { class: "checkline" },
+      el("label", { class: "check" }, ack, el("span", { text: "I understand TEPHRA is decision support only" })),
+      infoButton({ topic: "decision support", label: "About decision support", text: "A person decides, and nothing is sent to an aircraft." })),
+    el("p", { id: errId, class: "err", hidden: true }));
+}
+
+export function accountFields() {
   const email = input({ type: "email", autocomplete: "username", inputmode: "email", spellcheck: "false", autocapitalize: "off", maxlength: 254 });
   const pw = passwordInput({ id: "acct-password", autocomplete: "new-password" });
   const ack = el("input", { type: "checkbox", id: "acct-ack", "aria-describedby": "acct-ack-err" });
   const honeypot = el("input", { type: "text", name: "website", tabindex: "-1", autocomplete: "off", value: "" });
+  const mail = () => email.value.trim().toLowerCase();
+  const emailWords = () => ruleMessage("acct.email", email.value);
+  const pwWords = () => ruleMessage("acct.password", pw.control.value) || (pw.control.value.trim().toLowerCase() === mail() ? "Not your email" : null);
+  checkOnLeave(email, emailWords);
+  checkOnLeave(pw.control, pwWords);
+  ack.addEventListener("change", () => {
+    if (ack.checked) setError(ack, null);
+  });
   const node = el("div", { class: "signup__fields" },
-    accountsOn ? null : note("caution", null, "Airline accounts are off on this server: TEPHRA_SESSION_SECRET is not set.", { role: "status" }),
-    field({ id: "acct-email", label: "Work email", hint: "You sign in with it.", control: email }),
-    field({ id: "acct-password", label: "Password", hint: "12 characters or more", control: pw.control, slot: pw.wrap(pw.control) }),
-    el("div", { class: "field" },
-      el("label", { class: "check" }, ack, el("span", { text: "I understand TEPHRA is decision support only: a person decides, and nothing is sent to an aircraft." })),
-      el("p", { id: "acct-ack-err", class: "err", hidden: true })),
+    field({ id: "acct-email", label: "Work email", control: email }),
+    field({ id: "acct-password", label: "Password · 12+ characters", rule: "12 characters or more", control: pw.control, slot: pw.wrap(pw.control) }),
+    supportTick(ack, "acct-ack-err"),
     el("div", { class: "hp", "aria-hidden": "true" }, el("label", {}, "Leave this empty", honeypot)));
   return {
     node,
-    values: () => ({ email: email.value.trim().toLowerCase(), password: pw.control.value, ack: ack.checked, website: honeypot.value }),
+    values: () => ({ email: mail(), password: pw.control.value, ack: ack.checked, website: honeypot.value }),
+    // [control id, words] for each field that is not right yet, in page order
+    problems: () => [["acct-email", emailWords()], ["acct-password", pwWords()], ["acct-ack", ack.checked ? null : "Tick to continue"]].filter(([, w]) => w),
     clearSecrets: () => {
       pw.control.value = "";
     },
@@ -133,9 +153,11 @@ export function accountFields({ accountsOn }) {
 
 // The recovery code, shown once (after the account is made, and after a recovery sets a new
 // password). `r`: { code, email, icao }. The code lives in a module variable of the caller, never
-// in storage. `next`: where the button goes once the code is saved, its words, and `go` when the
-// page moves there itself (onboarding keeps the account's answers in memory on the way).
-export function recoveryCard(r, { lead, oldGone = false, next = { href: "/workspace", text: "Open my workspace" }, extra = null }) {
+// in storage. `lead` is the one line under the heading; `chip` a short label beside it (sign-up says
+// "Email reset: not built" there). `next`: where the button goes once the code is saved, its
+// words, and `go` when the page moves there itself (onboarding keeps the account's answers in
+// memory on the way).
+export function recoveryCard(r, { lead, chip = null, next = { href: "/workspace", text: "Open my workspace" }, extra = null }) {
   const copy = el("button", { type: "button", class: "btn btn--secondary btn--sm" }, icon("i-clipboard"), el("span", { text: "Copy" }));
   copy.addEventListener("click", async () => {
     try {
@@ -164,10 +186,12 @@ export function recoveryCard(r, { lead, oldGone = false, next = { href: "/worksp
   });
   const saved = el("input", { type: "checkbox", id: "rc-saved" });
   const open = el("a", { class: "btn btn--primary btn--block", href: next.href, "aria-disabled": "true", "aria-describedby": "rc-saved-why", dataset: next.go ? { go: "" } : null }, el("span", { text: next.text }), icon("i-arrow-right"));
-  const why = el("p", { id: "rc-saved-why", class: "hint", text: "Tick the box above first." });
+  // said to a screen reader from the start; on screen only after a click the tick blocked
+  const why = el("p", { id: "rc-saved-why", class: "err sr-only" }, icon("st-caution"), el("span", { text: "Tick to continue" }));
   open.addEventListener("click", (e) => {
     if (!saved.checked) {
       e.preventDefault();
+      why.classList.remove("sr-only");
       saved.focus();
     }
   });
@@ -178,9 +202,8 @@ export function recoveryCard(r, { lead, oldGone = false, next = { href: "/worksp
   return el("div", { class: "auth__stage" }, el("div", { class: "auth__backdrop night", "aria-hidden": "true" }),
     el("section", { class: "card authcard auth__card", "aria-labelledby": "rc-h" },
       el("h1", { id: "rc-h", class: "h2", text: "Save your recovery code" }),
-      el("p", { class: "body2", text: lead }),
-      oldGone ? el("p", { class: "body2", text: "Your old code no longer works." }) : null,
+      el("p", { class: "body2" }, lead, chip ? [" ", el("span", { class: "chip chip--notbuilt", text: chip })] : null),
       el("div", { class: "recov" }, el("code", { id: "rc-code", "aria-label": "Recovery code", text: r.code }), el("div", { class: "recov__act" }, copy, dl)),
-      el("label", { class: "check" }, saved, el("span", { text: "I have saved my recovery code" })),
+      el("label", { class: "check" }, saved, el("span", { text: "I saved my code" })),
       open, why, extra));
 }

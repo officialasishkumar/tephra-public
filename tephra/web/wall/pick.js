@@ -22,7 +22,7 @@ function card({ title, sub, lines, action }) {
 export function planeCard(p, adv, closed = new Set()) {
   const where = !p.exposed ? null
     : p.minutes_to_entry > 0 ? { text: `Enters TEPHRA's ash area in ${p.minutes_to_entry} min`, tone: "caution" }
-      : { text: "Inside TEPHRA's ash area", tone: "serious" };
+      : { text: "Inside TEPHRA's ash area", tone: "tephra" };
   const decided = adv && adv.decided_at ? ` ${hhmmz(ms(adv.decided_at))}` : "";
   return card({
     title: p.proxy_flight || p.callsign || p.hex,
@@ -30,7 +30,7 @@ export function planeCard(p, adv, closed = new Set()) {
     lines: [
       { text: [p.alt_baro_ft != null ? fl(p.alt_baro_ft) : null, p.gs_kt != null ? `${Math.round(p.gs_kt)} kt` : null].filter(Boolean).join(" · ") || "Level not reported" },
       p.origin_icao && p.dest_icao ? { text: `${p.origin_icao} → ${p.dest_icao}${p.route_source === "PLAN" ? ` · ${p.flight_plan || "airline"} flight plan` : ""}` } : null,
-      closed.has(p.dest_icao) ? { text: `Lands at ${p.dest_icao}: closed`, tone: "serious" } : closed.has(p.origin_icao) ? { text: `Departed ${p.origin_icao}: closed now`, tone: "caution" } : null,
+      closed.has(p.dest_icao) ? { text: `Lands at ${p.dest_icao}: closed`, tone: "closed" } : closed.has(p.origin_icao) ? { text: `Departed ${p.origin_icao}: closed now`, tone: "closed" } : null,
       where,
       // a waiting draft says what it proposes, so the card is the glance and the Desk the decision
       adv ? { text: `${STATUS_WORD[adv.status] || adv.status}${adv.status === "DRAFT" ? ` · ${actionWords(adv)}` : decided}` } : null,
@@ -60,7 +60,7 @@ export function airportCard(p, closure) {
     title: [p.icao, p.iata].filter(Boolean).join(" · "),
     sub: p.name,
     lines: [
-      closure ? { text: `Closed until ${hhmmz(ms(closure.end))}`, tone: "serious" } : { text: "Open: no closure in the airport plan" },
+      closure ? { text: `Closed until ${hhmmz(ms(closure.end))}`, tone: "closed" } : { text: "Open: no closure in the airport plan" },
       closure?.summary ? { text: closure.summary } : null,
       p.longest_runway_m ? { text: `Longest runway ${Number(p.longest_runway_m).toLocaleString("en")} m` } : null,
     ],

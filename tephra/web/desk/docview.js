@@ -18,11 +18,16 @@ const blank = (note) => el('span', { class: 'blank' }, el('span', { class: 'blan
   note === '' ? null : el('span', { class: 'blank__note', text: note || 'TO COMPLETE' }), el('span', { class: 'sr-only', text: ' (blank)' }));
 
 // "Drafted by TEPHRA Assistant" per box (docs/UI-AI-QUIET.md K99, Naming): the model id in the mark's title and once in
-// the document header's Technical detail; "NO MODEL" when code templates wrote it.
+// the document header's Technical detail. A box a code template wrote carries only the code mark "{ }", its words in
+// the tooltip and screen-reader text (owner, 17 Oct: "don't say no model everywhere").
+const CODE_WORDS = 'Written by a code template';
 function modelMark(modelId, backend) {
   const stub = backend === 'stub' || modelId === 'stub' || !modelId;
-  return el('span', { class: `dmark ${stub ? 'dmark--stub' : 'dmark--ai'}`, title: stub ? 'NO MODEL: written by code templates, not a model' : `Drafted by TEPHRA Assistant (${modelId}), checked by code`, 'aria-label': stub ? 'NO MODEL' : `Drafted by TEPHRA Assistant (${modelId})` },
-    icon(stub ? 'i-code' : 'ta-16', 'st'), el('span', { 'aria-hidden': 'true', text: stub ? 'NO MODEL' : 'Drafted by TEPHRA Assistant' }));
+  if (stub) {
+    return el('span', { class: 'dmark dmark--stub', title: CODE_WORDS }, icon('i-code', 'st'), el('span', { class: 'sr-only', text: CODE_WORDS }));
+  }
+  return el('span', { class: 'dmark dmark--ai', title: `Drafted by TEPHRA Assistant (${modelId}), checked by code`, 'aria-label': `Drafted by TEPHRA Assistant (${modelId})` },
+    icon('ta-16', 'st'), el('span', { 'aria-hidden': 'true', text: 'Drafted by TEPHRA Assistant' }));
 }
 // `at`: when the model wrote its parts (a document stored before the field: when it was drafted)
 const modelTech = (modelId, backend, at) => (backend === 'stub' || modelId === 'stub' || !modelId ? null
@@ -150,7 +155,7 @@ const SEVERITY = {
   calm: ['st-ok', 'Calm'],
   watch: ['st-caution', 'Watch'],
   active: ['st-caution', 'Active'],
-  critical: ['st-serious', 'Critical'],
+  critical: ['st-caution', 'Critical'],
 };
 
 function srcIds(ids) {

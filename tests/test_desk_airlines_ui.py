@@ -36,7 +36,7 @@ def test_the_connect_page_is_gone() -> None:
     assert '<a href="/demo">Demo</a>' in html
     assert '<html lang="en" data-theme="dark">' in html
     assert '<meta name="color-scheme" content="dark">' in html
-    assert "See the demo, the public picture, with no sign-in" in html
+    assert "Watch the demo, no sign-in" in html
 
 
 def test_data_connections_call_the_push_tools_routes() -> None:

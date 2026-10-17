@@ -92,11 +92,19 @@ def test_the_onboarding_pages_and_workspace_sections_are_the_spec_s() -> None:
         "review",
         "done",
     } == ONBOARD_PAGES
-    assert {"answers", "feeds", "assistant", "kit"} == WORKSPACE_SECTIONS
+    assert {"answers", "feeds", "assistant"} == WORKSPACE_SECTIONS
 
 
 @pytest.mark.parametrize(
-    "path", ["/onboard/x", "/onboard/Airline", "/workspace/x", "/workspace/overview", "/docs/x"]
+    "path",
+    [
+        "/onboard/x",
+        "/onboard/Airline",
+        "/workspace/x",
+        "/workspace/overview",
+        "/workspace/kit",
+        "/docs/x",
+    ],
 )
 def test_an_unknown_page_is_not_found(client: TestClient, path: str) -> None:
     response = client.get(path)

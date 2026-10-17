@@ -1,8 +1,7 @@
 # Hosted airlines: TEPHRA on this site for a verified airline
 
-A verified airline can run TEPHRA on this site, in its own private space at `/a/<ICAO>/`, instead
-of (or before) running its own TEPHRA from the setup kit. It is the same TEPHRA: the airline's own
-flights, its own policy, its own assistant on its own model key, and only the people it invites.
+A verified airline can run TEPHRA on this site, in its own private space at `/a/<ICAO>/`. It is
+the same TEPHRA: the airline's own flights, its own policy, its own assistant on its own model key, and only the people it invites.
 It starts in SHADOW, where every draft says "Shadow · not for use", and its ops manager switches it
 to LIVE when the airline is ready. It is decision support only: TEPHRA sends nothing to an aircraft
 or to any system; an approved advisory goes to the airline's own outbound list, and a person passes

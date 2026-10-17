@@ -987,7 +987,7 @@ async def test_a_purge_never_takes_a_newer_account_s_login(tmp_path: Path) -> No
 
 
 def test_a_name_holding_a_variable_is_refused() -> None:
-    """The kit writes the name into airline.env, whose loader expands ${VAR} in any quoting: a
+    """The name may go into a .env file, whose loader expands ${VAR} in any quoting: a
     name holding one would print another setting (batch 2 security finding 6)."""
     bad = answers(airline__name="Air ${TEPHRA_SESSION_SECRET}")
     with pytest.raises(ValueError, match=r"must not contain \$\{"):

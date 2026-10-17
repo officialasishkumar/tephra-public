@@ -160,7 +160,7 @@ function closuresList(p) {
     el('ul', { class: 'clos' }, list.map((c) =>
       el('li', { class: 'clo' },
         el('p', { class: 'clo__line' },
-          el('span', { class: 'clo__icao' }, icon('i-airport', 'st'), el('span', { text: c.icao })),
+          el('span', { class: 'clo__icao' }, icon('st-closed', 'st'), el('span', { text: c.icao })),
           el('span', { class: 'clo__text', text: `${window_(c)}${c.summary ? ` · ${c.summary.replace(/^Ash /, 'ash ')}` : ''}` }),
           c.open_ended ? el('span', { class: 'chip chip--caution chip--sm' }, icon('st-caution', 'st'), el('span', { text: 'no end published' })) : null),
         // The full reason and every source id stay for audit.
@@ -207,7 +207,7 @@ function scenarioCard(p, s, maxUsd) {
         stat('Cancelled', t.cancelled_flights), stat('Delayed', t.delayed_flights), stat('Swapped', t.swapped_flights),
         stat('Delay', `${t.delay_min} min`), stat('Passengers', t.pax_affected.toLocaleString('en-US')), stat('Ferry legs', t.ferries)));
   } else {
-    body.push(el('p', { class: 'sc__none' }, icon('st-serious', 'st'), el('span', { text: solverWords(s.solver_status) })));
+    body.push(el('p', { class: 'sc__none' }, icon('st-caution', 'st'), el('span', { text: solverWords(s.solver_status) })));
   }
   const btn = el('button', {
     type: 'button', class: `sc ${on ? 'is-on' : ''} ${chosen ? 'is-chosen' : ''}`.trim(), 'data-scenario': s.id, 'aria-pressed': String(on),
@@ -245,10 +245,10 @@ function whyContent(p) {
   }
   const m = STUB_WHY.exec(p.rationale || '');
   const text = m
-    ? `Code only (assistant off): code picked the plan for the closure as published. It cancels ${Number(m[1]).toLocaleString('en-US')} flights and delays ${Number(m[2]).toLocaleString('en-US')}, affects ${Number(m[3]).toLocaleString('en-US')} passengers and costs ${fmtUsd(Number(m[4]))}.`
+    ? `Code picked the plan for the closure as published. It cancels ${Number(m[1]).toLocaleString('en-US')} flights and delays ${Number(m[2]).toLocaleString('en-US')}, affects ${Number(m[3]).toLocaleString('en-US')} passengers and costs ${fmtUsd(Number(m[4]))}.`
     : p.rationale || '';
   const card = el('div', { class: 'why' },
-    el('p', { class: 'why__meta' }, aiMark('Explained by Recovery planner', p.llm_backend === 'stub' ? null : p.model_id),
+    el('p', { class: 'why__meta' }, aiMark('Explained by Recovery planner', p.llm_backend === 'stub' ? null : p.model_id, { code: 'Picked by code' }),
       p.outcome === 'REPAIRED' ? el('span', { class: 'chip chip--sm', text: 'repaired once' }) : null,
       el('span', { class: 'chip chip--sm', text: 'numbers checked by code' })),
     el('p', { class: 'why__text', text }));
@@ -384,14 +384,14 @@ export function renderNetwork() {
   const problem = planProblem(p);
   const solvedAny = (p.scenarios || []).length > 0;
   // the status says what is missing; the line below says why once (review clutter 12)
-  const [shape, word, tone] = problem ? ['st-serious', 'No plan found', 'serious']
+  const [shape, word, tone] = problem ? ['st-caution', 'No plan found', 'serious']
     : p.status === 'AI_UNAVAILABLE' ? ['st-caution', solvedAny ? 'No recommendation' : 'No plan', 'caution'] : STATUS[p.status] || STATUS.DRAFT;
   const n = closures.length;
   const card = el('section', { class: `plan plan--${tone}`, 'aria-labelledby': 'plan-eyebrow' },
     el('p', { class: 'plan__eyebrow', id: 'plan-eyebrow' }, el('span', { text: 'Airport plan' }), el('span', { class: `plan__status plan__status--${tone}` }, icon(shape, 'st'), el('span', { text: word }))),
     el('p', { class: 'plan__lead', text: n ? `Ash closes ${n} RFA airport${n === 1 ? '' : 's'} (all volcanoes): ${closures.map((c) => c.icao).join(', ')}.` : 'No RFA airport is closed by ash in this plan.' }));
   if (problem) {
-    card.append(el('p', { class: 'plan__problem' }, icon('st-serious', 'st'), el('span', { text: problem.words })), techNode(problem.raw));
+    card.append(el('p', { class: 'plan__problem' }, icon('st-caution', 'st'), el('span', { text: problem.words })), techNode(problem.raw));
   } else if (t) {
     card.append(
       el('p', { class: 'plan__line', text: `Plan: cancel ${t.cancelled_flights} flight${t.cancelled_flights === 1 ? '' : 's'}, delay ${t.delayed_flights}${t.swapped_flights ? `, swap ${t.swapped_flights}` : ''} · ${t.pax_affected.toLocaleString('en-US')} passengers` }),
@@ -429,7 +429,9 @@ export function renderNetwork() {
         x.status === 'DRAFT' ? [icon('st-caution', 'st'), ' '] : null,
         `${hhmmz(x.created_at)} · ${planProblem(x) ? 'No plan found' : (STATUS[x.status] || [0, x.status])[1]}${chosenOf(x) && chosenOf(x).totals ? ` · ${fmtUsd(chosenOf(x).totals.total_usd)}` : ''}`)))]));
   }
-  parts.push(el('p', { class: 'fine plan__fine', text: "Decision support only. Approving a plan queues it on TEPHRA's own outbound queue. Nothing is sent to an airline system." }));
+  // the decision-support sentence is not page chrome any more (owner, 17 Oct: "don't put this
+  // everywhere"); what approving does stays at the place you approve
+  parts.push(el('p', { class: 'fine plan__fine', text: "Approving queues the plan on TEPHRA's own outbound queue. Nothing is sent to an airline system." }));
   panel.replaceChildren(...parts);
   restoreFocus(panel, keep);
 }
@@ -511,7 +513,7 @@ function confirmReject(p) {
   go.addEventListener('click', async () => {
     const reason = area.value.trim();
     if (reason.length < 3) {
-      msg.replaceChildren(el('p', { class: 'msg msg--caution' }, icon('st-caution', 'st'), el('span', { text: 'Give a reason of at least 3 characters.' })));
+      msg.replaceChildren(el('p', { class: 'msg msg--invalid' }, icon('st-caution', 'st'), el('span', { text: 'Give a reason of at least 3 characters.' })));
       area.focus();
       return;
     }
@@ -525,7 +527,9 @@ function confirmReject(p) {
       return;
     }
     const list = problems(res);
-    msg.replaceChildren(el('p', { class: 'msg msg--serious' }, icon('st-serious', 'st'), el('span', { text: `Not rejected: ${list.length ? list.join(' · ') : (res.data && res.data.detail) || `HTTP ${res.status}`}` })));
+    // A 422 lists what to fix in the reason (caution + triangle); red is for the server.
+    const bad = res.status === 422 ? ['msg--invalid', 'st-caution'] : ['msg--serious', 'st-serious'];
+    msg.replaceChildren(el('p', { class: `msg ${bad[0]}` }, icon(bad[1], 'st'), el('span', { text: `Not rejected: ${list.length ? list.join(' · ') : (res.data && res.data.detail) || `HTTP ${res.status}`}` })));
   });
   window.setTimeout(() => area.focus(), 50);
 }
