@@ -37,6 +37,34 @@ TEPHRA_LLM=stub TEPHRA_LOCAL_SCHEDULER=1 TEPHRA_DESK_PIN=1234 TEPHRA_MODE=REPLAY
 The demo Desk accepts a visitor sign-in from its sign-in card; visitor decisions are real, audited and
 labelled REPLAY.
 
+## Run it locally: no model, Gemini, or Gemma
+
+You need Python 3.12 and [uv](https://docs.astral.sh/uv/). Each command starts the labelled replay
+of the 5-8 September 2026 Anak Krakatau eruption; open http://localhost:8080 (the Desk is at
+`/desk`, PIN as set).
+
+```bash
+uv sync --extra dev
+export TEPHRA_MODE=REPLAY TEPHRA_REPLAY_CASE=anak-krakatau-20260905 TEPHRA_LOCAL_SCHEDULER=1 TEPHRA_DESK_PIN=2468
+
+# 1. No model (code only, every model step marked "{ }"): no key, no network for the model
+TEPHRA_LLM=stub uv run tephra
+
+# 2. Gemini, with your own Google AI Studio key (https://aistudio.google.com/apikey)
+GEMINI_API_KEY=<your key> TEPHRA_LLM=gemini uv run tephra
+
+# 3. Gemma on your own machine through Ollama (https://ollama.com): no key, no quota
+ollama pull gemma4:e4b
+TEPHRA_LLM=ollama TEPHRA_OLLAMA_URL=http://127.0.0.1:11434 \
+  TEPHRA_MODEL=gemma4:e4b TEPHRA_MODEL_LITE=gemma4:e4b uv run tephra
+```
+
+The Gemma run is described step by step in [docs/LOCAL-DEMO.md](docs/LOCAL-DEMO.md), with a
+synthetic demo case and a bigger-machine setup. Tests run offline: `TEPHRA_LLM=stub uv run pytest`.
+
+Deploying your own copy to Google Cloud (Cloud Run, Firestore, Cloud Scheduler, Secret Manager,
+Artifact Registry, and keyless deploys from GitHub Actions) is in [deploy/README.md](deploy/README.md).
+
 ## 1. The problem, measured
 
 - From 6 to 8 September 2026, ash from Anak Krakatau closed Jakarta's Soekarno-Hatta airport, its
@@ -303,7 +331,7 @@ Every setting is in [`.env.example`](.env.example). The ones that matter first:
 
 | Variable | What |
 |---|---|
-| `TEPHRA_LLM`, `GEMINI_API_KEY`, `TEPHRA_MODEL`, `TEPHRA_MODEL_LITE` | `stub` (offline, NO MODEL) or `gemini` with a personal AI Studio key; the Plume reader's model and the lighter tier's |
+| `TEPHRA_LLM`, `GEMINI_API_KEY`, `TEPHRA_MODEL`, `TEPHRA_MODEL_LITE`, `TEPHRA_OLLAMA_URL` | `stub` (offline, no model), `gemini` with a personal AI Studio key, or `ollama` for Gemma on your own machine; the Plume reader's model and the lighter tier's |
 | `TEPHRA_MODE`, `TEPHRA_REPLAY_CASE`, `TEPHRA_REPLAY_START`, `TEPHRA_REPLAY_END`, `TEPHRA_REPLAY_QUANTUM_S` | `LIVE`, or a labelled `REPLAY` of a case under `data/replay/` looping over a window; the replay minute, so every loop asks the same questions |
 | `TEPHRA_STORE`, `TEPHRA_LOCAL_SCHEDULER` | `sqlite` with in-process ticks locally; `firestore` and Cloud Scheduler inside Cloud Run |
 | `TEPHRA_DESK_PIN`, `TEPHRA_SESSION_SECRET`, `TEPHRA_TASK_TOKEN` | the Desk sign-in, the cookie signer, the tick token (32+ characters) |
