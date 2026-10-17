@@ -30,6 +30,9 @@ dist/
 # scratch
 scratch/
 
+# local test server data and the values its seed made (scripts/local_test_*.py)
+.local-test/
+
 # MAGMA VONA text (no redistribution licence)
 evals/plume/arm_t/vona.txt
 
