@@ -145,6 +145,10 @@ def test_the_glossary_and_the_honesty_table_name_the_new_words() -> None:
         assert row in table, row
 
 
+@pytest.mark.skipif(
+    not (ROOT / "deploy/public/forbidden.txt").is_file(),
+    reason="the export lists are not in the public copy",
+)
 def test_no_forbidden_or_retired_word_in_h6_files() -> None:
     rules = _forbidden()
     hits = []

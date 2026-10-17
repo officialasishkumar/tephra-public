@@ -51,6 +51,8 @@ def _page_files() -> list[Path]:
 
 def test_documents_use_the_glossary_words() -> None:
     for rel in DOCS:
+        if not (ROOT / rel).is_file():  # a private document the public copy leaves out
+            continue
         prose = _prose((ROOT / rel).read_text(encoding="utf-8"))
         hits = [w for w in RETIRED if w in prose]
         assert not hits, (rel, hits)

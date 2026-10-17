@@ -70,6 +70,9 @@ CASE_ID = "semeru-fixtures"
 LABEL = "Semeru, fixture feeds of 9 Oct 2026"
 BANNER = "REPLAY: recorded real feeds from 09 Oct 2026"
 
+# the MAGMA pages these cases are recorded from (RED licence; the public copy leaves them out)
+MAGMA_FIXTURES = (Path(__file__).parent / "fixtures/magma/vona_list.html").is_file()
+
 
 @pytest.fixture
 def data_dir(tmp_path: Path) -> Path:
@@ -145,6 +148,7 @@ async def test_recording_source_keeps_exactly_what_the_live_fetch_returned(
     assert record.content_type == live.content_type
 
 
+@pytest.mark.skipif(not MAGMA_FIXTURES, reason="private fixture (RED licence) not in this tree")
 async def test_a_recorded_case_loads_with_its_manifest(data_dir: Path, tmp_path: Path) -> None:
     case = await record_case(data_dir, tmp_path / "record")
 
@@ -258,6 +262,7 @@ def test_the_replay_clock_starts_at_the_recording_and_moves() -> None:
 # --- labelled REPLAY runs ---------------------------------------------------------------
 
 
+@pytest.mark.skipif(not MAGMA_FIXTURES, reason="private fixture (RED licence) not in this tree")
 async def test_a_replay_run_is_labelled_everywhere(data_dir: Path, tmp_path: Path) -> None:
     await record_case(data_dir, tmp_path / "record")
     settings = replay_settings(data_dir, tmp_path / "replay")
@@ -318,6 +323,7 @@ async def test_when_the_replay_clock_loops_the_replay_starts_over(
     assert SEMERU in runtime.situations
 
 
+@pytest.mark.skipif(not MAGMA_FIXTURES, reason="private fixture (RED licence) not in this tree")
 async def test_a_replay_admits_no_notice_issued_after_its_clock(
     data_dir: Path, tmp_path: Path
 ) -> None:

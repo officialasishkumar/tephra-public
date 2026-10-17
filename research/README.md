@@ -62,6 +62,7 @@ Rows 1–25 date from the first research pass. Rows 26–45 were added on 10 Oct
 | 22 | Weathernews AI ash detection in use since 26 Apr 2021 (in-house, feeds ACOS) | 03 | Confirmed (corrected scope) |
 | 23 | MAGMA robots.txt `Disallow: /` | 05, 06, 17 | Confirmed (re-checked 10 Oct) |
 | 24 | AWC SIGMET history covers only 30 days | 05, 14 | Confirmed (HTTP 400). *10 Oct:* older SIGMETs are in the IEM NOAAPort archive (17, R1) |
+| 25 | Withheld in the public copy | | |
 | 26 | Indonesia's DGCA circular SE-DJPU 15/2026, in force since 6 Sep 2026: aircraft operators must carry out a safety risk assessment before planning flights into areas ash may affect, and report every ash encounter | 17 (P1: DGCA release of 8 Sep) | Confirmed (press release; the circular's own text was not read). Do not say it requires software |
 | 27 | Sinabung ash closed Kualanamu (KNO) on 1 Sep 2026 under NOTAM A3250/26: 45 flights cancelled, 6 rescheduled | 17 (P1: DGCA release of 2 Sep) | Confirmed |
 | 28 | Two Indonesian hubs were closed by ash within a week: Kualanamu on 1 Sep and Soekarno-Hatta on 6 Sep | 17, rows 1 and 27 | Confirmed (from rows 1 and 27) |

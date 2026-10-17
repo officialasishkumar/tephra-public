@@ -758,6 +758,8 @@ def test_deploy_files_the_export_keeps_do_not_address_a_judge() -> None:
             if re.search(r"\bjudg", line, re.IGNORECASE):
                 hits.append(f"{path.relative_to(PROJECT_ROOT)}:{number}")
     assert hits == []
+    if not (PROJECT_ROOT / "deploy" / "RUNBOOK-private.md").is_file():
+        return  # the private runbook is not in the public copy
     runbook = (PROJECT_ROOT / "deploy" / "RUNBOOK-private.md").read_text(encoding="utf-8")
     assert "TEPHRA_KEEP_TAG=keep-submission-20261018" in runbook
     assert "prewarm_replay.py" in runbook

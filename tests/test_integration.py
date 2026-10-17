@@ -50,6 +50,9 @@ JMA_DIR = Path(__file__).parent / "fixtures" / "jma"
 VFVO52 = "20261008050115_0_VFVO52_400000.xml"
 DATA_URL = "https://www.data.jma.go.jp/developer/xml/data/"
 
+# the MAGMA pages these cases are recorded from (RED licence; the public copy leaves them out)
+MAGMA_FIXTURES = (Path(__file__).parent / "fixtures/magma/vona_list.html").is_file()
+
 
 @pytest.fixture
 def clock() -> Iterator[FixedClock]:
@@ -273,6 +276,7 @@ async def test_a_jma_eruption_report_joins_the_picture_like_a_vona(tmp_path: Pat
             await runtime.aclose()
 
 
+@pytest.mark.skipif(not MAGMA_FIXTURES, reason="private fixture (RED licence) not in this tree")
 async def test_jma_and_magma_pollers_do_not_drop_each_others_records(tmp_path: Path) -> None:
     """They run side by side in a tick; each merges into the same dict."""
     with use_clock(FixedClock(AT)):
