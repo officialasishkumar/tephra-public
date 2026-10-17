@@ -57,7 +57,10 @@ const TENANT = new Set(["setup", "shadow", "live", "suspended"]);
 // A row's own state: "setup" is a verified airline with a checklist (its space exists).
 export const rowState = (row) => (row.status === "verified" && row.checklist ? "setup" : row.status);
 export const hasSpace = (row) => TENANT.has(rowState(row));
-export const needsOperator = (row) => row.status === "pending" || (row.status === "verified" && row.hosting === "desk" && !row.checklist);
+// What waits for an operator: an airline to verify (pending), or one the Desk verified whose
+// hosting waits for approval (verified already, so never counted "to verify").
+export const toVerify = (row) => row.status === "pending";
+export const toApprove = (row) => row.status === "verified" && row.hosting === "desk" && !row.checklist;
 
 const BADGE = {
   pending: "sbadge--pending",
@@ -72,7 +75,8 @@ const BADGE = {
 };
 export const FILTERS = [
   ["all", "All", () => true],
-  ["verify", "To verify", needsOperator],
+  ["verify", "To verify", toVerify],
+  ["approve", "Approve hosting", toApprove],
   ["running", "Running", (r) => RUNNING.has(r.status)],
   ["suspended", "Suspended", (r) => r.status === "suspended"],
 ];
@@ -89,8 +93,8 @@ export function rowActions(row, list, now = Date.now()) {
   const full = Boolean(list.limit_reached);
   const menu = [];
   let primary = null;
-  if (row.status === "pending") primary = ["Review…", "review", null];
-  else if (row.status === "verified" && row.hosting === "desk" && !row.checklist) primary = ["Review…", "approve", null];
+  if (toVerify(row)) primary = ["Review…", "review", null];
+  else if (toApprove(row)) primary = ["Approve hosting…", "approve", null];
   else if (state === "setup" || RUNNING.has(state)) primary = ["Suspend…", "suspend", null];
   else if (state === "suspended") {
     primary = ["Resume…", "resume", full ? `Airline limit reached: ${list.slots.used} of ${list.slots.max} places in use` : null];
@@ -184,7 +188,7 @@ export function tiles(list) {
   const rss = list.process || {};
   return el("div", { class: "acount" },
     el("div", { class: full ? "full" : null }, el("b", { text: `${list.slots.used} / ${list.slots.max}` }), el("span", { text: "places in use (shadow or live)" })),
-    el("div", {}, el("b", { text: num(list.to_verify) }), el("span", { text: "waiting to be verified" })),
+    el("div", {}, el("b", { text: num(list.to_verify + (list.to_approve || 0)) }), el("span", { text: "waiting for an operator" })),
     el("div", {}, el("b", { text: pass ? `${pass.seconds.toFixed(1)} s` : "–" }), el("span", { text: pass ? `last hosted pass, of ${pass.budget_s} s · ${hms(pass.at)}` : "no hosted pass on this instance yet" })),
     el("div", {}, el("b", { text: num(list.advisories_waiting) }), el("span", { text: "advisories waiting, all airlines" })),
     el("section", { class: "ftile", "aria-labelledby": "ft-h" },

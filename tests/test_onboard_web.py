@@ -122,8 +122,8 @@ def test_the_honesty_labels_these_pages_say() -> None:
     assert 'el("details", { id: "ob-provide"' in provide  # closed until asked for
     assert '"What you will provide"' in provide
     landing = code.split("function landing()")[1].split("\nfunction ")[0]
-    assert "NOT_ON_YET" in landing
-    assert "notYet()" in _read("workspace/overview.js")
+    assert 'siteLine(has("hosted"))' in landing
+    assert "notYet(view)" in _read("workspace/overview.js")
     assert "Running your live operation on this shared TEPHRA" not in text
     # own flight numbers work in an airline's own TEPHRA (OWNFLIGHTS, 16 Oct 2026): no page says
     # its drafts use Ring of Fire Air numbers any more

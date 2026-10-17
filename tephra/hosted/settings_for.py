@@ -32,6 +32,7 @@ __all__ = [
     "UNREADABLE",
     "assistant_tab",
     "check_assistant",
+    "chosen_models",
     "hosted_models",
     "model_key",
     "tenant_settings",
@@ -51,6 +52,12 @@ def hosted_models(settings: Settings) -> dict[str, int]:
         for name, limit in settings.model_limits.items()
         if name != settings.model_tts and not name.endswith("-tts") and limit.rpd > 0
     }
+
+
+def chosen_models(record: TenantRecord) -> set[str]:
+    """The models the airline chose (its runtime calls no other): none until it chooses."""
+    assistant = record.assistant
+    return set() if assistant is None else {assistant.model, assistant.model_lite}
 
 
 def check_assistant(assistant: TenantAssistant, settings: Settings) -> None:
@@ -148,8 +155,12 @@ def assistant_tab(
     sealed = record.model_key
     readable = None if sealed is None else keys.readable(record.icao, sealed, settings)
     _, unavailable = model_key(record, settings)
-    chosen = set() if assistant is None else {assistant.model, assistant.model_lite}
+    chosen = chosen_models(record)
     rows = [] if budget is None else [row for row in budget.models if row.model_id in chosen]
+    if budget is not None:
+        # Today's calls: only the models the airline chose (none chosen: none); its runtime's
+        # tiers are those models (tenant_settings), so they go only with the choice
+        budget = budget.model_copy(update={"models": rows, "tiers": budget.tiers if chosen else []})
     paused = bool(rows) and all(row.closed or row.remaining <= 0 for row in rows)
     state = "unavailable" if unavailable is not None else "paused" if paused else "on"
     return AssistantTab(

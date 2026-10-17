@@ -13,9 +13,9 @@ import { applyFeatureNav, has, setFeatures } from "./wall/features.js";
 import { formatValue, policyValues } from "./wall/policy.js";
 import { initAccountNav, showAccountWho } from "./account-nav.js";
 import {
-  ANSWER_PAGES, airportCode, FLEET_FILE_MAX_BYTES, KEY_POLICY_VALUES, NOT_ON_YET, PAGES, PAGE_KEYS, PROVIDE, SCHEDULE_FILE_MAX_BYTES,
+  ANSWER_PAGES, airportCode, FLEET_FILE_MAX_BYTES, KEY_POLICY_VALUES, PAGES, PAGE_KEYS, PROVIDE, SCHEDULE_FILE_MAX_BYTES,
   cautionsOf, checkPage, checkSchedule, emptyValues, fileLine, firstUnfinished, fromAnswers, isEditablePolicyValue, mapServerProblem,
-  pageOf, parseFleetFile, problemText, toAnswers, upper, WHO_READS,
+  pageOf, parseFleetFile, problemText, siteLine, toAnswers, upper, WHO_READS,
 } from "./onboard/pages.js";
 import { caret, chipInfo, choiceCards, chipsInput, fid, field, illus, input, listError, notBuilt, note, section, segmented, setError, setListError } from "./onboard/form.js";
 import { dropLegacyDraft, loadLegacyDraft, loadLocal, saveLocal } from "./onboard/draft.js";
@@ -1158,7 +1158,7 @@ function landing() {
     side,
     el("div", { class: "ostart__side" },
       provideList(),
-      el("p", { id: "ob-notyet", class: "notyet" }, icon("i-info"), el("span", { text: NOT_ON_YET })))));
+      el("p", { id: "ob-notyet", class: "notyet" }, icon("i-info"), el("span", { text: siteLine(has("hosted")) })))));
 }
 
 // --- done and off ----------------------------------------------------------------------------------

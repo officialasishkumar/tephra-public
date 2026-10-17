@@ -44,6 +44,21 @@ export const WHO_READS = "Only you and this site's TEPHRA dispatchers, who verif
 
 // The one line the landing and the workspace say while this site runs no airline's operation.
 export const NOT_ON_YET = "Running your airline on this site is not switched on yet.";
+// The landing's line once this site hosts airlines (SPEC hosted §9): what follows verification.
+export const HOSTED_NEXT = "TEPHRA's operators approve hosting after verification. Your airline goes live from its workspace.";
+// The landing's line: `hosted` is the server's "hosted" feature.
+export const siteLine = (hosted) => (hosted ? HOSTED_NEXT : NOT_ON_YET);
+
+// An airline's private history (the Desk's Airlines to verify): one word per entry, each action of
+// tephra/airline/models.py HistoryAction (a test keeps the two equal). "created" is the account,
+// "submitted" the answers sent for verification.
+export const HISTORY_WORDS = {
+  created: "Account created", answers_changed: "Answers changed", assistant_changed: "Model choice changed",
+  submitted: "Submitted", verified: "Verified", declined: "Declined", hosting_approved: "Hosting approved",
+};
+// "airline", "desk:<name>" or "operator:<name>#<k8>": who, as the pages name them (never the key part)
+export const historyActor = (actor) => String(actor ?? "").replace(/^(desk|operator):/, "").replace(/#[^#]*$/, "");
+export const historyLine = (h) => [HISTORY_WORDS[h.action] || h.action, historyActor(h.actor), h.note || null].filter(Boolean).join(" · ");
 // The workspace's line once this site hosts airlines (SPEC hosted §9), with the site's own limit
 // (TEPHRA_HOSTED_MAX_TENANTS, from GET /api/hosted/me).
 export const notBuiltHosted = (max) => `TEPHRA runs at most ${max} ${max === 1 ? "airline" : "airlines"} at once on this site.`;

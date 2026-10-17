@@ -682,7 +682,10 @@ class AdminList(TephraModel):
     slots: Slots
     limit_reached: bool
     hosting: Literal["always-on", "on-demand"]
-    to_verify: int
+    to_verify: int = Field(description="Airlines waiting to be verified (pending)")
+    to_approve: int = Field(
+        description="Airlines the Desk verified, waiting for an operator to approve hosting"
+    )
     advisories_waiting: int
     meter: AdminMeter
     process: ProcessLine

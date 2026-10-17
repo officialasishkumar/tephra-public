@@ -5,7 +5,8 @@
   },
   "limit_reached": true,
   "hosting": "on-demand",
-  "to_verify": 2,
+  "to_verify": 1,
+  "to_approve": 1,
   "advisories_waiting": 6,
   "meter": {
     "day": "2026-10-17",

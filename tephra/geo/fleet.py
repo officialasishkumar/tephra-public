@@ -33,7 +33,7 @@ class ScheduleError(ValueError):
     """The airline's flights.json or fleet.json cannot be read; startup stops, naming it."""
 
 
-# --- the airline's own files (the setup kit's flights.json and fleet.json) ------------------
+# --- the airline's own files (flights.json and fleet.json) ----------------------------------
 
 
 class _Row(TephraModel):

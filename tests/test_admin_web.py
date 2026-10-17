@@ -1,7 +1,8 @@
 """The operator console /admin (SPEC hosted §5.7), ``tephra/web/admin.js``, under Node with the §4.3
 fixtures of ``tests/fixtures/hosted/admin``: the tiles (places, waiting, last pass, advisories,
 the free-tier tile with the namespaces and RSS), the notes, the filters and their counts, each
-row's status shape and actions (Review… for pending and Desk-verified airlines, Suspend… for
+row's status shape and actions (Review… for pending airlines, Approve hosting… for Desk-verified
+ones, Suspend… for
 running ones, Resume… disabled at the limit, Delete data… only 7 days after suspension), every
 destructive action behind a reason or the airline's code, the operators section, sign-in and the
 operator link whose token leaves the address bar. Plus static checks of admin.html. Skipped
@@ -63,7 +64,9 @@ def test_the_tiles_and_the_free_tier(tmp_path: Path) -> None:
     r = _console(tmp_path, "admin-list-full")
     tiles = {t: c for c, t in r["tiles"]}
     assert "2 / 3 places in use (shadow or live)" in tiles
-    assert "2 waiting to be verified" in tiles
+    # one pending airline to verify and one Desk-verified airline waiting for hosting approval
+    assert "2 waiting for an operator" in tiles
+    assert not any("waiting to be verified" in t for t in tiles)
     assert "18.6 s last hosted pass, of 40 s · 14:04:00Z" in tiles
     assert "6 advisories waiting, all airlines" in tiles
     t = r["text"]
@@ -149,7 +152,9 @@ def test_each_status_gets_its_shape_and_its_actions(tmp_path: Path) -> None:
     assert rfr["badge"] == "sbadge sbadge--pending"
     assert ["Review…", False] in rfr["buttons"]
     assert "VERIFIED (DESK)" in dict(rfn["cells"])["Status"]
-    assert ["Review…", False] in rfn["buttons"]
+    # verified already: its action is the approval, in the operator's words (journey 22)
+    assert ["Approve hosting…", False] in rfn["buttons"]
+    assert ["Review…", False] not in rfn["buttons"]
     assert rfs["badge"] == "sbadge sbadge--suspended"
     assert ["Resume…", False] in rfs["buttons"]
     assert ["Delete data… From 21 Oct, 13:40 UTC", True] in rfs["buttons"]
@@ -190,9 +195,19 @@ def test_delete_opens_after_seven_days_and_resume_waits_for_a_place(tmp_path: Pa
 @needs_node
 def test_filters_count_what_they_show(tmp_path: Path) -> None:
     r = _console(tmp_path, "admin-list-full")
-    assert r["tabs"] == ["All · 6", "To verify · 2", "Running · 2", "Suspended · 1"]
+    # a Desk-verified airline is never "to verify" (journey 17 Oct 2026, 22): its own count
+    assert r["tabs"] == [
+        "All · 6",
+        "To verify · 1",
+        "Approve hosting · 1",
+        "Running · 2",
+        "Suspended · 1",
+    ]
     verify = _console(tmp_path, "admin-list-full", filter="verify")
-    assert [x["icao"] for x in verify["rows"]] == ["RFR", "RFN"]
+    assert [x["icao"] for x in verify["rows"]] == ["RFR"]
+    approve = _console(tmp_path, "admin-list-full", filter="approve")
+    assert [x["icao"] for x in approve["rows"]] == ["RFN"]
+    assert "VERIFIED (DESK)" in dict(approve["rows"][0]["cells"])["Status"]
     running = _console(tmp_path, "admin-list-full", filter="running")
     assert [x["icao"] for x in running["rows"]] == ["RFB", "RFC"]
     empty = _console(tmp_path, "admin-list-empty")

@@ -399,6 +399,32 @@ def test_hosting_off_keeps_today_s_overview(tmp_path: Path) -> None:
     assert skipped["calls"] == []
 
 
+WAITING = "TEPHRA's operators approve hosting after verification. This page says when."
+
+
+def _pending(hosted_site: bool, status: str = "pending") -> dict[str, Any]:
+    view = fixture("workspace", "airline-view-verified")
+    view.update(status=status, editable=True, hostedSite=hosted_site)
+    view["steps"] = [s for s in view["steps"] if s["kind"] == "submitted"]
+    return view
+
+
+def test_a_pending_airline_is_told_what_follows_when_this_site_hosts(tmp_path: Path) -> None:
+    """Journey 17 Oct 2026 (14): with hosting on, a pending workspace said "not switched on
+    yet". It now says once what follows verification; hosting off keeps today's line."""
+    on = _overview(tmp_path, None, hostedOff=True, view=_pending(True))
+    assert NOT_BUILT not in on["text"]
+    assert on["text"].count(WAITING) == 1
+    assert on["calls"] == []
+    off = _overview(tmp_path, None, hostedOff=True, view=_pending(False))
+    assert NOT_BUILT in off["text"]
+    assert WAITING not in off["text"]
+    # a declined airline on a hosting site: no line about hosting at all
+    declined = _overview(tmp_path, None, hostedOff=True, view=_pending(True, "declined"))
+    assert NOT_BUILT not in declined["text"]
+    assert WAITING not in declined["text"]
+
+
 def test_desk_verified_airline_waits_for_the_operators(tmp_path: Path) -> None:
     r = _overview(tmp_path, "waiting")
     assert r["golive"] is None

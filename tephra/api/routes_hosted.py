@@ -221,6 +221,8 @@ async def join(body: JoinBody, request: Request) -> Response:
     )
     for name, key in (("airline_signups", client), ("airline_signups_all", SITE)):
         getattr(request.app.state, name).record_failure(key)
+    # joining signs the new member in: People's "Last sign-in" says so from the start
+    await accounts.note_sign_in(root, login.login_key, at=wall_clock_now())
     await _registry(request).reload(found.icao)
     response = _json(Joined(accounts=True, signed_in=True, recovery_code=code))
     set_airline_cookie(response, request, member_claims(login))

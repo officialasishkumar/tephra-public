@@ -6,6 +6,7 @@
   "limit_reached": false,
   "hosting": "always-on",
   "to_verify": 0,
+  "to_approve": 0,
   "advisories_waiting": 0,
   "meter": {
     "day": "2026-10-17",

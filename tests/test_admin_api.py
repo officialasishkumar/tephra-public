@@ -177,7 +177,7 @@ def test_verify_approves_hosting_and_decline_says_why(
     pending = site.run(client, lambda: site.holder("RFB", verified=False))
     other = site.run(client, lambda: site.holder("RFC", verified=False))
     listed = client.get("/api/admin/airlines").json()
-    assert listed["to_verify"] == 2
+    assert (listed["to_verify"], listed["to_approve"]) == (2, 0)
     assert listed["slots"] == {"used": 0, "max": 3}
     assert listed["hosting"] == "always-on"
     assert "by_namespace" in listed["meter"]

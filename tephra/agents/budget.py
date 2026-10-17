@@ -27,6 +27,7 @@ __all__ = [
     "BudgetView",
     "budget_view",
     "slot_words",
+    "used_tiers",
 ]
 
 QUOTA_NOTE: Final = (
@@ -132,8 +133,10 @@ async def budget_view(
     settings: Settings, llm: LlmBackend, quota: QuotaLedger, work: Sequence[AiWork] = ()
 ) -> BudgetView:
     """The day's counts from the ledger (its copy, read from the store once a day). The stub
-    backend spends no quota, so its models read zero used."""
-    tiers: tuple[Tier, ...] = ("main", "lite", "tts")
+    backend spends no quota, so its models read zero used. Only the models this runtime calls:
+    the speech model only where spoken answers (the ``voice`` feature) are on, so a hosted
+    airline (no voice) never sees a model it did not choose."""
+    tiers = used_tiers(settings)
     ids = {
         tier: llm.model_id(tier) if llm.name != "stub" else _configured(settings, tier)
         for tier in tiers
@@ -171,6 +174,11 @@ async def budget_view(
         waiting=sorted(work, key=lambda item: (item.urgency, item.since, item.id)),
         unavailable=llm.reason if isinstance(llm, UnavailableBackend) else None,
     )
+
+
+def used_tiers(settings: Settings) -> tuple[Tier, ...]:
+    """The tiers a runtime calls: main and lite, and tts (spoken answers) with ``voice`` on."""
+    return ("main", "lite", "tts") if "voice" in settings.features else ("main", "lite")
 
 
 def _configured(settings: Settings, tier: Tier) -> str:

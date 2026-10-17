@@ -3,8 +3,9 @@
 // its (i)), then, when this site hosts airlines (view.hosted, from workspace.js), Go live on TEPHRA
 // (golive.js), then the answers, the data feeds, the assistant and the people, a line each (once
 // the airline has its own space, only the answers stay). Both end with the one line that says this
-// site runs no airline's operation yet, or, once hosting is open to the airline, the site's limit;
-// once the airline has its space that line goes (its places line says the limit where it matters).
+// site runs no airline's operation yet, or, where it hosts airlines, that the operators approve
+// hosting after verification, then the site's limit once hosting is open to the airline; once the
+// airline has its space that line goes (its places line says the limit where it matters).
 // Every value goes in through el().
 
 import { el, icon } from "../wall/util.js";
@@ -82,8 +83,18 @@ function completeness(answers) {
   return { done: 9 - open.length, first: open[0] ? problemText(open[0].key, open[0].problems[0]) : null };
 }
 
-// `max`: the site's airline limit once hosting is open to the airline (null: today's line)
-const notYet = (max = null) => el("p", { id: "ws-notyet", class: "notyet" }, icon("i-info"), el("span", { text: max != null ? notBuiltHosted(max) : NOT_ON_YET }));
+// The overview's last line. `max`: the site's airline limit once hosting is open to the airline.
+// Hosting off: today's line. Hosting on, before verification: what follows it (the waiting line);
+// after it, with no limit read, nothing (a read that failed says so itself).
+export function siteWords(view, max = null) {
+  if (max != null) return notBuiltHosted(max);
+  if (!view.hostedSite) return NOT_ON_YET;
+  return view.status === "draft" || view.status === "pending" ? WAITING_WORDS : null;
+}
+const notYet = (view, max = null) => {
+  const words = siteWords(view, max);
+  return words ? el("p", { id: "ws-notyet", class: "notyet" }, icon("i-info"), el("span", { text: words })) : null;
+};
 
 // A draft: the page to go back to, counted as onboarding counts it (Review is page 9).
 function continueCard(view) {
@@ -99,7 +110,7 @@ function continueCard(view) {
 
 export function renderOverview(main, view) {
   if (view.status === "draft") {
-    main.append(continueCard(view), notYet());
+    main.append(...[continueCard(view), notYet(view)].filter(Boolean));
     return;
   }
   const a = view.answers;
@@ -125,5 +136,5 @@ export function renderOverview(main, view) {
       spaced ? null : row("ta-16", "Assistant", [PROVIDER_WORDS[a.assistant.provider] || "–", model ? el("span", { class: "mono wrow__sub", text: ` ·\u00a0${model}` }) : null], go("/workspace/assistant", "Change")),
       spaced ? null : row("i-dispatcher", "People", `${approvers} ${approvers === 1 ? "approver" : "approvers"}`,
         infoButton({ topic: "names", label: "About names", text: "Names never go to a model." }))),
-    ...(spaced ? [] : [notYet(hosted && !hosted.error && hosted.me ? hosted.me.max_airlines : null)]));
+    ...(spaced ? [] : [notYet(view, hosted && !hosted.error && hosted.me ? hosted.me.max_airlines : null)].filter(Boolean)));
 }

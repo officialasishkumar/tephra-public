@@ -3265,7 +3265,8 @@ editable body; it survives edit-then-approve and the switch to LIVE.
   `RecordTab`, `HostedMe` with `max_airlines`, `InviteView` with `you` (`InviteYou`: the
   browser's own sign-in masked, `for_you`, the name it uses elsewhere; None signed out),
   `OperatorView` with `k`, `AdminList`/`AdminRow` (`AdminMeter.airlines`: the airlines' total
-  the caps pause on, beside the whole site's),
+  the caps pause on, beside the whole site's; `to_verify` pending airlines, `to_approve`
+  Desk-verified ones waiting for an operator's hosting approval),
   `AdminContact`, `Membership`, `LinkView`); request bodies; `HostedRefused(status, code,
   detail)`; roles `ops_manager` > `dispatcher` > `viewer` (`ROLE_RANK`); states `setup`,
   `shadow`, `live`, `suspended`, `deleting`, `deleted`.

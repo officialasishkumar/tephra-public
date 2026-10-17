@@ -606,6 +606,29 @@ def test_the_assistant_key_is_write_only_and_can_be_removed(
     assert runtime.settings.gemini_api_key is None
 
 
+def test_today_s_calls_name_only_the_models_the_airline_chose(
+    client: TestClient, site: HostedSite, rfb: tuple[Holder, Member]
+) -> None:
+    """Journey 17 Oct 2026 (41, 43): the speech model, which a hosted airline never calls (no
+    voice) and never chose, showed in its Today's calls and in /admin's AI use."""
+    tab = client.get("/a/RFB/api/tenant/assistant").json()
+    first = {tab["model"], tab["model_lite"]}
+    assert {m["model_id"] for m in tab["budget"]["models"]} == first
+    chosen = {"model": "gemma-4-31b-it", "model_lite": "gemini-3.1-flash-lite"}
+    assert not first & set(chosen.values())
+    saved = client.put("/a/RFB/api/tenant/assistant", json={**chosen, "reserve_share": 0.2})
+    assert saved.status_code == 200, saved.text
+    tab = client.get("/a/RFB/api/tenant/assistant").json()
+    assert {m["model_id"] for m in tab["budget"]["models"]} == set(chosen.values())
+    assert {t["tier"] for t in tab["budget"]["tiers"]} == {"main", "lite"}
+    runtime = site.reg.handle("RFB").runtime  # type: ignore[union-attr]
+    assert runtime is not None
+    assert "voice" not in runtime.settings.features
+    rows = {row.icao: row for row in site.run(client, lambda: site.reg.admin_list()).rows}
+    assert {ai.model for ai in rows["RFB"].ai} == set(chosen.values())
+    assert not any(ai.model.endswith("-tts") for ai in rows["RFB"].ai)
+
+
 def test_people_roles_removal_and_the_last_ops_manager(
     client: TestClient, site: HostedSite, rfb: tuple[Holder, Member]
 ) -> None:
@@ -793,6 +816,67 @@ def test_a_member_only_login_signs_in_and_may_delete_itself(
     gone = client.post("/api/airline/delete", json={"password": PASSWORD})
     assert gone.status_code == 204, gone.text
     assert client.get("/a/RFB/api/desk/me").status_code == 401
+
+
+def test_every_way_in_counts_as_a_sign_in(
+    client: TestClient, site: HostedSite, rfb: tuple[Holder, Member]
+) -> None:
+    """Journey 17 Oct 2026 (39): People said "Last sign-in: Not yet" for members who had
+    signed in, because only the password sign-in recorded it; creating the account, joining
+    by invite and recovering start a session too, and now each records it."""
+
+    def last(email: str) -> object:
+        login = site.run(client, lambda: accounts.get_login(site.root, accounts.login_key(email)))
+        assert login is not None
+        return login.last_sign_in_at
+
+    made = client.post(
+        "/api/airline/accounts",
+        json={"email": "ops@rfz.example", "password": PASSWORD, "acknowledge": True, "website": ""},
+    )
+    assert made.status_code == 201, made.text
+    assert last("ops@rfz.example") is not None
+    code = made.json()["recovery_code"]
+
+    as_login(client, site, rfb[0].login, rfb[0].record)
+    invited = client.post(
+        "/a/RFB/api/tenant/people/invites", json={"email": "dee@rfb.example", "role": "dispatcher"}
+    )
+    assert invited.status_code == 200, invited.text
+    client.cookies.clear()
+    joined = client.post(
+        "/api/hosted/invites/join",
+        json={
+            "token": invited.json()["link"].split("#", 1)[1],
+            "email": "dee@rfb.example",
+            "password": PASSWORD,
+            "display_name": "Dee Disp",
+            "acknowledge": True,
+        },
+    )
+    assert joined.status_code == 200, joined.text
+    as_login(client, site, rfb[0].login, rfb[0].record)
+    people = client.get("/a/RFB/api/tenant/people").json()
+    assert {m["name"]: m["last_sign_in_at"] is not None for m in people["members"]} == {
+        "Ana Ops": False,  # put in place by the domain, never signed in through a route
+        "Dee Disp": True,
+    }
+
+    client.cookies.clear()
+    site.run(
+        client,
+        lambda: site.root.update(
+            Collection.AIRLINE_LOGINS,
+            accounts.login_key("ops@rfz.example"),
+            lambda doc: {**(doc or {}), "last_sign_in_at": None},
+        ),
+    )
+    recovered = client.post(
+        "/api/airline/recover",
+        json={"email": "ops@rfz.example", "recovery_code": code, "new_password": PASSWORD + "!"},
+    )
+    assert recovered.status_code == 200, recovered.text
+    assert last("ops@rfz.example") is not None
 
 
 def test_signing_out_signs_out_every_device(client: TestClient, site: HostedSite) -> None:

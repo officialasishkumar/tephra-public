@@ -209,6 +209,14 @@ out.cards = radios.map((r) => ({
   line: r.closest("label").querySelector(".choice__text")?.querySelector("span")?.textContent,
   privacy: r.closest("label").querySelectorAll("a").map((x) => x.attrs.href),
 }));
+// where this site hosts airlines, the same card says where the key goes instead
+const { setFeatures } = await import("./wall/features.js");
+setFeatures(["hosted"]);
+body.replaceChildren(modelChoice({ provider: null }, { onChange() {} }));
+const hostedGemini = body.querySelectorAll("input")
+  .find((i) => i.type === "radio" && i.attrs.value === "gemini");
+out.hostedGemini = (hostedGemini.getAttribute("aria-describedby") || "").split(" ")
+  .filter(Boolean).map(textOf);
 process.stdout.write(JSON.stringify(out));
 """
 )
@@ -268,7 +276,7 @@ def test_no_setup_kit_anywhere_in_the_airline_pages() -> None:
         'export const NOT_ON_YET = "Running your airline on this site is not switched on yet.";'
         in pages
     )
-    assert "NOT_ON_YET" in _text(WEB / "onboard.js")
+    assert 'siteLine(has("hosted"))' in _text(WEB / "onboard.js")
     assert "NOT_ON_YET" in _text(WEB / "workspace" / "overview.js")
     assert '"Verified."' in _text(WEB / "workspace" / "overview.js")
 
@@ -334,6 +342,17 @@ def test_the_gemini_data_use_is_heard_before_the_choice(dom: dict[str, Any]) -> 
     assert "/privacy" in gemini["privacy"]
     for c in dom["cards"]:
         assert len(c["line"].split()) <= 6, c  # each card: a title and one short line
+
+
+def test_the_key_words_are_true_with_hosting_on(dom: dict[str, Any]) -> None:
+    """Journey 17 Oct 2026 (12): with hosting on, a hosted airline sets its key in its space,
+    stored encrypted, so "this site never stores it" would be false there. Onboarding still
+    never asks for a key; the card's line stays the same, the (i) says where the key goes."""
+    said = " ".join(dom["hostedGemini"])
+    assert "this site never stores it" not in said
+    assert "added in your airline's space once hosting is approved" in said
+    assert "stored encrypted there" in said
+    assert "On Google's unpaid tier, what TEPHRA sends may be used to improve Google's" in said
 
 
 def test_terse_rule_words(tmp_path: Path) -> None:

@@ -6,11 +6,15 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
+from tephra.agents.budget import budget_view, used_tiers
+from tephra.agents.llm import StubBackend
+from tephra.agents.quota import QuotaLedger
 from tephra.airline.models import Stamp
 from tephra.config import HOSTED_FEATURES
 from tephra.hosted import keys, settings_for
 from tephra.hosted.models import HostedRefused, TenantAssistant, TenantRecord
 from tephra.models import RunMode
+from tephra.store import open_store
 from tests.test_hosted_tenants import answers, site, wall
 
 KEY = "AIzaTestKeyRFB0123456789abcdefghijKLMN"
@@ -149,6 +153,30 @@ def test_the_assistant_tab_says_on_or_unavailable_and_never_the_key(tmp_path: Pa
     assert (tab.key.set, tab.key.last4, tab.key.readable) == (True, "KLMN", True)
     assert KEY not in tab.model_dump_json()
     assert tab.reserve_share == 0.3
+
+
+async def test_today_s_calls_are_the_models_the_airline_runs(tmp_path: Path) -> None:
+    """Journey 17 Oct 2026 (41, 43): the speech model showed in a hosted airline's Today's
+    calls. A runtime lists the speech model only with voice on (a hosted one never has it), and
+    the Assistant tab only the models the airline chose: none until it chooses."""
+    base = site(tmp_path)
+    voiced = base.model_copy(update={"features": base.features | {"voice"}})
+    assert used_tiers(voiced) == ("main", "lite", "tts")
+    tenant = settings_for.tenant_settings(voiced, record(), answers(), SecretStr(KEY))
+    assert used_tiers(tenant) == ("main", "lite")
+    store = open_store(tenant)
+    view = await budget_view(tenant, StubBackend(), QuotaLedger(tenant, store))
+    assert {m.model_id for m in view.models} == {"gemini-3.8-flash", "gemini-3.5-flash-lite"}
+    assert {t.tier for t in view.tiers} == {"main", "lite"}
+    # a budget that still held another model (the site's, the speech one): the tab drops it
+    wide = await budget_view(voiced, StubBackend(), QuotaLedger(voiced, store))
+    assert base.model_tts in {m.model_id for m in wide.models}
+    tab = settings_for.assistant_tab(record(), base, budget=wide)
+    assert tab.budget is not None
+    assert {m.model_id for m in tab.budget.models} == {"gemini-3.8-flash", "gemini-3.5-flash-lite"}
+    none = settings_for.assistant_tab(record(assistant=None), base, budget=wide)
+    assert none.budget is not None
+    assert (none.budget.models, none.budget.tiers) == ([], [])
 
 
 def test_the_demo_keeps_stream_places_after_every_airline_s_are_held_apart(

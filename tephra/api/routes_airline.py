@@ -74,6 +74,7 @@ from tephra.desk import connections
 from tephra.feeds.routes import ROUTES_FILE
 from tephra.models import ErrorBody, FleetResponse, SessionInfo, TephraModel, is_airline_callsign
 from tephra.pipeline import Runtime
+from tephra.store.base import Store
 
 __all__ = ["router"]
 
@@ -232,6 +233,13 @@ def _hosted(request: Request) -> bool:
     return "hosted" in request.app.state.settings.features
 
 
+async def _note_sign_in(request: Request, store: Store, key: str) -> None:
+    """Every route that starts a session (sign-up, sign-in, recovery) records it: People shows
+    an airline's ops managers each member's last sign-in (hosted airlines only)."""
+    if _hosted(request):
+        await accounts.note_sign_in(store, key, at=wall_clock_now())
+
+
 async def _json_body(request: Request) -> Any:
     try:
         return json.loads(await request.body())
@@ -308,6 +316,7 @@ async def create_account(request: Request, runtime: RuntimeDep) -> Response:
         ) from None
     _throttle(request, "airline_signups").record_failure(client)
     _throttle(request, "airline_signups_all").record_failure(SITE)
+    await _note_sign_in(request, runtime.store, login.login_key)
     response = _view(
         AccountCreated(airline=AirlineView.of(record), recovery_code=code), request, record, login
     )
@@ -338,8 +347,7 @@ async def sign_in(body: SignIn, request: Request, runtime: RuntimeDep) -> Respon
     _throttle(request, "airline_login_email").clear(key)
     record = await _record_or_none(runtime, login)
     claims = _claims(record, login)
-    if _hosted(request):
-        await accounts.note_sign_in(runtime.store, key, at=wall_clock_now())
+    await _note_sign_in(request, runtime.store, key)
     view = AirlineSessionView(
         accounts=True,
         signed_in=True,
@@ -383,6 +391,7 @@ async def recover(body: Recover, request: Request, runtime: RuntimeDep) -> Respo
     _throttle(request, "airline_login_email").clear(key)
     if _hosted(request):
         request.app.state.access.drop(login_key=key)
+    await _note_sign_in(request, runtime.store, key)
     record = await _record_or_none(runtime, login)
     return _view(RecoveryCode(recovery_code=code), request, record, login)
 

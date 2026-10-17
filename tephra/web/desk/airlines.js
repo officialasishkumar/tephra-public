@@ -9,7 +9,7 @@ import { announce, el, icon } from './dom.js';
 import { dayMonthHhmm } from './format.js';
 import { openBSheet } from './ui.js';
 import { toast } from './toast.js';
-import { ANSWER_PAGES, pageOf, summaryOf } from '../onboard/pages.js';
+import { ANSWER_PAGES, historyLine, pageOf, summaryOf } from '../onboard/pages.js';
 import { answerRows } from '../onboard/review.js';
 
 const PATH = {
@@ -21,7 +21,6 @@ const PATH = {
 };
 const FILTERS = [['pending', 'Pending'], ['verified', 'Verified'], ['declined', 'Declined'], ['all', 'All']];
 const PILL = { pending: ['st-caution', 'chip--d-caution'], verified: ['st-ok', 'chip--d-ok'], declined: ['st-off', 'chip--d-serious'] };
-const ACTIONS = { created: 'Submitted', answers_changed: 'Answers changed', assistant_changed: 'Model choice changed', verified: 'Verified', declined: 'Declined' };
 const FOOT = "Airlines are private to this site's dispatchers. Nothing here reaches the demo, the Desk's decisions or the public record.";
 
 let named = null;
@@ -132,7 +131,7 @@ async function showOne(id, { notice = null } = {}) {
   const broken = a.history_ok === false ? a.history_broken_at : null;
   const history = el('ol', { class: 'al-history' }, ...a.history.map((h) => el('li', {},
     el('span', { class: 'mono al-at', text: dayMonthHhmm(h.at) }),
-    el('span', { text: `${ACTIONS[h.action] || h.action} · ${String(h.actor).replace(/^desk:/, '')}${h.note ? ` · ${h.note}` : ''}` }))));
+    el('span', { text: historyLine(h) }))));
   const body = el('div', { class: 'al' },
     backButton(),
     notice ? el('p', { class: 'msg msg--info', role: 'status' }, icon('i-info', 'st'), el('span', { text: notice })) : null,

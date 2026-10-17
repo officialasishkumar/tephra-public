@@ -524,7 +524,8 @@ async def test_the_admin_list_counts_onboarding_and_rows_every_submitted_airline
     listing = await s.registry.admin_list()
     rows = {row.icao: row for row in listing.rows}
     assert listing.onboarding == 1
-    assert listing.to_verify == 2  # RFE pending and RFD verified on the Desk, not yet hosted
+    # RFE pending; RFD verified on the Desk waits for hosting approval, never "to verify"
+    assert (listing.to_verify, listing.to_approve) == (1, 1)
     assert (listing.slots.used, listing.slots.max) == (1, 3)
     assert (rows["RFB"].status, rows["RFB"].status_label) == ("shadow", "Shadow")
     assert (rows["RFC"].status, rows["RFC"].checklist) == ("verified", "0/4")

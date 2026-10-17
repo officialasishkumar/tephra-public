@@ -6,11 +6,16 @@ Standard library only.
       --fleet fleet.json --date YYYY-MM-DD [--callsign-rule ICAO] [--tails-are-today]
   python3 push.py --url URL --key tph_... [--dry-run] positions FILE.csv|FILE.json [--stamp-now]
 
-Make the key on that server's Desk: account menu, Data connections, New connection. Nothing is
-guessed: a flight plan with neither a callsign nor a known aircraft address is skipped, and a
-position without observed_at is refused unless --stamp-now stamps it at send time (for
-positions measured in the last minute only). Exit codes: 0 sent, 1 records refused, 2 usage or
-HTTP error.
+The key and the URL:
+  a hosted airline: its space's Feeds, Push keys, New push key (ops managers);
+      --url https://SITE/a/ICAO (the Feeds address without /api/push/positions)
+  a site's Desk (its dispatchers): account menu, Data connections, New connection;
+      --url https://SITE
+
+Nothing is guessed: a flight plan with neither a callsign nor a known aircraft address is
+skipped, and a position without observed_at is refused unless --stamp-now stamps it at send
+time (for positions measured in the last minute only). Exit codes: 0 sent, 1 records refused,
+2 usage or HTTP error.
 """
 
 import argparse
@@ -347,9 +352,18 @@ def run_positions(args: argparse.Namespace) -> int:
 
 
 def parser() -> argparse.ArgumentParser:
-    top = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    top.add_argument("--url", required=True, help="your TEPHRA, e.g. http://localhost:8080")
-    top.add_argument("--key", required=True, help="the connection key (tph_...)")
+    paragraphs = __doc__.split("\n\n")
+    top = argparse.ArgumentParser(
+        description=paragraphs[0],
+        epilog=next(p for p in paragraphs if p.startswith("The key and the URL")),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    top.add_argument(
+        "--url",
+        required=True,
+        help="https://SITE/a/ICAO for a hosted airline, https://SITE for a Desk connection",
+    )
+    top.add_argument("--key", required=True, help="the push key (tph_...)")
     top.add_argument("--dry-run", action="store_true", help="print the batches, send nothing")
     commands = top.add_subparsers(dest="command", required=True)
     plans = commands.add_parser("plans", help="flight plans for one day of flights.json")

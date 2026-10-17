@@ -75,7 +75,7 @@ from tephra.hosted.models import (
     TenantRecord,
 )
 from tephra.hosted.policy import get_version, tenant_policy
-from tephra.hosted.settings_for import model_key, tenant_settings
+from tephra.hosted.settings_for import chosen_models, model_key, tenant_settings
 from tephra.models import (
     AdvisoryStatus,
     AuditAction,
@@ -849,10 +849,11 @@ class TenantRegistry:
             slots=Slots(used=used, max=base.hosted_max_tenants),
             limit_reached=used >= base.hosted_max_tenants,
             hosting=self.hosting,
-            # Pending airlines plus Desk-verified ones still waiting for an operator's hosting
-            # approval: the console's "To verify" filter counts the same rows.
-            to_verify=await accounts.pending_count(self.root)
-            + sum(
+            # Pending airlines, and apart from them the Desk-verified ones waiting for an
+            # operator's hosting approval: the console's "To verify" and "Approve hosting"
+            # filters count the same rows (a Desk-verified airline is verified already).
+            to_verify=await accounts.pending_count(self.root),
+            to_approve=sum(
                 1
                 for row in rows
                 if row.status == "verified" and row.hosting == "desk" and row.checklist is None
@@ -1017,7 +1018,12 @@ class TenantRegistry:
             return []
         with handle.space.bound():
             view = await runtime.budget_view()
-        return [AdminAi(model=row.model_id, used=row.used, budget=row.limit) for row in view.models]
+        chosen = chosen_models(handle.record)
+        return [
+            AdminAi(model=row.model_id, used=row.used, budget=row.limit)
+            for row in view.models
+            if row.model_id in chosen
+        ]
 
     async def _waiting(self, handle: TenantHandle) -> int:
         """Advisories waiting for a decision (one count: a read per 1,000)."""

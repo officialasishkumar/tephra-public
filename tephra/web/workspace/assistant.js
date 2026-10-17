@@ -1,19 +1,26 @@
 // The assistant's model: the three choice cards of onboarding page 8 (shared with the workspace's
 // Assistant page, which saves the choice with PUT /api/airline/assistant in any status). Only the
-// provider and the two model names are stored per airline; this site never asks for a Gemini key.
+// provider and the two model names are stored with the answers; these pages never ask for a Gemini
+// key. Where this site hosts airlines, the key is added later in the airline's own space (Settings ›
+// Assistant), stored encrypted: the Gemini card's (i) says which, so it is true either way.
 // Each card is a title and one line; the rest, the unpaid tier's data use among it, is behind the
 // card's (i), heard with the card before it is chosen.
 
 import { el, icon } from "../wall/util.js";
+import { has } from "../wall/features.js";
 import { DEFAULT_MODELS, cautionsOf, checkPage } from "../onboard/pages.js";
 import { choiceCards, fid, field, input, note, setError } from "../onboard/form.js";
 import { PATHS, call, failWords } from "./api.js";
 
 const privacy = () => el("a", { class: "link", href: "/privacy", text: "Privacy" });
-const CARDS = [
+// Where the key goes: hosting off, this site never takes it; hosting on, the airline's space keeps it.
+export const KEY_OFF = "Your own Google AI Studio key; this site never stores it.";
+export const KEY_HOSTED = "Your own Google AI Studio key, added in your airline's space once hosting is approved and stored encrypted there.";
+const DATA_USE = "TEPHRA sends it public ash feeds and the facts code writes about your flights. On Google's unpaid tier, what TEPHRA sends may be used to improve Google's products.";
+const modelCards = (hosted) => [
   {
     value: "gemini", title: "Gemini or Gemma (your own key)", text: "Your key · data use",
-    info: { topic: "your key and data use", label: "About your key and data use", text: "Your own Google AI Studio key; this site never stores it. TEPHRA sends it public ash feeds and the facts code writes about your flights. On Google's unpaid tier, what TEPHRA sends may be used to improve Google's products.", actions: [privacy()] },
+    info: { topic: "your key and data use", label: "About your key and data use", text: `${hosted ? KEY_HOSTED : KEY_OFF} ${DATA_USE}`, actions: [privacy()] },
   },
   { value: "ollama", title: "Gemma on your computer (Ollama)", text: "Stays on your network.", info: { topic: "Ollama", label: "About Ollama", text: "Runs on a machine you own. It needs a capable one." } },
   { value: "none", title: "No model", text: "Code checks only, marked { }." },
@@ -53,7 +60,7 @@ export function modelChoice(a, { onChange, recheck = () => {} }) {
     drawNotes();
   };
   const cards = choiceCards({
-    name: "ob-provider", legend: "Where the model runs", value: a.provider, options: CARDS,
+    name: "ob-provider", legend: "Where the model runs", value: a.provider, options: modelCards(has("hosted")),
     onChange: (v) => {
       if (a.provider !== v) {
         a.model = v === "none" ? null : "";

@@ -274,3 +274,36 @@ def test_a_hosted_airline_in_setup_hears_checked_not_taken_in(
     )
     assert push.checked(answer)["rejected"]
     assert push.checked({"accepted": 1}) == {"accepted": 1}
+
+
+def test_the_help_says_where_the_key_is_made_for_both_paths(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Journey 17 Oct 2026 (push.py): the uploader a hosted airline downloads said to make the
+    key on "the Desk: account menu, Data connections". It names both places, each with its
+    URL, and no self-hosting address."""
+    module = load()
+    with pytest.raises(SystemExit):
+        module.main(["--help"])
+    said = capsys.readouterr().out
+    for words in (
+        "a hosted airline: its space's Feeds, Push keys, New push key (ops managers);",
+        "--url https://SITE/a/ICAO (the Feeds address without /api/push/positions)",
+        "a site's Desk (its dispatchers): account menu, Data connections, New connection;",
+        "--url https://SITE",
+    ):
+        assert words in said, words
+    assert "localhost" not in TOOL.read_text(encoding="utf-8")
+    assert "Make the key on that server's Desk" not in TOOL.read_text(encoding="utf-8")
+
+
+def test_a_hosted_url_posts_to_the_airline_s_own_push_path(push: Any, tmp_path: Path) -> None:
+    file = tmp_path / "positions.json"
+    now = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+    rows = [{"hex": "8a0b17", "callsign": "RFB401", "lat": -6.1, "lon": 106.6, "observed_at": now}]
+    file.write_text(json.dumps(rows), encoding="utf-8")
+    assert (
+        push.main(["--url", "https://tephra.example/a/RFB/", "--key", KEY, "positions", str(file)])
+        == 0
+    )
+    assert push.sent[0][0] == "https://tephra.example/a/RFB/api/push/positions"
