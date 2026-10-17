@@ -157,7 +157,7 @@ async function ownSpace(view) {
 
 function sectionNav(section, view, space = null) {
   const shown = view.status === "draft" ? SECTIONS.slice(0, 1) : SECTIONS.filter(([k]) => !(space && SPACE_PAGE[k]));
-  return el("nav", { class: "ws__nav", "aria-label": "Workspace" },
+  return el("nav", { class: "ws__nav", "aria-label": "Your airline" },
     ...shown.map(([key, label, ic]) => el("a", { href: `/workspace${key ? `/${key}` : ""}`, "aria-current": key === section ? "page" : null, dataset: { go: "" } }, icon(ic), el("span", { text: label }))),
     el("hr"),
     el("p", { class: "ws__who", text: `Signed in as ${view.email}` }));
@@ -186,7 +186,7 @@ async function loadNamed() {
 // A login with no onboarding record belongs only to hosted airlines: its workspace is the list.
 async function memberOnly(section) {
   if (section) history.replaceState(null, "", "/workspace");
-  document.title = "Your airlines · Workspace · TEPHRA";
+  document.title = "Your airlines · TEPHRA";
   showAccountWho(null);
   const me = await call(HOSTED.me);
   if (!me.ok || !me.data) {
@@ -241,7 +241,7 @@ async function workspace(section) {
     return;
   }
   const label = SECTIONS.find(([k]) => k === section)[1];
-  document.title = `${section ? `${label} · ` : ""}Workspace · ${[identity(view).icao, "TEPHRA"].filter(Boolean).join(" · ")}`;
+  document.title = `${section ? `${label} · ` : ""}Your airline · ${[identity(view).icao, "TEPHRA"].filter(Boolean).join(" · ")}`;
   const content = el("div", { class: "ws__main" }, header(view, { pill: section !== "" || view.status === "draft" }));
   $("main").replaceChildren(el("div", { class: "ws" }, sectionNav(section, view, space), content));
   if (section === "") renderOverview(content, view);
@@ -296,12 +296,12 @@ async function boot() {
   setFeatures(state.ok ? state.data?.features : []);
   applyFeatureNav();
   if (state.ok && !has("onboard")) {
-    document.title = "Workspace · TEPHRA";
+    document.title = "Your airline · TEPHRA";
     offCard(ONBOARD_OFF);
     return;
   }
   if (session.ok && session.data && !session.data.accounts) {
-    document.title = "Workspace · TEPHRA";
+    document.title = "Your airline · TEPHRA";
     offCard(ACCOUNTS_OFF, ACCOUNTS_OFF_HOW);
     return;
   }

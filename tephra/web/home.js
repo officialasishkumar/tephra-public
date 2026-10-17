@@ -24,7 +24,7 @@ async function getState() {
 function showWorkspace() {
   const tile = $("go-onboard");
   tile.setAttribute("href", "/workspace");
-  $("go-onboard-t").textContent = "Your airline workspace";
+  $("go-onboard-t").textContent = "Your airline";
 }
 
 // The pictures' pulses stop while the tab is hidden (home.css .is-paused); the ash stops itself.

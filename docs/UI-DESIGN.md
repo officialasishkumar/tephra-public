@@ -1551,7 +1551,7 @@ and the flights in it, pink stays official.
 
 Every page starts the same way, so moving between them nothing jumps: a 56 px bar at the top
 (`.tn-bar`; the 32 px strip above it was removed on 15 Oct 2026, 7.1) that opens with the TEPHRA
-mark (`.tn-home`, 132 px wide at 24 px from the left; it goes home) and the pill nav Demo · Desk · Onboard · Guide (16 Oct 2026; Onboard only where `onboard` is on, Workspace in its place once an airline is signed in; Assistant left the nav on 16 Oct 2026: `/assistant` is reached from the demo panel's pop-out link, the A key and the Guide) with the page you are
+mark (`.tn-home`, 132 px wide at 24 px from the left; it goes home) and the pill nav Demo · Desk · Onboard · Guide (16 Oct 2026; Onboard only where `onboard` is on, Your airline in its place once an airline is signed in (renamed from Workspace, owner, 17 Oct 2026); Assistant left the nav on 16 Oct 2026: `/assistant` is reached from the demo panel's pop-out link, the A key and the Guide) with the page you are
 on filled. The gap after the mark and the nav's sizes are in px, as the pages' root font sizes
 differ. Each page's own controls follow: the Wall's area, Assistant, data and clock (the Wall's old
 "Connect" and "Desk →" header buttons are gone, the nav has both), the Desk's chips on the right,
@@ -1764,7 +1764,7 @@ policy A".
 - **Sign in (`/signin`)**: one card over the dimmed night map ("Sign in to your workspace"); generic
   errors ("That email and password don't match"), the tries left when two or fewer remain, "Forgot
   password?" (the recovery code) and "Dispatcher? Use the Desk".
-- **Workspace (`/workspace`)**: the airline name and a lock with "Private to your airline" and the
+- **Your airline (`/workspace`, was "Workspace")**: the airline name and a lock with "Private to your airline" and the
   sign-up card's (i) (one shared sentence, `WHO_READS` in onboard/pages.js); the
   status is said once (the Overview's status card, else the header pill: Not submitted, Pending
   verification, Verified, Declined); while not submitted only Overview, with "Step n of 9";

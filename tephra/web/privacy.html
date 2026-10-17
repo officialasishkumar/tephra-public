@@ -86,7 +86,7 @@
       <p>The airline reads them when signed in. This site's signed-in dispatchers read them to verify the airline once it submits them on the last page; answers not submitted are not shown to them. They are never public, never written into the audit trail and never sent to Gemini.</p>
       <p>The schedule files you add stay in your browser's own storage; only their counts go with your answers, and signing out clears them. Onboarding never asks for your Gemini key<!-- hosted -->; a hosted airline sets one in its own space (<a href="#hosted">Hosted airlines</a>)<!-- /hosted -->.</p>
       <p>The cookie <code>tephra_airline</code> holds the signed-in airline's id, code and name (empty until the answers are submitted), a hash of the account email and its expiry. It is HttpOnly and SameSite=Strict, is signed by the server and lasts 12 hours.</p>
-      <p>An account whose answers were never submitted is deleted, with its answers, once seven days pass without a save (at the next sign-up on this site). A submitted account is kept until the airline deletes it from the workspace's account menu, or a dispatcher deletes a declined airline's record.</p>
+      <p>An account whose answers were never submitted is deleted, with its answers, once seven days pass without a save (at the next sign-up on this site). A submitted account is kept until the airline deletes it from the account menu on its Your airline page, or a dispatcher deletes a declined airline's record.</p>
     </details>
 
     <!-- hosted -->

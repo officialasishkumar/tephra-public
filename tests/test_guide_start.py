@@ -249,7 +249,7 @@ def test_the_document_page_s_bar_carries_the_pill_nav() -> None:
     assert '<html lang="en" data-theme="dark">' in doc
     assert '<meta name="color-scheme" content="dark">' in doc
     # the shared nav module hides Onboard by the server's feature set, as the other pages do,
-    # and swaps it for Workspace when an airline is signed in
+    # and swaps it for Your airline when an airline is signed in
     topnav = _read("topnav.js")
     assert "applyFeatureNav()" in topnav
     assert "initAccountNav()" in topnav
@@ -276,7 +276,7 @@ def test_privacy_says_what_an_airline_account_keeps() -> None:
         "<code>tephra_airline</code>",
         "HttpOnly and SameSite=Strict",
         "12 hours",
-        "deletes it from the workspace's account menu",
+        "deletes it from the account menu on its Your airline page",
         "signing out clears them",
     ):
         assert words in accounts, words

@@ -55,7 +55,7 @@ def test_the_onboarding_parts_wait_for_the_server_s_features() -> None:
         assert gone not in CSS, gone
     assert 'initAccountNav({ right: $("tn-right"), signin: has("onboard") })' in JS
     assert '<div id="tn-right" class="tn-right"></div>' in HTML
-    assert '"Your airline workspace"' in JS
+    assert '"Your airline"' in JS
 
 
 def test_the_footer_is_links_only_and_the_line_says_a_dispatcher_approves() -> None:

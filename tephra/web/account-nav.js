@@ -52,7 +52,7 @@ export async function signOut() {
 
 function swapNav() {
   for (const a of document.querySelectorAll('.topnav a[data-feature="onboard"]')) {
-    a.textContent = "Workspace";
+    a.textContent = "Your airline";
     a.setAttribute("href", "/workspace");
   }
 }
@@ -86,7 +86,7 @@ function accountMenu(session, items) {
     el("span", { class: "tn-account__name" }));
   applyWho(button, session);
   const menu = el("div", { id: "tn-account-menu", class: "tn-menu", role: "menu", "aria-label": "Your airline account", hidden: true },
-    el("a", { class: "tn-menu__item", role: "menuitem", href: "/workspace" }, icon("i-list"), "Workspace"),
+    el("a", { class: "tn-menu__item", role: "menuitem", href: "/workspace" }, icon("i-list"), "Your airline"),
     el("div", { class: "tn-menu__theme", role: "group", "aria-label": "Theme" }, themeControl()),
     items,
     el("button", { type: "button", class: "tn-menu__item", role: "menuitem", dataset: { act: "sign-out" } }, icon("i-log-out"), "Sign out"));

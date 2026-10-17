@@ -846,7 +846,7 @@ function peoplePage() {
   });
   draw();
   return [
-    section({ title: "Dispatchers", info: { topic: "names", label: "About names", text: "Names stay in your workspace and never reach a model." } }, "s-people",
+    section({ title: "Dispatchers", info: { topic: "names", label: "About names", text: "Names stay in your airline's account and never reach a model." } }, "s-people",
       listErr("people.dispatchers"), box, el("div", { class: "tool" }, add)),
   ];
 }
@@ -967,13 +967,13 @@ function actionBar(key) {
   const bar = $("ob-actions");
   if (S.edit) {
     bar.replaceChildren(
-      el("a", { class: "btn btn--secondary", href: "/workspace/answers", text: "‹ Workspace" }),
+      el("a", { class: "btn btn--secondary", href: "/workspace/answers", text: "‹ Your airline" }),
       el("p", { id: "ob-edit-status", class: "actions__mid actions__mid--keep", role: "status" }),
       el("button", { type: "submit", form: "ob-form", class: "btn btn--primary" }, el("span", { text: "Save changes" })));
     return;
   }
   const back = i === 0
-    ? el("a", { class: "btn btn--secondary", href: "/workspace", dataset: { go: "" }, text: "‹ Workspace" })
+    ? el("a", { class: "btn btn--secondary", href: "/workspace", dataset: { go: "" }, text: "‹ Your airline" })
     : el("a", { class: "btn btn--secondary", href: `/onboard/${PAGE_KEYS[i - 1]}`, dataset: { go: PAGE_KEYS[i - 1] }, text: "‹ Back" });
   const words = key === "review" ? "Submit for verification" : S.leaveAnyway === key ? "Next anyway ›" : `Next: ${pageOf(PAGE_KEYS[i + 1]).short} ›`;
   const next = el("button", { type: "submit", form: "ob-form", class: "btn btn--primary" }, el("span", { text: words }));
@@ -1042,7 +1042,7 @@ async function saveEdit(key) {
   const res = await call(PATHS.answers, { method: "PUT", body: { version: S.edit.version, answers } });
   if (res.ok && res.data) {
     S.edit = res.data;
-    status.textContent = "Saved. Your workspace shows the new answers.";
+    status.textContent = "Saved. Your airline page shows the new answers.";
   } else if (res.status === 401) {
     location.assign(`/signin?next=${encodeURIComponent(`${location.pathname}?edit=1`)}`);
   } else if (res.status === 409) {

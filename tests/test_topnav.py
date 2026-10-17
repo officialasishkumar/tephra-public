@@ -1,5 +1,5 @@
 """The shared nav (UI-DESIGN 7.25) without Assistant (owner, 16 Oct 2026): every page's nav is
-Demo · Desk · Onboard · Guide, Onboard becoming Workspace once an airline is signed in. The
+Demo · Desk · Onboard · Guide, Onboard becoming Your airline once an airline is signed in. The
 /assistant page stays, reached from the demo panel's pop-out link, the A key and the Guide."""
 
 import re
@@ -48,7 +48,7 @@ def test_signed_in_the_onboard_link_becomes_workspace_in_place() -> None:
     swap = nav[nav.index("function swapNav() {") :]
     swap = swap[: swap.index("\n}\n")]
     assert '.topnav a[data-feature="onboard"]' in swap
-    assert 'a.textContent = "Workspace";' in swap
+    assert 'a.textContent = "Your airline";' in swap
     assert 'a.setAttribute("href", "/workspace");' in swap
     assert "assistant" not in swap.lower()
 

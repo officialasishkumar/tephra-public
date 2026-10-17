@@ -238,7 +238,7 @@ function confirmVerify(a) {
 function askDecline(a) {
   const reason = el('textarea', { id: 'al-reason', class: 'field', rows: '3', maxlength: '500', 'aria-describedby': 'al-reason-hint' });
   showConfirm(a, {
-    question: `Decline ${a.name}? The airline sees your reason in its workspace.`,
+    question: `Decline ${a.name}? The airline sees your reason when it signs in.`,
     field: el('div', { class: 'fgroup' }, el('label', { class: 'flabel', for: 'al-reason', text: 'Reason' }), reason, el('p', { id: 'al-reason-hint', class: 'fine', text: '3 to 500 characters.' })),
     goWords: 'Decline',
     tone: 'btn--reject-solid',
