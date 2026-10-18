@@ -634,7 +634,9 @@ def test_a_plan_refused_on_quota_says_did_not_run_with_no_quota_words(tmp_path: 
     assert pf["ai"] is True
     assert pf["word"] == "Recovery planner did not run"
     assert pf["title"] == "No plan: Recovery planner did not run"
-    assert pf["place"] == "No airport plan (Recovery planner did not run): plan the network by hand"
+    # "plan the network by hand" is the Story notice's (the one action card), not the tile's hover
+    assert pf["place"] == "No airport plan (Recovery planner did not run)"
+    assert pf["short"] == "no plan"
     for key in ("word", "title", "sub", "place", "short"):
         assert not QUOTA_WORDS.search(pf[key]), (key, pf[key])
         assert "gave no result" not in pf[key], (key, pf[key])
@@ -796,7 +798,8 @@ def test_flow_log_folds_a_run_with_its_outcome_and_counts_repeats(tmp_path: Path
     assert [r["kind"] for r in rows] == ["duty", "duty", "duty"]
     last = rows[-1]
     assert last["text"] == "Coordinator got 3 jobs on the scheduled check · did not run"
-    assert last["toYou"] == "2 must-do to you"
+    # the hero says the must-do count once: the log row does not add ", N must-do to you"
+    assert "toYou" not in last
     # one time form on the board, the replay clock's
     assert last["repeat"] == "3\u00d7 since 11:28:26"
     assert last["tone"] == "must"
@@ -954,13 +957,11 @@ def test_flow_words_follow_the_assistant_state(tmp_path: Path) -> None:
     assert paused["ai"]["kind"] == "paused"
     # the state and what waits; why and until when are at the assistant's home (8.6)
     assert paused["status"] == "paused"
-    assert paused["sub"] == (
-        "Code still reads every feed and checks every flight; jobs wait in line and must-do "
-        "flights come straight to you."
-    )
+    # "code still checks every flight" is said once, in the AI status's (i); the hero says must-do
+    assert paused["sub"] == "No skill runs now, and jobs wait in line."
     assert paused["gate"]["meta"] == "3 jobs in line"
     assert paused["gate"]["title"] == "Why: Details \u203a TEPHRA Assistant"
-    assert paused["coord"]["meta"] == "Must-do jobs come to you"
+    assert paused["coord"]["meta"] == ""
     for words in (paused["status"], paused["sub"], paused["gate"]["name"], paused["gate"]["meta"]):
         assert not QUOTA_WORDS.search(words), words
     assert [s["inLine"] for s in paused["skills"]] == [0, 0, 1, 0, 1, 1]
@@ -1051,7 +1052,7 @@ def test_flow_a_budget_that_did_not_load_says_nothing_about_the_queue(tmp_path: 
     assert "next slot" not in m["gate"]["meta"]
     # with no queue loaded the lede says nothing about jobs in line (honesty review 8)
     assert "jobs wait in line" not in m["sub"]
-    assert m["sub"].startswith("Code still reads every feed and checks every flight")
+    assert m["sub"] == "No skill runs now."
     assert [s["inLine"] for s in m["skills"]] == [0] * 6
 
 

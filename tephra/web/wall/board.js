@@ -171,7 +171,7 @@ function resultSteps(h, ctx) {
       const name = ctx.volcanoName(r.volcano_id);
       const ash = { yes: "ash seen", no: "no ash seen", uncertain: "can't tell" }[r.ash_visible] || "can't tell";
       // a quota refusal called no model: "did not run", never "gave no result" (Q4)
-      const text = r.status === "ai_unavailable" ? `${name}: not read (Satellite reader ${notRun(reasonClass(r.reason)) ? "did not run" : "gave no result"}). Nothing was put in its place`
+      const text = r.status === "ai_unavailable" ? `${name}: not read (Satellite reader ${notRun(reasonClass(r.reason)) ? "did not run" : "gave no result"})`
         : r.status === "no_frames" ? `${name}: no picture to read` : `${name}: ${ash}`;
       out.push({ tone: r.status === "ai_unavailable" ? "failed" : r.status === "no_frames" ? "caution" : "ok", text, count: 1, at: ms(r.created_at || r.observed_at), source: SOURCE.reading });
     }
@@ -258,7 +258,7 @@ export function dutyLine(run) {
     const cls = reasonClass((run.validation_errors || [])[0]);
     if (cls === "budget") return { tone: "caution", word: "Not run", text: `Not run: ${ASSISTANT} is paused. No brief was made.${first}${tail ? ` ${tail}` : ""}` };
     if (cls === "unavailable") return { tone: "caution", word: "Not run", text: `Not run: ${unavailableWhy((run.validation_errors || [])[0])}. No model was called and no brief was made.${first}${tail ? ` ${tail}` : ""}` };
-    return { tone: "failed", word: "No brief", text: `No brief: the Coordinator gave no result (${WHY[cls] || WHY.other}). Nothing was made up in its place.${first}${tail ? ` ${tail}` : ""}` };
+    return { tone: "failed", word: "No brief", text: `No brief: the Coordinator gave no result (${WHY[cls] || WHY.other}).${first}${tail ? ` ${tail}` : ""}` };
   }
   if (run.outcome === "STUB") return { tone: "ok", text: `Handed out ${plural(handed, "job")} in urgency order (code only).${tail ? ` ${tail}` : ""}` };
   const checks = run.outcome === "REPAIRED" ? "Its brief passed after one repair." : "Its brief passed the code's checks.";
@@ -571,7 +571,7 @@ const flightNames = (a) => (a.length <= 2 ? a.map((e) => e.flight).join(" and ")
 const SKILL_NAME = Object.fromEntries(HELPERS.map((h) => [h.id, h.name]));
 
 // A row's words and its colour key (official, observer, weather, aircraft, job, must, tephra,
-// muted). `toYou` marks the words that say work went to a person.
+// muted).
 function rowWords(r, example) {
   const e = r.items[0];
   const raw = r.items.map((x) => x.raw).join("\n");
@@ -581,15 +581,15 @@ function rowWords(r, example) {
       : !near.length ? `${flightNames(a)} are inside the ${r.vol} ash area`
         : !ins.length ? `${flightNames(a)} will reach the ${r.vol} ash area`
           : `${flightNames(a)}: ${ins.length} inside the ${r.vol} ash area, ${near.length} on the way`;
-    return { tone: "aircraft", text: `Code: ${text}`, raw };
+    return { tone: "aircraft", text, raw };
   }
   if (r.kind === "duty") {
     const got = r.duty ? r.duty.text : "Coordinator run";
-    if (example) return r.duty ? { tone: "job", text: `Coordinator hands ${plural2(r.duty.n, "job")} to the skills (example)`, raw } : { text: "" };
+    if (example) return r.duty ? { tone: "job", text: `Coordinator hands ${plural2(r.duty.n, "job")} to the skills`, raw } : { text: "" };
     if (!r.out) return { tone: "job", text: got, raw };
     const o = r.out.e;
     const head = o.type === "undone" ? `${got} · it left must-do work` : notRun(o.cls) ? `${got} · did not run` : `${got} · ${o.text.replace(/^Coordinator /, "")}`;
-    return { tone: "must", text: head, toYou: `${o.n} must-do to you`, repeat: r.out.k > 1 ? `${r.out.k}× since ${hmsOf(r.out.since)}` : null, raw };
+    return { tone: "must", text: head, repeat: r.out.k > 1 ? `${r.out.k}× since ${hmsOf(r.out.since)}` : null, raw };
   }
   if (r.kind.startsWith("handoff:")) return { tone: "job", text: `Coordinator handed ${r.items.length === 1 ? "a job" : `${r.items.length} jobs`} to ${SKILL_NAME[e.skill] || e.skill}`, raw };
   if (r.kind.startsWith("skill:")) return { tone: e.plume ? "tephra" : "job", text: r.items.length === 1 ? e.text : `${SKILL_NAME[e.skill] || e.skill}: ${r.items.length} steps · ${r.items[r.items.length - 1].text}`, raw };
@@ -666,14 +666,12 @@ export function flowModel(input) {
   if (ai.kind === "paused") {
     status = "paused";
     // with no work queue loaded, nothing is said about jobs in line (the gate says it is unknown)
-    sub = budgetError
-      ? "Code still reads every feed and checks every flight, and must-do flights come straight to you."
-      : "Code still reads every feed and checks every flight; jobs wait in line and must-do flights come straight to you.";
+    sub = budgetError ? "No skill runs now." : "No skill runs now, and jobs wait in line.";
     // the closed bar and what waits; "paused" itself is the one status's word (said once)
     gate = { open: false, kind: "closed", name: "", meta: inLine, title: `Why: Details › ${ASSISTANT}` };
   } else if (ai.kind === "off") {
     status = "off (code only)";
-    sub = "No model is connected. Code reads every feed, checks every flight and orders the work, and code templates write the drafts. Every draft still waits for you.";
+    sub = "No model is connected. Code orders the work, and code templates write the drafts. Every draft still waits for you.";
     // no model to close: the skills run as code templates, so work goes past the gate. The gate
     // has no words of its own: the one status ("AI off", wall/x-parts.js stateLine) says it (owner,
     // 17 Oct: "don't say no model everywhere"); the dashed rail still draws it
@@ -681,11 +679,11 @@ export function flowModel(input) {
   } else if (ai.kind === "unavailable") {
     // a hosted airline with no usable model: nothing is called, so nothing goes past the gate
     status = "unavailable";
-    sub = "No model can be used, so no skill runs and nothing is put in its place. Code still reads every feed and checks every flight, and that work comes to you.";
+    sub = "No model can be used, so no skill runs.";
     gate = { open: false, kind: "closed", name: "", meta: inLine, title: `Why: Details › ${ASSISTANT}` };
   } else if (ai.kind === "trouble") {
     status = words.suffix;
-    sub = `${ai.trouble.map((c) => causeShort(c)).join(". ")}. Nothing was put in ${ai.trouble.length === 1 ? "its" : "their"} place: code still checks every flight, and that work comes to you.`;
+    sub = `${ai.trouble.map((c) => causeShort(c)).join(". ")}.`;
     // "AI unavailable" is the one status's word; the gate says only what waits
     gate = { open: false, kind: "trouble", name: "", meta: inLine, title: "" };
   } else {
@@ -694,7 +692,7 @@ export function flowModel(input) {
     gate = { open: true, kind: "open", name: "AI model · open", meta: inLine, title: "" };
   }
   const run = input.duty || null;
-  const coord = { meta: ai.kind === "paused" || ai.kind === "unavailable" ? "Must-do jobs come to you" : ai.kind === "off" ? "" : "Orders the jobs and hands them to skills",
+  const coord = { meta: ai.kind === "paused" || ai.kind === "unavailable" || ai.kind === "off" ? "" : "Orders the jobs and hands them to skills",
     refused: run?.outcome === "MODEL_FAILED", lastAt: run ? ms(run.decided_at || run.finished_at) : NaN };
   // You decide: the Wall's own counts, this mode's work only
   const plan = newestPlan(input.recovery);

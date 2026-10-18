@@ -68,7 +68,12 @@ def test_the_airline_s_state_chip_is_the_only_live_word_in_its_header() -> None:
     panels = _src("wall/panels.js")
     assert "badge.hidden = replay || Boolean(TENANT);" in panels
     # the time bar names the wall clock under an airline, never a second "Live"
-    assert 'TENANT ? el("span", { class: "tl__mode", text: utcTime(D.now) })' in panels
+    assert (
+        'if (TENANT) meta.append(el("span", { class: "tl__mode", text: utcTime(D.now) }));'
+        in panels
+    )
+    # and on the demo the time bar adds no "Live" either: the header's pill says it once
+    assert '"tl__mode tl__mode--live"' not in panels
 
 
 def test_the_status_line_keeps_the_acceptance_qualifier() -> None:

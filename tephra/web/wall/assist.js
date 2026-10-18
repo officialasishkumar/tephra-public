@@ -34,25 +34,25 @@ export function stageOf(row) {
   return "ai";
 }
 
-// Who took the step and what kind of actor it is ("public feed", "no AI", "TEPHRA Assistant").
+// Who took the step, by name only: no kind tag under it (the name says it).
 function actorOf(row) {
   const e = row.items?.[0] || {};
   const kind = String(row.kind || "");
-  if (kind === "flight") return ["Code checks", null];
-  if (kind === "duty" || kind === "brief" || kind.startsWith("handoff:")) return ["Coordinator", ASSISTANT];
-  if (kind.startsWith("skill:") || kind.startsWith("desk:") || kind === "skill-failed") return [SKILL_NAME[e.skill] || ASSISTANT, ASSISTANT];
-  if (kind === "feed") return [FEED_NAMES[e.feed] || e.feed || "Public feed", "public feed"];
-  if (kind === "adsb") return e.feed === "airline" ? ["Airline positions", "airline feed"] : ["Aircraft positions", "public feed"];
-  if (kind === "decided") return ["A person", "the Desk"];
-  if (kind === "onreq") return [ASSISTANT, null];
-  return MODEL_ACTORS.has(e.actor) ? [ASSISTANT, null] : ["Code", null];
+  if (kind === "flight") return "Code checks";
+  if (kind === "duty" || kind === "brief" || kind.startsWith("handoff:")) return "Coordinator";
+  if (kind.startsWith("skill:") || kind.startsWith("desk:") || kind === "skill-failed") return SKILL_NAME[e.skill] || ASSISTANT;
+  if (kind === "feed") return FEED_NAMES[e.feed] || e.feed || "Public feed";
+  if (kind === "adsb") return e.feed === "airline" ? "Airline positions" : "Aircraft positions";
+  if (kind === "decided") return "A person";
+  if (kind === "onreq") return ASSISTANT;
+  return MODEL_ACTORS.has(e.actor) ? ASSISTANT : "Code";
 }
 
 // How the step went: "noresult" for a refused or undone run and a failed or refused skill step,
 // "tool" for a tool call on the way, "done" for another skill step, else null (nothing to say).
 function resultOf(row) {
   const kind = String(row.kind || "");
-  if (kind === "duty") return row.out ? "noresult" : null;
+  if (kind === "duty") return null;
   if (kind === "skill-failed") return "noresult";
   if (!kind.startsWith("skill:") && !kind.startsWith("desk:")) return null;
   if (REFUSED.test(row.text)) return "noresult";
@@ -65,14 +65,14 @@ function resultOf(row) {
 // A step a code template wrote (the offline stub) drops its "(code only)" words and the assistant's
 // name for the small "{ }" mark (`code`): the AI-off state is said once, in the tab bar.
 export function rowView(row) {
-  const [actor, kind] = actorOf(row);
+  const actor = actorOf(row);
   const t = templateText(row.text);
   const code = t.code || (row.items || []).some((e) => e.actor === "stub");
   // the row names its actor once: "Aircraft positions · public feed / Read (adsb.lol)", not
   // "... / Aircraft positions read (adsb.lol)" (UX verify, 17 Oct)
   const text = actor && t.text.startsWith(`${actor} `) && t.text.length > actor.length + 1
     ? `${t.text.charAt(actor.length + 1).toUpperCase()}${t.text.slice(actor.length + 2)}` : t.text;
-  return { key: row.key, at: row.at, tm: row.tm ?? row.at, stage: stageOf(row), actor, kind: code && kind === ASSISTANT ? null : kind, text, code, result: resultOf(row) };
+  return { key: row.key, at: row.at, tm: row.tm ?? row.at, stage: stageOf(row), actor, text, code, result: resultOf(row) };
 }
 
 // Every row at or before the playhead `t`, newest first.
@@ -113,7 +113,8 @@ export function trackTicks(M) {
 // where: never a bare "paused". The player moves only this panel's steps: the replay itself, its
 // clock and the map run on, and the words say so. LIVE has no player, only one line.
 export function playerWords(M, P) {
-  if (!M?.replay) return { live: true, lead: "Live", text: "new steps appear as they come" };
+  // LIVE is said once, by the header's pill: the line says only how the steps come
+  if (!M?.replay) return { live: true, lead: "", text: "new steps appear as they come" };
   const newest = newestAt(M);
   const at = P.mode === "follow" ? newest : P.t;
   const time = Number.isFinite(at) ? hmsOf(at) : null;
@@ -141,7 +142,7 @@ export function playerWords(M, P) {
 // What the screen reader hears for a new step (at most one every 10 s, the panel's rule), and for
 // each step the catch-up plays: old recorded steps, so they are said as the replay's, never as new.
 export const sayRow = (r) => `New step: ${r.actor}. ${r.text}`;
-export const sayBeat = (b) => `Replay, catching up: ${b.text}.`;
+export const sayBeat = (b) => `Replay, catching up: ${b.say || b.text}.`;
 
 // ---------------------------------------------------------------- the catch-up (on arrival)
 // TEPHRA's last chain of kept steps, in the pipeline's order: the feed reads the newest Coordinator
@@ -231,7 +232,8 @@ function chainOf(ev, run) {
   const drafts = run.filter((e) => e.type === "desk" || (e.type === "skill" && e.toDesk));
   if (refused.length) {
     const must = refused[refused.length - 1].n || 0;
-    beats.push(beat("you", "you", refused, `${plural(must, "must-do flight")} passed to you by code`, { must }));
+    // the hero says the count as it bumps: the beat line names the step, the screen reader hears both
+    beats.push(beat("you", "you", refused, "To You decide", { must, say: `${plural(must, "must-do flight")} passed to you` }));
   } else if (drafts.length) {
     beats.push(beat("you", "you", drafts, `${plural(drafts.length, "draft")} reached the Desk for a person`));
   }

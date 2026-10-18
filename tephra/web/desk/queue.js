@@ -147,7 +147,7 @@ function countLine(items) {
   const c = waitingCount();
   if (!c.n) return '';
   // the parts add up to the one number: every advisory, message, plan and document is a draft
-  if (c.hand) return `${c.n} waiting · ${plural(c.hand, 'flight')} to plan by hand · ${plural(c.n - c.hand, 'draft')}`;
+  if (c.hand) return `${c.n} waiting · ${plural(c.hand, 'flight')} · ${plural(c.n - c.hand, 'draft')}`;
   const now = activeNow();
   const soon = items.filter((a) => {
     const k = actBy(a);
@@ -470,7 +470,7 @@ export function renderQueue() {
     stateBox.replaceChildren(
       el('div', { class: 'panel panel--empty' },
         el('p', { class: 'panel__title' }, icon(hand ? 'st-info' : 'i-check', hand ? 'st is-info' : 'st'), el('span', { text: hand ? 'No drafts to approve.' : 'Nothing waits for you.' })),
-        el('p', { text: hand ? `${plural(hand, 'flight')} wait${hand === 1 ? 's' : ''} in Plan by hand.${last}` : `A draft appears here when a flight's projected track enters TEPHRA's estimated ash area.${last}` })),
+        hand && !last ? null : el('p', { text: hand ? last.trim() : `A draft appears here when a flight's projected track enters TEPHRA's estimated ash area.${last}` })),
     );
   } else {
     stateBox.replaceChildren();

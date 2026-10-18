@@ -278,7 +278,7 @@ export function openMessage(id) {
       app.hub.badges();
       sheet.close();
       const word = { approve: 'Approved', edit: 'Approved with your edits', reject: 'Rejected' }[kind];
-      toast({ tone: kind === 'reject' ? 'rejected' : 'ok', title: `${word}: ${title(res.data)}${kind === 'reject' ? ' · reason recorded.' : ` · queued under ${app.me ? app.me.name : 'you'}. Not sent to anyone.`}` });
+      toast({ tone: kind === 'reject' ? 'rejected' : 'ok', title: `${word}: ${title(res.data)}${kind === 'reject' ? ' · reason recorded.' : ` · queued under ${app.me ? app.me.name : 'you'}.`}` });
       announce(`${word}: ${title(res.data)}.`);
       return;
     }

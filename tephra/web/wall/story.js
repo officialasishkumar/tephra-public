@@ -118,7 +118,7 @@ function renderFailures(list) {
   // #lost-banner keeps role=alert; it is written only when its words change.
   lost.hidden = !lostItem;
   if (lostItem) setText(lost, lostItem.text);
-  const shown = items.slice(0, lostItem ? 1 : 2);
+  const shown = items.slice(0, 2);
   const more = items.length - shown.length;
   const key = [...shown.map((f) => `${f.key}:${f.text}:${f.raw || ""}`), more].join("|");
   const ul = $("fail-list");
@@ -143,7 +143,7 @@ function renderFailures(list) {
         f.action ? el("button", { type: "button", class: "link-btn", dataset: { act: f.action, focus: `fail-${f.key}` }, text: f.actionText }) : null);
     }));
   }
-  box.hidden = !list.length;
+  box.hidden = !items.length;
 }
 
 // ------------------------------------------------------------------ the story card (R5.1-R5.4)
@@ -269,7 +269,7 @@ function storyModel(D, store, sit) {
     if (noDrafts && pf?.ai) parts.push("No advisory drafts and no airport plan.");
     else {
       if (noDrafts) parts.push("No advisory drafts.");
-      if (pf) parts.push(pf.ai ? "No airport plan." : `No airport plan: ${pf.place.replace(/^No airport plan \((.+)\): plan the network by hand$/, "$1")}.`);
+      if (pf) parts.push(pf.ai ? "No airport plan." : `No airport plan: ${pf.place.replace(/^No airport plan \((.+)\)$/, "$1")}.`);
     }
     const todo = [noDrafts || undone ? (handHere === 1 ? "the flight" : `the ${nf}`) : null, pf ? "the network" : null].filter(Boolean);
     if (todo.length) parts.push(`Plan ${todo.join(" and ")} by hand on the Desk.`);
@@ -330,8 +330,9 @@ let lastAnnounce = { at: 0, key: "" };
 const openBtn = (act, cls, title, ...kids) => el("button", { type: "button", class: cls, title, dataset: { act: "details-open", sec: act, focus: `story-${cls.split(" ")[0]}-${act}` } }, ...kids);
 
 // The trust note (R5.7, docs/UI-AI-QUIET.md W17): one sentence that holds in every assistant state, one
-// tap from "TEPHRA's ash area" in the hero; the map key's TEPHRA row says it on screen.
-const TRUST = "TEPHRA's estimate is never smaller than the official area, which stays binding. TEPHRA Assistant can widen it, never shrink it.";
+// tap from "TEPHRA's ash area" in the hero. "Never smaller than official" is said once, by the map
+// key's TEPHRA row (and the Guide).
+const TRUST = "TEPHRA's ash area is its estimate, not a forecast. The official area stays binding.";
 const trustNode = (open) => el("p", { id: "trust", class: "trust", hidden: !open }, icon("i-info", "icon trust__icon"),
   el("span", { class: "trust__body" }, el("span", { class: "trust__text", text: TRUST }),
     el("button", { type: "button", class: "link-btn trust__more", dataset: { act: "details-open", sec: "estimate", focus: "trust-more" }, text: "How TEPHRA built it ›" })));
@@ -407,12 +408,12 @@ function renderLines(D, store, ui, sit, announce) {
       // active volcanoes are known but their situation cards have not arrived: never "no ash"
       lead = "Reading the official reports…";
       note = D.state.last_tick ? "Ash is reported here. The summary appears when TEPHRA has read the reports, usually within a minute." : "TEPHRA has just started and is reading every feed for the first time. This takes up to a minute.";
-    } else if (D.regionEmpty) lead = `No ash reported near ${D.area?.name || "this area"} right now.`;
+    } else if (D.regionEmpty) lead = null; // the status line says "No ash in this area", once
     else lead = "No official ash report is in force in the watched regions right now.";
     const crew = crewLines(D, null);
     key = [lead, note, ...crew.map((l) => l.text)].join("|");
     if (box.dataset.key !== key) {
-      kids = [el("p", { class: `hero__words hero__words--alone${D.reading ? " story__connecting" : ""}`, text: lead }), note ? el("p", { class: "story__note", text: note }) : null,
+      kids = [lead ? el("p", { class: `hero__words hero__words--alone${D.reading ? " story__connecting" : ""}`, text: lead }) : null, note ? el("p", { class: "story__note", text: note }) : null,
         crew.length ? el("ul", { class: "slines" }, ...crew.map(lineNode)) : null].filter(Boolean);
     }
   }
@@ -447,7 +448,8 @@ function renderActions(D, store, ui, sit) {
       // no drafts because the assistant did not run: the Desk holds the hand-plan work (W18),
       // said under the quiet button, never as the one filled call to action
       const byHand = handPlan(D, store).flights.filter((x) => x.p.volcano_id === sit.volcano_id).length;
-      if (byHand) sub = `${plural(byHand, "flight", "flights")} to plan by hand`;
+      // the Story's notice is the one action card: when it says "by hand", the button does not
+      if (byHand && !/by hand/.test(storyModel(D, store, sit).notice?.body || "")) sub = `${plural(byHand, "flight", "flights")} to plan by hand`;
     }
   } else if (D && D.regionEmpty) {
     const others = (D.state.regions || []).filter((r) => D.regionCounts[r.key] > 0);
@@ -558,8 +560,8 @@ function renderAll(D, ui, draftsHere) {
   setText(kx.closest(".kpi").querySelector("dt"), `${who} flights in or heading in`);
   kx.closest(".kpi").title = exposed > 0
     ? `${exposed} ${who} flight${exposed === 1 ? "" : "s"} in or heading into TEPHRA's estimated area, all volcanoes.`
-    : `No ${who} flight seen heading in. Receiver coverage is patchy: an empty map is not an empty sky.`;
-  kx.setAttribute("aria-label", exposed > 0 ? String(exposed) : "0 seen. An empty map is not an empty sky");
+    : `No ${who} flight seen heading in.`;
+  kx.setAttribute("aria-label", exposed > 0 ? String(exposed) : "0 seen");
   // null: the server could not read the drafts; an older count is not shown as current. Why a
   // count is 0 is the story's notice, said once there (not again here).
   setText($("kpi-drafts"), !D ? "–" : drafts === null ? "unknown (database error)" : String(drafts));
@@ -757,6 +759,6 @@ export function coverageNote(D, store) {
   const v = D.vents.get(sit.volcano_id);
   if (!v) return null;
   const near = D.aircraft.some((f) => kmBetween(f.geometry.coordinates, v) < 150);
-  return near ? null : `No aircraft seen within 150 km of ${sit.volcano_name} in the open ADS-B feed. Receiver coverage is patchy here: an empty map is not an empty sky.`;
+  return near ? null : `No aircraft seen within 150 km of ${sit.volcano_name} in the open ADS-B feed. Receiver coverage is patchy here.`;
 }
 

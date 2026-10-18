@@ -341,8 +341,8 @@ def test_the_cause_of_a_pause_is_one_tap_from_every_place_that_lacks_an_output()
     # the Satellite picture: "paused" only while the assistant is, and the cause one tap away
     sat = _function(ext, "satRow")
     assert 'kind === "paused" ? `${ASSISTANT} is paused` : "Satellite reader did not run"' in sat
-    assert "Nothing was put in its place." in sat
-    assert 'not read. Nothing was put in ${bad === 1 ? "its" : "their"} place' in ext
+    assert "sub: `Not read: ${what}.`" in sat
+    assert "not read. The official area stands. `" in ext
     assert 'whyLink("sat-why")' in ext
     xparts = _read("wall/x-parts.js")
     why = xparts[xparts.index("export const whyLink = ") :]
@@ -356,7 +356,7 @@ def test_the_cause_of_a_pause_is_one_tap_from_every_place_that_lacks_an_output()
     assert "'data-why': '1'" in failures
     # the list replaces Decide on a phone: it has its own "Why" link (review clutter 1)
     pane = _function(failures, "paneBody")
-    assert "'Decide each flight by hand, then mark it handled.'" in pane
+    assert "'Decide each flight, then mark it handled.'" in pane
     assert "onclick: openBudget" in pane
     ask = _read("desk/ask.js")
     assert "title: 'TEPHRA Assistant is paused.'" in ask

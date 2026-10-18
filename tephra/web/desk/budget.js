@@ -193,7 +193,7 @@ export function openBudget() {
     ? el('section', { class: 'aisheet__sec', 'aria-labelledby': 'ai-work-title' },
       el('h3', { id: 'ai-work-title', class: 'aisheet__h', text: `Waiting in line · ${work.length}` }),
       el('ul', { class: 'aiworks' }, work.map((w) => workRow(w, reset))),
-      el('p', { class: 'note', text: 'Waiting work keeps its place and runs on the same model when its slot comes. Nothing is dropped or handed to another model.' }))
+      el('p', { class: 'note', text: 'Waiting work keeps its place and runs on the same model when its slot comes.' }))
     : null;
   const calls = b && !stub
     ? el('section', { class: 'aisheet__sec', 'aria-labelledby': 'ai-calls-title' },
@@ -219,7 +219,6 @@ export function openBudget() {
   openBSheet({
     title: ASSISTANT,
     body: el('div', { class: 'stack aisheet' }, mark, lead, causes, queue, calls, board, notBuilt, foot, runsOn(),
-      ai.kind === 'paused' || ai.kind === 'trouble' ? el('p', { class: 'note', text: 'When a skill cannot run, it says so and nothing is put in its place.' }) : null,
       el('p', { class: 'note aisheet__about', text: 'About TEPHRA Assistant: TEPHRA Assistant is an AI assistant. It reads feeds and drafts text. Code does every number and safety rule. You approve everything.' })),
   });
 }

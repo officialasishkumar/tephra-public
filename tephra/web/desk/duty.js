@@ -182,9 +182,7 @@ function buildCard(run) {
   // a code-only run's outcome is the code mark on its line: no chip says it again
   append(more, [el('p', { class: 'dcard__state' }, stub ? null : stateChip(tone, shape, word, failed ? (unavailable(run) ? `${unavailable(run)}: no model was called` : refused(run) ? 'TEPHRA Assistant is paused: no model was called' : 'The model was called and gave no brief that passed the code checks') : 'Outcome of the last Coordinator run'),
     failed ? null : el('span', { class: 'dcard__count', text: plural(calls, 'delegation') }))]);
-  if (failed) {
-    append(more, [el('p', { class: 'dcard__note', text: 'No brief was made up in its place.' })]);
-  } else if (b) {
+  if (!failed && b) {
     // the stub's summary only restates the count and the order the list below shows: its raw line
     // stays under Technical detail
     const codeSummary = stub && /^NO MODEL: \d+ delegation\(s\) made in urgency order\.$/.test(b.summary);

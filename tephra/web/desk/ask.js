@@ -292,10 +292,10 @@ function finish(wait, res, question) {
     const quota = reasonClass(unavailableReason(res)) === 'budget';
     paused = quota && deskAi().kind === 'paused';
     card = unavailableCard(unavailableReason(res), paused
-      ? { title: 'TEPHRA Assistant is paused.', instead: 'Nothing was made up. Your question is back in the box: send it again when the assistant is on. The Wall shows every flight and count.', onWhy: openBudget }
+      ? { title: 'TEPHRA Assistant is paused.', instead: 'Your question is back in the box: send it again when the assistant is on. The Wall shows every flight and count.', onWhy: openBudget }
       : quota
-        ? { title: 'No answer: Ask did not run', instead: 'Nothing was made up. Ask again, or read the Wall.', onRetry: retry, onWhy: openBudget }
-        : { title: 'No answer: Ask gave no result', instead: 'Nothing was made up. Ask again, or read the Wall.', onRetry: retry });
+        ? { title: 'No answer: Ask did not run', instead: 'Ask again, or read the Wall.', onRetry: retry, onWhy: openBudget }
+        : { title: 'No answer: Ask gave no result', instead: 'Ask again, or read the Wall.', onRetry: retry });
     if (paused && !composer.input.value.trim()) {
       composer.input.value = question;
       autosize(composer.input);

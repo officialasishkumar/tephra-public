@@ -39,7 +39,7 @@ const P = (mode, t) => ({ mode, t: at(t), from: at(t), rm: false });
 const chainOf = (trace, feeds = []) => {
   const C = lastChain({ events: flowEvents({ trace, feeds, now: at("10:50:00") }).events });
   return { full: C.full, missing: C.missing, note: chainNote(C),
-    beats: C.beats.map((b) => ({ kind: b.kind, node: b.node, n: b.n, text: b.text,
+    beats: C.beats.map((b) => ({ kind: b.kind, node: b.node, n: b.n, text: b.text, said: sayBeat(b),
       at: new Date(b.at).toISOString(), feeds: b.feeds || null })) };
 };
 const FM = { events: flowEvents({ trace: input.full, now: at("10:50:00") }).events };
@@ -110,7 +110,7 @@ def _step(n: int, stage: str, message: str, at: str, actor: str = "code", **extr
 
 
 ROWS = [
-    {"kind": "flight", "items": [{}], "text": "Code: RFA1654 is inside the Anak Krakatau ash area"},
+    {"kind": "flight", "items": [{}], "text": "RFA1654 is inside the Anak Krakatau ash area"},
     {"kind": "duty", "items": [{}], "out": None, "text": "Coordinator got 3 jobs"},
     {
         "kind": "duty",
@@ -257,34 +257,37 @@ def out(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     return json.loads(result.stdout)
 
 
-def test_each_row_kind_names_its_step_actor_and_kind(out: dict[str, Any]) -> None:
-    got = [(v["stage"], v["actor"], v["kind"]) for v in out["views"]]
+def test_each_row_kind_names_its_step_and_actor_with_no_kind_tag(out: dict[str, Any]) -> None:
+    got = [(v["stage"], v["actor"]) for v in out["views"]]
     assert got == [
-        ("code", "Code checks", None),
-        ("ai", "Coordinator", "TEPHRA Assistant"),
-        ("ai", "Coordinator", "TEPHRA Assistant"),
-        ("ai", "Coordinator", "TEPHRA Assistant"),
-        ("ai", "Flight planner", "TEPHRA Assistant"),
-        ("ai", "Drafter", "TEPHRA Assistant"),
-        ("ai", "Plume reader", "TEPHRA Assistant"),
-        ("ai", "Flight planner", "TEPHRA Assistant"),
-        ("ai", "Drafter", "TEPHRA Assistant"),  # a draft reaching the Desk: no person acted
-        ("feeds", "SIGMET", "public feed"),
-        ("feeds", "Aircraft positions", "public feed"),
-        ("feeds", "Airline positions", "airline feed"),
-        ("desk", "A person", "the Desk"),
-        ("ai", "TEPHRA Assistant", None),
-        ("code", "Code", None),
+        ("code", "Code checks"),
+        ("ai", "Coordinator"),
+        ("ai", "Coordinator"),
+        ("ai", "Coordinator"),
+        ("ai", "Flight planner"),
+        ("ai", "Drafter"),
+        ("ai", "Plume reader"),
+        ("ai", "Flight planner"),
+        ("ai", "Drafter"),  # a draft reaching the Desk: no person acted
+        ("feeds", "SIGMET"),
+        ("feeds", "Aircraft positions"),
+        ("feeds", "Airline positions"),
+        ("desk", "A person"),
+        ("ai", "TEPHRA Assistant"),
+        ("code", "Code"),
     ]
+    # the row names its actor only: no "public feed" / "TEPHRA Assistant" tag under it
+    assert all("kind" not in v for v in out["views"])
     assert out["noKind"] == "ai"
 
 
 def test_result_words_follow_what_the_step_says(out: dict[str, Any]) -> None:
     results = [v["result"] for v in out["views"]]
+    # a Coordinator run says its outcome in its words, so it carries no "No result" badge too
     assert results == [
         None,
         None,
-        "noresult",
+        None,
         None,
         "tool",
         "done",
@@ -337,7 +340,8 @@ def test_the_player_always_says_replay_and_never_a_bare_paused(out: dict[str, An
 
 def test_live_has_no_player_only_one_line(out: dict[str, Any]) -> None:
     live = out["player"]["live"]
-    assert live == {"live": True, "lead": "Live", "text": "new steps appear as they come"}
+    # LIVE is said once, by the header's pill: the player line has no "Live" lead
+    assert live == {"live": True, "lead": "", "text": "new steps appear as they come"}
 
 
 def test_the_one_status_shows_only_when_not_normal(out: dict[str, Any]) -> None:
@@ -390,7 +394,10 @@ def test_a_run_that_did_not_run_passes_must_do_work_and_reaches_no_skill(
     kinds = [b["kind"] for b in refused["beats"]]
     assert kinds == ["feeds", "code", "coord", "you"]
     assert "skill" not in kinds
-    assert refused["beats"][-1]["text"] == "2 must-do flights passed to you by code"
+    # the hero says the count as it bumps: the beat line names the step,
+    # the screen reader hears both
+    assert refused["beats"][-1]["text"] == "To You decide"
+    assert refused["beats"][-1]["said"] == "Replay, catching up: 2 must-do flights passed to you."
 
 
 def test_a_part_of_a_chain_plays_as_it_is_and_says_what_is_missing(out: dict[str, Any]) -> None:
@@ -456,7 +463,7 @@ def test_the_catch_up_log_follows_the_beats_in_play_order(out: dict[str, Any]) -
     still holds only the beats played so far, newest beat first (batch 2 UX finding 3/4)."""
     shown = out["own"]["shown"]
     assert shown[0] == ["VA SIGMETs read: 2 current"]
-    assert shown[1][0].startswith("Code: RFB401, RB555 +1")
+    assert shown[1][0].startswith("RFB401, RB555 +1")
     # the row's actor ("Coordinator") is said once, beside the text, not again in it
     assert shown[2][0] == "Handed a job to Flight planner"
     assert shown[-1][0] == "Advisory draft for RFB401 reached the Desk"

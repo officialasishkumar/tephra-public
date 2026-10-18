@@ -148,10 +148,10 @@ function causeBlock(list) {
   if (cs.length === 1) {
     const word = causeSentence(cs[0].cls, n);
     return [el('p', { class: 'hcard__why', text: word
-      ? `No plan for ${n === 1 ? 'this flight' : 'these flights'}: ${word}. Nothing was substituted.`
-      : `No advisory drafts for ${n === 1 ? 'this flight' : `these ${n} flights`}. Plan ${n === 1 ? 'it' : 'them'} by hand. Nothing was substituted.` })];
+      ? `No plan for ${n === 1 ? 'this flight' : 'these flights'}: ${word}.`
+      : `No advisory drafts for ${n === 1 ? 'this flight' : `these ${n} flights`}. Plan ${n === 1 ? 'it' : 'them'} by hand.` })];
   }
-  return [el('p', { class: 'hcard__why', text: 'No plan for these flights. Nothing was substituted.' }),
+  return [el('p', { class: 'hcard__why', text: 'No plan for these flights.' }),
     el('ul', { class: 'hcard__causes' }, cs.map((c) => el('li', { text: `${plural(c.n, 'flight')}: ${causeSentence(c.cls, c.n) || 'the assistant did not run'}` })))];
 }
 
@@ -200,7 +200,7 @@ function paneBody(list, must) {
       icon('st-caution', 'st fcause__icon'),
       el('div', { class: 'fcause__body' }, ...causeBlock(list),
         // on a phone this list replaces Decide and its card: the cause is one tap from here too (8.6)
-        el('p', { text: 'Decide each flight by hand, then mark it handled.' }),
+        el('p', { text: 'Decide each flight, then mark it handled.' }),
         el('button', { type: 'button', class: 'linkbtn fcause__why', 'aria-label': 'Why: open the TEPHRA Assistant sheet', onclick: openBudget }, el('span', { text: 'Why ›' })),
         el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }), ...raws.map((r) => el('p', { class: 'mono tech__line', text: r }))))),
     el('div', { class: 'fpane__actions' },
@@ -278,7 +278,7 @@ export function openHandled(id) {
     el('dt', { text: 'Aircraft' }), el('dd', { text: [ident(f) || 'no callsign', `hex ${String(f.hex || '').toUpperCase()}`].join(' · ') }),
     el('dt', { text: 'Volcano' }), el('dd', { text: f.volcano_name }),
     el('dt', { text: 'Since' }), el('dd', { text: hhmmz(f.created_at) }),
-    el('dt', { text: 'What happened' }), el('dd', {}, el('span', { text: causeWords(reasonClass(f.reason)) ? `No plan for this flight: ${causeWords(reasonClass(f.reason))}. Nothing was put in its place.` : 'No advisory draft for this flight. Nothing was put in its place. ' }),
+    el('dt', { text: 'What happened' }), el('dd', {}, el('span', { text: causeWords(reasonClass(f.reason)) ? `No plan for this flight: ${causeWords(reasonClass(f.reason))}.` : 'No advisory draft for this flight. ' }),
       causeWords(reasonClass(f.reason)) ? null : el('button', { type: 'button', class: 'linkbtn', 'aria-label': 'Why: open the TEPHRA Assistant sheet', onclick: openBudget }, el('span', { text: 'Why ›' })),
       must ? [' ', el('span', { class: 'dcard__must', text: 'Must do' })] : null));
   const tech = el('details', { class: 'tech' }, el('summary', { text: 'Technical detail' }),

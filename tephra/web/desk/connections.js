@@ -45,7 +45,7 @@ function draw(focusId = null) {
   sheet.setBody(el('div', { class: 'dc' },
     el('p', { class: 'dc-lead' }, "An airline's own system pushes positions, flight plans and pilot reports with a key, in the ", el('code', { text: 'tephra.airline/1' }), ' format. ', el('a', { class: 'linkbtn linkbtn--inline', href: PATH.schema, download: '', text: 'Schema (JSON)' })),
     connectionsBlock(), newBlock(), sampleBlock(), uploadBlock()));
-  sheet.setFooter(el('p', { class: 'al-foot', text: 'What is pushed here enters this TEPHRA\'s picture, as the push API does. Nothing is sent to an aircraft.' }));
+  sheet.setFooter(el('p', { class: 'al-foot', text: 'What is pushed here enters this TEPHRA\'s picture, as the push API does.' }));
   if (focusId) document.getElementById(focusId)?.focus();
 }
 

@@ -115,7 +115,6 @@ function undispatched(run) {
   return el("div", { class: "dk-sub", role: "group", "aria-label": "Mandatory work not dispatched" },
     el("p", { class: "dk-sub__title", text: `Passed to the Desk · ${plural(run.undispatched.length, "must-do job")}` }),
     collapsedLines(run.undispatched.map((id) => itemLabel(run, id)), "duty-undone", 3, "caution"),
-    el("p", { class: "dk-sub__note", text: "A dispatcher handles these by hand. Nothing was substituted." }),
     // the same flights, where the dispatcher acts on them (D69)
     dkLink("See the jobs to plan by hand ›", { act: "details-sec", sec: "decisions", focus: "duty-hand" }));
 }
@@ -178,13 +177,13 @@ export function dutyDetail(run, loaded, until = null, modeReplay = false) {
     ]),
   ];
   if (outcome === "BUDGET") {
-    kids.push(dkNote("caution", [`Not run: today's free AI quota is used up${until ? ` (TEPHRA Assistant paused ${until})` : ""}.`, "No brief was made, and nothing was made up in its place. Must-do jobs went to the Desk."], { role: "status" }),
+    kids.push(dkNote("caution", [`Not run: today's free AI quota is used up${until ? ` (TEPHRA Assistant paused ${until})` : ""}.`, "No brief was made. Must-do jobs went to the Desk."], { role: "status" }),
       dkTech(`${run.validation_errors.join(" · ")} · would have used ${run.model_id}`));
   } else if (outcome === "UNAVAILABLE") {
-    kids.push(dkNote("caution", [`Not run: ${unavailableWhy(firstUnavailable(run))}. No model was called.`, "No brief was made, and nothing was made up in its place. Must-do jobs went to the Desk."], { role: "status" }),
+    kids.push(dkNote("caution", [`Not run: ${unavailableWhy(firstUnavailable(run))}. No model was called.`, "No brief was made. Must-do jobs went to the Desk."], { role: "status" }),
       dkTech(`${run.validation_errors.join(" · ")} · would have used ${run.model_id}`));
   } else if (run.outcome === "MODEL_FAILED") {
-    kids.push(dkNote("caution", ["The model was called and gave no brief that passed the code's checks.", "No brief was made up in its place. The work below was not coordinated."], { role: "status" }),
+    kids.push(dkNote("caution", ["The model was called and gave no brief that passed the code's checks.", "The work below was not coordinated."], { role: "status" }),
       dkTech(`${run.validation_errors[0] || "no reason recorded"} · ${run.model_id}`));
   }
   kids.push(undispatched(run), handedTo(run));

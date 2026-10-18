@@ -320,16 +320,12 @@ export function renderClock(D, conn) {
   $("clock-time").dataset.stale = conn.lostAt ? "true" : "false";
   const sub = $("clock-sub");
   const replay = D.mode === "REPLAY";
-  if (conn.lostAt) {
-    setText(sub, `Stopped · ${dayMonth(conn.lostAt)} · UTC`);
-    sub.dataset.tone = "caution";
-  } else {
-    // "Replay clock · 5 Sep": what plays and that the time is that day's, not now, behind its (i)
-    setText(sub, narrow() ? (replay ? "Replay" : "UTC") : replay ? `Replay clock · ${dayMonth(D.now)}` : `${dayMonth(D.now)} · UTC`);
-    sub.dataset.tone = replay ? "replay" : "";
-  }
+  // "Replay clock · 5 Sep": what plays and that the time is that day's, not now, behind its (i). A
+  // lost connection is said once, by the header's stale chip; the clock only stops.
+  setText(sub, narrow() ? (replay ? "Replay" : "UTC") : replay ? `Replay clock · ${dayMonth(D.now)}` : `${dayMonth(D.now)} · UTC`);
+  sub.dataset.tone = replay ? "replay" : "";
   const box = $("clock-info");
-  box.hidden = !replay || !!conn.lostAt;
+  box.hidden = !replay;
   if (replay) {
     const words = [`${replayWords(D.state?.replay).text}.`, "The clock shows that day's time (UTC), not now."];
     const info = box.querySelector(".info");
@@ -348,7 +344,8 @@ export function mapPills(D, ui, extra) {
   // 3D says how to move it, once, where the eye already is
   if (ui.d3) {
     const touch = window.matchMedia("(pointer: coarse)").matches;
-    pills.push({ tone: "info", text: touch ? "3D, heights ×6: two fingers tilt and turn" : "3D, heights ×6: right-drag or Ctrl + drag to tilt and turn", action: "view-2d", actionText: "Back to 2D" });
+    // the drag help sits in the pill's tooltip; the pill keeps "×6"
+    pills.push({ tone: "info", text: "3D, heights ×6", title: touch ? "Two fingers tilt and turn" : "Right-drag or Ctrl + drag to tilt and turn", action: "view-2d", actionText: "Back to 2D" });
   }
   if (!D.levelAll) {
     const what = D.hiddenOfficial
@@ -436,11 +433,11 @@ function flightRow(D, f, ui, allStale = false, hand = null) {
 export function coverageWords(D, store) {
   const adsb = store.feeds.find((f) => f.feed === "adsb");
   const replay = D.mode === "REPLAY";
-  if (adsb && adsb.status === "OK") return "Aircraft coverage is patchy: an empty map is not an empty sky. Entry times are estimates: a straight line from the last position.";
-  if (adsb?.status === "STALE") return "Aircraft data is stale: the last good positions are shown, and an empty map is not an empty sky.";
-  if (adsb?.status === "ERROR") return "Aircraft data is failing: the last good positions are shown, and an empty map is not an empty sky.";
+  if (adsb && adsb.status === "OK") return "Aircraft coverage is patchy. Entry times are estimates: a straight line from the last position.";
+  if (adsb?.status === "STALE") return "Aircraft data is stale: the last good positions are shown.";
+  if (adsb?.status === "ERROR") return "Aircraft data is failing: the last good positions are shown.";
   if (replay) return "No aircraft data in this recording.";
-  return `Aircraft data is ${adsb?.status === "DISABLED" ? "off" : "not working"}: an empty map is not an empty sky.`;
+  return `Aircraft data is ${adsb?.status === "DISABLED" ? "off" : "not working"}.`;
 }
 
 export function renderFlights(D, store, ui, target = $("flights")) {
@@ -500,7 +497,7 @@ function crewList(D, ui) {
     .filter(([, flag]) => flag)
     .sort(([, a], [, b]) => a.minutes_to_entry - b.minutes_to_entry);
   if (!flagged.length) return null;
-  return { n: flagged.length, node: dkGroup(`On the route of a crew report of ash · ${flagged.length}`, "operator policy A",
+  return { n: flagged.length, node: dkGroup(`On the route of a crew report of ash · ${flagged.length}`, null,
     dkList(flagged.map(([f, flag]) => {
       const p = f.properties;
       const lvl = p.alt_baro_ft != null ? fl(p.alt_baro_ft) : "level unknown";
@@ -548,7 +545,7 @@ function traceRun(run, ui, stub, ai) {
   if (run.items.some((t) => ui.freshTrace?.has(t.id))) row.classList.add("is-new");
   return row;
 }
-// Which step it was and who did it: "Flight check · done by code", "Flight planner · code only".
+// Which step it was and, when not code, who did it: "Flight check", "Drafter · done by TEPHRA Assistant".
 const STAGE_WORD = {
   DUTY: "Coordinator", PLUME: "Plume reader", SATELLITE: "Satellite reader", PLANNER: "Flight planner", DRAFTER: "Drafter", RECOVERY: "Recovery planner",
   EXPOSURE: "Flight check", CONE: "TEPHRA's estimate", DISCREPANCY: "Disagreement check", DOCS: "Paperwork", MESSAGES: "Messages", NOTICE: "Notices", ASK: "Ask",
@@ -665,7 +662,7 @@ export function sourcesSection(D, sit) {
     if (card.missing) {
       const hyp = D.coneOf(sit.volcano_id)?.properties.mode === "HYPOTHESIS" && !observer;
       const word = UNREAD[card.missing_reason] || (hyp ? "No valid official product" : "None in force");
-      return dkRow({ key: `src-${card.kind}`, dot: "off", title: word, sub: [kind, card.missing_note ? ` · ${card.missing_note}` : "", " · Absence is not evidence of no ash."], cls: "dk-row--muted" });
+      return dkRow({ key: `src-${card.kind}`, dot: "off", title: word, sub: [kind, card.missing_note ? ` · ${card.missing_note}` : ""], cls: "dk-row--muted" });
     }
     const t = ms(card.issued_at);
     const [tone, sid, word, long] = EVID[card.evidence] || EVID.UNKNOWN;
@@ -716,6 +713,8 @@ export function sourcesSection(D, sit) {
   return dkSection("h-sources",
     dkHeader({ id: "h-sources", pills: [nOfficial ? dkPill("ok", `${nOfficial} official ${nOfficial === 1 ? "report" : "reports"} in force`) : dkPill("caution", "No official report")], title: summary, srTitle: true }),
     dkList(order.map(sourceRow), { first: 3, key: "src" }),
+    // said once for the section, not on each missing report's row
+    order.some((c) => c.missing) ? el("p", { class: "dk-sub__note", text: "Absence is not evidence of no ash." }) : null,
     dkFoot(dkQuiet("Raw texts side by side (C)", { act: "raw", kind: "", focus: "src-side" })),
     dkAbout(`Why TEPHRA shows ${sit.volcano_name} · ${plural(sit.active_reasons.length, "reason")}`, "src-why", el("ul", { class: "dk-bullets" }, ...sit.active_reasons.map((r) => el("li", { text: r })))));
 }
@@ -733,9 +732,12 @@ export function disagreeSection(D, sit, ui) {
     const [kind, headline] = kindOf(d);
     return { _t: NaN, text: headline, why: capFirst(EXPLAIN[d.kind] ? EXPLAIN[d.kind].replace(/^Harmless: /, "") : ""), raw: `${kind} · ${d.id || ""} · ${d.summary}`, detail: machineText(d.summary) };
   });
+  // "not evidence of no ash" once for the section: on the first report that could not see
+  let said = check.some((d) => d.kind === "SILENCE");
   for (const card of sit.cards) {
     if (card.missing || !NON_OBS.has(card.evidence)) continue;
-    minor.push({ _t: NaN, text: `${card.kind} could not see the ash`, why: "Not evidence of no ash. It never shrinks TEPHRA's area or weakens an advisory.", raw: `NOT OBSERVED · ${card.source_id}`, detail: null });
+    minor.push({ _t: NaN, text: `${card.kind} could not see the ash`, why: `${said ? "" : "Not evidence of no ash. "}It never shrinks TEPHRA's area or weakens an advisory.`, raw: `NOT OBSERVED · ${card.source_id}`, detail: null });
+    said = true;
   }
   const worst = check.some((d) => d.severity === "WARNING") ? "warning" : "caution";
   const headText = check.length
@@ -852,14 +854,14 @@ export function areaSection(D, sit, ui) {
   }
   return dkSection("h-area",
     cone.mode === "HYPOTHESIS" ? hypothesisBanner(sit) : null,
-    dkHeader({ id: "h-area", pills: [dkPill(tone, word)], title: estimateOutcome(D, sit, cone), chips: [dkChip("Never smaller than any valid official area", { kind: "tephra" }), dkChip("An estimate, not a forecast")] }),
+    dkHeader({ id: "h-area", pills: [dkPill(tone, word)], title: estimateOutcome(D, sit, cone), chips: [dkChip("An estimate, not a forecast")] }),
     // the numbers at a glance: the band as a bar, the validity as a countdown, the confidence big
     dkGlance({
       tone: "tephra", labelId: "h-area-card", label: "TEPHRA's area", until: dkCountdown(ms(cone.valid_to), D.now),
       facts: [dkBand(cone.base_ft, cone.top_ft, "tephra"), cone.mode !== "OFFICIAL" ? dkFact({ value: `${Math.round((cone.confidence ?? 0) * 100)}%`, label: "Confidence in the widening" }) : null],
       kids: [
-        outcome === "UNAVAILABLE" ? dkNote("caution", `Plume reader did not run: ${machineText(a?.estimate?.uncertainty_notes || "AI UNAVAILABLE")} No model was called. TEPHRA shows the official area only, and nothing was put in its place.`, { role: "status" }) : null,
-        outcome === "MODEL_FAILED" ? dkNote("caution", `Plume reader gave no result: ${machineText(a?.estimate?.uncertainty_notes || "no usable model output")}. TEPHRA shows the official area only, and nothing was put in its place.`, { role: "status" }) : null,
+        outcome === "UNAVAILABLE" ? dkNote("caution", `Plume reader did not run: ${machineText(a?.estimate?.uncertainty_notes || "AI UNAVAILABLE")} No model was called. TEPHRA shows the official area only.`, { role: "status" }) : null,
+        outcome === "MODEL_FAILED" ? dkNote("caution", `Plume reader gave no result: ${machineText(a?.estimate?.uncertainty_notes || "no usable model output")}. TEPHRA shows the official area only.`, { role: "status" }) : null,
         dkLabel("Reading"), el("p", { class: "gl-by" }, el("span", {}, readBy)),
         dkFoot(dkTech(`Mode ${cone.mode} · label ${cone.label} · ${cone.cone_id || ""}`)),
       ],
@@ -940,7 +942,7 @@ export function decisionsSection(D, store, ui, target = $("decisions")) {
     chips: all.length ? [dkChip("Read-only preview · decide on the Desk", { title: "Each row opens the draft as the Desk shows it. Approving and rejecting happen on the Desk." })] : [],
     title: all.length ? "Every advisory is a draft until a dispatcher decides on the Desk." : "No advisories yet. A draft appears when a flight's projected track enters TEPHRA's area.",
     sub: handN && !waitingN ? el("span", {}, hand.block.paused ? `No advisory drafts for the ${handN === 1 ? "flight" : `${handN} flights`}. ` : `No drafts: ${hand.block.undone ? "the Coordinator left its must-do flights for the Desk" : blockPhrase(hand.block)}. `,
-      el("a", { class: "link-btn", href: page("/desk"), target: "_blank", rel: "noopener", text: "Plan by hand on the Desk ›" }), hand.block.paused || hand.block.unavailable ? [" ", whyLink("dec-why")] : null) : null,
+      el("a", { class: "link-btn", href: page("/desk"), target: "_blank", rel: "noopener", text: "Open the Desk ›" }), hand.block.paused || hand.block.unavailable ? [" ", whyLink("dec-why")] : null) : null,
   });
   const tiles = all.length ? dkTiles([
     { label: "Waiting", value: serverWaiting === null ? "unknown" : String(serverWaiting ?? draft.length), tone: serverWaiting === null ? "serious" : "caution", sub: serverWaiting === null ? "database error" : "all volcanoes" },
@@ -1134,10 +1136,11 @@ export function renderTimeline(D, store, ui, conn) {
     pill = `⟲ ${hhmmz(D.now)} · ${ui.steps === "now" ? "Now" : { f6: "+6 h", f12: "+12 h", f18: "+18 h", all: "All steps" }[ui.steps]} ▾`;
   } else {
     // a hosted airline's state (SHADOW or LIVE) is the header's chip: the bar says the wall clock
-    meta.append(TENANT ? el("span", { class: "tl__mode", text: utcTime(D.now) }) : el("span", { class: "tl__mode tl__mode--live" }, icon("i-live"), "Live"), el("span", { class: "tl__window", text: "9 h back, 3 h ahead" }));
+    // LIVE is said once, by the header's pill: the bar says only its window
+    if (TENANT) meta.append(el("span", { class: "tl__mode", text: utcTime(D.now) }));
+    meta.append(el("span", { class: "tl__window", text: "9 h back, 3 h ahead" }));
     pill = `● ${hhmmz(D.now)} · ${ui.steps === "now" ? "Now" : { f6: "+6 h", f12: "+12 h", f18: "+18 h", all: "All steps" }[ui.steps]} ▾`;
   }
-  if (conn.lostAt) meta.append(el("span", { class: "tl__window tl__stale", text: `last update ${hhmmz(conn.lostAt)}` }));
   const tp = $("time-pill");
   if (tp) { tp.textContent = pill; tp.setAttribute("aria-expanded", document.body.classList.contains("tl-sheet") ? "true" : "false"); }
 
@@ -1295,7 +1298,7 @@ export function historySection(D, store, ui) {
     : dkEmpty("No events in the last 9 hours.", null);
   box.replaceChildren(dkSection("hist-head", head,
     el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "history", focus: "hist-open" }, text: ui.historyOpen ? "Hide History on the time bar" : "Show History on the time bar" })),
-    D.stepsMissing?.length ? dkNote("info", "The chosen forecast step has no official area in the current products. No other step is drawn in its place.") : null,
+    D.stepsMissing?.length ? dkNote("info", "The chosen forecast step has no official area in the current products.") : null,
     seg, list));
 }
 
@@ -1371,11 +1374,13 @@ export function sourcesDialog(D, focusKind) {
   const sit = D?.sit;
   if (!sit) return el("p", { text: "No active volcano selected." });
   const byKind = Object.fromEntries(sit.cards.map((c) => [c.kind, c]));
+  // "Absence is not evidence of no ash" once in the dialog: in the first column with no report
+  let said = false;
   const cols = [byKind.SIGMET, byKind.VAA, byKind.VONA].filter(Boolean).map((c) => {
     const url = c.url ? safeExternalUrl(c.url) : null;
     const col = el("section", { class: `raw raw--${c.kind.toLowerCase()}`, "aria-label": c.title, dataset: { kind: c.kind } },
       el("h3", { class: "raw__title" }, el("span", { class: "cmp__kind", text: KIND_LABEL[c.kind] || c.kind }), c.missing ? missingHead(c, "None in force") : el("span", { text: c.title })));
-    if (c.missing) { col.append(el("p", { class: "muted", text: `${c.missing_note || "None in force"}. Absence is not evidence of no ash.` })); return col; }
+    if (c.missing) { col.append(el("p", { class: "muted", text: `${c.missing_note || "None in force"}.${said ? "" : " Absence is not evidence of no ash."}` })); said = true; return col; }
     col.append(
       el("dl", { class: "raw__facts" },
         el("dt", { text: "Source id" }), el("dd", { class: "mono", text: c.source_id }),

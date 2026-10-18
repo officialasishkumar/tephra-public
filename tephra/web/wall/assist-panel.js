@@ -17,7 +17,7 @@
 // the CSSOM and SVG attributes.
 
 import { el, icon, reducedMotion } from "./util.js";
-import { codeMark, ASSISTANT } from "./x-parts.js";
+import { codeMark } from "./x-parts.js";
 import { hmsOf, RESULT } from "./board.js";
 import { mountInside, drawInside, insideColours, mapColours, SRC } from "./board-view.js";
 import { FIVE_STEPS } from "../five-steps.js";
@@ -48,12 +48,11 @@ function resultWord(r) {
   return word ? el("span", { class: `ev__res ev__res--${tone}` }, icon(ic), word) : null;
 }
 
-function logRow(r, stub = false) {
+function logRow(r) {
   return el("li", { class: `ev t-${r.stage}` },
     el("time", { class: "ev__t", datetime: new Date(r.tm).toISOString(), text: hmsOf(r.tm) }),
     el("span", { class: "ev__ic" }, icon(rowIcon(r))),
-    // with no model connected no step is the assistant's: the tab bar's status says so once
-    el("span", { class: "ev__who" }, r.actor, r.kind && !(stub && r.kind === ASSISTANT) ? el("small", { text: r.kind }) : null, resultWord(r)),
+    el("span", { class: "ev__who" }, r.actor, resultWord(r)),
     el("span", { class: "ev__what" }, r.code ? codeMark() : null, r.text));
 }
 
@@ -158,6 +157,7 @@ export function mountAssist(host, { has = () => true, mapView = () => null, shee
     const w = playerWords(M, CU.state === "waiting" && M.replay ? { ...P, mode: "waiting" } : P);
     // an airline's space says SHADOW or LIVE in its header chip: "Live" here would read as that
     setText(lead, TENANT && w.live ? "Now" : w.lead);
+    sep.hidden = !lead.textContent;
     setText(words, w.text);
     setText(time, w.time || "");
     // LIVE: no player, one line
@@ -213,7 +213,7 @@ export function mountAssist(host, { has = () => true, mapView = () => null, shee
       log.replaceChildren(el("p", { class: "log__empty", text: "No steps yet in this window." }));
       return;
     }
-    const kids = minuteGroups(list).flatMap((g) => [el("h3", { class: "log__min", text: g.minute }), el("ol", {}, ...g.rows.map((r) => logRow(r, M?.stub)))]);
+    const kids = minuteGroups(list).flatMap((g) => [el("h3", { class: "log__min", text: g.minute }), el("ol", {}, ...g.rows.map((r) => logRow(r)))]);
     if (rows.length > FOLDED_ROWS) {
       kids.push(el("button", { type: "button", class: "link-btn log__more", "aria-expanded": String(showAll), dataset: { focus: "assist-all" }, text: showAll ? "Show fewer" : `Show all (${rows.length})` }));
     }

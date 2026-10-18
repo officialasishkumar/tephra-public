@@ -138,11 +138,13 @@ def test_the_receipt_line_replaces_the_decision_toast() -> None:
     assert "Audit line not listed yet. It appears in Record when the server lists it." in audit
 
 
-def test_nothing_is_sent_is_said_twice_per_approval() -> None:
-    """The confirm step and the stamp; the hint under the button no longer repeats it."""
+def test_nothing_is_sent_is_said_once_per_approval() -> None:
+    """At the confirm step, where you decide (notice inventory row 8); the stamp after it says
+    only "queued", and the hint under the button does not repeat it."""
     review = _read("desk/review.js")
     assert "nothing is sent to an aircraft." in review
-    assert "queued, not sent to any aircraft" in review
+    assert "APPROVED: ['i-approved', 'Approved', 'queued']," in review
+    assert "not sent to any aircraft" not in review
     assert "QUEUE_SENTENCE" not in review
     assert "'Hold to approve, or tap to confirm.'" in review
 

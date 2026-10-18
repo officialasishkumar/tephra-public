@@ -111,7 +111,7 @@ export function indexStatus(key, D, store, ui) {
     }
     case "flights": {
       const list = sit ? D.exposed.filter((f) => f.properties.volcano_id === sit.volcano_id) : [];
-      if (!list.length) return { text: "– · coverage is patchy" };
+      if (!list.length) return { text: "none seen" };
       const p = list[0].properties;
       // the story's one count set (derive.js D.counts) when it is there, so the hero and this row agree
       return { text: `${D.counts ? D.counts.exposed : list.length} · first is ${p.inside ? "inside now" : `in ${p.minutes_to_entry} min`}`, tone: "tephra" };
@@ -126,7 +126,7 @@ export function indexStatus(key, D, store, ui) {
       const a = sit ? advisoryFacts(D, store, sit.volcano_id) : null;
       const w = a ? a.drafts : D?.state.draft_count ?? advs.filter((x) => x.status === "DRAFT").length;
       const ok = a ? a.approved : advs.filter((x) => x.status === "APPROVED" || x.status === "EDITED").length;
-      if (hand && !w) return { text: `0 waiting · ${hand} to plan by hand`, tone: "caution" };
+      if (hand && !w) return { text: `0 waiting · ${hand} by hand`, tone: "caution" };
       return { text: `${a?.partial ? "≥" : ""}${w} waiting · ${ok} approved` };
     }
     case "recovery": {
@@ -277,7 +277,7 @@ function areaDetail(D, store, vid) {
     kids.push(dkGlance({
       tone: "tephra", labelId: "area-tep-h", label: "TEPHRA's estimate · not a forecast", until: dkCountdown(ms(cone.valid_to), D.now),
       lead: estimateOutcome(D, sit, cone),
-      facts: [dkBand(cone.base_ft, cone.top_ft, "tephra"), el("p", { class: "gl-rule" }, icon("i-check", "icon"), "Never smaller than any valid official area")],
+      facts: [dkBand(cone.base_ft, cone.top_ft, "tephra")],
       kids: [dkFoot(techDetail(`mode ${cone.mode} · ${cone.label} · confidence ${Math.round((cone.confidence ?? 0) * 100)}%`))],
     }));
   }
@@ -394,7 +394,7 @@ function crewFlagBlock(D, flag) {
     el("p", {}, el("strong", { text: flag.line })),
     flag.reporter ? null : el("p", { text: `${flag.proxy_flight} ${whenFlag(flag)}.` }),
     ...views.map((v) => el("p", { text: `${v.report.flight} reported ${v.report.cues.map((c) => CUE_WORDS[c] || c).join(", ")} at ${crewBand(v.report)}, ${v.age_text} · ${v.state_label}` })),
-    el("p", { class: "dk-sub__note", text: "Operator policy A caution area, not a VAA or SIGMET. Approving Keep watching or Continue for this flight needs a written reason on the Desk." }),
+    el("p", { class: "dk-sub__note", text: "Approving Keep watching or Continue for this flight needs a written reason on the Desk." }),
   ].filter(Boolean), { iconId: "i-pin", action: el("button", { type: "button", class: "link-btn", dataset: { act: "details-open", sec: "crew", focus: `flag-crew-${flag.hex}` }, text: "Crew reports of ash ›" }) });
 }
 

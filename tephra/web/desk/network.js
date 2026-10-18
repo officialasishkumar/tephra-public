@@ -156,7 +156,7 @@ function window_(c) {
 function closuresList(p) {
   const list = p.closures || [];
   if (!list.length) return [el('p', { class: 'note', text: 'No airport of the RFA network is closed.' })];
-  return [el('p', { class: 'fine', text: 'Closed while the ash area comes within the closure radius. Written by code from the official products.' }),
+  return [el('p', { class: 'fine', text: 'Closed while the ash area of the official products comes within the closure radius.' }),
     el('ul', { class: 'clos' }, list.map((c) =>
       el('li', { class: 'clo' },
         el('p', { class: 'clo__line' },
@@ -224,7 +224,7 @@ function scenariosList(p) {
   const list = p.scenarios || [];
   const max = Math.max(0, ...list.map((sc) => (sc.totals ? sc.totals.total_usd : 0)));
   return [
-    el('p', { class: 'fine', text: "The same day re-planned if the closure lasts as forecast, or longer. Solved by code. Costs use the operator's illustrative weights." }),
+    el('p', { class: 'fine', text: "The same day re-planned if the closure lasts as forecast, or longer. Costs use the operator's illustrative weights." }),
     list.length ? el('ul', { class: 'scs' }, list.map((sc) => scenarioCard(p, sc, max))) : el('p', { class: 'note', text: 'No scenario was solved.' }),
     list.length ? el('p', { class: 'fine', text: 'Tap a scenario to see its flights under Flight by flight.' }) : null,
   ];
@@ -309,7 +309,7 @@ function decisionRow(p, canApprove) {
   }
   if (p.status === 'APPROVED') {
     return el('div', { class: 'plan__dec plan__dec--done', role: 'group' },
-      el('p', { class: 'plan__done' }, icon('i-approved', 'st'), el('strong', { text: `Approved by ${deskName(p.decided_by) || 'a dispatcher'} at ${hhmmz(p.decided_at)}` }), el('span', { text: ' · queued, not sent anywhere' })),
+      el('p', { class: 'plan__done' }, icon('i-approved', 'st'), el('strong', { text: `Approved by ${deskName(p.decided_by) || 'a dispatcher'} at ${hhmmz(p.decided_at)}` }), el('span', { text: ' · queued' })),
       el('button', { type: 'button', class: 'btn btn--cta', 'data-plan-msgs': p.id, disabled: app.offline }, icon('i-sparkle'), el('span', { text: 'Draft crew and passenger messages' })));
   }
   if (p.status === 'REJECTED') {
@@ -409,7 +409,7 @@ export function renderNetwork() {
       el('span', { class: 'chip chip--fict', title: 'Ring of Fire Air and its schedule are made up' }, icon('i-info', 'st'), el('span', { text: 'Fictional airline RFA · synthetic schedule' })),
       fromReplayChip(p)),
     // "explained by" only when a model explained something (K95, H7)
-    el('p', { class: 'plan__foot', text: `${solvedAny || p.status !== 'AI_UNAVAILABLE' ? 'Planned' : 'Tried'} ${hhmmz(p.created_at)}${solvedAny ? ' by code' : ''} · version ${p.version}${p.rationale && p.llm_backend !== 'stub' && p.model_id && p.model_id !== 'stub' ? ' · explained by the Recovery planner' : ''}` }));
+    el('p', { class: 'plan__foot', text: `${solvedAny || p.status !== 'AI_UNAVAILABLE' ? 'Planned' : 'Tried'} ${hhmmz(p.created_at)} · version ${p.version}${p.rationale && p.llm_backend !== 'stub' && p.model_id && p.model_id !== 'stub' ? ' · explained by the Recovery planner' : ''}` }));
   const dec = decisionRow(p, Boolean(t) && !problem);
   if (dec) card.append(dec);
   parts.push(card);
@@ -431,7 +431,7 @@ export function renderNetwork() {
   }
   // the decision-support sentence is not page chrome any more (owner, 17 Oct: "don't put this
   // everywhere"); what approving does stays at the place you approve
-  parts.push(el('p', { class: 'fine plan__fine', text: "Approving queues the plan on TEPHRA's own outbound queue. Nothing is sent to an airline system." }));
+  parts.push(el('p', { class: 'fine plan__fine', text: "Approving queues the plan on TEPHRA's own outbound queue." }));
   panel.replaceChildren(...parts);
   restoreFocus(panel, keep);
 }
@@ -490,7 +490,7 @@ function confirmApprove(p) {
     if (res.ok && res.data && res.data.id) {
       onRecoveryEvent(res.data);
       sheet.close();
-      toast({ tone: 'ok', title: `Airport plan approved under ${app.me ? app.me.name : 'you'}. Not sent to any system.` });
+      toast({ tone: 'ok', title: `Airport plan approved under ${app.me ? app.me.name : 'you'}.` });
       return;
     }
     go.disabled = false;

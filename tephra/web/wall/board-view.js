@@ -287,7 +287,8 @@ export function mountInside({ has, side = false }) {
   const who = el("p", { class: "flow-who" });
   const runsCap = el("span");
   const runsBars = el("div", { class: "flow-runs__bars", "aria-hidden": "true" });
-  const runsBox = el("div", { class: "flow-runs" }, el("p", { class: "flow-runs__cap" }, el("span", { text: "Must-do passed to you, each run" }), runsCap), runsBars);
+  // the caption is the bars' hover and screen-reader text: the hero says the must-do count once
+  const runsBox = el("div", { class: "flow-runs" }, el("p", { class: "flow-runs__cap sr-only" }, el("span", { text: "Must-do passed to you, each run" }), runsCap), runsBars);
   const facts = el("ul", { class: "flow-facts" });
   const factsCap = el("p", { class: "flow-facts__cap", text: "At the Desk now" });
   const youId = side ? "assist-you" : "flow-you";
@@ -303,7 +304,7 @@ export function mountInside({ has, side = false }) {
       el("a", { class: "flow-cta", href: "/desk", dataset: { focus: "board-desk" } }, el("span", { text: "Open the Desk" }), el("span", { "aria-hidden": "true", text: "→" })),
       el("button", { type: "button", class: "flow-link", dataset: { act: "board-details", sec: "ai", focus: "board-ai-home" }, text: "Details › TEPHRA Assistant ›" })]));
   const codeRow = el("div", { class: "flow-row flow-row--code" }, node("flow-node--code", "code"),
-    el("button", { type: "button", class: "flow-row__btn flow-row__txt", dataset: rowAct("checks"), "aria-label": side ? "Code checks: what was read and which flights were flagged. Details › Data feeds" : "Code checks: what was read and which flights were flagged", title: "Code only: reads the feeds and checks every flight. No model." },
+    el("button", { type: "button", class: "flow-row__btn flow-row__txt", dataset: rowAct("checks"), "aria-label": side ? "Code checks: what was read and which flights were flagged. Details › Data feeds" : "Code checks: what was read and which flights were flagged" },
       el("span", { class: "flow-row__name", text: "Code checks" }),
       el("span", { class: "flow-row__meta flow-ctr" }, cFeeds, wFeeds, cFlights, wFlights)));
   const panel = el(side ? "section" : "aside", { class: `flow-panel${side ? " flow-panel--side" : ""}`, "aria-label": "Inside TEPHRA" },
@@ -324,7 +325,7 @@ export function mountInside({ has, side = false }) {
     if (side && !onreqName.parentElement.hidden) onreqName.parentElement.hidden = true;
     setMark(coordMark, ex ? "ta-working" : M.ai.symbol);
     setText(gateName, ex ? "AI model · open" : M.gate.name);
-    setText(gateMeta, ex ? "Example: open, jobs go straight through" : M.gate.meta);
+    setText(gateMeta, ex ? "jobs go straight through" : M.gate.meta);
     // with no model the gate says nothing: the one AI status says it
     const bare = !gateName.textContent && !gateMeta.textContent;
     gateRow.classList.toggle("is-bare", bare);
@@ -336,7 +337,7 @@ export function mountInside({ has, side = false }) {
     setText(coordMeta, ex ? "Orders the jobs and hands them to skills" : M.coord.meta);
     coordMeta.hidden = !coordMeta.textContent;
     const more = side ? "Details › TEPHRA Assistant" : "Details";
-    setAttr(coordBtn, "aria-label", `Coordinator${ex ? ": orders the jobs and hands them to skills (example)" : M.coord.meta ? `: ${M.coord.meta}` : ""}. ${more}`);
+    setAttr(coordBtn, "aria-label", `Coordinator${ex ? ": orders the jobs and hands them to skills" : M.coord.meta ? `: ${M.coord.meta}` : ""}. ${more}`);
     for (const s of M.skills) {
       const r = skillEls[s.id];
       if (!r) continue;
@@ -392,7 +393,7 @@ export function mountInside({ has, side = false }) {
     const S = flowAt(done, t);
     const mustMode = !ex && (S.must != null || M.ai.kind === "paused");
     let n, words;
-    if (ex) { n = exState?.run ? exState.drafts : null; words = n === 1 ? "advisory draft to approve (example)" : "advisory drafts to approve (example)"; }
+    if (ex) { n = exState?.run ? exState.drafts : null; words = n === 1 ? "advisory draft to approve" : "advisory drafts to approve"; }
     else if (mustMode) { n = S.must; words = n === 1 ? "must-do flight to plan by hand" : "must-do flights to plan by hand"; }
     else { n = D.drafts; words = n === 1 ? "advisory waits for you" : "advisories wait for you"; }
     const before = heroN.textContent;
@@ -402,9 +403,9 @@ export function mountInside({ has, side = false }) {
     if (bump && (before !== heroN.textContent || note) && !rm) { heroN.classList.add("is-bump"); window.setTimeout(() => heroN.classList.remove("is-bump"), 320); }
     decide.classList.toggle("is-must", mustMode);
     // the catch-up's note is the player's beat line on the demo's tab: said there, not twice
-    const whoText = (side ? null : note) || (ex ? (exState?.run ? `Illustrative: one draft per flight of the example run at ${hms(exState.runAt)}.` : "Illustrative: no run in this window yet.")
-      : mustMode ? (S.mustAt == null ? "Waiting for the first run in this window." : `Passed straight to you by code · run ${hms(S.mustAt)}`)
-        : n == null ? "Advisory count unknown (database error)." : "");
+    const whoText = (side ? null : note) || (ex ? (exState?.run ? "" : "No run in this window yet.")
+      : n == null && !mustMode ? "Advisory count unknown (database error)." : "");
+    setAttr(heroN, "title", mustMode && S.mustAt == null ? "Waiting for the first run in this window" : mustMode ? `Run ${hms(S.mustAt)}` : null);
     setText(who, whoText);
     if (who.hidden !== !whoText) who.hidden = !whoText;
     // run bars: one per refused run in the window, lit up to the playhead
@@ -424,13 +425,14 @@ export function mountInside({ has, side = false }) {
       setAttr(b, "title", `${hms(r.at)}: ${plural(r.n, "must-do flight")} passed to you`);
     });
     setText(runsCap, lit ? `${lit} of ${runs.length} runs` : `${runs.length} runs in this window`);
+    setAttr(runsBars, "title", `Must-do passed to you, each run · ${runsCap.textContent}`);
     // the other work at the Desk, now (the Wall's own counts, not the playhead). The hero already
     // says the must-do count, so the facts do not say a second one. The demo's tab leaves them to
     // the Desk.
     const rows = [];
     if (!ex && !side) {
       const hp = D.handPlan;
-      if (hp && hp.n) rows.push(["Flights to plan by hand", mustMode ? String(hp.n) : `${hp.n}${hp.must ? ` · ${hp.must} must do` : ""}`]);
+      if (hp && hp.n) rows.push(["Flights with no draft", mustMode ? String(hp.n) : `${hp.n}${hp.must ? ` · ${hp.must} must do` : ""}`]);
       if (D.sra.n) rows.push(["SRA to sign", `${D.sra.n}${D.sra.names[0] ? ` · ${D.sra.names[0]}` : ""}`]);
       if (D.plan) rows.push(["Airport plan", D.plan === "by hand" ? "By hand" : "Waits for approval", D.planNote]);
       if (mustMode) rows.push(["Advisories to approve", D.drafts == null ? "unknown" : D.drafts ? String(D.drafts) : "None"]);
@@ -621,9 +623,10 @@ export function mountFlow(dialog, { has }) {
   const player = el("div", { class: "flow-player" }, play, el("p", { class: "flow-chip" }, chipWord, chipText, skip, speedBtn), track, tnow, mchip);
   const dock = el("div", { class: "flow-dock" }, log, el("div", { class: "flow-logrow" }, legend, allSteps), player);
   // not a live region of its own: the board's one live region says it (spec 8)
-  const staleNote = el("p", { class: "flow-stale", hidden: true, text: "Reconnecting. Showing the last steps." });
+  // a lost connection is said on screen once, by the header's stale chip; a screen reader hears this
+  const STALE_SAID = "Reconnecting. Showing the last steps.";
 
-  const stage = el("div", { class: "flow-stage" }, mapWrap, head, staleNote, panel, dock);
+  const stage = el("div", { class: "flow-stage" }, mapWrap, head, panel, dock);
   body.replaceChildren(stage);
   const railC = el("canvas", { class: "flow-rails", "aria-hidden": "true" });
   const fxC = el("canvas", { class: "flow-fx", "aria-hidden": "true" });
@@ -1456,7 +1459,7 @@ export function mountFlow(dialog, { has }) {
       status.dataset.k = skey;
       status.dataset.tone = ex ? "ok" : line.tone;
       const why = line.why ? el("button", { type: "button", class: "link-btn", "aria-label": "Why: open Details › TEPHRA Assistant", dataset: { act: "board-details", sec: "ai", focus: "board-why" }, text: "Why ›" }) : null;
-      status.replaceChildren(...(ex ? ["· working (example)"]
+      status.replaceChildren(...(ex ? ["· working"]
         : line.word ? [el("span", { class: "flow-head__word" }, icon(line.icon, "st"), line.word), infoButton({ topic: "assistant", label: "About the AI state", text: line.info, actions: [why] })]
           : [el("span", { class: "sr-only", text: line.said })]));
     }
@@ -1468,8 +1471,8 @@ export function mountFlow(dialog, { has }) {
       legendFor = `${mode}|${queueing}`;
       const sw = (tone, word, hollow = false) => el("span", {}, (() => { const i = el("i", { class: hollow ? "is-hollow" : null }); if (hollow) i.style.color = colOf(tone); else i.style.background = colOf(tone); return i; })(), word);
       legend.replaceChildren(...(ex
-        ? [sw("official", "official reports"), sw("observer", "observatory"), sw("aircraft", "aircraft"), sw("weather", "weather"), sw("job", "jobs (example)"), sw("tephra", "TEPHRA's estimate (example)")]
-        : [sw("official", "official reports"), sw("observer", "observatory"), sw("aircraft", "aircraft"), sw("weather", "weather"), sw("job", "jobs"), queueing ? sw("info", "waiting in line", true) : null, queueing ? sw("must", "must-do, to you") : null].filter(Boolean)));
+        ? [sw("official", "official reports"), sw("observer", "observatory"), sw("aircraft", "aircraft"), sw("weather", "weather"), sw("job", "jobs"), sw("tephra", "TEPHRA's estimate")]
+        : [sw("official", "official reports"), sw("observer", "observatory"), sw("aircraft", "aircraft"), sw("weather", "weather"), sw("job", "jobs"), queueing ? sw("info", "waiting in line", true) : null, queueing ? sw("must", "must-do") : null].filter(Boolean)));
     }
     renderDecide(false);
     renderPlayer();
@@ -1486,7 +1489,7 @@ export function mountFlow(dialog, { has }) {
     const { n, mustMode } = I.renderDecide(M, { ex, events, t: simT, pending: pendingLand, exState, bump, rm: RM() });
     mchip.classList.toggle("is-must", mustMode);
     const shown = n == null ? "–" : String(n);
-    setText(mchip, ex ? `${shown} drafts (example)` : mustMode ? `${shown} must-do` : `${shown} to approve`);
+    setText(mchip, ex ? `${shown} drafts` : mustMode ? `${shown} must-do` : `${shown} to approve`);
     // the button says what the hero says, a number only when there is one
     setAttr(mchip, "aria-label", `${ex ? (n == null ? "No example run yet" : `${n} example ${n === 1 ? "draft" : "drafts"}`)
       : mustMode ? (n == null ? "No must-do count yet, waiting for the first run in this window" : `${n} must-do ${n === 1 ? "flight" : "flights"} to plan by hand`)
@@ -1496,15 +1499,13 @@ export function mountFlow(dialog, { has }) {
   function rowsAt() {
     return foldRows(events.filter((e) => e.at <= simT), { example: mode === "example" });
   }
-  // A row's words. A run's "N must-do to you" waits until its tokens land, as the hero does, so the
-  // log and the hero never say two numbers for one run.
-  const landed = (r) => !r.out || !pendingLand.has(r.out.e.id);
+  // A row's words; the must-do count is the hero's alone, so a run's row never says a second number.
   function rowParts(r) {
     // a code template's line: the "{ }" mark, not "(code only)" words (the AI status says it once)
     const t = templateText(r.text);
-    return [t.code ? codeMark() : null, t.text, r.toYou && landed(r) ? el("span", { class: "flow-log__you", text: `, ${r.toYou}` }) : null, r.repeat ? el("span", { class: "flow-log__x", text: ` · ${r.repeat}` }) : null].filter(Boolean);
+    return [t.code ? codeMark() : null, t.text, r.repeat ? el("span", { class: "flow-log__x", text: ` · ${r.repeat}` }) : null].filter(Boolean);
   }
-  const rowSig = (r) => `${r.text}|${r.toYou && landed(r) ? r.toYou : ""}|${r.repeat || ""}|${r.tone}`;
+  const rowSig = (r) => `${r.text}|${r.repeat || ""}|${r.tone}`;
   function rowNode(r) {
     const dot = el("i", { class: "flow-log__dot" });
     dot.style.background = colOf(r.tone);
@@ -1559,7 +1560,7 @@ export function mountFlow(dialog, { has }) {
     sayTimer = window.setTimeout(() => {
       const r = rowsAt().pop();
       if (!r || !isOpen) return;
-      live.textContent = `${hms(r.tm)}. ${r.text}${r.toYou ? `, ${r.toYou}` : ""}.`;
+      live.textContent = `${hms(r.tm)}. ${r.text}.`;
       lastSaid = performance.now();
     }, wait);
   }
@@ -1615,7 +1616,7 @@ export function mountFlow(dialog, { has }) {
     const key = `${mode}|${rows.length}|${rows.map((r) => `${r.key}:${r.items.length}`).join(",")}`;
     if (ol.dataset.k !== key) {
       ol.dataset.k = key;
-      ol.replaceChildren(...rows.map((r) => el("li", { dataset: { at: String(r.at) } }, el("span", { class: "flow-sheet__tm", text: hms(r.tm) }), el("span", {}, ...markedText(r.text), `${r.toYou ? `, ${r.toYou}` : ""}${r.repeat ? ` · ${r.repeat}` : ""}`))));
+      ol.replaceChildren(...rows.map((r) => el("li", { dataset: { at: String(r.at) } }, el("span", { class: "flow-sheet__tm", text: hms(r.tm) }), el("span", {}, ...markedText(r.text), r.repeat ? ` · ${r.repeat}` : ""))));
     }
     for (const li of ol.children) li.classList.toggle("is-now", Number(li.dataset.at) <= simT);
   }
@@ -1785,8 +1786,7 @@ export function mountFlow(dialog, { has }) {
     if (lost === stale) return;
     stale = lost;
     dialog.classList.toggle("is-stale", stale);
-    staleNote.hidden = !stale;
-    if (isOpen) live.textContent = stale ? staleNote.textContent : "Live updates are back.";
+    if (isOpen) live.textContent = stale ? STALE_SAID : "Live updates are back.";
     if (stale) { if (raf) cancelAnimationFrame(raf); raf = 0; }
     else kick();
   }

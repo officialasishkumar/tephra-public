@@ -63,7 +63,7 @@ export function aiState({ budget = null, failures = [], llm = null, duty = null,
 }
 
 export const codeChip = (text = 'Code-written') =>
-  el('span', { class: 'chip chip--code chip--sm', title: 'Computed by TEPHRA code from the feeds: no model wrote this' },
+  el('span', { class: 'chip chip--code chip--sm', title: 'Worked out by TEPHRA code' },
     icon('i-code', 'st'), el('span', { text }));
 
 // The no-fallback card: what did not run and what the dispatcher does instead. An assistant step is a
@@ -71,7 +71,7 @@ export const codeChip = (text = 'Code-written') =>
 // failure (`serious`) keeps the red, role=alert and its reason in the title (UI-AI-QUIET Q4).
 // `onWhy` adds "Why ›" for a paused assistant, whose cause is said in the assistant sheet only
 // (docs/UI-AI-QUIET.md 8.6).
-export function unavailableCard(reason, { instead = 'Nothing was put in its place. Do this step by hand.', onRetry = null, retryLabel = 'Try again', retryDisabled = false, title = 'No result from TEPHRA Assistant', serious = false, onWhy = null } = {}) {
+export function unavailableCard(reason, { instead = 'Do this step by hand.', onRetry = null, retryLabel = 'Try again', retryDisabled = false, title = 'No result from TEPHRA Assistant', serious = false, onWhy = null } = {}) {
   const card = serious
     ? el('div', { class: 'panel panel--serious unavail', role: 'alert' },
       el('p', { class: 'panel__title' }, icon('st-serious', 'st'), el('span', { text: `${title}: ${machineText(reason)}` })),

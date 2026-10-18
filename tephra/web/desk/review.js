@@ -47,7 +47,7 @@ import { EARLY_RELEASE_HINT, holdButton } from './hold.js';
 import { anyStaleSource, coneFor, decidedLine, levelNow, modeChip, needsCarefulRead, statusBadge, statusView, walkOrder } from './queue.js';
 import { app } from './state.js';
 import { routeMap } from './route.js';
-import { aiMark, codeChip, fromReplayChip, shadowStamp, isViewer, VIEWER_LINE } from './ui.js';
+import { aiMark, fromReplayChip, shadowStamp, isViewer, VIEWER_LINE } from './ui.js';
 import { CREW_REASON_MIN, crewBox, crewKey, crewReasonNeeded } from './crew.js';
 import { openBudget } from './budget.js';
 import { chainView } from '../wall/chain.js';
@@ -557,7 +557,6 @@ function routePage(adv) {
   if (r.buffer_nm) bits.push(`area buffered by ${r.buffer_nm} NM`);
   if (Number.isFinite(r.fl)) bits.push(`flown at ${fl(r.fl)}`);
   out.push(fine(`${bits.join(' · ')}. Turn points are coordinates only: no named waypoint is invented.`));
-  out.push(el('p', { class: 'rcode' }, codeChip('Route computed by code')));
   return out;
 }
 
@@ -671,8 +670,8 @@ const AUDIT_WORDS = {
   EDITED: ['i-approved', 'Approved with edits'],
   REJECTED: ['i-rejected', 'Rejected'],
   SUPERSEDED: ['i-superseded', 'Replaced by a newer draft'],
-  OUTBOUND_QUEUED: ['i-outbound', "Queued on TEPHRA's outbound queue · not sent to any aircraft"],
-  AI_FAILED: ['st-caution', 'TEPHRA Assistant gave no result: no substitute was made'],
+  OUTBOUND_QUEUED: ['i-outbound', "Queued on TEPHRA's outbound queue"],
+  AI_FAILED: ['st-caution', 'TEPHRA Assistant gave no result'],
   AI_FAILURE_HANDLED: ['st-ok', 'Handled by hand by a dispatcher'],
 };
 
@@ -1049,8 +1048,8 @@ function renderBar() {
 // 10.8: the human moment. After a decision succeeds the bar shows what was decided, by whom and
 // when, for --dur-stamp before the sheet moves on (desk.js times it). Not interactive.
 const STAMP_VIEW = {
-  APPROVED: ['i-approved', 'Approved', 'queued, not sent to any aircraft'],
-  EDITED: ['i-approved', 'Approved with your edits', 'queued, not sent to any aircraft'],
+  APPROVED: ['i-approved', 'Approved', 'queued'],
+  EDITED: ['i-approved', 'Approved with your edits', 'queued'],
   REJECTED: ['i-rejected', 'Rejected', 'reason recorded, nothing queued'],
 };
 

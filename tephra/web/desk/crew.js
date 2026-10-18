@@ -132,12 +132,12 @@ export function crewBox(adv, { reason = false } = {}) {
   if (!flag) return null;
   const reports = flag.report_ids.map(viewOf).filter(Boolean);
   return el('div', { class: 'crewbox', role: 'note' },
-    el('p', { class: 'crewbox__line' }, icon('i-pin', 'icon crewbox__pin'), el('strong', { text: flag.line || FLAG_LINE })),
+    el('p', { class: 'crewbox__line' }, icon('i-pin', 'icon crewbox__pin'), el('strong', { text: flag.line || FLAG_LINE, title: CREW_LABEL })),
     flag.reporter ? null : el('p', { class: 'crewbox__when', text: `${flag.proxy_flight} ${whenFlag(flag)}.` }),
     ...reports.map((v) => el('p', { class: 'crewbox__rep' },
       el('span', { text: `${v.report.flight} reported ${cueText(v.report)} at ${bandText(v.report)}, ${v.age_text}, ${v.place_text} · ${v.state_label}. ` }),
       el('button', { type: 'button', class: 'linkbtn', 'data-crew': v.report.id }, el('span', { text: 'See the report' }), icon('i-chevron-right')))),
-    el('p', { class: 'fine', text: `${CREW_LABEL}. A flag only: nothing was re-planned.${reason ? ' Approving this advice needs a written reason below.' : ''}` }));
+    el('p', { class: 'fine', text: `A flag only: nothing was re-planned.${reason ? ' Approving this advice needs a written reason below.' : ''}` }));
 }
 
 // --- the Decide link (R10.4 one-line links) ---------------------------------------------------
@@ -560,7 +560,7 @@ export function openCrewForm({ hex = null } = {}) {
   });
 
   const form = el('div', { class: 'stack crewform' },
-    el('p', { class: 'note', text: 'Enter what the crew reported. Ash seen or any encounter sign draws a caution area that flags the flights crossing it. Nothing is sent, nothing is re-planned and TEPHRA Assistant is not used. TEPHRA refuses a report rather than guess a missing level, time or position.' }),
+    el('p', { class: 'note', text: 'Enter what the crew reported. Ash seen or any encounter sign draws a caution area that flags the flights crossing it. TEPHRA refuses a report rather than guess a missing level, time or position.' }),
     summary,
     el('div', { class: 'fgroup' }, el('label', { class: 'flabel', for: 'crew-flight', text: 'Flight' }), flightSel, callsign, msgNode('flight')),
     el('fieldset', { class: 'fgroup crewcues' }, el('legend', { class: 'flabel', text: 'What the crew reported' }),

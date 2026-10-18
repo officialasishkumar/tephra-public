@@ -38,8 +38,8 @@ export function stateLine(w, { stub = false, kind = "on", reason = null } = {}) 
     const what = w?.suffix || "gave no result";
     return { word: "AI unavailable", tone: "caution", icon: "st-caution", why: true,
       said: none ? `${ASSISTANT} unavailable: ${reason || "no model can be used"}.` : `${ASSISTANT}: ${what}.`,
-      info: none ? `${reason ? `${sentence(reason)} ` : ""}${FIX_WHERE} No model is called and nothing is put in its place; code still checks every flight.`
-        : `${what.charAt(0).toUpperCase()}${what.slice(1)}. Nothing was put in its place; code still checks every flight.` };
+      info: none ? `${reason ? `${sentence(reason)} ` : ""}${FIX_WHERE} No model is called; code still checks every flight.`
+        : `${what.charAt(0).toUpperCase()}${what.slice(1)}. Code still checks every flight.` };
   }
   return { word: null, tone: "ok", icon: "st-ok", why: false, said: `${ASSISTANT} on.`, info: null };
 }
@@ -405,14 +405,14 @@ export function aiWords(s, { home = `${ASSISTANT} at work`, opens = `${ASSISTANT
     const why = s.reason || "no model can be used";
     return { label, suffix: "unavailable", tone: "caution",
       aria: `${ASSISTANT} unavailable: ${why}. Opens ${opens}.`,
-      title: `${ASSISTANT} is unavailable: ${why}. No model is called and nothing is put in its place. ${is} ${never}` };
+      title: `${ASSISTANT} is unavailable: ${why}. No model is called. ${is} ${never}` };
   }
   if (s.kind === "trouble") {
     const n = s.trouble.length;
     const list = causeList(s.trouble);
     return { label, suffix: narrow ? problems(n) : troubleWords(s.trouble), tone: "caution",
       aria: `${ASSISTANT}, ${problems(n)}: ${list}. Opens ${opens}.`,
-      title: `${ASSISTANT}, ${problems(n)}: ${list}. Nothing was put in ${place(n)}. ${is} ${never} Open ${home} for the details.` };
+      title: `${ASSISTANT}, ${problems(n)}: ${list}. ${is} ${never} Open ${home} for the details.` };
   }
   return { label, suffix: "on", tone: "on", aria: `${ASSISTANT} on. Opens ${opens}.`, title: `${is} ${never} What it wrote is marked "Drafted by ${ASSISTANT}".` };
 }
@@ -424,16 +424,16 @@ export function aiWords(s, { home = `${ASSISTANT} at work`, opens = `${ASSISTANT
 export function aiLead(s, { home = true } = {}) {
   const at = (t) => (Number.isFinite(t) ? ` at ${hhmmz(t)}` : "");
   const causeLine = (c) => `${causeShort(c, { home })}${at(c.last)}. ${c.consequence}.`;
-  const lines = (list) => `${list.map(causeLine).join(" ")} Nothing was put in ${place(list.length)}.`;
+  const lines = (list, said = false) => `${list.map(causeLine).join(" ")}${said ? "" : ` Nothing was put in ${place(list.length)}.`}`;
   if (s.kind === "off") return [{ strong: `${ASSISTANT} is off.`, text: "No model is connected. Code does every step, and code templates write the text." }];
-  if (s.kind === "on") return [{ strong: `${ASSISTANT} is on.`, text: `It can widen TEPHRA's estimate, never shrink the official area. What it wrote is marked.` }];
+  if (s.kind === "on") return [{ strong: `${ASSISTANT} is on.`, text: "What it wrote is marked." }];
   if (s.kind === "trouble") return [{ strong: `${ASSISTANT} is on, ${problems(s.trouble.length)}.`, text: lines(s.trouble) }];
   if (s.kind === "unavailable") {
-    const out = [{ strong: `${ASSISTANT} is unavailable.`, text: `${home ? `${sentence(s.reason)} ${FIX_WHERE} ` : ""}No model is called, and nothing is put in its place. Code still checks every flight, and flights that need a plan are on the Desk to plan by hand.` }];
-    if (s.trouble.length) out.push({ strong: "Also:", text: lines(s.trouble) });
+    const out = [{ strong: `${ASSISTANT} is unavailable.`, text: `${home ? `${sentence(s.reason)} ${FIX_WHERE} ` : ""}No model is called, and nothing is put in its place. Flights that need a plan are on the Desk.` }];
+    if (s.trouble.length) out.push({ strong: "Also:", text: lines(s.trouble, true) });
     return out;
   }
-  if (!home) return [{ strong: `${ASSISTANT} is paused.`, text: "Code still checks every flight, and must-do flights come to you to plan by hand." }];
+  if (!home) return [{ strong: `${ASSISTANT} is paused.`, text: "Must-do flights come to you to plan by hand." }];
   // the time is said once, in the first words; a reset already behind the real clock is said as
   // overdue, never as a countdown or a stale "until"
   const n = s.waiting.length;
@@ -443,8 +443,8 @@ export function aiLead(s, { home = true } = {}) {
     : s.overdue ? `Why: ${quota} is used up. Its reset was due ${s.overdue} (real time), and the model still reads as closed, so when it opens is not known.`
       : `Why: ${quota} was used up.`;
   const out = [{ strong: s.until ? `${ASSISTANT} is paused ${s.until}.` : `${ASSISTANT} is paused.`,
-    text: `${why} ${jobs}Until then, code still checks every flight against the official area, and nothing is made up in place of an assistant step. Flights that need a plan are on the Desk to plan by hand.` }];
-  if (s.trouble.length) out.push({ strong: "Also:", text: lines(s.trouble) });
+    text: `${why} ${jobs}Until then, nothing is made up in place of an assistant step, and flights that need a plan are on the Desk.` }];
+  if (s.trouble.length) out.push({ strong: "Also:", text: lines(s.trouble, true) });
   return out;
 }
 
@@ -664,10 +664,11 @@ export function failureEach(t) {
   return { each: plain === msg && /AI UNAVAILABLE/i.test(msg) ? plainWhy(reasonClass(msg)) || "did not run" : plain, num: null };
 }
 
-// Who did a step, in words (stage chips: CODE / ADK / NO MODEL).
-export const ACTOR_WORDS = { code: "by code", gemini: `by ${ASSISTANT}`, adk: `by ${ASSISTANT}`, stub: "code template", human: "by a person", system: "by the system" };
+// Who did a step, in words (stage chips: CODE / ADK / NO MODEL). Code is the default, so a code or
+// system step says nothing; only the assistant, a code template and a person are named.
+export const ACTOR_WORDS = { code: "", gemini: `by ${ASSISTANT}`, adk: `by ${ASSISTANT}`, stub: "code template", human: "by a person", system: "" };
 // Agent-framework ("adk") steps code writes before any model is called: the Coordinator's work
-// list. They say "by code (agent worklist)"; "by TEPHRA Assistant" is kept for steps a model took
+// list. They say nothing, as code does; "by TEPHRA Assistant" is kept for steps a model took
 // (docs/UI-AI-QUIET.md D63).
 const ADK_CODE = [/^Duty Officer: \d+ item\(s\) to dispatch\b/];
 // With the assistant off (the stub backend) the agent framework still runs, but no model speaks:
@@ -675,8 +676,8 @@ const ADK_CODE = [/^Duty Officer: \d+ item\(s\) to dispatch\b/];
 // template" (review 1, 6; the AI-off state itself is said once, by the tab-bar status).
 export const actorWords = (actor, stub, message = "") => {
   if (stub && (actor === "adk" || actor === "gemini")) return ACTOR_WORDS.stub;
-  if (actor === "adk" && ADK_CODE.some((re) => re.test(String(message)))) return "by code (agent worklist)";
-  return ACTOR_WORDS[actor] || String(actor || "");
+  if (actor === "adk" && ADK_CODE.some((re) => re.test(String(message)))) return ACTOR_WORDS.code;
+  return ACTOR_WORDS[actor] ?? String(actor || "");
 };
 
 // "$62,525" (R2.8)
@@ -726,8 +727,8 @@ export function planFailure(plan) {
     const solver = p.status.toLowerCase().replace(/_/g, " ");
     return {
       title: p.status === "UNKNOWN" ? "Recovery found no plan: the solver did not finish in time" : p.status === "INFEASIBLE" ? "Recovery found no plan: no plan fits the closures" : `Recovery found no plan (solver: ${solver})`,
-      sub: "A dispatcher must plan the network by hand.", short: "no plan: plan the network by hand", raw, ai: false,
-      place: `No airport plan (${p.status === "UNKNOWN" ? "the solver did not finish in time" : p.status === "INFEASIBLE" ? "no plan fits the closures" : `solver: ${solver}`}): plan the network by hand`,
+      sub: "A dispatcher must plan the network by hand.", short: "no plan", raw, ai: false,
+      place: `No airport plan (${p.status === "UNKNOWN" ? "the solver did not finish in time" : p.status === "INFEASIBLE" ? "no plan fits the closures" : `solver: ${solver}`})`,
     };
   }
   const m = /RECOVERY AGENT ERROR: (\w+)/.exec(raw);
@@ -735,12 +736,12 @@ export function planFailure(plan) {
   // view: a quota refusal called no model, so it "did not run", with no cause (8.6)
   const cls = reasonClass(raw);
   const word = notRun(cls) ? "Recovery planner did not run" : `Recovery planner gave no result (${WHY[cls] || WHY.other})`;
-  const base = { short: "no plan: plan the network by hand", raw, ai: true, cls, why: cls === "unavailable" ? unavailableWhy(raw) : WHY[cls] || WHY.other, word,
-    place: `No airport plan (Recovery planner ${notRun(cls) ? "did not run" : "gave no result"}): plan the network by hand` };
-  if (notRun(cls)) return { ...base, title: "No plan: Recovery planner did not run", sub: "Nothing was put in its place. A dispatcher must plan the network by hand." };
+  const base = { short: "no plan", raw, ai: true, cls, why: cls === "unavailable" ? unavailableWhy(raw) : WHY[cls] || WHY.other, word,
+    place: `No airport plan (Recovery planner ${notRun(cls) ? "did not run" : "gave no result"})` };
+  if (notRun(cls)) return { ...base, title: "No plan: Recovery planner did not run", sub: "A dispatcher must plan the network by hand." };
   if (m && m[1] === "TimeoutError") return { ...base, title: "Recovery planner timed out", sub: "No plan was made. A dispatcher must plan the network by hand." };
   if (m) return { ...base, title: "Recovery planner stopped with an error", sub: "No plan was made. A dispatcher must plan the network by hand." };
-  return { ...base, title: "No plan: Recovery planner gave no result", sub: "Nothing was put in its place. A dispatcher must plan the network by hand." };
+  return { ...base, title: "No plan: Recovery planner gave no result", sub: "A dispatcher must plan the network by hand." };
 }
 
 // Machine text shown on the page (a recorded reason, a trace line, a closure's reason, a contract

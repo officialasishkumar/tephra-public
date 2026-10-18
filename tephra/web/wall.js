@@ -544,7 +544,7 @@ function renderPills() {
   const key = shown.map((p) => `${p.tone}|${p.text}`).join("§");
   if (box.dataset.key === key) return;
   box.dataset.key = key;
-  box.replaceChildren(...shown.map((n) => el("p", { class: `map-pill map-pill--${n.tone || "info"}` },
+  box.replaceChildren(...shown.map((n) => el("p", { class: `map-pill map-pill--${n.tone || "info"}`, title: n.title || null },
     n.tone === "caution" ? icon("st-caution", "st", "var(--c-caution)") : icon("st-info", "st", "var(--c-info)"),
     el("span", { text: n.text }),
     n.action ? el("button", { type: "button", class: "link-btn", dataset: { act: n.action, sec: n.sec || null, focus: `pill-${n.action}` }, text: n.actionText }) : null)));

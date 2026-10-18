@@ -34,14 +34,13 @@ const SOURCE = {
   synthetic: "Invented demo data",
   live: "Feeds as they arrive",
 };
-const KEEP_CLOCK = "The replay clock shows that day's time, not now.";
-
 function replayLine(kind, v, day) {
   const of = v ? [`the ${v} eruption`, day && `of ${day}`].filter(Boolean).join(" ") : day;
   if (kind === "live") return { lead: "Live.", text: "Public feeds as they arrive. The clock shows the time now (UTC)." };
-  if (kind === "synthetic") return { lead: "Replay.", text: "Invented demo data, played back. The replay clock shows the demo's time, not now." };
-  if (kind === "reconstructed") return { lead: "Replay.", text: `Public feeds${of ? ` from ${of}` : ""}, rebuilt from archives and played back. ${KEEP_CLOCK}` };
-  return { lead: "Replay.", text: `Recorded feeds${of ? ` from ${of}` : ""}. ${KEEP_CLOCK}` };
+  // what the replay clock shows is the clock's own (i): said there, not again here
+  if (kind === "synthetic") return { lead: "Replay.", text: "Invented demo data, played back." };
+  if (kind === "reconstructed") return { lead: "Replay.", text: `Public feeds${of ? ` from ${of}` : ""}, rebuilt from archives and played back.` };
+  return { lead: "Replay.", text: `Recorded feeds${of ? ` from ${of}` : ""}.` };
 }
 
 function eyebrowOf(kind, state, v, day) {
@@ -64,8 +63,8 @@ export function welcomeWords(state) {
   const own = state?.airline?.fictional === false ? state.airline : null;
   const v = kind === "recorded" || kind === "reconstructed" ? volcanoOf(state.replay) : null;
   const day = kind && kind !== "live" ? replayDay(state.replay) : null;
+  // no Replay / Live pill: the honesty line's first fact ("Recorded feeds") says what plays
   return {
-    pill: kind === "live" ? "Live" : kind ? "Replay" : null,
     eyebrow: kind ? eyebrowOf(kind, state, v, day) : null,
     title: titleOf(kind, v),
     // the card's one honesty line: a few words each, the full sentences below for a screen reader
@@ -86,10 +85,7 @@ const sentence = (words) => words && `${words.lead} ${words.text}`;
 
 export function welcomeContent(state) {
   const w = welcomeWords(state);
-  const live = state?.mode === "LIVE";
-  const eyebrow = w.pill && el("p", { class: "welcome__eyebrow" },
-    el("span", { class: `welcome__pill${live ? " welcome__pill--live" : ""}` }, icon(live ? "i-live" : "i-replay", "icon icon--16"), w.pill),
-    w.eyebrow && el("span", { text: w.eyebrow }));
+  const eyebrow = w.eyebrow && el("p", { class: "welcome__eyebrow" }, el("span", { text: w.eyebrow }));
   const body = el("div", { class: "welcome__body" },
     el("div", { class: "welcome__head" },
       eyebrow,

@@ -146,7 +146,6 @@ SYNTHETIC = {
     },
 }
 LIVE = {"mode": "LIVE", "region": REGION, "replay": None}
-CLOCK = "The replay clock shows that day's time, not now."
 AIRLINE = "Ring of Fire Air (RFA) is a fictional airline."
 SUPPORT = {
     "lead": "Decision support only.",
@@ -184,7 +183,8 @@ def test_the_shipped_case_is_labelled_reconstructed() -> None:
 
 def test_a_reconstructed_replay_says_it_was_rebuilt_from_archives(tmp_path: Path) -> None:
     w = _words(tmp_path, RECONSTRUCTED)
-    assert w["pill"] == "Replay"
+    # no Replay pill: "Rebuilt from archives" on the honesty line says what plays
+    assert "pill" not in w
     # the day is the window's start: the part that plays
     assert w["eyebrow"] == "Anak Krakatau · 5 Sep 2026"
     assert w["title"] == "Watch TEPHRA work a real eruption"
@@ -196,7 +196,7 @@ def test_a_reconstructed_replay_says_it_was_rebuilt_from_archives(tmp_path: Path
     assert w["replay"] == {
         "lead": "Replay.",
         "text": "Public feeds from the Anak Krakatau eruption of 5 Sep 2026, rebuilt from "
-        f"archives and played back. {CLOCK}",
+        "archives and played back.",
     }
     assert w["airline"] == {
         "lead": AIRLINE,
@@ -210,24 +210,25 @@ def test_a_recorded_replay_says_recorded_feeds_and_its_first_day(tmp_path: Path)
     assert w["eyebrow"] == "Merapi · 1 Oct 2026"
     assert w["title"] == "Watch TEPHRA work a real eruption"
     assert w["facts"][0]["text"] == "Recorded feeds"
-    assert w["replay"]["text"] == f"Recorded feeds from the Merapi eruption of 1 Oct 2026. {CLOCK}"
+    # what the replay clock shows is the clock's (i), not repeated here
+    assert w["replay"]["text"] == "Recorded feeds from the Merapi eruption of 1 Oct 2026."
     # a label that does not start with a volcano's name leaves the name out
     w = _words(tmp_path, RECORDED_NO_NAME)
     assert w["eyebrow"] == "10 Oct 2026"
     assert w["title"] == "Watch TEPHRA work a recorded day"
-    assert w["replay"]["text"] == f"Recorded feeds from 10 Oct 2026. {CLOCK}"
+    assert w["replay"]["text"] == "Recorded feeds from 10 Oct 2026."
 
 
 def test_a_synthetic_replay_says_invented_demo_data(tmp_path: Path) -> None:
     w = _words(tmp_path, SYNTHETIC)
-    assert w["pill"] == "Replay"
+    assert "pill" not in w
     # "invented demo data" is said once, on the honesty line; the chip row keeps the day
     assert w["eyebrow"] == "14 Oct 2026"
     assert w["title"] == "Watch TEPHRA work a demo eruption"
     assert w["facts"][0]["text"] == "Invented demo data"
     assert w["replay"] == {
         "lead": "Replay.",
-        "text": "Invented demo data, played back. The replay clock shows the demo's time, not now.",
+        "text": "Invented demo data, played back.",
     }
     assert w["airline"]["text"] == "Its flight numbers stand in for demo aircraft."
     assert "real eruption" not in json.dumps(w)
@@ -235,7 +236,7 @@ def test_a_synthetic_replay_says_invented_demo_data(tmp_path: Path) -> None:
 
 def test_live_says_live_and_the_time_now(tmp_path: Path) -> None:
     w = _words(tmp_path, LIVE)
-    assert w["pill"] == "Live"
+    assert "pill" not in w
     assert w["eyebrow"] == "Java / Bali"
     assert w["title"] == "Watch TEPHRA work today's feeds"
     assert w["facts"][0] == {"icon": "i-live", "text": "Feeds as they arrive", "replay": True}
@@ -264,7 +265,7 @@ def test_an_airlines_own_tephra_names_its_airline_and_never_calls_it_fictional(
 
 def test_without_a_state_nothing_is_said_about_what_plays(tmp_path: Path) -> None:
     w = _words(tmp_path, None)
-    assert w["pill"] is None
+    assert "pill" not in w
     assert w["replay"] is None
     assert w["title"] == "Watch TEPHRA work"
     assert [f["icon"] for f in w["facts"]] == ["i-aircraft", "i-hand"]
@@ -377,7 +378,8 @@ def test_the_card_shows_step_names_only_and_one_honesty_line(tmp_path: Path) -> 
         assert "Enter" not in _text(foot)
     sr = _find(out["dialog"][0][0], lambda n: n["id"] == "welcome-more")[0]["text"]
     assert sr.startswith("Replay. Public feeds from the Anak Krakatau eruption of 5 Sep 2026")
-    assert CLOCK in sr
+    # what the replay clock shows is said once, by the clock's (i)
+    assert "not now" not in sr
     assert "Its flight numbers stand in for real aircraft." in sr
 
 

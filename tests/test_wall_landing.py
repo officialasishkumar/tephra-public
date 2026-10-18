@@ -50,6 +50,8 @@ def test_the_filled_call_to_action_needs_a_draft_to_decide() -> None:
     assert "if (a.urgent) {" in actions.split("primary = true", 1)[0].rsplit("\n", 1)[1]
     assert 'class: "cta__sub"' in actions
     assert "to plan by hand" in actions
+    # the button's sub-line only when the Story's notice (the one action card) does not say it
+    assert '!/by hand/.test(storyModel(D, store, sit).notice?.body || "")' in actions
     assert '"Open the Desk →"' in actions
     assert ".cta__sub {" in CSS
 
@@ -187,7 +189,8 @@ def test_the_pinned_honesty_strings_stay() -> None:
     """The strings other tests grep (SPEC §1 rule 5) stay where they are: the trust line in the
     story, the fictional airline on the page, every Why link, the Desk's paste-notice id (a Desk
     file, read here and never edited by this task) and the REPLAY title prefix."""
-    assert "never smaller than the official area" in STORY
+    # "never smaller than official" is said once on the demo, by the map key's TEPHRA row
+    assert '"TEPHRA\'s estimate", "never smaller than official"]' in STORY
     assert "RFA" in INDEX
     assert "fictional" in INDEX
     assert 'text: "Why ›"' in STORY  # noqa: RUF001  the UI's own chevron

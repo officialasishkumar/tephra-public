@@ -139,7 +139,7 @@ export const MODE_SHORT = {
 };
 export const MODE_SENTENCE = {
   OFFICIAL: 'Same as the official area: TEPHRA adds nothing.',
-  WIDENED: "Official area plus the observatory's drift, never smaller.",
+  WIDENED: "Official area plus the observatory's drift.",
   HYPOTHESIS: 'No valid official product: a hypothesis. Only MONITOR or HOLD may be advised.',
 };
 

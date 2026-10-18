@@ -125,8 +125,9 @@
 
     <section id="story" class="story" aria-labelledby="volcano-name" tabindex="-1" hidden>
       <button id="story-fold" class="link-btn story__fold" type="button" aria-expanded="true" aria-controls="story" aria-keyshortcuts="E">‹ Fold the story</button>
+      <!-- a lost connection is said on screen once, by the header's stale chip; this is its alert -->
+      <p id="lost-banner" class="sr-only" role="alert" hidden></p>
       <div id="fail-line" class="fail-line" hidden>
-        <p id="lost-banner" class="lost-banner" role="alert" hidden></p>
         <ul id="fail-list" class="fail-line__list"></ul>
       </div>
       <section id="verdict" class="verdict" aria-label="What is happening">
@@ -191,7 +192,7 @@
             <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-frame"></use></svg><span class="tool__tip">Fit the volcano (F)</span>
           </button>
           <button class="tool" type="button" data-tool="sat-toggle" aria-pressed="false" aria-keyshortcuts="I">
-            <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-satellite"></use></svg><span class="tool__tip">Satellite picture, context only (I)</span>
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-satellite"></use></svg><span class="tool__tip">Satellite picture (I)</span>
           </button>
           <button class="tool" type="button" data-tool="compare" aria-pressed="false" aria-keyshortcuts="S">
             <svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-swipe"></use></svg><span class="tool__tip">Compare: official only vs with TEPHRA (S)</span>

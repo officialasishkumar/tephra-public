@@ -75,7 +75,7 @@ function plumeStep(p, sit, wall) {
   if (p.outcome === "MODEL_FAILED") {
     const notRun = plumeOutcome(p.outcome, p.uncertainty_notes) === "UNAVAILABLE";
     return step(2, SKILLS[1], "plume", {
-      line: `${notRun ? "did not run" : "gave no result"} · the official area stands, nothing put in its place`,
+      line: `${notRun ? "did not run" : "gave no result"} · the official area stands`,
       more: [p.uncertainty_notes ? el("p", { class: "dk-sub__note", text: machineText(p.uncertainty_notes) }) : null],
     });
   }

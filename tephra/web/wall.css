@@ -284,7 +284,6 @@ body.story-open .stage { grid-template-columns: var(--story-w) minmax(0, 1fr) va
 .fail-line__item .st { margin-top: calc((1.4em - 14px) / 2); }
 .fail-line__item > .link-btn { grid-column: 2; justify-self: start; min-height: 28px; }
 .fail-line__who { font-weight: var(--fw-semibold); }
-.lost-banner { color: var(--c-serious); font-weight: var(--fw-semibold); margin-bottom: 6px; }
 .fail-line__body { min-width: 0; }
 .fail-line__more { margin: 0 0 0 2px; min-height: 0; color: var(--c-serious); white-space: nowrap; }
 
@@ -608,9 +607,7 @@ body:not(.is-3d) .maplibregl-ctrl-compass { display: none !important; }
 .timebar.is-stale { opacity: 0.85; }
 .tl__meta { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-2); white-space: nowrap; }
 .tl__mode { display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-semibold); color: var(--c-replay-text); }
-.tl__mode--live { color: var(--c-ok); }
 .tl__window { color: var(--c-text-2); font-family: var(--font-mono); font-size: var(--fs-1); }
-.tl__stale { color: var(--c-caution); }
 .tl__progress { display: block; width: 56px; height: 6px; border-radius: 3px; background: var(--c-line-2); overflow: hidden; }
 .tl__progress span { display: block; height: 100%; background: var(--c-replay); }
 .tl__track { position: relative; height: 34px; min-width: 0; }
@@ -1034,8 +1031,6 @@ a.dk-row--link:focus-visible { outline: var(--focus-ring); outline-offset: -2px;
 .gl-gauge--observer .gl-gauge__fill { background: var(--c-observer); }
 .gl-dial { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 50%; background: color-mix(in srgb, var(--c-text-1) 6%, transparent); box-shadow: inset 0 0 0 1px var(--c-line-2); }
 .gl-arrow { width: 22px; height: 22px; color: var(--gl-text); }
-.gl-rule { display: flex; align-items: center; gap: 8px; padding: 10px 4px; font-size: var(--fs-2); color: var(--c-text-2); line-height: 1.35; }
-.gl-rule .icon { width: 16px; height: 16px; color: var(--gl-text); }
 .gl-label { margin-bottom: -6px; font-size: var(--fs-1); font-weight: var(--fw-semibold); letter-spacing: 0.06em; text-transform: uppercase; color: var(--c-text-3); }
 .gl-none { font-size: var(--fs-2); color: var(--c-text-3); }
 .gl-srcs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
@@ -1580,7 +1575,6 @@ html[data-page="assistant"] .tn-how { display: none; }
 .flow-iconbtn { display: grid; place-items: center; width: 40px; height: 40px; flex: none; border: 0; border-radius: 50%; background: var(--c-surface-glass); color: var(--c-text-2); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-text-1) 8%, transparent); font: inherit; font-size: var(--fs-3); font-weight: var(--fw-semibold); cursor: pointer; }
 .flow-iconbtn:hover { color: var(--c-text-1); }
 .flow-iconbtn .icon { width: 18px; height: 18px; }
-.flow-stale { position: absolute; z-index: 11; left: 28px; top: 132px; margin: 0; padding: 6px 12px; border-radius: var(--radius-pill); background: var(--c-surface-glass); color: var(--c-text-1); font-size: var(--fs-2); box-shadow: 0 0 0 1px var(--c-line-2); }
 .flow-seg__btn:focus-visible, .flow-iconbtn:focus-visible, .flow-play:focus-visible, .flow-speed:focus-visible, .flow-track:focus-visible, .flow-link:focus-visible, .flow-cta:focus-visible, .flow-skill__btn:focus-visible, .flow-row__btn:focus-visible, .flow-mchip:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); box-shadow: var(--focus-halo); }
 
 /* the panel: Inside TEPHRA */
@@ -1681,8 +1675,6 @@ html[data-page="assistant"] .tn-how { display: none; }
 .flow-log__tm { font-family: var(--font-mono); font-size: var(--fs-1); color: var(--c-text-3); }
 .flow-log__dot { width: 8px; height: 8px; border-radius: 50%; justify-self: center; }
 .flow-log li.is-live .flow-log__dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-text-1) 10%, transparent), 0 0 10px currentColor; }
-.flow-log__you { color: var(--c-caution); }
-.board.is-example .flow-log__you { color: var(--c-text-1); }
 .flow-log__x { font-family: var(--font-mono); font-size: var(--fs-1); color: var(--c-text-3); }
 @keyframes flow-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .flow-logrow { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
@@ -1881,7 +1873,6 @@ html[data-page="assistant"] .tn-how { display: none; }
   .flow-head__right { width: 100%; }
   .flow-head__col { flex: 1; align-items: stretch; }
   .flow-seg__btn { flex: 1; padding: 6px 8px; font-size: var(--fs-1); }
-  .flow-stale { position: relative; order: 2; left: auto; top: auto; margin: 10px 16px 0; }
   .flow-map { position: relative; order: 3; inset: auto; flex: none; height: 320px; margin-top: 10px; }
   .flow-ctl { top: 8px; right: 8px; transform: none; }
   .flow-map .maplibregl-ctrl-bottom-right { top: 8px; bottom: auto; right: auto; left: 0; }

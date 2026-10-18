@@ -841,7 +841,9 @@ export class WallMap {
         const dx = vent ? (tip[0] - vent[0]) * Math.cos((tip[1] * Math.PI) / 180) : 0, dy = vent ? tip[1] - vent[1] : 0;
         const side = Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? ["left", [0.6, 0]] : ["right", [-0.6, 0]]) : dy < 0 ? ["bottom", [0, -0.6]] : ["top", [0, 0.6]];
         const word = e.p.layer.replace("FCST+", "+").replace("H", " h");
-        boxes.push({ type: "Feature", geometry: { type: "Point", coordinates: tip }, properties: { kind: "step", anchor: side[0], offset: side[1], text: `Forecast for ${hhmmz(ms(e.p.valid_from) + 3 * 3600e3)} (${word})` } });
+        boxes.push({ type: "Feature", geometry: { type: "Point", coordinates: tip }, // one step shown: its pill says "Showing the official forecast for 1330Z", so the label is
+        // only the step; with every step shown each label keeps its time
+        properties: { kind: "step", anchor: side[0], offset: side[1], text: this.ui.steps === "all" ? `Forecast for ${hhmmz(ms(e.p.valid_from) + 3 * 3600e3)} (${word})` : word } });
       }
     }
     // TEPHRA's tag on the edge opposite the official label: the cone vertex farthest from it.
@@ -1209,7 +1211,7 @@ export class WallMap {
       const t = Date.parse(this.gibs.time);
       out.push(this.gibs.failed
         ? `CONTEXT ONLY · No Himawari frame near ${hhmmz(Date.parse(gibsTime(D.now, D.mode)))} · Imagery: NASA GIBS · Himawari-9 data: JMA via NOAA`
-        : `CONTEXT ONLY · ${s.title} ${hhmmz(t)} · not ash detection · Imagery: NASA GIBS · Himawari-9 data: JMA via NOAA`);
+        : `CONTEXT ONLY · ${s.title} ${hhmmz(t)} · Imagery: NASA GIBS · Himawari-9 data: JMA via NOAA`);
     }
     if (this.ui.so2) {
       const d = so2Date(D.now, D.mode);

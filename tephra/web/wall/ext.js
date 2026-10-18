@@ -150,7 +150,7 @@ function satRow(D, reading, sit, store) {
     // cause: that is at the assistant's home, behind the section's "Why ›" (UI-AI-QUIET 8.6)
     const cls = reasonClass(reading.reason);
     const what = !notRun(cls) ? `Satellite reader gave no result (${WHY[cls] || WHY.other})` : cls === "budget" && aiState(D, store).kind === "paused" ? `${ASSISTANT} is paused` : "Satellite reader did not run";
-    return dkRow({ key: `sat-${vid}`, dot: "caution", edge: "caution", title: name, sub: `Not read: ${what}. Nothing was put in its place.`, meta: scan,
+    return dkRow({ key: `sat-${vid}`, dot: "caution", edge: "caution", title: name, sub: `Not read: ${what}.`, meta: scan,
       body: [dkTech(String(reading.reason || "no reason given"), reading.model_id ? `would have used ${reading.model_id}` : null)], open: vid === D.selected });
   }
   if (reading.status === "no_frames") {
@@ -175,7 +175,7 @@ function satRow(D, reading, sit, store) {
         el("summary", { dataset: { focus: `sat-pic-${vid}` } }, icon("i-chevron-right", "icon dk-about__chev"), el("span", { text: "Show the picture" })),
         el("div", { class: "dk-about__body dk-about__body--flush" },
           frameView(reading, frame),
-          el("p", { class: "dk-sub__note", text: n ? (placed ? "Boxes are placed on the map by code from the picture's bounds." : "These boxes sit on the picture only: it has no map position, so none is drawn on the map.") : "No box was drawn." }),
+          el("p", { class: "dk-sub__note", text: n ? (placed ? "Boxes are placed on the map from the picture's bounds." : "These boxes sit on the picture only: it has no map position, so none is drawn on the map.") : "No box was drawn." }),
           reading.limits ? el("blockquote", { class: "x-quote" }, el("p", { text: reading.limits }), aiMark(reading.model_id, reading.label, MARK.read("Satellite reader"))) : aiMark(reading.model_id, reading.label, MARK.read("Satellite reader")),
           colourKey())),
       reading.note ? el("p", { class: "dk-sub__note", text: reading.note }) : null,
@@ -193,10 +193,9 @@ function satPanel(D, store) {
     pills: [dkPill("info", "Supporting evidence only"), bad ? dkPill("caution", `${bad} not read`) : null],
     // the pill says "supporting evidence only" once; the tab bar says when the AI is off
     title: "Newest Himawari picture per active volcano",
-    sub: "It never changes the official area, TEPHRA's estimate, the heights or an advisory.",
   });
   // pictures the assistant did not read: that they are missing, what holds, and "Why ›" (8.6)
-  const missing = bad ? dkNote("caution", [el("p", {}, `${bad === 1 ? "1 picture was" : `${bad} pictures were`} not read. Nothing was put in ${bad === 1 ? "its" : "their"} place, and the official area stands. `, whyLink("sat-why"))], { role: "status" }) : null;
+  const missing = bad ? dkNote("caution", [el("p", {}, `${bad === 1 ? "1 picture was" : `${bad} pictures were`} not read. The official area stands. `, whyLink("sat-why"))], { role: "status" }) : null;
   const body = list.length
     ? [missing, dkList(list.map((r) => satRow(D, r, D.sits.find((s) => s.volcano_id === r.volcano_id), store)), { first: 4, key: "sat" })]
     : dkEmpty("No satellite reading yet", "A reading appears when a new picture arrives for an active volcano.");
@@ -214,7 +213,7 @@ const langBadge = (code) => el("span", { class: "lang", title: LANG_NAME[LANG[co
 const isJma = (n) => n.source_kind === "jma_xml";
 
 function noticeState(n) {
-  if (isJma(n)) return ["ok", "Verified", "Read by code from JMA's published XML. No model was used."];
+  if (isJma(n)) return ["ok", "Verified", "Read from JMA's published XML."];
   if (n.status === "verified") return ["ok", "Verified", "Every claim was found word for word in the notice and checked by code."];
   if (n.status === "ai_unavailable") return ["caution", "Not read (Notice reader gave no result)", "Read this notice yourself."];
   return ["caution", "Not verified", n.reason || "A check failed, so nothing from this notice entered the picture."];
@@ -442,7 +441,7 @@ function proofPanel() {
   const head = dkHeader({
     id: "proof-head",
     pills: [arms.includes("G") ? dkPill("ok", "Plume reader scored") : dkPill("caution", "Baseline only")],
-    title: "How TEPHRA's area compares with the official areas issued later, scored by code on recorded replays.",
+    title: "How TEPHRA's area compares with the official areas issued later, scored on recorded replays.",
   });
   const kids = [head,
     dkNote("caution", [el("p", {}, el("strong", { text: "Later official areas are not ash truth." })), "TEPHRA is scored against the official areas issued after each moment. Those are partly built from the same reports and satellite data, so this measures agreement, not what the ash did."], { role: "note" }),
@@ -469,7 +468,7 @@ function proofPanel() {
       el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Case" }), el("th", { scope: "col", class: "num", text: "TEPHRA" }), el("th", { scope: "col", class: "num", text: "Official" }), el("th", { scope: "col", class: "num", text: "Over-warn" }), el("th", { scope: "col", class: "num", text: "Moments" }))),
       el("tbody", {}, ...rows)))),
     dkAbout(`Caveats (${(b.caveats || []).length})`, "proof-caveats", el("ul", { class: "dk-bullets" }, ...(b.caveats || []).map((c) => el("li", { text: machineSentences(c) }))))),
-  el("p", { class: "dk-foot mono", text: `Scored by code · generated ${clock(b.generated_at)} · every case is a recorded replay` }));
+  el("p", { class: "dk-foot mono", text: `Generated ${clock(b.generated_at)} · every case is a recorded replay` }));
   return [dkSection("proof-head", kids)];
 }
 
@@ -566,7 +565,7 @@ function runsPanel(D, store) {
 // drawn: the features arrive with the first state.
 export const agents = () => [
   ...HELPERS.filter((h) => !h.feature || has(h.feature)).map(({ id, name, stage, does, skip, only }) => ({ id, name, stage, what: does, skip, only })),
-  { id: "backtest", name: "Backtest", stage: null, what: "Scores TEPHRA against later official areas, by code" },
+  { id: "backtest", name: "Backtest", stage: null, what: "Scores TEPHRA against later official areas" },
 ];
 // The Coordinator (duty officer) tool that reaches each specialist.
 const DELEGATED_VIA = { plume: "assess_volcanoes", sat: "assess_volcanoes", planner: "plan_flights", drafter: "plan_flights", recovery: "run_recovery", sra: "draft_sra" };
@@ -653,7 +652,7 @@ function waitingBlock(replay, reset) {
   return el("div", { class: "dk-sub" },
     el("p", { class: "dk-sub__title", text: "Assistant work queued or waiting" }),
     dkFacts(work.map((w) => [w.lane === "urgent" ? "Urgent" : "Routine", `${w.label}: ${workWords(w, replay, reset)}`])),
-    el("p", { class: "dk-sub__note", text: "Waiting work is kept and runs on the same model when its slot comes. Nothing is dropped or handed to another model." }));
+    el("p", { class: "dk-sub__note", text: "Waiting work is kept and runs on the same model when its slot comes." }));
 }
 
 // The budget meters never use the picture's red (Q4): a low or closed model is a caution.
@@ -726,11 +725,11 @@ function budgetTile(stub, ai) {
 
 // What a cause means for the dispatcher, under its title in What went wrong.
 function causeSub(c, range) {
-  if (c.helperKey === "duty" && c.reasonClass !== "undone") return `${range ? `${range} must-do ${range === "1" ? "job" : "jobs"} per run` : "Its must-do jobs"} went to the Desk, for a dispatcher to plan by hand. Nothing was substituted.`;
-  if (c.reasonClass === "undone") return "A dispatcher does them by hand. Nothing was substituted.";
+  if (c.helperKey === "duty" && c.reasonClass !== "undone") return `${range ? `${range} must-do ${range === "1" ? "job" : "jobs"} per run` : "Its must-do jobs"} went to the Desk.`;
+  if (c.reasonClass === "undone") return "A dispatcher does them by hand.";
   if (c.helperKey === "recovery") return "No plan was made. A dispatcher must plan the network by hand.";
-  if (c.helperKey === "plume") return c.steps ? "TEPHRA's area stays at the official reports. Nothing was widened or substituted." : "Until its calls reset, TEPHRA's area stays at the official reports. Nothing is widened or substituted.";
-  return `Nothing was put in its place. ${c.consequence}.`;
+  if (c.helperKey === "plume") return c.steps ? "TEPHRA's area stays at the official reports." : "Until its calls reset, TEPHRA's area stays at the official reports.";
+  return `${c.consequence}.`;
 }
 
 // Assistant steps that did not run, one row per cause (D67): the cause in the §1.1 words, how many runs
@@ -775,7 +774,7 @@ function helperRow(a, store, n, stub, until, replay) {
   if (a.id === "duty") {
     body = [...dutyDetail(run, !!store.snapshot, until, replay), a.detail ? dkTech(`newest step: ${a.detail}`) : null];
   } else if (a.id === "backtest") {
-    body = [dkFacts([["Status", a.state === "done" ? "Done: scored by code" : "Not run yet"], ["Cases scored", a.state === "done" ? String(a.count) : null], ["Generated", Number.isFinite(last) ? dayTime(last) : null, { mono: true }]]),
+    body = [dkFacts([["Status", a.state === "done" ? "Done" : "Not run yet"], ["Cases scored", a.state === "done" ? String(a.count) : null], ["Generated", Number.isFinite(last) ? dayTime(last) : null, { mono: true }]]),
       dkLink("Track record ›", { act: "details-sec", sec: "proof", focus: "helper-proof" })];
   } else {
     const status = a.words ? `${badge}: ${a.words}` : a.state === "idle" ? `Quiet: not seen in the newest ${n} steps` : a.state === "running" ? "Working on it" : a.state === "failed" ? badge : "Its newest step worked";
@@ -814,7 +813,7 @@ function aiPanel(D, store) {
     id: "ai-head",
     pills: [aiPill(ai)],
     // stub: the lead says the state once; the title only names the section for a screen reader
-    title: stub ? ASSISTANT : `${assistantIs()} Its skills can widen TEPHRA's estimate but never shrink the official area.`,
+    title: stub ? ASSISTANT : assistantIs(),
     srTitle: stub,
     chips: stub ? [] : ids.map(([k, id]) => dkChip(id, { label: k, mono: true })),
     extra: el("div", { class: "dk-actions" }, el("button", { type: "button", class: "btn btn--small", dataset: { act: "board-open", focus: "ai-board" }, "aria-keyshortcuts": "A" }, icon("ta-16"), `See ${ASSISTANT} at work`)),
@@ -832,7 +831,7 @@ function aiPanel(D, store) {
     const steps = ai.causes.reduce((k, c) => k + c.steps, 0);
     kids.push(el("div", { id: "ai-fails", tabindex: "-1", class: "dk-anchor" }, dkGroup("What went wrong", `${plural(ai.causes.length, "cause")} · ${plural(steps, "step")}`,
       dkList(causeRows(ai.causes), { first: 3, key: "ai-fails" }),
-      el("p", { class: "dk-foot" }, "Nothing was made up in their place. ", dkLink("See them in How TEPHRA decided ›", { act: "details-sec", sec: "trace", focus: "ai-trace" })))));
+      el("p", { class: "dk-foot" }, dkLink("See them in How TEPHRA decided ›", { act: "details-sec", sec: "trace", focus: "ai-trace" })))));
   }
 
   const order = agents.slice().sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.i - b.i);
@@ -870,7 +869,7 @@ export function rerouteBlock(props, D) {
     key: "reroute", dot: icon("i-route", "icon", "var(--c-reroute, var(--c-info))"), edge: ok ? null : "caution",
     title: "Suggested reroute", sub: ok ? kind : `${kind} · ${String(props.status).toLowerCase().replace(/_/g, " ")}`, meta: plus || null,
     body: [
-      el("p", { class: "dk-sub__note", text: "Computed by code around TEPHRA's estimate · a draft route for the dispatcher" }),
+      el("p", { class: "dk-sub__note", text: "Around TEPHRA's estimate · a draft route for the dispatcher" }),
       dkFacts([["Kind", kind], ["Side", props.side ? props.side.toLowerCase() : null], ["Extra distance", props.extra_nm != null ? `+${Math.round(props.extra_nm)} NM` : null, { mono: true }],
         ["Extra time", props.extra_min != null ? `+${Math.round(props.extra_min)} min` : null, { mono: true }], ["Status", props.status ? String(props.status).toLowerCase().replace(/_/g, " ") : null],
         ["Turn points", wps.length ? wps.join("  ") : null, { mono: true }]]),
@@ -924,7 +923,7 @@ export function satScale(key, onChange) {
   if (!s || (s.state === "failed" && Date.now() - s.at > 5 * 60e3)) loadScale(key, onChange);
   const cur = scales.get(key);
   if (cur.state === "loading") return el("p", { class: "ctx-scale glass ctx-scale--note", text: "Scale loading from NASA GIBS…" });
-  if (cur.state === "failed") return el("p", { class: "ctx-scale glass ctx-scale--note", role: "status", text: "Scale unavailable: the NASA GIBS colour map did not load. No scale is shown in its place." });
+  if (cur.state === "failed") return el("p", { class: "ctx-scale glass ctx-scale--note", role: "status", text: "Scale unavailable: the NASA GIBS colour map did not load." });
   const n = cur.entries.length;
   const colour = (rgb) => `rgb(${(key === "ir" ? greyIr(rgb) : rgb).join(" ")})`;
   const stops = cur.entries.map((e, i) => `${colour(e.rgb)} ${((i / n) * 100).toFixed(2)}% ${(((i + 1) / n) * 100).toFixed(2)}%`);
@@ -943,6 +942,8 @@ export function satScale(key, onChange) {
     if (e.label && !(cur.min && at < 12) && !(cur.max && at > 88)) tick(e.label, at, null);
   });
   if (cur.max) tick(cur.max, 100, "end");
-  const caption = `Scale: ${cur.title}${cur.units ? ` (${cur.units})` : ""} · NASA GIBS colour map${spec.note ? ` · ${spec.note}` : ""}`;
-  return el("div", { class: "ctx-scale glass", role: "img", "aria-label": `${caption}, from ${cur.min} to ${cur.max}` }, el("span", { class: "ctx-scale__cap", text: caption }), bar, ticks);
+  // the strip shows the scale's name; where it comes from and how it is drawn sit in its tooltip
+  const shown = `Scale: ${cur.title}${cur.units ? ` (${cur.units})` : ""}`;
+  const caption = `${shown} · NASA GIBS colour map${spec.note ? ` · ${spec.note}` : ""}`;
+  return el("div", { class: "ctx-scale glass", role: "img", title: caption, "aria-label": `${caption}, from ${cur.min} to ${cur.max}` }, el("span", { class: "ctx-scale__cap", text: shown }), bar, ticks);
 }

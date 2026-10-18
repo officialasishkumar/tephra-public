@@ -42,8 +42,8 @@ export function renderIdle() {
   const loading = !app.listLoaded && !app.listError;
   const drafts = draftList().length;
   const hand = openFailures().length;
-  const title = loading ? 'Loading the drafts…' : drafts ? 'Choose an advisory to review' : hand ? `Plan by hand · ${plural(hand, 'flight')}` : 'Nothing waits for a decision';
-  const sub = loading ? null : drafts ? `${plural(drafts, 'advisory', 'advisories')} ${drafts === 1 ? 'waits' : 'wait'} on the left in act-by order: the one to decide first is at the top.` : hand ? 'TEPHRA Assistant made no plan for them. They are listed under Decide.' : exposedLine();
+  const title = loading ? 'Loading the drafts…' : drafts ? 'Choose an advisory to review' : hand ? `${plural(hand, 'flight')} ${hand === 1 ? 'waits' : 'wait'} for you` : 'Nothing waits for a decision';
+  const sub = loading ? null : drafts ? `${plural(drafts, 'advisory', 'advisories')} ${drafts === 1 ? 'waits' : 'wait'} on the left in act-by order: the one to decide first is at the top.` : hand ? null : exposedLine();
   const other = elsewhere();
   host.replaceChildren(
     el('div', { class: 'idle__box' },

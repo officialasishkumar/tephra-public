@@ -280,7 +280,7 @@ export function renderDocs() {
 
   // VAR: one row per exposed flight.
   const flights = flightsForVar();
-  const varKids = [el('p', { class: 'fine', text: 'Per exposed flight. Items 1 to 5 come from ADS-B and the hazard. The pilot completes the rest. No model writes any of it.' })];
+  const varKids = [el('p', { class: 'fine', text: 'Per exposed flight. Items 1 to 5 come from ADS-B and the hazard. The pilot completes the rest.' })];
   if (draftError && draftError.kind === 'VAR') varKids.push(draftErrorNode());
   varKids.push(flights.length ? el('ul', { class: 'dflights' }, flights.map((a) => el('li', { class: 'dflight' },
     el('span', { class: 'dflight__name' }, el('span', { class: 'mono', text: a.proxy_flight }), el('span', { class: 'dflight__sub', text: `${a.volcano_name} · ${actionShort(a)}` })),
