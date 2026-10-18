@@ -38,14 +38,14 @@ export function stageOf(row) {
 function actorOf(row) {
   const e = row.items?.[0] || {};
   const kind = String(row.kind || "");
-  if (kind === "flight") return ["Code checks", "no AI"];
+  if (kind === "flight") return ["Code checks", null];
   if (kind === "duty" || kind === "brief" || kind.startsWith("handoff:")) return ["Coordinator", ASSISTANT];
   if (kind.startsWith("skill:") || kind.startsWith("desk:") || kind === "skill-failed") return [SKILL_NAME[e.skill] || ASSISTANT, ASSISTANT];
   if (kind === "feed") return [FEED_NAMES[e.feed] || e.feed || "Public feed", "public feed"];
   if (kind === "adsb") return e.feed === "airline" ? ["Airline positions", "airline feed"] : ["Aircraft positions", "public feed"];
   if (kind === "decided") return ["A person", "the Desk"];
   if (kind === "onreq") return [ASSISTANT, null];
-  return MODEL_ACTORS.has(e.actor) ? [ASSISTANT, null] : ["Code", "no AI"];
+  return MODEL_ACTORS.has(e.actor) ? [ASSISTANT, null] : ["Code", null];
 }
 
 // How the step went: "noresult" for a refused or undone run and a failed or refused skill step,
@@ -268,11 +268,11 @@ export function beatMs(n, rm = false) {
   return Math.round(Math.min(CATCHUP_MAX_MS, Math.max(CATCHUP_MIN_MS, CATCHUP_MS / Math.max(1, n))));
 }
 
-// What the panel says under the player when the chain is not whole (never a stand-in step).
+// What the panel says (screen readers only) under the player when the chain is not whole (never a stand-in step).
 export function chainNote(chain) {
   if (!chain.beats.length) return "No steps held on this page yet to catch up on.";
   if (chain.full) return "";
-  return `Part of a chain: no ${chain.missing.join(", no ")} in the steps this page holds.`;
+  return "Showing the latest steps. Earlier ones ran before this page opened.";
 }
 
 // The events the panel shows during the catch-up: every event up to the chain's first beat that is

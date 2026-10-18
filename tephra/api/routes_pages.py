@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from tephra.airline.sessions import read_claims
 from tephra.api import ApiError
 
-__all__ = ["WEB_DIR", "hosted_router", "router", "staff_router"]
+__all__ = ["WEB_DIR", "hosted_router", "not_found_page", "router", "staff_router", "wants_page"]
 
 WEB_DIR: Final = Path(__file__).resolve().parent.parent / "web"
 _PRINT_DOC_ID = re.compile(r"(?:DOC-|ho_)[0-9a-f]{12}")
@@ -44,6 +44,8 @@ WORKSPACE_SECTIONS: Final = frozenset({"answers", "feeds", "assistant"})
 SETTINGS_TABS: Final = frozenset({"policy", "assistant", "people", "record"})
 _TENANT_ICAO: Final = re.compile(r"[A-Z]{3}")
 NOINDEX: Final = {"X-Robots-Tag": "noindex"}
+NOT_FOUND_PAGE: Final = "404.html"
+_API_PATH: Final = re.compile(r"/(?:a/[^/]+/)?api(?:/|$)")
 
 router = APIRouter()
 hosted_router = APIRouter()
@@ -61,6 +63,20 @@ async def _page(filename: str) -> FileResponse:
 
 def _no_such_page() -> ApiError:
     return ApiError(404, "not_found", "No such page")
+
+
+def wants_page(request: Request) -> bool:
+    """A browser opening an address (a GET or HEAD whose Accept names HTML) outside the API: its
+    404 is the site's page. The API's 404 stays JSON, whatever the Accept header says."""
+    if request.method not in ("GET", "HEAD") or _API_PATH.match(request.url.path):
+        return False
+    return "text/html" in request.headers.get("accept", "").lower()
+
+
+def not_found_page() -> FileResponse:
+    return FileResponse(
+        WEB_DIR / NOT_FOUND_PAGE, status_code=404, media_type="text/html; charset=utf-8"
+    )
 
 
 @router.get("/", include_in_schema=False)

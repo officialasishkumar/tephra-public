@@ -5,7 +5,10 @@ Officer's work list (code decides what is due, exactly as before), checks it aga
 budget, and starts one job:
 
 * an urgent Duty Officer run over every mandatory item (a flight inside or about to enter an
-  area, and the plume read it waits on). Urgent work is never paced; only the budget caps it.
+  area, and the plume read it waits on). Urgent work is never paced; the budget caps it, less
+  the Desk's interactive reserve (``tephra.agents.quota``). When not even the Duty Officer's
+  first call fits, the urgent items wait with their next slot, as routine work does, unless
+  their answers are all on hand.
 * else the most urgent of: a routine Duty Officer run over the routine items whose estimated
   calls fit the routine pacing now (at most :data:`MAX_ROUTINE_ITEMS`, so a routine run stays
   short), or a queued network recovery run.
@@ -16,7 +19,7 @@ Duty Officer run starts, so routine work is not paced twice over.
 
 Pacing decides when routine work may start. Once admitted, a job's calls are checked only
 against the daily cap (``use_lane(..., admitted=True)``), so a run that needs more calls than
-estimated finishes instead of failing part-way. Routine work that does not fit stays WAITING,
+estimated finishes instead of failing part-way. Work that does not fit stays WAITING,
 with the time of its next slot (the Wall and Desk say "waiting for AI budget, next slot HHMMZ").
 It is not offered to the Duty Officer, so waiting costs no model call; it is not dropped; and it
 is never handed to another model.
@@ -53,6 +56,7 @@ from tephra.agents.answers import NotOnHand, on_hand_only
 from tephra.agents.budget import AiWork, WorkStatus, slot_words
 from tephra.agents.llm import Tier
 from tephra.agents.quota import Lane, use_lane
+from tephra.desk import audit
 from tephra.duty import DeskUnreachable, dispatch_duty, drafts_by_flight, duty_worklist
 from tephra.models import Advisory, DutyItem, DutyItemKind, RunMode, TickReport
 from tephra.store.base import Collection
@@ -194,6 +198,8 @@ class AiWorker:
                     pass
             except asyncio.CancelledError:
                 raise
+            except audit.NotWriter as exc:  # out-claimed mid-run: nothing more is stored here
+                logger.warning("AI worker pass stopped: %s", exc)
             except Exception:  # keep the worker alive; the next wake starts clean
                 logger.exception("AI worker pass failed")
 
@@ -223,6 +229,8 @@ class AiWorker:
         runtime = self._runtime
         if runtime.retired or runtime.last_tick is None:
             return False  # a retired instance does no work; before the first tick there is none
+        if not await audit.writable(runtime.store):
+            return False  # out-claimed since its last read of runtime/writer: it retires now
         async with runtime.lock:
             epoch = runtime.epoch
             at = timeutil.now()
@@ -246,12 +254,21 @@ class AiWorker:
             on_hand = bool(routine)
             for item in routine:
                 del waiting[item.id]
+        urgent_on_hand = False
+        if urgent and (urgent_wait := self._urgent_wait()) is not None:
+            ready = await self._on_hand(urgent, at)
+            urgent_on_hand = bool(ready)
+            ready_ids = {item.id for item in ready}
+            waiting.update({item.id: urgent_wait for item in urgent if item.id not in ready_ids})
+            urgent = ready
         self._sync(fresh, [*urgent, *routine, *later], waiting)
         recovery = self._recovery_ready()
         await self._persist()
         await runtime.publish_budget()
         if urgent:
-            await self._duty(urgent, "urgent", drafts, at, epoch, len(waiting), report)
+            await self._duty(
+                urgent, "urgent", drafts, at, epoch, len(waiting), report, on_hand=urgent_on_hand
+            )
             return True
         if self._recovery is not None:
             return False  # routine work starts once the recovery run is done
@@ -311,12 +328,12 @@ class AiWorker:
         return admitted, waiting, later
 
     async def _on_hand(self, items: list[DutyItem], at: datetime) -> list[DutyItem]:
-        """Routine items waiting for budget whose model answers are all on hand, the Duty
-        Officer's for this very work list too: run now, they cost no model call, even while the
-        assistant is paused. At most :data:`MAX_ROUTINE_ITEMS`, most urgent first, a plan only
-        with or after its volcano's plume read; not an item a run on answers on hand found
-        short within the policy's re-offer time. Nothing when the Duty Officer would have to
-        be asked."""
+        """Items waiting for budget (routine or urgent) whose model answers are all on hand,
+        the Duty Officer's for this very work list too: run now, they cost no model call, even
+        while the assistant is paused. At most :data:`MAX_ROUTINE_ITEMS`, most urgent first,
+        a plan only with or after its volcano's plume read; not an item a run on answers on
+        hand found short within the policy's re-offer time. Nothing when the Duty Officer
+        would have to be asked."""
         runtime = self._runtime
         rerun = timedelta(minutes=runtime.policy.duty.rerun_min.value)
         self._not_on_hand = {
@@ -360,6 +377,18 @@ class AiWorker:
             return None
         slot = max(slots)
         return _Wait(slot, slot_words(slot))
+
+    def _urgent_wait(self) -> _Wait | None:
+        """None when the Duty Officer's first urgent call fits now, else its next slot. A count
+        that cannot be read has no slot: the run goes ahead and reports AI UNAVAILABLE with
+        the reason, as before."""
+        runtime = self._runtime
+        if not runtime.llm.metered or not self.paced:
+            return None
+        admission = runtime.quota.admission(runtime.llm.model_id("lite"), "urgent")
+        if admission.ok or admission.next_slot is None:
+            return None
+        return _Wait(admission.next_slot, slot_words(admission.next_slot))
 
     def _recovery_ready(self) -> AiWork | None:
         work = self._queue.get(RECOVERY_WORK_ID)
@@ -440,7 +469,7 @@ class AiWorker:
         *,
         on_hand: bool = False,
     ) -> None:
-        """``on_hand`` (a routine run started because its answers are on hand): no model is
+        """``on_hand`` (a run started only because its answers are on hand): no model is
         asked; when a step would have to ask one, what was not done waits for budget again."""
         runtime = self._runtime
         self._mark(items, "RUNNING")

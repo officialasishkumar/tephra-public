@@ -75,6 +75,7 @@ async def record_new_doc(
     prompt_hash: str | None = None,
 ) -> None:
     """Store a new draft, audit ``DOC_DRAFTED`` and announce it."""
+    await audit.require_writer(store)
     await _put(store, doc)
     await audit.record(
         store,

@@ -260,7 +260,7 @@ def out(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
 def test_each_row_kind_names_its_step_actor_and_kind(out: dict[str, Any]) -> None:
     got = [(v["stage"], v["actor"], v["kind"]) for v in out["views"]]
     assert got == [
-        ("code", "Code checks", "no AI"),
+        ("code", "Code checks", None),
         ("ai", "Coordinator", "TEPHRA Assistant"),
         ("ai", "Coordinator", "TEPHRA Assistant"),
         ("ai", "Coordinator", "TEPHRA Assistant"),
@@ -274,7 +274,7 @@ def test_each_row_kind_names_its_step_actor_and_kind(out: dict[str, Any]) -> Non
         ("feeds", "Airline positions", "airline feed"),
         ("desk", "A person", "the Desk"),
         ("ai", "TEPHRA Assistant", None),
-        ("code", "Code", "no AI"),
+        ("code", "Code", None),
     ]
     assert out["noKind"] == "ai"
 
@@ -398,9 +398,7 @@ def test_a_part_of_a_chain_plays_as_it_is_and_says_what_is_missing(out: dict[str
     assert partial["full"] is False
     assert [b["kind"] for b in partial["beats"]] == ["feeds", "code"]
     assert partial["missing"] == ["Coordinator run", "step to You decide"]
-    assert partial["note"] == (
-        "Part of a chain: no Coordinator run, no step to You decide in the steps this page holds."
-    )
+    assert partial["note"] == "Showing the latest steps. Earlier ones ran before this page opened."
     empty = out["chains"]["empty"]
     assert empty["beats"] == []
     assert empty["note"] == "No steps held on this page yet to catch up on."

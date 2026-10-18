@@ -127,6 +127,31 @@ async def test_urgent_work_runs_and_routine_work_waits_for_its_slot(paced: Any) 
     assert runtime.worker.queue() == []
 
 
+async def test_capped_urgent_work_waits_for_its_slot_and_leaves_the_desk_its_reserve(
+    paced: Any,
+) -> None:
+    """Live, 18 Oct 2026: urgent Duty Officer runs spent the whole lite day (430 of a 135
+    share) and every later run reported AI UNAVAILABLE. Urgent work now stops short of the
+    Desk's reserve and waits, like routine work, with its next slot; no run is offered."""
+    runtime, clock, runs = paced
+    # Budget 100: urgent 30, interactive 20, routine 50; urgent may use 30 + 50.
+    for _ in range(80):
+        assert await runtime.quota.reserve(LITE, "urgent") is None
+    assert await runtime.quota.reserve(LITE, "urgent") is not None
+    await runtime.worker.drain()
+    assert runs == [], "no Duty Officer run is offered while urgent work cannot be asked"
+    queue = {work.id: work for work in runtime.worker.queue()}
+    urgent = queue[INSIDE.id]
+    assert (urgent.lane, urgent.status) == ("urgent", "WAITING")
+    assert urgent.next_slot_at is not None
+    assert urgent.reason == f"waiting for AI budget, next slot {urgent.next_slot_at:%H%M}Z"
+    assert await runtime.quota.reserve(LITE, "interactive") is None, "the Desk keeps its share"
+
+    clock.set(urgent.next_slot_at + timedelta(minutes=1))  # the Desk's reserve is released
+    await runtime.worker.drain()
+    assert runs[0] == ([INSIDE.id], "urgent"), "the same urgent work, on the same model"
+
+
 async def test_waiting_work_is_offered_to_no_model_until_its_slot(paced: Any) -> None:
     runtime, _, runs = paced
     await runtime.worker.drain()

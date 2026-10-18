@@ -8,7 +8,8 @@ Gemini drafts an advisory for each; a dispatcher approves every one on a phone.
 > Decision support only. Ring of Fire Air (RFA) is a fictional airline. Nothing is sent to any real
 > system. Not for operational use.
 
-[Live demo](https://tephra-647733667799.asia-southeast1.run.app) · ![ci](https://github.com/officialasishkumar/tephra-public/actions/workflows/ci.yml/badge.svg)
+[Live demo](https://tephra-647733667799.asia-southeast1.run.app) · ![ci](https://github.com/officialasishkumar/tephra/actions/workflows/ci.yml/badge.svg)
+<!-- owner: once the video and the deck exist, add their links after "Live demo" on the line above -->
 
 Built on Google Cloud: Gemini (3.8 Flash and 3.5 Flash-Lite through the Gemini API), the Agent
 Development Kit, Cloud Run, Cloud Scheduler, Firestore, Secret Manager and Artifact Registry.
@@ -306,6 +307,12 @@ are the existing pattern it feeds.
 
 - **Decision support, not operations.** TEPHRA's output is a draft for a dispatcher. It is not a
   forecast, a warning, a dispatch release or air traffic control, and no real airline runs it.
+- **After approval.** An approved advisory or message waits on TEPHRA's own outbound queue,
+  signed with the dispatcher's name in the record, and the dispatcher sends it through the
+  airline's own channels (ACARS, company radio). TEPHRA does not send it: messages to aircraft go
+  through the airline's approved systems and SITA or ARINC datalinks, which a prototype cannot
+  join, and the demo airline is fictional. The next step would be a webhook to each verified
+  airline's ops system, which then decides what reaches the aircraft. Not built.
 - **Google Cloud's terms class air traffic control as a High Risk Activity** <!-- row 20 -->. TEPHRA
   is not ATC and is demonstrated with a fictional airline on public data. Running it for a real
   operator would need Google's written agreement for that use, the operator's own safety risk
@@ -405,4 +412,4 @@ Natural Earth (public domain); the volcano catalogue of the Smithsonian Global V
 
 ## 14. Team
 
-Asish Kumar and Akash Kumar.
+Asish Kumar and Akash Kumar. Built for the Google Cloud AI Builder Cup 2026 (JAPAC).

@@ -36,7 +36,10 @@ __all__ = [
     "CSRF_HEADER",
     "DISPATCHER_ONLY_PATHS",
     "TASK_HEADER",
+    "VISITOR_ASKS_PER_CLIENT",
+    "VISITOR_ASK_CLIENT_DETAIL",
     "VISITOR_ASK_PATHS",
+    "VISITOR_ASK_WINDOW_S",
     "VISITOR_DECISION_PATHS",
     "LoginThrottle",
     "actor_of",
@@ -98,6 +101,15 @@ VISITOR_ASK_PATHS: Final[tuple[tuple[str, str], ...]] = (
 VISITOR_ROLE_DETAIL: Final = "Visitors cannot do this; a dispatcher can."
 VISITOR_REPLAY_ONLY_DETAIL: Final = "Visitors can decide only while a replay plays."
 VISITOR_ASK_CAP_DETAIL: Final = "Visitors may ask three questions a session."
+VISITOR_ASKS_PER_CLIENT: Final = 30
+VISITOR_ASK_WINDOW_S: Final = 600.0
+"""Visitor questions one client address may ask in ten minutes, over all its sessions (429
+``visitor_ask_cap`` past it): ten sessions' worth, as before visitor sessions per address went
+from 10 to 60 on 18 Oct 2026, so one address cannot spend the Desk's model calls six times as
+fast by opening more sessions."""
+VISITOR_ASK_CLIENT_DETAIL: Final = (
+    "Too many visitor questions from this address; try again in a few minutes."
+)
 
 
 def wall_clock_now() -> datetime:
@@ -348,10 +360,22 @@ def count_visitor_decision(request: Request, session: SessionInfo, settings: Set
 
 
 def _count_visitor_ask(request: Request, session: SessionInfo, settings: Settings) -> None:
+    """One more question for the session (``visitor_ask_cap``) and for its client address
+    (``VISITOR_ASKS_PER_CLIENT``); 429 ``visitor_ask_cap`` past either."""
     decisions: Counter[str] = request.app.state.visitor_decisions
     key = f"{_sid(session)}:ask"
     if decisions[key] >= settings.visitor_ask_cap:
         raise ApiError(429, "visitor_ask_cap", VISITOR_ASK_CAP_DETAIL)
+    asked: LoginThrottle = request.app.state.visitor_ask_throttle
+    client = client_key(request)
+    if asked.blocked(client):
+        raise ApiError(
+            429,
+            "visitor_ask_cap",
+            VISITOR_ASK_CLIENT_DETAIL,
+            headers={"Retry-After": str(asked.retry_after_s(client))},
+        )
+    asked.record_failure(client)  # every question counts
     decisions[key] += 1
 
 

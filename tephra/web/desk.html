@@ -151,7 +151,7 @@
               <div class="ifield">
                 <svg class="icon ifield__icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-user"></use></svg>
                 <input id="visitor-name" class="field" name="name" type="text" autocomplete="nickname"
-                       autocapitalize="words" spellcheck="false" maxlength="32" aria-describedby="visitor-name-err visitor-facts-sr">
+                       autocapitalize="words" spellcheck="false" maxlength="32" aria-describedby="visitor-name-err visitor-facts-sr visitor-caps-sr">
               </div>
               <p id="visitor-name-err" class="msg msg--invalid" hidden></p>
             </div>
@@ -160,6 +160,9 @@
           </form>
           <!-- one short line; the rest behind its (i) (wall/info.js wireInfo; owner, 17 Oct) -->
           <p id="visitor-facts" class="lfacts lfacts--one"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-eye"></use></svg><span>Your decisions are public.</span><span class="info" data-wire="info"><button type="button" class="info__btn" aria-expanded="false" aria-controls="visitor-facts-pop" aria-label="About visitor decisions" aria-describedby="visitor-facts-sr" data-info="visitor"><svg class="icon info__glyph" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-info"></use></svg></button><span id="visitor-facts-sr" class="sr-only">They go into the public record as visitor:&lt;your name&gt; and change what every other viewer sees. Visitors cannot change the display or the feeds.</span><span id="visitor-facts-pop" class="info__pop" role="group" aria-label="About visitor decisions" aria-hidden="true" hidden><span class="info__line">They go into the public record as visitor:&lt;your name&gt; and change what every other viewer sees. Visitors cannot change the display or the feeds.</span></span></span></p>
+          <!-- the session caps (tephra.config visitor_decision_cap, visitor_ask_cap; tests/test_desk_visitor_ui.py
+               pins the numbers), said before a 429 says them -->
+          <p id="visitor-caps" class="lfacts lfacts--one"><svg class="icon" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-gauge"></use></svg><span>Up to 40 decisions and 3 questions a session.</span><span class="info" data-wire="info"><button type="button" class="info__btn" aria-expanded="false" aria-controls="visitor-caps-pop" aria-label="About the visitor limits" aria-describedby="visitor-caps-sr" data-info="visitor-caps"><svg class="icon info__glyph" aria-hidden="true" focusable="false"><use href="/static/icons.svg#i-info"></use></svg></button><span id="visitor-caps-sr" class="sr-only">Each approve, edit or reject is a decision; questions go to Ask TEPHRA. Enter again for a new session.</span><span id="visitor-caps-pop" class="info__pop" role="group" aria-label="About the visitor limits" aria-hidden="true" hidden><span class="info__line">Each approve, edit or reject is a decision; questions go to Ask TEPHRA. Enter again for a new session.</span></span></span></p>
         </section>
 
         <section id="dispatcher-card" class="dispatcher" role="tabpanel" aria-labelledby="login-title">

@@ -249,6 +249,11 @@ WRITER_DOC: Final = "writer"
 """``runtime/writer``: the instance that ticked last; only the serving revision gets ticks"""
 AUDIT_HEAD_DOC: Final = "audit_head"
 """``runtime/audit_head``: the audit chain's head as this instance last checkpointed it"""
+_PICTURE_ONLY: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "tephra_picture_only", default=False
+)
+"""Set while a standing-by instance's startup tick runs (``picture_only``): an append there is
+refused (``audit.NotWriter``) instead of claiming the writer"""
 OPEN_DRAFT_LIMIT: Final = 500
 DRAFTS_COPY_S: Final = 60.0
 """The open drafts read from the store at least this often (wall seconds), whatever the
@@ -429,6 +434,8 @@ class Runtime:
     instance_id: str = field(init=False, default_factory=lambda: uuid.uuid4().hex)
     _retired: bool = field(init=False, default=False)
     """Another instance ticked after this one (a rollout); see ``retired``"""
+    _standby: bool = field(init=False, default=False)
+    """Not yet the writer (``stand_by``): until the first claim, as idle as a retired instance"""
     wall_clock: timeutil.Clock = field(init=False, default_factory=timeutil.SystemClock)
     """The clock a hosted runtime binds (``bound``): the wall clock; only the offline measure
     script (``scripts/hosted_measure.py``) binds a recording's time instead"""
@@ -498,8 +505,14 @@ class Runtime:
     @property
     def retired(self) -> bool:
         """No ADS-B passes, checkpoints or AI work here: another instance ticked after this
-        one, or (a hosted airline) the demo runtime of this process retired (``fence``)."""
-        return self._retired or (self.fence is not None and self.fence())
+        one, this instance has not claimed the writer yet (``stand_by``), or (a hosted
+        airline) the demo runtime of this process retired (``fence``)."""
+        return self._retired or self._standby or (self.fence is not None and self.fence())
+
+    @property
+    def standing_by(self) -> bool:
+        """Started under Cloud Scheduler and not yet the writer (``stand_by``)."""
+        return self._standby
 
     @retired.setter
     def retired(self, value: bool) -> None:
@@ -702,6 +715,7 @@ class Runtime:
         if self.mode is RunMode.REPLAY:
             stop_replay_clock()
         await self.store.aclose()
+        audit.gate(self.store, None)
 
     async def set_policy(self, policy: OperatorPolicy) -> None:
         """Run on ``policy`` from the next step on (a hosted airline's new policy version).
@@ -1982,6 +1996,50 @@ class Runtime:
 
     # --- the writer fence (rollouts) -----------------------------------------------------
 
+    def stand_by(self) -> None:
+        """Hold this instance idle until it is the writer. Under Cloud Scheduler a new instance
+        may be a rollout's candidate, which serves no traffic while the serving instance goes
+        on writing: it builds its picture (the startup tick) but appends no audit entry, makes
+        no checkpoint and runs no AI work until it claims ``runtime/writer``, at its first
+        Scheduler tick or at the first request that records something (only the serving
+        revision gets either). A hosted airline follows the demo's (``fence``)."""
+        if self.hosted is None and self._writer_at is None:
+            self._standby = True
+
+    @contextmanager
+    def picture_only(self) -> Iterator[None]:
+        """The start (the restores and the startup tick) of a standing-by instance: an append
+        in it is refused rather than claiming the writer (a candidate's start must not take
+        the claim)."""
+        token = _PICTURE_ONLY.set(self._standby)
+        try:
+            yield
+        finally:
+            _PICTURE_ONLY.reset(token)
+
+    async def may_append(self) -> bool:
+        """The audit gate (``audit.gate``), awaited before every append: True when this
+        instance holds the writer claim. A standing-by instance claims it first (a request
+        reached it, so it serves), except in its own start (``picture_only``); a writer reads
+        ``runtime/writer`` once (``check_writer``), so an instance another one out-claimed
+        appends nothing more from that moment, not from its next watchdog check."""
+        if self._standby:
+            if _PICTURE_ONLY.get():
+                return False
+            await self.claim_writer()
+            return True
+        return not await self.check_writer()
+
+    async def may_write(self) -> bool:
+        """What a write about to be stored and then audited asks first (``audit.writable``):
+        the same answer as ``may_append`` without claiming. A standing-by instance says yes and
+        leaves the claim to the append itself, so a request refused before it appends (no
+        session, a bad CSRF header, a 404) never takes the writer from the serving instance;
+        a writer reads ``runtime/writer`` (``check_writer``)."""
+        if self._standby:
+            return not _PICTURE_ONLY.get()
+        return not await self.check_writer()
+
     async def claim_writer(self) -> None:
         """Name this instance in ``runtime/writer`` at the start of every tick.
 
@@ -2006,6 +2064,9 @@ class Runtime:
         )
         self._writer_at = at
         self.last_tick_clock = time.monotonic()
+        if self._standby:
+            self._standby = False
+            logger.info("this instance holds the writer claim; it checkpoints and runs AI work")
         if self._retired:
             self._retired = False
             logger.warning("ticks reach this instance again; it polls and checkpoints again")
@@ -2143,10 +2204,10 @@ class Runtime:
         await self.worker.restore()
 
     async def _restore_audit_head(self) -> None:
-        """One full walk of the chain at startup, unless the head the last checkpoint
-        persisted (``runtime/audit_head``) still names the newest entry: that head is held as
-        not yet walked on this instance and the first checkpoint walks it. A head below the
-        newest entry, or none, is walked now.
+        """The demo walks the chain at startup only past the verified point the last
+        checkpoint persisted (``runtime/audit_head``, ``verified_through_seq``): what a walk
+        already found intact is not read again. Without one (a chain never found intact, a
+        head from an older build) the whole chain is walked.
 
         A hosted airline's chain is never walked whole here (D25): a head this process still
         holds for the same store object (a restart of the runtime) is kept, else the persisted
@@ -2160,14 +2221,11 @@ class Runtime:
                 )
             await audit.catch_up(self.store)
             return
-        persisted = audit.restore_head(
-            self.store, await self.store.get(Collection.RUNTIME, AUDIT_HEAD_DOC)
-        )
-        newest = await audit.newest_entry(self.store)
-        newest_seq = 0 if newest is None else newest.seq
-        if persisted is not None and persisted.seq >= newest_seq:
-            return
-        self._trace_audit_head(await audit.verify_head(self.store))
+        doc = await self.store.get(Collection.RUNTIME, AUDIT_HEAD_DOC)
+        head = await audit.resume(self.store, doc)
+        if head is None:
+            head = await audit.verify_head(self.store)
+        self._trace_audit_head(head)
 
     async def _seed_answers(self) -> None:
         """Answers the same model gave this case on an earlier run (``answers_path``), put in
@@ -3129,11 +3187,15 @@ class Runtime:
         auto: bool,
         case: ReplayCase | None = None,
         note: str | None = None,
+        record: bool = True,
     ) -> None:
         """Change mode. REPLAY plays ``case``, else the case playing, else
         ``TEPHRA_REPLAY_CASE`` or the newest recorded case; picking another case while
         replaying restarts the replay on it. ``note`` replaces the banner as the audit
-        entry's note. A hosted airline never switches (:class:`HostedModeLocked`)."""
+        entry's note. Without ``record`` (a standing-by instance resuming the replay stored
+        in ``runtime/state``) only this instance's mode changes: the serving instance holds
+        the writer, so neither the ``MODE_SWITCH`` entry nor ``runtime/state`` is written. A
+        hosted airline never switches (:class:`HostedModeLocked`)."""
         if self.hosted is not None:
             raise HostedModeLocked
         playing = self.source.case if isinstance(self.source, ReplaySource) else None
@@ -3168,18 +3230,20 @@ class Runtime:
         self._reset_picture()
         case_id = self.replay_case.case_id if self.replay_case is not None else None
         banner = replay_info(self.replay_case, auto=auto).banner if self.replay_case else None
-        await audit.record(
-            self.store,
-            actor=SYSTEM_ACTOR,
-            action=AuditAction.MODE_SWITCH,
-            before=previous,
-            after={"mode": mode.value, "case_id": case_id, "auto": auto},
-            note=note or banner,
-        )
-        # The choice must survive a restart before the next checkpoint.
-        await self._checkpoint_write(
-            Collection.RUNTIME, self.store.put(Collection.RUNTIME, "state", self._bookkeeping())
-        )
+        if record:
+            await audit.record(
+                self.store,
+                actor=SYSTEM_ACTOR,
+                action=AuditAction.MODE_SWITCH,
+                before=previous,
+                after={"mode": mode.value, "case_id": case_id, "auto": auto},
+                note=note or banner,
+            )
+            # The choice must survive a restart before the next checkpoint.
+            await self._checkpoint_write(
+                Collection.RUNTIME,
+                self.store.put(Collection.RUNTIME, "state", self._bookkeeping()),
+            )
         self.trace(
             TraceStage.SYSTEM,
             "system",
@@ -3281,28 +3345,42 @@ class Runtime:
         await save_unsaved(self)
 
     async def _checkpoint_audit_head(self) -> None:
-        """Walk the audit chain again when an append found another writer's entry, then
-        persist the head beside ``runtime/state`` for the next start."""
+        """Walk the audit chain again when an append found another writer's entry, or when a
+        fork repair ran after this instance's last walk of a chain that was not intact, then
+        persist the head beside ``runtime/state`` for the next start. The walk reads only
+        past what a walk already found intact (D25)."""
         held = audit.chain(self.store)
+        if not held.rewalk and self.hosted is None:
+            await self._follow_repair(held)
         if held.rewalk:
             try:
-                # A hosted airline walks only past what a walk already found intact (D25).
-                head = await (
-                    audit.check_chain(self.store)
-                    if self.hosted is not None
-                    else audit.verify_head(self.store)
-                )
+                head = await audit.check_chain(self.store)
             except Exception as exc:  # the mark stays; the next checkpoint walks again
                 logger.warning("audit chain walk failed: %s", exc)
                 self.store_failed(exc, calls="reads")
             else:
                 self._trace_audit_head(head)
-        doc = audit.head_doc(self.store, verified=self.hosted is not None)
+        doc = audit.head_doc(self.store, verified=True)
         if doc is None:
             return
         await self._checkpoint_write(
             Collection.RUNTIME, self.store.put(Collection.RUNTIME, AUDIT_HEAD_DOC, doc)
         )
+
+    async def _follow_repair(self, held: audit.AuditChain) -> None:
+        """While the held head is not intact, one read per checkpoint of ``runtime/audit_repair``:
+        a repair written after this instance's last walk marks a re-walk."""
+        head = held.head
+        if head is None or head.intact or audit.NOT_WALKED in head.problems:
+            return
+        try:
+            doc = await self.store.get(Collection.RUNTIME, audit.REPAIR_DOC)
+        except Exception as exc:  # the next checkpoint reads it again
+            logger.warning("reading %s failed: %s", audit.REPAIR_DOC, exc)
+            return
+        repaired = doc.get("repaired_at") if doc is not None else None
+        if isinstance(repaired, str) and timeutil.parse_iso(repaired) > head.checked_at:
+            held.rewalk = True
 
     def _trace_audit_head(self, head: ChainHead) -> None:
         if head.intact:
@@ -3373,7 +3451,9 @@ class Runtime:
                 "restart is not resumed",
             )
             return
-        await self._switch(RunMode.REPLAY, auto=auto, case=case, note=RESTORED_NOTE)
+        await self._switch(
+            RunMode.REPLAY, auto=auto, case=case, note=RESTORED_NOTE, record=not self._standby
+        )
 
     async def _restore_bookkeeping(self) -> None:
         doc = await self.store.get(Collection.RUNTIME, "state")
@@ -3462,9 +3542,13 @@ async def create_runtime(
         fleet=fleet,
     )
     runtime.replay_window = window
-    await runtime.restore_crew_reports()
-    await runtime.restore_replay_choice()
-    await runtime.restore()
+    audit.gate(store, runtime.may_append, ask=runtime.may_write)
+    if not settings.local_scheduler:
+        runtime.stand_by()
+    with runtime.picture_only():  # a standing-by instance's start takes no claim either
+        await runtime.restore_crew_reports()
+        await runtime.restore_replay_choice()
+        await runtime.restore()
     runtime.start_worker()
     return runtime
 

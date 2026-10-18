@@ -450,6 +450,10 @@ history) says so in its manifest.
 
 ## 7. Known limits
 
+- Approval ends at the `outbound` collection. The dispatcher sends the approved text through
+  the airline's own channels (ACARS, company radio): messages to aircraft go through the
+  airline's approved systems and SITA or ARINC datalinks, which TEPHRA does not join. A webhook
+  to each verified airline's ops system is the next step and is not built.
 - The Gemini free tier is reported at about 20 requests a day for 3.8 Flash and 500 for
   3.5 Flash-Lite. TEPHRA therefore calls the main model only when inputs change (and asks
   again about an unchanged input at most every 3 hours), counts its calls per Google quota

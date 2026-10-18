@@ -322,7 +322,8 @@ class Settings(BaseSettings):
         lt=1,
         description=(
             "Share of each model's daily budget held for urgent work (a flight inside or about "
-            "to enter the area, a plume read it waits on); urgent work is never paced"
+            "to enter the area, a plume read it waits on); urgent work is never paced and may "
+            "also take routine's share, never the interactive one"
         ),
     )
     ai_interactive_share: float = Field(
@@ -349,7 +350,8 @@ class Settings(BaseSettings):
         le=1,
         description=(
             "Part of the quota day after which the unused urgent and interactive shares flow "
-            "to routine work, all of them by midnight Pacific"
+            "to routine work (the interactive one to urgent work too), all of them by midnight "
+            "Pacific"
         ),
     )
     gemini_api_key: SecretStr | None = Field(

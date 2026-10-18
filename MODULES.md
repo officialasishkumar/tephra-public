@@ -42,7 +42,7 @@ modules (sections 5.11 to 5.17) were built against.
 | web-desk | `tephra/web/desk.html`, `tephra/web/desk.js`, `tephra/web/desk/*.js`, `tephra/web/desk.css` |
 | connect | `tephra/desk/connections.py`, `tephra/desk/sample_feed.py`, `tephra/api/routes_connect.py`, `scripts/push_sample.py`, `tephra/web/desk/connections.js` (the Desk's Data connections), `tests/test_connect.py`, `tests/test_dry_run.py` (airline data connections: section 5.20; the Connect page was folded into onboarding on 16 Oct 2026) |
 | airline | `tephra/airline/{__init__,models,passwords,sessions,accounts,policy_check}.py`, `tephra/api/routes_airline.py`, `tephra/geo/fleet.py`, `tephra/web/kit/push.py`, `docs/ONBOARDING.md`, `tests/test_airline_api.py`, `tests/test_airline_sessions.py`, `tests/test_fleet_filter.py`, `tests/test_policy_file.py`, `tests/test_push_tool.py`, `tests/fixtures/airline/` (airline onboarding, accounts and an airline's own TEPHRA: section 5.21) |
-| pages | `tephra/api/routes_pages.py`, `tephra/web/{home,onboard,workspace,privacy,doc}.html`, `tephra/web/home.{js,css}`, `tephra/web/home-boot.js`, `tephra/web/home/`, `tephra/web/onboard.js`, `tephra/web/onboard/*.js`, `tephra/web/workspace.js`, `tephra/web/workspace/*.js`, `tephra/web/product.css`, `tephra/web/five-steps.{js,css}`, `tephra/web/welcome.css`, `tephra/web/account-nav.js`, `tephra/web/theme-boot.js`, `tephra/web/theme.js`, `tephra/web/replay-words.js`, `tephra/web/tokens.css`, `tephra/web/topnav.{css,js}` (the nav every page shares) (section 8.1) |
+| pages | `tephra/api/routes_pages.py`, `tephra/web/{home,onboard,workspace,privacy,doc,404}.html`, `tephra/web/home.{js,css}`, `tephra/web/home-boot.js`, `tephra/web/home/`, `tephra/web/onboard.js`, `tephra/web/onboard/*.js`, `tephra/web/workspace.js`, `tephra/web/workspace/*.js`, `tephra/web/product.css`, `tephra/web/five-steps.{js,css}`, `tephra/web/welcome.css`, `tephra/web/account-nav.js`, `tephra/web/theme-boot.js`, `tephra/web/theme.js`, `tephra/web/replay-words.js`, `tephra/web/tokens.css`, `tephra/web/topnav.{css,js}` (the nav every page shares) (section 8.1) |
 | crew | `tephra/geo/crew_area.py`, `tephra/desk/crew_reports.py`, `tephra/api/routes_crew.py` (crew reports of ash: section 5.19) |
 | hosted | `tephra/hosted/*.py`, `tephra/store/metered.py`, `tephra/util/scope.py`, `tephra/api/{tenancy,routes_tenant,routes_hosted,routes_admin}.py`, `scripts/hosted_measure.py`, `docs/HOSTED.md`, `tests/test_hosted_*.py`, `tests/test_{metered_store,store_namespace,store_page,settings_bind,timeutil_bind,features_opt_in,operators,airline_member_logins,tenancy_routes,admin_api,demo_unchanged,shadow_stamp,shared_source,adk_model,audit_incremental,write_on_change}.py`, `tests/fixtures/hosted/` (hosted airlines: section 5.22) |
 | web-hosted | `tephra/web/{base,tenant-nav,dryrun,hosted,admin}.js`, `tephra/web/hosted/*.js`, `tephra/web/{hosted,admin}.html`, `tephra/web/{tenant,hosted,admin}.css`, `tephra/web/workspace/{golive,join}.js`, `tests/test_{tenant_web,hosted_pages_js,golive_web,join_web,admin_web}.py` |
@@ -1184,16 +1184,16 @@ def quota_day(at: datetime) -> date            # Google's day, midnight to midni
 def day_bounds(day: date) -> tuple[datetime, datetime]
 class ModelDay(TephraModel):                   # ai_budget/<quota day>/<model id>: quota_day, model_id, used: {lane: n}, closed, closed_reason, updated_at
 class Shares:                                  # budget, urgent, interactive, routine, burst, release_after; Shares.of(settings, model_id)
-class Admission(NamedTuple):                   # ok, reason, next_slot (routine work: when it fits again)
-def judge(day, shares, lane, fraction, calls=1, *, admitted=False) -> Admission   # admitted: the daily cap only
-def next_routine_slot(day, shares, now, calls=1) -> datetime
+class Admission(NamedTuple):                   # ok, reason, next_slot (urgent and routine work: when it fits again)
+def judge(day, shares, lane, fraction, calls=1, *, admitted=False) -> Admission   # admitted: not paced; the cap and the held urgent and interactive reserves still apply
+def next_routine_slot(day, shares, now, calls=1, *, lane="routine") -> datetime   # lane "urgent": when the Desk's reserve is released to it
 class QuotaLedger:
     def __init__(self, settings: Settings, store: Store | None, *, now=SystemClock().now)
     async def reserve(self, model_id: str, lane: Lane, *, admitted: bool = False) -> str | None   # counted in one store transaction, checked again there
     async def close(self, model_id: str, reason: str) -> None          # a per-day 429
     async def load(self, model_id: str, *, fresh: bool = False) -> ModelDay
     async def load_all(self, model_ids, *, fresh: bool = False) -> list[ModelDay]
-    def admission(self, model_id: str, lane: Lane, calls: int = 1) -> Admission   # from the copy in memory (the AI worker); a closed model's slot is the next quota day
+    def admission(self, model_id: str, lane: Lane, calls: int = 1) -> Admission   # from the copy in memory (the AI worker); urgent and routine refusals carry a slot, interactive none; a closed model's slot is the next quota day
     def unreadable(self, model_id: str) -> str | None   # why the count cannot be read or written now (the store), or None
 ```
 Rules: counts are kept per model id (two tiers on one model share one count) and quota day in
@@ -1202,17 +1202,20 @@ day's count. Each model's budget (`Settings.daily_budget`) is its free limit les
 `TEPHRA_AI_BUDGET_MARGIN`, or the `TEPHRA_MODEL_DAILY_BUDGET` / `TEPHRA_MODEL_LITE_DAILY_BUDGET`
 override; a model with no `TEPHRA_MODEL_LIMITS` row has budget 0 and is never called. The
 budget splits into lanes: urgent (`TEPHRA_AI_URGENT_SHARE`, 30%; only on models urgent work
-uses, TEPHRA_MODEL and TEPHRA_MODEL_LITE) is never paced and only the budget caps it;
+uses, TEPHRA_MODEL and TEPHRA_MODEL_LITE) is never paced and may take routine's share but never
+the unused interactive reserve (live, 18 Oct 2026: urgent runs spent 430 lite calls of a 135
+share and left the Desk 0 of 90), and refused urgent work waits for its next slot;
 interactive (`TEPHRA_AI_INTERACTIVE_SHARE`, 20%, on TEPHRA_MODEL_LITE; all of TEPHRA_MODEL_TTS's
 budget, since speech has neither urgent nor routine work) may take routine's share but never
 the unused urgent reserve; routine (the rest, on TEPHRA_MODEL and TEPHRA_MODEL_LITE) is admitted
 only while its use stays within its share x the part of the quota day gone by, plus a burst
 (`TEPHRA_AI_ROUTINE_BURST` of the budget, at least one call). After `TEPHRA_AI_RESERVE_RELEASE`
-(0.75) of the day the unused urgent and interactive reserves flow to routine, all of them by
-midnight Pacific. Pacing decides when a routine job starts: the calls of a job the AI worker
-admitted (`use_lane("routine", admitted=True)`) are counted as routine but checked only against
-the daily cap, so a run that needs more calls than its estimate finishes instead of failing
-part-way. A refusal names its reason in plain words; a routine refusal carries the next slot.
+(0.75) of the day the unused urgent and interactive reserves flow to routine (and the unused
+interactive reserve to urgent work), all of them by midnight Pacific. Pacing decides when a
+routine job starts: the calls of a job the AI worker admitted (`use_lane("routine",
+admitted=True)`) are counted as routine but checked only against the daily cap, so a run that
+needs more calls than its estimate finishes instead of failing part-way. A refusal names its
+reason in plain words; an urgent or routine refusal carries the next slot.
 If the store cannot be read or written, every call to that model is refused ("the AI budget
 store could not be reached ...": the caller reports AI UNAVAILABLE, the AI worker keeps routine
 work waiting with that reason) and the store is tried again on the next call; a new instance
@@ -1617,12 +1620,32 @@ async def record(store: Store, *, actor: str, action: AuditAction, advisory_id: 
                  prompt_hash: str | None = None, note: str | None = None) -> AuditEntry
 async def list_entries(store: Store, *, advisory_id: str | None = None, limit: int = 100) -> list[AuditEntry]
 async def verify_chain(store: Store, *, limit: int = 100_000) -> list[str]   # problems; empty = intact
+class NotWriter(RuntimeError): ...                       # an append refused by the gate
+def gate(store: Store, check: Callable[[], Awaitable[bool]] | None, *, ask: Callable[[], Awaitable[bool]] | None = None) -> None   # check: awaited before every append; ask: what writable answers (check when omitted), never claims
+async def writable(store: Store) -> bool           # the gate's ask now (True without one)
+async def require_writer(store: Store) -> None     # NotWriter unless writable: called just before a write that is audited after it
+async def resume(store: Store, doc: Mapping[str, Any] | None) -> ChainHead | None   # walk past verified_through_seq
+REPAIR_DOC: Final = "audit_repair"               # runtime/audit_repair {repaired_at, run_id, forks, moved}
+ARCHIVE_COLLECTION: Final = "audit_forks_archive" # fork branches moved by scripts/audit_fork_repair.py
 ```
 The audit trail is hash-chained: each entry carries `seq`, the previous entry's `sha256`
 (`prev_sha256`, zeros for the first) and its own `sha256` over every other field
 (canonical JSON), so an edited entry breaks its own hash and a deleted one breaks the next
 link. Entries are chained under a per-store lock in one process. `list_entries` is newest
-first (by `seq`).
+first (by `seq`). The demo's `runtime/audit_head` carries `verified_through_seq` and
+`verified_sha256` (as a hosted airline's does): a start walks only the entries past that point
+(`resume`, through `check_chain`), and walks the whole chain only when the doc has none (a
+chain never found intact, a head from an older build); a checkpoint re-walk is `check_chain`
+too, and is also marked when the held head is not intact and `runtime/audit_repair` was
+written after its last walk. `check_chain` past the verified point reports only what that walk
+finds (it reads everything after the last intact point); a whole walk (`verify_head`,
+`check_chain(whole=True)`) that finds a problem drops the verified point to genesis, so a
+problem below the old point (an edited entry, a fork found late) is read again by every later
+walk until the chain is whole. A fork (two entries at one seq, two
+instances appending after one newest entry) is repaired by `scripts/audit_fork_repair.py`
+(dry run by default; `--apply` copies each branch no later entry links to, verbatim with the
+reason, into `audit_forks_archive`, deletes it from `audit` once the copy reads back equal,
+walks the range again and writes `runtime/audit_repair`); no hash is rewritten.
 
 `tephra/desk/approvals.py`
 ```python
@@ -1633,10 +1656,16 @@ class EditRejected(Exception): problems: list[str]
 async def submit_draft(store: Store, bus: EventBus, advisory: Advisory, *,
                        replacing: Sequence[str] = ()) -> Advisory | None
 async def approve(store: Store, bus: EventBus, advisory_id: str, *, expected_version: int, actor: str,
-                  reason: str | None = None, note: str | None = None) -> Advisory
+                  reason: str | None = None, note: str | None = None,
+                  current_cone_id: str | None = None, current_plan_key: str | None = None,
+                  current_mode: PlumeMode | None = None,
+                  current_plan: PlannedAction | None = None) -> Advisory
 async def edit_and_approve(store: Store, bus: EventBus, advisory_id: str, *, expected_version: int,
                            body: str, actor: str, reason: str | None = None,
-                           note: str | None = None) -> Advisory
+                           note: str | None = None, current_cone_id: str | None = None,
+                           current_plan_key: str | None = None,
+                           current_mode: PlumeMode | None = None,
+                           current_plan: PlannedAction | None = None) -> Advisory
 async def reject(store: Store, bus: EventBus, advisory_id: str, *, expected_version: int,
                  reason: str, actor: str) -> Advisory
 async def supersede(store: Store, bus: EventBus, advisory_id: str, *, reason: str,
@@ -1859,6 +1888,10 @@ class Runtime:
     async def recover_queued(self, airports: Sequence[str]) -> None   # the AI worker's recovery job
     async def claim_writer(self) -> None                         # every tick but the startup one: write runtime/writer, end a retirement
     async def check_writer(self) -> bool                         # True when retired (reads runtime/writer)
+    def stand_by(self) -> None                                   # create_runtime under Cloud Scheduler: idle until the first claim
+    standing_by: bool                                            # property: stood by and not yet the writer
+    def picture_only(self) -> ContextManager[None]               # the standing-by startup tick: an append is refused, never claims
+    async def may_append(self) -> bool                           # the audit gate: claim from standby, else not check_writer()
     def end_streams(self) -> None                                # publish END_STREAMS: every open stream ends once
     def spawn(self, coroutine: Coroutine[Any, Any, None]) -> asyncio.Task[None]   # cancelled by aclose
     async def aclose(self) -> None
@@ -1941,6 +1974,32 @@ Core rules:
   publishes `SseEvent.END_STREAMS` so every open stream ends and the browser reconnects to the
   serving revision, and it logs one warning. An instance that has not ticked yet never
   retires. A tick that reaches a retired instance (traffic moved back) ends the retirement.
+  Only the writer appends to the audit chain: `create_runtime` sets `audit.gate(store,
+  runtime.may_append, ask=runtime.may_write)`; `may_append` is awaited before every append and
+  reads `runtime/writer` (`check_writer`), so an instance another one out-claimed appends
+  nothing from that moment (`audit.NotWriter`), not from its next watchdog check. Writes that
+  are stored first and audited after (a new or superseded draft, an AI failure stored or
+  closed, a message, recovery plan, document or handover draft) call `audit.require_writer`
+  just before they store, and the AI worker asks `audit.writable` before each pass, so a run
+  that was under way when another instance claimed stores nothing more without its entry. Under Cloud Scheduler
+  (`local_scheduler` false) `create_runtime` calls `stand_by()`: a new instance may be a
+  rollout's no-traffic candidate, so until it claims `runtime/writer` it counts as `retired`
+  (no checkpoint, AI work, ADS-B or exposure pass, hosted pass) and its startup tick builds and
+  publishes the picture but skips the auto-replay switch, crew-report expiry and draft
+  retirement (`settle_drafts`), under `picture_only()`; its restores run under it too, and a
+  replay choice it resumes from `runtime/state` changes only its own mode (no `MODE_SWITCH`
+  entry, no `runtime/state` write). It claims at its first Scheduler tick, or at the first
+  append outside its start (a request that records something: only the serving revision gets
+  requests, the candidate's smoke test is read-only). `may_write`, the gate's `ask`, never
+  claims: a standing-by instance answers yes and leaves the claim to the append, so a request
+  refused before it appends (no session, a bad CSRF header, a 404) never takes the writer.
+  `tephra.api.server.WriterGuardMiddleware` asks `audit.writable(runtime.store)` before any
+  request but GET, HEAD and OPTIONS reaches the site's routes (not `/tasks/*`, which claim the
+  writer themselves, nor an airline's `/a/<ICAO>/api`): an instance that has handed over
+  answers 503 `handed_over` (`Retry-After: 5`) before anything is stored, so a late decision
+  there is neither stored without its audit entry nor appended beside the new writer's. A
+  `NotWriter` raised later in the request (the claim moved between the check and the append)
+  answers the same 503.
   With Cloud Scheduler (`local_scheduler` false), `QUIET_TICKS` (3) x `tick_interval_s` with no
   tick ends the open streams once per quiet spell, so a tab left on an instance without ticks
   reconnects (a paused Scheduler costs each tab one reconnect). Advisory ids stay random.
@@ -1969,18 +2028,23 @@ Core rules:
   runs the scheduled model work off the tick, most urgent first. A pass takes `lock` to read the
   open drafts and `tephra.duty.duty_worklist`, keeps the items not offered for `duty.rerun_min`,
   and starts one job: an urgent Duty Officer run over every mandatory item (lane `urgent`, never
-  paced); else the more urgent of a routine Duty Officer run (lane `routine`: the most urgent
-  routine items whose estimated calls fit every model's routine pacing now, at most
-  `MAX_ROUTINE_ITEMS`, a plan only with or after its volcano's plume read, strictly in urgency
-  order) and a queued recovery job (lane `routine`, urgency 3). Duty Officer runs go one at a
-  time. A recovery job runs beside the worker (`Runtime.spawn`), so urgent runs still start
-  while it runs; no routine Duty Officer run starts until it ends. A routine job, once started,
+  paced; when not even the Duty Officer's first lite call fits, `QuotaLedger.admission(...,
+  "urgent")`, the urgent items are WAITING with that next slot, not offered, unless their
+  answers are all on hand, below; a count that cannot be read has no slot and the run goes
+  ahead to report AI UNAVAILABLE); else the more urgent of a routine Duty Officer run (lane
+  `routine`: the most urgent routine items whose estimated calls fit every model's routine
+  pacing now, at most `MAX_ROUTINE_ITEMS`, a plan only with or after its volcano's plume read,
+  strictly in urgency order) and a queued recovery job (lane `routine`, urgency 3). Duty Officer
+  runs go one at a time. A recovery job runs beside the worker (`Runtime.spawn`), so urgent runs
+  still start while it runs; no routine Duty Officer run starts until it ends. A routine job,
+  once started,
   runs with `use_lane("routine", admitted=True)`: its calls meet only the daily cap, so it is
   never cut off part-way by pacing. Routine work that does not fit is WAITING with the time of
   its next slot (`QuotaLedger.admission`), or with the reason when there is none (the budget
   store cannot be read); it is not offered to the Duty Officer (waiting costs no call), not
-  dropped and never given to another model. When no routine work is admitted and some waits,
-  the waiting items whose model answers are all on hand (`Runtime.answered`: an ASSESS item's
+  dropped and never given to another model. When no routine work is admitted and some waits
+  (and likewise for waiting urgent work, which then runs on hand in lane `urgent`), the waiting
+  items whose model answers are all on hand (`Runtime.answered`: an ASSESS item's
   plume read with the satellite reading it would be given, a PLAN item's plan and draft, an SRA
   item's narrative boxes; a RECOVER item never) and for which the Duty Officer's own answer for
   exactly those items is on hand (`Runtime.coordinator_answered`) run now, at most
@@ -2194,7 +2258,12 @@ Core rules:
   `record_failure(store, bus, failure, *, run_since=None)` stamps `recorded_wall_at` and returns
   None while the same flight, cone and stage already stands (open or handled, in this run); one
   closed by code, or recorded in an earlier replay run, is replaced (an open one of an earlier
-  run is closed first with `REPLAY_RUN_ENDED`). `close_failure(store, bus, failure_id, *, reason)`
+  run is closed first with `REPLAY_RUN_ENDED`). Every failure is stored and published, but the
+  audit trail gets `AI_FAILED` once per flight, stage, reason and quota day (Pacific, wall
+  clock) in this process, and `AI_FAILURE_CLOSED` only for a failure whose `AI_FAILED` was
+  written (or that this process did not record): a repeat that only carries a newer cone id,
+  every minute while the budget is spent, adds nothing to the chain.
+  `close_failure(store, bus, failure_id, *, reason)`
   closes one only while it is still open (one transaction; None otherwise), and
   `mark_handled` returns a failure code already closed unchanged, with nobody recorded as
   handling it. `list_failures(store, *, open_only, replay, run_since, limit)` reads the newest
@@ -2295,7 +2364,8 @@ runtime with `runtime_factory` (default `create_runtime`; tests swap it), starts
 `run_writer_watchdog`, and starts `run_local_scheduler` when `settings.local_scheduler`, and
 otherwise runs one `tick(reason="startup")` in the background, so the picture does not wait up
 to a minute for Cloud Scheduler (an overlapping scheduler tick skips itself; the startup tick
-does not claim `runtime/writer`, since it may run before traffic reaches the revision). On
+does not claim `runtime/writer`, since it may run before traffic reaches the revision; a
+standing-by instance's startup tick only builds the picture, section 5 "Writer fence"). On
 shutdown it cancels the watchdog, stops the loop or that tick (waiting up to 10 s) and closes
 the runtime. Until the runtime exists, routes that need
 it answer 503 `starting`. The pages and their redirects are `tephra.api.routes_pages.router`
@@ -3459,6 +3529,8 @@ MONITOR for a flight a crew report flags without a written reason), `too_large` 
 `POST /api/desk/notices` at 32 KiB and `POST /api/desk/ask/voice` at `max_upload_bytes`), `validation_failed` (422, `problems` set),
 `too_many_attempts` (429, `Retry-After`), `internal` (500), `desk_disabled` (503),
 `starting` (503; the runtime is not ready), `too_many_streams` (503, `Retry-After: 5`),
+`handed_over` (503, `Retry-After: 5`; a request that writes reached an instance another one
+has out-claimed during a rollout, and nothing was stored),
 `ai_unavailable` (503; `detail` and, on the feature routes, `message` read `AI UNAVAILABLE:
 <reason>`; nothing is substituted), and the feature errors of section 8.7. A
 request validation error from FastAPI is reshaped into `validation_failed`, with locations
@@ -3481,6 +3553,7 @@ request input.
 | `GET /robots.txt` | `text/plain`: `User-agent: *` and `Disallow: /`; every page also carries `<meta name="robots" content="noindex, nofollow">` |
 | `GET /static/{path}` | files under `tephra/web/` (`wall.js`, `wall.css`, `desk.js`, `desk.css`, `favicon.svg` (the icon every page links), ...) |
 | `GET /health`, `GET /healthz` | `{"ok": true, "mode": "LIVE"}`; probe `/health` on Cloud Run, which reserves `/healthz` |
+| any 404 a browser opens | `tephra/web/404.html` with status 404 (`routes_pages.wants_page`: a GET or HEAD whose `Accept` names `text/html`, outside `/api/` and `/a/<ICAO>/api/`); everything else, the API whatever its `Accept`, keeps the JSON `ErrorBody` 404 `not_found` |
 
 Every response carries:
 `Content-Security-Policy: default-src 'self'; script-src 'self'
@@ -3665,9 +3738,18 @@ Visitor sessions (`SessionInfo.role == "visitor"`) make real, audited decisions 
 capped per session (`sid`): 403 `visitor_role` on `POST /api/mode`, the sample feed,
 connections, upload and notices; 409 `visitor_replay_only` on any decision in LIVE; 429
 `visitor_cap` past `TEPHRA_VISITOR_DECISION_CAP` decisions and 429 `visitor_ask_cap` past
-`TEPHRA_VISITOR_ASK_CAP` Ask questions. The decision guard applies to every session: 409
+`TEPHRA_VISITOR_ASK_CAP` Ask questions, or (with `Retry-After`) past
+`tephra.api.auth.VISITOR_ASKS_PER_CLIENT` (30) questions from one client address in
+`VISITOR_ASK_WINDOW_S` (600 s) over all its visitor sessions. The decision guard applies to every session: 409
 `rule_blocked` when the rules refuse the action (a DIVERT or REROUTE in HYPOTHESIS mode) and
 409 `cone_changed` when the situation the draft was made for has changed (Reject stays open).
+The server reads the situation now from the store: the ash area held for the draft's volcano
+(`cones/<volcano_id>`: `id`, `mode`) and, when that is not the draft's `cone_id`, the plan made
+for the draft's flight under it (`plans/<stable_id('PLAN', flight_id, cone_id)>`). A draft for
+an older area is approved once that plan gives the draft's advice (action, levels, alternate,
+route) and the area's mode is the draft's `plume_mode` (the pipeline then keeps the open draft
+as the flight's advice, `submit_draft`); with no such plan yet, or another one, it is 409
+`cone_changed`. `Advisory.plan_key`, when both sides know it, still outranks the cone id.
 
 ### 8.6 Task endpoint
 

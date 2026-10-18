@@ -26,7 +26,7 @@ SOURCES = [
 INLINE_SCRIPT = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>", re.I)
 INLINE_STYLE = re.compile(r"\sstyle=|<style", re.I)
 EL_STYLE = re.compile(r"\{\s*style:")
-FORBIDDEN = re.compile(r"\b(judg\w*|hack\dskill)\b|@gmail\.com", re.I)
+FORBIDDEN = re.compile(r"\b(judg\w*|hack2skill)\b|@gmail\.com", re.I)
 
 
 def _read(rel: str) -> str:

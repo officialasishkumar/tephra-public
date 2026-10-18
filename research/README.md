@@ -16,7 +16,7 @@ Start with **`CONFLICTS.md`** (everything that conflicts with the idea, graded),
 | `03-prior-art-products.md` | Commercial products graded for overlap | Jeppesen Stratosphere/Airflow and TWC already do AI per-flight drafts with approval; ICAO Doc 9974 §2.4(d) requires operators to resolve conflicts among sources; no product does LLM reconciliation with a never-shrink floor |
 | `04-prior-art-oss-and-research.md` | OSS, hackathon entries and papers | `rezzzq/abu-gunung-api` fuses Indonesian ash sources live (no LLM); MeteoWatch/AeroGuard and WrightWay re-checked; Globot and Aegis ran on mock/seeded data |
 | `05-feeds-verified.md` | Every feed fetched by curl, with status, licence and break risk | AWC SIGMET JSON and NWS tgftp VAA text are keyless and public domain; MAGMA forbids crawling; OpenSky needs a licence; WAAF had a VA SIGMET in 59/59 samples. Corrected 10 Oct: GIBS does have a TROPOMI SO2 layer (file 17, M2) |
-| `06-rules-terms-and-limits.md` | Google terms, Gemini limits, aviation law | High Risk Activities names ATC (no human-in-loop exception); 3.8 Flash ~20 RPD reported; roster closes 11 Oct; ADK uses `GOOGLE_GENAI_USE_ENTERPRISE` |
+| `06-rules-terms-and-limits.md` | Cup rules, Google terms, Gemini limits, aviation law | High Risk Activities names ATC (no human-in-loop exception); 3.8 Flash ~20 RPD reported; roster closes 11 Oct; ADK uses `GOOGLE_GENAI_USE_ENTERPRISE` |
 | `07-domain-dispatch-and-ash-science.md` | Primer: IAVW, VAA/SIGMET/VONA formats, airline practice, ash science, 24 build rules | EASA GM3 asks operators to resolve conflicts and check airborne aircraft; disagreements are mostly about evidence labels, not geometry; 3D exposure classes and 2,000 ft buffers |
 | `08-competition-fit.md` | Judging, theme, judge questions, storyboard, deck | Recommended theme Sustainability & Social Impact; likely score ~66 as shipped vs ~80 with a backtest and evals; the gap is proof |
 | `09-live-state-and-replay-cases.md` | What is erupting now, probability for 18 Oct / 4 Dec, replay cases | P(APAC VA product open) ≈ 97–99%; best replay Krakatau 5–7 Sep but ~~its SIGMETs are gone~~ its SIGMETs are in the IEM NOAAPort archive (corrected 10 Oct, file 17, R1); 59/83 Fukuoka SIGMETs have no polygon. Corrected 10 Oct: Badan Geologi lowered Anak Krakatau to Level II on 21 Sep (file 17, L6) |
@@ -62,7 +62,7 @@ Rows 1–25 date from the first research pass. Rows 26–45 were added on 10 Oct
 | 22 | Weathernews AI ash detection in use since 26 Apr 2021 (in-house, feeds ACOS) | 03 | Confirmed (corrected scope) |
 | 23 | MAGMA robots.txt `Disallow: /` | 05, 06, 17 | Confirmed (re-checked 10 Oct) |
 | 24 | AWC SIGMET history covers only 30 days | 05, 14 | Confirmed (HTTP 400). *10 Oct:* older SIGMETs are in the IEM NOAAPort archive (17, R1) |
-| 25 | Withheld in the public copy | | |
+| 25 | Team roster changes close 11 Oct 2026 | 04, 06 | Confirmed (aibuildercup.com) |
 | 26 | Indonesia's DGCA circular SE-DJPU 15/2026, in force since 6 Sep 2026: aircraft operators must carry out a safety risk assessment before planning flights into areas ash may affect, and report every ash encounter | 17 (P1: DGCA release of 8 Sep) | Confirmed (press release; the circular's own text was not read). Do not say it requires software |
 | 27 | Sinabung ash closed Kualanamu (KNO) on 1 Sep 2026 under NOTAM A3250/26: 45 flights cancelled, 6 rescheduled | 17 (P1: DGCA release of 2 Sep) | Confirmed |
 | 28 | Two Indonesian hubs were closed by ash within a week: Kualanamu on 1 Sep and Soekarno-Hatta on 6 Sep | 17, rows 1 and 27 | Confirmed (from rows 1 and 27) |
@@ -99,6 +99,7 @@ Re-ranked on 10 Oct after the data hunt. One earlier question is answered (struc
 9. *New 10 Oct.* Is Anak Krakatau at Level II (Badan Geologi, 21 Sep) or Level III (MAGMA's page as read in 09)? Check by hand.
 10. Will Darwin issue any QVA before 4 Dec 2026? (10 Oct: none public. UK AIC P 157/2025 says the other seven VAACs "will not initially supply QVA". The ICAO APAC VAAC report that may say more needs a real browser.)
 11. Exact submission cut-off time zone on 18 Oct (submit by 17 Oct regardless).
+12. Is Hack2skill's AI pre-screening/code-analysis module enabled for this event?
 13. *New 10 Oct.* Which volcano produced the 7 Sep SO2 cloud over Java? It needs trajectories before any causal line in the pitch.
 14. *New 10 Oct.* Does Indonesia's I-WISH platform have an airline-facing API that a desk like TEPHRA could feed? Reported only.
 15. *New 10 Oct.* Does the WIS2 Singapore SIGMET stream work from Cloud Run (17, L8)?
@@ -118,5 +119,6 @@ Re-ranked on 10 Oct after the data hunt. One earlier question is answered (struc
 
   Details and licences are in `17-data-sources.md`.
 - **Prior art:** re-search Devpost/GitHub for "volcanic ash" + gemini/LLM/dispatch, Jeppesen Airflow release notes, TWC Maverick, `rezzzq/abu-gunung-api` activity.
+- **Rules:** aibuildercup.com (deadline, roster, themes), Gemini API terms and the rate-limit page in AI Studio.
 - **Licences:** before publishing anything new, check it against `../docs/DATA-LICENCES.md`.
 - The Claude Code skill `.claude/skills/tephra-research-refresh` walks through this.

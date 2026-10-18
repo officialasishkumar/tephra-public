@@ -87,7 +87,8 @@ def test_verify_has_the_shape_of_the_head(client: TestClient, harness: Harness) 
         "note": AUDIT_VERIFY_NOTE,
     }
     assert AUDIT_VERIFY_NOTE == (
-        "walked from the first entry at startup; later entries are linked as written"
+        "walked from the first entry, then at each start from the last entry found intact;"
+        " later entries are linked as written"
     )
     assert response.headers["cache-control"] == "no-store"
 

@@ -36,6 +36,7 @@ New supporting evidence is listed under "What still supports the idea".
 
 | # | Conflict | Severity | Evidence | What changes |
 |---|---|---|---|---|
+| B1 | MAGMA: `robots.txt` is `Disallow: /` for all agents, the site says "All Rights Reserved", the API needs a JWT (401), detail pages need signed URLs, RSS is 403, and ESDM's WAF reportedly blocks datacenter IPs. The Cup T&C bars third-party protected content. | SERIOUS | 05, 06, 04 | VONA polling off by default. Sources in order: Darwin VAA text (which quotes PVMBG reports), the MAGMA VONA email subscription, a token or permission from PVMBG. Recorded VONAs in replays only with attribution. |
 | B2 | The JMA `vaac_darwin_list.html` "Darwin mirror" lists only advisories Tokyo issues as Darwin's **backup** (last entries 23 Sep 2026). BoM forbids scraping, hides a static "Nil current" default, and its IDD41300/41301 products return 404. | SERIOUS (easy fix) | 01, 05, 07, 13 | Read all live VAAs (Darwin and Tokyo) from NWS `https://tgftp.nws.noaa.gov/data/raw/fv/` (US public domain); keep the JMA list only to detect handovers. |
 | B3 | OpenSky REST terms need a written licence for any live automated use. | SERIOUS (if used) | 05, 06 | Drop OpenSky. Use adsb.lol (ODbL); adsb.lol has announced a future API-key requirement. |
 | B4 | AWC `isigmet` is deprecated, responses are cached 180 s, CORS is off, history covers only 30 days (HTTP 400 beyond), and records duplicate with "F" series IDs (11 rows = 8 distinct SIGMETs on 9 Oct). | MINOR | 05, 07, 09, 14 | De-duplicate by series; record our own SIGMET history from day one (7 Sep Krakatau is already gone; 25 Sep expires ~25 Oct). *10 Oct:* the 7 Sep Krakatau SIGMETs are gone only from AWC. The IEM NOAAPort archive holds older SIGMETs back to 2016, and `scripts/record_replay.py noaaport` reads it (17, R1). |
@@ -54,6 +55,7 @@ New supporting evidence is listed under "What still supports the idea".
 |---|---|---|---|---|
 | C1 | Google Cloud ToS §3.3(d)(i) "High Risk Activities" and the Google APIs Terms both name **air traffic control**; neither has a human-in-the-loop exception. | MINOR for a sandboxed prototype; SERIOUS if the deck claims live airline operation | 00, 06 | Decision support only, fictional airline, own outbound queue only, nothing auto-sent; AI may only add caution; "CONTINUE" comes from deterministic code. Production would need a negotiated agreement and the operator's own safety risk assessment. |
 | C2 | Gemini 3.8 Flash free tier is reported at ~20 requests/day (Flash-Lite ~500); per-model limits appear only in AI Studio. | SERIOUS | 06, 10 | Event-driven, cached calls only (input-hash change); Flash-Lite for routine steps; replay mode; or a capped paid tier (~$0.015/call). Do not create extra projects to evade quota (barred). |
+| C3 | Team roster changes close **11 Oct 2026**; help from a non-member conflicts with the sole-author warranty. | SERIOUS, time-critical | 04, 06 | Confirm both brothers are on one team on the Hack2skill portal today. |
 | C4 | Free-tier prompts may be read by human reviewers and used to improve Google products. | MINOR | 06, 10 | Send only public feed data; strip aircraft registrations and approver names from prompts. |
 | C5 | Cloud Run needs a billing account; only 3 Cloud Scheduler jobs are free; Firestore 20K writes/day; Cloud Storage free tier is US-only; Cloud Run jobs bill ≥1 min per run (~10.8× the free tier for 60-s pollers). | MINOR with design | 06, 10 | One request-billed service + one Scheduler job hitting `/tasks/tick`; SQLite-or-Firestore; no per-feed jobs. |
 | C6 | 14 CFR 121.101 (approved sources), FAA 121.533/663 and Japan Civil Aeronautics Act Art. 77 put the decision with a licensed dispatcher/captain. | MINOR | 06 | Present TEPHRA output as additional information and a draft; never a dispatch release. |
@@ -62,6 +64,7 @@ New supporting evidence is listed under "What still supports the idea".
 | C9 | ADK 2.11: `GOOGLE_GENAI_USE_VERTEXAI` is now `GOOGLE_GENAI_USE_ENTERPRISE`; `safety_v1` and `multi_turn_*` eval criteria need Agent Platform (Vertex). | MINOR | 06, 10 | Set both flags false; use only key-path eval criteria. |
 | C10 | Search grounding is not on the free tier and its storage terms conflict with the audit log. | MINOR | 06, 10 | Do not use grounding. |
 | C11 | gcloud on this Mac is the user's work account. | MINOR process | 06, 10 | Deploy scripts pin a separate gcloud configuration and refuse any other account; the user runs them. |
+| C12 | Employment IP clauses vs the Cup's sole-author warranty and the organiser's 6-month right of first refusal. | Unknown | 06 | Each member checks their own contract. |
 
 ## (d) Science and operations
 

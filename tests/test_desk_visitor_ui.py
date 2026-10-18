@@ -9,6 +9,8 @@ visitor (the export's forbidden list) is gone from the Desk sources.
 import re
 from pathlib import Path
 
+from tephra.config import Settings
+
 WEB = Path(__file__).resolve().parents[1] / "tephra" / "web"
 DESK_SOURCES = [
     WEB / "desk.html",
@@ -50,6 +52,40 @@ def test_sign_in_card_offers_enter_as_a_visitor() -> None:
     assert "hidden" in tabs_tag
     assert 'aria-controls="visitor-card"' in html
     assert 'aria-controls="dispatcher-card"' in html
+
+
+def test_the_sign_in_card_says_the_visitor_caps_once_with_its_info() -> None:
+    """Readiness 17 Oct 2026: the caps were said only by the 429 that enforced them. One line on
+    the visitor card, the rest behind the shared (i) (wall/info.js, wired by login.js), with the
+    numbers the server enforces (the defaults; the deploy does not override them)."""
+    html = _read("desk.html")
+    s = Settings(_env_file=None)
+    line = f"Up to {s.visitor_decision_cap} decisions and {s.visitor_ask_cap} questions a session."
+    assert html.count(line) == 1
+    caps = html.split('<p id="visitor-caps" class="lfacts lfacts--one">')[1].split("</p>")[0]
+    assert '<span class="info" data-wire="info">' in caps
+    assert 'aria-controls="visitor-caps-pop"' in caps
+    said = (
+        "Each approve, edit or reject is a decision; questions go to Ask TEPHRA. "
+        "Enter again for a new session."
+    )
+    assert caps.count(said) == 2  # the screen-reader words and the popover's line
+    # inside the visitor card, after "Your decisions are public."
+    card = html.split('id="visitor-card"')[1].split("</section>")[0]
+    assert card.index("Your decisions are public.") < card.index('id="visitor-caps"')
+    assert "visitor-caps-sr" in card.split('id="visitor-name"')[1].split(">")[0]
+    deploy = (WEB.parents[1] / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+    assert "TEPHRA_VISITOR_DECISION_CAP" not in deploy
+    assert "TEPHRA_VISITOR_ASK_CAP" not in deploy
+
+
+def test_the_desk_loads_every_message_draft_the_server_lists() -> None:
+    """Readiness 17 Oct 2026: limit=50 dropped message drafts past the 50th on a reload, so the
+    title and queue counted fewer than before it (121 -> 88). 200 is the demo server's most; an
+    airline's API allows 50 (tests/test_tenant_web.py)."""
+    api = _read("desk/api.js")
+    assert "`/api/desk/messages?status=${status}&limit=${TENANT ? 50 : 200}`" in api
+    assert "limit=50`" not in api.split("messages: (status")[1].split("\n")[0]
 
 
 def test_login_reads_visitor_access_and_posts_the_visitor_route() -> None:

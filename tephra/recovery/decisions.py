@@ -62,6 +62,7 @@ def _lock(store: Store) -> asyncio.Lock:
 async def submit_plan(store: Store, bus: EventBus, plan: RecoveryPlan) -> RecoveryPlan:
     """Store a new plan. A DRAFT retires the open DRAFTs of the same mode."""
     async with _lock(store):
+        await audit.require_writer(store)
         await store.put(Collection.RECOVERY, plan.id, plan.to_doc())
         if plan.status == "AI_UNAVAILABLE":
             await audit.record(

@@ -664,6 +664,7 @@ Two independent verifiers checked this file's key claims: a source check (opened
 - Himawari-8 was primary from 12 Oct to 26 Nov 2025 because of Himawari-9 imagery anomalies (WMO OSCAR). Ingest code should not hard-code H09.
 - Possible prior work to check for novelty: 'Aircraft responses to volcanic ash advisories during volcanic eruptions' (Research Square preprint, DOI 10.21203/rs.3.rs-5423602/v1, Nov 2024), which appears to relate ADS-B tracks to VAAs.
 - EASA's current consolidated rules number the volcanic-ash guidance GM2 ORO.GEN.200(a)(3) (EAR Air Ops Rev 24, March 2026, ED Decision 2017/007/R). Cite that, not the 2013 'GM3' label, in the deck.
+- Limitation of this verification: the session's WebSearch budget was exhausted before any search ran. I could not search for competing AI Builder Cup 2026 entries, new commercial ash products (The Weather Company, Jeppesen/Boeing, Lufthansa Systems, SITA, Weathernews updates) or news since September 2026. All verdicts above rest on direct fetches of the primary sources plus arXiv and Crossref API queries.
 
 ### All verdicts
 

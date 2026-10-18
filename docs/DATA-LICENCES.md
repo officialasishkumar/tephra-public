@@ -3,6 +3,8 @@
 Prepared 2026-10-10. The inventory was taken between 06:56Z and 07:20Z. Other agents were adding files at the time, so run the checks in section 6 again just before publishing. This is a checklist, not legal advice. **Nothing has been removed, moved or rewritten. Every action below is for the user to take or approve.**
 
 Why it matters:
+- The submission needs a public GitHub repository [CONFIRMED: Cup T&C, research/08].
+- The Cup's T&C say "Participants must not use any content protected under third party rights" (research/08).
 - TEPHRA's own code and text are MIT (`LICENSE`). Third-party data keep their own terms, and the MIT licence does not cover them.
 
 Sources for every licence quoted here are in `research/17-data-sources.md` (data) and `tephra/web/THIRD_PARTY.md` (browser assets, fonts, icons). The video and deck rules are in `docs/PITCH.md`.
@@ -192,6 +194,7 @@ For the video and deck, `docs/PITCH.md` lists the credits to show: the NASA Eart
   - `99bf879` added the fixtures, including the BoM pages, the MAGMA pages and the NICT tiles.
 - Deleting a file in a new commit does not remove it from history. Anyone who can read the repository can read every old commit.
 - GitHub's own guide says that after a history rewrite and force-push, "the commits with sensitive data may still be accessible elsewhere: In any clones or forks of your repository; Directly via their SHA-1 hashes in cached views on GitHub; Through any pull requests that reference them". It also says GitHub Support "won't remove non-sensitive data" [CONFIRMED: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository, accessed 2026-10-10]. Licensed data are not leaked credentials, so a purge request may be refused.
+- The Cup reportedly wants a public repository that shows effort made during the hackathon [REPORTED: research/08]. Dated commits help.
 
 **Option A: a fresh public repository (recommended).** Create a new public repository and push a cleaned copy to it. The current repository stays private as the team archive.
 - Nothing restricted has ever been in the public repository, so there is nothing to scrub from GitHub's caches, forks or pull requests.

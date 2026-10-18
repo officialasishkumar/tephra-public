@@ -18,10 +18,19 @@ from tephra.desk.approvals import (
     edit_and_approve,
     submit_draft,
 )
-from tephra.models import ActionKind, Advisory, AdvisoryStatus, AuditAction, PlumeMode
+from tephra.models import (
+    ActionKind,
+    Advisory,
+    AdvisoryStatus,
+    AuditAction,
+    PlannedAction,
+    PlannerDecision,
+    PlumeMode,
+)
 from tephra.store.base import Collection
 from tephra.store.sqlite_store import SqliteStore
 from tephra.util.events import EventBus
+from tephra.util.hashing import stable_id
 from tephra.util.timeutil import FixedClock, use_clock
 
 AT = datetime(2026, 10, 9, 19, 40, tzinfo=UTC)
@@ -271,6 +280,113 @@ async def test_plan_key_outranks_cone_id_when_both_are_known(
         )
     assert refused.value.code == "cone_changed"
     await untouched(store, other.id)
+
+
+def plan_for(advisory: Advisory, cone_id: str, **decision: object) -> PlannedAction:
+    """The plan the pipeline stores for the draft's flight under ``cone_id``: by default the
+    draft's own advice (HOLD at FL350)."""
+    fields = {"action": advisory.action, "hold_fl": advisory.hold_fl, **decision}
+    return PlannedAction(
+        id=stable_id("PLAN", advisory.flight_id, cone_id),
+        flight_id=advisory.flight_id,
+        cone_id=cone_id,
+        decision=PlannerDecision.model_validate({"reasoning": "STUB PLAN", **fields}),
+        llm_backend="stub",
+        model_id="stub",
+        prompt_hash="b" * 64,
+        outcome="STUB",
+    )
+
+
+async def test_a_draft_planned_again_to_the_same_advice_under_the_new_area_is_approved(
+    store: SqliteStore, bus: EventBus
+) -> None:
+    """Live 17 Oct 2026: at the 10:30Z VAA every flight was planned again under the new cone; a
+    plan with the same advice keeps the open draft (``submit_draft``), and the server refused
+    that draft (409 cone_changed), so a visitor's first Approve failed early in each loop."""
+    created = await submitted(store, bus, draft(cone_id="CONE-old"))
+    decided = await approve(
+        store,
+        bus,
+        created.id,
+        expected_version=1,
+        actor=DESK,
+        current_cone_id="CONE-new",
+        current_mode=PlumeMode.OFFICIAL,
+        current_plan=plan_for(created, "CONE-new"),
+    )
+    assert decided.status is AdvisoryStatus.APPROVED
+
+    edited = await submitted(
+        store,
+        bus,
+        draft(
+            id="adv_edit00000000",
+            flight_id="8a0ccc:263300",
+            hex="8a0ccc",
+            dedupe_key="DD-edit00000000",
+            cone_id="CONE-old",
+        ),
+    )
+    decided = await edit_and_approve(
+        store,
+        bus,
+        edited.id,
+        expected_version=1,
+        body="HOLD PRESENT POSITION FL350. REPORT VAR.",
+        actor=DESK,
+        current_cone_id="CONE-new",
+        current_mode=PlumeMode.OFFICIAL,
+        current_plan=plan_for(edited, "CONE-new"),
+    )
+    assert decided.status is AdvisoryStatus.EDITED
+
+
+@pytest.mark.parametrize(
+    ("why", "mode", "plan"),
+    [
+        ("not planned under the new area yet", PlumeMode.OFFICIAL, None),
+        ("planned to another action", PlumeMode.OFFICIAL, {"action": ActionKind.MONITOR}),
+        ("planned to another level", PlumeMode.OFFICIAL, {"hold_fl": 330}),
+        ("planned to a divert", PlumeMode.OFFICIAL, {"action": ActionKind.DIVERT}),
+        ("the planner gave no plan", PlumeMode.OFFICIAL, "no decision"),
+        ("the area is now widened", PlumeMode.WIDENED, {}),
+        ("the area's mode is unknown", None, {}),
+        ("a plan for the old area", PlumeMode.OFFICIAL, "old area"),
+        ("another flight's plan", PlumeMode.OFFICIAL, "other flight"),
+    ],
+)
+async def test_a_draft_whose_situation_really_changed_is_still_refused(
+    store: SqliteStore, bus: EventBus, why: str, mode: PlumeMode | None, plan: object
+) -> None:
+    created = await submitted(store, bus, draft(cone_id="CONE-old"))
+    if plan is None:
+        current = None
+    elif plan == "no decision":
+        current = plan_for(created, "CONE-new").model_copy(
+            update={"decision": None, "outcome": "MODEL_FAILED"}
+        )
+    elif plan == "old area":
+        current = plan_for(created, "CONE-old")
+    elif plan == "other flight":
+        current = plan_for(created, "CONE-new").model_copy(update={"flight_id": "8a0ddd:263300"})
+    else:
+        assert isinstance(plan, dict)
+        current = plan_for(created, "CONE-new", **plan)
+    with pytest.raises(RuleBlocked) as refused:
+        await approve(
+            store,
+            bus,
+            created.id,
+            expected_version=1,
+            actor=DESK,
+            current_cone_id="CONE-new",
+            current_mode=mode,
+            current_plan=current,
+        )
+    assert refused.value.code == "cone_changed", why
+    assert refused.value.problems == [CHANGED_REFUSAL]
+    await untouched(store, created.id)
 
 
 def test_the_number_rule_is_exported_under_public_names() -> None:

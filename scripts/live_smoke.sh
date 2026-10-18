@@ -10,10 +10,16 @@
 #   --watch N     repeat every N minutes and print one timestamped line per run
 #
 # Optional expectations (environment): EXPECT_SHA (build commit), EXPECT_MODE (LIVE|REPLAY),
-# EXPECT_CASE (replay case id), TICK_INTERVAL_S (default 60; a tick older than 3x fails).
+# EXPECT_CASE (replay case id), TICK_INTERVAL_S (default 60; a tick older than 3x fails),
+# EXPECT_AUDIT_INTACT=1 (an audit chain that is not intact fails instead of warning).
 # Exit status is non-zero when any check fails. When the build reports where it runs
 # (state.cloud), the run also checks it is Cloud Run on Firestore with a revision name, that
 # GET /api/audit/verify answers 200, and GET /api/evals (404 is reported, not failed).
+# A chain that is not intact (intact:false) is a WARN by default: it is the state of the
+# stored record, not of the build under test, and the candidate walks the same record as the
+# serving revision, so failing on it would block every deploy, the one carrying a fix too,
+# until someone repairs the record (scripts/audit_fork_repair.py). Set EXPECT_AUDIT_INTACT=1
+# once the record is repaired, so that a new fork fails the gate.
 #
 # Cloud Run answers 429 or 503 while the single instance starts. A request that gets one is
 # retried with backoff for up to SMOKE_RETRY_S (default 90) seconds, and SMOKE_RETRY_BUDGET_S
@@ -281,8 +287,22 @@ def cloud():
     platform, revision, store_kind = facts.get("platform"), facts.get("revision"), facts.get("store")
     ok = platform == "cloud-run" and bool(revision) and store_kind == "firestore"
     report(ok, "cloud", f"platform={platform}, revision={revision}, store={store_kind}")
-    status = fetch("/api/audit/verify")[0]
+    status, _, body = fetch("/api/audit/verify")
     report(status == 200, "audit-verify", f"GET /api/audit/verify -> {status}")
+    if status == 200:
+        try:
+            chain = json.loads(body)
+        except ValueError:
+            report(False, "audit-chain", "GET /api/audit/verify did not answer JSON")
+            chain = None
+        if chain is None:
+            pass
+        elif chain.get("intact") is True:
+            report(True, "audit-chain", f"intact, {chain.get('entries')} entries")
+        else:
+            strict = os.environ.get("EXPECT_AUDIT_INTACT") == "1"
+            listed = "; ".join(chain.get("problems") or [])[:200]
+            report(False if strict else None, "audit-chain", f"not intact: {listed}")
     status = fetch("/api/evals")[0]
     if status == 404:
         report(None, "evals", "GET /api/evals -> 404 (no scorecard JSON in this build yet)")

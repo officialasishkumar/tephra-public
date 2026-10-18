@@ -624,6 +624,7 @@ async def draft_handover(
         model_id=call.model_id,
         prompt_hash=call.prompt_hash,
     )
+    await audit.require_writer(runtime.store)
     await runtime.store.put(Collection.DOCS, brief.id, brief.model_dump(mode="json"))
     await audit.record(
         runtime.store,

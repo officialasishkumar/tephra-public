@@ -2,6 +2,7 @@
 onboarding and workspace pages, ``/connect`` folded into onboarding, and the old Wall links that
 land on the demo with their query kept byte for byte. Every page carries the page headers."""
 
+import re
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -112,6 +113,60 @@ def test_an_unknown_page_is_not_found(client: TestClient, path: str) -> None:
     response = client.get(path)
     assert response.status_code == 404, path
     assert response.json()["error"] == "not_found"
+
+
+BROWSER: dict[str, str] = {"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
+
+
+@pytest.mark.parametrize(
+    "path", ["/no-such-page", "/a/RFB/", "/workspace/people", "/docs/vaac", "/static/nope.html"]
+)
+def test_a_browser_gets_the_404_page_for_an_address_no_page_answers(
+    client: TestClient, path: str
+) -> None:
+    """Live 17 Oct 2026: these answered raw JSON to a browser. ``/a/RFB/`` has no route with
+    hosting off; ``/workspace/people`` and ``/docs/vaac`` are refused by their page route."""
+    response = client.get(path, headers=BROWSER)
+    assert response.status_code == 404, path
+    assert response.headers["content-type"] == "text/html; charset=utf-8"
+    assert response.text == _body("404.html")
+    assert response.headers["content-security-policy"] == CONTENT_SECURITY_POLICY
+    assert response.headers["cache-control"] == "no-cache"
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "headers"),
+    [
+        ("GET", "/api/no-such-thing", BROWSER),
+        ("GET", "/api/advisories/adv_0123456789ab", BROWSER),
+        ("GET", "/a/RFB/api/state", BROWSER),
+        ("GET", "/no-such-page", {"Accept": "application/json"}),
+        ("GET", "/no-such-page", {"Accept": "*/*"}),
+        ("POST", "/no-such-page", BROWSER),
+    ],
+)
+def test_the_api_and_non_page_requests_keep_the_json_404(
+    client: TestClient, method: str, path: str, headers: dict[str, str]
+) -> None:
+    response = client.request(method, path, headers=headers)
+    assert response.status_code in (404, 405), path
+    assert response.headers["content-type"] == "application/json", path
+    if response.status_code == 404:
+        assert response.json()["error"] == "not_found"
+
+
+def test_the_404_page_is_one_heading_and_one_line_under_the_shared_nav() -> None:
+    page = _body("404.html")
+    assert "<title>Page not found · TEPHRA</title>" in page
+    assert '<meta name="robots" content="noindex, nofollow">' in page
+    assert page.count("<h1>") == 1
+    # one line, with its own way out: the nav is hidden at phone width
+    assert re.findall(r"<p>(.+?)</p>", page) == [
+        'There is no page at this address. Check the link, or start from the <a href="/">home'
+        " page</a>."
+    ]
+    assert '<script type="module" src="/static/topnav.js"></script>' in page
+    assert "<script>" not in page  # CSP: no inline script
 
 
 @pytest.mark.parametrize(

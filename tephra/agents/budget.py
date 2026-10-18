@@ -52,8 +52,8 @@ class AiWork(TephraModel):
     """One piece of AI work in the AI worker's queue (``ai_work/<id>``).
 
     A Duty Officer item (``item``) or a network recovery run (``airports``). WAITING work is
-    routine work its model's budget has no slot for yet: it is kept, shown with the time of its
-    next slot, and never handed to another model."""
+    urgent or routine work its model's budget has no slot for yet: it is kept, shown with the
+    time of its next slot, and never handed to another model."""
 
     id: str
     kind: Literal["duty_item", "recover"]

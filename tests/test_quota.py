@@ -3,7 +3,7 @@ split into urgent, interactive and routine shares (``tephra.agents.quota``)."""
 
 import logging
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -99,7 +99,8 @@ def test_routine_work_is_paced_through_the_day_and_urgent_work_is_not() -> None:
 def test_an_admitted_routine_run_finishes_within_the_daily_cap() -> None:
     """Review of 28e8b20, item 1: a run admitted the moment its estimated 12 calls fit was cut
     off at its 13th call by pacing, and its flight marked planned with AI UNAVAILABLE. Pacing
-    decides when a run starts; once admitted, its calls meet only the daily cap."""
+    decides when a run starts; once admitted, its calls are not paced again (the daily cap and
+    the held reserves still apply, below)."""
     shares = Shares.of(SETTINGS, LITE)
     early = 1 / 24
     day = ModelDay(quota_day=quota_day(EARLY), model_id=LITE, used={"routine": 31})
@@ -109,6 +110,19 @@ def test_an_admitted_routine_run_finishes_within_the_daily_cap() -> None:
     refused = judge(full, shares, "routine", early, admitted=True)
     assert not refused.ok
     assert "450 of 450" in (refused.reason or "")
+
+
+def test_an_admitted_routine_run_never_takes_the_desk_s_reserve() -> None:
+    """18 Oct 2026: the Desk got none of its 90 calls. A routine run that needs more calls than
+    its estimate goes on past pacing, but not into the urgent or interactive reserve held."""
+    shares = Shares.of(SETTINGS, LITE)
+    early = 1 / 24
+    day = ModelDay(quota_day=quota_day(EARLY), model_id=LITE, used={"routine": 225, "urgent": 135})
+    refused = judge(day, shares, "routine", early, admitted=True)
+    assert not refused.ok
+    assert "held for urgent and Desk work" in (refused.reason or "")
+    assert judge(day, shares, "interactive", early).ok, "the Desk's 90 are still there"
+    assert judge(day, shares, "routine", 0.99, admitted=True).ok, "released late in the day"
 
 
 def test_the_reserves_are_held_until_late_in_the_day_then_flow_to_routine() -> None:
@@ -267,3 +281,55 @@ async def test_admission_gives_waiting_routine_work_its_next_slot(store: SqliteS
     closed = counted.admission(MAIN, "routine")
     assert not closed.ok
     assert closed.next_slot == day_bounds(quota_day(EARLY))[1], "the next quota day"
+
+
+def test_urgent_work_takes_routines_share_but_never_the_desks_reserve() -> None:
+    """Live, 18 Oct 2026: the loop's urgent Duty Officer runs spent 430 lite calls of a 135
+    share and left the Desk 0 of its 90, so Ask, paperwork, messages and a Desk-started airport
+    plan answered AI UNAVAILABLE until 0700Z. Urgent work may take routine's unused share, never
+    the interactive reserve."""
+    shares = Shares.of(SETTINGS, LITE)
+    day = ModelDay(quota_day=quota_day(EARLY), model_id=LITE, used={"urgent": 359})
+    assert judge(day, shares, "urgent", 0.5).ok, "its own 135 and routine's unused 225"
+    saturated = day.model_copy(update={"used": {"urgent": 360}})
+    refused = judge(saturated, shares, "urgent", 0.5)
+    assert not refused.ok
+    assert "held for Desk work" in (refused.reason or "")
+    assert judge(saturated, shares, "interactive", 0.5, calls=90).ok, "the Desk keeps its 90"
+    paced_routine = day.model_copy(update={"used": {"urgent": 135, "routine": 225}})
+    assert not judge(paced_routine, shares, "urgent", 0.5).ok, "routine spent its own share"
+
+
+async def test_the_desk_still_gets_its_reserve_after_urgent_work_saturates(
+    store: SqliteStore,
+) -> None:
+    clock = FixedClock(datetime(2026, 10, 13, 19, 0, tzinfo=UTC))  # 1200 PDT: half the day
+    counted = ledger(store, clock)
+    urgent = 0
+    while await counted.reserve(LITE, "urgent") is None:
+        urgent += 1
+    assert urgent == 360, "135 urgent + 225 routine; the 90 Desk calls are not touched"
+    desk = 0
+    while await counted.reserve(LITE, "interactive") is None:
+        desk += 1
+    assert desk == 90
+    assert (await counted.load(LITE, fresh=True)).used == {"urgent": 360, "interactive": 90}
+
+
+async def test_capped_urgent_work_knows_its_next_slot(store: SqliteStore) -> None:
+    """Refused urgent work waits for its slot, as routine work does: the Desk's unused reserve
+    is released to it late in the day, and a spent budget opens at the next quota day."""
+    clock = FixedClock(datetime(2026, 10, 13, 19, 0, tzinfo=UTC))
+    counted = ledger(store, clock)
+    for _ in range(360):
+        assert await counted.reserve(LITE, "urgent") is None
+    waiting = counted.admission(LITE, "urgent")
+    assert not waiting.ok
+    start, end = day_bounds(quota_day(clock.now()))
+    assert waiting.next_slot is not None
+    assert start + (end - start) * SETTINGS.ai_reserve_release < waiting.next_slot < end
+    clock.set(waiting.next_slot + timedelta(seconds=1))
+    assert counted.admission(LITE, "urgent").ok, "the released Desk reserve flows to urgent"
+    assert counted.admission(LITE, "interactive").next_slot is None, "a person waits now"
+    await counted.close(LITE, "Google answered 429 for a per-day quota")
+    assert counted.admission(LITE, "urgent").next_slot == end, "the next quota day"

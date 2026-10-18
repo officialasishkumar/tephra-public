@@ -21,6 +21,8 @@ from tephra.models import (
     AdvisoryStatus,
     AuditAction,
     OutboundMessage,
+    PlannedAction,
+    PlannerDecision,
     PlumeMode,
     SseEvent,
 )
@@ -129,6 +131,7 @@ async def submit_draft(
         store, advisory, Where("dedupe_key", "==", advisory.dedupe_key), same_mode
     ):
         return None
+    await audit.require_writer(store)
     if not await store.compare_and_set_advisory(advisory.id, 0, advisory.model_dump(mode="json")):
         raise InvalidTransition(f"advisory {advisory.id} already exists")
     await audit.record(
@@ -189,11 +192,15 @@ async def approve(
     note: str | None = None,
     current_cone_id: str | None = None,
     current_plan_key: str | None = None,
+    current_mode: PlumeMode | None = None,
+    current_plan: PlannedAction | None = None,
 ) -> Advisory:
     """``reason`` is the dispatcher's written reason when a rule asks for one (the caller
-    checks the rule); ``note`` goes to the audit entry. ``current_cone_id`` and
-    ``current_plan_key`` describe the situation now; a draft they no longer match is refused
-    (``RuleBlocked``), and None means the caller cannot say."""
+    checks the rule); ``note`` goes to the audit entry. ``current_cone_id``,
+    ``current_plan_key``, ``current_mode`` (the mode of that area) and ``current_plan`` (the
+    plan made for the flight under that area, None until it is planned again) describe the
+    situation now; a draft they no longer match is refused (``RuleBlocked``), and None means
+    the caller cannot say."""
     return await _decide(
         store,
         bus,
@@ -205,6 +212,8 @@ async def approve(
         note=note,
         current_cone_id=current_cone_id,
         current_plan_key=current_plan_key,
+        current_mode=current_mode,
+        current_plan=current_plan,
     )
 
 
@@ -220,6 +229,8 @@ async def edit_and_approve(
     note: str | None = None,
     current_cone_id: str | None = None,
     current_plan_key: str | None = None,
+    current_mode: PlumeMode | None = None,
+    current_plan: PlannedAction | None = None,
 ) -> Advisory:
     edited = body.strip().upper()
     problems: list[str] = []
@@ -248,6 +259,8 @@ async def edit_and_approve(
         note=note,
         current_cone_id=current_cone_id,
         current_plan_key=current_plan_key,
+        current_mode=current_mode,
+        current_plan=current_plan,
     )
 
 
@@ -286,6 +299,8 @@ async def _decide(
     note: str | None = None,
     current_cone_id: str | None = None,
     current_plan_key: str | None = None,
+    current_mode: PlumeMode | None = None,
+    current_plan: PlannedAction | None = None,
 ) -> Advisory:
     current = await _load(store, advisory_id)
     if current is None:
@@ -295,7 +310,13 @@ async def _decide(
     if current.status is not AdvisoryStatus.DRAFT:
         raise InvalidTransition(f"advisory {advisory_id} is {current.status.value}, not DRAFT")
     if status in _QUEUED_STATUSES:
-        _guard_queueing(current, current_cone_id=current_cone_id, current_plan_key=current_plan_key)
+        _guard_queueing(
+            current,
+            current_cone_id=current_cone_id,
+            current_plan_key=current_plan_key,
+            current_mode=current_mode,
+            current_plan=current_plan,
+        )
     at = timeutil.now()
     decided = _advance(
         current, status=status, at=at, changes={**changes, "decided_by": actor, "decided_at": at}
@@ -317,27 +338,69 @@ async def _decide(
 
 
 def _guard_queueing(
-    current: Advisory, *, current_cone_id: str | None, current_plan_key: str | None
+    current: Advisory,
+    *,
+    current_cone_id: str | None,
+    current_plan_key: str | None,
+    current_mode: PlumeMode | None = None,
+    current_plan: PlannedAction | None = None,
 ) -> None:
     """The safety rules a server enforces whoever clicks: only MONITOR or HOLD under
     HYPOTHESIS, and no decision on a draft the situation has moved past. The plan key (the
     planner's material question) outranks the cone id when both sides know it: a new cone
-    that asks the same question keeps the draft good."""
+    that asks the same question keeps the draft good. A draft written for an older cone is
+    still good once the flight was planned again under the area now to the same advice, in
+    the same mode (``_replanned_alike``)."""
     if (
         current.plume_mode is PlumeMode.HYPOTHESIS
         and current.action not in ALLOWED_ACTIONS[PlumeMode.HYPOTHESIS]
     ):
         raise RuleBlocked([HYPOTHESIS_REFUSAL])
-    if _situation_changed(current, current_cone_id, current_plan_key):
+    if current.plan_key is not None and current_plan_key is not None:
+        changed = current.plan_key != current_plan_key
+    elif current_cone_id is None or current.cone_id == current_cone_id:
+        changed = False
+    else:
+        changed = not _replanned_alike(current, current_cone_id, current_mode, current_plan)
+    if changed:
         raise RuleBlocked([SITUATION_CHANGED_REFUSAL], code="cone_changed")
 
 
-def _situation_changed(
-    current: Advisory, current_cone_id: str | None, current_plan_key: str | None
+def _replanned_alike(
+    current: Advisory, cone_id: str, mode: PlumeMode | None, plan: PlannedAction | None
 ) -> bool:
-    if current.plan_key is not None and current_plan_key is not None:
-        return current.plan_key != current_plan_key
-    return current_cone_id is not None and current.cone_id != current_cone_id
+    """The planner planned the flight again under the area now and gave this draft's advice
+    (action, levels, alternate and route), and the area's mode is the draft's. The pipeline
+    then keeps the open draft as the flight's advice (``submit_draft``: the same advice as an
+    open draft is not drafted again), so a dispatcher may decide it; before that new plan,
+    or with any other plan, a new plan is due and the draft is refused."""
+    if plan is None or plan.decision is None or mode is None or mode is not current.plume_mode:
+        return False
+    if plan.flight_id != current.flight_id or plan.cone_id != cone_id:
+        return False
+    return _plan_advice(plan.decision) == _draft_advice(current)
+
+
+def _plan_advice(decision: PlannerDecision) -> tuple[object, ...]:
+    return (
+        decision.action,
+        decision.change_level_fl_min,
+        decision.change_level_fl_max,
+        decision.hold_fl,
+        decision.alternate_icao,
+        decision.reroute_id,
+    )
+
+
+def _draft_advice(advisory: Advisory) -> tuple[object, ...]:
+    return (
+        advisory.action,
+        advisory.change_level_fl_min,
+        advisory.change_level_fl_max,
+        advisory.hold_fl,
+        advisory.alternate_icao,
+        None if advisory.reroute is None else advisory.reroute.id,
+    )
 
 
 async def _queue_outbound(store: Store, advisory: Advisory, *, actor: str) -> None:
@@ -401,6 +464,7 @@ async def supersede(
         at=timeutil.now(),
         changes={"superseded_by": superseded_by},
     )
+    await audit.require_writer(store)
     if not await store.compare_and_set_advisory(
         advisory_id, current.version, retired.model_dump(mode="json")
     ):

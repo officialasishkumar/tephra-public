@@ -28,7 +28,7 @@ from fastapi import APIRouter, Depends, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
@@ -38,6 +38,8 @@ from tephra import __version__
 from tephra.airline.sessions import THROTTLES as AIRLINE_THROTTLES
 from tephra.api import ApiError
 from tephra.api.auth import (
+    VISITOR_ASK_WINDOW_S,
+    VISITOR_ASKS_PER_CLIENT,
     LoginThrottle,
     actor_of,
     clear_session_cookie,
@@ -54,7 +56,7 @@ from tephra.api.auth import (
     sign_session,
     wall_clock_now,
 )
-from tephra.api.routes_pages import WEB_DIR
+from tephra.api.routes_pages import WEB_DIR, not_found_page, wants_page
 from tephra.api.routes_pages import router as pages
 from tephra.api.sse import (
     TENANT_STREAM_CHECK_S,
@@ -102,6 +104,8 @@ from tephra.models import (
     LoginRequest,
     OutboundList,
     OutboundMessage,
+    PlannedAction,
+    PlumeMode,
     PolicyResponse,
     RejectRequest,
     ReplayCase,
@@ -121,7 +125,7 @@ from tephra.replay.cases import list_cases, load_case, replay_banner
 from tephra.scheduler import run_local_scheduler, run_writer_watchdog
 from tephra.store.base import BLOB_KEY_PATTERN, Collection
 from tephra.util import timeutil
-from tephra.util.hashing import sha256_bytes
+from tephra.util.hashing import sha256_bytes, stable_id
 from tephra.util.scope import current_tenant
 
 if TYPE_CHECKING:
@@ -188,11 +192,14 @@ SECURITY_HEADERS: Final = {
 }
 STREAMS_RETRY_AFTER_S: Final = 5
 """The Wall and the Desk reopen a refused event stream after 5 s on their own."""
-VISITOR_MINTS_PER_WINDOW: Final = 10
+VISITOR_MINTS_PER_WINDOW: Final = 60
 VISITOR_MINT_WINDOW_S: Final = 600.0
-"""Visitor sessions one client may open in ten minutes (429 ``too_many_visitors`` past it)."""
+"""Visitor sessions one client may open in ten minutes (429 ``too_many_visitors`` past it). An
+evaluation panel behind one NAT shares an address, so this is a flood guard, not a per-person
+limit (10 until 18 Oct 2026 refused a panel's 11th visitor)."""
 AUDIT_VERIFY_NOTE: Final = (
-    "walked from the first entry at startup; later entries are linked as written"
+    "walked from the first entry, then at each start from the last entry found intact;"
+    " later entries are linked as written"
 )
 CLOUD_TRACE_HEADER: Final = "x-cloud-trace-context"
 TRACEPARENT_HEADER: Final = "traceparent"
@@ -795,7 +802,7 @@ async def approve_advisory(
     _check_advisory_id(advisory_id)
     reason, note = await _crew_reason(runtime, advisory_id, body.reason)
 
-    async def decide(cone_id: str | None) -> Advisory:
+    async def decide(now: _HeldNow) -> Advisory:
         return await approvals.approve(
             runtime.store,
             runtime.bus,
@@ -804,7 +811,9 @@ async def approve_advisory(
             actor=_actor(session),
             reason=reason,
             note=note,
-            current_cone_id=cone_id,
+            current_cone_id=now.cone_id,
+            current_mode=now.mode,
+            current_plan=now.plan,
         )
 
     return _json(await _decide_against_now(runtime, advisory_id, decide))
@@ -821,7 +830,7 @@ async def edit_advisory(
     _check_advisory_id(advisory_id)
     reason, note = await _crew_reason(runtime, advisory_id, body.reason)
 
-    async def decide(cone_id: str | None) -> Advisory:
+    async def decide(now: _HeldNow) -> Advisory:
         return await approvals.edit_and_approve(
             runtime.store,
             runtime.bus,
@@ -831,29 +840,58 @@ async def edit_advisory(
             actor=_actor(session),
             reason=reason,
             note=note,
-            current_cone_id=cone_id,
+            current_cone_id=now.cone_id,
+            current_mode=now.mode,
+            current_plan=now.plan,
         )
 
     return _json(await _decide_against_now(runtime, advisory_id, decide))
 
 
-async def _decide_against_now(
-    runtime: Runtime, advisory_id: str, decide: Callable[[str | None], Awaitable[Advisory]]
-) -> Advisory:
-    """Queue a draft against the situation now: ``decide`` gets the id of the ash area held
-    for the draft's volcano, so a draft written for an older area is refused
-    (``cone_changed``, 409). The id is read from ``cones/<volcano_id>``, which the pipeline
-    writes on every change of its cone; None when the server cannot say (no such draft, a
-    draft of the other mode, no cone held). A refusal is one trace line on the Wall (stage
-    DESK, by code) before the handler answers; a missing draft is the decision's own 404."""
-    advisory = await approvals.get_advisory(runtime.store, advisory_id)
-    cone_id = None
-    if advisory is not None and advisory.replay == (runtime.mode is RunMode.REPLAY):
-        doc = await runtime.store.get(Collection.CONES, advisory.volcano_id)
-        held = None if doc is None else doc.get("id")
-        cone_id = held if isinstance(held, str) else None
+@dataclass(frozen=True)
+class _HeldNow:
+    """The situation a draft is decided against: the id and mode of the ash area held for its
+    volcano, and the plan made for its flight under that area (None until it is planned)."""
+
+    cone_id: str | None = None
+    mode: PlumeMode | None = None
+    plan: PlannedAction | None = None
+
+
+async def _held_now(runtime: Runtime, advisory: Advisory | None) -> _HeldNow:
+    """Read from ``cones/<volcano_id>``, which the pipeline writes on every change of its cone,
+    and ``plans/<stable_id('PLAN', flight_id, cone_id)>`` (``PlannedAction.id``), which it
+    writes when it plans the flight under that cone, before it drafts or keeps the open draft.
+    Empty when the server cannot say: no such draft, a draft of the other mode, no cone held."""
+    if advisory is None or advisory.replay != (runtime.mode is RunMode.REPLAY):
+        return _HeldNow()
+    doc = await runtime.store.get(Collection.CONES, advisory.volcano_id) or {}
+    held, word = doc.get("id"), doc.get("mode")
+    if not isinstance(held, str):
+        return _HeldNow()
+    mode = PlumeMode(word) if word in PlumeMode else None
+    if held == advisory.cone_id:
+        return _HeldNow(held, mode)
+    found = await runtime.store.get(Collection.PLANS, stable_id("PLAN", advisory.flight_id, held))
     try:
-        return await decide(cone_id)
+        plan = None if found is None else PlannedAction.model_validate(found)
+    except ValidationError:
+        plan = None  # a plan this build cannot read confirms nothing: the draft stays refused
+    return _HeldNow(held, mode, plan)
+
+
+async def _decide_against_now(
+    runtime: Runtime, advisory_id: str, decide: Callable[[_HeldNow], Awaitable[Advisory]]
+) -> Advisory:
+    """Queue a draft against the situation now (``_held_now``): a draft written for an older
+    ash area is refused (``cone_changed``, 409) until the flight is planned again under the
+    area now to the same advice in the same mode (live 17 Oct 2026: the pipeline kept such a
+    draft as the flight's advice, and the server refused a visitor's first Approve on it).
+    A refusal is one trace line on the Wall (stage DESK, by code) before the handler answers;
+    a missing draft is the decision's own 404."""
+    advisory = await approvals.get_advisory(runtime.store, advisory_id)
+    try:
+        return await decide(await _held_now(runtime, advisory))
     except approvals.RuleBlocked as exc:
         flight = advisory_id if advisory is None else advisory.proxy_flight
         runtime.trace(
@@ -1014,15 +1052,27 @@ async def run_tick(request: Request, runtime: RuntimeDep) -> Response:
 
 
 def _install_error_handlers(app: FastAPI) -> None:
+    # A browser that opens an address no page answers gets the site's 404 page; the API, and
+    # every other status, answer JSON.
     @app.exception_handler(ApiError)
-    async def api_error(_: Request, exc: ApiError) -> Response:
+    async def api_error(request: Request, exc: ApiError) -> Response:
+        if exc.status_code == 404 and wants_page(request):
+            return not_found_page()
         return _json(exc.body(), exc.status_code, exc.headers)
 
     @app.exception_handler(StarletteHTTPException)
-    async def http_error(_: Request, exc: StarletteHTTPException) -> Response:
+    async def http_error(request: Request, exc: StarletteHTTPException) -> Response:
+        if exc.status_code == 404 and wants_page(request):
+            return not_found_page()
         detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
         body = ErrorBody(error=_STATUS_ERRORS.get(exc.status_code, "error"), detail=detail)
         return _json(body, exc.status_code, exc.headers)
+
+    @app.exception_handler(audit.NotWriter)
+    async def not_writer(_: Request, exc: audit.NotWriter) -> Response:
+        # The writer moved between WriterGuardMiddleware's check and the append.
+        logger.warning("%s", exc)
+        return _handed_over()
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_: Request, exc: RequestValidationError) -> Response:
@@ -1134,6 +1184,47 @@ class HttpGuardMiddleware:
         if path in PUSH_BODY_PATHS:
             return MAX_PUSH_BODY_BYTES
         return MAX_BODY_BYTES
+
+
+HANDED_OVER_RETRY_S: Final = 5
+SAFE_METHODS: Final = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+class WriterGuardMiddleware:
+    """A request that may write (any method but GET, HEAD and OPTIONS) reaches the site's
+    runtime only while its audit gate lets this instance write (``audit.writable``, the
+    demo's ``Runtime.may_write``, which never claims: a standing-by instance lets the request
+    through and its append claims, so a refused or unknown request takes nothing).
+    During a rollout the old instance answers 503 ``handed_over`` before anything is stored, so
+    a late decision there is neither stored without its audit entry (``audit.NotWriter``) nor
+    appended beside the new writer's (a fork). Scheduler ticks (``/tasks/``) claim the writer
+    themselves, and an airline's requests (``/a/<ICAO>/api``) write its own store."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            scope["type"] != "http"
+            or scope.get("method", "GET") in SAFE_METHODS
+            or str(scope.get("path", "")).startswith("/tasks/")
+            or current_tenant() is not None
+        ):
+            await self.app(scope, receive, send)
+            return
+        runtime: Runtime | None = getattr(scope["app"].state, "runtime", None)
+        if runtime is not None and not await audit.writable(runtime.store):
+            await _handed_over()(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+def _handed_over() -> Response:
+    body = ErrorBody(
+        error="handed_over",
+        detail="This server has handed over to a newer one. Try again in a few seconds.",
+    )
+    return _json(body, 503, {"Retry-After": str(HANDED_OVER_RETRY_S)})
 
 
 def _add_security_headers(headers: MutableHeaders, *, path: str, https: bool) -> None:
@@ -1509,6 +1600,9 @@ def create_app(
         max_failures=VISITOR_MINTS_PER_WINDOW, window_s=VISITOR_MINT_WINDOW_S
     )
     app.state.visitor_decisions = Counter[str]()
+    app.state.visitor_ask_throttle = LoginThrottle(
+        max_failures=VISITOR_ASKS_PER_CLIENT, window_s=VISITOR_ASK_WINDOW_S
+    )
     for name, (attempts, window_s) in AIRLINE_THROTTLES.items():
         setattr(app.state, name, LoginThrottle(max_failures=attempts, window_s=window_s))
     app.state.event_streams = StreamSlots(demo_stream_places(settings))
@@ -1517,6 +1611,8 @@ def create_app(
     if hosted:
         _start_hosted_state(app)
     _install_error_handlers(app)
+    # Innermost: it runs with the airline bound (TenantPath) and its 503 gets HttpGuard's headers.
+    app.add_middleware(WriterGuardMiddleware)
     # Starlette's GZip skips text/event-stream, images and woff2 by default, so the SSE stream is
     # never buffered or compressed. Added first so HttpGuard stays outermost and still sees every
     # response, including the 413 it sends itself.

@@ -381,6 +381,7 @@ They are part of this change because quieting AI must not hide them.
 - `tests/test_ui_inventory.py`: keep all ids; add `"never smaller than the official area"` to the
   Wall checks.
 - `tests/test_ui_ai_quiet.py` (new, static like the inventory test): `storyFailures` has no
+  `plan-`, `sat-`, `duty-` or `trace-fails` keys; no `--c-serious` / `role: "alert"` in AI builders;
   no model-id interpolation in visible chip text (`ai-chip`, `trust`, writer lines); `estimateOutcome`
   has explicit PENDING and OFFICIAL_ONLY branches; the "How the model read it" gate checks the
   outcome; `OUTCOME.BUDGET` exists; `modelChip` is gone.

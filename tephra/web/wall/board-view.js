@@ -303,8 +303,8 @@ export function mountInside({ has, side = false }) {
       el("a", { class: "flow-cta", href: "/desk", dataset: { focus: "board-desk" } }, el("span", { text: "Open the Desk" }), el("span", { "aria-hidden": "true", text: "→" })),
       el("button", { type: "button", class: "flow-link", dataset: { act: "board-details", sec: "ai", focus: "board-ai-home" }, text: "Details › TEPHRA Assistant ›" })]));
   const codeRow = el("div", { class: "flow-row flow-row--code" }, node("flow-node--code", "code"),
-    el("button", { type: "button", class: "flow-row__btn flow-row__txt", dataset: rowAct("checks"), "aria-label": side ? "Code checks: what was read and which flights were flagged. Details › Data feeds" : "Code checks: what was read and which flights were flagged" },
-      el("span", { class: "flow-row__name" }, "Code checks ", el("span", { class: "flow-tag", text: "no AI" })),
+    el("button", { type: "button", class: "flow-row__btn flow-row__txt", dataset: rowAct("checks"), "aria-label": side ? "Code checks: what was read and which flights were flagged. Details › Data feeds" : "Code checks: what was read and which flights were flagged", title: "Code only: reads the feeds and checks every flight. No model." },
+      el("span", { class: "flow-row__name", text: "Code checks" }),
       el("span", { class: "flow-row__meta flow-ctr" }, cFeeds, wFeeds, cFlights, wFlights)));
   const panel = el(side ? "section" : "aside", { class: `flow-panel${side ? " flow-panel--side" : ""}`, "aria-label": "Inside TEPHRA" },
     el("p", { class: "flow-eyebrow", text: "Inside TEPHRA" }),

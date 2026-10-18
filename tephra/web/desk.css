@@ -9310,6 +9310,11 @@ body {
   margin: -4px 0;
 }
 
+/* the visitor card's second line (the session caps) sits under the first as one block */
+.lfacts--one + .lfacts--one {
+  margin-top: var(--sp-2);
+}
+
 .flabel-row {
   display: flex;
   align-items: center;

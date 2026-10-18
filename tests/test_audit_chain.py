@@ -1,6 +1,6 @@
 """The audit chain's head: advanced on every append from the entry written, walked from the
-first entry once at startup (``verify_head``), checkpointed beside ``runtime/state`` and
-restored without a walk when it still names the newest entry."""
+first entry once (``verify_head``), checkpointed beside ``runtime/state`` with the point a walk
+found it intact through, and walked at a later start only past that point (``resume``)."""
 
 import asyncio
 from collections.abc import AsyncIterator, Iterator, Sequence
@@ -38,6 +38,8 @@ class CountingStore(SqliteStore):
         super().__init__(path, blob_dir)
         self.reads = 0
         self.walks = 0
+        self.paged: list[int] = []
+        """seq of every audit entry a page read returned (an incremental walk)"""
 
     async def get(self, collection: str, doc_id: str) -> dict[str, Any] | None:
         self.reads += 1
@@ -58,6 +60,22 @@ class CountingStore(SqliteStore):
         return await super().query(
             collection, where, order_by=order_by, descending=descending, limit=limit
         )
+
+    async def page(
+        self,
+        collection: str,
+        *,
+        field: str,
+        before: Any | None,
+        limit: int,
+        descending: bool = True,
+    ) -> list[dict[str, Any]]:
+        docs = await super().page(
+            collection, field=field, before=before, limit=limit, descending=descending
+        )
+        if collection == Collection.AUDIT:
+            self.paged.extend(doc["seq"] for doc in docs)
+        return docs
 
 
 @pytest.fixture
@@ -343,19 +361,24 @@ async def test_a_checkpoint_walks_again_only_when_marked(tmp_path: Path) -> None
         held = runtime.audit_head
         assert held is not None
         assert held.intact is False
+        store.paged.clear()  # the append's catch-up read the stray entry
 
         await runtime.checkpoint(force=True)
-        assert store.walks == 2, "the marked re-walk ran at the checkpoint"
+        assert store.paged == [1, 2, 3], "the marked re-walk ran at the checkpoint"
         head = runtime.audit_head
         assert head is not None
         assert (head.seq, head.intact, head.problems) == (3, False, ["broken link at seq 2"])
         persisted = await store.get(Collection.RUNTIME, AUDIT_HEAD_DOC)
         assert persisted is not None
-        assert persisted == head.model_dump(mode="json")
+        assert persisted == {
+            **head.model_dump(mode="json"),
+            "verified_through_seq": 0,
+            "verified_sha256": audit.GENESIS_SHA256,
+        }, "never found intact past the empty chain: the next start walks it whole"
 
         runtime._last_checkpoint = None
         await runtime.checkpoint(force=True)
-        assert store.walks == 2, "nothing marked: no walk"
+        assert store.paged == [1, 2, 3], "nothing marked: no walk"
     finally:
         await other.aclose()
         await runtime.aclose()
@@ -364,12 +387,14 @@ async def test_a_checkpoint_walks_again_only_when_marked(tmp_path: Path) -> None
 # --- checkpoint and restore --------------------------------------------------------------------
 
 
-async def test_the_head_is_checkpointed_and_restored_without_a_walk(tmp_path: Path) -> None:
+async def test_a_later_start_walks_only_past_the_verified_point(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
-    first = make_runtime(settings, SqliteStore(settings.sqlite_path, settings.cache_dir / "blobs"))
+    first_store = SqliteStore(settings.sqlite_path, settings.cache_dir / "blobs")
+    await append(first_store, 3, note="before the first start")
+    first = make_runtime(settings, first_store)
     try:
         await first.restore()
-        written = await append(first.store, 3, note="first process")
+        written = await append(first.store, 2, note="first process")
         await first.checkpoint(force=True)
         walked_at = first.audit_head.checked_at if first.audit_head else None
     finally:
@@ -380,20 +405,52 @@ async def test_the_head_is_checkpointed_and_restored_without_a_walk(tmp_path: Pa
     second = make_runtime(settings, store)
     try:
         await second.restore()
-        assert store.walks == 0, "the persisted head names the newest entry: no walk yet"
-        restored = second.audit_head
-        assert restored is not None
-        assert (restored.seq, restored.sha256) == (3, written[-1].sha256)
-        assert restored.intact is False
-        assert restored.problems == [audit.NOT_WALKED]
-        assert (await second.system_state()).audit == restored
-
-        await second.checkpoint(force=True)
-        assert store.walks == 1, "the first checkpoint on this instance walks it"
+        assert store.walks == 0, "a verified point was persisted: no whole walk"
+        assert store.paged == [4, 5], "only what came after the first start's walk is read"
         head = second.audit_head
         assert head is not None
-        assert (head.seq, head.entries, head.intact, head.problems) == (3, 3, True, [])
+        assert (head.seq, head.sha256) == (5, written[-1].sha256)
+        assert (head.entries, head.intact, head.problems) == (5, True, [])
         assert head.checked_at >= walked_at, "the time of this instance's walk"
+        assert (await second.system_state()).audit == head
+        persisted = await store.get(Collection.RUNTIME, AUDIT_HEAD_DOC)
+        assert persisted is not None
+        await second.checkpoint(force=True)
+        persisted = await store.get(Collection.RUNTIME, AUDIT_HEAD_DOC)
+        assert persisted is not None
+        assert persisted["verified_through_seq"] == 5
+    finally:
+        await second.aclose()
+
+
+async def test_a_problem_past_the_verified_point_is_found_at_the_next_start(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(tmp_path)
+    first_store = SqliteStore(settings.sqlite_path, settings.cache_dir / "blobs")
+    await append(first_store, 2, note="before the first start")
+    first = make_runtime(settings, first_store)
+    try:
+        await first.restore()
+        written = await append(first.store, 2, note="first process")
+        await first.checkpoint(force=True)
+    finally:
+        await first.aclose()
+    edited = SqliteStore(settings.sqlite_path, settings.cache_dir / "blobs")
+    doc = await edited.get(Collection.AUDIT, written[0].id)
+    assert doc is not None
+    await edited.put(Collection.AUDIT, written[0].id, {**doc, "note": "rewritten"})
+    await edited.aclose()
+
+    store = CountingStore(settings.sqlite_path, settings.cache_dir / "blobs")
+    second = make_runtime(settings, store)
+    try:
+        await second.restore()
+        assert store.walks == 0
+        head = second.audit_head
+        assert head is not None
+        assert head.intact is False
+        assert head.problems == [f"entry {written[0].id}: content does not match its hash"]
     finally:
         await second.aclose()
 

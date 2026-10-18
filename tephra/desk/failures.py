@@ -10,11 +10,21 @@ fills ``closed_at``, never ``handled_by``: it is never a dispatcher's decision.
 A REPLAY plays its recording again from the start on every run (a process start, a switch to
 REPLAY, a loop), so failures carry the wall-clock time they were recorded: a run lists only its
 own, and the same flight, cone and stage failing again in a later run is a new failure.
+
+The cone a flight is exposed to gets a new id whenever the area is recomputed, so a flight the
+AI cannot serve fails again every minute or so with the same reason. Every one of those is
+stored and shown on the Desk, but the audit trail records the flight's failure once per stage,
+reason and quota day (``AI_FAILED``) and its close once (``AI_FAILURE_CLOSED``): a repeat that
+only carries a newer cone, and the close of such a repeat, add no audit entry. A failure this
+process did not record (an earlier instance's) is always audited when it closes.
 """
 
-from datetime import datetime
+import weakref
+from dataclasses import dataclass, field
+from datetime import date, datetime
 from typing import Any, Final
 
+from tephra.agents.quota import quota_day
 from tephra.desk import audit
 from tephra.desk.approvals import SYSTEM_ACTOR
 from tephra.models import AiFailure, AuditAction, SseEvent
@@ -44,6 +54,43 @@ REPLAY_RUN_ENDED: Final = "THE REPLAY RUN IT WAS RECORDED IN HAS ENDED"
 
 
 class FailureNotFound(Exception): ...
+
+
+@dataclass
+class _Audited:
+    """What one store's failures have put in the audit trail, in this process."""
+
+    day: date | None = None
+    keys: set[tuple[str, str, str]] = field(default_factory=set)
+    """(flight id, stage, reason) recorded as ``AI_FAILED`` on ``day``"""
+    unaudited: set[str] = field(default_factory=set)
+    """Ids of open failures stored without an ``AI_FAILED`` entry (repeats)"""
+
+    def audited_today(self, failure: AiFailure) -> bool:
+        """True when its flight's failure with that stage and reason is already in the audit
+        trail for this quota day (the wall clock's, as the model budget counts)."""
+        today = quota_day(timeutil.SystemClock().now())
+        if self.day != today:
+            self.day, self.keys = today, set()
+        return _key(failure) in self.keys
+
+    def audited(self, failure: AiFailure) -> None:
+        self.keys.add(_key(failure))
+        self.unaudited.discard(failure.id)
+
+
+def _key(failure: AiFailure) -> tuple[str, str, str]:
+    return failure.flight_id, failure.stage, failure.reason
+
+
+_audited: "weakref.WeakKeyDictionary[Store, _Audited]" = weakref.WeakKeyDictionary()
+
+
+def _audit_book(store: Store) -> _Audited:
+    book = _audited.get(store)
+    if book is None:
+        book = _audited[store] = _Audited()
+    return book
 
 
 def of_run(failure: AiFailure, run_since: datetime | None) -> bool:
@@ -79,7 +126,13 @@ async def record_failure(
             "closed_reason": None,
         }
     )
+    await audit.require_writer(store)
     await store.put(Collection.AI_FAILURES, failure.id, failure.model_dump(mode="json"))
+    book = _audit_book(store)
+    if book.audited_today(failure):
+        book.unaudited.add(failure.id)
+        bus.publish(SseEvent.AI_FAILURE, failure)
+        return failure
     await audit.record(
         store,
         actor=SYSTEM_ACTOR,
@@ -94,6 +147,7 @@ async def record_failure(
         model_id=failure.model_id,
         note=failure.reason,
     )
+    book.audited(failure)
     bus.publish(SseEvent.AI_FAILURE, failure)
     return failure
 
@@ -106,6 +160,7 @@ async def close_failure(
     doc = await store.get(Collection.AI_FAILURES, failure_id)
     if doc is None or not AiFailure.model_validate(doc).open:
         return None
+    await audit.require_writer(store)
     closing = False
 
     def change(stored: dict[str, Any] | None) -> dict[str, Any]:
@@ -128,6 +183,11 @@ async def close_failure(
         return None
     if not closing:
         return None
+    book = _audit_book(store)
+    if written.id in book.unaudited:
+        book.unaudited.discard(written.id)
+        bus.publish(SseEvent.AI_FAILURE, written)
+        return written
     await audit.record(
         store,
         actor=SYSTEM_ACTOR,

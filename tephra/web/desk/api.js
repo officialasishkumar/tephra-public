@@ -24,7 +24,9 @@ export const PATHS = {
   budget: '/api/budget',
   failures: '/api/desk/ai-failures?open_only=true&limit=50',
   failureHandled: (id) => `/api/desk/ai-failures/${encodeURIComponent(id)}/handled`,
-  messages: (status = 'DRAFT') => `/api/desk/messages?status=${status}&limit=50`,
+  // the demo's server allows 200 (an airline's 50, as drafts): at 50 a reload dropped the demo's
+  // drafts past the 50th, so the title and queue counted fewer than before it (121 -> 88)
+  messages: (status = 'DRAFT') => `/api/desk/messages?status=${status}&limit=${TENANT ? 50 : 200}`,
   messageDraft: '/api/desk/messages/draft',
   messageDecide: (id, kind) => `/api/desk/messages/${encodeURIComponent(id)}/${kind}`,
   notices: '/api/notices?limit=20',

@@ -528,6 +528,7 @@ Two independent verifiers checked this file's key claims: a source check (opened
 - BMKG's web-aviation.bmkg.go.id/va-map.php?data=1 (used by GitHub abah/PantauErupsi for VA and airport OPEN/CLOSED status) returns 403 {"status": 403, "message": "Forbidden"}. It is not a usable alternative to MAGMA.
 - Gemini free tier: 'Content used to improve our products'. gemini-3.8-flash paid prices double on 2027-01-01. The models and pricing pages were updated 2026-10-09, after the sweep's 10-06 reference.
 - Open-Meteo free tier also has a 300,000 calls/month cap, and the free API is non-commercial only. That is fine for a hackathon but limits any product claim.
+- Coverage gap in this verification: the WebSearch budget for the session ran out after 2 searches, so I could not run the two-query-per-claim recency search, including the search for competing AI Builder Cup volcanic-ash entries. I checked recency by re-fetching each primary source live at 20:25–20:35Z on 9 Oct instead. The competing-entry check is still open.
 
 ### All verdicts
 

@@ -1213,6 +1213,7 @@ def _new_message(
 
 
 async def _store_draft(runtime: CommsRuntime, message: CrewPaxMessage, *, actor: str) -> None:
+    await audit.require_writer(runtime.store)
     await runtime.store.put(Collection.MESSAGES, message.id, message.model_dump(mode="json"))
     await audit.record(
         runtime.store,

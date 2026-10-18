@@ -17,6 +17,7 @@ PAGES = (
     "privacy.html",
     "onboard.html",
     "workspace.html",
+    "404.html",
 )
 
 

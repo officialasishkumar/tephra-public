@@ -201,7 +201,9 @@ def test_privacy_is_on_the_night_theme_with_the_shared_header_and_discloses_the_
         in desk
     )
     assert privacy.count("use a first name or none") == 1
-    assert "github.com/officialasishkumar/tephra/issues" in privacy
+    # the public repository: the private one answers the public 404
+    assert "https://github.com/officialasishkumar/tephra-public/issues" in privacy
+    assert "officialasishkumar/tephra/issues" not in privacy
 
 
 def test_privacy_says_it_in_short_first_and_folds_each_section() -> None:

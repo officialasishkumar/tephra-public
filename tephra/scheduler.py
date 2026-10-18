@@ -14,9 +14,12 @@ model call: it ends by waking the AI worker (``tephra.ai_worker``), which runs t
 and the specialists off the tick, so a tick takes seconds however long the models take.
 
 Every tick names its instance in ``runtime/writer``. During a rollout the old revision's
-instance stays up while its streams are open; :func:`run_writer_watchdog` and every ADS-B
-pass read that doc, and an instance that another one has out-ticked retires (see
-``Runtime.check_writer``).
+instance stays up while its streams are open; :func:`run_writer_watchdog`, every ADS-B pass
+and every audit append read that doc, and an instance that another one has out-ticked retires
+(see ``Runtime.check_writer``). The startup tick claims nothing: under Cloud Scheduler a new
+instance stands by (``Runtime.stand_by``), and its startup tick only builds the picture: no
+mode switch, crew-report expiry, draft retirement, checkpoint or AI work, each of which would
+write beside the serving instance (and fork the audit chain) while it is a rollout's candidate.
 """
 
 import asyncio
@@ -130,7 +133,17 @@ async def _tick_steps(runtime: "Runtime", reason: str) -> TickReport:
     report = TickReport(started_at=started, finished_at=started, mode=mode, reason=reason)
     if reason != "startup":  # a revision's startup tick may run before traffic reaches it
         await runtime.claim_writer()
-    await runtime.maybe_switch_mode(report)
+    with runtime.picture_only():
+        return await _tick_body(runtime, report, mode, idle=runtime.standing_by)
+
+
+async def _tick_body(
+    runtime: "Runtime", report: TickReport, mode: RunMode, *, idle: bool
+) -> TickReport:
+    """The tick's steps; ``idle`` (a standing-by instance's startup tick) builds the picture
+    and publishes it, and leaves out every step that writes beside the serving instance."""
+    if not idle:
+        await runtime.maybe_switch_mode(report)
     if runtime.mode is not mode:  # the rest of the tick runs on the other mode's clock
         report.started_at = timeutil.now()
     runtime.follow_replay_clock(report.started_at, report)
@@ -146,10 +159,12 @@ async def _tick_steps(runtime: "Runtime", reason: str) -> TickReport:
             at = timeutil.now()
             await runtime.analyse(at, report)
             await _step(runtime, report, "exposure", runtime.update_exposures(at, report))
-            await _step(runtime, report, "crew reports", runtime.update_crew(at, report))
+            if not idle:
+                await _step(runtime, report, "crew reports", runtime.update_crew(at, report))
             await _step(runtime, report, "own airports", runtime.update_own_closures(at))
             await _step(runtime, report, "network recovery", runtime.run_recovery(at, report))
-            await _step(runtime, report, "draft retirement", runtime.settle_drafts(at, report))
+            if not idle:
+                await _step(runtime, report, "draft retirement", runtime.settle_drafts(at, report))
     except TimeoutError:
         note = CUT_SHORT_NOTE.format(seconds=deadline_s)
         logger.warning(note)

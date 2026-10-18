@@ -47,7 +47,7 @@ const LEAD_MORE = "The same TEPHRA, in your own space on this site, with your po
 const leadLine = () => el("p", { class: "golive__lead" }, ...infoTail(LEAD, { topic: "your space", label: "About your space", text: LEAD_MORE }));
 const ITEM_LINK = { feeds: "Feeds", assistant: "Assistant", policy: "Policy", people: "People" };
 // Contacting TEPHRA staff: the one channel the site names (privacy notice, "Questions").
-export const CONTACT_HREF = "https://github.com/officialasishkumar/tephra/issues";
+export const CONTACT_HREF = "https://github.com/officialasishkumar/tephra-public/issues";
 
 // Why Start shadow runs cannot run, in words, or null when it can. `region` is the one chosen in
 // the select when the server could not derive it.

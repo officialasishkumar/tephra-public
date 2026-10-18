@@ -18,12 +18,19 @@ A hosted airline's chain is never walked whole at start (D25): its runtime resto
 the last checkpoint persisted (with ``verified_through_seq``, how far a walk has checked it),
 reads only the entries after that head (:func:`catch_up`, one :meth:`Store.page`) and later
 walks only what lies past ``verified_through_seq`` (:func:`check_chain`); a whole walk happens
-only when an ops manager asks for one.
+only when an ops manager asks for one. The demo walks whole once, then each start walks only
+past the verified point its last checkpoint persisted (:func:`resume`).
+
+Only the instance that holds the writer claim appends (:func:`gate`): with two instances up
+during a rollout, two appends after one newest entry would fork the chain. A fork found later
+is repaired by ``scripts/audit_fork_repair.py``, which moves the branch no later entry links to
+into :data:`ARCHIVE_COLLECTION` (no hash is rewritten) and leaves :data:`REPAIR_DOC` for the
+serving instance, whose next checkpoint then walks again.
 """
 
 import asyncio
 import weakref
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 from uuid import uuid4
@@ -37,23 +44,30 @@ from tephra.util import timeutil
 from tephra.util.hashing import sha256_json
 
 __all__ = [
+    "ARCHIVE_COLLECTION",
     "GENESIS_SHA256",
     "NOT_WALKED",
     "PAGE_SIZE",
+    "REPAIR_DOC",
     "WALK_LIMIT",
     "AuditChain",
     "ChainedAuditEntry",
+    "NotWriter",
     "catch_up",
     "chain",
     "check_chain",
     "entry_digest",
+    "gate",
     "head_doc",
     "list_entries",
     "newest_entry",
     "record",
+    "require_writer",
     "restore_head",
+    "resume",
     "verify_chain",
     "verify_head",
+    "writable",
 ]
 
 GENESIS_SHA256: Final = "0" * 64
@@ -68,8 +82,47 @@ PAGE_SIZE: Final = 500
 """Entries one read of an incremental or paged walk takes (``Store.page``)"""
 VERIFIED_THROUGH: Final = "verified_through_seq"
 VERIFIED_SHA256: Final = "verified_sha256"
+REPAIR_DOC: Final = "audit_repair"
+"""``runtime/audit_repair``: ``repaired_at``, written by ``scripts/audit_fork_repair.py --apply``"""
+ARCHIVE_COLLECTION: Final = "audit_forks_archive"
+"""Fork branches the repair moved out of ``audit``: verbatim copies, never read by the app"""
+type Gate = Callable[[], Awaitable[bool]]
 _locks: "weakref.WeakKeyDictionary[Store, asyncio.Lock]" = weakref.WeakKeyDictionary()
 _chains: "weakref.WeakKeyDictionary[Store, AuditChain]" = weakref.WeakKeyDictionary()
+_gates: "weakref.WeakKeyDictionary[Store, tuple[Gate, Gate]]" = weakref.WeakKeyDictionary()
+
+
+class NotWriter(RuntimeError):
+    """This instance does not hold the writer claim (``runtime/writer``): it appends nothing,
+    so a rollout's two instances never both link an entry to the same newest one."""
+
+
+def gate(store: Store, check: Gate | None, *, ask: Gate | None = None) -> None:
+    """Every append to ``store`` first awaits ``check`` (under the append lock); False refuses
+    the append with :class:`NotWriter`. ``ask`` answers :func:`writable` (``check`` when
+    omitted) and never changes who holds the writer: a request refused after the question
+    (a bad session, a 404) must not have taken the claim. None removes the gate. The demo
+    runtime sets it (``Runtime.may_append``, ``Runtime.may_write``); a store without one
+    appends as before."""
+    if check is None:
+        _gates.pop(store, None)
+    else:
+        _gates[store] = (check, ask or check)
+
+
+async def writable(store: Store) -> bool:
+    """What ``store``'s gate says now (True without one). A caller about to store something it
+    will then audit asks first, so nothing is stored that the append would refuse."""
+    found = _gates.get(store)
+    return found is None or await found[1]()
+
+
+async def require_writer(store: Store) -> None:
+    """Raise :class:`NotWriter` unless ``store``'s gate lets this instance write now: called
+    just before a write that is audited after it (a draft, a superseded draft, a failure), so
+    a background run on an instance another one has out-claimed stores nothing unaudited."""
+    if not await writable(store):
+        raise NotWriter("not stored: this instance does not hold the writer")
 
 
 @dataclass
@@ -83,10 +136,14 @@ class AuditChain:
     verified_through_seq: int = 0
     verified_sha256: str = GENESIS_SHA256
 
-    def verified(self, head: ChainHead) -> None:
-        """A walk found the chain intact through ``head``."""
+    def verified(self, head: ChainHead, *, whole: bool = False) -> None:
+        """A walk found the chain intact through ``head``. A whole walk that found problems
+        drops the verified point: a problem below it (an entry edited, a fork found late) is
+        one an incremental walk would never read again, so the next walk starts at genesis."""
         if head.intact:
             self.verified_through_seq, self.verified_sha256 = head.seq, head.sha256
+        elif whole:
+            self.verified_through_seq, self.verified_sha256 = 0, GENESIS_SHA256
 
 
 def chain(store: Store) -> AuditChain:
@@ -154,6 +211,9 @@ async def _record(
     note: str | None,
 ) -> AuditEntry:
     async with _lock(store):
+        found = _gates.get(store)
+        if found is not None and not await found[0]():
+            raise NotWriter(f"{action.value} not recorded: this instance does not hold the writer")
         previous = await _last_entry(store)
         await _catch_up(store, chain(store), previous)
         unsigned = ChainedAuditEntry(
@@ -255,7 +315,7 @@ async def verify_head(store: Store, *, limit: int = WALK_LIMIT) -> ChainHead:
         held = chain(store)
         held.head = head
         held.rewalk = False
-        held.verified(head)
+        held.verified(head, whole=True)
         return head
 
 
@@ -271,21 +331,13 @@ async def check_chain(store: Store, *, whole: bool = False) -> ChainHead:
         )
         docs = await _pages(store, after=start_seq)
         tail = _walk(docs, start_seq=start_seq, start_sha256=start_sha256)
-        if start_seq == 0:
-            head = tail
-        else:
-            before = held.head
-            problems = [p for p in (before.problems if before else []) if p != NOT_WALKED]
-            head = tail.model_copy(
-                update={
-                    "entries": start_seq + tail.entries,
-                    "intact": tail.intact and not problems,
-                    "problems": [*problems, *tail.problems],
-                }
-            )
+        # Everything up to the verified point was found intact by a walk, and a whole walk
+        # that finds a problem drops that point (``AuditChain.verified``); everything after it
+        # is read again here, so this walk's problems are the chain's.
+        head = tail.model_copy(update={"entries": start_seq + tail.entries})
         held.head = head
         held.rewalk = False
-        held.verified(head)
+        held.verified(head, whole=start_seq == 0)
         return head
 
 
@@ -316,6 +368,27 @@ async def catch_up(store: Store) -> ChainHead | None:
             held.rewalk = True
         held.head = head.model_copy(update=update)
         return held.head
+
+
+async def resume(store: Store, doc: Mapping[str, Any] | None) -> ChainHead | None:
+    """Start from the verified point a checkpoint persisted (``runtime/audit_head`` with
+    ``verified_through_seq``) and walk only the entries after it (:func:`check_chain`); the
+    head found is held. None, with nothing read or held, when ``doc`` carries no verified
+    point: the caller walks the whole chain (:func:`verify_head`)."""
+    if doc is None:
+        return None
+    through, sha256 = doc.get(VERIFIED_THROUGH), doc.get(VERIFIED_SHA256)
+    if not (isinstance(through, int) and through > 0 and isinstance(sha256, str)):
+        return None
+    try:
+        persisted = ChainHead.model_validate(doc)
+    except ValidationError:
+        return None
+    if through > persisted.seq:
+        return None
+    held = chain(store)
+    held.verified_through_seq, held.verified_sha256 = through, sha256
+    return await check_chain(store)
 
 
 def head_doc(store: Store, *, verified: bool = False) -> dict[str, Any] | None:

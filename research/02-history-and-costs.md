@@ -1,5 +1,6 @@
 # 02 — History and costs of volcanic ash in aviation, 1982–2025 (lens: history)
 
+Written 2026-10-10 by a research agent for TEPHRA (Google Cloud AI Builder Cup 2026, JAPAC). Lens: the documented history of volcanic ash and aviation as evidence for the problem, its cost, and, above all, for cases where official sources disagreed, were late, or were missing.
 
 Method and limits, stated up front:
 - I ran 35 web searches (listed in the Search log). The 36th was refused because the session's shared search budget ran out, so some leads could not be followed up. Every remaining check was done by opening known URLs with WebFetch or curl.
@@ -369,6 +370,7 @@ No conflict found at FATAL grade: nothing in the history shows the problem is so
 9. When did Puyehue-Cordón Caulle erupt in 2011, and when did Hunga Tonga erupt in 2022? Only the impact dates were confirmed.
 10. Added 2026-10-10 after the second check: Was EUR Doc 019 revised after December 2010, and has ICAO Annex 3 added quantitative VA information that APAC VAACs now issue? (Affects C6.)
 11. What was the final Agung 2017 flight and passenger total for the full closure to 29 Nov? Only the 27 Nov snapshot is confirmed.
+12. Are there competing AI Builder Cup 2026 entries or commercial tools that reconcile VAA, VONA and SIGMET? Not searched; the verifiers' search budget ran out after 4 queries. Open before go/no-go.
 13. What do the primary GVP weekly report for Lewotobi (6–12 Nov 2024) and the BA filter lab result for Grímsvötn 2011 say? GVP was down; no lab result was found.
 
 ---

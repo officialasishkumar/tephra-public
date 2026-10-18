@@ -26,12 +26,14 @@ from test_api import ADVISORY_ID, DISPATCHER, PIN, FakeRuntime, make_advisory
 from tephra.agents.llm import StubBackend
 from tephra.api.auth import (
     DISPATCHER_ONLY_PATHS,
+    VISITOR_ASK_CLIENT_DETAIL,
     VISITOR_ASK_PATHS,
+    VISITOR_ASKS_PER_CLIENT,
     VISITOR_DECISION_PATHS,
     sign_session,
     verify_session,
 )
-from tephra.api.server import VISITOR_MINTS_PER_WINDOW, create_app
+from tephra.api.server import VISITOR_MINT_WINDOW_S, VISITOR_MINTS_PER_WINDOW, create_app
 from tephra.config import Settings
 from tephra.feeds.registry import LiveData
 from tephra.models import (
@@ -45,6 +47,7 @@ from tephra.models import (
 from tephra.pipeline import Runtime
 from tephra.store import open_store
 from tephra.store.base import Collection
+from tephra.util.hashing import stable_id
 
 SECRET = "test-session-secret-0123456789abcdef"
 VISITOR = "Mira"
@@ -233,6 +236,12 @@ def test_live_mints_no_visitor_and_refuses_a_visitors_decision(tmp_path: Path) -
         assert client.get("/api/desk/advisories").status_code == 200
 
 
+def test_an_evaluation_panel_behind_one_address_can_all_enter() -> None:
+    """A panel behind one NAT shares an address: 60 sessions in ten minutes, not 10."""
+    assert VISITOR_MINTS_PER_WINDOW == 60
+    assert VISITOR_MINT_WINDOW_S == 600.0
+
+
 def test_too_many_visitors_from_one_address_is_429(client: TestClient) -> None:
     for _ in range(VISITOR_MINTS_PER_WINDOW):
         assert enter(client).status_code == 200
@@ -280,6 +289,48 @@ def test_a_visitor_approves_a_draft_and_the_audit_names_the_visitor(
     assert [item["approved_by"] for item in queued] == [f"visitor:{VISITOR}"]
 
 
+def test_a_visitors_first_approve_after_a_new_area_waits_only_for_the_new_plan(
+    client: TestClient, harness: Harness
+) -> None:
+    """Live 17 Oct 2026: the 10:30Z VAA made a new cone; the flight was planned again to the
+    same advice and the open draft kept, but the server compared only cone ids and refused
+    the visitor's first Approve. The server now reads the plan stored for the flight under
+    the area now (``plans/<PLAN id>``): none yet, or other advice, is still 409."""
+    store = harness.runtime.store
+    flight_id = make_advisory().flight_id
+
+    def put(collection: Collection, doc_id: str, doc: dict[str, Any]) -> None:
+        client.portal.call(store.put, collection, doc_id, doc)  # type: ignore[union-attr]
+
+    def plan(**decision: Any) -> dict[str, Any]:
+        return {
+            "id": stable_id("PLAN", flight_id, "CONE-new"),
+            "flight_id": flight_id,
+            "cone_id": "CONE-new",
+            "decision": {"action": "HOLD", "hold_fl": 350, "reasoning": "STUB", **decision},
+            "llm_backend": "stub",
+            "model_id": "stub",
+            "prompt_hash": "b" * 64,
+            "outcome": "STUB",
+        }
+
+    put(Collection.CONES, "263300", {"id": "CONE-new", "mode": "OFFICIAL"})
+    enter(client)
+    refused = approve(client)
+    assert refused.status_code == 409
+    assert refused.json()["error"] == "cone_changed"
+    put(Collection.PLANS, stable_id("PLAN", flight_id, "CONE-new"), plan(hold_fl=330))
+    assert approve(client).json()["error"] == "cone_changed"
+    put(Collection.CONES, "263300", {"id": "CONE-new", "mode": "WIDENED"})
+    put(Collection.PLANS, stable_id("PLAN", flight_id, "CONE-new"), plan())
+    assert approve(client).json()["error"] == "cone_changed"
+    put(Collection.CONES, "263300", {"id": "CONE-new", "mode": "OFFICIAL"})
+    response = approve(client)
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "APPROVED"
+    assert response.json()["cone_id"] == CONE_ID
+
+
 @pytest.mark.parametrize(("method", "prefix", "suffix"), VISITOR_DECISION_PATHS)
 def test_each_decision_path_counts_against_the_visitor_cap(
     client: TestClient, method: str, prefix: str, suffix: str
@@ -322,6 +373,25 @@ def test_the_fourth_question_is_refused(client: TestClient) -> None:
     assert refused.status_code == 429
     assert refused.json()["error"] == "visitor_ask_cap"
     assert refused.json()["detail"] == "Visitors may ask three questions a session."
+
+
+def test_one_address_asks_at_most_ten_sessions_worth_of_questions(client: TestClient) -> None:
+    """Review of the 10 -> 60 sessions change: one address must not spend the Desk's model calls
+    six times as fast by opening more visitor sessions."""
+    assert VISITOR_ASKS_PER_CLIENT == 30
+    asked = 0
+    while asked < VISITOR_ASKS_PER_CLIENT:
+        enter(client)
+        for _ in range(3):
+            response = client.post("/api/desk/ask", json={"question": "Which flights?"})
+            assert response.status_code == 200, response.text
+            asked += 1
+    enter(client)
+    refused = client.post("/api/desk/ask", json={"question": "One more?"})
+    assert refused.status_code == 429
+    assert refused.json()["error"] == "visitor_ask_cap"
+    assert refused.json()["detail"] == VISITOR_ASK_CLIENT_DETAIL
+    assert int(refused.headers["retry-after"]) >= 1
 
 
 def test_speaking_a_stored_answer_is_not_a_question(client: TestClient) -> None:

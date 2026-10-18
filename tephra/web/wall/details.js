@@ -14,7 +14,7 @@ import {
 import { ext, renderXPanel, recoverySummary, proofTicks, rerouteBlock, replanning, aiState, handPlan, runsStatus } from "./ext.js";
 import { has } from "./features.js";
 import { renderLayers, layersStatus } from "./controls.js";
-import { currentPlan, closuresFor } from "./story.js";
+import { currentPlan, closuresFor, advisoryFacts } from "./story.js";
 import { planFailure, techDetail, blockPhrase, whyLink, aircraftNoun, plumeOutcome } from "./x-parts.js";
 import {
   dkHeader, dkPill, dkChip, dkTiles, dkGroup, dkRow, dkList, dkFacts, dkNote, dkEmpty, dkSection, dkDot, dkFromReplay,
@@ -118,12 +118,16 @@ export function indexStatus(key, D, store, ui) {
     }
     case "decisions": {
       if (D?.state.draft_count === null) return { text: "count unknown (database error)", tone: "serious" };
-      const advs = store.advisories.filter((a) => a.status !== "SUPERSEDED");
-      const w = advs.filter((a) => a.status === "DRAFT").length;
-      const ok = advs.filter((a) => a.status === "APPROVED" || a.status === "EDITED").length;
       const hand = D ? handPlan(D, store).flights.length : 0;
-      if (hand && !(D.state.draft_count ?? w)) return { text: `0 waiting · ${hand} to plan by hand`, tone: "caution" };
-      return { text: `${D?.state.draft_count ?? w} waiting · ${ok} approved` };
+      // the picked volcano's count, as its story says it beside this panel (advisoryFacts, one
+      // function for both); with no volcano picked, the server's count for every volcano, as the
+      // rail says it (readiness 17 Oct: "Decisions 20 waiting" beside a story's 18)
+      const advs = store.advisories.filter((a) => a.status !== "SUPERSEDED");
+      const a = sit ? advisoryFacts(D, store, sit.volcano_id) : null;
+      const w = a ? a.drafts : D?.state.draft_count ?? advs.filter((x) => x.status === "DRAFT").length;
+      const ok = a ? a.approved : advs.filter((x) => x.status === "APPROVED" || x.status === "EDITED").length;
+      if (hand && !w) return { text: `0 waiting · ${hand} to plan by hand`, tone: "caution" };
+      return { text: `${a?.partial ? "≥" : ""}${w} waiting · ${ok} approved` };
     }
     case "recovery": {
       if (!ext.loaded.recovery) return { text: "loading…" };

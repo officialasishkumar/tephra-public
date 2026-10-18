@@ -9,19 +9,24 @@ Every HTTP attempt is reserved here before it is sent, retries included.
 
 Each model's budget is split three ways, by who waits for the work (the *lane*):
 
-* urgent: work a flight or a plume read waits on now. Never paced; only the budget caps it.
+* urgent: work a flight or a plume read waits on now. Never paced. It may also take routine's
+  share, never the interactive reserve: the loop's urgent work once spent a whole day's calls
+  and left the Desk none (live, 18 Oct 2026: urgent 430 of a 135 share, interactive 0 of 90).
+  Refused urgent work waits for its next slot, like routine work.
 * interactive: work a person at the Desk waits on (Ask, voice, notices, messages, handover,
   documents, a recovery run started from the Desk). It may also take routine's share, never the
   urgent reserve.
 * routine: everything else. Admitted only in proportion to the part of the quota day gone by,
   plus a small burst, so a busy morning cannot spend the evening's calls. Late in the day the
-  unused urgent and interactive reserves flow to it.
+  unused urgent and interactive reserves flow to it, and the unused interactive reserve to
+  urgent work too.
 
 Pacing decides when a routine job may *start*. Once the AI worker has admitted a job
-(``use_lane("routine", admitted=True)``) its calls are counted as routine but checked only
-against the daily cap, so a run that needs more calls than its estimate finishes instead of
-being cut off part-way; the extra calls come out of the routine share, and later work waits
-longer for its slot.
+(``use_lane("routine", admitted=True)``) its calls are counted as routine and are not paced
+again, so a run that needs a few more calls than its estimate finishes on the routine share
+(later work waits longer for its slot). They are still refused when they would take the urgent
+or interactive reserve held at that moment: the run's remaining step reports AI UNAVAILABLE
+rather than spend the Desk's calls (the Desk got none of its 90 on 18 Oct 2026).
 
 If the store cannot be read or written, no call goes: the count is unknown, and a guess (a copy
 in memory, or zero on a new instance) could spend the day twice. The caller reports AI
@@ -29,7 +34,7 @@ UNAVAILABLE, the AI worker keeps routine work waiting, and the store is tried ag
 call.
 
 A refusal is never a substitute: the caller reports AI UNAVAILABLE, or (the AI worker) keeps
-routine work waiting with the time of its next slot.
+urgent and routine work waiting with the time of its next slot.
 """
 
 import logging
@@ -197,7 +202,8 @@ class Admission(NamedTuple):
     ok: bool
     reason: str | None = None
     next_slot: datetime | None = None
-    """For paced routine work: when it fits again (the next quota day's start if not today)"""
+    """For urgent and routine work: when it fits again (the next quota day's start if not
+    today)"""
 
 
 def judge(
@@ -210,7 +216,9 @@ def judge(
     admitted: bool = False,
 ) -> Admission:
     """Whether ``calls`` more calls in ``lane`` fit the budget at ``fraction`` of the day.
-    ``admitted``: a call inside a routine job already admitted, checked against the cap only."""
+    ``admitted``: a call inside a routine job already admitted, not paced again but still
+    refused when it would take the urgent or interactive reserve held now (a job that needs
+    more calls than estimated stops with AI UNAVAILABLE rather than spend the Desk's calls)."""
     model = day.model_id
     if shares.budget <= 0:
         return Admission(
@@ -221,20 +229,25 @@ def judge(
     total = day.total
     if total + calls > shares.budget:
         return Admission(False, f"{model} used {total} of {shares.budget} calls today")
-    if lane == "urgent" or (lane == "routine" and admitted):
-        return Admission(True)
     hold = shares.hold(fraction)
     unused_urgent, unused_interactive = shares.unused(day)
+    held_interactive = unused_interactive * hold
+    if lane == "urgent":
+        if total + calls + held_interactive > shares.budget:
+            return Admission(False, f"the rest of {model}'s calls today are held for Desk work")
+        return Admission(True)
     held_urgent = unused_urgent * hold
     if total + calls + held_urgent > shares.budget:
         return Admission(False, f"the rest of {model}'s calls today are held for urgent work")
     if lane == "interactive":
         return Admission(True)
-    held = held_urgent + unused_interactive * hold
+    held = held_urgent + held_interactive
     if total + calls + held > shares.budget:
         return Admission(
             False, f"the rest of {model}'s calls today are held for urgent and Desk work"
         )
+    if admitted:
+        return Admission(True)
     allowance = shares.routine_allowance(day, fraction)
     if day.lane_used("routine") + calls > allowance:
         return Admission(
@@ -245,13 +258,16 @@ def judge(
     return Admission(True)
 
 
-def next_routine_slot(day: ModelDay, shares: Shares, now: datetime, calls: int = 1) -> datetime:
-    """The first moment ``calls`` routine calls fit, assuming no other use until then."""
+def next_routine_slot(
+    day: ModelDay, shares: Shares, now: datetime, calls: int = 1, *, lane: Lane = "routine"
+) -> datetime:
+    """The first moment ``calls`` calls in ``lane`` (routine, or urgent waiting for the Desk's
+    reserve to be released) fit, assuming no other use until then."""
     start, end = day_bounds(day.quota_day)
     length = (end - start).total_seconds()
 
     def fits(fraction: float) -> bool:
-        return judge(day, shares, "routine", fraction, calls).ok
+        return judge(day, shares, lane, fraction, calls).ok
 
     low = _fraction(now, start, length)
     if fits(low):
@@ -415,8 +431,9 @@ class QuotaLedger:
 
     def admission(self, model_id: str, lane: Lane, calls: int = 1) -> Admission:
         """Whether ``calls`` more calls fit now, from the copy in memory (call ``load`` first).
-        A refused routine call carries the time of its next slot (the next quota day's start
-        when the model is closed); a count that cannot be read has no slot."""
+        A refused urgent or routine call carries the time of its next slot (the next quota
+        day's start when the model is closed); an interactive call (a person waits now) and a
+        count that cannot be read have none."""
         unreadable = self._unreadable.get(model_id)
         if unreadable is not None:
             return Admission(False, unreadable)
@@ -424,11 +441,11 @@ class QuotaLedger:
         day = self._days.get((today, model_id)) or ModelDay(quota_day=today, model_id=model_id)
         shares = self.shares(model_id)
         checked = judge(day, shares, lane, self.fraction(), calls)
-        if checked.ok or lane != "routine":
+        if checked.ok or lane == "interactive":
             return checked
         if day.closed:
             return checked._replace(next_slot=day_bounds(today)[1])
-        slot = next_routine_slot(day, shares, self._now(), calls)
+        slot = next_routine_slot(day, shares, self._now(), calls, lane=lane)
         return checked._replace(next_slot=slot)
 
     def _keep(self, day: ModelDay, *, replace: bool = False) -> None:
